@@ -9,7 +9,7 @@
 	// machinery is dropped — a resource chip is just a label with a remove button.
 	import { logger } from '$lib/utils/logger';
 	import { createEventDispatcher, onMount, onDestroy, tick, mount, unmount } from 'svelte';
-	import { api, type PhrasebookValue } from '$lib/services/api/index';
+	import { api } from '$lib/services/api/index';
 	import type { ResourceChipData } from '$lib/types/chat';
 	import { encodeResourceToken } from '$lib/utils/resourceTokens';
 	import { resolveMentionRowAction } from '$lib/utils/mentionRowAction';
@@ -20,7 +20,10 @@
 	import { parseValueToSegments } from './resourceChipSegments';
 	import {
 		type MentionCategory,
+		type MentionValue,
 		mapSuggestions,
+		resourceChipLabel,
+		withFormRowMatches,
 		buildFormSuggestions
 	} from './chatResourceSuggestions';
 
@@ -52,7 +55,7 @@
 	// Suggest state (variable names kept from the fork source for easy diffing)
 	let isAutocompleteOpen = false;
 	let autocompleteCategories: MentionCategory[] = [];
-	let autocompleteSuggestions: PhrasebookValue[] = [];
+	let autocompleteSuggestions: MentionValue[] = [];
 	let autocompleteSelectedIndex = 0;
 	let autocompleteLoading = false;
 	let autocompletePath = '';
@@ -336,7 +339,7 @@
 
 		// Check cache first
 		if (autocompleteCache.has(cacheKey)) {
-			const cached = autocompleteCache.get(cacheKey);
+			const cached = withFormRowMatches(path, autocompleteCache.get(cacheKey), loraSelections);
 			autocompleteCategories = cached.child_categories || [];
 			autocompleteSuggestions = cached.values || [];
 			autocompleteSelectedIndex = 0;
@@ -355,8 +358,9 @@
 					const firstKey = autocompleteCache.keys().next().value;
 					if (firstKey) autocompleteCache.delete(firstKey);
 				}
-				autocompleteCategories = mapped.child_categories;
-				autocompleteSuggestions = mapped.values;
+				const merged = withFormRowMatches(path, mapped, loraSelections);
+				autocompleteCategories = merged.child_categories;
+				autocompleteSuggestions = merged.values;
 				autocompleteSelectedIndex = 0;
 			}
 		} catch (error) {
@@ -462,8 +466,8 @@
 		dispatch('change', { value: newValue, resources: newResources });
 	}
 
-	function handleSelectValue(valueItem: { value: string; label: string }) {
-		attachResource(valueItem.value, valueItem.label);
+	function handleSelectValue(valueItem: { value: string; label: string; badge?: string; chip_label?: string }) {
+		attachResource(valueItem.value, resourceChipLabel(valueItem));
 	}
 
 	// A category the provider marked `attachable` (resolvable at its own
@@ -860,7 +864,7 @@
 			onNavigateUp={handleNavigateUp}
 			parentRef={containerRef}
 			triggerChar="@"
-			emptyHint="Resources — type @ + resource path"
+			emptyHint="Resources — type @ + a path or a model name"
 			contextLabel="Resources"
 		/>
 	{/if}

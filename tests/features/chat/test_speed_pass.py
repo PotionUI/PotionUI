@@ -654,3 +654,16 @@ class TestResolveMessageResourcesParallel:
         results = await builder.resolve_message_resources(None, "user-1", "generation")
         assert results == []
         registry.resolve.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_admin_flag_reaches_the_resource_context(self):
+        seen = []
+
+        async def capture(uri, ctx):
+            seen.append(ctx.is_admin)
+            return Mock(uri=uri)
+
+        builder, _ = self._make_builder({"d.one": capture})
+        await builder.resolve_message_resources(["d.one"], "user-1", "generation", is_admin=True)
+        await builder.resolve_message_resources(["d.one"], "user-1", "generation")
+        assert seen == [True, False]

@@ -12,6 +12,8 @@ from src.platform.resources.base import (
 
 logger = logging.getLogger(__name__)
 
+MIN_SEARCH_CHARS = 2
+
 
 class ResourceScope(Protocol):
     """A chat mode, seen through the two attributes resource visibility reads."""
@@ -146,7 +148,7 @@ class ResourceRegistry:
 
         if '.' not in query:
             partial = query.lower()
-            return [
+            namespaces = [
                 ResourceSuggestion(
                     uri=p.namespace,
                     label=p.display_name,
@@ -157,6 +159,9 @@ class ResourceRegistry:
                 for ns, p in sorted(providers.items())
                 if not partial or ns.lower().startswith(partial)
             ][:limit]
+            if len(query) < MIN_SEARCH_CHARS:
+                return namespaces
+            return namespaces + await self._search(query, providers, ctx, limit - len(namespaces))
 
         segments = query.split('.')
         namespace, path, partial = segments[0], segments[1:-1], segments[-1]
@@ -169,3 +174,20 @@ class ResourceRegistry:
         except Exception as e:
             logger.error(f"Resource provider '{namespace}' failed to suggest for '{query}': {e}", exc_info=True)
             return []
+
+    async def _search(
+        self,
+        query: str,
+        providers: Dict[str, BaseResourceProvider],
+        ctx: ResourceContext,
+        limit: int,
+    ) -> List[ResourceSuggestion]:
+        hits: List[ResourceSuggestion] = []
+        for namespace, provider in sorted(providers.items()):
+            if len(hits) >= limit:
+                break
+            try:
+                hits.extend(await provider.search(query, ctx, limit=limit - len(hits)))
+            except Exception as e:
+                logger.error(f"Resource provider '{namespace}' failed to search for '{query}': {e}", exc_info=True)
+        return hits[:max(limit, 0)]

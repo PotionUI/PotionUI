@@ -350,11 +350,13 @@ class ChatContextBuilder:
         user_id: str,
         mode_id: Optional[str],
         form_state: Optional[Dict[str, Any]] = None,
+        is_admin: bool = False,
     ) -> ResourceContext:
         """Build the dependency bundle handed to resource providers."""
         return ResourceContext(
             user_id=user_id,
             mode_id=mode_id,
+            is_admin=is_admin,
             model_index_manager=self._m.model_index_manager,
             phrasebook_category_repository=self._m.phrasebook_category_repository,
             phrasebook_value_repository=self._m.phrasebook_value_repository,
@@ -372,6 +374,7 @@ class ChatContextBuilder:
         user_id: str,
         mode_id: str,
         context_metadata: Optional[Dict[str, Any]] = None,
+        is_admin: bool = False,
     ) -> List[ResolvedResource]:
         """Snapshot-resolve @resource refs attached to a message. Never raises.
 
@@ -381,7 +384,7 @@ class ChatContextBuilder:
         if not resources or not self._m.resource_registry:
             return []
         form_state = (context_metadata or {}).get("form_state")
-        ctx = self.build_resource_context(user_id, mode_id, form_state=form_state)
+        ctx = self.build_resource_context(user_id, mode_id, form_state=form_state, is_admin=is_admin)
         # ResourceRegistry.resolve() never raises (a failing provider is caught
         # and turned into an "error" ResolvedResource internally), so resolving
         # concurrently preserves the exact same per-resource failure semantics
@@ -1038,10 +1041,11 @@ class ChatContextBuilder:
         mode_id: Optional[str],
         user_id: str,
         limit: int = 15,
+        is_admin: bool = False,
     ) -> List[ResourceSuggestion]:
         """Suggest @resource completions for the chat input dropdown."""
         if not self._m.resource_registry:
             return []
         mode = self._m.chat_mode_registry.get(mode_id or 'generation') or self._m.chat_mode_registry.get('generation')
-        ctx = self.build_resource_context(user_id, mode.id if mode else mode_id)
+        ctx = self.build_resource_context(user_id, mode.id if mode else mode_id, is_admin=is_admin)
         return await self._m.resource_registry.suggest(query, mode, ctx, limit=limit)

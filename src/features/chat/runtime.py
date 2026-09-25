@@ -274,8 +274,9 @@ class ChatRuntime:
         mode_id: Optional[str],
         user_id: str,
         limit: int = 15,
+        is_admin: bool = False,
     ) -> List[ResourceSuggestion]:
-        return await self._context.suggest_resources(query, mode_id, user_id, limit=limit)
+        return await self._context.suggest_resources(query, mode_id, user_id, limit=limit, is_admin=is_admin)
 
     # --- Message Operations ---
 

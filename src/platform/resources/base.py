@@ -63,6 +63,7 @@ class ResourceSuggestion:
     has_children: bool = False
     icon: Optional[str] = None
     attachable: bool = False
+    badge: Optional[str] = None
 
 
 @dataclass
@@ -70,6 +71,7 @@ class ResourceContext:
     """Dependency bundle handed to providers (mirrors ``ToolContext``)."""
     user_id: str
     mode_id: Optional[str] = None
+    is_admin: bool = False
     model_index_manager: Optional[Any] = None
     phrasebook_category_repository: Optional[Any] = None
     phrasebook_value_repository: Optional[Any] = None
@@ -130,3 +132,11 @@ class BaseResourceProvider(ABC):
     ) -> List[ResourceSuggestion]:
         """Suggest children under ``path`` matching the trailing ``partial``."""
         ...
+
+    async def search(
+        self,
+        query: str,
+        ctx: ResourceContext,
+        limit: int = 15,
+    ) -> List[ResourceSuggestion]:
+        return []

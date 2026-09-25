@@ -6,7 +6,7 @@ segment is re-joined with dots before matching.
 """
 
 import logging
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from src.platform.resources.base import (
     BaseResourceProvider,
@@ -15,16 +15,20 @@ from src.platform.resources.base import (
     ResourceSuggestion,
     stem,
 )
+from src.platform.filesystem.model_types import MODEL_TYPES as DEPOT_MODEL_TYPES
+from src.platform.security.user import AccountType, User
 
 logger = logging.getLogger(__name__)
 
-MODEL_TYPES = [
-    "checkpoint", "lora", "embedding", "vae",
-    "upscaler", "controlnet", "adetailer", "text_encoder",
-]
+MODEL_TYPES = list(DEPOT_MODEL_TYPES)
 
 MAX_CONTENT_CHARS = 4000
 MAX_PROVIDER_DESC_CHARS = 600
+MAX_TAGS = 20
+SEARCH_TYPE_ORDER = ["lora"]
+_TRIGGERS_KEY = "triggers"
+_STRENGTH_KEY = "strength"
+_BASE_MODEL_KEYS = ("base_model", "architecture")
 
 
 def _normalize_type(segment: str) -> Optional[str]:
@@ -35,6 +39,38 @@ def _normalize_type(segment: str) -> Optional[str]:
     if segment.endswith("s") and segment[:-1] in MODEL_TYPES:
         return segment[:-1]
     return None
+
+
+def _text(value: Any) -> Optional[str]:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _display_name(model: Any) -> str:
+    return _text(getattr(model, "display_name", None)) or stem(model.filename) or str(model.id)
+
+
+def _allowed_ids(ctx: ResourceContext) -> Optional[List[str]]:
+    stand_in = User(
+        username="", email="", password_hash="",
+        id=ctx.user_id,
+        account_type=AccountType.ADMIN if ctx.is_admin else AccountType.USER,
+    )
+    return ctx.model_index_manager.access.get_allowed_model_ids(stand_in, all_models=True)
+
+
+def is_visible(ctx: ResourceContext, model: Any) -> bool:
+    allowed = _allowed_ids(ctx)
+    return allowed is None or getattr(model, "id", None) in allowed
+
+
+def user_overlay(ctx: ResourceContext, model_id: str) -> Dict[str, Any]:
+    try:
+        overlay = ctx.model_index_manager.catalog.user_attributes.get_maps(ctx.user_id, [model_id])
+    except Exception as e:
+        logger.debug(f"User attribute overlay unavailable for {model_id}: {e}")
+        return {}
+    entry = overlay.get(model_id) if isinstance(overlay, dict) else None
+    return entry if isinstance(entry, dict) else {}
 
 
 class ModelsResourceProvider(BaseResourceProvider):
@@ -77,27 +113,63 @@ class ModelsResourceProvider(BaseResourceProvider):
 
         # Dots in filenames: re-join any further segments with the partial.
         search = ".".join(path[1:] + [partial]) if (path[1:] or partial) else None
-        repo = ctx.model_index_manager.model_repo
-        models = repo.get_all(
+        allowed = _allowed_ids(ctx)
+        return [self._model_suggestion(m) for m in self._find(ctx, allowed, model_type, search, limit)]
+
+    async def search(
+        self,
+        query: str,
+        ctx: ResourceContext,
+        limit: int = 15,
+    ) -> List[ResourceSuggestion]:
+        if not ctx.model_index_manager or limit <= 0:
+            return []
+        allowed = _allowed_ids(ctx)
+        found = []
+        for model_type in SEARCH_TYPE_ORDER:
+            found += self._find(ctx, allowed, model_type, query, limit)
+        if len(found) < limit:
+            seen = {m.id for m in found}
+            found += [
+                m for m in self._find(ctx, allowed, None, query, limit + len(seen))
+                if m.id not in seen and m.model_type not in SEARCH_TYPE_ORDER and m.model_type in MODEL_TYPES
+            ]
+        return [self._model_suggestion(m) for m in found[:limit]]
+
+    def _find(
+        self,
+        ctx: ResourceContext,
+        allowed: Optional[List[str]],
+        model_type: Optional[str],
+        search: Optional[str],
+        limit: int,
+    ) -> List[Any]:
+        if allowed is not None and not allowed:
+            return []
+        return ctx.model_index_manager.model_repo.get_all(
             model_type=model_type,
             search=search,
             limit=limit,
             include_providers=True,
             include_tags=False,
             include_files=False,
+            allowed_model_ids=allowed,
+            library_user_id=ctx.user_id,
         )
-        suggestions = []
-        for model in models:
-            provider_name = model.providers[0].name if model.providers else None
-            suggestions.append(ResourceSuggestion(
-                uri=f"models.{model_type}.{stem(model.filename)}",
-                label=stem(model.filename),
-                kind="model",
-                description=provider_name,
-                has_children=False,
-                icon=self.icon,
-            ))
-        return suggestions
+
+    def _model_suggestion(self, model: Any) -> ResourceSuggestion:
+        name = _display_name(model)
+        file_stem = stem(model.filename)
+        model_type = model.model_type or "model"
+        return ResourceSuggestion(
+            uri=f"models.{model_type}.{model.id}",
+            label=name,
+            kind=model_type,
+            description=file_stem if file_stem and file_stem != name else None,
+            has_children=False,
+            icon=self.icon,
+            badge=model_type,
+        )
 
     async def resolve(self, path: List[str], ctx: ResourceContext) -> Optional[ResolvedResource]:
         if not ctx.model_index_manager or not path:
@@ -108,28 +180,39 @@ class ModelsResourceProvider(BaseResourceProvider):
             return None
 
         name = ".".join(path[1:])
-        repo = ctx.model_index_manager.model_repo
-        candidates = repo.get_all(
-            model_type=model_type,
-            search=name,
-            limit=10,
-            include_providers=True,
-            include_tags=False,
-            include_files=False,
-        )
-        if not candidates:
+        allowed = _allowed_ids(ctx)
+        if allowed is not None and not allowed:
             return None
+        repo = ctx.model_index_manager.model_repo
 
-        exact = [m for m in candidates if stem(m.filename).lower() == name.lower()]
-        model = exact[0] if exact else candidates[0]
-        alternatives = [stem(m.filename) for m in candidates if m.id != model.id]
+        model = None
+        alternatives: List[str] = []
+        by_id = repo.get_by_id(name, include_providers=True, include_tags=True, library_user_id=ctx.user_id)
+        if by_id is not None and by_id.model_type == model_type and (allowed is None or by_id.id in allowed):
+            model = by_id
+        else:
+            candidates = repo.get_all(
+                model_type=model_type,
+                search=name,
+                limit=10,
+                include_providers=True,
+                include_tags=True,
+                include_files=False,
+                allowed_model_ids=allowed,
+                library_user_id=ctx.user_id,
+            )
+            if not candidates:
+                return None
+            exact = [m for m in candidates if stem(m.filename).lower() == name.lower()]
+            model = exact[0] if exact else candidates[0]
+            alternatives = [stem(m.filename) for m in candidates if m.id != model.id]
 
-        content = self._render(model, model_type, alternatives)
+        content = self._render(model, model_type, alternatives, overlay=user_overlay(ctx, model.id))
         return ResolvedResource(
             uri=f"models.{path[0]}.{name}",
             namespace=self.namespace,
             kind=model_type,
-            title=stem(model.filename),
+            title=_display_name(model),
             content=content[:MAX_CONTENT_CHARS],
             metadata={
                 "model_id": model.id,
@@ -139,18 +222,56 @@ class ModelsResourceProvider(BaseResourceProvider):
         )
 
     @staticmethod
-    def _render(model: Any, model_type: str, alternatives: List[str]) -> str:
+    def _render(
+        model: Any,
+        model_type: str,
+        alternatives: List[str],
+        overlay: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        metadata = {**(model.model_metadata or {}), **(overlay or {})}
+        resolved_type = model.model_type or model_type
         lines = [f"## Model: {stem(model.filename)}", ""]
-        lines.append(f"- Type: {model.model_type or model_type}")
+        name = _text(getattr(model, "display_name", None))
+        if name and name != stem(model.filename):
+            lines.append(f"- Name: {name}")
+        lines.append(f"- Type: {resolved_type}")
         if model.filename:
             lines.append(f"- File: {model.filename}")
+        for key in _BASE_MODEL_KEYS:
+            base = _text(metadata.get(key))
+            if base:
+                lines.append(f"- Base model: {base}")
+                break
 
         triggers = list(dict.fromkeys(
-            ((model.model_metadata or {}).get("triggers") or [])
+            (metadata.get(_TRIGGERS_KEY) or [])
             + [tag for info in (model.providers or []) for tag in (info.tags or [])]
         ))
         if triggers:
             lines.append(f"- Trigger words: {', '.join(triggers[:50])}")
+
+        strength = metadata.get(_STRENGTH_KEY)
+        if isinstance(strength, (int, float)) and not isinstance(strength, bool):
+            lines.append(f"- Recommended strength: {float(strength):g}")
+
+        tags = [
+            t for t in (
+                _text(tag.get("name") if isinstance(tag, dict) else getattr(tag, "name", None))
+                for tag in (model.tags if isinstance(getattr(model, "tags", None), list) else [])
+            ) if t
+        ]
+        if tags:
+            lines.append(f"- Tags: {', '.join(tags[:MAX_TAGS])}")
+
+        if isinstance(getattr(model, "id", None), str) and model.id:
+            ref = f"model:{model.id}"
+            if resolved_type == "lora":
+                lines.append(
+                    f"- Form reference: `{ref}` (a LoRA field row is "
+                    f'`{{"model": "{ref}", "strength": <weight>}}`)'
+                )
+            else:
+                lines.append(f"- Form reference: `{ref}` (the value a model field takes)")
 
         for info in (model.providers or []):
             if info.name:

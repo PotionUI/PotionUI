@@ -14,6 +14,7 @@ from src.platform.resources.builtin import (
     register_builtin_resource_providers,
 )
 from src.platform.resources import ResourceRegistry
+from src.platform.security.user import AccountType
 
 
 def _ctx(**kwargs) -> ResourceContext:
@@ -32,19 +33,25 @@ class TestModelsProvider:
     def setup_method(self):
         self.provider = ModelsResourceProvider()
         self.repo = Mock()
+        self.repo.get_by_id.return_value = None
         self.manager = Mock()
         self.manager.model_repo = self.repo
+        self.manager.access.get_allowed_model_ids.return_value = None
+        self.manager.catalog.user_attributes.get_maps.return_value = {}
 
     def _model(self, filename="detailer.safetensors", model_type="lora",
                triggers=None, provider_tags=None, description=None,
-               prompting_guidance=None):
+               prompting_guidance=None, model_id="model-1", display_name="Detailer XL",
+               metadata=None, tags=None):
         model = Mock()
-        model.id = "model-1"
+        model.id = model_id
+        model.display_name = display_name
+        model.tags = tags or []
         model.filename = filename
         model.model_type = model_type
         model.description = description
         model.prompting_guidance = prompting_guidance
-        model.model_metadata = {"triggers": triggers or []}
+        model.model_metadata = {"triggers": triggers or [], **(metadata or {})}
         info = Mock()
         info.name = "Detailer XL"
         info.provider = "civitai-provider"
@@ -68,7 +75,9 @@ class TestModelsProvider:
     async def test_suggest_models_of_type(self):
         self.repo.get_all.return_value = [self._model()]
         suggestions = await self.provider.suggest(["lora"], "det", _ctx(model_index_manager=self.manager))
-        assert suggestions[0].uri == "models.lora.detailer"
+        assert suggestions[0].uri == "models.lora.model-1"
+        assert suggestions[0].label == "Detailer XL"
+        assert suggestions[0].badge == "lora"
         assert suggestions[0].has_children is False
         kwargs = self.repo.get_all.call_args.kwargs
         assert kwargs["model_type"] == "lora"
@@ -99,7 +108,7 @@ class TestModelsProvider:
 
     @pytest.mark.asyncio
     async def test_resolve_name_with_dots_rejoined(self):
-        model = self._model(filename="qwen_2.5_vl.safetensors")
+        model = self._model(filename="qwen_2.5_vl.safetensors", display_name=None)
         self.repo.get_all.return_value = [model]
         resolved = await self.provider.resolve(["lora", "qwen_2", "5_vl"], _ctx(model_index_manager=self.manager))
         assert resolved is not None
@@ -116,6 +125,99 @@ class TestModelsProvider:
     async def test_no_manager_returns_empty(self):
         assert await self.provider.suggest([], "", _ctx()) == []
         assert await self.provider.resolve(["lora", "x"], _ctx()) is None
+
+
+    @pytest.mark.asyncio
+    async def test_resolve_by_id_renders_reference_block(self):
+        tag = Mock()
+        tag.name = "style"
+        model = self._model(
+            model_id="01LORA", triggers=["detailed"], metadata={"strength": 0.7, "base_model": "SDXL 1.0"},
+            tags=[tag],
+        )
+        self.repo.get_by_id.return_value = model
+        resolved = await self.provider.resolve(["lora", "01LORA"], _ctx(model_index_manager=self.manager))
+        assert resolved is not None
+        assert resolved.title == "Detailer XL"
+        assert resolved.metadata["model_id"] == "01LORA"
+        content = resolved.content
+        assert "- Name: Detailer XL" in content
+        assert "- File: detailer.safetensors" in content
+        assert "- Base model: SDXL 1.0" in content
+        assert "- Trigger words: detailed" in content
+        assert "- Recommended strength: 0.7" in content
+        assert "- Tags: style" in content
+        assert '`{"model": "model:01LORA", "strength": <weight>}`' in content
+        assert "Provider description" in content
+        self.repo.get_all.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_resolve_prefers_per_user_strength(self):
+        self.repo.get_by_id.return_value = self._model(model_id="01LORA", metadata={"strength": 0.7})
+        self.manager.catalog.user_attributes.get_maps.return_value = {"01LORA": {"strength": 0.4}}
+        resolved = await self.provider.resolve(["lora", "01LORA"], _ctx(model_index_manager=self.manager))
+        assert "- Recommended strength: 0.4" in resolved.content
+
+    @pytest.mark.asyncio
+    async def test_resolve_by_id_hidden_from_user_is_not_leaked(self):
+        self.manager.access.get_allowed_model_ids.return_value = ["other-model"]
+        self.repo.get_by_id.return_value = self._model(model_id="01SECRET")
+        self.repo.get_all.return_value = []
+        resolved = await self.provider.resolve(["lora", "01SECRET"], _ctx(model_index_manager=self.manager))
+        assert resolved is None
+        assert self.repo.get_all.call_args.kwargs["allowed_model_ids"] == ["other-model"]
+
+    @pytest.mark.asyncio
+    async def test_resolve_with_no_visible_models_never_queries(self):
+        self.manager.access.get_allowed_model_ids.return_value = []
+        resolved = await self.provider.resolve(["lora", "01SECRET"], _ctx(model_index_manager=self.manager))
+        assert resolved is None
+        self.repo.get_by_id.assert_not_called()
+        self.repo.get_all.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_access_policy_sees_the_requesting_user(self):
+        self.repo.get_all.return_value = []
+        await self.provider.resolve(["lora", "x"], _ctx(model_index_manager=self.manager, is_admin=True))
+        user = self.manager.access.get_allowed_model_ids.call_args.args[0]
+        assert user.id == "user-1"
+        assert user.account_type == AccountType.ADMIN
+        assert self.manager.access.get_allowed_model_ids.call_args.kwargs == {"all_models": True}
+
+    @pytest.mark.asyncio
+    async def test_search_lists_loras_first_then_other_types(self):
+        lora = self._model(model_id="L1")
+        checkpoint = self._model(model_id="C1", model_type="checkpoint", display_name="Detail Base",
+                                 filename="detail_base.safetensors")
+        unknown = self._model(model_id="X1", model_type="mystery")
+
+        def get_all(**kwargs):
+            return [lora] if kwargs["model_type"] == "lora" else [lora, checkpoint, unknown]
+
+        self.repo.get_all.side_effect = get_all
+        hits = await self.provider.search("detail", _ctx(model_index_manager=self.manager), limit=10)
+        assert [h.uri for h in hits] == ["models.lora.L1", "models.checkpoint.C1"]
+        assert [h.badge for h in hits] == ["lora", "checkpoint"]
+        assert hits[0].description == "detailer"
+        assert all(c.kwargs["search"] == "detail" for c in self.repo.get_all.call_args_list)
+
+    @pytest.mark.asyncio
+    async def test_search_scoped_to_visible_models(self):
+        self.manager.access.get_allowed_model_ids.return_value = ["L1"]
+        self.repo.get_all.return_value = []
+        await self.provider.search("detail", _ctx(model_index_manager=self.manager))
+        assert all(c.kwargs["allowed_model_ids"] == ["L1"] for c in self.repo.get_all.call_args_list)
+        assert all(c.kwargs["library_user_id"] == "user-1" for c in self.repo.get_all.call_args_list)
+
+    @pytest.mark.asyncio
+    async def test_registry_bare_query_appends_model_hits_after_namespaces(self):
+        registry = ResourceRegistry()
+        registry.register(self.provider)
+        self.repo.get_all.return_value = [self._model(model_id="L1")]
+        ctx = _ctx(model_index_manager=self.manager)
+        hits = await registry.suggest("mod", None, ctx)
+        assert [h.uri for h in hits] == ["models", "models.lora.L1"]
+        assert [h.uri for h in await registry.suggest("m", None, ctx)] == ["models"]
 
 
 class TestPhrasebookProvider:
@@ -388,6 +490,7 @@ class TestFormProvider:
         self.repo = Mock()
         self.manager = Mock()
         self.manager.model_repo = self.repo
+        self.manager.access.get_allowed_model_ids.return_value = None
 
     def _model(self, model_id="m-1", filename="dreamshaper.safetensors", display_name="DreamShaper XL",
                model_type="checkpoint", triggers=None, description=None, prompting_guidance=None):
@@ -456,6 +559,29 @@ class TestFormProvider:
         assert "not in the model index" in resolved.content
 
     @pytest.mark.asyncio
+    async def test_resolve_model_field_hidden_from_user_is_not_leaked(self):
+        self.manager.access.get_allowed_model_ids.return_value = ["other"]
+        self.repo.get_by_id.return_value = self._model(model_id="m-secret", triggers=["secret trigger"])
+        resolved = await self.provider.resolve(["model"], self._ctx({"model": "model:m-secret"}))
+        assert resolved.kind == "form_value"
+        assert "model:m-secret" in resolved.content
+        assert "DreamShaper" not in resolved.content
+        assert "secret trigger" not in resolved.content
+
+    @pytest.mark.asyncio
+    async def test_hidden_lora_row_name_is_not_leaked(self):
+        self.manager.access.get_allowed_model_ids.return_value = []
+        self.repo.get_by_id.return_value = self._model("l-secret", "secret.safetensors", "Secret LoRA")
+        resolved = await self.provider.resolve(
+            ["loras"], self._ctx({"loras": [{"model": "model:l-secret", "strength": 0.8}]})
+        )
+        assert "Secret LoRA" not in resolved.content
+        row = await self.provider.resolve(
+            ["loras", "l-secret"], self._ctx({"loras": [{"model": "model:l-secret", "strength": 0.8}]})
+        )
+        assert row is None or "Secret LoRA" not in row.content
+
+    @pytest.mark.asyncio
     async def test_resolve_model_typed_field_by_schema_without_ref_value(self):
         preset_collaborators = self._preset_collaborators({"model": "model"})
         self.repo.get_by_file_path.return_value = self._model()
@@ -507,9 +633,63 @@ class TestFormProvider:
         assert suggestions[0].uri == "form.loras"
         assert suggestions[0].attachable is True
         row_labels = [s.label for s in suggestions[1:]]
-        assert row_labels == ["Detail LoRA @ 0.8", "Film Grain @ 1"]
+        assert row_labels == ["Detail LoRA", "Film Grain"]
+        assert [s.description for s in suggestions[1:]] == ["strength 0.8", "strength 1"]
+        assert all(s.badge == "loras" for s in suggestions[1:])
         assert [s.uri for s in suggestions[1:]] == ["form.loras.l-1", "form.loras.l-2"]
         assert all(s.has_children is False for s in suggestions[1:])
+
+    @pytest.mark.asyncio
+    async def test_resolve_lora_row_includes_row_fields_and_edit_identifier(self):
+        preset_collaborators = Mock()
+        preset_collaborators.get_form_schema.return_value = {"form_schema": {"properties": {"tabs": {
+            "type": "tabs",
+            "children": [{"type": "tab", "children": [{
+                "name": "adapters",
+                "type": "lora_picker",
+                "configuration": {"row_fields": [
+                    {"name": "audio", "type": "checkbox", "label": "Affects audio", "default": True},
+                ]},
+            }]}],
+        }}}}
+        tag = Mock()
+        tag.name = "style"
+        model = self._model("l-2", "grain.safetensors", "Film Grain", model_type="lora", triggers=["grainy"])
+        model.model_metadata = {"triggers": ["grainy"], "strength": 0.6}
+        model.tags = [tag]
+        self.repo.get_by_id.return_value = model
+        self.manager.catalog.user_attributes.get_maps.return_value = {}
+        form = {"adapters": [
+            {"model": "model:l-1", "strength": 0.8},
+            {"model": "model:l-2", "strength": 0.5, "audio": False, "step_end": 12},
+        ]}
+        resolved = await self.provider.resolve(["adapters", "l-2"], self._ctx(form, preset_collaborators))
+        content = resolved.content
+        assert "- Field: adapters (row 2 of 2, index 1)" in content
+        assert "- Current strength: 0.5" in content
+        assert "- Affects audio (`audio`): false" in content
+        assert "- `step_end`: 12" in content
+        assert "index 1 changed" in content
+        assert '`{"model": "model:l-2", "strength": 0.5, "audio": false, "step_end": 12}`' in content
+        assert "- Trigger words: grainy" in content
+        assert "- Recommended strength: 0.6" in content
+        assert "- Tags: style" in content
+        assert resolved.metadata["row_index"] == 1
+        assert resolved.title == "Film Grain"
+
+    @pytest.mark.asyncio
+    async def test_resolve_lora_row_uses_row_field_default_when_unset(self):
+        preset_collaborators = Mock()
+        preset_collaborators.get_form_schema.return_value = {"form_schema": {"properties": {
+            "loras": {"type": "lora_picker", "configuration": {"row_fields": [
+                {"name": "audio", "label": "Affects audio", "default": True},
+            ]}},
+        }}}
+        self.repo.get_by_id.return_value = self._model("l-1", "detail.safetensors", "Detail LoRA", model_type="lora")
+        resolved = await self.provider.resolve(
+            ["loras", "0"], self._ctx({"loras": [{"model": "model:l-1", "strength": 1}]}, preset_collaborators)
+        )
+        assert "- Affects audio (`audio`): true" in resolved.content
 
     @pytest.mark.asyncio
     async def test_suggest_non_lora_field_has_no_children(self):

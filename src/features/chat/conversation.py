@@ -139,7 +139,7 @@ class ConversationRunner:
         # Snapshot-resolve @resource mentions (never raises; stale refs become error notes)
         _resource_start = time.monotonic()
         resolved_resources = await self._m._context.resolve_message_resources(
-            resources, user_id, session.mode, context_metadata
+            resources, user_id, session.mode, context_metadata, is_admin=is_admin
         )
         if resources:
             step_records.append({
@@ -484,7 +484,7 @@ class ConversationRunner:
             _resource_start = time.monotonic()
             yield {"event": "status", "data": {"step": "resolving_resources", "state": "started"}}
             resolved_resources = await self._m._context.resolve_message_resources(
-                resources, user_id, session.mode, context_metadata
+                resources, user_id, session.mode, context_metadata, is_admin=is_admin
             )
             step_records.append({
                 "step": "resolving_resources",
@@ -503,7 +503,7 @@ class ConversationRunner:
             }
         else:
             resolved_resources = await self._m._context.resolve_message_resources(
-                resources, user_id, session.mode, context_metadata
+                resources, user_id, session.mode, context_metadata, is_admin=is_admin
             )
 
         # Save user message (store image reference in metadata for chat display)

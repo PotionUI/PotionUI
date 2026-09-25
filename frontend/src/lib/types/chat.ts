@@ -241,6 +241,8 @@ export interface ResourceSuggestion {
 	 * and "browse into" instead of forcing navigation.
 	 */
 	attachable?: boolean;
+	badge?: string | null;
+	chip_label?: string;
 }
 
 /**

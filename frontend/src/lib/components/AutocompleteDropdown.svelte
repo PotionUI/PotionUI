@@ -29,11 +29,14 @@
 		category_path?: string;
 		category_name?: string;
 		preview_file_id?: string;
+		badge?: string;
+		description?: string;
 	}
 </script>
 
 <script lang="ts">
 	import { onMount, afterUpdate } from 'svelte';
+	import Badge from '$lib/components/ui/Badge.svelte';
 	import portal from '$lib/actions/portal';
 	import { resolveMentionRowAction } from '$lib/utils/mentionRowAction';
 	import { computeAutocompletePlacement, caretLineAnchor } from '$lib/utils/autocompleteAnchor';
@@ -429,12 +432,21 @@
 										<div class="font-medium text-sm truncate">
 											{suggestion.label}
 										</div>
-										{#if suggestion.label !== suggestion.value}
+										{#if suggestion.badge}
+											{#if suggestion.description}
+												<div class="font-mono text-xs text-fg-subtle mt-0.5 truncate">
+													{suggestion.description}
+												</div>
+											{/if}
+										{:else if suggestion.label !== suggestion.value}
 											<div class="text-xs text-fg-subtle mt-0.5 truncate">
 												{suggestion.value}
 											</div>
 										{/if}
 									</div>
+									{#if suggestion.badge}
+										<Badge class="flex-shrink-0 font-mono">{suggestion.badge}</Badge>
+									{/if}
 								</div>
 								{#if isSelected}
 									<div class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle flex-shrink-0">

@@ -33,7 +33,7 @@ from src.platform.resources.base import (
     ResourceSuggestion,
     stem,
 )
-from src.platform.resources.builtin.models_provider import ModelsResourceProvider
+from src.platform.resources.builtin.models_provider import ModelsResourceProvider, is_visible, user_overlay
 from src.platform.resources.prompt_variables import render_prompt_variable_lines
 
 logger = logging.getLogger(__name__)
@@ -119,9 +119,11 @@ def _lora_rows(value: Any) -> Optional[List[Dict[str, Any]]]:
         model_id = _model_id_of(locator) if _is_model_ref(locator) else None
         rows.append({
             "selector": model_id or str(index),
+            "index": index,
             "model_id": model_id,
             "locator": locator,
             "strength": item.get("strength"),
+            "item": item,
         })
     return rows
 
@@ -167,8 +169,7 @@ class FormResourceProvider(BaseResourceProvider):
         return next((k for k in form_data if k.lower() == name.lower()), None)
 
     @staticmethod
-    def _field_types(ctx: ResourceContext) -> Dict[str, str]:
-        """Field name → schema type for the bound form, {} when unavailable."""
+    def _field_schemas(ctx: ResourceContext) -> Dict[str, Dict[str, Any]]:
         form_state = getattr(ctx, "form_state", None)
         if not isinstance(form_state, dict) or not ctx.preset_collaborators:
             return {}
@@ -182,11 +183,27 @@ class FormResourceProvider(BaseResourceProvider):
         props = ((schema or {}).get("form_schema") or {}).get("properties")
         if not isinstance(props, dict):
             return {}
-        return {
-            name: str(fs.get("type") or "")
-            for name, fs in props.items()
-            if isinstance(fs, dict)
-        }
+        found: Dict[str, Dict[str, Any]] = {}
+
+        def walk(name: Optional[str], node: Any) -> None:
+            if isinstance(node, list):
+                for child in node:
+                    walk(None, child)
+                return
+            if not isinstance(node, dict):
+                return
+            key = node.get("name") if isinstance(node.get("name"), str) else name
+            if key and key not in found:
+                found[key] = node
+            walk(None, node.get("children") or [])
+
+        for prop_name, spec in props.items():
+            walk(prop_name, spec)
+        return found
+
+    @classmethod
+    def _field_types(cls, ctx: ResourceContext) -> Dict[str, str]:
+        return {name: str(fs.get("type") or "") for name, fs in cls._field_schemas(ctx).items()}
 
     @staticmethod
     def _lookup_model(ctx: ResourceContext, model_id: Optional[str] = None, locator: Optional[str] = None):
@@ -195,12 +212,14 @@ class FormResourceProvider(BaseResourceProvider):
         repo = ctx.model_index_manager.model_repo
         try:
             if model_id:
-                return repo.get_by_id(model_id, include_providers=True, include_tags=False)
-            if locator:
-                return repo.get_by_file_path(locator, include_providers=True)
+                model = repo.get_by_id(model_id, include_providers=True, include_tags=False)
+            elif locator:
+                model = repo.get_by_file_path(locator, include_providers=True)
+            else:
+                return None
+            return model if model and is_visible(ctx, model) else None
         except Exception:
             return None
-        return None
 
     @staticmethod
     def _variable_lines(ctx: ResourceContext) -> List[str]:
@@ -216,9 +235,9 @@ class FormResourceProvider(BaseResourceProvider):
             model = ctx.model_index_manager.model_repo.get_by_id(
                 model_id, include_providers=False, include_tags=False
             )
+            if not model or not is_visible(ctx, model):
+                return None
         except Exception:
-            return None
-        if not model:
             return None
         return getattr(model, "display_name", None) or stem(getattr(model, "filename", "")) or None
 
@@ -371,10 +390,12 @@ class FormResourceProvider(BaseResourceProvider):
                 continue
             suggestions.append(ResourceSuggestion(
                 uri=f"form.{field}.{row['selector']}",
-                label=f"{name} @ {_weight_text(row['strength'])}",
+                label=name,
                 kind="lora",
+                description=f"strength {_weight_text(row['strength'])}",
                 has_children=False,
                 icon=self.icon,
+                badge=field,
             ))
         return suggestions
 
@@ -409,7 +430,7 @@ class FormResourceProvider(BaseResourceProvider):
         if selector is not None:
             if not _is_lora_field(field_type, rows):
                 return None
-            return self._resolve_lora_row(field, selector, rows, ctx)
+            return self._resolve_lora_row(field, selector, rows, ctx, self._field_schemas(ctx).get(field))
 
         if field_type in _MODEL_FIELD_TYPES or _is_model_ref(value):
             return self._resolve_model_field(field, value, ctx)
@@ -469,6 +490,7 @@ class FormResourceProvider(BaseResourceProvider):
         selector: str,
         rows: List[Dict[str, Any]],
         ctx: ResourceContext,
+        field_schema: Optional[Dict[str, Any]] = None,
     ) -> Optional[ResolvedResource]:
         row = next((r for r in rows if r["selector"] == selector), None)
         if row is None:
@@ -478,6 +500,7 @@ class FormResourceProvider(BaseResourceProvider):
 
         weight = _weight_text(row["strength"])
         uri = f"form.{field}.{selector}"
+        row_lines = self._row_lines(field, row, rows, field_schema)
         model = self._lookup_model(
             ctx,
             model_id=row["model_id"],
@@ -486,7 +509,8 @@ class FormResourceProvider(BaseResourceProvider):
         if model is None:
             content = (
                 f"Selected LoRA in form field '{field}' (weight {weight}): {row['locator']}\n"
-                "(Not found in the model index — treat it as an opaque value.)"
+                "(Not found in the model index — treat it as an opaque value.)\n\n"
+                + "\n".join(row_lines)
             )
             return ResolvedResource(
                 uri=uri,
@@ -494,13 +518,22 @@ class FormResourceProvider(BaseResourceProvider):
                 kind="form_value",
                 title=row["locator"],
                 content=content[:_MAX_CONTENT_CHARS],
-                metadata={"field": field, "model_id": row["model_id"], "strength": row["strength"]},
+                metadata={
+                    "field": field,
+                    "row_index": row["index"],
+                    "model_id": row["model_id"],
+                    "strength": row["strength"],
+                },
             )
 
         name = getattr(model, "display_name", None) or stem(getattr(model, "filename", "")) or selector
         model_type = getattr(model, "model_type", None) or "lora"
-        block = ModelsResourceProvider._render(model, model_type, [])
-        content = f"Selected LoRA in form field '{field}': {name} at weight {weight}\n\n{block}"
+        block = ModelsResourceProvider._render(model, model_type, [], overlay=user_overlay(ctx, model.id))
+        content = (
+            f"Selected LoRA in form field '{field}': {name} at weight {weight}\n\n"
+            + "\n".join(row_lines)
+            + f"\n\n{block}"
+        )
         return ResolvedResource(
             uri=uri,
             namespace=self.namespace,
@@ -509,9 +542,43 @@ class FormResourceProvider(BaseResourceProvider):
             content=content[:_MAX_CONTENT_CHARS],
             metadata={
                 "field": field,
+                "row_index": row["index"],
                 "model_id": model.id,
                 "model_type": model.model_type,
                 "filename": model.filename,
                 "strength": row["strength"],
             },
         )
+
+    @staticmethod
+    def _row_lines(
+        field: str,
+        row: Dict[str, Any],
+        rows: List[Dict[str, Any]],
+        field_schema: Optional[Dict[str, Any]],
+    ) -> List[str]:
+        config = (field_schema or {}).get("configuration") or {}
+        declared = [d for d in (config.get("row_fields") or []) if isinstance(d, dict) and d.get("name")]
+        item = row["item"]
+        lines = [
+            "### This form row",
+            f"- Field: {field} (row {row['index'] + 1} of {len(rows)}, index {row['index']})",
+            f"- Current strength: {_weight_text(row['strength'])}",
+        ]
+        shown = set()
+        for declaration in declared:
+            key = declaration["name"]
+            shown.add(key)
+            value = item.get(key, declaration.get("default"))
+            label = declaration.get("label") or key
+            lines.append(f"- {label} (`{key}`): {json.dumps(value, ensure_ascii=False, default=str)}")
+        for key, value in item.items():
+            if key in ("model", "strength", "weight") or key in shown:
+                continue
+            lines.append(f"- `{key}`: {json.dumps(value, ensure_ascii=False, default=str)}")
+        row_json = json.dumps(item, ensure_ascii=False, default=str)
+        lines.append(
+            f"- To edit this row with a form tool, set field `{field}` to its full list with the entry at "
+            f"index {row['index']} changed; the entry is currently `{row_json}`"
+        )
+        return lines

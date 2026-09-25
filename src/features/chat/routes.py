@@ -564,6 +564,7 @@ class ChatController(BaseController):
                 mode_id=mode,
                 user_id=user.id,
                 limit=max(1, min(limit, 50)),
+                is_admin=user.account_type == AccountType.ADMIN,
             )
             return self.success_response(data={
                 "suggestions": [
@@ -575,6 +576,7 @@ class ChatController(BaseController):
                         "has_children": s.has_children,
                         "icon": s.icon,
                         "attachable": s.attachable,
+                        "badge": s.badge,
                     }
                     for s in suggestions
                 ]

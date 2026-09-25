@@ -9,7 +9,18 @@ import type { ResourceSuggestion } from '$lib/types/chat';
 // whether the row itself attaches or navigates.
 export type MentionCategory = PhrasebookCategory & { attachable?: boolean };
 
+export type MentionValue = PhrasebookValue & { badge?: string; description?: string; chip_label?: string };
+
+export const MIN_BARE_SEARCH_CHARS = 2;
+
+export function resourceChipLabel(item: { label: string; badge?: string; chip_label?: string }): string {
+	if (item.chip_label) return item.chip_label;
+	return item.badge ? `${item.badge}:${item.label}` : item.label;
+}
+
 export const FORM_ICON = 'sliders-horizontal';
+
+type LoraRow = { id: string | null; name: string; strength: number };
 
 // Maps ResourceSuggestions into the category/value shapes AutocompleteDropdown
 // expects, so the dropdown component is reused unmodified. Navigable
@@ -20,10 +31,10 @@ export const FORM_ICON = 'sliders-horizontal';
 // "attach this" instead of forcing navigation.
 export function mapSuggestions(suggestions: ResourceSuggestion[]): {
 	child_categories: MentionCategory[];
-	values: PhrasebookValue[];
+	values: MentionValue[];
 } {
 	const child_categories: MentionCategory[] = [];
-	const values: PhrasebookValue[] = [];
+	const values: MentionValue[] = [];
 	for (const s of suggestions) {
 		if (s.has_children) {
 			child_categories.push({
@@ -46,7 +57,10 @@ export function mapSuggestions(suggestions: ResourceSuggestion[]): {
 				is_active: true,
 				created_at: '',
 				updated_at: '',
-				category_path: s.uri.includes('.') ? s.uri.substring(0, s.uri.lastIndexOf('.')) : s.uri
+				category_path: s.uri.includes('.') ? s.uri.substring(0, s.uri.lastIndexOf('.')) : s.uri,
+				...(s.badge ? { badge: s.badge } : {}),
+				...(s.badge && s.description ? { description: s.description } : {}),
+				...(s.chip_label ? { chip_label: s.chip_label } : {})
 			});
 		}
 	}
@@ -93,15 +107,37 @@ export function buildLoraRowSuggestions(
 	}
 	rows.forEach((row, index) => {
 		if (needle && !row.name.toLowerCase().includes(needle)) return;
-		out.push({
-			uri: `form.${field}.${row.id ?? String(index)}`,
-			label: `${row.name} @ ${row.strength}`,
-			kind: 'lora',
-			has_children: false,
-			icon: FORM_ICON
-		});
+		out.push(loraRowSuggestion(field, row, index));
 	});
 	return out.slice(0, 30);
+}
+
+function loraRowSuggestion(field: string, row: LoraRow, index: number): ResourceSuggestion {
+	return {
+		uri: `form.${field}.${row.id ?? String(index)}`,
+		label: row.name,
+		kind: 'lora',
+		description: `strength ${row.strength}`,
+		has_children: false,
+		icon: FORM_ICON,
+		badge: field,
+		chip_label: `form.${field}:${row.name}`
+	};
+}
+
+export function buildFormRowMatches(
+	query: string,
+	loraSelections: Record<string, LoraRow[]>
+): ResourceSuggestion[] {
+	const needle = query.trim().toLowerCase();
+	if (needle.length < MIN_BARE_SEARCH_CHARS) return [];
+	const out: ResourceSuggestion[] = [];
+	for (const [field, rows] of Object.entries(loraSelections || {})) {
+		(rows || []).forEach((row, index) => {
+			if (row.name.toLowerCase().includes(needle)) out.push(loraRowSuggestion(field, row, index));
+		});
+	}
+	return out.slice(0, 10);
 }
 
 export function buildFormSuggestions(
@@ -151,4 +187,16 @@ export function buildFormSuggestions(
 		});
 	}
 	return out.slice(0, 30);
+}
+
+export function withFormRowMatches(
+	path: string,
+	mapped: { child_categories: MentionCategory[]; values: MentionValue[] },
+	loraSelections: Record<string, LoraRow[]>
+): { child_categories: MentionCategory[]; values: MentionValue[] } {
+	if (path.includes('.')) return mapped;
+	const rows = mapSuggestions(buildFormRowMatches(path, loraSelections)).values;
+	if (!rows.length) return mapped;
+	const taken = new Set(rows.map((r) => r.value));
+	return { ...mapped, values: [...rows, ...mapped.values.filter((v) => !taken.has(v.value))] };
 }

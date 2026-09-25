@@ -1234,10 +1234,10 @@ class TestSuggestResources:
         assert result.data["suggestions"] == [{
             "uri": "models.lora", "label": "Lora", "kind": "model_type",
             "description": None, "has_children": True, "icon": "box",
-            "attachable": False,
+            "attachable": False, "badge": None,
         }]
         manager.suggest_resources.assert_awaited_once_with(
-            query="models", mode_id="generation", user_id="user-1", limit=15,
+            query="models", mode_id="generation", user_id="user-1", limit=15, is_admin=False,
         )
 
     @pytest.mark.asyncio

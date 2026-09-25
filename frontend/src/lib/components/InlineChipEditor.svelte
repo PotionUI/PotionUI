@@ -756,6 +756,8 @@
 					triggerIndex += el.dataset.groupRaw.length;
 				} else if (el.dataset.variableRaw !== undefined) {
 					triggerIndex += el.dataset.variableRaw.length;
+				} else if (el.dataset.resourceMarker !== undefined) {
+					triggerIndex += el.dataset.resourceMarker.length;
 				} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
 					// Chip contributes its encoded path length
 					triggerIndex += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
@@ -1430,6 +1432,10 @@
 				const el = node as HTMLElement;
 				if (el.dataset.groupRaw !== undefined) {
 					triggerIndex += el.dataset.groupRaw.length;
+				} else if (el.dataset.variableRaw !== undefined) {
+					triggerIndex += el.dataset.variableRaw.length;
+				} else if (el.dataset.resourceMarker !== undefined) {
+					triggerIndex += el.dataset.resourceMarker.length;
 				} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
 					triggerIndex += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
 				} else if (el.tagName === 'BR') {

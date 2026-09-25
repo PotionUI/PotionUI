@@ -29,7 +29,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
   write action needs your approval.
 - **Video Director** — compose shots in sections instead of one giant prompt.
 
-*Alpha 0.0.10 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
+*Alpha 0.0.11 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
 Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Ko-fi](https://ko-fi.com/A3B325D031)*
 
@@ -209,7 +209,7 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.10 matrix. **Native
+> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.11 matrix. **Native
 > Windows is supported experimentally** as of 0.0.8: the installer, the CLI,
 > the backend test suite, the frontend checks and the E2E harness all run in
 > CI on `windows-latest` — see [Windows (native)](#windows-native) below.
@@ -253,7 +253,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 | Platform                    | Status                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.10                                                              |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.11                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
 | Windows native              | Experimental (0.0.8) — installer, CLI, backend suite, frontend checks and E2E harness run in CI on `windows-latest`; see [Windows (native)](#windows-native) |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
@@ -362,6 +362,72 @@ Start with the in-app documentation browser, or read the Markdown directly:
 The three most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
 
+### 0.0.11 — 2026-09-25
+
+- Prompts: prompt segments are quieter cards with a pinnable action menu, join with a
+  single space instead of a comma, and no longer have BREAK segments; presets can declare
+  their own prompt syntax, colored as you type (tones or concrete colors) and inserted
+  from a `/` picker, with MiniMax-H3, Qwen-Image and YuE2 shipping their palettes;
+  typing `#`, `$`, `@` or `/` opens a raised picker anchored at the caret with preview
+  thumbnails and a larger preview of the selected image; Tab or Browse all opens a
+  browse modal showing where the value will land; clicking a chip opens the same modal
+  to change it, with its behavior, shuffle, exclude-from-shuffles and remove controls in
+  the footer; phrasebook values lead with the value text, show their preview images as a
+  grid with an in-modal carousel, highlight search matches and search by regular
+  expression; typing in long prompts is several times faster.
+- Prompt references: presets can map media fields to reference tokens, so `@` in a
+  segment points at a reference image, video or audio by name (`<Picture 2>`), keeps
+  pointing at the same item when you reorder them, blocks generation when the item is
+  gone, and shows on each form tile with its handle and how often the prompt uses it;
+  PotionAI's plain tokens become references when you apply its text.
+- Video Director: a global prompt panel shown read-only in every shot, a clean header,
+  FPS in the form, a single-body shot editor and shot tabs on one card layout
+  (keyframe, audio, IC-LoRA); in MiniMax-H3 reference mode each shot uses exactly the
+  references its prompt cites, numbered per shot; switching modes keeps each mode's
+  shots; finished shots show their video as the thumbnail.
+- MiniMax-H3: each LoRA row can leave the audio stream alone ("Affects audio"), which
+  keeps a video LoRA from degrading the soundtrack.
+- YuE2: the model's ABC transcription is shown as a text artifact you can copy or apply
+  back to the form to edit the score; the ABC field is monospaced and checks its header
+  lines; lyric section tags are highlighted.
+- Chat: `@` references reach a single LoRA row of the form or any model in your
+  library, with its trigger words, strength and description; memory has a session scope
+  that follows the chat's context tab; generations approved in chat stream into the tab's
+  Workbench; prompt variables resolve in chat generations like the Generate button.
+- Models: search takes `*` and `?` wildcards and regular expressions, type and tag
+  counts follow the other filters, admins can filter by index date and usage, see Uses
+  and Last used columns and tag a selection in bulk; model pickers suggest the download
+  variant that fits your GPU and model pages list the other variants, with uploader
+  attribution; recipe downloads let you pick a variant per model slot.
+- Recipes: each recipe shows whether its models and presets are really installed; starting a
+  recipe while another runs offers to open or cancel the running one; test generations report
+  the real error and feed each model field the right file; recipe steps show inline in the
+  run view with a runs table.
+- Admin: every tab shares one library, table and detail layout with bulk actions in a
+  floating selection bar; generations and chat sessions can be deleted in bulk; lists
+  show an error with Retry instead of looking empty when loading fails; presets and
+  recipes link to each other; LLM configurations pick the model from the provider's
+  live list (Ollama, OpenAI-compatible) with search; every confirm dialog takes Enter
+  and Esc.
+- Generation errors: users see a safe message, a hint and an error ID; admins get the
+  failed pipe, step and traceback, a category filter in Admin → Generations, a
+  Generation failed automation trigger and optional admin notifications.
+- Reliability: hashing a new model no longer freezes the server; CivitAI fetches retry
+  transient errors and report the real reason; finished generations get their system
+  tags without a manual run; logs no longer contain session tokens; reloading warns
+  before losing changes not saved to the session.
+- Fixes: phrasebook chips with a hyphen in their path render as chips; a chip placed
+  after a reference no longer corrupts it; raw preset ids no longer appear in titles and
+  cards; the History sidebar stays visible while scrolling; folding the left panel gives the prompt a proper width instead of stretching the Workbench; CivitAI's Fetch prompts
+  dialog enables and closes again; audio and video references show a proper thumbnail
+  instead of a broken image.
+- Upgrading: five database migrations run on first start (segment references,
+  generation failure detail, pinned segment actions, BREAK segment removal, admin
+  failure alerts); install the new `google-re2` dependency (`pip install -r
+  requirements.txt`); Docker images are also tagged with the v-prefixed version; log files written by earlier versions may contain session tokens,
+  so delete or rotate them; images generated before this version can be tagged once from
+  Admin → media index.
+
 ### 0.0.10 — 2026-09-23
 
 - Models: Qwen-Image-2.1 runs natively with a preset, resolutions and a starter
@@ -444,64 +510,6 @@ The three most recent releases; older history lives in the
   flag to accounts and one adding the new indexes while dropping twelve that only
   duplicated a unique constraint; admins who relied on the header-level Index Models
   button now index from Admin → Backends.
-
-### 0.0.8 — 2026-09-17
-
-- Windows: PotionUI installs and runs natively on Windows as an experimental
-  platform; `potionui.cmd` mirrors the Linux launcher with the same `doctor`, `start`,
-  `stop` and install profiles; Python 3.12 is preferred when several versions are
-  installed and `doctor` warns when only a newer one exists; Triton and compile
-  optimizations are unavailable there, so attention runs on the standard path.
-- Models: YuE2-3B joins as a native song preset with style tags, tagged lyrics, a
-  chain-of-thought mode, duration and advanced sampling, plus a starter recipe that
-  fetches its weights from Hugging Face and finishes with a real smoke generation;
-  long songs decode in bounded memory.
-- Generate: a categorized tags field lets a preset offer a curated vocabulary per
-  category with search, keyboard picking and custom entries, first used by YuE2's
-  style field; SDXL and Krea-2 each ship fifty styles with rendered previews, Krea-2
-  adds six amateur photo looks; Krea-2 gains an optional native face detailer with
-  the choice to keep the base image; segment prefixes and suffixes render as labelled
-  chips; the generation dock has a clearer top edge.
-- Video Director: shot prompts get the preset's segment templates; durations and
-  segment frames clamp to the model's limit instead of being rejected; the whole row
-  expands a shot; MiniMax-H3 refs mode loads RefMod bundles, the 360-frame cap is
-  gone for directed timelines, continuation shots condition on re-encoded frames, and
-  a second generation no longer runs out of VRAM placing its VAEs.
-- Chat: a New chat button in the header, an unread-reply dot on the sidebar icon and
-  an optional chime when a reply finishes; tooltips replace native titles across the
-  chat window; context is attached to the current user turn instead of injected as
-  mid-conversation system messages; OpenAI configurations expose request options such
-  as top-p, penalties, seed, stop sequences and reasoning effort.
-- Admin: plugins can register external login providers, which appear as "Continue
-  with" buttons on the login page and get their own settings group; model access is
-  assigned in bulk from the Models tab; admin tabs grow with their content instead of
-  clipping; the Users and Groups save footer shows only where there is something to
-  save.
-- Notifications: a bell in the sidebar opens a notification center with category
-  filters and rows grouped by day; toasts stack to three, collapse bursts into one
-  counted card and show a progress line.
-- History: the keyword or semantic search mode moved into Filters with an active
-  chip, so the toolbar no longer overlaps at narrow widths; compare labels read
-  Original and Selected.
-- ComfyUI: a backend accepts a hostname, an IPv4 or IPv6 address, host and port, or a
-  full URL, with an HTTPS default setting; the Docker guide gains a Compose example
-  running ComfyUI alongside PotionUI.
-- Install: ffmpeg ships in every Docker image and `doctor` reports when it is
-  missing; local `.env` files stay out of Docker build contexts.
-- Reliability: every timestamp the API and websocket send carries its UTC offset;
-  the fair scheduler orders jobs that arrive in the same instant by arrival instead
-  of rotation; collection routes answer without a trailing slash and no longer
-  redirect; the log viewer handles Windows line endings.
-- Fixes: the tags picker closes on Escape wherever focus is; shortcut hints no longer
-  leak into button names read by assistive technology; local presets are labelled
-  custom on Windows; filesystem automation triggers report relative paths correctly;
-  the SDXL detailer skips a detection whose detector model is missing instead of
-  failing the generation; the chat memory panel resolves the active model; model
-  index cleanup no longer aborts on rows without a local path.
-- Upgrading: the SDXL starter recipe now installs Juggernaut XL v9 instead of the
-  Pony checkpoint; integrations that call collection routes with a trailing slash
-  must drop it, since the redirect is gone; a database migration adds external
-  identities on first start.
 
 ## Contributing
 

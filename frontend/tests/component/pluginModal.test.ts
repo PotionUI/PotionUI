@@ -208,4 +208,46 @@ describe('PluginModal', () => {
 		pressKey('Escape');
 		expect(closeModal).toHaveBeenCalledTimes(1);
 	});
+
+	function confirmButton() {
+		return Array.from(dialog()!.querySelectorAll('button')).find(
+			(b) => (b.textContent || '').includes('Confirm') && !(b.textContent || '').includes('Cancel')
+		) as HTMLButtonElement;
+	}
+
+	it('a second Confirm click, synchronous or after a tick, never double-fires onConfirm', async () => {
+		const onConfirm = vi.fn();
+		mountModal({ mountBody: () => {}, onConfirm, onCancel: vi.fn() });
+		const button = confirmButton();
+
+		button.click();
+		button.click();
+		expect(onConfirm).toHaveBeenCalledTimes(1);
+
+		await wait(0);
+		button.click();
+		expect(onConfirm).toHaveBeenCalledTimes(1);
+	});
+
+	it('Enter confirms once; a follow-up Confirm click does not fire again', () => {
+		const onConfirm = vi.fn();
+		mountModal({ mountBody: () => {}, onConfirm, onCancel: vi.fn() });
+
+		pressKey('Enter');
+		confirmButton().click();
+
+		expect(onConfirm).toHaveBeenCalledTimes(1);
+	});
+
+	it('a Confirm click settles the gate against a follow-up Esc: onCancel never fires', () => {
+		const onConfirm = vi.fn();
+		const onCancel = vi.fn();
+		mountModal({ mountBody: () => {}, onConfirm, onCancel });
+
+		confirmButton().click();
+		pressKey('Escape');
+
+		expect(onConfirm).toHaveBeenCalledTimes(1);
+		expect(onCancel).not.toHaveBeenCalled();
+	});
 });

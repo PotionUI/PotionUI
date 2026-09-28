@@ -394,7 +394,6 @@ class TestGenerationEngine:
     def setup_manager(self, mock_settings):
         """Set up GenerationEngine with mocked dependencies"""
         self.mock_gpu = Mock()
-        self.mock_model_directories = Mock()
         self.mock_pipe_catalog = Mock()
         self.mock_settings = mock_settings
         self.mock_system_monitor = Mock()
@@ -404,7 +403,6 @@ class TestGenerationEngine:
 
         self.manager = GenerationEngine(
             gpu=self.mock_gpu,
-            model_directories=self.mock_model_directories,
             pipe_catalog=self.mock_pipe_catalog,
             settings=self.mock_settings,
             system_monitor=self.mock_system_monitor,
@@ -1078,7 +1076,7 @@ class TestResourceStatsCapture:
         fake_gpu.get_vram_budget.return_value = 10.0
         self.models = ModelLifecycle(gpu_monitor=fake_gpu, settings=None)
         self.manager = GenerationEngine(
-            gpu=Mock(), model_directories=Mock(), pipe_catalog=Mock(),
+            gpu=Mock(), pipe_catalog=Mock(),
             settings=mock_settings, system_monitor=Mock(),
             memory_advisor=Mock(), llm_service=Mock(), models=self.models,
         )

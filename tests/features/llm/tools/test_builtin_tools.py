@@ -527,10 +527,7 @@ class TestGetModelInfoTool:
         mim = MagicMock()
         mim.access.get_allowed_model_ids.return_value = None
         mim.catalog.get_model_by_id.side_effect = KeyError("not found")
-        repo = MagicMock()
-        repo.get_by_file_path.return_value = None
-        repo.get_all.return_value = []
-        mim.model_repo = repo
+        mim.locator.model_for_path.return_value = None
         ctx = make_context(model_index_manager=mim)
         result = await self._tool().execute(ctx, model_id="bad-id")
         assert result.success is False
@@ -544,6 +541,7 @@ class TestGetModelInfoTool:
         mim.catalog.get_model_by_id.side_effect = KeyError("not found")
 
         model_obj = MagicMock()
+        model_obj.id = "m-path"
         model_obj.to_dict.return_value = {
             "id": "m-path",
             "filename": "ltx-2.3.safetensors",
@@ -552,9 +550,7 @@ class TestGetModelInfoTool:
             "tags": [{"name": "video"}],
             "providers": [],
         }
-        repo = MagicMock()
-        repo.get_by_file_path.return_value = model_obj
-        mim.model_repo = repo
+        mim.locator.model_for_path.return_value = model_obj
         ctx = make_context(model_index_manager=mim)
 
         result = await self._tool().execute(
@@ -565,8 +561,8 @@ class TestGetModelInfoTool:
         data = json.loads(result.data)
         assert data["id"] == "m-path"
         assert data["filename"] == "ltx-2.3.safetensors"
-        repo.get_by_file_path.assert_called_once_with(
-            "models/checkpoints/ltx-2.3.safetensors", include_providers=True
+        mim.locator.model_for_path.assert_called_once_with(
+            "models/checkpoints/ltx-2.3.safetensors"
         )
 
     @pytest.mark.asyncio
@@ -577,6 +573,7 @@ class TestGetModelInfoTool:
         mim.catalog.get_model_by_id.side_effect = KeyError("not found")
 
         model_obj = MagicMock()
+        model_obj.id = "m-search"
         model_obj.to_dict.return_value = {
             "id": "m-search",
             "filename": "sdxl.safetensors",
@@ -585,10 +582,7 @@ class TestGetModelInfoTool:
             "tags": [],
             "providers": [{"name": "civitai", "description": "Community model"}],
         }
-        repo = MagicMock()
-        repo.get_by_file_path.return_value = None
-        repo.get_all.return_value = [model_obj]
-        mim.model_repo = repo
+        mim.locator.model_for_path.return_value = model_obj
         ctx = make_context(model_index_manager=mim)
 
         result = await self._tool().execute(
@@ -599,10 +593,8 @@ class TestGetModelInfoTool:
         data = json.loads(result.data)
         assert data["id"] == "m-search"
         assert data["provider"]["name"] == "civitai"
-        repo.get_all.assert_called_once_with(
-            search="sdxl.safetensors", limit=1,
-            include_providers=True, include_tags=True,
-            allowed_model_ids=None, include_files=False,
+        mim.locator.model_for_path.assert_called_once_with(
+            "models/checkpoints/sdxl.safetensors"
         )
 
     @pytest.mark.asyncio
@@ -639,6 +631,7 @@ class TestGetModelInfoTool:
         data_by_id = json.loads(result_by_id.data)
 
         model_obj = MagicMock()
+        model_obj.id = "m-1"
         model_obj.to_dict.return_value = {
             "id": "m-1",
             "filename": "style.safetensors",
@@ -649,12 +642,10 @@ class TestGetModelInfoTool:
             "prompting_guidance": "Lead with the trigger word.",
             "providers": [{"name": "civitai", "description": "Community model"}],
         }
-        repo = MagicMock()
-        repo.get_by_file_path.return_value = model_obj
         mim_by_path = MagicMock()
         mim_by_path.access.get_allowed_model_ids.return_value = None
         mim_by_path.catalog.get_model_by_id.side_effect = KeyError("not found")
-        mim_by_path.model_repo = repo
+        mim_by_path.locator.model_for_path.return_value = model_obj
         ctx_by_path = make_context(model_index_manager=mim_by_path)
         result_by_path = await self._tool().execute(
             ctx_by_path, model_id="models/loras/style.safetensors", fields=fields
@@ -2740,11 +2731,11 @@ class TestGetFormStateTool:
 # ---------------------------------------------------------------------------
 
 def _make_model_repo_with_model(file_path, model_dict):
-    """Return a mock model_repo that returns a model for get_by_file_path."""
     mock_model = MagicMock()
     mock_model.to_dict.return_value = model_dict
     repo = MagicMock()
     repo.get_by_file_path.return_value = mock_model
+    repo.get_by_id.return_value = mock_model
     repo.get_all.return_value = []
     return repo
 
@@ -2990,11 +2981,12 @@ class TestGetActiveModelsTool:
         mock_model.to_dict.return_value = model_dict
 
         model_repo = MagicMock()
-        model_repo.get_by_file_path.return_value = None  # exact path not found
+        model_repo.get_by_id.return_value = mock_model
         model_repo.get_all.return_value = [mock_model]
 
         mim = MagicMock()
         mim.model_repo = model_repo
+        mim.locator.model_for_path.return_value = mock_model
 
         ctx = make_context(
             model_index_manager=mim,

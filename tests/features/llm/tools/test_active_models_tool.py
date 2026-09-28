@@ -28,9 +28,6 @@ class FakeModelRepo:
 
         return _Model()
 
-    def get_by_file_path(self, path: str):
-        return None
-
 
 class FakeModelIndexManager:
     def __init__(self, models_by_id: Dict[str, Any]):

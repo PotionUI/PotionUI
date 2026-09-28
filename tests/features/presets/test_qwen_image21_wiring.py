@@ -26,7 +26,6 @@ def qwen_image21_template():
 def _process(qwen_image21_template, form_over: dict | None = None, mode: str = "txt2img"):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )

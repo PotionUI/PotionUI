@@ -1,108 +1,136 @@
 import os
 import hashlib
 import logging
-from typing import Any, List, Dict, Optional, Tuple
+import threading
+import unicodedata
+from typing import Any, Dict, List, Optional, Set, Tuple
 from pathlib import Path
+from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
+from src.features.models.locations_repository import ModelLocationsRepository
 from src.features.models.records import Model
 from src.features.models.repository import model_repo
-from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE, SUPPORTED_MODEL_EXTENSIONS
-from src.platform.settings.repository import SettingRepository
+from src.platform.database.rows import now_iso
+from src.platform.filesystem.model_roots import (
+    LogicalLocation,
+    ModelRoot,
+    ModelRootResolver,
+    TypeDir,
+    root_path_key,
+)
+from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE, MODEL_TYPES, SUPPORTED_MODEL_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
-_warned_unmapped_type_dir: set = set()
+
+class ScanCancelled(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class FoundFile:
+    root_id: str
+    model_type: str
+    rel_path: str
+    abs_path: str
+    size: int
+    mtime_ns: int
+    is_directory: bool = False
+
 
 class ModelScanner:
-    """Scans the models directory and reconciles it with the model index.
-
-    Hashes files and upserts rows in the database, and owns the single-file
-    entry point (`index_single_model`) the download job and the automation
-    `action.index_model` need.
-    """
-
     SUPPORTED_EXTENSIONS = SUPPORTED_MODEL_EXTENSIONS
 
-    # Model type mappings based on directory structure.
     MODEL_TYPE_MAPPING = DIRECTORY_TO_MODEL_TYPE
 
-    # Model types whose files live one directory-per-model deep (HF layout:
-    # `config.json` + sharded weights) instead of flat-file-per-model. A type
-    # dir mapped to one of these is scanned for immediate subdirectories
-    # instead of walked file-by-file - see `_find_hf_directories`. Without this
-    # split, the generic `rglob` walk below would find each shard inside such a
-    # directory and index it as its own model.
     DIRECTORY_MODEL_TYPES = {'llm'}
 
-    def __init__(self, models_dir: Optional[str] = None):
-        # Get model directory from settings or use default
-        if models_dir is None:
-            setting_repo = SettingRepository()
-            model_dir_setting = setting_repo.get_setting_by_key('models_dir')
-            models_dir = (model_dir_setting.get_typed_value() if model_dir_setting else None) or "models"
-
-        self.models_dir = Path(models_dir)
+    def __init__(self, resolver: ModelRootResolver, locations_repository: Optional[ModelLocationsRepository] = None):
+        self.resolver = resolver
+        self.locations = locations_repository or ModelLocationsRepository()
         self.progress_callback = None
+        self._write_lock = threading.Lock()
 
     def set_progress_callback(self, callback):
-        """Set callback function for progress updates"""
         self.progress_callback = callback
 
     def _report_progress(self, current: int, total: int, message: str):
-        """Report progress if callback is set"""
         if self.progress_callback:
             self.progress_callback(current, total, message)
 
-    def scan_models_directory(self) -> List[Tuple[str, str, int]]:
-        """
-        Scan models directory and return list of (file_path, model_type, file_size) tuples
-        """
-        logger.info(f"Scanning models directory: {self.models_dir}")
+    def _root_by_id(self, root_id: str) -> Optional[ModelRoot]:
+        return next((r for r in self.resolver.roots() if r.id == root_id), None)
 
-        if not self.models_dir.exists():
-            logger.warning(f"Models directory does not exist: {self.models_dir}")
-            return []
+    def _rel_key(self, root: ModelRoot, rel_path: str) -> str:
+        key = unicodedata.normalize('NFC', rel_path)
+        if root.case_insensitive:
+            key = key.casefold()
+        return key
 
-        found_files = []
+    def _scanned_bindings(self) -> List[Tuple[str, str]]:
+        pairs: List[Tuple[str, str]] = []
+        for model_type in MODEL_TYPES:
+            for type_dir in self.resolver.type_dirs(model_type, online_only=True):
+                pairs.append((type_dir.root_id, model_type))
+        return pairs
 
-        for type_dir in self.models_dir.iterdir():
-            if not type_dir.is_dir():
-                continue
-
-            model_type = self.MODEL_TYPE_MAPPING.get(type_dir.name, 'unknown')
-            if model_type == 'unknown' and type_dir.name not in _warned_unmapped_type_dir:
-                logger.warning(f"Directory '{type_dir.name}' not in MODEL_TYPE_MAPPING, using 'unknown' type")
-                _warned_unmapped_type_dir.add(type_dir.name)
-            logger.debug(f"Scanning {type_dir.name} directory for {model_type} models")
-
-            if model_type in self.DIRECTORY_MODEL_TYPES:
-                found_files.extend(self._find_hf_directories(type_dir, model_type))
-                continue
-
-            # Recursively scan subdirectories
-            for file_path in type_dir.rglob("*"):
-                if file_path.is_file() and file_path.suffix.lower() in self.SUPPORTED_EXTENSIONS:
+    def scan_roots(self) -> List[FoundFile]:
+        found: List[FoundFile] = []
+        claimed: Set[str] = set()
+        for model_type in MODEL_TYPES:
+            for type_dir in self.resolver.type_dirs(model_type, online_only=True):
+                if model_type in self.DIRECTORY_MODEL_TYPES:
+                    entries = self._find_hf_dir_entries(type_dir)
+                else:
+                    entries = self._walk_type_dir_entries(type_dir)
+                for rel_path, abs_path, size, mtime_ns, is_dir in entries:
                     try:
-                        file_size = file_path.stat().st_size
-                        found_files.append((str(file_path), model_type, file_size))
-                        logger.debug(f"Found model: {file_path} ({file_size} bytes)")
-                    except OSError as e:
-                        logger.warning(f"Could not get file info for {file_path}: {e}")
+                        real = os.path.realpath(abs_path)
+                    except OSError:
+                        real = abs_path
+                    real_key = root_path_key(real)
+                    if real_key in claimed:
+                        continue
+                    claimed.add(real_key)
+                    found.append(FoundFile(type_dir.root_id, model_type, rel_path, abs_path, size, mtime_ns, is_dir))
+        return found
 
-        logger.info(f"Found {len(found_files)} model files")
-        return found_files
+    def _walk_type_dir_entries(self, type_dir: TypeDir) -> List[Tuple[str, str, int, int, bool]]:
+        base = type_dir.path
+        out: List[Tuple[str, str, int, int, bool]] = []
+        if not base.is_dir():
+            return out
 
-    def _find_hf_directories(self, type_dir: Path, model_type: str) -> List[Tuple[str, str, int]]:
-        """Find HF-layout checkpoint directories directly under `type_dir`.
+        visited_real_dirs: Set[str] = set()
+        for root, dirnames, filenames in os.walk(base, followlinks=True):
+            real_root = os.path.realpath(root)
+            real_root_key = root_path_key(real_root)
+            if real_root_key in visited_real_dirs:
+                dirnames[:] = []
+                continue
+            visited_real_dirs.add(real_root_key)
 
-        A candidate is an immediate subdirectory holding a `config.json` plus at
-        least one recognized shard file; its shards are not walked further or
-        indexed individually. Size is the sum of its shard files.
-        """
-        found: List[Tuple[str, str, int]] = []
-        for child in sorted(type_dir.iterdir()):
+            for filename in filenames:
+                file_path = Path(root) / filename
+                if file_path.suffix.lower() not in self.SUPPORTED_EXTENSIONS:
+                    continue
+                try:
+                    stat = file_path.stat()
+                    rel = file_path.relative_to(base).as_posix()
+                    out.append((rel, str(file_path), stat.st_size, stat.st_mtime_ns, False))
+                except OSError as e:
+                    logger.warning(f"Could not stat {file_path}: {e}")
+        return out
+
+    def _find_hf_dir_entries(self, type_dir: TypeDir) -> List[Tuple[str, str, int, int, bool]]:
+        base = type_dir.path
+        out: List[Tuple[str, str, int, int, bool]] = []
+        if not base.is_dir():
+            return out
+
+        for child in sorted(base.iterdir()):
             if not child.is_dir():
                 continue
             if not (child / "config.json").is_file():
@@ -115,22 +143,14 @@ class ModelScanner:
                 if not shard_files:
                     continue
                 total_size = sum(f.stat().st_size for f in shard_files)
+                mtime_ns = child.stat().st_mtime_ns
+                rel = child.relative_to(base).as_posix()
+                out.append((rel, str(child), total_size, mtime_ns, True))
             except OSError as e:
                 logger.warning(f"Could not read HF-layout directory {child}: {e}")
-                continue
-            found.append((str(child), model_type, total_size))
-            logger.debug(f"Found HF-layout checkpoint: {child} ({total_size} bytes)")
-        return found
+        return out
 
     def calculate_directory_fingerprint(self, dir_path: str) -> Optional[str]:
-        """Cheap stable fingerprint for an HF-layout checkpoint directory.
-
-        Hashing every shard's full contents would make indexing a multi-GB
-        checkpoint directory unusable, so this hashes `config.json`'s bytes plus
-        the sorted (name, size) of each shard file instead - stable across
-        re-indexing the same directory, and it changes whenever the shard set
-        changes (a file added/removed/resized).
-        """
         try:
             path = Path(dir_path)
             hasher = hashlib.sha256()
@@ -149,404 +169,411 @@ class ModelScanner:
             logger.error(f"Error fingerprinting HF-layout directory {dir_path}: {e}")
             return None
 
-    def calculate_sha256(self, file_path: str, chunk_size: int = 4 * 1024 * 1024) -> Optional[str]:
-        """
-        Calculate SHA256 hash of a file
-        """
+    def calculate_sha256(
+        self, file_path: str, chunk_size: int = 4 * 1024 * 1024, cancel_check: Optional[Any] = None
+    ) -> Optional[str]:
         try:
             sha256_hash = hashlib.sha256()
-
             with open(file_path, "rb") as f:
-                # Read in chunks to handle large files efficiently
                 for chunk in iter(lambda: f.read(chunk_size), b""):
+                    if cancel_check is not None and cancel_check():
+                        raise ScanCancelled(file_path)
                     sha256_hash.update(chunk)
-
             return sha256_hash.hexdigest()
-
+        except ScanCancelled:
+            raise
         except Exception as e:
             logger.error(f"Error calculating SHA256 for {file_path}: {e}")
             return None
 
-    @staticmethod
-    def _file_identity(file_path: str) -> Optional[tuple]:
-        """(size, mtime_ns) as of right now, or None if the file cannot be stat'd.
-
-        Read BEFORE the file's bytes, never after: the cache key has to describe
-        the state the digest was computed from. Stat'ing afterwards records the
-        mtime of a file that may have been rewritten mid-hash, which stores a
-        digest of the old bytes under the new file's key - a cache entry that
-        looks fresh forever and is wrong forever.
-        """
+    def _legacy_hash_cache_keys(self, abs_path: str) -> List[str]:
+        keys: List[str] = []
         try:
-            stat = Path(file_path).stat()
-            return stat.st_size, stat.st_mtime_ns
-        except OSError as e:
-            logger.debug(f"Could not stat {file_path} for hash caching: {e}")
-            return None
+            real = os.path.realpath(abs_path)
+        except OSError:
+            real = None
+        if real is not None and real != abs_path:
+            keys.append(real)
 
-    @staticmethod
-    def _seed_hash_cache(file_path: str, identity: Optional[tuple], sha256: str) -> None:
-        """Best-effort: a cache-seeding failure must never fail the index pass itself.
-
-        `identity` is the (size, mtime_ns) captured before hashing - see
-        `_file_identity`. Nothing is cached without it, because a digest with no
-        trustworthy key is worse than no cache entry at all.
-
-        Broad `except Exception` deliberately: a database error (e.g. a test
-        double with no `model_hash_cache` table) is "the cache didn't get seeded
-        this time", not "indexing failed".
-        """
-        if identity is None:
-            return
+        posix = abs_path.replace(os.sep, "/")
         try:
-            from src.features.models.hash_cache_repository import model_hash_cache_repo
-            size, mtime_ns = identity
-            model_hash_cache_repo.put(file_path, size, mtime_ns, sha256)
-        except Exception as e:
-            logger.debug(f"Could not seed hash cache for {file_path}: {e}")
+            home = str(self.resolver.home_dir()).replace(os.sep, "/").rstrip("/")
+        except Exception:
+            home = None
+        if home is not None and posix.startswith(home + "/"):
+            keys.append("models/" + posix[len(home) + 1:])
+        return keys
 
-    def index_single_model(self, file_path: str, model_type: str, file_size: int) -> Optional[Model]:
-        """
-        Index a single model file with SHA256 deduplication.
+    def _digest_for(
+        self, abs_path: str, size: int, mtime_ns: int, cancel_check: Optional[Any] = None
+    ) -> Optional[str]:
+        from src.features.models.hash_cache_repository import model_hash_cache_repo
 
-        Handles the following scenarios:
-        1. Model with same SHA256 exists at same path -> Skip (already indexed)
-        2. Model with same SHA256 exists at different path -> Update path (model moved/renamed)
-        3. Model exists at path with different SHA256 -> Update hash (file replaced)
-        4. Model with the same (model_type, filename) exists -> Update it. A model is
-           identified by its identity, not its path, so two files sharing a basename
-           under one type are one model.
-        5. New model -> Create new entry
-        """
+        cached = model_hash_cache_repo.get(abs_path)
+        if cached is None:
+            for legacy_key in self._legacy_hash_cache_keys(abs_path):
+                cached = model_hash_cache_repo.get(legacy_key)
+                if cached is not None:
+                    break
+        if cached and cached.size == size and cached.mtime_ns == mtime_ns:
+            return cached.sha256
+
+        digest = self.calculate_sha256(abs_path, cancel_check=cancel_check)
+        if digest:
+            try:
+                model_hash_cache_repo.put(abs_path, size, mtime_ns, digest)
+            except Exception as e:
+                logger.debug(f"Could not seed hash cache for {abs_path}: {e}")
+        return digest
+
+    def index_file(self, found: FoundFile, cancel_check: Optional[Any] = None) -> Optional[Model]:
         try:
-            filename = Path(file_path).name
-            is_directory = Path(file_path).is_dir()
-
-            # HF-layout checkpoint directories get a cheap fingerprint
-            # instead of a content hash - see calculate_directory_fingerprint.
-            if is_directory:
-                logger.debug(f"Fingerprinting HF-layout directory {file_path}")
-                identity = None
-                sha256 = self.calculate_directory_fingerprint(file_path)
+            filename = Path(found.abs_path).name
+            if found.is_directory:
+                sha256 = self.calculate_directory_fingerprint(found.abs_path)
             else:
-                logger.debug(f"Calculating SHA256 for {file_path}")
-                identity = self._file_identity(file_path)
-                sha256 = self.calculate_sha256(file_path)
+                sha256 = self._digest_for(found.abs_path, found.size, found.mtime_ns, cancel_check=cancel_check)
 
             if not sha256:
-                logger.error(f"Failed to hash/fingerprint {file_path}")
                 return None
 
-            # Seed the native scan's (path, size, mtime) hash cache with the digest
-            # this pass just computed, so a subsequent `scan_native_models` reuses it
-            # instead of re-reading the file - see hash_cache_repository.py. Directory
-            # fingerprints are deliberately excluded: they are not content hashes
-            # (101_add_model_is_directory.py) and must never be handed out as one.
-            if not is_directory:
-                self._seed_hash_cache(file_path, identity, sha256)
+            with self._write_lock:
+                model, touched = self._commit_indexed_file(found, filename, sha256)
+                self._recompute_availability_flags(touched)
+                return model
+        except ScanCancelled:
+            raise
+        except Exception as e:
+            logger.error(f"Error indexing {found.abs_path}: {e}")
+            return None
 
-            # Check if a model with this SHA256 already exists
-            existing_by_hash = model_repo.get_by_sha256(sha256, include_providers=False)
+    def index_single_model(
+        self, file_path: str, model_type: str, file_size: Optional[int] = None, cancel_check: Optional[Any] = None
+    ) -> Optional[Model]:
+        path = Path(file_path)
+        loc = self.resolver.to_logical(path)
+        if loc is None:
+            logger.warning(f"'{file_path}' is not under any known model root; cannot index it")
+            return None
+        try:
+            is_dir = path.is_dir()
+            stat = path.stat()
+        except OSError as e:
+            logger.warning(f"Cannot stat '{file_path}': {e}")
+            return None
+        size = file_size if file_size is not None else stat.st_size
+        found = FoundFile(loc.root_id, loc.model_type, loc.rel_path, str(path), size, stat.st_mtime_ns, is_dir)
+        return self.index_file(found, cancel_check=cancel_check)
 
-            # Check if a model exists at this file path (shouldn't happen with our new filtering)
-            existing_by_path = model_repo.get_by_file_path(file_path, include_providers=False)
+    def _commit_indexed_file(
+        self, found: FoundFile, filename: str, sha256: str
+    ) -> Tuple[Optional[Model], Set[str]]:
+        root = self._root_by_id(found.root_id)
+        if root is None:
+            return None, set()
+        rel_key = self._rel_key(root, found.rel_path)
+        seen_at = now_iso()
+        touched: Set[str] = set()
 
-            # Scenario 1: Same SHA256, same path (shouldn't happen with new filtering)
-            if existing_by_hash and existing_by_hash.file_path == file_path:
-                # This shouldn't happen anymore since we filter existing paths
-                logger.debug(f"Model already indexed (shouldn't happen): {filename}")
-                existing_by_hash.indexed_at = datetime.now()
-                existing_by_hash.is_available = True
-                existing_by_hash.unavailable_at = None
-                model_repo.update(existing_by_hash)
-                return existing_by_hash
+        existing_location = self.locations.get(found.root_id, found.model_type, rel_key)
+        existing_by_identity = model_repo.get_by_identity(found.model_type, filename, include_providers=False)
 
-            # Scenario 2: Same SHA256, different path (model moved/renamed or duplicate)
-            if existing_by_hash:
-                logger.debug(f"Found duplicate SHA256 - updating existing model from {existing_by_hash.file_path} to {file_path}")
+        if (
+            existing_location is not None and existing_by_identity is not None
+            and existing_location['model_id'] == existing_by_identity.id
+        ):
+            existing_by_identity.sha256 = sha256
+            existing_by_identity.file_size = found.size
+            existing_by_identity.is_directory = found.is_directory
+            existing_by_identity.indexed_at = datetime.now()
+            existing_by_identity.is_available = True
+            existing_by_identity.unavailable_at = None
+            model_repo.update(existing_by_identity)
+            self._write_location(found, rel_key, model_id=existing_by_identity.id, sha256=sha256, status='present', seen_at=seen_at)
+            touched.add(existing_by_identity.id)
+            return existing_by_identity, touched
 
-                # Update the existing model with new path/filename
-                existing_by_hash.file_path = file_path
+        if existing_by_identity is not None and existing_by_identity.sha256 and existing_by_identity.sha256 != sha256:
+            self._write_location(found, rel_key, model_id=existing_by_identity.id, sha256=sha256, status='conflict', seen_at=seen_at)
+            touched.add(existing_by_identity.id)
+            return existing_by_identity, touched
+
+        existing_by_hash = model_repo.get_by_sha256(sha256, include_providers=False)
+        if existing_by_hash is not None:
+            if existing_by_hash.model_type == found.model_type and existing_by_hash.filename == filename:
+                self._write_location(found, rel_key, model_id=existing_by_hash.id, sha256=sha256, status='present', seen_at=seen_at)
+                self._revive(existing_by_hash)
+                touched.add(existing_by_hash.id)
+                return existing_by_hash, touched
+
+            old_locations = self.locations.list_for_model(existing_by_hash.id)
+            if not self._any_location_still_present(old_locations):
                 existing_by_hash.filename = filename
-                existing_by_hash.file_size = file_size
-                existing_by_hash.model_type = model_type
-                existing_by_hash.is_directory = is_directory
+                existing_by_hash.model_type = found.model_type
+                existing_by_hash.file_size = found.size
+                existing_by_hash.is_directory = found.is_directory
                 existing_by_hash.indexed_at = datetime.now()
                 existing_by_hash.is_available = True
                 existing_by_hash.unavailable_at = None
-
-                # If there's an old entry at the new path (shouldn't happen), remove it
-                if existing_by_path and existing_by_path.id != existing_by_hash.id:
-                    logger.warning(f"Removing duplicate entry for {file_path}")
-                    model_repo.delete(existing_by_path.id)
-
                 model_repo.update(existing_by_hash)
-                return existing_by_hash
+                self._write_location(found, rel_key, model_id=existing_by_hash.id, sha256=sha256, status='present', seen_at=seen_at)
+                touched.add(existing_by_hash.id)
+                return existing_by_hash, touched
 
-            # Scenario 3: Different SHA256 at same path (file replaced - shouldn't happen with new filtering)
-            if existing_by_path:
-                logger.debug(f"Model file changed (shouldn't happen), updating: {filename}")
-                existing_by_path.sha256 = sha256
-                existing_by_path.file_size = file_size
-                existing_by_path.model_type = model_type
-                existing_by_path.is_directory = is_directory
-                existing_by_path.indexed_at = datetime.now()
-                existing_by_path.is_available = True
-                existing_by_path.unavailable_at = None
-                model_repo.update(existing_by_path)
-                return existing_by_path
-
-            # Scenario 4: same identity, different file. A model is (model_type, filename),
-            # so two files sharing a basename under one type are one model - e.g.
-            # loras/styleA/x.safetensors and loras/styleB/x.safetensors. Creating a second
-            # row would violate UNIQUE(model_type, filename) and abort the whole index run.
-            existing_by_identity = model_repo.get_by_identity(
-                model_type, filename, include_providers=False
+            logger.warning(
+                f"[MODEL_SCAN] '{found.abs_path}' duplicates the content of "
+                f"'{existing_by_hash.filename}' ({existing_by_hash.model_type}); not indexed"
             )
-            if existing_by_identity:
-                if existing_by_identity.sha256 and existing_by_identity.sha256 != sha256:
-                    logger.warning(
-                        f"Identity collision for {model_type}/{filename}: "
-                        f"{existing_by_identity.file_path} and {file_path} share a name but "
-                        f"differ in content. Keeping one model row and pointing it at the "
-                        f"newer file."
-                    )
-                existing_by_identity.file_path = file_path
-                existing_by_identity.file_size = file_size
+            return None, touched
+
+        if existing_by_identity is not None:
+            if not existing_by_identity.sha256:
                 existing_by_identity.sha256 = sha256
-                existing_by_identity.is_directory = is_directory
+                existing_by_identity.file_size = found.size
+                existing_by_identity.is_directory = found.is_directory
                 existing_by_identity.indexed_at = datetime.now()
                 existing_by_identity.is_available = True
                 existing_by_identity.unavailable_at = None
                 model_repo.update(existing_by_identity)
-                return existing_by_identity
+            self._write_location(found, rel_key, model_id=existing_by_identity.id, sha256=sha256, status='present', seen_at=seen_at)
+            touched.add(existing_by_identity.id)
+            return existing_by_identity, touched
 
-            # Scenario 5: Completely new model
-            model_data = Model(
-                filename=filename,
-                file_path=file_path,
-                file_size=file_size,
-                sha256=sha256,
-                model_type=model_type,
-                is_directory=is_directory,
-                indexed_at=datetime.now()
-            )
+        model_data = Model(
+            filename=filename, file_size=found.size, sha256=sha256,
+            model_type=found.model_type, is_directory=found.is_directory, indexed_at=datetime.now(),
+        )
+        try:
+            model = model_repo.create(model_data)
+        except Exception as create_error:
+            if "UNIQUE constraint failed" not in str(create_error):
+                raise
+            existing = model_repo.get_by_sha256(sha256, include_providers=False)
+            if existing is None:
+                return None, touched
+            model = existing
 
+        self._write_location(found, rel_key, model_id=model.id, sha256=sha256, status='present', seen_at=seen_at)
+        touched.add(model.id)
+        return model, touched
+
+    def _any_location_still_present(self, locations: List[Dict[str, Any]]) -> bool:
+        for loc in locations:
+            root = self._root_by_id(loc['root_id'])
+            if root is None or not self.resolver.is_online_for(loc['root_id'], loc['model_type']):
+                return True
             try:
-                model = model_repo.create(model_data)
-                logger.debug(f"Added new model: {filename}")
-                return model
-            except Exception as create_error:
-                if "UNIQUE constraint failed" in str(create_error):
-                    # This can happen if another thread indexed the same SHA256
-                    logger.warning(f"Duplicate SHA256 detected during creation for {file_path}, likely concurrent indexing")
-                    # Try to get the existing model
-                    existing = model_repo.get_by_sha256(sha256, include_providers=False)
-                    if existing:
-                        # Update it to point to this file
-                        existing.file_path = file_path
-                        existing.filename = filename
-                        existing.file_size = file_size
-                        existing.model_type = model_type
-                        existing.is_directory = is_directory
-                        existing.indexed_at = datetime.now()
-                        existing.is_available = True
-                        existing.unavailable_at = None
-                        model_repo.update(existing)
-                        return existing
-                    return None
-                else:
-                    raise create_error
+                abs_path = self.resolver.physical(
+                    LogicalLocation(loc['root_id'], loc['model_type'], loc['rel_path'])
+                )
+            except Exception:
+                return True
+            if abs_path.exists():
+                return True
+        return False
 
-        except Exception as e:
-            logger.error(f"Error indexing model {file_path}: {e}")
-            return None
+    def _write_location(
+        self, found: FoundFile, rel_key: str, *, model_id: str, sha256: str, status: str, seen_at: str
+    ) -> None:
+        self.locations.upsert(
+            model_id=model_id, root_id=found.root_id, model_type=found.model_type,
+            rel_path=found.rel_path, rel_key=rel_key, size=found.size, mtime_ns=found.mtime_ns,
+            sha256=sha256, status=status, seen_at=seen_at,
+        )
 
-    def _diff_against_index(
-        self, all_model_files: List[Tuple[str, str, int]]
-    ) -> Tuple[List[Tuple[str, str, int]], int]:
-        """Split an already-scanned file list into (files not yet in the index,
-        count already indexed). No hashing and no database writes - just a set
-        diff against known file paths. Shared by `index_models` (which then hashes
-        and upserts the new files) and `count_unindexed` (which stops right here).
-        """
-        # A model marked unavailable (see _cleanup_deleted_models) is deliberately
-        # left OUT of this set even though its row still exists - so if a scan finds
-        # a file at that path again (the models location switched back, say), it is
-        # treated as "new" and run back through index_single_model, which revives
-        # the row.
-        existing_models = model_repo.get_all(include_providers=False, include_tags=False, include_files=False)
-        existing_paths = {
-            model.file_path for model in existing_models
-            if getattr(model, 'is_available', True)
-        }
+    def _revive(self, model: Model) -> None:
+        if not model.is_available:
+            model.is_available = True
+            model.unavailable_at = None
+            model_repo.update(model)
 
-        new_model_files = [
-            (file_path, model_type, file_size)
-            for file_path, model_type, file_size in all_model_files
-            if file_path not in existing_paths
-        ]
+    def _recompute_availability_flags(self, model_ids: Set[str]) -> None:
+        if not model_ids:
+            return
+        online_root_ids = list(self.resolver.online_root_ids())
+        winners = self.locations.winners_by_model(online_root_ids)
 
-        skipped_count = len(all_model_files) - len(new_model_files)
-        return new_model_files, skipped_count
+        for model_id in model_ids:
+            model = model_repo.get_by_id(model_id, include_providers=False, include_tags=False)
+            if model is None:
+                continue
+            winner = winners.get(model_id)
+            if winner is not None:
+                if not model.is_available:
+                    model.is_available = True
+                    model.unavailable_at = None
+                    model_repo.update(model)
+            elif model.is_available:
+                model_repo.mark_unavailable(model.id)
+
+    @staticmethod
+    def _row_is_unverified_but_adoptable(row: Dict[str, Any], f: FoundFile) -> bool:
+        return (
+            row is not None and row['status'] == 'present' and row['size'] == f.size
+            and row['mtime_ns'] is None and bool(row['sha256'])
+        )
+
+    @classmethod
+    def _row_matches(cls, row: Optional[Dict[str, Any]], f: FoundFile) -> bool:
+        if row is None or row['status'] != 'present' or row['size'] != f.size:
+            return False
+        return row['mtime_ns'] == f.mtime_ns or cls._row_is_unverified_but_adoptable(row, f)
+
+    def count_unindexed_by_binding(self) -> Dict[Tuple[str, str], int]:
+        found = self.scan_roots()
+        roots_by_id = {r.id: r for r in self.resolver.roots()}
+        by_binding: Dict[Tuple[str, str], List[FoundFile]] = {}
+        for f in found:
+            by_binding.setdefault((f.root_id, f.model_type), []).append(f)
+
+        counts: Dict[Tuple[str, str], int] = {}
+        for key, files in by_binding.items():
+            root_id, model_type = key
+            root = roots_by_id.get(root_id)
+            if root is None:
+                continue
+            existing = {row['rel_key']: row for row in self.locations.list_for_root_type(root_id, model_type)}
+            n = 0
+            for f in files:
+                rel_key = self._rel_key(root, f.rel_path)
+                row = existing.get(rel_key)
+                if not self._row_matches(row, f):
+                    n += 1
+            if n:
+                counts[key] = n
+        return counts
 
     def count_unindexed(self) -> Dict[str, Any]:
-        """Cheap disk-vs-index diff for admin UI badges: how many files on disk
-        aren't indexed yet, broken down by type. No hashing, no writes - safe to
-        call on every page load.
-        """
-        new_model_files, _ = self._diff_against_index(self.scan_models_directory())
+        by_binding = self.count_unindexed_by_binding()
         by_type: Dict[str, int] = {}
-        for _, model_type, _ in new_model_files:
-            by_type[model_type] = by_type.get(model_type, 0) + 1
-        return {
-            'total': len(new_model_files),
-            'by_type': by_type,
-        }
+        total = 0
+        for (_, model_type), n in by_binding.items():
+            by_type[model_type] = by_type.get(model_type, 0) + n
+            total += n
+        return {'total': total, 'by_type': by_type}
 
-    def index_models(self, max_workers: int = 4) -> Dict[str, any]:
-        """
-        Index only new models that aren't already in the database
-        """
+    def index_models(self, max_workers: int = 4, cancel_check: Optional[Any] = None) -> Dict[str, Any]:
         logger.info("Starting model indexing process")
         start_time = datetime.now()
 
-        # Scan for model files
         self._report_progress(0, 0, "Scanning models directory...")
-        all_model_files = self.scan_models_directory()
+        found = self.scan_roots()
+        found_on_disk = len(found)
 
-        if not all_model_files:
-            logger.info("No model files found to index")
-            return {
-                'indexed': 0,
-                'skipped': 0,
-                'failed': 0,
-                'total': 0,
-                'duration': 0,
-                'models': [],
-                'new_files': 0
-            }
+        found_by_root: Dict[str, int] = {}
+        for f in found:
+            found_by_root[f.root_id] = found_by_root.get(f.root_id, 0) + 1
 
-        new_model_files, skipped_count = self._diff_against_index(all_model_files)
+        roots_by_id = {r.id: r for r in self.resolver.roots()}
+        by_binding: Dict[Tuple[str, str], List[FoundFile]] = {}
+        for f in found:
+            by_binding.setdefault((f.root_id, f.model_type), []).append(f)
 
-        if not new_model_files:
-            logger.info(f"No new model files to index. Skipped {skipped_count} already indexed files.")
-            # Still clean up deleted files
-            self._cleanup_deleted_models()
+        seen_at = now_iso()
+        new_or_changed: List[FoundFile] = []
+        skipped_count = 0
+        touched_by_diff: Set[str] = set()
 
-            end_time = datetime.now()
-            duration = (end_time - start_time).total_seconds()
+        for (root_id, model_type), files in by_binding.items():
+            root = roots_by_id.get(root_id)
+            if root is None:
+                continue
+            existing = {row['rel_key']: row for row in self.locations.list_for_root_type(root_id, model_type)}
+            present_rel_keys: List[str] = []
+            for f in files:
+                rel_key = self._rel_key(root, f.rel_path)
+                present_rel_keys.append(rel_key)
+                row = existing.get(rel_key)
+                if not self._row_matches(row, f):
+                    new_or_changed.append(f)
+                elif row['mtime_ns'] != f.mtime_ns:
+                    self.locations.adopt_mtime(root_id, model_type, rel_key, f.mtime_ns, seen_at)
+                    touched_by_diff.add(row['model_id'])
+                    skipped_count += 1
+                else:
+                    self.locations.touch_present(root_id, model_type, rel_key, seen_at)
+                    touched_by_diff.add(row['model_id'])
+                    skipped_count += 1
+            for rel_key, row in existing.items():
+                if rel_key not in present_rel_keys and row['status'] != 'missing':
+                    touched_by_diff.add(row['model_id'])
+            self.locations.mark_missing_for_root_type(root_id, model_type, present_rel_keys, seen_at)
 
-            return {
-                'indexed': 0,
-                'skipped': skipped_count,
-                'failed': 0,
-                'total': len(all_model_files),
-                'duration': duration,
-                'models': [],
-                'new_files': 0
-            }
+        for (root_id, model_type) in self._scanned_bindings():
+            if (root_id, model_type) in by_binding:
+                continue
+            existing = {row['rel_key']: row for row in self.locations.list_for_root_type(root_id, model_type)}
+            for row in existing.values():
+                if row['status'] != 'missing':
+                    touched_by_diff.add(row['model_id'])
+            self.locations.mark_missing_for_root_type(root_id, model_type, [], seen_at)
 
-        logger.info(f"Found {len(new_model_files)} new files to index (skipping {skipped_count} already indexed)")
+        total_new = len(new_or_changed)
+        indexed_models: List[Dict[str, Any]] = []
+        failed_files: List[Dict[str, str]] = []
+        failed_by_root: Dict[str, int] = {}
+        cancelled = False
 
-        indexed_models = []
-        failed_files = []
+        if total_new:
+            self._report_progress(0, total_new, "Looking through your models folder...")
 
-        # Index only new models in parallel
-        logger.info(f"Indexing {len(new_model_files)} new models with {max_workers} workers")
-        total_new = len(new_model_files)
-        # Files-scanned count, known once we know which files are new - lets a
-        # caller show "N of M" instead of the indeterminate "Scanning..." tick.
-        self._report_progress(0, total_new, "Looking through your models folder...")
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_file = {
+                    executor.submit(self.index_file, f, cancel_check): f
+                    for f in new_or_changed
+                }
+                for i, future in enumerate(as_completed(future_to_file), 1):
+                    f = future_to_file[future]
+                    try:
+                        model = future.result()
+                        if model:
+                            indexed_models.append(model.to_dict(include_providers=False))
+                        else:
+                            failed_files.append({'path': f.abs_path, 'error': 'Failed to hash or index this file'})
+                            failed_by_root[f.root_id] = failed_by_root.get(f.root_id, 0) + 1
+                    except ScanCancelled:
+                        cancelled = True
+                    except Exception as e:
+                        logger.error(f"Exception processing {f.abs_path}: {e}")
+                        failed_files.append({'path': f.abs_path, 'error': str(e)})
+                        failed_by_root[f.root_id] = failed_by_root.get(f.root_id, 0) + 1
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit indexing tasks for new files only
-            future_to_file = {
-                executor.submit(self.index_single_model, file_path, model_type, file_size): (file_path, model_type, file_size)
-                for file_path, model_type, file_size in new_model_files
-            }
+                    self._report_progress(i, total_new, f"Checked {Path(f.abs_path).name}")
 
-            # Process completed tasks
-            for i, future in enumerate(as_completed(future_to_file), 1):
-                file_path, model_type, file_size = future_to_file[future]
-                try:
-                    model = future.result()
+                    if cancelled or (cancel_check is not None and cancel_check()):
+                        cancelled = True
+                        for pending_future in future_to_file:
+                            pending_future.cancel()
+                        logger.info(f"Model indexing cancelled after {i}/{total_new} files")
+                        break
 
-                    # Log progress every 10 models or at the end
-                    if i % 10 == 0 or i == total_new:
-                        logger.debug(f"Indexing progress: {i}/{total_new} new models processed ({(i/total_new*100):.1f}%)")
+        self._recompute_availability_flags(touched_by_diff)
 
-                    if model:
-                        indexed_models.append(model.to_dict(include_providers=False))
-                        logger.debug(f"Successfully indexed: {Path(file_path).name}")
-                    else:
-                        failed_files.append(file_path)
-                        logger.debug(f"Failed to index: {Path(file_path).name}")
-
-                except Exception as e:
-                    logger.error(f"Exception processing {file_path}: {e}")
-                    failed_files.append(file_path)
-
-                # One tick per completed file: hashing a large checkpoint is the
-                # slow part, so this is the only granularity that reflects real
-                # progress on a huge library. The caller throttles DB writes.
-                self._report_progress(i, total_new, f"Checked {Path(file_path).name}")
-
-        # Clean up deleted files
-        self._cleanup_deleted_models()
-
-        end_time = datetime.now()
-        duration = (end_time - start_time).total_seconds()
-
+        duration = (datetime.now() - start_time).total_seconds()
         result = {
             'indexed': len(indexed_models),
             'skipped': skipped_count,
             'failed': len(failed_files),
-            'total': len(all_model_files),
+            'total': found_on_disk,
             'duration': duration,
             'models': indexed_models,
-            'new_files': len(new_model_files),
-            'failed_files': failed_files
+            'new_files': total_new,
+            'failed_files': failed_files,
+            'found_on_disk': found_on_disk,
+            'cancelled': cancelled,
+            'found_by_root': found_by_root,
+            'failed_by_root': failed_by_root,
         }
-
-        logger.info(f"Model indexing completed: {result['indexed']} new models indexed, {result['skipped']} skipped, {result['failed']} failed in {duration:.2f}s")
-
+        logger.info(
+            f"Model indexing completed: {result['indexed']} new models indexed, "
+            f"{result['skipped']} skipped, {result['failed']} failed in {duration:.2f}s"
+        )
         return result
 
-    def _cleanup_deleted_models(self):
-        """Soft-mark models whose file is no longer found on disk.
-
-        Marks rather than deletes: the models location can be switched away and
-        back (see src.features.models.location), and a hard delete would throw
-        away tags/ratings/user assignments for a file that is only temporarily
-        unreachable. `index_models` revives a marked row the next time a scan
-        finds its file again.
-        """
-        logger.info("Checking for models with missing files")
-
-        all_models = model_repo.get_all(include_providers=False, include_files=False)
-        marked_count = 0
-
-        for model in all_models:
-            if not getattr(model, 'is_available', True):
-                continue  # already marked; avoid a redundant write + timestamp bump
-            if not model.file_path:
-                continue  # not file-backed (no path recorded) - nothing on disk to check
-            if not Path(model.file_path).exists():
-                logger.debug(f"Marking model unavailable (file missing): {model.filename}")
-                model_repo.mark_unavailable(model.id)
-                marked_count += 1
-
-        if marked_count > 0:
-            logger.info(f"Marked {marked_count} models unavailable (file missing)")
-
-    def get_indexing_status(self) -> Dict[str, any]:
-        """Get current indexing status and statistics from database only"""
-        # Get database statistics
+    def get_indexing_status(self) -> Dict[str, Any]:
         type_counts = model_repo.count_by_type()
         type_sizes = model_repo.get_total_size_by_type()
 
-        # Calculate total size in different units
         total_size_bytes = sum(type_sizes.values())
         total_size_mb = total_size_bytes / (1024 * 1024) if total_size_bytes > 0 else 0
         total_size_gb = total_size_bytes / (1024 * 1024 * 1024) if total_size_bytes > 0 else 0
@@ -567,22 +594,3 @@ class ModelScanner:
             'models_missing_hashes': len(model_repo.get_models_missing_hashes()),
             'models_without_provider_info': len(model_repo.get_models_without_provider_info())
         }
-
-# Global scanner instance (lazy initialized to avoid database access before migrations)
-_model_scanner: Optional[ModelScanner] = None
-
-def get_model_scanner() -> ModelScanner:
-    """Get the global model scanner instance (lazy initialization)"""
-    global _model_scanner
-    if _model_scanner is None:
-        _model_scanner = ModelScanner()
-    return _model_scanner
-
-# Module-level handle that lazily builds the scanner on first access, so importing
-# this module never touches the settings database before migrations have run.
-class _ModelScannerProxy:
-    """Proxy that lazily initializes the model scanner on first access"""
-    def __getattr__(self, name):
-        return getattr(get_model_scanner(), name)
-
-model_scanner = _ModelScannerProxy()

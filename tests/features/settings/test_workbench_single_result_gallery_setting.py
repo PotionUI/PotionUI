@@ -51,7 +51,7 @@ def seeded_db():
 
 def _controller():
     repo = SettingRepository()
-    return SettingsController(Settings(repo), repo, Mock(), Mock(), Mock())
+    return SettingsController(Settings(repo), repo, Mock(), Mock())
 
 
 def _non_admin():

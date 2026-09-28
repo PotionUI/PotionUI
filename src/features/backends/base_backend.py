@@ -217,6 +217,9 @@ class BaseBackend(ABC):
         # Default implementation for local backends
         return files
 
+    def resolve_ref(self, ref: str) -> str:
+        return ref
+
     def supports_model_listing(self) -> bool:
         """
         Whether this backend can enumerate the models it is able to load.

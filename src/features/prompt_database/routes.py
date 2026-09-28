@@ -71,6 +71,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     download_queue = container.download_queue
     prompt_importer_registry = container.prompt_importer_registry
     collection_repository = container.collection_repository
+    model_roots = container.model_roots
 
     def membership(prompt_ids: List[str], user_id: str) -> Dict[str, List[Dict[str, str]]]:
         grouped = collection_repository.get_for_prompts(prompt_ids, user_id)
@@ -106,7 +107,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         name = model_name or settings.get_setting(
             "prompt_embedding_model", LocalEmbeddingProvider.DEFAULT_MODEL
         )
-        data = LocalEmbeddingProvider.resolve_status(name, settings.get_models_dir())
+        data = LocalEmbeddingProvider.resolve_status(name, model_roots)
         active = download_queue.find_active_download_for_repo(name)
         data["active_download"] = active.to_dict() if active else None
         # Only the active provider instance can report residency, and only

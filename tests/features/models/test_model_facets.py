@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from src.features.models.catalog import ListModelsParams, ModelCatalog
+from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY as TYPE_DIR_MAP
 from src.features.models.records import Model
 from src.features.models.repository import ModelRepository
 from src.features.models.routes import ModelController, build_router
@@ -29,17 +30,25 @@ class TestFacetCounts(PersistenceTestBase):
         self.lora_c = self._model("flux_style.safetensors", "lora", [self.photo])
         self.vae = self._model("krea2_vae.safetensors", "vae", [])
         self.ckpt = self._model("sdxl_base.safetensors", "checkpoint", [self.photo])
+        depot = Path(self.temp_dir) / "depot"
+
+        def _write_dir(model_type):
+            entry = Mock()
+            entry.path = depot / TYPE_DIR_MAP.get(model_type, model_type)
+            return entry
+
+        scanner = Mock(MODEL_TYPE_MAPPING={})
+        scanner.resolver.write_dir.side_effect = _write_dir
         self.catalog = ModelCatalog(
             self.repository,
             Mock(),
-            Mock(models_dir=Path(self.temp_dir) / "depot", MODEL_TYPE_MAPPING={}),
+            scanner,
             user_attribute_repository=Mock(),
         )
 
     def _model(self, filename, model_type, tags):
         model = self.repository.create(Model(
             filename=filename,
-            file_path=os.path.join("/models", filename),
             file_size=1,
             sha256=filename.ljust(64, "0")[:64],
             model_type=model_type,

@@ -203,7 +203,16 @@ from src.plugin_api.phrasebook import (
 )
 
 # Model metadata field identifiers, and a model's marketplace provider link.
-from src.plugin_api.models import WellKnownModelMetadataField, get_model_provider_info
+from src.plugin_api.models import (
+    MODEL_DIRECTORY_ALIASES,
+    WellKnownModelMetadataField,
+    get_model_provider_info,
+    model_for_path,
+    model_type_dirs,
+    model_write_dir,
+    resolve_model_file,
+    type_for_folder_name,
+)
 
 # Contributing a step algorithm or a sigma schedule to the native engine.
 from src.plugin_api.sampling import (
@@ -361,6 +370,12 @@ __all__ = [
     # Model metadata fields, and a model's marketplace provider link
     "WellKnownModelMetadataField",
     "get_model_provider_info",
+    "MODEL_DIRECTORY_ALIASES",
+    "model_for_path",
+    "model_type_dirs",
+    "model_write_dir",
+    "resolve_model_file",
+    "type_for_folder_name",
     # Samplers and schedules
     "OptionSpec",
     "SamplerDefinition",

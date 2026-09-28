@@ -94,8 +94,6 @@ def build_router(container: "AppContainer") -> APIRouter:
             current.chunk_size_kb = request.chunk_size_kb
         if request.verify_checksum is not None:
             current.verify_checksum = request.verify_checksum
-        if request.default_model_directory is not None:
-            current.default_model_directory = request.default_model_directory
         if request.default_media_directory is not None:
             current.default_media_directory = request.default_media_directory
 

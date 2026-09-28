@@ -66,7 +66,6 @@ _DOC_T2V = {
 def _process_video(ltx_template, form_over=None):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )

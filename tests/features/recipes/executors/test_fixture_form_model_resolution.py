@@ -40,8 +40,8 @@ CHECKPOINT_FILENAME = "cyberrealisticPony_v180Coreshift.safetensors"
 
 
 class FakeModel:
-    def __init__(self, file_path):
-        self.file_path = file_path
+    def __init__(self, id):
+        self.id = id
 
 
 class FakeModelRepository:
@@ -128,7 +128,7 @@ def test_a_required_multi_media_field_gets_a_LIST_placeholder():
 
 def test_the_main_checkpoint_field_resolves_to_the_real_indexed_path(loader, sdxl_preset, template_processor):
     repo = FakeModelRepository({
-        ("checkpoint", CHECKPOINT_FILENAME): FakeModel("/models/checkpoints/" + CHECKPOINT_FILENAME),
+        ("checkpoint", CHECKPOINT_FILENAME): FakeModel("m-checkpoint"),
     })
 
     form_data = build_fixture_form_data(
@@ -137,7 +137,7 @@ def test_the_main_checkpoint_field_resolves_to_the_real_indexed_path(loader, sdx
         recipe=_sdxl_recipe(), model_repository=repo,
     )
 
-    assert form_data["model"] == "/models/checkpoints/" + CHECKPOINT_FILENAME
+    assert form_data["model"] == "model:m-checkpoint"
     assert "SETUP-CHECK" not in form_data["model"]
 
 
@@ -162,7 +162,7 @@ def test_optional_pickers_without_a_recipe_artifact_are_cleared_not_faked(loader
     them, e.g. `pipeline.yml`'s embedding stages), never a `/SETUP-CHECK`
     path a pipe might load unconditionally."""
     repo = FakeModelRepository({
-        ("checkpoint", CHECKPOINT_FILENAME): FakeModel("/models/checkpoints/" + CHECKPOINT_FILENAME),
+        ("checkpoint", CHECKPOINT_FILENAME): FakeModel("m-checkpoint"),
     })
 
     form_data = build_fixture_form_data(
@@ -204,8 +204,7 @@ def test_resolve_model_fields_leaves_an_explicit_default_untouched():
     fields = [_field("model")]
     form_data = {"model": "/models/checkpoints/already-set.safetensors"}
     recipe = _sdxl_recipe()
-    repo = FakeModelRepository({(
-        "checkpoint", CHECKPOINT_FILENAME): FakeModel("/models/checkpoints/" + CHECKPOINT_FILENAME)})
+    repo = FakeModelRepository({("checkpoint", CHECKPOINT_FILENAME): FakeModel("m-checkpoint")})
 
     _resolve_model_fields(fields, form_data, recipe=recipe, model_repository=repo)
 
@@ -243,8 +242,8 @@ def _sentinel_form():
 
 def test_resolve_model_fields_uses_the_selected_variant():
     repo = FakeModelRepository({
-        ("diffusion_model", "fp8.safetensors"): FakeModel("/m/fp8.safetensors"),
-        ("diffusion_model", "nvfp4.safetensors"): FakeModel("/m/nvfp4.safetensors"),
+        ("diffusion_model", "fp8.safetensors"): FakeModel("m-fp8"),
+        ("diffusion_model", "nvfp4.safetensors"): FakeModel("m-nvfp4"),
     })
     form_data = _sentinel_form()
 
@@ -256,11 +255,11 @@ def test_resolve_model_fields_uses_the_selected_variant():
         selections={"dit": "nvfp4"},
     )
 
-    assert form_data["diffusion_model"] == "/m/nvfp4.safetensors"
+    assert form_data["diffusion_model"] == "model:m-nvfp4"
 
 
 def test_resolve_model_fields_accepts_any_installed_variant_without_a_selection():
-    repo = FakeModelRepository({("diffusion_model", "bf16.safetensors"): FakeModel("/m/bf16.safetensors")})
+    repo = FakeModelRepository({("diffusion_model", "bf16.safetensors"): FakeModel("m-bf16")})
     form_data = _sentinel_form()
 
     _resolve_model_fields(
@@ -270,7 +269,7 @@ def test_resolve_model_fields_accepts_any_installed_variant_without_a_selection(
         model_repository=repo,
     )
 
-    assert form_data["diffusion_model"] == "/m/bf16.safetensors"
+    assert form_data["diffusion_model"] == "model:m-bf16"
 
 
 def test_resolve_model_fields_fails_when_no_variant_is_installed():
@@ -293,8 +292,8 @@ def test_two_artifacts_of_one_model_type_go_to_the_fields_that_recommend_them():
         {"name": "audio_vae", "type": "model", "configuration": {"model_type": "vae", "recommendations": [{"name": "audio_vae.safetensors"}]}},
     ]
     repo = FakeModelRepository({
-        ("vae", "video_vae.safetensors"): FakeModel("/m/video_vae.safetensors"),
-        ("vae", "audio_vae.safetensors"): FakeModel("/m/audio_vae.safetensors"),
+        ("vae", "video_vae.safetensors"): FakeModel("m-video-vae"),
+        ("vae", "audio_vae.safetensors"): FakeModel("m-audio-vae"),
     })
     form_data = {
         "vae": "/SETUP-CHECK/models/vae.safetensors",
@@ -303,4 +302,4 @@ def test_two_artifacts_of_one_model_type_go_to_the_fields_that_recommend_them():
 
     _resolve_model_fields(fields, form_data, recipe=recipe, model_repository=repo)
 
-    assert form_data == {"vae": "/m/video_vae.safetensors", "audio_vae": "/m/audio_vae.safetensors"}
+    assert form_data == {"vae": "model:m-video-vae", "audio_vae": "model:m-audio-vae"}

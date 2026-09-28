@@ -5,7 +5,6 @@ from datetime import datetime
 from src.features.settings.routes import SettingsController
 from src.features.settings.dto import SettingUpdateRequest
 from src.platform.settings.settings import Settings
-from src.features.models.directory import ModelDirectories
 from src.platform.runtime.gpu import GpuMonitor
 from src.features.backends.backend_registry import BackendRegistry
 from src.platform.settings.repository import SettingRepository
@@ -28,11 +27,6 @@ class TestSettingsController:
         return Mock(spec=SettingRepository)
 
     @pytest.fixture
-    def mock_model_directories(self):
-        """Mock ModelDirectories"""
-        return Mock(spec=ModelDirectories)
-
-    @pytest.fixture
     def mock_gpu_monitor(self):
         """Mock GpuMonitor"""
         return Mock(spec=GpuMonitor)
@@ -46,12 +40,11 @@ class TestSettingsController:
         return mock
 
     @pytest.fixture
-    def controller(self, mock_settings, mock_setting_repository, mock_model_directories, mock_gpu_monitor, mock_backend_registry):
+    def controller(self, mock_settings, mock_setting_repository, mock_gpu_monitor, mock_backend_registry):
         """Create SettingsController instance with mocked dependencies"""
         return SettingsController(
             settings=mock_settings,
             setting_repository=mock_setting_repository,
-            model_directories=mock_model_directories,
             gpu_monitor=mock_gpu_monitor,
             backend_registry=mock_backend_registry
         )
@@ -470,7 +463,6 @@ class TestSettingsDeadModelDirectoryRoutesRemoved:
         container = SimpleNamespace(
             settings=Mock(spec=Settings),
             setting_repository=Mock(spec=SettingRepository),
-            model_directories=Mock(spec=ModelDirectories),
             gpu_monitor=Mock(spec=GpuMonitor),
             backend_registry=MagicMock(spec=BackendRegistry),
         )
@@ -485,7 +477,6 @@ class TestSettingsDeadModelDirectoryRoutesRemoved:
         controller = SettingsController(
             settings=Mock(spec=Settings),
             setting_repository=Mock(spec=SettingRepository),
-            model_directories=Mock(spec=ModelDirectories),
             gpu_monitor=Mock(spec=GpuMonitor),
             backend_registry=MagicMock(spec=BackendRegistry),
         )
@@ -508,7 +499,6 @@ class TestSettingsSecretMasking:
         return SettingsController(
             settings=Mock(spec=Settings),
             setting_repository=Mock(spec=SettingRepository),
-            model_directories=Mock(spec=ModelDirectories),
             gpu_monitor=Mock(spec=GpuMonitor),
             backend_registry=MagicMock(spec=BackendRegistry),
         )

@@ -80,7 +80,7 @@ def test_manager_get_set_and_invalid_clamp(seeded_db):
 
 def _controller():
     repo = SettingRepository()
-    return SettingsController(Settings(repo), repo, Mock(), Mock(), Mock())
+    return SettingsController(Settings(repo), repo, Mock(), Mock())
 
 
 def _admin():

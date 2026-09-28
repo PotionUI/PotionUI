@@ -11,9 +11,11 @@ Administration is organized into tabs:
 
 ## System Settings
 
-Global application settings for the server — the top-level configuration that applies to everyone.
+Global application settings for the server — the top-level configuration that applies to everyone, organized into sections in the left rail: Access, Content Safety, Media storage, Backups, Housekeeping, Search & Tagging, Generation, External Login, and Logs.
 
-### Thumbnails
+### Media storage
+
+Where generated files are written (local disk or S3) and the thumbnail settings below live together in this section.
 
 Gallery previews are made at the moment a generation is written to disk. Which sizes get made, and how a video's moving preview is encoded, is set here, because a moving preview has no compression between frames and is by far the largest thing an install writes for each generation.
 
@@ -42,6 +44,30 @@ Three tiers, each a superset of the one before it: **config** is the database, t
 ## Models
 
 Server-side model management: reviewing installed models and, together with the **Model Downloader** plugin, adding new ones. This is the admin counterpart to the user-facing **Models** page.
+
+Its **Folders** section is where model files live and how PotionUI finds them. Models don't have
+to sit in one place: PotionUI keeps a list of **folders** (the built-in `models/` folder plus any
+you add), each of which can hold any number of model types.
+
+**Add folder** takes a path — an existing ComfyUI or A1111 install, a folder on another drive, a
+mounted network share — and **Detect** reads it, shows which types it recognises (checkpoints,
+LoRAs, VAEs, and so on) with a file count for each, and pre-ticks the ones it found. Tick or
+untick types, and turn on **Download new models here** if new downloads for those types should
+land in this folder rather than the default. **Add folder** creates it; indexing starts in the
+background so its models show up in the picker and the Models list as soon as it finishes.
+
+Each folder in the list can be expanded to rename it, relink its path (if a drive letter or mount
+point changed — nothing is re-hashed, so this is instant even for a huge library), mark it
+**read-only** so PotionUI never writes into it, remove a type it no longer holds, or delete the
+folder entirely (its models become unavailable, not deleted — the files stay exactly where they
+are). A folder's live state — **Online**, **Offline**, or **Unreadable** — is shown next to its
+name, with **Probe now** to recheck it immediately (useful right after plugging in a USB drive).
+
+When more than one folder holds the same model type, **Model type order** lets you set which one
+is checked first (so the same LoRA in two folders has one clear winner) and which one is the
+**write** folder for that type. **Suggested folders** lists any folder with model files PotionUI
+found but that isn't part of a folder entry yet — **Add as root** turns the suggestion into a
+proper entry without re-downloading or re-hashing anything already indexed.
 
 ## Presets
 

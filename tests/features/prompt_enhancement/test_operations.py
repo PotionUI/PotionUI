@@ -331,10 +331,13 @@ class Mock_ModelIndex:
 
     def __init__(self, by_path):
         self._by_path = by_path
+        self._by_id = {data["id"]: data for data in by_path.values()}
         self.model_repo = SimpleNamespace(
             get_by_file_path=self._get_by_file_path,
+            get_by_id=self._get_by_id,
             get_all=lambda **kw: [],
         )
+        self.locator = SimpleNamespace(model_for_path=self._model_for_path)
 
     def _get_by_file_path(self, path, **kwargs):
         data = self._by_path.get(path)
@@ -342,6 +345,22 @@ class Mock_ModelIndex:
             return None
         model = MagicMock()
         model.to_dict.return_value = {**data, "tags": []}
+        return model
+
+    def _get_by_id(self, model_id, **kwargs):
+        data = self._by_id.get(model_id)
+        if data is None:
+            return None
+        model = MagicMock()
+        model.to_dict.return_value = {**data, "tags": []}
+        return model
+
+    def _model_for_path(self, path):
+        data = self._by_path.get(path)
+        if data is None:
+            return None
+        model = MagicMock()
+        model.id = data["id"]
         return model
 
 

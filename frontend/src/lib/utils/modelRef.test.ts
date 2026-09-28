@@ -9,11 +9,11 @@ import {
 
 describe('refFor', () => {
 	it('prefers a model:<id> ref when the model has an id', () => {
-		expect(refFor({ id: 'abc', file_path: '/models/x.safetensors' })).toBe('model:abc');
+		expect(refFor({ id: 'abc', filename: 'x.safetensors' })).toBe('model:abc');
 	});
 
-	it('falls back to file_path when there is no id', () => {
-		expect(refFor({ file_path: '/models/x.safetensors' })).toBe('/models/x.safetensors');
+	it('is empty when there is no id', () => {
+		expect(refFor({ filename: 'x.safetensors' })).toBe('');
 	});
 
 	it('is empty for a model with neither', () => {
@@ -27,10 +27,6 @@ describe('matchesStoredValue', () => {
 	it('matches a model:<id> ref by id', () => {
 		expect(matchesStoredValue({ id: 'abc' }, `${MODEL_REF_PREFIX}abc`)).toBe(true);
 		expect(matchesStoredValue({ id: 'other' }, `${MODEL_REF_PREFIX}abc`)).toBe(false);
-	});
-
-	it('matches a legacy value by exact file_path', () => {
-		expect(matchesStoredValue({ file_path: '/models/x.safetensors' }, '/models/x.safetensors')).toBe(true);
 	});
 
 	it('matches a legacy value by bare filename', () => {

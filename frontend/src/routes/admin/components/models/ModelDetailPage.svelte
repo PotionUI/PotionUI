@@ -287,7 +287,8 @@
 							<ModelTechnicalDetailsCard
 								bare
 								filename={$model.filename}
-								filePath={$model.file_path}
+								location={$model.location}
+								copies={$model.copies}
 								sha256={$model.sha256}
 								fileSize={$model.file_size}
 								indexedAt={$model.indexed_at}

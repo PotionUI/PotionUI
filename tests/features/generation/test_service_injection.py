@@ -45,7 +45,6 @@ def collaborators():
 def manager(collaborators):
     return GenerationEngine(
         gpu=collaborators["gpu"],
-        model_directories=Mock(),
         pipe_catalog=Mock(),
         settings=Mock(),
         system_monitor=collaborators["system_monitor"],
@@ -68,7 +67,7 @@ class TestAssetsService:
         """Absent rather than exploding: every consumer guards on None, and a
         pipe that never fetches must not need the service at all."""
         manager = GenerationEngine(
-            gpu=Mock(), model_directories=Mock(), pipe_catalog=Mock(),
+            gpu=Mock(), pipe_catalog=Mock(),
             settings=Mock(), system_monitor=Mock(),
             memory_advisor=Mock(), llm_service=Mock(),
         )

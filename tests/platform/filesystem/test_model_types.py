@@ -44,8 +44,6 @@ def test_conditioning_encoders_have_exactly_one_home():
 
 
 def test_every_depot_scanner_shares_the_same_supported_extensions():
-    from src.features.backends.native_model_scan import SUPPORTED_EXTENSIONS as native_scan_extensions
     from src.features.models.indexer import ModelScanner
 
     assert ModelScanner.SUPPORTED_EXTENSIONS is SUPPORTED_MODEL_EXTENSIONS
-    assert native_scan_extensions is SUPPORTED_MODEL_EXTENSIONS

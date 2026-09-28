@@ -24,6 +24,7 @@ import logging
 from typing import Dict, Any, Optional
 
 from src.features.generation.output_types import OutputTypeRegistry, output_type_registry
+from src.features.models.locator import ModelLocator
 from src.platform.filesystem.storage_driver import FileStorageDriver
 from src.platform.settings.settings import Settings
 from src.pipelines.outputs import GenerationOutput
@@ -50,7 +51,8 @@ class OutputProcessor:
         self,
         settings: Settings,
         storage_driver: Optional[FileStorageDriver] = None,
-        type_registry: Optional[OutputTypeRegistry] = None
+        type_registry: Optional[OutputTypeRegistry] = None,
+        model_locator: Optional[ModelLocator] = None,
     ):
         """
         Initialize the output processor.
@@ -65,6 +67,7 @@ class OutputProcessor:
         """
         self.settings = settings
         self.storage_driver = storage_driver
+        self.model_locator = model_locator
         self.type_registry = type_registry or output_type_registry
         logger.debug(
             f"OutputProcessor initialized with "
@@ -176,7 +179,7 @@ class OutputProcessor:
                 'processed': True,
             }
 
-        handler = spec.handler_cls(generation_id, user_id, self.settings, self.storage_driver)
+        handler = spec.handler_cls(generation_id, user_id, self.settings, self.storage_driver, self.model_locator)
         # handler.handle() is synchronous file/DB I/O (image encode, disk
         # writes, thumbnail generation) - run it off the event loop so one
         # slow output doesn't stall every other generation's WebSocket

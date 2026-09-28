@@ -201,7 +201,7 @@ def resolve_active_model_id(form_state: Optional[dict], model_index_manager: Any
                     return model_id
 
             try:
-                model = model_index_manager.model_repo.get_by_file_path(model_locator)
+                model = model_index_manager.locator.model_for_path(model_locator)
                 if model and model.id:
                     return model.id
             except Exception:
@@ -257,28 +257,14 @@ def lookup_model(model_index_manager: Any, model_path: str) -> Dict[str, Any]:
 
     # Legacy form values use a file path. Try the exact path first.
     try:
-        repo = model_index_manager.model_repo
-        model = repo.get_by_file_path(model_path, include_providers=True)
-        if model:
-            return model_to_dict(model.to_dict(include_providers=True))
+        found = model_index_manager.locator.model_for_path(model_path)
+        if found:
+            repo = model_index_manager.model_repo
+            model = repo.get_by_id(found.id, include_providers=True, include_tags=True)
+            if model:
+                return model_to_dict(model.to_dict(include_providers=True, include_tags=True))
     except Exception as e:
-        logger.debug(f"Exact path lookup failed for {model_path}: {e}")
-
-    # Fallback: search by filename
-    try:
-        filename = model_path.rsplit("/", 1)[-1]
-        repo = model_index_manager.model_repo
-        models = repo.get_all(
-            search=filename, limit=1,
-            include_providers=True, include_tags=True,
-            include_files=False,
-        )
-        if models:
-            return model_to_dict(
-                models[0].to_dict(include_providers=True, include_tags=True)
-            )
-    except Exception as e:
-        logger.debug(f"Filename search failed for {model_path}: {e}")
+        logger.debug(f"Path lookup failed for {model_path}: {e}")
 
     return {"path": model_path, "description": "Model not found in index"}
 

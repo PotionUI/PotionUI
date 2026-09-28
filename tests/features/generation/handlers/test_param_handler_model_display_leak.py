@@ -35,7 +35,7 @@ def test_resolved_depot_path_records_the_catalog_display_name(
 ):
     mock_param_repo.create_batch.return_value = [Mock(id="p1")]
     model = make_model("Qwen Image Lightning 8-steps V2.0")
-    mock_model_repo.get_by_file_path.return_value = model
+    mock_model_repo.get_by_filename.return_value = [model]
 
     handler = make_handler()
     output = ParamGenerationOutput(
@@ -57,7 +57,6 @@ def test_unresolvable_path_records_the_basename(
     mock_param_repo, mock_model_repo, mock_gen_model_repo
 ):
     mock_param_repo.create_batch.return_value = [Mock(id="p1")]
-    mock_model_repo.get_by_file_path.return_value = None
     mock_model_repo.get_by_filename.return_value = []
 
     handler = make_handler()
@@ -80,7 +79,6 @@ def test_bare_filename_is_unchanged_when_unresolved(
     mock_param_repo, mock_model_repo, mock_gen_model_repo
 ):
     mock_param_repo.create_batch.return_value = [Mock(id="p1")]
-    mock_model_repo.get_by_file_path.return_value = None
     mock_model_repo.get_by_filename.return_value = []
 
     handler = make_handler()
@@ -142,14 +140,13 @@ def test_index_alignment_is_preserved_across_resolved_and_unresolved_values(
     checkpoint = make_model("SDXL Base", model_id="ckpt-1")
     lora = make_model("Detail LoRA", model_id="lora-1")
 
-    def by_path(path, **kwargs):
+    def by_filename(filename, **kwargs):
         return {
-            "models/checkpoints/sdxl_base.safetensors": checkpoint,
-            "models/loras/detail.safetensors": lora,
-        }.get(path)
+            "sdxl_base.safetensors": [checkpoint],
+            "detail.safetensors": [lora],
+        }.get(filename, [])
 
-    mock_model_repo.get_by_file_path.side_effect = by_path
-    mock_model_repo.get_by_filename.return_value = []
+    mock_model_repo.get_by_filename.side_effect = by_filename
 
     handler = make_handler()
     output = ParamGenerationOutput(

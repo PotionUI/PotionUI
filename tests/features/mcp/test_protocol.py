@@ -361,7 +361,6 @@ class TestModelVisibilityOverMcp:
         model_repo = ModelRepository()
         model = model_repo.create(Model(
             filename="unassigned.safetensors",
-            file_path="/models/checkpoints/unassigned.safetensors",
             file_size=1024,
             sha256="a" * 64,
             model_type="checkpoint",

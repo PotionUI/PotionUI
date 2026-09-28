@@ -14,7 +14,6 @@
 	import ThumbnailsPanel from './settings/ThumbnailsPanel.svelte';
 	import HousekeepingPanel from './settings/HousekeepingPanel.svelte';
 	import BackupsPanel from './settings/BackupsPanel.svelte';
-	import ModelsLocationPanel from './settings/ModelsLocationPanel.svelte';
 	import PromptSearchPanel from './settings/PromptSearchPanel.svelte';
 	import MediaTaggingPanel from './settings/MediaTaggingPanel.svelte';
 	import VisualSearchPanel from './settings/VisualSearchPanel.svelte';
@@ -26,6 +25,7 @@
 		SETTINGS_KEY_GROUP,
 		settingsGroupHasFooter,
 		computeDirtyGroups,
+		resolveSettingsGroupId,
 		type SettingsGroupId
 	} from './settings/settingsGroups';
 
@@ -41,9 +41,7 @@
 	let loading = $state(true);
 	let saving = $state(false);
 	const requestedGroup = get(page).url.searchParams.get('view');
-	let activeGroup = $state<SettingsGroupId>(
-		SETTINGS_GROUPS.find((g) => g.id === requestedGroup)?.id ?? 'access'
-	);
+	let activeGroup = $state<SettingsGroupId>(resolveSettingsGroupId(requestedGroup));
 
 	function snapshotOf(s: Record<string, any>): string {
 		return JSON.stringify(Object.fromEntries(USER_CONFIGURABLE_KEYS.map((k) => [k, s[k]])));
@@ -136,12 +134,13 @@
 							<AccessPanel {settings} onSettingChange={handleSettingChange} />
 						{:else if activeGroup === 'content_safety'}
 							<ContentSafetyPanel {settings} onSettingChange={handleSettingChange} />
-						{:else if activeGroup === 'storage'}
+						{:else if activeGroup === 'media_storage'}
 							<FileStoragePanel {settings} onSettingChange={handleSettingChange} />
 							<ThumbnailsPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
-							<HousekeepingPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
+						{:else if activeGroup === 'backups'}
 							<BackupsPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
-							<ModelsLocationPanel />
+						{:else if activeGroup === 'housekeeping'}
+							<HousekeepingPanel {settings} onSettingChange={handleSettingChange} savedSnapshot={snapshot} />
 						{:else if activeGroup === 'search_tagging'}
 							<PromptSearchPanel {settings} onSettingChange={handleSettingChange} />
 							<MediaTaggingPanel {settings} onSettingChange={handleSettingChange} />

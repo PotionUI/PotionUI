@@ -63,6 +63,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Compute** — renting GPU compute for a Remote Native worker | `.compute` | `ComputeProvisioner`, `ComputeProvisionerError`, `ComputeStatus`, `ProvisionRequest`, `ProvisionResult`, `ProvisionProgress`, `ProgressReporter`, `ComputeFieldDescriptorV1`, `ComputeFieldOptionV1`, `COMPUTE_STATES`, `STATE_*`, `STAGE_*`, `COMPUTE_HOOKS` |
 | **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `Settings`, `SettingRepository`, `PluginRepository` |
 | **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel` |
+| **Models** — model metadata fields, provider links, and resolving a model's file/folder across roots | `.models` | `WellKnownModelMetadataField`, `get_model_provider_info`, `model_type_dirs`, `model_write_dir`, `resolve_model_file`, `model_for_path`, `MODEL_DIRECTORY_ALIASES`, `type_for_folder_name` |
 | **Phrasebook** — contributing a batch tool to Find & replace | `.phrasebook` | `PhrasebookBatchOperation`, `PhrasebookBatchContext`, `BatchOutcome`, `BatchPreview`, `BatchOperationError` |
 | **Sampling** — contributing a step algorithm or a sigma schedule | `.sampling` | `SamplerDefinition`, `ScheduleDefinition`, `ScheduleContext`, `OptionSpec`, `GuidanceStrategy`, `SamplingCancelled`, `run_hooks`, `sample_euler`, `sampler_registry`, `schedule_registry` |
 
@@ -941,6 +942,34 @@ other plugin frontend component. A tool scoped to `library` still receives the s
 `generationIds`/`generations` are empty there since a library item carries no generation.
 
 Disabling the plugin removes its tools from `GET /api/plugins/history-tools` immediately.
+
+## Reading model files and folders
+
+A model's bytes can sit on any admin-configured root, not just the `models_dir` setting, so a
+plugin that needs a path never joins one by hand — it goes through `src.plugin_api.models`:
+
+```python
+from src.plugin_api.models import (
+    model_type_dirs, model_write_dir, resolve_model_file, model_for_path,
+    MODEL_DIRECTORY_ALIASES, type_for_folder_name,
+)
+
+model_type_dirs("lora")          # -> every online root's bound directory for this type, in order
+model_write_dir("lora")          # -> the directory a new download for this type lands in
+resolve_model_file(model_id)     # -> the winning present copy's absolute Path, or raises
+model_for_path(path)             # -> that model's catalog dict (or None), from a filesystem path
+```
+
+`resolve_model_file` raises `src.features.models.locator.ModelFileUnavailable` (not importable
+from `plugin_api` — catch it by class name, or by string match on `reason`/`root_label`) when the
+model has no present copy on any online root; the error names the root when the file is known to
+exist but its root is offline. `model_type_dirs`/`model_write_dir` can raise
+`src.platform.filesystem.model_roots.ModelRootError` subclasses when no root is bound for that
+type, is read-only, or is offline — same caveat.
+
+`MODEL_DIRECTORY_ALIASES` and `type_for_folder_name(name)` are for a plugin that speaks another
+tool's folder vocabulary (a ComfyUI-style `loras`/`checkpoints`/… folder name) and needs the
+PotionUI model type it corresponds to, case-insensitively and including aliases.
 
 ## Contributing a model card action
 

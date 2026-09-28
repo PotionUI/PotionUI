@@ -926,7 +926,7 @@ export interface ModelDuplicateContent {
 	sha256: string;
 	existing_model_type: string;
 	existing_filename: string;
-	existing_file_path: string | null;
+	existing_location: string;
 }
 
 export interface IndexModelsResult {

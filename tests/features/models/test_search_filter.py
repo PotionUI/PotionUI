@@ -128,7 +128,6 @@ class TestModelSearchRepository(PersistenceTestBase):
     def _model(self, filename: str, indexed_at: str) -> Model:
         model = self.repository.create(Model(
             filename=filename,
-            file_path=os.path.join("/models", filename),
             file_size=1,
             sha256=filename.ljust(64, "0")[:64],
             model_type="checkpoint",

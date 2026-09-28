@@ -19,7 +19,6 @@ def _controller():
     controller = SettingsController(
         settings=Mock(),
         setting_repository=setting_repository,
-        model_directories=Mock(),
         gpu_monitor=Mock(),
         backend_registry=Mock(),
     )

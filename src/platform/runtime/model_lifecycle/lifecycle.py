@@ -394,9 +394,10 @@ class ModelLifecycle:
     without re-running `loader`.
     """
 
-    def __init__(self, gpu_monitor=None, settings=None):
+    def __init__(self, gpu_monitor=None, settings=None, roots=None):
         self.gpu_monitor = gpu_monitor
         self.settings = settings
+        self.roots = roots
         self._lock = threading.RLock()
         self._entries: Dict[str, _CacheEntry] = {}
         # Keys with an acquire() in flight on this thread (loader() running,

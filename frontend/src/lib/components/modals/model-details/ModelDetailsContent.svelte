@@ -8,7 +8,7 @@
 	`capabilities` decides which admin-only cards mount. It is fixed per scope
 	by `resolveModelDetailsCapabilities` before any model ever loads — never
 	derived from `model` itself. The `model` prop's *type* only carries
-	operational fields (file_path/sha256/file_size/indexed_at/prompting_guidance)
+	operational fields (location/sha256/file_size/indexed_at/prompting_guidance)
 	when `capabilities.scope === 'admin'`, because only
 	`createAdminModelDetailsController` ever constructs a value with them; the
 	library controller's `model` store cannot hold them in the first place. See
@@ -180,11 +180,10 @@
 			{/if}
 
 			{#if capabilities.canViewOperationalDetails && adminModel}
-				<!-- Admin-only technical details: filename/path/hash/size/indexed-at are
-				     operational detail, not something a generating user needs to know. -->
 				<ModelTechnicalDetailsCard
 					filename={adminModel.filename}
-					filePath={adminModel.file_path}
+					location={adminModel.location}
+					copies={adminModel.copies}
 					sha256={adminModel.sha256}
 					fileSize={adminModel.file_size}
 					indexedAt={adminModel.indexed_at}

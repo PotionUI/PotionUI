@@ -12,7 +12,7 @@ keyed on - see docs/models.md.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Set
 
 from src.features.backends.model_listing import (
     BackendModel,
@@ -24,6 +24,7 @@ from src.features.models.availability_records import ModelAvailability
 from src.features.models.availability_repository import (
     model_availability_repo,
 )
+from src.features.models.locator import ModelFileUnavailable
 
 
 @dataclass
@@ -76,7 +77,7 @@ class DuplicateContent:
     sha256: str
     existing_model_type: str
     existing_filename: str
-    existing_file_path: Optional[str]
+    existing_location: str
 
 
 @dataclass
@@ -110,12 +111,23 @@ class IndexResult:
 class BackendModelIndexer:
     """Turns `backend.list_models()` into rows. One backend at a time."""
 
-    def __init__(self, model_repository=None, availability_repository=None):
+    def __init__(self, model_repository=None, availability_repository=None, model_locator=None):
         if model_repository is None:
             from src.features.models.repository import model_repo
             model_repository = model_repo
         self.models = model_repository
         self.availability = availability_repository or model_availability_repo
+        self.model_locator = model_locator
+
+    def _location_display(self, model) -> str:
+        if self.model_locator is None:
+            return "unknown location"
+        try:
+            return str(self.model_locator.path_for_model(model.id))
+        except ModelFileUnavailable as exc:
+            return str(exc)
+        except Exception:
+            return "unknown location"
 
     async def index_backend(self, backend) -> IndexResult:
         """Index one backend. Raises ModelListingNotSupported if it cannot enumerate."""
@@ -143,15 +155,16 @@ class BackendModelIndexer:
             if model is None:
                 existing = self._same_content(entry)
                 if existing is not None:
+                    existing_location = self._location_display(existing)
                     result.duplicates.append(DuplicateContent(
                         model_type=entry.model_type, filename=entry.filename, ref=entry.ref,
                         sha256=entry.sha256, existing_model_type=existing.model_type,
-                        existing_filename=existing.filename, existing_file_path=existing.file_path,
+                        existing_filename=existing.filename, existing_location=existing_location,
                     ))
                     logger.warning(
                         f"[BACKEND_INDEX] {backend.name}: skipping '{entry.ref}' ({entry.model_type}) - "
                         f"same sha256 {entry.sha256[:12]}… as '{existing.filename}' ({existing.model_type}) "
-                        f"at {existing.file_path}"
+                        f"at {existing_location}"
                     )
                     continue
                 model = self._create_model(entry)
@@ -297,7 +310,6 @@ class BackendModelIndexer:
         model = Model(
             id=generate_ulid(),
             filename=entry.filename,
-            file_path=self._local_path(entry),
             file_size=entry.size,
             sha256=entry.sha256,
             model_type=entry.model_type,
@@ -306,26 +318,12 @@ class BackendModelIndexer:
             return self.models.create(model)
         except sqlite3.IntegrityError as exc:
             existing = self._same_content(entry)
-            where = (f"'{existing.filename}' ({existing.model_type}) at {existing.file_path}"
+            where = (f"'{existing.filename}' ({existing.model_type}) at {self._location_display(existing)}"
                      if existing is not None else "another row")
             raise RuntimeError(
                 f"cannot index '{entry.ref}' ({entry.model_type}): sha256 "
                 f"{(entry.sha256 or '')[:12]}… already belongs to {where}"
             ) from exc
-
-    @staticmethod
-    def _local_path(entry: BackendModel) -> Optional[str]:
-        """`file_path` only means something for a file on this host.
-
-        A native ref *is* the local path. A remote ref is a name in someone else's
-        namespace, so the column stays NULL - which is exactly what migration 074
-        relaxed `NOT NULL` to permit.
-        """
-        from pathlib import Path
-        try:
-            return entry.ref if Path(entry.ref).is_file() else None
-        except OSError:
-            return None
 
 
 backend_model_indexer = BackendModelIndexer()

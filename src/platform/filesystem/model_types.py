@@ -43,8 +43,28 @@ MODEL_TYPE_TO_DIRECTORY = {model_type: directory for directory, model_type in DI
 MODEL_DIRECTORY_NAMES = tuple(DIRECTORY_TO_MODEL_TYPE.keys())
 MODEL_TYPES = tuple(DIRECTORY_TO_MODEL_TYPE.values())
 
+MODEL_DIRECTORY_ALIASES = {
+    'checkpoints': ('Stable-diffusion',),
+    'loras': ('Lora', 'LyCORIS'),
+    'vae': ('VAE',),
+    'upscalers': ('upscale_models', 'ESRGAN', 'RealESRGAN'),
+    'controlnet': ('ControlNet',),
+    'text_encoders': ('clip',),
+}
+
 # File extensions a depot scan recognizes as a model file, regardless of which
 # scanner is walking the depot.
 SUPPORTED_MODEL_EXTENSIONS = frozenset({
     '.safetensors', '.ckpt', '.pt', '.pth', '.bin', '.gguf', '.task', '.tflite', '.sft',
 })
+
+_FOLDER_NAME_TO_MODEL_TYPE = {name.lower(): model_type for name, model_type in DIRECTORY_TO_MODEL_TYPE.items()}
+for _directory, _aliases in MODEL_DIRECTORY_ALIASES.items():
+    _model_type = DIRECTORY_TO_MODEL_TYPE[_directory]
+    for _alias in _aliases:
+        _FOLDER_NAME_TO_MODEL_TYPE.setdefault(_alias.lower(), _model_type)
+
+
+def type_for_folder_name(name):
+    """Canonical or alias folder name (any case) -> model type, else None."""
+    return _FOLDER_NAME_TO_MODEL_TYPE.get(name.lower())

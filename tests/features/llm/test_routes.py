@@ -190,7 +190,7 @@ class TestLLMController:
         from src.features.llm.native_library import NativeCheckpointEntry
 
         entries = [NativeCheckpointEntry(name="qwen3-tiny", path="/models/llm/qwen3-tiny", model_type="qwen3", supported=True, vision=False)]
-        monkeypatch.setattr("src.features.llm.native_library.list_native_checkpoints", lambda: entries)
+        monkeypatch.setattr("src.features.llm.native_library.list_native_checkpoints", lambda resolver: entries)
 
         result = controller.list_native_checkpoints()
 
@@ -516,11 +516,10 @@ class TestLLMController:
 
     @pytest.mark.asyncio
     async def test_fetch_gemma3_chat_tokenizer_success(self, controller_with_downloads, mock_download_manager, tmp_path):
-        # `_models_dir()` falls back to `SettingRepository().get_setting_by_key`
-        # when no override reaches it, which is a real, unmocked repository -
-        # patched here to a fixed path rather than hitting the settings DB.
-        with patch('src.features.llm.native_te_adoption._models_dir', return_value=tmp_path):
-            result = await controller_with_downloads.fetch_gemma3_chat_tokenizer()
+        from tests.fixtures.model_roots import make_roots
+
+        controller_with_downloads.model_roots = make_roots(tmp_path, types=[], home_dir=tmp_path)
+        result = await controller_with_downloads.fetch_gemma3_chat_tokenizer()
 
         assert result.success is True
         assert "path" in result.data

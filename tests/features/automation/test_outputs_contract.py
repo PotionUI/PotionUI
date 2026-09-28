@@ -26,7 +26,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from src.features.models.indexer import ModelScanner
+from src.features.models.indexing_coordinator import ModelIndexingCoordinator
+from src.features.models.repository import ModelRepository
 from src.features.automation.context import AutomationServices, NodeExecutionContext, RunContext
 from src.features.automation.nodes import register_builtin_nodes
 from src.platform.plugins.automation_nodes import NodeTypeRegistry
@@ -62,13 +63,15 @@ def _index_model_case():
     # directory scanner that has no such method (two classes were once both named
     # `ModelIndexer`; see `test_service_contracts.py`). Spec'd mocks fail the same
     # way production does.
-    indexer = MagicMock(spec=ModelScanner)
-    indexer.index_single_model.return_value = SimpleNamespace(id="m1", filename="style.safetensors")
+    indexer = MagicMock(spec=ModelIndexingCoordinator)
+    indexer.index_path.return_value = {"model_id": "m1", "indexed": True}
+    model_repo = MagicMock(spec=ModelRepository)
+    model_repo.get_by_id.return_value = SimpleNamespace(id="m1", filename="style.safetensors")
     handle = tempfile.NamedTemporaryFile(suffix=".safetensors")
     return (
         {"path": handle.name, "model_type": "lora"},
         {},
-        AutomationServices(model_indexer=indexer),
+        AutomationServices(model_indexing_coordinator=indexer, model_repository=model_repo),
         handle,  # kept alive by the caller until execute() has run
     )
 

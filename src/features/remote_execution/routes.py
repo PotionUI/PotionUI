@@ -46,7 +46,7 @@ class RemoteModelsController(BaseController):
         except ops.RemoteModelsBackendError as e:
             return self.error_api_response(error="invalid_backend", message=str(e))
         try:
-            view = await ops.sync_view(self.container.model_repository, transport)
+            view = await ops.sync_view(self.container.model_repository, transport, self.container.model_locator)
         except WorkerTransportError as e:
             return self._transport_error_response(e)
         return self.success_response(data=view)
@@ -59,6 +59,7 @@ class RemoteModelsController(BaseController):
         try:
             transfers = await ops.push_models(
                 body.model_ids, model_repository=self.container.model_repository, transport=transport,
+                model_locator=self.container.model_locator,
             )
         except WorkerTransportError as e:
             return self._transport_error_response(e)

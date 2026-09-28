@@ -30,6 +30,7 @@ from src.features.remote_execution.worker.config import WorkerConfig
 from src.features.remote_execution.worker.coordinator import WorkerCoordinator
 from src.features.remote_execution.worker.journal import WorkerJournal
 from src.features.remote_execution.worker.model_depot import ModelDepot
+from tests.fixtures.model_roots import make_roots
 
 TOKEN = "secret-worker-token"
 BACKEND_ID = "remote-1"
@@ -170,13 +171,14 @@ class RemoteDestinationTestCase(unittest.IsolatedAsyncioTestCase):
 
     def _worker(self, *, download: Download, provider_registry_factory=None) -> DownloadWorker:
         return DownloadWorker(
-            settings=DownloadSettings(default_model_directory=str(self.models_root)),
+            settings=DownloadSettings(),
             repo=FakeDownloadRepository(download),
             connection_hub=AsyncMock(),
             provider_registry_factory=provider_registry_factory or (lambda: None),
             backend_registry=self.backend_registry,
             backend_model_indexer=self.indexer,
             worker_transport_override=self.worker_asgi_transport,
+            resolver=make_roots(self.work_dir, home_dir=self.models_root),
         )
 
 
@@ -226,7 +228,6 @@ class TestRemoteDownloadHappyPath(RemoteDestinationTestCase):
         created = next(iter(self.model_repository._by_id.values()))
         self.assertEqual(created.model_type, "checkpoint")
         self.assertEqual(created.filename, "model.safetensors")
-        self.assertIsNone(created.file_path)  # a remote ref, not a local path
         self.assertEqual(len(self.availability_repository.upserted), 1)
         self.assertEqual(self.availability_repository.upserted[0].backend_id, BACKEND_ID)
 

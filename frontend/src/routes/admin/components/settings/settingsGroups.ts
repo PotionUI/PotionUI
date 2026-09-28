@@ -8,7 +8,9 @@
 export type SettingsGroupId =
 	| 'access'
 	| 'content_safety'
-	| 'storage'
+	| 'media_storage'
+	| 'backups'
+	| 'housekeeping'
 	| 'search_tagging'
 	| 'generation'
 	| 'external_login'
@@ -23,12 +25,25 @@ export interface SettingsGroupDescriptor {
 export const SETTINGS_GROUPS: SettingsGroupDescriptor[] = [
 	{ id: 'access', label: 'Access', icon: 'group' },
 	{ id: 'content_safety', label: 'Content Safety', icon: 'shield' },
-	{ id: 'storage', label: 'Storage', icon: 'folder' },
+	{ id: 'media_storage', label: 'Media storage', icon: 'photo' },
+	{ id: 'backups', label: 'Backups', icon: 'save' },
+	{ id: 'housekeeping', label: 'Housekeeping', icon: 'trash' },
 	{ id: 'search_tagging', label: 'Search & Tagging', icon: 'search' },
 	{ id: 'generation', label: 'Generation', icon: 'image' },
 	{ id: 'external_login', label: 'External Login', icon: 'globe' },
 	{ id: 'logs', label: 'Logs', icon: 'clipboard-list' }
 ];
+
+const LEGACY_SETTINGS_GROUP_ALIASES: Record<string, SettingsGroupId> = {
+	storage: 'media_storage'
+};
+
+export function resolveSettingsGroupId(requested: string | null): SettingsGroupId {
+	const direct = SETTINGS_GROUPS.find((g) => g.id === requested)?.id;
+	if (direct) return direct;
+	if (requested && LEGACY_SETTINGS_GROUP_ALIASES[requested]) return LEGACY_SETTINGS_GROUP_ALIASES[requested];
+	return 'access';
+}
 
 export function settingsGroupHasFooter(id: SettingsGroupId): boolean {
 	return id !== 'logs';
@@ -43,26 +58,26 @@ export function computeDirtyGroups(dirtyKeys: readonly string[]): Set<SettingsGr
 }
 
 export const SETTINGS_KEY_GROUP: Record<string, SettingsGroupId> = {
-	file_storage_directory: 'storage',
-	storage_backend: 'storage',
-	s3_bucket: 'storage',
-	s3_prefix: 'storage',
-	s3_endpoint_url: 'storage',
-	s3_region: 'storage',
-	s3_access_key_id: 'storage',
-	s3_secret_key: 'storage',
-	s3_path_style: 'storage',
-	thumbnail_sizes: 'storage',
-	thumbnail_video_fps: 'storage',
-	thumbnail_video_seconds: 'storage',
-	thumbnail_video_quality: 'storage',
-	thumbnail_image_quality: 'storage',
-	tmp_retention_days: 'storage',
-	run_report_retention_days: 'storage',
-	llm_trace_retention_days: 'storage',
-	backup_destination: 'storage',
-	backup_retention: 'storage',
-	backup_default_tier: 'storage',
+	file_storage_directory: 'media_storage',
+	storage_backend: 'media_storage',
+	s3_bucket: 'media_storage',
+	s3_prefix: 'media_storage',
+	s3_endpoint_url: 'media_storage',
+	s3_region: 'media_storage',
+	s3_access_key_id: 'media_storage',
+	s3_secret_key: 'media_storage',
+	s3_path_style: 'media_storage',
+	thumbnail_sizes: 'media_storage',
+	thumbnail_video_fps: 'media_storage',
+	thumbnail_video_seconds: 'media_storage',
+	thumbnail_video_quality: 'media_storage',
+	thumbnail_image_quality: 'media_storage',
+	tmp_retention_days: 'housekeeping',
+	run_report_retention_days: 'housekeeping',
+	llm_trace_retention_days: 'housekeeping',
+	backup_destination: 'backups',
+	backup_retention: 'backups',
+	backup_default_tier: 'backups',
 	nsfw: 'content_safety',
 	prompt_embedding_provider: 'search_tagging',
 	prompt_embedding_model: 'search_tagging',

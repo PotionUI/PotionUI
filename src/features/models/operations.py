@@ -27,8 +27,8 @@ from src.platform.security.user import User
 __all__ = [
     "list_models", "get_model_availability", "get_model_stats", "get_model_types",
     "get_model_by_hash", "get_model_by_id", "get_model_generations",
-    "start_indexing", "run_indexing", "cleanup_deleted_models", "count_unindexed",
-    "get_models_location", "apply_models_location",
+    "start_indexing", "run_indexing", "cancel_and_restart_indexing", "get_indexing_status",
+    "cleanup_deleted_models", "count_unindexed",
     "delete_model", "update_model_tags", "update_model_description",
     "update_model_prompting_guidance", "update_model_metadata", "update_model_preview",
     "list_model_previews", "list_model_previews_for_user", "add_model_preview",
@@ -86,12 +86,22 @@ async def get_model_generations(
 
 # ========== Indexing ==========
 
-def start_indexing(collaborators: ModelIndexCollaborators) -> Dict[str, Any]:
-    return collaborators.indexing.start_indexing()
+def start_indexing(collaborators: ModelIndexCollaborators, trigger: str = "manual") -> Dict[str, Any]:
+    return collaborators.indexing.start_indexing(trigger=trigger)
 
 
 def run_indexing(collaborators: ModelIndexCollaborators) -> None:
     return collaborators.indexing.run_indexing()
+
+
+def cancel_and_restart_indexing(
+    collaborators: ModelIndexCollaborators, trigger: str = "location_change"
+) -> Dict[str, Any]:
+    return collaborators.indexing.cancel_and_restart(trigger)
+
+
+async def get_indexing_status(collaborators: ModelIndexCollaborators) -> Dict[str, Any]:
+    return await asyncio.to_thread(collaborators.indexing.status)
 
 
 def cleanup_deleted_models(collaborators: ModelIndexCollaborators) -> Dict[str, Any]:
@@ -100,18 +110,6 @@ def cleanup_deleted_models(collaborators: ModelIndexCollaborators) -> Dict[str, 
 
 async def count_unindexed(collaborators: ModelIndexCollaborators) -> Dict[str, Any]:
     return await asyncio.to_thread(collaborators.indexing.count_unindexed)
-
-
-# ========== Models location ==========
-
-def get_models_location(collaborators: ModelIndexCollaborators) -> Dict[str, Any]:
-    return collaborators.location.get_config()
-
-
-def apply_models_location(
-    collaborators: ModelIndexCollaborators, external_path: str, overrides: Optional[Dict[str, str]] = None
-) -> Dict[str, Any]:
-    return collaborators.location.apply(external_path, overrides)
 
 
 # ========== Metadata editing ==========

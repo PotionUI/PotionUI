@@ -30,6 +30,15 @@ def inpaint_head_path(models_dir: Union[str, Path]) -> Path:
     return (Path(models_dir) / INPAINT_HEAD_SUBDIR / INPAINT_HEAD_FILENAME).resolve()
 
 
+def resolve_inpaint_head_model_path() -> Path:
+    from src.platform.runtime.model_lifecycle.lifecycle import get_model_lifecycle
+
+    lifecycle = get_model_lifecycle()
+    if lifecycle is None or lifecycle.roots is None:
+        raise RuntimeError("Model roots are not configured; cannot resolve the inpaint head path")
+    return lifecycle.roots.asset_dir(INPAINT_HEAD_SUBDIR) / INPAINT_HEAD_FILENAME
+
+
 class InpaintHead(torch.nn.Module):
     """
     Small convolutional head for inpainting that processes mask + latent information.

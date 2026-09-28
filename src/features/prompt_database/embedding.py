@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 import httpx
 
+from src.platform.filesystem.model_roots import ModelRootResolver
 from src.platform.filesystem.model_weights import weights_status
 
 if TYPE_CHECKING:
@@ -97,14 +98,14 @@ class LocalEmbeddingProvider(EmbeddingProvider):
 
     def __init__(
         self,
+        resolver: ModelRootResolver,
         model_name: str = DEFAULT_MODEL,
-        models_dir: str = "models",
         device: str = "cpu",
         auto_download: bool = True,
         download_queue: Optional["DownloadQueue"] = None,
     ):
+        self.resolver = resolver
         self.model_name = model_name
-        self.models_dir = models_dir
         self.device = device
         self.auto_download = auto_download
         self.downloads = download_queue
@@ -117,25 +118,25 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         return f"local-{_slugify(self.model_name)}"
 
     @classmethod
-    def local_dir_for(cls, model_name: str, models_dir: str) -> Path:
-        return Path(models_dir) / cls._LOCAL_SUBDIR / _slugify(model_name)
+    def local_dir_for(cls, model_name: str, resolver: ModelRootResolver) -> Path:
+        return resolver.asset_dir(cls._LOCAL_SUBDIR) / _slugify(model_name)
 
     def _local_path(self) -> Path:
-        return self.local_dir_for(self.model_name, self.models_dir)
+        return self.local_dir_for(self.model_name, self.resolver)
 
     def _weights_present(self) -> bool:
         path = self._local_path()
         return path.is_dir() and any(path.iterdir())
 
     @classmethod
-    def resolve_status(cls, model_name: str, models_dir: str) -> Dict[str, object]:
+    def resolve_status(cls, model_name: str, resolver: ModelRootResolver) -> Dict[str, object]:
         """Presence/path/size for `model_name` without loading anything.
 
         Used by the admin settings status endpoint - and by the Fetch action to
         derive the exact destination the lazy loader above would use - so both
         agree on a single slug derivation.
         """
-        return weights_status(cls.local_dir_for(model_name, models_dir))
+        return weights_status(cls.local_dir_for(model_name, resolver))
 
     async def is_available(self) -> bool:
         return self._weights_present() or self.auto_download
@@ -207,6 +208,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
 
 def build_embedding_provider(
     settings: "Settings",
+    resolver: ModelRootResolver,
     download_queue: Optional["DownloadQueue"] = None,
 ) -> EmbeddingProvider:
     """Construct the configured embedding provider from settings.
@@ -223,8 +225,8 @@ def build_embedding_provider(
             model=settings.get_setting("prompt_embedding_ollama_model", "nomic-embed-text"),
         )
     return LocalEmbeddingProvider(
+        resolver=resolver,
         model_name=settings.get_setting("prompt_embedding_model", LocalEmbeddingProvider.DEFAULT_MODEL),
-        models_dir=settings.get_models_dir(),
         device=settings.get_setting("prompt_embedding_device", "cpu"),
         auto_download=bool(settings.get_setting("prompt_embedding_auto_download", False)),
         download_queue=download_queue,

@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from src.platform.settings.settings import Settings
     from src.features.backends.backend_registry import BackendRegistry
     from src.features.models.backend_indexer import BackendModelIndexer
+    from src.platform.filesystem.model_roots import ModelRootResolver
 
 _T = TypeVar("_T")
 
@@ -74,6 +75,7 @@ class DownloadQueue:
         connection_hub: DownloadConnectionHub,
         backend_registry: Optional["BackendRegistry"] = None,
         backend_model_indexer: Optional["BackendModelIndexer"] = None,
+        resolver: Optional["ModelRootResolver"] = None,
     ):
         """Initialize DownloadQueue.
 
@@ -99,6 +101,7 @@ class DownloadQueue:
         self.conn = connection_hub
         self.backend_registry = backend_registry
         self.backend_model_indexer = backend_model_indexer
+        self.resolver = resolver
         self.settings = DownloadSettings()
         self._load_settings()
         self.worker: Optional[DownloadWorker] = None
@@ -122,12 +125,6 @@ class DownloadQueue:
     def _load_settings(self) -> None:
         """Load settings from database."""
         try:
-            # Normalised because the stored value may carry a leading "./"
-            # that would otherwise reach destination_path via os.path.join.
-            model_dir = self.app_settings.get_setting('models_dir')
-            if model_dir:
-                self.settings.default_model_directory = Path(model_dir).as_posix()
-
             file_storage = self.app_settings.get_setting('file_storage_directory')
             if file_storage:
                 self.settings.default_media_directory = file_storage
@@ -154,6 +151,7 @@ class DownloadQueue:
             self.settings, self.repo, self.conn,
             backend_registry=self.backend_registry,
             backend_model_indexer=self.backend_model_indexer,
+            resolver=self.resolver,
         )
         self._worker_loop = self._persistent_loop.ensure_running()
         await self._call_on_worker(self.worker.start())
@@ -302,9 +300,9 @@ class DownloadQueue:
         """Resolve a download's destination directory against `root`, refusing
         to let it land outside `root`.
 
-        `root` is the admin-configured depot (`default_model_directory` /
-        `default_media_directory`), never the process CWD. `trusted_subdir`
-        (server-computed, e.g. from a `model_type` via `TYPE_DIR_MAP`) is
+        `root` is a resolved model root or the media depot
+        (`default_media_directory`), never the process CWD. `trusted_subdir`
+        (server-computed, e.g. from a `model_type`'s write dir) is
         joined onto `root` and wins when given. Otherwise `requested` - a
         directory string that may have come straight from an HTTP request, or
         from a plugin's `before_queue` hook - is treated as untrusted and
@@ -367,6 +365,41 @@ class DownloadQueue:
                 f"escapes the configured directory '{root}'"
             )
         return candidate
+
+    def _write_root_dir(self, model_type: str) -> Path:
+        if self.resolver is None:
+            raise DownloadQueueException("No model root resolver is configured")
+
+        from src.platform.filesystem.model_roots import ModelRootError
+
+        try:
+            return self.resolver.write_dir(model_type).path
+        except ModelRootError as exc:
+            raise DownloadQueueException(str(exc)) from exc
+
+    def _verify_trusted_hf_destination(self, destination_dir: str) -> Path:
+        home = str(self.resolver.home_dir())
+        try:
+            return self._verify_contained_dir(home, Path(destination_dir))
+        except DownloadQueueException:
+            pass
+
+        from src.platform.filesystem.model_roots import ModelRootError
+        from src.platform.filesystem.model_types import MODEL_TYPES
+
+        for model_type in MODEL_TYPES:
+            try:
+                write_dir = self.resolver.write_dir(model_type)
+            except ModelRootError:
+                continue
+            try:
+                return self._verify_contained_dir(str(write_dir.path), Path(destination_dir))
+            except DownloadQueueException:
+                continue
+
+        raise DownloadQueueException(
+            f"Destination directory '{destination_dir}' escapes the configured directory '{home}'"
+        )
 
     def _validate_destination_backend(self, backend_id: str) -> None:
         """`backend_id` names a `native.remote` backend that's fully
@@ -500,21 +533,23 @@ class DownloadQueue:
         if destination_backend_id:
             self._validate_destination_backend(destination_backend_id)
 
-        trusted_subdir = None
+        if subdir and (os.path.isabs(subdir) or any(part == '..' for part in Path(subdir).parts)):
+            raise DownloadQueueException(
+                f"Subfolder '{subdir}' must be a relative path with no '..' segments"
+            )
+
+        if self.resolver is None:
+            raise DownloadQueueException("No model root resolver is configured")
+
         if model_type:
-            from src.features.models.jobs import TYPE_DIR_MAP
-
-            trusted_subdir = TYPE_DIR_MAP.get(model_type, model_type)
-
-            if subdir:
-                if os.path.isabs(subdir) or any(part == '..' for part in Path(subdir).parts):
-                    raise DownloadQueueException(
-                        f"Subfolder '{subdir}' must be a relative path with no '..' segments"
-                    )
-                trusted_subdir = f"{trusted_subdir}/{subdir}"
+            root_dir = str(self._write_root_dir(model_type))
+            trusted_subdir = subdir or ""
+        else:
+            root_dir = str(self.resolver.home_dir())
+            trusted_subdir = None
 
         destination_dir = str(self._resolve_contained_dir(
-            self.settings.default_model_directory,
+            root_dir,
             requested=destination_dir,
             trusted_subdir=trusted_subdir,
         ))
@@ -868,18 +903,14 @@ class DownloadQueue:
             destination_dir = repo_id.replace("/", "--")
             trusted = False
 
-        # Contained inside the configured model depot before anything is
-        # enumerated or written to history, same contract as
-        # queue_model_download / queue_media_download. An untrusted
-        # destination (request body, or a plugin's before_queue hook) is
-        # joined onto the depot root first; an already-resolved one is only
-        # verified, because re-rooting it would double the depot prefix.
-        root = self.settings.default_model_directory
-        destination_dir = str(
-            self._verify_contained_dir(root, Path(destination_dir))
-            if trusted
-            else self._resolve_contained_dir(root, requested=destination_dir)
-        )
+        if self.resolver is None:
+            raise DownloadQueueException("No model root resolver is configured")
+
+        home = str(self.resolver.home_dir())
+        if trusted:
+            destination_dir = str(self._verify_trusted_hf_destination(destination_dir))
+        else:
+            destination_dir = str(self._resolve_contained_dir(home, requested=destination_dir))
 
         try:
             files = await asyncio.to_thread(
@@ -1051,11 +1082,13 @@ class DownloadQueue:
         Translates the containment refusal into the port's error type so a
         pipe - which cannot import this package's exceptions - can catch it.
         """
+        if self.resolver is None:
+            raise AssetFetchError("No model root resolver is configured")
         try:
-            return self._resolve_contained_dir(
-                self.settings.default_model_directory, requested=subdir
-            )
-        except DownloadException as e:
+            return self.resolver.asset_dir(subdir)
+        except Exception as e:
+            raise AssetFetchError(str(e)) from e
+        except Exception as e:
             raise AssetFetchError(str(e)) from e
 
     def _await_download(

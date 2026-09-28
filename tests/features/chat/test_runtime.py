@@ -1411,7 +1411,7 @@ class TestInjectMemoryBlock:
 
         model = Mock()
         model.id = "model-1"
-        self.mock_model_index.model_repo.get_by_file_path.return_value = model
+        self.mock_model_index.locator.model_for_path.return_value = model
 
         history = [{"role": "user", "content": "hello"}]
         context_metadata = {
@@ -1566,8 +1566,11 @@ class TestInjectWorkspaceBlock:
         )
 
     def _wire_models(self, by_path):
-        self.mock_model_index.model_repo.get_by_file_path.side_effect = (
-            lambda path, **kw: by_path.get(path)
+        self.mock_model_index.locator.model_for_path.side_effect = (
+            lambda path: Mock(id=path) if path in by_path else None
+        )
+        self.mock_model_index.model_repo.get_by_id.side_effect = (
+            lambda model_id, **kw: by_path.get(model_id)
         )
 
     def test_lists_checkpoint_and_active_loras_excluding_zero_strength(self):
@@ -1658,7 +1661,7 @@ class TestInjectWorkspaceBlock:
         assert summary["checkpoint"] is None and summary["loras"] == []
 
     def test_lookup_failure_never_raises(self):
-        self.mock_model_index.model_repo.get_by_file_path.side_effect = RuntimeError("db down")
+        self.mock_model_index.locator.model_for_path.side_effect = RuntimeError("db down")
         history = [{"role": "user", "content": "hello"}]
         context_metadata = {
             "form_state": {
@@ -1989,8 +1992,11 @@ class TestInjectWorkspaceBlockLLMContext:
         )
 
     def _wire_models(self, by_path):
-        self.mock_model_index.model_repo.get_by_file_path.side_effect = (
-            lambda path, **kw: by_path.get(path)
+        self.mock_model_index.locator.model_for_path.side_effect = (
+            lambda path: Mock(id=path) if path in by_path else None
+        )
+        self.mock_model_index.model_repo.get_by_id.side_effect = (
+            lambda model_id, **kw: by_path.get(model_id)
         )
 
     def _wire_preset(self, preset_template):

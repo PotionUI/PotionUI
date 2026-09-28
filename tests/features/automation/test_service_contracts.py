@@ -29,7 +29,8 @@ import inspect
 import unittest
 from pathlib import Path
 
-from src.features.models.indexer import ModelScanner as FileModelIndexer
+from src.features.models.indexing_coordinator import ModelIndexingCoordinator
+from src.features.models.locator import ModelLocator
 from src.features.models.assignments import ModelAssignmentService
 from src.features.models.provider_info import ProviderInfoFetcher
 from src.features.models.repository import ModelRepository
@@ -49,7 +50,7 @@ from src.features.media_index.indexer import MediaIndexer
 # Method -> the node type whose `execute()` calls it. Keep in step with
 # `src/core/automation/nodes/actions.py`.
 REQUIRED_METHODS = {
-    FileModelIndexer: {"index_single_model": "action.index_model"},
+    ModelIndexingCoordinator: {"index_path": "action.index_model"},
     # `model_index_manager` on AutomationServices is a `ModelIndexCollaborators`
     # bundle, not a class instance - pin against the specific role objects
     # `action.assign_model`/`action.fetch_provider_metadata` reach through it
@@ -84,7 +85,8 @@ REQUIRED_METHODS = {
         "add_user_to_group": "action.assign_user_to_group",
     },
     MediaIndexer: {"process_pending": "action.index_media_queue"},
-    ModelRepository: {"get_by_file_path": "action.scan_files"},
+    ModelRepository: {"get_by_id": "action.index_model"},
+    ModelLocator: {"model_for_path": "action.scan_files"},
     ModelCollectionRepository: {"get_by_id": "action.add_to_collection", "add_members": "action.add_to_collection"},
 }
 
@@ -117,44 +119,47 @@ class TestAutomationWiring(unittest.TestCase):
                 return {kw.arg: kw.value for kw in node.keywords}
         raise AssertionError("No AutomationServices(...) construction found in the composition root")
 
-    @staticmethod
-    def _import_source_of(tree: ast.AST, bound_name: str) -> str | None:
-        """Which module did `bound_name` come from? `None` if it isn't an import
-        (e.g. a local variable built earlier in `configure`)."""
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom):
-                for alias in node.names:
-                    if (alias.asname or alias.name) == bound_name:
-                        return node.module
-        return None
-
     def setUp(self):
         self.tree = ast.parse(COMPOSITION_ROOT.read_text())
         self.kwargs = self._automation_services_kwargs(self.tree)
 
-    def test_model_indexer_is_the_file_indexer_not_the_directory_scanner(self):
-        value = self.kwargs.get("model_indexer")
-        self.assertIsInstance(
-            value, ast.Name, "AutomationServices(model_indexer=...) should be a plain name"
+    @staticmethod
+    def _chain_of_expr(node: ast.AST) -> list[str] | None:
+        chain: list[str] = []
+        cursor = node
+        while isinstance(cursor, ast.Attribute):
+            chain.append(cursor.attr)
+            cursor = cursor.value
+        if not isinstance(cursor, ast.Name):
+            return None
+        chain.append(cursor.id)
+        chain.reverse()
+        return chain
+
+    def test_model_indexing_coordinator_is_the_real_coordinator(self):
+        value = self.kwargs.get("model_indexing_coordinator")
+        chain = self._chain_of_expr(value) if value is not None else None
+        self.assertEqual(
+            chain, ["model_index_manager", "indexing"],
+            f"AutomationServices(model_indexing_coordinator=...) resolves to "
+            f"{'.'.join(chain) if chain else 'neither a plain attribute chain nor a known kwarg'}. "
+            "Expected `model_index_manager.indexing` - the real ModelIndexingCoordinator instance "
+            "action.index_model needs index_path() from.",
         )
 
-        source_module = self._import_source_of(self.tree, value.id)
-        origin = (
-            f"imported from '{source_module}'"
-            if source_module
-            else f"a local variable (`{value.id}` is built inside build_container(), "
-            "which is how the src.features.models.directory directory scanner got injected before)"
-        )
+    def test_model_locator_is_the_real_locator(self):
+        value = self.kwargs.get("model_locator")
+        chain = self._chain_of_expr(value) if value is not None else None
         self.assertEqual(
-            source_module,
-            "src.features.models.indexer",
-            f"AutomationServices(model_indexer=...) was given `{value.id}`, {origin}. "
-            "action.index_model needs index_single_model(), which only exists on "
-            "src.features.models.indexer.ModelScanner.",
+            chain, ["model_index_manager", "locator"],
+            f"AutomationServices(model_locator=...) resolves to "
+            f"{'.'.join(chain) if chain else 'neither a plain attribute chain nor a known kwarg'}. "
+            "Expected `model_index_manager.locator` - the real ModelLocator instance "
+            "action.scan_files needs model_for_path() from.",
         )
 
     def test_the_services_the_actions_need_are_all_wired(self):
-        for name in ("model_index_manager", "model_indexer", "tag_repository",
+        for name in ("model_index_manager", "model_indexing_coordinator", "model_locator", "tag_repository",
                      "notification_manager", "gpu_monitor", "settings",
                      "backend_config_store", "model_lifecycle",
                      "backend_registry", "backend_model_indexer",

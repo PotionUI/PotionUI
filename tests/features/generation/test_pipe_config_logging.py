@@ -52,7 +52,6 @@ class _RemotePipe:
 def _mock_deps():
     return {
         "gpu": Mock(),
-        "model_directories": Mock(),
         "pipe_catalog": Mock(),
         "settings": Mock(),
         "system_monitor": Mock(),

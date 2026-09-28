@@ -24,6 +24,7 @@ failure rules.
 
 from __future__ import annotations
 
+from src.features.models.form_refs import make_model_ref
 from src.features.recipes.executors._artifact_lookup import find_slot_model
 
 from typing import Any, Dict, List, Optional
@@ -223,9 +224,9 @@ def _resolve_model_fields(
             if model_repository is not None
             else None
         )
-        if model is None or not getattr(model, "file_path", None):
+        if model is None:
             raise RequiredModelMissing(artifact.display_name or artifact.filename, artifact.filename)
-        form_data[name] = model.file_path
+        form_data[name] = make_model_ref(model.id)
 
 
 def build_fixture_form_data(

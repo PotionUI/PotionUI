@@ -94,6 +94,7 @@ class RemoteNativeBackend(BaseBackend):
         self._policy = RemoteExecutionPolicy()
         self._pipe_catalog = None
         self._plugin_registry = None
+        self._model_locator = None
         self._fingerprints: Dict[str, str] = {}
         self._owner = f"native-remote-backend:{backend_config.id}:{os.getpid()}"
         # Test-only seam: an httpx.AsyncBaseTransport (e.g. httpx.ASGITransport
@@ -103,6 +104,9 @@ class RemoteNativeBackend(BaseBackend):
         self._transport_override = transport_override
 
     # -- late-bound collaborators -----------------------------------------
+
+    def bind_model_locator(self, *, locator) -> None:
+        self._model_locator = locator
 
     def bind_remote_context(self, *, pipe_catalog, plugin_registry) -> None:
         """Give this backend the `PipeCatalog`/`PluginRegistry` it needs to
@@ -346,7 +350,9 @@ class RemoteNativeBackend(BaseBackend):
         processed = build_processed_pipeline(pipes, self._pipe_catalog)
         _rewritten, _manifest, sources = collect_input_assets(processed.pipes, storage_dir)
         try:
-            model_bundle = await asyncio.to_thread(build_model_bundle, processed.pipes)
+            model_bundle = await asyncio.to_thread(
+                build_model_bundle, processed.pipes, model_locator=self._model_locator,
+            )
         except ModelBundleResolutionError as exc:
             # Fails before any row is created or the worker is ever
             # contacted - same as every other resolution error this raises,

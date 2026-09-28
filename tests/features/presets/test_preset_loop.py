@@ -19,12 +19,10 @@ def preset_processor():
     """Create a PresetProcessor instance with mocked dependencies."""
     settings = Mock()
     template_processor = TemplateProcessor(settings)
-    model_directories = Mock()
     preset_template_loader = Mock()
-    
+
     return PresetProcessor(
         template_processor=template_processor,
-        model_directories=model_directories,
         settings=settings,
         preset_template_loader=preset_template_loader
     )

@@ -25,6 +25,7 @@ from src.features.downloads.models import Download, DownloadStatus
 from src.features.downloads.queue import DownloadQueue
 from src.features.downloads.worker import DownloadWorker
 from src.features.recipes.executors._async_bridge import run_sync
+from tests.fixtures.model_roots import make_roots
 
 _POLL_TIMEOUT_SECONDS = 5.0
 _POLL_INTERVAL_SECONDS = 0.02
@@ -130,7 +131,7 @@ def repo() -> FakeDownloadRepository:
 
 
 @pytest.fixture
-def manager(repo):
+def manager(repo, tmp_path):
     settings = Mock()
     settings.get_setting.return_value = None
     mgr = DownloadQueue(
@@ -138,6 +139,7 @@ def manager(repo):
         plugin_registry=_fake_plugin_registry(),
         settings=settings,
         connection_hub=AsyncMock(),
+        resolver=make_roots(tmp_path),
     )
     yield mgr
     # Daemon threads would otherwise outlive the test. Stop the worker
@@ -295,11 +297,7 @@ class TestEnsureLocalHfRepoThroughRealWorker:
                 ("config.json", 64, "https://huggingface.co/org/tiny/resolve/main/config.json"),
             ],
         )
-        # destination_dir is now contained inside the configured depot (see
-        # `_resolve_contained_dir`), so the e2e target must actually live
-        # under it rather than an arbitrary absolute path.
-        manager.settings.default_model_directory = str(tmp_path)
-        target_dir = str(tmp_path / "e2e-target")
+        target_dir = str(tmp_path / "models" / "e2e-target")
 
         result = manager.ensure_local_hf_repo(
             "org/tiny", target_dir, poll_interval=0.02, timeout=_POLL_TIMEOUT_SECONDS

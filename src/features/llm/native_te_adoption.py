@@ -60,7 +60,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from src.platform.settings.repository import SettingRepository
+from src.platform.filesystem.model_roots import ModelRootResolver
 
 logger = logging.getLogger(__name__)
 
@@ -158,15 +158,6 @@ class AdoptedTEEntry:
     nvfp4: bool = False        # mixed bf16/nvfp4 repack (see `_detect_quantization`)
 
 
-def _models_dir() -> Path:
-    setting = SettingRepository().get_setting_by_key("models_dir")
-    return Path(setting.get_typed_value() if setting else "models")
-
-
-def native_te_dir(models_dir: Optional[Path] = None) -> Path:
-    return (models_dir or _models_dir()) / NATIVE_TE_SUBDIR
-
-
 def read_safetensors_header(path: str | Path) -> dict[str, Any]:
     """Parse a safetensors file's JSON header (keys + per-tensor dtype/shape +
     ``__metadata__``) WITHOUT reading any tensor data — the first 8 bytes are the
@@ -210,21 +201,21 @@ def _qwen3_is_tied(hidden_size: int) -> bool:
     return hidden_size < 4096
 
 
-def gemma3_chat_tokenizer_dir(models_dir: Optional[Path] = None) -> Path:
+def gemma3_chat_tokenizer_dir(resolver: ModelRootResolver) -> Path:
     """Where the on-demand gemma3 chat tokenizer lands — next to the TE depot
     (``text_encoders/_chat_tokenizer/gemma3/``), not in-repo (see the module docstring
     and ``ensure_gemma3_chat_tokenizer``)."""
-    return native_te_dir(models_dir) / _GEMMA3_CHAT_TOKENIZER_SUBDIR
+    return resolver.asset_dir(_GEMMA3_CHAT_TOKENIZER_SUBDIR)
 
 
-def gemma3_chat_tokenizer_ready(models_dir: Optional[Path] = None) -> bool:
+def gemma3_chat_tokenizer_ready(resolver: ModelRootResolver) -> bool:
     """Whether the gemma3 chat tokenizer assets have already been fetched."""
-    d = gemma3_chat_tokenizer_dir(models_dir)
+    d = gemma3_chat_tokenizer_dir(resolver)
     return all((d / f).is_file() for f in _GEMMA3_CHAT_TOKENIZER_FILES)
 
 
 def ensure_gemma3_chat_tokenizer(
-    download_queue: Any, models_dir: Optional[Path] = None, timeout: Optional[float] = None,
+    download_queue: Any, resolver: ModelRootResolver, timeout: Optional[float] = None,
 ) -> Path:
     """Fetch ``tokenizer.json`` + ``tokenizer_config.json`` (required) plus
     ``chat_template.jinja`` (fetched if the repo has it — see the module-level
@@ -238,7 +229,7 @@ def ensure_gemma3_chat_tokenizer(
     call's own wait-for-completion poll (see its docstring); it does not
     bound HF repo-metadata enumeration, which happens before the download is
     even queued."""
-    target = gemma3_chat_tokenizer_dir(models_dir)
+    target = gemma3_chat_tokenizer_dir(resolver)
     target.mkdir(parents=True, exist_ok=True)
     download_queue.ensure_local_hf_repo(
         GEMMA3_CHAT_TOKENIZER_REPO, str(target),
@@ -248,7 +239,7 @@ def ensure_gemma3_chat_tokenizer(
     return target
 
 
-def _inspect(path: str | Path, models_dir: Optional[Path] = None) -> Optional[AdoptedTEEntry]:
+def _inspect(path: str | Path, resolver: ModelRootResolver) -> Optional[AdoptedTEEntry]:
     """Header-only inspection of one candidate file -> an entry, or None when the
     file isn't a causal-LM TE (skipped, not listed)."""
     try:
@@ -271,7 +262,7 @@ def _inspect(path: str | Path, models_dir: Optional[Path] = None) -> Optional[Ad
     has_lm_head = "lm_head.weight" in keys
     tied = True if family == "gemma3" else _qwen3_is_tied(hidden_size)
 
-    gemma3_tokenizer_ready = family == "gemma3" and gemma3_chat_tokenizer_ready(models_dir)
+    gemma3_tokenizer_ready = family == "gemma3" and gemma3_chat_tokenizer_ready(resolver)
     adoptable, reason = _eligibility(family, has_lm_head, tied, gemma3_tokenizer_ready)
     name = f"{NATIVE_TE_SUBDIR}/{Path(path).name}"
     return AdoptedTEEntry(
@@ -293,7 +284,7 @@ def _eligibility(
                 f"{' + '.join(_GEMMA3_CHAT_TOKENIZER_FILES)} from "
                 f"{GEMMA3_CHAT_TOKENIZER_REPO} (via the downloads queue: "
                 "POST /api/llm/native/checkpoints/gemma3-tokenizer/fetch) into "
-                f"{NATIVE_TE_SUBDIR}/{_GEMMA3_CHAT_TOKENIZER_SUBDIR}/, then this "
+                f"{_GEMMA3_CHAT_TOKENIZER_SUBDIR}/, then this "
                 "checkpoint becomes chat-capable"
             )
     elif family not in _CHAT_TOKENIZER_DIRS:
@@ -303,41 +294,46 @@ def _eligibility(
     return True, None
 
 
-def list_adopted_te_checkpoints(models_dir: Optional[Path] = None) -> list[AdoptedTEEntry]:
+def list_adopted_te_checkpoints(resolver: ModelRootResolver) -> list[AdoptedTEEntry]:
     """Scan ``<models_dir>/text_encoders/*.safetensors`` for causal-LM text encoders that
     can be shared with the native chat provider. Non-causal TEs are
     skipped; detected-but-ineligible ones are listed with a ``reason``. The
     ``_chat_tokenizer/`` cache subdirectory (see ``gemma3_chat_tokenizer_dir``)
     holds no ``.safetensors`` files and is never itself listed as a candidate."""
-    base = native_te_dir(models_dir)
-    if not base.is_dir():
-        return []
     entries: list[AdoptedTEEntry] = []
-    for child in sorted(base.iterdir()):
-        if not (child.is_file() and child.suffix == ".safetensors"):
+    seen: set[str] = set()
+    for type_dir in resolver.type_dirs("text_encoder"):
+        base = type_dir.path
+        if not base.is_dir():
             continue
-        entry = _inspect(child, models_dir)
-        if entry is not None:
-            entries.append(entry)
+        for child in sorted(base.iterdir()):
+            if not (child.is_file() and child.suffix == ".safetensors") or child.name in seen:
+                continue
+            seen.add(child.name)
+            entry = _inspect(child, resolver)
+            if entry is not None:
+                entries.append(entry)
     return entries
 
 
-def resolve_adopted_te_path(name: str, models_dir: Optional[Path] = None) -> str:
+def resolve_adopted_te_path(name: str, resolver: ModelRootResolver) -> str:
     """Resolve an ``LLMConfig.model`` value of the form ``text_encoders/<file>.safetensors``
     to its absolute path, guarding against traversal outside the TE depot."""
     prefix = f"{NATIVE_TE_SUBDIR}/"
     if not name.startswith(prefix):
         raise ValueError(f"Not an adopted text-encoder reference: {name!r}")
-    base = native_te_dir(models_dir).resolve()
-    candidate = (base / name[len(prefix):]).resolve()
-    if base not in candidate.parents:
-        raise ValueError(f"Invalid adopted text-encoder name: {name!r}")
-    if not candidate.is_file():
-        raise ValueError(
-            f"Adopted text-encoder '{name}' not found under {base} — "
-            f"place a single-file safetensors checkpoint there first"
-        )
-    return str(candidate)
+    rel = name[len(prefix):]
+    for type_dir in resolver.type_dirs("text_encoder"):
+        base = type_dir.path.resolve()
+        candidate = (base / rel).resolve()
+        if base not in candidate.parents:
+            raise ValueError(f"Invalid adopted text-encoder name: {name!r}")
+        if candidate.is_file():
+            return str(candidate)
+    raise ValueError(
+        f"Adopted text-encoder '{name}' not found on any text-encoder model root — "
+        f"place a single-file safetensors checkpoint there first"
+    )
 
 
 def is_adopted_te_reference(name: str) -> bool:
@@ -579,12 +575,12 @@ def _strip_gemma3_multimodal_extras(sd: dict) -> dict:
     }
 
 
-def _load_chat_tokenizer(family: str, models_dir: Optional[Path] = None):
+def _load_chat_tokenizer(family: str, resolver: ModelRootResolver):
     from transformers import AutoTokenizer
 
     if family == "gemma3":
-        d = gemma3_chat_tokenizer_dir(models_dir)
-        if not gemma3_chat_tokenizer_ready(models_dir):
+        d = gemma3_chat_tokenizer_dir(resolver)
+        if not gemma3_chat_tokenizer_ready(resolver):
             raise ValueError(
                 f"Native LLM provider: gemma3 chat tokenizer assets are not present under "
                 f"{d} — fetch {' + '.join(_GEMMA3_CHAT_TOKENIZER_FILES)} from "
@@ -598,7 +594,7 @@ def _load_chat_tokenizer(family: str, models_dir: Optional[Path] = None):
     return tok
 
 
-def build_adopted_te(path: str) -> tuple[Any, Any, str]:
+def build_adopted_te(path: str, resolver: ModelRootResolver) -> tuple[Any, Any, str]:
     """Load a single-file causal-LM TE (qwen3 or gemma3; bf16, fp8-scaled, or a
     mixed bf16/nvfp4 repack) as a ``transformers`` chat model.
 
@@ -655,10 +651,5 @@ def build_adopted_te(path: str) -> tuple[Any, Any, str]:
         model.tie_weights()
     model.eval()
 
-    # The gemma3 chat tokenizer lives next to the TE depot for the checkpoint's
-    # OWN models_dir, not a bundled in-repo asset — derive it from the
-    # checkpoint's own path (`<models_dir>/text_encoders/<file>`) rather than threading a
-    # models_dir parameter through every caller of build_adopted_te.
-    models_dir = Path(path).resolve().parents[1] if family == "gemma3" else None
-    tokenizer = _load_chat_tokenizer(family, models_dir)
+    tokenizer = _load_chat_tokenizer(family, resolver)
     return model, tokenizer, family

@@ -104,7 +104,6 @@ def _orchestrator(wan_preset_template, storage_dir: str) -> GenerationOrchestrat
 
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )

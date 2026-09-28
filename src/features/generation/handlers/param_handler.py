@@ -170,23 +170,7 @@ class ParamGenerationOutputHandler(BaseGenerationOutputHandler):
 
     @staticmethod
     def _resolve_model(model_repo, value: str):
-        """Resolve a form value to a model row.
-
-        An exact `file_path` match only works when the value is a path on this host.
-        ComfyUI presets hand their engine a bare name (`detail.safetensors`) or a name
-        with a subdirectory (`style/detail.safetensors`), and those never matched a
-        `file_path` - so those generations recorded no models at all.
-
-        Falling back to the identity `(model_type, filename)` is not a guess: it is the
-        same rule the model index uses to merge a model across backends. The basename is
-        taken from the ref because a ref's directory belongs to whichever engine produced
-        it. See docs/models.md.
-        """
         from pathlib import Path
-
-        model = model_repo.get_by_file_path(value, include_providers=False)
-        if model:
-            return model
 
         filename = Path(value).name
         if not filename:
@@ -217,7 +201,11 @@ class ParamGenerationOutputHandler(BaseGenerationOutputHandler):
         resolved: List[Optional[Any]] = []
         for model_path in model_paths:
             try:
-                model = self._resolve_model(model_repo, model_path)
+                model = (
+                    self.model_locator.model_for_path(model_path)
+                    if self.model_locator is not None
+                    else self._resolve_model(model_repo, model_path)
+                )
                 resolved.append(model)
                 if model:
                     logger.debug(f"[PARAM HANDLER] Found model for path '{model_path}': {model.id}")

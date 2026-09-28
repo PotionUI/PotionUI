@@ -6,12 +6,10 @@ import pytest
 from unittest.mock import Mock, MagicMock, AsyncMock, patch
 from datetime import datetime
 
-from pathlib import Path
-
 from src.features.models import operations
 from src.features.models.collaborators import build_model_index_collaborators
 from src.features.models.catalog import ListModelsParams
-from src.features.models.jobs import TYPE_DIR_MAP
+from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY as TYPE_DIR_MAP
 from src.features.models.indexer import ModelScanner
 from src.features.models.exceptions import (
     ModelAlreadyAssignedException,
@@ -95,10 +93,7 @@ def collaborators(mock_model_repository, mock_tag_repository, mock_plugin_regist
         settings=Mock(),
         download_queue=Mock(),
         user_attribute_repository=mock_user_attribute_repository,
-        # Without this, `models_root or Path(model_scanner.models_dir)`
-        # falls through to the real, lazily-constructed module-level scanner
-        # singleton, which hits the settings DB for real to resolve models_dir.
-        models_root=Path("/tmp/potionui-test-models"),
+        model_roots=Mock(),
     )
     # The directory scanner is an injected dependency of the catalog; stub it so
     # the aggregate stats read never touches disk or the database.
@@ -222,13 +217,15 @@ class TestGetModelTypes:
         # The `collaborators` fixture replaces the catalog's scanner with a bare
         # MagicMock; MODEL_TYPE_MAPPING must be stubbed explicitly to the real
         # class attribute so get_model_types can read the known-types superset.
-        # `models_dir` must be a real Path too - `_type_directory` joins it with
-        # `TYPE_DIR_MAP`, and a bare MagicMock's `__truediv__` would silently
-        # return another MagicMock instead of a real path. A `tmp_path`-rooted
-        # directory, not the literal 'models' string: relative to the repo's
-        # depot, and `_type_subdirectories` now actually lists it.
         collaborators.catalog.scanner.MODEL_TYPE_MAPPING = ModelScanner.MODEL_TYPE_MAPPING
-        collaborators.catalog.scanner.models_dir = tmp_path / 'models'
+        models_dir = tmp_path / 'models'
+
+        def _write_dir(model_type):
+            entry = Mock()
+            entry.path = models_dir / TYPE_DIR_MAP.get(model_type, model_type)
+            return entry
+
+        collaborators.catalog.scanner.resolver.write_dir.side_effect = _write_dir
 
     async def test_admin_include_empty_adds_zero_count_types(
         self, collaborators, mock_model_repository, mock_admin_user, tmp_path
@@ -536,8 +533,8 @@ class TestIndexing:
         """Test starting indexing returns proper status."""
         result = operations.start_indexing(collaborators)
 
-        assert result['status'] == 'running'
-        assert 'indexing started' in result['message'].lower()
+        assert result['state'] == 'scanning'
+        assert result['trigger'] == 'manual'
 
     def test_start_indexing_blocked_by_hook(self, collaborators, mock_plugin_registry):
         """Test that a blocking hook prevents indexing."""
@@ -549,6 +546,7 @@ class TestIndexing:
             operations.start_indexing(collaborators)
 
         assert 'Test block' in str(exc_info.value)
+        assert collaborators.indexing.status()['state'] == 'blocked'
 
     async def test_count_unindexed_delegates_to_the_scanner(self, collaborators):
         """The collaborators is a thin facade here - the diff itself is the scanner's
@@ -904,48 +902,15 @@ class TestModelTypes:
 
 
 class TestCleanupDeletedModels:
-    """Tests for cleanup_deleted_models method."""
-
-    def test_cleanup_deleted_models(self, collaborators, mock_model_repository):
-        """Test cleanup of deleted models."""
-        mock_model1 = Mock()
-        mock_model1.id = 'model-1'
-        mock_model1.file_path = '/existing/path.safetensors'
-
-        mock_model2 = Mock()
-        mock_model2.id = 'model-2'
-        mock_model2.file_path = '/deleted/path.safetensors'
-
-        mock_model_repository.get_all.return_value = [mock_model1, mock_model2]
-
-        with patch('src.features.models.indexing_coordinator.Path') as mock_path:
-            mock_path.return_value.exists.side_effect = [True, False]  # First exists, second doesn't
-
-            result = operations.cleanup_deleted_models(collaborators)
-
-        assert result['deleted_from_index'] == 1
-        assert result['total_checked'] == 2
-        mock_model_repository.delete.assert_called_once_with('model-2')
-
-    def test_backend_reported_rows_without_a_local_path_are_left_alone(self, collaborators, mock_model_repository):
-        """A ComfyUI-reported model has `file_path IS NULL` by design (see
-        `ModelRepository.delete_unclaimed_orphans`); cleanup must skip it, not
-        crash on `Path(None)` and abort the whole run."""
-        remote = Mock()
-        remote.id = 'remote-1'
-        remote.file_path = None
-
-        gone = Mock()
-        gone.id = 'gone-1'
-        gone.file_path = '/deleted/path.safetensors'
-
-        mock_model_repository.get_all.return_value = [remote, gone]
+    def test_cleanup_deleted_models_delegates_to_the_coordinator(self, collaborators):
+        collaborators.indexing.cleanup_deleted_models = Mock(return_value={
+            "message": "Cleanup completed", "deleted_locations": 3, "roots_checked": 2,
+        })
 
         result = operations.cleanup_deleted_models(collaborators)
 
-        assert result['deleted_from_index'] == 1
-        assert result['total_checked'] == 2
-        mock_model_repository.delete.assert_called_once_with('gone-1')
+        assert result == {"message": "Cleanup completed", "deleted_locations": 3, "roots_checked": 2}
+        collaborators.indexing.cleanup_deleted_models.assert_called_once_with()
 
 
 class TestAssignmentFailureIsExplained:

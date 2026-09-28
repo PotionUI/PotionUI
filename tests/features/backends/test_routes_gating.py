@@ -34,6 +34,7 @@ def _make_client(user):
         settings=Mock(),
         backend_registry=registry,
         model_lifecycle=Mock(),
+        model_index_manager=Mock(),
     )
     app = FastAPI()
     app.include_router(build_router(container))

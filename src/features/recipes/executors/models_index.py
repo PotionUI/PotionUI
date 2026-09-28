@@ -2,9 +2,9 @@
 disk (e.g. dropped in manually, or left over from a previous install) become
 visible before `preset.ensure`/`pipeline.render` look for them.
 
-Uses the same filesystem `ModelScanner` singleton the manual "reindex" action
-elsewhere in the app uses (`src.features.models.indexer.model_scanner`) -
-this is a full directory scan, independent of any particular backend/engine,
+Uses the same `ModelScanner` instance the manual "reindex" action elsewhere in
+the app uses (the one `ModelIndexCollaborators.indexing` drives) - this is a
+full directory scan, independent of any particular backend/engine,
 so it needs no async backend round-trip (contrast with the per-backend
 `BackendModelIndexer` in `src.features.models.backend_indexer`, which asks a
 specific backend what it can load).
@@ -38,20 +38,16 @@ _PROGRESS_MIN_INTERVAL_SECONDS = 1.0
 
 
 class ModelsIndexExecutor:
-    def __init__(self, model_scanner=None, backend_registry: Optional[object] = None, native_availability_reconciler=None):
-        if model_scanner is None:
-            from src.features.models.indexer import model_scanner as _default_scanner
-
-            model_scanner = _default_scanner
+    def __init__(self, model_scanner, backend_registry: Optional[object] = None, native_availability_projector=None):
         self.model_scanner = model_scanner
         self.backend_registry = backend_registry
-        if native_availability_reconciler is None:
+        if native_availability_projector is None:
             from src.features.models.native_availability_reconciler import (
-                native_availability_reconciler as _default_reconciler,
+                native_availability_projector as _default_projector,
             )
 
-            native_availability_reconciler = _default_reconciler
-        self.native_availability_reconciler = native_availability_reconciler
+            native_availability_projector = _default_projector
+        self.native_availability_projector = native_availability_projector
 
     def execute(self, context: StepContext) -> StepResult:
         set_progress_callback = getattr(self.model_scanner, "set_progress_callback", None)
@@ -71,7 +67,7 @@ class ModelsIndexExecutor:
                 set_progress_callback(None)
 
         try:
-            run_sync(self.native_availability_reconciler.reconcile(self.backend_registry))
+            run_sync(self.native_availability_projector.reconcile(self.backend_registry))
         except Exception as exc:
             logger.warning(f"models.index: native availability reconcile failed: {exc}")
 

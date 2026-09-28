@@ -17,7 +17,8 @@ from typing import Any, Callable, Dict, Optional
 class AutomationServices:
     """Injectable dependency bundle for node `execute()` implementations."""
     model_index_manager: Optional[Any] = None
-    model_indexer: Optional[Any] = None
+    model_indexing_coordinator: Optional[Any] = None
+    model_locator: Optional[Any] = None
     tag_repository: Optional[Any] = None
     notification_manager: Optional[Any] = None
     gpu_monitor: Optional[Any] = None

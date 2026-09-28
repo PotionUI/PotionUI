@@ -240,6 +240,12 @@ class SettingRepository:
         self.apply_bulk_updates(system_updates=[], user_updates=[(user_id, setting_id, value)])
         return True
 
+    def delete_setting_by_key(self, key: str) -> bool:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute("DELETE FROM settings WHERE key = ?", (key,))
+            return cursor.rowcount > 0
+
     def delete_user_setting(self, user_id: str, setting_id: str) -> bool:
         """Delete a user setting override"""
         from src.platform.database.database import db

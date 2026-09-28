@@ -39,17 +39,6 @@ class UpdateDescriptionRequest(BaseModel):
     description: str
 
 
-class ApplyModelsLocationRequest(BaseModel):
-    """Request to point the models directory at an external location.
-
-    `overrides` maps a type directory name (`loras`, `checkpoints`, ...) to an
-    external path for that type alone, overriding the joined
-    `external_path/<type>` default for the rest.
-    """
-    external_path: str
-    overrides: Optional[Dict[str, str]] = None
-
-
 class UpdatePromptingGuidanceRequest(BaseModel):
     """Request to update a model's admin-authored prompting guidance"""
     prompting_guidance: str

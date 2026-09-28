@@ -1,5 +1,7 @@
 """SiglipVisionEmbedder: lazy load, query prep, and the fixed-padding contract."""
 
+import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -10,6 +12,11 @@ from src.features.media_index.vision_embedder import (
     build_vision_embedder,
 )
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
+from tests.fixtures.model_roots import make_roots
+
+
+def _resolver():
+    return make_roots(Path(tempfile.mkdtemp(prefix="vision-embedder-test-")), types=[])
 
 
 def make_settings(**overrides):
@@ -19,7 +26,6 @@ def make_settings(**overrides):
         return overrides.get(key, default)
 
     settings.get_setting.side_effect = get_setting
-    settings.get_models_dir.return_value = overrides.get("models_dir", "models")
     return settings
 
 
@@ -30,6 +36,7 @@ def make_loaded_embedder(dim=4):
     privately on the instance, so stubbing `_load_model` is how a test
     supplies one."""
     embedder = SiglipVisionEmbedder(
+        resolver=_resolver(),
         model_name="fake/siglip",
         model_lifecycle=ModelLifecycle(gpu_monitor=None, settings=None),
     )
@@ -49,13 +56,13 @@ def make_loaded_embedder(dim=4):
 # ---------------------------------------------------------------------------
 
 def test_construction_does_not_load_model():
-    embedder = SiglipVisionEmbedder(model_name="fake/siglip")
+    embedder = SiglipVisionEmbedder(resolver=_resolver(), model_name="fake/siglip")
     assert embedder._processor is None
     assert embedder._source_path is None
 
 
 def test_build_vision_embedder_defaults():
-    embedder = build_vision_embedder(make_settings())
+    embedder = build_vision_embedder(make_settings(), _resolver())
 
     assert embedder.model_name == "google/siglip-base-patch16-224"
     assert embedder.device == "cpu"
@@ -66,7 +73,7 @@ def test_build_vision_embedder_defaults():
 
 def test_missing_weights_without_auto_download_raises_actionable_error():
     embedder = SiglipVisionEmbedder(
-        model_name="fake/siglip", models_dir="/nonexistent", auto_download=False
+        resolver=_resolver(), model_name="fake/siglip", auto_download=False
     )
 
     with pytest.raises(RuntimeError, match="auto-download is disabled"):
@@ -74,21 +81,21 @@ def test_missing_weights_without_auto_download_raises_actionable_error():
 
 
 def test_build_vision_embedder_honors_overrides():
+    resolver = _resolver()
     embedder = build_vision_embedder(make_settings(
         media_vision_model="google/siglip-so400m-patch14-384",
         media_vision_device="cuda:0",
         media_vision_auto_download=False,
-        models_dir="custom-models",
-    ))
+    ), resolver)
 
     assert embedder.model_name == "google/siglip-so400m-patch14-384"
     assert embedder.device == "cuda:0"
     assert embedder.auto_download is False
-    assert embedder.models_dir == "custom-models"
+    assert embedder.resolver is resolver
 
 
 def test_embedder_slug_is_stable_and_model_specific():
-    embedder = SiglipVisionEmbedder(model_name="google/siglip-base-patch16-224")
+    embedder = SiglipVisionEmbedder(resolver=_resolver(), model_name="google/siglip-base-patch16-224")
     assert embedder.embedder_slug == "local-google-siglip-base-patch16-224"
 
 
@@ -153,7 +160,7 @@ def test_features_extracted_from_transformers5_output_objects():
 
 
 def test_embed_texts_empty_input_never_touches_model():
-    embedder = SiglipVisionEmbedder(model_name="fake/siglip", auto_download=False)
+    embedder = SiglipVisionEmbedder(resolver=_resolver(), model_name="fake/siglip", auto_download=False)
     assert embedder.embed_texts([]) == []
     assert embedder._processor is None
 
@@ -175,7 +182,7 @@ def test_embed_images_uses_image_features_and_normalizes():
 
 
 def test_embed_images_empty_input_never_touches_model():
-    embedder = SiglipVisionEmbedder(model_name="fake/siglip", auto_download=False)
+    embedder = SiglipVisionEmbedder(resolver=_resolver(), model_name="fake/siglip", auto_download=False)
     assert embedder.embed_images([]) == []
     assert embedder._processor is None
 
@@ -201,6 +208,7 @@ class _FakeSiglipModel:
 
 def _embedder_for_lifecycle_tests():
     embedder = SiglipVisionEmbedder(
+        resolver=_resolver(),
         model_name="fake/siglip",
         model_lifecycle=ModelLifecycle(gpu_monitor=None, settings=None),
     )
@@ -282,7 +290,7 @@ def test_evicted_model_reloads_on_next_use():
 def test_missing_lifecycle_manager_raises_clean_error():
     import src.platform.runtime.model_lifecycle.lifecycle as manager_module
 
-    embedder = SiglipVisionEmbedder(model_name="fake/siglip")
+    embedder = SiglipVisionEmbedder(resolver=_resolver(), model_name="fake/siglip")
     saved = manager_module._default_lifecycle
     manager_module._default_lifecycle = None
     try:
@@ -318,7 +326,7 @@ def test_is_loaded_reflects_residency_not_disk_presence():
 def test_is_loaded_false_without_a_lifecycle_manager():
     import src.platform.runtime.model_lifecycle.lifecycle as manager_module
 
-    embedder = SiglipVisionEmbedder(model_name="fake/siglip")
+    embedder = SiglipVisionEmbedder(resolver=_resolver(), model_name="fake/siglip")
     saved = manager_module._default_lifecycle
     manager_module._default_lifecycle = None
     try:
@@ -332,19 +340,21 @@ def test_is_loaded_false_without_a_lifecycle_manager():
 # ---------------------------------------------------------------------------
 
 def test_resolve_status_missing_weights_report_absent_with_no_size(tmp_path):
-    status = SiglipVisionEmbedder.resolve_status("google/siglip-base-patch16-224", str(tmp_path))
+    resolver = make_roots(tmp_path, types=[])
+    status = SiglipVisionEmbedder.resolve_status("google/siglip-base-patch16-224", resolver)
 
     assert status["present"] is False
     assert status["size"] is None
-    assert status["path"] == str(tmp_path / "vision_embeddings" / "google-siglip-base-patch16-224")
+    assert status["path"] == str(resolver.asset_dir("vision_embeddings") / "google-siglip-base-patch16-224")
 
 
 def test_resolve_status_present_weights_report_total_size(tmp_path):
-    target = tmp_path / "vision_embeddings" / "google-siglip-base-patch16-224"
+    resolver = make_roots(tmp_path, types=[])
+    target = resolver.asset_dir("vision_embeddings") / "google-siglip-base-patch16-224"
     target.mkdir(parents=True)
     (target / "model.safetensors").write_bytes(b"x" * 20)
 
-    status = SiglipVisionEmbedder.resolve_status("google/siglip-base-patch16-224", str(tmp_path))
+    status = SiglipVisionEmbedder.resolve_status("google/siglip-base-patch16-224", resolver)
 
     assert status["present"] is True
     assert status["size"] == 20

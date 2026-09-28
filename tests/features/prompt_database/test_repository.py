@@ -253,8 +253,8 @@ class TestPromptRepository(PersistenceTestBase):
         from src.features.models.records import Model
 
         models = ModelRepository()
-        model_a = models.create(Model(filename="a.safetensors", file_path="/models/a.safetensors", model_type="checkpoint"))
-        model_b = models.create(Model(filename="b.safetensors", file_path="/models/b.safetensors", model_type="checkpoint"))
+        model_a = models.create(Model(filename="a.safetensors", model_type="checkpoint"))
+        model_b = models.create(Model(filename="b.safetensors", model_type="checkpoint"))
 
         self.repository.create(Prompt(
             id=generate_ulid(), user_id=self.user_1, segments=[RichSegment(content="a")],
@@ -488,8 +488,8 @@ class TestPromptRepository(PersistenceTestBase):
         from src.features.models.records import Model
 
         models = ModelRepository()
-        model_a = models.create(Model(filename="a.safetensors", file_path="/models/a.safetensors", model_type="checkpoint"))
-        model_b = models.create(Model(filename="b.safetensors", file_path="/models/b.safetensors", model_type="checkpoint"))
+        model_a = models.create(Model(filename="a.safetensors", model_type="checkpoint"))
+        model_b = models.create(Model(filename="b.safetensors", model_type="checkpoint"))
 
         matching = self.repository.create(
             Prompt(id=generate_ulid(), user_id=self.user_1, model_id=model_a.id, segments=[RichSegment(content="x")])

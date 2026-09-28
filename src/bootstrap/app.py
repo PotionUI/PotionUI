@@ -407,6 +407,36 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         except Exception as exc:
             logging.error(f"Remote execution reconciliation failed at startup: {exc}")
 
+        def _resume_model_indexing():
+            try:
+                container.model_roots_manager.sync_home_from_setting()
+            except Exception as exc:
+                logging.error(f"Syncing the home model root from settings failed at startup: {exc}")
+
+            try:
+                from src.features.models.locations_repository import ModelLocationsRepository
+                from src.features.models.symlink_adoption import adopt_symlinked_model_roots
+                from src.platform.filesystem.model_roots_repository import ModelRootRepository
+                from src.platform.settings.repository import SettingRepository
+
+                adopt_symlinked_model_roots(
+                    resolver=container.model_roots,
+                    roots_manager=container.model_roots_manager,
+                    root_repository=ModelRootRepository(),
+                    locations_repository=ModelLocationsRepository(),
+                    setting_repository=SettingRepository(),
+                    indexing_coordinator=container.model_index_manager.indexing,
+                )
+            except Exception as exc:
+                logging.error(f"Adopting symlinked model roots failed at startup: {exc}")
+
+            try:
+                container.model_index_manager.indexing.resume_interrupted_indexing()
+            except Exception as exc:
+                logging.error(f"Resuming interrupted model indexing failed at startup: {exc}")
+
+        asyncio.create_task(asyncio.to_thread(_resume_model_indexing))
+
         # Heartbeat for rented compute: a pod paused or deleted in the
         # provider's console is reflected on its row (and its backend
         # disabled) within one interval, not on the next admin click.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveRecipeReadiness } from './recipeReadinessBadge';
+import { deriveRecipeReadiness, indexingBadgeLabel } from './recipeReadinessBadge';
 import type { ReadinessReport, ReadinessStatus } from '$lib/services/api/setup';
 
 function report(overrides: Partial<Record<string, ReadinessStatus>> = {}): ReadinessReport {
@@ -61,5 +61,52 @@ describe('deriveRecipeReadiness', () => {
 		// `generation_proven` clears when someone generates, not when a recipe
 		// runs — it must not make every row look broken.
 		expect(deriveRecipeReadiness(report({ generation_proven: 'not_ready' })).kind).toBe('ready');
+	});
+
+	it('reads MODELS_INDEXING as an "indexing" badge with live counts, not "missing models"', () => {
+		const readiness = report({ content: 'degraded' });
+		const contentCheck = readiness.checks.find((c) => c.area === 'content')!;
+		contentCheck.code = 'MODELS_INDEXING';
+		contentCheck.message = 'Your models are still being set up (412/1637). Check back shortly.';
+
+		const badge = deriveRecipeReadiness(readiness);
+		expect(badge.kind).toBe('indexing');
+		expect(badge.label).toBe('Indexing models… 412 / 1637');
+		expect(badge.variant).toBe('info');
+	});
+
+	it('reads RECIPE_MODELS_INDEXING the same way', () => {
+		const readiness = report({ content: 'degraded' });
+		const contentCheck = readiness.checks.find((c) => c.area === 'content')!;
+		contentCheck.code = 'RECIPE_MODELS_INDEXING';
+		contentCheck.message = 'This recipe\'s models are still being set up (0/0). Check back shortly.';
+
+		expect(deriveRecipeReadiness(readiness).kind).toBe('indexing');
+	});
+
+	it('prefers needs backend over indexing when both are blocking', () => {
+		const readiness = report({ execution: 'not_ready', content: 'degraded' });
+		const contentCheck = readiness.checks.find((c) => c.area === 'content')!;
+		contentCheck.code = 'MODELS_INDEXING';
+
+		expect(deriveRecipeReadiness(readiness).kind).toBe('needs-backend');
+	});
+});
+
+describe('indexingBadgeLabel', () => {
+	it('extracts processed/total from the server-composed message', () => {
+		expect(indexingBadgeLabel('Models are still being indexed (412/1637 processed) - check back shortly.')).toBe(
+			'Indexing models… 412 / 1637'
+		);
+	});
+
+	it('reads a 0/0 total as still scanning', () => {
+		expect(indexingBadgeLabel('Your models are still being set up (0/0). Check back shortly.')).toBe(
+			'Indexing models… scanning'
+		);
+	});
+
+	it('falls back to a plain label when the message has no counts', () => {
+		expect(indexingBadgeLabel('no numbers here')).toBe('Indexing models…');
 	});
 });

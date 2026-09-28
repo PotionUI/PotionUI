@@ -54,7 +54,7 @@ class TestProviderInfoPreviewMedia(PersistenceTestBase):
 
         from src.features.tags.repository import tag_repo
         self.collaborators = build_model_index_collaborators(
-            self.repo, tag_repo, Mock(), self.settings, Mock(), models_root=self.storage
+            self.repo, tag_repo, Mock(), self.settings, Mock(), model_roots=Mock()
         )
         self.fetcher = self.collaborators.provider_info
 
@@ -65,7 +65,6 @@ class TestProviderInfoPreviewMedia(PersistenceTestBase):
     def _seed_model(self, sha256="a" * 64):
         return self.repo.create(Model(
             filename="detail.safetensors",
-            file_path="/models/loras/detail.safetensors",
             model_type="lora",
             sha256=sha256,
         ))
@@ -144,8 +143,8 @@ class TestProviderInfoPreviewMedia(PersistenceTestBase):
     def test_stored_preview_reads_back_real_bytes_through_the_storage_driver(self):
         real_driver = LocalFileStorageDriver(str(self.storage))
         collaborators = build_model_index_collaborators(
-            self.repo, self._tag_repo(), Mock(), self.settings, Mock(),
-            models_root=self.storage, storage_driver=real_driver,
+            self.repo, self._tag_repo(), Mock(), self.settings, Mock(), model_roots=Mock(),
+            storage_driver=real_driver,
         )
         fetcher = collaborators.provider_info
         model = self._seed_model()

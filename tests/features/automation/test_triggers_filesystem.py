@@ -12,6 +12,7 @@ from src.features.automation.triggers.filesystem import (
     list_app_directories,
     resolve_effective_directory,
 )
+from tests.fixtures.model_roots import make_roots
 
 
 class FakeSettings:
@@ -32,45 +33,40 @@ class FakeSettings:
 
 class TestListAppDirectories(unittest.TestCase):
 
-    def test_enumerates_models_root_subdirs_storage_outputs_and_custom(self):
+    def test_enumerates_root_bound_type_dirs_storage_outputs_and_custom(self):
         with tempfile.TemporaryDirectory() as tmp:
-            models_dir = os.path.join(tmp, "models")
-            os.makedirs(os.path.join(models_dir, "loras"))
-            os.makedirs(os.path.join(models_dir, "checkpoints"))
-            # A file directly under models/ should not show up as a subdirectory option.
-            with open(os.path.join(models_dir, "readme.txt"), "w") as f:
-                f.write("x")
-
+            resolver = make_roots(Path(tmp), types=["lora", "checkpoint"], label="PotionUI models")
             settings = FakeSettings(
-                models_dir=models_dir,
+                models_dir="unused",
                 storage_dir=os.path.join(tmp, "storage"),
                 generations_dir=os.path.join(tmp, "storage", "generations"),
             )
 
-            options = list_app_directories(settings)
+            options = list_app_directories(settings, resolver)
             values = [o["value"] for o in options]
+            labels = {o["value"]: o["label"] for o in options}
 
-            self.assertIn(models_dir, values)
-            self.assertIn(os.path.join(models_dir, "loras"), values)
-            self.assertIn(os.path.join(models_dir, "checkpoints"), values)
+            home = Path(tmp) / "models"
+            self.assertIn(str(home / "loras"), values)
+            self.assertIn(str(home / "checkpoints"), values)
+            self.assertEqual(labels[str(home / "loras")], "PotionUI models · lora")
             self.assertIn(os.path.join(tmp, "storage"), values)
             self.assertIn(os.path.join(tmp, "storage", "generations"), values)
             self.assertEqual(values[-1], CUSTOM_PATH_VALUE)
-            self.assertNotIn(os.path.join(models_dir, "readme.txt"), values)
 
-    def test_missing_models_dir_does_not_raise(self):
-        settings = FakeSettings(
-            models_dir="/does/not/exist/anywhere",
-            storage_dir="storage",
-            generations_dir="storage/generations",
-        )
+    def test_no_bound_roots_still_returns_storage_outputs_and_custom(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            resolver = make_roots(Path(tmp), types=[])
+            settings = FakeSettings(
+                models_dir="unused",
+                storage_dir="storage",
+                generations_dir="storage/generations",
+            )
 
-        options = list_app_directories(settings)
+            options = list_app_directories(settings, resolver)
 
-        # Still returns the base options even though subdirectory enumeration failed.
-        values = [o["value"] for o in options]
-        self.assertIn("/does/not/exist/anywhere", values)
-        self.assertEqual(values[-1], CUSTOM_PATH_VALUE)
+            values = [o["value"] for o in options]
+            self.assertEqual(values, ["storage", "storage/generations", CUSTOM_PATH_VALUE])
 
 
 class TestResolveEffectiveDirectory(unittest.TestCase):

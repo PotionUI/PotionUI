@@ -16,6 +16,7 @@
 </script>
 
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { copyText } from '$lib/utils/clipboard';
 	import { toasts } from '$lib/stores/toast';
@@ -26,13 +27,15 @@
 		iconClass = 'text-fg-muted',
 		title,
 		rows,
-		bare = false
+		bare = false,
+		extra
 	}: {
 		icon: string;
 		iconClass?: string;
 		title: string;
 		rows: MetadataRow[];
 		bare?: boolean;
+		extra?: Snippet<[boolean]>;
 	} = $props();
 
 	/** Label of the row most recently copied, to flash its icon. */
@@ -82,6 +85,7 @@
 				{@render rowValue(row)}
 			</KVItem>
 		{/each}
+		{@render extra?.(true)}
 	</KVGrid>
 {:else}
 	<div class="bg-surface-2 rounded-lg p-3">
@@ -96,6 +100,7 @@
 					{@render rowValue(row)}
 				</div>
 			{/each}
+			{@render extra?.(false)}
 		</div>
 	</div>
 {/if}

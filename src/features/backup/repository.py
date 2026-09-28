@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 VACUUM_TIMEOUT_SECONDS = 60.0
 
@@ -70,6 +70,20 @@ def row_counts(db_path: Path) -> Dict[str, int]:
         return {name: conn.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0] for name in names}
     finally:
         conn.close()
+
+
+def model_root_rows(db_path: Path) -> List[Tuple[str, str, str]]:
+    try:
+        conn = open_readonly(db_path)
+    except sqlite3.Error:
+        return []
+    try:
+        rows = conn.execute("SELECT id, path, kind FROM model_roots").fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+    return [(row[0], row[1], row[2]) for row in rows]
 
 
 def setting_value(db_path: Path, key: str) -> str | None:

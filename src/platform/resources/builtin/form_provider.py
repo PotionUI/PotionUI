@@ -215,7 +215,9 @@ class FormResourceProvider(BaseResourceProvider):
             if model_id:
                 model = repo.get_by_id(model_id, include_providers=True, include_tags=False)
             elif locator:
-                model = repo.get_by_file_path(locator, include_providers=True)
+                model_locator = ctx.model_index_manager.locator
+                found = model_locator.model_for_path(locator)
+                model = repo.get_by_id(found.id, include_providers=True, include_tags=False) if found else None
             else:
                 return None
             return model if model and is_visible(ctx, model) else None

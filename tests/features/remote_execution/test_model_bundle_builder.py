@@ -7,8 +7,10 @@ import hashlib
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from typing import Dict, Optional
 
+from src.features.models.locator import ModelFileUnavailable
 from src.features.models.records import Model
 from src.features.remote_execution.model_bundle_builder import (
     ModelBundleResolutionError,
@@ -20,25 +22,31 @@ from src.platform.worker_protocol import ProcessedPipeV1
 class FakeModelRepository:
     """A `get_by_file_path`/`update_digest` stand-in - no database, no filesystem.
 
-    `rows` is the source of truth (keyed by file_path); `get_by_file_path`
-    hands back a fresh `Model` each call, mirroring a real repository read.
-    `digest_writes` records every `update_digest` call so a test can assert
-    a second bundle build does not re-hash an already-digested model.
+    `rows` is the source of truth (keyed by the physical path a pipe config
+    would carry); `get_by_file_path` hands back a fresh `Model` each call,
+    mirroring a real repository read. `digest_writes` records every
+    `update_digest` call so a test can assert a second bundle build does not
+    re-hash an already-digested model.
     """
 
     def __init__(self):
         self.rows: Dict[str, dict] = {}
         self.identity_rows: Dict[tuple, dict] = {}
+        self.paths_by_id: Dict[str, str] = {}
         self.lookups: list = []
         self.digest_writes: list = []
 
     def register(self, file_path: str, **fields) -> None:
-        self.rows[file_path] = {"file_path": file_path, **fields}
+        self.rows[file_path] = dict(fields)
+        if fields.get("id"):
+            self.paths_by_id[fields["id"]] = file_path
 
-    def register_identity(self, model_type: str, filename: str, **fields) -> None:
+    def register_identity(self, model_type: str, filename: str, file_path: Optional[str] = None, **fields) -> None:
         self.identity_rows[(model_type, filename)] = {
-            "model_type": model_type, "filename": filename, "file_path": None, **fields,
+            "model_type": model_type, "filename": filename, **fields,
         }
+        if file_path and fields.get("id"):
+            self.paths_by_id[fields["id"]] = file_path
 
     def get_by_file_path(self, file_path: str, include_providers: bool = True) -> Optional[Model]:
         self.lookups.append(file_path)
@@ -53,7 +61,7 @@ class FakeModelRepository:
 
     def update_digest(self, model_id: str, *, sha256: str, file_size: int) -> bool:
         self.digest_writes.append((model_id, sha256, file_size))
-        for fields in self.rows.values():
+        for fields in list(self.rows.values()) + list(self.identity_rows.values()):
             if fields.get("id") == model_id:
                 fields["sha256"] = sha256
                 fields["file_size"] = file_size
@@ -61,20 +69,41 @@ class FakeModelRepository:
         return False
 
 
+class FakeModelLocator:
+    def __init__(self, repo: FakeModelRepository):
+        self._repo = repo
+
+    def model_for_path(self, path) -> Optional[Model]:
+        return self._repo.get_by_file_path(str(path))
+
+    def path_for_model(self, model_id: str) -> Path:
+        file_path = self._repo.paths_by_id.get(model_id)
+        if not file_path:
+            raise ModelFileUnavailable(f"model '{model_id}' has no known location")
+        path = Path(file_path)
+        if path.is_file():
+            return path
+        raise ModelFileUnavailable(f"model '{model_id}' has no present copy reachable on any root")
+
+
 def _pipe(pipe_id: str, config: dict) -> ProcessedPipeV1:
     return ProcessedPipeV1(pipe_id=pipe_id, pipe_type="model_loader", enabled=True, config=config, inputs={})
+
+
+def _bundle(pipes, repo: FakeModelRepository):
+    return build_model_bundle(pipes, model_repository=repo, model_locator=FakeModelLocator(repo))
 
 
 class TestEmptyPipeline(unittest.TestCase):
     def test_no_model_references_produces_an_empty_deterministic_bundle(self):
         repo = FakeModelRepository()
-        bundle = build_model_bundle([_pipe("p1", {"device": "cuda"})], model_repository=repo)
+        bundle = _bundle([_pipe("p1", {"device": "cuda"})], repo)
 
         self.assertEqual(bundle.entries, ())
         self.assertEqual(bundle.total_size_bytes, 0)
         self.assertEqual(repo.lookups, [])
 
-        again = build_model_bundle([_pipe("p1", {"device": "cuda"})], model_repository=repo)
+        again = _bundle([_pipe("p1", {"device": "cuda"})], repo)
         self.assertEqual(bundle.bundle_digest, again.bundle_digest)
 
 
@@ -95,7 +124,7 @@ class TestResolvedEntries(unittest.TestCase):
             "diffusion_model": {"file_path": "/models/checkpoints/dit.safetensors", "name": "dit"},
             "vae": {"file_path": "/models/vae/vae.safetensors", "name": "vae"},
         })
-        bundle = build_model_bundle([pipe], model_repository=self.repo)
+        bundle = _bundle([pipe], self.repo)
 
         self.assertEqual(len(bundle.entries), 2)
         by_id = {e.logical_id: e for e in bundle.entries}
@@ -111,7 +140,7 @@ class TestResolvedEntries(unittest.TestCase):
     def test_the_same_file_referenced_twice_dedups_to_one_entry(self):
         pipe_a = _pipe("p1", {"diffusion_model": {"file_path": "/models/checkpoints/dit.safetensors"}})
         pipe_b = _pipe("p2", {"unet": {"file_path": "/models/checkpoints/dit.safetensors"}})
-        bundle = build_model_bundle([pipe_a, pipe_b], model_repository=self.repo)
+        bundle = _bundle([pipe_a, pipe_b], self.repo)
 
         self.assertEqual(len(bundle.entries), 1)
         self.assertEqual(self.repo.lookups, ["/models/checkpoints/dit.safetensors"])
@@ -121,13 +150,13 @@ class TestResolvedEntries(unittest.TestCase):
             "diffusion_model": {"file_path": "/models/checkpoints/dit.safetensors"},
             "vae": {"file_path": "/models/vae/vae.safetensors"},
         })
-        forward = build_model_bundle([pipe], model_repository=self.repo)
+        forward = _bundle([pipe], self.repo)
 
         reordered_pipe = _pipe("p1", {
             "vae": {"file_path": "/models/vae/vae.safetensors"},
             "diffusion_model": {"file_path": "/models/checkpoints/dit.safetensors"},
         })
-        backward = build_model_bundle([reordered_pipe], model_repository=self.repo)
+        backward = _bundle([reordered_pipe], self.repo)
 
         self.assertEqual(forward.bundle_digest, backward.bundle_digest)
         self.assertEqual([e.logical_id for e in forward.entries], [e.logical_id for e in backward.entries])
@@ -139,7 +168,7 @@ class TestLoraWeightFiltering(unittest.TestCase):
         pipe = _pipe("p1", {
             "loras": [{"file_path": "/models/loras/disabled.safetensors", "weight": 0.0}],
         })
-        bundle = build_model_bundle([pipe], model_repository=repo)
+        bundle = _bundle([pipe], repo)
 
         self.assertEqual(bundle.entries, ())
         self.assertEqual(repo.lookups, [])
@@ -153,7 +182,7 @@ class TestLoraWeightFiltering(unittest.TestCase):
         pipe = _pipe("p1", {
             "loras": [{"file_path": "/models/loras/active.safetensors", "weight": 0.8}],
         })
-        bundle = build_model_bundle([pipe], model_repository=repo)
+        bundle = _bundle([pipe], repo)
 
         self.assertEqual(len(bundle.entries), 1)
         self.assertEqual(bundle.entries[0].role, "lora")
@@ -165,7 +194,7 @@ class TestMissingDigest(unittest.TestCase):
         pipe = _pipe("p1", {"diffusion_model": {"file_path": "/models/checkpoints/unknown.safetensors"}})
 
         with self.assertRaises(ModelBundleResolutionError) as ctx:
-            build_model_bundle([pipe], model_repository=repo)
+            _bundle([pipe], repo)
         self.assertIn("not indexed", str(ctx.exception))
 
     def test_a_remote_only_model_resolves_by_identity_from_its_depot_relative_path(self):
@@ -178,7 +207,7 @@ class TestMissingDigest(unittest.TestCase):
             "diffusion_model": {"file_path": "diffusion_models/anima_aesthetic_1_1.safetensors"}
         })
 
-        bundle = build_model_bundle([pipe], model_repository=repo)
+        bundle = _bundle([pipe], repo)
 
         self.assertEqual(len(bundle.entries), 1)
         entry = bundle.entries[0]
@@ -198,7 +227,7 @@ class TestMissingDigest(unittest.TestCase):
             "diffusion_model": {"file_path": "diffusion_models/anima_aesthetic_1_1.safetensors"}
         })
 
-        bundle = build_model_bundle([pipe], model_repository=repo)
+        bundle = _bundle([pipe], repo)
 
         self.assertEqual(len(bundle.entries), 1)
         self.assertEqual(bundle.entries[0].digest.hex, "c" * 64)
@@ -214,7 +243,7 @@ class TestMissingDigest(unittest.TestCase):
         })
 
         with self.assertRaises(ModelBundleResolutionError) as ctx:
-            build_model_bundle([pipe], model_repository=repo)
+            _bundle([pipe], repo)
         self.assertIn("no local file to hash", str(ctx.exception))
 
     def test_a_missing_digest_is_hashed_and_persisted_and_dispatch_proceeds(self):
@@ -231,7 +260,7 @@ class TestMissingDigest(unittest.TestCase):
         )
         pipe = _pipe("p1", {"diffusion_model": {"file_path": path}})
 
-        bundle = build_model_bundle([pipe], model_repository=repo)
+        bundle = _bundle([pipe], repo)
 
         self.assertEqual(len(bundle.entries), 1)
         self.assertEqual(bundle.entries[0].digest.hex, expected_digest)
@@ -251,8 +280,8 @@ class TestMissingDigest(unittest.TestCase):
         )
         pipe = _pipe("p1", {"diffusion_model": {"file_path": path}})
 
-        build_model_bundle([pipe], model_repository=repo)
-        build_model_bundle([pipe], model_repository=repo)
+        _bundle([pipe], repo)
+        _bundle([pipe], repo)
 
         self.assertEqual(len(repo.digest_writes), 1)
 
@@ -265,8 +294,8 @@ class TestMissingDigest(unittest.TestCase):
         pipe = _pipe("p1", {"diffusion_model": {"file_path": "/models/checkpoints/gone.safetensors"}})
 
         with self.assertRaises(ModelBundleResolutionError) as ctx:
-            build_model_bundle([pipe], model_repository=repo)
-        self.assertIn("missing on disk", str(ctx.exception))
+            _bundle([pipe], repo)
+        self.assertIn("no local file to hash", str(ctx.exception))
         self.assertEqual(repo.digest_writes, [])
 
     def test_a_directory_layout_model_fails_loudly_rather_than_a_wrong_entry(self):
@@ -278,7 +307,7 @@ class TestMissingDigest(unittest.TestCase):
         pipe = _pipe("p1", {"text_encoder": {"file_path": "/models/llm/gemma3"}})
 
         with self.assertRaises(ModelBundleResolutionError) as ctx:
-            build_model_bundle([pipe], model_repository=repo)
+            _bundle([pipe], repo)
         self.assertIn("directory", str(ctx.exception))
 
 

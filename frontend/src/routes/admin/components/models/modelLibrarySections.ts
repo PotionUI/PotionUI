@@ -3,6 +3,7 @@ import { modelTypePresentation } from '$lib/utils/modelPresentation';
 
 export const MODELS_ALL_SECTION = 'all';
 export const MODELS_ATTRIBUTES_SECTION = 'attributes';
+export const MODELS_FOLDERS_SECTION = 'folders';
 
 export interface ModelTypeCount {
 	type: string;
@@ -17,7 +18,8 @@ export interface ModelTypeRow {
 
 export const MODEL_LIBRARY_SECTIONS: readonly LibrarySectionMeta<string>[] = [
 	{ id: MODELS_ALL_SECTION, label: 'All models', icon: 'cube' },
-	{ id: MODELS_ATTRIBUTES_SECTION, label: 'Attributes', icon: 'sliders' }
+	{ id: MODELS_ATTRIBUTES_SECTION, label: 'Attributes', icon: 'sliders' },
+	{ id: MODELS_FOLDERS_SECTION, label: 'Folders', icon: 'folder' }
 ];
 
 export function modelTypeRows(modelTypes: readonly ModelTypeCount[]): ModelTypeRow[] {
@@ -29,7 +31,9 @@ export function modelTypeRows(modelTypes: readonly ModelTypeCount[]): ModelTypeR
 }
 
 export function modelLibraryShellSection(section: string): string {
-	return section === MODELS_ATTRIBUTES_SECTION ? MODELS_ATTRIBUTES_SECTION : MODELS_ALL_SECTION;
+	if (section === MODELS_ATTRIBUTES_SECTION) return MODELS_ATTRIBUTES_SECTION;
+	if (section === MODELS_FOLDERS_SECTION) return MODELS_FOLDERS_SECTION;
+	return MODELS_ALL_SECTION;
 }
 
 export function modelLibrarySectionCounts(

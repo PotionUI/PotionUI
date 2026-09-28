@@ -46,10 +46,7 @@
 	import FieldChildren from './FieldChildren.svelte';
 	import { LORA_STRENGTH_KEY, TRIGGERS_KEY } from '$lib/constants/modelMetadata';
 
-	// `file_path` can now be null (a model that exists only on a remote engine
-	// backend and was never downloaded here - see docs/models.md); `backend_ids`
-	// is the badge data returned by the preset-scoped models endpoint.
-	type Model = Omit<ModelBase, 'file_path'> & { file_path: string | null; backend_ids?: string[] };
+	type Model = ModelBase & { backend_ids?: string[] };
 
 	// Props
 	export let name: string | null;
@@ -138,10 +135,6 @@
 			strength: r.strength
 		}))
 	);
-	// file_path is what ModelCollectionBrowser's exclude filter matches on -
-	// models with no local file_path (remote-only) can't be excluded there.
-	// Keyed on model id: file_path is absent for non-admins and null for remote-only
-	// models, so a path-keyed set matched nothing and already-added LoRAs reappeared.
 	$: selectedModelIds = new Set(
 		rows.map((r, i) => rowModels[i]?.id).filter((id): id is string => !!id)
 	);

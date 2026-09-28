@@ -25,12 +25,11 @@ class ModelRepository:
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO models (
-                    id, filename, file_path, file_size, sha256, model_type, user_notes, description, is_directory
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    id, filename, file_size, sha256, model_type, user_notes, description, is_directory
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 model.id,
                 model.filename,
-                model.file_path,
                 model.file_size,
                 model.sha256,
                 model.model_type,
@@ -89,26 +88,6 @@ class ModelRepository:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM models WHERE sha256 = ?", (sha256,))
-            row = cursor.fetchone()
-
-            if not row:
-                return None
-
-            model = Model.from_row(row)
-
-            if include_providers:
-                model.providers = self.get_providers(model.id)
-
-            # Load associated files and convert to API URLs
-            model.files = self._get_model_files_with_urls(model.id)
-
-            return model
-
-    def get_by_file_path(self, file_path: str, include_providers: bool = True) -> Optional[Model]:
-        """Get model by file path"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("SELECT * FROM models WHERE file_path = ?", (file_path,))
             row = cursor.fetchone()
 
             if not row:
@@ -401,14 +380,13 @@ class ModelRepository:
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE models
-                SET filename = ?, file_path = ?, file_size = ?, sha256 = ?,
+                SET filename = ?, file_size = ?, sha256 = ?,
                     model_type = ?, user_notes = ?, description = ?, is_directory = ?,
                     is_available = ?, unavailable_at = ?,
                     indexed_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             """, (
                 model.filename,
-                model.file_path,
                 model.file_size,
                 model.sha256,
                 model.model_type,
@@ -590,15 +568,6 @@ class ModelRepository:
             return cursor.rowcount > 0
 
     def delete_unclaimed_orphans(self, model_ids: List[str]) -> int:
-        """Hard-delete rows in `model_ids` that are unreachable and safe to drop.
-
-        Only a backend-reported row - created by `BackendModelIndexer._create_model`,
-        `file_path IS NULL` - can qualify; a depot scan's row always has a local
-        `file_path` and is never touched here. The remaining guards keep the
-        `ON DELETE CASCADE` on `providers`/`generation_models`/`model_availability`
-        from silently erasing something worth keeping: a model must currently hold
-        no backend claim, no provider info, and no generation-history link.
-        """
         if not model_ids:
             return 0
 
@@ -609,7 +578,7 @@ class ModelRepository:
                 f"""
                 DELETE FROM models
                 WHERE id IN ({placeholders})
-                  AND file_path IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM model_locations WHERE model_locations.model_id = models.id)
                   AND NOT EXISTS (SELECT 1 FROM model_availability WHERE model_availability.model_id = models.id)
                   AND NOT EXISTS (SELECT 1 FROM providers WHERE providers.model_id = models.id)
                   AND NOT EXISTS (SELECT 1 FROM generation_models WHERE generation_models.model_id = models.id)
@@ -619,11 +588,9 @@ class ModelRepository:
             return cursor.rowcount
 
     def upsert(self, model: Model) -> Model:
-        """Insert or update model based on file path"""
-        existing = self.get_by_file_path(model.file_path, include_providers=False)
+        existing = self.get_by_identity(model.model_type, model.filename, include_providers=False)
 
         if existing:
-            # Update existing model
             model.id = existing.id
             self.update(model)
             return self.get_by_id(model.id)

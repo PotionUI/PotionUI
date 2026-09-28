@@ -40,9 +40,9 @@ class TestGenerationModelRepository(PersistenceTestBase):
         """Create a test model in the database."""
         with self.db.get_cursor() as cursor:
             cursor.execute("""
-                INSERT INTO models (id, filename, file_path, file_size, model_type, sha256)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (model_id, filename, f"/models/{filename}", 1024, "checkpoint", "abc123"))
+                INSERT INTO models (id, filename, file_size, model_type, sha256)
+                VALUES (?, ?, ?, ?, ?)
+            """, (model_id, filename, 1024, "checkpoint", "abc123"))
 
     def _create_completed_generation(self, gen_id: str, user_id: str) -> str:
         """Create a completed generation and return its ID."""

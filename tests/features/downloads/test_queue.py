@@ -16,6 +16,7 @@ from src.features.downloads.exceptions import (
     InvalidTypeException,
 )
 from src.features.downloads.models import Download, DownloadStatus, DownloadType, DownloadSettings
+from tests.fixtures.model_roots import make_roots
 
 
 @pytest.fixture
@@ -49,13 +50,14 @@ def _settings(models_dir=None, file_storage=None):
 
 
 @pytest.fixture
-def manager(mock_repository, mock_plugin_registry):
+def manager(mock_repository, mock_plugin_registry, tmp_path):
     """Create a DownloadQueue instance with mocked dependencies."""
     return DownloadQueue(
         download_repository=mock_repository,
         plugin_registry=mock_plugin_registry,
         settings=_settings(),
         connection_hub=AsyncMock(),
+        resolver=make_roots(tmp_path),
     )
 
 
@@ -226,6 +228,7 @@ class TestQueueModelDownloadDestinationResolution:
             plugin_registry=mock_plugin_registry,
             settings=_settings(models_dir=str(depot)),
             connection_hub=AsyncMock(),
+            resolver=make_roots(tmp_path, home_dir=depot),
         )
         manager.worker = AsyncMock()
         manager.worker.get_queue_position.return_value = 0
@@ -357,6 +360,7 @@ class TestQueueModelDownloadDestinationBackend:
             settings=_settings(models_dir=str(tmp_path / "depot")),
             connection_hub=AsyncMock(),
             backend_registry=_FakeBackendRegistry(configs),
+            resolver=make_roots(tmp_path, home_dir=tmp_path / "depot"),
         )
         manager.worker = AsyncMock()
         manager.worker.get_queue_position.return_value = 0
@@ -416,28 +420,21 @@ class TestQueueModelDownloadDestinationBackend:
 
 
 class TestQueueModelDownloadSymlinkedTypeDir:
-    """The bug this card fixes: on real installs a depot type directory is a
-    symlink into shared storage (e.g. `models/diffusion_models ->
-    /srv/weights/diffusion_models`). `model_type="diffusion_models"` has
-    no entry in `TYPE_DIR_MAP` and falls through as its own literal name
-    (`TYPE_DIR_MAP.get(model_type, model_type)`), which used to be
-    realpath-resolved and rejected as escaping the depot even though the
-    symlink is the depot's own declared layout.
-    """
 
     @pytest.fixture
     def manager_with_symlinked_depot(self, mock_repository, mock_plugin_registry, tmp_path):
         depot = tmp_path / "depot"
         depot.mkdir()
-        outside = tmp_path / "shared-storage" / "diffusion_models"
+        outside = tmp_path / "shared-storage" / "loras"
         outside.mkdir(parents=True)
-        (depot / "diffusion_models").symlink_to(outside, target_is_directory=True)
+        (depot / "loras").symlink_to(outside, target_is_directory=True)
 
         manager = DownloadQueue(
             download_repository=mock_repository,
             plugin_registry=mock_plugin_registry,
             settings=_settings(models_dir=str(depot)),
             connection_hub=AsyncMock(),
+            resolver=make_roots(tmp_path, home_dir=depot),
         )
         manager.worker = AsyncMock()
         manager.worker.get_queue_position.return_value = 0
@@ -456,11 +453,11 @@ class TestQueueModelDownloadSymlinkedTypeDir:
     async def test_symlinked_type_dir_is_accepted(self, manager_with_symlinked_depot):
         manager, depot = manager_with_symlinked_depot
 
-        result = await self._queue(manager, model_type='diffusion_models')
+        result = await self._queue(manager, model_type='lora')
 
         # Unresolved: the destination stays the depot's own symlink path, not
         # the shared-storage target it points at.
-        assert Path(result.destination_path) == depot / 'diffusion_models' / 'model.safetensors'
+        assert Path(result.destination_path) == depot / 'loras' / 'model.safetensors'
 
     @pytest.mark.asyncio
     async def test_model_type_traversal_is_rejected(self, manager_with_symlinked_depot):
@@ -490,6 +487,7 @@ class TestQueueModelDownloadSubdir:
             plugin_registry=mock_plugin_registry,
             settings=_settings(models_dir=str(depot)),
             connection_hub=AsyncMock(),
+            resolver=make_roots(tmp_path, home_dir=depot),
         )
         manager.worker = AsyncMock()
         manager.worker.get_queue_position.return_value = 0
@@ -559,6 +557,7 @@ class TestQueueModelDownloadFilenameFromUrl:
             plugin_registry=mock_plugin_registry,
             settings=_settings(models_dir=str(depot)),
             connection_hub=AsyncMock(),
+            resolver=make_roots(tmp_path, home_dir=depot),
         )
         manager.worker = AsyncMock()
         manager.worker.get_queue_position.return_value = 0
@@ -787,37 +786,25 @@ class TestSettings:
 
 
 class TestLoadSettings:
-    """The download destination comes from the `models_dir` setting."""
 
-    def _manager_with_setting(self, mock_repository, mock_plugin_registry, value):
-        sm = _settings(models_dir=value)
+    @pytest.mark.asyncio
+    async def test_model_downloads_land_under_the_resolvers_home(self, mock_repository, mock_plugin_registry, tmp_path):
+        home = tmp_path / "srv-weights"
         mgr = DownloadQueue(
             download_repository=mock_repository,
             plugin_registry=mock_plugin_registry,
-            settings=sm,
+            settings=_settings(),
             connection_hub=AsyncMock(),
+            resolver=make_roots(tmp_path, home_dir=home),
         )
-        return mgr, sm
+        mgr.worker = AsyncMock()
+        mgr.worker.get_queue_position.return_value = 0
+        mock_repository.create.side_effect = lambda d: d
 
-    def test_reads_the_models_dir_setting_key(self, mock_repository, mock_plugin_registry):
-        """`model_dir` (singular) is not a registered key — reading it silently
-        discards the admin's configured directory."""
-        mgr, sm = self._manager_with_setting(
-            mock_repository, mock_plugin_registry, "/srv/weights"
-        )
+        with patch.object(mgr, 'conn', AsyncMock()):
+            result = await mgr.queue_model_download(
+                url='https://example.com/model.safetensors',
+                filename='model.safetensors',
+            )
 
-        sm.get_setting.assert_any_call('models_dir')
-        assert mgr.settings.default_model_directory == "/srv/weights"
-
-    def test_normalises_leading_dot_slash(self, mock_repository, mock_plugin_registry):
-        """The stored value is './models'; os.path.join would carry the './' into
-        every persisted destination_path.
-
-        Uses a non-default directory so this cannot pass by falling back to the
-        `models` default when the setting key is wrong.
-        """
-        mgr, _ = self._manager_with_setting(
-            mock_repository, mock_plugin_registry, "./srv/weights"
-        )
-
-        assert mgr.settings.default_model_directory == "srv/weights"
+        assert Path(result.destination_path).resolve() == (home / 'model.safetensors').resolve()

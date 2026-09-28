@@ -5,6 +5,9 @@ These tests were originally for the DownloadService class which has been replace
 by the DownloadQueue in the downloader plugin.
 """
 
+import tempfile
+from pathlib import Path
+
 import pytest
 from unittest.mock import Mock, MagicMock, AsyncMock, patch, PropertyMock
 from datetime import datetime
@@ -12,11 +15,15 @@ import asyncio
 
 from src.features.downloads.models import Download, DownloadType, DownloadStatus, DownloadSettings
 from src.features.downloads.queue import DownloadQueue
+from tests.fixtures.model_roots import make_roots
+
+_ROOTS_TMP_DIR = Path(tempfile.mkdtemp(prefix="potionui-download-service-test-"))
 
 
 def _build_queue(**kwargs):
     kwargs.setdefault('settings', Mock(get_setting=Mock(return_value=None)))
     kwargs.setdefault('connection_hub', AsyncMock())
+    kwargs.setdefault('resolver', make_roots(_ROOTS_TMP_DIR))
     return DownloadQueue(**kwargs)
 
 
@@ -74,7 +81,6 @@ def sample_settings():
         max_retries=3,
         chunk_size_kb=1024,
         verify_checksum=True,
-        default_model_directory="models",
         default_media_directory="storage/media"
     )
 

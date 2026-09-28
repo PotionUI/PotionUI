@@ -58,7 +58,6 @@ class PlainlyFailingPipe(FailingPipe):
 def mock_dependencies():
     return {
         'gpu': Mock(),
-        'model_directories': Mock(),
         'pipe_catalog': Mock(),
         'settings': Mock(),
         'system_monitor': Mock(),

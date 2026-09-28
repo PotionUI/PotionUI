@@ -146,7 +146,6 @@ class DownloadSettings:
     max_retries: int = 3
     chunk_size_kb: int = 1024  # 1MB chunks
     verify_checksum: bool = True
-    default_model_directory: str = "models"
     default_media_directory: str = "storage/media"
 
     @classmethod
@@ -158,7 +157,6 @@ class DownloadSettings:
             max_retries=data.get('max_retries', 3),
             chunk_size_kb=data.get('chunk_size_kb', 1024),
             verify_checksum=data.get('verify_checksum', True),
-            default_model_directory=data.get('default_model_directory', 'models'),
             default_media_directory=data.get('default_media_directory', 'storage/media')
         )
 
@@ -170,6 +168,5 @@ class DownloadSettings:
             'max_retries': self.max_retries,
             'chunk_size_kb': self.chunk_size_kb,
             'verify_checksum': self.verify_checksum,
-            'default_model_directory': self.default_model_directory,
             'default_media_directory': self.default_media_directory
         }

@@ -42,7 +42,10 @@ from src.platform.runtime.gpu import GpuMonitor
 from src.platform.observability.system_probe import SystemMonitor
 from src.platform.runtime.memory_advisor import MemoryAdvisor
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
-from src.features.models.directory import ModelDirectories
+from src.features.models.locator import ModelLocator
+from src.features.models.roots import ModelRootsManager
+from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe, ensure_home_bindings
+from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.pipelines.catalog import PipeCatalog
 from src.pipelines.installer import PipeInstaller
 from src.features.pipes import PipeInstallRunner
@@ -245,7 +248,9 @@ class AppContainer:
     system_monitor_coordinator: SystemMonitorCoordinator
     memory_advisor: MemoryAdvisor
     model_lifecycle: ModelLifecycle
-    model_directories: ModelDirectories
+    model_roots: ModelRootResolver
+    model_roots_manager: ModelRootsManager
+    model_locator: ModelLocator
     pipe_catalog: PipeCatalog
     pipe_install_runner: PipeInstallRunner
     preset_template_loader: PresetTemplateLoader
@@ -475,6 +480,12 @@ def build_container() -> AppContainer:
     settings = Settings(setting_repository)
     models_dir = Path(settings.get_setting("models_dir", "models"))
 
+    model_root_repository = ModelRootRepository()
+    ensure_home_bindings(model_root_repository, settings.get_setting("models_dir", "models"), base_dir=Path.cwd())
+    model_root_probe = RootProbe()
+    model_roots = ModelRootResolver(model_root_repository, model_root_probe, Path.cwd())
+    model_locator = ModelLocator(model_roots)
+
     # Where saved bytes actually live - local disk by default, optionally S3
     # (see StorageSettings). Built this early because it is a single
     # process-wide singleton every writer/reader of uploads and generation
@@ -529,7 +540,6 @@ def build_container() -> AppContainer:
     # Built ahead of the rest of the module graph so builtin field types
     # (which need `template_processor` for the select-options loader) can be
     # registered before any plugin is enabled.
-    model_directories = ModelDirectories(models_dir.__str__())
     template_processor = TemplateProcessor(settings)
 
     # Initialize plugin system first (so it can be used by other managers).
@@ -677,15 +687,15 @@ def build_container() -> AppContainer:
     gpu_monitor = GpuMonitor()
     system_monitor = SystemMonitor()
     memory_advisor = MemoryAdvisor(gpu_monitor=gpu_monitor, settings=settings)
-    model_lifecycle = ModelLifecycle(gpu_monitor=gpu_monitor, settings=settings)
+    model_lifecycle = ModelLifecycle(gpu_monitor=gpu_monitor, settings=settings, roots=model_roots)
     pipe_catalog = PipeCatalog("src/pipelines/pipes", "pipes/custom", plugin_registry=plugin_registry)
     pipe_install_runner = PipeInstallRunner(pipe_catalog, PipeInstaller(pipe_catalog))
-    preset_processor = PresetProcessor(template_processor, model_directories, settings, preset_template_loader)
+    preset_processor = PresetProcessor(template_processor, settings, preset_template_loader)
     image_writer = ImageWriter(template_processor, settings)
 
     # Initialize LLM components
     llm_repository = LLMRepository()
-    llm_service = LLMGateway(llm_repository=llm_repository, model_lifecycle=model_lifecycle)
+    llm_service = LLMGateway(llm_repository=llm_repository, model_lifecycle=model_lifecycle, model_roots=model_roots)
     from src.features.llm.tools.governance import ToolGovernanceRepository
 
     tool_governance_repository = ToolGovernanceRepository()
@@ -746,7 +756,6 @@ def build_container() -> AppContainer:
         """One manager per backend, over shared collaborators. See BackendRegistry."""
         return GenerationEngine(
             gpu=gpu_monitor,
-            model_directories=model_directories,
             pipe_catalog=pipe_catalog,
             settings=settings,
             system_monitor=system_monitor,
@@ -760,12 +769,14 @@ def build_container() -> AppContainer:
         generation_engine_factory=make_generation_engine,
         plugin_registry=plugin_registry,
         pipe_catalog=pipe_catalog,
+        model_locator=model_locator,
     )
 
     # Now that backend_registry exists, the download queue can validate and
     # dispatch a `destination_backend_id` (fetch straight onto a native.remote
     # worker's depot) alongside its always-available local-disk path.
     from src.features.models.backend_indexer import backend_model_indexer
+    backend_model_indexer.model_locator = model_locator
 
     download_queue = DownloadQueue(
         download_repository=download_repository,
@@ -774,6 +785,7 @@ def build_container() -> AppContainer:
         connection_hub=download_connection_hub,
         backend_registry=backend_registry,
         backend_model_indexer=backend_model_indexer,
+        resolver=model_roots,
     )
 
     field_factory = FieldFactory(preset_template_loader, template_processor, field_registry=field_type_registry)
@@ -843,6 +855,7 @@ def build_container() -> AppContainer:
         plugin_registry=plugin_registry,
         tool_governance_repository=tool_governance_repository,
         download_queue=download_queue,
+        model_roots=model_roots,
     )
 
     # Initialize user components
@@ -948,7 +961,7 @@ def build_container() -> AppContainer:
     from src.platform.websocket.connection_hub import ConnectionHub
 
     pipeline_builder = PipelineBuilder(preset_template_loader, preset_processor)
-    output_processor = OutputProcessor(settings, storage_driver=storage_driver)
+    output_processor = OutputProcessor(settings, storage_driver=storage_driver, model_locator=model_locator)
 
     # Let plugins register additional GenerationOutput types (handler,
     # WS serializer, message type) on the shared output_type_registry.
@@ -1017,7 +1030,7 @@ def build_container() -> AppContainer:
 
     media_index_repository = MediaIndexRepository()
     vision_embedder = build_vision_embedder(
-        settings, download_queue=download_queue, model_lifecycle=model_lifecycle,
+        settings, model_roots, download_queue=download_queue, model_lifecycle=model_lifecycle,
     )
     # Shared across the gallery, gallery-prompt and prompt-library vector
     # stores below - they all persist to this same directory, so one
@@ -1029,7 +1042,7 @@ def build_container() -> AppContainer:
         embedder_slug=vision_embedder.embedder_slug,
         client_provider=chroma_client_provider,
     )
-    text_embedding_provider = build_embedding_provider(settings, download_queue=download_queue)
+    text_embedding_provider = build_embedding_provider(settings, model_roots, download_queue=download_queue)
     gallery_prompt_vector_store = GalleryPromptVectorStore(
         persist_dir=chroma_persist_dir,
         embedder_slug=text_embedding_provider.embedder_slug,
@@ -1038,7 +1051,7 @@ def build_container() -> AppContainer:
     media_indexer = MediaIndexer(
         repository=media_index_repository,
         tagger_provider=build_tagger_provider(
-            settings, download_queue=download_queue, model_lifecycle=model_lifecycle,
+            settings, model_roots, download_queue=download_queue, model_lifecycle=model_lifecycle,
         ),
         file_service=file_service,
         vision_embedder=vision_embedder,
@@ -1067,6 +1080,7 @@ def build_container() -> AppContainer:
     generation_orchestrator = GenerationOrchestrator(
         pipeline_builder, backend_registry, connection_hub, settings, output_processor,
         preset_template_loader, status_tracker=generation_status_tracker,
+        model_locator=model_locator,
         notification_manager=notification_manager,
         database_preset_repository=_preset_repo_for_orchestrator,
         model_access_policy=model_access_policy,
@@ -1134,12 +1148,22 @@ def build_container() -> AppContainer:
         plugin_registry=plugin_registry,
         settings=settings,
         download_queue=download_queue,
-        models_root=models_dir,
-        generation_active=_generation_active,
+        model_roots=model_roots,
+        model_locator=model_locator,
         storage_driver=storage_driver,
         attribute_definition_repository=attribute_definition_repository,
         user_attribute_repository=user_model_attribute_repository,
         backend_registry=backend_registry,
+    )
+
+    model_roots_manager = ModelRootsManager(
+        repository=model_root_repository,
+        resolver=model_roots,
+        probe=model_root_probe,
+        indexing_coordinator=model_index_manager.indexing,
+        setting_repository=setting_repository,
+        generation_active=_generation_active,
+        base_dir=Path.cwd(),
     )
 
     # Model library components (favorites/custom names + model collections)
@@ -1187,12 +1211,6 @@ def build_container() -> AppContainer:
     from src.platform.websocket.automation_connection_hub import automation_connection_hub
     from src.features.automation.routes import AutomationController
 
-    # `action.index_model` needs `index_single_model()` with its SHA256 dedup,
-    # which lives on `src.features.models.indexer.ModelScanner` - the same
-    # scanner `ModelIndexCollaborators` uses. Imported as the lazy proxy
-    # singleton because its `__init__` reads the settings DB.
-    from src.features.models.indexer import model_scanner as file_model_indexer
-
     # `action.index_models` runs the same per-backend availability indexing the
     # admin "Index models" button does: live backend instances come from the
     # registry, the reconciliation from the module-singleton indexer.
@@ -1206,7 +1224,8 @@ def build_container() -> AppContainer:
 
     automation_services = AutomationServices(
         model_index_manager=model_index_manager,
-        model_indexer=file_model_indexer,
+        model_indexing_coordinator=model_index_manager.indexing,
+        model_locator=model_index_manager.locator,
         model_repository=model_repository,
         tag_repository=tag_repository,
         notification_manager=notification_manager,
@@ -1410,6 +1429,7 @@ def build_container() -> AppContainer:
         backend_model_indexer=backend_model_indexer,
         download_queue=download_queue,
         step_kind_registry=recipe_step_kind_registry,
+        model_scanner=model_index_manager.indexing.scanner,
     )
     # `workspace.activate` is the first-run wizard's own step, so setup - not
     # recipes - contributes it. Recipes mark it `onboarding_only`, so an admin

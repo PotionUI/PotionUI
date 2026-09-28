@@ -6,6 +6,7 @@ from src.features.llm import context_budget
 from src.features.llm.clients import LLMClient, LLMResponse, NativeLLMClient, OllamaClient, OpenAIClient
 from src.features.llm.model_listing import DiscoveredModel
 from src.features.llm.repository import LLMConfig, LLMRepository
+from src.platform.filesystem.model_roots import ModelRootResolver
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 
 
@@ -19,11 +20,16 @@ class LLMGateway:
     method is invoked; the provider-specific wire format lives in the clients.
     """
 
-    def __init__(self, llm_repository: LLMRepository, model_lifecycle: Optional[ModelLifecycle] = None):
+    def __init__(
+        self,
+        llm_repository: LLMRepository,
+        model_lifecycle: Optional[ModelLifecycle] = None,
+        model_roots: Optional[ModelRootResolver] = None,
+    ):
         self.repository = llm_repository
         self._ollama = OllamaClient()
         self._openai = OpenAIClient()
-        self._native = NativeLLMClient(model_lifecycle)
+        self._native = NativeLLMClient(model_lifecycle, model_roots)
         self._clients: Dict[str, LLMClient] = {
             "ollama": self._ollama,
             "openai": self._openai,

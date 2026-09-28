@@ -66,6 +66,7 @@ def build_default_executor_registry(
     file_repository: Optional[Any] = None,
     backend_model_indexer: Optional[Any] = None,
     step_kind_registry: Optional[Any] = None,
+    model_scanner: Optional[Any] = None,
 ) -> RecipeExecutorRegistry:
     """Wire the built-in step executors onto a fresh registry.
 
@@ -85,7 +86,7 @@ def build_default_executor_registry(
         "plugins.ensure": PluginsEnsureExecutor(plugin_registry),
         "backend.ensure": BackendEnsureExecutor(backend_registry),
         "backend.detect": BackendDetectExecutor(backend_registry),
-        "models.index": ModelsIndexExecutor(backend_registry=backend_registry),
+        "models.index": ModelsIndexExecutor(model_scanner=model_scanner, backend_registry=backend_registry),
         "models.index_backend": ModelsIndexBackendExecutor(backend_registry, backend_model_indexer),
         "preset.ensure": PresetEnsureExecutor(preset_collaborators, user_repository),
         "pipeline.render": PipelineRenderExecutor(

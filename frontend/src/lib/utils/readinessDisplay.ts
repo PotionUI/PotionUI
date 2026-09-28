@@ -1,10 +1,22 @@
-import type { ReadinessArea, ReadinessReport, ReadinessStatus } from '$lib/services/api/setup';
+import type { ReadinessArea, ReadinessCheck, ReadinessReport, ReadinessStatus } from '$lib/services/api/setup';
+
+const INDEXING_CODES = new Set(['MODELS_INDEXING', 'RECIPE_MODELS_INDEXING']);
 
 /** Badge variant per readiness status - semantic tokens only. */
-export function readinessBadgeVariant(status: ReadinessStatus): 'success' | 'warning' | 'danger' {
+export function readinessBadgeVariant(status: ReadinessStatus): 'success' | 'warning' | 'danger' | 'info' {
 	if (status === 'ready') return 'success';
 	if (status === 'degraded') return 'warning';
 	return 'danger';
+}
+
+export function readinessCheckBadgeVariant(check: ReadinessCheck): 'success' | 'warning' | 'danger' | 'info' {
+	if (INDEXING_CODES.has(check.code)) return 'info';
+	return readinessBadgeVariant(check.status);
+}
+
+export function readinessCheckStatusLabel(check: ReadinessCheck): string {
+	if (INDEXING_CODES.has(check.code)) return 'indexing';
+	return check.status.replace('_', ' ');
 }
 
 /** Human label for a readiness facet card. */

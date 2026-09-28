@@ -13,6 +13,7 @@ import httpx
 
 from src.bootstrap.worker_app import create_worker_app
 from src.bootstrap.worker_container import WorkerContainer
+from src.features.models.locator import ModelFileUnavailable
 from src.features.models.records import Model
 from src.features.remote_execution.model_bundle_staging import (
     ModelStagingSourceError,
@@ -45,14 +46,26 @@ class FakeModelRepository:
 
     def __init__(self):
         self._by_identity: Dict[tuple, Model] = {}
+        self.paths_by_id: Dict[str, Path] = {}
 
     def register(self, *, role: str, filename: str, file_path: str) -> None:
-        self._by_identity[(role, filename)] = Model(
-            id=f"m-{filename}", filename=filename, file_path=file_path, model_type=role,
-        )
+        model_id = f"m-{filename}"
+        self._by_identity[(role, filename)] = Model(id=model_id, filename=filename, model_type=role)
+        self.paths_by_id[model_id] = Path(file_path)
 
     def get_by_identity(self, model_type: str, filename: str, include_providers: bool = True) -> Optional[Model]:
         return self._by_identity.get((model_type, filename))
+
+
+class FakeModelLocator:
+    def __init__(self, repo: FakeModelRepository):
+        self._repo = repo
+
+    def path_for_model(self, model_id: str) -> Path:
+        path = self._repo.paths_by_id.get(model_id)
+        if path is None:
+            raise ModelFileUnavailable(f"model '{model_id}' has no known location")
+        return path
 
 
 def _entry(role: str, filename: str, content: bytes) -> ModelBundleEntryV1:
@@ -117,7 +130,7 @@ class TestHappyPathPush(ModelBundleStagingTestCase):
 
         events = []
         import asyncio
-        asyncio.run(stage_model_bundle(bundle, self.transport, events.append, model_repository=self.repo))
+        asyncio.run(stage_model_bundle(bundle, self.transport, events.append, model_repository=self.repo, model_locator=FakeModelLocator(self.repo)))
 
         dest = self.model_depot.depot_dir / entry.relative_path
         self.assertEqual(dest.read_bytes(), content)
@@ -157,7 +170,7 @@ class TestResumeAfterPartial(ModelBundleStagingTestCase):
         repo.register(role="vae", filename="missing.safetensors", file_path=str(self.source_dir / "missing.safetensors"))
 
         events = []
-        asyncio.run(stage_model_bundle(bundle, self.transport, events.append, model_repository=repo))
+        asyncio.run(stage_model_bundle(bundle, self.transport, events.append, model_repository=repo, model_locator=FakeModelLocator(repo)))
 
         dest_b = self.model_depot.depot_dir / entry_b.relative_path
         self.assertEqual(dest_b.read_bytes(), content_b)
@@ -176,7 +189,7 @@ class TestNoModelsInBundle(ModelBundleStagingTestCase):
             bundle_id="empty", bundle_digest=ContentDigest(algorithm="sha256", hex="ab" * 32), entries=(),
         )
         events = []
-        asyncio.run(stage_model_bundle(empty, self.transport, events.append, model_repository=self.repo))
+        asyncio.run(stage_model_bundle(empty, self.transport, events.append, model_repository=self.repo, model_locator=FakeModelLocator(self.repo)))
         self.assertEqual(events, [])
 
 
@@ -189,7 +202,7 @@ class TestSourceGoneMissing(ModelBundleStagingTestCase):
         bundle = _bundle(entry)
 
         with self.assertRaises(ModelStagingSourceError):
-            asyncio.run(stage_model_bundle(bundle, self.transport, lambda o: None, model_repository=self.repo))
+            asyncio.run(stage_model_bundle(bundle, self.transport, lambda o: None, model_repository=self.repo, model_locator=FakeModelLocator(self.repo)))
 
 
 if __name__ == "__main__":

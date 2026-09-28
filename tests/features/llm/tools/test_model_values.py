@@ -53,12 +53,12 @@ NESTED_SCHEMA_PROPERTIES = {
 def _model_index_manager(*, found: bool):
     manager = MagicMock()
     if found:
-        manager.model_repo.get_by_file_path.return_value = MagicMock(
+        manager.locator.model_for_path.return_value = MagicMock(id="m1")
+        manager.model_repo.get_by_id.return_value = MagicMock(
             to_dict=lambda **_: {"id": "m1", "filename": "found.safetensors"}
         )
     else:
-        manager.model_repo.get_by_file_path.return_value = None
-        manager.model_repo.get_all.return_value = []
+        manager.locator.model_for_path.return_value = None
     return manager
 
 

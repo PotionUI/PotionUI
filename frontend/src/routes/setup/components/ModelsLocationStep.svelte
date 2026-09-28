@@ -1,21 +1,26 @@
 <script lang="ts">
-	// Onboarding-only slice of the models-location setting: the global
-	// external directory, no per-type overrides (those stay admin-only, see
-	// ModelsLocationPanel.svelte). Skippable - "Skip" and a successful
-	// "Apply" both collapse the step so it doesn't keep nagging on repeat
-	// visits to /setup, while a "Change" link always reopens it.
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { browser } from '$app/environment';
 	import { toasts } from '$lib/stores/toast';
-	import { Button, Input, Alert, Spinner, Card } from '$lib/components/ui';
-	import { ModelsLocationState } from '$lib/models-location/state.svelte';
+	import { Alert, Spinner, Card } from '$lib/components/ui';
+	import { ModelRootsState } from '$lib/model-roots/state.svelte';
+	import DetectRootForm from '$lib/model-roots/DetectRootForm.svelte';
+	import { indexingStatusStore } from '$lib/models-location/indexingStatus.svelte';
+	import { indexingIsRunning, indexingIsVisible } from '$lib/models-location/indexingDisplay';
+	import IndexingStatusPanel from '$lib/models-location/IndexingStatusPanel.svelte';
+	import type { ModelRoot } from '$lib/services/api/models';
 
 	const DISMISSED_STORAGE_KEY = 'potionui:setup:modelsLocationDismissed';
 
-	const location = new ModelsLocationState();
+	const roots = new ModelRootsState();
 
-	let externalPath = $state('');
 	let dismissed = $state(false);
+	let addedRoot = $state<ModelRoot | null>(null);
+
+	$effect(() => {
+		const unsubscribe = untrack(() => indexingStatusStore.subscribe());
+		return unsubscribe;
+	});
 
 	onMount(async () => {
 		if (browser) {
@@ -25,8 +30,7 @@
 				// localStorage may be unavailable - the step just stays expanded.
 			}
 		}
-		await location.load();
-		externalPath = location.config?.external_path ?? '';
+		await roots.load();
 	});
 
 	function persistDismissed(value: boolean) {
@@ -44,16 +48,17 @@
 	}
 
 	function currentPathLabel(): string {
-		const path = location.config?.external_path;
-		return path ? path : 'models/ (default location in this install)';
+		const libraryRoot = roots.roots.find((r) => r.kind !== 'home');
+		return libraryRoot ? libraryRoot.path : 'models/ (default location in this install)';
 	}
 
-	async function apply() {
-		const ok = await location.apply(externalPath);
-		if (ok) {
-			toasts.success('Models location applied. Re-indexing in the background.');
-			persistDismissed(true);
+	function handleCreated(root: ModelRoot) {
+		addedRoot = root;
+		if (roots.overview?.indexing) {
+			indexingStatusStore.notifyRunStarted(roots.overview.indexing);
 		}
+		toasts.success(`Added "${root.label}". Re-indexing in the background.`);
+		persistDismissed(true);
 	}
 
 	function skip() {
@@ -62,58 +67,53 @@
 </script>
 
 {#if dismissed}
-	<div class="flex items-center justify-between gap-3 text-sm text-fg-muted">
-		<span
-			>Models location: <span class="font-mono text-fg">{currentPathLabel()}</span></span
-		>
-		<button type="button" class="text-xs text-fg-muted hover:text-fg" onclick={() => persistDismissed(false)}>
-			Change
-		</button>
+	<div class="space-y-1">
+		<div class="flex items-center justify-between gap-3 text-sm text-fg-muted">
+			<span>Models location: <span class="font-mono text-fg">{currentPathLabel()}</span></span>
+			<button type="button" class="text-xs text-fg-muted hover:text-fg" onclick={() => persistDismissed(false)}>
+				Change
+			</button>
+		</div>
+		{#if indexingIsRunning(indexingStatusStore.status)}
+			<p class="text-xs text-fg-subtle">
+				Model indexing continues in the background - you can go ahead and set up a recipe.
+			</p>
+		{/if}
 	</div>
 {:else}
 	<Card class="space-y-3">
 		<div>
 			<h2 class="text-sm font-semibold text-fg">Models location</h2>
 			<p class="text-sm text-fg-muted mt-0.5">
-				Point PotionUI at an external directory for model files before anything downloads.
-				You can change this later in Admin - System Settings.
+				Point PotionUI at a folder that already has models (a ComfyUI or A1111 install works)
+				before anything downloads. You can add more folders later in Admin - Models - Folders.
 			</p>
 		</div>
 
-		{#if location.loading}
+		{#if roots.loading}
 			<Spinner size="sm" />
 		{:else}
-			{#if location.config?.windows_unsupported}
-				<Alert variant="warning" icon
-					>Relocating the models directory isn't supported on Windows yet. Skip this step and
-					use the default location.</Alert
-				>
-			{/if}
-
-			{#if location.error}
-				<Alert variant="danger" icon>{location.error}</Alert>
+			{#if roots.error}
+				<Alert variant="danger" icon>{roots.error}</Alert>
 			{/if}
 
 			<p class="text-xs text-fg-subtle">
 				Currently: <span class="font-mono text-fg-muted">{currentPathLabel()}</span>
 			</p>
 
-			<label for="setup-models-external-path" class="block text-sm font-medium text-fg mb-1"
-				>External directory</label
-			>
-			<Input
-				id="setup-models-external-path"
-				bind:value={externalPath}
-				placeholder="/mnt/storage/models"
-				disabled={location.applying}
+			<DetectRootForm
+				rootsState={roots}
+				pathStyle={roots.overview?.path_style}
+				onCreated={handleCreated}
+				secondaryLabel="Skip"
+				onSecondary={skip}
 			/>
 
-			<div class="flex items-center gap-3 mt-1">
-				<Button variant="primary" size="sm" onclick={apply} loading={location.applying} disabled={location.applying}
-					>Apply</Button
-				>
-				<Button variant="secondary" size="sm" onclick={skip} disabled={location.applying}>Skip</Button>
-			</div>
+			{#if indexingIsVisible(indexingStatusStore.status)}
+				<div class="mt-2 pt-3 border-t border-line">
+					<IndexingStatusPanel status={indexingStatusStore.status} />
+				</div>
+			{/if}
 		{/if}
 	</Card>
 {/if}

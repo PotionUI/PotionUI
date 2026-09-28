@@ -155,7 +155,7 @@ def test_a_failed_encode_fails_the_whole_generation():
     """The behaviour the defect was reported as: the generation used to complete
     with no video instead of erroring."""
     manager = GenerationEngine(
-        gpu=Mock(), model_directories=Mock(), pipe_catalog=Mock(), settings=Mock(),
+        gpu=Mock(), pipe_catalog=Mock(), settings=Mock(),
         system_monitor=Mock(), memory_advisor=Mock(), llm_service=Mock(),
     )
     manager.pipe_catalog.get_pipe.side_effect = lambda name: {

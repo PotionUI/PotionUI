@@ -17,27 +17,16 @@ from src.features.models.exceptions import ModelDownloadException
 from src.platform.plugins.hooks import execute_hook
 from src.features.models.hooks import MODEL_INDEX_HOOKS
 from src.features.models.indexer import ModelScanner
-from src.features.models.native_availability_reconciler import (
-    NativeAvailabilityReconciler,
-    native_availability_reconciler as _default_native_availability_reconciler,
-)
 from src.features.models.repository import ModelRepository
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
 from src.platform.plugins import PluginRegistry
 
 if TYPE_CHECKING:
     from src.features.backends.backend_registry import BackendRegistry
     from src.features.downloads import DownloadQueue
+    from src.features.models.indexing_coordinator import ModelIndexingCoordinator
 
 logger = logging.getLogger(__name__)
 
-
-# Type directory mapping for downloads. A download for a type missing here
-# falls back to 'checkpoints' - where the scanner indexes it under the wrong
-# type and every picker filtering on the right one comes up empty (this
-# happened for detection_segm until 2026-07-27) - so this is the canonical
-# type->directory mapping, not a subset of it.
-TYPE_DIR_MAP = MODEL_TYPE_TO_DIRECTORY
 
 # How often to poll the download queue for a queued fetch's completion.
 DOWNLOAD_POLL_INTERVAL_SECONDS = 2.0
@@ -95,17 +84,15 @@ class ModelJobs:
         plugin_registry: PluginRegistry,
         scanner: ModelScanner,
         download_queue: "DownloadQueue",
+        coordinator: "ModelIndexingCoordinator",
         backend_registry: Optional["BackendRegistry"] = None,
-        native_availability_reconciler: Optional[NativeAvailabilityReconciler] = None,
     ):
         self.model_repo = model_repository
         self.plugins = plugin_registry
         self.scanner = scanner
         self.downloads = download_queue
+        self.coordinator = coordinator
         self.backend_registry = backend_registry
-        self.native_availability_reconciler = (
-            native_availability_reconciler or _default_native_availability_reconciler
-        )
 
     def start_thumbnail_generation(
         self,
@@ -193,24 +180,14 @@ class ModelJobs:
                 logger.error(f"Refusing to download {name}: {reason}")
                 return
 
-            # Get model directory from settings
-            from src.platform.settings.repository import SettingRepository
-            setting_repo = SettingRepository()
-            model_dir_setting = setting_repo.get_setting_by_key('models_dir')
-            models_dir = Path(model_dir_setting.get_typed_value() if model_dir_setting else "models")
-
-            # Determine target directory based on model type
-            target_dir = models_dir / TYPE_DIR_MAP.get(model_type, 'checkpoints')
-
-            # Extract filename from URL or use name
             parsed_url = urlparse(link)
             filename = Path(parsed_url.path).name or f"{name}.safetensors"
 
-            logger.debug(f"Downloading {name} to {target_dir / filename}")
+            logger.debug(f"Downloading {name} ({model_type}) as {filename}")
 
             download = await self.downloads.queue_model_download(
                 url=link,
-                destination_dir=str(target_dir),
+                model_type=model_type,
                 filename=filename,
                 checksum_sha256=sha256 or None,
             )
@@ -233,20 +210,17 @@ class ModelJobs:
             file_path = Path(current.destination_path)
             logger.debug(f"Downloaded {name} ({file_path.stat().st_size} bytes)")
 
-            # Index the downloaded model
             logger.debug(f"Indexing {name}")
-            file_size = file_path.stat().st_size
-            model = await asyncio.to_thread(self.scanner.index_single_model, str(file_path), model_type, file_size)
+            result = await asyncio.to_thread(self.coordinator.index_path, str(file_path))
 
-            if model:
-                await self.native_availability_reconciler.reconcile(self.backend_registry)
+            if result.get("indexed") and result.get("model_id"):
                 logger.info(f"Successfully downloaded and indexed {name}")
                 execute_hook(
                     self.plugins,
                     MODEL_INDEX_HOOKS.after_download,
                     {
                         "name": name,
-                        "model_id": model.id,
+                        "model_id": result["model_id"],
                         "file_path": str(file_path)
                     }
                 )

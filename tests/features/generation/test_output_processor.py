@@ -44,11 +44,12 @@ class MockHandler:
     # Class-level hook so tests can control what handle() returns/raises
     handle_impl = None
 
-    def __init__(self, generation_id, user_id=None, settings=None, storage_driver=None):
+    def __init__(self, generation_id, user_id=None, settings=None, storage_driver=None, model_locator=None):
         self.generation_id = generation_id
         self.user_id = user_id
         self.settings = settings
         self.storage_driver = storage_driver
+        self.model_locator = model_locator
 
     def handle(self, output):
         return type(self).handle_impl(output, self.generation_id, self.user_id, self.settings)
@@ -110,9 +111,9 @@ class TestOutputProcessorStorageDriverPropagation:
         seen_drivers = []
         original_init = MockHandler.__init__
 
-        def spying_init(self, generation_id, user_id=None, settings=None, storage_driver=None):
+        def spying_init(self, generation_id, user_id=None, settings=None, storage_driver=None, model_locator=None):
             seen_drivers.append(storage_driver)
-            original_init(self, generation_id, user_id, settings, storage_driver)
+            original_init(self, generation_id, user_id, settings, storage_driver, model_locator)
 
         with patch.object(MockHandler, '__init__', spying_init):
             await processor.process_output("gen_1", MockGenerationOutput())

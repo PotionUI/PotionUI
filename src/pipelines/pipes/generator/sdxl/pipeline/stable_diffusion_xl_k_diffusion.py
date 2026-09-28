@@ -814,18 +814,9 @@ class StableDiffusionXLKDiffusionPipeline(
         # Prepare inpaint head model path if inpainting is enabled
         inpaint_head_model_path = None
         if mask_latents is not None and init_latents is not None:
-            # Fooocus inpaint head model - lives under the admin-configured model
-            # depot ("models_dir" setting), never a path relative to this source
-            # file (that used to resolve into the checkout itself, and - since
-            # `os` was never imported in this module - raised NameError before it
-            # even got that far). `generator/sdxl` fetched it into exactly this
-            # path before starting the generation.
-            from src.platform.settings.repository import SettingRepository
-            from src.pipelines.pipes.generator.sdxl.inpaint_head import inpaint_head_path
+            from src.pipelines.pipes.generator.sdxl.inpaint_head import resolve_inpaint_head_model_path
 
-            model_dir_setting = SettingRepository().get_setting_by_key('models_dir')
-            models_dir = model_dir_setting.get_typed_value() if model_dir_setting else "models"
-            inpaint_head_model_path = str(inpaint_head_path(models_dir))
+            inpaint_head_model_path = str(resolve_inpaint_head_model_path())
 
         # Create model wrapper with grouped configuration objects
         model_wrapper = SDXLModelWrapper(

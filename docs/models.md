@@ -86,8 +86,70 @@ file_size   (nullable)                indexed_at
 Storing the ref per backend is what retires the 134 `replace(...)` calls. The pipeline stops
 reconstructing a name and simply asks the resolved backend for this model's ref.
 
-`models.file_path NOT NULL UNIQUE` must be relaxed: a model that exists only on a remote server
-has no local path. Local paths become native availability rows.
+`models.file_path NOT NULL UNIQUE` is gone (migration `037_drop_model_file_path.py`): a model that
+exists only on a remote server has no local path at all, and a model with a local copy can have
+several — see "Model roots and locations" below.
+
+## Model roots and locations
+
+A **model root** is a folder an admin pointed PotionUI at (Admin → Models → Folders, or the setup
+wizard) — the built-in `home` root (the `models_dir` setting) or a **library** root added later
+(an existing ComfyUI/A1111 install, a NAS share, a second drive). A root is bound to one or more
+model types through `model_root_bindings` (`model_type → subdir`), and per type the bindings are
+ordered (`position`); at most one binding per type is the **write root** (`is_write`), where a
+download for that type lands. `src/platform/filesystem/model_roots.py` (`ModelRootResolver`) is
+the pure mapping from a root/type/relative-path to a filesystem `Path`, with no knowledge of
+`models` rows; `src/features/models/roots.py` (`ModelRootsManager`) is the admin logic (detect,
+create, relink, reorder, write-probe) behind `/api/models/roots*`.
+
+A **location** (`model_locations`, one row per `(root, model_type, rel_path)`) is one on-disk copy
+of a model: `src/features/models/locator.py` (`ModelLocator`) turns a model id or a logical ref
+into the winning physical `Path`, and `ModelScanner` (`src/features/models/indexer.py`) is the only
+writer of both `models` rows with a location and of `model_locations` itself — it walks every
+online root's bound directories, diffs against the last-seen `size`/`mtime_ns` per location, and
+never re-hashes a file that hasn't changed.
+
+### The refs table
+
+| Surface | Value | Example |
+|---|---|---|
+| Picker / persisted `form_data` | `model:<id>` | `model:01J8Z…` |
+| Native `model_availability.ref` | logical ref: canonical type directory + relative path, root-independent | `loras/sdxl/detail.safetensors` |
+| Pipe config `file_path` (dispatch-resolved) | absolute physical path on the dispatching host, from whichever root won | `D:\ComfyUI\models\loras\sdxl\detail.safetensors` |
+| ComfyUI ref | the server's own bare/subdir name (unchanged by roots) | `style/detail.safetensors` |
+| UI display (admin) | `location.logical_path` + `location.root_label`, absolute `location.path` in a tooltip | `loras/sdxl/detail.safetensors` on **ComfyUI** |
+
+`NativeBackend.resolve_ref` is the one seam that turns a logical ref into a physical path:
+`resolve_form_model_refs(form_data, backend, locator)` calls `backend.resolve_ref(ref)`, which for
+the local native driver is `str(locator.path_for_ref(ref))`. Every other backend's `resolve_ref`
+is a no-op — a ComfyUI-native ref was never root-relative to begin with. If the winning root is
+offline, resolution raises `ModelRefNotAvailableError` naming the file and the root, before the
+generation is even persisted.
+
+### Duplicates and conflicts
+
+The same `(model_type, filename)` can exist under more than one root. `models.copies` (surfaced by
+the catalog as `copies` on the model DTO) counts how many present locations a model has; the
+**winner** — what a generation actually loads — is the present location on an online root with
+the lowest binding `position` for its type, ties broken by the shorter `rel_path` then lexical
+order. Reordering roots for a type visibly changes which copy wins; nothing is renamed or moved to
+make that happen.
+
+A location's `status` is `present`, `missing` (its root is online but the file is gone — the row
+survives, tags/ratings/assignments are untouched, in case the file reappears), or `conflict` (same
+identity, same filename, but this copy's own `sha256` disagrees with the model's canonical
+digest — a partially-synced mirror or a quantised copy that kept its name). A `conflict` location
+is never the winner and is never routed to.
+
+### Offline roots
+
+A root's `state` (`online` / `offline` / `unreadable`) is written by a cheap, timed, cached probe
+(`RootProbe`, 15s TTL, 2s timeout on a worker thread) — the dispatch path never itself waits on a
+disk that might be a dead network share. While a root is offline: its locations are left exactly as
+they are (no location is marked `missing` just because the root can't be reached right now), the
+scanner skips its bound directories entirely, and native availability projection drops that root's
+locations, so the picker and routing stop offering those models — and pick them back up, unhashed,
+as soon as the root is online again and a probe confirms it.
 
 ## Identity
 
@@ -271,6 +333,11 @@ An empty `backend_ids` is ambiguous on its own and must be read together with th
 "available on no backend" would make every model look broken before the first index run. Only
 with `availability_indexed: true` does an empty list mean the model is genuinely unloadable.
 
+Each admin model also carries `location` (the winner: `root_id`, `root_label`, `logical_path`,
+absolute `path`) and `copies` (how many present locations it has); `null`/`0` means a remote-only
+model with nothing on this host. `GET /api/models/{id}` additionally returns `locations`, every
+known copy with its `status` and whether it `is_winner` — see "Model roots and locations" above.
+
 ### Staleness
 
 `model_availability` is a cache of another machine's filesystem. ComfyUI does not notify anyone
@@ -323,9 +390,10 @@ prefix to strip).
 
 A backend that has never been indexed is a special case. It holds models; it has simply never been
 asked, so an absent availability row proves nothing. Resolution then falls back to the model's own
-`file_path` (or `filename`, for a remote-only model), reproducing exactly what the picker
-submitted before availability existed. Once a backend *has* been indexed, a missing row is a fact
-rather than ignorance, and resolution fails loudly.
+indexed location — `locator.path_for_model(model_id)` — or, when it has none (a remote-only
+model), its bare `filename`, reproducing exactly what the picker submitted before availability
+existed. Once a backend *has* been indexed, a missing row is a fact rather than ignorance, and
+resolution fails loudly.
 
 The same asymmetry governs selection: availability narrows the candidate backends only when at
 least one backend of the engine has been indexed. Enforcing it against an empty index would fail

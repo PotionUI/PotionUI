@@ -82,7 +82,7 @@ class TestUserModelAttributeRepository(PersistenceTestBase):
         from src.features.models.repository import ModelRepository
         self.model_repo = ModelRepository()
         self.model = self.model_repo.create(Model(
-            filename="test.safetensors", file_path="/models/loras/test.safetensors",
+            filename="test.safetensors",
             file_size=1, model_type="lora",
         ))
         self.create_test_user(user_id="user-1")
@@ -111,7 +111,7 @@ class TestUserModelAttributeRepository(PersistenceTestBase):
 
     def test_get_maps_batches_across_models(self):
         other = self.model_repo.create(Model(
-            filename="other.safetensors", file_path="/models/loras/other.safetensors",
+            filename="other.safetensors",
             file_size=1, model_type="lora",
         ))
         self.repo.upsert("user-1", self.model.id, "strength", 0.7)

@@ -47,6 +47,7 @@ from src.platform.security.user import AccountType
 if TYPE_CHECKING:
     from src.features.backends.backend_registry import BackendRegistry
     from src.features.generation.repository import GenerationRepository
+    from src.features.models.indexing_coordinator import ModelIndexingCoordinator
     from src.features.models.repository import ModelRepository
     from src.features.presets.collaborators import PresetCollaborators
     from src.features.recipes.catalog import RecipeCatalog
@@ -131,6 +132,7 @@ class ReadinessAggregator:
         migration_runner: "MigrationRunner",
         instance_claim_repository: "InstanceClaimRepository",
         recipe_catalog: Optional["RecipeCatalog"] = None,
+        model_indexing_coordinator: Optional["ModelIndexingCoordinator"] = None,
     ):
         self.backend_registry = backend_registry
         self.preset_collaborators = preset_collaborators
@@ -139,6 +141,15 @@ class ReadinessAggregator:
         self.migration_runner = migration_runner
         self.instance_claim_repository = instance_claim_repository
         self.recipe_catalog = recipe_catalog
+        self.model_indexing_coordinator = model_indexing_coordinator
+
+    def _indexing_progress(self) -> Optional[dict]:
+        if self.model_indexing_coordinator is None:
+            return None
+        status = self.model_indexing_coordinator.status()
+        if status.get("state") in ("scanning", "indexing"):
+            return status
+        return None
 
     async def evaluate(self, user: "User", recipe_id: Optional[str] = None) -> ReadinessReport:
         """Assemble the report for `user`, filtered to their role."""
@@ -283,6 +294,22 @@ class ReadinessAggregator:
                 user_message="You have presets ready to generate with.",
             )
 
+        indexing = self._indexing_progress()
+        if indexing is not None:
+            return _Row(
+                area=area,
+                status=DEGRADED,
+                code="MODELS_INDEXING",
+                admin_message=(
+                    f"Models are still being indexed ({indexing['processed']}/{indexing['total']} "
+                    "processed) - check back shortly."
+                ),
+                user_message=(
+                    f"Your models are still being set up ({indexing['processed']}/{indexing['total']}). "
+                    "Check back shortly."
+                ),
+            )
+
         return _Row(
             area=area,
             status=DEGRADED,
@@ -343,6 +370,21 @@ class ReadinessAggregator:
             if artifact.required and find_slot_model(self.model_repository, artifact) is None
         ]
         if missing_artifacts:
+            indexing = self._indexing_progress()
+            if indexing is not None:
+                return _Row(
+                    area=area,
+                    status=DEGRADED,
+                    code="RECIPE_MODELS_INDEXING",
+                    admin_message=(
+                        f"Models are still being indexed ({indexing['processed']}/{indexing['total']} "
+                        "processed) - check back shortly."
+                    ),
+                    user_message=(
+                        f"This recipe's models are still being set up "
+                        f"({indexing['processed']}/{indexing['total']}). Check back shortly."
+                    ),
+                )
             return _Row(
                 area=area,
                 status=NOT_READY,
@@ -418,6 +460,7 @@ def build_readiness_aggregator(container) -> ReadinessAggregator:
     (`GET /api/readiness`) and the recipes routes
     (`GET /api/recipes/{id}/readiness`) so both report from the same
     collaborators."""
+    model_index_manager = getattr(container, "model_index_manager", None)
     return ReadinessAggregator(
         backend_registry=container.backend_registry,
         preset_collaborators=container.preset_collaborators,
@@ -426,4 +469,5 @@ def build_readiness_aggregator(container) -> ReadinessAggregator:
         instance_claim_repository=container.instance_claim_repository,
         migration_runner=container.migration_runner,
         recipe_catalog=getattr(container, "recipe_catalog", None),
+        model_indexing_coordinator=getattr(model_index_manager, "indexing", None),
     )

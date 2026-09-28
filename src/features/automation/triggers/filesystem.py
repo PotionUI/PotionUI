@@ -50,27 +50,38 @@ def _default_settings():
     return Settings(SettingRepository())
 
 
-def list_app_directories(settings: Optional[Any] = None) -> List[Dict[str, str]]:
+def _default_model_roots():
+    from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe
+    from src.platform.filesystem.model_roots_repository import ModelRootRepository
+    return ModelRootResolver(ModelRootRepository(), RootProbe(), Path.cwd())
+
+
+def list_app_directories(settings: Optional[Any] = None, resolver: Optional[Any] = None) -> List[Dict[str, str]]:
     """
     Options for the `trigger.filesystem` "directory" picker: the models root,
     each of its existing subdirectories (checkpoints, loras, vae, ...),
     the storage dir, the outputs dir, and a final "Custom path..." choice.
     """
+    from src.platform.filesystem.model_types import MODEL_TYPES
+
     settings = settings or _default_settings()
+    resolver = resolver or _default_model_roots()
     options: List[Dict[str, str]] = []
 
-    models_dir = settings.get_models_dir()
-    options.append({"value": models_dir, "label": "Models", "description": models_dir})
-
-    try:
-        for entry in sorted(Path(models_dir).iterdir(), key=lambda p: p.name):
-            if entry.is_dir():
-                sub_path = os.path.join(models_dir, entry.name)
-                options.append(
-                    {"value": sub_path, "label": f"Models › {entry.name}", "description": sub_path}
-                )
-    except OSError:
-        pass  # models dir doesn't exist yet (fresh install) - just skip subdirectory enumeration
+    root_labels = {root.id: root.label for root in resolver.roots()}
+    seen_paths: Set[str] = set()
+    type_dirs = [
+        type_dir
+        for model_type in MODEL_TYPES
+        for type_dir in resolver.type_dirs(model_type, online_only=False)
+    ]
+    for type_dir in sorted(type_dirs, key=lambda td: (root_labels.get(td.root_id, td.root_id), td.model_type)):
+        path_str = str(type_dir.path)
+        if path_str in seen_paths:
+            continue
+        seen_paths.add(path_str)
+        label = f"{root_labels.get(type_dir.root_id, type_dir.root_id)} · {type_dir.model_type}"
+        options.append({"value": path_str, "label": label, "description": path_str})
 
     storage_dir = settings.get_file_storage_directory()
     options.append({"value": storage_dir, "label": "Storage", "description": storage_dir})

@@ -10,7 +10,6 @@ wrong type / per-user-only), so the test exercises the actual coercion and
 rejection logic rather than a mock configured to match the assertion.
 """
 import asyncio
-from pathlib import Path
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -272,17 +271,13 @@ class TestUpdateModelMetadataValidation(PersistenceTestBase):
             plugin_registry=Mock(),
             settings=Mock(),
             download_queue=Mock(),
+            model_roots=Mock(),
             attribute_definition_repository=self.attribute_definitions,
             user_attribute_repository=UserModelAttributeRepository(),
-            # Without it, `__init__` falls through to the real, lazily-constructed
-            # module-level scanner singleton to resolve models_dir, hitting the
-            # settings DB for real.
-            models_root=Path("/tmp/potionui-test-models"),
         )
 
         model = Model(
             filename="test_lora.safetensors",
-            file_path="/models/loras/test_lora.safetensors",
             file_size=1024,
             model_type="lora",
         )

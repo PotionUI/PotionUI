@@ -11,11 +11,182 @@ export interface ModelsLocationDirectory {
 	has_real_files: boolean;
 }
 
+export type IndexingState =
+	| 'idle'
+	| 'scanning'
+	| 'indexing'
+	| 'done'
+	| 'failed'
+	| 'cancelled'
+	| 'blocked';
+
+export type IndexingTrigger = 'manual' | 'startup' | 'location_change';
+
+export interface IndexingFailedFile {
+	path: string;
+	error: string;
+}
+
+export interface IndexingRootStatus {
+	root_id: string;
+	label: string;
+	state: string;
+	found: number;
+	indexed: number;
+	failed: number;
+}
+
+export interface ModelConflictEntry {
+	id: string;
+	model_id: string;
+	root_id: string;
+	root_label: string;
+	model_type: string;
+	rel_path: string;
+	rel_key: string;
+	size: number | null;
+	mtime_ns: number | null;
+	sha256: string | null;
+	status: string;
+	seen_at: string | null;
+}
+
+export interface ModelDuplicateCopy {
+	root_label: string;
+	rel_path: string;
+	winner: boolean;
+}
+
+export interface ModelDuplicateEntry {
+	model_type: string;
+	filename: string;
+	copies: ModelDuplicateCopy[];
+}
+
+export interface IndexingStatus {
+	state: IndexingState;
+	trigger?: IndexingTrigger | null;
+	restart_pending?: boolean;
+	started_at?: string | null;
+	finished_at?: string | null;
+	total?: number;
+	processed?: number;
+	indexed?: number;
+	found_on_disk?: number | null;
+	scanned_roots?: string[];
+	failed_files?: IndexingFailedFile[];
+	failed_files_total?: number;
+	error?: string | null;
+	roots?: IndexingRootStatus[];
+	conflicts?: ModelConflictEntry[];
+	duplicates?: ModelDuplicateEntry[];
+}
+
 export interface ModelsLocationConfig {
 	external_path: string | null;
 	overrides: Record<string, string>;
 	directories: ModelsLocationDirectory[];
 	windows_unsupported: boolean;
+	auto_matched?: string[];
+	created_empty?: string[];
+	indexing?: IndexingStatus;
+}
+
+export type ModelRootState = 'online' | 'offline' | 'unreadable';
+
+export interface ModelRootBinding {
+	model_type: string;
+	folder: string;
+	subdir: string;
+	path: string;
+	exists: boolean;
+	position: number;
+	is_write: boolean;
+	indexed_files: number;
+	size_bytes: number;
+	unindexed: number;
+}
+
+export interface ModelRoot {
+	id: string;
+	label: string;
+	path: string;
+	kind: 'home' | 'library';
+	read_only: boolean;
+	case_insensitive: boolean;
+	state: ModelRootState;
+	state_reason: string | null;
+	state_checked_at: string | null;
+	bindings: ModelRootBinding[];
+}
+
+export interface ModelRootTypeOrder {
+	model_type: string;
+	folder: string;
+	order: string[];
+	write_root_id: string | null;
+}
+
+export interface ModelRootsUnplacedEntry {
+	dir: string;
+	count: number;
+	types: string[];
+}
+
+export interface ModelRootsOverview {
+	roots: ModelRoot[];
+	types: ModelRootTypeOrder[];
+	unplaced: ModelRootsUnplacedEntry[];
+	indexing: IndexingStatus;
+	server_os: string;
+	path_style: 'windows' | 'posix';
+}
+
+export interface ModelRootDetectionSuggestion {
+	model_type: string;
+	subdir: string;
+	matched_by: 'canonical' | 'alias';
+	file_count: number;
+	file_count_truncated: boolean;
+}
+
+export interface ModelRootConflict {
+	root_id: string;
+	reason: string;
+}
+
+export interface ModelRootDetection {
+	path: string;
+	effective_path: string;
+	state: ModelRootState;
+	writable_hint: boolean;
+	case_insensitive: boolean;
+	layout: 'typed' | 'single' | 'empty';
+	suggestions: ModelRootDetectionSuggestion[];
+	single_type_guess: string | null;
+	conflicts: ModelRootConflict[];
+	warnings: string[];
+}
+
+export interface ModelRootBindingInput {
+	model_type: string;
+	subdir: string;
+}
+
+export interface CreateModelRootPayload {
+	path: string;
+	label?: string;
+	bindings: ModelRootBindingInput[];
+	read_only?: boolean;
+	write_types?: string[];
+}
+
+export interface UpdateModelRootPayload {
+	label?: string;
+	path?: string;
+	read_only?: boolean;
+	bindings?: ModelRootBindingInput[];
+	remove_types?: string[];
 }
 
 export interface UnindexedModelsCount {
@@ -412,21 +583,59 @@ export function createModelsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		// Models location: the external directory the `models/<type>` symlinks point
-		// at, and any per-type overrides. Admin-only.
-		async getModelsLocation(): Promise<APIResponse<ModelsLocationConfig>> {
-			const response = await client.get('/api/models/location');
+		async getIndexingStatus(): Promise<APIResponse<IndexingStatus>> {
+			const response = await client.get('/api/models/indexing/status');
 			return response.data;
 		},
 
-		async applyModelsLocation(
-			externalPath: string,
-			overrides?: Record<string, string>
-		): Promise<APIResponse<ModelsLocationConfig>> {
-			const response = await client.post('/api/models/location/apply', {
-				external_path: externalPath,
-				overrides
+		async startModelIndex(): Promise<APIResponse<IndexingStatus>> {
+			const response = await client.post('/api/models/index');
+			return response.data;
+		},
+
+		async getModelRoots(): Promise<APIResponse<ModelRootsOverview>> {
+			const response = await client.get('/api/models/roots');
+			return response.data;
+		},
+
+		async detectModelRoot(path: string): Promise<APIResponse<ModelRootDetection>> {
+			const response = await client.post('/api/models/roots/detect', { path });
+			return response.data;
+		},
+
+		async createModelRoot(payload: CreateModelRootPayload): Promise<APIResponse<ModelRoot>> {
+			const response = await client.post('/api/models/roots', payload);
+			return response.data;
+		},
+
+		async updateModelRoot(rootId: string, payload: UpdateModelRootPayload): Promise<APIResponse<ModelRoot>> {
+			const response = await client.patch(`/api/models/roots/${rootId}`, payload);
+			return response.data;
+		},
+
+		async deleteModelRoot(rootId: string): Promise<APIResponse<{ id: string; deleted: boolean }>> {
+			const response = await client.delete(`/api/models/roots/${rootId}`);
+			return response.data;
+		},
+
+		async reorderModelRoots(rootIds: string[], modelType?: string): Promise<APIResponse<ModelRootsOverview>> {
+			const response = await client.put('/api/models/roots/order', {
+				model_type: modelType ?? null,
+				root_ids: rootIds
 			});
+			return response.data;
+		},
+
+		async setModelRootWrite(rootId: string, modelType?: string): Promise<APIResponse<ModelRoot>> {
+			const response = await client.put('/api/models/roots/write', {
+				model_type: modelType ?? null,
+				root_id: rootId
+			});
+			return response.data;
+		},
+
+		async probeModelRoot(rootId: string): Promise<APIResponse<ModelRoot>> {
+			const response = await client.post(`/api/models/roots/${rootId}/probe`);
 			return response.data;
 		},
 

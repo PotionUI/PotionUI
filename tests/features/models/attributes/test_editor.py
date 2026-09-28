@@ -163,7 +163,7 @@ class TestUpdateUserValues(ModelAttributeDefinitionsEditorTestBase):
         from src.features.models.repository import ModelRepository
         self.model_repo = ModelRepository()
         self.model = self.model_repo.create(Model(
-            filename="test.safetensors", file_path="/models/loras/test.safetensors",
+            filename="test.safetensors",
             file_size=1, model_type="lora",
         ))
         self.create_test_user(user_id="user-1")

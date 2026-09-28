@@ -787,12 +787,13 @@
 					{/snippet}
 					{#snippet actions()}
 						<Tooltip text={testing ? 'Testing…' : 'Test connection'}>
-							<IconButton icon="check" label="Test connection" disabled={testing} onclick={() => activeBackend && testConnection(activeBackend.id)} />
+							<IconButton icon="check" label="Test connection" loading={testing} onclick={() => activeBackend && testConnection(activeBackend.id)} />
 						</Tooltip>
 						<Tooltip text={indexingBackendId === activeBackend.id ? 'Indexing…' : 'Index models'}>
 							<IconButton
 								icon="refresh"
 								label="Index models"
+								loading={indexingBackendId === activeBackend.id}
 								disabled={indexingBackendId !== null && indexingBackendId !== activeBackend.id}
 								onclick={() => activeBackend && indexModels(activeBackend)}
 							/>
@@ -899,9 +900,7 @@
 																Duplicate content: <span class="text-fg-muted">{dup.ref}</span>
 																({dup.model_type}) has the same sha256 as
 																<span class="text-fg-muted">{dup.existing_filename}</span>
-																({dup.existing_model_type}{dup.existing_file_path
-																	? `, ${dup.existing_file_path}`
-																	: ''}) and was skipped. Remove one copy.
+																({dup.existing_model_type}, {dup.existing_location}) and was skipped. Remove one copy.
 															</li>
 														{/each}
 														{#each result.ambiguous as note}

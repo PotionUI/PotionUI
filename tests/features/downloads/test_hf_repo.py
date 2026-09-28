@@ -12,6 +12,7 @@ import pytest
 from src.features.downloads.exceptions import DownloadOperationException, DownloadQueueException
 from src.features.downloads.queue import DownloadQueue
 from src.features.downloads.models import Download, DownloadStatus, DownloadType
+from tests.fixtures.model_roots import make_roots
 
 
 class FakeRepo:
@@ -70,11 +71,15 @@ def _build_manager(repo, models_dir):
     settings.get_setting.side_effect = lambda key, default=None: {
         "models_dir": str(models_dir),
     }.get(key, default)
+    home = Path(models_dir)
+    if not home.is_absolute():
+        home = Path.cwd() / home
     mgr = DownloadQueue(
         download_repository=repo,
         plugin_registry=_plugin_registry(),
         settings=settings,
         connection_hub=AsyncMock(),
+        resolver=make_roots(home.parent, home_dir=home),
     )
     worker = AsyncMock()
     worker.get_queue_position.return_value = 0
@@ -258,7 +263,7 @@ class TestDepotRootedDestinationIsRootedOnce:
         }
 
     def test_ensure_asset_repo_fetches_into_the_directory_it_returns(
-        self, cwd_manager, repo
+        self, cwd_manager, repo, tmp_path
     ):
         """The reported failure, at its own seam: a pipe calling
         `ASSETS.ensure_asset_repo` and then opening a file under the path it
@@ -271,8 +276,9 @@ class TestDepotRootedDestinationIsRootedOnce:
                 poll_interval=0.01,
             )
 
-        assert Path(returned) == Path("depot/audio/org-tiny")
-        assert self._child_dirs(repo) == {Path("depot/audio/org-tiny")}
+        expected = tmp_path / "depot" / "audio" / "org-tiny"
+        assert Path(returned) == expected
+        assert self._child_dirs(repo) == {expected}
 
     def test_ensure_local_hf_repo_uses_a_relative_depot_path_as_given(
         self, cwd_manager, repo
@@ -300,18 +306,19 @@ class TestDepotRootedDestinationIsRootedOnce:
         assert Path(result) == target
         assert self._child_dirs(repo) == {target}
 
-    async def test_default_destination_is_rooted_once(self, cwd_manager, repo):
+    async def test_default_destination_is_rooted_once(self, cwd_manager, repo, tmp_path):
         """The default was built by joining the depot root and then went
         through the join again - the same doubling, on the path an HTTP request
         that names no destination takes."""
         with patch.object(DownloadQueue, "_enumerate_hf_repo", return_value=list(_FILES)):
             parent = await cwd_manager.queue_hf_repo_download("org/tiny")
 
-        assert Path(parent.destination_path) == Path("depot/org--tiny")
-        assert self._child_dirs(repo) == {Path("depot/org--tiny")}
+        expected = tmp_path / "depot" / "org--tiny"
+        assert Path(parent.destination_path) == expected
+        assert self._child_dirs(repo) == {expected}
 
     async def test_request_supplied_subdir_is_still_joined_onto_the_root(
-        self, cwd_manager, repo
+        self, cwd_manager, repo, tmp_path
     ):
         """The untrusted path is unchanged: a subdir from the request body is
         depot-relative, so it must still be joined."""
@@ -320,7 +327,7 @@ class TestDepotRootedDestinationIsRootedOnce:
                 "org/tiny", destination_dir="nested/sub"
             )
 
-        assert Path(parent.destination_path) == Path("depot/nested/sub")
+        assert Path(parent.destination_path) == tmp_path / "depot" / "nested" / "sub"
 
 
 class TestTrustedDestinationIsStillContained:
@@ -404,7 +411,7 @@ class TestTrustedDestinationIsStillContained:
             assert repo.rows == {}
 
     async def test_hook_rewriting_a_trusted_destination_makes_it_untrusted(
-        self, cwd_manager, repo
+        self, cwd_manager, repo, tmp_path
     ):
         """A plugin cannot inherit the caller's trust by rewriting the
         destination: its value is depot-relative like any other hook output,
@@ -418,7 +425,7 @@ class TestTrustedDestinationIsStillContained:
                 "org/tiny", trusted_destination_dir="depot/text_encoders/org-tiny"
             )
 
-        assert Path(parent.destination_path) == Path("depot/hooked/sub")
+        assert Path(parent.destination_path) == tmp_path / "depot" / "hooked" / "sub"
 
     async def test_hook_escaping_from_a_trusted_call_is_rejected(self, cwd_manager, repo):
         context = Mock()

@@ -198,7 +198,7 @@ def test_gemma3_chat_tokenizer_ready_false_until_both_files_present(tmp_path):
     d = gemma3_chat_tokenizer_dir(_resolver(tmp_path))
     d.mkdir(parents=True)
     (d / "tokenizer.json").write_text("{}")
-    assert gemma3_chat_tokenizer_ready(_resolver(tmp_path)) is False  # tokenizer_config.json still missing
+    assert gemma3_chat_tokenizer_ready(_resolver(tmp_path)) is False
     (d / "tokenizer_config.json").write_text("{}")
     assert gemma3_chat_tokenizer_ready(_resolver(tmp_path)) is True
 

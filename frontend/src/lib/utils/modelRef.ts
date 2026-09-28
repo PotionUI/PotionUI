@@ -1,11 +1,3 @@
-/**
- * Stable-reference matching for a model-valued form field. A field stores
- * `model:<id>` once a model is selected; `matchesStoredValue` also accepts
- * the legacy bare-filename values sessions saved before that migration still
- * carry. Shared by ModelField.svelte and LoraPickerField.svelte (previously
- * duplicated verbatim in both).
- */
-
 export const MODEL_REF_PREFIX = 'model:';
 
 export interface ModelRefCandidate {

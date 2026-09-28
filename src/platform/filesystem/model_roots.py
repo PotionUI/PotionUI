@@ -124,13 +124,10 @@ def is_windows() -> bool:
 
 
 def paths_overlap(a_key: str, b_key: str) -> bool:
-    """True when two `root_path_key()` results are equal or one contains the other."""
     return a_key == b_key or a_key.startswith(b_key + "/") or b_key.startswith(a_key + "/")
 
 
 def probe_case_insensitive(path: Union[str, "os.PathLike[str]"]) -> bool:
-    """Best-effort: does this filesystem fold case for `path`? Falls back to the
-    platform default when the path has no letters to swap or the probe fails."""
     raw = str(path)
     swapped = raw.swapcase()
     if swapped == raw:

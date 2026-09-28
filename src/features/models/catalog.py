@@ -234,14 +234,6 @@ class ModelCatalog:
             return self.scanner.resolver.home_dir() / MODEL_TYPE_TO_DIRECTORY.get(model_type, model_type)
 
     def _type_subdirectories(self, model_type: str, max_depth: int = 4) -> List[str]:
-        """Directories under `model_type`'s write-root directory, as sorted
-        depot-relative POSIX paths (`sdxl`, `sdxl/characters`, ...), nested up to
-        `max_depth` levels; hidden/dot directories and everything beneath them
-        are skipped. Empty when the directory doesn't exist.
-
-        Lets a downloader (e.g. "Add Download") offer the folders a depot
-        already organizes a type into without walking the filesystem itself.
-        """
         type_dir = self._type_write_dir(model_type)
         if not type_dir.is_dir():
             return []

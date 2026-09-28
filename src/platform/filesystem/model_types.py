@@ -66,5 +66,4 @@ for _directory, _aliases in MODEL_DIRECTORY_ALIASES.items():
 
 
 def type_for_folder_name(name):
-    """Canonical or alias folder name (any case) -> model type, else None."""
     return _FOLDER_NAME_TO_MODEL_TYPE.get(name.lower())

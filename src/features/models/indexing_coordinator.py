@@ -1,5 +1,3 @@
-"""Coordinates full-directory (re)indexing and stale-entry cleanup."""
-
 import logging
 import threading
 from pathlib import Path

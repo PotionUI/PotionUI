@@ -22,25 +22,31 @@ from src.platform.worker_protocol import ProcessedPipeV1
 class FakeModelRepository:
     """A `get_by_file_path`/`update_digest` stand-in - no database, no filesystem.
 
-    `rows` is the source of truth (keyed by file_path); `get_by_file_path`
-    hands back a fresh `Model` each call, mirroring a real repository read.
-    `digest_writes` records every `update_digest` call so a test can assert
-    a second bundle build does not re-hash an already-digested model.
+    `rows` is the source of truth (keyed by the physical path a pipe config
+    would carry); `get_by_file_path` hands back a fresh `Model` each call,
+    mirroring a real repository read. `digest_writes` records every
+    `update_digest` call so a test can assert a second bundle build does not
+    re-hash an already-digested model.
     """
 
     def __init__(self):
         self.rows: Dict[str, dict] = {}
         self.identity_rows: Dict[tuple, dict] = {}
+        self.paths_by_id: Dict[str, str] = {}
         self.lookups: list = []
         self.digest_writes: list = []
 
     def register(self, file_path: str, **fields) -> None:
-        self.rows[file_path] = {"file_path": file_path, **fields}
+        self.rows[file_path] = dict(fields)
+        if fields.get("id"):
+            self.paths_by_id[fields["id"]] = file_path
 
-    def register_identity(self, model_type: str, filename: str, **fields) -> None:
+    def register_identity(self, model_type: str, filename: str, file_path: Optional[str] = None, **fields) -> None:
         self.identity_rows[(model_type, filename)] = {
-            "model_type": model_type, "filename": filename, "file_path": None, **fields,
+            "model_type": model_type, "filename": filename, **fields,
         }
+        if file_path and fields.get("id"):
+            self.paths_by_id[fields["id"]] = file_path
 
     def get_by_file_path(self, file_path: str, include_providers: bool = True) -> Optional[Model]:
         self.lookups.append(file_path)
@@ -55,7 +61,7 @@ class FakeModelRepository:
 
     def update_digest(self, model_id: str, *, sha256: str, file_size: int) -> bool:
         self.digest_writes.append((model_id, sha256, file_size))
-        for fields in self.rows.values():
+        for fields in list(self.rows.values()) + list(self.identity_rows.values()):
             if fields.get("id") == model_id:
                 fields["sha256"] = sha256
                 fields["file_size"] = file_size
@@ -71,17 +77,13 @@ class FakeModelLocator:
         return self._repo.get_by_file_path(str(path))
 
     def path_for_model(self, model_id: str) -> Path:
-        for fields in self._repo.rows.values():
-            if fields.get("id") != model_id:
-                continue
-            file_path = fields.get("file_path")
-            if not file_path:
-                break
-            path = Path(file_path)
-            if path.is_file():
-                return path
-            raise ModelFileUnavailable(f"model '{model_id}' has no present copy reachable on any root")
-        raise ModelFileUnavailable(f"model '{model_id}' has no known location")
+        file_path = self._repo.paths_by_id.get(model_id)
+        if not file_path:
+            raise ModelFileUnavailable(f"model '{model_id}' has no known location")
+        path = Path(file_path)
+        if path.is_file():
+            return path
+        raise ModelFileUnavailable(f"model '{model_id}' has no present copy reachable on any root")
 
 
 def _pipe(pipe_id: str, config: dict) -> ProcessedPipeV1:

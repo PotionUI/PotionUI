@@ -18,7 +18,6 @@ from src.platform.filesystem.model_roots import (
     ModelRoot,
     ModelRootResolver,
     TypeDir,
-    physical_legacy_ref,
 )
 from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE, MODEL_TYPES, SUPPORTED_MODEL_EXTENSIONS
 
@@ -338,7 +337,7 @@ class ModelScanner:
             return existing_by_identity, touched
 
         model_data = Model(
-            filename=filename, file_path=found.abs_path, file_size=found.size, sha256=sha256,
+            filename=filename, file_size=found.size, sha256=sha256,
             model_type=found.model_type, is_directory=found.is_directory, indexed_at=datetime.now(),
         )
         try:
@@ -389,7 +388,6 @@ class ModelScanner:
         if not model_ids:
             return
         online_root_ids = list(self.resolver.online_root_ids())
-        raw_path_by_root = {r.id: r.raw_path for r in self.resolver.roots() if r.id in online_root_ids}
         winners = self.locations.winners_by_model(online_root_ids)
 
         for model_id in model_ids:
@@ -398,13 +396,9 @@ class ModelScanner:
                 continue
             winner = winners.get(model_id)
             if winner is not None:
-                new_file_path = physical_legacy_ref(
-                    raw_path_by_root[winner['root_id']], winner['subdir'], winner['rel_path']
-                )
-                if not model.is_available or model.file_path != new_file_path:
+                if not model.is_available:
                     model.is_available = True
                     model.unavailable_at = None
-                    model.file_path = new_file_path
                     model_repo.update(model)
             elif model.is_available:
                 model_repo.mark_unavailable(model.id)

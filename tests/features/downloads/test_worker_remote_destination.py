@@ -228,7 +228,6 @@ class TestRemoteDownloadHappyPath(RemoteDestinationTestCase):
         created = next(iter(self.model_repository._by_id.values()))
         self.assertEqual(created.model_type, "checkpoint")
         self.assertEqual(created.filename, "model.safetensors")
-        self.assertIsNone(created.file_path)  # a remote ref, not a local path
         self.assertEqual(len(self.availability_repository.upserted), 1)
         self.assertEqual(self.availability_repository.upserted[0].backend_id, BACKEND_ID)
 

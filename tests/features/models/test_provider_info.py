@@ -65,7 +65,6 @@ class TestProviderInfoPreviewMedia(PersistenceTestBase):
     def _seed_model(self, sha256="a" * 64):
         return self.repo.create(Model(
             filename="detail.safetensors",
-            file_path="/models/loras/detail.safetensors",
             model_type="lora",
             sha256=sha256,
         ))

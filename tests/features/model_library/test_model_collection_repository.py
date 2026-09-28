@@ -35,7 +35,6 @@ class TestModelCollectionRepository(PersistenceTestBase):
         model = Model(
             id=generate_ulid(),
             filename=filename,
-            file_path=f"/models/checkpoints/{filename}",
             file_size=1024,
             model_type="checkpoint",
         )

@@ -13,7 +13,7 @@
 		notesForGroup,
 		unavailableGroupHint
 	} from '$lib/chat/memoryGroups';
-	import { MODEL_REF_PREFIX } from '$lib/utils/modelRef';
+	import { MODEL_REF_PREFIX, findModelForValue } from '$lib/utils/modelRef';
 
 	// The panel resolves the preset name + active model itself from the chat's
 	// current tab context (see UnifiedAIChat). It needs the raw preset ULID and
@@ -195,7 +195,7 @@
 				} else {
 					const response = await api.getModels({ search: filename, limit: 10 });
 					if (response.success && response.data?.models) {
-						found = response.data.models.find((m: any) => m.file_path === modelPath) || null;
+						found = findModelForValue(modelPath, response.data.models) || null;
 					}
 				}
 				if (found) {

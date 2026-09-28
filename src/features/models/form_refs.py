@@ -302,7 +302,7 @@ def _fallback_ref(model_id: str, locator: ModelLocator) -> Any:
         pass
     except Exception:
         pass
-    return model.file_path or model.filename
+    return model.filename
 
 
 def _describe_unavailable(model_id: str, exc: "ModelFileUnavailable") -> str:

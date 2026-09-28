@@ -60,7 +60,7 @@ def catalog_model(collaborators):
     """A real catalog row: `prompts.model_id` is a foreign key onto `models`,
     and the name the importer stores is the row's `display_name`."""
     return collaborators.model_repository.create(Model(
-        filename="Caller Model.safetensors", file_path="/models/Caller Model.safetensors",
+        filename="Caller Model.safetensors",
         file_size=1, sha256="a" * 64, model_type="checkpoint",
     ))
 

@@ -78,10 +78,12 @@ class FakeModelLocator:
 def _model(*, model_id: str, filename: str, role: str, file_path=None, content=None, providers=None) -> Model:
     sha256 = hashlib.sha256(content).hexdigest() if content is not None else None
     file_size = len(content) if content is not None else None
-    return Model(
-        id=model_id, filename=filename, model_type=role, file_path=file_path,
+    model = Model(
+        id=model_id, filename=filename, model_type=role,
         sha256=sha256, file_size=file_size, providers=providers or [],
     )
+    model.file_path = file_path
+    return model
 
 
 def _relative_path(role: str, filename: str) -> str:

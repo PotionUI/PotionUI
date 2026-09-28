@@ -55,9 +55,9 @@ class TestUserModelAccessControl(PersistenceTestBase):
         model_id = generate_ulid()
         with self.db.get_cursor() as cursor:
             cursor.execute("""
-                INSERT INTO models (id, filename, file_path, model_type)
-                VALUES (?, ?, ?, ?)
-            """, (model_id, filename, f"/models/{filename}", model_type))
+                INSERT INTO models (id, filename, model_type)
+                VALUES (?, ?, ?)
+            """, (model_id, filename, model_type))
         return model_id
 
     def create_test_group(self, name="testgroup"):

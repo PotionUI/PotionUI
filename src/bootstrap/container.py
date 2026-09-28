@@ -776,6 +776,7 @@ def build_container() -> AppContainer:
     # dispatch a `destination_backend_id` (fetch straight onto a native.remote
     # worker's depot) alongside its always-available local-disk path.
     from src.features.models.backend_indexer import backend_model_indexer
+    backend_model_indexer.model_locator = model_locator
 
     download_queue = DownloadQueue(
         download_repository=download_repository,

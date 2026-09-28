@@ -57,9 +57,9 @@ class TestGetParamsProvenanceInheritance(PersistenceTestBase):
         model_id = model_id or generate_ulid()
         with self.db.get_cursor() as cursor:
             cursor.execute("""
-                INSERT INTO models (id, filename, file_path, file_size, model_type, sha256)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (model_id, filename, f"/models/{filename}", 1024, "checkpoint", f"sha_{model_id}"))
+                INSERT INTO models (id, filename, file_size, model_type, sha256)
+                VALUES (?, ?, ?, ?, ?)
+            """, (model_id, filename, 1024, "checkpoint", f"sha_{model_id}"))
         return model_id
 
     def _link_model(self, gen_id: str, model_id: str):

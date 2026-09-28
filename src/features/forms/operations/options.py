@@ -227,7 +227,6 @@ def get_model_database_options(config: Dict[str, Any]) -> List[Dict[str, Any]]:
             'description': _get_model_description(model),
             'category': model.get_model_type_display(),
             'size': model.get_file_size_mb() if hasattr(model, 'get_file_size_mb') else None,
-            'file_path': model.file_path,
             'filename': model.filename,
             'user_notes': model.description,
             'model_type': model.model_type

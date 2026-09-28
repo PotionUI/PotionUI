@@ -9,7 +9,7 @@ import {
 	type ModelPreviewMedia,
 	type ModelPreviewMediaItem
 } from '$lib/utils/modelPreview';
-import type { ModelAvailabilityResponse, ProviderInfo } from '$lib/types/models';
+import type { ModelAvailabilityResponse, ModelLocation, ProviderInfo } from '$lib/types/models';
 
 export type ModelDetailsScope = 'library' | 'admin';
 
@@ -83,7 +83,8 @@ export interface ModelSummary {
 
 /** Adds the operational block. Only `toAdminModelDetails` ever constructs one of these. */
 export interface AdminModelDetails extends ModelSummary {
-	file_path: string | null;
+	location: ModelLocation | null;
+	copies: number;
 	file_size: number | null;
 	sha256: string | null;
 	indexed_at: string | null;
@@ -123,7 +124,8 @@ export function toModelSummary(raw: any): ModelSummary {
 export function toAdminModelDetails(raw: any): AdminModelDetails {
 	return {
 		...toModelSummary(raw),
-		file_path: raw.file_path ?? null,
+		location: raw.location ?? null,
+		copies: raw.copies ?? 0,
 		file_size: raw.file_size ?? null,
 		sha256: raw.sha256 ?? null,
 		indexed_at: raw.indexed_at ?? null,

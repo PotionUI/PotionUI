@@ -278,7 +278,6 @@ class TestUpdateModelMetadataValidation(PersistenceTestBase):
 
         model = Model(
             filename="test_lora.safetensors",
-            file_path="/models/loras/test_lora.safetensors",
             file_size=1024,
             model_type="lora",
         )

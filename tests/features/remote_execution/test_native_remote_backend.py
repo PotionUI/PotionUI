@@ -454,7 +454,7 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
         source_path = source_dir / filename
         source_path.write_bytes(content)
         ModelRepository().create(Model(
-            filename=filename, file_path=str(source_path), file_size=len(content),
+            filename=filename, file_size=len(content),
             sha256=hashlib.sha256(content).hexdigest(), model_type=role, is_directory=is_directory,
         ))
         return source_path

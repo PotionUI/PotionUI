@@ -1,23 +1,22 @@
 /**
  * Stable-reference matching for a model-valued form field. A field stores
  * `model:<id>` once a model is selected; `matchesStoredValue` also accepts
- * the legacy `file_path`/bare-filename values sessions saved before that
- * migration still carry. Shared by ModelField.svelte and LoraPickerField.svelte
- * (previously duplicated verbatim in both).
+ * the legacy bare-filename values sessions saved before that migration still
+ * carry. Shared by ModelField.svelte and LoraPickerField.svelte (previously
+ * duplicated verbatim in both).
  */
 
 export const MODEL_REF_PREFIX = 'model:';
 
 export interface ModelRefCandidate {
 	id?: string | null;
-	file_path?: string | null;
 	filename?: string | null;
 }
 
 /** The value a field should store once `model` is selected. */
 export function refFor(model: ModelRefCandidate | null | undefined): string {
-	if (!model) return '';
-	return model.id ? `${MODEL_REF_PREFIX}${model.id}` : model.file_path || '';
+	if (!model?.id) return '';
+	return `${MODEL_REF_PREFIX}${model.id}`;
 }
 
 /** Does a stored field value refer to this model? */
@@ -29,7 +28,6 @@ export function matchesStoredValue(
 	if (storedValue.startsWith(MODEL_REF_PREFIX)) {
 		return model.id === storedValue.slice(MODEL_REF_PREFIX.length);
 	}
-	if (model.file_path === storedValue) return true;
 	const filename = storedValue.split('/').pop();
 	return !!filename && model.filename === filename;
 }

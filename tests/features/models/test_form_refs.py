@@ -66,32 +66,14 @@ def test_substitute_strings_leaves_unmapped_values_untouched():
 
 
 @patch.object(fr, "model_availability_repo")
-def test_unindexed_backend_falls_back_to_the_model_index(repo):
+def test_unindexed_backend_uses_filename_when_the_locator_has_no_location(repo):
     locator = Mock()
     repo.any_indexed.return_value = False
     repo.get.return_value = None
     locator.path_for_model.side_effect = fr.ModelFileUnavailable("no location")
 
     with patch("src.features.models.repository.model_repo") as mr:
-        mr.get_by_id.return_value = type(
-            "M", (), {"file_path": "models/loras/detail.safetensors", "filename": "detail.safetensors"}
-        )()
-        resolved = fr.resolve_form_model_refs({"lora": fr.make_model_ref("m1")}, _backend("comfy"), locator)
-
-    assert resolved["lora"] == "models/loras/detail.safetensors"
-
-
-@patch.object(fr, "model_availability_repo")
-def test_unindexed_backend_uses_filename_when_there_is_no_local_path(repo):
-    locator = Mock()
-    repo.any_indexed.return_value = False
-    repo.get.return_value = None
-    locator.path_for_model.side_effect = fr.ModelFileUnavailable("no location")
-
-    with patch("src.features.models.repository.model_repo") as mr:
-        mr.get_by_id.return_value = type(
-            "M", (), {"file_path": None, "filename": "detail.safetensors"}
-        )()
+        mr.get_by_id.return_value = type("M", (), {"filename": "detail.safetensors"})()
         resolved = fr.resolve_form_model_refs({"lora": fr.make_model_ref("m1")}, _backend("comfy"), locator)
 
     assert resolved["lora"] == "detail.safetensors"
@@ -105,9 +87,7 @@ def test_unindexed_backend_prefers_the_locators_live_location(repo):
     locator.path_for_model.return_value = "/lib/loras/detail.safetensors"
 
     with patch("src.features.models.repository.model_repo") as mr:
-        mr.get_by_id.return_value = type(
-            "M", (), {"file_path": "models/loras/detail.safetensors", "filename": "detail.safetensors"}
-        )()
+        mr.get_by_id.return_value = type("M", (), {"filename": "detail.safetensors"})()
         resolved = fr.resolve_form_model_refs({"lora": fr.make_model_ref("m1")}, _backend("comfy"), locator)
 
     assert resolved["lora"] == "/lib/loras/detail.safetensors"
@@ -197,9 +177,7 @@ def test_fallback_ref_never_goes_through_resolve_ref(repo):
     backend = _backend("native-1")
 
     with patch("src.features.models.repository.model_repo") as mr:
-        mr.get_by_id.return_value = type(
-            "M", (), {"file_path": "models/loras/detail.safetensors", "filename": "detail.safetensors"}
-        )()
+        mr.get_by_id.return_value = type("M", (), {"filename": "detail.safetensors"})()
         fr.resolve_form_model_refs({"lora": fr.make_model_ref("m1")}, backend, locator)
 
     backend.resolve_ref.assert_not_called()

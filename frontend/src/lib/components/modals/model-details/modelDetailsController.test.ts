@@ -6,7 +6,8 @@ import {
 } from './modelDetailsController';
 
 const ADMIN_ONLY_FIELDS = [
-	'file_path',
+	'location',
+	'copies',
 	'file_size',
 	'sha256',
 	'indexed_at',
@@ -29,7 +30,13 @@ const RAW_MODEL = {
 	preview_media: { url: '/x', type: 'image' },
 	files: [{ id: 'f1' }],
 	tags: [{ id: 't1', name: 'tag' }],
-	file_path: '/models/checkpoint/model.safetensors',
+	location: {
+		root_id: 'r1',
+		root_label: 'PotionUI models',
+		logical_path: 'checkpoint/model.safetensors',
+		path: '/models/checkpoint/model.safetensors'
+	},
+	copies: 1,
 	file_size: 12345,
 	sha256: 'deadbeef',
 	indexed_at: '2026-01-02T00:00:00Z',
@@ -94,7 +101,13 @@ describe('toAdminModelDetails', () => {
 		expect(admin).toMatchObject({
 			id: 'm1',
 			filename: 'model.safetensors',
-			file_path: '/models/checkpoint/model.safetensors',
+			location: {
+				root_id: 'r1',
+				root_label: 'PotionUI models',
+				logical_path: 'checkpoint/model.safetensors',
+				path: '/models/checkpoint/model.safetensors'
+			},
+			copies: 1,
 			file_size: 12345,
 			sha256: 'deadbeef',
 			indexed_at: '2026-01-02T00:00:00Z',
@@ -107,7 +120,8 @@ describe('toAdminModelDetails', () => {
 
 	it('defaults missing operational fields to null rather than leaving them undefined', () => {
 		const admin = toAdminModelDetails({ id: 'm2', filename: 'x', model_type: 'lora' });
-		expect(admin.file_path).toBeNull();
+		expect(admin.location).toBeNull();
+		expect(admin.copies).toBe(0);
 		expect(admin.file_size).toBeNull();
 		expect(admin.sha256).toBeNull();
 		expect(admin.indexed_at).toBeNull();

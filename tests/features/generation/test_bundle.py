@@ -289,9 +289,9 @@ class TestExportImportRoundTrip:
         with self.db.get_cursor() as cursor:
             model_id = generate_ulid()
             cursor.execute("""
-                INSERT INTO models (id, filename, file_path, file_size, model_type, sha256)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (model_id, filename, f"/models/{filename}", 1024, "checkpoint", sha256))
+                INSERT INTO models (id, filename, file_size, model_type, sha256)
+                VALUES (?, ?, ?, ?, ?)
+            """, (model_id, filename, 1024, "checkpoint", sha256))
         self.gen_model_repo.create_batch(gen_id, [model_id])
         return model_id
 
@@ -402,9 +402,9 @@ class TestExportImportRoundTrip:
                 (lora_id, "lora.safetensors", "digest-2"),
             ):
                 cursor.execute("""
-                    INSERT INTO models (id, filename, file_path, file_size, model_type, sha256)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (mid, filename, f"/models/{filename}", 1024, "checkpoint", sha))
+                    INSERT INTO models (id, filename, file_size, model_type, sha256)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (mid, filename, 1024, "checkpoint", sha))
 
         gen_id = self._create_generation_with_form_data({
             "prompt": "a cat",
@@ -485,9 +485,9 @@ class TestExportImportRoundTrip:
             model_id = generate_ulid()
             with self.db.get_cursor() as cursor:
                 cursor.execute("""
-                    INSERT INTO models (id, filename, file_path, file_size, model_type, sha256)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (model_id, filename, f"/models/{filename}", 1024, model_type, sha256))
+                    INSERT INTO models (id, filename, file_size, model_type, sha256)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (model_id, filename, 1024, model_type, sha256))
             return model_id
 
         src_ckpt = _insert_model("weights.safetensors", "checkpoint", "digest-ckpt")
@@ -755,9 +755,9 @@ class TestExportImportRoundTrip:
         model_id = generate_ulid()
         with self.db.get_cursor() as cursor:
             cursor.execute("""
-                INSERT INTO models (id, filename, file_path, file_size, model_type, sha256)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (model_id, filename, f"/models/{filename}", 1024, model_type, sha256))
+                INSERT INTO models (id, filename, file_size, model_type, sha256)
+                VALUES (?, ?, ?, ?, ?)
+            """, (model_id, filename, 1024, model_type, sha256))
         return model_id
 
     def test_export_raises_not_found_for_generation_owned_by_another_user(self):

@@ -63,7 +63,6 @@ class TestModelPreviewIntegration(PersistenceTestBase):
     def _seed_model(self):
         return self.repo.create(Model(
             filename="detail.safetensors",
-            file_path="/models/loras/detail.safetensors",
             model_type="lora",
         ))
 
@@ -181,7 +180,6 @@ class TestModelPreviewListIntegration(PersistenceTestBase):
     def _seed_model(self):
         return self.repo.create(Model(
             filename="detail.safetensors",
-            file_path="/models/loras/detail.safetensors",
             model_type="lora",
         ))
 
@@ -344,7 +342,6 @@ class TestModelPreviewAccessControl(PersistenceTestBase):
 
         self.model = self.repo.create(Model(
             filename="access.safetensors",
-            file_path="/models/loras/access.safetensors",
             model_type="lora",
         ))
         operations.add_model_preview(self.collaborators, 

@@ -8,15 +8,26 @@ from src.features.models.backend_indexer import BackendModelIndexer
 
 
 class FakeModel:
-    def __init__(self, id, model_type, filename, file_size=None, sha256=None, file_path=None,
+    def __init__(self, id, model_type, filename, file_size=None, sha256=None, has_location=False,
                  is_directory=False):
         self.id = id
         self.model_type = model_type
         self.filename = filename
         self.file_size = file_size
         self.sha256 = sha256
-        self.file_path = file_path
+        self.has_location = has_location
         self.is_directory = is_directory
+
+
+class FakeLocator:
+    def __init__(self, paths=None):
+        self.paths = paths or {}
+
+    def path_for_model(self, model_id):
+        from src.features.models.locator import ModelFileUnavailable
+        if model_id in self.paths:
+            return self.paths[model_id]
+        raise ModelFileUnavailable(f"model '{model_id}' has no known location")
 
 
 class FakeModelRepo:
@@ -41,7 +52,7 @@ class FakeModelRepo:
         removed = 0
         for model_id in list(model_ids):
             match = next((m for m in self.models if m.id == model_id), None)
-            if match is not None and match.file_path is None:
+            if match is not None and not getattr(match, "has_location", False):
                 self.models.remove(match)
                 removed += 1
         return removed
@@ -98,7 +109,7 @@ async def test_unsupported_backend_raises_rather_than_reporting_zero_models():
 
 
 @pytest.mark.asyncio
-async def test_new_remote_model_gets_a_row_with_null_file_path():
+async def test_new_remote_model_gets_a_row_with_no_local_location():
     """A model only a remote server has never existed on this host."""
     idx, models, avail = indexer()
     entry = BackendModel("lora", "detail.safetensors", "style/detail.safetensors", size=100)
@@ -107,7 +118,6 @@ async def test_new_remote_model_gets_a_row_with_null_file_path():
 
     assert result.created == 1 and result.matched == 0
     created = models.models[0]
-    assert created.file_path is None
     assert created.sha256 is None
     row = avail.rows[(created.id, "be1")]
     assert row.ref == "style/detail.safetensors"
@@ -118,7 +128,7 @@ async def test_new_remote_model_gets_a_row_with_null_file_path():
 async def test_same_filename_on_two_backends_merges_into_one_model():
     """The whole point: identity is (model_type, filename), not a path or a hash."""
     existing = FakeModel("m1", "lora", "detail.safetensors",
-                         file_size=100, sha256="abc", file_path="models/loras/detail.safetensors")
+                         file_size=100, sha256="abc", has_location=True)
     idx, models, avail = indexer([existing])
 
     entry = BackendModel("lora", "detail.safetensors", "style/detail.safetensors", size=100)
@@ -276,7 +286,7 @@ async def test_identity_remap_orphans_the_old_row_and_merges_onto_the_new_one():
     `text_encoder`) must not leave the old identity's row behind: the depot row for
     the new identity should gain the claim, and the stale row - now unreachable,
     no local file, no other backend - must be hard-deleted."""
-    depot_row = FakeModel("depot1", "text_encoder", "x.safetensors", file_path="models/text_encoders/x.safetensors")
+    depot_row = FakeModel("depot1", "text_encoder", "x.safetensors", has_location=True)
     idx, models, avail = indexer([depot_row])
     backend = make_backend([BackendModel("clip", "x.safetensors", "x.safetensors", size=1)], backend_id="comfy1")
 
@@ -299,11 +309,11 @@ async def test_identity_remap_orphans_the_old_row_and_merges_onto_the_new_one():
 
 
 @pytest.mark.asyncio
-async def test_orphan_candidate_with_a_local_file_path_survives():
+async def test_orphan_candidate_with_a_location_survives():
     """A row that happens to lose this backend's claim but still has a local file
     (a depot scan's row, or a model downloaded after the fact) must never be
     hard-deleted - only a backend-created, file-less row qualifies."""
-    local_row = FakeModel("m1", "lora", "kept.safetensors", file_path="models/loras/kept.safetensors")
+    local_row = FakeModel("m1", "lora", "kept.safetensors", has_location=True)
     idx, models, avail = indexer([local_row])
     backend = make_backend([BackendModel("lora", "kept.safetensors", "kept.safetensors", size=1)])
 
@@ -339,9 +349,9 @@ async def test_directory_model_fingerprint_is_never_compared_as_a_digest():
 async def test_copy_of_an_indexed_file_under_another_type_is_reported_and_skipped():
     """`models.sha256` is unique: the same bytes in two folders must not abort the index."""
     idx, models, avail = indexer(existing=[
-        FakeModel("m0", "lora", "identity_edit.safetensors", file_size=10, sha256="abc" * 20,
-                  file_path="/models/loras/identity_edit.safetensors"),
+        FakeModel("m0", "lora", "identity_edit.safetensors", file_size=10, sha256="abc" * 20),
     ])
+    idx.model_locator = FakeLocator({"m0": "/models/loras/identity_edit.safetensors"})
     copy = BackendModel("checkpoint", "identity_edit.safetensors", "identity_edit.safetensors",
                         size=10, sha256="abc" * 20)
     other = BackendModel("checkpoint", "flux.safetensors", "flux.safetensors", size=11, sha256="def" * 20)
@@ -354,5 +364,5 @@ async def test_copy_of_an_indexed_file_under_another_type_is_reported_and_skippe
     dup = result.duplicates[0]
     assert dup.filename == "identity_edit.safetensors" and dup.model_type == "checkpoint"
     assert dup.existing_model_type == "lora"
-    assert dup.existing_file_path == "/models/loras/identity_edit.safetensors"
+    assert dup.existing_location == "/models/loras/identity_edit.safetensors"
     assert result.to_dict()["duplicates"][0]["sha256"] == "abc" * 20

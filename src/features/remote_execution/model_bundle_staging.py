@@ -21,6 +21,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Optional
 
+from src.features.models.locator import ModelFileUnavailable, ModelLocator
 from src.features.models.repository import ModelRepository
 from src.features.models.repository import model_repo as _default_model_repo
 from src.features.remote_execution.transport import WorkerTransport
@@ -61,6 +62,7 @@ async def stage_model_bundle(
     emit: Callable[[Optional[GenerationOutput]], None],
     *,
     model_repository: Optional[ModelRepository] = None,
+    model_locator: Optional[ModelLocator] = None,
 ) -> None:
     """Ensure every entry in *model_bundle* is present on the worker's depot.
 
@@ -75,6 +77,7 @@ async def stage_model_bundle(
         return
 
     repo = model_repository or _default_model_repo
+    locator = model_locator or _default_locator()
     inventory = await transport.model_inventory(model_bundle)
     status_by_id = {entry.logical_id: entry.status for entry in inventory.entries}
     to_push = [entry for entry in model_bundle.entries if status_by_id.get(entry.logical_id) != "present"]
@@ -86,7 +89,7 @@ async def stage_model_bundle(
     _emit_staging_progress(emit, pushed_bytes, total_bytes)
 
     for entry in to_push:
-        source_path = _source_path(entry, repo)
+        source_path = _source_path(entry, repo, locator)
         await transport.upload_model(model_bundle.bundle_id, entry, source_path)
         pushed_bytes += entry.size_bytes
         _emit_staging_progress(emit, pushed_bytes, total_bytes)
@@ -103,15 +106,23 @@ def _emit_staging_progress(
     ))
 
 
-def _source_path(entry: ModelBundleEntryV1, repo: ModelRepository) -> Path:
-    # Mirrors build_model_bundle's own identity: logical_id/relative_path are
-    # both derived from (role, filename) - see model_bundle_builder.py's
-    # `_entry_for` - so this is the inverse lookup of the same identity,
-    # never a re-hash or a guess.
+def _default_locator() -> ModelLocator:
+    from src.platform.plugins.runtime_registries import get_container
+
+    return get_container().model_locator
+
+
+def _source_path(entry: ModelBundleEntryV1, repo: ModelRepository, locator: ModelLocator) -> Path:
     model = repo.get_by_identity(entry.role, Path(entry.relative_path).name, include_providers=False)
-    if model is None or not model.file_path:
+    if model is None:
         raise ModelStagingSourceError(
             f"model '{entry.logical_id}' was in the dispatch bundle but no longer resolves to a "
             "local file - it may have been removed or re-indexed since this generation started"
         )
-    return Path(model.file_path)
+    try:
+        return locator.path_for_model(model.id)
+    except ModelFileUnavailable as exc:
+        raise ModelStagingSourceError(
+            f"model '{entry.logical_id}' was in the dispatch bundle but no longer resolves to a "
+            f"local file ({exc}) - it may have been removed or re-indexed since this generation started"
+        ) from exc

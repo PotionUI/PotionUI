@@ -66,7 +66,6 @@ class Model:
     """Represents a model file in the models directory"""
     id: Optional[str] = None  # ULID
     filename: Optional[str] = None
-    file_path: Optional[str] = None
     file_size: Optional[int] = None
     sha256: Optional[str] = None
     model_type: Optional[str] = None  # checkpoint, lora, embedding, upscaler, vae, controlnet, adetailer, text_encoder
@@ -82,13 +81,7 @@ class Model:
     tags: List = field(default_factory=list)  # List of Tag objects
     custom_name: Optional[str] = None  # Per-user display name override (model library)
     is_favorite: bool = False  # Per-user favorite flag (model library)
-    # True for an HF-layout checkpoint directory - `file_path` points at the
-    # directory, `file_size` is the summed shard size, and `sha256` is a cheap
-    # fingerprint (config.json + sorted shard names/sizes), not a content hash.
     is_directory: bool = False
-    # False when the indexer's last scan found no file at `file_path` (e.g. the
-    # models location was switched away from this file). Tags/ratings/assignments
-    # survive; a later scan that finds the file again sets this back to True.
     is_available: bool = True
     unavailable_at: Optional[datetime] = None
     use_count: Optional[int] = None
@@ -103,7 +96,6 @@ class Model:
         return cls(
             id=row['id'],
             filename=row['filename'],
-            file_path=row['file_path'],
             file_size=row['file_size'],
             sha256=row['sha256'],
             model_type=row['model_type'],

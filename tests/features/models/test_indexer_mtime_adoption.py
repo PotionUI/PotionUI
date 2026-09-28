@@ -80,7 +80,7 @@ def _no_hashing():
 def _seed_migrated_row(root_id: str, model_type: str, rel_path: str, content: bytes):
     content_sha = _sha(content)
     model = model_repo.create(Model(
-        filename=Path(rel_path).name, file_path=None, file_size=len(content),
+        filename=Path(rel_path).name, file_size=len(content),
         sha256=content_sha, model_type=model_type,
     ))
     ModelLocationsRepository().upsert(

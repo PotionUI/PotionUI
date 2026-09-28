@@ -20,8 +20,8 @@ class TestBulkModelTagsRepository(PersistenceTestBase):
         with self.db.get_cursor() as cursor:
             for model_id in ("m1", "m2", "m3"):
                 cursor.execute(
-                    "INSERT INTO models (id, filename, file_path, model_type) VALUES (?, ?, ?, ?)",
-                    (model_id, f"{model_id}.safetensors", f"/x/{model_id}.safetensors", "checkpoint"),
+                    "INSERT INTO models (id, filename, model_type) VALUES (?, ?, ?)",
+                    (model_id, f"{model_id}.safetensors", "checkpoint"),
                 )
 
     def _tag_names(self, model_id):

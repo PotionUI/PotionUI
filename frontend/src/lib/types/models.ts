@@ -37,10 +37,32 @@ export interface ModelFile {
 	display_order?: number;
 }
 
+export interface ModelLocation {
+	root_id: string;
+	root_label: string;
+	logical_path: string;
+	path: string | null;
+}
+
+export interface ModelLocationEntry {
+	id: string;
+	root_id: string;
+	root_label: string;
+	model_type: string;
+	rel_path: string;
+	path: string | null;
+	status: 'present' | 'missing' | 'conflict';
+	size: number | null;
+	sha256: string | null;
+	is_winner: boolean;
+}
+
 export interface Model {
 	id: string;
 	filename: string;
-	file_path: string;
+	location: ModelLocation | null;
+	copies: number;
+	locations?: ModelLocationEntry[];
 	file_size?: number;
 	sha256?: string;
 	model_type: 'checkpoint' | 'lora' | 'embedding' | 'upscaler' | 'vae' | 'controlnet' | 'adetailer' | 'text_encoder';

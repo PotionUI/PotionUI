@@ -14,7 +14,6 @@ def make_model(**overrides):
     defaults = dict(
         id='m1',
         filename='detail.safetensors',
-        file_path='models/loras/detail.safetensors',
         file_size=228458116,
         sha256='deadbeef',
         model_type='lora',
@@ -105,7 +104,7 @@ class TestUserFacingSerialization:
 class TestFromRow:
     def _row(self, **overrides):
         base = {
-            'id': 'm1', 'filename': 'a.safetensors', 'file_path': 'models/a.safetensors',
+            'id': 'm1', 'filename': 'a.safetensors',
             'file_size': 1, 'sha256': 'x', 'model_type': 'lora',
             'created_at': None, 'updated_at': None, 'indexed_at': None,
             'description': None, 'prompting_guidance': None,

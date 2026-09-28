@@ -36,6 +36,34 @@ POTIONUI_MODEL_TESTS=1 python -m pytest tests/platform/runtime/native/ -q --no-c
 POTIONUI_GPU_TESTS=1 python -m pytest tests/ -m requires_gpu -q --no-cov
 ```
 
+## Model roots in tests
+
+`ModelScanner`, `ModelLocator` and everything downstream of them take a
+`ModelRootResolver`, never a `models_dir` path or setting — there is no
+`ModelScanner(models_dir=...)` constructor to fall back to, and monkeypatching the
+`models_dir` setting does nothing for code that already resolves through a
+resolver. Use `tests/fixtures/model_roots.py`'s `make_roots(tmp_path, types=..., ...)`
+for a resolver backed by a real, disposable directory tree (it creates the type
+subdirectories on disk and returns a `ModelRootResolver` with its snapshot
+pre-populated, no DB and no `ModelRootRepository` involved) — see
+`tests/features/downloads/test_queue.py`, `test_download_service.py` and
+`test_native_library.py` for the pattern. It also ships a `FakeProbe` for tests
+that need to force a root `offline`/`unreadable` without a real filesystem
+probe. A test that builds its own resolver by hand instead (a bespoke
+`FakeResolver`/`_resolver()` helper, as in `test_indexer_roots.py`,
+`test_locator.py` and `test_native_availability_projector.py`) is fine too —
+`make_roots` just removes the boilerplate when a plain single-root, every-type
+setup is enough.
+
+A test that needs the real DB-backed tables instead (`model_roots`,
+`model_root_bindings`, `model_locations`) — a migration test, or anything
+exercising `ModelRootsManager`/`root_detection.py` — runs the real migrations on a
+scratch `Database` and inserts rows directly; see
+`tests/platform/database/test_migration_035_model_roots.py` and
+`tests/features/models/test_roots_manager.py` for the pattern. `HOME_ROOT_ID`
+(`"home"`) from `src.platform.filesystem.model_roots` is the id every fresh
+migration seeds, so a location row against it needs no root of its own.
+
 ## CI
 
 `.github/workflows/backend-tests.yml` runs the real pytest suite (CPU-only,

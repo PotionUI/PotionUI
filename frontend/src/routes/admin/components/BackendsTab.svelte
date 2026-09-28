@@ -900,9 +900,7 @@
 																Duplicate content: <span class="text-fg-muted">{dup.ref}</span>
 																({dup.model_type}) has the same sha256 as
 																<span class="text-fg-muted">{dup.existing_filename}</span>
-																({dup.existing_model_type}{dup.existing_file_path
-																	? `, ${dup.existing_file_path}`
-																	: ''}) and was skipped. Remove one copy.
+																({dup.existing_model_type}, {dup.existing_location}) and was skipped. Remove one copy.
 															</li>
 														{/each}
 														{#each result.ambiguous as note}

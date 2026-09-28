@@ -160,10 +160,6 @@ class ModelLocator:
                     break
 
         value = str(path)
-        model = self._model_repo().get_by_file_path(value, include_providers=False)
-        if model is not None:
-            return model
-
         filename = value.replace("\\", "/").rsplit("/", 1)[-1]
         if not filename:
             return None

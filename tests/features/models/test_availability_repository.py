@@ -33,7 +33,6 @@ class TestModelAvailabilityRepositoryStatsForBackend(PersistenceTestBase):
     def _create_model(self, file_path: str, sha256: str) -> Model:
         model = Model(
             filename=os.path.basename(file_path),
-            file_path=file_path,
             file_size=1024,
             sha256=sha256,
             model_type="checkpoint",
@@ -110,7 +109,6 @@ class TestModelAvailabilityRepositoryDigest(PersistenceTestBase):
     def _create_model(self, file_path: str, sha256: str) -> Model:
         model = Model(
             filename=os.path.basename(file_path),
-            file_path=file_path,
             file_size=1024,
             sha256=sha256,
             model_type="checkpoint",

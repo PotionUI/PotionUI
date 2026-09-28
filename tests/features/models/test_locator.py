@@ -181,22 +181,9 @@ def test_model_for_path_resolves_through_the_bound_directory(tmp_path, mock_db):
     assert found.id == model.id
 
 
-def test_model_for_path_falls_back_to_the_legacy_file_path_column(tmp_path, mock_db):
-    resolver = _resolver([], [])
-    model = model_repo.create(Model(
-        filename="legacy.safetensors", file_path="models/loras/legacy.safetensors", model_type="lora",
-    ))
-
-    locator = ModelLocator(resolver)
-    found = locator.model_for_path("models/loras/legacy.safetensors")
-
-    assert found is not None
-    assert found.id == model.id
-
-
 def test_model_for_path_falls_back_to_a_unique_basename_match(tmp_path, mock_db):
     resolver = _resolver([], [])
-    model = model_repo.create(Model(filename="only.safetensors", file_path=None, model_type="lora"))
+    model = model_repo.create(Model(filename="only.safetensors", model_type="lora"))
 
     locator = ModelLocator(resolver)
     found = locator.model_for_path("/some/other/place/only.safetensors")

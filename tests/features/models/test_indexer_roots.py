@@ -94,7 +94,6 @@ def test_two_roots_with_a_same_bytes_copy_makes_one_model_two_locations(tmp_path
     assert len(locations) == 2
     assert {loc["root_id"] for loc in locations} == {"r_home", "r_lib"}
     assert all(loc["status"] == "present" for loc in locations)
-    assert model.file_path == str(home / "loras" / "x.safetensors")
     assert model.is_available is True
 
 

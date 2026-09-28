@@ -150,8 +150,12 @@ def resolve_bundle_entry(model: Model, repo: ModelRepository, locator: ModelLoca
     (`_entry_for`) and the admin model-push op, which resolves a model by id
     rather than by the file path a pipe config carries."""
     if model.is_directory:
+        try:
+            location = str(locator.path_for_model(model.id))
+        except ModelFileUnavailable:
+            location = "unknown location"
         raise ModelBundleResolutionError(
-            f"Model {model.filename!r} ({model.file_path}) is an HF-layout directory model - "
+            f"Model {model.filename!r} ({location}) is an HF-layout directory model - "
             "remote bundling of directory models is not implemented; it needs per-shard "
             "entries, not a single-file digest."
         )

@@ -27,11 +27,10 @@ class TestModelRepository(PersistenceTestBase):
         self.model_collection_repo = ModelCollectionRepository()
         self.user_model_meta_repo = UserModelMetaRepository()
 
-    def _create_model(self, file_path: str = "/models/loras/test_lora.safetensors",
+    def _create_model(self, filename: str = "test_lora.safetensors",
                        model_type: str = "lora", sha256: str = "a" * 64) -> Model:
         model = Model(
-            filename=os.path.basename(file_path),
-            file_path=file_path,
+            filename=filename,
             file_size=1024,
             sha256=sha256,
             model_type=model_type,
@@ -118,7 +117,7 @@ class TestModelRepository(PersistenceTestBase):
 
     def test_create_persists_is_directory_true(self):
         model = Model(
-            filename="Qwen3-4B", file_path="/models/llm/Qwen3-4B",
+            filename="Qwen3-4B",
             file_size=4096, sha256="f" * 64, model_type="llm", is_directory=True,
         )
         created = self.repository.create(model)
@@ -148,7 +147,6 @@ class TestModelRepository(PersistenceTestBase):
         row = {
             'id': 'model-id',
             'filename': 'test.safetensors',
-            'file_path': '/models/test.safetensors',
             'file_size': 1024,
             'sha256': 'a' * 64,
             'model_type': 'lora',
@@ -166,14 +164,12 @@ class TestModelRepository(PersistenceTestBase):
         model = Model.from_row(fake_row)
         self.assertEqual(model.model_metadata, {})
 
-    def test_create_does_not_clobber_existing_model_metadata_on_reindex(self):
+    def test_upsert_does_not_clobber_existing_model_metadata_on_reindex(self):
         model = self._create_model()
         self.repository.update_model_metadata(model.id, {"triggers": ["easy", "wave"]})
 
-        # Simulate a reindex pass via upsert() on the same file_path.
         updated = Model(
             filename=model.filename,
-            file_path=model.file_path,
             file_size=2048,
             sha256=model.sha256,
             model_type=model.model_type,
@@ -220,8 +216,8 @@ class TestModelRepository(PersistenceTestBase):
 
     def test_get_all_favorites_only_filters(self):
         user_id = self.create_test_user()
-        favorited = self._create_model(file_path="/models/checkpoints/fav.safetensors", sha256="b" * 64)
-        self._create_model(file_path="/models/checkpoints/not_fav.safetensors", sha256="c" * 64)
+        favorited = self._create_model(filename="fav.safetensors", sha256="b" * 64)
+        self._create_model(filename="not_fav.safetensors", sha256="c" * 64)
         self.user_model_meta_repo.set_favorite(user_id, favorited.id, True)
 
         results = self.repository.get_all(library_user_id=user_id, favorites_only=True)
@@ -233,8 +229,8 @@ class TestModelRepository(PersistenceTestBase):
 
     def test_get_all_collection_id_filters(self):
         user_id = self.create_test_user()
-        in_collection = self._create_model(file_path="/models/checkpoints/in.safetensors", sha256="d" * 64)
-        self._create_model(file_path="/models/checkpoints/out.safetensors", sha256="e" * 64)
+        in_collection = self._create_model(filename="in.safetensors", sha256="d" * 64)
+        self._create_model(filename="out.safetensors", sha256="e" * 64)
         collection = self.model_collection_repo.create("My Collection", user_id)
         self.model_collection_repo.add_members(collection.id, [in_collection.id], user_id)
 
@@ -312,9 +308,7 @@ class TestModelRepository(PersistenceTestBase):
         self.assertIsNone(fetched.unavailable_at)
 
     def _create_remote_model(self, filename: str = "orphan.safetensors", model_type: str = "clip") -> Model:
-        """A backend-reported row - no local file, the only kind `delete_unclaimed_orphans`
-        may ever remove."""
-        model = Model(filename=filename, file_path=None, model_type=model_type)
+        model = Model(filename=filename, model_type=model_type)
         return self.repository.create(model)
 
     def test_delete_unclaimed_orphans_removes_a_fileless_unreferenced_row(self):
@@ -325,8 +319,14 @@ class TestModelRepository(PersistenceTestBase):
         self.assertEqual(removed, 1)
         self.assertIsNone(self.repository.get_by_id(orphan.id))
 
-    def test_delete_unclaimed_orphans_spares_a_row_with_a_local_file_path(self):
-        local_model = self._create_model(file_path="/models/loras/kept.safetensors")
+    def test_delete_unclaimed_orphans_spares_a_row_with_a_location(self):
+        local_model = self._create_model(filename="kept.safetensors")
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO model_locations (id, model_id, root_id, model_type, rel_path, rel_key, status, seen_at) "
+                "VALUES (?, ?, 'home', ?, ?, ?, 'present', CURRENT_TIMESTAMP)",
+                (generate_ulid(), local_model.id, local_model.model_type, "kept.safetensors", "kept.safetensors"),
+            )
 
         removed = self.repository.delete_unclaimed_orphans([local_model.id])
 
@@ -381,9 +381,9 @@ class TestModelRepository(PersistenceTestBase):
         self.assertIsNotNone(self.repository.get_by_id(orphan.id))
 
     def test_get_all_bulk_hydration_matches_single_row_helpers(self):
-        model_a = self._create_model(file_path="/models/loras/a.safetensors", sha256="a" * 64)
-        model_b = self._create_model(file_path="/models/loras/b.safetensors", sha256="b" * 64)
-        model_c = self._create_model(file_path="/models/loras/c.safetensors", sha256="c" * 64)
+        model_a = self._create_model(filename="a.safetensors", sha256="a" * 64)
+        model_b = self._create_model(filename="b.safetensors", sha256="b" * 64)
+        model_c = self._create_model(filename="c.safetensors", sha256="c" * 64)
 
         self._create_provider(model_a.id, provider="civitai", name="A civitai")
         self._create_provider(model_a.id, provider="huggingface", name="A hf")
@@ -421,7 +421,7 @@ class TestModelRepository(PersistenceTestBase):
 
     def test_get_all_bounded_cursor_count_with_all_relations(self):
         for i in range(5):
-            model = self._create_model(file_path=f"/models/loras/m{i}.safetensors", sha256=str(i) * 64)
+            model = self._create_model(filename=f"m{i}.safetensors", sha256=str(i) * 64)
             self._create_provider(model.id)
             tag = tag_repo.create_tag(f"tag{i}", type="MODEL")
             tag_repo.set_model_tags(model.id, [tag.id])

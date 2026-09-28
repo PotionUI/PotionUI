@@ -215,3 +215,39 @@ class ModelLocationsRepository:
                 "DELETE FROM model_locations WHERE root_id = ? AND model_type = ?",
                 (root_id, model_type),
             )
+
+    def rehome(self, src_root_id: str, model_type: str, dst_root_id: str, dst_rel_prefix: str = "") -> int:
+        from pathlib import PurePosixPath
+
+        from src.platform.database.database import db
+
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT {_LOCATION_COLUMNS} FROM model_locations WHERE root_id = ? AND model_type = ?",
+                (src_root_id, model_type),
+            )
+            rows = [dict(row) for row in cursor.fetchall()]
+
+            moved = 0
+            for row in rows:
+                if dst_rel_prefix:
+                    new_rel_path = str(PurePosixPath(dst_rel_prefix) / row["rel_path"])
+                    new_rel_key = str(PurePosixPath(dst_rel_prefix) / row["rel_key"])
+                else:
+                    new_rel_path = row["rel_path"]
+                    new_rel_key = row["rel_key"]
+
+                cursor.execute(
+                    "SELECT id FROM model_locations WHERE root_id = ? AND model_type = ? AND rel_key = ?",
+                    (dst_root_id, model_type, new_rel_key),
+                )
+                conflict = cursor.fetchone()
+                if conflict is not None:
+                    cursor.execute("DELETE FROM model_locations WHERE id = ?", (row["id"],))
+                else:
+                    cursor.execute(
+                        "UPDATE model_locations SET root_id = ?, rel_path = ?, rel_key = ? WHERE id = ?",
+                        (dst_root_id, new_rel_path, new_rel_key, row["id"]),
+                    )
+                moved += 1
+            return moved

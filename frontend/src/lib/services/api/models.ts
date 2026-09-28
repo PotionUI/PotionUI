@@ -544,24 +544,6 @@ export function createModelsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		// Models location: the external directory the `models/<type>` symlinks point
-		// at, and any per-type overrides. Admin-only.
-		async getModelsLocation(): Promise<APIResponse<ModelsLocationConfig>> {
-			const response = await client.get('/api/models/location');
-			return response.data;
-		},
-
-		async applyModelsLocation(
-			externalPath: string,
-			overrides?: Record<string, string>
-		): Promise<APIResponse<ModelsLocationConfig>> {
-			const response = await client.post('/api/models/location/apply', {
-				external_path: externalPath,
-				overrides
-			});
-			return response.data;
-		},
-
 		async getIndexingStatus(): Promise<APIResponse<IndexingStatus>> {
 			const response = await client.get('/api/models/indexing/status');
 			return response.data;

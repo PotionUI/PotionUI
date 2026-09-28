@@ -23,6 +23,7 @@ from src.platform.observability.logger import logger
 from src.features.models.availability_repository import (
     model_availability_repo,
 )
+from src.features.models.locator import ModelFileUnavailable, default_model_locator
 
 
 MODEL_REF_PREFIX = "model:"
@@ -176,7 +177,7 @@ def set_at_path(form_data: Any, path: List[Any], value: Any) -> Any:
     return new_dict
 
 
-def resolve_form_model_refs(form_data: Any, backend_id: str) -> Any:
+def resolve_form_model_refs(form_data: Any, backend: Any) -> Any:
     """Rewrite every `model:<id>` into the ref this backend needs.
 
     Raises rather than passing an unresolvable reference through: handing a raw
@@ -199,6 +200,7 @@ def resolve_form_model_refs(form_data: Any, backend_id: str) -> Any:
     if not model_ids:
         return form_data
 
+    backend_id = backend.backend_id
     indexed = model_availability_repo.any_indexed([backend_id])
 
     refs: Dict[str, str] = {}
@@ -208,7 +210,10 @@ def resolve_form_model_refs(form_data: Any, backend_id: str) -> Any:
         if row is not None and row.confidence == "conflict":
             raise ModelDigestConflictError(_describe_conflict(model_id, row))
         if row is not None:
-            refs[model_id] = row.ref
+            try:
+                refs[model_id] = backend.resolve_ref(row.ref)
+            except ModelFileUnavailable as exc:
+                raise ModelRefNotAvailableError(_describe_unavailable(model_id, exc)) from exc
         elif indexed:
             missing.append(model_id)
         else:
@@ -279,8 +284,8 @@ def _describe_conflict(model_id: str, row) -> str:
 def _fallback_ref(model_id: str) -> Any:
     """What the picker would have submitted before availability existed.
 
-    `file_path` for a model on this host; the bare filename otherwise, which is what a
-    ComfyUI server resolves against its own folders anyway.
+    The resolved location for a model on this host; the bare filename otherwise, which
+    is what a ComfyUI server resolves against its own folders anyway.
     """
     from src.features.models.repository import model_repo
 
@@ -290,7 +295,26 @@ def _fallback_ref(model_id: str) -> Any:
         return None
     if not model:
         return None
+
+    try:
+        return str(default_model_locator().path_for_model(model_id))
+    except ModelFileUnavailable:
+        pass
+    except Exception:
+        pass
     return model.file_path or model.filename
+
+
+def _describe_unavailable(model_id: str, exc: "ModelFileUnavailable") -> str:
+    from src.features.models.repository import model_repo
+
+    try:
+        model = model_repo.get_by_id(model_id, include_providers=False, include_tags=False)
+    except Exception:
+        model = None
+
+    name = model.filename if model else model_id
+    return f"'{name}' {exc.reason}"
 
 
 def _describe(model_ids: List[str]) -> List[str]:

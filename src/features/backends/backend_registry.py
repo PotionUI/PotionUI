@@ -37,6 +37,7 @@ class BackendRegistry:
         generation_engine_factory: Callable[[], PipelineExecutor],
         plugin_registry=None,  # Optional for backward compatibility
         pipe_catalog=None,
+        model_locator=None,
     ):
         # A factory, not an instance: each backend executes on its own
         # PipelineExecutor so that backends run in parallel without sharing a
@@ -53,6 +54,7 @@ class BackendRegistry:
         # without one keep working; those tests never instantiate a driver
         # that asks for it.
         self.pipe_catalog = pipe_catalog
+        self.model_locator = model_locator
 
         # engine -> class. Populated by built-ins, then plugins.
         self._registered_backend_types: Dict[str, Type[BaseBackend]] = {}
@@ -251,6 +253,10 @@ class BackendRegistry:
         # need via set_generation_engine above.
         if hasattr(backend, "bind_remote_context"):
             backend.bind_remote_context(pipe_catalog=self.pipe_catalog, plugin_registry=self.plugin_registry)
+
+        model_locator = getattr(self, "model_locator", None)
+        if model_locator is not None and hasattr(backend, "bind_model_locator"):
+            backend.bind_model_locator(locator=model_locator)
 
         return backend
 

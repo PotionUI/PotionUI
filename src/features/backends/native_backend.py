@@ -85,6 +85,16 @@ class NativeBackend(InProcessBackend):
 
     execution_device: ClassVar[ExecutionDevice] = "this_host_gpu"
 
+    _model_locator = None
+
+    def bind_model_locator(self, *, locator) -> None:
+        self._model_locator = locator
+
+    def resolve_ref(self, ref: str) -> str:
+        if self._model_locator is None:
+            return ref
+        return str(self._model_locator.path_for_ref(ref))
+
     def resolve_execution_device(self) -> ExecutionDeviceEvidence:
         """The class tag above is necessarily coarse: THIS instance's real
         device is admin-configured (`NativeBackendConfig.device`), and a

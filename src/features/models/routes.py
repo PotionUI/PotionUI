@@ -33,7 +33,6 @@ from src.features.models.dto import (
     UserModelAssignmentRequest,
     ModelFavoriteRequest,
     ModelLibraryNameRequest,
-    ApplyModelsLocationRequest,
 )
 from src.features.models import (
     ModelIndexCollaborators,
@@ -55,7 +54,6 @@ from src.features.models.attributes.exceptions import (
 from src.features.models.attributes.editor import ModelAttributeDefinitionsEditor
 from src.features.models.attributes.repository import AttributeDefinitionRepository
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
-from src.features.models.location import ModelsLocationError
 from src.features.models.catalog import ListModelsParams
 from src.features.models.search_filter import InvalidModelSearch, parse_model_search
 from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
@@ -407,54 +405,6 @@ class ModelController(BaseController):
                 error="cleanup_failed",
                 message=f"Failed to cleanup models: {str(e)}"
             )
-
-    # --- Models location ---
-
-    async def get_models_location(self) -> APIResponse:
-        """Current external models location, per-type overrides, and symlink state."""
-        try:
-            data = operations.get_models_location(self.collaborators)
-            return self.success_response(data=data)
-        except Exception as e:
-            logger.exception(f"Error getting models location: {e}")
-            return self.error_api_response(
-                error="models_location_failed",
-                message=f"Failed to get models location: {str(e)}"
-            )
-
-    async def apply_models_location(
-        self,
-        background_tasks: BackgroundTasks,
-        request: ApplyModelsLocationRequest,
-    ) -> APIResponse:
-        """Point the models directory's symlinks at an external location, then re-index."""
-        try:
-            data = operations.apply_models_location(self.collaborators, request.external_path, request.overrides)
-        except ModelsLocationError as e:
-            return self.error_api_response(
-                error="models_location_blocked",
-                message=e.reason
-            )
-        except Exception as e:
-            logger.exception(f"Error applying models location: {e}")
-            return self.error_api_response(
-                error="models_location_apply_failed",
-                message=f"Failed to apply models location: {str(e)}"
-            )
-
-        # Reuses the existing index job (src/features/models/indexing_coordinator.py) -
-        # the symlinks now point somewhere new, so the DB needs to catch up with
-        # what's reachable through them.
-        try:
-            indexing_status = operations.cancel_and_restart_indexing(
-                self.collaborators, trigger="location_change"
-            )
-            background_tasks.add_task(operations.run_indexing, self.collaborators)
-        except ModelIndexingException as e:
-            logger.warning(f"Models location applied but re-index was blocked: {e}")
-            indexing_status = {"state": "blocked", "error": str(e)}
-
-        return self.success_response(data={**data, "indexing": indexing_status})
 
     # --- Provider Endpoints ---
 
@@ -1322,22 +1272,6 @@ def build_router(container: "AppContainer") -> APIRouter:
         return await controller.get_model_assignment_summary()
 
 
-
-
-    @router.get("/location", response_model=APIResponse, summary="Get Models Location")
-    async def get_models_location(current_user: User = Depends(get_current_admin_user)):
-        """Current external models location, per-type overrides, and symlink state (admin only)."""
-        return await controller.get_models_location()
-
-
-    @router.post("/location/apply", response_model=APIResponse, summary="Apply Models Location")
-    async def apply_models_location(
-        background_tasks: BackgroundTasks,
-        request: ApplyModelsLocationRequest,
-        current_user: User = Depends(get_current_admin_user)
-    ):
-        """Point the models directory's symlinks at an external location, then re-index (admin only)."""
-        return await controller.apply_models_location(background_tasks, request)
 
 
     # Registered after every static /... sibling: FastAPI dispatches in

@@ -2,21 +2,20 @@
 
 Model index operations fan out to eight focused role classes (access policy,
 catalog, indexing coordinator, metadata editor, provider-info fetcher,
-assignment service, jobs, location manager), plus the raw repositories many
+assignment service, jobs, locator), plus the raw repositories many
 outside callers reach through directly (`model_repo`/`tag_repo` - the LLM
 tool context, resource providers, and prompt enhancement read these straight
 off the bundle they're handed, exactly as they did off the old
 `ModelIndexManager` facade). Bundling them once here - built in the
 composition root and passed to `operations` functions, `ModelController`,
-and every wide external consumer as a single object - avoids threading eight
+and every wide external consumer as a single object - avoids threading seven
 role objects through every call site. A plain, frozen data holder (no
 behavior beyond field access), matching `PromptDatabaseCollaborators` (see
 `src.features.prompt_database.collaborators` - the reference shape for a
 wide-collaborator dissolution).
 """
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Callable, Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
 from src.features.models.access_policy import ModelAccessPolicy
 from src.features.models.assignments import ModelAssignmentService
@@ -26,7 +25,7 @@ from src.features.models.catalog import ModelCatalog
 from src.features.models.indexer import ModelScanner
 from src.features.models.indexing_coordinator import ModelIndexingCoordinator
 from src.features.models.jobs import ModelJobs
-from src.features.models.location import ModelsRelocator
+from src.features.models.locator import ModelLocator
 from src.features.models.metadata_editor import ModelMetadataEditor
 from src.features.models.native_availability_reconciler import NativeAvailabilityProjector
 from src.features.models.provider_info import ProviderInfoFetcher
@@ -34,7 +33,6 @@ from src.features.models.repository import ModelRepository
 from src.features.tags.repository import TagRepository
 from src.platform.filesystem.storage_driver import FileStorageDriver
 from src.platform.plugins import PluginRegistry
-from src.platform.settings.repository import SettingRepository
 from src.platform.settings.settings import Settings
 
 if TYPE_CHECKING:
@@ -58,7 +56,7 @@ class ModelIndexCollaborators:
     provider_info: ProviderInfoFetcher
     assignments: ModelAssignmentService
     jobs: ModelJobs
-    location: ModelsRelocator
+    locator: ModelLocator
 
 
 def build_model_index_collaborators(
@@ -68,8 +66,7 @@ def build_model_index_collaborators(
     settings: "Settings",
     download_queue: "DownloadQueue",
     model_roots: "ModelRootResolver",
-    models_root: Optional[Path] = None,
-    generation_active: Optional[Callable[[], bool]] = None,
+    model_locator: Optional[ModelLocator] = None,
     storage_driver: Optional[FileStorageDriver] = None,
     attribute_definition_repository: Optional[AttributeDefinitionRepository] = None,
     user_attribute_repository: Optional[UserModelAttributeRepository] = None,
@@ -107,9 +104,5 @@ def build_model_index_collaborators(
             backend_registry=backend_registry,
             native_availability_reconciler=native_availability_projector,
         ),
-        location=ModelsRelocator(
-            models_root or model_roots.home_dir(),
-            SettingRepository(),
-            generation_active,
-        ),
+        locator=model_locator or ModelLocator(model_roots),
     )

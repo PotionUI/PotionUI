@@ -54,7 +54,7 @@ class TestProviderInfoPreviewMedia(PersistenceTestBase):
 
         from src.features.tags.repository import tag_repo
         self.collaborators = build_model_index_collaborators(
-            self.repo, tag_repo, Mock(), self.settings, Mock(), model_roots=Mock(), models_root=self.storage
+            self.repo, tag_repo, Mock(), self.settings, Mock(), model_roots=Mock()
         )
         self.fetcher = self.collaborators.provider_info
 
@@ -145,7 +145,7 @@ class TestProviderInfoPreviewMedia(PersistenceTestBase):
         real_driver = LocalFileStorageDriver(str(self.storage))
         collaborators = build_model_index_collaborators(
             self.repo, self._tag_repo(), Mock(), self.settings, Mock(), model_roots=Mock(),
-            models_root=self.storage, storage_driver=real_driver,
+            storage_driver=real_driver,
         )
         fetcher = collaborators.provider_info
         model = self._seed_model()

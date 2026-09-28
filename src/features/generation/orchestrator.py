@@ -984,7 +984,7 @@ class GenerationOrchestrator:
             # `request.form_data`, applied after persistence, carries the resolved values
             # the pipeline/backend actually consume.
             resolved_form_data = resolve_form_model_refs(
-                request.form_data or {}, backend.backend_id
+                request.form_data or {}, backend
             )
 
             # Create database record (`mode` was already resolved above, for bind_form)

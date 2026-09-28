@@ -43,6 +43,7 @@ from src.platform.observability.system_probe import SystemMonitor
 from src.platform.runtime.memory_advisor import MemoryAdvisor
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 from src.features.models.directory import ModelDirectories
+from src.features.models.locator import ModelLocator
 from src.features.models.roots import ModelRootsManager
 from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe, ensure_home_bindings
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
@@ -251,6 +252,7 @@ class AppContainer:
     model_directories: ModelDirectories
     model_roots: ModelRootResolver
     model_roots_manager: ModelRootsManager
+    model_locator: ModelLocator
     pipe_catalog: PipeCatalog
     pipe_install_runner: PipeInstallRunner
     preset_template_loader: PresetTemplateLoader
@@ -484,6 +486,7 @@ def build_container() -> AppContainer:
     ensure_home_bindings(model_root_repository, settings.get_setting("models_dir", "models"), base_dir=Path.cwd())
     model_root_probe = RootProbe()
     model_roots = ModelRootResolver(model_root_repository, model_root_probe, Path.cwd())
+    model_locator = ModelLocator(model_roots)
 
     # Where saved bytes actually live - local disk by default, optionally S3
     # (see StorageSettings). Built this early because it is a single
@@ -770,6 +773,7 @@ def build_container() -> AppContainer:
         generation_engine_factory=make_generation_engine,
         plugin_registry=plugin_registry,
         pipe_catalog=pipe_catalog,
+        model_locator=model_locator,
     )
 
     # Now that backend_registry exists, the download queue can validate and
@@ -1145,8 +1149,7 @@ def build_container() -> AppContainer:
         settings=settings,
         download_queue=download_queue,
         model_roots=model_roots,
-        models_root=models_dir,
-        generation_active=_generation_active,
+        model_locator=model_locator,
         storage_driver=storage_driver,
         attribute_definition_repository=attribute_definition_repository,
         user_attribute_repository=user_model_attribute_repository,

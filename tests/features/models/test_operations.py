@@ -6,8 +6,6 @@ import pytest
 from unittest.mock import Mock, MagicMock, AsyncMock, patch
 from datetime import datetime
 
-from pathlib import Path
-
 from src.features.models import operations
 from src.features.models.collaborators import build_model_index_collaborators
 from src.features.models.catalog import ListModelsParams
@@ -96,7 +94,6 @@ def collaborators(mock_model_repository, mock_tag_repository, mock_plugin_regist
         download_queue=Mock(),
         user_attribute_repository=mock_user_attribute_repository,
         model_roots=Mock(),
-        models_root=Path("/tmp/potionui-test-models"),
     )
     # The directory scanner is an injected dependency of the catalog; stub it so
     # the aggregate stats read never touches disk or the database.

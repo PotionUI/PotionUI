@@ -9,7 +9,7 @@ from src.features.backends.model_listing import CONFIDENCE_REPORTED, CONFIDENCE_
 from src.features.models.availability_records import ModelAvailability
 from src.features.models.availability_repository import model_availability_repo
 from src.features.models.locations_repository import ModelLocationsRepository
-from src.platform.filesystem.model_roots import ModelRootResolver, physical_legacy_ref
+from src.platform.filesystem.model_roots import LogicalLocation, ModelRootResolver
 
 logger = logging.getLogger(__name__)
 
@@ -90,11 +90,12 @@ class NativeAvailabilityProjector:
     def _project(self) -> Dict[str, Dict[str, Any]]:
         resolver = self._get_resolver()
         online_root_ids = list(resolver.online_root_ids())
-        raw_path_by_root = {r.id: r.raw_path for r in resolver.roots() if r.id in online_root_ids}
 
         projection: Dict[str, Dict[str, Any]] = {}
         for model_id, location in self.locations.winners_by_model(online_root_ids).items():
-            ref = physical_legacy_ref(raw_path_by_root[location['root_id']], location['subdir'], location['rel_path'])
+            ref = LogicalLocation(
+                location['root_id'], location['model_type'], location['rel_path']
+            ).logical_ref
             sha256 = location.get('sha256')
             projection[model_id] = {
                 'ref': ref,

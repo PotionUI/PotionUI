@@ -409,6 +409,23 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         def _resume_model_indexing():
             try:
+                from src.features.models.locations_repository import ModelLocationsRepository
+                from src.features.models.symlink_adoption import adopt_symlinked_model_roots
+                from src.platform.filesystem.model_roots_repository import ModelRootRepository
+                from src.platform.settings.repository import SettingRepository
+
+                adopt_symlinked_model_roots(
+                    resolver=container.model_roots,
+                    roots_manager=container.model_roots_manager,
+                    root_repository=ModelRootRepository(),
+                    locations_repository=ModelLocationsRepository(),
+                    setting_repository=SettingRepository(),
+                    indexing_coordinator=container.model_index_manager.indexing,
+                )
+            except Exception as exc:
+                logging.error(f"Adopting symlinked model roots failed at startup: {exc}")
+
+            try:
                 container.model_index_manager.indexing.resume_interrupted_indexing()
             except Exception as exc:
                 logging.error(f"Resuming interrupted model indexing failed at startup: {exc}")

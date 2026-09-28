@@ -1,6 +1,5 @@
 import asyncio
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Dict, List, Optional
 from unittest.mock import Mock
 
@@ -103,7 +102,7 @@ def test_projects_only_local_native_backends():
     assert ("m1", "remote-1") not in availability.rows
 
 
-def test_ref_uses_the_pre_roots_physical_format():
+def test_ref_uses_the_logical_type_dir_plus_rel_path_format():
     resolver = FakeResolver([FakeRoot(id="home", raw_path="models")])
     locations = FakeLocations({"m1": _winner("home", rel_path="sdxl/x.safetensors", subdir="loras")})
     availability = FakeAvailabilityRepo()
@@ -112,7 +111,7 @@ def test_ref_uses_the_pre_roots_physical_format():
     asyncio.run(projector.reconcile(FakeBackendRegistry([FakeBackend("local-1", NATIVE_LOCAL_DRIVER)])))
 
     row = availability.rows[("m1", "local-1")]
-    assert row.ref == str(Path("models") / "loras" / "sdxl" / "x.safetensors")
+    assert row.ref == "loras/sdxl/x.safetensors"
 
 
 def test_confidence_is_verified_when_the_winner_has_a_digest():

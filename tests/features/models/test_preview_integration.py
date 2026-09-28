@@ -47,11 +47,8 @@ class TestModelPreviewIntegration(PersistenceTestBase):
         self.admin_id = self.create_test_user(user_id="admin", username="admin", email="admin@x.com")
 
         from src.features.tags.repository import tag_repo
-        # models_root: without it, `__init__` falls through to the real, lazily
-        # -constructed module-level scanner singleton to resolve models_dir,
-        # which hits the settings DB for real.
         self.collaborators = build_model_index_collaborators(
-            self.repo, tag_repo, Mock(), self.settings, Mock(), model_roots=Mock(), models_root=self.storage
+            self.repo, tag_repo, Mock(), self.settings, Mock(), model_roots=Mock()
         )
 
     def tearDown(self):
@@ -168,11 +165,8 @@ class TestModelPreviewListIntegration(PersistenceTestBase):
         self.admin_id = self.create_test_user(user_id="admin", username="admin", email="admin@x.com")
 
         from src.features.tags.repository import tag_repo
-        # models_root: without it, `__init__` falls through to the real, lazily
-        # -constructed module-level scanner singleton to resolve models_dir,
-        # which hits the settings DB for real.
         self.collaborators = build_model_index_collaborators(
-            self.repo, tag_repo, Mock(), self.settings, Mock(), model_roots=Mock(), models_root=self.storage
+            self.repo, tag_repo, Mock(), self.settings, Mock(), model_roots=Mock()
         )
 
     def tearDown(self):
@@ -337,11 +331,8 @@ class TestModelPreviewAccessControl(PersistenceTestBase):
         self.settings.get_models_media_directory.return_value = str(self.storage / "models")
 
         from src.features.tags.repository import tag_repo
-        # models_root: without it, `__init__` falls through to the real, lazily
-        # -constructed module-level scanner singleton to resolve models_dir,
-        # which hits the settings DB for real.
         self.collaborators = build_model_index_collaborators(
-            self.repo, tag_repo, Mock(), self.settings, Mock(), model_roots=Mock(), models_root=self.storage
+            self.repo, tag_repo, Mock(), self.settings, Mock(), model_roots=Mock()
         )
 
         # `files.user_id` is a real FK, so the uploading admin needs a row too -

@@ -39,3 +39,15 @@ export async function ownerToken(page: Page): Promise<string> {
 	expect(token, 'expected auth_token in localStorage after login').toBeTruthy();
 	return token as string;
 }
+
+export async function clickDialogSaveAndAwaitResponse(page: Page): Promise<void> {
+	const [response] = await Promise.all([
+		page.waitForResponse(
+			(res) => res.url().includes('/api/sessions/save') && res.request().method() === 'POST',
+			{ timeout: 30000 }
+		),
+		page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click()
+	]);
+	const body = response.ok() ? '' : await response.text();
+	expect(response.ok(), `POST /api/sessions/save -> ${response.status()} ${body}`).toBeTruthy();
+}

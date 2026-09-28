@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot } from './helpers';
 
 // Regression: db97094/b3ad9d3 stopped +page.svelte's own onMount from
 // re-applying a saved session over a tab's live draft on SPA remount. But
@@ -87,12 +87,8 @@ test('editing a segment after loading a session survives switching tabs and back
 
 	const sessionName = `E2E Tab Switch ${Date.now()}`;
 	await page.getByPlaceholder('Enter session name').fill(sessionName);
-	await page
-		.getByRole('dialog')
-		.getByRole('button', { name: 'Save', exact: true })
-		.click();
+	await clickDialogSaveAndAwaitResponse(page);
 
-	// Session cell now shows the saved name and a "saved" (not dirty) dot.
 	await expect(page.getByRole('button', { name: 'Session', exact: true })).toContainText(sessionName, { timeout: 10000 });
 	await expect(page.getByRole('button', { name: 'Session saved' })).toBeVisible({ timeout: 10000 });
 
@@ -185,10 +181,7 @@ test('loading an existing session on a second tab, then editing it, survives swi
 
 	const sessionName = `E2E Load Round Trip ${Date.now()}`;
 	await page.getByPlaceholder('Enter session name').fill(sessionName);
-	await page
-		.getByRole('dialog')
-		.getByRole('button', { name: 'Save', exact: true })
-		.click();
+	await clickDialogSaveAndAwaitResponse(page);
 	await expect(page.getByRole('button', { name: 'Session', exact: true })).toContainText(sessionName, { timeout: 10000 });
 
 	// Tab 2: a fresh tab, same preset, load the session through the picker

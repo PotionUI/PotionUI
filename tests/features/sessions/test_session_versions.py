@@ -106,7 +106,7 @@ class TestSessionVersionRepository:
         session_repo, version_repo = repos
         session = _make_session(session_repo)
 
-        version = version_repo.create(session.id, {"prompt": "v1"}, "SDXL Portrait")
+        version = version_repo.create_if_changed(session.id, {"prompt": "v1"}, "SDXL Portrait")
 
         assert version.version_number == 1
         assert version.data == {"prompt": "v1"}
@@ -116,9 +116,9 @@ class TestSessionVersionRepository:
         session_repo, version_repo = repos
         session = _make_session(session_repo)
 
-        v1 = version_repo.create(session.id, {"n": 1}, "P")
-        v2 = version_repo.create(session.id, {"n": 2}, "P")
-        v3 = version_repo.create(session.id, {"n": 3}, "P")
+        v1 = version_repo.create_if_changed(session.id, {"n": 1}, "P")
+        v2 = version_repo.create_if_changed(session.id, {"n": 2}, "P")
+        v3 = version_repo.create_if_changed(session.id, {"n": 3}, "P")
 
         assert [v1.version_number, v2.version_number, v3.version_number] == [1, 2, 3]
 
@@ -127,16 +127,16 @@ class TestSessionVersionRepository:
         session_a = _make_session(session_repo, name="A")
         session_b = _make_session(session_repo, name="B")
 
-        version_repo.create(session_a.id, {}, "P")
-        v_b1 = version_repo.create(session_b.id, {}, "P")
+        version_repo.create_if_changed(session_a.id, {}, "P")
+        v_b1 = version_repo.create_if_changed(session_b.id, {}, "P")
 
         assert v_b1.version_number == 1
 
     def test_list_for_session_is_newest_first_and_excludes_payload(self, repos):
         session_repo, version_repo = repos
         session = _make_session(session_repo)
-        version_repo.create(session.id, {"n": 1}, "P1")
-        version_repo.create(session.id, {"n": 2}, "P2")
+        version_repo.create_if_changed(session.id, {"n": 1}, "P1")
+        version_repo.create_if_changed(session.id, {"n": 2}, "P2")
 
         versions = version_repo.list_for_session(session.id)
 
@@ -147,7 +147,7 @@ class TestSessionVersionRepository:
     def test_get_returns_full_payload(self, repos):
         session_repo, version_repo = repos
         session = _make_session(session_repo)
-        version_repo.create(session.id, {"prompt": "hello world"}, "P")
+        version_repo.create_if_changed(session.id, {"prompt": "hello world"}, "P")
 
         version = version_repo.get(session.id, 1)
 
@@ -160,13 +160,24 @@ class TestSessionVersionRepository:
 
         assert version_repo.get(session.id, 999) is None
 
+    def test_create_if_changed_with_identical_payload_returns_none_and_inserts_nothing(self, repos):
+        session_repo, version_repo = repos
+        session = _make_session(session_repo)
+        version_repo.create_if_changed(session.id, {"n": 1}, "P")
+
+        result = version_repo.create_if_changed(session.id, {"n": 1}, "P")
+
+        assert result is None
+        versions = version_repo.list_for_session(session.id)
+        assert [v.version_number for v in versions] == [1]
+
     def test_pruning_keeps_only_retention_cap_newest(self, repos, monkeypatch):
         session_repo, version_repo = repos
         monkeypatch.setattr(version_repository_module, "SESSION_VERSION_RETENTION_LIMIT", 3)
         session = _make_session(session_repo)
 
         for n in range(1, 6):  # 5 saves, cap is 3
-            version_repo.create(session.id, {"n": n}, "P")
+            version_repo.create_if_changed(session.id, {"n": n}, "P")
 
         versions = version_repo.list_for_session(session.id)
 
@@ -178,8 +189,8 @@ class TestSessionVersionRepository:
     def test_cascade_delete_removes_versions(self, repos, conn):
         session_repo, version_repo = repos
         session = _make_session(session_repo)
-        version_repo.create(session.id, {"n": 1}, "P")
-        version_repo.create(session.id, {"n": 2}, "P")
+        version_repo.create_if_changed(session.id, {"n": 1}, "P")
+        version_repo.create_if_changed(session.id, {"n": 2}, "P")
 
         assert session_repo.delete(session.id) is True
 

@@ -81,12 +81,8 @@ def _record_version(
         return
 
     try:
-        latest = version_repository.get_latest(session.id)
-        if latest is not None and latest.data == session.data:
-            return
-
         summary = _resolve_preset_summary(file_preset_repository, session.preset_id)
-        version_repository.create(session.id, session.data, summary)
+        version_repository.create_if_changed(session.id, session.data, summary)
     except Exception:
         # Version history is a secondary record of the save, not the save
         # itself — a failure here must never fail (or roll back) the actual

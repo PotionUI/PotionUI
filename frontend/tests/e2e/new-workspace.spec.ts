@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot } from './helpers';
 
 // "New workspace" wipes every open tab down to one fresh empty tab.
 // When the workspace has unsaved changes it must ask first (3-way modal:
@@ -163,11 +163,8 @@ test('New workspace "Save & create new" saves a dirty existing session before wi
 
 	const sessionName = `E2E New Workspace Save ${Date.now()}`;
 	await page.getByPlaceholder('Enter session name').fill(sessionName);
-	await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
-	// Network round trip (session create), not a pure UI transition like the
-	// other 10s waits in this file — matches the 20s budget already used for
-	// this spec's other network-bound wait (mainList above).
-	await expect(page.getByRole('button', { name: 'Session saved' })).toBeVisible({ timeout: 20000 });
+	await clickDialogSaveAndAwaitResponse(page);
+	await expect(page.getByRole('button', { name: 'Session saved' })).toBeVisible({ timeout: 10000 });
 
 	// Edit further - dirty against the just-saved baseline, never re-saved.
 	await typeIntoSegment(page, 'Positive segments', 0, ' Gulls circle the empty pier.');

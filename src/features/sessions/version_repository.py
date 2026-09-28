@@ -24,92 +24,96 @@ class SessionVersionRepository:
     def __init__(self):
         pass
 
+    @staticmethod
+    def _decode_payload(payload):
+        return json.loads(payload) if isinstance(payload, str) else payload
+
     def _row_to_version(self, row) -> SessionVersion:
-        payload = json.loads(row['payload']) if isinstance(row['payload'], str) else row['payload']
         return SessionVersion(
             id=row['id'],
             session_id=row['session_id'],
             version_number=row['version_number'],
-            data=payload,
+            data=self._decode_payload(row['payload']),
             summary=row['summary'],
             created_at=dt_column(row['created_at']) or now_utc(),
         )
 
-    def get_latest(self, session_id: str) -> Optional[SessionVersion]:
-        """Get the most recently written version for a session, or None."""
+    def create_if_changed(
+        self, session_id: str, data: dict, summary: Optional[str]
+    ) -> Optional[SessionVersion]:
         with get_database_connection() as conn:
+            conn.isolation_level = None
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT * FROM session_versions
-                WHERE session_id = ?
-                ORDER BY version_number DESC
-                LIMIT 1
-                """,
-                (session_id,),
-            )
-            row = cursor.fetchone()
-            return self._row_to_version(row) if row else None
-
-    def create(self, session_id: str, data: dict, summary: Optional[str]) -> SessionVersion:
-        """
-        Append a new immutable version for a session.
-
-        Computes the next monotonic `version_number` from the current max,
-        inserts the snapshot, then prunes anything beyond
-        `SESSION_VERSION_RETENTION_LIMIT` (oldest first).
-        """
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "SELECT COALESCE(MAX(version_number), 0) FROM session_versions WHERE session_id = ?",
-                (session_id,),
-            )
-            next_version = cursor.fetchone()[0] + 1
-
-            version_id = str(uuid.uuid4())
-            created_at = now_utc()
-
-            cursor.execute(
-                """
-                INSERT INTO session_versions (id, session_id, version_number, payload, summary, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    version_id,
-                    session_id,
-                    next_version,
-                    json.dumps(data),
-                    summary,
-                    created_at.isoformat(),
-                ),
-            )
-
-            # Prune everything beyond the retention cap, oldest first.
-            cursor.execute(
-                """
-                DELETE FROM session_versions
-                WHERE session_id = ? AND version_number NOT IN (
-                    SELECT version_number FROM session_versions
+            cursor.execute("BEGIN IMMEDIATE")
+            try:
+                cursor.execute(
+                    """
+                    SELECT payload FROM session_versions
                     WHERE session_id = ?
                     ORDER BY version_number DESC
-                    LIMIT ?
+                    LIMIT 1
+                    """,
+                    (session_id,),
                 )
-                """,
-                (session_id, session_id, SESSION_VERSION_RETENTION_LIMIT),
-            )
+                latest_row = cursor.fetchone()
+                if latest_row is not None and self._decode_payload(latest_row["payload"]) == data:
+                    cursor.execute("ROLLBACK")
+                    return None
 
-            conn.commit()
+                result = self._insert_version(cursor, session_id, data, summary)
+                cursor.execute("COMMIT")
+                return result
+            except Exception:
+                cursor.execute("ROLLBACK")
+                raise
 
-            return SessionVersion(
-                id=version_id,
-                session_id=session_id,
-                version_number=next_version,
-                data=data,
-                summary=summary,
-                created_at=created_at,
+    @staticmethod
+    def _insert_version(cursor, session_id: str, data: dict, summary: Optional[str]) -> SessionVersion:
+        cursor.execute(
+            "SELECT COALESCE(MAX(version_number), 0) FROM session_versions WHERE session_id = ?",
+            (session_id,),
+        )
+        next_version = cursor.fetchone()[0] + 1
+
+        version_id = str(uuid.uuid4())
+        created_at = now_utc()
+
+        cursor.execute(
+            """
+            INSERT INTO session_versions (id, session_id, version_number, payload, summary, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                version_id,
+                session_id,
+                next_version,
+                json.dumps(data),
+                summary,
+                created_at.isoformat(),
+            ),
+        )
+
+        cursor.execute(
+            """
+            DELETE FROM session_versions
+            WHERE session_id = ? AND version_number NOT IN (
+                SELECT version_number FROM session_versions
+                WHERE session_id = ?
+                ORDER BY version_number DESC
+                LIMIT ?
             )
+            """,
+            (session_id, session_id, SESSION_VERSION_RETENTION_LIMIT),
+        )
+
+        return SessionVersion(
+            id=version_id,
+            session_id=session_id,
+            version_number=next_version,
+            data=data,
+            summary=summary,
+            created_at=created_at,
+        )
 
     def list_for_session(self, session_id: str) -> List[SessionVersion]:
         """List all versions for a session, newest first.

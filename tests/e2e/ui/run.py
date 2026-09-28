@@ -75,6 +75,7 @@ from e2e_harness import (  # noqa: E402
     log,
     pick_free_port,
     popen_group_kwargs,
+    teardown_backend,
 )
 
 try:
@@ -311,6 +312,15 @@ def collect_videos(names: List[str]) -> None:
         log(f"Collected video: {dest}")
 
 
+def collect_backend_log(app: "ThrowawayApp", chunk_index: int) -> None:
+    log_path = app.instance.log_path if app.instance is not None else None
+    if log_path is None or not log_path.is_file():
+        return
+    dest = ARTIFACTS_DIR / f"backend-chunk{chunk_index}.log"
+    shutil.copy2(log_path, dest)
+    log(f"Collected backend log: {dest}")
+
+
 def run_chunk(
     *,
     chunk_names: List[str],
@@ -372,6 +382,14 @@ def run_chunk(
         finally:
             code = stop_preview(preview_proc)
             log(f"Preview (chunk {chunk_index}) exited: {describe_exit_status(code)}")
+            try:
+                teardown_backend(app.instance, keep=True)
+            except Exception as exc:
+                log(f"Stopping backend before log collection failed: {exc}")
+            try:
+                collect_backend_log(app, chunk_index)
+            except Exception as exc:
+                log(f"Collecting backend log failed: {exc}")
 
 
 class _PreviewDied(Exception):

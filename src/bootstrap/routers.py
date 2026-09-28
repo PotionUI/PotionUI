@@ -64,6 +64,7 @@ from src.features.phrasebook.routes import build_router as build_phrasebook_rout
 from src.features.user_groups.routes import build_router as build_user_group_router
 from src.features.model_library.routes import build_router as build_model_collection_router
 from src.features.models.routes import build_router as build_model_router
+from src.features.models.roots_routes import build_router as build_model_roots_router
 from src.features.tags.routes import build_router as build_tag_router
 from src.features.collections.routes import build_router as build_collection_router
 from src.features.models.dictionary_routes import build_router as build_dictionary_router
@@ -130,6 +131,7 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_user_group_router(container))
     app.include_router(build_model_collection_router(container))  # Model collection endpoints - MUST precede model_router so
                                                                   # /api/models/collections isn't swallowed by GET /api/models/{model_id}
+    app.include_router(build_model_roots_router(container))
     app.include_router(build_model_router(container))  # Model management endpoints (prefix already defined in router)
     app.include_router(build_tag_router(container))  # Tag management endpoints (prefix defined in router)
     app.include_router(build_collection_router(container))  # Collection/album management endpoints (prefix defined in router)

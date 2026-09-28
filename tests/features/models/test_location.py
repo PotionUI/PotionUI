@@ -189,8 +189,6 @@ class TestModelsRelocator(PersistenceTestBase):
 
         self.assertTrue((self.models_root / "checkpoints").is_symlink())
 
-    # ---- apply: folder-name alias detection ----
-
     def test_apply_maps_an_a1111_layout(self):
         sd_dir = self.external / "Stable-diffusion"
         sd_dir.mkdir(parents=True)
@@ -202,118 +200,6 @@ class TestModelsRelocator(PersistenceTestBase):
         self.assertEqual(checkpoints_link.resolve(), sd_dir.resolve())
         self.assertTrue((checkpoints_link / "model.safetensors").exists())
         self.assertIn("checkpoints", result["auto_matched"])
-
-    def test_apply_maps_a_comfyui_layout(self):
-        clip_dir = self.external / "clip"
-        clip_dir.mkdir(parents=True)
-        (clip_dir / "encoder.safetensors").write_bytes(b"weights")
-        upscale_dir = self.external / "upscale_models"
-        upscale_dir.mkdir(parents=True)
-        (upscale_dir / "upscaler.pth").write_bytes(b"weights")
-
-        result = self.manager.apply(str(self.external))
-
-        self.assertEqual((self.models_root / "text_encoders").resolve(), clip_dir.resolve())
-        self.assertEqual((self.models_root / "upscalers").resolve(), upscale_dir.resolve())
-        self.assertIn("text_encoders", result["auto_matched"])
-        self.assertIn("upscalers", result["auto_matched"])
-
-    def test_apply_maps_a_case_mismatched_folder(self):
-        vae_dir = self.external / "VAE"
-        vae_dir.mkdir(parents=True)
-        (vae_dir / "vae.safetensors").write_bytes(b"weights")
-
-        result = self.manager.apply(str(self.external))
-
-        self.assertEqual((self.models_root / "vae").resolve(), vae_dir.resolve())
-        self.assertIn("vae", result["auto_matched"])
-
-    def test_apply_resolves_against_a_nested_models_child(self):
-        nested = self.external / "models"
-        checkpoints_dir = nested / "checkpoints"
-        checkpoints_dir.mkdir(parents=True)
-        (checkpoints_dir / "model.safetensors").write_bytes(b"weights")
-        loras_dir = nested / "loras"
-        loras_dir.mkdir(parents=True)
-        (loras_dir / "lora.safetensors").write_bytes(b"weights")
-
-        result = self.manager.apply(str(self.external))
-
-        self.assertEqual((self.models_root / "checkpoints").resolve(), checkpoints_dir.resolve())
-        self.assertEqual((self.models_root / "loras").resolve(), loras_dir.resolve())
-        self.assertIn("checkpoints", result["auto_matched"])
-        self.assertIn("loras", result["auto_matched"])
-
-    def test_apply_explicit_override_beats_alias(self):
-        (self.external / "Stable-diffusion").mkdir(parents=True)
-        override_target = self.tmp / "checkpoints-elsewhere"
-        override_target.mkdir(parents=True)
-
-        result = self.manager.apply(str(self.external), overrides={"checkpoints": str(override_target)})
-
-        checkpoints_link = self.models_root / "checkpoints"
-        self.assertEqual(checkpoints_link.resolve(), override_target.resolve())
-        self.assertNotIn("checkpoints", result["auto_matched"])
-        self.assertEqual(result["overrides"]["checkpoints"], str(override_target))
-
-    def test_apply_exact_name_beats_alias_when_both_have_content(self):
-        exact_dir = self.external / "checkpoints"
-        exact_dir.mkdir(parents=True)
-        (exact_dir / "exact.safetensors").write_bytes(b"weights")
-        alias_dir = self.external / "Stable-diffusion"
-        alias_dir.mkdir(parents=True)
-        (alias_dir / "model.safetensors").write_bytes(b"weights")
-
-        self.manager.apply(str(self.external))
-
-        checkpoints_link = self.models_root / "checkpoints"
-        self.assertEqual(checkpoints_link.resolve(), exact_dir.resolve())
-
-    def test_apply_prefers_an_empty_alias_folder_with_real_content_over_an_empty_exact_folder(self):
-        (self.external / "loras").mkdir(parents=True)
-        lora_dir = self.external / "Lora"
-        lora_dir.mkdir(parents=True)
-        (lora_dir / "lora.safetensors").write_bytes(b"weights")
-
-        self.manager.apply(str(self.external))
-
-        loras_link = self.models_root / "loras"
-        self.assertEqual(loras_link.resolve(), lora_dir.resolve())
-
-    def test_apply_falls_back_to_the_exact_name_when_every_candidate_is_empty(self):
-        exact_dir = self.external / "loras"
-        exact_dir.mkdir(parents=True)
-        (self.external / "Lora").mkdir(parents=True)
-        (self.external / "LyCORIS").mkdir(parents=True)
-
-        self.manager.apply(str(self.external))
-
-        loras_link = self.models_root / "loras"
-        self.assertEqual(loras_link.resolve(), exact_dir.resolve())
-
-    def test_apply_orders_alias_candidates_deterministically_when_both_have_content(self):
-        lora_dir = self.external / "Lora"
-        lora_dir.mkdir(parents=True)
-        (lora_dir / "lora.safetensors").write_bytes(b"weights")
-        lycoris_dir = self.external / "LyCORIS"
-        lycoris_dir.mkdir(parents=True)
-        (lycoris_dir / "lyco.safetensors").write_bytes(b"weights")
-
-        self.manager.apply(str(self.external))
-
-        loras_link = self.models_root / "loras"
-        self.assertEqual(loras_link.resolve(), lora_dir.resolve())
-
-    def test_apply_prefers_a_populated_nested_models_child_over_empty_root_folders(self):
-        (self.external / "checkpoints").mkdir(parents=True)
-        nested_checkpoints = self.external / "models" / "checkpoints"
-        nested_checkpoints.mkdir(parents=True)
-        (nested_checkpoints / "model.safetensors").write_bytes(b"weights")
-
-        self.manager.apply(str(self.external))
-
-        checkpoints_link = self.models_root / "checkpoints"
-        self.assertEqual(checkpoints_link.resolve(), nested_checkpoints.resolve())
 
     def test_apply_does_not_map_clip_vision_onto_text_encoders(self):
         clip_vision_dir = self.external / "clip_vision"

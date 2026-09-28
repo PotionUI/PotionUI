@@ -113,12 +113,33 @@ def default_case_insensitive(os_name: Optional[str] = None) -> bool:
     return os_name == "nt" or sys.platform == "darwin"
 
 
+def paths_overlap(a_key: str, b_key: str) -> bool:
+    """True when two `root_path_key()` results are equal or one contains the other."""
+    return a_key == b_key or a_key.startswith(b_key + "/") or b_key.startswith(a_key + "/")
+
+
+def probe_case_insensitive(path: Union[str, "os.PathLike[str]"]) -> bool:
+    """Best-effort: does this filesystem fold case for `path`? Falls back to the
+    platform default when the path has no letters to swap or the probe fails."""
+    raw = str(path)
+    swapped = raw.swapcase()
+    if swapped == raw:
+        return default_case_insensitive()
+    try:
+        return os.path.exists(raw) and os.path.samefile(raw, swapped)
+    except OSError:
+        return default_case_insensitive()
+
+
 def _validate_rel_path(rel_path: str) -> PurePosixPath:
     normalized = rel_path.replace("\\", "/")
     parsed = PurePosixPath(normalized)
     if parsed.is_absolute() or not normalized or any(part == ".." for part in parsed.parts):
         raise InvalidRelPathError(rel_path)
     return parsed
+
+
+validate_rel_path = _validate_rel_path
 
 
 class RootProbe:

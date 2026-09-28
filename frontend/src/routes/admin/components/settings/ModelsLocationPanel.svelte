@@ -1,15 +1,26 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { toasts } from '$lib/stores/toast';
+	import { logger } from '$lib/utils/logger';
+	import { api } from '$lib/services/api';
 	import { Button, Input, Alert, Spinner } from '$lib/components/ui';
 	import { DetailSection, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import { ModelsLocationState, overrideDraftsFor } from '$lib/models-location/state.svelte';
+	import { indexingStatusStore } from '$lib/models-location/indexingStatus.svelte';
+	import { indexingIsRunning, indexingIsVisible } from '$lib/models-location/indexingDisplay';
+	import IndexingStatusPanel from '$lib/models-location/IndexingStatusPanel.svelte';
 
 	const location = new ModelsLocationState();
 
 	let externalPath = $state('');
 	let overridesOpen = $state(false);
 	let overrideDrafts = $state<Record<string, string>>({});
+	let indexNowBusy = $state(false);
+
+	$effect(() => {
+		const unsubscribe = untrack(() => indexingStatusStore.subscribe());
+		return unsubscribe;
+	});
 
 	onMount(async () => {
 		await location.load();
@@ -24,6 +35,9 @@
 		const ok = await location.apply(externalPath, overrides);
 		if (ok) {
 			overrideDrafts = overrideDraftsFor(location.config);
+			if (location.config?.indexing) {
+				indexingStatusStore.notifyRunStarted(location.config.indexing);
+			}
 			const autoMatched = location.config?.auto_matched ?? [];
 			const createdEmpty = location.config?.created_empty ?? [];
 			if (autoMatched.length) {
@@ -34,6 +48,24 @@
 			if (createdEmpty.length) {
 				toasts.warning(`No matching folder found, created empty: ${createdEmpty.join(', ')}.`);
 			}
+		}
+	}
+
+	async function indexNow() {
+		indexNowBusy = true;
+		try {
+			const response = await api.startModelIndex();
+			if (response.success && response.data) {
+				indexingStatusStore.notifyRunStarted(response.data);
+				toasts.success('Indexing started.');
+			} else {
+				toasts.error(response.message ?? 'Failed to start indexing.');
+			}
+		} catch (e) {
+			logger.error('Failed to start indexing:', e);
+			toasts.error('Failed to start indexing.');
+		} finally {
+			indexNowBusy = false;
 		}
 	}
 </script>
@@ -105,8 +137,23 @@
 				directories linked
 			</span>
 		{/if}
+		<Button
+			variant="secondary"
+			size="sm"
+			onclick={indexNow}
+			loading={indexNowBusy}
+			disabled={indexNowBusy || indexingIsRunning(indexingStatusStore.status)}
+		>
+			Index now
+		</Button>
 		<Button variant="primary" size="sm" onclick={apply} loading={location.applying} disabled={location.loading || location.applying}>
 			Apply
 		</Button>
 	{/snippet}
 </DetailSection>
+
+{#if indexingIsVisible(indexingStatusStore.status)}
+	<DetailSection label="Model indexing">
+		<IndexingStatusPanel status={indexingStatusStore.status} config={location.config} />
+	</DetailSection>
+{/if}

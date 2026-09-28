@@ -10,7 +10,7 @@ import type { BadgeVariant } from '$lib/utils/setupRunDisplay';
  * recipe's models goes, so it reads as ready rather than inventing a fourth
  * state the admin can't act on here.
  */
-export type RecipeReadinessKind = 'ready' | 'missing-models' | 'needs-backend' | 'unknown';
+export type RecipeReadinessKind = 'ready' | 'missing-models' | 'indexing' | 'needs-backend' | 'unknown';
 
 export interface RecipeReadinessBadge {
 	kind: RecipeReadinessKind;
@@ -21,9 +21,20 @@ export interface RecipeReadinessBadge {
 const BADGES: Record<RecipeReadinessKind, RecipeReadinessBadge> = {
 	ready: { kind: 'ready', label: 'Ready', variant: 'success' },
 	'missing-models': { kind: 'missing-models', label: 'Missing models', variant: 'warning' },
+	indexing: { kind: 'indexing', label: 'Indexing models…', variant: 'info' },
 	'needs-backend': { kind: 'needs-backend', label: 'Needs backend', variant: 'danger' },
 	unknown: { kind: 'unknown', label: 'Unknown', variant: 'neutral' }
 };
+
+const INDEXING_CODES = new Set(['MODELS_INDEXING', 'RECIPE_MODELS_INDEXING']);
+
+export function indexingBadgeLabel(message: string): string {
+	const match = message.match(/(\d[\d,]*)\s*\/\s*(\d[\d,]*)/);
+	if (!match) return BADGES.indexing.label;
+	const total = Number(match[2].replace(/,/g, ''));
+	if (total === 0) return 'Indexing models… scanning';
+	return `Indexing models… ${match[1]} / ${match[2]}`;
+}
 
 /**
  * Derive a row badge from a recipe-scoped readiness report. `null` (not
@@ -35,10 +46,17 @@ const BADGES: Record<RecipeReadinessKind, RecipeReadinessBadge> = {
 export function deriveRecipeReadiness(report: ReadinessReport | null): RecipeReadinessBadge {
 	if (!report || !Array.isArray(report.checks)) return BADGES.unknown;
 
-	const blocking = (area: string) =>
-		report.checks.some((check) => check.area === area && check.status !== 'ready');
+	const find = (area: string) =>
+		report.checks.find((check) => check.area === area && check.status !== 'ready') ?? null;
 
-	if (blocking('execution')) return BADGES['needs-backend'];
-	if (blocking('content')) return BADGES['missing-models'];
+	if (find('execution')) return BADGES['needs-backend'];
+
+	const contentCheck = find('content');
+	if (contentCheck) {
+		if (INDEXING_CODES.has(contentCheck.code)) {
+			return { kind: 'indexing', label: indexingBadgeLabel(contentCheck.message), variant: 'info' };
+		}
+		return BADGES['missing-models'];
+	}
 	return BADGES.ready;
 }

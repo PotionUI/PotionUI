@@ -11,6 +11,38 @@ export interface ModelsLocationDirectory {
 	has_real_files: boolean;
 }
 
+export type IndexingState =
+	| 'idle'
+	| 'scanning'
+	| 'indexing'
+	| 'done'
+	| 'failed'
+	| 'cancelled'
+	| 'blocked';
+
+export type IndexingTrigger = 'manual' | 'startup' | 'location_change';
+
+export interface IndexingFailedFile {
+	path: string;
+	error: string;
+}
+
+export interface IndexingStatus {
+	state: IndexingState;
+	trigger?: IndexingTrigger | null;
+	restart_pending?: boolean;
+	started_at?: string | null;
+	finished_at?: string | null;
+	total?: number;
+	processed?: number;
+	indexed?: number;
+	found_on_disk?: number | null;
+	scanned_roots?: string[];
+	failed_files?: IndexingFailedFile[];
+	failed_files_total?: number;
+	error?: string | null;
+}
+
 export interface ModelsLocationConfig {
 	external_path: string | null;
 	overrides: Record<string, string>;
@@ -18,6 +50,7 @@ export interface ModelsLocationConfig {
 	windows_unsupported: boolean;
 	auto_matched?: string[];
 	created_empty?: string[];
+	indexing?: IndexingStatus;
 }
 
 export interface UnindexedModelsCount {
@@ -429,6 +462,16 @@ export function createModelsApi(client: AxiosInstance) {
 				external_path: externalPath,
 				overrides
 			});
+			return response.data;
+		},
+
+		async getIndexingStatus(): Promise<APIResponse<IndexingStatus>> {
+			const response = await client.get('/api/models/indexing/status');
+			return response.data;
+		},
+
+		async startModelIndex(): Promise<APIResponse<IndexingStatus>> {
+			const response = await client.post('/api/models/index');
 			return response.data;
 		},
 

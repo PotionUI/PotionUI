@@ -4,11 +4,14 @@
 	// ModelsLocationPanel.svelte). Skippable - "Skip" and a successful
 	// "Apply" both collapse the step so it doesn't keep nagging on repeat
 	// visits to /setup, while a "Change" link always reopens it.
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { browser } from '$app/environment';
 	import { toasts } from '$lib/stores/toast';
 	import { Button, Input, Alert, Spinner, Card } from '$lib/components/ui';
 	import { ModelsLocationState } from '$lib/models-location/state.svelte';
+	import { indexingStatusStore } from '$lib/models-location/indexingStatus.svelte';
+	import { indexingIsRunning, indexingIsVisible } from '$lib/models-location/indexingDisplay';
+	import IndexingStatusPanel from '$lib/models-location/IndexingStatusPanel.svelte';
 
 	const DISMISSED_STORAGE_KEY = 'potionui:setup:modelsLocationDismissed';
 
@@ -16,6 +19,11 @@
 
 	let externalPath = $state('');
 	let dismissed = $state(false);
+
+	$effect(() => {
+		const unsubscribe = untrack(() => indexingStatusStore.subscribe());
+		return unsubscribe;
+	});
 
 	onMount(async () => {
 		if (browser) {
@@ -51,6 +59,9 @@
 	async function apply() {
 		const ok = await location.apply(externalPath);
 		if (ok) {
+			if (location.config?.indexing) {
+				indexingStatusStore.notifyRunStarted(location.config.indexing);
+			}
 			toasts.success('Models location applied. Re-indexing in the background.');
 			persistDismissed(true);
 		}
@@ -62,13 +73,20 @@
 </script>
 
 {#if dismissed}
-	<div class="flex items-center justify-between gap-3 text-sm text-fg-muted">
-		<span
-			>Models location: <span class="font-mono text-fg">{currentPathLabel()}</span></span
-		>
-		<button type="button" class="text-xs text-fg-muted hover:text-fg" onclick={() => persistDismissed(false)}>
-			Change
-		</button>
+	<div class="space-y-1">
+		<div class="flex items-center justify-between gap-3 text-sm text-fg-muted">
+			<span
+				>Models location: <span class="font-mono text-fg">{currentPathLabel()}</span></span
+			>
+			<button type="button" class="text-xs text-fg-muted hover:text-fg" onclick={() => persistDismissed(false)}>
+				Change
+			</button>
+		</div>
+		{#if indexingIsRunning(indexingStatusStore.status)}
+			<p class="text-xs text-fg-subtle">
+				Model indexing continues in the background - you can go ahead and set up a recipe.
+			</p>
+		{/if}
 	</div>
 {:else}
 	<Card class="space-y-3">
@@ -114,6 +132,12 @@
 				>
 				<Button variant="secondary" size="sm" onclick={skip} disabled={location.applying}>Skip</Button>
 			</div>
+
+			{#if indexingIsVisible(indexingStatusStore.status)}
+				<div class="mt-2 pt-3 border-t border-line">
+					<IndexingStatusPanel status={indexingStatusStore.status} config={location.config} />
+				</div>
+			{/if}
 		{/if}
 	</Card>
 {/if}

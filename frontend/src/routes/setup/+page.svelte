@@ -7,7 +7,8 @@
 	import { api } from '$lib/services/api/index';
 	import type { ReadinessReport, SetupRecipe, SetupRun } from '$lib/services/api/setup';
 	import {
-		readinessBadgeVariant,
+		readinessCheckBadgeVariant,
+		readinessCheckStatusLabel,
 		readinessAreaLabel,
 		readinessAdminLink,
 		readinessHeadline
@@ -428,8 +429,8 @@
 								<div class="min-w-0">
 									<div class="flex items-center gap-2 mb-1">
 										<h2 class="text-sm font-semibold text-fg">{readinessAreaLabel(check.area)}</h2>
-										<Badge variant={readinessBadgeVariant(check.status)}>
-											{check.status.replace('_', ' ')}
+										<Badge variant={readinessCheckBadgeVariant(check)}>
+											{readinessCheckStatusLabel(check)}
 										</Badge>
 									</div>
 									<p class="text-sm text-fg-muted">{check.message}</p>

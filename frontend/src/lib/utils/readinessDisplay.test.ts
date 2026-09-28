@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
 	readinessBadgeVariant,
+	readinessCheckBadgeVariant,
+	readinessCheckStatusLabel,
 	readinessAreaLabel,
 	readinessAdminLink,
 	readinessHeadline
@@ -23,6 +25,26 @@ describe('readinessBadgeVariant', () => {
 		expect(readinessBadgeVariant('ready')).toBe('success');
 		expect(readinessBadgeVariant('degraded')).toBe('warning');
 		expect(readinessBadgeVariant('not_ready')).toBe('danger');
+	});
+});
+
+describe('readinessCheckBadgeVariant / readinessCheckStatusLabel', () => {
+	it('reads a degraded but non-indexing check as the plain degraded status', () => {
+		const c = check({ area: 'content', status: 'degraded', code: 'PRESETS_WITHOUT_MODELS' });
+		expect(readinessCheckBadgeVariant(c)).toBe('warning');
+		expect(readinessCheckStatusLabel(c)).toBe('degraded');
+	});
+
+	it('reads MODELS_INDEXING as info/"indexing" rather than "degraded"', () => {
+		const c = check({ area: 'content', status: 'degraded', code: 'MODELS_INDEXING' });
+		expect(readinessCheckBadgeVariant(c)).toBe('info');
+		expect(readinessCheckStatusLabel(c)).toBe('indexing');
+	});
+
+	it('reads RECIPE_MODELS_INDEXING the same way', () => {
+		const c = check({ area: 'content', status: 'degraded', code: 'RECIPE_MODELS_INDEXING' });
+		expect(readinessCheckBadgeVariant(c)).toBe('info');
+		expect(readinessCheckStatusLabel(c)).toBe('indexing');
 	});
 });
 

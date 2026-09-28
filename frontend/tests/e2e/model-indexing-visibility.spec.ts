@@ -7,34 +7,30 @@ async function fulfillJson(route: Route, data: unknown) {
 	await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) });
 }
 
-function locationConfig(overrides: Record<string, unknown> = {}) {
+function homeRoot(overrides: Record<string, unknown> = {}) {
 	return {
-		external_path: '/mnt/storage/models',
-		overrides: {},
-		directories: [
-			{
-				directory: 'checkpoints',
-				target: null,
-				linked: true,
-				resolved_target: '/mnt/storage/models/checkpoints',
-				has_real_files: true
-			},
-			{
-				directory: 'loras',
-				target: null,
-				linked: true,
-				resolved_target: '/mnt/storage/models/loras',
-				has_real_files: true
-			},
-			{
-				directory: 'vae',
-				target: null,
-				linked: true,
-				resolved_target: '/mnt/storage/models/vae',
-				has_real_files: false
-			}
-		],
-		windows_unsupported: false,
+		id: 'home',
+		label: 'PotionUI models',
+		path: 'models',
+		kind: 'home',
+		read_only: false,
+		case_insensitive: false,
+		state: 'online',
+		state_reason: null,
+		state_checked_at: null,
+		bindings: [],
+		...overrides
+	};
+}
+
+function modelRootsOverview(overrides: Record<string, unknown> = {}) {
+	return {
+		roots: [homeRoot()],
+		types: [],
+		unplaced: [],
+		indexing: { state: 'idle' },
+		server_os: 'Linux',
+		path_style: 'posix',
 		...overrides
 	};
 }
@@ -64,8 +60,11 @@ function readinessReport(overrides: Partial<Record<string, unknown>> = {}) {
 	};
 }
 
-async function mockModelsLocation(page: Page, config: Record<string, unknown>) {
-	await page.route('**/api/models/location', (route) => fulfillJson(route, { success: true, data: config }));
+async function mockModelRoots(page: Page, overview: Record<string, unknown> = modelRootsOverview()) {
+	await page.route('**/api/models/roots', (route) => {
+		if (route.request().method() !== 'GET') return route.continue();
+		return fulfillJson(route, { success: true, data: overview });
+	});
 }
 
 async function mockIndexingStatus(page: Page, status: Record<string, unknown>) {
@@ -85,7 +84,7 @@ async function gotoSetup(page: Page) {
 
 async function gotoAdminModelsFolders(page: Page) {
 	await page.goto('/admin?tab=models&view=folders');
-	const heading = page.getByRole('heading', { name: 'Models Location' });
+	const heading = page.getByRole('heading', { name: 'Folders', level: 2 });
 	await expect(heading).toBeVisible({ timeout: 15000 });
 	await heading.scrollIntoViewIfNeeded();
 }
@@ -95,7 +94,7 @@ test.describe('model indexing visibility - wizard', () => {
 
 	test('scanning', async ({ page }) => {
 		await loginAsOwner(page);
-		await mockModelsLocation(page, locationConfig());
+		await mockModelRoots(page);
 		await mockIndexingStatus(page, { state: 'scanning', scanned_roots: ['/mnt/storage/models'] });
 		await mockReadiness(page, readinessReport());
 		await gotoSetup(page);
@@ -105,7 +104,7 @@ test.describe('model indexing visibility - wizard', () => {
 
 	test('indexing with progress', async ({ page }) => {
 		await loginAsOwner(page);
-		await mockModelsLocation(page, locationConfig());
+		await mockModelRoots(page);
 		await mockIndexingStatus(page, { state: 'indexing', processed: 412, total: 1637 });
 		await mockReadiness(page, readinessReport());
 		await gotoSetup(page);
@@ -115,7 +114,7 @@ test.describe('model indexing visibility - wizard', () => {
 
 	test('restart pending', async ({ page }) => {
 		await loginAsOwner(page);
-		await mockModelsLocation(page, locationConfig());
+		await mockModelRoots(page);
 		await mockIndexingStatus(page, {
 			state: 'indexing',
 			processed: 80,
@@ -130,7 +129,7 @@ test.describe('model indexing visibility - wizard', () => {
 
 	test('done', async ({ page }) => {
 		await loginAsOwner(page);
-		await mockModelsLocation(page, locationConfig());
+		await mockModelRoots(page);
 		await mockIndexingStatus(page, { state: 'done', indexed: 128, found_on_disk: 128 });
 		await mockReadiness(page, readinessReport());
 		await gotoSetup(page);
@@ -138,12 +137,9 @@ test.describe('model indexing visibility - wizard', () => {
 		await screenshot(page, JOURNEY, 'wizard-done');
 	});
 
-	test('zero found with auto-matched and created-empty folders', async ({ page }) => {
+	test('zero found', async ({ page }) => {
 		await loginAsOwner(page);
-		await mockModelsLocation(
-			page,
-			locationConfig({ auto_matched: ['checkpoints'], created_empty: ['loras', 'vae'] })
-		);
+		await mockModelRoots(page);
 		await mockIndexingStatus(page, {
 			state: 'done',
 			found_on_disk: 0,
@@ -157,7 +153,7 @@ test.describe('model indexing visibility - wizard', () => {
 
 	test('failed', async ({ page }) => {
 		await loginAsOwner(page);
-		await mockModelsLocation(page, locationConfig());
+		await mockModelRoots(page);
 		await mockIndexingStatus(page, {
 			state: 'failed',
 			error: 'Ran out of disk space while hashing model files.'
@@ -170,7 +166,7 @@ test.describe('model indexing visibility - wizard', () => {
 
 	test('blocked', async ({ page }) => {
 		await loginAsOwner(page);
-		await mockModelsLocation(page, locationConfig());
+		await mockModelRoots(page);
 		await mockIndexingStatus(page, {
 			state: 'blocked',
 			error: 'The antivirus-scan plugin vetoed this run: quarantine directory is full.'
@@ -183,7 +179,7 @@ test.describe('model indexing visibility - wizard', () => {
 
 	test('failed-files list expanded with a long truncated path', async ({ page }) => {
 		await loginAsOwner(page);
-		await mockModelsLocation(page, locationConfig());
+		await mockModelRoots(page);
 		await mockIndexingStatus(page, {
 			state: 'done',
 			indexed: 127,
@@ -208,7 +204,7 @@ test.describe('model indexing visibility - wizard', () => {
 
 	test('readiness row shows live indexing counts', async ({ page }) => {
 		await loginAsOwner(page);
-		await mockModelsLocation(page, locationConfig());
+		await mockModelRoots(page);
 		await mockIndexingStatus(page, { state: 'indexing', processed: 412, total: 1637 });
 		await mockReadiness(
 			page,
@@ -245,7 +241,7 @@ test.describe('model indexing visibility - wizard phone', () => {
 
 	test('indexing with progress at phone width', async ({ page }) => {
 		await loginAsOwner(page);
-		await mockModelsLocation(page, locationConfig());
+		await mockModelRoots(page);
 		await mockIndexingStatus(page, { state: 'indexing', processed: 412, total: 1637 });
 		await mockReadiness(page, readinessReport());
 		await gotoSetup(page);
@@ -259,19 +255,16 @@ test.describe('model indexing visibility - admin panel', () => {
 
 	test('indexing with progress', async ({ page }) => {
 		await loginAsOwner(page);
-		await mockModelsLocation(page, locationConfig());
+		await mockModelRoots(page);
 		await mockIndexingStatus(page, { state: 'indexing', processed: 900, total: 1200 });
 		await gotoAdminModelsFolders(page);
 		await expect(page.getByText('900 / 1200')).toBeVisible({ timeout: 10000 });
 		await screenshot(page, JOURNEY, 'admin-indexing-progress');
 	});
 
-	test('zero found with auto-matched and created-empty folders', async ({ page }) => {
+	test('zero found', async ({ page }) => {
 		await loginAsOwner(page);
-		await mockModelsLocation(
-			page,
-			locationConfig({ auto_matched: ['checkpoints'], created_empty: ['loras', 'vae'] })
-		);
+		await mockModelRoots(page);
 		await mockIndexingStatus(page, {
 			state: 'done',
 			found_on_disk: 0,
@@ -279,15 +272,12 @@ test.describe('model indexing visibility - admin panel', () => {
 		});
 		await gotoAdminModelsFolders(page);
 		await expect(page.getByText('No model files found in')).toBeVisible({ timeout: 10000 });
-		const createdEmptyLine = page.getByText('No matching folder found, created empty');
-		await expect(createdEmptyLine).toBeVisible();
-		await createdEmptyLine.scrollIntoViewIfNeeded();
 		await screenshot(page, JOURNEY, 'admin-zero-found');
 	});
 
 	test('blocked', async ({ page }) => {
 		await loginAsOwner(page);
-		await mockModelsLocation(page, locationConfig());
+		await mockModelRoots(page);
 		await mockIndexingStatus(page, {
 			state: 'blocked',
 			error: 'The antivirus-scan plugin vetoed this run: quarantine directory is full.'
@@ -299,7 +289,7 @@ test.describe('model indexing visibility - admin panel', () => {
 
 	test('failed-files list expanded with a long truncated path', async ({ page }) => {
 		await loginAsOwner(page);
-		await mockModelsLocation(page, locationConfig());
+		await mockModelRoots(page);
 		await mockIndexingStatus(page, {
 			state: 'done',
 			indexed: 127,

@@ -41,7 +41,7 @@
 	import ModelDetailPage from './models/ModelDetailPage.svelte';
 	import BulkTagModal from './models/BulkTagModal.svelte';
 	import { DetailHeader, DetailBody, DetailLayout } from '$lib/components/detail';
-	import ModelsLocationPanel from './settings/ModelsLocationPanel.svelte';
+	import ModelRootsPanel from '$lib/model-roots/ModelRootsPanel.svelte';
 	import {
 		MODEL_LIBRARY_SECTIONS,
 		MODELS_ALL_SECTION,
@@ -981,7 +981,7 @@
 				<DetailBody>
 					<DetailLayout>
 						{#snippet main()}
-							<ModelsLocationPanel />
+							<ModelRootsPanel />
 						{/snippet}
 					</DetailLayout>
 				</DetailBody>

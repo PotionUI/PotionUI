@@ -205,17 +205,16 @@ class ModelCatalog:
         return self.scanner.get_indexing_status()
 
     def _type_directory(self, model_type: str) -> str:
-        """Where `model_type` actually lives under the configured model depot.
+        return str(self._type_write_dir(model_type))
 
-        Uses the scanner's resolved `models_dir` (settings-backed, not the
-        process CWD) joined with `TYPE_DIR_MAP`'s subdir - the same mapping
-        `DownloadQueue.queue_model_download` resolves a `model_type` through.
-        """
-        subdir = TYPE_DIR_MAP.get(model_type, model_type)
-        return str(self.scanner.models_dir / subdir)
+    def _type_write_dir(self, model_type: str) -> Path:
+        try:
+            return self.scanner.resolver.write_dir(model_type).path
+        except Exception:
+            return self.scanner.resolver.home_dir() / TYPE_DIR_MAP.get(model_type, model_type)
 
     def _type_subdirectories(self, model_type: str, max_depth: int = 4) -> List[str]:
-        """Directories under `model_type`'s depot directory, as sorted
+        """Directories under `model_type`'s write-root directory, as sorted
         depot-relative POSIX paths (`sdxl`, `sdxl/characters`, ...), nested up to
         `max_depth` levels; hidden/dot directories and everything beneath them
         are skipped. Empty when the directory doesn't exist.
@@ -223,7 +222,7 @@ class ModelCatalog:
         Lets a downloader (e.g. "Add Download") offer the folders a depot
         already organizes a type into without walking the filesystem itself.
         """
-        type_dir = self.scanner.models_dir / TYPE_DIR_MAP.get(model_type, model_type)
+        type_dir = self._type_write_dir(model_type)
         if not type_dir.is_dir():
             return []
         found: List[str] = []

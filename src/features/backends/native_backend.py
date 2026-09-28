@@ -1,4 +1,3 @@
-import asyncio
 from typing import Any, ClassVar, Dict, List, Optional
 
 from src.platform.observability.logger import logger
@@ -6,8 +5,6 @@ from src.platform.runtime.gpu import DeviceIdentity
 
 from .base_backend import ExecutionDevice, ExecutionDeviceEvidence
 from .in_process_backend import InProcessBackend
-from .model_listing import BackendModel, deduplicate
-from .native_model_scan import scan_native_models
 
 
 def _cuda_device_index(device: str) -> int:
@@ -121,21 +118,7 @@ class NativeBackend(InProcessBackend):
         )
 
     def supports_model_listing(self) -> bool:
-        return True
-
-    async def list_models(self) -> List[BackendModel]:
-        """Walk this host's models directory.
-
-        `models_dir` is a host-level setting, not a backend one: it names where this
-        machine keeps weights. A ComfyUI server has its own models directory that
-        PotionUI never reads.
-        """
-        from src.platform.settings.settings import Settings
-        from src.platform.settings.repository import SettingRepository
-
-        models_dir = Settings(SettingRepository()).get_models_dir()
-        entries = await asyncio.to_thread(scan_native_models, models_dir)
-        return deduplicate(entries)
+        return False
 
     def prepare_pipes(self, pipes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """

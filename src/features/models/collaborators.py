@@ -23,11 +23,12 @@ from src.features.models.assignments import ModelAssignmentService
 from src.features.models.attributes.repository import AttributeDefinitionRepository
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
 from src.features.models.catalog import ModelCatalog
-from src.features.models.indexer import model_scanner
+from src.features.models.indexer import ModelScanner
 from src.features.models.indexing_coordinator import ModelIndexingCoordinator
 from src.features.models.jobs import ModelJobs
 from src.features.models.location import ModelsRelocator
 from src.features.models.metadata_editor import ModelMetadataEditor
+from src.features.models.native_availability_reconciler import NativeAvailabilityProjector
 from src.features.models.provider_info import ProviderInfoFetcher
 from src.features.models.repository import ModelRepository
 from src.features.tags.repository import TagRepository
@@ -39,6 +40,7 @@ from src.platform.settings.settings import Settings
 if TYPE_CHECKING:
     from src.features.backends.backend_registry import BackendRegistry
     from src.features.downloads import DownloadQueue
+    from src.platform.filesystem.model_roots import ModelRootResolver
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,7 @@ def build_model_index_collaborators(
     plugin_registry: PluginRegistry,
     settings: "Settings",
     download_queue: "DownloadQueue",
+    model_roots: "ModelRootResolver",
     models_root: Optional[Path] = None,
     generation_active: Optional[Callable[[], bool]] = None,
     storage_driver: Optional[FileStorageDriver] = None,
@@ -80,6 +83,8 @@ def build_model_index_collaborators(
         storage_driver=storage_driver,
         attribute_definition_repository=attribute_definition_repository,
     )
+    model_scanner = ModelScanner(model_roots)
+    native_availability_projector = NativeAvailabilityProjector(resolver=model_roots)
     return ModelIndexCollaborators(
         model_repo=model_repository,
         tag_repo=tag_repository,
@@ -87,7 +92,8 @@ def build_model_index_collaborators(
         access=access,
         catalog=ModelCatalog(model_repository, access, model_scanner, user_attribute_repository),
         indexing=ModelIndexingCoordinator(
-            model_repository, plugin_registry, model_scanner, backend_registry=backend_registry
+            model_repository, plugin_registry, model_scanner, backend_registry=backend_registry,
+            native_availability_reconciler=native_availability_projector,
         ),
         metadata=metadata,
         provider_info=ProviderInfoFetcher(
@@ -99,9 +105,10 @@ def build_model_index_collaborators(
         jobs=ModelJobs(
             model_repository, plugin_registry, model_scanner, download_queue,
             backend_registry=backend_registry,
+            native_availability_reconciler=native_availability_projector,
         ),
         location=ModelsRelocator(
-            models_root or Path(model_scanner.models_dir),
+            models_root or model_roots.home_dir(),
             SettingRepository(),
             generation_active,
         ),

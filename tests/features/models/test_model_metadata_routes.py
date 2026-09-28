@@ -272,6 +272,7 @@ class TestUpdateModelMetadataValidation(PersistenceTestBase):
             plugin_registry=Mock(),
             settings=Mock(),
             download_queue=Mock(),
+            model_roots=Mock(),
             attribute_definition_repository=self.attribute_definitions,
             user_attribute_repository=UserModelAttributeRepository(),
             # Without it, `__init__` falls through to the real, lazily-constructed

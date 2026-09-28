@@ -93,8 +93,9 @@ class TestListRoots:
 
         assert response.status_code == 200
         data = response.json()["data"]
-        assert {"roots", "types", "unplaced", "indexing"} <= set(data.keys())
+        assert {"roots", "types", "unplaced", "indexing", "server_os", "path_style"} <= set(data.keys())
         assert any(r["id"] == HOME_ROOT_ID for r in data["roots"])
+        assert data["path_style"] in ("windows", "posix")
 
 
 class TestDetect:
@@ -191,6 +192,32 @@ class TestUpdateDeleteRoot:
             response = await client.patch("/api/models/roots/does-not-exist", json={"label": "x"})
 
         assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_remove_types_removes_a_binding(self, app, library_dir):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            created = await client.post(
+                "/api/models/roots",
+                json={"path": str(library_dir), "bindings": [{"model_type": "lora", "subdir": "loras"}]},
+            )
+            root_id = created.json()["data"]["id"]
+
+            updated = await client.patch(
+                f"/api/models/roots/{root_id}", json={"remove_types": ["lora"]}
+            )
+
+        assert updated.status_code == 200
+        assert updated.json()["data"]["bindings"] == []
+
+    @pytest.mark.asyncio
+    async def test_remove_types_on_home_is_refused(self, app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.patch(
+                f"/api/models/roots/{HOME_ROOT_ID}", json={"remove_types": ["lora"]}
+            )
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["error"] == "model_roots_home_protected"
 
 
 class TestReorderAndWrite:

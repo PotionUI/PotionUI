@@ -251,6 +251,14 @@ class ModelRootRepository:
                     (index, root_id, model_type),
                 )
 
+    def delete_binding(self, root_id: str, model_type: str) -> None:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM model_root_bindings WHERE root_id = ? AND model_type = ?",
+                (root_id, model_type),
+            )
+
     def bindings_for_root(self, root_id: str) -> List[Dict[str, Any]]:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:

@@ -53,8 +53,8 @@ class DuplicateRootError(ModelRootsError):
 class RootOverlapError(ModelRootsError):
     code = "model_roots_overlap"
 
-    def __init__(self, root_id: str, existing_path: str):
-        super().__init__(f"overlaps '{existing_path}' on root '{root_id}'")
+    def __init__(self, root_id: str, label: str, existing_path: str):
+        super().__init__(f"overlaps '{existing_path}' on root '{label}'")
         self.root_id = root_id
         self.existing_path = existing_path
 
@@ -62,8 +62,8 @@ class RootOverlapError(ModelRootsError):
 class RootOfflineError(ModelRootsError):
     code = "model_roots_offline"
 
-    def __init__(self, root_id: str, state: str):
-        super().__init__(f"Root '{root_id}' is {state}")
+    def __init__(self, root_id: str, label: str, state: str):
+        super().__init__(f"Root '{label}' is {state}")
         self.root_id = root_id
         self.state = state
 
@@ -71,8 +71,8 @@ class RootOfflineError(ModelRootsError):
 class RootReadOnlyRefusalError(ModelRootsError):
     code = "model_roots_read_only"
 
-    def __init__(self, root_id: str):
-        super().__init__(f"Root '{root_id}' is read-only")
+    def __init__(self, root_id: str, label: str):
+        super().__init__(f"Root '{label}' is read-only")
         self.root_id = root_id
 
 
@@ -94,8 +94,8 @@ class GenerationActiveError(ModelRootsError):
 class HomeProtectedError(ModelRootsError):
     code = "model_roots_home_protected"
 
-    def __init__(self, root_id: str):
-        super().__init__(f"Root '{root_id}' is the built-in home root and is protected")
+    def __init__(self, root_id: str, label: str):
+        super().__init__(f"Root '{label}' is the built-in home root and is protected")
         self.root_id = root_id
 
 
@@ -200,6 +200,10 @@ class ModelRootsManager:
             if not target.is_dir() or not os.access(target, os.R_OK):
                 raise InvalidBindingError(spec.model_type, spec.subdir)
 
+    def _label_for(self, root_id: str) -> str:
+        row = self._repository.get_root(root_id)
+        return row["label"] if row is not None else root_id
+
     def _types_bound_by(self, root_ids: Sequence[str]) -> List[str]:
         types = set()
         for row in self._repository.list_bindings():
@@ -233,15 +237,16 @@ class ModelRootsManager:
         candidate_paths = [self._binding_path(root_path, spec.subdir) for spec in binding_list]
         conflicts = self._overlap_conflicts(candidate_paths)
         if conflicts:
-            raise RootOverlapError(conflicts[0][0], str(conflicts[0][1]))
-
-        write_types_set = set(write_types)
-        if write_types_set and read_only:
-            raise RootReadOnlyRefusalError("(new root)")
+            raise RootOverlapError(conflicts[0][0], self._label_for(conflicts[0][0]), str(conflicts[0][1]))
 
         root_id = generate_ulid()
         now = now_iso()
         label_value = label or root_path.name or root_id
+
+        write_types_set = set(write_types)
+        if write_types_set and read_only:
+            raise RootReadOnlyRefusalError(root_id, label_value)
+
         self._repository.insert_root(
             root_id, label_value, path, path_key, "library", read_only, case_insensitive, now
         )
@@ -274,17 +279,21 @@ class ModelRootsManager:
         path: Optional[str] = None,
         read_only: Optional[bool] = None,
         bindings: Optional[Sequence[BindingSpec]] = None,
+        remove_types: Optional[Sequence[str]] = None,
     ) -> Dict[str, Any]:
         row = self._repository.get_root(root_id)
         if row is None:
             raise RootNotFoundError(root_id)
 
-        touches_disk = path is not None or bindings is not None
+        remove_types_list = [t for t in (remove_types or []) if t]
+        touches_disk = path is not None or bindings is not None or bool(remove_types_list)
         if touches_disk and self._generation_active():
             raise GenerationActiveError()
 
         if root_id == HOME_ROOT_ID and read_only:
-            raise HomeProtectedError(root_id)
+            raise HomeProtectedError(root_id, row["label"])
+        if root_id == HOME_ROOT_ID and remove_types_list:
+            raise HomeProtectedError(root_id, row["label"])
 
         now = now_iso()
         new_path_str: Optional[str] = None
@@ -305,7 +314,7 @@ class ModelRootsManager:
             ]
             conflicts = self._overlap_conflicts(candidate_paths, exclude_root_id=root_id)
             if conflicts:
-                raise RootOverlapError(conflicts[0][0], str(conflicts[0][1]))
+                raise RootOverlapError(conflicts[0][0], self._label_for(conflicts[0][0]), str(conflicts[0][1]))
 
             new_path_str = path
             effective_path = path
@@ -332,17 +341,29 @@ class ModelRootsManager:
                 self._repository.upsert_binding(root_id, spec.model_type, spec.subdir, position, False)
                 max_positions[spec.model_type] = position
 
+        if remove_types_list:
+            current_bindings_by_type = {b["model_type"]: b for b in self._repository.bindings_for_root(root_id)}
+            for model_type in remove_types_list:
+                binding = current_bindings_by_type.get(model_type)
+                if binding is None:
+                    continue
+                was_write = bool(binding["is_write"])
+                self._repository.delete_binding(root_id, model_type)
+                self._locations.delete_for_root_and_type(root_id, model_type)
+                if was_write:
+                    self._repository.set_write(HOME_ROOT_ID, model_type)
+
         self._resolver.invalidate()
         if touches_disk:
             self._indexing.cancel_and_restart(trigger="roots_change")
         return self._root_view(root_id)
 
     def delete_root(self, root_id: str) -> None:
-        if root_id == HOME_ROOT_ID:
-            raise HomeProtectedError(root_id)
         row = self._repository.get_root(root_id)
         if row is None:
             raise RootNotFoundError(root_id)
+        if root_id == HOME_ROOT_ID:
+            raise HomeProtectedError(root_id, row["label"])
         if self._generation_active():
             raise GenerationActiveError()
 
@@ -381,7 +402,7 @@ class ModelRootsManager:
         if row is None:
             raise RootNotFoundError(root_id)
         if row["read_only"]:
-            raise RootReadOnlyRefusalError(root_id)
+            raise RootReadOnlyRefusalError(root_id, row["label"])
 
         types = [model_type] if model_type else self._types_bound_by([root_id])
         if not types:
@@ -390,7 +411,7 @@ class ModelRootsManager:
         root_model = self._to_model_root(row)
         state, _reason = self._probe.state(root_model)
         if state != "online":
-            raise RootOfflineError(root_id, state)
+            raise RootOfflineError(root_id, row["label"], state)
 
         root_path = self._resolve_base(row["path"])
         bindings_by_type = {b["model_type"]: b for b in self._repository.bindings_for_root(root_id)}
@@ -438,17 +459,28 @@ class ModelRootsManager:
         value = setting.get_typed_value() if setting else []
         return value or []
 
+    def _unindexed_counts(self) -> Dict[Tuple[str, str], int]:
+        try:
+            return self._indexing.scanner.count_unindexed_by_binding()
+        except Exception:
+            return {}
+
     def _root_view(self, root_id: str) -> Dict[str, Any]:
         row = self._repository.get_root(root_id)
         if row is None:
             raise RootNotFoundError(root_id)
         bindings = sorted(self._repository.bindings_for_root(root_id), key=lambda b: (b["model_type"], b["position"]))
         aggregates = self._locations.aggregate_by_root_and_type()
-        return self._build_root_dict(row, bindings, aggregates)
+        return self._build_root_dict(row, bindings, aggregates, self._unindexed_counts())
 
     def _build_root_dict(
-        self, row: Dict[str, Any], bindings: List[Dict[str, Any]], aggregates: Dict[Tuple[str, str], Dict[str, int]]
+        self,
+        row: Dict[str, Any],
+        bindings: List[Dict[str, Any]],
+        aggregates: Dict[Tuple[str, str], Dict[str, int]],
+        unindexed: Optional[Dict[Tuple[str, str], int]] = None,
     ) -> Dict[str, Any]:
+        unindexed = unindexed or {}
         root_path = self._resolve_base(row["path"])
         binding_dicts = []
         for binding in bindings:
@@ -464,7 +496,7 @@ class ModelRootsManager:
                 "is_write": bool(binding["is_write"]),
                 "indexed_files": agg["indexed_files"],
                 "size_bytes": agg["size_bytes"],
-                "unindexed": 0,
+                "unindexed": unindexed.get((row["id"], binding["model_type"]), 0),
             })
         return {
             "id": row["id"],
@@ -488,11 +520,13 @@ class ModelRootsManager:
         for binding in bindings_rows:
             bindings_by_root.setdefault(binding["root_id"], []).append(binding)
 
+        unindexed = self._unindexed_counts()
         roots_out = [
             self._build_root_dict(
                 row,
                 sorted(bindings_by_root.get(row["id"], []), key=lambda b: (b["model_type"], b["position"])),
                 aggregates,
+                unindexed,
             )
             for row in roots_rows
         ]

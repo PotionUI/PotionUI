@@ -1,11 +1,9 @@
 """Tests for the native engine's backend."""
 
-import threading
 import unittest
 from unittest.mock import Mock, patch
 
 from src.features.backends.backend_config import NativeBackendConfig
-from src.features.backends.model_listing import BackendModel
 from src.features.backends.native_backend import NativeBackend
 from src.pipelines.contracts import PipeInput
 from src.pipelines.pipes._shared.generation.loader_helpers import vram_budget as _loader_vram_budget
@@ -107,68 +105,11 @@ class TestNativeBackendVramBudgetComposition(unittest.TestCase):
         self.assertAlmostEqual(budget, 8.0)
 
 
-class TestNativeBackendListModels(unittest.IsolatedAsyncioTestCase):
-    """
-    `models_dir` is read lazily through a freshly-constructed Settings, because
-    BackendRegistry builds backends with `backend_class(backend_config=config)` and
-    cannot inject one. Guards against reintroducing a module-level `settings`
-    import, which `src.platform.settings.settings` does not export.
-    """
-
-    async def test_scans_the_models_dir_from_settings(self):
+class TestNativeBackendModelListing(unittest.TestCase):
+    def test_does_not_support_model_listing(self):
         backend = _backend()
-        settings = Mock()
-        settings.get_models_dir.return_value = "/srv/weights"
 
-        with patch("src.platform.settings.settings.Settings", return_value=settings), \
-             patch("src.platform.settings.repository.SettingRepository"), \
-             patch(
-                 "src.features.backends.native_backend.scan_native_models",
-                 return_value=[],
-             ) as scan:
-            await backend.list_models()
-
-        scan.assert_called_once_with("/srv/weights")
-
-    async def test_deduplicates_the_scan_result(self):
-        backend = _backend()
-        dupe = BackendModel(model_type="upscalers", filename="up.pth", ref="up.pth")
-        settings = Mock()
-        settings.get_models_dir.return_value = "models"
-
-        with patch("src.platform.settings.settings.Settings", return_value=settings), \
-             patch("src.platform.settings.repository.SettingRepository"), \
-             patch(
-                 "src.features.backends.native_backend.scan_native_models",
-                 return_value=[dupe, dupe],
-             ):
-            models = await backend.list_models()
-
-        self.assertEqual(len(models), 1)
-
-
-class TestNativeBackendListModelsOffTheEventLoop(unittest.IsolatedAsyncioTestCase):
-    async def test_scan_runs_off_the_event_loop_thread(self):
-        backend = _backend()
-        settings = Mock()
-        settings.get_models_dir.return_value = "models"
-        loop_thread = threading.get_ident()
-        scan_threads = []
-
-        def recording_scan(models_dir):
-            scan_threads.append(threading.get_ident())
-            return []
-
-        with patch("src.platform.settings.settings.Settings", return_value=settings), \
-             patch("src.platform.settings.repository.SettingRepository"), \
-             patch(
-                 "src.features.backends.native_backend.scan_native_models",
-                 side_effect=recording_scan,
-             ):
-            await backend.list_models()
-
-        self.assertEqual(len(scan_threads), 1)
-        self.assertNotEqual(scan_threads[0], loop_thread)
+        self.assertFalse(backend.supports_model_listing())
 
 
 class TestNativeEngineFields(unittest.TestCase):

@@ -5,7 +5,7 @@ import time
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE, MODEL_TYPE_TO_DIRECTORY, MODEL_TYPES
 
@@ -54,6 +54,7 @@ class ModelRoot:
     case_insensitive: bool
     state: str
     state_reason: Optional[str]
+    raw_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,7 @@ class TypeDir:
     path: Path
     position: int
     is_write: bool
+    subdir: str = ""
 
 
 @dataclass(frozen=True)
@@ -227,6 +229,7 @@ class ModelRootResolver:
                 case_insensitive=bool(row["case_insensitive"]),
                 state=row["state"],
                 state_reason=row["state_reason"],
+                raw_path=row["path"],
             )
             for row in self._repository.list_roots()
         )
@@ -246,6 +249,7 @@ class ModelRootResolver:
                 path=type_dir_path,
                 position=row["position"],
                 is_write=bool(row["is_write"]),
+                subdir=subdir,
             )
             by_type.setdefault(entry.model_type, []).append(entry)
 
@@ -272,6 +276,17 @@ class ModelRootResolver:
             if state == "online":
                 online.append(entry)
         return online
+
+    def is_online_for(self, root_id: str, model_type: str) -> bool:
+        return any(entry.root_id == root_id for entry in self.type_dirs(model_type, online_only=True))
+
+    def online_root_ids(self) -> Set[str]:
+        snapshot = self._snapshot_or_build()
+        ids: Set[str] = set()
+        for model_type in snapshot.type_dirs_by_type:
+            for entry in self.type_dirs(model_type, online_only=True):
+                ids.add(entry.root_id)
+        return ids
 
     def write_dir(self, model_type: str) -> TypeDir:
         snapshot = self._snapshot_or_build()
@@ -351,6 +366,16 @@ class ModelRootResolver:
         home = self.home_dir()
         rel_parts = _validate_rel_path(subdir).parts
         return home.joinpath(*rel_parts) if rel_parts else home
+
+
+def physical_legacy_ref(raw_root_path: str, subdir: str, rel_path: str) -> str:
+    root = Path(raw_root_path)
+    parts: List[str] = []
+    if subdir:
+        parts.extend(PurePosixPath(subdir).parts)
+    if rel_path:
+        parts.extend(PurePosixPath(rel_path).parts)
+    return str(root.joinpath(*parts)) if parts else str(root)
 
 
 def ensure_home_bindings(

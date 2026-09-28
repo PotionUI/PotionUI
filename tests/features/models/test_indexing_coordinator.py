@@ -1,11 +1,13 @@
 import asyncio
 import threading
 import time
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.features.models.exceptions import ModelIndexingException
+from src.features.models.indexer import ModelScanner
 from src.features.models.indexing_coordinator import ModelIndexingCoordinator
 
 
@@ -350,3 +352,115 @@ def test_start_indexing_during_the_tail_window_does_not_get_dropped():
     assert status["state"] == "done"
     assert status["restart_pending"] is False
     assert scanner.index_models_calls == 2
+
+
+def _real_scanner(tmp_path, root_id="r_home", model_type="checkpoint"):
+    from src.platform.database.rows import now_iso
+    from src.platform.filesystem.model_roots import ModelRoot, ModelRootResolver, TypeDir, _Snapshot, root_path_key
+    from src.platform.filesystem.model_roots_repository import ModelRootRepository
+    from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
+
+    root_dir = tmp_path / root_id
+    type_dir = root_dir / MODEL_TYPE_TO_DIRECTORY[model_type]
+    type_dir.mkdir(parents=True, exist_ok=True)
+
+    now = now_iso()
+    key = root_path_key(str(root_dir))
+    repo = ModelRootRepository()
+    repo.insert_root(root_id, root_id, str(root_dir), key, "library", False, False, now)
+    repo.insert_binding(root_id, model_type, MODEL_TYPE_TO_DIRECTORY[model_type], 1000, False)
+
+    resolver = ModelRootResolver(repository=None, probe=None, base_dir=Path.cwd())
+    root = ModelRoot(
+        id=root_id, label=root_id, path=root_dir, kind="library", read_only=False,
+        case_insensitive=False, state="online", state_reason=None, raw_path=str(root_dir),
+    )
+    binding = TypeDir(root_id=root_id, model_type=model_type, path=type_dir, position=1000, is_write=False,
+                       subdir=MODEL_TYPE_TO_DIRECTORY[model_type])
+    resolver._snapshot = _Snapshot(
+        roots=(root,), roots_by_id={root_id: root}, type_dirs_by_type={model_type: (binding,)},
+    )
+    resolver._probe = _AlwaysOnlineProbe()
+    return ModelScanner(resolver), root_dir, type_dir
+
+
+class _AlwaysOnlineProbe:
+    def state(self, root):
+        return ("online", None)
+
+
+def _coordinator_for(scanner):
+    return ModelIndexingCoordinator(
+        model_repository=MagicMock(), plugin_registry=FakePluginRegistry(), scanner=scanner,
+    )
+
+
+def test_status_reports_per_root_state_and_last_run_counts(tmp_path, mock_db):
+    scanner, root_dir, type_dir = _real_scanner(tmp_path)
+    (type_dir / "a.safetensors").write_bytes(b"content")
+    coordinator = _coordinator_for(scanner)
+    coordinator.start_indexing(trigger="manual")
+
+    coordinator.run_indexing()
+
+    status = coordinator.status()
+    assert status["state"] == "done"
+    root_entries = {r["root_id"]: r for r in status["roots"]}
+    assert root_entries["r_home"]["state"] == "online"
+    assert root_entries["r_home"]["found"] == 1
+    assert root_entries["r_home"]["indexed"] == 1
+    assert root_entries["r_home"]["failed"] == 0
+    assert status["conflicts"] == []
+    assert status["duplicates"] == []
+
+
+def test_index_path_indexes_one_file_without_touching_state(tmp_path, mock_db):
+    scanner, root_dir, type_dir = _real_scanner(tmp_path)
+    path = type_dir / "single.safetensors"
+    path.write_bytes(b"single-file-content")
+    coordinator = _coordinator_for(scanner)
+
+    result = coordinator.index_path(str(path))
+
+    assert result["indexed"] is True
+    assert result["model_id"] is not None
+    status = coordinator.status()
+    assert status["state"] == "idle"
+    assert status["last_single_index"]["path"] == str(path)
+    assert status["last_single_index"]["model_id"] == result["model_id"]
+
+
+def test_index_path_refuses_a_path_outside_every_root(tmp_path, mock_db):
+    scanner, root_dir, type_dir = _real_scanner(tmp_path)
+    outside = tmp_path / "elsewhere" / "x.safetensors"
+    outside.parent.mkdir(parents=True)
+    outside.write_bytes(b"x")
+    coordinator = _coordinator_for(scanner)
+
+    with pytest.raises(ModelIndexingException):
+        coordinator.index_path(str(outside))
+
+
+def test_index_path_and_a_full_run_share_the_scanners_write_lock(tmp_path, mock_db):
+    scanner, root_dir, type_dir = _real_scanner(tmp_path)
+    coordinator = _coordinator_for(scanner)
+
+    assert coordinator.scanner._write_lock is scanner._write_lock
+
+
+def test_cleanup_deleted_models_removes_missing_locations_on_online_roots_only(tmp_path, mock_db):
+    scanner, root_dir, type_dir = _real_scanner(tmp_path)
+    path = type_dir / "gone.safetensors"
+    path.write_bytes(b"will vanish")
+    coordinator = _coordinator_for(scanner)
+    coordinator.start_indexing(trigger="manual")
+    coordinator.run_indexing()
+
+    path.unlink()
+    coordinator.start_indexing(trigger="manual")
+    coordinator.run_indexing()
+
+    result = coordinator.cleanup_deleted_models()
+
+    assert result["deleted_locations"] == 1
+    assert scanner.locations.list_for_root_type("r_home", "checkpoint") == []

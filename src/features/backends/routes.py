@@ -76,11 +76,13 @@ class BackendController(BaseController):
         settings: Settings,
         backend_registry: BackendRegistry,
         model_lifecycle=None,
+        model_indexing_coordinator=None,
     ):
         super().__init__()
         self.settings = settings
         self.backend_registry = backend_registry
         self.model_lifecycle = model_lifecycle
+        self.model_indexing_coordinator = model_indexing_coordinator
         # Use the backend_config_store from the registry to get plugin-registered types
         self.backend_config_store = backend_registry.backend_config_store
 
@@ -434,6 +436,7 @@ class BackendController(BaseController):
         fact about a backend. Native answers with a filesystem scan; a ComfyUI server
         answers over HTTP. See docs/models.md.
         """
+        from src.features.backends.backend_config import NATIVE_ENGINE, NATIVE_LOCAL_DRIVER
         from src.features.backends.model_listing import ModelListingNotSupported
         from src.features.models.backend_indexer import backend_model_indexer
 
@@ -449,6 +452,22 @@ class BackendController(BaseController):
                 return self.error_response(
                     error="backend_not_active",
                     message=f"Backend '{backend_id}' is not active (may be disabled)"
+                )
+
+            is_native_local = (
+                backend.engine == NATIVE_ENGINE and getattr(backend.config, "driver", "") == NATIVE_LOCAL_DRIVER
+            )
+            if is_native_local:
+                if self.model_indexing_coordinator is None:
+                    return self.error_response(
+                        error="model_listing_not_supported",
+                        message="Native model indexing is not wired up on this controller",
+                        status_code=400,
+                    )
+                self.model_indexing_coordinator.cancel_and_restart(trigger="admin_reindex")
+                return self.success_response(
+                    data=self.model_indexing_coordinator.status(),
+                    message=f"Started rescanning model roots for '{backend.name}'",
                 )
 
             result = await backend_model_indexer.index_backend(backend)
@@ -1065,6 +1084,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         container.settings,
         container.backend_registry,
         container.model_lifecycle,
+        model_indexing_coordinator=container.model_index_manager.indexing,
     )
     router = APIRouter(prefix="/api/backends", tags=["Backends"])
 

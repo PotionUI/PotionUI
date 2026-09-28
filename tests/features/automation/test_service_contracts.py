@@ -128,6 +128,28 @@ class TestAutomationWiring(unittest.TestCase):
                         return node.module
         return None
 
+    @staticmethod
+    def _attribute_chain_assignment_of(tree: ast.AST, bound_name: str) -> list[str] | None:
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id == bound_name
+            ):
+                continue
+            chain: list[str] = []
+            cursor = node.value
+            while isinstance(cursor, ast.Attribute):
+                chain.append(cursor.attr)
+                cursor = cursor.value
+            if not isinstance(cursor, ast.Name):
+                return None
+            chain.append(cursor.id)
+            chain.reverse()
+            return chain
+        return None
+
     def setUp(self):
         self.tree = ast.parse(COMPOSITION_ROOT.read_text())
         self.kwargs = self._automation_services_kwargs(self.tree)
@@ -139,16 +161,17 @@ class TestAutomationWiring(unittest.TestCase):
         )
 
         source_module = self._import_source_of(self.tree, value.id)
-        origin = (
-            f"imported from '{source_module}'"
-            if source_module
-            else f"a local variable (`{value.id}` is built inside build_container(), "
-            "which is how the src.features.models.directory directory scanner got injected before)"
-        )
+        if source_module == "src.features.models.indexer":
+            return
+
+        chain = self._attribute_chain_assignment_of(self.tree, value.id)
         self.assertEqual(
-            source_module,
-            "src.features.models.indexer",
-            f"AutomationServices(model_indexer=...) was given `{value.id}`, {origin}. "
+            chain, ["model_index_manager", "indexing", "scanner"],
+            f"AutomationServices(model_indexer=...) was given `{value.id}`, which resolves to "
+            f"{'.'.join(chain) if chain else 'neither an import nor an attribute-chain assignment'}. "
+            "Expected an import from 'src.features.models.indexer', or a local variable assigned "
+            "`model_index_manager.indexing.scanner` - the real ModelScanner instance every other "
+            "model action already reaches through ModelIndexCollaborators/ModelIndexingCoordinator. "
             "action.index_model needs index_single_model(), which only exists on "
             "src.features.models.indexer.ModelScanner.",
         )

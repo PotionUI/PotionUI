@@ -51,7 +51,7 @@ class TestModelPreviewIntegration(PersistenceTestBase):
         # -constructed module-level scanner singleton to resolve models_dir,
         # which hits the settings DB for real.
         self.collaborators = build_model_index_collaborators(
-            self.repo, tag_repo, Mock(), self.settings, Mock(), models_root=self.storage
+            self.repo, tag_repo, Mock(), self.settings, Mock(), model_roots=Mock(), models_root=self.storage
         )
 
     def tearDown(self):
@@ -172,7 +172,7 @@ class TestModelPreviewListIntegration(PersistenceTestBase):
         # -constructed module-level scanner singleton to resolve models_dir,
         # which hits the settings DB for real.
         self.collaborators = build_model_index_collaborators(
-            self.repo, tag_repo, Mock(), self.settings, Mock(), models_root=self.storage
+            self.repo, tag_repo, Mock(), self.settings, Mock(), model_roots=Mock(), models_root=self.storage
         )
 
     def tearDown(self):
@@ -341,7 +341,7 @@ class TestModelPreviewAccessControl(PersistenceTestBase):
         # -constructed module-level scanner singleton to resolve models_dir,
         # which hits the settings DB for real.
         self.collaborators = build_model_index_collaborators(
-            self.repo, tag_repo, Mock(), self.settings, Mock(), models_root=self.storage
+            self.repo, tag_repo, Mock(), self.settings, Mock(), model_roots=Mock(), models_root=self.storage
         )
 
         # `files.user_id` is a real FK, so the uploading admin needs a row too -

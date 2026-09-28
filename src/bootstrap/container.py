@@ -1144,6 +1144,7 @@ def build_container() -> AppContainer:
         plugin_registry=plugin_registry,
         settings=settings,
         download_queue=download_queue,
+        model_roots=model_roots,
         models_root=models_dir,
         generation_active=_generation_active,
         storage_driver=storage_driver,
@@ -1207,11 +1208,7 @@ def build_container() -> AppContainer:
     from src.platform.websocket.automation_connection_hub import automation_connection_hub
     from src.features.automation.routes import AutomationController
 
-    # `action.index_model` needs `index_single_model()` with its SHA256 dedup,
-    # which lives on `src.features.models.indexer.ModelScanner` - the same
-    # scanner `ModelIndexCollaborators` uses. Imported as the lazy proxy
-    # singleton because its `__init__` reads the settings DB.
-    from src.features.models.indexer import model_scanner as file_model_indexer
+    file_model_indexer = model_index_manager.indexing.scanner
 
     # `action.index_models` runs the same per-backend availability indexing the
     # admin "Index models" button does: live backend instances come from the
@@ -1430,6 +1427,7 @@ def build_container() -> AppContainer:
         backend_model_indexer=backend_model_indexer,
         download_queue=download_queue,
         step_kind_registry=recipe_step_kind_registry,
+        model_scanner=model_index_manager.indexing.scanner,
     )
     # `workspace.activate` is the first-run wizard's own step, so setup - not
     # recipes - contributes it. Recipes mark it `onboarding_only`, so an admin

@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -149,6 +150,57 @@ class TestUpdateRoot:
     def test_unknown_root_raises_not_found(self, manager):
         with pytest.raises(RootNotFoundError):
             manager.update_root("does-not-exist", label="x")
+
+
+class TestRemoveBindingType:
+    def test_removes_the_binding(self, manager, library_dir):
+        created = manager.create_root(
+            str(library_dir),
+            bindings=[BindingSpec("lora", "loras"), BindingSpec("checkpoint", "checkpoints")],
+        )
+
+        updated = manager.update_root(created["id"], remove_types=["lora"])
+
+        types = {b["model_type"] for b in updated["bindings"]}
+        assert types == {"checkpoint"}
+
+    def test_write_root_falls_back_to_home(self, manager, library_dir):
+        created = manager.create_root(
+            str(library_dir), bindings=[BindingSpec("lora", "loras")], write_types=["lora"]
+        )
+
+        manager.update_root(created["id"], remove_types=["lora"])
+
+        overview = manager.get_overview()
+        lora_type = next(t for t in overview["types"] if t["model_type"] == "lora")
+        assert lora_type["write_root_id"] == HOME_ROOT_ID
+
+    def test_removed_binding_locations_are_deleted(self, manager, library_dir):
+        created = manager.create_root(str(library_dir), bindings=[BindingSpec("lora", "loras")])
+        manager._locations.delete_for_root_and_type = Mock(wraps=manager._locations.delete_for_root_and_type)
+
+        manager.update_root(created["id"], remove_types=["lora"])
+
+        manager._locations.delete_for_root_and_type.assert_called_once_with(created["id"], "lora")
+
+    def test_home_bindings_cannot_be_removed(self, manager):
+        with pytest.raises(HomeProtectedError):
+            manager.update_root(HOME_ROOT_ID, remove_types=["lora"])
+
+    def test_refuses_while_generation_active(self, manager, library_dir):
+        created = manager.create_root(str(library_dir), bindings=[BindingSpec("lora", "loras")])
+        manager._generation_active = lambda: True
+
+        with pytest.raises(GenerationActiveError):
+            manager.update_root(created["id"], remove_types=["lora"])
+
+    def test_unknown_type_is_a_no_op(self, manager, library_dir):
+        created = manager.create_root(str(library_dir), bindings=[BindingSpec("lora", "loras")])
+
+        updated = manager.update_root(created["id"], remove_types=["checkpoint"])
+
+        types = {b["model_type"] for b in updated["bindings"]}
+        assert types == {"lora"}
 
 
 class TestDeleteRoot:

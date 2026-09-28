@@ -1,4 +1,6 @@
 import logging
+import os
+import platform
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from fastapi import APIRouter, BackgroundTasks, Depends
@@ -51,6 +53,7 @@ class UpdateRootRequest(BaseModel):
     path: Optional[str] = None
     read_only: Optional[bool] = None
     bindings: Optional[List[BindingRequest]] = None
+    remove_types: Optional[List[str]] = None
 
 
 class ReorderRootsRequest(BaseModel):
@@ -78,7 +81,10 @@ class ModelRootsController(BaseController):
         background_tasks.add_task(self.indexing.run_indexing)
 
     async def list_roots(self) -> APIResponse:
-        return self.success_response(data=self.manager.get_overview())
+        data = self.manager.get_overview()
+        data["server_os"] = platform.system() or "Linux"
+        data["path_style"] = "windows" if os.name == "nt" else "posix"
+        return self.success_response(data=data)
 
     async def detect(self, request: DetectRootRequest) -> APIResponse:
         result = root_detection.detect(request.path, resolver=self.manager.resolver)
@@ -113,6 +119,7 @@ class ModelRootsController(BaseController):
                     if request.bindings is not None
                     else None
                 ),
+                remove_types=request.remove_types,
             )
         except ModelRootsError as error:
             self._raise_for(error)

@@ -83,8 +83,8 @@ async function gotoSetup(page: Page) {
 	await expect(page.getByText('Models location')).toBeVisible({ timeout: 15000 });
 }
 
-async function gotoAdminStorage(page: Page) {
-	await page.goto('/admin?tab=settings&view=storage');
+async function gotoAdminModelsFolders(page: Page) {
+	await page.goto('/admin?tab=models&view=folders');
 	const heading = page.getByRole('heading', { name: 'Models Location' });
 	await expect(heading).toBeVisible({ timeout: 15000 });
 	await heading.scrollIntoViewIfNeeded();
@@ -261,7 +261,7 @@ test.describe('model indexing visibility - admin panel', () => {
 		await loginAsOwner(page);
 		await mockModelsLocation(page, locationConfig());
 		await mockIndexingStatus(page, { state: 'indexing', processed: 900, total: 1200 });
-		await gotoAdminStorage(page);
+		await gotoAdminModelsFolders(page);
 		await expect(page.getByText('900 / 1200')).toBeVisible({ timeout: 10000 });
 		await screenshot(page, JOURNEY, 'admin-indexing-progress');
 	});
@@ -277,7 +277,7 @@ test.describe('model indexing visibility - admin panel', () => {
 			found_on_disk: 0,
 			scanned_roots: ['/mnt/storage/models']
 		});
-		await gotoAdminStorage(page);
+		await gotoAdminModelsFolders(page);
 		await expect(page.getByText('No model files found in')).toBeVisible({ timeout: 10000 });
 		const createdEmptyLine = page.getByText('No matching folder found, created empty');
 		await expect(createdEmptyLine).toBeVisible();
@@ -292,7 +292,7 @@ test.describe('model indexing visibility - admin panel', () => {
 			state: 'blocked',
 			error: 'The antivirus-scan plugin vetoed this run: quarantine directory is full.'
 		});
-		await gotoAdminStorage(page);
+		await gotoAdminModelsFolders(page);
 		await expect(page.getByText('antivirus-scan plugin vetoed')).toBeVisible({ timeout: 10000 });
 		await screenshot(page, JOURNEY, 'admin-blocked');
 	});
@@ -312,7 +312,7 @@ test.describe('model indexing visibility - admin panel', () => {
 			],
 			failed_files_total: 1
 		});
-		await gotoAdminStorage(page);
+		await gotoAdminModelsFolders(page);
 		const toggle = page.getByRole('button', { name: /file failed/ });
 		await expect(toggle).toBeVisible({ timeout: 10000 });
 		await toggle.click();

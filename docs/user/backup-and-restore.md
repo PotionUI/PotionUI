@@ -7,7 +7,7 @@ order: 85
 
 PotionUI's state isn't just the database. Your generation history, the media files it points to, your local presets, plugins and automation templates, your credentials, and your saved prompts, phrasebook entries and profile avatars are all spread across the database and several directories on disk. A useful backup has to gather all of that consistently, not just copy `db.sqlite`. The `./potionui backup` and `./potionui restore` commands do this for you.
 
-**Administration → System Settings → Storage → Backups** does the same thing from the browser: it holds the destination, the retention count and the default tier, takes a backup on demand, lists the archives already there, and prints the cron line below for the schedule. Both read the same `backup_destination` setting, so a backup taken from the panel and one taken by cron land in the same directory. Restore has no panel — the app has to be stopped for it.
+**Administration → System Settings → Backups** does the same thing from the browser: it holds the destination, the retention count and the default tier, takes a backup on demand, lists the archives already there, and prints the cron line below for the schedule. Both read the same `backup_destination` setting, so a backup taken from the panel and one taken by cron land in the same directory. Restore has no panel — the app has to be stopped for it.
 
 ## What is backed up
 

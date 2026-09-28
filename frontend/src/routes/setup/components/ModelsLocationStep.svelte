@@ -94,7 +94,7 @@
 			<h2 class="text-sm font-semibold text-fg">Models location</h2>
 			<p class="text-sm text-fg-muted mt-0.5">
 				Point PotionUI at an external directory for model files before anything downloads.
-				You can change this later in Admin - System Settings.
+				You can change this later in Admin - Models - Folders.
 			</p>
 		</div>
 

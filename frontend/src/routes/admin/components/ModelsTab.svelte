@@ -40,10 +40,13 @@
 	import AttributeDetailPage from './models/AttributeDetailPage.svelte';
 	import ModelDetailPage from './models/ModelDetailPage.svelte';
 	import BulkTagModal from './models/BulkTagModal.svelte';
+	import { DetailHeader, DetailBody, DetailLayout } from '$lib/components/detail';
+	import ModelsLocationPanel from './settings/ModelsLocationPanel.svelte';
 	import {
 		MODEL_LIBRARY_SECTIONS,
 		MODELS_ALL_SECTION,
 		MODELS_ATTRIBUTES_SECTION,
+		MODELS_FOLDERS_SECTION,
 		modelLibraryShellSection,
 		modelLibrarySectionCounts,
 		modelTypeRows
@@ -168,8 +171,9 @@
 
 	const section = $derived($page.url.searchParams.get('view') || 'all');
 	const viewId = $derived($page.url.searchParams.get('id'));
-	const detailOpen = $derived(!!viewId);
 	const isAttributesSection = $derived(section === MODELS_ATTRIBUTES_SECTION);
+	const isFoldersSection = $derived(section === MODELS_FOLDERS_SECTION);
+	const detailOpen = $derived(!!viewId || isFoldersSection);
 
 	const typeRows = $derived(modelTypeRows(modelTypes));
 	const selectedTypeLabel = $derived(
@@ -207,7 +211,7 @@
 		if (nextSection !== 'all') params.set('view', nextSection);
 		if (nextSection === MODELS_ATTRIBUTES_SECTION) {
 			for (const [key, value] of attributesFiltersToSearchParams(overrides.attrFilters ?? attrFilters)) params.set(key, value);
-		} else {
+		} else if (nextSection !== MODELS_FOLDERS_SECTION) {
 			for (const [key, value] of modelsFiltersToSearchParams(overrides.modelFilters ?? filters)) params.set(key, value);
 		}
 		const id = overrides.id !== undefined ? overrides.id : viewId;
@@ -272,7 +276,7 @@
 		void filters;
 		void section;
 		currentPage = 1;
-		if (!loading && !isAttributesSection) {
+		if (!loading && !isAttributesSection && !isFoldersSection) {
 			loadModels();
 			loadModelTypes();
 		}
@@ -282,7 +286,7 @@
 		try {
 			const { sort_by, sort_order } = modelsSortParams(filters.sortBy);
 			const response = await api.getModels({
-				model_type: section === 'all' || isAttributesSection ? undefined : section,
+				model_type: section === 'all' || isAttributesSection || isFoldersSection ? undefined : section,
 				...modelsQueryParams(filters),
 				tag_ids: filters.tags.length > 0 ? filters.tags.join(',') : undefined,
 				sort_by,
@@ -374,7 +378,7 @@
 				{
 					...modelsQueryParams(filters),
 					tag_ids: filters.tags.length > 0 ? filters.tags.join(',') : undefined,
-					model_type: section === 'all' || isAttributesSection ? undefined : section,
+					model_type: section === 'all' || isAttributesSection || isFoldersSection ? undefined : section,
 					include_tag_counts: true
 				},
 				request.signal
@@ -724,7 +728,7 @@
 	total={isAttributesSection ? definitions.length : totalCount}
 >
 	{#snippet sidebarTree()}
-		{#if !isAttributesSection && typeRows.length > 0}
+		{#if !isAttributesSection && !isFoldersSection && typeRows.length > 0}
 			<div class="border-t border-line">
 				<div class="px-3 pb-1 pt-2 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">By type</div>
 				<div class="space-y-0.5 p-2 pt-0">
@@ -971,7 +975,18 @@
 	{/snippet}
 
 	{#if detailOpen}
-		{#if isAttributesSection}
+		{#if isFoldersSection}
+			<div class="flex h-full min-h-0 flex-col">
+				<DetailHeader title="Folders" />
+				<DetailBody>
+					<DetailLayout>
+						{#snippet main()}
+							<ModelsLocationPanel />
+						{/snippet}
+					</DetailLayout>
+				</DetailBody>
+			</div>
+		{:else if isAttributesSection}
 			{#if !selectedDefinition}
 				<div class="flex h-full items-center justify-center">
 					{#if attrLoading}

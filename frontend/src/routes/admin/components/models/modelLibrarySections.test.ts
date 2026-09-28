@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
 	MODELS_ALL_SECTION,
 	MODELS_ATTRIBUTES_SECTION,
+	MODELS_FOLDERS_SECTION,
 	MODEL_LIBRARY_SECTIONS,
 	modelLibraryShellSection,
 	modelLibrarySectionCounts,
@@ -9,9 +10,13 @@ import {
 } from './modelLibrarySections';
 
 describe('MODEL_LIBRARY_SECTIONS', () => {
-	it('is All models then Attributes', () => {
-		expect(MODEL_LIBRARY_SECTIONS.map((s) => s.id)).toEqual([MODELS_ALL_SECTION, MODELS_ATTRIBUTES_SECTION]);
-		expect(MODEL_LIBRARY_SECTIONS.map((s) => s.label)).toEqual(['All models', 'Attributes']);
+	it('is All models, then Attributes, then Folders', () => {
+		expect(MODEL_LIBRARY_SECTIONS.map((s) => s.id)).toEqual([
+			MODELS_ALL_SECTION,
+			MODELS_ATTRIBUTES_SECTION,
+			MODELS_FOLDERS_SECTION
+		]);
+		expect(MODEL_LIBRARY_SECTIONS.map((s) => s.label)).toEqual(['All models', 'Attributes', 'Folders']);
 	});
 });
 
@@ -37,6 +42,7 @@ describe('modelLibraryShellSection', () => {
 		expect(modelLibraryShellSection('lora')).toBe(MODELS_ALL_SECTION);
 		expect(modelLibraryShellSection(MODELS_ALL_SECTION)).toBe(MODELS_ALL_SECTION);
 		expect(modelLibraryShellSection(MODELS_ATTRIBUTES_SECTION)).toBe(MODELS_ATTRIBUTES_SECTION);
+		expect(modelLibraryShellSection(MODELS_FOLDERS_SECTION)).toBe(MODELS_FOLDERS_SECTION);
 	});
 });
 

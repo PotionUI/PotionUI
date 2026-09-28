@@ -11,9 +11,11 @@ Administration is organized into tabs:
 
 ## System Settings
 
-Global application settings for the server — the top-level configuration that applies to everyone.
+Global application settings for the server — the top-level configuration that applies to everyone, organized into sections in the left rail: Access, Content Safety, Media storage, Backups, Housekeeping, Search & Tagging, Generation, External Login, and Logs.
 
-### Thumbnails
+### Media storage
+
+Where generated files are written (local disk or S3) and the thumbnail settings below live together in this section.
 
 Gallery previews are made at the moment a generation is written to disk. Which sizes get made, and how a video's moving preview is encoded, is set here, because a moving preview has no compression between frames and is by far the largest thing an install writes for each generation.
 
@@ -42,6 +44,8 @@ Three tiers, each a superset of the one before it: **config** is the database, t
 ## Models
 
 Server-side model management: reviewing installed models and, together with the **Model Downloader** plugin, adding new ones. This is the admin counterpart to the user-facing **Models** page.
+
+Its **Folders** section holds the models location: pointing PotionUI at an external directory (with per-type overrides and symlink status), triggering a re-index with **Index now**, and the live indexing status while a scan runs.
 
 ## Presets
 

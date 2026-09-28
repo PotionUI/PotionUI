@@ -407,6 +407,14 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         except Exception as exc:
             logging.error(f"Remote execution reconciliation failed at startup: {exc}")
 
+        def _resume_model_indexing():
+            try:
+                container.model_index_manager.indexing.resume_interrupted_indexing()
+            except Exception as exc:
+                logging.error(f"Resuming interrupted model indexing failed at startup: {exc}")
+
+        asyncio.create_task(asyncio.to_thread(_resume_model_indexing))
+
         # Heartbeat for rented compute: a pod paused or deleted in the
         # provider's console is reflected on its row (and its backend
         # disabled) within one interval, not on the next admin click.

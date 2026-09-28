@@ -54,3 +54,49 @@ def test_reconcile_failure_does_not_raise():
     coordinator.run_indexing()
 
     reconciler.reconcile.assert_awaited_once()
+
+class FakeScanner:
+    def __init__(self, unindexed_files):
+        self._unindexed = list(unindexed_files)
+        self.index_models_calls = 0
+
+    def count_unindexed(self):
+        return {"total": len(self._unindexed), "by_type": {}}
+
+    def index_models(self):
+        indexed = list(self._unindexed)
+        self._unindexed = []
+        self.index_models_calls += 1
+        return {"indexed": len(indexed)}
+
+def _coordinator_with_scanner(scanner, reconciler=None):
+    return ModelIndexingCoordinator(
+        model_repository=MagicMock(),
+        plugin_registry=FakePluginRegistry(),
+        scanner=scanner,
+        backend_registry=None,
+        native_availability_reconciler=reconciler,
+    )
+
+def test_resume_interrupted_indexing_starts_and_indexes_every_unindexed_file():
+    scanner = FakeScanner(["a.safetensors", "b.safetensors"])
+    reconciler = MagicMock()
+    reconciler.reconcile = AsyncMock()
+    coordinator = _coordinator_with_scanner(scanner, reconciler)
+
+    started = coordinator.resume_interrupted_indexing()
+
+    assert started is True
+    assert scanner.index_models_calls == 1
+    assert coordinator.count_unindexed()["total"] == 0
+
+def test_resume_interrupted_indexing_does_not_start_when_nothing_is_unindexed():
+    scanner = FakeScanner([])
+    reconciler = MagicMock()
+    reconciler.reconcile = AsyncMock()
+    coordinator = _coordinator_with_scanner(scanner, reconciler)
+
+    started = coordinator.resume_interrupted_indexing()
+
+    assert started is False
+    assert scanner.index_models_calls == 0

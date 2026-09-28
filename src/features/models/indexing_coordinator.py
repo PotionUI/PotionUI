@@ -94,6 +94,19 @@ class ModelIndexingCoordinator:
         by type. No hashing, no writes."""
         return self.scanner.count_unindexed()
 
+    def resume_interrupted_indexing(self) -> bool:
+        if not self.count_unindexed().get("total"):
+            return False
+
+        try:
+            self.start_indexing()
+        except ModelIndexingException as e:
+            logger.warning(f"Skipped resuming interrupted model indexing: {e}")
+            return False
+
+        self.run_indexing()
+        return True
+
     def cleanup_deleted_models(self) -> Dict[str, Any]:
         """Remove index rows whose backing file no longer exists on disk."""
         all_models = self.model_repo.get_all(include_providers=False, include_files=False)

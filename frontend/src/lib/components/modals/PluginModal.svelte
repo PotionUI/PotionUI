@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { afterUpdate } from 'svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
 	import {
@@ -26,7 +27,9 @@
 
 	const settlementGate = createConfirmSettlementGate();
 
-	$: if (isOpen) settlementGate.reset();
+	afterUpdate(() => {
+		if (isOpen && !busy) settlementGate.reset();
+	});
 
 	function handleCancel() {
 		settlementGate.settle(() => onCancel());

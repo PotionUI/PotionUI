@@ -236,6 +236,55 @@ class TestModelScanner:
         assert all(total == 2 for _, total in ticks[1:])
 
     @patch('src.features.models.indexer.model_repo')
+    def test_index_models_stops_scheduling_new_work_once_cancelled(self, mock_repo):
+        files = [self._create_test_file(f"checkpoints/model{i}.safetensors") for i in range(4)]
+        mock_repo.get_all.return_value = []
+
+        def fake_index(file_path, model_type, file_size, cancel_check=None):
+            model = Mock(spec=Model)
+            model.to_dict.return_value = {"id": file_path, "filename": Path(file_path).name}
+            return model
+
+        with patch.object(self.indexer, 'index_single_model', side_effect=fake_index):
+            result = self.indexer.index_models(max_workers=1, cancel_check=lambda: True)
+
+        assert result['cancelled'] is True
+        assert result['indexed'] == 1
+
+    @patch('src.features.models.indexer.model_repo')
+    def test_index_models_cancelled_mid_hash_is_not_indexed_or_counted_as_failed(self, mock_repo):
+        content = b"x" * (8 * 1024 * 1024)
+        self._create_test_file("checkpoints/big.safetensors", content)
+        mock_repo.get_all.return_value = []
+
+        calls = {"n": 0}
+
+        def cancel_mid_hash():
+            calls["n"] += 1
+            return calls["n"] > 1
+
+        result = self.indexer.index_models(max_workers=1, cancel_check=cancel_mid_hash)
+
+        assert result['cancelled'] is True
+        assert result['indexed'] == 0
+        assert result['failed'] == 0
+        mock_repo.create.assert_not_called()
+
+    @patch('src.features.models.indexer.model_repo')
+    def test_index_models_never_cancelled_when_no_cancel_check_is_given(self, mock_repo):
+        files = [self._create_test_file(f"checkpoints/model{i}.safetensors") for i in range(3)]
+        mock_repo.get_all.return_value = []
+
+        new_model = Mock(spec=Model)
+        new_model.to_dict.return_value = {"id": "new-id", "filename": "model0.safetensors"}
+
+        with patch.object(self.indexer, 'index_single_model', return_value=new_model):
+            result = self.indexer.index_models()
+
+        assert result['cancelled'] is False
+        assert result['indexed'] == 3
+
+    @patch('src.features.models.indexer.model_repo')
     def test_count_unindexed_counts_files_on_disk_not_in_the_index(self, mock_repo):
         """Files on disk with no matching row (by path) are "unindexed"; an
         already-indexed file is not - and nothing gets hashed or written."""
@@ -654,6 +703,66 @@ class TestModelScannerHFDirectories:
         assert created_model.is_directory is False
         assert created_model.sha256 == hashlib.sha256(content).hexdigest()
 
+
+def _can_create_symlinks() -> bool:
+    import shutil as _shutil
+    probe_dir = tempfile.mkdtemp()
+    try:
+        target = Path(probe_dir) / "target"
+        target.mkdir()
+        os.symlink(target, Path(probe_dir) / "link", target_is_directory=True)
+        return True
+    except (OSError, NotImplementedError):
+        return False
+    finally:
+        _shutil.rmtree(probe_dir, ignore_errors=True)
+
+
+SYMLINKS_SUPPORTED = _can_create_symlinks()
+
+
+@pytest.mark.skipif(not SYMLINKS_SUPPORTED, reason="Creating symlinks is not permitted in this environment")
+class TestModelScannerSymlinkedSubdirectories:
+
+    def setup_method(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.models_dir = Path(self.temp_dir)
+        self.indexer = ModelScanner(str(self.models_dir))
+        self.external_dir = Path(tempfile.mkdtemp())
+
+    def teardown_method(self):
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        shutil.rmtree(self.external_dir, ignore_errors=True)
+
+    def test_scan_follows_a_symlinked_subdirectory_within_a_type_dir(self):
+        real_dir = self.external_dir / "shared_loras"
+        real_dir.mkdir()
+        (real_dir / "styleA.safetensors").write_bytes(b"content")
+
+        loras_dir = self.models_dir / "loras"
+        loras_dir.mkdir()
+        os.symlink(real_dir, loras_dir / "shared", target_is_directory=True)
+
+        result = self.indexer.scan_models_directory()
+
+        assert len(result) == 1
+        file_path, model_type, file_size = result[0]
+        assert file_path.endswith("styleA.safetensors")
+        assert model_type == "lora"
+
+    def test_symlink_cycle_terminates_and_does_not_duplicate_the_real_file(self):
+        loras_dir = self.models_dir / "loras"
+        loras_dir.mkdir()
+        (loras_dir / "real.safetensors").write_bytes(b"content")
+        os.symlink(loras_dir, loras_dir / "loop", target_is_directory=True)
+
+        result = self.indexer.scan_models_directory()
+
+        paths = [p for p, _, _ in result]
+        assert paths.count(str(loras_dir / "real.safetensors")) == 1
+
+
 class TestHashCacheSeeding:
     """What `index_single_model` writes into `model_hash_cache`.
 
@@ -717,7 +826,7 @@ class TestHashCacheSeeding:
         path = self._file(content=b"original bytes")
         before = path.stat().st_mtime_ns
 
-        def rewrite_then_hash(file_path, chunk_size=8192):
+        def rewrite_then_hash(file_path, chunk_size=8192, cancel_check=None):
             os.utime(path, ns=(before + 5_000_000_000, before + 5_000_000_000))
             return "a" * 64
 
@@ -732,7 +841,7 @@ class TestHashCacheSeeding:
         no cache row."""
         path = self._file(content=b"original bytes")
 
-        def unlink_then_hash(file_path, chunk_size=8192):
+        def unlink_then_hash(file_path, chunk_size=8192, cancel_check=None):
             return "b" * 64
 
         with patch.object(ModelScanner, '_file_identity', return_value=None):

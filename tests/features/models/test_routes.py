@@ -211,6 +211,108 @@ class TestModelControllerAssignmentEndpoints:
         assert result.data["model-2"] == {"assignment_count": 0, "group_count": 0}
 
 
+class TestModelControllerIndexingEndpoints:
+
+    @pytest.fixture
+    def mock_index_manager(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_user_model_meta_repository(self):
+        return Mock()
+
+    @pytest.fixture
+    def controller(self, mock_index_manager, mock_user_model_meta_repository):
+        return ModelController(mock_index_manager, mock_user_model_meta_repository, Mock())
+
+    @pytest.mark.asyncio
+    async def test_index_models_returns_the_run_status_and_schedules_the_background_scan(
+        self, controller, mock_index_manager
+    ):
+        from fastapi import BackgroundTasks
+
+        mock_index_manager.indexing.start_indexing.return_value = {"state": "scanning", "trigger": "manual"}
+        background = BackgroundTasks()
+
+        result = await controller.index_models(background)
+
+        assert result.success is True
+        assert result.data["state"] == "scanning"
+        mock_index_manager.indexing.start_indexing.assert_called_once_with(trigger="manual")
+        assert len(background.tasks) == 1
+
+    @pytest.mark.asyncio
+    async def test_index_models_reports_a_veto_as_blocked_without_scheduling_a_scan(
+        self, controller, mock_index_manager
+    ):
+        from fastapi import BackgroundTasks
+        from src.features.models.exceptions import ModelIndexingException
+
+        mock_index_manager.indexing.start_indexing.side_effect = ModelIndexingException("maintenance window")
+        background = BackgroundTasks()
+
+        result = await controller.index_models(background)
+
+        assert result.success is False
+        assert result.error == "indexing_blocked"
+        assert background.tasks == []
+
+    @pytest.mark.asyncio
+    async def test_get_indexing_status_returns_the_coordinator_status(self, controller, mock_index_manager):
+        mock_index_manager.indexing.status.return_value = {
+            "state": "indexing", "processed": 2, "total": 5, "failed_files": [],
+        }
+
+        result = await controller.get_indexing_status()
+
+        assert result.success is True
+        assert result.data["processed"] == 2
+        assert result.data["total"] == 5
+
+    @pytest.mark.asyncio
+    async def test_apply_models_location_includes_the_indexing_status_in_its_response(
+        self, controller, mock_index_manager
+    ):
+        from fastapi import BackgroundTasks
+        from src.features.models.dto import ApplyModelsLocationRequest
+
+        mock_index_manager.location.apply.return_value = {"external_path": "/mnt/models"}
+        mock_index_manager.indexing.cancel_and_restart.return_value = {
+            "state": "scanning", "trigger": "location_change",
+        }
+        background = BackgroundTasks()
+
+        result = await controller.apply_models_location(
+            background, ApplyModelsLocationRequest(external_path="/mnt/models")
+        )
+
+        assert result.success is True
+        assert result.data["indexing"] == {"state": "scanning", "trigger": "location_change"}
+        mock_index_manager.indexing.cancel_and_restart.assert_called_once_with("location_change")
+        assert len(background.tasks) == 1
+
+    @pytest.mark.asyncio
+    async def test_apply_models_location_surfaces_a_reindex_veto_instead_of_plain_success(
+        self, controller, mock_index_manager
+    ):
+        from fastapi import BackgroundTasks
+        from src.features.models.dto import ApplyModelsLocationRequest
+        from src.features.models.exceptions import ModelIndexingException
+
+        mock_index_manager.location.apply.return_value = {"external_path": "/mnt/models"}
+        mock_index_manager.indexing.cancel_and_restart.side_effect = ModelIndexingException("maintenance window")
+        background = BackgroundTasks()
+
+        result = await controller.apply_models_location(
+            background, ApplyModelsLocationRequest(external_path="/mnt/models")
+        )
+
+        assert result.success is True
+        assert result.data["indexing"]["state"] == "blocked"
+        assert "maintenance window" in result.data["indexing"]["error"]
+        assert background.tasks == []
+
+
 class TestRouteOrder:
     """FastAPI dispatches in registration order, so every static GET sibling
     must be registered before the catch-all `GET /{model_id}` - otherwise it
@@ -230,6 +332,7 @@ class TestRouteOrder:
         for static in (
             "/api/models/location", "/api/models/stats", "/api/models/types",
             "/api/models/assignment-summary", "/api/models/unindexed-count",
+            "/api/models/indexing/status",
         ):
             assert get_paths.index(static) < catch_all, (
                 f"{static} is registered after /{{model_id}} and can never match"

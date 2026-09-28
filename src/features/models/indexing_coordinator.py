@@ -6,10 +6,12 @@ plugin hooks around them, and prunes index rows whose files have vanished.
 """
 
 import logging
+import threading
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from src.features.models.exceptions import ModelIndexingException
+from src.platform.database.rows import dt_iso, now_utc
 from src.platform.plugins.hooks import execute_hook
 from src.features.models.hooks import MODEL_INDEX_HOOKS
 from src.features.models.indexer import ModelScanner
@@ -21,6 +23,18 @@ from src.features.models.repository import ModelRepository
 from src.platform.plugins import PluginRegistry
 
 logger = logging.getLogger(__name__)
+
+STATE_IDLE = "idle"
+STATE_SCANNING = "scanning"
+STATE_INDEXING = "indexing"
+STATE_DONE = "done"
+STATE_FAILED = "failed"
+STATE_CANCELLED = "cancelled"
+STATE_BLOCKED = "blocked"
+
+RUNNING_STATES = (STATE_SCANNING, STATE_INDEXING)
+
+MAX_REPORTED_FAILED_FILES = 50
 
 
 class ModelIndexingCoordinator:
@@ -42,12 +56,51 @@ class ModelIndexingCoordinator:
             native_availability_reconciler or _default_native_availability_reconciler
         )
 
-    def start_indexing(self) -> Dict[str, Any]:
-        """Announce a background index run, letting a plugin veto it first.
+        self._lock = threading.Lock()
+        self._run_lock = threading.Lock()
+        self._cancel_event = threading.Event()
 
-        Fires model_index.before_index (can block). Raises ModelIndexingException
-        if a plugin blocks; the caller schedules `run_indexing` on success.
-        """
+        self._state = STATE_IDLE
+        self._executing = False
+        self._trigger: Optional[str] = None
+        self._pending_restart_trigger: Optional[str] = None
+        self._started_at = None
+        self._finished_at = None
+        self._total = 0
+        self._processed = 0
+        self._indexed = 0
+        self._found_on_disk: Optional[int] = None
+        self._scanned_roots: List[str] = []
+        self._failed_files: List[Dict[str, str]] = []
+        self._failed_files_total = 0
+        self._error: Optional[str] = None
+
+    def status(self) -> Dict[str, Any]:
+        with self._lock:
+            return {
+                "state": self._state,
+                "trigger": self._trigger,
+                "restart_pending": self._pending_restart_trigger is not None,
+                "started_at": dt_iso(self._started_at),
+                "finished_at": dt_iso(self._finished_at),
+                "total": self._total,
+                "processed": self._processed,
+                "indexed": self._indexed,
+                "found_on_disk": self._found_on_disk,
+                "scanned_roots": list(self._scanned_roots),
+                "failed_files": list(self._failed_files),
+                "failed_files_total": self._failed_files_total,
+                "error": self._error,
+            }
+
+    def start_indexing(self, trigger: str = "manual") -> Dict[str, Any]:
+        with self._lock:
+            already_running = self._state in RUNNING_STATES
+
+        if already_running:
+            logger.info("Model indexing already running; ignoring start_indexing() call")
+            return self.status()
+
         hook_data, blocked = execute_hook(
             self.plugins,
             MODEL_INDEX_HOOKS.before_index,
@@ -56,30 +109,129 @@ class ModelIndexingCoordinator:
 
         if blocked:
             reason = hook_data.get("block_reason", "Indexing blocked by plugin")
+            with self._lock:
+                self._state = STATE_BLOCKED
+                self._trigger = trigger
+                self._error = reason
+                self._finished_at = now_utc()
             raise ModelIndexingException(reason)
 
-        logger.info("Starting model indexing via manager")
-        return {
-            "message": "Model indexing started in background",
-            "status": "running"
-        }
+        with self._lock:
+            self._state = STATE_SCANNING
+            self._trigger = trigger
+            self._started_at = now_utc()
+            self._finished_at = None
+            self._total = 0
+            self._processed = 0
+            self._indexed = 0
+            self._found_on_disk = None
+            self._scanned_roots = self._scanned_roots_snapshot()
+            self._failed_files = []
+            self._failed_files_total = 0
+            self._error = None
+            self._pending_restart_trigger = None
+        self._cancel_event.clear()
+
+        logger.info(f"Starting model indexing (trigger={trigger})")
+        return self.status()
+
+    def _scanned_roots_snapshot(self) -> List[str]:
+        try:
+            return [str(self.scanner.models_dir)]
+        except Exception:
+            return []
 
     def run_indexing(self) -> None:
-        """Execute the actual indexing (background task); fires model_index.after_index."""
+        if not self._run_lock.acquire(blocking=False):
+            with self._lock:
+                if not self._executing:
+                    self._pending_restart_trigger = self._trigger
+            logger.info("Model indexing already executing; ignoring concurrent run_indexing() call")
+            return
         try:
-            result = self.scanner.index_models()
-            logger.info(f"Model indexing completed: {result}")
+            self._execute_indexing()
+            while True:
+                with self._lock:
+                    pending = self._pending_restart_trigger
+                    if pending is None:
+                        break
+                    self._pending_restart_trigger = None
+                try:
+                    self.start_indexing(trigger=pending)
+                except ModelIndexingException:
+                    break
+                self._execute_indexing()
+        finally:
+            self._run_lock.release()
 
-            execute_hook(
-                self.plugins,
-                MODEL_INDEX_HOOKS.after_index,
-                {"result": result}
-            )
+    def _execute_indexing(self) -> None:
+        with self._lock:
+            self._executing = True
+
+        def on_progress(current: int, total: int, message: str) -> None:
+            with self._lock:
+                if total > 0 and self._state == STATE_SCANNING:
+                    self._state = STATE_INDEXING
+                if total > 0:
+                    self._total = total
+                self._processed = current
+
+        def is_cancelled() -> bool:
+            return self._cancel_event.is_set()
+
+        try:
+            self.scanner.set_progress_callback(on_progress)
+            result = self.scanner.index_models(cancel_check=is_cancelled)
         except Exception as e:
             logger.error(f"Error during background indexing: {e}")
+            with self._lock:
+                self._state = STATE_FAILED
+                self._error = str(e)
+                self._finished_at = now_utc()
+                self._executing = False
+            return
+        finally:
+            self.scanner.set_progress_callback(None)
+
+        logger.info(f"Model indexing completed: {result}")
+
+        failed = result.get('failed_files') or []
+        normalized_failures = [
+            f if isinstance(f, dict) else {"path": f, "error": "Failed to hash or index this file"}
+            for f in failed
+        ]
+        cancelled = bool(result.get('cancelled')) or self._cancel_event.is_set()
+
+        with self._lock:
+            self._indexed = result.get('indexed', 0)
+            self._processed = result.get('new_files', self._processed)
+            self._found_on_disk = result.get('found_on_disk', result.get('total', 0))
+            self._failed_files_total = len(normalized_failures)
+            self._failed_files = normalized_failures[:MAX_REPORTED_FAILED_FILES]
+            self._finished_at = now_utc()
+            self._state = STATE_CANCELLED if cancelled else STATE_DONE
+            self._executing = False
+
+        execute_hook(
+            self.plugins,
+            MODEL_INDEX_HOOKS.after_index,
+            {"result": result}
+        )
+
+        if cancelled:
             return
 
         self._reconcile_native_availability()
+
+    def cancel_and_restart(self, trigger: str = "location_change") -> Dict[str, Any]:
+        with self._lock:
+            running = self._state in RUNNING_STATES
+            if running:
+                self._pending_restart_trigger = trigger
+        if running:
+            self._cancel_event.set()
+            return self.status()
+        return self.start_indexing(trigger=trigger)
 
     def _reconcile_native_availability(self) -> None:
         from src.features.recipes.executors._async_bridge import run_sync
@@ -99,7 +251,7 @@ class ModelIndexingCoordinator:
             return False
 
         try:
-            self.start_indexing()
+            self.start_indexing(trigger="startup")
         except ModelIndexingException as e:
             logger.warning(f"Skipped resuming interrupted model indexing: {e}")
             return False

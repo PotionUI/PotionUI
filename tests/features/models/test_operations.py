@@ -536,8 +536,8 @@ class TestIndexing:
         """Test starting indexing returns proper status."""
         result = operations.start_indexing(collaborators)
 
-        assert result['status'] == 'running'
-        assert 'indexing started' in result['message'].lower()
+        assert result['state'] == 'scanning'
+        assert result['trigger'] == 'manual'
 
     def test_start_indexing_blocked_by_hook(self, collaborators, mock_plugin_registry):
         """Test that a blocking hook prevents indexing."""
@@ -549,6 +549,7 @@ class TestIndexing:
             operations.start_indexing(collaborators)
 
         assert 'Test block' in str(exc_info.value)
+        assert collaborators.indexing.status()['state'] == 'blocked'
 
     async def test_count_unindexed_delegates_to_the_scanner(self, collaborators):
         """The collaborators is a thin facade here - the diff itself is the scanner's

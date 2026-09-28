@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 _warned_unmapped_type_dir: set = set()
 
+
+class ScanCancelled(Exception):
+    pass
+
+
 class ModelScanner:
     """Scans the models directory and reconciles it with the model index.
 
@@ -81,18 +86,34 @@ class ModelScanner:
                 found_files.extend(self._find_hf_directories(type_dir, model_type))
                 continue
 
-            # Recursively scan subdirectories
-            for file_path in type_dir.rglob("*"):
-                if file_path.is_file() and file_path.suffix.lower() in self.SUPPORTED_EXTENSIONS:
-                    try:
-                        file_size = file_path.stat().st_size
-                        found_files.append((str(file_path), model_type, file_size))
-                        logger.debug(f"Found model: {file_path} ({file_size} bytes)")
-                    except OSError as e:
-                        logger.warning(f"Could not get file info for {file_path}: {e}")
+            found_files.extend(self._walk_type_dir(type_dir, model_type))
 
         logger.info(f"Found {len(found_files)} model files")
         return found_files
+
+    def _walk_type_dir(self, type_dir: Path, model_type: str) -> List[Tuple[str, str, int]]:
+        found: List[Tuple[str, str, int]] = []
+        visited_real_dirs = set()
+
+        for root, dirnames, filenames in os.walk(type_dir, followlinks=True):
+            real_root = os.path.realpath(root)
+            if real_root in visited_real_dirs:
+                dirnames[:] = []
+                continue
+            visited_real_dirs.add(real_root)
+
+            for filename in filenames:
+                file_path = Path(root) / filename
+                if file_path.suffix.lower() not in self.SUPPORTED_EXTENSIONS:
+                    continue
+                try:
+                    file_size = file_path.stat().st_size
+                    found.append((str(file_path), model_type, file_size))
+                    logger.debug(f"Found model: {file_path} ({file_size} bytes)")
+                except OSError as e:
+                    logger.warning(f"Could not get file info for {file_path}: {e}")
+
+        return found
 
     def _find_hf_directories(self, type_dir: Path, model_type: str) -> List[Tuple[str, str, int]]:
         """Find HF-layout checkpoint directories directly under `type_dir`.
@@ -149,7 +170,9 @@ class ModelScanner:
             logger.error(f"Error fingerprinting HF-layout directory {dir_path}: {e}")
             return None
 
-    def calculate_sha256(self, file_path: str, chunk_size: int = 4 * 1024 * 1024) -> Optional[str]:
+    def calculate_sha256(
+        self, file_path: str, chunk_size: int = 4 * 1024 * 1024, cancel_check: Optional[Any] = None
+    ) -> Optional[str]:
         """
         Calculate SHA256 hash of a file
         """
@@ -157,12 +180,15 @@ class ModelScanner:
             sha256_hash = hashlib.sha256()
 
             with open(file_path, "rb") as f:
-                # Read in chunks to handle large files efficiently
                 for chunk in iter(lambda: f.read(chunk_size), b""):
+                    if cancel_check is not None and cancel_check():
+                        raise ScanCancelled(file_path)
                     sha256_hash.update(chunk)
 
             return sha256_hash.hexdigest()
 
+        except ScanCancelled:
+            raise
         except Exception as e:
             logger.error(f"Error calculating SHA256 for {file_path}: {e}")
             return None
@@ -205,7 +231,9 @@ class ModelScanner:
         except Exception as e:
             logger.debug(f"Could not seed hash cache for {file_path}: {e}")
 
-    def index_single_model(self, file_path: str, model_type: str, file_size: int) -> Optional[Model]:
+    def index_single_model(
+        self, file_path: str, model_type: str, file_size: int, cancel_check: Optional[Any] = None
+    ) -> Optional[Model]:
         """
         Index a single model file with SHA256 deduplication.
 
@@ -231,7 +259,7 @@ class ModelScanner:
             else:
                 logger.debug(f"Calculating SHA256 for {file_path}")
                 identity = self._file_identity(file_path)
-                sha256 = self.calculate_sha256(file_path)
+                sha256 = self.calculate_sha256(file_path, cancel_check=cancel_check)
 
             if not sha256:
                 logger.error(f"Failed to hash/fingerprint {file_path}")
@@ -358,6 +386,8 @@ class ModelScanner:
                 else:
                     raise create_error
 
+        except ScanCancelled:
+            raise
         except Exception as e:
             logger.error(f"Error indexing model {file_path}: {e}")
             return None
@@ -404,7 +434,7 @@ class ModelScanner:
             'by_type': by_type,
         }
 
-    def index_models(self, max_workers: int = 4) -> Dict[str, any]:
+    def index_models(self, max_workers: int = 4, cancel_check: Optional[Any] = None) -> Dict[str, any]:
         """
         Index only new models that aren't already in the database
         """
@@ -414,6 +444,7 @@ class ModelScanner:
         # Scan for model files
         self._report_progress(0, 0, "Scanning models directory...")
         all_model_files = self.scan_models_directory()
+        found_on_disk = len(all_model_files)
 
         if not all_model_files:
             logger.info("No model files found to index")
@@ -424,7 +455,9 @@ class ModelScanner:
                 'total': 0,
                 'duration': 0,
                 'models': [],
-                'new_files': 0
+                'new_files': 0,
+                'found_on_disk': found_on_disk,
+                'cancelled': False,
             }
 
         new_model_files, skipped_count = self._diff_against_index(all_model_files)
@@ -444,13 +477,16 @@ class ModelScanner:
                 'total': len(all_model_files),
                 'duration': duration,
                 'models': [],
-                'new_files': 0
+                'new_files': 0,
+                'found_on_disk': found_on_disk,
+                'cancelled': False,
             }
 
         logger.info(f"Found {len(new_model_files)} new files to index (skipping {skipped_count} already indexed)")
 
         indexed_models = []
         failed_files = []
+        cancelled = False
 
         # Index only new models in parallel
         logger.info(f"Indexing {len(new_model_files)} new models with {max_workers} workers")
@@ -462,7 +498,7 @@ class ModelScanner:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit indexing tasks for new files only
             future_to_file = {
-                executor.submit(self.index_single_model, file_path, model_type, file_size): (file_path, model_type, file_size)
+                executor.submit(self.index_single_model, file_path, model_type, file_size, cancel_check): (file_path, model_type, file_size)
                 for file_path, model_type, file_size in new_model_files
             }
 
@@ -480,17 +516,27 @@ class ModelScanner:
                         indexed_models.append(model.to_dict(include_providers=False))
                         logger.debug(f"Successfully indexed: {Path(file_path).name}")
                     else:
-                        failed_files.append(file_path)
+                        failed_files.append({'path': file_path, 'error': 'Failed to hash or index this file'})
                         logger.debug(f"Failed to index: {Path(file_path).name}")
+
+                except ScanCancelled:
+                    cancelled = True
 
                 except Exception as e:
                     logger.error(f"Exception processing {file_path}: {e}")
-                    failed_files.append(file_path)
+                    failed_files.append({'path': file_path, 'error': str(e)})
 
                 # One tick per completed file: hashing a large checkpoint is the
                 # slow part, so this is the only granularity that reflects real
                 # progress on a huge library. The caller throttles DB writes.
                 self._report_progress(i, total_new, f"Checked {Path(file_path).name}")
+
+                if cancelled or (cancel_check is not None and cancel_check()):
+                    cancelled = True
+                    for pending_future in future_to_file:
+                        pending_future.cancel()
+                    logger.info(f"Model indexing cancelled after {i}/{total_new} files")
+                    break
 
         # Clean up deleted files
         self._cleanup_deleted_models()
@@ -506,7 +552,9 @@ class ModelScanner:
             'duration': duration,
             'models': indexed_models,
             'new_files': len(new_model_files),
-            'failed_files': failed_files
+            'failed_files': failed_files,
+            'found_on_disk': found_on_disk,
+            'cancelled': cancelled,
         }
 
         logger.info(f"Model indexing completed: {result['indexed']} new models indexed, {result['skipped']} skipped, {result['failed']} failed in {duration:.2f}s")

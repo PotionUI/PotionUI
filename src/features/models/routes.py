@@ -345,10 +345,21 @@ class ModelController(BaseController):
                 message=f"Failed to count unindexed models: {str(e)}"
             )
 
+    async def get_indexing_status(self) -> APIResponse:
+        try:
+            data = await operations.get_indexing_status(self.collaborators)
+            return self.success_response(data=data)
+        except Exception as e:
+            logger.exception(f"Error getting indexing status: {e}")
+            return self.error_api_response(
+                error="get_indexing_status_failed",
+                message=f"Failed to get indexing status: {str(e)}"
+            )
+
     async def index_models(self, background_tasks: BackgroundTasks) -> APIResponse:
         """Start model indexing process."""
         try:
-            data = operations.start_indexing(self.collaborators)
+            data = operations.start_indexing(self.collaborators, trigger="manual")
             background_tasks.add_task(operations.run_indexing, self.collaborators)
             return self.success_response(data=data)
         except ModelIndexingException as e:
@@ -435,12 +446,15 @@ class ModelController(BaseController):
         # the symlinks now point somewhere new, so the DB needs to catch up with
         # what's reachable through them.
         try:
-            operations.start_indexing(self.collaborators)
+            indexing_status = operations.cancel_and_restart_indexing(
+                self.collaborators, trigger="location_change"
+            )
             background_tasks.add_task(operations.run_indexing, self.collaborators)
         except ModelIndexingException as e:
             logger.warning(f"Models location applied but re-index was blocked: {e}")
+            indexing_status = {"state": "blocked", "error": str(e)}
 
-        return self.success_response(data=data)
+        return self.success_response(data={**data, "indexing": indexing_status})
 
     # --- Provider Endpoints ---
 
@@ -1205,6 +1219,11 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def count_unindexed_models(current_user: User = Depends(get_current_admin_user)):
         """Count model files on disk not yet indexed, by type - no hashing, no writes."""
         return await controller.count_unindexed_models()
+
+
+    @router.get("/indexing/status", response_model=APIResponse, summary="Get Indexing Status")
+    async def get_indexing_status(current_user: User = Depends(get_current_admin_user)):
+        return await controller.get_indexing_status()
 
 
     # Static, so it must be registered before the "/{model_id}" catch-all below -

@@ -87,6 +87,7 @@ def _manager(
     instance_claim_repository=None,
     recipe_catalog=None,
     model_repository=None,
+    model_indexing_coordinator=None,
 ):
     backend_registry = MagicMock()
     backend_registry.get_all_backends.return_value = (
@@ -111,6 +112,7 @@ def _manager(
         migration_runner=migration_runner,
         instance_claim_repository=instance_claim_repository or _OkClaimRepository(),
         recipe_catalog=recipe_catalog,
+        model_indexing_coordinator=model_indexing_coordinator,
     )
 
 
@@ -233,6 +235,24 @@ def test_presets_without_resolvable_models_is_degraded():
     assert content.code == "PRESETS_WITHOUT_MODELS"
 
 
+def test_presets_without_models_says_indexing_in_progress_instead_of_degraded_message():
+    coordinator = MagicMock()
+    coordinator.status.return_value = {"state": "indexing", "processed": 3, "total": 10}
+    report = _run(_manager(model_indexing_coordinator=coordinator), _user(admin=True), models_result=[])
+    content = _by_area(report)["content"]
+    assert content.status == DEGRADED
+    assert content.code == "MODELS_INDEXING"
+    assert "3/10" in content.message
+
+
+def test_presets_without_models_stays_plain_degraded_when_indexing_is_idle():
+    coordinator = MagicMock()
+    coordinator.status.return_value = {"state": "idle", "processed": 0, "total": 0}
+    report = _run(_manager(model_indexing_coordinator=coordinator), _user(admin=True), models_result=[])
+    content = _by_area(report)["content"]
+    assert content.code == "PRESETS_WITHOUT_MODELS"
+
+
 def test_unknown_recipe_id_is_not_ready():
     report = _run(_manager(recipe_catalog=_RecipeCatalog(_recipe())), _user(admin=True), recipe_id="does-not-exist")
     content = _by_area(report)["content"]
@@ -299,6 +319,27 @@ def test_recipe_missing_artifact_is_not_ready():
     assert content.code == "RECIPE_MODELS_MISSING"
     assert "Missing Checkpoint" in content.message
     assert report.overall == NOT_READY
+
+
+def test_recipe_missing_artifact_says_indexing_in_progress_while_a_scan_is_running():
+    artifact = RecipeArtifact(
+        id="ckpt", kind="checkpoint", model_type="checkpoint", filename="missing.safetensors",
+        display_name="Missing Checkpoint", required=True,
+    )
+    recipe = _recipe(artifacts=[artifact])
+    coordinator = MagicMock()
+    coordinator.status.return_value = {"state": "scanning", "processed": 0, "total": 0}
+    manager = _manager(
+        recipe_catalog=_RecipeCatalog(recipe),
+        model_repository=_RecipeModelRepo(),
+        model_indexing_coordinator=coordinator,
+    )
+    manager.preset_collaborators.db_repo.is_preset_installed.return_value = True
+    report = _run(manager, _user(admin=True), recipe_id="r1")
+    content = _by_area(report)["content"]
+    assert content.status == DEGRADED
+    assert content.code == "RECIPE_MODELS_INDEXING"
+    assert report.overall == DEGRADED
 
 
 def test_recipe_optional_artifact_missing_is_still_ready():

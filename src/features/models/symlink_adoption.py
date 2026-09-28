@@ -11,6 +11,7 @@ from src.platform.filesystem.model_roots import (
     ModelRootResolver,
     default_case_insensitive,
     root_path_key,
+    strip_windows_long_prefix,
 )
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY, MODEL_TYPES
@@ -47,14 +48,16 @@ def _resolve_link_target(link_path: Path) -> Optional[Path]:
     except OSError:
         raw = None
     if raw is not None:
+        raw = strip_windows_long_prefix(raw)
         target = Path(raw)
         if not target.is_absolute():
             target = link_path.parent / target
         return Path(os.path.normpath(str(target)))
     try:
-        return link_path.resolve(strict=False)
+        resolved = link_path.resolve(strict=False)
     except OSError:
         return None
+    return Path(strip_windows_long_prefix(str(resolved)))
 
 
 def _is_reachable(path: Path) -> bool:

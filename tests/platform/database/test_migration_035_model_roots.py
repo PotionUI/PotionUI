@@ -1,5 +1,6 @@
 import hashlib
 import importlib.util
+import os
 import sys
 import tempfile
 import unittest
@@ -170,6 +171,33 @@ class TestMigration035ModelRoots(unittest.TestCase):
         )
 
         self.migration.up()
+
+        location = self._location_for(model_id)
+        self.assertIsNotNone(location)
+        self.assertEqual(location["root_id"], "home")
+        self.assertEqual(location["rel_path"], "z.safetensors")
+
+    def test_live_symlink_target_windows_short_name_stored_path(self):
+        target_dir = self.repo_root / "external_checkpoints"
+        target_dir.mkdir(parents=True)
+        (target_dir / "z.safetensors").write_bytes(b"x")
+        (self.repo_root / "models").mkdir(parents=True, exist_ok=True)
+        (self.repo_root / "models" / "checkpoints").symlink_to(target_dir, target_is_directory=True)
+
+        short_name_dir = str(target_dir).replace("external_checkpoints", "EXTERN~1")
+        model_id = self._insert_model(
+            "checkpoint", "z.safetensors", f"{short_name_dir}/z.safetensors"
+        )
+
+        real_realpath = os.path.realpath
+
+        def fake_realpath(path, *args, **kwargs):
+            resolved = real_realpath(path, *args, **kwargs)
+            return resolved.replace("EXTERN~1", "external_checkpoints")
+
+        with patch.object(self.migration, "is_windows", return_value=True), \
+                patch("os.path.realpath", side_effect=fake_realpath):
+            self.migration.up()
 
         location = self._location_for(model_id)
         self.assertIsNotNone(location)

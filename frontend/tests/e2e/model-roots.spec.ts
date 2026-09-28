@@ -149,7 +149,7 @@ test.describe('model roots - setup wizard', () => {
 		});
 
 		await gotoSetup(page);
-		await page.getByPlaceholder('/mnt/storage/ComfyUI/models').fill('/mnt/storage/ComfyUI/models');
+		await page.getByLabel('Folder path').fill('/mnt/storage/ComfyUI/models');
 		await page.getByRole('button', { name: 'Detect' }).click();
 		await expect(page.getByText('Detected types')).toBeVisible({ timeout: 10000 });
 		await expect(page.getByText('30+ files')).toBeVisible();
@@ -202,7 +202,7 @@ test.describe('model roots - setup wizard', () => {
 		});
 
 		await gotoSetup(page);
-		await page.getByPlaceholder('D:\\ComfyUI\\models').fill('Z:\\models');
+		await page.getByLabel('Folder path').fill('Z:\\models');
 		await page.getByRole('button', { name: 'Detect' }).click();
 		await expect(page.getByText(/mapped drive letters are per-user sessions/)).toBeVisible({ timeout: 10000 });
 		await screenshot(page, JOURNEY, 'wizard-unc-warning');
@@ -227,7 +227,7 @@ test.describe('model roots - setup wizard', () => {
 		});
 
 		await gotoSetup(page);
-		await page.getByPlaceholder('/mnt/storage/ComfyUI/models').fill('/mnt/data/offline');
+		await page.getByLabel('Folder path').fill('/mnt/data/offline');
 		await page.getByRole('button', { name: 'Detect' }).click();
 		await expect(page.getByText("This path isn't reachable from the server.")).toBeVisible({ timeout: 10000 });
 		await screenshot(page, JOURNEY, 'wizard-offline');
@@ -252,7 +252,7 @@ test.describe('model roots - setup wizard', () => {
 		});
 
 		await gotoSetup(page);
-		await page.getByPlaceholder('/mnt/storage/ComfyUI/models').fill('models/loras');
+		await page.getByLabel('Folder path').fill('models/loras');
 		await page.getByRole('button', { name: 'Detect' }).click();
 		await expect(page.getByText(/Overlaps a folder that's already a model root/)).toBeVisible({ timeout: 10000 });
 		await screenshot(page, JOURNEY, 'wizard-conflict');

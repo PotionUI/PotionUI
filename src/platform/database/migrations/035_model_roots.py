@@ -1,4 +1,5 @@
 import json
+import os
 import posixpath
 import unicodedata
 from pathlib import Path
@@ -6,7 +7,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from src.platform.database.database import db
 from src.platform.database.rows import now_iso
-from src.platform.filesystem.model_roots import HOME_ROOT_ID, default_case_insensitive, root_path_key
+from src.platform.filesystem.model_roots import (
+    HOME_ROOT_ID,
+    default_case_insensitive,
+    is_windows,
+    root_path_key,
+)
 from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY, MODEL_TYPES
 from src.platform.util.ids import generate_ulid
 
@@ -183,18 +189,34 @@ def _to_absolute_posix(raw: str, base_posix: str) -> str:
     return f"{base_posix.rstrip('/')}/{normalized}"
 
 
-def _strip_prefix(path_posix: str, prefix_posix: str) -> Optional[str]:
+def _key_os_name() -> Optional[str]:
+    return "nt" if is_windows() else None
+
+
+def _realpath_posix(path_posix: str) -> Optional[str]:
+    try:
+        real = os.path.realpath(path_posix)
+    except OSError:
+        return None
+    return _normalize(real)
+
+
+def _strip_prefix(path_posix: str, prefix_posix: str, *, case_insensitive: bool = False) -> Optional[str]:
     prefix = prefix_posix.rstrip("/")
-    if path_posix == prefix:
+    effective_case_insensitive = case_insensitive or is_windows()
+    os_name = _key_os_name()
+    path_key = root_path_key(path_posix, case_insensitive=effective_case_insensitive, os_name=os_name)
+    prefix_key = root_path_key(prefix, case_insensitive=effective_case_insensitive, os_name=os_name)
+    if path_key == prefix_key:
         return ""
-    if path_posix.startswith(prefix + "/"):
+    if path_key.startswith(prefix_key + "/"):
         return path_posix[len(prefix) + 1:]
     return None
 
 
-def _map_to_home(resolved_file: str, home_posix: str, type_dir: str) -> Optional[str]:
+def _map_to_home(resolved_file: str, home_posix: str, type_dir: str, case_insensitive: bool = False) -> Optional[str]:
     base = f"{home_posix.rstrip('/')}/{type_dir}"
-    return _strip_prefix(resolved_file, base)
+    return _strip_prefix(resolved_file, base, case_insensitive=case_insensitive)
 
 
 def _map_through_symlink_targets(
@@ -203,6 +225,7 @@ def _map_through_symlink_targets(
     type_dir: str,
     external_path: Optional[str],
     overrides: Dict[str, str],
+    case_insensitive: bool = False,
 ) -> Optional[str]:
     candidates: List[str] = []
     override = overrides.get(type_dir) if overrides else None
@@ -219,9 +242,19 @@ def _map_through_symlink_targets(
         pass
 
     for candidate in candidates:
-        rel = _strip_prefix(resolved_file, candidate)
+        rel = _strip_prefix(resolved_file, candidate, case_insensitive=case_insensitive)
         if rel is not None:
             return rel
+
+    real_file = _realpath_posix(resolved_file)
+    if real_file is not None:
+        for candidate in candidates:
+            real_candidate = _realpath_posix(candidate)
+            if real_candidate is None:
+                continue
+            rel = _strip_prefix(real_file, real_candidate, case_insensitive=case_insensitive)
+            if rel is not None:
+                return rel
     return None
 
 
@@ -301,9 +334,11 @@ def _backfill_locations(
             continue
 
         resolved_file = _to_absolute_posix(file_path, repo_root_posix)
-        rel = _map_to_home(resolved_file, home_posix, type_dir)
+        rel = _map_to_home(resolved_file, home_posix, type_dir, case_insensitive)
         if rel is None:
-            rel = _map_through_symlink_targets(resolved_file, home_posix, type_dir, external_path, overrides)
+            rel = _map_through_symlink_targets(
+                resolved_file, home_posix, type_dir, external_path, overrides, case_insensitive
+            )
 
         if rel is None:
             parent = _posix_dirname(resolved_file)

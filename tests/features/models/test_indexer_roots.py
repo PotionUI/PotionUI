@@ -63,6 +63,15 @@ def _write(path: Path, content: bytes) -> None:
     path.write_bytes(content)
 
 
+def _is_case_insensitive_fs(tmp_path: Path) -> bool:
+    probe = tmp_path / "case_probe.tmp"
+    probe.write_bytes(b"x")
+    try:
+        return (tmp_path / "CASE_PROBE.tmp").exists()
+    finally:
+        probe.unlink()
+
+
 def _sha(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
@@ -232,6 +241,8 @@ def test_case_insensitive_root_folds_the_rel_key(tmp_path, mock_db):
 
 
 def test_case_sensitive_root_keeps_two_locations_for_differently_cased_names(tmp_path, mock_db):
+    if _is_case_insensitive_fs(tmp_path):
+        pytest.skip("filesystem is case-insensitive; A.safetensors and a.safetensors collide")
     home = tmp_path / "home"
     _write(home / "loras" / "A.safetensors", b"upper")
     _write(home / "loras" / "a.safetensors", b"lower")

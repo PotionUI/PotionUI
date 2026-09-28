@@ -1,6 +1,7 @@
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.platform.filesystem.model_roots import (
     InvalidRelPathError,
@@ -152,6 +153,44 @@ class TestToLogical(unittest.TestCase):
 
             self.assertEqual(loc.model_type, "lora")
             self.assertEqual(loc.rel_path, "x.safetensors")
+
+    def test_realpath_fallback_windows_short_vs_long_name(self):
+        def fake_realpath(path):
+            return path.replace("RUNNER~1", "runneradmin")
+
+        roots = [_root("home", "/C:/Users/runneradmin/models")]
+        bindings = [_binding("home", "lora", "loras", 0)]
+        resolver = ModelRootResolver(
+            FakeRepository(roots, bindings), FakeProbe({}), Path("/C:/Users/runneradmin/models")
+        )
+
+        with patch("src.platform.filesystem.model_roots.is_windows", return_value=True), \
+                patch("os.path.realpath", side_effect=fake_realpath):
+            loc = resolver.to_logical("/C:/Users/RUNNER~1/models/loras/x.safetensors")
+
+        self.assertIsNotNone(loc)
+        self.assertEqual(loc.model_type, "lora")
+        self.assertEqual(loc.rel_path, "x.safetensors")
+
+    def test_realpath_fallback_mapped_drive_to_unc(self):
+        def fake_realpath(path):
+            if path.startswith("Z:/models"):
+                return path.replace("Z:/models", "//server/share/models", 1)
+            return path
+
+        roots = [_root("home", "//server/share/models")]
+        bindings = [_binding("home", "lora", "loras", 0)]
+        resolver = ModelRootResolver(
+            FakeRepository(roots, bindings), FakeProbe({}), Path("//server/share/models")
+        )
+
+        with patch("src.platform.filesystem.model_roots.is_windows", return_value=True), \
+                patch("os.path.realpath", side_effect=fake_realpath):
+            loc = resolver.to_logical("Z:/models/loras/x.safetensors")
+
+        self.assertIsNotNone(loc)
+        self.assertEqual(loc.model_type, "lora")
+        self.assertEqual(loc.rel_path, "x.safetensors")
 
 
 class TestWriteDir(unittest.TestCase):

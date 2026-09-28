@@ -18,6 +18,7 @@ from src.platform.filesystem.model_roots import (
     ModelRoot,
     ModelRootResolver,
     TypeDir,
+    root_path_key,
 )
 from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE, MODEL_TYPES, SUPPORTED_MODEL_EXTENSIONS
 
@@ -89,9 +90,10 @@ class ModelScanner:
                         real = os.path.realpath(abs_path)
                     except OSError:
                         real = abs_path
-                    if real in claimed:
+                    real_key = root_path_key(real)
+                    if real_key in claimed:
                         continue
-                    claimed.add(real)
+                    claimed.add(real_key)
                     found.append(FoundFile(type_dir.root_id, model_type, rel_path, abs_path, size, mtime_ns, is_dir))
         return found
 
@@ -104,10 +106,11 @@ class ModelScanner:
         visited_real_dirs: Set[str] = set()
         for root, dirnames, filenames in os.walk(base, followlinks=True):
             real_root = os.path.realpath(root)
-            if real_root in visited_real_dirs:
+            real_root_key = root_path_key(real_root)
+            if real_root_key in visited_real_dirs:
                 dirnames[:] = []
                 continue
-            visited_real_dirs.add(real_root)
+            visited_real_dirs.add(real_root_key)
 
             for filename in filenames:
                 file_path = Path(root) / filename

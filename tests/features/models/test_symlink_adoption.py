@@ -352,6 +352,37 @@ class TestWindowsSeam:
         mock_rmdir.assert_not_called()
 
 
+class TestWindowsLongPathPrefix:
+    def test_readlink_long_path_prefix_is_stripped(self, tmp_path):
+        from src.features.models.symlink_adoption import _resolve_link_target
+
+        link_path = tmp_path / "link"
+
+        with patch(
+            "src.features.models.symlink_adoption.os.readlink",
+            return_value=r"\\?\C:\Users\runneradmin\ComfyUI\models\loras",
+        ):
+            target = _resolve_link_target(link_path)
+
+        assert target is not None
+        assert "\\\\?\\" not in str(target)
+        assert str(target).endswith(r"C:\Users\runneradmin\ComfyUI\models\loras")
+
+    def test_resolve_fallback_long_path_prefix_is_stripped(self, tmp_path):
+        from src.features.models.symlink_adoption import _resolve_link_target
+
+        link_path = tmp_path / "link"
+        long_form = Path(r"\\?\C:\Users\runneradmin\ComfyUI\models\loras")
+
+        with patch(
+            "src.features.models.symlink_adoption.os.readlink", side_effect=OSError("no symlink")
+        ), patch.object(Path, "resolve", return_value=long_form):
+            target = _resolve_link_target(link_path)
+
+        assert target is not None
+        assert "\\\\?\\" not in str(target)
+
+
 class TestGroupByParent:
     def test_common_parent_groups_two_types_into_one_root(self):
         from src.features.models.symlink_adoption import _group_by_parent

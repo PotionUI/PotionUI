@@ -87,6 +87,9 @@ def _strip_windows_long_prefix(raw: str) -> str:
     return raw
 
 
+strip_windows_long_prefix = _strip_windows_long_prefix
+
+
 def root_path_key(
     path: Union[str, "os.PathLike[str]"],
     *,
@@ -114,6 +117,10 @@ def root_path_key(
 def default_case_insensitive(os_name: Optional[str] = None) -> bool:
     os_name = os.name if os_name is None else os_name
     return os_name == "nt" or sys.platform == "darwin"
+
+
+def is_windows() -> bool:
+    return os.name == "nt"
 
 
 def paths_overlap(a_key: str, b_key: str) -> bool:
@@ -305,9 +312,22 @@ class ModelRootResolver:
             raise RootUnavailableError(root.id, state)
         return write_entry
 
-    def to_logical(self, path: Union[str, Path]) -> Optional[LogicalLocation]:
-        snapshot = self._snapshot_or_build()
-        raw = posixpath.normpath(str(path).replace("\\", "/"))
+    @staticmethod
+    def _realpath_posix(path_posix: str) -> Optional[str]:
+        try:
+            real = os.path.realpath(path_posix)
+        except OSError:
+            return None
+        return posixpath.normpath(real.replace("\\", "/"))
+
+    def _match_type_dirs(
+        self,
+        snapshot: _Snapshot,
+        candidate_posix: str,
+        *,
+        resolve_bound: bool,
+    ) -> Optional[LogicalLocation]:
+        os_name = "nt" if is_windows() else None
         best: Optional[Tuple[int, LogicalLocation]] = None
         for entries in snapshot.type_dirs_by_type.values():
             for entry in entries:
@@ -315,27 +335,39 @@ class ModelRootResolver:
                 if root is None:
                     continue
                 bound = posixpath.normpath(str(entry.path).replace("\\", "/"))
-                key_bound = root_path_key(bound, case_insensitive=root.case_insensitive)
-                key_raw = root_path_key(raw, case_insensitive=root.case_insensitive)
-                if key_raw == key_bound:
+                if resolve_bound:
+                    resolved_bound = self._realpath_posix(bound)
+                    if resolved_bound is None:
+                        continue
+                    bound = resolved_bound
+                case_insensitive = root.case_insensitive or is_windows()
+                key_bound = root_path_key(bound, case_insensitive=case_insensitive, os_name=os_name)
+                key_candidate = root_path_key(candidate_posix, case_insensitive=case_insensitive, os_name=os_name)
+                if key_candidate == key_bound:
                     rel = ""
-                elif key_raw.startswith(key_bound + "/"):
-                    rel = raw[len(bound) + 1:]
+                elif key_candidate.startswith(key_bound + "/"):
+                    rel = candidate_posix[len(bound) + 1:]
                 else:
                     continue
-                candidate = (len(key_bound), LogicalLocation(entry.root_id, entry.model_type, rel))
-                if best is None or candidate[0] > best[0]:
-                    best = candidate
-        if best is not None:
-            return best[1]
+                match = (len(key_bound), LogicalLocation(entry.root_id, entry.model_type, rel))
+                if best is None or match[0] > best[0]:
+                    best = match
+        return best[1] if best is not None else None
 
-        try:
-            real = os.path.realpath(str(path))
-        except OSError:
+    def to_logical(self, path: Union[str, Path]) -> Optional[LogicalLocation]:
+        snapshot = self._snapshot_or_build()
+        raw = posixpath.normpath(str(path).replace("\\", "/"))
+        matched = self._match_type_dirs(snapshot, raw, resolve_bound=False)
+        if matched is not None:
+            return matched
+
+        real_raw = self._realpath_posix(raw)
+        if real_raw is None:
             return None
-        if root_path_key(real) == root_path_key(raw):
+        os_name = "nt" if is_windows() else None
+        if root_path_key(real_raw, os_name=os_name) == root_path_key(raw, os_name=os_name):
             return None
-        return self.to_logical(real)
+        return self._match_type_dirs(snapshot, real_raw, resolve_bound=True)
 
     def physical(self, loc: LogicalLocation) -> Path:
         snapshot = self._snapshot_or_build()

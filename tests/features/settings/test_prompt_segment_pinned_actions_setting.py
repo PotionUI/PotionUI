@@ -38,7 +38,7 @@ def seeded_db():
 
 def _controller():
     repo = SettingRepository()
-    return SettingsController(Settings(repo), repo, Mock(), Mock(), Mock())
+    return SettingsController(Settings(repo), repo, Mock(), Mock())
 
 
 def _user(user_id: str = "u1") -> User:

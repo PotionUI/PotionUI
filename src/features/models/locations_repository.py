@@ -174,22 +174,56 @@ class ModelLocationsRepository:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
-                f"SELECT {_LOCATION_COLUMNS} FROM model_locations WHERE status = 'conflict' "
-                "ORDER BY seen_at DESC LIMIT ?",
+                "SELECT ml.id, ml.model_id, ml.root_id, ml.model_type, ml.rel_path, ml.rel_key, "
+                "ml.size, ml.mtime_ns, ml.sha256, ml.status, ml.seen_at, mr.label AS root_label "
+                "FROM model_locations ml JOIN model_roots mr ON mr.id = ml.root_id "
+                "WHERE ml.status = 'conflict' ORDER BY ml.seen_at DESC LIMIT ?",
                 (limit,),
             )
             return [dict(row) for row in cursor.fetchall()]
 
     def list_duplicate_models(self, limit: int = 200) -> List[Dict[str, Any]]:
+        from pathlib import PurePosixPath
+
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
-                "SELECT model_id, COUNT(*) AS copies FROM model_locations "
-                "WHERE status = 'present' GROUP BY model_id HAVING COUNT(*) > 1 "
-                "ORDER BY copies DESC LIMIT ?",
-                (limit,),
+                "SELECT ml.model_id, ml.model_type, ml.root_id, ml.rel_path, "
+                "mr.label AS root_label, mrb.position AS position "
+                "FROM model_locations ml "
+                "JOIN model_roots mr ON mr.id = ml.root_id "
+                "JOIN model_root_bindings mrb ON mrb.root_id = ml.root_id AND mrb.model_type = ml.model_type "
+                "WHERE ml.status = 'present' AND ml.model_id IN ("
+                "  SELECT model_id FROM model_locations WHERE status = 'present' "
+                "  GROUP BY model_id HAVING COUNT(*) > 1"
+                ") ORDER BY ml.model_id, mrb.position",
+                (),
             )
-            return [dict(row) for row in cursor.fetchall()]
+            rows = [dict(row) for row in cursor.fetchall()]
+
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        for row in rows:
+            grouped.setdefault(row["model_id"], []).append(row)
+
+        entries = []
+        for group in grouped.values():
+            winner = _pick_winner(group)
+            filename = PurePosixPath(winner["rel_path"]).name
+            entries.append({
+                "model_type": group[0]["model_type"],
+                "filename": filename,
+                "copies": [
+                    {
+                        "root_label": row["root_label"],
+                        "rel_path": row["rel_path"],
+                        "winner": row is winner,
+                    }
+                    for row in group
+                ],
+            })
+
+        entries.sort(key=lambda entry: len(entry["copies"]), reverse=True)
+        return entries[:limit]
 
     def aggregate_by_root_and_type(self) -> Dict[Tuple[str, str], Dict[str, int]]:
         from src.platform.database.database import db

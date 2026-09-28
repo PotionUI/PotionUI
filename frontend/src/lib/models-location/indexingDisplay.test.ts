@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { indexingIsRunning, indexingIsVisible, indexingPercent } from './indexingDisplay';
+import { indexingDoneSummary, indexingIsRunning, indexingIsVisible, indexingPercent } from './indexingDisplay';
 import type { IndexingStatus } from '$lib/services/api/models';
 
 function status(overrides: Partial<IndexingStatus> = {}): IndexingStatus {
@@ -50,5 +50,32 @@ describe('indexingPercent', () => {
 	it('rounds processed/total to a 0-100 percent', () => {
 		expect(indexingPercent(status({ state: 'indexing', processed: 47, total: 128 }))).toBe(37);
 		expect(indexingPercent(status({ state: 'indexing', processed: 128, total: 128 }))).toBe(100);
+	});
+});
+
+describe('indexingDoneSummary', () => {
+	it('is null without a status or outside "done"', () => {
+		expect(indexingDoneSummary(null)).toBeNull();
+		expect(indexingDoneSummary(status({ state: 'indexing' }))).toBeNull();
+	});
+
+	it('is "zero" when nothing was found on disk', () => {
+		expect(indexingDoneSummary(status({ state: 'done', found_on_disk: 0 }))).toEqual({ kind: 'zero' });
+	});
+
+	it('is "up_to_date" when everything found was already indexed', () => {
+		expect(indexingDoneSummary(status({ state: 'done', found_on_disk: 908, indexed: 0 }))).toEqual({
+			kind: 'up_to_date',
+			found: 908
+		});
+	});
+
+	it('is "new_indexed" and computes the already-indexed remainder when new files were indexed', () => {
+		expect(indexingDoneSummary(status({ state: 'done', found_on_disk: 128, indexed: 20 }))).toEqual({
+			kind: 'new_indexed',
+			indexed: 20,
+			alreadyIndexed: 108,
+			found: 128
+		});
 	});
 });

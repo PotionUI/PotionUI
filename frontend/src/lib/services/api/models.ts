@@ -27,6 +27,42 @@ export interface IndexingFailedFile {
 	error: string;
 }
 
+export interface IndexingRootStatus {
+	root_id: string;
+	label: string;
+	state: string;
+	found: number;
+	indexed: number;
+	failed: number;
+}
+
+export interface ModelConflictEntry {
+	id: string;
+	model_id: string;
+	root_id: string;
+	root_label: string;
+	model_type: string;
+	rel_path: string;
+	rel_key: string;
+	size: number | null;
+	mtime_ns: number | null;
+	sha256: string | null;
+	status: string;
+	seen_at: string | null;
+}
+
+export interface ModelDuplicateCopy {
+	root_label: string;
+	rel_path: string;
+	winner: boolean;
+}
+
+export interface ModelDuplicateEntry {
+	model_type: string;
+	filename: string;
+	copies: ModelDuplicateCopy[];
+}
+
 export interface IndexingStatus {
 	state: IndexingState;
 	trigger?: IndexingTrigger | null;
@@ -41,6 +77,9 @@ export interface IndexingStatus {
 	failed_files?: IndexingFailedFile[];
 	failed_files_total?: number;
 	error?: string | null;
+	roots?: IndexingRootStatus[];
+	conflicts?: ModelConflictEntry[];
+	duplicates?: ModelDuplicateEntry[];
 }
 
 export interface ModelsLocationConfig {

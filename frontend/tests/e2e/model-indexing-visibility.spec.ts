@@ -133,8 +133,60 @@ test.describe('model indexing visibility - wizard', () => {
 		await mockIndexingStatus(page, { state: 'done', indexed: 128, found_on_disk: 128 });
 		await mockReadiness(page, readinessReport());
 		await gotoSetup(page);
-		await expect(page.getByText('models found on disk')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByText('already indexed')).toBeVisible({ timeout: 10000 });
 		await screenshot(page, JOURNEY, 'wizard-done');
+	});
+
+	test('done - all already indexed', async ({ page }) => {
+		await loginAsOwner(page);
+		await mockModelRoots(page);
+		await mockIndexingStatus(page, { state: 'done', indexed: 0, found_on_disk: 908 });
+		await mockReadiness(page, readinessReport());
+		await gotoSetup(page);
+		await expect(page.getByText('model files are up to date')).toBeVisible({ timeout: 10000 });
+		await screenshot(page, JOURNEY, 'wizard-done-up-to-date');
+	});
+
+	test('done - duplicates and conflicts', async ({ page }) => {
+		await loginAsOwner(page);
+		await mockModelRoots(page);
+		await mockIndexingStatus(page, {
+			state: 'done',
+			indexed: 10,
+			found_on_disk: 128,
+			roots: [{ root_id: 'home', label: 'PotionUI models', state: 'online', found: 128, indexed: 118, failed: 0 }],
+			duplicates: [
+				{
+					model_type: 'checkpoint',
+					filename: 'shared-model.safetensors',
+					copies: [
+						{ root_label: 'PotionUI models', rel_path: 'checkpoints/shared-model.safetensors', winner: true },
+						{ root_label: 'External drive', rel_path: 'checkpoints/legacy/shared-model.safetensors', winner: false }
+					]
+				}
+			],
+			conflicts: [
+				{
+					id: 'loc-1',
+					model_id: 'model-2',
+					root_id: 'home',
+					root_label: 'PotionUI models',
+					model_type: 'checkpoint',
+					rel_path: 'checkpoints/duplicate-name.safetensors',
+					rel_key: 'checkpoints/duplicate-name.safetensors',
+					size: 1024,
+					mtime_ns: 0,
+					sha256: null,
+					status: 'conflict',
+					seen_at: null
+				}
+			]
+		});
+		await mockReadiness(page, readinessReport());
+		await gotoSetup(page);
+		await expect(page.getByText('exist in more than one folder')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByText('share a name with a different model file')).toBeVisible({ timeout: 10000 });
+		await screenshot(page, JOURNEY, 'wizard-done-duplicates-conflicts');
 	});
 
 	test('zero found', async ({ page }) => {

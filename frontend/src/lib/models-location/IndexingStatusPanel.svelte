@@ -2,7 +2,7 @@
 	import { Badge, Spinner, Alert } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import type { IndexingStatus, ModelsLocationConfig } from '$lib/services/api/models';
-	import { indexingIsVisible, indexingPercent } from './indexingDisplay';
+	import { indexingDoneSummary, indexingIsVisible, indexingPercent } from './indexingDisplay';
 
 	let {
 		status,
@@ -13,11 +13,16 @@
 	} = $props();
 
 	let failedOpen = $state(false);
+	let duplicatesOpen = $state(false);
+	let conflictsOpen = $state(false);
 
 	const percent = $derived(indexingPercent(status));
 	const failedFiles = $derived(status?.failed_files ?? []);
 	const failedTotal = $derived(status?.failed_files_total ?? 0);
 	const expectedFolders = $derived(config?.directories.map((dir) => dir.directory) ?? []);
+	const doneSummary = $derived(indexingDoneSummary(status));
+	const duplicates = $derived(status?.duplicates ?? []);
+	const conflicts = $derived(status?.conflicts ?? []);
 </script>
 
 {#if indexingIsVisible(status) && status}
@@ -62,10 +67,15 @@
 						No matching folder found, created empty: <span class="font-mono text-fg-muted">{config.created_empty.join(', ')}</span>.
 					</p>
 				{/if}
-			{:else}
+			{:else if doneSummary?.kind === 'up_to_date'}
 				<p class="text-sm text-fg-muted">
-					Indexed <span class="font-mono tabular-nums text-fg">{status.indexed ?? 0}</span> of
-					<span class="font-mono tabular-nums text-fg">{status.found_on_disk ?? 0}</span> models found on disk.
+					All <span class="font-mono tabular-nums text-fg">{doneSummary.found}</span> model files are up to date.
+				</p>
+			{:else if doneSummary?.kind === 'new_indexed'}
+				<p class="text-sm text-fg-muted">
+					<span class="font-mono tabular-nums text-fg">{doneSummary.indexed}</span> new ·
+					<span class="font-mono tabular-nums text-fg">{doneSummary.alreadyIndexed}</span> already indexed ·
+					<span class="font-mono tabular-nums text-fg">{doneSummary.found}</span> on disk.
 				</p>
 			{/if}
 		{:else if status.state === 'failed'}
@@ -103,6 +113,73 @@
 					{#if failedTotal > failedFiles.length}
 						<li>and {failedTotal - failedFiles.length} more</li>
 					{/if}
+				</ul>
+			{/if}
+		{/if}
+
+		{#if duplicates.length}
+			<button
+				type="button"
+				class="flex items-center gap-1.5 text-xs text-fg-subtle hover:underline"
+				onclick={() => (duplicatesOpen = !duplicatesOpen)}
+				aria-expanded={duplicatesOpen}
+			>
+				<Badge variant="neutral" size="sm">
+					{duplicates.length} model{duplicates.length === 1 ? '' : 's'} exist in more than one folder — the copy in
+					the first folder is used
+				</Badge>
+				<span class="font-mono uppercase tracking-[0.05em]">{duplicatesOpen ? 'Hide' : 'Show'}</span>
+			</button>
+			{#if duplicatesOpen}
+				<ul class="max-h-48 overflow-y-auto space-y-2 text-xs text-fg-subtle leading-relaxed">
+					{#each duplicates as entry (entry.filename + entry.model_type)}
+						<li class="space-y-1">
+							<span class="font-mono text-fg-muted">{entry.filename}</span>
+							<ul class="space-y-1 pl-3">
+								{#each entry.copies as copy (copy.root_label + copy.rel_path)}
+									<li class="flex items-center gap-2 min-w-0">
+										<Tooltip text={copy.rel_path} position="bottom">
+											<span class="font-mono text-fg-subtle truncate max-w-[14rem] inline-block align-bottom">
+												{copy.root_label}
+											</span>
+										</Tooltip>
+										{#if copy.winner}
+											<Badge variant="success" size="sm">used</Badge>
+										{/if}
+									</li>
+								{/each}
+							</ul>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		{/if}
+
+		{#if conflicts.length}
+			<button
+				type="button"
+				class="flex items-center gap-1.5 text-xs text-warning hover:underline"
+				onclick={() => (conflictsOpen = !conflictsOpen)}
+				aria-expanded={conflictsOpen}
+			>
+				<Badge variant="warning" size="sm" dot>
+					{conflicts.length} file{conflicts.length === 1 ? '' : 's'} share a name with a different model file and
+					{conflicts.length === 1 ? 'is' : 'are'} not used
+				</Badge>
+				<span class="font-mono uppercase tracking-[0.05em]">{conflictsOpen ? 'Hide' : 'Show'}</span>
+			</button>
+			{#if conflictsOpen}
+				<ul class="max-h-48 overflow-y-auto space-y-1.5 text-xs text-fg-subtle leading-relaxed">
+					{#each conflicts as entry (entry.id)}
+						<li class="flex items-start gap-2 min-w-0">
+							<Tooltip text={entry.rel_path} position="bottom">
+								<span class="font-mono text-fg-muted truncate max-w-[18rem] inline-block align-bottom">
+									{entry.rel_path}
+								</span>
+							</Tooltip>
+							<span class="text-fg-subtle truncate">{entry.root_label}</span>
+						</li>
+					{/each}
 				</ul>
 			{/if}
 		{/if}

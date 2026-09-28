@@ -397,7 +397,7 @@ class TestBuildContextLedger:
         assert ledger["budget"]["measured"] is False
 
     def test_budget_section_uses_the_given_accounting_inputs(self):
-        accounting = context_budget.AccountingInputs(
+        accounting = context_budget.ContextProfile(
             capacity=context_budget.CapacityInfo(500, "config"),
             reserve_tokens=100,
             counter=lambda t: len(t),
@@ -413,7 +413,7 @@ class TestBuildContextLedger:
         assert budget["accounting"] == "fragments+framing"
 
     def test_budget_section_reports_chat_template_when_a_messages_counter_is_given(self):
-        accounting = context_budget.AccountingInputs(
+        accounting = context_budget.ContextProfile(
             capacity=context_budget.CapacityInfo(500, "config"),
             reserve_tokens=100,
             messages_counter=lambda system_message, messages, tools: 12,
@@ -428,7 +428,7 @@ class TestBuildContextLedger:
         assert budget["estimated_tokens"] == 12
 
     def test_irreducibly_oversized_history_raises(self):
-        accounting = context_budget.AccountingInputs(
+        accounting = context_budget.ContextProfile(
             capacity=context_budget.CapacityInfo(10, "config"), reserve_tokens=5, counter=len,
         )
         with pytest.raises(context_budget.ContextBudgetExceededError):
@@ -446,7 +446,7 @@ class TestBuildContextLedger:
 
 class TestResolveBudgetInputs:
     """`_resolve_budget_inputs` is a thin, defensive wrapper around
-    `LLMGateway.accounting_inputs_for` — the SAME builder the gateway uses
+    `LLMGateway.context_profile_for` — the SAME builder the gateway uses
     for every real send (see TestLedgerMatchesGatewayHook in
     tests/features/llm/test_gateway.py for the end-to-end proof they can't
     diverge); what belongs here is the wrapper's own contract: resolve the
@@ -467,16 +467,30 @@ class TestResolveBudgetInputs:
         manager = Mock()
         config = Mock(type="ollama", provider_options={"num_ctx": 4096}, max_tokens=2000)
         manager.llm_service.repository.get_configuration.return_value = config
-        expected = context_budget.AccountingInputs(
+        expected = context_budget.ContextProfile(
             capacity=context_budget.CapacityInfo(4096, "config"), reserve_tokens=2000,
         )
-        manager.llm_service.accounting_inputs_for.return_value = expected
+        manager.llm_service.context_profile_for.return_value = expected
         runner = ConversationRunner(manager)
 
         result = runner._resolve_budget_inputs(self._session(), mode=None)
 
         assert result is expected
-        manager.llm_service.accounting_inputs_for.assert_called_once_with(config, None)
+        manager.llm_service.context_profile_for.assert_called_once_with(config, None, None)
+
+    def test_tool_schemas_is_passed_through_to_the_gateways_shared_builder(self):
+        manager = Mock()
+        config = Mock(type="ollama", provider_options={"num_ctx": 4096}, max_tokens=2000)
+        manager.llm_service.repository.get_configuration.return_value = config
+        manager.llm_service.context_profile_for.return_value = context_budget.ContextProfile(
+            capacity=context_budget.CapacityInfo(4096, "config"), reserve_tokens=2000,
+        )
+        runner = ConversationRunner(manager)
+        tool_schemas = [{"type": "function", "function": {"name": "noop"}}]
+
+        runner._resolve_budget_inputs(self._session(), mode=None, tool_schemas=tool_schemas)
+
+        manager.llm_service.context_profile_for.assert_called_once_with(config, None, tool_schemas)
 
     def test_mode_llm_options_is_passed_through_as_options_override(self):
         from types import SimpleNamespace
@@ -484,7 +498,7 @@ class TestResolveBudgetInputs:
         manager = Mock()
         config = Mock(type="openai", provider_options={}, max_tokens=2000)
         manager.llm_service.repository.get_configuration.return_value = config
-        manager.llm_service.accounting_inputs_for.return_value = context_budget.AccountingInputs(
+        manager.llm_service.context_profile_for.return_value = context_budget.ContextProfile(
             capacity=context_budget.CapacityInfo(context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown"),
             reserve_tokens=512,
         )
@@ -494,7 +508,7 @@ class TestResolveBudgetInputs:
         result = runner._resolve_budget_inputs(self._session(), mode=mode)
 
         assert result.reserve_tokens == 512
-        manager.llm_service.accounting_inputs_for.assert_called_once_with(config, {"max_tokens": 512})
+        manager.llm_service.context_profile_for.assert_called_once_with(config, {"max_tokens": 512}, None)
 
     def test_config_lookup_failure_degrades_to_none_never_raises(self):
         manager = Mock()
@@ -513,7 +527,7 @@ class TestResolveBudgetInputs:
 
         manager = Mock()
         manager.llm_service.repository.get_configuration.return_value = SimpleNamespace(provider_options={})
-        manager.llm_service.accounting_inputs_for.return_value = context_budget.AccountingInputs(
+        manager.llm_service.context_profile_for.return_value = context_budget.ContextProfile(
             capacity=context_budget.CapacityInfo(context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown"),
             reserve_tokens=Mock(),  # non-numeric — exactly what a Mock-shaped max_tokens produces
         )
@@ -526,7 +540,7 @@ class TestResolveBudgetInputs:
     def test_a_fully_generic_mock_llm_service_degrades_to_none(self):
         """The common existing chat-test idiom — `llm_service` left as a bare
         `Mock()`/`AsyncMock()` with nothing configured — must never crash a
-        send just because `accounting_inputs_for` auto-mocked to a generic
+        send just because `context_profile_for` auto-mocked to a generic
         Mock whose `reserve_tokens` isn't a real number."""
         manager = Mock()
         manager.llm_service.repository.get_configuration.return_value = Mock()

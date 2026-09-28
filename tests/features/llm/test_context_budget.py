@@ -1,13 +1,18 @@
 """Tests for src.features.llm.context_budget — model-aware request budgeting."""
 
+import math
 from types import SimpleNamespace
 
 import pytest
 
 from src.features.llm import context_budget
+from src.features.llm.clients import ollama_wire
 from src.features.llm.context_budget import (
     CapacityInfo,
     ContextBudgetExceededError,
+    MIN_RESERVE_TOKENS,
+    THINKING_ALLOWANCE_CAP_TOKENS,
+    THINKING_ALLOWANCE_FRACTION,
     count_messages,
     count_text,
     count_tool_schemas,
@@ -15,6 +20,9 @@ from src.features.llm.context_budget import (
     fit_messages,
     multimodal_allowance,
     resolve_capacity,
+    resolve_reserve,
+    resolve_sent_max_tokens,
+    resolve_thinking_enabled,
 )
 
 
@@ -62,6 +70,168 @@ class TestResolveCapacity:
         # parsed for capacity — only explicit configuration counts.
         capacity = resolve_capacity(_config(model="llama-3-8k-instruct"))
         assert capacity.source == "unknown"
+
+
+class TestResolveThinkingEnabled:
+    def test_ollama_true_think_is_enabled(self):
+        assert resolve_thinking_enabled(_config(type="ollama", provider_options={"think": True})) is True
+
+    def test_ollama_false_think_is_disabled(self):
+        assert resolve_thinking_enabled(_config(type="ollama", provider_options={"think": False})) is False
+
+    def test_ollama_unset_think_defaults_on_without_tools(self):
+        assert resolve_thinking_enabled(_config(type="ollama", provider_options={}), native_tools=False) is True
+
+    def test_ollama_unset_think_defaults_off_with_native_tools(self):
+        assert resolve_thinking_enabled(_config(type="ollama", provider_options={}), native_tools=True) is False
+
+
+    def test_ollama_effort_level_is_enabled(self):
+        assert resolve_thinking_enabled(_config(type="ollama", provider_options={"think": "high"})) is True
+
+    def test_ollama_options_override_wins_over_config(self):
+        config = _config(type="ollama", provider_options={"think": False})
+        assert resolve_thinking_enabled(config, {"think": True}) is True
+
+    def test_ollama_options_override_none_leaves_config_value(self):
+        config = _config(type="ollama", provider_options={"think": True})
+        assert resolve_thinking_enabled(config, {"think": None}) is True
+
+    def test_native_thinking_true_is_enabled(self):
+        assert resolve_thinking_enabled(_config(type="native", provider_options={"thinking": True})) is True
+
+    def test_native_thinking_unset_is_disabled(self):
+        assert resolve_thinking_enabled(_config(type="native", provider_options={})) is False
+
+    def test_openai_reasoning_effort_set_is_enabled(self):
+        config = _config(type="openai", provider_options={"reasoning_effort": "medium"})
+        assert resolve_thinking_enabled(config) is True
+
+    def test_openai_reasoning_effort_none_is_disabled(self):
+        config = _config(type="openai", provider_options={"reasoning_effort": "none"})
+        assert resolve_thinking_enabled(config) is False
+
+    def test_unknown_provider_type_is_disabled(self):
+        assert resolve_thinking_enabled(_config(type="anything-else")) is False
+
+
+def _ollama_tool():
+    return {
+        "type": "function",
+        "function": {"name": "noop", "description": "d", "parameters": {"type": "object", "properties": {}}},
+    }
+
+
+class TestResolveThinkingEnabledMatchesTheRealWirePayload:
+    def _compare(self, provider_options, tools, tool_mode):
+        config = _config(type="ollama", model="test-model", temperature=0.7, provider_options=provider_options)
+        request = ollama_wire.build_ollama_chat_request(
+            config, [{"role": "user", "content": "hi"}], "sys", tools=tools, tool_mode=tool_mode,
+        )
+        provider_opts = provider_options or {}
+        force_prompt_tools = tool_mode == ollama_wire.TOOLS_AUTO and bool(provider_opts.get("force_prompt_tools", False))
+        native_tools = context_budget.resolve_native_tools(tools, force_prompt_tools=force_prompt_tools)
+        budget_thinking_enabled = resolve_thinking_enabled(config, native_tools=native_tools)
+        return bool(request.payload["think"]), budget_thinking_enabled
+
+    def test_unset_with_no_tools_both_default_on(self):
+        wire_think, budget_think = self._compare(None, None, ollama_wire.TOOLS_NONE)
+        assert wire_think is True
+        assert budget_think is True
+
+    def test_unset_with_native_tools_both_default_off(self):
+        wire_think, budget_think = self._compare(None, [_ollama_tool()], ollama_wire.TOOLS_AUTO)
+        assert wire_think is False
+        assert budget_think is False
+
+    def test_unset_with_force_prompt_tools_both_default_on(self):
+        wire_think, budget_think = self._compare(
+            {"force_prompt_tools": True}, [_ollama_tool()], ollama_wire.TOOLS_AUTO,
+        )
+        assert wire_think is True
+        assert budget_think is True
+
+
+class TestResolveReserve:
+    def test_small_max_tokens_under_the_floor_is_unchanged(self):
+        info = resolve_reserve(max_tokens=777, window_tokens=4096, thinking_enabled=False)
+        assert info.reserve_tokens == 777
+        assert info.base_reserve_tokens == 777
+        assert info.thinking_allowance_tokens == 0
+
+    def test_large_max_tokens_is_clamped_to_the_window_share(self):
+        info = resolve_reserve(max_tokens=50_000, window_tokens=32_768, thinking_enabled=False)
+        expected = max(MIN_RESERVE_TOKENS, math.ceil(0.15 * 32_768))
+        assert info.base_reserve_tokens == expected
+        assert info.reserve_tokens == expected
+
+    def test_large_max_tokens_on_unknown_window_is_clamped_far_below_max_tokens(self):
+        info = resolve_reserve(max_tokens=100_000, window_tokens=context_budget.UNKNOWN_CAPACITY_TOKENS, thinking_enabled=False)
+        expected = max(MIN_RESERVE_TOKENS, math.ceil(0.15 * context_budget.UNKNOWN_CAPACITY_TOKENS))
+        assert info.base_reserve_tokens == expected
+        assert info.reserve_tokens == expected
+        assert info.reserve_tokens < 100_000
+
+    def test_thinking_allowance_is_added_on_top_of_the_base_reserve(self):
+        info = resolve_reserve(max_tokens=50_000, window_tokens=32_768, thinking_enabled=True)
+        base = max(MIN_RESERVE_TOKENS, math.ceil(0.15 * 32_768))
+        allowance = min(THINKING_ALLOWANCE_CAP_TOKENS, math.ceil(THINKING_ALLOWANCE_FRACTION * 32_768))
+        assert info.base_reserve_tokens == base
+        assert info.thinking_allowance_tokens == allowance
+        assert info.reserve_tokens == base + allowance
+
+    def test_thinking_allowance_is_capped_on_a_huge_window(self):
+        info = resolve_reserve(max_tokens=1000, window_tokens=1_000_000, thinking_enabled=True)
+        assert info.thinking_allowance_tokens == THINKING_ALLOWANCE_CAP_TOKENS
+
+    def test_thinking_disabled_adds_no_allowance(self):
+        info = resolve_reserve(max_tokens=1000, window_tokens=1_000_000, thinking_enabled=False)
+        assert info.thinking_allowance_tokens == 0
+
+
+class TestResolveSentMaxTokens:
+    def test_unknown_window_never_clamps(self):
+        sent = resolve_sent_max_tokens(
+            max_tokens=100_000, reserve_tokens=1229,
+            capacity_tokens=context_budget.UNKNOWN_CAPACITY_TOKENS, capacity_source="unknown",
+            estimated_prompt_tokens=500,
+        )
+        assert sent == 100_000
+
+    def test_known_window_clamps_to_what_remains_after_the_real_prompt(self):
+        sent = resolve_sent_max_tokens(
+            max_tokens=50_000, reserve_tokens=4916,
+            capacity_tokens=32_768, capacity_source="config",
+            estimated_prompt_tokens=20_000,
+        )
+        assert sent == 32_768 - 20_000
+
+    def test_never_exceeds_max_tokens_even_with_room_to_spare(self):
+        sent = resolve_sent_max_tokens(
+            max_tokens=1000, reserve_tokens=1024,
+            capacity_tokens=32_768, capacity_source="config",
+            estimated_prompt_tokens=100,
+        )
+        assert sent == 1000
+
+    def test_floors_at_the_reserve_when_the_prompt_leaves_less_room_than_that(self):
+        sent = resolve_sent_max_tokens(
+            max_tokens=50_000, reserve_tokens=4916,
+            capacity_tokens=32_768, capacity_source="config",
+            estimated_prompt_tokens=30_000,
+        )
+        assert sent == 4916
+
+    def test_prompt_plus_sent_never_exceeds_the_window_when_the_fit_invariant_holds(self):
+        capacity_tokens = 32_768
+        reserve_tokens = 4916
+        for estimated_prompt_tokens in (0, 1000, 20_000, 27_000, 27_852):
+            sent = resolve_sent_max_tokens(
+                max_tokens=50_000, reserve_tokens=reserve_tokens,
+                capacity_tokens=capacity_tokens, capacity_source="config",
+                estimated_prompt_tokens=estimated_prompt_tokens,
+            )
+            assert estimated_prompt_tokens + sent <= capacity_tokens
 
 
 # ---------------------------------------------------------------------------

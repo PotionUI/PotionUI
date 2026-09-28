@@ -649,7 +649,7 @@ class TestReflectionConcurrencyAndBookkeeping(PersistenceTestBase):
 
 class _FakeGatewayLLMService:
     """A minimal stand-in for `LLMGateway` that implements the real
-    `accounting_inputs_for` shape (unlike `_FakeLLMService`, which lacks it
+    `context_profile_for` shape (unlike `_FakeLLMService`, which lacks it
     entirely and only exercises `_resolve_span_budget`'s degrade-gracefully
     fallback) - so a test through this fixture actually exercises the real
     accounting path, not the fallback estimate.
@@ -668,7 +668,7 @@ class _FakeGatewayLLMService:
     def queue(self, content_or_exc) -> None:
         self._responses.append(content_or_exc)
 
-    def accounting_inputs_for(self, config, options_override=None):
+    def context_profile_for(self, config, options_override=None):
         return SimpleNamespace(
             capacity=SimpleNamespace(capacity_tokens=self._capacity_tokens, source="config"),
             reserve_tokens=self._reserve_tokens,

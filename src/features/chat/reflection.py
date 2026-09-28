@@ -84,10 +84,6 @@ MAX_TRANSCRIPT_CHARS = 12000
 
 _LINE_SEP = "\n\n"
 
-# The explicit response reservation for a reflection call - passed to BOTH
-# the real `generate_with_history` call AND `LLMGateway.accounting_inputs_for`
-# (see `_resolve_span_budget`), so the budget check and the real send can
-# never reserve a different amount for the output than each other.
 _REFLECTION_OPTIONS_OVERRIDE = {"max_tokens": 800, "temperature": 0.2, "think": False}
 
 # Bounded halving attempts in `_fit_span_to_real_request` before giving up on
@@ -530,35 +526,11 @@ class ChatReflectionGenerator:
         return sum(1 for _, m, _ in self._unreflected_entries(session, messages) if m.role == "user")
 
     def _resolve_span_budget(self, prompt: str, config: Optional[Any]) -> "_SpanBudget":
-        """A STARTING ESTIMATE of how many transcript chars one span may
-        carry, after reserving room for the fixed reflection prompt and the
-        model's response - using the SAME accounting ``LLMGateway`` enforces
-        on the real wire call (``LLMGateway.accounting_inputs_for``, given
-        the actual ``_REFLECTION_OPTIONS_OVERRIDE`` this call will use).
-        When a whole-request counter is available (``inputs.messages_counter``
-        - the provider's real chat-template framing, INCLUDING the configured
-        system message), it prices the fixed prompt AS a whole request rather
-        than as bare prompt text, so a non-trivial configured system message
-        or template overhead is already accounted for here rather than
-        discovered only when the real send rejects the candidate. Falls back
-        to ``count_text`` on the prompt alone when no whole-request counter
-        exists. This is still only a candidate to start from, never the last
-        word - ``_fit_span_to_real_request`` validates (and shrinks) the
-        actual candidate against the real budget check before it is ever
-        sent, so an estimate that undercounts something (a per-message
-        framing cost this whole-request count doesn't capture, say) still
-        can't produce a doomed-to-fail request.
-
-        Degrades to the previous window-only estimate (still reserving the
-        response and the prompt's char-estimated cost) when the collaborator
-        doesn't implement the real gateway accounting - never fails the pass
-        over a missing test double or a provider hook raising.
-        """
         if config is None:
             return _SpanBudget(MAX_TRANSCRIPT_CHARS, 0, 0, 0)
         system_message = "" if getattr(config, "disable_system_prompt", False) else getattr(config, "system_message", None)
         try:
-            inputs = self._m.llm_service.accounting_inputs_for(config, _REFLECTION_OPTIONS_OVERRIDE)
+            inputs = self._m.llm_service.context_profile_for(config, _REFLECTION_OPTIONS_OVERRIDE)
             capacity_tokens = int(inputs.capacity.capacity_tokens)
             reserve_tokens = int(inputs.reserve_tokens)
             if inputs.messages_counter is not None:

@@ -117,6 +117,14 @@ DEFAULT_IMAGE_TOKEN_ESTIMATE = 1100
 # LLMConfig at hand; every real call site passes the config's own max_tokens).
 DEFAULT_RESERVE_TOKENS = 1024
 
+RESERVE_WINDOW_FRACTION = 0.15
+MIN_RESERVE_TOKENS = 1024
+
+THINKING_ALLOWANCE_FRACTION = 0.10
+THINKING_ALLOWANCE_CAP_TOKENS = 4096
+
+_OLLAMA_THINK_LEVELS = ("low", "medium", "high")
+
 TokenCounter = Callable[[str], int]
 # A whole-request counter: (system_message, kept_messages, tool_schemas) ->
 # exact token count of the ACTUALLY PREPARED request via a real chat template
@@ -176,19 +184,15 @@ class BudgetOutcome:
 
 
 @dataclass(frozen=True)
-class AccountingInputs:
-    """The (capacity, reserve, tokenizer(s), per-image override) bundle for
-    one ``LLMConfig`` — built ONCE by ``LLMGateway.accounting_inputs_for``
-    and passed to ``enforce_budget`` by every caller (every real send AND
-    ``ConversationRunner``'s pre-flight ledger check), so the two can never
-    compute different numbers for the same request.
-    """
-
+class ContextProfile:
     capacity: CapacityInfo
     reserve_tokens: int
     counter: Optional[TokenCounter] = None
     messages_counter: Optional[MessagesCounter] = None
     image_tokens_override: Optional[int] = None
+    max_tokens: int = 0
+    thinking_enabled: bool = False
+    thinking_allowance_tokens: int = 0
 
 
 class ContextBudgetExceededError(Exception):
@@ -262,6 +266,78 @@ def resolve_image_token_override(config: "LLMConfig") -> Optional[int]:
     provider_opts = getattr(config, "provider_options", None) or {}
     value = provider_opts.get("image_token_estimate")
     return int(value) if _is_positive_number(value) else None
+
+
+def resolve_native_tools(tools: Optional[List[Dict[str, Any]]], *, force_prompt_tools: bool) -> bool:
+    return bool(tools) and not force_prompt_tools
+
+
+def resolve_ollama_think_default(*, native_tools: bool) -> bool:
+    return False if native_tools else True
+
+
+def resolve_thinking_enabled(
+    config: "LLMConfig", options_override: Optional[Dict[str, Any]] = None, *, native_tools: bool = False,
+) -> bool:
+    provider_type = getattr(config, "type", None)
+    provider_opts = getattr(config, "provider_options", None) or {}
+    options_override = options_override or {}
+
+    if provider_type == "ollama":
+        value = options_override.get("think")
+        if value is None:
+            value = provider_opts.get("think")
+        if value is None:
+            return resolve_ollama_think_default(native_tools=native_tools)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value in _OLLAMA_THINK_LEVELS
+        return False
+
+    if provider_type == "native":
+        return provider_opts.get("thinking") is True
+
+    if provider_type == "openai":
+        value = provider_opts.get("reasoning_effort")
+        return value is not None and value != "none"
+
+    return False
+
+
+@dataclass(frozen=True)
+class ReserveInfo:
+    reserve_tokens: int
+    base_reserve_tokens: int
+    thinking_enabled: bool
+    thinking_allowance_tokens: int
+
+
+def resolve_reserve(*, max_tokens: Any, window_tokens: int, thinking_enabled: bool) -> ReserveInfo:
+    base = min(max(0, int(max_tokens)), max(MIN_RESERVE_TOKENS, math.ceil(RESERVE_WINDOW_FRACTION * window_tokens)))
+    allowance = (
+        min(THINKING_ALLOWANCE_CAP_TOKENS, math.ceil(THINKING_ALLOWANCE_FRACTION * window_tokens))
+        if thinking_enabled else 0
+    )
+    return ReserveInfo(
+        reserve_tokens=base + allowance,
+        base_reserve_tokens=base,
+        thinking_enabled=thinking_enabled,
+        thinking_allowance_tokens=allowance,
+    )
+
+
+def resolve_sent_max_tokens(
+    *,
+    max_tokens: int,
+    reserve_tokens: int,
+    capacity_tokens: int,
+    capacity_source: str,
+    estimated_prompt_tokens: int,
+) -> int:
+    if capacity_source == "unknown":
+        return max_tokens
+    return min(max_tokens, max(reserve_tokens, capacity_tokens - estimated_prompt_tokens))
 
 
 def _is_positive_number(value: Any) -> bool:
@@ -643,3 +719,44 @@ def enforce_budget(
         )
 
     return BudgetOutcome(messages=final_messages, ledger=ledger)
+
+
+def budget_with_profile(
+    profile: Optional[ContextProfile],
+    *,
+    system_message: Optional[str],
+    messages: List[Dict[str, Any]],
+    tool_schemas: Optional[List[Dict[str, Any]]] = None,
+    image_data: Optional[str] = None,
+) -> BudgetOutcome:
+    p = profile or ContextProfile(
+        capacity=CapacityInfo(UNKNOWN_CAPACITY_TOKENS, "unknown"),
+        reserve_tokens=DEFAULT_RESERVE_TOKENS,
+    )
+    outcome = enforce_budget(
+        capacity_tokens=p.capacity.capacity_tokens,
+        capacity_source=p.capacity.source,
+        reserve_tokens=p.reserve_tokens,
+        system_message=system_message,
+        messages=messages,
+        tool_schemas=tool_schemas,
+        image_data=image_data,
+        image_tokens=p.image_tokens_override,
+        counter=p.counter,
+        messages_counter=p.messages_counter,
+    )
+    max_tokens_sent = resolve_sent_max_tokens(
+        max_tokens=p.max_tokens,
+        reserve_tokens=p.reserve_tokens,
+        capacity_tokens=p.capacity.capacity_tokens,
+        capacity_source=p.capacity.source,
+        estimated_prompt_tokens=outcome.ledger["estimated_tokens"],
+    )
+    ledger = {
+        **outcome.ledger,
+        "max_tokens": p.max_tokens,
+        "max_tokens_sent": max_tokens_sent,
+        "thinking_enabled": p.thinking_enabled,
+        "thinking_allowance_tokens": p.thinking_allowance_tokens,
+    }
+    return BudgetOutcome(messages=outcome.messages, ledger=ledger)

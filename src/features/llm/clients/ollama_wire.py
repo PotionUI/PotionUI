@@ -12,6 +12,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Iterator, List, Optional
 
+from src.features.llm import context_budget
 from src.features.llm.clients.tool_call_shape import arguments_to_object, normalize_tool_calls
 from src.features.llm.clients.wire_events import Done, TextDelta, ToolCalls, Usage
 from src.features.llm.repository import LLMConfig
@@ -174,6 +175,10 @@ def build_ollama_options(
         if key in provider_opts:
             options[key] = provider_opts[key]
 
+    capacity = context_budget.resolve_capacity(config)
+    if capacity.source == "config":
+        options["num_ctx"] = capacity.capacity_tokens
+
     if "temperature" in options_override:
         options["temperature"] = options_override["temperature"]
     if "top_p" in options_override:
@@ -289,7 +294,7 @@ def build_ollama_chat_request(
     force_prompt_tools = tool_mode == TOOLS_AUTO and bool(
         provider_opts.get("force_prompt_tools", False)
     )
-    native_tools = bool(tools) and not force_prompt_tools
+    native_tools = context_budget.resolve_native_tools(tools, force_prompt_tools=force_prompt_tools)
 
     if force_prompt_tools and tools:
         system_message = (system_message or "") + build_prompt_tools_text(tools)
@@ -304,13 +309,7 @@ def build_ollama_chat_request(
     )
 
     if think is None:
-        # Automatic default, only when neither the saved config nor this call
-        # requested an explicit mode: thinking makes a model reason about a
-        # tool in the think phase and then describe the call in prose ("Let
-        # me check...") instead of emitting a structured tool_call, so it
-        # defaults off whenever native tools are on the wire. An explicit
-        # true/false/level always wins over this default, tools or not.
-        think = False if native_tools else True
+        think = context_budget.resolve_ollama_think_default(native_tools=native_tools)
 
     payload: Dict[str, Any] = {
         "model": config.model,
@@ -346,12 +345,7 @@ def build_ollama_generate_request(
     """
     provider_opts = config.provider_options or {}
     options, think = build_ollama_options(config)
-    # This call path never carries tools, so there is no "off by default
-    # while tools are on the wire" case here — the automatic default is
-    # always on, same as build_ollama_options returned unconditionally
-    # before it started leaving None unresolved for build_ollama_chat_request
-    # to interpret.
-    think_enabled = True if think is None else think
+    think_enabled = think if think is not None else context_budget.resolve_ollama_think_default(native_tools=False)
     keep_alive = provider_opts.get("keep_alive", 0)
 
     if image_data:

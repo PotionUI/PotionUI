@@ -62,6 +62,34 @@ class TestGatewayTestConfiguration:
         assert kwargs.get("exc_info") is True
 
 
+class TestGenerateResponseClampsMaxTokensOnAKnownWindow:
+    @pytest.mark.asyncio
+    async def test_known_window_clamps_max_tokens_sent_to_the_client(self):
+        gateway = LLMGateway(llm_repository=Mock())
+        config = make_config(provider_options={"context_window": 32768}, max_tokens=50000)
+        gateway._ollama.generate = AsyncMock(return_value=Mock(content="ok"))
+
+        await gateway.generate_response("hi", config, config.system_message)
+
+        sent_config = gateway._ollama.generate.call_args.args[1]
+        expected = gateway.estimate_context_budget(
+            config, config.system_message, [{"role": "user", "content": "hi"}],
+        ).ledger["max_tokens_sent"]
+        assert sent_config.max_tokens == expected
+        assert sent_config.max_tokens < 50000
+
+    @pytest.mark.asyncio
+    async def test_unknown_window_leaves_max_tokens_untouched(self):
+        gateway = LLMGateway(llm_repository=Mock())
+        config = make_config(max_tokens=100_000)
+        gateway._ollama.generate = AsyncMock(return_value=Mock(content="ok"))
+
+        await gateway.generate_response("hi", config, config.system_message)
+
+        sent_config = gateway._ollama.generate.call_args.args[1]
+        assert sent_config.max_tokens == 100_000
+
+
 async def _empty_stream(*args, **kwargs):
     return
     yield  # pragma: no cover - makes this an async generator
@@ -139,13 +167,12 @@ class TestGatewayContextBudgetHook:
         await gateway.generate_with_history(
             messages=messages, llm_id="cfg-1", options_override={"max_tokens": 4096},
         )
-        # config.max_tokens defaults to 2000; an override must win so the
-        # reserve genuinely reflects what this call will ask the model for.
         outcome = gateway.estimate_context_budget(
             gateway.repository.get_configuration("cfg-1"), "", messages,
             options_override={"max_tokens": 4096},
         )
-        assert outcome.ledger["reserve_tokens"] == 4096
+        assert outcome.ledger["max_tokens"] == 4096
+        assert outcome.ledger["reserve_tokens"] == 2049
 
 
 class TestGatewayTokenCounterFor:
@@ -168,8 +195,8 @@ class TestGatewayTokenCounterFor:
         assert gateway.token_counter_for(config) is None
 
 
-class TestGatewayAccountingInputsFor:
-    """`accounting_inputs_for` is the single shared builder — both the real
+class TestGatewayContextProfileFor:
+    """`context_profile_for` is the single shared builder — both the real
     send hook and ConversationRunner's pre-flight ledger call it, so both
     must see exactly this bundle for a given config/options_override."""
 
@@ -183,7 +210,7 @@ class TestGatewayAccountingInputsFor:
         gateway._native.token_counter = Mock(return_value=lambda text: len(text))
         gateway._native.messages_token_counter = Mock(return_value=lambda s, m, t: 99)
 
-        inputs = gateway.accounting_inputs_for(config)
+        inputs = gateway.context_profile_for(config)
 
         assert inputs.capacity == context_budget.CapacityInfo(4096, "config")
         assert inputs.reserve_tokens == 777
@@ -193,22 +220,216 @@ class TestGatewayAccountingInputsFor:
 
     def test_options_override_max_tokens_wins_over_config_default(self):
         gateway = LLMGateway(llm_repository=Mock())
-        config = make_config(max_tokens=2000)
-        inputs = gateway.accounting_inputs_for(config, options_override={"max_tokens": 4096})
-        assert inputs.reserve_tokens == 4096
+        config = make_config(max_tokens=2000, provider_options={"think": False})
+        inputs = gateway.context_profile_for(config, options_override={"max_tokens": 4096})
+        assert inputs.max_tokens == 4096
+        assert inputs.reserve_tokens == 1229
 
     def test_a_raising_messages_token_counter_hook_degrades_to_none(self):
         gateway = LLMGateway(llm_repository=Mock())
         config = make_config(type="native", model="native-model")
         gateway._native.messages_token_counter = Mock(side_effect=RuntimeError("boom"))
-        inputs = gateway.accounting_inputs_for(config)
+        inputs = gateway.context_profile_for(config)
         assert inputs.messages_counter is None
 
     def test_ollama_openai_never_get_a_messages_counter(self):
         gateway = LLMGateway(llm_repository=Mock())
         for provider_type in ("ollama", "openai"):
-            inputs = gateway.accounting_inputs_for(make_config(type=provider_type))
+            inputs = gateway.context_profile_for(make_config(type=provider_type))
             assert inputs.messages_counter is None
+
+
+class TestGatewayReserveClampRegression:
+
+    @pytest.fixture
+    def gateway(self):
+        gw = LLMGateway(llm_repository=Mock())
+        gw._ollama.generate_with_history = AsyncMock(return_value=Mock(
+            content="ok", tool_calls=None, tokens_used=1, prompt_tokens=1, completion_tokens=0,
+        ))
+        return gw
+
+    def _history(self, turns=6):
+        history = []
+        for i in range(turns):
+            history.append({"role": "user", "content": f"turn {i} question " * 20})
+            history.append({"role": "assistant", "content": f"turn {i} answer " * 20})
+        history.append({"role": "user", "content": "current question"})
+        return history
+
+    @pytest.mark.asyncio
+    async def test_configured_window_with_large_max_tokens_now_includes_prior_turns(self, gateway):
+        gateway.repository.get_configuration.return_value = make_config(
+            provider_options={"context_window": 32768}, max_tokens=50000,
+        )
+        history = self._history()
+
+        await gateway.generate_with_history(messages=history, llm_id="cfg-1")
+
+        sent = gateway._ollama.generate_with_history.call_args.args[0]
+        assert len(sent) > 1
+        assert sent[-1]["content"] == "current question"
+
+    def test_configured_window_with_large_max_tokens_clamps_the_reserve(self):
+        gateway = LLMGateway(llm_repository=Mock())
+        config = make_config(
+            provider_options={"context_window": 32768, "think": False}, max_tokens=50000,
+        )
+        outcome = gateway.estimate_context_budget(config, "sys", [{"role": "user", "content": "hi"}])
+        assert outcome.ledger["reserve_tokens"] < outcome.ledger["max_tokens"]
+        assert outcome.ledger["reserve_tokens"] == 4916
+
+    def test_unknown_window_with_large_max_tokens_clamps_the_reserve(self):
+        gateway = LLMGateway(llm_repository=Mock())
+        config = make_config(provider_options={"think": False}, max_tokens=100_000)
+        outcome = gateway.estimate_context_budget(config, "sys", [{"role": "user", "content": "hi"}])
+        assert outcome.ledger["capacity_source"] == "unknown"
+        assert outcome.ledger["reserve_tokens"] == 1229
+        assert outcome.ledger["reserve_tokens"] < outcome.ledger["max_tokens"]
+
+    @pytest.mark.asyncio
+    async def test_unknown_window_does_not_clamp_what_is_sent_as_max_tokens(self, gateway):
+        gateway.repository.get_configuration.return_value = make_config(
+            type="ollama", max_tokens=100_000,
+        )
+
+        await gateway.generate_with_history(messages=[{"role": "user", "content": "hi"}], llm_id="cfg-1")
+
+        sent_override = gateway._ollama.generate_with_history.call_args.args[4]
+        assert sent_override is None
+
+    def test_thinking_enabled_adds_a_reserve_allowance(self):
+        gateway = LLMGateway(llm_repository=Mock())
+        thinking_off = make_config(
+            type="ollama", provider_options={"context_window": 32768, "think": False}, max_tokens=1000,
+        )
+        thinking_on = make_config(
+            type="ollama", provider_options={"context_window": 32768, "think": True}, max_tokens=1000,
+        )
+        off = gateway.context_profile_for(thinking_off)
+        on = gateway.context_profile_for(thinking_on)
+
+        assert off.thinking_enabled is False
+        assert on.thinking_enabled is True
+        assert on.reserve_tokens > off.reserve_tokens
+        assert on.reserve_tokens == off.reserve_tokens + on.thinking_allowance_tokens
+
+    def test_force_prompt_tools_with_tools_offered_and_unset_think_reserves_the_allowance(self):
+        gateway = LLMGateway(llm_repository=Mock())
+        config = make_config(
+            type="ollama", provider_options={"context_window": 32768, "force_prompt_tools": True}, max_tokens=1000,
+        )
+        tools = [{"type": "function", "function": {"name": "noop", "parameters": {}}}]
+
+        profile = gateway.context_profile_for(config, tool_schemas=tools, force_prompt_tools_eligible=True)
+
+        assert profile.thinking_enabled is True
+        assert profile.thinking_allowance_tokens > 0
+
+    def test_native_tools_with_unset_think_does_not_reserve_the_allowance(self):
+        gateway = LLMGateway(llm_repository=Mock())
+        config = make_config(
+            type="ollama", provider_options={"context_window": 32768}, max_tokens=1000,
+        )
+        tools = [{"type": "function", "function": {"name": "noop", "parameters": {}}}]
+
+        profile = gateway.context_profile_for(config, tool_schemas=tools, force_prompt_tools_eligible=True)
+
+        assert profile.thinking_enabled is False
+        assert profile.thinking_allowance_tokens == 0
+
+    @pytest.mark.asyncio
+    async def test_preflight_ledger_and_real_send_agree_on_the_new_fields(self, gateway):
+        from src.features.chat.conversation import ConversationRunner
+
+        config = make_config(provider_options={"context_window": 32768}, max_tokens=50000)
+        gateway.repository.get_configuration.return_value = config
+        messages = [{"role": "user", "content": "hi"}]
+
+        await gateway.generate_with_history(messages=list(messages), llm_id="cfg-1")
+        send_outcome = gateway.estimate_context_budget(config, "", list(messages))
+
+        session = Mock(llm_config_id="cfg-1")
+        manager = Mock()
+        manager.llm_service = gateway
+        runner = ConversationRunner(manager)
+        accounting = runner._resolve_budget_inputs(session, mode=None)
+        preflight_ledger = ConversationRunner._build_context_ledger(
+            "", [], {}, list(messages), accounting=accounting,
+        )
+
+        assert preflight_ledger["budget"]["reserve_tokens"] == send_outcome.ledger["reserve_tokens"]
+        assert preflight_ledger["budget"]["max_tokens"] == send_outcome.ledger["max_tokens"]
+        assert preflight_ledger["budget"]["max_tokens_sent"] == send_outcome.ledger["max_tokens_sent"]
+        assert preflight_ledger["budget"]["thinking_enabled"] == send_outcome.ledger["thinking_enabled"]
+
+
+class TestSentMaxTokensNeverExceedsWindow:
+    WINDOW = 32768
+
+    def _long_history(self):
+        history = []
+        for i in range(20):
+            history.append({"role": "user", "content": f"turn {i} question " * 200})
+            history.append({"role": "assistant", "content": f"turn {i} answer " * 200})
+        history.append({"role": "user", "content": "current question"})
+        return history
+
+    def _build_gateway(self, provider_type):
+        gw = LLMGateway(llm_repository=Mock())
+        response = Mock(content="ok", tool_calls=None, tokens_used=1, prompt_tokens=1, completion_tokens=0)
+        client = getattr(gw, f"_{provider_type}")
+        client.generate_with_history = AsyncMock(return_value=response)
+        client.generate_with_tools = AsyncMock(return_value=response)
+        client.stream_with_history = Mock(side_effect=_empty_stream)
+        client.stream_with_tools = Mock(side_effect=_empty_stream)
+        return gw
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("provider_type", ["openai", "ollama"])
+    @pytest.mark.parametrize("max_tokens", [8192, 30000, 50000])
+    @pytest.mark.parametrize("send_method,uses_tools,options_override_index", [
+        ("generate_with_history", False, 4),
+        ("stream_with_history", False, 4),
+        ("generate_with_tools", True, 5),
+        ("stream_with_tools", True, 5),
+    ])
+    async def test_prompt_estimate_plus_received_max_tokens_fits_the_window(
+        self, provider_type, max_tokens, send_method, uses_tools, options_override_index,
+    ):
+        gateway = self._build_gateway(provider_type)
+        config = make_config(
+            type=provider_type, provider_options={"context_window": self.WINDOW}, max_tokens=max_tokens,
+        )
+        gateway.repository.get_configuration.return_value = config
+        history = self._long_history()
+        tools = [{"type": "function", "function": {"name": "noop", "parameters": {}}}] if uses_tools else None
+
+        method = getattr(gateway, send_method)
+        kwargs = {"messages": list(history), "llm_id": "cfg-1"}
+        if uses_tools:
+            kwargs["tools"] = tools
+        if send_method.startswith("stream"):
+            async for _ in method(**kwargs):
+                pass
+        else:
+            await method(**kwargs)
+
+        client = getattr(gateway, f"_{provider_type}")
+        call = getattr(client, send_method).call_args
+        sent_messages = call.args[0]
+        sent_system_message = call.args[2]
+        sent_options_override = call.args[options_override_index]
+        received_max_tokens = (sent_options_override or {}).get("max_tokens", config.max_tokens)
+
+        estimated_prompt = (
+            context_budget.count_text(sent_system_message, None).tokens
+            + context_budget.count_messages(sent_messages, None).tokens
+            + context_budget.count_tool_schemas(tools, None).tokens
+        )
+
+        assert estimated_prompt + received_max_tokens <= self.WINDOW
+        assert received_max_tokens <= max_tokens
 
 
 class TestGatewayImageTokenOverrideThreading:
@@ -255,7 +476,7 @@ class TestGatewayImageTokenOverrideThreading:
 class TestLedgerMatchesGatewayHook:
     """ConversationRunner's pre-flight ledger and the gateway's real send
     hook must compute identical numbers for the identical request — they
-    share `accounting_inputs_for`, so this pins that down end to end."""
+    share `context_profile_for`, so this pins that down end to end."""
 
     @pytest.mark.asyncio
     async def test_same_config_and_request_yield_the_same_ledger(self):
@@ -276,21 +497,12 @@ class TestLedgerMatchesGatewayHook:
 
         messages = [{"role": "user", "content": "a distinctive question"}]
         system_message = "You are helpful."
-        # An attached image plus the config's `image_token_estimate` override
-        # and a working `messages_token_counter` exercise every field
-        # `accounting_inputs_for` produces — a ledger built by bypassing that
-        # shared builder (recomputing capacity/reserve/counter inline instead
-        # of delegating to it) would diverge here even though it agrees when
-        # no image is attached, which is exactly the gap this guards.
         image_data = "base64imagebytes..."
 
         gateway_outcome = await gateway.generate_with_history(
             messages=list(messages), llm_id="cfg-1", custom_system_message=system_message,
             image_data=image_data,
         )
-        # generate_with_history returns the client's response, not the
-        # BudgetOutcome — recompute it the same way `_budgeted` did, so this
-        # asserts the SAME accounting_inputs_for bundle the send used.
         gateway_budget = gateway.estimate_context_budget(
             config, system_message, list(messages), image_data=image_data,
         )

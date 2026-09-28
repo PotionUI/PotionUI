@@ -12,6 +12,16 @@ import copy
 import pytest
 
 from src.features.llm.clients import ollama_wire
+from src.features.llm.repository import LLMConfig
+
+
+def _config(**overrides):
+    defaults = dict(
+        id="cfg-1", name="n", type="ollama", enabled=True, base_url="http://x",
+        model="m", system_message="s", provider_options=None,
+    )
+    defaults.update(overrides)
+    return LLMConfig(**defaults)
 
 
 def _tool(name="t", description="d", ptype="string", pdesc="p", required=True):
@@ -172,3 +182,25 @@ def test_the_nested_item_contract_is_present_verbatim_in_the_rendered_text():
     text = ollama_wire.build_prompt_tools_text([_nested_tool()])
 
     assert '"items":{"properties":{"id":{"type":"string"},"kind":{"enum":["a","b"],"type":"string"}},"required":["id"],"type":"object"}' in text
+
+
+class TestBuildOllamaOptionsNumCtxWiring:
+    def test_context_window_flows_into_num_ctx(self):
+        config = _config(provider_options={"context_window": 32768})
+        options, _ = ollama_wire.build_ollama_options(config)
+        assert options["num_ctx"] == 32768
+
+    def test_explicit_num_ctx_flows_through_when_context_window_is_absent(self):
+        config = _config(provider_options={"num_ctx": 4096})
+        options, _ = ollama_wire.build_ollama_options(config)
+        assert options["num_ctx"] == 4096
+
+    def test_context_window_takes_precedence_over_explicit_num_ctx(self):
+        config = _config(provider_options={"num_ctx": 4096, "context_window": 16000})
+        options, _ = ollama_wire.build_ollama_options(config)
+        assert options["num_ctx"] == 16000
+
+    def test_num_ctx_is_absent_when_the_window_is_unknown(self):
+        config = _config(provider_options=None)
+        options, _ = ollama_wire.build_ollama_options(config)
+        assert "num_ctx" not in options

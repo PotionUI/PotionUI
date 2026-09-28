@@ -70,43 +70,42 @@ class LLMGateway:
             return None
 
     def token_counter_for(self, config: LLMConfig) -> Optional[context_budget.TokenCounter]:
-        """A cheap, already-available tokenizer for *config*'s provider, or
-        ``None`` when only the chars-per-token estimate is available.
+        return self.context_profile_for(config).counter
 
-        Ollama and OpenAI-compatible clients never have a compatible
-        tokenizer in-process; ``NativeLLMClient`` exposes one via an optional
-        ``token_counter(config)`` method, but only while the checkpoint is
-        already warm (see its docstring) — this never triggers a model load
-        just to count tokens for budgeting. A thin wrapper around
-        ``accounting_inputs_for`` kept for callers that only need this one
-        piece.
-        """
-        return self.accounting_inputs_for(config).counter
-
-    def accounting_inputs_for(
-        self, config: LLMConfig, options_override: Optional[Dict[str, Any]] = None,
-    ) -> context_budget.AccountingInputs:
-        """The single shared source of (capacity, reserve, tokenizer(s),
-        per-image override) for *config* — built here ONCE and used both by
-        ``estimate_context_budget`` (every real send, via ``_budgeted``) and
-        by ``ConversationRunner``'s pre-flight ledger check
-        (``_resolve_budget_inputs``), so the two can never compute different
-        numbers for the same request.
-        """
+    def context_profile_for(
+        self,
+        config: LLMConfig,
+        options_override: Optional[Dict[str, Any]] = None,
+        tool_schemas: Optional[List[Dict[str, Any]]] = None,
+        *,
+        force_prompt_tools_eligible: bool = False,
+    ) -> context_budget.ContextProfile:
         client = self._client_for(config)
         capacity = context_budget.resolve_capacity(config)
-        reserve_tokens = (options_override or {}).get("max_tokens", config.max_tokens)
+        max_tokens = (options_override or {}).get("max_tokens", config.max_tokens)
+        provider_opts = getattr(config, "provider_options", None) or {}
+        force_prompt_tools = force_prompt_tools_eligible and bool(provider_opts.get("force_prompt_tools", False))
+        native_tools = context_budget.resolve_native_tools(tool_schemas, force_prompt_tools=force_prompt_tools)
+        thinking_enabled = context_budget.resolve_thinking_enabled(
+            config, options_override, native_tools=native_tools,
+        )
+        reserve = context_budget.resolve_reserve(
+            max_tokens=max_tokens, window_tokens=capacity.capacity_tokens, thinking_enabled=thinking_enabled,
+        )
         counter = self._safe_provider_hook(getattr(client, "token_counter", None), config, "token_counter")
         messages_counter = self._safe_provider_hook(
             getattr(client, "messages_token_counter", None), config, "messages_token_counter",
         )
         image_tokens_override = context_budget.resolve_image_token_override(config)
-        return context_budget.AccountingInputs(
+        return context_budget.ContextProfile(
             capacity=capacity,
-            reserve_tokens=reserve_tokens,
+            reserve_tokens=reserve.reserve_tokens,
             counter=counter,
             messages_counter=messages_counter,
             image_tokens_override=image_tokens_override,
+            max_tokens=max_tokens,
+            thinking_enabled=reserve.thinking_enabled,
+            thinking_allowance_tokens=reserve.thinking_allowance_tokens,
         )
 
     def estimate_context_budget(
@@ -117,6 +116,8 @@ class LLMGateway:
         tool_schemas: Optional[List[Dict[str, Any]]] = None,
         image_data: Optional[str] = None,
         options_override: Optional[Dict[str, Any]] = None,
+        *,
+        force_prompt_tools_eligible: bool = False,
     ) -> context_budget.BudgetOutcome:
         """The one shared budgeting call every gateway send path routes
         through (see ``_budgeted``) and that ``ConversationRunner`` also uses
@@ -125,18 +126,12 @@ class LLMGateway:
         the request doesn't fit even after trimming every eligible older
         message.
         """
-        inputs = self.accounting_inputs_for(config, options_override)
-        return context_budget.enforce_budget(
-            capacity_tokens=inputs.capacity.capacity_tokens,
-            capacity_source=inputs.capacity.source,
-            reserve_tokens=inputs.reserve_tokens,
-            system_message=system_message,
-            messages=messages,
-            tool_schemas=tool_schemas,
-            image_data=image_data,
-            image_tokens=inputs.image_tokens_override,
-            counter=inputs.counter,
-            messages_counter=inputs.messages_counter,
+        inputs = self.context_profile_for(
+            config, options_override, tool_schemas, force_prompt_tools_eligible=force_prompt_tools_eligible,
+        )
+        return context_budget.budget_with_profile(
+            inputs, system_message=system_message, messages=messages,
+            tool_schemas=tool_schemas, image_data=image_data,
         )
 
     def _budgeted(
@@ -147,14 +142,22 @@ class LLMGateway:
         tool_schemas: Optional[List[Dict[str, Any]]],
         image_data: Optional[str],
         options_override: Optional[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        *,
+        force_prompt_tools_eligible: bool = False,
+    ) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
         """Budget-check and, if needed, trim *messages* before ANY client
         call — the single choke point every one of the four send methods
         below calls, so a provider-specific path can never skip it."""
         outcome = self.estimate_context_budget(
             config, system_message, messages, tool_schemas, image_data, options_override,
+            force_prompt_tools_eligible=force_prompt_tools_eligible,
         )
-        return outcome.messages
+        effective_override = options_override
+        sent = outcome.ledger["max_tokens_sent"]
+        if sent != outcome.ledger["max_tokens"]:
+            effective_override = dict(options_override or {})
+            effective_override["max_tokens"] = sent
+        return outcome.messages, effective_override
 
     def _resolve_system_message(
         self,
@@ -224,7 +227,19 @@ class LLMGateway:
         if not config.enabled:
             raise ValueError(f"LLM configuration '{config.id}' is disabled")
 
+        config = self._clamped_config_for_prompt(config, system_message, prompt, image_data)
         return await self._client_for(config).generate(prompt, config, system_message, image_data)
+
+    def _clamped_config_for_prompt(
+        self, config: LLMConfig, system_message: Optional[str], prompt: str, image_data: Optional[str],
+    ) -> LLMConfig:
+        outcome = self.estimate_context_budget(
+            config, system_message, [{"role": "user", "content": prompt}], image_data=image_data,
+        )
+        sent = outcome.ledger["max_tokens_sent"]
+        if sent == config.max_tokens:
+            return config
+        return config.model_copy(update={"max_tokens": sent})
 
     async def test_configuration(self, config: LLMConfig) -> Dict[str, Any]:
         """Probe a configuration with a fixed prompt and report reachability."""
@@ -279,7 +294,7 @@ class LLMGateway:
         system_message = self._resolve_system_message(
             config, custom_system_message, log_prefix="[Chat]"
         )
-        messages = self._budgeted(config, system_message, messages, None, image_data, options_override)
+        messages, options_override = self._budgeted(config, system_message, messages, None, image_data, options_override)
 
         return await self._client_for(config).generate_with_history(
             messages, config, system_message, image_data, options_override
@@ -322,7 +337,7 @@ class LLMGateway:
         system_message = self._resolve_system_message(
             config, custom_system_message, log_prefix="[Chat Stream]"
         )
-        messages = self._budgeted(config, system_message, messages, None, image_data, options_override)
+        messages, options_override = self._budgeted(config, system_message, messages, None, image_data, options_override)
 
         # Owns the client's stream: closing THIS generator (aclose(), or an
         # exception unwinding through it) must close the client's — an
@@ -374,7 +389,10 @@ class LLMGateway:
         system_message = self._resolve_system_message(
             config, custom_system_message, log_prefix="[Chat]"
         )
-        messages = self._budgeted(config, system_message, messages, tools, image_data, options_override)
+        messages, options_override = self._budgeted(
+            config, system_message, messages, tools, image_data, options_override,
+            force_prompt_tools_eligible=True,
+        )
 
         return await self._client_for(config).generate_with_tools(
             messages, config, system_message, tools, image_data, options_override
@@ -414,7 +432,7 @@ class LLMGateway:
         system_message = self._resolve_system_message(
             config, custom_system_message, log_prefix="[Chat Stream]"
         )
-        messages = self._budgeted(config, system_message, messages, tools, image_data, options_override)
+        messages, options_override = self._budgeted(config, system_message, messages, tools, image_data, options_override)
 
         # See stream_with_history's comment above — same ownership rule.
         async with aclosing(self._client_for(config).stream_with_tools(

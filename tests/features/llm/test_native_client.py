@@ -881,7 +881,7 @@ class TestGenerateWithHistoryReportsThinkingMode:
 
 class TestPreflightAndGenerateAgreeOnThinkingKwargs:
     """`messages_token_counter` (the budget preflight's chat-template count,
-    called from `LLMGateway.accounting_inputs_for`) and `generate_with_history`
+    called from `LLMGateway.context_profile_for`) and `generate_with_history`
     (the real send) must compute `enable_thinking` through the exact same
     `_chat_template_kwargs` call — proven here by warming the SAME checkpoint
     object for both paths and comparing what each one actually sent to

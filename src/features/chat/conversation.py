@@ -229,7 +229,7 @@ class ConversationRunner:
         self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
 
         tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools)
-        budget_accounting = self._resolve_budget_inputs(session, mode)
+        budget_accounting = self._resolve_budget_inputs(session, mode, tool_schemas)
         try:
             context_ledger = self._build_context_ledger(
                 system_prompt, tool_schemas, memory_result, conversation_history,
@@ -612,7 +612,7 @@ class ConversationRunner:
         self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
 
         tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools)
-        budget_accounting = self._resolve_budget_inputs(session, mode)
+        budget_accounting = self._resolve_budget_inputs(session, mode, tool_schemas)
         try:
             context_ledger = self._build_context_ledger(
                 system_prompt, tool_schemas, memory_result, conversation_history,
@@ -954,18 +954,11 @@ class ConversationRunner:
         return _DEFAULT_HISTORY_TOKEN_BUDGET
 
     def _resolve_budget_inputs(
-        self, session: SessionResponse, mode: Optional[ChatMode],
-    ) -> Optional[context_budget.AccountingInputs]:
-        """This turn's accounting inputs (capacity, reserve, tokenizer(s),
-        per-image override) for the context-ledger pre-flight check in
-        ``_build_context_ledger`` — built via ``LLMGateway.accounting_inputs_for``,
-        the SAME builder ``estimate_context_budget`` uses for every real send,
-        so the pre-flight number can never diverge from what actually goes
-        out on the wire. Degrades to ``None`` — the ledger then falls back to
-        unknown capacity, the module's default reserve, chars-per-token
-        estimate — when the config can't be resolved; the LLM call itself
-        raises its own clear error on a genuinely missing configuration.
-        """
+        self,
+        session: SessionResponse,
+        mode: Optional[ChatMode],
+        tool_schemas: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[context_budget.ContextProfile]:
         llm_config_id = getattr(session, "llm_config_id", None)
         if not llm_config_id:
             return None
@@ -979,7 +972,7 @@ class ConversationRunner:
             if config is None:
                 return None
             mode_options = (mode.llm_options or {}) if mode else {}
-            inputs = self._m.llm_service.accounting_inputs_for(config, mode_options or None)
+            inputs = self._m.llm_service.context_profile_for(config, mode_options or None, tool_schemas)
             int(inputs.reserve_tokens)  # validate now — a non-numeric test double degrades below, not mid-ledger
             return inputs
         except Exception:
@@ -1058,38 +1051,9 @@ class ConversationRunner:
         memory_result: Dict[str, Any],
         conversation_history: List[Dict[str, Any]],
         *,
-        accounting: Optional[context_budget.AccountingInputs] = None,
+        accounting: Optional[context_budget.ContextProfile] = None,
         image_data: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Per-turn size accounting for what actually reached the LLM.
-
-        The top-level fields (``system_prompt``/``tool_schemas``/``memory``/
-        ``history``/``total_est_tokens``) are the original chars/4 display
-        heuristic, unchanged, and size ``conversation_history`` as passed in —
-        the messages actually sent this turn, after budgeting and after every
-        context block (contributor, resource, memory, workspace, prompt
-        state, reply-contract reminder) has been injected; it therefore
-        already includes the memory block's chars, which ``memory`` also
-        reports on its own so memory's share of the total is visible at a
-        glance.
-
-        ``budget`` is the model-aware accounting from
-        ``context_budget.enforce_budget`` — the SAME
-        ``context_budget.AccountingInputs`` bundle (capacity/reserve/
-        tokenizer(s)/per-image override) ``LLMGateway`` builds for the actual
-        wire call (see ``LLMGateway.accounting_inputs_for`` and
-        ``ConversationRunner._resolve_budget_inputs``), not a second
-        heuristic — passing ``accounting=None`` (every pre-existing caller of
-        this method) degrades to unknown capacity, the module's default
-        reserve, and the chars-per-token estimate, the same fallback
-        ``_resolve_budget_inputs`` uses when the session's LLM config can't
-        be resolved.
-
-        Raises ``context_budget.ContextBudgetExceededError`` when even the
-        protected tail of ``conversation_history`` doesn't fit — the caller
-        must convert this into an actionable chat-domain error (see
-        ``ContextBudgetExceededException``) and must not submit the request.
-        """
         def _size(text: str) -> Dict[str, int]:
             chars = len(text or "")
             return {"chars": chars, "est_tokens": chars // 4}
@@ -1116,24 +1080,9 @@ class ConversationRunner:
 
         total_chars = system_prompt_size["chars"] + tool_schemas_size["chars"] + history_size["chars"]
 
-        cap = accounting.capacity if accounting else context_budget.CapacityInfo(
-            context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown"
-        )
-        reserve = accounting.reserve_tokens if accounting else context_budget.DEFAULT_RESERVE_TOKENS
-        counter = accounting.counter if accounting else None
-        messages_counter = accounting.messages_counter if accounting else None
-        image_tokens_override = accounting.image_tokens_override if accounting else None
-        outcome = context_budget.enforce_budget(
-            capacity_tokens=cap.capacity_tokens,
-            capacity_source=cap.source,
-            reserve_tokens=reserve,
-            system_message=system_prompt,
-            messages=conversation_history,
-            tool_schemas=tool_schemas,
-            image_data=image_data,
-            image_tokens=image_tokens_override,
-            counter=counter,
-            messages_counter=messages_counter,
+        outcome = context_budget.budget_with_profile(
+            accounting, system_message=system_prompt, messages=conversation_history,
+            tool_schemas=tool_schemas, image_data=image_data,
         )
 
         return {

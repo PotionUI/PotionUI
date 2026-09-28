@@ -123,6 +123,18 @@ class TestMigration035ModelRoots(unittest.TestCase):
         self.assertEqual(location["rel_path"], "a.safetensors")
         self.assertEqual(location["status"], "present")
 
+    def test_dot_prefixed_models_dir_setting(self):
+        self._setting("models_dir", "./models")
+        model_id = self._insert_model("lora", "dot.safetensors", "models/loras/dot.safetensors")
+
+        self.migration.up()
+
+        location = self._location_for(model_id)
+        self.assertIsNotNone(location)
+        self.assertEqual(location["root_id"], "home")
+        self.assertEqual(location["rel_path"], "dot.safetensors")
+        self.assertEqual(self._unplaced(), [])
+
     def test_absolute_path_under_home(self):
         abs_path = str(self.repo_root / "models" / "checkpoints" / "b.safetensors")
         model_id = self._insert_model("checkpoint", "b.safetensors", abs_path)

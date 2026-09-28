@@ -112,6 +112,16 @@ class TestToLogical(unittest.TestCase):
         self.assertEqual(loc.model_type, "lora")
         self.assertEqual(loc.rel_path, "x.safetensors")
 
+    def test_dot_segments_are_normalized(self):
+        roots = [_root("home", "/data/depot")]
+        bindings = [_binding("home", "lora", "loras", 0)]
+        resolver = ModelRootResolver(FakeRepository(roots, bindings), FakeProbe({}), Path("/data/depot"))
+
+        loc = resolver.to_logical("/data/./depot/loras/./sdxl/x.safetensors")
+
+        self.assertEqual(loc.model_type, "lora")
+        self.assertEqual(loc.rel_path, "sdxl/x.safetensors")
+
     def test_no_match_returns_none(self):
         roots = [_root("home", "/data/depot")]
         bindings = [_binding("home", "lora", "loras", 0)]

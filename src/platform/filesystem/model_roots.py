@@ -1,4 +1,5 @@
 import os
+import posixpath
 import sys
 import threading
 import time
@@ -306,14 +307,14 @@ class ModelRootResolver:
 
     def to_logical(self, path: Union[str, Path]) -> Optional[LogicalLocation]:
         snapshot = self._snapshot_or_build()
-        raw = str(path).replace("\\", "/")
+        raw = posixpath.normpath(str(path).replace("\\", "/"))
         best: Optional[Tuple[int, LogicalLocation]] = None
         for entries in snapshot.type_dirs_by_type.values():
             for entry in entries:
                 root = snapshot.roots_by_id.get(entry.root_id)
                 if root is None:
                     continue
-                bound = str(entry.path).replace("\\", "/").rstrip("/")
+                bound = posixpath.normpath(str(entry.path).replace("\\", "/"))
                 key_bound = root_path_key(bound, case_insensitive=root.case_insensitive)
                 key_raw = root_path_key(raw, case_insensitive=root.case_insensitive)
                 if key_raw == key_bound:

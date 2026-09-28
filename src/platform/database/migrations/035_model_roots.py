@@ -1,4 +1,5 @@
 import json
+import posixpath
 import unicodedata
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -162,7 +163,7 @@ def _seed_home_bindings(cursor) -> int:
 
 
 def _normalize(raw: str) -> str:
-    return raw.replace("\\", "/")
+    return posixpath.normpath(raw.replace("\\", "/"))
 
 
 def _is_absolute(raw: str) -> bool:

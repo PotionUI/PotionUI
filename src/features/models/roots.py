@@ -457,7 +457,7 @@ class ModelRootsManager:
     def _read_unplaced(self) -> List[Dict[str, Any]]:
         setting = self._settings.get_setting_by_key("model_roots_unplaced")
         value = setting.get_typed_value() if setting else []
-        return value or []
+        return [entry for entry in (value or []) if self._resolver.to_logical(entry.get("dir", "")) is None]
 
     def _unindexed_counts(self) -> Dict[Tuple[str, str], int]:
         try:

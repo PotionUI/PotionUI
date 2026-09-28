@@ -307,6 +307,30 @@ class TestOverview:
         assert "indexing" in overview
         assert any(r["id"] == HOME_ROOT_ID for r in overview["roots"])
 
+    def test_unplaced_suggestions_covered_by_a_root_are_hidden(self, manager, library_dir, tmp_path):
+        import json
+
+        from src.platform.settings.records import SettingType, SettingValueType
+
+        manager.create_root(str(library_dir), bindings=[BindingSpec("lora", "loras")])
+        outside = tmp_path / "elsewhere"
+        entries = [
+            {"dir": str(library_dir / "loras" / "sdxl"), "count": 3, "types": ["lora"]},
+            {"dir": str(outside), "count": 2, "types": ["lora"]},
+        ]
+        settings = SettingRepository()
+        existing = settings.get_setting_by_key("model_roots_unplaced")
+        if existing:
+            settings.update_setting_value(existing.id, json.dumps(entries))
+        else:
+            settings.create_setting(
+                "model_roots_unplaced", json.dumps(entries), SettingValueType.JSON, setting_type=SettingType.SYSTEM
+            )
+
+        overview = manager.get_overview()
+
+        assert [entry["dir"] for entry in overview["unplaced"]] == [str(outside)]
+
 
 class TestSyncHomeFromSetting:
     def test_updates_home_path_when_setting_changes(self, manager, tmp_path):

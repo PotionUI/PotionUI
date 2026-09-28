@@ -14,6 +14,7 @@ import torch
 from src.features.llm.clients.native import NativeLLMClient, _LoadedCheckpoint
 from src.features.llm.repository import LLMConfig
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
+from tests.fixtures.model_roots import make_roots
 
 
 @pytest.fixture(autouse=True)
@@ -62,11 +63,9 @@ def _checkpoint():
 
 
 @pytest.fixture
-def fake_model_name(tmp_path, monkeypatch):
-    import src.features.llm.native_library as native_library_module
-
+def fake_model_name(tmp_path, client):
     (tmp_path / "llm" / "sampling-tiny").mkdir(parents=True)
-    monkeypatch.setattr(native_library_module, "_models_dir", lambda: tmp_path)
+    client._model_roots = make_roots(tmp_path, types=["llm"], home_dir=tmp_path)
     return "sampling-tiny"
 
 

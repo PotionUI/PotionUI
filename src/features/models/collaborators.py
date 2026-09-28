@@ -81,17 +81,19 @@ def build_model_index_collaborators(
         attribute_definition_repository=attribute_definition_repository,
     )
     model_scanner = ModelScanner(model_roots)
+    locator = model_locator or ModelLocator(model_roots)
     native_availability_projector = NativeAvailabilityProjector(resolver=model_roots)
+    indexing = ModelIndexingCoordinator(
+        model_repository, plugin_registry, model_scanner, backend_registry=backend_registry,
+        native_availability_projector=native_availability_projector,
+    )
     return ModelIndexCollaborators(
         model_repo=model_repository,
         tag_repo=tag_repository,
         plugins=plugin_registry,
         access=access,
-        catalog=ModelCatalog(model_repository, access, model_scanner, user_attribute_repository),
-        indexing=ModelIndexingCoordinator(
-            model_repository, plugin_registry, model_scanner, backend_registry=backend_registry,
-            native_availability_reconciler=native_availability_projector,
-        ),
+        catalog=ModelCatalog(model_repository, access, model_scanner, user_attribute_repository, locator=locator),
+        indexing=indexing,
         metadata=metadata,
         provider_info=ProviderInfoFetcher(
             model_repository, plugin_registry,
@@ -100,9 +102,8 @@ def build_model_index_collaborators(
         ),
         assignments=ModelAssignmentService(model_repository, plugin_registry, access),
         jobs=ModelJobs(
-            model_repository, plugin_registry, model_scanner, download_queue,
+            model_repository, plugin_registry, model_scanner, download_queue, indexing,
             backend_registry=backend_registry,
-            native_availability_reconciler=native_availability_projector,
         ),
-        locator=model_locator or ModelLocator(model_roots),
+        locator=locator,
     )

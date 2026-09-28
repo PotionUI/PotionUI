@@ -11,15 +11,40 @@ provider plugin recorded (e.g. from a hash lookup) between a catalog model and
 its id on that marketplace.
 """
 
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from src.features.models.attributes.well_known import WellKnownModelAttribute as WellKnownModelMetadataField
+from src.platform.filesystem.model_types import MODEL_DIRECTORY_ALIASES, type_for_folder_name
 from src.platform.plugins.runtime_registries import get_container
 
 __all__ = [
     "WellKnownModelMetadataField",
     "get_model_provider_info",
+    "model_type_dirs",
+    "model_write_dir",
+    "resolve_model_file",
+    "model_for_path",
+    "MODEL_DIRECTORY_ALIASES",
+    "type_for_folder_name",
 ]
+
+
+def model_type_dirs(model_type: str) -> List[Path]:
+    return [type_dir.path for type_dir in get_container().model_roots.type_dirs(model_type)]
+
+
+def model_write_dir(model_type: str) -> Path:
+    return get_container().model_roots.write_dir(model_type).path
+
+
+def resolve_model_file(model_id: str) -> Path:
+    return get_container().model_locator.path_for_model(model_id)
+
+
+def model_for_path(path: str) -> Optional[Dict[str, Any]]:
+    model = get_container().model_locator.model_for_path(path)
+    return model.to_dict(include_providers=False) if model is not None else None
 
 
 def get_model_provider_info(model_id: str, provider: Optional[str] = None) -> Optional[Dict[str, Any]]:

@@ -166,7 +166,7 @@ def _build_manager():
     pipe_catalog = Mock()
     pipe_catalog.get_pipe.side_effect = lambda name: _PIPE_CLASSES[name]
     manager = GenerationEngine(
-        gpu=Mock(), model_directories=Mock(), pipe_catalog=pipe_catalog,
+        gpu=Mock(), pipe_catalog=pipe_catalog,
         settings=Mock(), system_monitor=Mock(), memory_advisor=Mock(),
         llm_service=Mock(), models=models,
     )

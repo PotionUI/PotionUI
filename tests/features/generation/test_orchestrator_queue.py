@@ -293,7 +293,7 @@ class TestQueueingThroughTheOrchestrator:
             # availability row this test doesn't set up; irrelevant to what's
             # under test here, so pass the form through unchanged.
             'src.features.generation.orchestrator.resolve_form_model_refs',
-            side_effect=lambda form_data, backend_id: form_data,
+            side_effect=lambda form_data, backend_id, locator=None: form_data,
         ), patch(
             'src.features.models.repository.model_repo.get_by_id', return_value=checkpoint
         ), patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_1'):
@@ -320,7 +320,7 @@ class TestQueueingThroughTheOrchestrator:
             'src.features.generation.orchestrator.QueuedGeneration', side_effect=QueuedGeneration
         ) as spy, patch(
             'src.features.generation.orchestrator.resolve_form_model_refs',
-            side_effect=lambda form_data, backend_id: form_data,
+            side_effect=lambda form_data, backend_id, locator=None: form_data,
         ), patch(
             'src.features.models.repository.model_repo.get_by_id',
             side_effect=lambda model_id, **kw: records.get(model_id),
@@ -356,7 +356,7 @@ class TestQueueingThroughTheOrchestrator:
             'src.features.generation.orchestrator.QueuedGeneration', side_effect=QueuedGeneration
         ) as spy, patch(
             'src.features.generation.orchestrator.resolve_form_model_refs',
-            side_effect=lambda form_data, backend_id: form_data,
+            side_effect=lambda form_data, backend_id, locator=None: form_data,
         ), patch(
             'src.features.models.repository.model_repo.get_by_id',
             side_effect=lambda model_id, **kw: records.get(model_id),

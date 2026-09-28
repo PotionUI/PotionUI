@@ -62,7 +62,6 @@ _DOC_T2V = {
 def _processor():
     return PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )

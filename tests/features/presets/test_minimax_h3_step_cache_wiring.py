@@ -52,7 +52,6 @@ def h3_template():
 def _process(h3_template, form_over: dict | None = None):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )

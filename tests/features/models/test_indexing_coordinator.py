@@ -40,7 +40,7 @@ def _coordinator(scanner_result=None, scanner_raises=None, reconciler=None, back
         plugin_registry=plugin_registry or FakePluginRegistry(),
         scanner=scanner,
         backend_registry=backend_registry,
-        native_availability_reconciler=reconciler,
+        native_availability_projector=reconciler,
     )
 
 def test_run_indexing_reconciles_native_availability_after_a_successful_scan():
@@ -102,7 +102,7 @@ def _coordinator_with_scanner(scanner, reconciler=None):
         plugin_registry=FakePluginRegistry(),
         scanner=scanner,
         backend_registry=None,
-        native_availability_reconciler=reconciler,
+        native_availability_projector=reconciler,
     )
 
 def test_resume_interrupted_indexing_starts_and_indexes_every_unindexed_file():
@@ -331,7 +331,7 @@ def test_start_indexing_during_the_tail_window_does_not_get_dropped():
         model_repository=MagicMock(),
         plugin_registry=FakePluginRegistry(),
         scanner=scanner,
-        native_availability_reconciler=SlowReconciler(),
+        native_availability_projector=SlowReconciler(),
     )
     coordinator.start_indexing(trigger="manual")
     run_thread = threading.Thread(target=coordinator.run_indexing)

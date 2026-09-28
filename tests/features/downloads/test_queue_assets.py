@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, Mock
 from src.features.downloads.queue import DownloadQueue
 from src.features.downloads.models import Download, DownloadStatus, DownloadType
 from src.platform.assets import AssetFetchError, AssetFetcher, asset_subdir
+from tests.fixtures.model_roots import make_roots
 
 _URL = "https://example.com/weights/head.pth"
 
@@ -59,12 +60,13 @@ def depot(tmp_path):
 
 
 @pytest.fixture
-def manager(mock_repository, mock_plugin_registry, depot):
+def manager(mock_repository, mock_plugin_registry, depot, tmp_path):
     manager = DownloadQueue(
         download_repository=mock_repository,
         plugin_registry=mock_plugin_registry,
         settings=_settings(str(depot)),
         connection_hub=AsyncMock(),
+        resolver=make_roots(tmp_path, home_dir=depot),
     )
     manager.worker = AsyncMock()
     # Plain Mock: `get_queue_position` is called, not awaited, so an AsyncMock

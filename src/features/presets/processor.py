@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.platform.observability.logger import logger
-from src.features.models.directory import ModelDirectories
 from src.platform.settings.settings import Settings
 from src.platform.templating import TemplateProcessor
 from src.platform.templating.errors import TemplateEvaluationError
@@ -53,12 +52,10 @@ class PresetProcessor:
     def __init__(
             self,
             template_processor: TemplateProcessor,
-            model_directories: ModelDirectories,
             settings: Settings,
             preset_template_loader: PresetTemplateLoader,
     ):
         self.template_processor = template_processor
-        self.model_directories = model_directories
         self.settings = settings
         self.preset_template_loader = preset_template_loader
 

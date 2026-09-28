@@ -70,7 +70,6 @@ def make_executor() -> GenerationEngine:
 
     return GenerationEngine(
         gpu=Mock(),
-        model_directories=Mock(),
         pipe_catalog=pipe_catalog,
         settings=settings,
         system_monitor=Mock(),

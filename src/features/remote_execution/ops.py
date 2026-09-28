@@ -18,6 +18,7 @@ import httpx
 
 from src.features.backends.backend_config import NATIVE_REMOTE_DRIVER, NativeRemoteBackendConfig
 from src.features.backends.backend_registry import BackendRegistry
+from src.features.models.locator import ModelFileUnavailable, ModelLocator
 from src.features.models.records import Model
 from src.features.models.repository import ModelRepository
 from src.features.remote_execution.model_bundle_builder import (
@@ -83,7 +84,7 @@ def _status(model: Model, worker_entry: Optional[dict]) -> str:
 
 
 async def sync_view(
-    model_repository: ModelRepository, transport: WorkerTransport,
+    model_repository: ModelRepository, transport: WorkerTransport, model_locator: ModelLocator,
 ) -> dict:
     """One row per host single-file model, joined against the worker's depot
     listing, alongside the worker's depot root and its type->directory layout
@@ -94,7 +95,11 @@ async def sync_view(
 
     rows = []
     for model in model_repository.get_all(limit=None, include_providers=True, include_tags=False, include_files=False):
-        if model.is_directory or not model.file_path:
+        if model.is_directory:
+            continue
+        try:
+            model_locator.path_for_model(model.id)
+        except ModelFileUnavailable:
             continue
         relative_path = _relative_path(model)
         worker_entry = worker_entries.get(relative_path)
@@ -114,7 +119,8 @@ async def sync_view(
 
 
 async def push_models(
-    model_ids: List[str], *, model_repository: ModelRepository, transport: WorkerTransport,
+    model_ids: List[str], *,
+    model_repository: ModelRepository, transport: WorkerTransport, model_locator: ModelLocator,
 ) -> List[dict]:
     """Ensure a digest for each requested model (hashing on demand) and push
     it onto the worker's depot as a fire-and-forget upload - the worker's own
@@ -132,11 +138,12 @@ async def push_models(
             results.append({"model_id": model_id, "transfer_id": None, "error": "model not found"})
             continue
         try:
-            entry = await asyncio.to_thread(resolve_bundle_entry, model, model_repository)
-        except ModelBundleResolutionError as exc:
+            entry = await asyncio.to_thread(resolve_bundle_entry, model, model_repository, model_locator)
+            source_path = await asyncio.to_thread(model_locator.path_for_model, model.id)
+        except (ModelBundleResolutionError, ModelFileUnavailable) as exc:
             results.append({"model_id": model_id, "transfer_id": None, "error": str(exc)})
             continue
-        to_upload.append((model_id, entry, Path(model.file_path)))
+        to_upload.append((model_id, entry, source_path))
 
     if not to_upload:
         return results

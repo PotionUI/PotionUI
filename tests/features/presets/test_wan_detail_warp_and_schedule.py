@@ -101,7 +101,6 @@ def _document(mode: str) -> dict:
 def _process(wan_template, mode: str, form_over: dict | None = None):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )
@@ -397,7 +396,6 @@ def _ref(model_id: str) -> str:
 def wan_pipeline_builder(wan_template):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )

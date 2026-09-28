@@ -14,6 +14,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 
+from src.features.models.locator import ModelLocator
 from src.pipelines.outputs import GenerationOutput
 from src.platform.filesystem.storage_driver import FileStorageDriver
 from src.platform.settings.settings import Settings
@@ -32,6 +33,7 @@ class BaseGenerationOutputHandler(ABC):
         user_id: Optional[str] = None,
         settings: Optional[Settings] = None,
         storage_driver: Optional[FileStorageDriver] = None,
+        model_locator: Optional[ModelLocator] = None,
     ):
         """
         Initialize the handler with generation context.
@@ -65,6 +67,7 @@ class BaseGenerationOutputHandler(ABC):
         # saving - constructing eagerly would `mkdir` a real directory for
         # every handler, including ones that never save anything.
         self.storage_driver = storage_driver
+        self.model_locator = model_locator
         self._thumbnail_profile = None
 
     @property

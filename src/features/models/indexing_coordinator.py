@@ -13,7 +13,7 @@ from src.features.models.hooks import MODEL_INDEX_HOOKS
 from src.features.models.indexer import FoundFile, ModelScanner
 from src.features.models.native_availability_reconciler import (
     NativeAvailabilityProjector,
-    native_availability_projector as _default_native_availability_reconciler,
+    native_availability_projector as _default_native_availability_projector,
 )
 from src.features.models.repository import ModelRepository
 from src.platform.plugins import PluginRegistry
@@ -42,15 +42,15 @@ class ModelIndexingCoordinator:
         plugin_registry: PluginRegistry,
         scanner: ModelScanner,
         backend_registry: Optional[Any] = None,
-        native_availability_reconciler: Optional[NativeAvailabilityProjector] = None,
+        native_availability_projector: Optional[NativeAvailabilityProjector] = None,
         locations_repository: Optional[ModelLocationsRepository] = None,
     ):
         self.model_repo = model_repository
         self.plugins = plugin_registry
         self.scanner = scanner
         self.backend_registry = backend_registry
-        self.native_availability_reconciler = (
-            native_availability_reconciler or _default_native_availability_reconciler
+        self.native_availability_projector = (
+            native_availability_projector or _default_native_availability_projector
         )
         self.locations_repo = locations_repository or ModelLocationsRepository()
 
@@ -279,7 +279,7 @@ class ModelIndexingCoordinator:
         from src.features.recipes.executors._async_bridge import run_sync
 
         try:
-            run_sync(self.native_availability_reconciler.reconcile(self.backend_registry))
+            run_sync(self.native_availability_projector.reconcile(self.backend_registry))
         except Exception as e:
             logger.warning(f"Error reconciling native availability after indexing: {e}")
 

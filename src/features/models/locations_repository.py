@@ -96,6 +96,15 @@ class ModelLocationsRepository:
                 (seen_at, root_id, model_type, rel_key),
             )
 
+    def adopt_mtime(self, root_id: str, model_type: str, rel_key: str, mtime_ns: int, seen_at: str) -> None:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE model_locations SET status = 'present', mtime_ns = ?, seen_at = ? "
+                "WHERE root_id = ? AND model_type = ? AND rel_key = ?",
+                (mtime_ns, seen_at, root_id, model_type, rel_key),
+            )
+
     def mark_missing_for_root_type(
         self, root_id: str, model_type: str, present_rel_keys: Sequence[str], seen_at: str
     ) -> int:
@@ -246,7 +255,7 @@ class ModelLocationsRepository:
                     cursor.execute("DELETE FROM model_locations WHERE id = ?", (row["id"],))
                 else:
                     cursor.execute(
-                        "UPDATE model_locations SET root_id = ?, rel_path = ?, rel_key = ? WHERE id = ?",
+                        "UPDATE model_locations SET root_id = ?, rel_path = ?, rel_key = ?, mtime_ns = NULL WHERE id = ?",
                         (dst_root_id, new_rel_path, new_rel_key, row["id"]),
                     )
                 moved += 1

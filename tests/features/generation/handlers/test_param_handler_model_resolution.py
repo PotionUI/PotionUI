@@ -5,7 +5,7 @@ emit an engine-native ref. Only the first ever matched `models.file_path`, so Co
 generations silently recorded no models at all.
 """
 
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from src.features.generation.handlers.param_handler import ParamGenerationOutputHandler
 
@@ -81,3 +81,26 @@ def test_empty_value_returns_none_without_querying():
     repo = make_repo()
     assert resolve(repo, "") is None
     repo.get_by_filename.assert_not_called()
+
+
+def test_resolve_models_prefers_an_injected_model_locator():
+    model = make_model("m1", "detail.safetensors", "models/loras/detail.safetensors")
+    locator = Mock()
+    locator.model_for_path.return_value = model
+
+    handler = ParamGenerationOutputHandler(generation_id="gen-1", model_locator=locator)
+    resolved = handler._resolve_models(["models/loras/detail.safetensors"])
+
+    assert resolved == [model]
+    locator.model_for_path.assert_called_once_with("models/loras/detail.safetensors")
+
+
+def test_resolve_models_falls_back_to_the_repo_lookup_without_a_locator():
+    model = make_model("m1", "detail.safetensors", "models/loras/detail.safetensors")
+    repo = make_repo(by_path={"models/loras/detail.safetensors": model})
+
+    handler = ParamGenerationOutputHandler(generation_id="gen-1")
+    with patch("src.features.models.repository.model_repo", repo):
+        resolved = handler._resolve_models(["models/loras/detail.safetensors"])
+
+    assert resolved == [model]

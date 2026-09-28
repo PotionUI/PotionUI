@@ -6,10 +6,7 @@ from unittest.mock import Mock
 from src.features.backends.backend_config import NATIVE_ENGINE, NATIVE_LOCAL_DRIVER, NATIVE_REMOTE_DRIVER
 from src.features.backends.model_listing import CONFIDENCE_REPORTED, CONFIDENCE_VERIFIED
 from src.features.models.availability_records import ModelAvailability
-from src.features.models.native_availability_reconciler import (
-    NativeAvailabilityProjector,
-    NativeAvailabilityReconciler,
-)
+from src.features.models.native_availability_reconciler import NativeAvailabilityProjector
 
 
 @dataclass
@@ -202,7 +199,3 @@ def test_a_registry_failure_never_reaches_the_caller():
     summary = asyncio.run(projector.reconcile(registry))
 
     assert summary.backend_ids == []
-
-
-def test_reconciler_name_is_kept_as_an_alias_for_call_sites_that_still_import_it():
-    assert NativeAvailabilityReconciler is NativeAvailabilityProjector

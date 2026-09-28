@@ -7,7 +7,7 @@ operational facts. Someone picking a model to generate with needs none of them.
 from src.features.models.records import Model, ModelInfo
 
 
-ADMIN_ONLY = {'file_path', 'file_size', 'sha256', 'indexed_at', 'updated_at', 'is_directory'}
+ADMIN_ONLY = {'location', 'copies', 'file_size', 'sha256', 'indexed_at', 'updated_at', 'is_directory'}
 
 
 def make_model(**overrides):

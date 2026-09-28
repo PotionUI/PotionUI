@@ -8,7 +8,6 @@ from src.features.presets import PresetTemplateLoader, PresetProcessor
 from src.features.presets.templates import PresetTemplate, PipeTemplate, FieldTemplate, FormTemplate, ModeTemplate
 from src.pipelines.models import BaseModel
 from src.platform.templating import TemplateProcessor
-from src.features.models.directory import ModelDirectories
 from src.platform.settings.settings import Settings
 
 
@@ -272,13 +271,11 @@ class TestPresetProcessor(unittest.TestCase):
     
     def setUp(self):
         self.template_processor = Mock(spec=TemplateProcessor)
-        self.model_directories = Mock(spec=ModelDirectories)
         self.settings = Mock(spec=Settings)
         self.preset_template_loader = Mock(spec=PresetTemplateLoader)
-        
+
         self.processor = PresetProcessor(
             self.template_processor,
-            self.model_directories,
             self.settings,
             self.preset_template_loader
         )

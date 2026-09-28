@@ -15,6 +15,7 @@ import httpx
 
 from src.bootstrap.worker_app import create_worker_app
 from src.bootstrap.worker_container import WorkerContainer
+from src.features.models.locator import ModelFileUnavailable
 from src.features.models.records import Model
 from src.features.remote_execution import ops
 from src.features.remote_execution.transport import WorkerTransport
@@ -60,6 +61,20 @@ class FakeModelRepository:
         model.sha256, model.file_size = sha256, file_size
 
 
+class FakeModelLocator:
+    def __init__(self, repo: FakeModelRepository):
+        self._repo = repo
+
+    def path_for_model(self, model_id: str) -> Path:
+        model = self._repo.get_by_id(model_id, include_providers=False)
+        if model is None or not model.file_path:
+            raise ModelFileUnavailable(f"model '{model_id}' has no known location")
+        path = Path(model.file_path)
+        if not path.is_file():
+            raise ModelFileUnavailable(f"model '{model_id}' has no present copy reachable on any root")
+        return path
+
+
 def _model(*, model_id: str, filename: str, role: str, file_path=None, content=None, providers=None) -> Model:
     sha256 = hashlib.sha256(content).hexdigest() if content is not None else None
     file_size = len(content) if content is not None else None
@@ -99,6 +114,7 @@ class OpsTestCase(unittest.TestCase):
             "http://fake-worker", TOKEN, transport=httpx.ASGITransport(app=self.app),
         )
         self.repo = FakeModelRepository()
+        self.locator = FakeModelLocator(self.repo)
         self.source_dir = self.work_dir / "sources"
         self.source_dir.mkdir()
 
@@ -144,7 +160,7 @@ class TestSyncView(OpsTestCase):
         ))
         self._stage_on_worker(role="lora", filename="style.safetensors", content=worker_content)
 
-        view = self._run(ops.sync_view(self.repo, self.transport))
+        view = self._run(ops.sync_view(self.repo, self.transport, self.locator))
         by_id = {r["model_id"]: r for r in view["models"]}
 
         self.assertEqual(by_id["m-missing"]["status"], "missing")
@@ -156,11 +172,11 @@ class TestSyncView(OpsTestCase):
     def test_directory_layout_models_are_excluded(self):
         self.repo.add(Model(id="m-dir", filename="gemma3", model_type="llm", is_directory=True, providers=[]))
 
-        view = self._run(ops.sync_view(self.repo, self.transport))
+        view = self._run(ops.sync_view(self.repo, self.transport, self.locator))
         self.assertEqual(view["models"], [])
 
     def test_reports_the_worker_depot_root_and_type_directory_layout(self):
-        view = self._run(ops.sync_view(self.repo, self.transport))
+        view = self._run(ops.sync_view(self.repo, self.transport, self.locator))
 
         self.assertEqual(view["depot_dir"], str(self.model_depot.depot_dir.resolve()))
         self.assertEqual(view["layout"]["checkpoint"], "checkpoints")
@@ -177,7 +193,9 @@ class TestPushModels(OpsTestCase):
             file_path=str(self._source("dit.safetensors", content)), content=content,
         ))
 
-        results = self._run(ops.push_models(["m-1"], model_repository=self.repo, transport=self.transport))
+        results = self._run(ops.push_models(
+            ["m-1"], model_repository=self.repo, transport=self.transport, model_locator=self.locator,
+        ))
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["model_id"], "m-1")
@@ -195,7 +213,10 @@ class TestPushModels(OpsTestCase):
         ))
 
         results = self._run(
-            ops.push_models(["does-not-exist", "m-1"], model_repository=self.repo, transport=self.transport)
+            ops.push_models(
+                ["does-not-exist", "m-1"], model_repository=self.repo, transport=self.transport,
+                model_locator=self.locator,
+            )
         )
 
         by_id = {r["model_id"]: r for r in results}

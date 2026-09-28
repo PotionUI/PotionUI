@@ -11,7 +11,6 @@ import pytest
 from fastapi import HTTPException
 
 from src.features.backends.backend_registry import BackendRegistry
-from src.features.models.directory import ModelDirectories
 from src.features.settings.dto import SettingUpdateRequest
 from src.features.settings.routes import SettingsController
 from src.platform.runtime.gpu import GpuMonitor
@@ -59,7 +58,6 @@ def controller(repository, settings):
     return SettingsController(
         settings=settings,
         setting_repository=repository,
-        model_directories=Mock(spec=ModelDirectories),
         gpu_monitor=Mock(spec=GpuMonitor),
         backend_registry=backend_registry,
     )

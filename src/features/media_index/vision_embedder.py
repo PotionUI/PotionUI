@@ -34,6 +34,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
+from src.platform.filesystem.model_roots import ModelRootResolver
 from src.platform.filesystem.model_weights import dir_size, weights_status
 from src.platform.runtime.model_lifecycle.lifecycle import (
     ModelLifecycle,
@@ -64,15 +65,15 @@ class SiglipVisionEmbedder:
 
     def __init__(
         self,
+        resolver: ModelRootResolver,
         model_name: str = DEFAULT_MODEL,
-        models_dir: str = "models",
         device: str = "cpu",
         auto_download: bool = True,
         download_queue: Optional["DownloadQueue"] = None,
         model_lifecycle: Optional[ModelLifecycle] = None,
     ):
+        self.resolver = resolver
         self.model_name = model_name
-        self.models_dir = models_dir
         self.device = device
         self.auto_download = auto_download
         self.downloads = download_queue
@@ -87,11 +88,11 @@ class SiglipVisionEmbedder:
         return f"local-{_slugify(self.model_name)}"
 
     @classmethod
-    def local_dir_for(cls, model_name: str, models_dir: str) -> Path:
-        return Path(models_dir) / cls._LOCAL_SUBDIR / _slugify(model_name)
+    def local_dir_for(cls, model_name: str, resolver: ModelRootResolver) -> Path:
+        return resolver.asset_dir(cls._LOCAL_SUBDIR) / _slugify(model_name)
 
     def _local_path(self) -> Path:
-        return self.local_dir_for(self.model_name, self.models_dir)
+        return self.local_dir_for(self.model_name, self.resolver)
 
     def _weights_present(self) -> bool:
         path = self._local_path()
@@ -101,14 +102,14 @@ class SiglipVisionEmbedder:
         return self._weights_present() or self.auto_download
 
     @classmethod
-    def resolve_status(cls, model_name: str, models_dir: str) -> Dict[str, object]:
+    def resolve_status(cls, model_name: str, resolver: ModelRootResolver) -> Dict[str, object]:
         """Presence/path/size for `model_name` without loading anything.
 
         Used by the admin settings status endpoint - and by the Fetch action to
         derive the exact destination the lazy loader above would use - so both
         agree on a single slug derivation.
         """
-        return weights_status(cls.local_dir_for(model_name, models_dir))
+        return weights_status(cls.local_dir_for(model_name, resolver))
 
     def _ensure_processor(self) -> None:
         """Downloads weights (if needed) and loads the (lightweight)
@@ -295,15 +296,16 @@ class SiglipVisionEmbedder:
 
 def build_vision_embedder(
     settings: "Settings",
+    resolver: ModelRootResolver,
     download_queue: Optional["DownloadQueue"] = None,
     model_lifecycle: Optional[ModelLifecycle] = None,
 ) -> SiglipVisionEmbedder:
     """Construct the configured gallery vision embedder (see migration 099)."""
     return SiglipVisionEmbedder(
+        resolver=resolver,
         model_name=settings.get_setting(
             "media_vision_model", SiglipVisionEmbedder.DEFAULT_MODEL
         ),
-        models_dir=settings.get_models_dir(),
         device=settings.get_setting("media_vision_device", "cpu"),
         auto_download=bool(
             settings.get_setting("media_vision_auto_download", False)

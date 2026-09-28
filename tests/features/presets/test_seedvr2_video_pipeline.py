@@ -47,7 +47,6 @@ def seedvr2_template():
 def _process(seedvr2_template, form_over=None):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )
@@ -79,7 +78,6 @@ def _process_minimal(seedvr2_template, form_over=None):
     # restoration_intent ternary DEFAULTS this suite is pinning.
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )
@@ -133,7 +131,6 @@ def test_batch_size_defaults_to_zero_auto_when_form_omits_it(seedvr2_template):
     # (the generator's shrink-on-OOM ladder is the safety net for the estimate).
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )
@@ -160,7 +157,7 @@ def test_gallery_reads_generator_video(seedvr2_template):
 def test_video_pipeline_validates(seedvr2_template):
     pipes = _process(seedvr2_template)
     manager = GenerationEngine(
-        gpu=Mock(), model_directories=Mock(),
+        gpu=Mock(),
         pipe_catalog=Mock(get_pipe=Mock(side_effect=PIPE_CLASSES.get)),
         settings=Mock(), system_monitor=Mock(), memory_advisor=Mock(),
         llm_service=Mock(), models=Mock(),

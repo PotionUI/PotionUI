@@ -30,6 +30,7 @@ from src.features.downloads.utils import (
     verify_file_target,
 )
 from src.features.downloads.worker import DownloadWorker
+from tests.fixtures.model_roots import make_roots
 
 
 UNSAFE_NAMES = [
@@ -192,6 +193,7 @@ def manager(plugin_registry, depot, tmp_path):
         plugin_registry=plugin_registry,
         settings=_settings(models_dir=str(depot), file_storage=str(tmp_path / "media")),
         connection_hub=AsyncMock(),
+        resolver=make_roots(tmp_path, home_dir=depot),
     )
     manager.worker = AsyncMock()
     manager.worker.get_queue_position.return_value = 0

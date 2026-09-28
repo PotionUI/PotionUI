@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from src.platform.runtime.gpu import GpuMonitor
     from src.features.generation.records import File
     from src.features.generation.routing.router import GenerationRouter
+    from src.features.models.locator import ModelLocator
 
 from src.platform.util.ids import generate_ulid
 from src.features.media_index.indexer import PASS_TAGS
@@ -451,6 +452,7 @@ class GenerationOrchestrator:
         gpu_monitor: Optional['GpuMonitor'] = None,
         router: Optional['GenerationRouter'] = None,
         scheduling_policy_for: Optional[Callable[[str], SchedulingPolicy]] = None,
+        model_locator: Optional['ModelLocator'] = None,
     ):
         """
         Initialize the generation orchestrator.
@@ -503,6 +505,7 @@ class GenerationOrchestrator:
         self.pipeline_builder = pipeline_builder
         self.preset_template_loader = preset_template_loader
         self.backend_registry = backend_registry
+        self.model_locator = model_locator
         self.generation_stats_repository = generation_stats_repository
         # Cheap stateless wrapper over `preset_template_loader`, used solely to
         # resolve a preset's display name at generation_stats write time (see
@@ -984,7 +987,7 @@ class GenerationOrchestrator:
             # `request.form_data`, applied after persistence, carries the resolved values
             # the pipeline/backend actually consume.
             resolved_form_data = resolve_form_model_refs(
-                request.form_data or {}, backend
+                request.form_data or {}, backend, self.model_locator
             )
 
             # Create database record (`mode` was already resolved above, for bind_form)

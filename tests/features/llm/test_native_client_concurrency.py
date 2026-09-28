@@ -35,6 +35,7 @@ import torch
 from src.features.llm.clients import native as native_module
 from src.features.llm.clients.native import NativeLLMClient, _LoadedCheckpoint
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
+from tests.fixtures.model_roots import make_roots
 from tests.features.llm.test_native_client import (
     _config,
     _fake_streaming_generate,
@@ -444,7 +445,7 @@ class TestExecutionGateSerializesOverlappingTurns:
 
     @pytest.mark.asyncio
     async def test_two_client_instances_sharing_one_manager_still_serialize(
-        self, models_manager, native_checkpoint, monkeypatch
+        self, models_manager, native_checkpoint, tiny_qwen3_checkpoint_dir, monkeypatch
     ):
         """Two separate `NativeLLMClient` instances built on the SAME
         `ModelLifecycle` (e.g. a request-scoped client alongside the
@@ -452,8 +453,9 @@ class TestExecutionGateSerializesOverlappingTurns:
         by (manager identity, cache key), never by which client instance
         made the call."""
         name, path = native_checkpoint
-        client_a = NativeLLMClient(models_manager)
-        client_b = NativeLLMClient(models_manager)
+        resolver = make_roots(tiny_qwen3_checkpoint_dir, types=["llm"], home_dir=tiny_qwen3_checkpoint_dir)
+        client_a = NativeLLMClient(models_manager, resolver)
+        client_b = NativeLLMClient(models_manager, resolver)
         config_a = _config(name, id="cfg-a")
         config_b = _config(name, id="cfg-b")
         monkeypatch.setattr(torch.cuda, "is_available", lambda: True)

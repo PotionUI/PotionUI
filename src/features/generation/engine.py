@@ -18,7 +18,6 @@ from src.platform.observability.system_probe import SystemMonitor
 from src.platform.runtime.memory_advisor import MemoryAdvisor
 from src.platform.observability.logger import logger
 from src.platform.security.redaction import mask_secret_value, redact_mapping
-from src.features.models.directory import ModelDirectories
 from src.pipelines.catalog import PipeCatalog
 from src.pipelines.contracts import BasePipe
 from src.platform.settings.settings import Settings
@@ -188,7 +187,6 @@ class GenerationEngine:
     def __init__(
             self,
             gpu: GpuMonitor,
-            model_directories: ModelDirectories,
             pipe_catalog: PipeCatalog,
             settings: Settings,
             system_monitor: SystemMonitor,
@@ -199,7 +197,6 @@ class GenerationEngine:
             assets: Optional[AssetFetcher] = None,
     ):
         self.gpu_monitor = gpu
-        self.model_directories = model_directories
         self.pipe_catalog = pipe_catalog
         self.settings = settings
         self.system_monitor = system_monitor

@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+from src.platform.filesystem.model_roots import ModelRootResolver
 from src.platform.filesystem.model_weights import dir_size
 from src.platform.runtime.model_lifecycle.lifecycle import (
     ModelLifecycle,
@@ -80,8 +81,8 @@ class WDTaggerProvider:
 
     def __init__(
         self,
+        resolver: ModelRootResolver,
         model_name: str = DEFAULT_MODEL,
-        models_dir: str = "models",
         device: str = "cpu",
         auto_download: bool = True,
         tag_threshold: float = 0.35,
@@ -89,8 +90,8 @@ class WDTaggerProvider:
         download_queue: Optional["DownloadQueue"] = None,
         model_lifecycle: Optional[ModelLifecycle] = None,
     ):
+        self.resolver = resolver
         self.model_name = model_name
-        self.models_dir = models_dir
         self.device = device
         self.auto_download = auto_download
         self.downloads = download_queue
@@ -111,15 +112,15 @@ class WDTaggerProvider:
         return _slugify(self.model_name)
 
     @classmethod
-    def local_dir_for(cls, model_name: str, models_dir: str) -> Path:
-        return Path(models_dir) / cls._LOCAL_SUBDIR / _slugify(model_name)
+    def local_dir_for(cls, model_name: str, resolver: ModelRootResolver) -> Path:
+        return resolver.asset_dir(cls._LOCAL_SUBDIR) / _slugify(model_name)
 
     @staticmethod
     def _weights_present_at(path: Path) -> bool:
         return (path / "model.safetensors").is_file() and (path / "selected_tags.csv").is_file()
 
     def _local_path(self) -> Path:
-        return self.local_dir_for(self.model_name, self.models_dir)
+        return self.local_dir_for(self.model_name, self.resolver)
 
     def _weights_present(self) -> bool:
         return self._weights_present_at(self._local_path())
@@ -128,14 +129,14 @@ class WDTaggerProvider:
         return self._weights_present() or self.auto_download
 
     @classmethod
-    def resolve_status(cls, model_name: str, models_dir: str) -> Dict[str, object]:
+    def resolve_status(cls, model_name: str, resolver: ModelRootResolver) -> Dict[str, object]:
         """Presence/path/size for `model_name` without loading anything.
 
         Used by the admin settings status endpoint - and by the Fetch action to
         derive the exact destination the lazy loader above would use - so both
         agree on a single slug derivation.
         """
-        path = cls.local_dir_for(model_name, models_dir)
+        path = cls.local_dir_for(model_name, resolver)
         present = cls._weights_present_at(path)
         return {"present": present, "path": str(path), "size": dir_size(path) if present else None}
 
@@ -332,15 +333,16 @@ class WDTaggerProvider:
 
 def build_tagger_provider(
     settings: "Settings",
+    resolver: ModelRootResolver,
     download_queue: Optional["DownloadQueue"] = None,
     model_lifecycle: Optional[ModelLifecycle] = None,
 ) -> WDTaggerProvider:
     """Construct the configured tagger from settings (see migration 098)."""
     return WDTaggerProvider(
+        resolver=resolver,
         model_name=settings.get_setting(
             "media_tagger_model", WDTaggerProvider.DEFAULT_MODEL
         ),
-        models_dir=settings.get_models_dir(),
         device=settings.get_setting("media_tagger_device", "cpu"),
         auto_download=bool(
             settings.get_setting("media_tagger_auto_download", False)

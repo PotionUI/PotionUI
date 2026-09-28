@@ -51,7 +51,7 @@ async def test_local_download_completion_reconciles_native_availability(worker, 
 
     with patch.object(DownloadWorker, "_download_file", fake_download_file), \
          patch(
-             "src.features.models.native_availability_reconciler.native_availability_reconciler"
+             "src.features.models.native_availability_reconciler.native_availability_projector"
          ) as mock_reconciler:
         mock_reconciler.reconcile = AsyncMock()
         await worker._process_download('dl-1')
@@ -70,7 +70,7 @@ async def test_remote_destination_download_does_not_use_the_local_reconciler(wor
 
     with patch.object(DownloadWorker, "_fetch_remote", fake_fetch_remote), \
          patch(
-             "src.features.models.native_availability_reconciler.native_availability_reconciler"
+             "src.features.models.native_availability_reconciler.native_availability_projector"
          ) as mock_reconciler:
         mock_reconciler.reconcile = AsyncMock()
         await worker._process_download('dl-1')

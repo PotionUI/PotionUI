@@ -9,7 +9,7 @@ from datetime import datetime
 from src.features.models import operations
 from src.features.models.collaborators import build_model_index_collaborators
 from src.features.models.catalog import ListModelsParams
-from src.features.models.jobs import TYPE_DIR_MAP
+from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY as TYPE_DIR_MAP
 from src.features.models.indexer import ModelScanner
 from src.features.models.exceptions import (
     ModelAlreadyAssignedException,

@@ -61,33 +61,6 @@ def mock_model_loader():
 
 
 @pytest.fixture
-def mock_model_directories():
-    """
-    Mock the ModelDirectories to avoid actual model operations.
-
-    This fixture creates a mock ModelDirectories that:
-    - Returns fake model directories
-    - Skips filesystem creation
-
-    ModelDirectories no longer downloads models; downloads go through the core download
-    queue, which authenticates via the provider registry.
-
-    Usage:
-        def test_preset_loading(mock_model_directories):
-            # ModelDirectories operations are mocked
-            directories = ModelDirectories("/fake/path")
-            # All operations succeed without actual file I/O
-    """
-    mock_directories = Mock()
-
-    mock_directories.get_model_dir = Mock(side_effect=lambda model_type: Path(f"/fake/models/{model_type}"))
-    mock_directories.base_path = Path("/fake/models")
-
-    with patch('src.features.models.directory.ModelDirectories', return_value=mock_directories):
-        yield mock_directories
-
-
-@pytest.fixture
 def mock_diffusers_pipeline():
     """
     Mock diffusers pipeline loading from HuggingFace.

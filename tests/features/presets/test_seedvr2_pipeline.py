@@ -49,7 +49,6 @@ def seedvr2_template():
 def _process(seedvr2_template, form_over=None):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )
@@ -76,7 +75,6 @@ def _process_minimal(seedvr2_template, form_over=None):
     # restoration_intent ternary DEFAULTS this suite is pinning.
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )
@@ -100,7 +98,7 @@ def _pipe(pipes, name=None, pipe_id=None):
 
 def _validate(pipes):
     manager = GenerationEngine(
-        gpu=Mock(), model_directories=Mock(), pipe_catalog=Mock(get_pipe=Mock(side_effect=PIPE_CLASSES.get)),
+        gpu=Mock(), pipe_catalog=Mock(get_pipe=Mock(side_effect=PIPE_CLASSES.get)),
         settings=Mock(), system_monitor=Mock(), memory_advisor=Mock(),
         llm_service=Mock(), models=Mock(),
     )

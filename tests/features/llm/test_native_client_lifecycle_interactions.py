@@ -33,6 +33,7 @@ import torch
 from src.features.llm.clients.native import NativeLLMClient
 from src.features.llm.repository import LLMConfig
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
+from tests.fixtures.model_roots import make_roots
 
 
 @pytest.fixture(autouse=True)
@@ -83,12 +84,10 @@ def client(models_manager):
 
 
 @pytest.fixture
-def native_checkpoint(tmp_path, monkeypatch):
+def native_checkpoint(tmp_path, client):
     """A real tiny Qwen3 checkpoint, HF-layout, under a fake models_dir/llm/."""
     from tokenizers import Tokenizer, decoders, models, pre_tokenizers
     from transformers import PreTrainedTokenizerFast, Qwen3Config, Qwen3ForCausalLM
-
-    import src.features.llm.native_library as native_library_module
 
     vocab = {"[UNK]": 0, "[PAD]": 1, "[BOS]": 2, "[EOS]": 3}
     for i, w in enumerate(["hello", "world", "assistant", "user", "system", ":", "\n"], start=4):
@@ -117,7 +116,7 @@ def native_checkpoint(tmp_path, monkeypatch):
     model.save_pretrained(d)
     fast_tok.save_pretrained(d)
 
-    monkeypatch.setattr(native_library_module, "_models_dir", lambda: models_dir)
+    client._model_roots = make_roots(models_dir, types=["llm"], home_dir=models_dir)
     return "qwen3-tiny", str(d.resolve())
 
 

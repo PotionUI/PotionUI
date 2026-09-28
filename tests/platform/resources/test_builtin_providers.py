@@ -629,12 +629,14 @@ class TestFormProvider:
     @pytest.mark.asyncio
     async def test_resolve_model_typed_field_by_schema_without_ref_value(self):
         preset_form_schema_lookup = self._form_schema_lookup({"model": "model"})
-        self.repo.get_by_file_path.return_value = self._model()
+        self.manager.locator.model_for_path.return_value = self._model()
+        self.repo.get_by_id.return_value = self._model()
         resolved = await self.provider.resolve(
             ["model"], self._ctx({"model": "checkpoints/dreamshaper.safetensors"}, preset_form_schema_lookup)
         )
         assert "## Model: dreamshaper" in resolved.content
-        self.repo.get_by_file_path.assert_called_once()
+        self.manager.locator.model_for_path.assert_called_once_with("checkpoints/dreamshaper.safetensors")
+        self.repo.get_by_id.assert_called_once_with("m-1", include_providers=True, include_tags=False)
 
     @pytest.mark.asyncio
     async def test_resolve_lora_picker_lists_names_and_strengths(self):

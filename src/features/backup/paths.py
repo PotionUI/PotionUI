@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Tuple
 
-from src.features.backup.repository import setting_value
+from src.features.backup.repository import model_root_rows, setting_value
+from src.platform.filesystem.model_roots import HOME_ROOT_ID
 
 DB_FILENAME = "db.sqlite"
 SECRET_KEY_FILENAME = "secret.key"
@@ -84,6 +85,7 @@ class StateLayout:
     storage_dir: Path
     models_dir: Path
     storage_backend: str
+    excluded_roots: Tuple[Path, ...] = ()
 
 
 def _resolve(base: Path, value: str) -> Path:
@@ -115,7 +117,15 @@ def resolve_layout(repo_root: Path) -> StateLayout:
     repo_root = Path(repo_root).resolve()
     db_path = database_path(repo_root)
     storage_dir = _resolve(repo_root, read_setting(db_path, "file_storage_directory", "storage"))
-    models_dir = _resolve(repo_root, read_setting(db_path, "models_dir", "models"))
+    root_rows = model_root_rows(db_path) if db_path.exists() else []
+    home_row = next((row for row in root_rows if row[0] == HOME_ROOT_ID), None)
+    if home_row is not None:
+        models_dir = _resolve(repo_root, home_row[1])
+    else:
+        models_dir = _resolve(repo_root, read_setting(db_path, "models_dir", "models"))
+    excluded_roots = tuple(
+        _resolve(repo_root, row[1]) for row in root_rows if row[0] != HOME_ROOT_ID
+    )
     backend = read_setting(db_path, "storage_backend", "local")
     return StateLayout(
         repo_root=repo_root,
@@ -125,6 +135,7 @@ def resolve_layout(repo_root: Path) -> StateLayout:
         storage_dir=storage_dir,
         models_dir=models_dir,
         storage_backend=backend if backend in ("local", BACKEND_S3) else "local",
+        excluded_roots=excluded_roots,
     )
 
 

@@ -8,7 +8,6 @@ action calls into its backing manager/repository/service.
 
 import asyncio
 import logging
-import os
 from pathlib import Path
 from time import monotonic
 from typing import Any, Dict, List, Optional
@@ -133,20 +132,26 @@ async def _single_model_availability(ctx: NodeExecutionContext, model) -> tuple:
 
 
 async def _execute_index_model(ctx: NodeExecutionContext) -> NodeResult:
+    from src.features.models.exceptions import ModelIndexingException
+
     path_template = ctx.config.get("path", "{{ event.path }}")
     file_path = _render(path_template, ctx)
     model_type = _guess_model_type(file_path, ctx.config.get("model_type"))
 
-    indexer = ctx.services.model_indexer
-    if indexer is None:
-        raise RuntimeError("action.index_model: no ModelIndexer configured on AutomationServices")
+    coordinator = ctx.services.model_indexing_coordinator
+    if coordinator is None:
+        raise RuntimeError("action.index_model: no ModelIndexingCoordinator configured on AutomationServices")
 
     try:
-        file_size = os.stat(file_path).st_size
-    except OSError as exc:
-        raise RuntimeError(f"action.index_model: cannot stat '{file_path}': {exc}") from exc
+        result = await asyncio.to_thread(coordinator.index_path, file_path)
+    except ModelIndexingException as exc:
+        raise RuntimeError(
+            f"action.index_model: cannot index '{file_path}': {exc} - add its folder as a model root"
+        ) from exc
 
-    model = await asyncio.to_thread(indexer.index_single_model, file_path, model_type, file_size)
+    model_repo = ctx.services.model_repository
+    model_id = result.get("model_id")
+    model = model_repo.get_by_id(model_id, include_providers=False) if model_id and model_repo else None
 
     availability, availability_notes = await _single_model_availability(ctx, model)
 
@@ -483,25 +488,6 @@ async def _execute_index_media_queue(ctx: NodeExecutionContext) -> NodeResult:
     })
 
 
-def _resolve_scanned_model(model_repo, models_root: Optional[str], path: Path):
-    """
-    Look a scanned file up in the model library. `Model.file_path` is stored
-    exactly as whatever string first indexed it (see
-    `ModelScanner.index_single_model`) - usually absolute, since
-    `action.index_model`/the file watcher hand it an absolute path - so the
-    absolute form is tried first; a models-root-relative form is tried as a
-    fallback for models that were indexed with a relative path.
-    """
-    model = model_repo.get_by_file_path(str(path))
-    if model is not None or not models_root:
-        return model
-    try:
-        rel = path.relative_to(models_root).as_posix()
-    except ValueError:
-        return None
-    return model_repo.get_by_file_path(rel)
-
-
 async def _execute_scan_files(ctx: NodeExecutionContext) -> NodeResult:
     directory = resolve_effective_directory(ctx.config)
     if not directory:
@@ -520,12 +506,7 @@ async def _execute_scan_files(ctx: NodeExecutionContext) -> NodeResult:
     resolve_models = bool(ctx.config.get("resolve_models", True))
     max_files = int(ctx.config.get("max_files", 500))
 
-    model_repo = ctx.services.model_repository if resolve_models else None
-    models_root = (
-        ctx.services.settings.get_models_dir()
-        if resolve_models and ctx.services.settings is not None
-        else None
-    )
+    locator = ctx.services.model_locator if resolve_models else None
 
     glob = root.rglob("*") if recursive else root.glob("*")
     all_paths = sorted((p for p in glob if p.is_file()), key=lambda p: str(p))
@@ -541,7 +522,7 @@ async def _execute_scan_files(ctx: NodeExecutionContext) -> NodeResult:
             continue
 
         rel_parts = list(path.relative_to(root).parts)
-        model = _resolve_scanned_model(model_repo, models_root, path) if model_repo is not None else None
+        model = locator.model_for_path(path) if locator is not None else None
         try:
             size = path.stat().st_size
         except OSError:

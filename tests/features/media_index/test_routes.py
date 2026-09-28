@@ -12,6 +12,7 @@ from src.platform.security.user import AccountType, User
 
 from src.features.media_index.routes import MediaIndexController, build_router
 from src.features.downloads.models import Download, DownloadStatus, DownloadType
+from tests.fixtures.model_roots import make_roots
 
 
 @pytest.fixture
@@ -30,14 +31,13 @@ def manager():
 
 
 @pytest.fixture
-def settings(tmp_path):
+def settings():
     settings = MagicMock()
     values = {
         "media_tagger_model": "SmilingWolf/wd-vit-tagger-v3",
         "media_vision_model": "google/siglip-base-patch16-224",
     }
     settings.get_setting.side_effect = lambda key, default=None: values.get(key, default)
-    settings.get_models_dir.return_value = str(tmp_path)
     return settings
 
 
@@ -49,11 +49,17 @@ def download_queue():
 
 
 @pytest.fixture
-def client(manager, settings, download_queue):
+def model_roots(tmp_path):
+    return make_roots(tmp_path, types=[])
+
+
+@pytest.fixture
+def client(manager, settings, download_queue, model_roots):
     container = MagicMock()
     container.media_index_controller = MediaIndexController(manager)
     container.settings = settings
     container.download_queue = download_queue
+    container.model_roots = model_roots
     app = FastAPI()
     app.include_router(build_router(container))
 
@@ -67,15 +73,15 @@ def client(manager, settings, download_queue):
     return TestClient(app)
 
 
-def test_models_status_reports_absent_weights_for_saved_models(client, tmp_path):
+def test_models_status_reports_absent_weights_for_saved_models(client, model_roots):
     resp = client.get("/api/media-index/models-status")
     assert resp.status_code == 200
     data = resp.json()["data"]
     assert data["tagger"]["present"] is False
-    assert data["tagger"]["path"] == str(tmp_path / "taggers" / "smilingwolf-wd-vit-tagger-v3")
+    assert data["tagger"]["path"] == str(model_roots.asset_dir("taggers") / "smilingwolf-wd-vit-tagger-v3")
     assert data["tagger"]["active_download"] is None
     assert data["vision"]["present"] is False
-    assert data["vision"]["path"] == str(tmp_path / "vision_embeddings" / "google-siglip-base-patch16-224")
+    assert data["vision"]["path"] == str(model_roots.asset_dir("vision_embeddings") / "google-siglip-base-patch16-224")
     assert data["vision"]["active_download"] is None
 
 
@@ -161,16 +167,16 @@ def test_models_status_reports_not_loaded_for_an_unsaved_override_model(client, 
     assert resp.json()["data"]["tagger"]["loaded"] is False
 
 
-def test_models_status_honors_unsaved_query_overrides(client, tmp_path):
+def test_models_status_honors_unsaved_query_overrides(client, model_roots):
     resp = client.get(
         "/api/media-index/models-status",
         params={"tagger_model": "SmilingWolf/wd-swinv2-tagger-v3"},
     )
     assert resp.status_code == 200
     data = resp.json()["data"]
-    assert data["tagger"]["path"] == str(tmp_path / "taggers" / "smilingwolf-wd-swinv2-tagger-v3")
+    assert data["tagger"]["path"] == str(model_roots.asset_dir("taggers") / "smilingwolf-wd-swinv2-tagger-v3")
     # Vision falls back to the saved setting when not overridden.
-    assert data["vision"]["path"] == str(tmp_path / "vision_embeddings" / "google-siglip-base-patch16-224")
+    assert data["vision"]["path"] == str(model_roots.asset_dir("vision_embeddings") / "google-siglip-base-patch16-224")
 
 
 def test_status_payload(client):

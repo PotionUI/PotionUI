@@ -84,7 +84,6 @@ def sample_download_settings():
         max_retries=3,
         chunk_size_kb=1024,
         verify_checksum=True,
-        default_model_directory="models",
         default_media_directory="storage/media"
     )
 

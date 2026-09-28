@@ -15,9 +15,12 @@ def build_live_resolver(allow_download: bool = False) -> ModelResolver:
     from src.platform.settings.settings import Settings
     from src.features.models.repository import ModelRepository
     from src.platform.settings.repository import SettingRepository
+    from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe
+    from src.platform.filesystem.model_roots_repository import ModelRootRepository
 
     settings = Settings(SettingRepository())
-    models_dir = settings.get_models_dir()
+    resolver = ModelRootResolver(ModelRootRepository(), RootProbe(), Path.cwd())
+    models_dir = str(resolver.home_dir())
     repo = ModelRepository()
 
     sha_index: dict = {}

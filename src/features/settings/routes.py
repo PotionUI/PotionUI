@@ -10,7 +10,6 @@ from src.platform.settings.settings import Settings
 from src.features.backup.settings import validate_setting as validate_backup_setting
 from src.features.generation.thumbnail_profile import validate_setting as validate_thumbnail_setting
 from src.features.housekeeping.settings import validate_setting as validate_housekeeping_setting
-from src.features.models.directory import ModelDirectories
 from src.platform.runtime.gpu import GpuMonitor
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.settings.dto import (
@@ -53,14 +52,12 @@ class SettingsController(BaseController):
         self,
         settings: Settings,
         setting_repository: SettingRepository,
-        model_directories: ModelDirectories,
         gpu_monitor: GpuMonitor,
         backend_registry: BackendRegistry
     ):
         super().__init__()
         self.settings = settings
         self.setting_repository = setting_repository
-        self.model_directories = model_directories
         self.gpu_monitor = gpu_monitor
         self.backend_registry = backend_registry
 
@@ -414,7 +411,6 @@ def _build_settings_controller(container: "AppContainer") -> SettingsController:
     return SettingsController(
         container.settings,
         container.setting_repository,
-        container.model_directories,
         container.gpu_monitor,
         container.backend_registry,
     )

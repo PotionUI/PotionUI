@@ -37,6 +37,7 @@ from src.platform.websocket.download_connection_hub import DownloadConnectionHub
 if TYPE_CHECKING:
     from src.features.backends.backend_registry import BackendRegistry
     from src.features.models.backend_indexer import BackendModelIndexer
+    from src.platform.filesystem.model_roots import ModelRootResolver
 
 logger = logging.getLogger(__name__)
 
@@ -61,15 +62,18 @@ def _default_backend_model_indexer():
     return backend_model_indexer
 
 
-def _relative_depot_path(download: Download, models_root: str) -> str:
+def _relative_depot_path(download: Download, resolver: "ModelRootResolver") -> str:
     """`download.destination_path` re-expressed as a depot-relative path -
     the same `{type_directory}/{filename}` shape a worker's own depot listing
-    and the backend indexer use. `destination_path` is always resolved
-    against `models_root` at queue time (see `DownloadQueue._resolve_contained_dir`),
-    remote destination or not, so no separate column is needed to recover it.
+    and the backend indexer use. `destination_path` can now be resolved
+    against any model root (see `DownloadQueue.queue_model_download`), so this
+    is computed from the logical location (`type_dir/rel_path`) rather than
+    with `os.path.relpath` against a single root.
     """
-    relative = os.path.relpath(download.destination_path, models_root)
-    return relative.replace(os.sep, "/")
+    loc = resolver.to_logical(download.destination_path) if resolver is not None else None
+    if loc is not None:
+        return loc.logical_ref
+    return Path(download.destination_path).name
 
 
 class DownloadWorker:
@@ -94,6 +98,7 @@ class DownloadWorker:
         backend_registry: Optional["BackendRegistry"] = None,
         backend_model_indexer: Optional["BackendModelIndexer"] = None,
         worker_transport_override=None,
+        resolver: Optional["ModelRootResolver"] = None,
     ):
         """Initialize download worker.
 
@@ -121,6 +126,7 @@ class DownloadWorker:
         self.backend_registry = backend_registry
         self.backend_model_indexer = backend_model_indexer or _default_backend_model_indexer()
         self._worker_transport_override = worker_transport_override
+        self.resolver = resolver
 
         # Worker management
         self.queue: asyncio.Queue = asyncio.Queue()
@@ -801,7 +807,7 @@ class DownloadWorker:
 
         transport = transport_for(config, transport_override=self._worker_transport_override)
         request = ModelFetchRequestV1(
-            relative_path=_relative_depot_path(download, self.settings.default_model_directory),
+            relative_path=_relative_depot_path(download, self.resolver),
             url=ref.url,
             headers=ref.headers or None,
             expected_digest=ContentDigest(algorithm="sha256", hex=download.checksum_sha256.lower())
@@ -874,10 +880,10 @@ class DownloadWorker:
 
     async def _reconcile_local_native_availability(self) -> None:
         from src.features.models.native_availability_reconciler import (
-            native_availability_reconciler,
+            native_availability_projector,
         )
 
-        await native_availability_reconciler.reconcile(self.backend_registry)
+        await native_availability_projector.reconcile(self.backend_registry)
 
     # ========== Group aggregation ==========
 

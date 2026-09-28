@@ -34,6 +34,7 @@ from src.features.generation.records import File, Generation
 from src.features.generation.history_facade import GenerationHistoryFacade
 from src.features.presets.name_resolver import PresetNameResolver
 from src.features.downloads.models import Download, DownloadStatus, DownloadType
+from tests.fixtures.model_roots import make_roots
 
 
 class MockUser:
@@ -113,6 +114,7 @@ def built_router(collaborators, generation_repo_mock, prompt_importer_registry, 
             prompt_importer_registry=prompt_importer_registry,
             generation_history_facade=generation_history_facade,
             collection_repository=collection_repository_mock,
+            model_roots=MagicMock(),
         )
     )
 
@@ -485,7 +487,7 @@ def admin_client(collaborators, tmp_path):
     settings.get_setting.side_effect = lambda key, default=None: {
         "prompt_embedding_model": "BAAI/bge-small-en-v1.5",
     }.get(key, default)
-    settings.get_models_dir.return_value = str(tmp_path)
+    model_roots = make_roots(tmp_path, types=[])
     download_queue = MagicMock()
     download_queue.find_active_download_for_repo.return_value = None
 
@@ -496,6 +498,7 @@ def admin_client(collaborators, tmp_path):
             download_queue=download_queue,
             prompt_importer_registry=PromptImporterRegistry(),
             collection_repository=MagicMock(),
+            model_roots=model_roots,
         )
     )
     app = FastAPI()
@@ -505,36 +508,36 @@ def admin_client(collaborators, tmp_path):
     )
     app.include_router(router)
     with TestClient(app) as test_client:
-        yield test_client, tmp_path, download_queue
+        yield test_client, model_roots, download_queue
 
 
 def test_embedding_status_reports_absent_weights_for_saved_model(admin_client):
-    client, tmp_path, _ = admin_client
+    client, model_roots, _ = admin_client
     resp = client.get("/api/prompts/embedding-status")
     assert resp.status_code == 200
     data = resp.json()["data"]
     assert data["present"] is False
-    assert data["path"] == str(tmp_path / "text_embeddings" / "baai-bge-small-en-v1-5")
+    assert data["path"] == str(model_roots.asset_dir("text_embeddings") / "baai-bge-small-en-v1-5")
     assert data["active_download"] is None
 
 
 def test_embedding_status_honors_unsaved_model_override(admin_client):
-    client, tmp_path, _ = admin_client
+    client, model_roots, _ = admin_client
     resp = client.get("/api/prompts/embedding-status", params={"model_name": "intfloat/e5-small"})
     assert resp.status_code == 200
     data = resp.json()["data"]
-    assert data["path"] == str(tmp_path / "text_embeddings" / "intfloat-e5-small")
+    assert data["path"] == str(model_roots.asset_dir("text_embeddings") / "intfloat-e5-small")
 
 
 def test_embedding_status_reports_active_download_while_queued(admin_client):
     """A reloading client must see an in-flight fetch through this endpoint
     alone - no page-local downloadId->kind map involved."""
-    client, tmp_path, download_queue = admin_client
+    client, model_roots, download_queue = admin_client
     active = Download(
         id="dl-1",
         type=DownloadType.HF_REPO,
         url="https://huggingface.co/BAAI/bge-small-en-v1.5",
-        destination_path=str(tmp_path / "text_embeddings" / "baai-bge-small-en-v1-5"),
+        destination_path=str(model_roots.asset_dir("text_embeddings") / "baai-bge-small-en-v1-5"),
         filename="BAAI/bge-small-en-v1.5",
         status=DownloadStatus.DOWNLOADING,
         progress=0.42,

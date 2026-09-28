@@ -1,6 +1,8 @@
 """WDTaggerProvider: lazy loading, preprocessing contract, prediction mapping."""
 
 import math
+import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -12,12 +14,17 @@ from src.features.media_index.tagger import (
     build_tagger_provider,
 )
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
+from tests.fixtures.model_roots import make_roots
+
+
+def _resolver():
+    return make_roots(Path(tempfile.mkdtemp(prefix="wd-tagger-test-")), types=[])
 
 
 def _provider(**overrides):
     kwargs = dict(
         model_name="SmilingWolf/wd-vit-tagger-v3",
-        models_dir="/nonexistent",
+        resolver=_resolver(),
         auto_download=False,
         tag_threshold=0.35,
         character_threshold=0.75,
@@ -288,29 +295,32 @@ class TestResolveStatus:
     """Presence/path/size the admin settings status endpoint reads."""
 
     def test_missing_weights_report_absent_with_no_size(self, tmp_path):
-        status = WDTaggerProvider.resolve_status("SmilingWolf/wd-vit-tagger-v3", str(tmp_path))
+        resolver = make_roots(tmp_path, types=[])
+        status = WDTaggerProvider.resolve_status("SmilingWolf/wd-vit-tagger-v3", resolver)
 
         assert status["present"] is False
         assert status["size"] is None
-        assert status["path"] == str(tmp_path / "taggers" / "smilingwolf-wd-vit-tagger-v3")
+        assert status["path"] == str(resolver.asset_dir("taggers") / "smilingwolf-wd-vit-tagger-v3")
 
     def test_partial_files_are_not_present(self, tmp_path):
-        target = tmp_path / "taggers" / "smilingwolf-wd-vit-tagger-v3"
+        resolver = make_roots(tmp_path, types=[])
+        target = resolver.asset_dir("taggers") / "smilingwolf-wd-vit-tagger-v3"
         target.mkdir(parents=True)
         (target / "model.safetensors").write_bytes(b"x" * 10)
 
-        status = WDTaggerProvider.resolve_status("SmilingWolf/wd-vit-tagger-v3", str(tmp_path))
+        status = WDTaggerProvider.resolve_status("SmilingWolf/wd-vit-tagger-v3", resolver)
 
         assert status["present"] is False
         assert status["size"] is None
 
     def test_present_weights_report_total_size(self, tmp_path):
-        target = tmp_path / "taggers" / "smilingwolf-wd-vit-tagger-v3"
+        resolver = make_roots(tmp_path, types=[])
+        target = resolver.asset_dir("taggers") / "smilingwolf-wd-vit-tagger-v3"
         target.mkdir(parents=True)
         (target / "model.safetensors").write_bytes(b"x" * 10)
         (target / "selected_tags.csv").write_bytes(b"y" * 5)
 
-        status = WDTaggerProvider.resolve_status("SmilingWolf/wd-vit-tagger-v3", str(tmp_path))
+        status = WDTaggerProvider.resolve_status("SmilingWolf/wd-vit-tagger-v3", resolver)
 
         assert status["present"] is True
         assert status["size"] == 15
@@ -323,9 +333,9 @@ class TestBuildFromSettings:
         not the shipped default (see migration 108)."""
         settings = MagicMock()
         settings.get_setting.side_effect = lambda key, default=None: default
-        settings.get_models_dir.return_value = "/models"
+        resolver = _resolver()
 
-        provider = build_tagger_provider(settings)
+        provider = build_tagger_provider(settings, resolver)
 
         assert provider.auto_download is False
 
@@ -339,12 +349,12 @@ class TestBuildFromSettings:
         }
         settings = MagicMock()
         settings.get_setting.side_effect = lambda key, default=None: values.get(key, default)
-        settings.get_models_dir.return_value = "/models"
+        resolver = _resolver()
 
-        provider = build_tagger_provider(settings)
+        provider = build_tagger_provider(settings, resolver)
 
         assert provider.model_name == "SmilingWolf/wd-swinv2-tagger-v3"
-        assert provider.models_dir == "/models"
+        assert provider.resolver is resolver
         assert provider.auto_download is False
         assert provider.tag_threshold == 0.5
         assert provider.character_threshold == 0.9

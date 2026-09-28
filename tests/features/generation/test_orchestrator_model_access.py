@@ -213,6 +213,7 @@ def _bind_form_records_kwargs(monkeypatch):
 class TestFieldOverridesThreadedFromRepository:
     def _build_orchestrator(self, database_preset_repository):
         instance = object.__new__(orch.GenerationOrchestrator)
+        instance.model_locator = None
         instance.database_preset_repository = database_preset_repository
         instance.model_access_policy = None
         instance.user_repository = None
@@ -257,7 +258,7 @@ class TestFieldOverridesThreadedFromRepository:
         instance = self._build_orchestrator(db_repo)
 
         with patch.object(orch, "generation_repo") as mock_gen_repo, \
-             patch.object(orch, "resolve_form_model_refs", side_effect=lambda fd, bid: fd):
+             patch.object(orch, "resolve_form_model_refs", side_effect=lambda fd, bid, locator=None: fd):
             mock_gen_repo.create = Mock()
             await instance.start_generation(self._request(), "user_1")
 
@@ -268,7 +269,7 @@ class TestFieldOverridesThreadedFromRepository:
         instance = self._build_orchestrator(None)
 
         with patch.object(orch, "generation_repo") as mock_gen_repo, \
-             patch.object(orch, "resolve_form_model_refs", side_effect=lambda fd, bid: fd):
+             patch.object(orch, "resolve_form_model_refs", side_effect=lambda fd, bid, locator=None: fd):
             mock_gen_repo.create = Mock()
             await instance.start_generation(self._request(), "user_1")
 

@@ -100,6 +100,7 @@ from src.features.llm.native_te_adoption import (
     resolve_adopted_te_path,
 )
 from src.features.llm.repository import LLMConfig
+from src.platform.filesystem.model_roots import ModelRootResolver
 from src.platform.runtime.model_lifecycle.lifecycle import (
     ModelLifecycle,
     file_size_gb,
@@ -394,8 +395,9 @@ class _NativeLLMResidencyHandle:
 class NativeLLMClient:
     """LLMClient implementation backed by an in-process transformers model."""
 
-    def __init__(self, model_lifecycle: Optional[ModelLifecycle] = None):
+    def __init__(self, model_lifecycle: Optional[ModelLifecycle] = None, model_roots: Optional[ModelRootResolver] = None):
         self._model_lifecycle = model_lifecycle
+        self._model_roots = model_roots
         # Weak references only — this must never be the thing keeping a
         # checkpoint alive. A dead/absent entry means "not warm right now"
         # (evicted, or never loaded), which is exactly the signal
@@ -420,6 +422,14 @@ class NativeLLMClient:
                 "(the app container hasn't finished composing)"
             )
         return lifecycle
+
+    def _roots(self) -> ModelRootResolver:
+        if self._model_roots is None:
+            raise ValueError(
+                "Native LLM provider: no ModelRootResolver available yet "
+                "(the app container hasn't finished composing)"
+            )
+        return self._model_roots
 
     @staticmethod
     def _family(model_type: Optional[str]) -> tuple[bool, str]:
@@ -618,14 +628,14 @@ class NativeLLMClient:
             size *= NATIVE_LLM_QUANT_SIZE_FACTORS.get(quant_mode, 1.0)
         return size
 
-    @staticmethod
-    def _resolve_model(name: str) -> tuple[str, bool]:
+    def _resolve_model(self, name: str) -> tuple[str, bool]:
         """Resolve ``config.model`` to ``(absolute_path, is_adopted_te)``. An
         adopted single-file text encoder is referenced as ``text_encoders/<file>``; every
         other value is an HF-layout directory under ``models/llm/``."""
+        resolver = self._roots()
         if is_adopted_te_reference(name):
-            return resolve_adopted_te_path(name), True
-        return resolve_native_checkpoint_path(name), False
+            return resolve_adopted_te_path(name, resolver), True
+        return resolve_native_checkpoint_path(name, resolver), False
 
     def _build_adopted(self, path: str, quant_mode: str = "none") -> _LoadedCheckpoint:
         """Loader for an adopted single-file text encoder: builds a
@@ -633,7 +643,7 @@ class NativeLLMClient:
         (bf16, or fp8-scaled dequantized to bf16), then quantizes it
         in place when the config requests int8/nf4 — see
         ``_quantize_adopted_module``."""
-        model, tokenizer, model_type = build_adopted_te(path)
+        model, tokenizer, model_type = build_adopted_te(path, self._roots())
         quantized = quant_mode != "none"
         if quantized:
             model = self._quantize_adopted_module(model, quant_mode)

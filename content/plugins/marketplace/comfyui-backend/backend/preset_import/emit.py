@@ -519,7 +519,7 @@ def _history_param_entry(entry: HistoryEntry) -> List[Any]:
         value = (
             "{{ form." + field + " | default([]) | active_loras | length }}x "
             "{{ form." + field + " | default([]) | active_loras | map(attribute='model', default='') "
-            "| map('replace', 'models/loras/', '') | select('string') | join(', ') }}"
+            "| map('strip_model_dir') | select('string') | join(', ') }}"
         )
     else:  # as_is, number, wxh - the field's own value, verbatim
         value = "{{ form." + field + " }}"

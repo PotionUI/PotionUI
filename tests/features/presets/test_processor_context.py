@@ -53,7 +53,6 @@ def _generation_data(**form_overrides):
 def _processor():
     return PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )
@@ -150,7 +149,6 @@ class TestContextShape:
         settings.is_nsfw_enabled.return_value = True
         processor = PresetProcessor(
             template_processor=TemplateProcessor(settings=Mock()),
-            model_directories=Mock(),
             settings=settings,
             preset_template_loader=Mock(),
         )

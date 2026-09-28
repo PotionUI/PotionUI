@@ -93,6 +93,8 @@ class Model:
     unavailable_at: Optional[datetime] = None
     use_count: Optional[int] = None
     last_used_at: Optional[datetime] = None
+    location: Optional[Dict[str, Any]] = None
+    copies: int = 0
 
     @classmethod
     def from_row(cls, row) -> 'Model':
@@ -184,7 +186,8 @@ class Model:
 
         if admin:
             result.update({
-                'file_path': self.file_path,
+                'location': self.location,
+                'copies': self.copies,
                 'file_size': self.file_size,
                 'sha256': self.sha256,
                 'updated_at': dt_iso(self.updated_at),

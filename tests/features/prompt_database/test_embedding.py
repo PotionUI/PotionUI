@@ -1,5 +1,7 @@
 """Unit coverage for embedding-provider selection, lazy load, and pooling."""
 
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,6 +13,11 @@ from src.features.prompt_database.embedding import (
     OllamaEmbeddingProvider,
     build_embedding_provider,
 )
+from tests.fixtures.model_roots import make_roots
+
+
+def _resolver():
+    return make_roots(Path(tempfile.mkdtemp(prefix="text-embedding-test-")), types=[])
 
 
 def make_settings(**overrides):
@@ -20,12 +27,11 @@ def make_settings(**overrides):
         return overrides.get(key, default)
 
     settings.get_setting.side_effect = get_setting
-    settings.get_models_dir.return_value = overrides.get("models_dir", "models")
     return settings
 
 
 def test_build_embedding_provider_defaults_to_local():
-    provider = build_embedding_provider(make_settings())
+    provider = build_embedding_provider(make_settings(), _resolver())
 
     assert isinstance(provider, LocalEmbeddingProvider)
     assert provider.model_name == LocalEmbeddingProvider.DEFAULT_MODEL
@@ -40,16 +46,16 @@ def test_build_embedding_provider_honors_local_overrides():
         prompt_embedding_model="intfloat/e5-small",
         prompt_embedding_device="cuda",
         prompt_embedding_auto_download=False,
-        models_dir="custom-models",
     )
+    resolver = _resolver()
 
-    provider = build_embedding_provider(settings)
+    provider = build_embedding_provider(settings, resolver)
 
     assert isinstance(provider, LocalEmbeddingProvider)
     assert provider.model_name == "intfloat/e5-small"
     assert provider.device == "cuda"
     assert provider.auto_download is False
-    assert provider.models_dir == "custom-models"
+    assert provider.resolver is resolver
 
 
 def test_build_embedding_provider_selects_ollama_when_configured():
@@ -59,7 +65,7 @@ def test_build_embedding_provider_selects_ollama_when_configured():
         prompt_embedding_ollama_model="mxbai-embed-large",
     )
 
-    provider = build_embedding_provider(settings)
+    provider = build_embedding_provider(settings, _resolver())
 
     assert isinstance(provider, OllamaEmbeddingProvider)
     assert provider.base_url == "http://ollama-host:11434"
@@ -67,7 +73,7 @@ def test_build_embedding_provider_selects_ollama_when_configured():
 
 
 def test_local_embedder_slug_is_stable_and_model_specific():
-    provider = LocalEmbeddingProvider(model_name="BAAI/bge-small-en-v1.5")
+    provider = LocalEmbeddingProvider(resolver=_resolver(), model_name="BAAI/bge-small-en-v1.5")
 
     assert provider.embedder_slug == "local-baai-bge-small-en-v1-5"
 
@@ -79,28 +85,28 @@ def test_ollama_embedder_slug_is_model_specific():
 
 
 def test_local_provider_construction_does_not_load_model():
-    provider = LocalEmbeddingProvider(model_name="fake/model")
+    provider = LocalEmbeddingProvider(resolver=_resolver(), model_name="fake/model")
 
     assert provider._model is None
     assert provider._tokenizer is None
 
 
 def test_is_available_true_when_weights_present_even_without_auto_download():
-    provider = LocalEmbeddingProvider(model_name="fake/model", auto_download=False)
+    provider = LocalEmbeddingProvider(resolver=_resolver(), model_name="fake/model", auto_download=False)
     provider._weights_present = MagicMock(return_value=True)
 
     assert _run(provider.is_available()) is True
 
 
 def test_is_available_true_when_auto_download_allowed_without_weights():
-    provider = LocalEmbeddingProvider(model_name="fake/model", auto_download=True)
+    provider = LocalEmbeddingProvider(resolver=_resolver(), model_name="fake/model", auto_download=True)
     provider._weights_present = MagicMock(return_value=False)
 
     assert _run(provider.is_available()) is True
 
 
 def test_is_available_false_without_weights_or_auto_download():
-    provider = LocalEmbeddingProvider(model_name="fake/model", auto_download=False)
+    provider = LocalEmbeddingProvider(resolver=_resolver(), model_name="fake/model", auto_download=False)
     provider._weights_present = MagicMock(return_value=False)
 
     assert _run(provider.is_available()) is False
@@ -110,7 +116,7 @@ def test_missing_weights_without_auto_download_raises_actionable_error():
     """With auto-download disabled and no weights on disk, `_ensure_loaded`
     must fail loudly with a message pointing at the fix (fetch the weights),
     never fall through to a silent background download."""
-    provider = LocalEmbeddingProvider(model_name="fake/model", auto_download=False)
+    provider = LocalEmbeddingProvider(resolver=_resolver(), model_name="fake/model", auto_download=False)
     provider._weights_present = MagicMock(return_value=False)
 
     with pytest.raises(RuntimeError, match="auto-download is disabled"):
@@ -147,7 +153,7 @@ def _fake_tokenizer_and_model():
 
 @pytest.mark.asyncio
 async def test_embed_mean_pools_masked_tokens_and_l2_normalizes():
-    provider = LocalEmbeddingProvider(model_name="fake/model", auto_download=False)
+    provider = LocalEmbeddingProvider(resolver=_resolver(), model_name="fake/model", auto_download=False)
     provider._weights_present = MagicMock(return_value=True)
     tokenizer, model = _fake_tokenizer_and_model()
 
@@ -168,7 +174,7 @@ async def test_embed_mean_pools_masked_tokens_and_l2_normalizes():
 
 @pytest.mark.asyncio
 async def test_embed_loads_model_lazily_exactly_once():
-    provider = LocalEmbeddingProvider(model_name="fake/model", auto_download=False)
+    provider = LocalEmbeddingProvider(resolver=_resolver(), model_name="fake/model", auto_download=False)
     provider._weights_present = MagicMock(return_value=True)
     tokenizer, model = _fake_tokenizer_and_model()
 
@@ -191,7 +197,7 @@ async def test_embed_loads_model_lazily_exactly_once():
 
 @pytest.mark.asyncio
 async def test_embed_empty_input_short_circuits_without_loading():
-    provider = LocalEmbeddingProvider(model_name="fake/model")
+    provider = LocalEmbeddingProvider(resolver=_resolver(), model_name="fake/model")
     provider._ensure_loaded = MagicMock(side_effect=AssertionError("should not load"))
 
     assert await provider.embed([]) == []
@@ -201,25 +207,28 @@ class TestResolveStatus:
     """Presence/path/size the admin settings status endpoint reads."""
 
     def test_missing_weights_report_absent_with_no_size(self, tmp_path):
-        status = LocalEmbeddingProvider.resolve_status("BAAI/bge-small-en-v1.5", str(tmp_path))
+        resolver = make_roots(tmp_path, types=[])
+        status = LocalEmbeddingProvider.resolve_status("BAAI/bge-small-en-v1.5", resolver)
 
         assert status["present"] is False
         assert status["size"] is None
-        assert status["path"] == str(tmp_path / "text_embeddings" / "baai-bge-small-en-v1-5")
+        assert status["path"] == str(resolver.asset_dir("text_embeddings") / "baai-bge-small-en-v1-5")
 
     def test_present_weights_report_total_size(self, tmp_path):
-        target = tmp_path / "text_embeddings" / "baai-bge-small-en-v1-5"
+        resolver = make_roots(tmp_path, types=[])
+        target = resolver.asset_dir("text_embeddings") / "baai-bge-small-en-v1-5"
         target.mkdir(parents=True)
         (target / "model.safetensors").write_bytes(b"x" * 10)
         (target / "config.json").write_bytes(b"y" * 5)
 
-        status = LocalEmbeddingProvider.resolve_status("BAAI/bge-small-en-v1.5", str(tmp_path))
+        status = LocalEmbeddingProvider.resolve_status("BAAI/bge-small-en-v1.5", resolver)
 
         assert status["present"] is True
         assert status["size"] == 15
         assert status["path"] == str(target)
 
     def test_local_dir_for_matches_instance_local_path(self, tmp_path):
-        provider = LocalEmbeddingProvider(model_name="fake/model", models_dir=str(tmp_path))
+        resolver = make_roots(tmp_path, types=[])
+        provider = LocalEmbeddingProvider(resolver=resolver, model_name="fake/model")
 
-        assert LocalEmbeddingProvider.local_dir_for("fake/model", str(tmp_path)) == provider._local_path()
+        assert LocalEmbeddingProvider.local_dir_for("fake/model", resolver) == provider._local_path()

@@ -108,8 +108,8 @@ class GetModelInfoTool(BaseTool):
 
         # Fallback: treat model_id as a file path
         try:
-            repo = context.model_index_manager.model_repo
-            model = repo.get_by_file_path(model_id, include_providers=True)
+            locator = context.model_index_manager.locator
+            model = locator.model_for_path(model_id)
             if model and _visible(context, model.id, allowed):
                 return ToolResult(
                     success=True,
@@ -117,24 +117,6 @@ class GetModelInfoTool(BaseTool):
                 )
         except Exception as e:
             logger.debug(f"Path lookup failed for '{model_id}': {e}")
-
-        # Fallback: search by filename
-        try:
-            filename = model_id.rsplit("/", 1)[-1]
-            repo = context.model_index_manager.model_repo
-            models = repo.get_all(
-                search=filename, limit=1,
-                include_providers=True, include_tags=True,
-                allowed_model_ids=allowed,
-                include_files=False,
-            )
-            if models:
-                return ToolResult(
-                    success=True,
-                    data=json.dumps(self._model_obj_to_summary(models[0], fields)),
-                )
-        except Exception as e:
-            logger.debug(f"Filename search failed for '{model_id}': {e}")
 
         return ToolResult(
             success=False, data="",

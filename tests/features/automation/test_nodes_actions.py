@@ -49,9 +49,11 @@ class TestGuessModelType(unittest.TestCase):
 class TestExecuteIndexModelOutput(unittest.IsolatedAsyncioTestCase):
 
     async def test_output_includes_model_id_and_name(self):
-        indexer = MagicMock()
-        indexer.index_single_model.return_value = FakeModel(id="model-123", filename="krea2_lora_v1.safetensors")
-        services = AutomationServices(model_indexer=indexer)
+        coordinator = MagicMock()
+        coordinator.index_path.return_value = {"model_id": "model-123", "indexed": True}
+        model_repo = MagicMock()
+        model_repo.get_by_id.return_value = FakeModel(id="model-123", filename="krea2_lora_v1.safetensors")
+        services = AutomationServices(model_indexing_coordinator=coordinator, model_repository=model_repo)
 
         import tempfile, os
         with tempfile.NamedTemporaryFile() as f:
@@ -65,9 +67,9 @@ class TestExecuteIndexModelOutput(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.output["filename"], "krea2_lora_v1.safetensors")
 
     async def test_output_is_none_safe_when_indexing_returns_none(self):
-        indexer = MagicMock()
-        indexer.index_single_model.return_value = None
-        services = AutomationServices(model_indexer=indexer)
+        coordinator = MagicMock()
+        coordinator.index_path.return_value = {"model_id": None, "indexed": False}
+        services = AutomationServices(model_indexing_coordinator=coordinator)
 
         import tempfile
         with tempfile.NamedTemporaryFile() as f:
@@ -82,17 +84,30 @@ class TestExecuteIndexModelOutput(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError):
                 await _execute_index_model(_ctx(config={"path": f.name}, services=AutomationServices()))
 
+    async def test_raises_with_a_named_remedy_when_the_path_is_outside_any_model_root(self):
+        from src.features.models.exceptions import ModelIndexingException
+
+        coordinator = MagicMock()
+        coordinator.index_path.side_effect = ModelIndexingException("not under any known model root")
+        services = AutomationServices(model_indexing_coordinator=coordinator)
+
+        with self.assertRaises(RuntimeError) as ctx:
+            await _execute_index_model(_ctx(config={"path": "/tmp/x.safetensors"}, services=services))
+        self.assertIn("add its folder as a model root", str(ctx.exception))
+
     async def test_hashing_runs_off_the_event_loop_thread(self):
-        indexer = MagicMock()
+        coordinator = MagicMock()
         loop_thread = threading.get_ident()
         index_threads = []
 
-        def recording_index(file_path, model_type, file_size):
+        def recording_index_path(file_path):
             index_threads.append(threading.get_ident())
-            return FakeModel(id="model-123", filename="krea2_lora_v1.safetensors")
+            return {"model_id": "model-123", "indexed": True}
 
-        indexer.index_single_model.side_effect = recording_index
-        services = AutomationServices(model_indexer=indexer)
+        coordinator.index_path.side_effect = recording_index_path
+        model_repo = MagicMock()
+        model_repo.get_by_id.return_value = FakeModel(id="model-123", filename="krea2_lora_v1.safetensors")
+        services = AutomationServices(model_indexing_coordinator=coordinator, model_repository=model_repo)
 
         import tempfile
         with tempfile.NamedTemporaryFile() as f:
@@ -149,9 +164,16 @@ def _single_index_services(backends: dict, model, holders: list = None,
 
     services = _index_models_services(backends, results_by_id)
 
-    scanner = MagicMock()
-    scanner.index_single_model.return_value = model
-    services.model_indexer = scanner
+    coordinator = MagicMock()
+    coordinator.index_path.return_value = {
+        "model_id": model.id if model is not None else None,
+        "indexed": model is not None,
+    }
+    services.model_indexing_coordinator = coordinator
+
+    model_repo = MagicMock()
+    model_repo.get_by_id.return_value = model
+    services.model_repository = model_repo
 
     availability_repo = MagicMock(spec=ModelAvailabilityRepository)
     availability_repo.backend_ids_by_model.return_value = (
@@ -210,9 +232,11 @@ class TestIndexModelAvailability(unittest.IsolatedAsyncioTestCase):
         """A partial services bundle (as before this feature) must not break."""
         import tempfile
 
-        indexer = MagicMock()
-        indexer.index_single_model.return_value = FakeModel(id="m1", filename="a.safetensors")
-        services = AutomationServices(model_indexer=indexer)
+        coordinator = MagicMock()
+        coordinator.index_path.return_value = {"model_id": "m1", "indexed": True}
+        model_repo = MagicMock()
+        model_repo.get_by_id.return_value = FakeModel(id="m1", filename="a.safetensors")
+        services = AutomationServices(model_indexing_coordinator=coordinator, model_repository=model_repo)
 
         with tempfile.NamedTemporaryFile() as f:
             result = await _execute_index_model(_ctx(config={"path": f.name}, services=services))
@@ -1118,16 +1142,13 @@ class TestExecuteScanFiles(unittest.IsolatedAsyncioTestCase):
         base = self._tree()
         target = os.path.join(base, "loras", "krea2", "style.safetensors")
 
-        def get_by_file_path(path):
-            return SimpleNamespace(id="m1", filename="style.safetensors", model_type="lora") if path == target else None
+        def model_for_path(path):
+            return SimpleNamespace(id="m1", filename="style.safetensors", model_type="lora") if str(path) == target else None
 
-        model_repo = MagicMock()
-        model_repo.get_by_file_path = MagicMock(side_effect=get_by_file_path)
+        locator = MagicMock()
+        locator.model_for_path = MagicMock(side_effect=model_for_path)
 
-        settings = MagicMock()
-        settings.get_models_dir.return_value = base
-
-        services = AutomationServices(model_repository=model_repo, settings=settings)
+        services = AutomationServices(model_locator=locator)
         result = await _execute_scan_files(_ctx(
             config={"directory": base, "recursive": True, "extensions": "safetensors", "resolve_models": True},
             services=services,

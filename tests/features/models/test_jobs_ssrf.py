@@ -56,7 +56,7 @@ class TestIsSafeDownloadUrl:
 
 class TestRunDownloadHonoursTheGuard:
     def _job(self) -> ModelJobs:
-        return ModelJobs(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+        return ModelJobs(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock())
 
     def test_unsafe_url_is_never_requested(self):
         job = self._job()
@@ -85,8 +85,8 @@ def test_type_dir_map_mirrors_the_scanner_mapping_exactly():
     # filtering on the right type comes up empty - detection_segm did exactly
     # that. The two maps must be exact inverses so a new type cannot land on
     # only one side.
-    from src.features.models.jobs import TYPE_DIR_MAP
+    from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
     from src.features.models.indexer import ModelScanner
 
     inverted_scanner = {t: d for d, t in ModelScanner.MODEL_TYPE_MAPPING.items()}
-    assert TYPE_DIR_MAP == inverted_scanner
+    assert MODEL_TYPE_TO_DIRECTORY == inverted_scanner

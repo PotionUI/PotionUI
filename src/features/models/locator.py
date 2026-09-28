@@ -170,6 +170,33 @@ class ModelLocator:
         matches = self._model_repo().get_by_filename(filename)
         return matches[0] if len(matches) == 1 else None
 
+    def location_summaries(self) -> Dict[str, Dict[str, Any]]:
+        online_root_ids = list(self._resolver.online_root_ids())
+        rows_by_model: Dict[str, List[Dict[str, Any]]] = {}
+        for row in self._locations.list_present_for_roots(online_root_ids):
+            rows_by_model.setdefault(row["model_id"], []).append(row)
+
+        summaries: Dict[str, Dict[str, Any]] = {}
+        for model_id, rows in rows_by_model.items():
+            model_type = rows[0]["model_type"]
+            ordered = self._ordered_present_rows(rows, model_type)
+            location = None
+            if ordered:
+                winner = ordered[0]
+                loc = LogicalLocation(winner["root_id"], winner["model_type"], winner["rel_path"])
+                try:
+                    physical = self._resolver.physical(loc)
+                except ModelRootError:
+                    physical = None
+                location = {
+                    "root_id": winner["root_id"],
+                    "root_label": self._root_label(winner["root_id"]),
+                    "logical_path": loc.logical_ref,
+                    "path": str(physical) if physical is not None else None,
+                }
+            summaries[model_id] = {"location": location, "copies": len(rows)}
+        return summaries
+
     def locations(self, model_id: str) -> List[LocationView]:
         rows = self._locations.list_for_model(model_id)
         if not rows:
@@ -202,18 +229,3 @@ class ModelLocator:
                 )
             )
         return views
-
-
-_default_locator: Optional[ModelLocator] = None
-
-
-def default_model_locator() -> ModelLocator:
-    global _default_locator
-    if _default_locator is None:
-        from pathlib import Path
-
-        from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe
-        from src.platform.filesystem.model_roots_repository import ModelRootRepository
-
-        _default_locator = ModelLocator(ModelRootResolver(ModelRootRepository(), RootProbe(), Path.cwd()))
-    return _default_locator

@@ -23,7 +23,7 @@ from src.platform.observability.logger import logger
 from src.features.models.availability_repository import (
     model_availability_repo,
 )
-from src.features.models.locator import ModelFileUnavailable, default_model_locator
+from src.features.models.locator import ModelFileUnavailable, ModelLocator
 
 
 MODEL_REF_PREFIX = "model:"
@@ -177,7 +177,7 @@ def set_at_path(form_data: Any, path: List[Any], value: Any) -> Any:
     return new_dict
 
 
-def resolve_form_model_refs(form_data: Any, backend: Any) -> Any:
+def resolve_form_model_refs(form_data: Any, backend: Any, locator: ModelLocator) -> Any:
     """Rewrite every `model:<id>` into the ref this backend needs.
 
     Raises rather than passing an unresolvable reference through: handing a raw
@@ -217,7 +217,7 @@ def resolve_form_model_refs(form_data: Any, backend: Any) -> Any:
         elif indexed:
             missing.append(model_id)
         else:
-            fallback = _fallback_ref(model_id)
+            fallback = _fallback_ref(model_id, locator)
             if fallback is None:
                 missing.append(model_id)
             else:
@@ -281,7 +281,7 @@ def _describe_conflict(model_id: str, row) -> str:
     )
 
 
-def _fallback_ref(model_id: str) -> Any:
+def _fallback_ref(model_id: str, locator: ModelLocator) -> Any:
     """What the picker would have submitted before availability existed.
 
     The resolved location for a model on this host; the bare filename otherwise, which
@@ -297,7 +297,7 @@ def _fallback_ref(model_id: str) -> Any:
         return None
 
     try:
-        return str(default_model_locator().path_for_model(model_id))
+        return str(locator.path_for_model(model_id))
     except ModelFileUnavailable:
         pass
     except Exception:

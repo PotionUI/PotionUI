@@ -60,7 +60,6 @@ def _pipe(pipes, name):
 def _process(fluxklein_template, mode, form_over=None):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )

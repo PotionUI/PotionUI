@@ -38,16 +38,16 @@ _PROGRESS_MIN_INTERVAL_SECONDS = 1.0
 
 
 class ModelsIndexExecutor:
-    def __init__(self, model_scanner, backend_registry: Optional[object] = None, native_availability_reconciler=None):
+    def __init__(self, model_scanner, backend_registry: Optional[object] = None, native_availability_projector=None):
         self.model_scanner = model_scanner
         self.backend_registry = backend_registry
-        if native_availability_reconciler is None:
+        if native_availability_projector is None:
             from src.features.models.native_availability_reconciler import (
-                native_availability_reconciler as _default_reconciler,
+                native_availability_projector as _default_projector,
             )
 
-            native_availability_reconciler = _default_reconciler
-        self.native_availability_reconciler = native_availability_reconciler
+            native_availability_projector = _default_projector
+        self.native_availability_projector = native_availability_projector
 
     def execute(self, context: StepContext) -> StepResult:
         set_progress_callback = getattr(self.model_scanner, "set_progress_callback", None)
@@ -67,7 +67,7 @@ class ModelsIndexExecutor:
                 set_progress_callback(None)
 
         try:
-            run_sync(self.native_availability_reconciler.reconcile(self.backend_registry))
+            run_sync(self.native_availability_projector.reconcile(self.backend_registry))
         except Exception as exc:
             logger.warning(f"models.index: native availability reconcile failed: {exc}")
 

@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from src.features.models.catalog import ListModelsParams, ModelCatalog
-from src.features.models.jobs import TYPE_DIR_MAP
+from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY as TYPE_DIR_MAP
 from src.features.models.records import Model
 from src.features.models.repository import ModelRepository
 from src.features.models.routes import ModelController, build_router

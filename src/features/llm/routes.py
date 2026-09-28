@@ -39,6 +39,7 @@ from src.features.llm.mappers import config_to_response, assignment_config_to_re
 from src.features.llm.model_listing import ModelListingError
 from src.features.llm.repository import LLMRepository
 from src.features.llm.gateway import LLMGateway
+from src.platform.filesystem.model_roots import ModelRootResolver
 from src.platform.plugins import PluginRegistry
 from src.platform.settings.settings import Settings
 from src.platform.security.user import User, AccountType
@@ -62,6 +63,7 @@ class LLMController(BaseController):
         plugin_registry: PluginRegistry,
         tool_governance_repository: Optional["ToolGovernanceRepository"] = None,
         download_queue: Optional["DownloadQueue"] = None,
+        model_roots: Optional[ModelRootResolver] = None,
     ):
         super().__init__()
         self.repository = llm_repository
@@ -72,6 +74,7 @@ class LLMController(BaseController):
         # Optional: only needed for the gemma3 chat-tokenizer on-demand fetch —
         # every other endpoint works without it.
         self.download_queue = download_queue
+        self.model_roots = model_roots
 
     # =========================================================================
     # Configuration Endpoints
@@ -129,7 +132,7 @@ class LLMController(BaseController):
 
             from src.features.llm.native_library import list_native_checkpoints
 
-            entries = [asdict(e) for e in list_native_checkpoints()]
+            entries = [asdict(e) for e in list_native_checkpoints(self.model_roots)]
             return self.success_response(data=entries)
         except Exception as e:
             logger.exception(f"Error listing native LLM checkpoints: {e}")
@@ -157,7 +160,7 @@ class LLMController(BaseController):
 
             from src.features.llm.native_te_adoption import ensure_gemma3_chat_tokenizer
 
-            path = await asyncio.to_thread(ensure_gemma3_chat_tokenizer, self.download_queue)
+            path = await asyncio.to_thread(ensure_gemma3_chat_tokenizer, self.download_queue, self.model_roots)
             return self.success_response(
                 data={"path": str(path)},
                 message="gemma3 chat tokenizer assets fetched",

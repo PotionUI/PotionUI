@@ -67,7 +67,6 @@ def flux_template(preset_name):
 def _process(flux_template, preset_name, form_over: dict | None = None):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )

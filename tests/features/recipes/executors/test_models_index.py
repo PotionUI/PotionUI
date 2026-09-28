@@ -106,7 +106,7 @@ def test_reconciles_native_availability_after_a_successful_scan():
     reconciler.reconcile = AsyncMock()
     backend_registry = MagicMock()
     executor = ModelsIndexExecutor(
-        scanner, backend_registry=backend_registry, native_availability_reconciler=reconciler
+        scanner, backend_registry=backend_registry, native_availability_projector=reconciler
     )
 
     result = executor.execute(_context())
@@ -118,7 +118,7 @@ def test_reconcile_failure_does_not_fail_the_step():
     scanner = FakeScanner(result={"indexed": 1, "skipped": 0, "failed": 0, "total": 1})
     reconciler = MagicMock()
     reconciler.reconcile = AsyncMock(side_effect=RuntimeError("boom"))
-    executor = ModelsIndexExecutor(scanner, native_availability_reconciler=reconciler)
+    executor = ModelsIndexExecutor(scanner, native_availability_projector=reconciler)
 
     result = executor.execute(_context())
 

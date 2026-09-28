@@ -36,6 +36,7 @@ from src.bootstrap.worker_app import create_worker_app
 from src.bootstrap.worker_container import WorkerContainer
 from src.features.backends.backend_config import NativeRemoteBackendConfig
 from src.features.backends.native_remote_backend import RemoteNativeBackend
+from src.features.models.locator import ModelLocator
 from src.features.models.records import Model
 from src.features.models.repository import ModelRepository
 from src.features.remote_execution.records import RemoteExecutionState
@@ -57,6 +58,8 @@ from src.pipelines.outputs import (
 )
 from src.platform.database.database import Database
 from src.platform.database.migration_runner import MigrationRunner
+from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe
+from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
 from src.platform.settings.repository import SettingRepository
 from src.platform.settings.settings import Settings
@@ -393,6 +396,7 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
             sys.stdout = old_stdout
 
         self.repo = RemoteExecutionRepository()
+        self.model_locator = ModelLocator(ModelRootResolver(ModelRootRepository(), RootProbe(), Path(self.temp_dir)))
 
         self.storage_dir = Path(self.temp_dir) / "storage"
         self.storage_dir.mkdir()
@@ -483,6 +487,7 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
         )
         backend = RemoteNativeBackend(config, transport_override=httpx.ASGITransport(app=app))
         backend.bind_remote_context(pipe_catalog=FakeCatalog(), plugin_registry=FakePluginRegistry())
+        backend.bind_model_locator(locator=self.model_locator)
         return backend
 
     def _run_generation(self, backend, pipeline_data, *, timeout=10.0):
@@ -732,7 +737,7 @@ class TestWorkerRejection(NativeRemoteBackendTestCase):
         processed = build_processed_pipeline(pipes, backend._pipe_catalog)
         package = assemble_execution_package(
             built, pipe_catalog=backend._pipe_catalog,
-            model_bundle=build_model_bundle(processed.pipes),
+            model_bundle=build_model_bundle(processed.pipes, model_locator=self.model_locator),
             engine="native",
             storage_dir=self.storage_dir,
         )
@@ -1019,7 +1024,7 @@ class TestWorkerModelDigestRejection(NativeRemoteBackendTestCase):
         processed = build_processed_pipeline(pipes, backend._pipe_catalog)
         package = assemble_execution_package(
             built, pipe_catalog=backend._pipe_catalog,
-            model_bundle=build_model_bundle(processed.pipes),
+            model_bundle=build_model_bundle(processed.pipes, model_locator=self.model_locator),
             engine="native",
             storage_dir=self.storage_dir,
         )

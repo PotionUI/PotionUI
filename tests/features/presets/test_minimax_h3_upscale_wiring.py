@@ -46,7 +46,6 @@ def _inputs(pipe):
 def _process(h3_template, mode="video", form_over: dict | None = None):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )

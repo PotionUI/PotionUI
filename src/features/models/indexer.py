@@ -184,12 +184,35 @@ class ModelScanner:
             logger.error(f"Error calculating SHA256 for {file_path}: {e}")
             return None
 
+    def _legacy_hash_cache_keys(self, abs_path: str) -> List[str]:
+        keys: List[str] = []
+        try:
+            real = os.path.realpath(abs_path)
+        except OSError:
+            real = None
+        if real is not None and real != abs_path:
+            keys.append(real)
+
+        posix = abs_path.replace(os.sep, "/")
+        try:
+            home = str(self.resolver.home_dir()).replace(os.sep, "/").rstrip("/")
+        except Exception:
+            home = None
+        if home is not None and posix.startswith(home + "/"):
+            keys.append("models/" + posix[len(home) + 1:])
+        return keys
+
     def _digest_for(
         self, abs_path: str, size: int, mtime_ns: int, cancel_check: Optional[Any] = None
     ) -> Optional[str]:
         from src.features.models.hash_cache_repository import model_hash_cache_repo
 
         cached = model_hash_cache_repo.get(abs_path)
+        if cached is None:
+            for legacy_key in self._legacy_hash_cache_keys(abs_path):
+                cached = model_hash_cache_repo.get(legacy_key)
+                if cached is not None:
+                    break
         if cached and cached.size == size and cached.mtime_ns == mtime_ns:
             return cached.sha256
 
@@ -386,6 +409,19 @@ class ModelScanner:
             elif model.is_available:
                 model_repo.mark_unavailable(model.id)
 
+    @staticmethod
+    def _row_is_unverified_but_adoptable(row: Dict[str, Any], f: FoundFile) -> bool:
+        return (
+            row is not None and row['status'] == 'present' and row['size'] == f.size
+            and row['mtime_ns'] is None and bool(row['sha256'])
+        )
+
+    @classmethod
+    def _row_matches(cls, row: Optional[Dict[str, Any]], f: FoundFile) -> bool:
+        if row is None or row['status'] != 'present' or row['size'] != f.size:
+            return False
+        return row['mtime_ns'] == f.mtime_ns or cls._row_is_unverified_but_adoptable(row, f)
+
     def count_unindexed_by_binding(self) -> Dict[Tuple[str, str], int]:
         found = self.scan_roots()
         roots_by_id = {r.id: r for r in self.resolver.roots()}
@@ -404,7 +440,7 @@ class ModelScanner:
             for f in files:
                 rel_key = self._rel_key(root, f.rel_path)
                 row = existing.get(rel_key)
-                if row is None or row['status'] != 'present' or row['size'] != f.size or row['mtime_ns'] != f.mtime_ns:
+                if not self._row_matches(row, f):
                     n += 1
             if n:
                 counts[key] = n
@@ -451,8 +487,12 @@ class ModelScanner:
                 rel_key = self._rel_key(root, f.rel_path)
                 present_rel_keys.append(rel_key)
                 row = existing.get(rel_key)
-                if row is None or row['status'] != 'present' or row['size'] != f.size or row['mtime_ns'] != f.mtime_ns:
+                if not self._row_matches(row, f):
                     new_or_changed.append(f)
+                elif row['mtime_ns'] != f.mtime_ns:
+                    self.locations.adopt_mtime(root_id, model_type, rel_key, f.mtime_ns, seen_at)
+                    touched_by_diff.add(row['model_id'])
+                    skipped_count += 1
                 else:
                     self.locations.touch_present(root_id, model_type, rel_key, seen_at)
                     touched_by_diff.add(row['model_id'])

@@ -144,7 +144,6 @@ def wan_template():
 def _process(wan_template, doc, form_over=None):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )
@@ -188,7 +187,7 @@ def _enabled_generators(pipes):
 
 def _validate(pipes):
     manager = GenerationEngine(
-        gpu=Mock(), model_directories=Mock(), pipe_catalog=Mock(get_pipe=Mock(side_effect=PIPE_CLASSES.get)),
+        gpu=Mock(), pipe_catalog=Mock(get_pipe=Mock(side_effect=PIPE_CLASSES.get)),
         settings=Mock(), system_monitor=Mock(), memory_advisor=Mock(),
         llm_service=Mock(), models=Mock(),
     )
@@ -551,7 +550,6 @@ def ltx_template():
 def _process_ltx(ltx_template, doc, form_over=None):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )

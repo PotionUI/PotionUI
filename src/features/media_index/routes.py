@@ -63,6 +63,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     controller = container.media_index_controller
     settings = container.settings
     download_queue = container.download_queue
+    model_roots = container.model_roots
     router = APIRouter(prefix="/api/media-index", tags=["Media Index"])
 
     @router.get("/models-status", response_model=APIResponse, summary="Tagger + Vision-embedder Model Status")
@@ -86,7 +87,6 @@ def build_router(container: "AppContainer") -> APIRouter:
         "a fetch is already running" from this call alone - it never has to
         keep its own record of which download id maps to which asset.
         """
-        models_dir = settings.get_models_dir()
         tagger_name = tagger_model or settings.get_setting(
             "media_tagger_model", WDTaggerProvider.DEFAULT_MODEL
         )
@@ -96,7 +96,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         tagger_provider = controller.manager.tagger_provider
         vision_embedder = controller.manager.vision_embedder
 
-        tagger_status = WDTaggerProvider.resolve_status(tagger_name, models_dir)
+        tagger_status = WDTaggerProvider.resolve_status(tagger_name, model_roots)
         active_tagger = download_queue.find_active_download_for_repo(tagger_name)
         tagger_status["active_download"] = active_tagger.to_dict() if active_tagger else None
         # Only the active provider instance can report residency, and only
@@ -107,7 +107,7 @@ def build_router(container: "AppContainer") -> APIRouter:
             tagger_provider.model_name == tagger_name and tagger_provider.is_loaded()
         )
 
-        vision_status = SiglipVisionEmbedder.resolve_status(vision_name, models_dir)
+        vision_status = SiglipVisionEmbedder.resolve_status(vision_name, model_roots)
         active_vision = download_queue.find_active_download_for_repo(vision_name)
         vision_status["active_download"] = active_vision.to_dict() if active_vision else None
         vision_status["loaded"] = (

@@ -217,7 +217,11 @@ class ParamGenerationOutputHandler(BaseGenerationOutputHandler):
         resolved: List[Optional[Any]] = []
         for model_path in model_paths:
             try:
-                model = self._resolve_model(model_repo, model_path)
+                model = (
+                    self.model_locator.model_for_path(model_path)
+                    if self.model_locator is not None
+                    else self._resolve_model(model_repo, model_path)
+                )
                 resolved.append(model)
                 if model:
                     logger.debug(f"[PARAM HANDLER] Found model for path '{model_path}': {model.id}")

@@ -53,7 +53,6 @@ def mock_dependencies():
     gpu.get_total_vram.return_value = 24576  # MB
     return {
         'gpu': gpu,
-        'model_directories': Mock(),
         'pipe_catalog': Mock(),
         'settings': Mock(),
         'system_monitor': Mock(),

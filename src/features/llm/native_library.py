@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from src.platform.settings.repository import SettingRepository
+from src.platform.filesystem.model_roots import ModelRootResolver
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +36,6 @@ logger = logging.getLogger(__name__)
 TEXT_MODEL_TYPES = {"qwen3", "gemma3_text"}
 VISION_MODEL_TYPES = {"qwen3_vl", "qwen2_vl", "gemma3"}
 SUPPORTED_MODEL_TYPES = TEXT_MODEL_TYPES | VISION_MODEL_TYPES
-
-NATIVE_LLM_SUBDIR = "llm"
 
 # Quantized-load modes NativeLLMClient accepts. "none" is the
 # bf16/auto default; "int8"/"nf4" go through transformers' BitsAndBytesConfig
@@ -70,15 +68,6 @@ class NativeCheckpointEntry:
             self.quant_modes = []
 
 
-def _models_dir() -> Path:
-    setting = SettingRepository().get_setting_by_key("models_dir")
-    return Path(setting.get_typed_value() if setting else "models")
-
-
-def native_llm_dir(models_dir: Optional[Path] = None) -> Path:
-    return (models_dir or _models_dir()) / NATIVE_LLM_SUBDIR
-
-
 # HF-layout checkpoints are directories, not files: `file_size_gb()`
 # (src.platform.runtime.model_lifecycle.lifecycle) stats a single path and
 # would return the DIRECTORY INODE's size (a few bytes) for one of these, not
@@ -105,7 +94,7 @@ def checkpoint_size_gb(path: str) -> Optional[float]:
     return (total / (1024 ** 3)) if total else None
 
 
-def list_native_checkpoints(models_dir: Optional[Path] = None) -> list[NativeCheckpointEntry]:
+def list_native_checkpoints(resolver: ModelRootResolver) -> list[NativeCheckpointEntry]:
     """Scan `<models_dir>/llm/*/` for HF-layout checkpoint directories.
 
     A candidate is any immediate subdirectory with a `config.json`. Unreadable
@@ -113,38 +102,43 @@ def list_native_checkpoints(models_dir: Optional[Path] = None) -> list[NativeChe
     directory doesn't qualify) with `supported=False` and a `reason`.
     """
     entries: list[NativeCheckpointEntry] = []
-    base = native_llm_dir(models_dir)
-    for child in sorted(base.iterdir()) if base.is_dir() else []:
-        if not child.is_dir():
+    seen: set[str] = set()
+    for type_dir in resolver.type_dirs("llm"):
+        base = type_dir.path
+        if not base.is_dir():
             continue
-        config_path = child / "config.json"
-        if not config_path.is_file():
-            continue
-        model_type: Optional[str] = None
-        reason: Optional[str] = None
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                model_type = json.load(f).get("model_type")
-        except (OSError, json.JSONDecodeError) as e:
-            reason = f"could not read config.json: {e}"
-            logger.debug(f"[NativeLLMLibrary] {child}: {reason}")
+        for child in sorted(base.iterdir()):
+            if not child.is_dir() or child.name in seen:
+                continue
+            seen.add(child.name)
+            config_path = child / "config.json"
+            if not config_path.is_file():
+                continue
+            model_type: Optional[str] = None
+            reason: Optional[str] = None
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    model_type = json.load(f).get("model_type")
+            except (OSError, json.JSONDecodeError) as e:
+                reason = f"could not read config.json: {e}"
+                logger.debug(f"[NativeLLMLibrary] {child}: {reason}")
 
-        vision = model_type in VISION_MODEL_TYPES
-        supported = model_type in SUPPORTED_MODEL_TYPES
-        if not supported and reason is None:
-            reason = (
-                f"model_type '{model_type}' is not one of the supported families "
-                f"({', '.join(sorted(SUPPORTED_MODEL_TYPES))})"
-            )
-        entries.append(NativeCheckpointEntry(
-            name=child.name,
-            path=str(child),
-            model_type=model_type,
-            supported=supported,
-            vision=vision,
-            reason=reason,
-            quant_modes=list(NATIVE_LLM_QUANT_MODES) if supported else [],
-        ))
+            vision = model_type in VISION_MODEL_TYPES
+            supported = model_type in SUPPORTED_MODEL_TYPES
+            if not supported and reason is None:
+                reason = (
+                    f"model_type '{model_type}' is not one of the supported families "
+                    f"({', '.join(sorted(SUPPORTED_MODEL_TYPES))})"
+                )
+            entries.append(NativeCheckpointEntry(
+                name=child.name,
+                path=str(child),
+                model_type=model_type,
+                supported=supported,
+                vision=vision,
+                reason=reason,
+                quant_modes=list(NATIVE_LLM_QUANT_MODES) if supported else [],
+            ))
 
     # Single-file text encoders already on disk that can be shared with chat,
     # mapped into the same picker shape and flagged shared_te. An
@@ -153,7 +147,7 @@ def list_native_checkpoints(models_dir: Optional[Path] = None) -> list[NativeChe
     # the same BitsAndBytesConfig.
     from src.features.llm.native_te_adoption import list_adopted_te_checkpoints
 
-    for te in list_adopted_te_checkpoints(models_dir):
+    for te in list_adopted_te_checkpoints(resolver):
         entries.append(NativeCheckpointEntry(
             name=te.name,
             path=te.path,
@@ -167,17 +161,18 @@ def list_native_checkpoints(models_dir: Optional[Path] = None) -> list[NativeChe
     return entries
 
 
-def resolve_native_checkpoint_path(name: str, models_dir: Optional[Path] = None) -> str:
+def resolve_native_checkpoint_path(name: str, resolver: ModelRootResolver) -> str:
     """Resolve an `LLMConfig.model` value (a directory name under
     `models/llm/`) to its absolute path. Raises ValueError if it doesn't
     exist or escapes the native-llm directory (path traversal guard)."""
-    base = native_llm_dir(models_dir).resolve()
-    candidate = (base / name).resolve()
-    if base not in candidate.parents and candidate != base:
-        raise ValueError(f"Invalid native LLM checkpoint name: {name!r}")
-    if not candidate.is_dir():
-        raise ValueError(
-            f"Native LLM checkpoint '{name}' not found under {base} — "
-            f"place an HF-layout checkpoint directory there first"
-        )
-    return str(candidate)
+    for type_dir in resolver.type_dirs("llm"):
+        base = type_dir.path.resolve()
+        candidate = (base / name).resolve()
+        if candidate != base and base not in candidate.parents:
+            raise ValueError(f"Invalid native LLM checkpoint name: {name!r}")
+        if candidate.is_dir():
+            return str(candidate)
+    raise ValueError(
+        f"Native LLM checkpoint '{name}' not found under any llm model root — "
+        f"place an HF-layout checkpoint directory there first"
+    )

@@ -141,7 +141,7 @@ def _fake_resolve(refs_by_value):
     strings anywhere in the form (dict/list nesting included, same shape the
     real LoRA picker rows use) and leaves everything else untouched."""
 
-    def resolve(form_data, backend_id):
+    def resolve(form_data, backend_id, locator=None):
         def rewrite(node):
             if isinstance(node, str) and node in refs_by_value:
                 return refs_by_value[node]

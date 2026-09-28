@@ -48,5 +48,4 @@ class UpdateSettingsRequest(BaseModel):
     max_retries: Optional[int] = None
     chunk_size_kb: Optional[int] = None
     verify_checksum: Optional[bool] = None
-    default_model_directory: Optional[str] = None
     default_media_directory: Optional[str] = None

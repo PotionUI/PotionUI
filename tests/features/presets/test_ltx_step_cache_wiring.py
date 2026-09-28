@@ -67,7 +67,6 @@ def _document() -> dict:
 def _process(ltx_template, form_over: dict | None = None, *, upscale: str = "off", mode: str = "video"):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
-        model_directories=Mock(),
         settings=Mock(),
         preset_template_loader=Mock(),
     )

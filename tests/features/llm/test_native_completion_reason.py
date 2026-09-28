@@ -32,6 +32,8 @@ try:
 except ImportError:
     NativeLLMClient = None  # patch not applied yet
 
+from tests.fixtures.model_roots import make_roots
+
 
 @pytest.fixture(autouse=True)
 def _no_real_cuda(monkeypatch):
@@ -80,10 +82,8 @@ def tiny_qwen3_checkpoint_dir(tmp_path_factory):
 
 
 @pytest.fixture
-def native_checkpoint(tiny_qwen3_checkpoint_dir, monkeypatch):
-    import src.features.llm.native_library as native_library_module
-
-    monkeypatch.setattr(native_library_module, "_models_dir", lambda: tiny_qwen3_checkpoint_dir)
+def native_checkpoint(tiny_qwen3_checkpoint_dir, client):
+    client._model_roots = make_roots(tiny_qwen3_checkpoint_dir, types=["llm"], home_dir=tiny_qwen3_checkpoint_dir)
     name = "qwen3-tiny"
     path = str((tiny_qwen3_checkpoint_dir / "llm" / name).resolve())
     return name, path

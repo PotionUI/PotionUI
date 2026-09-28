@@ -165,7 +165,7 @@ class TestWriteMemoryTool:
         mim = MagicMock()
         model = MagicMock()
         model.id = "model-1"
-        mim.model_repo.get_by_file_path.return_value = model
+        mim.locator.model_for_path.return_value = model
         ctx = make_context(
             llm_memory_repository=mm,
             model_index_manager=mim,
@@ -317,7 +317,7 @@ class TestReadMemoryTool:
         mim = MagicMock()
         model = MagicMock()
         model.id = "model-1"
-        mim.model_repo.get_by_file_path.return_value = model
+        mim.locator.model_for_path.return_value = model
 
         ctx = make_context(
             llm_memory_repository=mm,

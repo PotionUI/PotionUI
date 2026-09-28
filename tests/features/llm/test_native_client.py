@@ -31,6 +31,7 @@ from src.features.llm.clients import native as native_module
 from src.features.llm.clients.native import NativeLLMClient
 from src.features.llm.repository import LLMConfig
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
+from tests.fixtures.model_roots import make_roots
 
 
 @pytest.fixture(autouse=True)
@@ -98,13 +99,11 @@ def tiny_qwen3_checkpoint_dir(tmp_path_factory):
 
 
 @pytest.fixture
-def native_checkpoint(tiny_qwen3_checkpoint_dir, monkeypatch):
+def native_checkpoint(tiny_qwen3_checkpoint_dir, client):
     """Points the library's models_dir at the fixture directory, and returns
     (bare_name, resolved_absolute_path) — `LLMConfig.model` holds the former,
     exactly like an admin picking it from `list_native_checkpoints()`."""
-    import src.features.llm.native_library as native_library_module
-
-    monkeypatch.setattr(native_library_module, "_models_dir", lambda: tiny_qwen3_checkpoint_dir)
+    client._model_roots = make_roots(tiny_qwen3_checkpoint_dir, types=["llm"], home_dir=tiny_qwen3_checkpoint_dir)
     name = "qwen3-tiny"
     path = str((tiny_qwen3_checkpoint_dir / "llm" / name).resolve())
     return name, path
@@ -639,15 +638,13 @@ def _thinking_checkpoint(chat_template):
 
 
 @pytest.fixture
-def fake_native_model(tmp_path, monkeypatch):
+def fake_native_model(tmp_path, client):
     """An empty `models/llm/<name>/` directory — enough for `_resolve_model`
     to resolve a real path without loading any weights (the checkpoint itself
     is supplied by monkeypatching `_acquire`, never `_build`)."""
-    import src.features.llm.native_library as native_library_module
-
     d = tmp_path / "llm" / "thinking-tiny"
     d.mkdir(parents=True)
-    monkeypatch.setattr(native_library_module, "_models_dir", lambda: tmp_path)
+    client._model_roots = make_roots(tmp_path, types=["llm"], home_dir=tmp_path)
     return "thinking-tiny"
 
 
@@ -1662,8 +1659,9 @@ async def test_build_adopted_with_quantization_without_cuda_raises_clear_error(c
 
     monkeypatch.setattr(
         "src.features.llm.clients.native.build_adopted_te",
-        lambda path: (object(), object(), "qwen3"),
+        lambda path, resolver: (object(), object(), "qwen3"),
     )
+    client._model_roots = object()
     with pytest.raises(ValueError, match="requires a CUDA GPU"):
         client._build_adopted("/fake/path.safetensors", quant_mode="nf4")
 
@@ -1801,11 +1799,12 @@ async def test_leased_does_not_swallow_a_non_oom_runtime_error(client, native_ch
 
 # --- adopted single-file TE dispatch ------------------------------
 
-def test_resolve_model_flags_adopted_te_reference(monkeypatch):
+def test_resolve_model_flags_adopted_te_reference(client, monkeypatch):
     import src.features.llm.clients.native as native_module
 
-    monkeypatch.setattr(native_module, "resolve_adopted_te_path", lambda n: f"/abs/{n}")
-    path, is_te = NativeLLMClient._resolve_model("text_encoders/qwen3-te.safetensors")
+    monkeypatch.setattr(native_module, "resolve_adopted_te_path", lambda n, resolver: f"/abs/{n}")
+    client._model_roots = object()
+    path, is_te = client._resolve_model("text_encoders/qwen3-te.safetensors")
     assert is_te is True
     assert path == "/abs/text_encoders/qwen3-te.safetensors"
 
@@ -1817,7 +1816,8 @@ async def test_adopted_te_generate_uses_distinct_lifecycle_key(client, models_ma
     import src.features.llm.clients.native as native_module
 
     resolved_path = "/models/text_encoders/qwen3-te.safetensors"
-    monkeypatch.setattr(native_module, "resolve_adopted_te_path", lambda n: resolved_path)
+    monkeypatch.setattr(native_module, "resolve_adopted_te_path", lambda n, resolver: resolved_path)
+    client._model_roots = object()
 
     class _Model:
         def to(self, *a, **k):
@@ -1836,7 +1836,7 @@ async def test_adopted_te_generate_uses_distinct_lifecycle_key(client, models_ma
         def decode(self, ids, skip_special_tokens=True):
             return "ok"
 
-    monkeypatch.setattr(native_module, "build_adopted_te", lambda p: (_Model(), _Tok(), "qwen3"))
+    monkeypatch.setattr(native_module, "build_adopted_te", lambda p, resolver: (_Model(), _Tok(), "qwen3"))
 
     config = _config("text_encoders/qwen3-te.safetensors")
     response = await client.generate_with_history(

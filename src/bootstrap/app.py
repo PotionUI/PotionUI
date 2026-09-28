@@ -409,6 +409,11 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         def _resume_model_indexing():
             try:
+                container.model_roots_manager.sync_home_from_setting()
+            except Exception as exc:
+                logging.error(f"Syncing the home model root from settings failed at startup: {exc}")
+
+            try:
                 from src.features.models.locations_repository import ModelLocationsRepository
                 from src.features.models.symlink_adoption import adopt_symlinked_model_roots
                 from src.platform.filesystem.model_roots_repository import ModelRootRepository

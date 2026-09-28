@@ -14,11 +14,12 @@ from src.features.models.access_policy import ModelAccessPolicy
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
 from src.features.models.exceptions import ModelNotFoundException
 from src.features.models.indexer import ModelScanner
-from src.features.models.jobs import TYPE_DIR_MAP
+from src.features.models.locator import ModelLocator
 from src.features.models.repository import ModelRepository
 from src.features.models.search_filter import USAGE_SORT_FIELDS, ModelSearchFilter
 from src.features.tags.repository import tag_repo
 from src.features.models.availability_repository import model_availability_repo
+from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
 from src.platform.security.user import User, AccountType
 
 logger = logging.getLogger(__name__)
@@ -59,11 +60,18 @@ class ModelCatalog:
         access_policy: ModelAccessPolicy,
         scanner: ModelScanner,
         user_attribute_repository: Optional[UserModelAttributeRepository] = None,
+        locator: Optional["ModelLocator"] = None,
     ):
         self.model_repo = model_repository
         self.access_policy = access_policy
         self.scanner = scanner
         self.user_attributes = user_attribute_repository or UserModelAttributeRepository()
+        if locator is not None:
+            self.locator = locator
+        elif scanner is not None:
+            self.locator = ModelLocator(scanner.resolver)
+        else:
+            self.locator = None
 
     def list_models(self, params: ListModelsParams, user: User) -> Dict[str, Any]:
         """List models with filtering, pagination, and access control."""
@@ -119,6 +127,18 @@ class ModelCatalog:
 
         # Where a model lives, how big it is and which backends hold it are operational
         # facts. A generating user needs none of them; an admin needs all of them.
+
+        if is_admin:
+            try:
+                summaries = self.locator.location_summaries()
+            except Exception as exc:
+                logger.warning(f"Could not compute model locations: {exc}")
+                summaries = {}
+            for model in models:
+                summary = summaries.get(model.id)
+                if summary:
+                    model.location = summary["location"]
+                    model.copies = summary["copies"]
 
         models_data = [
             model.to_dict(
@@ -211,7 +231,7 @@ class ModelCatalog:
         try:
             return self.scanner.resolver.write_dir(model_type).path
         except Exception:
-            return self.scanner.resolver.home_dir() / TYPE_DIR_MAP.get(model_type, model_type)
+            return self.scanner.resolver.home_dir() / MODEL_TYPE_TO_DIRECTORY.get(model_type, model_type)
 
     def _type_subdirectories(self, model_type: str, max_depth: int = 4) -> List[str]:
         """Directories under `model_type`'s write-root directory, as sorted
@@ -348,7 +368,42 @@ class ModelCatalog:
         if not model:
             raise ModelNotFoundException(f"Model '{model_id}' not found")
 
+        locations = []
+        if admin:
+            try:
+                locations = self.locator.locations(model_id)
+            except Exception as exc:
+                logger.warning(f"Could not compute locations for model '{model_id}': {exc}")
+        if admin:
+            winner = next((loc for loc in locations if loc.is_winner), None)
+            present_count = sum(1 for loc in locations if loc.status == "present")
+            model.copies = present_count
+            if winner is not None:
+                type_dir = MODEL_TYPE_TO_DIRECTORY.get(winner.model_type, winner.model_type)
+                model.location = {
+                    "root_id": winner.root_id,
+                    "root_label": winner.root_label,
+                    "logical_path": f"{type_dir}/{winner.rel_path}",
+                    "path": str(winner.path) if winner.path is not None else None,
+                }
+
         data = model.to_dict(include_providers=admin, admin=admin)
+        if admin:
+            data["locations"] = [
+                {
+                    "id": loc.id,
+                    "root_id": loc.root_id,
+                    "root_label": loc.root_label,
+                    "model_type": loc.model_type,
+                    "rel_path": loc.rel_path,
+                    "path": str(loc.path) if loc.path is not None else None,
+                    "status": loc.status,
+                    "size": loc.size,
+                    "sha256": loc.sha256,
+                    "is_winner": loc.is_winner,
+                }
+                for loc in locations
+            ]
         data["user_model_metadata"] = self.user_attributes.get_map(user.id, model_id) if user else {}
         self._attach_provider_mirrors(data, model.providers)
         return {"model": data}

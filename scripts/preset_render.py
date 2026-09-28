@@ -114,13 +114,6 @@ class StubSettings:
         return "preset"
 
 
-class StubModelDirectories:
-    """PresetProcessor.process() never calls model_directories directly - it's only
-    threaded through for pipes that run for real. Kept as an inert stub (not a
-    Mock) purely so nothing could ever leak a Mock repr into a rendered value."""
-    pass
-
-
 class StubPresetTemplateLoader:
     """Same rationale as StubModelDirectories - preset_template_loader is unused by
     PresetProcessor.process() itself."""
@@ -139,7 +132,6 @@ def build_processor() -> PresetProcessor:
     template_processor = TemplateProcessor(settings=StubSettings())
     processor = PresetProcessor(
         template_processor=template_processor,
-        model_directories=StubModelDirectories(),
         settings=StubSettings(),
         preset_template_loader=StubPresetTemplateLoader(),
     )

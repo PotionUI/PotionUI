@@ -131,7 +131,4 @@ class NativeAvailabilityProjector:
         return created, matched, removed
 
 
-NativeAvailabilityReconciler = NativeAvailabilityProjector
-
 native_availability_projector = NativeAvailabilityProjector()
-native_availability_reconciler = native_availability_projector

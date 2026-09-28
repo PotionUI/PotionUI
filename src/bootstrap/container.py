@@ -43,6 +43,8 @@ from src.platform.observability.system_probe import SystemMonitor
 from src.platform.runtime.memory_advisor import MemoryAdvisor
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 from src.features.models.directory import ModelDirectories
+from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe, ensure_home_bindings
+from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.pipelines.catalog import PipeCatalog
 from src.pipelines.installer import PipeInstaller
 from src.features.pipes import PipeInstallRunner
@@ -246,6 +248,7 @@ class AppContainer:
     memory_advisor: MemoryAdvisor
     model_lifecycle: ModelLifecycle
     model_directories: ModelDirectories
+    model_roots: ModelRootResolver
     pipe_catalog: PipeCatalog
     pipe_install_runner: PipeInstallRunner
     preset_template_loader: PresetTemplateLoader
@@ -474,6 +477,10 @@ def build_container() -> AppContainer:
     setting_repository = SettingRepository()
     settings = Settings(setting_repository)
     models_dir = Path(settings.get_setting("models_dir", "models"))
+
+    model_root_repository = ModelRootRepository()
+    ensure_home_bindings(model_root_repository, settings.get_setting("models_dir", "models"), base_dir=Path.cwd())
+    model_roots = ModelRootResolver(model_root_repository, RootProbe(), Path.cwd())
 
     # Where saved bytes actually live - local disk by default, optionally S3
     # (see StorageSettings). Built this early because it is a single

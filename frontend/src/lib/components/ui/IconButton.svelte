@@ -12,6 +12,7 @@
 		size = 'md',
 		variant = 'ghost',
 		active = false,
+		loading = false,
 		disabled = false,
 		onclick,
 		ariaExpanded,
@@ -23,12 +24,15 @@
 		size?: Size;
 		variant?: Variant;
 		active?: boolean;
+		loading?: boolean;
 		disabled?: boolean;
 		onclick?: (e: MouseEvent) => void;
 		ariaExpanded?: boolean;
 		ariaPressed?: boolean;
 		class?: string;
 	} = $props();
+
+	let isDisabled = $derived(disabled || loading);
 
 	// A wrapping Tooltip already shows `label`; keeping the native title too
 	// renders two tooltips side by side.
@@ -62,9 +66,18 @@
 	aria-label={label}
 	aria-expanded={ariaExpanded}
 	aria-pressed={ariaPressed}
+	aria-busy={loading}
 	title={insideTooltip ? undefined : label}
-	{disabled}
+	disabled={isDisabled}
 	{onclick}
 >
-	<Icon name={icon} className={iconSizeClasses[size]} />
+	{#if loading}
+		<span
+			class="{iconSizeClasses[
+				size
+			]} rounded-full border-2 border-line-strong border-t-current animate-spin"
+		></span>
+	{:else}
+		<Icon name={icon} className={iconSizeClasses[size]} />
+	{/if}
 </button>

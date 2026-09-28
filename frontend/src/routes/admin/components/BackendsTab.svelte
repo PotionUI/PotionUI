@@ -787,12 +787,13 @@
 					{/snippet}
 					{#snippet actions()}
 						<Tooltip text={testing ? 'Testing…' : 'Test connection'}>
-							<IconButton icon="check" label="Test connection" disabled={testing} onclick={() => activeBackend && testConnection(activeBackend.id)} />
+							<IconButton icon="check" label="Test connection" loading={testing} onclick={() => activeBackend && testConnection(activeBackend.id)} />
 						</Tooltip>
 						<Tooltip text={indexingBackendId === activeBackend.id ? 'Indexing…' : 'Index models'}>
 							<IconButton
 								icon="refresh"
 								label="Index models"
+								loading={indexingBackendId === activeBackend.id}
 								disabled={indexingBackendId !== null && indexingBackendId !== activeBackend.id}
 								onclick={() => activeBackend && indexModels(activeBackend)}
 							/>

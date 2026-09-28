@@ -16,6 +16,8 @@ export interface ModelsLocationConfig {
 	overrides: Record<string, string>;
 	directories: ModelsLocationDirectory[];
 	windows_unsupported: boolean;
+	auto_matched?: string[];
+	created_empty?: string[];
 }
 
 export interface UnindexedModelsCount {

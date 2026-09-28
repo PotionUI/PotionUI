@@ -43,6 +43,15 @@ MODEL_TYPE_TO_DIRECTORY = {model_type: directory for directory, model_type in DI
 MODEL_DIRECTORY_NAMES = tuple(DIRECTORY_TO_MODEL_TYPE.keys())
 MODEL_TYPES = tuple(DIRECTORY_TO_MODEL_TYPE.values())
 
+MODEL_DIRECTORY_ALIASES = {
+    'checkpoints': ('Stable-diffusion',),
+    'loras': ('Lora', 'LyCORIS'),
+    'vae': ('VAE',),
+    'upscalers': ('upscale_models', 'ESRGAN', 'RealESRGAN'),
+    'controlnet': ('ControlNet',),
+    'text_encoders': ('clip',),
+}
+
 # File extensions a depot scan recognizes as a model file, regardless of which
 # scanner is walking the depot.
 SUPPORTED_MODEL_EXTENSIONS = frozenset({

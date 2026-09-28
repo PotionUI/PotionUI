@@ -12,9 +12,13 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, NamedTuple, Optional
 
-from src.platform.filesystem.model_types import MODEL_DIRECTORY_NAMES
+from src.platform.filesystem.model_types import (
+    MODEL_DIRECTORY_ALIASES,
+    MODEL_DIRECTORY_NAMES,
+    SUPPORTED_MODEL_EXTENSIONS,
+)
 from src.platform.settings.records import Setting, SettingType, SettingValueType
 from src.platform.settings.repository import SettingRepository
 
@@ -22,6 +26,17 @@ logger = logging.getLogger(__name__)
 
 EXTERNAL_PATH_SETTING_KEY = "models_location_external_path"
 OVERRIDES_SETTING_KEY = "models_location_overrides"
+
+_ALL_TYPE_FOLDER_NAMES = frozenset(
+    n.lower() for n in MODEL_DIRECTORY_NAMES
+) | frozenset(
+    alias.lower() for aliases in MODEL_DIRECTORY_ALIASES.values() for alias in aliases
+)
+
+
+class ResolvedTarget(NamedTuple):
+    path: Path
+    matched: bool
 
 
 class ModelsLocationError(Exception):
@@ -55,9 +70,10 @@ class ModelsRelocator:
     def get_config(self) -> Dict[str, Any]:
         external_path = self._get_setting(EXTERNAL_PATH_SETTING_KEY, None)
         overrides = self._get_setting(OVERRIDES_SETTING_KEY, {}) or {}
+        resolved = self.resolve_targets(external_path, overrides) if external_path else {}
 
         directories = [
-            self._directory_status(name, external_path, overrides)
+            self._directory_status(name, external_path, overrides, resolved.get(name))
             for name in MODEL_DIRECTORY_NAMES
         ]
 
@@ -68,8 +84,21 @@ class ModelsRelocator:
             "windows_unsupported": self._is_windows(),
         }
 
-    def _directory_status(self, name: str, external_path: Optional[str], overrides: Dict[str, str]) -> Dict[str, Any]:
-        target = overrides.get(name) or (self._joined(external_path, name) if external_path else None)
+    def _directory_status(
+        self,
+        name: str,
+        external_path: Optional[str],
+        overrides: Dict[str, str],
+        resolved_entry: Optional[ResolvedTarget],
+    ) -> Dict[str, Any]:
+        target = None
+        auto_matched = False
+        if resolved_entry is not None:
+            target = str(resolved_entry.path)
+            if name not in overrides:
+                naive = self._joined(external_path, name)
+                auto_matched = resolved_entry.matched and target != naive
+
         link_path = self.models_root / name
         is_symlink = link_path.is_symlink()
         return {
@@ -78,7 +107,76 @@ class ModelsRelocator:
             "linked": is_symlink,
             "resolved_target": str(link_path.resolve()) if is_symlink else None,
             "has_real_files": self._has_real_files(link_path),
+            "auto_matched": auto_matched,
         }
+
+    def resolve_targets(self, external_path: str, overrides: Dict[str, str]) -> Dict[str, ResolvedTarget]:
+        root = self._effective_root(Path(external_path))
+        resolved: Dict[str, ResolvedTarget] = {}
+        for name in MODEL_DIRECTORY_NAMES:
+            override = overrides.get(name)
+            if override:
+                resolved[name] = ResolvedTarget(Path(override), True)
+                continue
+            resolved[name] = self._resolve_one(name, root)
+        return resolved
+
+    def _resolve_one(self, name: str, root: Path) -> ResolvedTarget:
+        candidates = (name,) + MODEL_DIRECTORY_ALIASES.get(name, ())
+        existing = [child for child in (self._find_child(root, c) for c in candidates) if child is not None]
+
+        for child in existing:
+            if self._has_model_file(child):
+                return ResolvedTarget(child, True)
+
+        if existing:
+            return ResolvedTarget(existing[0], True)
+
+        return ResolvedTarget(root / name, False)
+
+    def _effective_root(self, external_path: Path) -> Path:
+        nested = external_path / "models"
+        if self._root_score(nested) > self._root_score(external_path):
+            return nested
+        return external_path
+
+    def _root_score(self, directory: Path) -> int:
+        if not directory.is_dir():
+            return 0
+        best = 0
+        try:
+            for child in sorted(directory.iterdir()):
+                if not child.is_dir() or child.name.lower() not in _ALL_TYPE_FOLDER_NAMES:
+                    continue
+                if self._has_model_file(child):
+                    return 2
+                best = 1
+        except OSError:
+            return best
+        return best
+
+    @staticmethod
+    def _find_child(directory: Path, candidate: str) -> Optional[Path]:
+        if not directory.is_dir():
+            return None
+        lowered = candidate.lower()
+        try:
+            for child in sorted(directory.iterdir()):
+                if child.is_dir() and child.name.lower() == lowered:
+                    return child
+        except OSError:
+            return None
+        return None
+
+    @staticmethod
+    def _has_model_file(directory: Path) -> bool:
+        try:
+            for entry in directory.rglob("*"):
+                if entry.is_file() and entry.suffix.lower() in SUPPORTED_MODEL_EXTENSIONS:
+                    return True
+        except OSError:
+            return False
+        return False
 
     # --------------------------------------------------------------- applying
 
@@ -91,15 +189,32 @@ class ModelsRelocator:
         overrides = {k: v for k, v in (overrides or {}).items() if v}
         self._validate(external_path, overrides)
 
-        for name in MODEL_DIRECTORY_NAMES:
-            target = Path(overrides.get(name) or self._joined(external_path, name))
-            self._reconcile_one(name, target)
+        resolved = self.resolve_targets(external_path, overrides)
+
+        auto_matched = []
+        created_empty = []
+        for name, entry in resolved.items():
+            self._reconcile_one(name, entry.path)
+            if name in overrides:
+                continue
+            naive = Path(self._joined(external_path, name))
+            if entry.matched:
+                if entry.path != naive:
+                    auto_matched.append(name)
+            else:
+                created_empty.append(name)
 
         self._upsert_setting(EXTERNAL_PATH_SETTING_KEY, external_path, SettingValueType.STRING)
         self._upsert_setting(OVERRIDES_SETTING_KEY, overrides, SettingValueType.JSON)
 
-        logger.info(f"Models location applied: external_path={external_path} overrides={overrides}")
-        return self.get_config()
+        logger.info(
+            f"Models location applied: external_path={external_path} overrides={overrides} "
+            f"auto_matched={auto_matched} created_empty={created_empty}"
+        )
+        result = self.get_config()
+        result["auto_matched"] = auto_matched
+        result["created_empty"] = created_empty
+        return result
 
     def _validate(self, external_path: str, overrides: Dict[str, str]) -> None:
         if self._is_windows():
@@ -118,12 +233,12 @@ class ModelsRelocator:
         if not external_path or not external_path.strip():
             raise ModelsLocationError("An external models directory path is required.")
 
+        resolved = self.resolve_targets(external_path, overrides)
         conflicts = []
-        for name in MODEL_DIRECTORY_NAMES:
-            target = overrides.get(name) or self._joined(external_path, name)
+        for name, entry in resolved.items():
             type_dir = self.models_root / name
             if self._has_real_files(type_dir):
-                conflicts.append((name, type_dir, target))
+                conflicts.append((name, type_dir, entry.path))
 
         if conflicts:
             instructions = "; ".join(

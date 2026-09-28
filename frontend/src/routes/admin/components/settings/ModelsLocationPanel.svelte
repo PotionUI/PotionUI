@@ -24,7 +24,16 @@
 		const ok = await location.apply(externalPath, overrides);
 		if (ok) {
 			overrideDrafts = overrideDraftsFor(location.config);
-			toasts.success('Models location applied. Re-indexing in the background.');
+			const autoMatched = location.config?.auto_matched ?? [];
+			const createdEmpty = location.config?.created_empty ?? [];
+			if (autoMatched.length) {
+				toasts.success(`Models location applied. Matched an existing folder for: ${autoMatched.join(', ')}.`);
+			} else {
+				toasts.success('Models location applied. Re-indexing in the background.');
+			}
+			if (createdEmpty.length) {
+				toasts.warning(`No matching folder found, created empty: ${createdEmpty.join(', ')}.`);
+			}
 		}
 	}
 </script>

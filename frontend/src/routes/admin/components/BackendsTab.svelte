@@ -37,6 +37,7 @@
 	import { PaneRow } from '$lib/components/pane';
 	import { adminSectionIcon } from '../adminSections';
 	import type { Backend, BackendHealth } from '$lib/services/admin-api';
+	import type { IndexingStatus } from '$lib/services/api/models';
 	import {
 		BACKENDS_SORT_OPTIONS,
 		DEFAULT_BACKENDS_FILTERS,
@@ -52,6 +53,18 @@
 	} from './backendsFilters';
 	import BackendOptimizations from './BackendOptimizations.svelte';
 	import BackendQuickActions from './BackendQuickActions.svelte';
+	import BackendRowActions from './BackendRowActions.svelte';
+	import IndexingStatusPanel from '$lib/models-location/IndexingStatusPanel.svelte';
+	import { indexingStatusStore } from '$lib/models-location/indexingStatus.svelte';
+	import { indexingIsRunning, indexingIsVisible } from '$lib/models-location/indexingDisplay';
+	import {
+		NATIVE_LOCAL_DRIVER,
+		backendIndexBusy,
+		indexCompletion,
+		indexResultMessage,
+		isIndexModelsResult,
+		isNativeLocalBackend
+	} from './backendIndexing';
 	import BackendInfrastructureSection from './BackendInfrastructureSection.svelte';
 	import BackendModelsSection from './BackendModelsSection.svelte';
 	import { backendDetailTabsFor, backendDetailTabHasFooter, isBackendDetailTab, type BackendDetailTabId } from './backendDetailTabs';
@@ -60,7 +73,6 @@
 
 	type DetailTab = BackendDetailTabId;
 
-	const NATIVE_LOCAL_DRIVER = 'native.local';
 	const NATIVE_REMOTE_DRIVER = 'native.remote';
 
 	interface TestConnectionResult {
@@ -80,7 +92,7 @@
 	let showModal = $state(false);
 	let showDeleteModal = $state(false);
 	let saving = $state(false);
-	let testing = $state(false);
+	let testCalls = $state<Record<string, boolean>>({});
 	let testResult = $state<TestConnectionResult | null>(null);
 	let deleteTarget = $state<Backend | null>(null);
 	let detailTab = $state<DetailTab>('overview');
@@ -93,7 +105,9 @@
 	let backendStatsLoading = $state(false);
 	let backendStatsError = $state<string | null>(null);
 
-	let indexingBackendId = $state<string | null>(null);
+	let indexCalls = $state<Record<string, boolean>>({});
+	let nativeRunFromHere = $state(false);
+	let nativeRunSeen = $state(false);
 	let indexResults = $state<Record<string, IndexModelsResult>>({});
 	let indexUnsupported = $state<Record<string, string>>({});
 	let indexWarningsOpen = $state<Record<string, boolean>>({});
@@ -228,6 +242,36 @@
 		if (nextUrl.search !== $page.url.search) {
 			void goto(nextUrl, { replaceState: true, keepFocus: true, noScroll: true });
 		}
+	});
+
+	onMount(() => {
+		const unsubscribeIndexing = indexingStatusStore.subscribe();
+		return unsubscribeIndexing;
+	});
+
+	$effect(() => {
+		const status = indexingStatusStore.status;
+		if (!nativeRunFromHere) return;
+		if (indexingIsRunning(status)) {
+			nativeRunSeen = true;
+			return;
+		}
+		if (!nativeRunSeen) return;
+		const completion = indexCompletion(status);
+		if (!completion) return;
+		nativeRunFromHere = false;
+		nativeRunSeen = false;
+		if (completion.kind === 'success') toasts.success(completion.message);
+		else toasts.error(completion.message);
+		if (selectedBackendId && detailTab === 'stats') loadBackendStats(selectedBackendId);
+	});
+
+	$effect(() => {
+		const failure = indexingStatusStore.error;
+		if (!failure || !nativeRunFromHere) return;
+		nativeRunFromHere = false;
+		nativeRunSeen = false;
+		toasts.error(failure);
 	});
 
 	onMount(async () => {
@@ -552,38 +596,42 @@
 		}
 	}
 
-	async function testConnection(backendId: string) {
-		testing = true;
-		testResult = null;
+	async function testConnection(backend: Backend) {
+		testCalls = { ...testCalls, [backend.id]: true };
+		if (selectedBackendId === backend.id) testResult = null;
+		let result: TestConnectionResult;
 		try {
-			testResult = await testBackend(backendId);
+			result = await testBackend(backend.id);
 		} catch (e: unknown) {
-			testResult = {
-				success: false,
-				message: getApiErrorMessage(e, 'Connection test failed')
-			};
+			result = { success: false, message: getApiErrorMessage(e, 'Connection test failed') };
 		} finally {
-			testing = false;
+			const { [backend.id]: _done, ...rest } = testCalls;
+			testCalls = rest;
+		}
+		if (selectedBackendId === backend.id) {
+			testResult = result;
+		} else if (result.success) {
+			toasts.success(`Connection to "${backend.name}" successful`);
+		} else {
+			toasts.error(result.message || `Connection to "${backend.name}" failed`);
 		}
 	}
 
 	async function indexModels(backend: Backend) {
-		indexingBackendId = backend.id;
+		indexCalls = { ...indexCalls, [backend.id]: true };
 		if (indexUnsupported[backend.id]) {
 			const { [backend.id]: _removed, ...rest } = indexUnsupported;
 			indexUnsupported = rest;
 		}
 		try {
 			const response = await indexBackendModels(backend.id);
-			if (response.success && response.data) {
+			if (response.success && isNativeLocalBackend(backend)) {
+				nativeRunFromHere = true;
+				if (response.data) indexingStatusStore.notifyRunStarted(response.data as unknown as IndexingStatus);
+				else void indexingStatusStore.refresh();
+			} else if (response.success && isIndexModelsResult(response.data)) {
 				indexResults = { ...indexResults, [backend.id]: response.data };
-				const r = response.data;
-				const warnings =
-					r.size_conflicts.length + r.digest_conflicts.length + r.duplicates.length + r.ambiguous.length;
-				toasts.success(
-					`Indexed ${r.listed} models on "${backend.name}" — ${r.created} new, ${r.matched} matched, ${r.removed} removed` +
-						(warnings > 0 ? ` (${warnings} warning${warnings === 1 ? '' : 's'})` : '')
-				);
+				toasts.success(indexResultMessage(response.data, backend.name));
 				if (selectedBackendId === backend.id && detailTab === 'stats') {
 					loadBackendStats(backend.id);
 				}
@@ -605,8 +653,13 @@
 				toasts.error(getApiErrorMessage(e, `Failed to index models for "${backend.name}"`));
 			}
 		} finally {
-			indexingBackendId = null;
+			const { [backend.id]: _done, ...rest } = indexCalls;
+			indexCalls = rest;
 		}
+	}
+
+	function indexBusyFor(backend: Backend): boolean {
+		return backendIndexBusy(backend, indexCalls, indexingStatusStore.status);
 	}
 
 	function toggleIndexWarnings(backendId: string) {
@@ -655,7 +708,8 @@
 		{ key: 'driver', label: 'Driver', width: '160px', accessor: (b) => formatDriverLabel(b.driver) },
 		{ key: 'hostPort', label: 'Host:port', width: '150px', mono: true, priority: 1, accessor: hostPortLabel },
 		{ key: 'health', label: 'Health', width: '110px', cell: healthCell },
-		{ key: 'enabled', label: 'Enabled', width: '100px', priority: 1, cell: enabledCell }
+		{ key: 'enabled', label: 'Enabled', width: '100px', priority: 1, cell: enabledCell },
+		{ key: 'actions', label: '', width: '112px', align: 'right', cell: rowActions }
 	]);
 </script>
 
@@ -698,6 +752,21 @@
 		<StatusCell tone={healthStatusCellTone(healthStatusFor(backend))} label={healthLabelFor(backend)} />
 		<span class="font-mono text-2xs text-fg-subtle">{formatEngineName(backend.engine)}</span>
 	</div>
+	<div class="mt-2">
+		{@render rowActions(backend)}
+	</div>
+{/snippet}
+
+{#snippet rowActions(backend: Backend)}
+	<BackendRowActions
+		size="sm"
+		testing={testCalls[backend.id] === true}
+		indexing={indexBusyFor(backend)}
+		showMakeDefault={!backend.is_default}
+		onTest={() => testConnection(backend)}
+		onIndex={() => indexModels(backend)}
+		onMakeDefault={() => makeDefault(backend)}
+	/>
 {/snippet}
 
 <svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
@@ -786,18 +855,12 @@
 						</label>
 					{/snippet}
 					{#snippet actions()}
-						<Tooltip text={testing ? 'Testing…' : 'Test connection'}>
-							<IconButton icon="check" label="Test connection" loading={testing} onclick={() => activeBackend && testConnection(activeBackend.id)} />
-						</Tooltip>
-						<Tooltip text={indexingBackendId === activeBackend.id ? 'Indexing…' : 'Index models'}>
-							<IconButton
-								icon="refresh"
-								label="Index models"
-								loading={indexingBackendId === activeBackend.id}
-								disabled={indexingBackendId !== null && indexingBackendId !== activeBackend.id}
-								onclick={() => activeBackend && indexModels(activeBackend)}
-							/>
-						</Tooltip>
+						<BackendRowActions
+							testing={testCalls[activeBackend.id] === true}
+							indexing={indexBusyFor(activeBackend)}
+							onTest={() => activeBackend && testConnection(activeBackend)}
+							onIndex={() => activeBackend && indexModels(activeBackend)}
+						/>
 						<BackendQuickActions
 							actions={activeBackend.quick_actions ?? []}
 							backendName={activeBackend.name}
@@ -851,6 +914,11 @@
 									{/if}
 								{/snippet}
 								{#snippet main()}
+									{#if isNativeLocalBackend(activeBackend) && indexingIsVisible(indexingStatusStore.status)}
+										<DetailSection label="Model indexing">
+											<IndexingStatusPanel status={indexingStatusStore.status} />
+										</DetailSection>
+									{/if}
 									{#if indexResults[activeBackend.id] && !indexUnsupported[activeBackend.id]}
 										{@const result = indexResults[activeBackend.id]}
 										{@const warningCount =

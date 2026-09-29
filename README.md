@@ -30,7 +30,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
   write action needs your approval.
 - **Video Director** — compose shots in sections instead of one giant prompt.
 
-*Alpha 0.0.11 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
+*Alpha 0.0.12 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
 Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Reddit](https://www.reddit.com/r/PotionUI/) ·
 [Ko-fi](https://ko-fi.com/A3B325D031)*
@@ -211,7 +211,7 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.11 matrix. **Native
+> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.12 matrix. **Native
 > Windows is supported experimentally** as of 0.0.8: the installer, the CLI,
 > the backend test suite, the frontend checks and the E2E harness all run in
 > CI on `windows-latest` — see [Windows (native)](#windows-native) below.
@@ -255,7 +255,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 | Platform                    | Status                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.11                                                              |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.12                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
 | Windows native              | Experimental (0.0.8) — installer, CLI, backend suite, frontend checks and E2E harness run in CI on `windows-latest`; see [Windows (native)](#windows-native) |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
@@ -363,6 +363,43 @@ Start with the in-app documentation browser, or read the Markdown directly:
 
 The three most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
+
+### 0.0.12 — 2026-09-29
+
+- Model folders: models live in one or more folders you pick in the setup wizard or
+  Admin → Models → Folders (an existing ComfyUI or A1111 folder, an external drive, any
+  folder), scanned in place without symlinks or copies, with Windows paths supported;
+  each model type chooses its download folder and which folder wins when a model is in
+  several; folders can be read-only, reordered, relinked or removed, and an offline
+  folder fails a generation by name instead of silently; folder names are recognized in
+  any case and under a `models/` subfolder.
+- Model indexing: runs one at a time with live progress in the setup wizard, Admin →
+  Models and Admin → Backends, where every row now has Test connection, Index models and
+  Make default; the summary lists skipped same-file copies with the file that was kept,
+  models found in more than one folder and name conflicts; a restart finishes an
+  interrupted index, so recipes stop reporting installed models as missing.
+- Downloads: a CivitAI model page link picks the CivitAI provider and its credentials by
+  itself and resolves to the real file; downloads are named after the provider's file
+  or the server's filename instead of a number, keep a name you typed, and never
+  overwrite another download; the downloads list updates live instead of staying on
+  Pending until a reload; the download dialog says when a model type has no folder it
+  can write to.
+- Generate: closing a tab asks first and warns about a running generation or unsaved
+  work; the model picker folds its Suggested downloads into one short list with a
+  count, and marks what only admins see.
+- Chat: long conversations keep their history instead of being cut to fit the answer;
+  Ollama always receives the configured context window.
+- Admin: Settings → Storage is split into Media storage, Backups and Housekeeping.
+- Fixes: a picker opened from a filter menu or a modal shows above it; CivitAI's Fetch
+  prompts result can be closed again; a session no longer shows unsaved changes right
+  after saving; framed inputs show one focus ring instead of a white square inside;
+  Index models and Test connection spin again while running.
+- Upgrading: four database migrations run on first start (model folders, logical model
+  references, model file paths moved to folder locations, download filename choice) and
+  cannot be undone by downgrading; symlinked model folders are converted into model
+  folders on first start and keep downloading to the external drive; the first scan
+  reuses existing hashes, so nothing is re-hashed; plugins that read model paths use
+  `src.plugin_api.models`, as the old models location API is removed.
 
 ### 0.0.11 — 2026-09-25
 
@@ -478,41 +515,6 @@ The three most recent releases; older history lives in the
 - Upgrading: two database migrations run on first start, one storing variables with
   saved prompts and one recording whether a file has transparency; the A1111 export
   left the CivitAI plugin, so enable the A1111 metadata export plugin to keep it.
-
-### 0.0.9 — 2026-09-18
-
-- Login: a generic OpenID Connect provider ships as the `oidc-auth` marketplace
-  plugin, so any OIDC identity provider such as Keycloak, Authentik or Entra can sign
-  users in with a "Continue with" button; accounts it creates carry an email only when
-  the provider verified it, see a notice on the settings page instead of a password
-  form they cannot use, and the login page says so when an attempt is refused.
-- Admin: model cards get a per-model fetch button that pulls the description,
-  preview media and trigger words from CivitAI and updates the card in place, filling
-  only what is still empty; model details list the model's mirrors with a link to the
-  provider page; plugins can add their own actions to a model card; the global Index
-  Models and bulk provider fetch buttons are gone from the Models header, unindexed
-  files now link to Backends; plugin settings forms can show info notices, and the
-  plugin detail pane refreshes after a scan.
-- Generate: models added by a local download, a recipe's index step or a model job
-  are registered on the local native backend right away, so they no longer disappear
-  from the pickers once a backend has been indexed.
-- History: tile actions are separate buttons with tooltips, like model cards.
-- Performance: the built frontend is served gzip-compressed with hashed assets cached
-  and the shell always revalidated; model and prompt lists load their providers,
-  tags, files and segments in batches instead of per row; stats, library and session
-  requests run their database work off the event loop; generation progress ticks no
-  longer wake the active tab, session tracking or tab persistence unless something
-  they read changed; new indexes speed up run-report retention, the favorites page,
-  model path lookups and newest-first prompt search.
-- Reliability: media index queue claims are a single atomic statement, so
-  overlapping workers never take the same item.
-- Fixes: boolean settings submitted as the string "false" are stored as false;
-  CivitAI trigger words come from the model's trained words instead of being mixed
-  into its tags.
-- Upgrading: two database migrations run on first start, one adding a local-password
-  flag to accounts and one adding the new indexes while dropping twelve that only
-  duplicated a unique constraint; admins who relied on the header-level Index Models
-  button now index from Admin → Backends.
 
 ## Contributing
 

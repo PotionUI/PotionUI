@@ -38,6 +38,11 @@ export const downloaderConnectionState: Writable<ConnectionState> = writable('di
 type DownloadProgressCallback = (update: DownloadProgressUpdate) => void;
 type DownloadStatusCallback = (update: DownloadStatusUpdate) => void;
 
+const STORE_STATUS_BY_EVENT_STATUS: Record<string, string> = {
+	started: 'downloading',
+	retrying: 'pending'
+};
+
 class DownloaderWebSocketService extends StatefulWebSocket {
 	private downloadProgressCallbacks: Set<DownloadProgressCallback> = new Set();
 	private downloadStatusCallbacks: Set<DownloadStatusCallback> = new Set();
@@ -64,15 +69,16 @@ class DownloaderWebSocketService extends StatefulWebSocket {
 				this.handleDownloadProgress(message);
 				break;
 
-			// The server derives these from DownloadStatus: 'download_' + enum value
-			// (download_connection_hub.py broadcast_status). Keep in lockstep.
-			case 'download_pending':
-			case 'download_downloading':
+			case 'download_started':
+			case 'download_retrying':
 			case 'download_paused':
 			case 'download_completed':
 			case 'download_failed':
 			case 'download_cancelled':
 				this.handleDownloadStatus(message);
+				break;
+
+			case 'download_queued':
 				break;
 
 			default:
@@ -115,9 +121,10 @@ class DownloaderWebSocketService extends StatefulWebSocket {
 	}
 
 	private handleDownloadStatus(message: BaseWebSocketMessage): void {
+		const eventStatus = (message.status as string) || message.type.replace('download_', '');
 		const update: DownloadStatusUpdate = {
 			download_id: message.download_id as string,
-			status: (message.status as string) || message.type.replace('download_', ''),
+			status: STORE_STATUS_BY_EVENT_STATUS[eventStatus] ?? eventStatus,
 			filename: message.filename as string,
 			error: message.error as string | undefined,
 			path: message.path as string | undefined

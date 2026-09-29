@@ -218,6 +218,12 @@ function createDownloadStore() {
 	}
 	const perIdSeq = new Map<string, Touch>();
 
+	function insertQueuedRow(row: Download): void {
+		const earlyPatch = perIdSeq.get(row.id)?.patch ?? {};
+		touchId(row.id, { countsAffected: true });
+		downloads.update((d) => [{ ...row, ...earlyPatch }, ...d]);
+	}
+
 	function touchId(
 		id: string,
 		opts: { deleted?: boolean; patch?: Partial<Download>; countsAffected?: boolean } = {}
@@ -350,7 +356,11 @@ function createDownloadStore() {
 					};
 					touchId(update.download_id, { patch });
 					downloads.update((currentDownloads) =>
-						currentDownloads.map((d) => (d.id === update.download_id ? { ...d, ...patch } : d))
+						currentDownloads.map((d) => {
+							if (d.id !== update.download_id) return d;
+							const status = d.status === 'pending' ? 'downloading' : d.status;
+							return { ...d, ...patch, status };
+						})
 					);
 				})
 			);
@@ -622,8 +632,7 @@ function createDownloadStore() {
 
 				if (data.success && data.data) {
 					if (token === sessionToken) {
-						touchId(data.data.id, { countsAffected: true });
-						downloads.update((d) => [data.data, ...d]);
+						insertQueuedRow(data.data);
 					}
 					downloaderWebSocket.subscribeToDownload(data.data.id);
 					return data.data;
@@ -657,8 +666,7 @@ function createDownloadStore() {
 
 				if (data.success && data.data) {
 					if (token === sessionToken) {
-						touchId(data.data.id, { countsAffected: true });
-						downloads.update((d) => [data.data, ...d]);
+						insertQueuedRow(data.data);
 					}
 					downloaderWebSocket.subscribeToDownload(data.data.id);
 					return data.data;
@@ -691,8 +699,7 @@ function createDownloadStore() {
 
 				if (data.success && data.data) {
 					if (token === sessionToken) {
-						touchId(data.data.id, { countsAffected: true });
-						downloads.update((d) => [data.data, ...d]);
+						insertQueuedRow(data.data);
 					}
 					downloaderWebSocket.subscribeToDownload(data.data.id);
 					return data.data;

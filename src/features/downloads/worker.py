@@ -472,6 +472,11 @@ class DownloadWorker:
             else:
                 # Paused or service stopping
                 self.repo.update_status(download_id, DownloadStatus.PAUSED)
+                await self.conn.send_download_status(
+                    download_id,
+                    'paused',
+                    download.filename
+                )
             await self._refresh_group(download)
 
         except DownloadAuthenticationException as e:

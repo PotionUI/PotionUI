@@ -1,0 +1,5 @@
+{
+  "status_events": ["started", "retrying", "paused", "completed", "failed", "cancelled"],
+  "other_types": ["download_progress", "download_queued"],
+  "ignored_by_frontend": ["download_queued"]
+}

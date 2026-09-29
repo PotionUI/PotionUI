@@ -689,3 +689,90 @@ describe('stores/downloads WebSocket lifecycle and reconciliation', () => {
 		expect(get(downloadCounts)).toEqual({ completed: 1 }); // untouched by the superseded C1
 	});
 });
+
+describe('stores/downloads live status transitions', () => {
+	beforeEach(() => {
+		wsMocks.reset();
+		downloads.set([download({ status: 'pending', progress: 0, downloaded_bytes: 0 })]);
+		mockGet.mockResolvedValue({ data: { success: true, data: { downloads: [], counts: {} } } });
+		downloadStore.initializeWebSocket();
+	});
+
+	const emitStatus = (status: string) => {
+		for (const cb of wsMocks.statusCallbacks) cb({ download_id: 'd1', status, filename: 'x' });
+	};
+	const emitProgress = (progress: number) => {
+		for (const cb of wsMocks.progressCallbacks)
+			cb({
+				download_id: 'd1',
+				progress,
+				downloaded_bytes: progress * 100,
+				total_bytes: 100,
+				speed_bytes_per_sec: 5,
+				filename: 'x'
+			});
+	};
+	const status = () => get(downloads)[0].status;
+
+	it('moves Pending to Downloading to Completed', () => {
+		expect(status()).toBe('pending');
+		emitStatus('downloading');
+		expect(status()).toBe('downloading');
+		emitProgress(0.5);
+		expect(status()).toBe('downloading');
+		emitStatus('completed');
+		expect(status()).toBe('completed');
+	});
+
+	it('a progress event alone moves a pending row to downloading', () => {
+		emitProgress(0.1);
+		expect(status()).toBe('downloading');
+	});
+
+	it('progress does not resurrect a finished row', () => {
+		emitStatus('completed');
+		emitProgress(0.9);
+		expect(status()).toBe('completed');
+	});
+
+	it('a retrying event returns the row to pending', () => {
+		emitStatus('downloading');
+		emitStatus('pending');
+		expect(status()).toBe('pending');
+		emitStatus('downloading');
+		expect(status()).toBe('downloading');
+	});
+});
+
+describe('stores/downloads events that beat the queue response', () => {
+	beforeEach(() => {
+		wsMocks.reset();
+		downloads.set([]);
+		mockGet.mockResolvedValue({ data: { success: true, data: { downloads: [], counts: {} } } });
+		downloadStore.initializeWebSocket();
+	});
+
+	it('applies a status event that arrived before the queue POST returned', async () => {
+		const post = deferred<{ data: unknown }>();
+		mockPost.mockImplementationOnce(() => post.promise);
+		const queued = downloadStore.queueModelDownload('https://example.com/m.safetensors');
+
+		for (const cb of wsMocks.statusCallbacks) {
+			cb({ download_id: 'fast', status: 'completed', filename: 'm.safetensors' });
+		}
+		post.resolve({
+			data: { success: true, data: download({ id: 'fast', status: 'pending' }) }
+		});
+		await queued;
+
+		expect(get(downloads).find((d) => d.id === 'fast')?.status).toBe('completed');
+	});
+
+	it('leaves a row untouched when no early event was recorded', async () => {
+		mockPost.mockResolvedValueOnce({
+			data: { success: true, data: download({ id: 'slow', status: 'pending' }) }
+		});
+		await downloadStore.queueModelDownload('https://example.com/m.safetensors');
+		expect(get(downloads).find((d) => d.id === 'slow')?.status).toBe('pending');
+	});
+});

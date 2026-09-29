@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
 
+DOWNLOAD_STATUS_EVENTS = ("started", "retrying", "paused", "completed", "failed", "cancelled")
+
 
 class DownloadConnectionHub(BaseConnectionHub):
     """Manages WebSocket connections for download progress and status updates."""
@@ -233,6 +235,8 @@ class DownloadConnectionHub(BaseConnectionHub):
             error_message: Optional error details if status is 'failed'
             path: Optional destination path if status is 'completed'
         """
+        if status not in DOWNLOAD_STATUS_EVENTS:
+            raise ValueError(f"Unknown download status event: {status!r}")
         message = {
             'type': f'download_{status}',
             'download_id': download_id,

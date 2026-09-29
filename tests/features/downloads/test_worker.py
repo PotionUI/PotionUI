@@ -532,3 +532,40 @@ class TestDownloadFileFinalMove:
         assert result is True
         assert dest_path.read_bytes() == data
         assert not Path(str(dest_path) + ".part").exists()
+
+
+class TestPauseAnnouncement:
+
+    @pytest.mark.asyncio
+    async def test_paused_single_file_download_announces_paused(self, worker, mock_repository):
+        download = Mock()
+        download.id = 'dl-1'
+        download.filename = 'a.safetensors'
+        download.type = DownloadType.MODEL
+        download.destination_backend_id = None
+        mock_repository.get_by_id.return_value = download
+        worker._download_file = AsyncMock(side_effect=asyncio.CancelledError())
+        worker._refresh_group = AsyncMock()
+
+        await worker._process_download('dl-1')
+
+        mock_repository.update_status.assert_any_call('dl-1', DownloadStatus.PAUSED)
+        worker.conn.send_download_status.assert_any_call('dl-1', 'paused', 'a.safetensors')
+
+    @pytest.mark.asyncio
+    async def test_cancelled_download_does_not_announce_paused(self, worker, mock_repository):
+        download = Mock()
+        download.id = 'dl-2'
+        download.filename = 'b.safetensors'
+        download.type = DownloadType.MODEL
+        download.destination_backend_id = None
+        mock_repository.get_by_id.return_value = download
+        worker._download_file = AsyncMock(side_effect=asyncio.CancelledError())
+        worker._refresh_group = AsyncMock()
+        worker.cancelled_downloads.add('dl-2')
+
+        await worker._process_download('dl-2')
+
+        sent = [c.args[1] for c in worker.conn.send_download_status.await_args_list]
+        assert 'paused' not in sent
+        assert 'cancelled' in sent

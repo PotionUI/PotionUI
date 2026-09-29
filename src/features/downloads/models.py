@@ -8,6 +8,9 @@ import json
 from src.platform.database.rows import dt_column, dt_iso
 
 
+NO_PROVIDER = "none"
+
+
 class DownloadType(str, Enum):
     """Type of download"""
     MODEL = "model"

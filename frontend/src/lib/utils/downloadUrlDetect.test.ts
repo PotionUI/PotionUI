@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { detectUrl, resolveProviderSelection } from './downloadUrlDetect';
+import {
+	AUTO_PROVIDER,
+	NO_PROVIDER,
+	detectUrl,
+	providerIdForRequest,
+	selectedProviderValue
+} from './downloadUrlDetect';
 
 describe('detectUrl', () => {
 	it('returns an empty detection for a blank URL', () => {
@@ -67,21 +73,28 @@ describe('detectUrl', () => {
 	});
 });
 
-describe('resolveProviderSelection', () => {
+describe('provider choice', () => {
 	const civitai = { id: 'civitai', name: 'CivitAI' };
 	const providers = [civitai, { id: 'hf', name: 'HuggingFace' }];
+	const detected = detectUrl('https://civitai.com/api/download/models/1', providers).provider;
 
-	it('selects the detected provider for a pasted CivitAI URL', () => {
-		const detected = detectUrl('https://civitai.com/api/download/models/1', providers).provider;
-		expect(resolveProviderSelection('', false, detected)).toBe('civitai');
+	it('auto sends the detected provider immediately after paste', () => {
+		expect(providerIdForRequest(AUTO_PROVIDER, detected)).toBe('civitai');
+		expect(selectedProviderValue(AUTO_PROVIDER, detected)).toBe('civitai');
 	});
 
-	it('clears an auto-selected provider when the URL no longer matches', () => {
-		expect(resolveProviderSelection('civitai', false, null)).toBe('');
+	it('auto omits the provider when nothing is detected', () => {
+		expect(providerIdForRequest(AUTO_PROVIDER, null)).toBeUndefined();
+		expect(selectedProviderValue(AUTO_PROVIDER, null)).toBe(NO_PROVIDER);
 	});
 
-	it('never overwrites a manual choice on re-detection', () => {
-		expect(resolveProviderSelection('hf', true, civitai)).toBe('hf');
-		expect(resolveProviderSelection('', true, civitai)).toBe('');
+	it('an explicit no provider is sent as none even when one is detected', () => {
+		expect(providerIdForRequest(NO_PROVIDER, detected)).toBe(NO_PROVIDER);
+		expect(selectedProviderValue(NO_PROVIDER, detected)).toBe(NO_PROVIDER);
+	});
+
+	it('a manual provider wins over the detected one', () => {
+		expect(providerIdForRequest('hf', detected)).toBe('hf');
+		expect(selectedProviderValue('hf', detected)).toBe('hf');
 	});
 });

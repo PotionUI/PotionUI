@@ -76,11 +76,21 @@ export function detectUrl(rawUrl: string, providers: DetectedProviderOption[] = 
 	};
 }
 
-export function resolveProviderSelection(
-	current: string,
-	touched: boolean,
+export const AUTO_PROVIDER = 'auto';
+export const NO_PROVIDER = 'none';
+
+export function selectedProviderValue(
+	choice: string,
 	detected: DetectedProviderOption | null
 ): string {
-	if (touched) return current;
-	return detected?.id ?? '';
+	if (choice === AUTO_PROVIDER) return detected?.id ?? NO_PROVIDER;
+	return choice;
+}
+
+export function providerIdForRequest(
+	choice: string,
+	detected: DetectedProviderOption | null
+): string | undefined {
+	if (choice === AUTO_PROVIDER) return detected?.id;
+	return choice;
 }

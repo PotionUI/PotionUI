@@ -15,7 +15,7 @@ from src.features.downloads.exceptions import (
     InvalidStatusException,
     InvalidTypeException,
 )
-from src.features.downloads.models import Download, DownloadStatus, DownloadType, DownloadSettings
+from src.features.downloads.models import NO_PROVIDER, Download, DownloadStatus, DownloadType, DownloadSettings
 from tests.fixtures.model_roots import make_roots
 
 
@@ -869,6 +869,18 @@ class TestQueueModelDownloadProviderDerivation:
                 provider_id="other",
             )
         assert result.provider_id == "other"
+
+    @pytest.mark.asyncio
+    async def test_explicit_none_suppresses_derivation(self, queued):
+        registry = self._registry("civitai")
+        with patch("src.features.providers.registry.get_provider_registry", return_value=registry):
+            result = await queued.queue_model_download(
+                url="https://civitai.com/api/download/models/1",
+                filename="m.safetensors",
+                provider_id=NO_PROVIDER,
+            )
+        assert result.provider_id == NO_PROVIDER
+        registry.find_provider_for_url.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_unknown_url_stays_unset(self, queued):

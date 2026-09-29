@@ -20,11 +20,11 @@ import hashlib
 import logging
 import os
 from pathlib import Path
-from typing import Callable, Optional, Dict, List, TYPE_CHECKING
+from typing import Any, Callable, Optional, Dict, List, TYPE_CHECKING
 from urllib.parse import urlparse
 
 from src.features.downloads.exceptions import DownloadAuthenticationException
-from src.features.downloads.models import Download, DownloadStatus, DownloadType, DownloadSettings
+from src.features.downloads.models import NO_PROVIDER, Download, DownloadStatus, DownloadType, DownloadSettings
 from src.features.downloads.repository import DownloadRepository
 from src.platform.database.rows import now_utc
 from src.features.downloads.utils import (
@@ -102,6 +102,7 @@ class DownloadWorker:
         backend_model_indexer: Optional["BackendModelIndexer"] = None,
         worker_transport_override=None,
         resolver: Optional["ModelRootResolver"] = None,
+        local_model_indexer: Optional[Callable[[str], Dict[str, Any]]] = None,
     ):
         """Initialize download worker.
 
@@ -130,6 +131,7 @@ class DownloadWorker:
         self.backend_model_indexer = backend_model_indexer or _default_backend_model_indexer()
         self._worker_transport_override = worker_transport_override
         self.resolver = resolver
+        self.local_model_indexer = local_model_indexer
 
         # Worker management
         self.queue: asyncio.Queue = asyncio.Queue()
@@ -456,7 +458,7 @@ class DownloadWorker:
                 if is_remote:
                     await self._index_remote_backend(download)
                 else:
-                    await self._reconcile_local_native_availability()
+                    await self._index_local_download(download)
 
         except asyncio.CancelledError:
             # Download was cancelled
@@ -559,6 +561,9 @@ class DownloadWorker:
             logger.warning(f"Provider registry unavailable: {e}")
             return None
         if registry is None:
+            return None
+
+        if download.provider_id == NO_PROVIDER:
             return None
 
         if download.provider_id:
@@ -897,6 +902,27 @@ class DownloadWorker:
             self.repo.update_status(
                 download.id, DownloadStatus.COMPLETED,
                 f"Downloaded, but the catalog could not be refreshed automatically: {exc}",
+            )
+
+    async def _index_local_download(self, download: Download) -> None:
+        if (
+            self.local_model_indexer is None
+            or download.type != DownloadType.MODEL
+            or download.group_id
+        ):
+            await self._reconcile_local_native_availability()
+            return
+
+        fresh = await asyncio.to_thread(self.repo.get_by_id, download.id)
+        path = (fresh.destination_path if fresh else None) or download.destination_path
+        try:
+            result = await asyncio.to_thread(self.local_model_indexer, path)
+        except Exception as exc:
+            logger.warning(f"Indexing downloaded model '{download.filename}' failed: {exc}")
+            return
+        if result.get("duplicate_of"):
+            logger.warning(
+                f"Downloaded {download.filename} is the same file as {result['duplicate_of']['path']}; not indexed twice"
             )
 
     async def _reconcile_local_native_availability(self) -> None:

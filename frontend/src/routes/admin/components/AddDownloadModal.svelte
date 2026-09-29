@@ -3,7 +3,13 @@
 	import { createEventDispatcher, onMount, tick } from 'svelte';
 	import { downloadStore, remoteBackends, type QueueModelDownloadOptions } from '$lib/stores/downloads';
 	import { api } from '$lib/services/api/index';
-	import { detectUrl, resolveProviderSelection } from '$lib/utils/downloadUrlDetect';
+	import {
+		AUTO_PROVIDER,
+		NO_PROVIDER,
+		detectUrl,
+		providerIdForRequest,
+		selectedProviderValue
+	} from '$lib/utils/downloadUrlDetect';
 	import { buildSubdirNodes } from '$lib/utils/subdirTree';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
@@ -42,8 +48,7 @@
 	const NEW_SUBDIR = '__new__';
 	let filename = '';
 	let selectedTags: string[] = [];
-	let selectedProviderId = '';
-	let providerTouched = false;
+	let providerChoice = AUTO_PROVIDER;
 	let destinationBackendId = '';
 	let checksumSha256 = '';
 	let submitting = false;
@@ -64,7 +69,7 @@
 	let searchingTags = false;
 
 	$: detection = detectUrl(url, providers);
-	$: selectedProviderId = resolveProviderSelection(selectedProviderId, providerTouched, detection.provider);
+	$: selectedProviderId = selectedProviderValue(providerChoice, detection.provider);
 	$: activeProvider = providers.find((p) => p.id === selectedProviderId) ?? null;
 	$: destinationItems = [
 		{ id: '', label: 'This machine', icon: 'monitor' },
@@ -265,7 +270,8 @@
 				options.tags = selectedTags.map((id) => getTagName(id));
 			}
 			if (checksumSha256.trim()) options.checksum_sha256 = checksumSha256.trim();
-			if (selectedProviderId && providerTouched) options.provider_id = selectedProviderId;
+			const providerId = providerIdForRequest(providerChoice, detection.provider);
+			if (providerId) options.provider_id = providerId;
 			if (destinationBackendId) options.destination_backend_id = destinationBackendId;
 
 			const result = await downloadStore.queueModelDownload(url.trim(), options);
@@ -561,11 +567,11 @@
 								</label>
 								<select
 									id="provider"
-									bind:value={selectedProviderId}
-									onchange={() => (providerTouched = true)}
+									value={selectedProviderId}
+									onchange={(e) => (providerChoice = e.currentTarget.value)}
 									class="input"
 								>
-									<option value="">No provider</option>
+									<option value={NO_PROVIDER}>No provider</option>
 									{#each providers as provider}
 										<option value={provider.id}>
 											{provider.name}{detection.provider?.id === provider.id ? ' (detected)' : ''}

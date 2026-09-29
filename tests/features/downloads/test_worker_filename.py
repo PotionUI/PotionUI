@@ -3,7 +3,7 @@ import pytest
 from urllib.parse import quote
 from unittest.mock import AsyncMock, Mock
 
-from src.features.downloads.models import Download, DownloadSettings
+from src.features.downloads.models import NO_PROVIDER, Download, DownloadSettings
 from src.features.downloads.worker import DownloadWorker
 from tests.features.downloads.fakes import FakeResponse, FakeSession
 
@@ -387,3 +387,24 @@ async def test_a_part_file_appearing_between_the_collision_check_and_the_claim_i
     assert raced_part.read_bytes() == b"zz"
     assert (tmp_path / "3361846").read_bytes() == b"abcdefgh"
     worker.repo.update_filename.assert_not_called()
+
+
+def test_resolve_provider_derives_from_url_when_none_is_set(tmp_path):
+    provider = _Provider()
+    worker = _worker(provider)
+    assert worker._resolve_provider(_download(tmp_path)) is provider
+
+
+def test_resolve_provider_uses_the_explicit_id(tmp_path):
+    provider = _Provider()
+    worker = _worker(provider)
+    download = _download(tmp_path)
+    download.provider_id = "civitai"
+    assert worker._resolve_provider(download) is provider
+
+
+def test_resolve_provider_honours_explicit_none(tmp_path):
+    worker = _worker(_Provider())
+    download = _download(tmp_path)
+    download.provider_id = NO_PROVIDER
+    assert worker._resolve_provider(download) is None

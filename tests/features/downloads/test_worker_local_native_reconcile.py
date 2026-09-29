@@ -76,3 +76,64 @@ async def test_remote_destination_download_does_not_use_the_local_reconciler(wor
         await worker._process_download('dl-1')
 
     mock_reconciler.reconcile.assert_not_awaited()
+
+@pytest.mark.asyncio
+async def test_local_model_download_completion_indexes_the_downloaded_file(mock_settings, mock_repository, backend_registry):
+    download = _local_download()
+    mock_repository.get_by_id.return_value = download
+    indexer = Mock(return_value={"indexed": True, "model_id": "m1", "duplicate_of": None})
+    worker = DownloadWorker(
+        settings=mock_settings, repo=mock_repository, connection_hub=AsyncMock(),
+        provider_registry_factory=lambda: None, backend_registry=backend_registry,
+        local_model_indexer=indexer,
+    )
+
+    async def fake_download_file(self, dl):
+        return True
+
+    with patch.object(DownloadWorker, "_download_file", fake_download_file):
+        await worker._process_download('dl-1')
+
+    indexer.assert_called_once_with(download.destination_path)
+
+@pytest.mark.asyncio
+async def test_indexer_failure_leaves_the_download_completed(mock_settings, mock_repository, backend_registry):
+    download = _local_download()
+    mock_repository.get_by_id.return_value = download
+    indexer = Mock(side_effect=RuntimeError("outside every model root"))
+    worker = DownloadWorker(
+        settings=mock_settings, repo=mock_repository, connection_hub=AsyncMock(),
+        provider_registry_factory=lambda: None, backend_registry=backend_registry,
+        local_model_indexer=indexer,
+    )
+
+    async def fake_download_file(self, dl):
+        return True
+
+    with patch.object(DownloadWorker, "_download_file", fake_download_file):
+        await worker._process_download('dl-1')
+
+    mock_repository.update_status.assert_any_call('dl-1', DownloadStatus.COMPLETED)
+    assert not any(c.args[1] == DownloadStatus.FAILED for c in mock_repository.update_status.call_args_list)
+
+@pytest.mark.asyncio
+async def test_hf_repo_child_download_is_not_indexed_as_a_model(mock_settings, mock_repository, backend_registry):
+    download = _local_download()
+    download.group_id = 'parent-1'
+    mock_repository.get_by_id.return_value = download
+    indexer = Mock()
+    worker = DownloadWorker(
+        settings=mock_settings, repo=mock_repository, connection_hub=AsyncMock(),
+        provider_registry_factory=lambda: None, backend_registry=backend_registry,
+        local_model_indexer=indexer,
+    )
+
+    async def fake_download_file(self, dl):
+        return True
+
+    with patch.object(DownloadWorker, "_download_file", fake_download_file), \
+         patch("src.features.models.native_availability_reconciler.native_availability_projector") as rec:
+        rec.reconcile = AsyncMock()
+        await worker._process_download('dl-1')
+
+    indexer.assert_not_called()

@@ -16,6 +16,8 @@ from src.features.plugins.records import Plugin, PluginSetting, PluginHook
 class TestPluginRepository(PersistenceTestBase):
     """Test plugin repository operations"""
 
+    in_memory = True
+
     def setUp(self):
         """Set up test data"""
         super().setUp()

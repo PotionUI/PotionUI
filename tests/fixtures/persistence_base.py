@@ -46,6 +46,19 @@ def _lean_connection(self):
         conn.close()
 
 
+def make_memory_database(db) -> None:
+    from tests.fixtures.db_template import load_template_into_connection
+
+    shared = load_template_into_connection()
+    db._shared_connection = shared
+
+    @contextmanager
+    def get_connection():
+        yield shared
+
+    db.get_connection = get_connection
+
+
 def make_lean_file_database(db, *, hold_open: bool = False) -> None:
     if hold_open:
         keeper = sqlite3.connect(db.db_path, check_same_thread=False)
@@ -59,6 +72,7 @@ class PersistenceTestBase(unittest.TestCase):
     """Base class for persistence tests with database setup"""
 
     lean_connection = True
+    in_memory = False
     
     def setUp(self):
         """Set up test database with a fully migrated schema"""
@@ -84,6 +98,10 @@ class PersistenceTestBase(unittest.TestCase):
         self._restore_patched_db()
 
         self.close_database_keeper()
+
+        shared = getattr(getattr(self, "db", None), "_shared_connection", None)
+        if shared is not None:
+            shared.close()
 
         if self.temp_db_path.exists():
             self.temp_db_path.unlink()
@@ -148,9 +166,12 @@ class PersistenceTestBase(unittest.TestCase):
         db._initialized = True  # Mark as initialized to avoid conflicts
 
         from tests.fixtures.db_template import copy_template_db
-        copy_template_db(db_path)
-        if self.lean_connection:
-            make_lean_file_database(db, hold_open=True)
+        if self.in_memory:
+            make_memory_database(db)
+        else:
+            copy_template_db(db_path)
+            if self.lean_connection:
+                make_lean_file_database(db, hold_open=True)
 
         # Repositories resolve `db` at call time, so redirecting the one
         # canonical name reaches every one of them.

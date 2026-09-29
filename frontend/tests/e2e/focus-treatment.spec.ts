@@ -26,9 +26,8 @@ function ringColor(boxShadow: string): string | null {
 }
 
 async function expectRing(el: Locator, signal: string) {
-	const shadow = await css(el, 'boxShadow');
-	expect(shadow).not.toBe('none');
-	expect(ringColor(shadow)).toBe(signal);
+	await expect.poll(() => css(el, 'boxShadow'), { timeout: 5000 }).not.toBe('none');
+	await expect.poll(async () => ringColor(await css(el, 'boxShadow')), { timeout: 5000 }).toBe(signal);
 }
 
 async function expectNoRing(el: Locator) {
@@ -37,12 +36,12 @@ async function expectNoRing(el: Locator) {
 }
 
 async function keyboardFocus(page: Page, el: Locator) {
-	await page.keyboard.press('Tab');
+	await page.keyboard.press('Shift');
 	await el.focus();
-	await page.keyboard.press('Shift+Tab');
-	await page.keyboard.press('Tab');
 	await expect(el).toBeFocused();
-	await page.waitForTimeout(250);
+	await page.keyboard.press('Shift');
+	await expect(el).toBeFocused();
+	await expect.poll(() => el.evaluate((node) => node.matches(':focus-visible')), { timeout: 5000 }).toBe(true);
 }
 
 async function shoot(el: Locator, label: string) {
@@ -107,7 +106,7 @@ test('underline login inputs keep their own border treatment', async ({ browser 
 	await page.screenshot({ path: shotPath(JOURNEY, 'login-focus') });
 	expect(await css(username, 'boxShadow')).toBe('none');
 	expect(await css(username, 'outlineColor')).toBe('rgba(0, 0, 0, 0)');
-	expect(await css(username, 'borderBottomColor')).toBe(signal);
+	await expect.poll(() => css(username, 'borderBottomColor'), { timeout: 5000 }).toBe(signal);
 	await page.close();
 });
 

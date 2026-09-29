@@ -16,6 +16,7 @@ const handler: GenerationMessageHandler = {
 		const error = message.message ?? message.error ?? message.data?.message ?? message.data?.error ?? 'Generation failed';
 		const hint = message.hint ?? message.data?.hint ?? null;
 		const errorId = message.error_id ?? message.data?.error_id ?? null;
+		const errorCode = message.error_code ?? message.data?.error_code ?? null;
 		const detail = message.detail ?? message.data?.detail ?? null;
 
 		// Cleared regardless of ownership -- a failed/cancelled generation gets
@@ -56,6 +57,7 @@ const handler: GenerationMessageHandler = {
 								message: error,
 								hint,
 								errorId,
+								errorCode,
 								errorDetail: detail
 							}
 						: null,

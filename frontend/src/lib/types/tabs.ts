@@ -207,6 +207,7 @@ export interface ActiveGeneration {
 	message?: string;
 	hint?: string | null;
 	errorId?: string | null;
+	errorCode?: string | null;
 	errorDetail?: string | null;
 	[key: string]: unknown;
 }

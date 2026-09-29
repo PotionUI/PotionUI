@@ -28,6 +28,8 @@
 	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
 	import '$lib/components/workbench/renderers/builtin'; // registers the image/video/audio core defaults
 	import { IconButton, Button, CopyButton, Badge } from '$lib/components/ui';
+	import FailureNotice from '$lib/components/FailureNotice.svelte';
+	import { isContentPolicyCode, policyShowsErrorId, firstHintLine } from '$lib/generation/failurePolicy';
 	import Icon from '$lib/components/Icon.svelte';
 	import { copyText } from '$lib/utils/clipboard';
 	import {
@@ -1334,29 +1336,41 @@
 			empty state would otherwise silently swallow a real error. -->
 		<div class="relative flex items-center justify-center dot-grid group" style="height: {maxHeight}px">
 			<div class="flex flex-col items-center justify-center h-full text-center px-8 select-none">
-				<div class="w-20 h-20 rounded-2xl bg-danger/10 flex items-center justify-center mb-5">
-					<svg class="w-10 h-10 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-					</svg>
-				</div>
-				<p class="text-fg text-sm font-medium mb-1">Generation failed</p>
-				<p class="text-fg-subtle text-xs max-w-[320px]">
-					{currentGeneration?.message || 'Something went wrong while generating. Try again, or check the details below.'}
-				</p>
-
-				{#if currentGeneration?.hint}
-					<p class="text-fg-subtle text-sm max-w-[320px] mt-1.5 whitespace-pre-line">{currentGeneration.hint}</p>
-				{/if}
-
-				{#if currentGeneration?.errorId}
-					<div class="mt-3 flex flex-col items-center gap-1">
-						<div class="flex items-center gap-1.5 rounded bg-surface-3 px-2 py-1">
-							<span class="text-sm text-fg-muted">Error ID</span>
-							<span class="font-mono text-sm tabular-nums text-fg">{currentGeneration.errorId}</span>
-							<CopyButton text={currentGeneration.errorId} ariaLabel="Copy error ID" size="sm" />
-						</div>
-						<p class="text-sm text-fg-subtle">Give this to your admin</p>
+				{#if isContentPolicyCode(currentGeneration?.errorCode)}
+					<div class="w-full max-w-[360px]">
+						<FailureNotice
+							centered
+							message={currentGeneration?.message || 'Blocked by content policy.'}
+							hint={currentGeneration?.hint ? firstHintLine(currentGeneration.hint, '') : ''}
+							errorId={policyShowsErrorId(currentGeneration?.errorCode) ? currentGeneration?.errorId : null}
+						/>
 					</div>
+				{:else}
+					<div class="w-20 h-20 rounded-2xl bg-danger/10 flex items-center justify-center mb-5">
+						<svg class="w-10 h-10 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+						</svg>
+					</div>
+					<p class="text-fg text-sm font-medium mb-1">Generation failed</p>
+					<p class="text-fg-subtle text-xs max-w-[320px]">
+						{currentGeneration?.message || 'Something went wrong while generating. Try again, or check the details below.'}
+					</p>
+
+					{#if currentGeneration?.hint}
+						<p class="text-fg-subtle text-sm max-w-[320px] mt-1.5 whitespace-pre-line">{currentGeneration.hint}</p>
+					{/if}
+
+					{#if currentGeneration?.errorId}
+						<div class="mt-3 flex flex-col items-center gap-1">
+							<div class="flex items-center gap-1.5 rounded bg-surface-3 px-2 py-1">
+								<span class="text-sm text-fg-muted">Error ID</span>
+								<span class="font-mono text-sm tabular-nums text-fg">{currentGeneration.errorId}</span>
+								<CopyButton text={currentGeneration.errorId} ariaLabel="Copy error ID" size="sm" />
+							</div>
+							<p class="text-sm text-fg-subtle">Give this to your admin</p>
+						</div>
+					{/if}
+
 				{/if}
 
 				{#if currentGeneration?.errorDetail}

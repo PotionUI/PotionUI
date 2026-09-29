@@ -14,6 +14,8 @@
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { formatBytes, formatSeconds } from '$lib/utils/format';
 	import { nsfwFilterStore, selectableMediaFiles, visibleMediaFiles, isUnratedFile } from '$lib/stores/nsfwFilter';
+	import FailureNotice from '$lib/components/FailureNotice.svelte';
+	import { isContentPolicyCode, policyShowsErrorId, firstHintLine } from '$lib/generation/failurePolicy';
 	import { leadIndex } from '$lib/generation/leadFile';
 	import { api } from '$lib/services/api/index';
 	import { getIconPath } from '$lib/utils/IconLibrary';
@@ -238,6 +240,11 @@
 
 	type BadgeVariant = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'signal';
 
+	$: policyOutcome = generation.status === 'failed' && isContentPolicyCode(generation.error_code);
+	$: statusLabel = policyOutcome ? 'Blocked' : generation.status;
+	$: statusVariant = policyOutcome ? 'warning' : getStatusVariant(generation.status);
+	$: statusDotClass = policyOutcome ? 'bg-warning' : getStatusDotClass(generation.status);
+
 	function getStatusVariant(status: string): BadgeVariant {
 		const statusVariants: Record<string, BadgeVariant> = {
 			pending: 'warning',
@@ -395,8 +402,8 @@
 			     tile shows status in its bottom info bar instead). -->
 			{#if !tile && generation.status !== 'completed' && density.showStatus}
 				<div class="absolute bottom-2 left-2 z-30">
-					<Badge variant={getStatusVariant(generation.status)} size="sm" class="uppercase tracking-wide">
-						{generation.status}
+					<Badge variant={statusVariant} size="sm" class="uppercase tracking-wide">
+						{statusLabel}
 					</Badge>
 				</div>
 			{/if}
@@ -645,12 +652,12 @@
 							</div>
 						{/if}
 					{:else if chromeBucket.statusStyle === 'label'}
-						<Badge variant={getStatusVariant(generation.status)} size="sm" class="uppercase tracking-wide">
-							{generation.status}
+						<Badge variant={statusVariant} size="sm" class="uppercase tracking-wide">
+							{statusLabel}
 						</Badge>
 					{:else}
 						<span
-							class="w-1.5 h-1.5 rounded-full shrink-0 {getStatusDotClass(generation.status)}"
+							class="w-1.5 h-1.5 rounded-full shrink-0 {statusDotClass}"
 							title={generation.status}
 						></span>
 					{/if}
@@ -670,18 +677,24 @@
 		<!-- Error Message Footer -->
 		{#if generation.error_user_message || generation.error_message}
 			<div class="px-2 py-2 bg-surface-1 space-y-1.5">
-				<Tooltip text={generation.error_user_message || generation.error_message || ''}>
-					<div class="p-1.5 bg-danger/10 border border-danger/25 rounded text-sm text-danger whitespace-pre-line line-clamp-2">
+				{#if policyOutcome}
+					<FailureNotice
+						message={generation.error_message || generation.error_user_message || ''}
+						hint={firstHintLine(generation.error_user_message, generation.error_message)}
+						errorId={policyShowsErrorId(generation.error_code) ? generation.error_id : null}
+					/>
+				{:else}
+					<div class="p-1.5 bg-danger/10 border border-danger/25 rounded text-sm text-danger whitespace-pre-line">
 						{generation.error_user_message || generation.error_message}
 					</div>
-				</Tooltip>
-				{#if generation.error_id}
-					<div class="flex items-center gap-1.5">
-						<span class="text-sm text-fg-subtle whitespace-nowrap">Error ID</span>
-						<span class="font-mono text-sm tabular-nums text-fg truncate">{generation.error_id}</span>
-						<CopyButton text={generation.error_id} ariaLabel="Copy error ID" size="xs" />
-					</div>
-					<p class="text-sm text-fg-subtle">Give this to your admin</p>
+					{#if generation.error_id}
+						<div class="flex items-center gap-1.5">
+							<span class="text-sm text-fg-subtle whitespace-nowrap">Error ID</span>
+							<span class="font-mono text-sm tabular-nums text-fg truncate">{generation.error_id}</span>
+							<CopyButton text={generation.error_id} ariaLabel="Copy error ID" size="xs" />
+						</div>
+						<p class="text-sm text-fg-subtle">Give this to your admin</p>
+					{/if}
 				{/if}
 			</div>
 		{/if}

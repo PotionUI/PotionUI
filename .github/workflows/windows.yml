@@ -146,22 +146,22 @@ jobs:
         id: venv
         uses: actions/cache@v4
         with:
-          path: .venv-ci
+          path: ${{ runner.temp }}\venv-ci
           key: py-venv-${{ runner.os }}-${{ steps.py.outputs.python-version }}-${{ hashFiles('requirements-ci.txt', 'requirements-dev.txt') }}
 
       - name: Install backend dependencies (CPU-only torch)
         if: steps.venv.outputs.cache-hit != 'true'
         shell: cmd
         run: |
-          python -m venv .venv-ci || exit /b
-          .venv-ci\Scripts\python -m pip install --upgrade pip || exit /b
-          .venv-ci\Scripts\python -m pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu || exit /b
-          .venv-ci\Scripts\python -m pip install -r requirements-dev.txt || exit /b
-          .venv-ci\Scripts\python -m pip install requests pytest-timeout
+          python -m venv %RUNNER_TEMP%\venv-ci || exit /b
+          %RUNNER_TEMP%\venv-ci\Scripts\python -m pip install --upgrade pip || exit /b
+          %RUNNER_TEMP%\venv-ci\Scripts\python -m pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu || exit /b
+          %RUNNER_TEMP%\venv-ci\Scripts\python -m pip install -r requirements-dev.txt || exit /b
+          %RUNNER_TEMP%\venv-ci\Scripts\python -m pip install requests pytest-timeout
 
       - name: Use the Python environment
         shell: cmd
-        run: echo %GITHUB_WORKSPACE%\.venv-ci\Scripts>>"%GITHUB_PATH%"
+        run: echo %RUNNER_TEMP%\venv-ci\Scripts>>"%GITHUB_PATH%"
 
       - name: pytest (CPU-only, no GPU/model-file/gc-sensitive tests)
         shell: cmd
@@ -226,22 +226,22 @@ jobs:
         id: venv
         uses: actions/cache@v4
         with:
-          path: .venv-ci
+          path: ${{ runner.temp }}\venv-ci
           key: py-venv-${{ runner.os }}-${{ steps.py.outputs.python-version }}-${{ hashFiles('requirements-ci.txt', 'requirements-dev.txt') }}
 
       - name: Install backend dependencies (CPU-only torch)
         if: steps.venv.outputs.cache-hit != 'true'
         shell: cmd
         run: |
-          python -m venv .venv-ci || exit /b
-          .venv-ci\Scripts\python -m pip install --upgrade pip || exit /b
-          .venv-ci\Scripts\python -m pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu || exit /b
-          .venv-ci\Scripts\python -m pip install -r requirements-dev.txt || exit /b
-          .venv-ci\Scripts\python -m pip install requests pytest-timeout
+          python -m venv %RUNNER_TEMP%\venv-ci || exit /b
+          %RUNNER_TEMP%\venv-ci\Scripts\python -m pip install --upgrade pip || exit /b
+          %RUNNER_TEMP%\venv-ci\Scripts\python -m pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu || exit /b
+          %RUNNER_TEMP%\venv-ci\Scripts\python -m pip install -r requirements-dev.txt || exit /b
+          %RUNNER_TEMP%\venv-ci\Scripts\python -m pip install requests pytest-timeout
 
       - name: Use the Python environment
         shell: cmd
-        run: echo %GITHUB_WORKSPACE%\.venv-ci\Scripts>>"%GITHUB_PATH%"
+        run: echo %RUNNER_TEMP%\venv-ci\Scripts>>"%GITHUB_PATH%"
 
       - name: python tests/release/release_gate.py --skip-gpu --lint-only
         shell: cmd
@@ -373,22 +373,22 @@ jobs:
         id: venv
         uses: actions/cache@v4
         with:
-          path: .venv-ci
+          path: ${{ runner.temp }}\venv-ci
           key: py-venv-${{ runner.os }}-${{ steps.py.outputs.python-version }}-${{ hashFiles('requirements-ci.txt', 'requirements-dev.txt') }}
 
       - name: Install backend dependencies (CPU-only torch)
         if: steps.venv.outputs.cache-hit != 'true'
         shell: cmd
         run: |
-          python -m venv .venv-ci || exit /b
-          .venv-ci\Scripts\python -m pip install --upgrade pip || exit /b
-          .venv-ci\Scripts\python -m pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu || exit /b
-          .venv-ci\Scripts\python -m pip install -r requirements-dev.txt || exit /b
-          .venv-ci\Scripts\python -m pip install requests pytest-timeout
+          python -m venv %RUNNER_TEMP%\venv-ci || exit /b
+          %RUNNER_TEMP%\venv-ci\Scripts\python -m pip install --upgrade pip || exit /b
+          %RUNNER_TEMP%\venv-ci\Scripts\python -m pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu || exit /b
+          %RUNNER_TEMP%\venv-ci\Scripts\python -m pip install -r requirements-dev.txt || exit /b
+          %RUNNER_TEMP%\venv-ci\Scripts\python -m pip install requests pytest-timeout
 
       - name: Use the Python environment
         shell: cmd
-        run: echo %GITHUB_WORKSPACE%\.venv-ci\Scripts>>"%GITHUB_PATH%"
+        run: echo %RUNNER_TEMP%\venv-ci\Scripts>>"%GITHUB_PATH%"
 
       - name: Restore frontend node_modules
         id: node-modules

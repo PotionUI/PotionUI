@@ -342,6 +342,9 @@
 		{#if roots.overview}
 			{@const orderableTypes = roots.overview.types.filter((t) => t.order.length > 1)}
 			<DetailSection label="Model type order">
+				<p class="text-sm text-fg-muted mb-3">
+					New downloads of a type are saved to its Write folder. When the same model is in more than one folder, the earlier folder is used. Existing files never move.
+				</p>
 				{#if orderableTypes.length === 0}
 					<p class="text-xs text-fg-subtle">
 						Ordering appears here once a model type has more than one folder to choose between.
@@ -369,20 +372,27 @@
 												<span class="font-mono text-xs tabular-nums text-fg-subtle w-4">{index + 1}</span>
 												<span class="min-w-0 flex-1 truncate text-sm text-fg">{root.label}</span>
 												{#if type.write_root_id === rootId}
-													<Badge variant="signal" size="sm">Write</Badge>
+													<Tooltip text="New {type.folder} downloads are saved to {root.label}." position="top">
+														<Badge variant="signal" size="sm">Write</Badge>
+													</Tooltip>
 												{:else if writeDisabledReason}
 													<Tooltip text={writeDisabledReason} position="top">
 														<Button variant="ghost" size="sm" disabled>Set as write</Button>
 													</Tooltip>
 												{:else}
-													<Button
-														variant="ghost"
-														size="sm"
-														loading={settingWrite === `${type.model_type}:${rootId}`}
-														onclick={() => setWriteRoot(type.model_type, rootId)}
+													<Tooltip
+														text="New {type.folder} downloads go to {root.label}. Existing files stay where they are."
+														position="top"
 													>
-														Set as write
-													</Button>
+														<Button
+															variant="ghost"
+															size="sm"
+															loading={settingWrite === `${type.model_type}:${rootId}`}
+															onclick={() => setWriteRoot(type.model_type, rootId)}
+														>
+															Set as write
+														</Button>
+													</Tooltip>
 												{/if}
 												<div class="flex items-center gap-0.5">
 													<IconButton

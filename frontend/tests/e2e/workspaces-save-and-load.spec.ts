@@ -48,6 +48,15 @@ test('workspace save + pick round-trip restores tabs', async ({ page }) => {
 		.locator('button.book-tab', { hasText: 'Generation 2' })
 		.locator('.close-button')
 		.click({ force: true });
+	await expect(page.getByText('Close tab?', { exact: true })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(page.getByText('Close tab?', { exact: true })).toHaveCount(0);
+	await expect(page.getByText('Generation 2', { exact: true })).toBeVisible();
+	await page
+		.locator('button.book-tab', { hasText: 'Generation 2' })
+		.locator('.close-button')
+		.click({ force: true });
+	await page.getByRole('button', { name: 'Confirm', exact: true }).click();
 	await expect(page.getByText('Generation 2', { exact: true })).toHaveCount(0);
 
 	// Reopen the workspace menu - this refetches the list, exercising

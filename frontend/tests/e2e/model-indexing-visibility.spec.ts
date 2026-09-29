@@ -184,8 +184,16 @@ test.describe('model indexing visibility - wizard', () => {
 		});
 		await mockReadiness(page, readinessReport());
 		await gotoSetup(page);
-		await expect(page.getByText('exist in more than one folder')).toBeVisible({ timeout: 10000 });
-		await expect(page.getByText('share a name with a different model file')).toBeVisible({ timeout: 10000 });
+		const duplicatesToggle = page.getByRole('button', { name: /model exists in more than one folder/ });
+		const conflictsToggle = page.getByRole('button', { name: /file shares a name with a different model file/ });
+		await expect(duplicatesToggle).toBeVisible({ timeout: 10000 });
+		await expect(conflictsToggle).toBeVisible({ timeout: 10000 });
+		await expect(page.getByText('shared-model.safetensors')).toHaveCount(0);
+		await duplicatesToggle.click();
+		await expect(page.getByText('shared-model.safetensors')).toBeVisible();
+		await expect(page.getByText('External drive', { exact: false })).toBeVisible();
+		await conflictsToggle.click();
+		await expect(page.getByText('duplicate-name.safetensors', { exact: false })).toBeVisible();
 		await screenshot(page, JOURNEY, 'wizard-done-duplicates-conflicts');
 	});
 

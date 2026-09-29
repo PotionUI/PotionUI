@@ -30,7 +30,7 @@ jobs:
     # tests/platform (the tensor-heavy half) gets its own shard.
     name: backend pytest (CPU-only, ${{ matrix.shard.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -40,13 +40,34 @@ jobs:
           - name: platform
             paths: >-
               tests/platform
+              tests/pipelines
+              tests/features/plugins
               --ignore=tests/platform/runtime/native/test_engine.py
               --ignore=tests/platform/runtime/native/arch/test_minimax_music3_ar_loop.py
             serial_paths: >-
               tests/platform/runtime/native/test_engine.py
               tests/platform/runtime/native/arch/test_minimax_music3_ar_loop.py
+          - name: features
+            paths: >-
+              tests/features/generation
+              tests/features/remote_execution
+              tests/features/auth
+              tests/features/media_index
+              tests/features/backends
+              tests/features/models
+            serial_paths: ""
           - name: rest
-            paths: tests/ --ignore=tests/platform
+            paths: >-
+              tests/
+              --ignore=tests/platform
+              --ignore=tests/pipelines
+              --ignore=tests/features/plugins
+              --ignore=tests/features/generation
+              --ignore=tests/features/remote_execution
+              --ignore=tests/features/auth
+              --ignore=tests/features/media_index
+              --ignore=tests/features/backends
+              --ignore=tests/features/models
             serial_paths: ""
     steps:
       - uses: actions/checkout@v4
@@ -93,8 +114,10 @@ jobs:
           OMP_NUM_THREADS: "1"
           MKL_NUM_THREADS: "1"
           OPENBLAS_NUM_THREADS: "1"
+          POTIONUI_TEST_THREADS: "1"
+          POTIONUI_TEST_BUDGET_S: "15"
         run: >
-          python -m pytest ${{ matrix.shard.paths }} -q --timeout=300 -n 4
+          python -m pytest ${{ matrix.shard.paths }} -q --durations=25 --timeout=300 -n 4
           -m "not requires_gpu and not requires_models and not gc_sensitive"
 
       # timeout-method=thread: the default signal method can't interrupt a
@@ -108,8 +131,10 @@ jobs:
       - name: pytest (sequential quarantine — xdist-only failures on this runner)
         if: matrix.shard.serial_paths != ''
         timeout-minutes: 8
+        env:
+          POTIONUI_TEST_BUDGET_S: "15"
         run: >
-          python -m pytest ${{ matrix.shard.serial_paths }} -q
+          python -m pytest ${{ matrix.shard.serial_paths }} -q --durations=25
           --timeout=300 --timeout-method=thread
           -m "not requires_gpu and not requires_models and not gc_sensitive"
 
@@ -119,6 +144,7 @@ jobs:
           OMP_NUM_THREADS: "1"
           MKL_NUM_THREADS: "1"
           OPENBLAS_NUM_THREADS: "1"
+          POTIONUI_TEST_THREADS: "1"
         run: >
           python tests/plugins/run_suites.py -q --timeout=300
           -m "not requires_gpu and not requires_models and not gc_sensitive"

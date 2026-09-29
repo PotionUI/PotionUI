@@ -283,9 +283,15 @@ function createTabsStore() {
 				);
 				if (!tabChanged && !generationChanged) return state;
 
+				const schemaChanged =
+					!('formPublished' in updates) &&
+					(['selectedPreset', 'selectedMode', 'selectedVariant'] as const).some(
+						(key) => key in updates && !Object.is(current[key], updates[key])
+					);
 				const nextTab: Tab = {
 					...current,
 					...updates,
+					...(schemaChanged ? { formPublished: false } : {}),
 					generation: updates.generation
 						? { ...current.generation, ...updates.generation }
 						: current.generation

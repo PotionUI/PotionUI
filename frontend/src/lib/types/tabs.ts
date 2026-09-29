@@ -361,6 +361,7 @@ export interface Tab {
 	savedSessionSignature?: string | null;
 	/** One-shot marker, deliberately absent from PersistedTab. */
 	sessionBaselineAwaitingFormNormalization?: boolean;
+	formPublished?: boolean;
 	prompt: string;
 	negativePrompt: string;
 	promptSegments?: Segment[];

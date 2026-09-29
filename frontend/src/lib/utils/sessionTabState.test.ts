@@ -4,6 +4,7 @@ import {
 	collectTabSessionData,
 	isSessionGoneError,
 	isSessionMissingResponse,
+	formDataPublicationPatch,
 	normalizeSessionBaselineFormData,
 	sessionIsDirty,
 	shouldHydrateSessionSelection,
@@ -207,5 +208,24 @@ describe('distinguishing a missing session from an unreachable backend', () => {
 		expect(isSessionGoneError({ response: { status: 500 } })).toBe(false);
 		expect(isSessionGoneError(new Error('Network Error'))).toBe(false);
 		expect(isSessionGoneError(undefined)).toBe(false);
+	});
+});
+
+describe('folding a form publication into the saved baseline', () => {
+	const base = { selectedSessionId: 's1', selectedMode: 'txt2img', savedSessionSignature: '{"txt2img":{}}' };
+
+	it('rewrites the baseline once while it awaits the first publication', () => {
+		const patch = formDataPublicationPatch(
+			{ ...base, sessionBaselineAwaitingFormNormalization: true },
+			{ steps: 20 }
+		);
+		expect(patch.sessionBaselineAwaitingFormNormalization).toBe(false);
+		expect(JSON.parse(patch.savedSessionSignature!).txt2img.formData).toEqual({ steps: 20 });
+	});
+
+	it('leaves the baseline alone when nothing awaits a publication', () => {
+		expect(
+			formDataPublicationPatch({ ...base, sessionBaselineAwaitingFormNormalization: false }, { steps: 20 })
+		).toEqual({ formData: { steps: 20 }, formPublished: true });
 	});
 });

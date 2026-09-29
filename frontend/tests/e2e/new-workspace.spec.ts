@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot } from './helpers';
+import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot, waitForFormPublished } from './helpers';
 
 // "New workspace" wipes every open tab down to one fresh empty tab.
 // When the workspace has unsaved changes it must ask first (3-way modal:
@@ -157,6 +157,7 @@ test('New workspace "Save & create new" saves a dirty existing session before wi
 
 	await typeIntoSegment(page, 'Positive segments', 0, 'A quiet harbor at dawn.');
 
+	await waitForFormPublished(page);
 	const saveCell = page.getByRole('button', { name: 'Save as a new session' });
 	await expect(saveCell).toBeVisible({ timeout: 10000 });
 	await saveCell.click();

@@ -12,7 +12,7 @@
 		collectTabSessionData,
 		isSessionGoneError,
 		isSessionMissingResponse,
-		normalizeSessionBaselineFormData,
+		formDataPublicationPatch,
 		shouldRestoreTabSessionOnMount
 	} from '$lib/utils/sessionTabState';
 	import { WebSocketService, createGenerationSocket } from '$lib/services/websocket';
@@ -1223,20 +1223,7 @@
 		const tab = $tabsStore.tabs.find((candidate) => candidate.id === tabId);
 		if (!tab) return;
 
-		if (tab.sessionBaselineAwaitingFormNormalization && tab.selectedSessionId && tab.selectedMode) {
-			tabsStore.updateTab(tabId, {
-				formData,
-				savedSessionSignature: normalizeSessionBaselineFormData(
-					tab.savedSessionSignature,
-					tab.selectedMode,
-					formData
-				),
-				sessionBaselineAwaitingFormNormalization: false
-			});
-			return;
-		}
-
-		tabsStore.updateTab(tabId, { formData });
+		tabsStore.updateTab(tabId, formDataPublicationPatch(tab, formData));
 	}
 
 	// Handle preset reload from PresetHeader

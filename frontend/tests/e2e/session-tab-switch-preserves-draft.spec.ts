@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot } from './helpers';
+import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot, waitForFormPublished } from './helpers';
 
 // Regression: db97094/b3ad9d3 stopped +page.svelte's own onMount from
 // re-applying a saved session over a tab's live draft on SPA remount. But
@@ -81,6 +81,7 @@ test('editing a segment after loading a session survives switching tabs and back
 	await typeIntoSegment(page, 'Positive segments', 0, 'A lighthouse on a stormy cliff.');
 
 	// Save it as a session so the tab has a real saved baseline to be dirty against.
+	await waitForFormPublished(page);
 	const saveCell = page.getByRole('button', { name: 'Save as a new session' });
 	await expect(saveCell).toBeVisible({ timeout: 10000 });
 	await saveCell.click();
@@ -175,6 +176,7 @@ test('loading an existing session on a second tab, then editing it, survives swi
 
 	await typeIntoSegment(page, 'Positive segments', 0, 'A quiet harbor at dawn.');
 
+	await waitForFormPublished(page);
 	const saveCell = page.getByRole('button', { name: 'Save as a new session' });
 	await expect(saveCell).toBeVisible({ timeout: 10000 });
 	await saveCell.click();

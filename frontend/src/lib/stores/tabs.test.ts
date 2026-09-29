@@ -381,3 +381,29 @@ describe('restoring a tab persisted with the removed Flow-view fields', () => {
 		}
 	});
 });
+
+describe('tabsStore form publication marker', () => {
+	beforeEach(() => tabsStore.reset());
+
+	it('resets when the preset, mode or variant changes and survives other updates', () => {
+		const id = get(tabsStore).tabs[0].id;
+		const read = () => get(tabsStore).tabs[0].formPublished;
+
+		tabsStore.updateTab(id, { selectedPreset: 'p1', selectedMode: 'm1', formPublished: true });
+		expect(read()).toBe(true);
+
+		tabsStore.updateTab(id, { prompt: 'unrelated' });
+		expect(read()).toBe(true);
+
+		tabsStore.updateTab(id, { selectedMode: 'm2' });
+		expect(read()).toBe(false);
+
+		tabsStore.updateTab(id, { formPublished: true });
+		tabsStore.updateTab(id, { selectedVariant: 'v1' });
+		expect(read()).toBe(false);
+
+		tabsStore.updateTab(id, { formPublished: true });
+		tabsStore.updateTab(id, { selectedPreset: 'p2' });
+		expect(read()).toBe(false);
+	});
+});

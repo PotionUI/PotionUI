@@ -312,6 +312,31 @@ def collect_videos(names: List[str]) -> None:
         log(f"Collected video: {dest}")
 
 
+def collect_failure_artifacts(
+    names: List[str],
+    output_dir: Optional[Path] = None,
+    artifacts_dir: Optional[Path] = None,
+) -> None:
+    output_dir = PLAYWRIGHT_OUTPUT_DIR if output_dir is None else output_dir
+    artifacts_dir = ARTIFACTS_DIR if artifacts_dir is None else artifacts_dir
+    if not output_dir.is_dir():
+        return
+    ordered = sorted(names, key=len, reverse=True)
+    for test_dir in sorted(p for p in output_dir.iterdir() if p.is_dir()):
+        journey = next((n for n in ordered if test_dir.name.startswith(n)), None)
+        if journey is None:
+            continue
+        sources = [*test_dir.glob("trace.zip"), *test_dir.glob("*.png")]
+        if not sources:
+            continue
+        dest_dir = artifacts_dir / journey
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for source in sources:
+            dest = dest_dir / f"{test_dir.name}-{source.name}"
+            shutil.copy2(source, dest)
+            log(f"Collected failure artifact: {dest}")
+
+
 def collect_backend_log(app: "ThrowawayApp", chunk_index: int) -> None:
     log_path = app.instance.log_path if app.instance is not None else None
     if log_path is None or not log_path.is_file():
@@ -367,6 +392,7 @@ def run_chunk(
 
             monitor.stop()
             collect_videos(chunk_names)
+            collect_failure_artifacts(chunk_names)
 
             if monitor.died_unexpectedly:
                 exit_code = preview_proc.poll()

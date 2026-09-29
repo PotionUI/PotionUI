@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
+import { formDataPublicationPatch } from '$lib/utils/sessionTabState';
 import type { Tab } from '$lib/types/tabs';
 import type { Session } from '$lib/types/api';
 import {
@@ -672,6 +673,136 @@ describe('createSessionController', () => {
 		expect(state.sessions[0]).toEqual(created);
 		expect(state.selectedSessionId).toBe('session-created');
 		expect(state.hasUnsavedChanges).toBe(false);
+	});
+
+	describe('save-as baseline against writes during the request', () => {
+		function publishForm(data: Record<string, unknown>) {
+			harness.tabs.edit(formDataPublicationPatch(harness.tabs.tab, data));
+		}
+
+		async function saveWithPendingPost(publishedBefore?: Record<string, unknown>) {
+			await bootWithoutSession();
+			const pending = deferred<{ success: boolean; data: Session }>();
+			harness.api.saveSession.mockReturnValue(pending.promise as never);
+			harness.tabs.edit(draft('typed before save'));
+			if (publishedBefore) publishForm(publishedBefore);
+			await settle();
+			const saving = controller.saveAs('Fresh', 'save-as');
+			await settle();
+			return { pending, saving };
+		}
+
+		const created = makeSession('session-created', { name: 'Fresh' });
+
+		it('is clean when nothing is written during the request', async () => {
+			const { pending, saving } = await saveWithPendingPost();
+			pending.resolve({ success: true, data: created });
+			await saving;
+			await settle();
+			expect(get(controller.state).hasUnsavedChanges).toBe(false);
+		});
+
+		it('folds the first form publication that lands during the request', async () => {
+			const { pending, saving } = await saveWithPendingPost();
+			publishForm({ steps: 20 });
+			await settle();
+			pending.resolve({ success: true, data: created });
+			await saving;
+			await settle();
+			expect(get(controller.state).hasUnsavedChanges).toBe(false);
+		});
+
+		it('folds the first form publication that lands after the response', async () => {
+			const { pending, saving } = await saveWithPendingPost();
+			pending.resolve({ success: true, data: created });
+			await saving;
+			await settle();
+			expect(harness.tabs.tab.sessionBaselineAwaitingFormNormalization).toBe(true);
+			harness.tabs.edit(formDataPublicationPatch(harness.tabs.tab, { steps: 20 }));
+			await settle();
+			expect(get(controller.state).hasUnsavedChanges).toBe(false);
+		});
+
+		it('keeps a real prompt edit made during the request dirty', async () => {
+			const { pending, saving } = await saveWithPendingPost();
+			publishForm({ steps: 20 });
+			harness.tabs.edit(draft('typed during the post'));
+			await settle();
+			pending.resolve({ success: true, data: created });
+			await saving;
+			await settle();
+			expect(get(controller.state).hasUnsavedChanges).toBe(true);
+		});
+
+		it('keeps a form edit made during the request dirty when the form had already published', async () => {
+			const { pending, saving } = await saveWithPendingPost({ steps: 20 });
+			publishForm({ steps: 30 });
+			await settle();
+			pending.resolve({ success: true, data: created });
+			await saving;
+			await settle();
+			expect(get(controller.state).hasUnsavedChanges).toBe(true);
+		});
+
+		it('keeps a later edit dirty after saving a form that published empty', async () => {
+			const { pending, saving } = await saveWithPendingPost({});
+			pending.resolve({ success: true, data: created });
+			await saving;
+			await settle();
+			expect(harness.tabs.tab.sessionBaselineAwaitingFormNormalization).toBe(false);
+			publishForm({ upload: 'photo.png' });
+			await settle();
+			expect(get(controller.state).hasUnsavedChanges).toBe(true);
+		});
+
+		it('folds only the first publication when a second edit follows during the request', async () => {
+			const { pending, saving } = await saveWithPendingPost();
+			publishForm({ steps: 20 });
+			publishForm({ steps: 30 });
+			await settle();
+			pending.resolve({ success: true, data: created });
+			await saving;
+			await settle();
+			expect(get(controller.state).hasUnsavedChanges).toBe(true);
+		});
+	});
+
+	describe('baseline against form publications around other save paths', () => {
+		function publishForm(data: Record<string, unknown>) {
+			harness.tabs.edit(formDataPublicationPatch(harness.tabs.tab, data));
+		}
+
+		it('folds the first form publication into a quick save of the linked session', async () => {
+			await bootWithDirtySession();
+			const pending = deferred<{ success: boolean; data: Session }>();
+			harness.api.updateSession.mockReturnValue(pending.promise as never);
+			const saving = controller.quickSave();
+			await settle();
+			pending.resolve({ success: true, data: makeSession(SESSION_A) });
+			await saving;
+			await settle();
+			expect(harness.tabs.tab.sessionBaselineAwaitingFormNormalization).toBe(true);
+			publishForm({ steps: 20 });
+			await settle();
+			expect(get(controller.state).hasUnsavedChanges).toBe(false);
+			publishForm({ steps: 30 });
+			await settle();
+			expect(get(controller.state).hasUnsavedChanges).toBe(true);
+		});
+
+		it('is clean after loading a session once the form publishes, and dirty after a later form edit', async () => {
+			await bootWithoutSession();
+			await controller.select(SESSION_B);
+			await settle();
+			expect(harness.tabs.tab.sessionBaselineAwaitingFormNormalization).toBe(true);
+			publishForm({ steps: 20 });
+			await settle();
+			expect(harness.tabs.tab.sessionBaselineAwaitingFormNormalization).toBe(false);
+			expect(get(controller.state).hasUnsavedChanges).toBe(false);
+			publishForm({ steps: 30 });
+			await settle();
+			expect(get(controller.state).hasUnsavedChanges).toBe(true);
+		});
 	});
 
 	it('leaves the baseline pointing at nothing after restoring a version', async () => {

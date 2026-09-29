@@ -69,6 +69,7 @@ import {
 	collectTabSessionData,
 	isSessionGoneError,
 	isSessionMissingResponse,
+	normalizeSessionBaselineFormData,
 	sessionIsDirty,
 	shouldHydrateSessionSelection
 } from '$lib/utils/sessionTabState';
@@ -507,9 +508,14 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		return tabs.find((tab) => tab.id === ctx.tabId);
 	}
 
+	const collectedBeforeFormPublished = new WeakSet<object>();
+	let firstFormPublication: Record<string, unknown> | null = null;
+
 	const unsubscribeTabs = deps.tabs.subscribe((value) => {
 		tabs = value.tabs;
 		const nextTabData = readTab();
+		if (!nextTabData?.formPublished) firstFormPublication = null;
+		else if (!currentTabData?.formPublished) firstFormPublication = nextTabData.formData ?? null;
 		const unchanged = tabDataUnchangedForDerivation(currentTabData, nextTabData);
 		currentTabData = nextTabData;
 		if (unchanged) return;
@@ -780,12 +786,29 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	 * whichever one happens to be active when they hit Save.
 	 */
 	function collectCurrentSessionData(): ModeBasedSessionData {
-		return collectTabSessionData(
+		const data = collectTabSessionData(
 			currentTabData,
 			ctx.currentMode,
 			currentSession?.data || {},
 			ctx.presetVersion
 		);
+		if (!currentTabData?.formPublished) collectedBeforeFormPublished.add(data);
+		return data;
+	}
+
+	function recordSavedSessionData(data: ModeBasedSessionData) {
+		let signature = JSON.stringify(data);
+		let awaiting = false;
+		if (collectedBeforeFormPublished.has(data)) {
+			if (currentTabData?.formPublished && firstFormPublication) {
+				signature =
+					normalizeSessionBaselineFormData(signature, ctx.currentMode, firstFormPublication) ??
+					signature;
+			} else {
+				awaiting = true;
+			}
+		}
+		recordSavedBaseline(signature, awaiting);
 	}
 
 	function recordSavedBaseline(signature: string | null, awaitingFormNormalization = false) {
@@ -1142,7 +1165,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 				if (ownsActiveState(command)) {
 					markApplied(command);
 					currentSession = response.data;
-					recordSavedBaseline(JSON.stringify(sessionData));
+					recordSavedSessionData(sessionData);
 					hasUnsavedChanges = false;
 					lastSavedTime = now();
 				}
@@ -1191,7 +1214,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 				if (ownsActiveState(command)) {
 					markApplied(command);
 					currentSession = response.data;
-					recordSavedBaseline(JSON.stringify(sessionData));
+					recordSavedSessionData(sessionData);
 					hasUnsavedChanges = false;
 					lastSavedTime = now();
 				}
@@ -1256,7 +1279,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 					if (ownsActiveState(command)) {
 						markApplied(command);
 						currentSession = response.data;
-						recordSavedBaseline(JSON.stringify(sessionData));
+						recordSavedSessionData(sessionData);
 						hasUnsavedChanges = false;
 						lastSavedTime = now();
 					}
@@ -1278,7 +1301,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 						markApplied(command);
 						setSelectedSessionId(response.data.id);
 						currentSession = response.data;
-						recordSavedBaseline(JSON.stringify(sessionData));
+						recordSavedSessionData(sessionData);
 						hasUnsavedChanges = false;
 						lastSavedTime = now();
 

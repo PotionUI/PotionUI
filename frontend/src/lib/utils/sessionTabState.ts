@@ -32,7 +32,6 @@ export function collectTabSessionData(
 			promptRelay: tab.promptRelay,
 			videoDirector: tab.videoDirector,
 			musicDirector: tab.musicDirector,
-			formData: tab.formData,
 			...(tab.variables && Object.keys(tab.variables).length > 0
 				? { variables: tab.variables }
 				: {}),
@@ -51,7 +50,8 @@ export function collectTabSessionData(
 			negativeSegmentsCollapsed: tab.negativeSegmentsCollapsed,
 			...(tab.sectionCollapsed && Object.keys(tab.sectionCollapsed).length > 0
 				? { sectionCollapsed: tab.sectionCollapsed }
-				: {})
+				: {}),
+			...(tab.formData !== undefined ? { formData: tab.formData } : {})
 		}
 	};
 }
@@ -133,4 +133,29 @@ export function normalizeSessionBaselineFormData(
 	} catch {
 		return savedSignature;
 	}
+}
+
+export function formDataPublicationPatch(
+	tab: Pick<
+		Tab,
+		| 'sessionBaselineAwaitingFormNormalization'
+		| 'selectedSessionId'
+		| 'selectedMode'
+		| 'savedSessionSignature'
+	>,
+	formData: Record<string, unknown>
+): Partial<Tab> {
+	if (tab.sessionBaselineAwaitingFormNormalization && tab.selectedSessionId && tab.selectedMode) {
+		return {
+			formData,
+			savedSessionSignature: normalizeSessionBaselineFormData(
+				tab.savedSessionSignature,
+				tab.selectedMode,
+				formData
+			),
+			sessionBaselineAwaitingFormNormalization: false,
+			formPublished: true
+		};
+	}
+	return { formData, formPublished: true };
 }

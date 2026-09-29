@@ -40,6 +40,11 @@ export async function ownerToken(page: Page): Promise<string> {
 	return token as string;
 }
 
+export async function waitForFormPublished(page: Page): Promise<void> {
+	await expect(page.locator('section[aria-label] > div.space-y-4').first()).toBeAttached({ timeout: 20000 });
+	await expect(page.getByText('Loading Form...')).toHaveCount(0, { timeout: 20000 });
+}
+
 export async function clickDialogSaveAndAwaitResponse(page: Page): Promise<void> {
 	const [response] = await Promise.all([
 		page.waitForResponse(

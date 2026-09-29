@@ -2,6 +2,7 @@
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/A3B325D031)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/avR4trp3b8)
+[![Reddit](https://img.shields.io/badge/Reddit-r%2FPotionUI-FF4500?logo=reddit&logoColor=white)](https://www.reddit.com/r/PotionUI/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Status: Alpha](https://img.shields.io/badge/Status-Alpha-orange.svg)](#)
 
@@ -31,7 +32,8 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 
 *Alpha 0.0.11 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
 Docker ·
-[Discord](https://discord.gg/avR4trp3b8) · [Ko-fi](https://ko-fi.com/A3B325D031)*
+[Discord](https://discord.gg/avR4trp3b8) · [Reddit](https://www.reddit.com/r/PotionUI/) ·
+[Ko-fi](https://ko-fi.com/A3B325D031)*
 
 ## 60 seconds to first image
 
@@ -526,7 +528,8 @@ The three most recent releases; older history lives in the
 If PotionUI is useful to you, a [Ko-fi](https://ko-fi.com/A3B325D031)
 contribution helps keep it going, and the
 [Discord](https://discord.gg/avR4trp3b8) is where development happens in the
-open.
+open. News, showcases and questions also go to
+[r/PotionUI](https://www.reddit.com/r/PotionUI/).
 
 ## License
 

@@ -407,3 +407,25 @@ describe('tabsStore form publication marker', () => {
 		expect(read()).toBe(false);
 	});
 });
+
+
+describe('form baseline reset', () => {
+	beforeEach(() => tabsStore.reset());
+
+	it('clears the form baseline when the preset, mode or variant changes but not otherwise', () => {
+		const id = get(tabsStore).activeTabId;
+		const baseline = () => get(tabsStore).tabs.find((t) => t.id === id)!.formBaselineSignature;
+		tabsStore.updateTab(id, { selectedPreset: 'p1', formPublished: true, formBaselineSignature: '{"a":1}' });
+		expect(baseline()).toBe('{"a":1}');
+		tabsStore.updateTab(id, { prompt: 'x' });
+		expect(baseline()).toBe('{"a":1}');
+		tabsStore.updateTab(id, { selectedPreset: 'p2' });
+		expect(baseline()).toBeUndefined();
+		tabsStore.updateTab(id, { formBaselineSignature: '{"a":2}', formPublished: true });
+		tabsStore.updateTab(id, { selectedMode: 'img2img' });
+		expect(baseline()).toBeUndefined();
+		tabsStore.updateTab(id, { formBaselineSignature: '{"a":3}', formPublished: true });
+		tabsStore.updateTab(id, { selectedVariant: 'v2' });
+		expect(baseline()).toBeUndefined();
+	});
+});

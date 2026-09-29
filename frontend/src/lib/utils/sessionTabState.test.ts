@@ -226,6 +226,15 @@ describe('folding a form publication into the saved baseline', () => {
 	it('leaves the baseline alone when nothing awaits a publication', () => {
 		expect(
 			formDataPublicationPatch({ ...base, sessionBaselineAwaitingFormNormalization: false }, { steps: 20 })
-		).toEqual({ formData: { steps: 20 }, formPublished: true });
+		).toEqual({ formData: { steps: 20 }, formPublished: true, formBaselineSignature: '{"steps":20}' });
+	});
+
+	it('records the baseline on the first publication only', () => {
+		expect(formDataPublicationPatch({ ...base, formPublished: false }, { steps: 20 }).formBaselineSignature).toBe(
+			'{"steps":20}'
+		);
+		const later = formDataPublicationPatch({ ...base, formPublished: true }, { steps: 45 });
+		expect(later).toEqual({ formData: { steps: 45 }, formPublished: true });
+		expect('formBaselineSignature' in later).toBe(false);
 	});
 });

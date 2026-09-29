@@ -362,6 +362,7 @@ export interface Tab {
 	/** One-shot marker, deliberately absent from PersistedTab. */
 	sessionBaselineAwaitingFormNormalization?: boolean;
 	formPublished?: boolean;
+	formBaselineSignature?: string;
 	prompt: string;
 	negativePrompt: string;
 	promptSegments?: Segment[];

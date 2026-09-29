@@ -2,6 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 
 	export let id: string;
 	export let name: string;
@@ -198,16 +199,18 @@
 
 		<!-- Close button -->
 		{#if canDelete && !isEditing}
-			<button
-				type="button"
-				class="close-button"
-				on:click={handleDelete}
-				title="Close tab"
-			>
-				<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-				</svg>
-			</button>
+			<Tooltip text="Close tab" position="bottom" delay={150}>
+				<button
+					type="button"
+					class="close-button"
+					aria-label="Close tab"
+					on:click={handleDelete}
+				>
+					<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+					</svg>
+				</button>
+			</Tooltip>
 		{/if}
 	</button>
 
@@ -217,12 +220,13 @@
 {#if showPalette}
 	<div class="color-palette-overlay" bind:this={paletteElement} use:portal use:overlayLayer style="left: {paletteX}px; top: {paletteY}px;" on:click|stopPropagation>
 		{#each paletteColors as c}
+			<Tooltip text={c ? c : 'No color'} position="bottom" delay={150}>
 			<button
 				type="button"
 				class="palette-swatch"
 				class:active-swatch={color === c}
 				style={c ? `background-color: ${c};` : ''}
-				title={c ? c : 'No color'}
+				aria-label={c ? c : 'No color'}
 				on:click={() => selectColor(c)}
 			>
 				{#if c === null}
@@ -232,6 +236,7 @@
 					</svg>
 				{/if}
 			</button>
+			</Tooltip>
 		{/each}
 	</div>
 {/if}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { tabsStore, activeTab, generatingTab, isActiveTabGenerating } from '$lib/stores/tabs';
+	import { requestCloseTab } from '$lib/tabs/closeConfirm';
 	import type { PromptTabData, DirectorRunState, Tab } from '$lib/types/tabs';
 	import { authStore } from '$lib/stores/auth';
 	import { api, type GenerationRequest, type PromptPair, type PresetStyle } from '$lib/services/api';
@@ -778,9 +779,7 @@
 			addTab();
 		});
 		keybindingsStore.registerHandler('close_tab', () => {
-			if (tabs.length > 1) {
-				removeTab(activeTabId);
-			}
+			requestCloseTab(activeTabId);
 		});
 		keybindingsStore.registerHandler('toggle_left_panel', () => {
 			tabsStore.updateTab(activeTabId, { leftPanelCollapsed: !currentTab.leftPanelCollapsed });
@@ -1780,12 +1779,6 @@
 
 	function addTab() {
 		tabsStore.addTab();
-	}
-
-	function removeTab(tabId: string) {
-		if (tabs.length > 1) {
-			tabsStore.removeTab(tabId);
-		}
 	}
 
 	function setActiveTab(tabId: string) {

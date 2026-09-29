@@ -16,6 +16,8 @@
 	import { workspaceHasUnsavedChanges, hasUnsavedWorkOutsideTab } from '$lib/utils/newWorkspace';
 	import { requestTabSave } from '$lib/stores/workspaceSaveRequest';
 	import { queryTabDirty } from '$lib/stores/workspaceDirtyQuery';
+	import CloseTabModal from '$lib/tabs/CloseTabModal.svelte';
+	import { requestCloseTab } from '$lib/tabs/closeConfirm';
 
 	// Mostly self-contained: reads/writes tabsStore directly. The session
 	// picker lives in the generation console bar's session/save cells, not here.
@@ -204,9 +206,7 @@
 	}
 
 	function removeTab(tabId: string) {
-		if (tabs.length > 1) {
-			tabsStore.removeTab(tabId);
-		}
+		requestCloseTab(tabId);
 	}
 
 	function setActiveTab(tabId: string) {
@@ -286,6 +286,8 @@
 	}
 </script>
 
+
+<CloseTabModal />
 
 <!-- Generation Tab Bar at Top (Desktop) -->
 <div class="tab-bar-container flex-shrink-0 hidden md:block">

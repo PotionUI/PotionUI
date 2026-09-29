@@ -1,30 +1,20 @@
 import type { Tab } from '$lib/types/tabs';
+import { tabHasUnsavedSessionChanges } from '$lib/utils/unsavedChangesGuard';
 
-/**
- * A tab carries unsaved workspace state if either:
- *  - it's bound to a session, and `savedSessionSignature === null` — the
- *    deliberate "historical restore is dirty" baseline from
- *    sessionTabState.ts's `sessionIsDirty` (same cheap cross-tab signal
- *    StudioPresetSessionSheet's `isTabDirty` already uses for its per-tab dot;
- *    a full diff needs the tab's live prompt/form state, which only exists
- *    for the ACTIVE tab's mounted SessionCluster — see
- *    `stores/workspaceDirtyQuery.ts` for how the active tab's real-time
- *    answer is layered on top of this at click time), or
- *  - it was never saved as a session at all, but has diverged from a
- *    pristine just-created tab (a preset picked, or any prompt/form content
- *    typed). An unsaved draft is still unsaved work — "dirty draft is
- *    authoritative", never silently discarded without asking.
- */
+function formDiffersFromBaseline(tab: Tab): boolean {
+	if (!tab.formPublished || tab.formBaselineSignature === undefined) return false;
+	return JSON.stringify(tab.formData ?? {}) !== tab.formBaselineSignature;
+}
+
 export function tabHasUnsavedWork(tab: Tab): boolean {
-	if (tab.selectedSessionId) return tab.savedSessionSignature === null;
+	if (tab.selectedSessionId) return tabHasUnsavedSessionChanges(tab);
 	return !!(
-		tab.selectedPreset ||
 		tab.prompt?.trim() ||
 		tab.negativePrompt?.trim() ||
 		(tab.promptSegments && tab.promptSegments.length > 0) ||
 		(tab.negativePromptSegments && tab.negativePromptSegments.length > 0) ||
-		(tab.formData && Object.keys(tab.formData).length > 0) ||
-		(tab.variables && Object.keys(tab.variables).length > 0)
+		(tab.variables && Object.keys(tab.variables).length > 0) ||
+		formDiffersFromBaseline(tab)
 	);
 }
 

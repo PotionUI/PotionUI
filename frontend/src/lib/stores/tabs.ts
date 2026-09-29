@@ -291,7 +291,7 @@ function createTabsStore() {
 				const nextTab: Tab = {
 					...current,
 					...updates,
-					...(schemaChanged ? { formPublished: false } : {}),
+					...(schemaChanged ? { formPublished: false, formBaselineSignature: undefined } : {}),
 					generation: updates.generation
 						? { ...current.generation, ...updates.generation }
 						: current.generation

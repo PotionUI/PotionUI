@@ -142,9 +142,11 @@ export function formDataPublicationPatch(
 		| 'selectedSessionId'
 		| 'selectedMode'
 		| 'savedSessionSignature'
+		| 'formPublished'
 	>,
 	formData: Record<string, unknown>
 ): Partial<Tab> {
+	const baseline = tab.formPublished ? {} : { formBaselineSignature: JSON.stringify(formData) };
 	if (tab.sessionBaselineAwaitingFormNormalization && tab.selectedSessionId && tab.selectedMode) {
 		return {
 			formData,
@@ -154,8 +156,9 @@ export function formDataPublicationPatch(
 				formData
 			),
 			sessionBaselineAwaitingFormNormalization: false,
-			formPublished: true
+			formPublished: true,
+			...baseline
 		};
 	}
-	return { formData, formPublished: true };
+	return { formData, formPublished: true, ...baseline };
 }

@@ -80,8 +80,55 @@ describe('tabHasUnsavedWork', () => {
 		).toBe(false);
 	});
 
-	it('is true for a never-saved tab with a preset picked', () => {
-		expect(tabHasUnsavedWork(pristineTab({ selectedPreset: 'native/SDXL/realistic' }))).toBe(true);
+	it('is false for a never-saved tab with only a preset picked and its published default form data', () => {
+		expect(
+			tabHasUnsavedWork(
+				pristineTab({
+					selectedPreset: 'native/SDXL/realistic',
+					formData: { steps: 30, cfg: 7 },
+					formPublished: true,
+					formBaselineSignature: JSON.stringify({ steps: 30, cfg: 7 })
+				})
+			)
+		).toBe(false);
+	});
+
+	it('is true for a never-saved tab whose published form differs from its baseline', () => {
+		expect(
+			tabHasUnsavedWork(
+				pristineTab({
+					selectedPreset: 'native/SDXL/realistic',
+					formData: { steps: 45, cfg: 7 },
+					formPublished: true,
+					formBaselineSignature: JSON.stringify({ steps: 30, cfg: 7 })
+				})
+			)
+		).toBe(true);
+	});
+
+	it('ignores form data that has not been published for the current schema', () => {
+		expect(
+			tabHasUnsavedWork(
+				pristineTab({
+					formData: { steps: 45 },
+					formPublished: false,
+					formBaselineSignature: JSON.stringify({ steps: 30 })
+				})
+			)
+		).toBe(false);
+	});
+
+	it('is true for a session-bound tab edited after its last save', () => {
+		expect(
+			tabHasUnsavedWork(
+				pristineTab({
+					selectedSessionId: 'session-a',
+					selectedMode: 'txt2img',
+					prompt: 'edited',
+					savedSessionSignature: JSON.stringify({ txt2img: { prompt: 'saved' } })
+				})
+			)
+		).toBe(true);
 	});
 
 	it('is true for a never-saved tab with typed prompt content', () => {
@@ -93,10 +140,6 @@ describe('tabHasUnsavedWork', () => {
 		expect(
 			tabHasUnsavedWork(pristineTab({ promptSegments: [{ id: 's1', content: 'a cat' } as any] }))
 		).toBe(true);
-	});
-
-	it('is true for a never-saved tab with form data', () => {
-		expect(tabHasUnsavedWork(pristineTab({ formData: { steps: 30 } }))).toBe(true);
 	});
 
 	it('is true for a never-saved tab with variables', () => {
@@ -120,7 +163,7 @@ describe('workspaceHasUnsavedChanges / decideNewWorkspaceAction', () => {
 	it('confirms when any single tab has unsaved work', () => {
 		const tabs = [
 			pristineTab({ id: 't1' }),
-			pristineTab({ id: 't2', selectedPreset: 'native/SDXL/realistic' })
+			pristineTab({ id: 't2', prompt: 'a cat' })
 		];
 		expect(workspaceHasUnsavedChanges(tabs)).toBe(true);
 		expect(decideNewWorkspaceAction(tabs)).toBe('confirm');

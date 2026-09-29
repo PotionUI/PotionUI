@@ -262,7 +262,7 @@ class ChatRuntime:
         return self._sessions.admin_delete_session(session_id)
 
     def delete_all_sessions(self) -> int:
-        return self._m.chat_repository.delete_all_sessions()
+        return self.chat_repository.delete_all_sessions()
 
     def accept_session(self, session_id: str, user_id: str) -> bool:
         return self._sessions.accept_session(session_id, user_id)

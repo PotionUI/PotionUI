@@ -114,6 +114,14 @@ class TestAdminBulkDeleteSessionsController(PersistenceTestBase):
         self._assert_gone(self.session_a.id)
         self._assert_present(self.session_b.id)
 
+    def test_clear_sessions_deletes_every_session_with_messages_and_traces(self):
+        response = self.controller.clear_sessions()
+
+        self.assertTrue(response.success)
+        self.assertEqual(response.data["deleted"], 2)
+        self._assert_gone(self.session_a.id)
+        self._assert_gone(self.session_b.id)
+
     def test_user_path_still_refuses_another_users_session(self):
         response = self.controller.delete_session(
             self.session_b.id, _user(AccountType.USER, self.user_a)

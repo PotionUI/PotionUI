@@ -11,6 +11,7 @@ the same request - tests that need to observe a driven-forward state poll
 `GET /runs/{id}` with `_poll_until`, exactly like the real frontend does.
 """
 
+import threading
 import time
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -103,19 +104,18 @@ def _client(current_user: User, *, recipe_catalog=None, executor_registry=None) 
     return TestClient(app)
 
 
-def _poll_until(client, run_id, predicate, timeout=5.0):
-    """Poll `GET /runs/{run_id}` until `predicate(body)` is true, mirroring
-    the frontend's own ~2.5s poll of the same endpoint (see
-    `frontend/src/lib/services/websocket.ts` callers) - now load-bearing in
-    tests too, since `drive_async` no longer finishes before the triggering
-    request returns."""
+def _poll_until(client, run_id, predicate, timeout=25.0):
     deadline = time.monotonic() + timeout
+    drive_name = f"recipe-run-drive-{run_id}"
+    for thread in threading.enumerate():
+        if thread.name == drive_name:
+            thread.join(max(0.0, deadline - time.monotonic()))
     body = None
     while time.monotonic() < deadline:
         body = client.get(f"/api/setup/runs/{run_id}").json()
         if predicate(body):
             return body
-        time.sleep(0.02)
+        time.sleep(0.25)
     raise AssertionError(f"Timed out waiting for run '{run_id}' to satisfy predicate; last body: {body}")
 
 

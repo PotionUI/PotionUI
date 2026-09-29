@@ -64,18 +64,21 @@ def test_token_count_matches_resolution_cubed():
 
 
 def test_timestep_used_as_is_no_internal_rescale():
-    """The x1000 scale is the caller's job (flow_euler.py's sampler); the model
-    must treat whatever ``t`` it's handed as final. Two different raw floats
-    must produce two different outputs (the embedding isn't a constant / isn't
-    silently re-normalized to [0, 1] internally)."""
     m = _build()
     x = torch.randn(1, TINY.in_channels, TINY.resolution, TINY.resolution, TINY.resolution)
     cond = torch.randn(1, 5, TINY.cond_channels)
+    seen = []
+    handle = m.t_embedder.register_forward_pre_hook(lambda _mod, args: seen.append(args[0].detach().clone()))
 
-    out_a = m(x, torch.tensor([100.0]), cond)
-    out_b = m(x, torch.tensor([900.0]), cond)
+    try:
+        m(x, torch.tensor([100.0]), cond)
+        m(x, torch.tensor([900.0]), cond)
+    finally:
+        handle.remove()
 
-    assert not torch.allclose(out_a, out_b)
+    assert len(seen) == 2
+    assert torch.equal(seen[0], torch.tensor([100.0]))
+    assert torch.equal(seen[1], torch.tensor([900.0]))
 
 
 def test_post_load_rebuilds_complex_rope_buffer():

@@ -4,11 +4,11 @@ import { loginAsOwner } from './helpers';
 const SHOTS = process.env.ADD_DOWNLOAD_SHOTS;
 
 const TYPES = [
-	{ type: 'controlnet', directory: '/mnt/ssd2/models/controlnet', count: 0, subdirectories: [] },
-	{ type: 'lora', directory: '/mnt/ssd2/models/loras', count: 831, subdirectories: ['sdxl', 'sdxl/characters'] },
-	{ type: 'checkpoint', directory: '/mnt/ssd2/models/checkpoints', count: 12, subdirectories: ['sdxl', 'flux'] },
-	{ type: 'diffusion_model', directory: '/mnt/ssd2/models/diffusion_models', count: 71, subdirectories: [] },
-	{ type: 'vae', directory: '/mnt/ssd2/models/vae', count: 0, subdirectories: [] }
+	{ type: 'controlnet', directory: '/srv/potionui/models/controlnet', count: 0, subdirectories: [] },
+	{ type: 'lora', directory: '/srv/potionui/models/loras', count: 831, subdirectories: ['sdxl', 'sdxl/characters'] },
+	{ type: 'checkpoint', directory: '/srv/potionui/models/checkpoints', count: 12, subdirectories: ['sdxl', 'flux'] },
+	{ type: 'diffusion_model', directory: '/srv/potionui/models/diffusion_models', count: 71, subdirectories: [] },
+	{ type: 'vae', directory: '/srv/potionui/models/vae', count: 0, subdirectories: [] }
 ];
 
 async function openDialog(page: Page, remote: boolean, width: number, height: number) {

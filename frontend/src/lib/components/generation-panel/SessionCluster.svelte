@@ -259,6 +259,7 @@
 			onNew={controller.startNew}
 			onRename={handleOpenSaveModal}
 			onDelete={handleDeleteSession}
+			onTogglePin={controller.togglePin}
 			onToggleAutoSave={controller.toggleAutosave}
 			onIntervalChange={controller.setAutosaveInterval}
 			onOpenHistory={controller.openHistory}

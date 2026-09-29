@@ -41,6 +41,11 @@ export function createSessionsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
+		async setSessionPinned(sessionId: string, pinned: boolean): Promise<APIResponse<Session>> {
+			const response = await client.put(`/api/sessions/${sessionId}/pin`, { pinned });
+			return response.data;
+		},
+
 		async deleteSession(sessionId: string): Promise<APIResponse<{ message: string }>> {
 			const response = await client.delete(`/api/sessions/${sessionId}`);
 			return response.data;

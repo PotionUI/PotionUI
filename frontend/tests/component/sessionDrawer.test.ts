@@ -46,6 +46,7 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 		onNew: vi.fn(),
 		onRename: vi.fn(),
 		onDelete: vi.fn(),
+		onTogglePin: vi.fn(),
 		onToggleAutoSave: vi.fn(),
 		onIntervalChange: vi.fn(),
 		onOpenHistory: vi.fn(),
@@ -449,5 +450,56 @@ describe('SessionDrawer keyboard and focus', () => {
 		instance = undefined;
 		await settle();
 		expect(document.activeElement).toBe(trigger);
+	});
+});
+
+describe('SessionDrawer pinning', () => {
+	function withPinned(id: string) {
+		return SESSIONS.map((s) => (s.id === id ? { ...s, pinned: true } : s));
+	}
+
+	it('hides the Pinned section when nothing is pinned', async () => {
+		open();
+		await settle();
+		expect(document.body.querySelector('[data-testid="pinned-head"]')).toBeNull();
+	});
+
+	it('lists pinned sessions under a Pinned header above the day groups', async () => {
+		open({ sessions: withPinned('c') });
+		await settle();
+		const head = document.body.querySelector('[data-testid="pinned-head"]')!;
+		expect(head.textContent).toContain('Pinned');
+		const pinnedRows = document.body.querySelectorAll('[data-testid="pinned-list"] [data-session-row]');
+		expect(Array.from(pinnedRows).map((el) => el.getAttribute('data-session-row'))).toEqual(['c']);
+		expect(rowNames()).toEqual(['Neon market', 'Forest fog']);
+	});
+
+	it('filters pinned sessions with the search box', async () => {
+		open({ sessions: withPinned('c') });
+		await settle();
+		type(document.body.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!, 'forest');
+		await settle();
+		expect(document.body.querySelector('[data-testid="pinned-head"]')).toBeNull();
+		expect(rowNames()).toEqual(['Forest fog']);
+	});
+
+	it('pin buttons report their state and call back with the session id', async () => {
+		const props = open({ sessions: withPinned('c') });
+		await settle();
+		const pin = button('Pin Forest fog');
+		expect(pin.getAttribute('aria-pressed')).toBe('false');
+		pin.click();
+		expect(props.onTogglePin).toHaveBeenCalledWith('b');
+		const unpin = button('Unpin Neon market');
+		expect(unpin.getAttribute('aria-pressed')).toBe('true');
+	});
+
+	it('the current session card carries its own pin toggle', async () => {
+		const props = open({ currentSession: { ...SESSIONS[0], pinned: true } });
+		await settle();
+		const card = button('Unpin session');
+		expect(card.getAttribute('aria-pressed')).toBe('true');
+		card.click();
+		expect(props.onTogglePin).toHaveBeenCalledWith('a');
 	});
 });

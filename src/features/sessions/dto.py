@@ -18,6 +18,8 @@ class Session(BaseModel):
     data: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: Optional[datetime] = None
+    pinned: bool = False
+    pinned_at: Optional[datetime] = None
 
 
 class SessionResponse(BaseModel):
@@ -28,6 +30,11 @@ class SessionResponse(BaseModel):
     data: Dict[str, Any]
     created_at: str
     updated_at: str
+    pinned: bool = False
+
+
+class PinSessionRequest(BaseModel):
+    pinned: bool
 
 
 class SaveSessionRequest(BaseModel):

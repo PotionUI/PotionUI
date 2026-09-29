@@ -23,6 +23,28 @@ export function filterSessions(sessions: Session[], query: string, excludeId = '
 	);
 }
 
+export function splitPinned(sessions: Session[]): { pinned: Session[]; rest: Session[] } {
+	return {
+		pinned: sessions.filter((session) => session.pinned),
+		rest: sessions.filter((session) => !session.pinned)
+	};
+}
+
+function updatedTime(session: Session): number {
+	return parseServerDate(session.updated_at)?.getTime() ?? 0;
+}
+
+export function applyPin(sessions: Session[], sessionId: string, pinned: boolean): Session[] {
+	const target = sessions.find((session) => session.id === sessionId);
+	if (!target) return sessions;
+	const others = sessions.filter((session) => session.id !== sessionId);
+	const updated = { ...target, pinned };
+	const keptPinned = others.filter((session) => session.pinned);
+	const rest = others.filter((session) => !session.pinned);
+	if (pinned) return [updated, ...keptPinned, ...rest];
+	return [...keptPinned, ...[...rest, updated].sort((a, b) => updatedTime(b) - updatedTime(a))];
+}
+
 function sessionBucket(session: Session, now: Date): string {
 	const updated = parseServerDate(session.updated_at);
 	if (!updated) return 'Earlier';
@@ -37,10 +59,7 @@ function sessionBucket(session: Session, now: Date): string {
 const BUCKET_ORDER = ['Today', 'Yesterday', 'This week', 'This month', 'Earlier'];
 
 export function groupSessions(sessions: Session[], now: Date = new Date()): Group<Session>[] {
-	const sorted = [...sessions].sort(
-		(a, b) =>
-			(parseServerDate(b.updated_at)?.getTime() ?? 0) - (parseServerDate(a.updated_at)?.getTime() ?? 0)
-	);
+	const sorted = [...sessions].sort((a, b) => updatedTime(b) - updatedTime(a));
 	const buckets = new Map<string, Session[]>();
 	for (const session of sorted) {
 		const label = sessionBucket(session, now);

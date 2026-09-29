@@ -65,6 +65,7 @@ import { resolveVariant } from '$lib/utils/variants';
 import { buildSessionRestoreTabPatch } from '$lib/utils/sessionRestore';
 import { seedModeStateFromSessionData, emptyModeState } from '$lib/utils/modeState';
 import { timeAgo, parseServerDate } from '$lib/utils/relativeTime';
+import { applyPin } from '$lib/session/sessionDrawerModel';
 import {
 	collectTabSessionData,
 	isSessionGoneError,
@@ -194,6 +195,7 @@ export interface SessionControllerApi {
 		request: { name: string; data: ModeBasedSessionData }
 	): Promise<ApiResult<Session>>;
 	deleteSession(sessionId: string): Promise<ApiResult<{ message: string }>>;
+	setSessionPinned(sessionId: string, pinned: boolean): Promise<ApiResult<Session>>;
 	getSessionVersions(
 		sessionId: string,
 		page?: { limit?: number; before?: number }
@@ -295,6 +297,7 @@ export interface SessionController {
 	 *  caller should close its modal. */
 	saveAs(name: string, mode: 'rename' | 'save-as'): Promise<boolean>;
 	deleteSession(): Promise<boolean>;
+	togglePin(sessionId: string): Promise<void>;
 	startNew(): void;
 	/** Declared by the view when it opens a dialog and again when it closes or
 	 *  cancels one, so a completion cannot answer for a later opening. */
@@ -1378,6 +1381,29 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		return deleted;
 	}
 
+	function setPinnedLocally(sessionId: string, pinned: boolean) {
+		sessions = applyPin(sessions, sessionId, pinned);
+		if (currentSession?.id === sessionId) currentSession = { ...currentSession, pinned };
+	}
+
+	async function togglePin(sessionId: string) {
+		const target = sessions.find((s) => s.id === sessionId);
+		if (!target) return;
+		const next = !target.pinned;
+		setPinnedLocally(sessionId, next);
+		publish();
+		try {
+			const response = await deps.api.setSessionPinned(sessionId, next);
+			if (!response.success) throw new Error(response.error || 'Failed to update pin');
+		} catch (err) {
+			deps.logger.error('Failed to pin session:', err);
+			if (destroyed) return;
+			setPinnedLocally(sessionId, !next);
+			deps.toasts.error(err instanceof Error ? err.message : 'Failed to update pin');
+			publish();
+		}
+	}
+
 	// Session history: list this session's past saves.
 	async function openHistory(sessionId: string) {
 		openDialog('history');
@@ -1565,6 +1591,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		quickSave,
 		saveAs,
 		deleteSession,
+		togglePin,
 		startNew,
 		openDialog,
 		closeDialog,

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
-from src.features.sessions.dto import SaveSessionRequest, UpdateSessionRequest
+from src.features.sessions.dto import PinSessionRequest, SaveSessionRequest, UpdateSessionRequest
 from src.features.sessions import operations
 from src.features.sessions.mappers import (
     session_to_response_dict,
@@ -157,6 +157,24 @@ class SessionController(BaseController):
                 message=f"Failed to update session: {str(e)}"
             )
 
+    async def set_session_pinned(self, user_id: str, session_id: str, request: PinSessionRequest) -> APIResponse:
+        def _pin():
+            self._get_session_or_404(user_id, session_id)
+            return self.repository.set_pinned(session_id, request.pinned)
+
+        try:
+            session = await asyncio.to_thread(_pin)
+            if session is None:
+                raise ValueError("Session not found")
+            return self.success_response(data=session_to_response_dict(session))
+        except ValueError as e:
+            return self.error_response(error="session_not_found", message=str(e), status_code=404)
+        except Exception as e:
+            return self.error_api_response(
+                error="pin_session_failed",
+                message=f"Failed to pin session: {str(e)}"
+            )
+
     async def list_session_versions(
         self,
         user_id: str,
@@ -286,6 +304,14 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def save_session(request: SaveSessionRequest, current_user=Depends(get_current_active_user)):
         """Save a new session or update existing one with same name."""
         return await controller.save_session(current_user.id, request)
+
+    @router.put("/{session_id}/pin", response_model=APIResponse, summary="Pin or Unpin Session")
+    async def set_session_pinned(
+        session_id: str,
+        request: PinSessionRequest,
+        current_user=Depends(get_current_active_user)
+    ):
+        return await controller.set_session_pinned(current_user.id, session_id, request)
 
     @router.put("/{session_id}", response_model=APIResponse, summary="Update Session")
     async def update_session(

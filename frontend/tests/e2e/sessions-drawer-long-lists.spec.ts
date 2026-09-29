@@ -36,6 +36,18 @@ async function seedSessions(page: Page, presetId: string): Promise<void> {
 	}
 }
 
+async function expectPresetPersisted(page: Page, presetId: string): Promise<void> {
+	await expect
+		.poll(() =>
+			page.evaluate((id) => {
+				const raw = localStorage.getItem('potionui_tabs_state');
+				const state = raw ? JSON.parse(raw) : null;
+				return Boolean(state?.tabs?.some((t: { selectedPreset: unknown }) => JSON.stringify(t.selectedPreset ?? '').includes(id)));
+			}, presetId)
+		)
+		.toBe(true);
+}
+
 async function expectInsideViewport(page: Page, drawer: Locator): Promise<void> {
 	await page.waitForTimeout(300);
 	const box = await drawer.boundingBox();
@@ -212,4 +224,61 @@ test('the keep-open drawer is wider on large screens and leaves the generate pag
 		expect(clipped, 'the newest version headline fits without an ellipsis').toBe(false);
 		await screenshot(page, JOURNEY, `08-keep-open-${width}`);
 	}
+});
+
+test('a pinned session moves into the Pinned section and stays there after the drawer is reopened', async ({ page }) => {
+	test.setTimeout(240000);
+	await loginAsOwner(page);
+
+	const preset = await installAndSelectImagePreset(page);
+	if (!preset) {
+		test.skip(true, 'No native image preset available on this throwaway instance.');
+		return;
+	}
+	const headers = { Authorization: `Bearer ${await ownerToken(page)}` };
+	const payload = (prompt: string) => ({ txt2img: { prompt, negativePrompt: '', formData: {} } });
+	for (const name of ['Pin target', 'Pin bystander', 'Pin current']) {
+		const res = await page.request.post('/api/sessions/save', {
+			headers,
+			data: { preset_id: preset.id, name, data: payload(name) }
+		});
+		expect(res.ok(), `seed ${name}: ${res.status()}`).toBeTruthy();
+	}
+
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await expectPresetPersisted(page, preset.id);
+	await page.reload();
+	await page.waitForLoadState('networkidle');
+
+	let drawer = await openDrawer(page);
+	await expect(drawer.locator('[data-session-row]').first()).toBeVisible({ timeout: 10000 });
+	await expect(drawer.getByTestId('pinned-head')).toHaveCount(0);
+
+	const pinResponse = page.waitForResponse(
+		(response) => response.url().includes('/pin') && response.request().method() === 'PUT'
+	);
+	await drawer.getByRole('button', { name: 'Pin Pin target' }).click();
+	expect((await pinResponse).ok()).toBeTruthy();
+	await expect(drawer.getByTestId('pinned-head')).toBeVisible();
+	await expect(drawer.getByTestId('pinned-list').locator('[data-session-row]')).toHaveCount(1);
+	await expect(drawer.getByRole('button', { name: 'Unpin Pin target' })).toHaveAttribute('aria-pressed', 'true');
+	await screenshot(page, JOURNEY, '06-pinned-section');
+
+	await page.keyboard.press('Escape');
+	await expect(drawer).toBeHidden();
+	await expectPresetPersisted(page, preset.id);
+	await page.reload();
+	await page.waitForLoadState('networkidle');
+
+	drawer = await openDrawer(page);
+	const pinned = drawer.getByTestId('pinned-list').locator('[data-session-row]');
+	await expect(pinned).toHaveCount(1, { timeout: 10000 });
+	await expect(pinned.first()).toContainText('Pin target');
+
+	await drawer.getByLabel('Search sessions').fill('bystander');
+	await expect(drawer.getByTestId('pinned-head')).toHaveCount(0);
+	await drawer.getByLabel('Search sessions').fill('');
+
+	await drawer.getByRole('button', { name: 'Unpin Pin target' }).click();
+	await expect(drawer.getByTestId('pinned-head')).toHaveCount(0);
 });

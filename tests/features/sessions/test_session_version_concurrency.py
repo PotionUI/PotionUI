@@ -24,6 +24,8 @@ CREATE TABLE sessions (
     data TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    pinned INTEGER NOT NULL DEFAULT 0,
+    pinned_at TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
     UNIQUE(user_id, preset_id, name)
 );

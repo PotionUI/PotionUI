@@ -202,6 +202,7 @@
 				onNew={() => undefined}
 				onRename={() => undefined}
 				onDelete={() => undefined}
+				onTogglePin={() => undefined}
 				onToggleAutoSave={() => (demoAutoSave = !demoAutoSave)}
 				onIntervalChange={(interval) => (demoAutoSaveInterval = interval)}
 				onOpenHistory={() => undefined}

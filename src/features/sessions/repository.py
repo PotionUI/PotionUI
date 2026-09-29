@@ -30,7 +30,9 @@ class SessionRepository:
             name=row['name'],
             data=data,
             created_at=dt_column(row['created_at']) or now_utc(),
-            updated_at=dt_column(row['updated_at'])
+            updated_at=dt_column(row['updated_at']),
+            pinned=bool(row['pinned']),
+            pinned_at=dt_column(row['pinned_at'])
         )
 
     def create(self, session: Session) -> Session:
@@ -87,7 +89,7 @@ class SessionRepository:
             cursor.execute("""
                 SELECT * FROM sessions
                 WHERE user_id = ? AND preset_id = ?
-                ORDER BY updated_at DESC
+                ORDER BY pinned DESC, pinned_at DESC, updated_at DESC
             """, (user_id, preset_id))
 
             rows = cursor.fetchall()
@@ -128,7 +130,9 @@ class SessionRepository:
 
             conn.commit()
 
-            # Return updated session
+            cursor.execute("SELECT pinned, pinned_at FROM sessions WHERE id = ?", (session.id,))
+            pin_row = cursor.fetchone()
+
             return Session(
                 id=session.id,
                 user_id=session.user_id,
@@ -136,8 +140,23 @@ class SessionRepository:
                 name=session.name,
                 data=session.data,
                 created_at=session.created_at,
-                updated_at=updated_at
+                updated_at=updated_at,
+                pinned=bool(pin_row['pinned']) if pin_row else False,
+                pinned_at=dt_column(pin_row['pinned_at']) if pin_row else None
             )
+
+    def set_pinned(self, session_id: str, pinned: bool) -> Optional[Session]:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            pinned_at = datetime.now(timezone.utc).isoformat() if pinned else None
+            cursor.execute(
+                "UPDATE sessions SET pinned = ?, pinned_at = ? WHERE id = ?",
+                (1 if pinned else 0, pinned_at, session_id)
+            )
+            conn.commit()
+            cursor.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
+            row = cursor.fetchone()
+            return self._row_to_session(row) if row else None
 
     def delete(self, session_id: str) -> bool:
         """Delete a session."""

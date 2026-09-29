@@ -13,6 +13,7 @@
 	import {
 		filterSessions,
 		groupSessions,
+		splitPinned,
 		groupVersionsByDay,
 		versionHeadline,
 		versionChanges,
@@ -48,6 +49,7 @@
 		onNew,
 		onRename,
 		onDelete,
+		onTogglePin,
 		onToggleAutoSave,
 		onIntervalChange,
 		onOpenHistory,
@@ -75,6 +77,7 @@
 		onNew: () => void;
 		onRename: () => void;
 		onDelete: () => void;
+		onTogglePin: (sessionId: string) => void;
 		onToggleAutoSave: () => void;
 		onIntervalChange: (interval: number) => void;
 		onOpenHistory: (sessionId: string) => void;
@@ -104,7 +107,9 @@
 	let keepOpen = $derived(keepOpenPref && viewportWidth >= KEEP_OPEN_MIN_WIDTH);
 	let desktopSearchFocus = $derived(viewportWidth > 640);
 	let filtered = $derived(filterSessions(sessions, query, currentSession?.id ?? ''));
-	let groups = $derived(groupSessions(filtered));
+	let split = $derived(splitPinned(filtered));
+	let pinnedSessions = $derived(split.pinned);
+	let groups = $derived(groupSessions(split.rest));
 	let currentExpanded = $derived(!!currentSession && historySessionId === currentSession.id);
 	let versionsSession = $derived(sessions.find((s) => s.id === historySessionId) ?? null);
 	let versionGroups = $derived(groupVersionsByDay(historyVersions.slice(0, versionsShown)));
@@ -373,6 +378,17 @@
 					></span>
 					<span class="min-w-0 flex-1 truncate text-md font-semibold text-fg" data-testid="current-session-name">{currentSession?.name ?? 'No saved session'}</span>
 					{#if currentSession}
+						{@const currentPinned = !!currentSession.pinned}
+						<Tooltip text={currentPinned ? 'Unpin session' : 'Pin session'} position="bottom" delay={150}>
+							<IconButton
+								icon="pin"
+								label={currentPinned ? 'Unpin session' : 'Pin session'}
+								size="sm"
+								active={currentPinned}
+								ariaPressed={currentPinned}
+								onclick={() => onTogglePin(currentSession.id)}
+							/>
+						</Tooltip>
 						<Tooltip text="Rename session" position="bottom" delay={150}>
 							<IconButton icon="edit" label="Rename session" size="sm" onclick={onRename} />
 						</Tooltip>
@@ -433,40 +449,19 @@
 					{query ? 'Only this preset’s sessions are searched.' : 'Sessions you save for this preset appear here.'}
 				</div>
 			{:else}
+				{#if pinnedSessions.length > 0}
+					<div class="group-head" data-testid="pinned-head">Pinned<span>{pinnedSessions.length}</span></div>
+					<ul class="m-0 list-none p-0" data-testid="pinned-list">
+						{#each pinnedSessions as session (session.id)}
+							{@render sessionRow(session)}
+						{/each}
+					</ul>
+				{/if}
 				{#each groups as group (group.label)}
 					<div class="group-head">{group.label}<span>{group.items.length}</span></div>
 					<ul class="m-0 list-none p-0">
 						{#each group.items as session (session.id)}
-							{@const expanded = historySessionId === session.id}
-							<li class="item mx-2 rounded" data-session-id={session.id}>
-								<div class="row relative flex min-h-[52px] items-center gap-0.5 rounded pr-1 hover:bg-surface-2">
-									<button
-										type="button"
-										class="rmain flex min-h-[52px] min-w-0 flex-1 flex-col justify-center rounded px-3 text-left"
-										data-nav
-										data-session-row={session.id}
-										onclick={() => loadSession(session.id)}
-									>
-										<span class="block truncate text-sm text-fg">{session.name}</span>
-										<Tooltip text={fullDateTime(session.updated_at)} position="bottom" delay={300}>
-											<span class="font-mono text-xs tabular-nums text-fg-subtle">Updated {timeAgo(session.updated_at)}</span>
-										</Tooltip>
-									</button>
-									<Tooltip text={expanded ? 'Hide versions' : 'Show versions'} position="left" delay={150}>
-										<IconButton
-											icon="chevron-right"
-											label={expanded ? `Hide versions of ${session.name}` : `Show versions of ${session.name}`}
-											size="sm"
-											ariaExpanded={expanded}
-											class={expanded ? 'rotate-90' : ''}
-											onclick={() => toggleVersions(session.id)}
-										/>
-									</Tooltip>
-								</div>
-								{#if expanded}
-									<div class="acc">{@render versionList(session.id)}</div>
-								{/if}
-							</li>
+							{@render sessionRow(session)}
 						{/each}
 					</ul>
 				{/each}
@@ -494,6 +489,49 @@
 		{/if}
 	</footer>
 </div>
+
+{#snippet sessionRow(session: Session)}
+{@const expanded = historySessionId === session.id}
+<li class="item mx-2 rounded" data-session-id={session.id}>
+	<div class="row relative flex min-h-[52px] items-center gap-0.5 rounded pr-1 hover:bg-surface-2">
+		<button
+			type="button"
+			class="rmain flex min-h-[52px] min-w-0 flex-1 flex-col justify-center rounded px-3 text-left"
+			data-nav
+			data-session-row={session.id}
+			onclick={() => loadSession(session.id)}
+		>
+			<span class="block truncate text-sm text-fg">{session.name}</span>
+			<Tooltip text={fullDateTime(session.updated_at)} position="bottom" delay={300}>
+				<span class="font-mono text-xs tabular-nums text-fg-subtle">Updated {timeAgo(session.updated_at)}</span>
+			</Tooltip>
+		</button>
+		<Tooltip text={session.pinned ? 'Unpin session' : 'Pin session'} position="left" delay={150}>
+			<IconButton
+				icon="pin"
+				label={session.pinned ? `Unpin ${session.name}` : `Pin ${session.name}`}
+				size="sm"
+				active={!!session.pinned}
+				ariaPressed={!!session.pinned}
+				onclick={() => onTogglePin(session.id)}
+			/>
+		</Tooltip>
+		<Tooltip text={expanded ? 'Hide versions' : 'Show versions'} position="left" delay={150}>
+			<IconButton
+				icon="chevron-right"
+				label={expanded ? `Hide versions of ${session.name}` : `Show versions of ${session.name}`}
+				size="sm"
+				ariaExpanded={expanded}
+				class={expanded ? 'rotate-90' : ''}
+				onclick={() => toggleVersions(session.id)}
+			/>
+		</Tooltip>
+	</div>
+	{#if expanded}
+		<div class="acc">{@render versionList(session.id)}</div>
+	{/if}
+</li>
+{/snippet}
 
 {#snippet versionList(sessionId: string)}
 	<div class="pt-0.5">

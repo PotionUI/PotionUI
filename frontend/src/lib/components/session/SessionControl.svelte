@@ -30,6 +30,7 @@
 	export let onNew: () => void;
 	export let onRename: () => void;
 	export let onDelete: () => void;
+	export let onTogglePin: (sessionId: string) => void;
 	export let onToggleAutoSave: () => void;
 	export let onIntervalChange: (interval: number) => void;
 	export let onOpenHistory: (sessionId: string) => void;
@@ -160,6 +161,7 @@
 			{onNew}
 			{onRename}
 			{onDelete}
+			{onTogglePin}
 			{onToggleAutoSave}
 			{onIntervalChange}
 			{onOpenHistory}

@@ -138,6 +138,10 @@ function createFakeApi() {
 		saveSession: vi.fn(async () => ({ success: true, data: makeSession('new') })),
 		updateSession: vi.fn(async (id: string) => ({ success: true, data: makeSession(id) })),
 		deleteSession: vi.fn(async () => ({ success: true, data: { message: 'ok' } })),
+		setSessionPinned: vi.fn(async (id: string, pinned: boolean) => ({
+			success: true,
+			data: makeSession(id, { pinned })
+		})),
 		getSessionVersions: vi.fn(async () => ({ success: true, data: [] })),
 		getSessionVersion: vi.fn(async () => ({
 			success: true,
@@ -1829,6 +1833,67 @@ describe('createSessionController', () => {
 		const state = get(controller.state);
 		expect(state.currentSession?.name).toBe('Saved just now');
 		expect(state.sessions.find((entry) => entry.id === SESSION_A)?.name).toBe('Stale summary');
+	});
+});
+
+describe('createSessionController pinning', () => {
+	async function bootWithSessions() {
+		await bootWithDirtySession();
+		harness.api.getSessionsForPreset.mockResolvedValue({
+			success: true,
+			data: [makeSession(SESSION_A), makeSession(SESSION_B)]
+		});
+		await controller.loadSessions();
+		await settle();
+	}
+
+	function pinnedOf(id: string) {
+		return get(controller.state).sessions.find((s) => s.id === id)?.pinned;
+	}
+
+	it('flips the flag at once, sends the request and floats the session to the front', async () => {
+		await bootWithSessions();
+		const pending = deferred<{ success: boolean; data: Session }>();
+		harness.api.setSessionPinned.mockReturnValue(pending.promise as never);
+
+		const done = controller.togglePin(SESSION_B);
+		await settle();
+
+		expect(pinnedOf(SESSION_B)).toBe(true);
+		expect(get(controller.state).sessions[0].id).toBe(SESSION_B);
+		expect(harness.api.setSessionPinned).toHaveBeenCalledWith(SESSION_B, true);
+		pending.resolve({ success: true, data: makeSession(SESSION_B, { pinned: true }) });
+		await done;
+		expect(pinnedOf(SESSION_B)).toBe(true);
+	});
+
+	it('keeps the current session card in step with the list', async () => {
+		await bootWithSessions();
+
+		await controller.togglePin(SESSION_A);
+
+		expect(get(controller.state).currentSession?.pinned).toBe(true);
+	});
+
+	it('rolls the flag back and raises an error toast when the request is rejected', async () => {
+		await bootWithSessions();
+		harness.api.setSessionPinned.mockRejectedValue(new Error('boom'));
+
+		await controller.togglePin(SESSION_B);
+
+		expect(pinnedOf(SESSION_B)).toBe(false);
+		expect(harness.toasts.error).toHaveBeenCalledWith('boom');
+	});
+
+	it('rolls back when the server answers success false', async () => {
+		await bootWithSessions();
+		harness.api.setSessionPinned.mockResolvedValue({ success: false, error: 'nope' } as never);
+
+		await controller.togglePin(SESSION_A);
+
+		expect(pinnedOf(SESSION_A)).toBe(false);
+		expect(get(controller.state).currentSession?.pinned).toBe(false);
+		expect(harness.toasts.error).toHaveBeenCalledWith('nope');
 	});
 });
 

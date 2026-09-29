@@ -27,7 +27,8 @@ def session_to_response_dict(session: Session) -> Dict[str, Any]:
         'name': session.name,
         'data': session.data,
         'created_at': dt_iso(session.created_at),
-        'updated_at': dt_iso(session.updated_at)
+        'updated_at': dt_iso(session.updated_at),
+        'pinned': session.pinned
     }
 
 

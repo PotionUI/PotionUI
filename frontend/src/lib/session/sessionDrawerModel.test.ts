@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import type { Session, SessionVersionSummary } from '$lib/types/api';
 import {
 	filterSessions,
+	splitPinned,
+	applyPin,
 	groupSessions,
 	groupVersionsByDay,
 	versionHeadline,
@@ -122,5 +124,42 @@ describe('version rows', () => {
 		expect(discardConsequence({ kind: 'load' })).toBe('Loading another session replaces them.');
 		expect(discardConsequence({ kind: 'restore', versionNumber: 7 })).toBe('Restoring version v7 replaces them.');
 		expect(discardConsequence({ kind: 'new' })).toBe('Starting a new session clears them.');
+	});
+});
+
+describe('pinned sessions', () => {
+	const pinned = (id: string, name: string, daysAgo: number): Session => ({
+		...session(id, name, daysAgo),
+		pinned: true
+	});
+
+	it('splits pinned from the rest and keeps their order', () => {
+		const list = [pinned('a', 'A', 3), session('b', 'B', 0), pinned('c', 'C', 1)];
+		const { pinned: top, rest } = splitPinned(list);
+		expect(top.map((s) => s.id)).toEqual(['a', 'c']);
+		expect(rest.map((s) => s.id)).toEqual(['b']);
+	});
+
+	it('search narrows pinned sessions too', () => {
+		const list = [pinned('a', 'Neon alley', 3), pinned('c', 'Forest', 1), session('b', 'Neon market', 0)];
+		const { pinned: top } = splitPinned(filterSessions(list, 'neon'));
+		expect(top.map((s) => s.id)).toEqual(['a']);
+	});
+
+	it('pins to the front of the pinned block and unpins back into updated order', () => {
+		const list = [pinned('a', 'A', 3), session('b', 'B', 0), session('c', 'C', 5)];
+		const pinnedC = applyPin(list, 'c', true);
+		expect(pinnedC.map((s) => s.id)).toEqual(['c', 'a', 'b']);
+		const unpinnedA = applyPin(pinnedC, 'a', false);
+		expect(unpinnedA.map((s) => [s.id, !!s.pinned])).toEqual([
+			['c', true],
+			['b', false],
+			['a', false]
+		]);
+	});
+
+	it('leaves the list alone for an unknown id', () => {
+		const list = [session('a', 'A', 0)];
+		expect(applyPin(list, 'zzz', true)).toBe(list);
 	});
 });

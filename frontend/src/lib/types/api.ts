@@ -470,6 +470,7 @@ export interface Session {
 	data: ModeBasedSessionData;
 	created_at: string;
 	updated_at: string;
+	pinned?: boolean;
 }
 
 export interface SaveSessionRequest {

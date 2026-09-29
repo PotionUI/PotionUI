@@ -3567,17 +3567,23 @@ def test_the_image_only_reference_path_is_unchanged(tmp_path):
     )
     from src.pipelines.pipes.generator.video_minimax_h3.geometry import CANVAS_MULTIPLE
 
+    SMALL_EDGE = 64
     images = [_ref_image((64, 48)), _ref_image((48, 64))]
+    canvases = [normalize_reference_image(image, canvas_multiple=CANVAS_MULTIPLE, short_edge=SMALL_EDGE).size
+                for image in images]
+    assert canvases == [(96, 64), (64, 96)]
     kwargs = dict(patch_size=PATCH, device="cpu", dtype=torch.float32,
                   latents_mean=[0.0] * 24, latents_std=[1.0] * 24)
 
     legacy_latents, legacy_rows = prepare_reference_condition_rows(
-        [normalize_reference_image(image, canvas_multiple=CANVAS_MULTIPLE) for image in images],
-        vae_module=_RefVideoVae(), canvas_multiple=CANVAS_MULTIPLE,
+        [normalize_reference_image(image, canvas_multiple=CANVAS_MULTIPLE, short_edge=SMALL_EDGE)
+         for image in images],
+        vae_module=_RefVideoVae(), canvas_multiple=CANVAS_MULTIPLE, short_edge=SMALL_EDGE,
         generator=torch.Generator().manual_seed(11), **kwargs,
     )
     current = prepare_reference_conditioning(
-        normalize_references([ReferenceMedia(kind="image", image=image) for image in images], num_frames=22),
+        normalize_references([ReferenceMedia(kind="image", image=image) for image in images],
+                             num_frames=22, reference_short_edge=SMALL_EDGE),
         vae_module=_RefVideoVae(), generator=torch.Generator().manual_seed(11), **kwargs,
     )
 

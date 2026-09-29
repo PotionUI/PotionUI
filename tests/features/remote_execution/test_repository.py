@@ -4,9 +4,7 @@ The repository resolves `db` at call time from `src.platform.database.database`,
 so patching that one canonical name redirects it to the test database below.
 """
 
-import io
 import sqlite3
-import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -20,7 +18,7 @@ from src.features.remote_execution.records import (
 )
 from src.features.remote_execution.repository import RemoteExecutionRepository
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationRunner
+from tests.fixtures.db_template import copy_template_db
 from src.platform.worker_protocol import JobErrorV1, JobEventKind, JobEventV1
 
 S = RemoteExecutionState
@@ -39,7 +37,6 @@ class RemoteExecutionRepositoryTestCase(unittest.TestCase):
 
         self._patchers = [
             patch("src.platform.database.database.db", self.db),
-            patch("src.platform.database.migration_runner.db", self.db),
         ]
         for p in self._patchers:
             p.start()
@@ -58,13 +55,7 @@ class RemoteExecutionRepositoryTestCase(unittest.TestCase):
         Database._instance = None
 
     def _run_migrations(self):
-        manager = MigrationRunner()
-        old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
-        try:
-            manager.run_migrations()
-        finally:
-            sys.stdout = old_stdout
+        copy_template_db(self.db.db_path)
 
     def _new(self, key: str = "idem-1", **overrides) -> RemoteExecution:
         record = RemoteExecution(

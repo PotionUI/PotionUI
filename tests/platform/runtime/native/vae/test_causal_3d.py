@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest import mock
 
 import pytest
 import torch
 
 from src.platform.runtime.native.base import load_into_module
 from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.vae import causal_3d
 from src.platform.runtime.native.vae.causal_3d import (
     LATENT_CHANNELS,
     LATENTS_MEAN,
@@ -34,10 +36,8 @@ def _randomize_weights(module: torch.nn.Module) -> None:
 
 
 def _build_tiny() -> AutoEncoderCausal3D:
-    # Architecture size is fixed (not config-parameterized, unlike AutoEncoder2D
-    # -- there's exactly one known checkpoint shape), so "tiny" here means a
-    # small *input*, not a small network.
-    module = AutoEncoderCausal3D.from_config({}, disable_weight_init)
+    with mock.patch.object(causal_3d, "_DIM", 8):
+        module = AutoEncoderCausal3D.from_config({}, disable_weight_init)
     module.eval()
     _randomize_weights(module)
     return module
@@ -57,7 +57,7 @@ def test_self_consistent_state_dict_passes_load_integrity():
 
 
 def test_post_load_is_safe_noop():
-    module = AutoEncoderCausal3D.from_config({}, disable_weight_init)
+    module = _build_tiny()
     module.post_load()  # must not raise; documented no-op (no computed buffers)
 
 

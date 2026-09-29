@@ -9,6 +9,7 @@ the tokenizer/vision-run presentation primitives, and the encode contract
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import tempfile
@@ -381,6 +382,22 @@ _H3_VISION_CFG = {
 _H3_VL_CFG = {**_H3_TINY_CFG, "vision": True, "vision_top_level": True, **_H3_VISION_CFG}
 
 
+_SMALL_PX = {"min_pixels": 256, "max_pixels": 1024}
+
+
+class _SmallEncoder(MiniMaxH3TextEncoder):
+    def encode_request(self, *args, **kwargs):
+        for key, value in _SMALL_PX.items():
+            kwargs.setdefault(key, value)
+        return super().encode_request(*args, **kwargs)
+
+    def encode_reference_request(self, *args, **kwargs):
+        for key, value in _SMALL_PX.items():
+            kwargs.setdefault(key, value)
+        return super().encode_reference_request(*args, **kwargs)
+
+
+@functools.lru_cache(maxsize=1)
 def _tiny_h3_vl_module() -> Qwen3Model:
     ops = pick_operations(torch.float32, torch.float32)
     m = Qwen3Model.from_config(_H3_VL_CFG, ops)
@@ -488,7 +505,7 @@ def test_build_fl2va_presentation_token_sequence_matches_hand_built():
 def test_encode_text_only_matches_direct_layer_49_capture():
     pytest.importorskip("transformers")
     m = _tiny_h3_module()
-    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
     out = enc.encode(["a cat"])
     assert set(out) == {"context"}
     assert out["context"].shape[0] == 1
@@ -505,7 +522,7 @@ def test_encode_text_only_matches_direct_layer_49_capture():
 def test_encode_rejects_multi_prompt_batch():
     pytest.importorskip("transformers")
     m = _tiny_h3_module()
-    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
     with pytest.raises(ValueError, match="one prompt"):
         enc.encode(["a", "b"])
 
@@ -523,7 +540,7 @@ def test_encode_no_chat_template_no_bos_eos():
 
 def test_encode_presentation_without_vision_tower_raises():
     m = _tiny_h3_module()  # no vision tower loaded
-    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
     run = MiniMaxH3VisionRun(patches=torch.rand(4, 12), grid_thw=torch.tensor([[1, 2, 2]]), pad_token_id=IMAGE_PAD_TOKEN)
     with pytest.raises(NativeEngineUnsupportedError):
         enc.encode_presentation([1, 2, 3], vision_runs=[run])
@@ -533,13 +550,13 @@ def test_encode_presentation_with_one_vision_run_shape_and_finite():
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
     tok = MiniMaxH3Tokenizer()
-    enc = MiniMaxH3TextEncoder(m, tok, device="cpu")
+    enc = _SmallEncoder(m, tok, device="cpu")
 
     label_ids = tok("<Picture 1>: ")
     img = torch.rand(32, 32, 3)
     visual = m.visual
     patches, grid_thw = preprocess_qwen3_vl_image(
-        img, grounding_px=0, patch_size=visual.patch_size,
+        img, grounding_px=0, **_SMALL_PX, patch_size=visual.patch_size,
         temporal_patch_size=visual.patch_embed.temporal_patch_size,
         merge_size=visual.spatial_merge_size,
     )
@@ -566,12 +583,12 @@ def test_encode_presentation_splice_length_mismatch_raises():
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
     tok = MiniMaxH3Tokenizer()
-    enc = MiniMaxH3TextEncoder(m, tok, device="cpu")
+    enc = _SmallEncoder(m, tok, device="cpu")
 
     img = torch.rand(32, 32, 3)
     visual = m.visual
     patches, grid_thw = preprocess_qwen3_vl_image(
-        img, grounding_px=0, patch_size=visual.patch_size,
+        img, grounding_px=0, **_SMALL_PX, patch_size=visual.patch_size,
         temporal_patch_size=visual.patch_embed.temporal_patch_size,
         merge_size=visual.spatial_merge_size,
     )
@@ -595,7 +612,7 @@ def test_encode_presentation_splice_length_mismatch_raises():
 def test_encode_request_text_only_all_tags_are_text():
     pytest.importorskip("transformers")
     m = _tiny_h3_module()
-    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
 
     out = enc.encode_request("a cat on a red car")
     assert set(out) == {"context", "token_tags"}
@@ -610,14 +627,14 @@ def test_encode_request_empty_images_list_is_treated_as_no_images():
     an empty list must take the plain t2va path, not the vision path."""
     pytest.importorskip("transformers")
     m = _tiny_h3_module()  # no vision tower loaded
-    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
     out = enc.encode_request("a cat", images=[])
     assert set(out) == {"context", "token_tags"}
 
 
 def test_encode_request_without_vision_tower_raises_when_images_given():
     m = _tiny_h3_module()  # no vision tower loaded
-    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
     with pytest.raises(NativeEngineUnsupportedError):
         enc.encode_request("a cat", images=[torch.rand(32, 32, 3)])
 
@@ -631,7 +648,7 @@ def test_encode_request_with_one_image_vision_block_tagged_video_exact_boundarie
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
     tok = MiniMaxH3Tokenizer()
-    enc = MiniMaxH3TextEncoder(m, tok, device="cpu")
+    enc = _SmallEncoder(m, tok, device="cpu")
     img = torch.rand(32, 32, 3)
 
     # Hand-derive the expected boundaries the same way `encode_request` does
@@ -642,7 +659,7 @@ def test_encode_request_with_one_image_vision_block_tagged_video_exact_boundarie
     label_ids = tok("<Picture 1>: ")
     visual = m.visual
     _patches, grid_thw = preprocess_qwen3_vl_image(
-        img, grounding_px=0, min_pixels=H3_VISION_MIN_PIXELS, max_pixels=H3_VISION_MAX_PIXELS,
+        img, grounding_px=0, **_SMALL_PX,
         patch_size=visual.patch_size,
         temporal_patch_size=visual.patch_embed.temporal_patch_size,
         merge_size=visual.spatial_merge_size,
@@ -699,35 +716,36 @@ def test_h3_bounds_force_an_upscale_that_krea2_defaults_do_not():
     assert grid_default.tolist() != grid_h3.tolist()
 
 
-def test_encode_request_defaults_to_h3_bounds_not_krea2_defaults():
-    """`encode_request` must pass H3's bounds through to preprocessing by
-    DEFAULT (a caller that never overrides min_pixels/max_pixels still gets
-    the correct H3 behavior, not Krea-2's smaller bounds)."""
+@pytest.mark.parametrize("method", ["encode_request", "encode_reference_request"])
+def test_encode_defaults_to_h3_bounds_not_krea2_defaults(monkeypatch, method):
     pytest.importorskip("transformers")
-    m = _tiny_h3_vl_module()
-    tok = MiniMaxH3Tokenizer()
-    enc = MiniMaxH3TextEncoder(m, tok, device="cpu")
-    img = torch.rand(224, 224, 3)
+    from src.platform.runtime.native.text_encoders import qwen3 as qwen3_module
 
-    out = enc.encode_request("a red car", images=[img])
-    label_ids = tok("<Picture 1>: ")
-    prompt_ids = tok("a red car")
-    visual = m.visual
-    _patches, grid_h3 = preprocess_qwen3_vl_image(
-        img, grounding_px=0, min_pixels=H3_VISION_MIN_PIXELS, max_pixels=H3_VISION_MAX_PIXELS,
-        patch_size=visual.patch_size, temporal_patch_size=visual.patch_embed.temporal_patch_size,
-        merge_size=visual.spatial_merge_size,
-    )
-    num_image_tokens = int(grid_h3[0].prod()) // (visual.spatial_merge_size ** 2)
-    expected_len = len(label_ids) + 1 + num_image_tokens + 1 + len(prompt_ids)
-    assert out["context"].shape[1] == expected_len
-    assert out["token_tags"].shape[0] == expected_len
+    m = _tiny_h3_vl_module()
+    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    seen: dict = {}
+    real = qwen3_module.preprocess_qwen3_vl_image
+
+    def spy(img, **kwargs):
+        seen["min_pixels"] = kwargs["min_pixels"]
+        seen["max_pixels"] = kwargs["max_pixels"]
+        return real(img, **{**kwargs, **_SMALL_PX})
+
+    monkeypatch.setattr(qwen3_module, "preprocess_qwen3_vl_image", spy)
+    image = torch.rand(32, 32, 3)
+    if method == "encode_request":
+        out = enc.encode_request("a red car", images=[image])
+    else:
+        out = enc.encode_reference_request("a red car", [MiniMaxH3Reference(kind="image", media=image)])
+
+    assert seen == {"min_pixels": H3_VISION_MIN_PIXELS, "max_pixels": H3_VISION_MAX_PIXELS}
+    assert out["context"].shape[1] == out["token_tags"].shape[0]
 
 
 def test_encode_request_context_and_tags_shape_agreement_multi_image():
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
-    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
     imgs = [torch.rand(32, 32, 3), torch.rand(16, 16, 3)]
 
     out = enc.encode_request("blend them", images=imgs)
@@ -748,7 +766,7 @@ def test_encode_reference_request_text_only_matches_encode_request():
     label."""
     pytest.importorskip("transformers")
     m = _tiny_h3_module()
-    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
 
     out = enc.encode_reference_request("a cat on a red car", [])
     assert set(out) == {"context", "token_tags"}
@@ -759,14 +777,14 @@ def test_encode_reference_request_text_only_matches_encode_request():
 
 def test_encode_reference_request_rejects_an_unknown_reference_kind():
     m = _tiny_h3_module()
-    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
     with pytest.raises(ValueError, match="'image', 'video' or 'audio'"):
         enc.encode_reference_request("a cat", [MiniMaxH3Reference(kind="sound", media=None)])
 
 
 def test_encode_reference_request_without_vision_tower_raises_when_images_given():
     m = _tiny_h3_module()  # no vision tower loaded
-    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
     with pytest.raises(NativeEngineUnsupportedError):
         enc.encode_reference_request("a cat", [MiniMaxH3Reference(kind="image", media=torch.rand(32, 32, 3))])
 
@@ -779,7 +797,7 @@ def test_encode_reference_request_numbers_labels_per_modality_not_per_index():
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
     tok = MiniMaxH3Tokenizer()
-    enc = MiniMaxH3TextEncoder(m, tok, device="cpu")
+    enc = _SmallEncoder(m, tok, device="cpu")
     seen: dict = {}
     inner = enc.encode_presentation
     enc.encode_presentation = lambda token_ids, vision_runs=None: (
@@ -814,7 +832,7 @@ def test_an_audio_bearing_video_is_labelled_audio_before_video():
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
     tok = MiniMaxH3Tokenizer()
-    enc = MiniMaxH3TextEncoder(m, tok, device="cpu")
+    enc = _SmallEncoder(m, tok, device="cpu")
     seen: dict = {}
     inner = enc.encode_presentation
     enc.encode_presentation = lambda token_ids, vision_runs=None: (
@@ -840,7 +858,7 @@ def test_encode_reference_request_numbered_labels_match_encode_request_for_image
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
     tok = MiniMaxH3Tokenizer()
-    enc = MiniMaxH3TextEncoder(m, tok, device="cpu")
+    enc = _SmallEncoder(m, tok, device="cpu")
     imgs = [torch.rand(32, 32, 3), torch.rand(16, 16, 3)]
     references = [MiniMaxH3Reference(kind="image", media=img) for img in imgs]
 
@@ -854,7 +872,7 @@ def test_encode_reference_request_numbered_labels_match_encode_request_for_image
 def test_encode_reference_request_context_and_tags_shape_agreement_multi_image():
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
-    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
     imgs = [torch.rand(32, 32, 3), torch.rand(16, 16, 3)]
     references = [MiniMaxH3Reference(kind="image", media=img) for img in imgs]
 
@@ -980,7 +998,7 @@ def _grid_for(module, video: torch.Tensor):
         temporal_patch=visual.patch_embed.temporal_patch_size,
     )
     _patches, grid_thw = preprocess_qwen3_vl_video(
-        video[indices], min_pixels=H3_VISION_MIN_PIXELS, max_pixels=H3_VISION_MAX_PIXELS,
+        video[indices], **_SMALL_PX,
         patch_size=visual.patch_size, temporal_patch_size=visual.patch_embed.temporal_patch_size,
         merge_size=visual.spatial_merge_size,
     )
@@ -992,7 +1010,7 @@ def test_video_reference_emits_one_timestamped_vision_block_per_frame_group():
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
     tok = MiniMaxH3Tokenizer()
-    enc = MiniMaxH3TextEncoder(m, tok, device="cpu")
+    enc = _SmallEncoder(m, tok, device="cpu")
     video = _video(49)
     timestamps, per_block = _grid_for(m, video)
 
@@ -1013,7 +1031,7 @@ def test_video_reference_uses_the_video_pad_token_not_the_image_pad_token():
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
     tok = MiniMaxH3Tokenizer()
-    enc = MiniMaxH3TextEncoder(m, tok, device="cpu")
+    enc = _SmallEncoder(m, tok, device="cpu")
     seen: dict = {}
     inner = enc.encode_presentation
 
@@ -1037,7 +1055,7 @@ def test_video_reference_timestamp_text_is_tagged_text_and_the_blocks_video():
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
     tok = MiniMaxH3Tokenizer()
-    enc = MiniMaxH3TextEncoder(m, tok, device="cpu")
+    enc = _SmallEncoder(m, tok, device="cpu")
     _timestamps, per_block = _grid_for(m, _video(49))
 
     out = enc.encode_reference_request("a drifting camera", [MiniMaxH3Reference(kind="video", media=_video(49))])
@@ -1056,7 +1074,7 @@ def test_audio_reference_is_a_label_with_no_vision_block():
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
     tok = MiniMaxH3Tokenizer()
-    enc = MiniMaxH3TextEncoder(m, tok, device="cpu")
+    enc = _SmallEncoder(m, tok, device="cpu")
     img = torch.rand(32, 32, 3)
 
     with_audio = enc.encode_reference_request("sing it", [
@@ -1077,7 +1095,7 @@ def test_audio_only_references_need_no_vision_tower():
     pytest.importorskip("transformers")
     m = _tiny_h3_module()  # no vision tower
     tok = MiniMaxH3Tokenizer()
-    enc = MiniMaxH3TextEncoder(m, tok, device="cpu")
+    enc = _SmallEncoder(m, tok, device="cpu")
 
     out = enc.encode_reference_request("sing it", [MiniMaxH3Reference(kind="audio", has_audio=True)])
 
@@ -1090,7 +1108,7 @@ def test_mixed_reference_presentation_keeps_packed_order():
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
     tok = MiniMaxH3Tokenizer()
-    enc = MiniMaxH3TextEncoder(m, tok, device="cpu")
+    enc = _SmallEncoder(m, tok, device="cpu")
     seen: dict = {}
     inner = enc.encode_presentation
     enc.encode_presentation = lambda token_ids, vision_runs=None: (
@@ -1120,7 +1138,7 @@ def test_bite_check_a_video_reference_is_not_presented_as_a_single_image():
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
     tok = MiniMaxH3Tokenizer()
-    enc = MiniMaxH3TextEncoder(m, tok, device="cpu")
+    enc = _SmallEncoder(m, tok, device="cpu")
     video = _video(49)
 
     as_video = enc.encode_reference_request("pan left", [MiniMaxH3Reference(kind="video", media=video)])
@@ -1134,7 +1152,7 @@ def test_image_only_reference_request_is_unchanged_by_the_video_branch():
     # encode_request's, token for token.
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
-    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
     imgs = [torch.rand(32, 32, 3), torch.rand(16, 16, 3)]
 
     via_request = enc.encode_request("blend them", images=imgs)
@@ -1145,7 +1163,7 @@ def test_image_only_reference_request_is_unchanged_by_the_video_branch():
     assert torch.equal(via_request["token_tags"], via_reference["token_tags"])
 
 
-def _counting_forward(module):
+def _counting_forward(module, monkeypatch):
     calls = {"n": 0}
     original = module.forward
 
@@ -1153,15 +1171,15 @@ def _counting_forward(module):
         calls["n"] += 1
         return original(*args, **kwargs)
 
-    module.forward = wrapped
+    monkeypatch.setattr(module, "forward", wrapped)
     return calls
 
 
-def test_vision_cache_reuses_across_different_prompt_text_same_reference():
+def test_vision_cache_reuses_across_different_prompt_text_same_reference(monkeypatch):
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
-    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
-    calls = _counting_forward(m.visual)
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    calls = _counting_forward(m.visual, monkeypatch)
 
     img = torch.rand(32, 32, 3)
     references = [MiniMaxH3Reference(kind="image", media=img)]
@@ -1177,19 +1195,19 @@ def test_vision_cache_reuses_across_different_prompt_text_same_reference():
     assert calls["n"] == 1
 
 
-def test_vision_cache_misses_on_a_different_pixel_budget():
+def test_vision_cache_misses_on_a_different_pixel_budget(monkeypatch):
     pytest.importorskip("transformers")
     m = _tiny_h3_vl_module()
-    enc = MiniMaxH3TextEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
-    calls = _counting_forward(m.visual)
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    calls = _counting_forward(m.visual, monkeypatch)
 
-    img = torch.rand(128, 128, 3)
+    img = torch.rand(64, 64, 3)
     references = [MiniMaxH3Reference(kind="image", media=img)]
 
     enc.encode_reference_request("a scene", references, max_pixels=1024)
     assert calls["n"] == 1
 
-    enc.encode_reference_request("a scene", references, max_pixels=H3_VISION_MAX_PIXELS)
+    enc.encode_reference_request("a scene", references, max_pixels=4096)
     assert calls["n"] == 2
 
     enc.encode_reference_request("a scene", references, max_pixels=1024)

@@ -21,6 +21,8 @@ from src.platform.runtime.native.errors import (  # noqa: E402
 )
 from src.platform.runtime.native.text_encoders.loader import FluxTextEncoder, load_text_encoder  # noqa: E402
 
+from src.platform.runtime.native.text_encoders import tokenization  # noqa: E402
+
 from ._fixtures import tiny_clip_state_dict, tiny_qwen3_state_dict, tiny_t5_state_dict  # noqa: E402
 
 
@@ -30,13 +32,27 @@ def _save(sd, tmp_path, name):
     return str(p)
 
 
-def test_load_qwen3_and_encode(tmp_path):
+_SHORT_PAD = 32
+
+
+@pytest.fixture
+def short_pad(monkeypatch):
+    monkeypatch.setattr(tokenization, "QWEN3_MIN_LEN", _SHORT_PAD)
+    monkeypatch.setattr(tokenization, "QWEN3VL_MIN_LEN", _SHORT_PAD)
+
+
+def test_production_qwen3_pad_lengths_are_512():
+    assert tokenization.QWEN3_MIN_LEN == 512
+    assert tokenization.QWEN3VL_MIN_LEN == 512
+
+
+def test_load_qwen3_and_encode(tmp_path, short_pad):
     path = _save(tiny_qwen3_state_dict(num_layers=28, hidden=64), tmp_path, "qwen3.safetensors")
     enc = load_text_encoder(path)
     out = enc.encode(["a cat", "a dog on a beach"])
     assert set(out) == {"context", "attention_mask"}
     assert out["context"].shape[0] == 2
-    assert out["context"].shape[1] >= 512            # min-length padding
+    assert out["context"].shape[1] == _SHORT_PAD
     assert out["context"].shape[2] == 3 * 64         # stacked 3 hidden states
     assert torch.isfinite(out["context"]).all()
     # No pooled for Klein/Flux2.
@@ -72,7 +88,7 @@ def test_flux_composite_two_paths(tmp_path):
     assert out["pooled"].shape == (1, 24)
 
 
-def test_load_mixed_fp8_and_nvfp4_qwen(tmp_path):
+def test_load_mixed_fp8_and_nvfp4_qwen(tmp_path, short_pad):
     """A qwen checkpoint with one nvfp4 linear + one fp8-scaled linear loads + encodes."""
     from tests.platform.runtime.native._nvfp4_ref import default_tensor_scale, quantize_nvfp4
 
@@ -96,7 +112,7 @@ def test_load_mixed_fp8_and_nvfp4_qwen(tmp_path):
     path = _save(sd, tmp_path, "mixed.safetensors")
     enc = load_text_encoder(path)
     out = enc.encode(["a cat"])
-    assert out["context"].shape[1] >= 512
+    assert out["context"].shape[1] == _SHORT_PAD
     assert out["context"].shape[2] == 3 * 64
     assert torch.isfinite(out["context"]).all()
 
@@ -120,7 +136,7 @@ def test_integrity_error_on_unlisted_key(tmp_path):
         load_text_encoder(path)
 
 
-def test_qwen3vl_repack_with_lm_head_loads(tmp_path):
+def test_qwen3vl_repack_with_lm_head_loads(tmp_path, short_pad):
     sd = tiny_qwen3_state_dict(num_layers=36, hidden=64)
     sd["model.visual.patch_embed.proj.weight"] = torch.zeros(8, 3, 2, 16, 16, dtype=torch.bfloat16)
     sd["lm_head.weight"] = torch.zeros(151936, 64, dtype=torch.bfloat16)

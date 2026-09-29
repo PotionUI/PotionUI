@@ -21,6 +21,9 @@ from src.platform.runtime.native.vae.loader import _VaeSpec, load_causal3d_v2_va
 _WAN22_VAE_PATH = Path("models/vae/wan2.2_vae.safetensors")
 
 
+_TINY_CONFIG = {"dim": 8, "dec_dim": 8}
+
+
 def _randomize_weights(module: torch.nn.Module) -> None:
     with torch.no_grad():
         for p in module.parameters():
@@ -29,7 +32,7 @@ def _randomize_weights(module: torch.nn.Module) -> None:
 
 
 def _build_tiny() -> AutoEncoderCausal3D_2_2:
-    module = AutoEncoderCausal3D_2_2.from_config({}, disable_weight_init)
+    module = AutoEncoderCausal3D_2_2.from_config(_TINY_CONFIG, disable_weight_init)
     module.eval()
     _randomize_weights(module)
     return module
@@ -67,7 +70,7 @@ def test_self_consistent_state_dict_passes_load_integrity():
 
 
 def test_post_load_is_safe_noop():
-    module = AutoEncoderCausal3D_2_2.from_config({}, disable_weight_init)
+    module = _build_tiny()
     module.post_load()
 
 

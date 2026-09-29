@@ -152,9 +152,13 @@ def test_shrunk_module_condition_encoder_end_to_end():
 # --- condition encoder shape (real dims, per plan's example) ------------------
 
 def test_condition_encoder_shape_five_frames():
-    """5 frames of [8*4096] -> int(5*3.4453125) = 17 latents (real dims, per the
-    plan's own worked example)."""
-    m = MiniMaxMusic3Model.from_config(REAL_CONFIG, _fp32_ops())
+    """5 frames of [8*4096] -> int(5*3.4453125) = 17 latents (real condition
+    dims, per the plan's own worked example; the DiT body is shrunk since the
+    condition encoder does not touch it)."""
+    config = dict(
+        REAL_CONFIG, num_layers=1, num_attention_heads=2, attention_head_dim=4, ffn_inner_dim=8, rotary_dim=2,
+    )
+    m = MiniMaxMusic3Model.from_config(config, _fp32_ops())
     for p in m.parameters():
         torch.nn.init.normal_(p, std=0.02)
     m.post_load()

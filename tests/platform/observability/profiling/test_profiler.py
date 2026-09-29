@@ -28,6 +28,30 @@ def _isolate_profiling_state(monkeypatch):
     reset_enabled_cache()
 
 
+@pytest.fixture(autouse=True)
+def _sampler_parks_before_start_returns(monkeypatch):
+    original_start = GenerationProfiler.start
+    monkeypatch.setattr(GenerationProfiler, "_SAMPLE_INTERVAL_S", 60.0)
+
+    def start(self, generation_id, out_dir):
+        original_start(self, generation_id, out_dir)
+        thread = self._thread
+        if thread is None or self._fh is None:
+            return
+        path = self._fh.name
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and thread.is_alive():
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    if '"kind": "sample"' in fh.read():
+                        return
+            except OSError:
+                return
+            time.sleep(0.002)
+
+    monkeypatch.setattr(GenerationProfiler, "start", start)
+
+
 def _enable(monkeypatch):
     monkeypatch.setenv("POTIONUI_PROFILE", "1")
     reset_enabled_cache()
@@ -770,9 +794,11 @@ def test_sample_rows_never_carry_the_anon_file_split(tmp_path, monkeypatch):
         lambda: {"rss_anon_gb": 1.0, "rss_file_gb": 1.0},
     )
 
+    monkeypatch.setattr(GenerationProfiler, "_SAMPLE_INTERVAL_S", 0.02)
+    monkeypatch.setattr(GenerationProfiler, "_write_tensor_census", lambda self, **kw: None)
     prof = GenerationProfiler()
     prof.start("gen-anon-split-sample", tmp_path)
-    time.sleep(prof._SAMPLE_INTERVAL_S * 2)
+    time.sleep(prof._SAMPLE_INTERVAL_S * 5)
     prof.stop("gen-anon-split-sample")
 
     rows = _read_rows(tmp_path)

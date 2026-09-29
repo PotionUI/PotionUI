@@ -13,8 +13,6 @@ singleton; `native.remote`, user-creatable, not yet implemented).
 See docs/backends.md and migration 119.
 """
 
-import io
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,7 +22,7 @@ from unittest.mock import Mock, patch
 from fastapi import HTTPException
 
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationRunner
+from tests.fixtures.db_template import copy_template_db
 from src.features.backends.records import Backend
 from src.features.backends.repository import BackendRepository
 from src.features.backends.backend_config import (
@@ -170,17 +168,11 @@ class TestSecondNativeRowCoexistsAtTheRepositoryLayer(unittest.TestCase):
 
         self._patchers = [
             patch("src.platform.database.database.db", self.db),
-            patch("src.platform.database.migration_runner.db", self.db),
         ]
         for p in self._patchers:
             p.start()
 
-        old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
-        try:
-            MigrationRunner().run_migrations()
-        finally:
-            sys.stdout = old_stdout
+        copy_template_db(self.db.db_path)
 
         with self.db.get_cursor() as cursor:
             cursor.execute("DELETE FROM backends")

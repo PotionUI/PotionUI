@@ -29,6 +29,7 @@ from src.platform.runtime.native.engine import (
 )
 from vendor.gpl.comfyui.ops import disable_weight_init
 from src.platform.runtime.native.text_encoders.base import NativeTextEncoder
+from src.platform.runtime.native.vae import ae_2d, causal_3d
 from src.platform.runtime.native.vae.ae_2d import AutoEncoder2D
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 
@@ -99,6 +100,15 @@ def _build_and_save(module: torch.nn.Module, path) -> None:
     save_file(_finite_sd(module), str(path))
     del module
     gc.collect()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def narrow_vaes():
+    patcher = pytest.MonkeyPatch()
+    patcher.setattr(ae_2d, "_CH", 32)
+    patcher.setattr(causal_3d, "_DIM", 8)
+    yield
+    patcher.undo()
 
 
 @pytest.fixture(scope="module")
@@ -249,7 +259,7 @@ def test_loader_vocoder_slices_ltx_all_in_one_checkpoint_before_sizing(tmp_path)
     assert model.estimated_vram_gb < dit_only_gb / 10
 
 
-def test_loader_audio_vae_dispatches_bare_keyed_yue2_checkpoint(tmp_path):
+def test_loader_audio_vae_dispatches_bare_keyed_yue2_checkpoint(tmp_path, monkeypatch):
     """A standalone bare-keyed YuE2 VAE file routes to load_yue2_vae."""
     import copy
 
@@ -258,6 +268,7 @@ def test_loader_audio_vae_dispatches_bare_keyed_yue2_checkpoint(tmp_path):
     from src.platform.runtime.native.arch.yue2.vae import YuE2VAEDecoder
 
     tiny_kwargs = dict(latent_dim=4, out_channels=2)
+    monkeypatch.setitem(YuE2VAEDecoder.__init__.__kwdefaults__, "channels", 4)
 
     def _wrap_with_weight_norm(module):
         for name, child in list(module.named_children()):
@@ -537,7 +548,7 @@ def test_encode_image_runs_under_no_grad_so_ref_latent_carries_no_graph():
     detached and the activations free the moment encode returns."""
     from src.platform.runtime.native.vae.causal_3d_v2 import AutoEncoderCausal3D_2_2
 
-    vae_mod = AutoEncoderCausal3D_2_2.from_config({}, disable_weight_init)
+    vae_mod = AutoEncoderCausal3D_2_2.from_config({"dim": 8, "dec_dim": 8}, disable_weight_init)
     vae_mod.eval()
     with torch.no_grad():
         for p in vae_mod.parameters():

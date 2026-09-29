@@ -105,7 +105,7 @@ def test_cascade_steps_down_by_128_until_the_token_budget_is_met():
 def test_cascade_stops_degrading_at_1024_even_over_budget():
     """1024 is the high-resolution weights' own tier — there is nothing coarser
     to fall back to, so the budget is exceeded rather than the run failing."""
-    dense = _scattered_coords(200000, seed=1)
+    dense = _scattered_coords(5000, seed=1)
     quantised, resolution = itm.resolve_cascade_grid(dense, 1536, max_num_tokens=8)
     assert resolution == 1024
     assert quantised.shape[0] > 8

@@ -296,7 +296,7 @@ class TestTiledEncodeNumerics:
         finiteness is the correctness bar for this case; exact-match cases
         above cover the numerically-guaranteed scenarios."""
         vae = _build_real_scale_tiny()
-        pixels = torch.rand(1, 3, 41, 160, 160) * 2.0 - 1.0
+        pixels = torch.rand(1, 3, 33, 128, 128) * 2.0 - 1.0
         tiling = LtxTilingConfig(
             spatial=SpatialTilingConfig(tile_size_in_pixels=96, tile_overlap_in_pixels=64),
             temporal=TemporalTilingConfig(tile_size_in_frames=24, tile_overlap_in_frames=16),
@@ -441,7 +441,7 @@ class TestAgainstIndependentReimplementation:
 
     def test_combined_spatial_and_temporal_tiling_matches_independent_reimplementation(self):
         vae = _build_real_scale_tiny()
-        pixels = torch.rand(1, 3, 41, 160, 160) * 2.0 - 1.0
+        pixels = torch.rand(1, 3, 33, 128, 128) * 2.0 - 1.0
         tiling = LtxTilingConfig(
             spatial=SpatialTilingConfig(tile_size_in_pixels=96, tile_overlap_in_pixels=64),
             temporal=TemporalTilingConfig(tile_size_in_frames=24, tile_overlap_in_frames=16),

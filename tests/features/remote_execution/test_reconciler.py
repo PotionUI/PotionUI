@@ -9,8 +9,6 @@ of it.
 from __future__ import annotations
 
 import asyncio
-import io
-import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -31,7 +29,7 @@ from src.features.remote_execution.worker.coordinator import WorkerCoordinator
 from src.features.remote_execution.worker.journal import WorkerJournal
 from src.pipelines.contracts import PipeOutput
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationRunner
+from tests.fixtures.db_template import copy_template_db
 from src.platform.worker_protocol import ContentDigest, ExecutionLimitsV1, ExecutionPackageV1, ModelBundleManifestV1, ProcessedPipelineV1, ProcessedPipeV1
 
 S = RemoteExecutionState
@@ -129,17 +127,11 @@ class RemoteExecutionReconcilerTestCase(unittest.TestCase):
 
         self._patchers = [
             patch("src.platform.database.database.db", self.db),
-            patch("src.platform.database.migration_runner.db", self.db),
         ]
         for p in self._patchers:
             p.start()
 
-        old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
-        try:
-            MigrationRunner().run_migrations()
-        finally:
-            sys.stdout = old_stdout
+        copy_template_db(self.db.db_path)
 
         self.repo = RemoteExecutionRepository()
 

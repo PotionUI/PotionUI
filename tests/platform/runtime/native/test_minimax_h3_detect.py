@@ -31,20 +31,24 @@ PRUNED_ADALN_GRID = 1025
 PRUNED_ADALN_WIDTH = 8
 
 
+def _zeros(*shape, dtype=torch.float32):
+    return torch.empty(*shape, dtype=dtype, device="meta")
+
+
 def _block_sd(prefix: str, *, fp8: bool = False, gate_compress: bool = False) -> dict[str, torch.Tensor]:
     qkv_dtype = torch.float8_e4m3fn if fp8 else torch.bfloat16
     sd = {
-        f"{prefix}attn.qkv_proj.weight": torch.zeros(3 * INNER, HIDDEN, dtype=qkv_dtype),
-        f"{prefix}attn.q_norm.weight": torch.zeros(HEAD_DIM, dtype=torch.bfloat16),
-        f"{prefix}attn.k_norm.weight": torch.zeros(HEAD_DIM, dtype=torch.bfloat16),
-        f"{prefix}attn.out_proj.weight": torch.zeros(HIDDEN, INNER, dtype=qkv_dtype),
-        f"{prefix}mlp.fc1.weight": torch.zeros(2 * FFN, HIDDEN, dtype=qkv_dtype),
-        f"{prefix}mlp.fc2.weight": torch.zeros(HIDDEN, FFN, dtype=qkv_dtype),
-        f"{prefix}norm1.weight": torch.zeros(HIDDEN, dtype=torch.bfloat16),
-        f"{prefix}norm2.weight": torch.zeros(HIDDEN, dtype=torch.bfloat16),
+        f"{prefix}attn.qkv_proj.weight": _zeros(3 * INNER, HIDDEN, dtype=qkv_dtype),
+        f"{prefix}attn.q_norm.weight": _zeros(HEAD_DIM, dtype=torch.bfloat16),
+        f"{prefix}attn.k_norm.weight": _zeros(HEAD_DIM, dtype=torch.bfloat16),
+        f"{prefix}attn.out_proj.weight": _zeros(HIDDEN, INNER, dtype=qkv_dtype),
+        f"{prefix}mlp.fc1.weight": _zeros(2 * FFN, HIDDEN, dtype=qkv_dtype),
+        f"{prefix}mlp.fc2.weight": _zeros(HIDDEN, FFN, dtype=qkv_dtype),
+        f"{prefix}norm1.weight": _zeros(HIDDEN, dtype=torch.bfloat16),
+        f"{prefix}norm2.weight": _zeros(HIDDEN, dtype=torch.bfloat16),
     }
     if gate_compress:
-        sd[f"{prefix}attn.to_gate_compress.weight"] = torch.zeros(INNER, HIDDEN, dtype=qkv_dtype)
+        sd[f"{prefix}attn.to_gate_compress.weight"] = _zeros(INNER, HIDDEN, dtype=qkv_dtype)
     return sd
 
 
@@ -54,44 +58,44 @@ def _minimax_h3_sd(*, pruned: bool, num_layers: int = 2, num_refiner_layers: int
     adaln_dtype = torch.float16 if pruned else torch.bfloat16
 
     sd: dict[str, torch.Tensor] = {
-        "video_patch_proj.weight": torch.zeros(HIDDEN, VIDEO_PATCH_DIM, dtype=torch.float32),
-        "video_patch_proj.bias": torch.zeros(HIDDEN, dtype=torch.float32),
-        "audio_patch_proj.weight": torch.zeros(HIDDEN, AUDIO_IN_CHANNELS, dtype=torch.float32),
-        "audio_patch_proj.bias": torch.zeros(HIDDEN, dtype=torch.float32),
-        "condition_proj.weight": torch.zeros(HIDDEN, TEXT_DIM, dtype=torch.bfloat16),
-        "condition_proj.bias": torch.zeros(HIDDEN, dtype=torch.bfloat16),
-        "rope.inv_freq": torch.zeros(ROPE_FREQ_DIM, dtype=torch.float32),
-        "final_layer.norm.weight": torch.zeros(HIDDEN, dtype=torch.bfloat16),
-        "final_layer.adaln_proj.linear.weight": torch.zeros(2 * HIDDEN, time_embed_dim, dtype=adaln_dtype),
-        "final_layer.adaln_proj.linear.bias": torch.zeros(2 * HIDDEN, dtype=adaln_dtype),
-        "final_layer.video_out.weight": torch.zeros(VIDEO_PATCH_DIM, HIDDEN, dtype=torch.float32),
-        "final_layer.video_out.bias": torch.zeros(VIDEO_PATCH_DIM, dtype=torch.float32),
-        "final_layer.audio_out.weight": torch.zeros(AUDIO_IN_CHANNELS, HIDDEN, dtype=torch.float32),
-        "final_layer.audio_out.bias": torch.zeros(AUDIO_IN_CHANNELS, dtype=torch.float32),
-        "token_refiner.final_norm.weight": torch.zeros(HIDDEN, dtype=torch.bfloat16),
+        "video_patch_proj.weight": _zeros(HIDDEN, VIDEO_PATCH_DIM, dtype=torch.float32),
+        "video_patch_proj.bias": _zeros(HIDDEN, dtype=torch.float32),
+        "audio_patch_proj.weight": _zeros(HIDDEN, AUDIO_IN_CHANNELS, dtype=torch.float32),
+        "audio_patch_proj.bias": _zeros(HIDDEN, dtype=torch.float32),
+        "condition_proj.weight": _zeros(HIDDEN, TEXT_DIM, dtype=torch.bfloat16),
+        "condition_proj.bias": _zeros(HIDDEN, dtype=torch.bfloat16),
+        "rope.inv_freq": _zeros(ROPE_FREQ_DIM, dtype=torch.float32),
+        "final_layer.norm.weight": _zeros(HIDDEN, dtype=torch.bfloat16),
+        "final_layer.adaln_proj.linear.weight": _zeros(2 * HIDDEN, time_embed_dim, dtype=adaln_dtype),
+        "final_layer.adaln_proj.linear.bias": _zeros(2 * HIDDEN, dtype=adaln_dtype),
+        "final_layer.video_out.weight": _zeros(VIDEO_PATCH_DIM, HIDDEN, dtype=torch.float32),
+        "final_layer.video_out.bias": _zeros(VIDEO_PATCH_DIM, dtype=torch.float32),
+        "final_layer.audio_out.weight": _zeros(AUDIO_IN_CHANNELS, HIDDEN, dtype=torch.float32),
+        "final_layer.audio_out.bias": _zeros(AUDIO_IN_CHANNELS, dtype=torch.float32),
+        "token_refiner.final_norm.weight": _zeros(HIDDEN, dtype=torch.bfloat16),
     }
     for i in range(num_layers):
         sd.update(_block_sd(f"blocks.{i}.", fp8=fp8, gate_compress=gate_compress))
-        sd[f"blocks.{i}.adaln_proj.linear.weight"] = torch.zeros(6 * HIDDEN * 3, time_embed_dim, dtype=adaln_dtype)
-        sd[f"blocks.{i}.adaln_proj.linear.bias"] = torch.zeros(6 * HIDDEN * 3, dtype=adaln_dtype)
+        sd[f"blocks.{i}.adaln_proj.linear.weight"] = _zeros(6 * HIDDEN * 3, time_embed_dim, dtype=adaln_dtype)
+        sd[f"blocks.{i}.adaln_proj.linear.bias"] = _zeros(6 * HIDDEN * 3, dtype=adaln_dtype)
     for i in range(num_refiner_layers):
         p = f"token_refiner.blocks.{i}."
-        sd[f"{p}attn.qkv_proj.weight"] = torch.zeros(3 * INNER, HIDDEN, dtype=torch.bfloat16)
-        sd[f"{p}attn.q_norm.weight"] = torch.zeros(HEAD_DIM, dtype=torch.bfloat16)
-        sd[f"{p}attn.k_norm.weight"] = torch.zeros(HEAD_DIM, dtype=torch.bfloat16)
-        sd[f"{p}attn.out_proj.weight"] = torch.zeros(HIDDEN, INNER, dtype=torch.bfloat16)
-        sd[f"{p}mlp.fc1.weight"] = torch.zeros(2 * FFN, HIDDEN, dtype=torch.bfloat16)
-        sd[f"{p}mlp.fc2.weight"] = torch.zeros(HIDDEN, FFN, dtype=torch.bfloat16)
-        sd[f"{p}norm1.weight"] = torch.zeros(HIDDEN, dtype=torch.bfloat16)
-        sd[f"{p}norm2.weight"] = torch.zeros(HIDDEN, dtype=torch.bfloat16)
+        sd[f"{p}attn.qkv_proj.weight"] = _zeros(3 * INNER, HIDDEN, dtype=torch.bfloat16)
+        sd[f"{p}attn.q_norm.weight"] = _zeros(HEAD_DIM, dtype=torch.bfloat16)
+        sd[f"{p}attn.k_norm.weight"] = _zeros(HEAD_DIM, dtype=torch.bfloat16)
+        sd[f"{p}attn.out_proj.weight"] = _zeros(HIDDEN, INNER, dtype=torch.bfloat16)
+        sd[f"{p}mlp.fc1.weight"] = _zeros(2 * FFN, HIDDEN, dtype=torch.bfloat16)
+        sd[f"{p}mlp.fc2.weight"] = _zeros(HIDDEN, FFN, dtype=torch.bfloat16)
+        sd[f"{p}norm1.weight"] = _zeros(HIDDEN, dtype=torch.bfloat16)
+        sd[f"{p}norm2.weight"] = _zeros(HIDDEN, dtype=torch.bfloat16)
 
     if pruned:
-        sd["adaln_t_table"] = torch.zeros(PRUNED_ADALN_GRID, PRUNED_ADALN_WIDTH, dtype=torch.float32)
+        sd["adaln_t_table"] = _zeros(PRUNED_ADALN_GRID, PRUNED_ADALN_WIDTH, dtype=torch.float32)
     else:
-        sd["time_embedder.proj_in.weight"] = torch.zeros(TIME_EMBED_HIDDEN, FREQ_DIM, dtype=torch.float32)
-        sd["time_embedder.proj_in.bias"] = torch.zeros(TIME_EMBED_HIDDEN, dtype=torch.float32)
-        sd["time_embedder.proj_out.weight"] = torch.zeros(FULL_TIME_EMBED_DIM, TIME_EMBED_HIDDEN, dtype=torch.float32)
-        sd["time_embedder.proj_out.bias"] = torch.zeros(FULL_TIME_EMBED_DIM, dtype=torch.float32)
+        sd["time_embedder.proj_in.weight"] = _zeros(TIME_EMBED_HIDDEN, FREQ_DIM, dtype=torch.float32)
+        sd["time_embedder.proj_in.bias"] = _zeros(TIME_EMBED_HIDDEN, dtype=torch.float32)
+        sd["time_embedder.proj_out.weight"] = _zeros(FULL_TIME_EMBED_DIM, TIME_EMBED_HIDDEN, dtype=torch.float32)
+        sd["time_embedder.proj_out.bias"] = _zeros(FULL_TIME_EMBED_DIM, dtype=torch.float32)
     return sd
 
 
@@ -158,18 +162,18 @@ def test_detect_gate_compress_flag_off_by_default():
 
 
 def test_non_minimax_h3_returns_none_or_other_family():
-    assert detect_unet_config({"random.key": torch.zeros(1)}) is None
+    assert detect_unet_config({"random.key": _zeros(1)}) is None
 
 
 def test_minimax_h3_signature_does_not_collide_with_other_families():
     # video_patch_proj + audio_patch_proj is H3-only; a real Wan sd (no such
     # keys) must never be misdetected as minimax_h3.
     wan_like = {
-        "head.modulation": torch.zeros(1, 2, 32),
-        "head.head.weight": torch.zeros(16 * 4, 32),
-        "patch_embedding.weight": torch.zeros(32, 16, 1, 2, 2),
-        "text_embedding.0.weight": torch.zeros(32, 64),
-        "blocks.0.ffn.0.weight": torch.zeros(8, 32),
+        "head.modulation": _zeros(1, 2, 32),
+        "head.head.weight": _zeros(16 * 4, 32),
+        "patch_embedding.weight": _zeros(32, 16, 1, 2, 2),
+        "text_embedding.0.weight": _zeros(32, 64),
+        "blocks.0.ffn.0.weight": _zeros(8, 32),
     }
     assert detect_unet_config(wan_like)["image_model"] != "minimax_h3"
 

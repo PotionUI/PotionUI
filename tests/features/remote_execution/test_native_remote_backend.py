@@ -20,9 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import io
 import json
-import sys
 import tempfile
 import time
 import unittest
@@ -57,7 +55,7 @@ from src.pipelines.outputs import (
     ProgressGenerationOutput,
 )
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationRunner
+from tests.fixtures.db_template import copy_template_db
 from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
@@ -380,7 +378,6 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
 
         self._patchers = [
             patch("src.platform.database.database.db", self.db),
-            patch("src.platform.database.migration_runner.db", self.db),
             # os.getenv("POTIONUI_BUILD_ID") must read as unset so the "build"
             # fingerprint domain matches the worker's build_id=None below.
             patch.dict("os.environ", {"POTIONUI_BUILD_ID": ""}),
@@ -388,12 +385,7 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
         for p in self._patchers:
             p.start()
 
-        old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
-        try:
-            MigrationRunner().run_migrations()
-        finally:
-            sys.stdout = old_stdout
+        copy_template_db(self.db.db_path)
 
         self.repo = RemoteExecutionRepository()
         self.model_locator = ModelLocator(ModelRootResolver(ModelRootRepository(), RootProbe(), Path(self.temp_dir)))

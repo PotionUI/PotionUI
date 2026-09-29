@@ -27,11 +27,11 @@ _QWEN_IMAGE21_VAE_PATH = Path("models/vae/qwen_image_2.1_vae_bf16.safetensors")
 # uses Wan 2.2's real dims too, just a small test image).
 _QWEN_IMAGE21_CONFIG = {
     "vae_type": "qwen_image21",
-    "latent_channels": 64,
+    "latent_channels": 8,
     "in_channels": 4,
     "out_channels": 4,
-    "dim": 96,
-    "dec_dim": 144,
+    "dim": 8,
+    "dec_dim": 12,
     "dim_mult": (1, 2, 4, 8, 8),
     "num_res_blocks": 2,
     "temporal_downsample": (False, True, True, True),
@@ -55,7 +55,7 @@ def _build_qwen21() -> AutoEncoderCausal3D_2_2:
 
 
 def _build_wan22() -> AutoEncoderCausal3D_2_2:
-    module = AutoEncoderCausal3D_2_2.from_config({}, disable_weight_init)  # Wan 2.2 defaults
+    module = AutoEncoderCausal3D_2_2.from_config({"dim": 8, "dec_dim": 12}, disable_weight_init)
     module.eval()
     _randomize_weights(module)
     return module
@@ -66,9 +66,9 @@ def test_from_config_builds_rgba_no_patchify_module():
     assert module.patch_size == 1
     assert module.image_channels == 4
     assert module.pad_channel_value == 1.0
-    assert module.encoder.conv1.weight.shape == (96, 4, 1, 3, 3)
-    assert module.decoder.head[-1].weight.shape == (4, 144, 1, 3, 3)
-    assert module.conv2.weight.shape == (64, 64, 1, 1, 1)
+    assert module.encoder.conv1.weight.shape == (8, 4, 1, 3, 3)
+    assert module.decoder.head[-1].weight.shape == (4, 12, 1, 3, 3)
+    assert module.conv2.weight.shape == (8, 8, 1, 1, 1)
 
 
 def test_post_load_is_safe_noop():
@@ -90,11 +90,11 @@ def test_detects_qwen_image21_from_synthetic_state_dict():
     config = detect_qwen_image21_vae_config(sd)
     assert config is not None
     assert config["vae_type"] == "qwen_image21"
-    assert config["latent_channels"] == 64
+    assert config["latent_channels"] == 8
     assert config["in_channels"] == 4
     assert config["out_channels"] == 4
-    assert config["dim"] == 96
-    assert config["dec_dim"] == 144
+    assert config["dim"] == 8
+    assert config["dec_dim"] == 12
     assert config["temporal_kernel"] == 1
     assert config["patch_size"] == 1
 
@@ -126,7 +126,7 @@ def test_encode_image_decode_image_roundtrip_shape():
         latent = module.encode_image(pixels)
         recon = module.decode_image(latent)
 
-    assert latent.shape == (1, 64, 2, 2)
+    assert latent.shape == (1, 8, 2, 2)
     assert recon.shape == (1, 4, 32, 32)
     assert torch.isfinite(latent).all()
     assert torch.isfinite(recon).all()

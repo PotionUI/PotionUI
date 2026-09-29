@@ -1,14 +1,3 @@
-"""Tests for regional torch.compile (optimizations/compile.py).
-
-Gate logic is mock-based and fast. Block discovery is checked against a REAL
-(tiny) Flux. The compile→execute→restore path is a real CPU torch.compile smoke
-(inductor works on CPU) on a controllable block module — Flux's forward input
-contract is intricate, so the arch is exercised for *discovery* and a plain
-homogeneous-block module for *execution parity*, which together cover both halves
-without wrestling Flux's packed-latent inputs. The execute test is ~20s, so it is
-marked ``slow``.
-"""
-
 from __future__ import annotations
 
 import sys
@@ -73,6 +62,17 @@ class _MockNM:
 
 def _enable(monkeypatch):
     monkeypatch.setenv(tc.NATIVE_TORCH_COMPILE_ENV, "on")
+
+
+def _record_compile_calls(monkeypatch):
+    calls = []
+
+    def fake_compile(module, **kwargs):
+        calls.append(kwargs)
+        return _FakeCompiled(module)
+
+    monkeypatch.setattr(torch, "compile", fake_compile)
+    return calls
 
 
 # --- env toggle ---------------------------------------------------------------
@@ -214,14 +214,45 @@ def test_maybe_compile_noop_when_gate_fails(monkeypatch):
         assert not tc.is_compiled(blk)
 
 
-# --- compile → execute → restore (real CPU compile) ---------------------------
-
-
-@pytest.mark.slow
 @pytest.mark.skipif(sys.platform == "win32", reason="torch.compile is unsupported on native Windows")
-def test_compile_executes_matches_and_restores(monkeypatch):
+def test_real_eager_backend_compile_executes_and_restores(monkeypatch):
     torch._dynamo.reset()
     _enable(monkeypatch)
+    real_compile = torch.compile
+    seen = []
+
+    def eager_compile(module, **kwargs):
+        seen.append(kwargs)
+        return real_compile(module, backend="eager", dynamic=kwargs["dynamic"])
+
+    monkeypatch.setattr(torch, "compile", eager_compile)
+    torch.manual_seed(0)
+    m = _Blocks(n=3, dim=8)
+    x = torch.randn(2, 5, 8)
+    reference = m(x)
+    originals = list(m.blocks)
+
+    nm = _MockNM(m)
+    tc.maybe_compile_dit(nm, resident=True, is_cuda=True)
+
+    assert nm._compiled is not None and nm._compiled.active
+    assert all(isinstance(blk, torch._dynamo.eval_frame.OptimizedModule) for blk in m.blocks)
+    assert [blk._orig_mod for blk in m.blocks] == originals
+    assert all(tc.is_compiled(blk) for blk in m.blocks)
+    assert torch.allclose(reference, m(x), atol=1e-5)
+
+    tc.restore_compiled(nm)
+    assert nm._compiled is None
+    assert list(m.blocks) == originals
+    assert all(not tc.is_compiled(blk) for blk in m.blocks)
+    assert torch.allclose(reference, m(x), atol=1e-5)
+    assert seen == [{"mode": "default", "dynamic": True}] * 3
+    torch._dynamo.reset()
+
+
+def test_compile_executes_matches_and_restores(monkeypatch):
+    _enable(monkeypatch)
+    calls = _record_compile_calls(monkeypatch)
     torch.manual_seed(0)
     m = _Blocks(n=3, dim=8)
     x = torch.randn(2, 5, 8)
@@ -250,7 +281,8 @@ def test_compile_executes_matches_and_restores(monkeypatch):
     assert list(m.blocks) == originals
     assert all(not tc.is_compiled(blk) for blk in m.blocks)
     assert torch.allclose(reference, m(x), atol=1e-5)
-    torch._dynamo.reset()
+    assert len(calls) == 3
+    assert all(call == {"mode": "default", "dynamic": True} for call in calls)
 
 
 # --- Codex E9-E11: compile robustness ---------------------------------------
@@ -435,13 +467,9 @@ def test_maybe_compile_music3_ar_noop_when_gate_fails(monkeypatch):
     assert not tc.is_compiled(lm.module.model.audio_decoder)
 
 
-# --- compile -> execute (multiple shapes) -> restore (real CPU compile) ------
-
-
-@pytest.mark.slow
-def test_music3_depth_decoder_compile_executes_at_two_shapes_and_restores(monkeypatch):
-    torch._dynamo.reset()
+def test_music3_depth_decoder_wrap_uses_reduce_overhead_static_shapes_and_restores(monkeypatch):
     _enable(monkeypatch)
+    calls = _record_compile_calls(monkeypatch)
     torch.manual_seed(0)
     decoder = _tiny_depth_decoder()
 
@@ -454,6 +482,7 @@ def test_music3_depth_decoder_compile_executes_at_two_shapes_and_restores(monkey
     lm = _MockNativeLM(decoder)
     tc.maybe_compile_music3_ar(lm, resident=True, is_cuda=True)
 
+    assert calls == [{"mode": "reduce-overhead", "dynamic": False}]
     assert lm._compiled is not None and lm._compiled.active
     compiled_decoder = lm.module.model.audio_decoder
     assert tc.is_compiled(compiled_decoder)
@@ -478,4 +507,3 @@ def test_music3_depth_decoder_compile_executes_at_two_shapes_and_restores(monkey
     assert not tc.is_compiled(lm.module.model.audio_decoder)
     with torch.no_grad():
         assert torch.allclose(reference2, decoder(x2), atol=1e-5)
-    torch._dynamo.reset()

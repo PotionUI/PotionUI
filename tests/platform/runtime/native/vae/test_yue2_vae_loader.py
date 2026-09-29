@@ -18,6 +18,11 @@ from src.platform.runtime.native.vae.loader import load_yue2_vae
 _TINY_KWARGS = dict(latent_dim=4, out_channels=2)
 
 
+@pytest.fixture(autouse=True)
+def narrow_decoder(monkeypatch):
+    monkeypatch.setitem(YuE2VAEDecoder.__init__.__kwdefaults__, "channels", 4)
+
+
 def _wrap_with_weight_norm(module: torch.nn.Module) -> None:
     for name, child in list(module.named_children()):
         if isinstance(child, (torch.nn.Conv1d, torch.nn.ConvTranspose1d)):

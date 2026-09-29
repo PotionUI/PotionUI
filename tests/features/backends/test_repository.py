@@ -7,15 +7,13 @@ that one canonical name redirects it (and every other repository) to the test
 database below.
 """
 
-import io
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationRunner
+from tests.fixtures.db_template import copy_template_db
 from src.features.backends.records import Backend
 from src.features.backends.repository import BackendRepository
 
@@ -33,7 +31,6 @@ class TestBackendRepository(unittest.TestCase):
 
         self._patchers = [
             patch("src.platform.database.database.db", self.db),
-            patch("src.platform.database.migration_runner.db", self.db),
         ]
         for p in self._patchers:
             p.start()
@@ -51,13 +48,7 @@ class TestBackendRepository(unittest.TestCase):
         Database._instance = None
 
     def _run_migrations(self):
-        migration_runner = MigrationRunner()
-        old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
-        try:
-            migration_runner.run_migrations()
-        finally:
-            sys.stdout = old_stdout
+        copy_template_db(self.db.db_path)
 
         # Migration 069 auto-defaults an engine with exactly one enabled
         # backend (the native one seeded by earlier migrations). Clear that

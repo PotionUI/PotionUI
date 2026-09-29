@@ -1,6 +1,4 @@
-import io
 import os
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,9 +14,10 @@ from src.features.auth.repository import ExternalIdentityRepository
 from src.features.user_groups.repository import UserGroupRepository
 from src.features.users.repository import UserRepository
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationRunner
+from tests.fixtures.db_template import copy_template_db
+from tests.fixtures.password_hasher import CheapPasswordHasher
 from src.platform.plugins.registry import PluginRegistry
-from src.platform.security import Auth, AuthConfig, PasswordHasher, TokenCodec
+from src.platform.security import Auth, AuthConfig, TokenCodec
 from src.platform.security.claim_store import InstanceClaimStore
 from src.platform.security.login_handoff import LoginHandoffStore
 from src.platform.security.user import AccountType
@@ -54,7 +53,6 @@ class TestExternalLoginManager(unittest.TestCase):
 
         self._patchers = [
             patch("src.platform.database.database.db", self.db),
-            patch("src.platform.database.migration_runner.db", self.db),
             patch.dict(
                 os.environ, {"POTIONUI_AUTH_SECRET_KEY": "test-secret-key"}, clear=False
             ),
@@ -71,7 +69,7 @@ class TestExternalLoginManager(unittest.TestCase):
         self.handoff = LoginHandoffStore()
         self.auth = Auth(
             user_repository=self.users,
-            password_hasher=PasswordHasher(),
+            password_hasher=CheapPasswordHasher(),
             token_codec=TokenCodec(AuthConfig(self.settings)),
             auth_config=AuthConfig(self.settings),
             plugin_registry=PluginRegistry(
@@ -106,12 +104,7 @@ class TestExternalLoginManager(unittest.TestCase):
         Database._instance = None
 
     def _run_migrations(self):
-        old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
-        try:
-            MigrationRunner().run_migrations()
-        finally:
-            sys.stdout = old_stdout
+        copy_template_db(self.db.db_path)
 
     def _set(self, key, value):
         self.settings.set_setting(key, value)

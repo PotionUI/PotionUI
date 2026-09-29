@@ -8,30 +8,44 @@ latent frame only -- see the module docstrings).
 
 from __future__ import annotations
 
+import functools
+from unittest import mock
+
 import torch
 
 from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.vae import causal_3d
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 from src.platform.runtime.native.vae.causal_3d_v2 import AutoEncoderCausal3D_2_2
+from src.platform.runtime.native.vae import tiling
 from src.platform.runtime.native.vae.tiling import chunked_decode_causal3d
 
 
 def _randomize_weights(module: torch.nn.Module) -> None:
+    torch.manual_seed(1234)
     with torch.no_grad():
         for p in module.parameters():
             if p.is_floating_point():
                 p.normal_(std=0.02)
 
 
+@functools.lru_cache(maxsize=1)
 def _build_tiny_v1() -> AutoEncoderCausal3D:
-    module = AutoEncoderCausal3D.from_config({}, disable_weight_init)
+    with mock.patch.object(causal_3d, "_DIM", 8):
+        module = AutoEncoderCausal3D.from_config({}, disable_weight_init)
     module.eval()
     _randomize_weights(module)
     return module
 
 
+_V2_Z = 8
+
+
+@functools.lru_cache(maxsize=1)
 def _build_tiny_v2() -> AutoEncoderCausal3D_2_2:
-    module = AutoEncoderCausal3D_2_2.from_config({}, disable_weight_init)
+    module = AutoEncoderCausal3D_2_2.from_config(
+        {"dim": 8, "dec_dim": 8, "latent_channels": _V2_Z, "num_res_blocks": 1}, disable_weight_init,
+    )
     module.eval()
     _randomize_weights(module)
     return module
@@ -121,7 +135,7 @@ def test_v1_new_feat_cache_matches_internal_cache_size():
 def test_v2_chunked_decode_matches_whole_decode_evenly_divisible():
     torch.manual_seed(10)
     vae = _build_tiny_v2()
-    z = torch.randn(1, 48, 9, 4, 4)
+    z = torch.randn(1, _V2_Z, 9, 4, 4)
 
     with torch.no_grad():
         whole = vae.decode(z)
@@ -134,7 +148,7 @@ def test_v2_chunked_decode_matches_whole_decode_evenly_divisible():
 def test_v2_chunked_decode_matches_whole_decode_with_remainder():
     torch.manual_seed(11)
     vae = _build_tiny_v2()
-    z = torch.randn(1, 48, 9, 4, 4)
+    z = torch.randn(1, _V2_Z, 9, 4, 4)
 
     with torch.no_grad():
         whole = vae.decode(z)
@@ -147,7 +161,7 @@ def test_v2_chunked_decode_matches_whole_decode_with_remainder():
 def test_v2_chunked_decode_degenerates_to_single_decode_when_chunk_exceeds_clip():
     torch.manual_seed(12)
     vae = _build_tiny_v2()
-    z = torch.randn(1, 48, 3, 4, 4)
+    z = torch.randn(1, _V2_Z, 3, 4, 4)
 
     with torch.no_grad():
         whole = vae.decode(z)
@@ -164,7 +178,7 @@ def test_v2_chunked_decode_first_chunk_flag_only_true_on_first_call():
     output frames and producing a SHORTER video than a whole decode."""
     torch.manual_seed(13)
     vae = _build_tiny_v2()
-    z = torch.randn(1, 48, 9, 4, 4)
+    z = torch.randn(1, _V2_Z, 9, 4, 4)
 
     with torch.no_grad():
         whole = vae.decode(z)
@@ -187,7 +201,7 @@ def test_v2_decode_default_first_chunk_true_preserves_old_behavior():
     byte-identical to before this change."""
     torch.manual_seed(14)
     vae = _build_tiny_v2()
-    z = torch.randn(1, 48, 5, 4, 4)
+    z = torch.randn(1, _V2_Z, 5, 4, 4)
 
     with torch.no_grad():
         a = vae.decode(z)
@@ -246,3 +260,27 @@ def test_accumulate_device_cpu_moves_output_off_device_and_stays_exact():
 
     assert to_cpu.device.type == "cpu"
     torch.testing.assert_close(to_cpu, default.cpu(), rtol=0, atol=0)
+
+
+def test_accumulate_device_is_applied_to_every_chunk_before_concatenation(monkeypatch):
+    class _FakeVae:
+        def decode(self, z, feat_cache=None):
+            return z.clone()
+
+        def new_feat_cache(self):
+            return []
+
+    cat_inputs = []
+    real_cat = torch.cat
+
+    def spy_cat(tensors, *args, **kwargs):
+        cat_inputs.append([t.device.type for t in tensors])
+        return real_cat(tensors, *args, **kwargs)
+
+    monkeypatch.setattr(tiling.torch, "cat", spy_cat)
+    z = torch.randn(1, 2, 5, 2, 2)
+    out = chunked_decode_causal3d(_FakeVae(), z, chunk_latent_frames=2, accumulate_device="meta")
+
+    assert cat_inputs == [["meta", "meta", "meta"]]
+    assert out.device.type == "meta"
+    assert out.shape == z.shape

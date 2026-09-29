@@ -7,6 +7,7 @@ for once per widening pass or once per indexed generation.
 """
 
 from tests.features.media_index.test_semantic_history import (
+    TOP_K,
     FakeIndexer,
     SemanticHistoryTestBase,
 )
@@ -68,10 +69,7 @@ class SemanticCostTestBase(SemanticHistoryTestBase):
 
 class TestEmbeddingIsReusedAcrossWideningPasses(SemanticCostTestBase):
     def test_query_is_embedded_once_however_far_the_search_widens(self):
-        # Nothing matches, so the search widens all the way: 100 -> 200 ->
-        # 250. Text encoding is the expensive half of a gallery search and
-        # the query text never changes, so it may only happen once.
-        query = self._counting_query(hits=self._gallery(250, completed_indexes=set()))
+        query = self._counting_query(hits=self._gallery(10, completed_indexes=set()))
 
         result = query.get_history(
             self.user_id, include_tags=False,
@@ -80,10 +78,10 @@ class TestEmbeddingIsReusedAcrossWideningPasses(SemanticCostTestBase):
 
         assert result["generations"] == []
         assert self.search_manager.embed_calls == ["castle"]
-        assert [call["limit"] for call in self.search_manager.calls] == [100, 200, 250]
+        assert [call["limit"] for call in self.search_manager.calls] == [TOP_K, 2 * TOP_K, 10]
 
     def test_every_pass_searches_with_the_same_vector(self):
-        query = self._counting_query(hits=self._gallery(250, completed_indexes=set()))
+        query = self._counting_query(hits=self._gallery(10, completed_indexes=set()))
 
         query.get_history(
             self.user_id, include_tags=False,
@@ -97,26 +95,20 @@ class TestEmbeddingIsReusedAcrossWideningPasses(SemanticCostTestBase):
 
 class TestWideningFiltersOnlyWhatItAdded(SemanticCostTestBase):
     def test_each_pass_filters_only_the_ids_beyond_the_previous_cutoff(self):
-        query = self._counting_query(hits=self._gallery(250, completed_indexes=set()))
+        query = self._counting_query(hits=self._gallery(10, completed_indexes=set()))
 
         query.get_history(
             self.user_id, include_tags=False,
             semantic_query="castle", status="completed",
         )
-
-        # Three passes over windows of 100/200/250. The batches they filter
-        # are the *additions* - 100 + 100 + 50 - not the windows themselves,
-        # which would re-filter the first 100 ids three times over.
         page_batches = self.counting_repo.id_filter_batches[:-1]
-        assert [len(batch) for batch in page_batches] == [100, 100, 50]
+        assert [len(batch) for batch in page_batches] == [TOP_K, TOP_K, 2]
         filtered = [gen_id for batch in page_batches for gen_id in batch]
-        assert len(filtered) == len(set(filtered)) == 250
+        assert len(filtered) == len(set(filtered)) == 10
 
     def test_ranked_order_survives_being_filtered_in_pieces(self):
-        # Matches sit either side of every widening boundary, so a correct
-        # result can only come from concatenating the passes in order.
         query = self._counting_query(
-            hits=self._gallery(250, completed_indexes={5, 150, 240})
+            hits=self._gallery(10, completed_indexes={1, 6, 9})
         )
 
         result = query.get_history(
@@ -124,7 +116,7 @@ class TestWideningFiltersOnlyWhatItAdded(SemanticCostTestBase):
             semantic_query="castle", status="completed",
         )
 
-        assert [g["id"] for g in result["generations"]] == ["gen5", "gen150", "gen240"]
+        assert [g["id"] for g in result["generations"]] == ["gen1", "gen6", "gen9"]
 
     def test_multi_file_generations_reach_the_filter_once(self):
         gen = self._generation_with_file("gen1", "f1", status="completed")
@@ -157,16 +149,13 @@ class TestWideningTrustsOnlyTheRankingInHand(SemanticCostTestBase):
             self._generation_with_file(gen_id, f"file-{gen_id}", status=status)
 
     def test_a_reordered_widened_ranking_wins_over_the_earlier_one(self):
-        # Pass 1 ranks [a, b]; only `a` matches. Pass 2 ranks [c, a, b, d],
-        # putting `c` ahead of `a` - so the answer is [c, a, d]. Appending
-        # pass 2's additions to pass 1's matches would answer [a, c, d].
         self._generations(
             ("a", "completed"), ("b", "processing"),
             ("c", "completed"), ("d", "completed"),
         )
         query = self._counting_query(
             hits=[self._hit(f"file-{g}", g, 0.3) for g in ("c", "a", "b", "d")],
-            collection_size=150,
+            collection_size=6,
             rankings=[
                 [self._hit("file-a", "a", 0.30), self._hit("file-b", "b", 0.29)],
                 [self._hit("file-c", "c", 0.40), self._hit("file-a", "a", 0.30),
@@ -181,16 +170,13 @@ class TestWideningTrustsOnlyTheRankingInHand(SemanticCostTestBase):
 
         assert [g["id"] for g in result["generations"]] == ["c", "a", "d"]
         assert self.search_manager.embed_calls == ["castle"]
-        assert [call["limit"] for call in self.search_manager.calls] == [100, 150]
+        assert [call["limit"] for call in self.search_manager.calls] == [TOP_K, 6]
 
     def test_a_hit_the_widened_ranking_drops_is_not_carried_forward(self):
-        # `a` ranks in pass 1 and is gone from pass 2 - removed from the
-        # index, or cut when the best hit moved. It must not survive in the
-        # answer just because an earlier pass had already matched it.
         self._generations(("a", "completed"), ("b", "completed"))
         query = self._counting_query(
             hits=[self._hit("file-b", "b", 0.3)],
-            collection_size=150,
+            collection_size=6,
             rankings=[
                 [self._hit("file-a", "a", 0.30), self._hit("file-b", "b", 0.29)],
                 [self._hit("file-b", "b", 0.29)],
@@ -204,7 +190,7 @@ class TestWideningTrustsOnlyTheRankingInHand(SemanticCostTestBase):
 
         assert [g["id"] for g in result["generations"]] == ["b"]
         assert self.search_manager.embed_calls == ["castle"]
-        assert [call["limit"] for call in self.search_manager.calls] == [100, 150]
+        assert [call["limit"] for call in self.search_manager.calls] == [TOP_K, 6]
 
     def test_an_id_seen_by_an_earlier_pass_is_never_filtered_twice(self):
         self._generations(
@@ -213,7 +199,7 @@ class TestWideningTrustsOnlyTheRankingInHand(SemanticCostTestBase):
         )
         query = self._counting_query(
             hits=[self._hit(f"file-{g}", g, 0.3) for g in ("c", "a", "b", "d")],
-            collection_size=150,
+            collection_size=6,
             rankings=[
                 [self._hit("file-a", "a", 0.30), self._hit("file-b", "b", 0.29)],
                 [self._hit("file-c", "c", 0.40), self._hit("file-a", "a", 0.30),
@@ -232,37 +218,33 @@ class TestWideningTrustsOnlyTheRankingInHand(SemanticCostTestBase):
 
 class TestTotalDoesNotMaterializeTheGallery(SemanticCostTestBase):
     def test_only_the_requested_page_is_built_into_generations(self):
-        # Every one of the 250 indexed generations matches the filter, so
-        # the exact total is 250 - but a 20-item page may only ever build
-        # 20 rows. Counting by materializing each candidate is what this
-        # forbids.
-        query = self._counting_query(hits=self._gallery(250))
+        query = self._counting_query(hits=self._gallery(10))
 
         result = query.get_history(
-            self.user_id, limit=20, include_tags=False,
+            self.user_id, limit=2, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
-        assert result["total"] == 250
-        assert [g["id"] for g in result["generations"]] == [f"gen{i}" for i in range(20)]
-        assert self.counting_repo.rows_materialized == 20
+        assert result["total"] == 10
+        assert [g["id"] for g in result["generations"]] == [f"gen{i}" for i in range(2)]
+        assert self.counting_repo.rows_materialized == 2
 
     def test_a_later_page_materializes_only_that_page(self):
-        query = self._counting_query(hits=self._gallery(250))
+        query = self._counting_query(hits=self._gallery(10))
 
         result = query.get_history(
-            self.user_id, limit=20, offset=200, include_tags=False,
+            self.user_id, limit=2, offset=8, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
-        assert result["total"] == 250
+        assert result["total"] == 10
         assert [g["id"] for g in result["generations"]] == [
-            f"gen{i}" for i in range(200, 220)
+            f"gen{i}" for i in range(8, 10)
         ]
-        assert self.counting_repo.rows_materialized == 20
+        assert self.counting_repo.rows_materialized == 2
 
     def test_a_page_with_no_matches_materializes_nothing(self):
-        query = self._counting_query(hits=self._gallery(250, completed_indexes=set()))
+        query = self._counting_query(hits=self._gallery(10, completed_indexes=set()))
 
         result = query.get_history(
             self.user_id, include_tags=False,
@@ -273,15 +255,15 @@ class TestTotalDoesNotMaterializeTheGallery(SemanticCostTestBase):
         assert self.counting_repo.rows_materialized == 0
 
     def test_the_total_is_one_pass_over_the_indexed_ids(self):
-        query = self._counting_query(hits=self._gallery(250))
+        query = self._counting_query(hits=self._gallery(10))
 
         query.get_history(
-            self.user_id, limit=20, include_tags=False,
+            self.user_id, limit=2, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
         assert self.search_manager.all_ids_calls == 1
-        assert len(self.counting_repo.id_filter_batches[-1]) == 250
+        assert len(self.counting_repo.id_filter_batches[-1]) == 10
 
 
 class TestTotalMatchesGroundTruth(SemanticCostTestBase):
@@ -293,8 +275,8 @@ class TestTotalMatchesGroundTruth(SemanticCostTestBase):
         ])
 
     def test_restrictive_filter_total_agrees_with_a_brute_force_count(self):
-        completed = {3, 17, 101, 102, 199, 240}
-        query = self._counting_query(hits=self._gallery(250, completed_indexes=completed))
+        completed = {1, 4, 5, 8, 11}
+        query = self._counting_query(hits=self._gallery(12, completed_indexes=completed))
 
         result = query.get_history(
             self.user_id, limit=2, include_tags=False,
@@ -306,14 +288,14 @@ class TestTotalMatchesGroundTruth(SemanticCostTestBase):
         assert result["total"] == expected
 
     def test_permissive_filter_total_agrees_with_a_brute_force_count(self):
-        query = self._counting_query(hits=self._gallery(120))
+        query = self._counting_query(hits=self._gallery(12))
 
         result = query.get_history(
             self.user_id, limit=5, include_tags=False, semantic_query="castle",
         )
 
         assert result["total"] == self._brute_force_total(user_id=self.user_id)
-        assert result["total"] == 120
+        assert result["total"] == 12
 
 
 class TestIndexMutationBetweenRequests(SemanticCostTestBase):
@@ -356,7 +338,7 @@ class TestIndexMutationBetweenRequests(SemanticCostTestBase):
 
 class TestExhaustedAndEmptyCollections(SemanticCostTestBase):
     def test_a_collection_smaller_than_the_first_window_is_queried_once(self):
-        query = self._counting_query(hits=self._gallery(4, completed_indexes=set()))
+        query = self._counting_query(hits=self._gallery(3, completed_indexes=set()))
 
         result = query.get_history(
             self.user_id, include_tags=False,
@@ -366,7 +348,7 @@ class TestExhaustedAndEmptyCollections(SemanticCostTestBase):
         assert result["generations"] == []
         assert result["total"] == 0
         assert self.search_manager.embed_calls == ["castle"]
-        assert [call["limit"] for call in self.search_manager.calls] == [100]
+        assert [call["limit"] for call in self.search_manager.calls] == [TOP_K]
 
     def test_an_empty_collection_embeds_once_and_searches_once(self):
         query = self._counting_query(hits=[], collection_size=0)

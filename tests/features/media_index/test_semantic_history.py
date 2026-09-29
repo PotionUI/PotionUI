@@ -1,5 +1,7 @@
 """Semantic (visual) history search: ranking, capping, and filter intersection."""
 
+from unittest import mock
+
 from tests.features.media_index.test_history_system_tags import HistoryTestBase
 
 from src.features.generation.history_query import GenerationHistoryQuery
@@ -74,7 +76,16 @@ class FakeIndexer:
         return ordered
 
 
+TOP_K = 4
+
+
 class SemanticHistoryTestBase(HistoryTestBase):
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch("src.features.media_index.indexer.SEMANTIC_TOP_K", TOP_K)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _semantic_query(self, hits=None, error=None, collection_size=None):
         self.search_manager = FakeIndexer(
             hits=hits, error=error, collection_size=collection_size
@@ -114,7 +125,7 @@ class TestSemanticOrdering(SemanticHistoryTestBase):
         assert [g["id"] for g in result["generations"]] == ["gen3", "gen1"]
         assert result["total"] == 2
         assert self.search_manager.embed_calls == ["castle"]
-        assert [call["limit"] for call in self.search_manager.calls] == [100]
+        assert [call["limit"] for call in self.search_manager.calls] == [TOP_K]
 
     def test_duplicate_generation_hits_collapse_to_best_rank(self):
         gen = self._generation_with_file("gen1", "f1")
@@ -224,66 +235,41 @@ class TestSemanticFilterIntersection(SemanticHistoryTestBase):
 
 
 class TestSemanticWidensPastCappedTopK(SemanticHistoryTestBase):
-    """A single fixed-size vector query intersected with SQL filters can miss
-    a real filter match that simply ranks below the query's window - the
-    query has to widen until either the page fills or the whole gallery
-    collection has been scanned."""
-
-    def test_filter_match_ranked_below_initial_top_k_is_not_dropped(self):
-        # 150 generations ranked best (index 0) to worst (index 149); only
-        # the one at index 120 - outside a single SEMANTIC_TOP_K=100 query -
-        # is "completed". A capped, non-widening query would see nothing.
+    def _ranked(self, size, completed):
         hits = []
-        target_index = 120
-        for index in range(150):
+        for index in range(size):
             gen_id = f"gen{index}"
-            status = "completed" if index == target_index else "processing"
+            status = "completed" if index in completed else "processing"
             self._generation_with_file(gen_id, f"f{index}", status=status)
             hits.append(self._hit(f"f{index}", gen_id, 1.0 - index * 0.001))
-        query = self._semantic_query(hits=hits)
+        return hits
+
+    def test_filter_match_ranked_below_initial_top_k_is_not_dropped(self):
+        query = self._semantic_query(hits=self._ranked(6, {5}))
 
         result = query.get_history(
             self.user_id, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
-        assert [g["id"] for g in result["generations"]] == ["gen120"]
+        assert [g["id"] for g in result["generations"]] == ["gen5"]
         assert result["total"] == 1
-        # First query capped at SEMANTIC_TOP_K (100); since that page held
-        # no filter match, the query widened once more, covering the full
-        # 150-item collection.
-        assert [call["limit"] for call in self.search_manager.calls] == [100, 150]
+        assert [call["limit"] for call in self.search_manager.calls] == [TOP_K, 6]
 
     def test_widening_stops_once_the_page_is_filled(self):
-        # 300 items; a match right after the first widened window (100 ->
-        # 200) already fills a limit=1 page, so the loop must not keep
-        # widening all the way to 300.
-        hits = []
-        for index in range(300):
-            gen_id = f"gen{index}"
-            status = "completed" if index in (110, 250) else "processing"
-            self._generation_with_file(gen_id, f"f{index}", status=status)
-            hits.append(self._hit(f"f{index}", gen_id, 1.0 - index * 0.001))
-        query = self._semantic_query(hits=hits)
+        query = self._semantic_query(hits=self._ranked(12, {5, 10}))
 
         result = query.get_history(
             self.user_id, limit=1, offset=0, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
-        assert [g["id"] for g in result["generations"]] == ["gen110"]
-        # Exact total (gen110 AND gen250 are "completed"), independent of how
-        # far the ranked-page query widened to fill a 1-item page.
+        assert [g["id"] for g in result["generations"]] == ["gen5"]
         assert result["total"] == 2
-        assert [call["limit"] for call in self.search_manager.calls] == [100, 200]
+        assert [call["limit"] for call in self.search_manager.calls] == [TOP_K, 2 * TOP_K]
 
     def test_no_filter_match_anywhere_scans_the_whole_collection_once(self):
-        hits = []
-        for index in range(250):
-            gen_id = f"gen{index}"
-            self._generation_with_file(gen_id, f"f{index}", status="processing")
-            hits.append(self._hit(f"f{index}", gen_id, 1.0 - index * 0.001))
-        query = self._semantic_query(hits=hits)
+        query = self._semantic_query(hits=self._ranked(10, set()))
 
         result = query.get_history(
             self.user_id, include_tags=False,
@@ -292,43 +278,34 @@ class TestSemanticWidensPastCappedTopK(SemanticHistoryTestBase):
 
         assert result["generations"] == []
         assert result["total"] == 0
-        assert [call["limit"] for call in self.search_manager.calls] == [100, 200, 250]
+        assert [call["limit"] for call in self.search_manager.calls] == [TOP_K, 2 * TOP_K, 10]
 
 
 class TestSemanticTotalIsExact(SemanticHistoryTestBase):
-    """``total`` has to answer "how many matches exist", not "how many did
-    the ranked-page query happen to see before it stopped widening" - those
-    are different questions once a filter has more matches than one page."""
-
     def test_total_reflects_the_full_filtered_set_not_just_the_filled_page(self):
-        # 300 generations, all "completed" (all match the filter), ranked
-        # best (index 0) to worst (index 299). A page query for limit=20
-        # only ever needs to widen to the first 100 - far short of all 300
-        # matches - so total must come from somewhere else entirely.
         hits = []
-        for index in range(300):
+        for index in range(12):
             gen_id = f"gen{index}"
             self._generation_with_file(gen_id, f"f{index}", status="completed")
             hits.append(self._hit(f"f{index}", gen_id, 1.0 - index * 0.001))
         query = self._semantic_query(hits=hits)
 
         first_page = query.get_history(
-            self.user_id, limit=20, offset=0, include_tags=False,
+            self.user_id, limit=2, offset=0, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
-        assert first_page["total"] == 300
-        assert [g["id"] for g in first_page["generations"]] == [f"gen{i}" for i in range(20)]
+        assert first_page["total"] == 12
+        assert [g["id"] for g in first_page["generations"]] == ["gen0", "gen1"]
+        assert [call["limit"] for call in self.search_manager.calls] == [TOP_K]
 
         last_page = query.get_history(
-            self.user_id, limit=20, offset=280, include_tags=False,
+            self.user_id, limit=2, offset=10, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
-        assert last_page["total"] == 300
-        assert [g["id"] for g in last_page["generations"]] == [
-            f"gen{i}" for i in range(280, 300)
-        ]
+        assert last_page["total"] == 12
+        assert [g["id"] for g in last_page["generations"]] == ["gen10", "gen11"]
 
     def test_total_agrees_with_the_non_semantic_path_for_the_same_filters(self):
         hits = []

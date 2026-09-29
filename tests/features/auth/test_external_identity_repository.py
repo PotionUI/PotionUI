@@ -1,5 +1,3 @@
-import io
-import sys
 import tempfile
 import unittest
 from datetime import timezone
@@ -9,7 +7,7 @@ from unittest.mock import patch
 from src.features.auth.repository import ExternalIdentityRepository
 from src.features.users.repository import UserRepository
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationRunner
+from tests.fixtures.db_template import copy_template_db
 from src.platform.security.user import AccountType
 
 
@@ -26,7 +24,6 @@ class TestExternalIdentityRepository(unittest.TestCase):
 
         self._patchers = [
             patch("src.platform.database.database.db", self.db),
-            patch("src.platform.database.migration_runner.db", self.db),
         ]
         for patcher in self._patchers:
             patcher.start()
@@ -47,12 +44,7 @@ class TestExternalIdentityRepository(unittest.TestCase):
         Database._instance = None
 
     def _run_migrations(self):
-        old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
-        try:
-            MigrationRunner().run_migrations()
-        finally:
-            sys.stdout = old_stdout
+        copy_template_db(self.db.db_path)
 
     def _make_user(self, username):
         return self.users.create(

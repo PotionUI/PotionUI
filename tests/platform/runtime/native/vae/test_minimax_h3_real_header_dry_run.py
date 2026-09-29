@@ -54,6 +54,7 @@ any second real checkpoint variant with a genuinely different key layout
 
 from __future__ import annotations
 
+import functools
 import json
 import tempfile
 from pathlib import Path
@@ -137,11 +138,13 @@ def _randomize(sd: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     return {k: v.contiguous().clone() for k, v in sd.items()}
 
 
+@functools.lru_cache(maxsize=1)
 def _build_video_state_dict() -> dict[str, torch.Tensor]:
     module = MiniMaxH3VideoVAE.from_config(_VIDEO_CONFIG, disable_weight_init)
     return _randomize(module.state_dict())
 
 
+@functools.lru_cache(maxsize=1)
 def _build_audio_state_dict() -> dict[str, torch.Tensor]:
     module = MiniMaxH3AudioVAE.from_config(_AUDIO_CONFIG, disable_weight_init)
     return _randomize(module.state_dict())
@@ -170,6 +173,12 @@ def _quantise_video_state_dict(sd: dict[str, torch.Tensor], header: dict) -> dic
         out[base + ".weight_scale"] = scale
         out[base + ".comfy_quant"] = descriptor_blob(convrot_descriptor(_CONVROT_GROUPSIZE))
     return out
+
+
+@functools.lru_cache(maxsize=1)
+def _quantised_video_state_dict() -> dict[str, torch.Tensor]:
+    header = _load_real_header(_INT8_HEADER)
+    return _quantise_video_state_dict(_build_video_state_dict(), header)
 
 
 def _rel_err(got: torch.Tensor, want: torch.Tensor) -> float:
@@ -348,8 +357,7 @@ class TestFullEngineDispatchDryRun:
         point -- covering the part the fp16 dry-run above cannot reach: the
         `_VaeSpec` allowlist gate meeting 288 sidecar keys, and the ops
         selection landing on a namespace that can dequantise int8 codes."""
-        header = _load_real_header(_INT8_HEADER)
-        sd = _quantise_video_state_dict(_build_video_state_dict(), header)
+        sd = dict(_quantised_video_state_dict())
         metadata = {"minimax_h3_video_vae": json.dumps({"vae_clip_length": 17, "vae_token_drop": 3})}
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -380,9 +388,8 @@ class TestFullEngineDispatchDryRun:
         the un-rotation the same codes dequantise to something else entirely
         (asserted below), so this is what proves the rotation is applied and
         applied in the right direction."""
-        header = _load_real_header(_INT8_HEADER)
         float_sd = _build_video_state_dict()
-        sd = _quantise_video_state_dict(float_sd, header)
+        sd = dict(_quantised_video_state_dict())
         metadata = {"minimax_h3_video_vae": json.dumps({"vae_clip_length": 17, "vae_token_drop": 3})}
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -403,8 +410,7 @@ class TestFullEngineDispatchDryRun:
         """The sidecars survive the allowlist gate because the ops layer
         consumes them, not because the gate was widened -- so an ordinary
         junk key must still abort the load."""
-        header = _load_real_header(_INT8_HEADER)
-        sd = _quantise_video_state_dict(_build_video_state_dict(), header)
+        sd = dict(_quantised_video_state_dict())
         sd["decoder.transformer_blocks.0.attn.to_qkv.bogus"] = torch.zeros(4)
         metadata = {"minimax_h3_video_vae": json.dumps({"vae_clip_length": 17, "vae_token_drop": 3})}
 

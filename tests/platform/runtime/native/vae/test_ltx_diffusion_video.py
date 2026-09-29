@@ -24,7 +24,9 @@ from src.platform.runtime.native.detect.vae_detect import (
 )
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
 from src.platform.runtime.native.vae.loader import _VaeSpec
+from src.platform.runtime.native.vae import ltx_diffusion_video
 from src.platform.runtime.native.vae.ltx_diffusion_video import (
+    _blend,
     LTXDiffusionVideoVAE,
     _neighborhood_attention,
 )
@@ -363,7 +365,7 @@ class TestTiledDecode:
 
     def test_tiled_decode_matches_the_untiled_output_shape(self):
         module = _build_tiny()
-        latent = torch.randn(1, 8, 3, 8, 8)
+        latent = torch.randn(1, 8, 3, 5, 5)
         with torch.no_grad():
             untiled = module.decode(latent, generator=torch.Generator().manual_seed(0))
             # Sizes land in LATENT units after dividing by the compression
@@ -388,43 +390,32 @@ class TestTiledDecode:
         module.disable_tiling()
         assert module.use_tiling is False
 
-    # Latent tile 4 cells / stride 3 on every axis (>= the tiny config's
-    # stage-0 kernel floor of 3), forcing 2 tiles on each of T, H, W against
-    # an (6, 8, 8) latent -- 8 tiles total, none of them a features-space
-    # no-op the way a single-axis split would be.
     _MULTI_TILE_SIZES = dict(
         tile_sample_min_num_frames=32, tile_sample_stride_num_frames=24,
-        tile_sample_min_height=128, tile_sample_stride_height=96,
-        tile_sample_min_width=128, tile_sample_stride_width=96,
+        tile_sample_min_height=96, tile_sample_stride_height=64,
+        tile_sample_min_width=96, tile_sample_stride_width=64,
     )
 
-    def test_tiled_decode_matches_untiled_within_tolerance_at_every_seam(self):
-        """Stages 1-3 now run per tile, so a query near a tile boundary sees
-        truncated neighborhood-attention context relative to the untiled
-        (whole-clip) run -- interiors are not expected to match exactly, only
-        within a tolerance, the same acceptance the stage-4/5-only tiling
-        already had. Checked at the clip edges and blend seams specifically,
-        not just in aggregate."""
+    def test_tiled_decode_matches_untiled_within_tolerance_at_every_seam(self, monkeypatch):
+        monkeypatch.setattr(
+            ltx_diffusion_video, "_randn",
+            lambda shape, generator, device, dtype: torch.zeros(shape, device=device, dtype=dtype),
+        )
+        torch.manual_seed(1234)
         module = _build_tiny()
-        latent = torch.randn(1, 8, 6, 8, 8)
+        latent = torch.randn(1, 8, 6, 5, 5)
         with torch.no_grad():
-            untiled = module.decode(latent, generator=torch.Generator().manual_seed(0))
+            untiled = module.decode(latent)
             module.enable_tiling(**self._MULTI_TILE_SIZES)
-            tiled = module.decode(latent, generator=torch.Generator().manual_seed(0))
+            tiled = module.decode(latent)
 
         assert tiled.shape == untiled.shape
         assert torch.isfinite(tiled).all()
-        assert torch.allclose(tiled, untiled, atol=0.1)
-        assert torch.allclose(tiled[:, :, 0], untiled[:, :, 0], atol=0.1)
-        assert torch.allclose(tiled[:, :, -1], untiled[:, :, -1], atol=0.1)
-        assert torch.allclose(tiled[:, :, :, 0, :], untiled[:, :, :, 0, :], atol=0.1)
-        assert torch.allclose(tiled[:, :, :, -1, :], untiled[:, :, :, -1, :], atol=0.1)
-        assert torch.allclose(tiled[:, :, :, :, 0], untiled[:, :, :, :, 0], atol=0.1)
-        assert torch.allclose(tiled[:, :, :, :, -1], untiled[:, :, :, :, -1], atol=0.1)
+        assert torch.allclose(tiled, untiled, rtol=0, atol=2e-7)
 
     def test_tiled_decode_is_deterministic_for_a_fixed_tile_grid(self):
         module = _build_tiny()
-        latent = torch.randn(1, 8, 6, 8, 8)
+        latent = torch.randn(1, 8, 3, 5, 5)
         module.enable_tiling(**self._MULTI_TILE_SIZES)
         with torch.no_grad():
             first = module.decode(latent, generator=torch.Generator().manual_seed(3))
@@ -437,7 +428,7 @@ class TestTiledDecode:
         ``tiled_decode`` -- materializing a full-clip feature volume no
         matter how small the tile size, which is what actually OOM'd."""
         module = _build_tiny()
-        latent = torch.randn(1, 8, 6, 8, 8)
+        latent = torch.randn(1, 8, 6, 5, 5)
         original = module.decoder.forward_stages_1_to_3
         calls = []
 
@@ -542,3 +533,21 @@ class TestModuleContract:
         config = dict(_TINY_CONFIG, model_output_type="epsilon")
         with pytest.raises(NativeEngineUnsupportedError, match="model_output_type"):
             LTXDiffusionVideoVAE.from_config(config, disable_weight_init)
+
+
+class TestBlend:
+    @pytest.mark.parametrize("dim", [2, 3, 4])
+    def test_ramps_linearly_from_previous_tail_to_current_head(self, dim):
+        shape = [1, 1, 6, 6, 6]
+        previous = torch.ones(shape)
+        current = torch.zeros(shape)
+        out = _blend(previous, current, 4, dim=dim)
+        ramp = out.select(0, 0).select(0, 0).movedim(dim - 2, 0).reshape(6, -1)[:, 0]
+        assert ramp[:4].tolist() == pytest.approx([1.0, 0.75, 0.5, 0.25])
+        assert ramp[4:].tolist() == [0.0, 0.0]
+
+    def test_extent_is_capped_by_the_smaller_tensor(self):
+        previous = torch.ones(1, 1, 2, 1, 1)
+        current = torch.zeros(1, 1, 5, 1, 1)
+        out = _blend(previous, current, 9, dim=2)
+        assert out[0, 0, :, 0, 0].tolist() == pytest.approx([1.0, 0.5, 0.0, 0.0, 0.0])

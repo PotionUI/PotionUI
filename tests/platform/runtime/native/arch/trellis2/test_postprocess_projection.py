@@ -133,10 +133,10 @@ def test_a_single_face_mesh_projects_without_an_index_query_degenerating():
 def test_the_candidate_set_is_a_small_fraction_of_the_mesh():
     """The point of the index: the exact kernel must see far fewer
     point-triangle pairs than the exhaustive scan would."""
-    vertices, faces = _sphere(subdivisions=4)
+    vertices, faces = _sphere(subdivisions=3)
     rng = np.random.default_rng(3)
-    surface = vertices[rng.integers(0, vertices.shape[0], 4000)] * rng.uniform(
-        0.98, 1.02, (4000, 1)
+    surface = vertices[rng.integers(0, vertices.shape[0], 1000)] * rng.uniform(
+        0.98, 1.02, (1000, 1)
     ).astype(np.float32)
     points = torch.from_numpy(np.ascontiguousarray(surface, dtype=np.float32))
 
@@ -149,7 +149,7 @@ def test_the_candidate_set_is_a_small_fraction_of_the_mesh():
 
     postprocess._closest_point_on_triangles = counting_kernel
     try:
-        got = _project_to_source(points, vertices, faces, point_batch=256)
+        got = _project_to_source(points, vertices, faces, point_batch=128)
     finally:
         postprocess._closest_point_on_triangles = kernel
 

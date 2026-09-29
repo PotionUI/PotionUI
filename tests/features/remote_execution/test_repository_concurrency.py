@@ -10,8 +10,6 @@ WAL mode - the same connection pattern `claim_for_dispatch` runs under
 in production.
 """
 
-import io
-import sys
 import tempfile
 import threading
 import unittest
@@ -22,7 +20,7 @@ from unittest.mock import patch
 from src.features.remote_execution.records import RemoteExecution, RemoteExecutionState
 from src.features.remote_execution.repository import RemoteExecutionRepository
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationRunner
+from tests.fixtures.db_template import copy_template_db
 
 S = RemoteExecutionState
 
@@ -40,18 +38,11 @@ class ClaimForDispatchConcurrencyTest(unittest.TestCase):
 
         self._patchers = [
             patch("src.platform.database.database.db", self.db),
-            patch("src.platform.database.migration_runner.db", self.db),
         ]
         for p in self._patchers:
             p.start()
 
-        manager = MigrationRunner()
-        old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
-        try:
-            manager.run_migrations()
-        finally:
-            sys.stdout = old_stdout
+        copy_template_db(self.db.db_path)
 
         self.repo = RemoteExecutionRepository()
 

@@ -170,7 +170,7 @@ def test_detect_qwen3vl_32b_from_real_nvfp4_awq_header_not_confused_by_quant_sid
     dtype_map = {"BF16": torch.bfloat16, "F32": torch.float32, "F8_E4M3": torch.float32,
                  "U8": torch.uint8, "I8": torch.int8}
     sd = {
-        k: torch.zeros(v["shape"] or [1], dtype=dtype_map.get(v["dtype"], torch.float32))
+        k: torch.zeros(v["shape"] or [1], dtype=dtype_map.get(v["dtype"], torch.float32), device="meta")
         for k, v in header.items() if k != "__metadata__"
     }
 

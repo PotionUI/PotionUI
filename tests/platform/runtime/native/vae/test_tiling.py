@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from unittest import mock
+
 import torch
 
 from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.vae import ae_2d
 from src.platform.runtime.native.vae.ae_2d import AutoEncoder2D
+from src.platform.runtime.native.vae import causal_3d
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 from src.platform.runtime.native.vae.tiling import (
     VAE_SPATIAL_DOWNSCALE,
@@ -27,7 +31,8 @@ def _tiny_flux_vae() -> AutoEncoder2D:
         "has_quant_conv": False,
         "has_batchnorm": False,
     }
-    module = AutoEncoder2D.from_config(config, disable_weight_init)
+    with mock.patch.object(ae_2d, "_CH", 32):
+        module = AutoEncoder2D.from_config(config, disable_weight_init)
     module.eval()
     # `disable_weight_init` skips reset_parameters -- fill with finite values
     # so forward passes don't just propagate uninitialized memory.
@@ -76,9 +81,8 @@ def test_tiled_encode_shape():
 
 
 def _tiny_causal3d_vae() -> AutoEncoderCausal3D:
-    # The causal-3D arch size is fixed (one known checkpoint shape); "tiny"
-    # means a small *input*, not a small network (mirrors test_causal_3d.py).
-    module = AutoEncoderCausal3D.from_config({}, disable_weight_init)
+    with mock.patch.object(causal_3d, "_DIM", 8):
+        module = AutoEncoderCausal3D.from_config({}, disable_weight_init)
     module.eval()
     with torch.no_grad():
         for p in module.parameters():
@@ -172,15 +176,15 @@ def test_tiled_decode_causal3d_multiframe_shape_and_temporal_axis_whole():
     chunking is passed through each tile whole (feat_cache untouched)."""
     torch.manual_seed(0)
     vae = _tiny_causal3d_vae()
-    latent = torch.randn(1, 16, 3, 16, 16)  # 3 latent frames
+    latent = torch.randn(1, 16, 3, 8, 8)  # 3 latent frames
 
     with torch.no_grad():
         whole = vae.decode(latent)
-        tiled = tiled_decode_causal3d(vae, latent, tile_size=8, overlap=2)
+        tiled = tiled_decode_causal3d(vae, latent, tile_size=4, overlap=1)
 
     assert whole.shape[2] == tiled.shape[2]  # same temporal extent
     assert tiled.shape == whole.shape
-    assert tiled.shape[-2:] == (16 * VAE_SPATIAL_DOWNSCALE, 16 * VAE_SPATIAL_DOWNSCALE)
+    assert tiled.shape[-2:] == (8 * VAE_SPATIAL_DOWNSCALE, 8 * VAE_SPATIAL_DOWNSCALE)
     assert torch.isfinite(tiled).all()
 
 

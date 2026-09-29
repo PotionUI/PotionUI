@@ -395,6 +395,7 @@ class TestExecutionGateSerializesOverlappingTurns:
         key = f"native/llm/{path}"
         config = _config(name)
         monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+        monkeypatch.setattr(native_module, "_STOP_WAIT_TIMEOUT_SECONDS", 0.05)
 
         events: list = []
         checkpoint_b = _gated_checkpoint("B", events)

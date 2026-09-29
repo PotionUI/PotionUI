@@ -13,18 +13,20 @@ from __future__ import annotations
 
 import os
 import tempfile
+import types
 
 import torch
 from safetensors.torch import save_file
 
 from src.platform.runtime.native.detect.te_detect import detect_te_config
 from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.text_encoders import tokenization
 from src.platform.runtime.native.text_encoders.anima import AnimaTextEncoder
 from src.platform.runtime.native.text_encoders.loader import _build_config, load_text_encoder
 from src.platform.runtime.native.text_encoders.qwen3 import Qwen3Config, Qwen3Model
 
 
-def _tiny_06b_sd(vocab: int = 256, layers: int = 4):
+def _tiny_06b_sd(vocab: int = 256, layers: int = 4, zeros: bool = False):
     """A loadable Qwen3-0.6B-shaped checkpoint: hidden EXACTLY 1024 (the detection
     discriminator), 16 heads / head_dim 128 (inner 2048 != hidden), small vocab so
     the embed stays light."""
@@ -33,13 +35,15 @@ def _tiny_06b_sd(vocab: int = 256, layers: int = 4):
     m = Qwen3Model(cfg, disable_weight_init)
     # Seeded: unseeded draws occasionally produce activations whose variance
     # collapses through the final RMS norm into NaN (observed ~1-in-3 flake).
+    if zeros:
+        return {k: torch.zeros(tuple(v.shape), dtype=v.dtype) for k, v in m.state_dict().items()}, cfg
     gen = torch.Generator().manual_seed(0)
     return {k: torch.randn(tuple(v.shape), generator=gen).mul_(0.02).to(v.dtype)
             for k, v in m.state_dict().items()}, cfg
 
 
 def test_detect_qwen3_06b_variant():
-    sd, _ = _tiny_06b_sd(layers=28)
+    sd, _ = _tiny_06b_sd(layers=28, zeros=True)
     cfg = detect_te_config(sd)
     assert cfg["te_type"] == "qwen3"
     assert cfg["variant"] == "qwen3_06b"      # hidden == 1024
@@ -62,8 +66,10 @@ def test_build_config_recovers_head_geometry():
     assert cfg["num_key_value_heads"] == 8
 
 
-def test_loader_routes_06b_to_anima_encoder():
-    sd, _ = _tiny_06b_sd(layers=28)
+def test_loader_routes_06b_to_anima_encoder(monkeypatch):
+    monkeypatch.setattr(tokenization, "_load_tokenizer", lambda *args, **kwargs: types.SimpleNamespace(eos_token_id=1, pad_token_id=0))
+    sd, _ = _tiny_06b_sd(layers=28, zeros=True)
+    sd = {k: v.to(torch.bfloat16) for k, v in sd.items()}
     with tempfile.TemporaryDirectory() as d:
         p = os.path.join(d, "anima_qwen3_06b.safetensors")
         save_file(sd, p)

@@ -36,9 +36,11 @@ def _randomize_weights(module: torch.nn.Module) -> None:
                 p.normal_(std=0.02)
 
 
+_TINY_CONFIG = {"block_out_channels": (32, 32, 32, 32), "layers_per_block": 1}
+
+
 def _build_tiny() -> SeedVR2CausalVideoVAE:
-    # Fixed architecture (one known checkpoint shape) -- "tiny" is a small input.
-    module = SeedVR2CausalVideoVAE.from_config({}, disable_weight_init)
+    module = SeedVR2CausalVideoVAE.from_config(_TINY_CONFIG, disable_weight_init)
     module.eval()
     _randomize_weights(module)
     return module
@@ -50,7 +52,7 @@ def test_latent_constants():
 
 
 def test_post_load_is_safe_noop():
-    module = SeedVR2CausalVideoVAE.from_config({}, disable_weight_init)
+    module = _build_tiny()
     module.post_load()  # must not raise; documented no-op (no computed buffers)
 
 

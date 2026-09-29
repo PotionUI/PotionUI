@@ -1,6 +1,4 @@
-import io
 import os
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,10 +13,11 @@ from src.features.auth.routes import build_router as build_auth_router
 from src.features.user_groups.repository import UserGroupRepository
 from src.features.users.repository import UserRepository
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationRunner
+from tests.fixtures.db_template import copy_template_db
+from tests.fixtures.password_hasher import CheapPasswordHasher
 from src.platform.plugins.login_providers import login_provider_registry
 from src.platform.plugins.registry import PluginRegistry
-from src.platform.security import Auth, AuthConfig, PasswordHasher, TokenCodec
+from src.platform.security import Auth, AuthConfig, TokenCodec
 from src.platform.security.current_user import set_auth
 from src.platform.security.login_handoff import LoginHandoffStore
 from src.platform.security.user import AccountType
@@ -58,7 +57,6 @@ class TestExternalLoginEndToEnd(unittest.TestCase):
 
         self._patchers = [
             patch("src.platform.database.database.db", self.db),
-            patch("src.platform.database.migration_runner.db", self.db),
             patch.dict(
                 os.environ, {"POTIONUI_AUTH_SECRET_KEY": "test-secret-key"}, clear=False
             ),
@@ -74,7 +72,7 @@ class TestExternalLoginEndToEnd(unittest.TestCase):
         self.handoff = LoginHandoffStore()
         self.auth = Auth(
             user_repository=self.users,
-            password_hasher=PasswordHasher(),
+            password_hasher=CheapPasswordHasher(),
             token_codec=TokenCodec(AuthConfig(self.settings)),
             auth_config=AuthConfig(self.settings),
             plugin_registry=PluginRegistry(
@@ -137,12 +135,7 @@ class TestExternalLoginEndToEnd(unittest.TestCase):
         set_auth(None)
 
     def _run_migrations(self):
-        old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
-        try:
-            MigrationRunner().run_migrations()
-        finally:
-            sys.stdout = old_stdout
+        copy_template_db(self.db.db_path)
 
     def _walk_sign_in(self, sub, **claims):
         start = self.client.get(

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Badge, Spinner, Alert } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import IndexingDisclosure from './IndexingDisclosure.svelte';
 	import type { IndexingStatus, ModelsLocationConfig } from '$lib/services/api/models';
 	import { indexingDoneSummary, indexingIsVisible, indexingPercent } from './indexingDisplay';
 
@@ -12,10 +13,6 @@
 		config?: ModelsLocationConfig | null;
 	} = $props();
 
-	let failedOpen = $state(false);
-	let duplicatesOpen = $state(false);
-	let conflictsOpen = $state(false);
-
 	const percent = $derived(indexingPercent(status));
 	const failedFiles = $derived(status?.failed_files ?? []);
 	const failedTotal = $derived(status?.failed_files_total ?? 0);
@@ -23,6 +20,8 @@
 	const doneSummary = $derived(indexingDoneSummary(status));
 	const duplicates = $derived(status?.duplicates ?? []);
 	const conflicts = $derived(status?.conflicts ?? []);
+	const skipped = $derived(status?.skipped_duplicates ?? []);
+	const skippedTotal = $derived(status?.skipped_duplicates_total ?? 0);
 </script>
 
 {#if indexingIsVisible(status) && status}
@@ -87,101 +86,100 @@
 		{/if}
 
 		{#if failedTotal > 0}
-			<button
-				type="button"
-				class="flex items-center gap-1.5 text-xs font-mono uppercase tracking-[0.05em] text-warning hover:underline"
-				onclick={() => (failedOpen = !failedOpen)}
-				aria-expanded={failedOpen}
+			<IndexingDisclosure count={failedTotal} description={failedTotal === 1 ? 'file failed' : 'files failed'} variant="warning" dot>
+				{#each failedFiles as failure (failure.path)}
+					<li class="flex items-start gap-2 min-w-0">
+						<Tooltip text={failure.path} position="bottom">
+							<span class="font-mono text-fg-muted truncate max-w-[18rem] inline-block align-bottom">
+								{failure.path}
+							</span>
+						</Tooltip>
+						<span class="text-danger truncate">{failure.error}</span>
+					</li>
+				{/each}
+				{#if failedTotal > failedFiles.length}
+					<li>and {failedTotal - failedFiles.length} more</li>
+				{/if}
+			</IndexingDisclosure>
+		{/if}
+
+		{#if skippedTotal > 0}
+			<IndexingDisclosure
+				count={skippedTotal}
+				description={skippedTotal === 1
+					? 'file skipped - the same file already exists elsewhere'
+					: 'files skipped - the same file already exists elsewhere'}
+				variant="warning"
+				dot
 			>
-				<Badge variant="warning" size="sm" dot>
-					{failedTotal} file{failedTotal === 1 ? '' : 's'} failed
-				</Badge>
-				<span>{failedOpen ? 'Hide' : 'Show'}</span>
-			</button>
-			{#if failedOpen}
-				<ul class="max-h-48 overflow-y-auto space-y-1.5 text-xs text-fg-subtle leading-relaxed">
-					{#each failedFiles as failure (failure.path)}
-						<li class="flex items-start gap-2 min-w-0">
-							<Tooltip text={failure.path} position="bottom">
-								<span class="font-mono text-fg-muted truncate max-w-[18rem] inline-block align-bottom">
-									{failure.path}
-								</span>
-							</Tooltip>
-							<span class="text-danger truncate">{failure.error}</span>
-						</li>
-					{/each}
-					{#if failedTotal > failedFiles.length}
-						<li>and {failedTotal - failedFiles.length} more</li>
-					{/if}
-				</ul>
-			{/if}
+				{#each skipped as entry (entry.path)}
+					<li class="space-y-0.5 min-w-0">
+						<Tooltip text={entry.path} position="bottom">
+							<span class="font-mono text-fg-muted truncate max-w-[24rem] inline-block align-bottom">
+								{entry.path}
+							</span>
+						</Tooltip>
+						<p>
+							Same file as <span class="font-mono text-fg-muted">{entry.same_as.path}</span> - delete one of them,
+							or move instead of copying.
+						</p>
+					</li>
+				{/each}
+				{#if skippedTotal > skipped.length}
+					<li>and {skippedTotal - skipped.length} more</li>
+				{/if}
+			</IndexingDisclosure>
 		{/if}
 
 		{#if duplicates.length}
-			<button
-				type="button"
-				class="flex items-center gap-1.5 text-xs text-fg-subtle hover:underline"
-				onclick={() => (duplicatesOpen = !duplicatesOpen)}
-				aria-expanded={duplicatesOpen}
+			<IndexingDisclosure
+				count={duplicates.length}
+				description={duplicates.length === 1
+					? 'model exists in more than one folder - the copy in the first folder is used'
+					: 'models exist in more than one folder - the copy in the first folder is used'}
 			>
-				<Badge variant="neutral" size="sm">
-					{duplicates.length} model{duplicates.length === 1 ? '' : 's'} exist in more than one folder — the copy in
-					the first folder is used
-				</Badge>
-				<span class="font-mono uppercase tracking-[0.05em]">{duplicatesOpen ? 'Hide' : 'Show'}</span>
-			</button>
-			{#if duplicatesOpen}
-				<ul class="max-h-48 overflow-y-auto space-y-2 text-xs text-fg-subtle leading-relaxed">
-					{#each duplicates as entry (entry.filename + entry.model_type)}
-						<li class="space-y-1">
-							<span class="font-mono text-fg-muted">{entry.filename}</span>
-							<ul class="space-y-1 pl-3">
-								{#each entry.copies as copy (copy.root_label + copy.rel_path)}
-									<li class="flex items-center gap-2 min-w-0">
-										<Tooltip text={copy.rel_path} position="bottom">
-											<span class="font-mono text-fg-subtle truncate max-w-[14rem] inline-block align-bottom">
-												{copy.root_label}
-											</span>
-										</Tooltip>
-										{#if copy.winner}
-											<Badge variant="success" size="sm">used</Badge>
-										{/if}
-									</li>
-								{/each}
-							</ul>
-						</li>
-					{/each}
-				</ul>
-			{/if}
+				{#each duplicates as entry (entry.filename + entry.model_type)}
+					<li class="space-y-1">
+						<span class="font-mono text-fg-muted">{entry.filename}</span>
+						<ul class="space-y-1 pl-3">
+							{#each entry.copies as copy (copy.root_label + copy.rel_path)}
+								<li class="flex items-center gap-2 min-w-0">
+									<Tooltip text={copy.rel_path} position="bottom">
+										<span class="font-mono text-fg-subtle truncate max-w-[14rem] inline-block align-bottom">
+											{copy.root_label}
+										</span>
+									</Tooltip>
+									{#if copy.winner}
+										<Badge variant="success" size="sm">used</Badge>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					</li>
+				{/each}
+			</IndexingDisclosure>
 		{/if}
 
 		{#if conflicts.length}
-			<button
-				type="button"
-				class="flex items-center gap-1.5 text-xs text-warning hover:underline"
-				onclick={() => (conflictsOpen = !conflictsOpen)}
-				aria-expanded={conflictsOpen}
+			<IndexingDisclosure
+				count={conflicts.length}
+				description={conflicts.length === 1
+					? 'file shares a name with a different model file and is not used'
+					: 'files share a name with a different model file and are not used'}
+				variant="warning"
+				dot
 			>
-				<Badge variant="warning" size="sm" dot>
-					{conflicts.length} file{conflicts.length === 1 ? '' : 's'} share a name with a different model file and
-					{conflicts.length === 1 ? 'is' : 'are'} not used
-				</Badge>
-				<span class="font-mono uppercase tracking-[0.05em]">{conflictsOpen ? 'Hide' : 'Show'}</span>
-			</button>
-			{#if conflictsOpen}
-				<ul class="max-h-48 overflow-y-auto space-y-1.5 text-xs text-fg-subtle leading-relaxed">
-					{#each conflicts as entry (entry.id)}
-						<li class="flex items-start gap-2 min-w-0">
-							<Tooltip text={entry.rel_path} position="bottom">
-								<span class="font-mono text-fg-muted truncate max-w-[18rem] inline-block align-bottom">
-									{entry.rel_path}
-								</span>
-							</Tooltip>
-							<span class="text-fg-subtle truncate">{entry.root_label}</span>
-						</li>
-					{/each}
-				</ul>
-			{/if}
+				{#each conflicts as entry (entry.id)}
+					<li class="flex items-start gap-2 min-w-0">
+						<Tooltip text={entry.rel_path} position="bottom">
+							<span class="font-mono text-fg-muted truncate max-w-[18rem] inline-block align-bottom">
+								{entry.rel_path}
+							</span>
+						</Tooltip>
+						<span class="text-fg-subtle truncate">{entry.root_label}</span>
+					</li>
+				{/each}
+			</IndexingDisclosure>
 		{/if}
 	</div>
 {/if}

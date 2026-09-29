@@ -33,6 +33,11 @@ describe('indexingIsVisible', () => {
 		expect(indexingIsVisible(status({ state: 'idle' }))).toBe(false);
 	});
 
+	it('stays visible while idle when files were skipped as duplicates', () => {
+		expect(indexingIsVisible(status({ state: 'idle', skipped_duplicates_total: 2 }))).toBe(true);
+		expect(indexingIsVisible(status({ state: 'idle', skipped_duplicates_total: 0 }))).toBe(false);
+	});
+
 	it('is true for every non-idle state', () => {
 		for (const state of ['scanning', 'indexing', 'done', 'failed', 'cancelled', 'blocked'] as const) {
 			expect(indexingIsVisible(status({ state }))).toBe(true);

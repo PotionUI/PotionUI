@@ -26,6 +26,13 @@ class NoWriteRootError(ModelRootError):
         self.model_type = model_type
 
 
+class BindingNotFoundError(ModelRootError):
+    def __init__(self, root_id: str, model_type: str):
+        super().__init__(f"Root '{root_id}' has no binding for model type '{model_type}'")
+        self.root_id = root_id
+        self.model_type = model_type
+
+
 class RootUnavailableError(ModelRootError):
     def __init__(self, root_id: str, state: str):
         super().__init__(f"Root '{root_id}' is {state}")
@@ -438,20 +445,21 @@ def ensure_home_bindings(
     )
 
     max_positions = repository.max_position_by_type()
-    write_types = repository.write_bound_types()
 
     for model_type in MODEL_TYPES:
         if repository.has_binding(HOME_ROOT_ID, model_type):
             continue
         position = max_positions.get(model_type, -1) + 1
-        is_write = model_type not in write_types
         repository.insert_binding(
             root_id=HOME_ROOT_ID,
             model_type=model_type,
             subdir=MODEL_TYPE_TO_DIRECTORY[model_type],
             position=position,
-            is_write=is_write,
+            is_write=False,
         )
         max_positions[model_type] = position
-        if is_write:
-            write_types.add(model_type)
+
+    write_types = repository.write_bound_types()
+    for model_type in MODEL_TYPES:
+        if model_type not in write_types:
+            repository.set_write(HOME_ROOT_ID, model_type)

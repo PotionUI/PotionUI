@@ -15,7 +15,7 @@ behavior beyond field access), matching `PromptDatabaseCollaborators` (see
 wide-collaborator dissolution).
 """
 from dataclasses import dataclass
-from typing import Optional, TYPE_CHECKING
+from typing import Callable, Optional, TYPE_CHECKING
 
 from src.features.models.access_policy import ModelAccessPolicy
 from src.features.models.assignments import ModelAssignmentService
@@ -23,7 +23,7 @@ from src.features.models.attributes.repository import AttributeDefinitionReposit
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
 from src.features.models.catalog import ModelCatalog
 from src.features.models.indexer import ModelScanner
-from src.features.models.indexing_coordinator import ModelIndexingCoordinator
+from src.features.models.indexing_coordinator import ModelIndexingCoordinator, spawn_daemon_thread
 from src.features.models.jobs import ModelJobs
 from src.features.models.locator import ModelLocator
 from src.features.models.metadata_editor import ModelMetadataEditor
@@ -71,6 +71,7 @@ def build_model_index_collaborators(
     attribute_definition_repository: Optional[AttributeDefinitionRepository] = None,
     user_attribute_repository: Optional[UserModelAttributeRepository] = None,
     backend_registry: Optional["BackendRegistry"] = None,
+    spawn: Callable[[Callable[[], None]], None] = spawn_daemon_thread,
 ) -> ModelIndexCollaborators:
     """Build the eight role objects and bundle them - the constructor logic
     the old `ModelIndexManager.__init__` owned."""
@@ -86,6 +87,7 @@ def build_model_index_collaborators(
     indexing = ModelIndexingCoordinator(
         model_repository, plugin_registry, model_scanner, backend_registry=backend_registry,
         native_availability_projector=native_availability_projector,
+        spawn=spawn,
     )
     return ModelIndexCollaborators(
         model_repo=model_repository,

@@ -13,7 +13,8 @@ export function indexingIsRunning(status: IndexingStatus | null): boolean {
 }
 
 export function indexingIsVisible(status: IndexingStatus | null): boolean {
-	return !!status && status.state !== 'idle';
+	if (!status) return false;
+	return status.state !== 'idle' || (status.skipped_duplicates_total ?? 0) > 0;
 }
 
 export function indexingPercent(status: IndexingStatus | null): number | null {

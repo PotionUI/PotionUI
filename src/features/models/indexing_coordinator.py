@@ -1,7 +1,7 @@
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.features.models.exceptions import ModelIndexingException
 from src.features.models.locations_repository import ModelLocationsRepository
@@ -29,6 +29,11 @@ STATE_BLOCKED = "blocked"
 RUNNING_STATES = (STATE_SCANNING, STATE_INDEXING)
 
 MAX_REPORTED_FAILED_FILES = 50
+MAX_REPORTED_SKIPPED_DUPLICATES = 200
+
+
+def spawn_daemon_thread(target: Callable[[], None]) -> None:
+    threading.Thread(target=target, name="model-indexing", daemon=True).start()
 
 
 class ModelIndexingCoordinator:
@@ -42,6 +47,7 @@ class ModelIndexingCoordinator:
         backend_registry: Optional[Any] = None,
         native_availability_projector: Optional[NativeAvailabilityProjector] = None,
         locations_repository: Optional[ModelLocationsRepository] = None,
+        spawn: Callable[[Callable[[], None]], None] = spawn_daemon_thread,
     ):
         self.model_repo = model_repository
         self.plugins = plugin_registry
@@ -51,13 +57,14 @@ class ModelIndexingCoordinator:
             native_availability_projector or _default_native_availability_projector
         )
         self.locations_repo = locations_repository or ModelLocationsRepository()
+        self._spawn = spawn
 
         self._lock = threading.Lock()
         self._run_lock = threading.Lock()
         self._cancel_event = threading.Event()
 
         self._state = STATE_IDLE
-        self._executing = False
+        self._queued = False
         self._trigger: Optional[str] = None
         self._pending_restart_trigger: Optional[str] = None
         self._started_at = None
@@ -71,6 +78,8 @@ class ModelIndexingCoordinator:
         self._failed_by_root: Dict[str, int] = {}
         self._failed_files: List[Dict[str, str]] = []
         self._failed_files_total = 0
+        self._skipped_duplicates: List[Dict[str, Any]] = []
+        self._skipped_duplicates_total = 0
         self._error: Optional[str] = None
         self._last_single_index: Optional[Dict[str, Any]] = None
 
@@ -89,6 +98,8 @@ class ModelIndexingCoordinator:
                 "scanned_roots": list(self._scanned_roots),
                 "failed_files": list(self._failed_files),
                 "failed_files_total": self._failed_files_total,
+                "skipped_duplicates": list(self._skipped_duplicates),
+                "skipped_duplicates_total": self._skipped_duplicates_total,
                 "error": self._error,
                 "last_single_index": self._last_single_index,
             }
@@ -130,12 +141,26 @@ class ModelIndexingCoordinator:
         ]
 
     def start_indexing(self, trigger: str = "manual") -> Dict[str, Any]:
+        if self._begin_indexing(trigger):
+            try:
+                self._spawn(self._run_scheduled)
+            except Exception as e:
+                logger.error(f"Could not start the model indexing worker: {e}")
+                with self._lock:
+                    self._state = STATE_FAILED
+                    self._error = str(e)
+                    self._finished_at = now_utc()
+                    self._queued = False
+                raise ModelIndexingException(f"Could not start model indexing: {e}") from e
+        return self.status()
+
+    def _begin_indexing(self, trigger: str, queued: bool = True) -> bool:
         with self._lock:
             already_running = self._state in RUNNING_STATES
 
         if already_running:
             logger.info("Model indexing already running; ignoring start_indexing() call")
-            return self.status()
+            return False
 
         hook_data, blocked = execute_hook(
             self.plugins,
@@ -153,7 +178,10 @@ class ModelIndexingCoordinator:
             raise ModelIndexingException(reason)
 
         with self._lock:
+            if self._state in RUNNING_STATES:
+                return False
             self._state = STATE_SCANNING
+            self._queued = queued
             self._trigger = trigger
             self._started_at = now_utc()
             self._finished_at = None
@@ -168,10 +196,9 @@ class ModelIndexingCoordinator:
             self._failed_files_total = 0
             self._error = None
             self._pending_restart_trigger = None
-        self._cancel_event.clear()
 
         logger.info(f"Starting model indexing (trigger={trigger})")
-        return self.status()
+        return True
 
     def _scanned_roots_snapshot(self) -> List[str]:
         try:
@@ -179,33 +206,41 @@ class ModelIndexingCoordinator:
         except Exception:
             return []
 
-    def run_indexing(self) -> None:
-        if not self._run_lock.acquire(blocking=False):
+    def _run_scheduled(self) -> None:
+        with self._run_lock:
             with self._lock:
-                if not self._executing:
-                    self._pending_restart_trigger = self._trigger
-            logger.info("Model indexing already executing; ignoring concurrent run_indexing() call")
-            return
-        try:
-            self._execute_indexing()
-            while True:
+                if not self._queued:
+                    return
+                self._queued = False
+            self._cancel_event.clear()
+            try:
+                self._run_until_settled()
+            except Exception as e:
+                logger.error(f"Scheduled model indexing crashed: {e}")
                 with self._lock:
-                    pending = self._pending_restart_trigger
-                    if pending is None:
-                        break
+                    self._state = STATE_FAILED
+                    self._error = str(e)
+                    self._finished_at = now_utc()
                     self._pending_restart_trigger = None
-                try:
-                    self.start_indexing(trigger=pending)
-                except ModelIndexingException:
+
+    def _run_until_settled(self) -> None:
+        self._execute_indexing()
+        while True:
+            with self._lock:
+                pending = self._pending_restart_trigger
+                if pending is None:
                     break
-                self._execute_indexing()
-        finally:
-            self._run_lock.release()
+                self._pending_restart_trigger = None
+            try:
+                begun = self._begin_indexing(trigger=pending, queued=False)
+            except ModelIndexingException:
+                break
+            if not begun:
+                break
+            self._cancel_event.clear()
+            self._execute_indexing()
 
     def _execute_indexing(self) -> None:
-        with self._lock:
-            self._executing = True
-
         def on_progress(current: int, total: int, message: str) -> None:
             with self._lock:
                 if total > 0 and self._state == STATE_SCANNING:
@@ -226,7 +261,6 @@ class ModelIndexingCoordinator:
                 self._state = STATE_FAILED
                 self._error = str(e)
                 self._finished_at = now_utc()
-                self._executing = False
             return
         finally:
             self.scanner.set_progress_callback(None)
@@ -238,9 +272,13 @@ class ModelIndexingCoordinator:
             f if isinstance(f, dict) else {"path": f, "error": "Failed to hash or index this file"}
             for f in failed
         ]
+        skipped_duplicates = result.get('skipped_duplicates') or []
         cancelled = bool(result.get('cancelled')) or self._cancel_event.is_set()
 
         with self._lock:
+            if not cancelled:
+                self._skipped_duplicates = skipped_duplicates[:MAX_REPORTED_SKIPPED_DUPLICATES]
+                self._skipped_duplicates_total = len(skipped_duplicates)
             self._indexed = result.get('indexed', 0)
             self._processed = result.get('new_files', self._processed)
             self._found_on_disk = result.get('found_on_disk', result.get('total', 0))
@@ -250,7 +288,6 @@ class ModelIndexingCoordinator:
             self._failed_files = normalized_failures[:MAX_REPORTED_FAILED_FILES]
             self._finished_at = now_utc()
             self._state = STATE_CANCELLED if cancelled else STATE_DONE
-            self._executing = False
 
         execute_hook(
             self.plugins,
@@ -266,10 +303,10 @@ class ModelIndexingCoordinator:
     def cancel_and_restart(self, trigger: str = "location_change") -> Dict[str, Any]:
         with self._lock:
             running = self._state in RUNNING_STATES
-            if running:
+            if running and not self._queued:
                 self._pending_restart_trigger = trigger
+                self._cancel_event.set()
         if running:
-            self._cancel_event.set()
             return self.status()
         return self.start_indexing(trigger=trigger)
 
@@ -300,7 +337,9 @@ class ModelIndexingCoordinator:
             raise ModelIndexingException(f"Cannot read '{path}': {e}") from e
 
         found = FoundFile(loc.root_id, loc.model_type, loc.rel_path, str(candidate), stat.st_size, stat.st_mtime_ns, is_dir)
-        model = self.scanner.index_file(found)
+        outcome = self.scanner.index_file(found)
+        model = outcome.model
+        duplicate_of = outcome.duplicate_of.to_dict() if outcome.duplicate_of is not None else None
 
         with self._lock:
             self._last_single_index = {
@@ -312,7 +351,7 @@ class ModelIndexingCoordinator:
         if model is not None:
             self._reconcile_native_availability()
 
-        return {"model_id": model.id if model else None, "indexed": model is not None}
+        return {"model_id": model.id if model else None, "indexed": model is not None, "duplicate_of": duplicate_of}
 
     def count_unindexed(self) -> Dict[str, Any]:
         """Cheap directory-walk + DB diff: how many files on disk await indexing,
@@ -329,7 +368,6 @@ class ModelIndexingCoordinator:
             logger.warning(f"Skipped resuming interrupted model indexing: {e}")
             return False
 
-        self.run_indexing()
         return True
 
     def cleanup_deleted_models(self) -> Dict[str, Any]:

@@ -84,6 +84,14 @@ class WriteProbeFailedError(ModelRootsError):
         self.root_id = root_id
 
 
+class NoWriteSuccessorError(ModelRootsError):
+    code = "model_roots_no_write_successor"
+
+    def __init__(self, model_type: str):
+        super().__init__(f"No other writable root can take over writes for '{model_type}'")
+        self.model_type = model_type
+
+
 class GenerationActiveError(ModelRootsError):
     code = "model_roots_generation_active"
 
@@ -211,6 +219,32 @@ class ModelRootsManager:
                 types.add(row["model_type"])
         return sorted(types)
 
+    def _write_successor(self, model_type: str, leaving_root_id: str) -> Optional[str]:
+        rows = {row["id"]: row for row in self._repository.list_roots()}
+        bound = [
+            b["root_id"] for b in sorted(self._repository.list_bindings(model_type), key=lambda b: b["position"])
+            if b["root_id"] != leaving_root_id and b["root_id"] in rows and not rows[b["root_id"]]["read_only"]
+        ]
+        if not bound:
+            return None
+        ordered = sorted(bound, key=lambda root_id: root_id != HOME_ROOT_ID)
+        for root_id in ordered:
+            state, _reason = self._probe.state(self._to_model_root(rows[root_id]))
+            if state == "online":
+                return root_id
+        return ordered[0]
+
+    def _hand_write_back(self, root_id: str, model_type: str) -> None:
+        successor = self._write_successor(model_type, root_id)
+        if successor is None:
+            raise NoWriteSuccessorError(model_type)
+        self._repository.set_write(successor, model_type)
+
+    def _hand_back_all_writes(self, root_id: str) -> None:
+        for binding in self._repository.bindings_for_root(root_id):
+            if binding["is_write"]:
+                self._hand_write_back(root_id, binding["model_type"])
+
     def create_root(
         self,
         path: str,
@@ -323,12 +357,12 @@ class ModelRootsManager:
             root_path_for_bindings = self._resolve_base(effective_path)
             self._validate_binding_targets(root_path_for_bindings, list(bindings))
 
+        if read_only is True:
+            self._hand_back_all_writes(root_id)
+
         self._repository.update_root(
             root_id, label=label, path=new_path_str, path_key=new_path_key, read_only=read_only, now=now
         )
-
-        if read_only is True:
-            self._repository.clear_write_for_root(root_id)
 
         if bindings is not None:
             root_path_for_bindings = self._resolve_base(effective_path)
@@ -351,7 +385,7 @@ class ModelRootsManager:
                 self._repository.delete_binding(root_id, model_type)
                 self._locations.delete_for_root_and_type(root_id, model_type)
                 if was_write:
-                    self._repository.set_write(HOME_ROOT_ID, model_type)
+                    self._hand_write_back(root_id, model_type)
 
         self._resolver.invalidate()
         if touches_disk:
@@ -367,6 +401,7 @@ class ModelRootsManager:
         if self._generation_active():
             raise GenerationActiveError()
 
+        self._hand_back_all_writes(root_id)
         self._repository.delete_root(root_id)
         self._resolver.invalidate()
         self._indexing.cancel_and_restart(trigger="roots_change")

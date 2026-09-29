@@ -27,7 +27,7 @@ from src.platform.security.user import User
 __all__ = [
     "list_models", "get_model_availability", "get_model_stats", "get_model_types",
     "get_model_by_hash", "get_model_by_id", "get_model_generations",
-    "start_indexing", "run_indexing", "cancel_and_restart_indexing", "get_indexing_status",
+    "start_indexing", "cancel_and_restart_indexing", "get_indexing_status",
     "cleanup_deleted_models", "count_unindexed",
     "delete_model", "update_model_tags", "update_model_description",
     "update_model_prompting_guidance", "update_model_metadata", "update_model_preview",
@@ -88,10 +88,6 @@ async def get_model_generations(
 
 def start_indexing(collaborators: ModelIndexCollaborators, trigger: str = "manual") -> Dict[str, Any]:
     return collaborators.indexing.start_indexing(trigger=trigger)
-
-
-def run_indexing(collaborators: ModelIndexCollaborators) -> None:
-    return collaborators.indexing.run_indexing()
 
 
 def cancel_and_restart_indexing(

@@ -113,7 +113,7 @@ class ModelRootRepository:
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
-                INSERT OR IGNORE INTO model_root_bindings (root_id, model_type, subdir, position, is_write)
+                INSERT INTO model_root_bindings (root_id, model_type, subdir, position, is_write)
                 VALUES (?, ?, ?, ?, ?)
                 """,
                 (root_id, model_type, subdir, position, int(is_write)),
@@ -219,7 +219,14 @@ class ModelRootRepository:
 
     def set_write(self, root_id: str, model_type: str) -> None:
         from src.platform.database.database import db
+        from src.platform.filesystem.model_roots import BindingNotFoundError
         with db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT 1 FROM model_root_bindings WHERE root_id = ? AND model_type = ?",
+                (root_id, model_type),
+            )
+            if cursor.fetchone() is None:
+                raise BindingNotFoundError(root_id, model_type)
             cursor.execute(
                 "UPDATE model_root_bindings SET is_write = 0 WHERE model_type = ? AND is_write = 1",
                 (model_type,),
@@ -227,14 +234,6 @@ class ModelRootRepository:
             cursor.execute(
                 "UPDATE model_root_bindings SET is_write = 1 WHERE root_id = ? AND model_type = ?",
                 (root_id, model_type),
-            )
-
-    def clear_write_for_root(self, root_id: str) -> None:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute(
-                "UPDATE model_root_bindings SET is_write = 0 WHERE root_id = ? AND is_write = 1",
-                (root_id,),
             )
 
     def reorder_bindings(self, model_type: str, ordered_root_ids: List[str]) -> None:

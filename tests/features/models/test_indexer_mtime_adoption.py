@@ -138,7 +138,7 @@ def test_rehomed_row_with_null_mtime_is_adopted_without_hashing(tmp_path, mock_d
     assert rehomed["mtime_ns"] is None
 
     resolver_after = _resolver(
-        [lib_root], [_binding("r_lib", "checkpoint", depot_alias / "checkpoints", 0)]
+        [lib_root], [_binding("r_lib", "checkpoint", depot_alias / "checkpoints", 1)]
     )
     scanner_after = ModelScanner(resolver_after)
 

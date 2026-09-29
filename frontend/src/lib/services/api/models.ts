@@ -27,6 +27,17 @@ export interface IndexingFailedFile {
 	error: string;
 }
 
+export interface IndexingSkippedDuplicate {
+	path: string;
+	root: string;
+	same_as: {
+		model_id: string;
+		model_type: string;
+		root: string;
+		path: string;
+	};
+}
+
 export interface IndexingRootStatus {
 	root_id: string;
 	label: string;
@@ -76,6 +87,8 @@ export interface IndexingStatus {
 	scanned_roots?: string[];
 	failed_files?: IndexingFailedFile[];
 	failed_files_total?: number;
+	skipped_duplicates?: IndexingSkippedDuplicate[];
+	skipped_duplicates_total?: number;
 	error?: string | null;
 	roots?: IndexingRootStatus[];
 	conflicts?: ModelConflictEntry[];

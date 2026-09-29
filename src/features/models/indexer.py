@@ -40,6 +40,24 @@ class FoundFile:
     is_directory: bool = False
 
 
+@dataclass(frozen=True)
+class DuplicateOf:
+    model_id: str
+    model_type: str
+    root: str
+    path: str
+
+    def to_dict(self) -> Dict[str, str]:
+        return {'model_id': self.model_id, 'model_type': self.model_type, 'root': self.root, 'path': self.path}
+
+
+@dataclass(frozen=True)
+class IndexOutcome:
+    model: Optional[Model]
+    touched: Set[str]
+    duplicate_of: Optional[DuplicateOf] = None
+
+
 class ModelScanner:
     SUPPORTED_EXTENSIONS = SUPPORTED_MODEL_EXTENSIONS
 
@@ -226,7 +244,7 @@ class ModelScanner:
                 logger.debug(f"Could not seed hash cache for {abs_path}: {e}")
         return digest
 
-    def index_file(self, found: FoundFile, cancel_check: Optional[Any] = None) -> Optional[Model]:
+    def index_file(self, found: FoundFile, cancel_check: Optional[Any] = None) -> IndexOutcome:
         try:
             filename = Path(found.abs_path).name
             if found.is_directory:
@@ -235,42 +253,42 @@ class ModelScanner:
                 sha256 = self._digest_for(found.abs_path, found.size, found.mtime_ns, cancel_check=cancel_check)
 
             if not sha256:
-                return None
+                return IndexOutcome(None, set())
 
             with self._write_lock:
-                model, touched = self._commit_indexed_file(found, filename, sha256)
-                self._recompute_availability_flags(touched)
-                return model
+                outcome = self._commit_indexed_file(found, filename, sha256)
+                self._recompute_availability_flags(outcome.touched)
+                return outcome
         except ScanCancelled:
             raise
         except Exception as e:
             logger.error(f"Error indexing {found.abs_path}: {e}")
-            return None
+            return IndexOutcome(None, set())
 
     def index_single_model(
         self, file_path: str, model_type: str, file_size: Optional[int] = None, cancel_check: Optional[Any] = None
-    ) -> Optional[Model]:
+    ) -> IndexOutcome:
         path = Path(file_path)
         loc = self.resolver.to_logical(path)
         if loc is None:
             logger.warning(f"'{file_path}' is not under any known model root; cannot index it")
-            return None
+            return IndexOutcome(None, set())
         try:
             is_dir = path.is_dir()
             stat = path.stat()
         except OSError as e:
             logger.warning(f"Cannot stat '{file_path}': {e}")
-            return None
+            return IndexOutcome(None, set())
         size = file_size if file_size is not None else stat.st_size
         found = FoundFile(loc.root_id, loc.model_type, loc.rel_path, str(path), size, stat.st_mtime_ns, is_dir)
         return self.index_file(found, cancel_check=cancel_check)
 
     def _commit_indexed_file(
         self, found: FoundFile, filename: str, sha256: str
-    ) -> Tuple[Optional[Model], Set[str]]:
+    ) -> IndexOutcome:
         root = self._root_by_id(found.root_id)
         if root is None:
-            return None, set()
+            return IndexOutcome(None, set())
         rel_key = self._rel_key(root, found.rel_path)
         seen_at = now_iso()
         touched: Set[str] = set()
@@ -291,12 +309,12 @@ class ModelScanner:
             model_repo.update(existing_by_identity)
             self._write_location(found, rel_key, model_id=existing_by_identity.id, sha256=sha256, status='present', seen_at=seen_at)
             touched.add(existing_by_identity.id)
-            return existing_by_identity, touched
+            return IndexOutcome(existing_by_identity, touched)
 
         if existing_by_identity is not None and existing_by_identity.sha256 and existing_by_identity.sha256 != sha256:
             self._write_location(found, rel_key, model_id=existing_by_identity.id, sha256=sha256, status='conflict', seen_at=seen_at)
             touched.add(existing_by_identity.id)
-            return existing_by_identity, touched
+            return IndexOutcome(existing_by_identity, touched)
 
         existing_by_hash = model_repo.get_by_sha256(sha256, include_providers=False)
         if existing_by_hash is not None:
@@ -304,10 +322,11 @@ class ModelScanner:
                 self._write_location(found, rel_key, model_id=existing_by_hash.id, sha256=sha256, status='present', seen_at=seen_at)
                 self._revive(existing_by_hash)
                 touched.add(existing_by_hash.id)
-                return existing_by_hash, touched
+                return IndexOutcome(existing_by_hash, touched)
 
             old_locations = self.locations.list_for_model(existing_by_hash.id)
-            if not self._any_location_still_present(old_locations):
+            surviving = self._first_present_location(old_locations)
+            if surviving is None:
                 existing_by_hash.filename = filename
                 existing_by_hash.model_type = found.model_type
                 existing_by_hash.file_size = found.size
@@ -318,13 +337,13 @@ class ModelScanner:
                 model_repo.update(existing_by_hash)
                 self._write_location(found, rel_key, model_id=existing_by_hash.id, sha256=sha256, status='present', seen_at=seen_at)
                 touched.add(existing_by_hash.id)
-                return existing_by_hash, touched
+                return IndexOutcome(existing_by_hash, touched)
 
             logger.warning(
                 f"[MODEL_SCAN] '{found.abs_path}' duplicates the content of "
                 f"'{existing_by_hash.filename}' ({existing_by_hash.model_type}); not indexed"
             )
-            return None, touched
+            return IndexOutcome(None, touched, self._duplicate_of(existing_by_hash, surviving))
 
         if existing_by_identity is not None:
             if not existing_by_identity.sha256:
@@ -337,7 +356,7 @@ class ModelScanner:
                 model_repo.update(existing_by_identity)
             self._write_location(found, rel_key, model_id=existing_by_identity.id, sha256=sha256, status='present', seen_at=seen_at)
             touched.add(existing_by_identity.id)
-            return existing_by_identity, touched
+            return IndexOutcome(existing_by_identity, touched)
 
         model_data = Model(
             filename=filename, file_size=found.size, sha256=sha256,
@@ -350,27 +369,41 @@ class ModelScanner:
                 raise
             existing = model_repo.get_by_sha256(sha256, include_providers=False)
             if existing is None:
-                return None, touched
+                return IndexOutcome(None, touched)
             model = existing
 
         self._write_location(found, rel_key, model_id=model.id, sha256=sha256, status='present', seen_at=seen_at)
         touched.add(model.id)
-        return model, touched
+        return IndexOutcome(model, touched)
 
-    def _any_location_still_present(self, locations: List[Dict[str, Any]]) -> bool:
+    def _first_present_location(self, locations: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         for loc in locations:
             root = self._root_by_id(loc['root_id'])
             if root is None or not self.resolver.is_online_for(loc['root_id'], loc['model_type']):
-                return True
+                return loc
             try:
                 abs_path = self.resolver.physical(
                     LogicalLocation(loc['root_id'], loc['model_type'], loc['rel_path'])
                 )
             except Exception:
-                return True
+                return loc
             if abs_path.exists():
-                return True
-        return False
+                return loc
+        return None
+
+    def _duplicate_of(self, model: Model, location: Dict[str, Any]) -> DuplicateOf:
+        root = self._root_by_id(location['root_id'])
+        label = root.label if root is not None else location['root_id']
+        logical = LogicalLocation(location['root_id'], location['model_type'], location['rel_path'])
+        path = None
+        if self.resolver.is_online_for(location['root_id'], location['model_type']):
+            try:
+                path = self.resolver.physical(logical).as_posix()
+            except Exception:
+                path = None
+        if path is None:
+            path = f"{label}/{logical.logical_ref}"
+        return DuplicateOf(model.id, model.model_type, label, path)
 
     def _write_location(
         self, found: FoundFile, rel_key: str, *, model_id: str, sha256: str, status: str, seen_at: str
@@ -511,6 +544,7 @@ class ModelScanner:
         total_new = len(new_or_changed)
         indexed_models: List[Dict[str, Any]] = []
         failed_files: List[Dict[str, str]] = []
+        skipped_duplicates: List[Dict[str, Any]] = []
         failed_by_root: Dict[str, int] = {}
         cancelled = False
 
@@ -525,9 +559,16 @@ class ModelScanner:
                 for i, future in enumerate(as_completed(future_to_file), 1):
                     f = future_to_file[future]
                     try:
-                        model = future.result()
-                        if model:
-                            indexed_models.append(model.to_dict(include_providers=False))
+                        outcome = future.result()
+                        if outcome.model:
+                            indexed_models.append(outcome.model.to_dict(include_providers=False))
+                        elif outcome.duplicate_of is not None:
+                            root = roots_by_id.get(f.root_id)
+                            skipped_duplicates.append({
+                                'path': Path(f.abs_path).as_posix(),
+                                'root': root.label if root is not None else f.root_id,
+                                'same_as': outcome.duplicate_of.to_dict(),
+                            })
                         else:
                             failed_files.append({'path': f.abs_path, 'error': 'Failed to hash or index this file'})
                             failed_by_root[f.root_id] = failed_by_root.get(f.root_id, 0) + 1
@@ -559,6 +600,7 @@ class ModelScanner:
             'models': indexed_models,
             'new_files': total_new,
             'failed_files': failed_files,
+            'skipped_duplicates': skipped_duplicates,
             'found_on_disk': found_on_disk,
             'cancelled': cancelled,
             'found_by_root': found_by_root,

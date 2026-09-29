@@ -14,7 +14,7 @@
 
 	interface ApiModelTypeItem {
 		type: string;
-		directory?: string;
+		directory?: string | null;
 		count?: number;
 		subdirectories?: string[];
 	}
@@ -52,7 +52,7 @@
 	const settlementGate = createConfirmSettlementGate();
 
 	// Loaded data
-	let modelTypes: { type: string; directory: string; count: number; subdirectories: string[] }[] = [];
+	let modelTypes: { type: string; directory: string | null; count: number; subdirectories: string[] }[] = [];
 	let providers: { id: string; name: string }[] = [];
 	let availableTags: { id: string; name: string }[] = [];
 	let loadingData = true;
@@ -80,10 +80,11 @@
 		destinationSubdir === NEW_SUBDIR
 			? customSubdir.trim().replace(/^\/+|\/+$/g, '')
 			: destinationSubdir;
+	$: noWritableFolder = !!selectedTypeEntry && selectedTypeEntry.directory === null;
 	$: selectedDirectory = selectedTypeEntry
 		? effectiveSubdir
-			? `${selectedTypeEntry.directory}/${effectiveSubdir}`
-			: selectedTypeEntry.directory
+			? `${selectedTypeEntry.directory ?? ''}/${effectiveSubdir}`
+			: (selectedTypeEntry.directory ?? '')
 		: 'models';
 	$: breadcrumbSegments = selectedDirectory.split('/').filter(Boolean);
 	// Reset to the type's root whenever the chosen type changes, including
@@ -111,7 +112,7 @@
 			if (typesRes.success && typesRes.data?.types) {
 				modelTypes = (typesRes.data.types as ApiModelTypeItem[]).map((t) => ({
 					type: t.type,
-					directory: t.directory || `models/${t.type}`,
+					directory: t.directory ?? null,
 					count: t.count || 0,
 					subdirectories: t.subdirectories || []
 				}));
@@ -242,6 +243,10 @@
 			errorMessage = 'URL is required';
 			return;
 		}
+		if (noWritableFolder) {
+			errorMessage = 'This model type has no writable folder';
+			return;
+		}
 
 		submitting = true;
 		errorMessage = '';
@@ -286,7 +291,7 @@
 	}
 
 	function handleConfirm() {
-		settleIfEligible(settlementGate, !loadingData && !submitting && !!url.trim(), handleSubmit);
+		settleIfEligible(settlementGate, !loadingData && !submitting && !!url.trim() && !noWritableFolder, handleSubmit);
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -324,6 +329,12 @@
 			}}
 			class="px-6 py-4 space-y-4"
 		>
+			{#if noWritableFolder}
+				<Alert variant="warning" density="compact">
+					There is no writable folder for {destinationType} models. Mark a model folder as the write target in
+					Admin, then try again.
+				</Alert>
+			{/if}
 			{#if errorMessage}
 				<Alert variant="danger" density="compact">{errorMessage}</Alert>
 			{/if}
@@ -651,7 +662,7 @@
 		<ConfirmFooter
 			confirmLabel={submitting ? 'Queueing…' : 'Queue download'}
 			busy={submitting}
-			confirmDisabled={loadingData || !url.trim()}
+			confirmDisabled={loadingData || !url.trim() || noWritableFolder}
 			onCancel={handleCancel}
 			onConfirm={handleConfirm}
 		/>

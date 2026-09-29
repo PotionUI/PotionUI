@@ -354,11 +354,10 @@ class ModelController(BaseController):
                 message=f"Failed to get indexing status: {str(e)}"
             )
 
-    async def index_models(self, background_tasks: BackgroundTasks) -> APIResponse:
+    async def index_models(self) -> APIResponse:
         """Start model indexing process."""
         try:
             data = operations.start_indexing(self.collaborators, trigger="manual")
-            background_tasks.add_task(operations.run_indexing, self.collaborators)
             return self.success_response(data=data)
         except ModelIndexingException as e:
             return self.error_api_response(
@@ -1288,11 +1287,10 @@ def build_router(container: "AppContainer") -> APIRouter:
 
     @router.post("/index", response_model=APIResponse, summary="Index Models")
     async def index_models(
-        background_tasks: BackgroundTasks,
         current_user: User = Depends(get_current_admin_user)
     ):
         """Start model indexing process."""
-        return await controller.index_models(background_tasks)
+        return await controller.index_models()
 
 
     @router.post("/info/fetch", response_model=APIResponse, summary="Fetch Provider Info")

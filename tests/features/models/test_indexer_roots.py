@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import pytest
+from unittest.mock import patch
 
 from src.features.models.indexer import ModelScanner
 from src.features.models.repository import model_repo
@@ -326,3 +327,163 @@ def test_symlink_into_another_root_is_indexed_once(tmp_path, mock_db):
 
     assert len(found) == 1
     assert found[0].root_id == "r_home"
+
+
+def _copy_scanner(tmp_path):
+    content = b"same-bytes"
+    home = tmp_path / "home"
+    _write(home / "checkpoints" / "3361846.safetensors", content)
+    resolver = _resolver([_root("r_home", home)], [_binding("r_home", "checkpoint", home / "checkpoints", 0)])
+    scanner = ModelScanner(resolver)
+    scanner.index_models(max_workers=1)
+    _write(home / "checkpoints" / "copy of 3361846.safetensors", content)
+    return scanner, home, content
+
+
+def test_a_same_bytes_copy_with_the_original_kept_is_reported_as_a_skipped_duplicate(tmp_path, mock_db):
+    scanner, home, _content = _copy_scanner(tmp_path)
+
+    result = scanner.index_models(max_workers=1)
+
+    assert result["failed"] == 0
+    assert result["failed_files"] == []
+    assert result["failed_by_root"] == {}
+    assert len(result["skipped_duplicates"]) == 1
+    entry = result["skipped_duplicates"][0]
+    assert entry["path"] == (home / "checkpoints" / "copy of 3361846.safetensors").as_posix()
+    assert entry["root"] == "r_home"
+    assert entry["same_as"] == {
+        "model_id": _models()[0].id,
+        "model_type": "checkpoint",
+        "root": "r_home",
+        "path": (home / "checkpoints" / "3361846.safetensors").as_posix(),
+    }
+    assert len(_models()) == 1
+
+
+def test_a_known_duplicate_is_not_rehashed_on_the_next_scan_but_is_still_reported(tmp_path, mock_db):
+    scanner, _home, _content = _copy_scanner(tmp_path)
+    scanner.index_models(max_workers=1)
+
+    with patch.object(scanner, "calculate_sha256", side_effect=AssertionError("must not rehash")):
+        result = scanner.index_models(max_workers=1)
+
+    assert result["failed"] == 0
+    assert len(result["skipped_duplicates"]) == 1
+
+
+def test_a_file_moved_to_another_type_folder_retypes_the_existing_model(tmp_path, mock_db):
+    content = b"moved-bytes"
+    home = tmp_path / "home"
+    original = home / "loras" / "a.safetensors"
+    _write(original, content)
+    resolver = _resolver(
+        [_root("r_home", home)],
+        [
+            _binding("r_home", "lora", home / "loras", 0),
+            _binding("r_home", "checkpoint", home / "checkpoints", 0),
+        ],
+    )
+    scanner = ModelScanner(resolver)
+    scanner.index_models(max_workers=1)
+    model_before = _models()[0]
+
+    original.unlink()
+    _write(home / "checkpoints" / "a.safetensors", content)
+    result = scanner.index_models(max_workers=1)
+
+    assert result["failed"] == 0
+    assert result["skipped_duplicates"] == []
+    models = _models()
+    assert len(models) == 1
+    assert models[0].id == model_before.id
+    assert models[0].model_type == "checkpoint"
+    present = [loc for loc in scanner.locations.list_for_model(models[0].id) if loc["status"] == "present"]
+    assert [(loc["model_type"], loc["rel_path"]) for loc in present] == [("checkpoint", "a.safetensors")]
+
+
+def test_a_file_moved_into_a_subfolder_of_the_same_type_keeps_the_model(tmp_path, mock_db):
+    content = b"nested-bytes"
+    home = tmp_path / "home"
+    original = home / "loras" / "a.safetensors"
+    _write(original, content)
+    resolver = _resolver([_root("r_home", home)], [_binding("r_home", "lora", home / "loras", 0)])
+    scanner = ModelScanner(resolver)
+    scanner.index_models(max_workers=1)
+    model_before = _models()[0]
+
+    original.unlink()
+    _write(home / "loras" / "sub" / "a.safetensors", content)
+    result = scanner.index_models(max_workers=1)
+
+    assert result["failed"] == 0
+    assert result["skipped_duplicates"] == []
+    models = _models()
+    assert len(models) == 1
+    assert models[0].id == model_before.id
+    present = [loc for loc in scanner.locations.list_for_model(models[0].id) if loc["status"] == "present"]
+    assert [loc["rel_path"] for loc in present] == ["sub/a.safetensors"]
+
+
+def test_a_new_file_in_a_library_root_is_indexed_under_that_root(tmp_path, mock_db):
+    home = tmp_path / "home"
+    lib = tmp_path / "lib"
+    _write(lib / "checkpoints" / "fresh.safetensors", b"fresh-bytes")
+    resolver = _resolver(
+        [_root("r_home", home), _root("r_lib", lib)],
+        [
+            _binding("r_home", "checkpoint", home / "checkpoints", 0),
+            _binding("r_lib", "checkpoint", lib / "checkpoints", 1),
+        ],
+    )
+    scanner = ModelScanner(resolver)
+
+    result = scanner.index_models(max_workers=1)
+
+    assert result["indexed"] == 1
+    assert result["failed"] == 0
+    models = _models()
+    assert [m.filename for m in models] == ["fresh.safetensors"]
+    locations = scanner.locations.list_for_model(models[0].id)
+    assert [(loc["root_id"], loc["status"]) for loc in locations] == [("r_lib", "present")]
+
+
+def _library_original_scanner(tmp_path):
+    content = b"library-bytes"
+    home = tmp_path / "home"
+    lib = tmp_path / "lib"
+    original = lib / "Stable-diffusion" / "nested" / "a.safetensors"
+    _write(original, content)
+    resolver = _resolver(
+        [_root("r_home", home), _root("r_lib", lib)],
+        [
+            _binding("r_home", "checkpoint", home / "checkpoints", 0),
+            _binding("r_lib", "checkpoint", lib / "Stable-diffusion", 1, subdir="Stable-diffusion"),
+        ],
+    )
+    scanner = ModelScanner(resolver)
+    scanner.index_models(max_workers=1)
+    _write(home / "checkpoints" / "b.safetensors", content)
+    return scanner, resolver, original
+
+
+def test_the_duplicate_report_points_at_the_real_path_of_the_surviving_copy(tmp_path, mock_db):
+    scanner, _resolver_, original = _library_original_scanner(tmp_path)
+
+    result = scanner.index_models(max_workers=1)
+
+    same_as = result["skipped_duplicates"][0]["same_as"]
+    assert same_as["path"] == original.as_posix()
+    assert same_as["root"] == "r_lib"
+    assert Path(same_as["path"]).is_file()
+
+
+def test_the_duplicate_report_falls_back_to_the_root_label_when_the_surviving_root_is_offline(tmp_path, mock_db):
+    scanner, resolver, _original = _library_original_scanner(tmp_path)
+    resolver._probe._states["r_lib"] = ("offline", None)
+
+    result = scanner.index_models(max_workers=1)
+
+    same_as = result["skipped_duplicates"][0]["same_as"]
+    assert same_as["path"] == "r_lib/checkpoints/nested/a.safetensors"
+    assert same_as["root"] == "r_lib"

@@ -226,36 +226,29 @@ class TestModelControllerIndexingEndpoints:
         return ModelController(mock_index_manager, mock_user_model_meta_repository, Mock())
 
     @pytest.mark.asyncio
-    async def test_index_models_returns_the_run_status_and_schedules_the_background_scan(
+    async def test_index_models_returns_the_run_status(
         self, controller, mock_index_manager
     ):
-        from fastapi import BackgroundTasks
-
         mock_index_manager.indexing.start_indexing.return_value = {"state": "scanning", "trigger": "manual"}
-        background = BackgroundTasks()
 
-        result = await controller.index_models(background)
+        result = await controller.index_models()
 
         assert result.success is True
         assert result.data["state"] == "scanning"
         mock_index_manager.indexing.start_indexing.assert_called_once_with(trigger="manual")
-        assert len(background.tasks) == 1
 
     @pytest.mark.asyncio
-    async def test_index_models_reports_a_veto_as_blocked_without_scheduling_a_scan(
+    async def test_index_models_reports_a_veto_as_blocked(
         self, controller, mock_index_manager
     ):
-        from fastapi import BackgroundTasks
         from src.features.models.exceptions import ModelIndexingException
 
         mock_index_manager.indexing.start_indexing.side_effect = ModelIndexingException("maintenance window")
-        background = BackgroundTasks()
 
-        result = await controller.index_models(background)
+        result = await controller.index_models()
 
         assert result.success is False
         assert result.error == "indexing_blocked"
-        assert background.tasks == []
 
     @pytest.mark.asyncio
     async def test_get_indexing_status_returns_the_coordinator_status(self, controller, mock_index_manager):

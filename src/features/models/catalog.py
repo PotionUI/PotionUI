@@ -19,6 +19,7 @@ from src.features.models.repository import ModelRepository
 from src.features.models.search_filter import USAGE_SORT_FIELDS, ModelSearchFilter
 from src.features.tags.repository import tag_repo
 from src.features.models.availability_repository import model_availability_repo
+from src.platform.filesystem.model_roots import ModelRootError
 from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
 from src.platform.security.user import User, AccountType
 
@@ -224,18 +225,19 @@ class ModelCatalog:
         """Aggregate indexing statistics (counts and sizes per type)."""
         return self.scanner.get_indexing_status()
 
-    def _type_directory(self, model_type: str) -> str:
-        return str(self._type_write_dir(model_type))
+    def _type_directory(self, model_type: str) -> Optional[str]:
+        type_dir = self._type_write_dir(model_type)
+        return str(type_dir) if type_dir is not None else None
 
-    def _type_write_dir(self, model_type: str) -> Path:
+    def _type_write_dir(self, model_type: str) -> Optional[Path]:
         try:
             return self.scanner.resolver.write_dir(model_type).path
-        except Exception:
-            return self.scanner.resolver.home_dir() / MODEL_TYPE_TO_DIRECTORY.get(model_type, model_type)
+        except ModelRootError:
+            return None
 
     def _type_subdirectories(self, model_type: str, max_depth: int = 4) -> List[str]:
         type_dir = self._type_write_dir(model_type)
-        if not type_dir.is_dir():
+        if type_dir is None or not type_dir.is_dir():
             return []
         found: List[str] = []
 

@@ -89,7 +89,7 @@
 
 	interface ModelTypeInfo {
 		type: string;
-		directory: string;
+		directory: string | null;
 		count: number;
 		size_bytes: number;
 		size_mb: number;

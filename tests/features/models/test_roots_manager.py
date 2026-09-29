@@ -1,4 +1,5 @@
 import os
+import sqlite3
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -17,7 +18,13 @@ from src.features.models.roots import (
     RootReadOnlyRefusalError,
     WriteProbeFailedError,
 )
-from src.platform.filesystem.model_roots import HOME_ROOT_ID, ModelRootResolver, RootProbe
+from src.platform.filesystem.model_roots import (
+    HOME_ROOT_ID,
+    BindingNotFoundError,
+    ModelRootResolver,
+    RootProbe,
+    ensure_home_bindings,
+)
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.platform.settings.repository import SettingRepository
 
@@ -366,3 +373,82 @@ class TestEnsureHomeBindingsForNewType(object):
         widget_binding = next((b for b in bindings if b["model_type"] == "widget" and b["root_id"] == HOME_ROOT_ID), None)
         assert widget_binding is not None
         assert widget_binding["subdir"] == "widgets"
+
+
+def _write_roots_by_type(repository):
+    counts = {}
+    for binding in repository.list_bindings():
+        writers = counts.setdefault(binding["model_type"], [])
+        if binding["is_write"]:
+            writers.append(binding["root_id"])
+    return counts
+
+
+def _assert_one_write_root_per_bound_type(repository):
+    per_type = _write_roots_by_type(repository)
+    assert per_type
+    for model_type, writers in per_type.items():
+        assert len(writers) == 1, f"{model_type} has write roots {writers}"
+
+
+class TestWriteRootInvariant:
+    def test_marking_the_write_root_read_only_hands_writes_back_to_home(self, manager, library_dir):
+        created = manager.create_root(
+            str(library_dir), bindings=[BindingSpec("lora", "loras")], write_types=["lora"]
+        )
+        assert _write_roots_by_type(manager._repository)["lora"] == [created["id"]]
+
+        manager.update_root(created["id"], read_only=True)
+
+        assert _write_roots_by_type(manager._repository)["lora"] == [HOME_ROOT_ID]
+        _assert_one_write_root_per_bound_type(manager._repository)
+
+    def test_deleting_the_write_root_hands_writes_back_to_home(self, manager, library_dir):
+        created = manager.create_root(
+            str(library_dir),
+            bindings=[BindingSpec("lora", "loras"), BindingSpec("checkpoint", "checkpoints")],
+            write_types=["lora", "checkpoint"],
+        )
+
+        manager.delete_root(created["id"])
+
+        writers = _write_roots_by_type(manager._repository)
+        assert writers["lora"] == [HOME_ROOT_ID]
+        assert writers["checkpoint"] == [HOME_ROOT_ID]
+        _assert_one_write_root_per_bound_type(manager._repository)
+
+    def test_set_write_without_a_target_binding_raises_and_keeps_the_current_write_root(self, manager, library_dir):
+        created = manager.create_root(str(library_dir), bindings=[BindingSpec("lora", "loras")])
+
+        with pytest.raises(BindingNotFoundError):
+            manager._repository.set_write(created["id"], "checkpoint")
+
+        assert _write_roots_by_type(manager._repository)["checkpoint"] == [HOME_ROOT_ID]
+        _assert_one_write_root_per_bound_type(manager._repository)
+
+    def test_startup_repair_gives_a_type_with_no_write_root_its_home_binding(self, manager):
+        repository = manager._repository
+        repository.clear_write("diffusion_model")
+        assert _write_roots_by_type(repository)["diffusion_model"] == []
+
+        ensure_home_bindings(repository, "models", base_dir=Path("/tmp"))
+
+        assert _write_roots_by_type(repository)["diffusion_model"] == [HOME_ROOT_ID]
+        _assert_one_write_root_per_bound_type(repository)
+
+    def test_startup_repair_leaves_an_existing_write_root_alone(self, manager, library_dir):
+        created = manager.create_root(
+            str(library_dir), bindings=[BindingSpec("lora", "loras")], write_types=["lora"]
+        )
+
+        ensure_home_bindings(manager._repository, "models", base_dir=Path("/tmp"))
+
+        assert _write_roots_by_type(manager._repository)["lora"] == [created["id"]]
+
+    def test_a_requested_write_binding_is_never_silently_dropped(self, manager, library_dir):
+        created = manager.create_root(str(library_dir), bindings=[BindingSpec("lora", "loras")])
+
+        with pytest.raises(sqlite3.IntegrityError):
+            manager._repository.insert_binding(created["id"], "checkpoint", "checkpoints", 50, True)
+
+        assert _write_roots_by_type(manager._repository)["checkpoint"] == [HOME_ROOT_ID]

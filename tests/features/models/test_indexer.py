@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 import pytest
 
-from src.features.models.indexer import FoundFile, ModelScanner
+from src.features.models.indexer import FoundFile, IndexOutcome, ModelScanner
 from src.features.models.records import Model
 
 
@@ -188,13 +188,13 @@ class TestIndexSingleModelCompatWrapper:
 
         def fake_index_file(found, cancel_check=None):
             recorded["found"] = found
-            return Mock(spec=Model)
+            return IndexOutcome(Mock(spec=Model), set())
 
         scanner.index_file = fake_index_file
 
         result = scanner.index_single_model(str(path), "checkpoint", 7)
 
-        assert result is not None
+        assert result.model is not None
         found = recorded["found"]
         assert isinstance(found, FoundFile)
         assert found.root_id == "home"
@@ -209,4 +209,5 @@ class TestIndexSingleModelCompatWrapper:
 
         result = scanner.index_single_model(str(tmp_path / "nowhere.safetensors"), "checkpoint", 1)
 
-        assert result is None
+        assert result.model is None
+        assert result.duplicate_of is None

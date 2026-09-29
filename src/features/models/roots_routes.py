@@ -3,7 +3,7 @@ import os
 import platform
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from src.features.models import root_detection
@@ -77,9 +77,6 @@ class ModelRootsController(BaseController):
         status_code = _STATUS_BY_CODE.get(error.code, 400)
         self.error_response(error=error.code, message=error.reason, status_code=status_code)
 
-    def _queue_reindex(self, background_tasks: BackgroundTasks) -> None:
-        background_tasks.add_task(self.indexing.run_indexing)
-
     async def list_roots(self) -> APIResponse:
         data = self.manager.get_overview()
         data["server_os"] = platform.system() or "Linux"
@@ -90,7 +87,7 @@ class ModelRootsController(BaseController):
         result = root_detection.detect(request.path, resolver=self.manager.resolver)
         return self.success_response(data=result.to_dict())
 
-    async def create_root(self, request: CreateRootRequest, background_tasks: BackgroundTasks) -> APIResponse:
+    async def create_root(self, request: CreateRootRequest) -> APIResponse:
         try:
             root = self.manager.create_root(
                 request.path,
@@ -102,12 +99,9 @@ class ModelRootsController(BaseController):
             )
         except ModelRootsError as error:
             self._raise_for(error)
-        self._queue_reindex(background_tasks)
         return self.success_response(data=root)
 
-    async def update_root(
-        self, root_id: str, request: UpdateRootRequest, background_tasks: BackgroundTasks
-    ) -> APIResponse:
+    async def update_root(self, root_id: str, request: UpdateRootRequest) -> APIResponse:
         try:
             root = self.manager.update_root(
                 root_id,
@@ -123,31 +117,27 @@ class ModelRootsController(BaseController):
             )
         except ModelRootsError as error:
             self._raise_for(error)
-        self._queue_reindex(background_tasks)
         return self.success_response(data=root)
 
-    async def delete_root(self, root_id: str, background_tasks: BackgroundTasks) -> APIResponse:
+    async def delete_root(self, root_id: str) -> APIResponse:
         try:
             self.manager.delete_root(root_id)
         except ModelRootsError as error:
             self._raise_for(error)
-        self._queue_reindex(background_tasks)
         return self.success_response(data={"id": root_id, "deleted": True})
 
-    async def reorder(self, request: ReorderRootsRequest, background_tasks: BackgroundTasks) -> APIResponse:
+    async def reorder(self, request: ReorderRootsRequest) -> APIResponse:
         try:
             self.manager.reorder(request.model_type, request.root_ids)
         except ModelRootsError as error:
             self._raise_for(error)
-        self._queue_reindex(background_tasks)
         return self.success_response(data=self.manager.get_overview())
 
-    async def set_write_root(self, request: SetWriteRootRequest, background_tasks: BackgroundTasks) -> APIResponse:
+    async def set_write_root(self, request: SetWriteRootRequest) -> APIResponse:
         try:
             root = self.manager.set_write_root(request.model_type, request.root_id)
         except ModelRootsError as error:
             self._raise_for(error)
-        self._queue_reindex(background_tasks)
         return self.success_response(data=root)
 
     async def probe_root(self, root_id: str) -> APIResponse:
@@ -173,43 +163,38 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.put("/order", response_model=APIResponse, summary="Reorder Model Roots")
     async def reorder_roots(
         request: ReorderRootsRequest,
-        background_tasks: BackgroundTasks,
         current_user: User = Depends(get_current_admin_user),
     ):
-        return await controller.reorder(request, background_tasks)
+        return await controller.reorder(request)
 
     @router.put("/write", response_model=APIResponse, summary="Set Model Root Write Target")
     async def set_write_root(
         request: SetWriteRootRequest,
-        background_tasks: BackgroundTasks,
         current_user: User = Depends(get_current_admin_user),
     ):
-        return await controller.set_write_root(request, background_tasks)
+        return await controller.set_write_root(request)
 
     @router.post("", response_model=APIResponse, status_code=201, summary="Create Model Root")
     async def create_root(
         request: CreateRootRequest,
-        background_tasks: BackgroundTasks,
         current_user: User = Depends(get_current_admin_user),
     ):
-        return await controller.create_root(request, background_tasks)
+        return await controller.create_root(request)
 
     @router.patch("/{root_id}", response_model=APIResponse, summary="Update Model Root")
     async def update_root(
         root_id: str,
         request: UpdateRootRequest,
-        background_tasks: BackgroundTasks,
         current_user: User = Depends(get_current_admin_user),
     ):
-        return await controller.update_root(root_id, request, background_tasks)
+        return await controller.update_root(root_id, request)
 
     @router.delete("/{root_id}", response_model=APIResponse, summary="Delete Model Root")
     async def delete_root(
         root_id: str,
-        background_tasks: BackgroundTasks,
         current_user: User = Depends(get_current_admin_user),
     ):
-        return await controller.delete_root(root_id, background_tasks)
+        return await controller.delete_root(root_id)
 
     @router.post("/{root_id}/probe", response_model=APIResponse, summary="Probe Model Root")
     async def probe_root(root_id: str, current_user: User = Depends(get_current_admin_user)):

@@ -94,6 +94,7 @@ def collaborators(mock_model_repository, mock_tag_repository, mock_plugin_regist
         download_queue=Mock(),
         user_attribute_repository=mock_user_attribute_repository,
         model_roots=Mock(),
+        spawn=lambda target: None,
     )
     # The directory scanner is an injected dependency of the catalog; stub it so
     # the aggregate stats read never touches disk or the database.

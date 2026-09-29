@@ -224,6 +224,10 @@ class ModelJobs:
                         "file_path": str(file_path)
                     }
                 )
+            elif result.get("duplicate_of"):
+                logger.warning(
+                    f"Downloaded {name} but it is the same file as {result['duplicate_of']['path']}; not indexed twice"
+                )
             else:
                 logger.error(f"Failed to index {name}")
 

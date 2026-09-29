@@ -22,9 +22,6 @@ class FakeIndexingCoordinator:
         self.calls.append(trigger)
         return {"state": "idle"}
 
-    def run_indexing(self):
-        self.calls.append("run_indexing")
-
     def status(self):
         return {"state": "idle"}
 

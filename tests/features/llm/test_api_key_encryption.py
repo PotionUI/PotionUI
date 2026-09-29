@@ -6,8 +6,6 @@ path, a real on-disk SQLite file, then a grep of that file's bytes.
 
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -21,18 +19,9 @@ from src.platform.security.secrets import (
     generate_key,
 )
 
-from tests.features.plugins.test_credential_encryption import FileDatabase
-
-_MIGRATIONS = Path("src/platform/database/migrations")
+from tests.features.plugins.test_credential_encryption import fresh_file_database
 
 PLAINTEXT_KEY = "sk-openai-DUMPGREP-4c7e1a"
-
-
-def _load(stem: str, name: str):
-    spec = importlib.util.spec_from_file_location(name, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def _config(config_id="llm-1", api_key=PLAINTEXT_KEY):
@@ -51,14 +40,9 @@ def key():
 
 @pytest.fixture
 def db(tmp_path, key):
-    database = FileDatabase(tmp_path / "db.sqlite")
+    database = fresh_file_database(tmp_path / "db.sqlite")
     configure_secret_cipher(SecretCipher([key]))
     with patch("src.platform.database.database.db", database):
-        _load("001_baseline", f"m001_{id(database)}").up()
-        # The migration sets WAL (correct for a real install) on this same
-        # persistent connection - put DELETE back so a committed write keeps
-        # landing in the main file, which is what raw_bytes() below relies on.
-        database._connection.execute("PRAGMA journal_mode=DELETE").close()
         yield database
     configure_secret_cipher(None)
     database.close()

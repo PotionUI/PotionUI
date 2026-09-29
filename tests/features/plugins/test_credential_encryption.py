@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import sqlite3
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -21,6 +23,7 @@ from pydantic import Field
 
 from src.bootstrap.secrets_preflight import run_secret_preflight
 from src.features.backends.backend_config import BackendConfigStore, BaseBackendConfig
+from src.features.backends.native_hardware import NativeHardwareDefaults
 from src.features.backends.records import Backend
 from src.features.plugins.repository import PluginRepository
 from src.features.backends.repository import BackendRepository
@@ -89,6 +92,28 @@ def _load(stem: str, name: str):
     return module
 
 
+_baseline_template: Path | None = None
+
+
+def baseline_template() -> Path:
+    global _baseline_template
+    if _baseline_template is None:
+        directory = Path(tempfile.mkdtemp(prefix="potionui-credential-baseline-"))
+        template = directory / "baseline.sqlite"
+        database = FileDatabase(template)
+        with patch("src.platform.database.database.db", database):
+            _load("001_baseline", "m001_credential_baseline").up()
+        database._connection.execute("PRAGMA journal_mode=DELETE").close()
+        database.close()
+        _baseline_template = template
+    return _baseline_template
+
+
+def fresh_file_database(path: Path) -> FileDatabase:
+    shutil.copyfile(baseline_template(), path)
+    return FileDatabase(path)
+
+
 @pytest.fixture
 def key():
     return generate_key()
@@ -96,15 +121,12 @@ def key():
 
 @pytest.fixture
 def db(tmp_path, key):
-    """A file-backed DB with the plugin + backend schema, and a live cipher."""
-    database = FileDatabase(tmp_path / "db.sqlite")
+    database = fresh_file_database(tmp_path / "db.sqlite")
     configure_secret_cipher(SecretCipher([key]))
-    with patch("src.platform.database.database.db", database):
-        _load("001_baseline", f"m001_{id(database)}").up()
-        # The migration sets WAL (correct for a real install) on this same
-        # persistent connection - put DELETE back so a committed write keeps
-        # landing in the main file, which is what raw_bytes() below relies on.
-        database._connection.execute("PRAGMA journal_mode=DELETE").close()
+    with patch("src.platform.database.database.db", database), patch(
+        "src.features.backends.backend_config._hardware_defaults",
+        return_value=NativeHardwareDefaults(device="cpu", dtype="float32", gpu_max_vram=0),
+    ):
         yield database
     configure_secret_cipher(None)
     database.close()

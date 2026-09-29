@@ -44,6 +44,17 @@ async function keyboardFocus(page: Page, el: Locator) {
 	await expect.poll(() => el.evaluate((node) => node.matches(':focus-visible')), { timeout: 5000 }).toBe(true);
 }
 
+async function tabTo(page: Page, el: Locator) {
+	await page.locator('#fx-start').click();
+	const id = await el.getAttribute('id');
+	for (let hops = 0; hops < 10; hops++) {
+		await page.keyboard.press('Tab');
+		if ((await page.evaluate(() => document.activeElement?.id)) === id) break;
+	}
+	await expect(el).toBeFocused();
+	await expect.poll(() => el.evaluate((node) => node.matches(':focus-visible')), { timeout: 5000 }).toBe(true);
+}
+
 async function shoot(el: Locator, label: string) {
 	await el.scrollIntoViewIfNeeded();
 	await el.screenshot({ path: shotPath(JOURNEY, label) });
@@ -80,6 +91,7 @@ test('bare and .input controls carry one signal ring on themselves', async ({ pa
 		host.style.cssText =
 			'position:fixed;top:80px;left:40px;width:380px;z-index:9999;display:flex;flex-direction:column;gap:16px;padding:16px;background:rgb(var(--surface-1))';
 		host.innerHTML =
+			'<button id="fx-start" type="button">Start</button>' +
 			'<input id="fx-bare" type="text" value="Bare input" />' +
 			'<textarea id="fx-bare-area" rows="2">Bare textarea</textarea>' +
 			'<input id="fx-text" class="input" type="text" value="Text input" />' +
@@ -89,7 +101,7 @@ test('bare and .input controls carry one signal ring on themselves', async ({ pa
 	});
 	for (const id of ['#fx-bare', '#fx-bare-area', '#fx-text', '#fx-area', '#fx-select']) {
 		const el = page.locator(id);
-		await keyboardFocus(page, el);
+		await tabTo(page, el);
 		await shoot(page.locator('#focus-fixture'), `fixture-${id.slice(4)}-focus`);
 		expect(await css(el, 'outlineStyle')).toBe('none');
 		await expectRing(el, signal);

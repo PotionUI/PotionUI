@@ -3,10 +3,11 @@
 import shutil
 import sqlite3
 import threading
-import time
+from unittest.mock import patch
 
 import pytest
 
+from src.features.backup import repository as backup_repository
 from src.features.backup.snapshot import (
     applied_migrations,
     integrity_check,
@@ -74,37 +75,56 @@ def test_snapshot_does_not_block_a_concurrent_writer(tmp_path):
     conn = _uncheckpointed_database(source)
     conn.close()
 
-    stop = threading.Event()
-    written = []
+    snapshot_running = threading.Event()
+    writer_committed = threading.Event()
     failure = []
 
+    def pause_inside_snapshot():
+        if not snapshot_running.is_set():
+            snapshot_running.set()
+            writer_committed.wait(timeout=20)
+        return 0
+
+    class _PausingSqlite:
+        def __getattr__(self, name):
+            return getattr(sqlite3, name)
+
+        def connect(self, *args, **kwargs):
+            handle = sqlite3.connect(*args, **kwargs)
+            handle.set_progress_handler(pause_inside_snapshot, 1)
+            return handle
+
     def writer():
-        handle = sqlite3.connect(source, timeout=30.0)
-        handle.execute("PRAGMA busy_timeout = 30000").close()
         try:
-            while not stop.is_set():
+            if not snapshot_running.wait(timeout=20):
+                return
+            handle = sqlite3.connect(source, timeout=15.0)
+            try:
                 with handle:
                     handle.execute("INSERT INTO notes (body) VALUES ('concurrent')")
-                written.append(1)
-                time.sleep(0.001)
+                writer_committed.set()
+            finally:
+                handle.close()
         except sqlite3.Error as exc:
             failure.append(exc)
-        finally:
-            handle.close()
+            writer_committed.set()
 
     thread = threading.Thread(target=writer)
     thread.start()
+    destination = tmp_path / "snapshot.sqlite"
     try:
-        destination = tmp_path / "snapshot.sqlite"
-        snapshot_database(source, destination)
+        with patch.object(backup_repository, "sqlite3", _PausingSqlite()):
+            snapshot_database(source, destination)
     finally:
-        stop.set()
+        writer_committed.set()
         thread.join(timeout=30)
 
+    assert snapshot_running.is_set(), "the snapshot never reached the point where the writer runs"
     assert not failure, f"the concurrent writer failed during the snapshot: {failure}"
-    assert written, "the writer never committed, so this proves nothing"
+    assert writer_committed.is_set(), "the writer never committed, so this proves nothing"
     assert integrity_check(destination) == []
     assert table_row_counts(destination)["notes"] >= 500
+    assert table_row_counts(source)["notes"] == 501
 
 
 def test_snapshot_refuses_to_overwrite(tmp_path):

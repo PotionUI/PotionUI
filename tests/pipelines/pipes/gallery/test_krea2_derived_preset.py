@@ -12,6 +12,7 @@ pass and, as a side effect, emits a before/after compare artifact) - never
 directly to `generator` (the base pass): the base image is only ever saved
 when its own opt-in knob asks for it.
 """
+import functools
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -44,10 +45,15 @@ def _deep_render(obj, tp, context):
 _KREA2_ID = yaml.safe_load((PIPELINE_YML.parents[2] / "preset.yml").read_text())["id"]
 
 
+@functools.lru_cache(maxsize=1)
+def _krea2_template():
+    return PresetTemplateLoader(["content/presets"]).load_preset_by_id(_KREA2_ID)
+
+
 def _bound(form_data):
     """Bind like a real request: every declared field carries its default, so the
     pipeline renders against the same values production does."""
-    template = PresetTemplateLoader(["content/presets"]).load_preset_by_id(_KREA2_ID)
+    template = _krea2_template()
     raw = {
         "diffusion_model": "/models/krea2.safetensors",
         "text_encoder": "/models/krea2_te.safetensors",

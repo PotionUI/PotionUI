@@ -728,7 +728,8 @@ def test_router_none_step_cache_is_not_forwarded():
 # -- _decode_video: temporal-chunked decode routing ---------------------------
 
 def _tiny_wan_vae() -> AutoEncoderCausal3D:
-    module = AutoEncoderCausal3D.from_config({}, disable_weight_init)
+    with patch("src.platform.runtime.native.vae.causal_3d._DIM", 8):
+        module = AutoEncoderCausal3D.from_config({}, disable_weight_init)
     module.eval()
     with torch.no_grad():
         for p in module.parameters():

@@ -53,3 +53,19 @@ def test_shard_roots_do_not_overlap(os_name):
                 continue
             assert token not in seen, f"{token} in both {seen[token]} and {shard['name']}"
             seen[token] = shard["name"]
+
+
+def load_e2e_job(path):
+    return yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"]["e2e"]
+
+
+def test_e2e_windows_matrix_matches_run_py_shard_flag():
+    job = load_e2e_job(WORKFLOWS["windows"])
+    shards = job["strategy"]["matrix"]["shard"]
+    assert shards == list(range(1, len(shards) + 1))
+    steps = {step["name"]: step for step in job["steps"] if "name" in step}
+    ui = steps["Playwright UI journeys (throwaway backend + vite preview)"]["run"]
+    assert f"--skip-build --shard ${{{{ matrix.shard }}}}/{len(shards)}" in ui
+    assert steps["HTTP journeys (throwaway backend)"]["if"] == "matrix.shard == 1"
+    upload = steps["Upload E2E logs + artifacts (Windows)"]["with"]["name"]
+    assert "matrix.shard" in upload

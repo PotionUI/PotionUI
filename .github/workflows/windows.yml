@@ -133,7 +133,8 @@ jobs:
             serial_paths: ""
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - id: py
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
@@ -141,13 +142,26 @@ jobs:
             requirements-ci.txt
             requirements-dev.txt
 
+      - name: Restore Python environment
+        id: venv
+        uses: actions/cache@v4
+        with:
+          path: .venv-ci
+          key: py-venv-${{ runner.os }}-${{ steps.py.outputs.python-version }}-${{ hashFiles('requirements-ci.txt', 'requirements-dev.txt') }}
+
       - name: Install backend dependencies (CPU-only torch)
+        if: steps.venv.outputs.cache-hit != 'true'
         shell: cmd
         run: |
-          python -m pip install --upgrade pip || exit /b
-          pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu || exit /b
-          pip install -r requirements-dev.txt || exit /b
-          pip install pytest-timeout
+          python -m venv .venv-ci || exit /b
+          .venv-ci\Scripts\python -m pip install --upgrade pip || exit /b
+          .venv-ci\Scripts\python -m pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu || exit /b
+          .venv-ci\Scripts\python -m pip install -r requirements-dev.txt || exit /b
+          .venv-ci\Scripts\python -m pip install requests pytest-timeout
+
+      - name: Use the Python environment
+        shell: cmd
+        run: echo %GITHUB_WORKSPACE%\.venv-ci\Scripts>>"%GITHUB_PATH%"
 
       - name: pytest (CPU-only, no GPU/model-file/gc-sensitive tests)
         shell: cmd
@@ -199,7 +213,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - id: py
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
@@ -207,13 +222,26 @@ jobs:
             requirements-ci.txt
             requirements-dev.txt
 
+      - name: Restore Python environment
+        id: venv
+        uses: actions/cache@v4
+        with:
+          path: .venv-ci
+          key: py-venv-${{ runner.os }}-${{ steps.py.outputs.python-version }}-${{ hashFiles('requirements-ci.txt', 'requirements-dev.txt') }}
+
       - name: Install backend dependencies (CPU-only torch)
+        if: steps.venv.outputs.cache-hit != 'true'
         shell: cmd
         run: |
-          python -m pip install --upgrade pip || exit /b
-          pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu || exit /b
-          pip install -r requirements-dev.txt || exit /b
-          pip install pytest-timeout
+          python -m venv .venv-ci || exit /b
+          .venv-ci\Scripts\python -m pip install --upgrade pip || exit /b
+          .venv-ci\Scripts\python -m pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu || exit /b
+          .venv-ci\Scripts\python -m pip install -r requirements-dev.txt || exit /b
+          .venv-ci\Scripts\python -m pip install requests pytest-timeout
+
+      - name: Use the Python environment
+        shell: cmd
+        run: echo %GITHUB_WORKSPACE%\.venv-ci\Scripts>>"%GITHUB_PATH%"
 
       - name: python tests/release/release_gate.py --skip-gpu --lint-only
         shell: cmd
@@ -270,36 +298,109 @@ jobs:
           npm run build:plugins || exit /b
           git -C .. diff --exit-code --stat -- "content/plugins/*/*/frontend/dist"
 
+  frontend-build:
+    name: frontend build (Windows, shared by e2e shards)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - id: node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Restore frontend node_modules
+        id: node-modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            frontend/node_modules
+            !frontend/node_modules/playwright-core/.local-browsers
+          key: node-modules-${{ runner.os }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('frontend/package-lock.json') }}
+
+      - name: npm ci
+        if: steps.node-modules.outputs.cache-hit != 'true'
+        shell: cmd
+        working-directory: frontend
+        run: npm ci
+
+      - name: npm run build
+        shell: cmd
+        working-directory: frontend
+        run: npm run build
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build-windows
+          path: |
+            frontend/build
+            frontend/.svelte-kit
+          include-hidden-files: true
+          retention-days: 1
+
   e2e:
-    name: HTTP journeys + Playwright UI (Windows)
+    name: HTTP journeys + Playwright UI (Windows, shard ${{ matrix.shard }}/3)
     runs-on: windows-latest
     timeout-minutes: 90
+    needs: frontend-build
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     env:
       PLAYWRIGHT_BROWSERS_PATH: "0"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - id: py
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
             requirements-ci.txt
             requirements-dev.txt
-      - uses: actions/setup-node@v4
+      - id: node
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Restore Python environment
+        id: venv
+        uses: actions/cache@v4
+        with:
+          path: .venv-ci
+          key: py-venv-${{ runner.os }}-${{ steps.py.outputs.python-version }}-${{ hashFiles('requirements-ci.txt', 'requirements-dev.txt') }}
+
       - name: Install backend dependencies (CPU-only torch)
+        if: steps.venv.outputs.cache-hit != 'true'
         shell: cmd
         run: |
-          python -m pip install --upgrade pip || exit /b
-          pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu || exit /b
-          pip install -r requirements-dev.txt || exit /b
-          pip install requests
+          python -m venv .venv-ci || exit /b
+          .venv-ci\Scripts\python -m pip install --upgrade pip || exit /b
+          .venv-ci\Scripts\python -m pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu || exit /b
+          .venv-ci\Scripts\python -m pip install -r requirements-dev.txt || exit /b
+          .venv-ci\Scripts\python -m pip install requests pytest-timeout
+
+      - name: Use the Python environment
+        shell: cmd
+        run: echo %GITHUB_WORKSPACE%\.venv-ci\Scripts>>"%GITHUB_PATH%"
+
+      - name: Restore frontend node_modules
+        id: node-modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            frontend/node_modules
+            !frontend/node_modules/playwright-core/.local-browsers
+          key: node-modules-${{ runner.os }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('frontend/package-lock.json') }}
 
       - name: npm ci
+        if: steps.node-modules.outputs.cache-hit != 'true'
         shell: cmd
         working-directory: frontend
         run: npm ci
@@ -326,7 +427,14 @@ jobs:
           npx playwright install chromium chromium-headless-shell || exit /b
           npx playwright install --list
 
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build-windows
+          path: frontend
+
       - name: HTTP journeys (throwaway backend)
+        if: matrix.shard == 1
         shell: cmd
         run: |
           python tests/e2e/journeys/run.py > journeys-windows.log 2>&1
@@ -338,18 +446,18 @@ jobs:
         if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
         shell: cmd
         run: |
-          python tests/e2e/ui/run.py > playwright-windows.log 2>&1
+          python tests/e2e/ui/run.py --skip-build --shard ${{ matrix.shard }}/3 --shard-head-start 1.5 > playwright-windows-${{ matrix.shard }}of3.log 2>&1
           set RUN_EXIT=%ERRORLEVEL%
-          type playwright-windows.log
+          type playwright-windows-${{ matrix.shard }}of3.log
           exit /b %RUN_EXIT%
 
       - name: Upload E2E logs + artifacts (Windows)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-windows
+          name: e2e-windows-${{ matrix.shard }}of3
           path: |
             journeys-windows.log
-            playwright-windows.log
+            playwright-windows-${{ matrix.shard }}of3.log
             tests/e2e/ui/artifacts/
           retention-days: 14

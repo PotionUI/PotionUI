@@ -125,6 +125,42 @@ def chunked(items: List[str], size: int) -> List[List[str]]:
     return solo + [shared[i : i + size] for i in range(0, len(shared), size)]
 
 
+CHUNK_MINUTES = (0.5, 1.9, 1.3, 1.2, 1.4, 1.9, 1.7, 2.0, 0.75)
+DEFAULT_CHUNK_MINUTES = 1.5
+
+
+def parse_shard(value: str) -> tuple:
+    try:
+        index_text, total_text = value.split("/")
+        index, total = int(index_text), int(total_text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--shard expects i/n, got {value!r}")
+    if total < 1 or not 1 <= index <= total:
+        raise argparse.ArgumentTypeError(f"--shard expects 1 <= i <= n, got {value!r}")
+    return index, total
+
+
+def shard_assignment(chunk_count: int, total: int, head_start: Optional[dict] = None) -> List[int]:
+    loads = [0.0] * total
+    for shard, minutes in (head_start or {}).items():
+        loads[shard - 1] += minutes
+    weights = [
+        CHUNK_MINUTES[i] if i < len(CHUNK_MINUTES) else DEFAULT_CHUNK_MINUTES
+        for i in range(chunk_count)
+    ]
+    assignment = [0] * chunk_count
+    for i in sorted(range(chunk_count), key=lambda k: (-weights[k], k)):
+        shard = min(range(total), key=lambda k: (loads[k], k))
+        loads[shard] += weights[i]
+        assignment[i] = shard + 1
+    return assignment
+
+
+def select_shard(chunks: List[List[str]], index: int, total: int, head_start: Optional[dict] = None) -> List[tuple]:
+    assignment = shard_assignment(len(chunks), total, head_start)
+    return [(i + 1, chunk) for i, chunk in enumerate(chunks) if assignment[i] == index]
+
+
 def describe_exit_status(code: Optional[int]) -> str:
     """Human-readable form of a Popen returncode - negative means killed by
     signal on POSIX. This is the diagnostic nobody has captured before: the
@@ -448,6 +484,21 @@ def main(argv: Optional[List[str]] = None) -> int:
             f"(--chunk-size 0) only to deliberately reproduce that failure."
         ),
     )
+    parser.add_argument(
+        "--shard",
+        type=parse_shard,
+        default=(1, 1),
+        metavar="I/N",
+        help="Run only shard I of N: a deterministic, time-balanced subset of the chunks (default 1/1 = all).",
+    )
+    parser.add_argument(
+        "--shard-head-start",
+        type=float,
+        default=0.0,
+        metavar="MIN",
+        help="Minutes of other work already assigned to shard 1 (e.g. the HTTP journeys); balances the split.",
+    )
+    parser.add_argument("--list", action="store_true", help="Print the chunks this invocation would run and exit.")
     args = parser.parse_args(argv)
 
     names = args.journeys or discover_specs()
@@ -459,8 +510,20 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"Unknown spec(s): {unknown}. Available: {discover_specs()}", file=sys.stderr)
         return EXIT_ARGS_ERROR
 
-    # Clear only the journeys this run re-executes: concurrent/sequential runs
-    # of OTHER journeys must not lose their collected evidence.
+    shard_index, shard_total = args.shard
+    chunk_size = args.chunk_size if args.chunk_size and args.chunk_size > 0 else len(names)
+    all_chunks = chunked(names, chunk_size)
+    head_start = {1: args.shard_head_start} if args.shard_head_start else None
+    numbered = select_shard(all_chunks, shard_index, shard_total, head_start)
+    if args.list:
+        for number, chunk in numbered:
+            print(f"shard {shard_index}/{shard_total} chunk {number}/{len(all_chunks)}: {' '.join(chunk)}")
+        return EXIT_OK
+    names = [n for _, chunk in numbered for n in chunk]
+    if not names:
+        print(f"Shard {shard_index}/{shard_total} has no chunks.", file=sys.stderr)
+        return EXIT_ARGS_ERROR
+
     for name in names:
         shutil.rmtree(ARTIFACTS_DIR / name, ignore_errors=True)
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -470,18 +533,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif not (FRONTEND_DIR / ".svelte-kit" / "output" / "client").is_dir():
         raise StageError("build", "--skip-build given but no build output exists; run once without it.")
 
-    chunk_size = args.chunk_size if args.chunk_size and args.chunk_size > 0 else len(names)
-    chunks = chunked(names, chunk_size)
     log(
-        f"Running {len(names)} spec(s) as {len(chunks)} chunk(s) of up to {chunk_size} "
+        f"Shard {shard_index}/{shard_total}: {len(names)} spec(s) as {len(numbered)} of "
+        f"{len(all_chunks)} chunk(s) of up to {chunk_size} "
         f"(fresh backend + preview + Playwright process per chunk)"
     )
 
     overall_returncode = EXIT_OK
     try:
-        for idx, chunk_names in enumerate(chunks, start=1):
+        for idx, chunk_names in numbered:
             returncode = run_chunk(
-                chunk_names=chunk_names, chunk_index=idx, total_chunks=len(chunks), args=args,
+                chunk_names=chunk_names, chunk_index=idx, total_chunks=len(all_chunks), args=args,
             )
             if returncode != 0:
                 overall_returncode = EXIT_TEST_FAILURE
@@ -490,7 +552,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return overall_returncode
 
     except _PreviewDied as died:
-        remaining_chunks = chunks[died.chunk_index :]
+        remaining_chunks = [c for i, c in numbered if i > died.chunk_index]
         remaining_specs = [n for c in remaining_chunks for n in c]
         border = "=" * 78
         print(f"\n{border}", file=sys.stderr)

@@ -2,6 +2,7 @@
 	import { fade, scale } from 'svelte/transition';
 	import focusTrap from '$lib/actions/focusTrap';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import { IconButton } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import GenerationFormPane from './GenerationFormPane.svelte';
@@ -56,7 +57,8 @@
 
 <div
 	use:portal
-	class="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60 backdrop-blur-sm md:items-center"
+	use:overlayLayer
+	class="fixed inset-0 z-overlay flex items-end justify-center bg-black/60 backdrop-blur-sm md:items-center"
 	role="button"
 	tabindex="-1"
 	aria-label="Close floating generation form"

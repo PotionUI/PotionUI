@@ -2,6 +2,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import { historyStore } from '$lib/stores/history';
 	import { historyTileSize, type HistoryTileSize } from '$lib/stores/historyTileSize';
 	import { tabsStore } from '$lib/stores/tabs';
@@ -465,8 +466,9 @@
 					{#if isFiltersOpen}
 						<div
 							use:portal
+							use:overlayLayer
 							bind:this={filtersPanelEl}
-							class="fixed z-[9999] w-[22rem] max-w-[90vw] bg-surface-2 rounded-xl border border-line-strong shadow-floating p-3"
+							class="fixed z-overlay w-[22rem] max-w-[90vw] bg-surface-2 rounded-xl border border-line-strong shadow-floating p-3"
 							style="top: {filtersPanelPosition.top}px; left: {filtersPanelPosition.left}px;"
 							role="dialog"
 							aria-label="Advanced filters"
@@ -656,8 +658,9 @@
 					{#if isMoreMenuOpen}
 						<div
 							use:portal
+							use:overlayLayer
 							bind:this={moreMenuPanelEl}
-							class="fixed z-[9999] min-w-[180px] bg-surface-2 rounded-xl border border-line-strong shadow-floating py-1"
+							class="fixed z-overlay min-w-[180px] bg-surface-2 rounded-xl border border-line-strong shadow-floating py-1"
 							style="top: {moreMenuPosition.top}px; left: {moreMenuPosition.left}px;"
 							role="menu"
 							aria-label="More actions"

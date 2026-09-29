@@ -16,6 +16,7 @@
 	import { tick } from 'svelte';
 	import { browser } from '$app/environment';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 
 	// Matches the panel's former `mt-2`/`mb-2` gap from the trigger.
@@ -190,8 +191,9 @@
 	<div
 		bind:this={panelEl}
 		use:portal
+		use:overlayLayer
 		style={panelStyle(panelPosition)}
-		class="fixed z-[99999] bg-surface-1 border border-line-strong rounded-lg shadow-floating overflow-hidden flex flex-col {panelClass}"
+		class="fixed z-overlay bg-surface-1 border border-line-strong rounded-lg shadow-floating overflow-hidden flex flex-col {panelClass}"
 	>
 		{#if showSearch}
 			<input

@@ -4,6 +4,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 	import { phrasebookStore } from '$lib/stores/phrasebook';
 	import type { PhrasebookFindMode, PhrasebookFindScope } from '$lib/types/api';
@@ -334,8 +335,9 @@
 			{#if filtersOpen}
 				<div
 					use:portal
+					use:overlayLayer
 					bind:this={filtersPopoverEl}
-					class="fixed z-[9999] w-72 bg-surface-1 border border-line-strong rounded-xl shadow-overlay p-3 flex flex-col gap-3"
+					class="fixed z-overlay w-72 bg-surface-1 border border-line-strong rounded-xl shadow-overlay p-3 flex flex-col gap-3"
 					style={popoverStyle}
 					role="dialog"
 					aria-label="Search filters"
@@ -467,8 +469,9 @@
 				{#if importOpen}
 					<div
 						use:portal
+						use:overlayLayer
 						bind:this={importPopoverEl}
-						class="fixed z-[9999] w-80 bg-surface-1 border border-line-strong rounded-xl shadow-overlay p-3 flex flex-col gap-3"
+						class="fixed z-overlay w-80 bg-surface-1 border border-line-strong rounded-xl shadow-overlay p-3 flex flex-col gap-3"
 						style={importPopoverStyle}
 						role="dialog"
 						aria-label="Import phrasebook YAML"

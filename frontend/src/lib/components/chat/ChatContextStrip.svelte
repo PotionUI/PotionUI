@@ -12,6 +12,7 @@
 	import { onMount } from 'svelte';
 	import type { ContextStripModel } from '$lib/chat/contextStrip';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition } from '$lib/utils/menuPosition';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 
@@ -159,8 +160,9 @@
 {#if showPicker}
 	<div
 		use:portal
+		use:overlayLayer
 		bind:this={menuEl}
-		class="fixed z-[9999] w-[280px] bg-surface-1 border border-line rounded-xl shadow-floating max-h-72 overflow-y-auto"
+		class="fixed z-overlay w-[280px] bg-surface-1 border border-line rounded-xl shadow-floating max-h-72 overflow-y-auto"
 		style={menuStyle}
 		data-testid="chat-context-strip-picker"
 	>

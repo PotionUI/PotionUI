@@ -8,6 +8,7 @@
 	import TagSelector from '$lib/components/TagSelector.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import GenerationHistoryModal from '$lib/components/modals/GenerationHistoryModal.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import { pluginStore } from '$lib/stores/plugins';
@@ -1385,7 +1386,8 @@
 	     containing block for this `position: fixed` fullscreen preview. -->
 	<div
 		use:portal
-		class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+		use:overlayLayer
+		class="fixed inset-0 z-overlay flex items-center justify-center bg-black/80 backdrop-blur-sm"
 		on:click={() => showImageModal = false}
 		on:keydown={(e) => e.key === 'Escape' && (showImageModal = false)}
 		role="dialog"

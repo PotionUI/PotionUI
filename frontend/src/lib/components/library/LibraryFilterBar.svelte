@@ -2,6 +2,7 @@
 	import { tick, type Snippet } from 'svelte';
 	import { browser } from '$app/environment';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 	import Icon from '$lib/components/Icon.svelte';
 	import type { SortOption } from './librarySection';
@@ -135,7 +136,7 @@
 		</button>
 	</div>
 	{#if filtersOpen}
-		<div bind:this={panelEl} use:portal style={panelStyle(panelPosition)} class="fixed z-[99999]">
+		<div bind:this={panelEl} use:portal use:overlayLayer style={panelStyle(panelPosition)} class="fixed z-overlay">
 			{@render popover(closeFilters)}
 		</div>
 	{/if}

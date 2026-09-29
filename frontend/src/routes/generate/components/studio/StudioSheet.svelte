@@ -2,6 +2,7 @@
 	import { onMount, createEventDispatcher } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 
 	// Bottom-sheet primitive for the mobile Studio shell. Callers mount/unmount
 	// this via `{#if openSheet === '...'}` rather than an internal `open` prop —
@@ -49,8 +50,9 @@
 </script>
 
 <div
-	class="fixed inset-0 z-[60] flex items-end bg-black/50"
+	class="fixed inset-0 z-overlay flex items-end bg-black/50"
 	use:portal
+	use:overlayLayer
 	on:click={handleBackdropClick}
 	role="presentation"
 	transition:fade={{ duration }}

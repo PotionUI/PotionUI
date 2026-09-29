@@ -7,6 +7,8 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import NotificationItem from './NotificationItem.svelte';
+	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 
 	let loadingMore = $state(false);
 	let selectedCategory = $state('all');
@@ -49,14 +51,18 @@
 
 {#if open}
 	<div
-		class="fixed inset-0 z-[9990] bg-canvas/60 backdrop-blur-sm"
+		use:portal
+		use:overlayLayer
+		class="fixed inset-0 z-overlay bg-canvas/60 backdrop-blur-sm"
 		transition:fade={{ duration: 150 }}
 		onclick={close}
 		role="presentation"
 	></div>
 
 	<aside
-		class="fixed top-0 right-0 z-[9991] h-screen w-full max-w-sm flex flex-col bg-surface-1 border-l border-line-strong shadow-overlay rounded-l-xl"
+		use:portal
+		use:overlayLayer
+		class="fixed top-0 right-0 z-overlay h-screen w-full max-w-sm flex flex-col bg-surface-1 border-l border-line-strong shadow-overlay rounded-l-xl"
 		transition:fly={{ x: 320, duration: 200 }}
 		aria-label="Notifications"
 	>

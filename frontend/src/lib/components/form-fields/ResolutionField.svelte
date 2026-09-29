@@ -7,6 +7,7 @@
 	import Button from '../ui/Button.svelte';
 	import IconButton from '../ui/IconButton.svelte';
 	import portal from '../../actions/portal';
+	import overlayLayer from '../../actions/overlayLayer';
 	import {
 		filterResolutionOptions,
 		groupOptionsByTier,
@@ -367,9 +368,10 @@
 		{#if panelOpen}
 			<div
 				use:portal
+				use:overlayLayer
 				bind:this={panelRef}
 				transition:fade={{ duration: 120 }}
-				class="fixed z-[9999] flex flex-col bg-surface-1 border border-line-strong rounded-xl shadow-floating overflow-hidden"
+				class="fixed z-overlay flex flex-col bg-surface-1 border border-line-strong rounded-xl shadow-floating overflow-hidden"
 				style="{panelPosition.openUpward
 					? `bottom: ${panelPosition.bottom}px`
 					: `top: ${panelPosition.top}px`}; left: {panelPosition.left}px; width: {panelPosition.width}px; max-height: 360px;"

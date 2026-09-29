@@ -52,7 +52,7 @@
 </script>
 
 <div
-	class="fixed top-6 right-6 z-[9998] flex w-80 flex-col gap-2 pointer-events-none"
+	class="fixed top-6 right-6 z-toast flex w-80 flex-col gap-2 pointer-events-none"
 	role="status"
 	aria-live={ariaLive}
 >

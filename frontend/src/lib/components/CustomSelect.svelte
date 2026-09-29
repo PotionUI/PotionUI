@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 
 	// Props
 	export let value: any = '';
@@ -196,9 +197,10 @@
 {#if isDropdownOpen}
 	<div
 		use:portal
+		use:overlayLayer
 		bind:this={dropdownRef}
 		data-dropdown="true"
-		class="fixed z-[9999] bg-surface-2 border border-line-hover rounded-xl shadow-overlay max-h-64 overflow-y-auto"
+		class="fixed z-overlay bg-surface-2 border border-line-hover rounded-xl shadow-overlay max-h-64 overflow-y-auto"
 		role="listbox"
 		style="{dropdownPosition.openUpward ? `bottom: ${dropdownPosition.bottom}px` : `top: ${dropdownPosition.top}px`}; left: {dropdownPosition.left}px; width: {dropdownPosition.width}px;"
 	>

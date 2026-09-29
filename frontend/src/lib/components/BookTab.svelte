@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 
 	export let id: string;
 	export let name: string;
@@ -213,7 +215,7 @@
 
 <!-- Color palette rendered as fixed overlay to escape overflow containers -->
 {#if showPalette}
-	<div class="color-palette-overlay" bind:this={paletteElement} style="left: {paletteX}px; top: {paletteY}px;" on:click|stopPropagation>
+	<div class="color-palette-overlay" bind:this={paletteElement} use:portal use:overlayLayer style="left: {paletteX}px; top: {paletteY}px;" on:click|stopPropagation>
 		{#each paletteColors as c}
 			<button
 				type="button"
@@ -384,7 +386,7 @@
 	/* Color palette - rendered as fixed overlay outside scoped tree */
 	:global(.color-palette-overlay) {
 		position: fixed;
-		z-index: 9999;
+		z-index: var(--z-overlay);
 		display: flex;
 		gap: 4px;
 		padding: 6px;

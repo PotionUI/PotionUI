@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Input, Kbd } from '$lib/components/ui';
 	import type { FlippedMenuPosition } from '$lib/utils/menuPosition';
@@ -121,14 +122,15 @@
 
 <svelte:window onpointerdown={handleWindowPointerDown} onkeydowncapture={handleWindowKeydown} />
 
-<div use:portal style="display: contents;">
-	<div
-		bind:this={panelEl}
-		class="fixed z-[99999] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 rounded-xl border border-line bg-surface-1 p-3 shadow-floating"
-		style="left: {position.left}px; {verticalStyle} max-height: {position.maxHeight}px;"
-		role="dialog"
-		aria-label="{category.label} picker"
-	>
+<div
+	bind:this={panelEl}
+	use:portal
+	use:overlayLayer
+	class="fixed z-overlay flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 rounded-xl border border-line bg-surface-1 p-3 shadow-floating"
+	style="left: {position.left}px; {verticalStyle} max-height: {position.maxHeight}px;"
+	role="dialog"
+	aria-label="{category.label} picker"
+>
 		<div class="flex items-center justify-between gap-2">
 			<span class="text-sm font-medium text-fg">{category.label}</span>
 			<span class="shrink-0 font-mono text-xs tabular-nums text-fg-subtle">{selected.length} / {category.tags.length}</span>
@@ -180,4 +182,3 @@
 			<span class="flex items-center gap-1"><Kbd keys="Esc" /> close</span>
 		</div>
 	</div>
-</div>

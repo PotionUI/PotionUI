@@ -11,6 +11,7 @@
 	import { MENU_EDGE_GUTTER, MENU_GAP } from '$lib/utils/menuPosition';
 	import { partitionNavItems } from './sidebarOverflow';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import Tooltip from './Tooltip.svelte';
 	import Logo from './brand/Logo.svelte';
 	import SidebarWidgets from './SidebarWidgets.svelte';
@@ -472,8 +473,9 @@
 {#if moreOpen}
 	<div
 		use:portal
+		use:overlayLayer
 		bind:this={moreMenuEl}
-		class="fixed z-[9999] min-w-[12rem] p-1 bg-surface-1 border border-line-strong rounded-lg shadow-overlay"
+		class="fixed z-overlay min-w-[12rem] p-1 bg-surface-1 border border-line-strong rounded-lg shadow-overlay"
 		style="top: {morePos.top}px; left: {morePos.left}px;"
 		role="menu"
 		aria-label="More"

@@ -3,6 +3,7 @@
 	import { Kbd } from '$lib/components/ui';
 	import { INSIDE_TOOLTIP_CONTEXT_KEY } from './tooltipContext';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 
 	// Lets descendants drop their own native `title` fallback rather than
 	// rendering a second, unstyled tooltip beside this one.
@@ -115,9 +116,10 @@
 	<div
 		bind:this={tooltipElement}
 		use:portal
+		use:overlayLayer={'tooltip'}
 		aria-hidden="true"
 		style="min-width: max-content; max-width: 300px; {tooltipStyle}"
-		class="fixed z-[9999] px-2 py-1 text-xs font-medium text-fg bg-surface-3 rounded-md shadow-lg pointer-events-none animate-in fade-in duration-150 break-words flex items-center gap-1.5"
+		class="fixed z-tooltip px-2 py-1 text-xs font-medium text-fg bg-surface-3 rounded-md shadow-lg pointer-events-none animate-in fade-in duration-150 break-words flex items-center gap-1.5"
 	>
 		<span>{text}</span>
 		{#if kbd}

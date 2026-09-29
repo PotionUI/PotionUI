@@ -2,6 +2,7 @@
 	import { onDestroy } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 
 	// Props
 	export let isOpen: boolean = false;
@@ -43,7 +44,8 @@
 	     fixed backdrop. -->
 	<div
 		use:portal
-		class="fixed inset-0 z-[100] flex items-center justify-center bg-black/90"
+		use:overlayLayer
+		class="fixed inset-0 z-overlay flex items-center justify-center bg-black/90"
 		on:click={onClose}
 		on:keydown={(e) => { if (e.key === 'Escape') onClose(); }}
 		role="dialog"

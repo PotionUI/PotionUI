@@ -2,6 +2,7 @@
 	import Icon from './Icon.svelte';
 	import Tooltip from './Tooltip.svelte';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 	import {
 		dependents,
@@ -179,7 +180,8 @@
 		<div
 			bind:this={popoverRef}
 			use:portal
-			class="z-[99999] rounded-lg border border-line-strong bg-surface-1 p-2.5 shadow-floating"
+			use:overlayLayer
+			class="z-overlay rounded-lg border border-line-strong bg-surface-1 p-2.5 shadow-floating"
 			style={popoverStyle}
 			role="dialog"
 			aria-label={`Condition for ${ownerName}`}

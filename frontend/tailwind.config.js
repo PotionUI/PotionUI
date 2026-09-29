@@ -46,6 +46,11 @@ export default {
 			},
 			height: { header: 'var(--header-h)' },
 			minHeight: { header: 'var(--header-h)' },
+			zIndex: {
+				overlay: 'var(--z-overlay)',
+				toast: 'var(--z-toast)',
+				tooltip: 'var(--z-tooltip)'
+			},
 			boxShadow: {
 				raised: 'var(--shadow-raised)',
 				floating: 'var(--shadow-floating)',

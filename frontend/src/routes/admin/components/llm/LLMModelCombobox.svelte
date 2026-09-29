@@ -5,6 +5,7 @@
 	import { IconButton, Spinner } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 	import { filterModels, modelMeta, splitMatch } from './llmModelSearch';
 
@@ -239,15 +240,16 @@
 {/if}
 
 {#if open && position}
-	<div use:portal style="display: contents;">
-		<div
-			bind:this={listbox}
-			id={listboxId}
-			role="listbox"
-			aria-label="Available models"
-			class="fixed z-[99999] overflow-y-auto rounded-xl border border-line bg-surface-1 p-1 shadow-floating"
-			style="left: {position.left}px; {verticalStyle} width: min({listWidth}px, calc(100vw - 2rem)); max-height: {Math.min(position.maxHeight, 320)}px;"
-		>
+	<div
+		bind:this={listbox}
+		id={listboxId}
+		role="listbox"
+		aria-label="Available models"
+		use:portal
+		use:overlayLayer
+		class="fixed z-overlay overflow-y-auto rounded-xl border border-line bg-surface-1 p-1 shadow-floating"
+		style="left: {position.left}px; {verticalStyle} width: min({listWidth}px, calc(100vw - 2rem)); max-height: {Math.min(position.maxHeight, 320)}px;"
+	>
 			{#if loading && models.length === 0}
 				<div class="flex items-center gap-2 px-3 py-2 text-sm text-fg-subtle">
 					<Spinner size="sm" /> Loading models…
@@ -299,5 +301,4 @@
 				{/if}
 			{/if}
 		</div>
-	</div>
 {/if}

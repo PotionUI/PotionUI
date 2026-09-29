@@ -134,6 +134,10 @@
 		deleteError = '';
 	}
 
+	function overlayLayer(node) {
+		return window.__potionui?.layers?.overlayLayer?.(node) ?? { destroy() {} };
+	}
+
 	async function confirmDelete() {
 		if (!confirmDeleteTarget || deletingId) return;
 		const target = confirmDeleteTarget;
@@ -260,6 +264,7 @@
 {#if confirmDeleteTarget}
 	<div
 		class="overlay"
+		use:overlayLayer
 		role="button"
 		tabindex="-1"
 		aria-label="Close dialog"
@@ -494,7 +499,7 @@
 	.overlay {
 		position: fixed;
 		inset: 0;
-		z-index: 9999;
+		z-index: 50;
 		display: flex;
 		align-items: center;
 		justify-content: center;

@@ -88,7 +88,7 @@
 		<!-- Popover menu -->
 		{#if open}
 			<div
-				class="absolute left-full bottom-0 ml-2 z-[60] min-w-[220px] bg-surface-2 border border-line-strong
+				class="absolute left-full bottom-0 ml-2 z-overlay min-w-[220px] bg-surface-2 border border-line-strong
 					rounded-xl shadow-floating overflow-hidden"
 				role="menu"
 				transition:fly={{ x: -4, duration: 120 }}

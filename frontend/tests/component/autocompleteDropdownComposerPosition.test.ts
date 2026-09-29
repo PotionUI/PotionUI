@@ -98,7 +98,7 @@ describe('AutocompleteDropdown composer-variant position parity', () => {
 		parentRef.remove();
 
 		mountDropdown('default');
-		const defaultDropdown = document.querySelector<HTMLElement>('.fixed.z-\\[99999\\]');
+		const defaultDropdown = document.querySelector<HTMLElement>('.fixed.z-overlay');
 		expect(defaultDropdown).not.toBeNull();
 		expect(defaultDropdown!.style.left).toBe(`${expected.left}px`);
 	});

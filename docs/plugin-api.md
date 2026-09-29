@@ -1254,6 +1254,43 @@ yourself, and you should never call anything on `gen` beyond this surface — ev
 `src.plugin_api` exists to keep you out of. If your pipe genuinely needs another `NativeGenerator`
 operation, that is a gap in this surface — ask for it, the same as any other plugin_api gap.
 
+## Overlays and z-index layering
+
+Every core modal, popover, dropdown and menu shares one open-order z-index stack
+(`$lib/actions/overlayLayer.ts` + `$lib/actions/layerStack.ts`): whichever one opened last
+renders on top, whether that's a dropdown opened from inside a modal or a modal opened from
+inside a popover. A plugin overlay that hardcodes its own `z-index` sits outside that stack
+and will render under (or, worse, unpredictably over) core overlays depending on the
+literal number picked.
+
+For a plugin dialog, mount `window.__potionui.components.PluginModal` (see above) rather
+than rolling your own overlay — it wraps `BaseModal`, which is already layered, so your
+dialog always stacks correctly relative to everything else without any extra work.
+
+If you do need a custom overlay (a popover, a context menu, anything you position and
+z-index yourself), join the same stack instead of hardcoding a number:
+
+- From a Svelte component: `use:window.__potionui.layers.overlayLayer` on the positioned
+  element (the one carrying `position: fixed`/`absolute` and the z-index — not a
+  `display: contents` wrapper, which has no box for a z-index to apply to). Pass a tier as
+  the action's argument for a toast- or tooltip-like overlay that must always render above
+  the modal/popover band (`use:window.__potionui.layers.overlayLayer={'tooltip'}`); the
+  default tier is `'overlay'`, the one every core modal and popover uses.
+- From plain DOM code (no Svelte template involved, e.g. an `innerHTML`-built overlay): call
+  `window.__potionui.layers.acquire('overlay')` for the z-index to apply yourself, and
+  `window.__potionui.layers.release('overlay', thatValue)` once the overlay closes — every
+  acquire needs a matching release, or the stack never lets that band's baseline settle back
+  down.
+
+Feature-detect the same way as any other host API addition (`window.__potionui.layers?.…`)
+so your plugin degrades instead of throwing on an older core build.
+
+A core component that opens further overlays of its own — `PromptModelField`'s model
+picker, for instance — only stacks correctly if the container you mounted it into is
+itself part of this same layering system: inside a `PluginModal`, or inside an element
+using `layers.overlayLayer` as described above. Mounting it into a plain, unlayered
+`<div>` risks its own picker rendering under whatever else happens to be open.
+
 ## Building your plugin's frontend
 
 Every plugin frontend (a `pages[].component`, a `field_types[].component`, an

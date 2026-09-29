@@ -13,6 +13,7 @@
 	import ModelDetailsModal from '$lib/components/modals/ModelDetailsModal.svelte';
 	import ModelBrowserPanel from './ModelBrowserPanel.svelte';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import Icon from '$lib/components/Icon.svelte';
 	import { refFor, matchesStoredValue, findModelForValue, MODEL_REF_PREFIX } from '$lib/utils/modelRef';
 	import { toggleModelFavoriteOptimistic } from '$lib/utils/modelFavorite';
@@ -591,7 +592,8 @@
 			<div
 				bind:this={dropdownRef}
 				use:portal
-				class="fixed z-[99999] bg-surface-1 border border-line-strong rounded-lg shadow-floating max-h-[340px] overflow-y-auto"
+				use:overlayLayer
+				class="fixed z-overlay bg-surface-1 border border-line-strong rounded-lg shadow-floating max-h-[340px] overflow-y-auto"
 				style="left: {dropdownPosition.left}px; min-width: {dropdownPosition.width}px; width: max-content; max-width: {dropdownPosition.maxWidth}px; {dropdownPosition.openUpward
 					? `bottom: ${dropdownPosition.bottom}px`
 					: `top: ${dropdownPosition.top}px`}"

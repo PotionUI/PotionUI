@@ -21,6 +21,8 @@ import { chatToolRendererRegistry } from '$lib/registries/chatToolRendererRegist
 import { toasts, type ToastType } from '$lib/stores/toast';
 import { api } from '$lib/services/api';
 import { provideContext, declareMode, onToolApplied } from '$lib/chat/pageContext';
+import overlayLayer from '$lib/actions/overlayLayer';
+import { acquireLayer, releaseLayer } from '$lib/actions/layerStack';
 
 export type RendererKind = 'history.artifact' | 'workbench.file' | 'model.view' | 'chat.tool';
 
@@ -43,6 +45,12 @@ export interface PluginNotificationsApi {
 	toast(level: NotificationLevel, message: string, duration?: number): void;
 	/** Persist + push a notification to the current user via `POST /api/notifications`. */
 	notify(input: PluginNotifyInput): Promise<void>;
+}
+
+export interface PluginLayersApi {
+	overlayLayer: typeof overlayLayer;
+	acquire: typeof acquireLayer;
+	release: typeof releaseLayer;
 }
 
 export interface PluginChatApi {
@@ -95,6 +103,7 @@ export interface PotionUIHostApi {
 	notifications: PluginNotificationsApi;
 	/** Page-scoped hooks into the global chat assistant: context, mode takeover, tool result handling. */
 	chat: PluginChatApi;
+	layers: PluginLayersApi;
 }
 
 const TOAST_LEVELS: readonly ToastType[] = ['success', 'error', 'info', 'warning'];
@@ -159,6 +168,11 @@ export function initHostApi(): void {
 			provideContext,
 			declareMode,
 			onToolApplied
+		},
+		layers: {
+			overlayLayer,
+			acquire: acquireLayer,
+			release: releaseLayer
 		}
 	};
 

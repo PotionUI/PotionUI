@@ -2,6 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 
 	// The chrome and behavior shared by every inline chip that opens a popover
@@ -202,12 +203,10 @@
 		{/if}
 
 		{#if open}
-			<!-- `display: contents`: a pure CSS-scope carrier, not a positioned box —
-			     the real position lives inline on the popover div itself (see
-			     popoverStyle above), never on this wrapper. -->
 			<div class="segment-composer" use:portal style="display: contents;">
 				<div
 					bind:this={popoverRef}
+					use:overlayLayer
 					class="floating popover {kind}-popover"
 					style={popoverStyle}
 					role="dialog"
@@ -270,7 +269,8 @@
 			<div
 				bind:this={popoverRef}
 				use:portal
-				class="fixed z-[99999] w-72 rounded-lg border border-line-strong bg-surface-1 p-2.5 shadow-floating"
+				use:overlayLayer
+				class="fixed z-overlay w-72 rounded-lg border border-line-strong bg-surface-1 p-2.5 shadow-floating"
 				style={popoverStyle}
 				role="dialog"
 				aria-label={popoverLabel}

@@ -1,6 +1,7 @@
 <script lang="ts" generics="T extends { id: string; name: string; color: string }">
 	import { onMount } from 'svelte';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeAnchoredMenuPosition } from '$lib/utils/menuPosition';
 
 	// The "+N" trigger and searchable popover for the tags that don't fit in a
@@ -106,8 +107,9 @@
 		{#if isOpen}
 			<div
 				use:portal
+				use:overlayLayer
 				bind:this={popoverEl}
-				class="fixed z-[9999] w-64 max-h-80 bg-surface-1 border border-line-strong rounded-lg shadow-overlay flex flex-col"
+				class="fixed z-overlay w-64 max-h-80 bg-surface-1 border border-line-strong rounded-lg shadow-overlay flex flex-col"
 				style="top: {popoverPos.top}px; left: {popoverPos.left}px;"
 				role="dialog"
 			>

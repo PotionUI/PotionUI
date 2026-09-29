@@ -8,6 +8,7 @@
   let showModal = false;
   let currentImage = null;
   let portalContainer = null;
+  let overlayZ = null;
 
   onMount(() => {
     // Create a portal container at document body level
@@ -17,10 +18,23 @@
   });
 
   onDestroy(() => {
+    releaseOverlayLayer();
     if (portalContainer && portalContainer.parentNode) {
       portalContainer.parentNode.removeChild(portalContainer);
     }
   });
+
+  function acquireOverlayLayer() {
+    overlayZ = window.__potionui?.layers?.acquire?.('overlay') ?? null;
+    return overlayZ ?? 50;
+  }
+
+  function releaseOverlayLayer() {
+    if (overlayZ != null) {
+      window.__potionui?.layers?.release?.('overlay', overlayZ);
+      overlayZ = null;
+    }
+  }
 
   function openModal() {
     currentImage = context.imageUrl || context.currentImage || context.image;
@@ -35,11 +49,13 @@
     if (portalContainer) {
       portalContainer.innerHTML = '';
     }
+    releaseOverlayLayer();
   }
 
   function renderModal() {
     if (!portalContainer || !currentImage) return;
 
+    const z = acquireOverlayLayer();
     portalContainer.innerHTML = `
       <div class="image-modal-overlay" style="
         position: fixed;
@@ -48,7 +64,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        z-index: 99999;
+        z-index: ${z};
         animation: imageModalFadeIn 0.2s ease;
       ">
         <button class="image-modal-close" style="

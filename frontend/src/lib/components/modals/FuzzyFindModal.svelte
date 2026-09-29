@@ -21,6 +21,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { Badge, Kbd } from '$lib/components/ui';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 
 	export let isOpen: boolean = false;
 	export let title: string = 'Select an option';
@@ -244,14 +245,10 @@
 	}
 </script>
 
-<!-- FuzzyFindModal uses its own backdrop to support the side-preview layout.
-     Portaled to <body> - callers (InlineChip) can mount from inside a
-     transformed ancestor (e.g. the mobile generate carousel's panel track),
-     which would otherwise become the containing block for this fixed
-     backdrop. -->
 {#if isOpen && variant === 'segment-composer'}
 	<div use:portal class="segment-composer" style="display: contents;">
 		<div
+			use:overlayLayer
 			class="modal-backdrop"
 			role="dialog"
 			aria-modal="true"
@@ -339,7 +336,8 @@
 {:else if isOpen}
 	<div
 		use:portal
-		class="fixed inset-0 z-[9999] flex md:items-center md:justify-center bg-black/60 backdrop-blur-sm md:p-4"
+		use:overlayLayer
+		class="fixed inset-0 z-overlay flex md:items-center md:justify-center bg-black/60 backdrop-blur-sm md:p-4"
 		role="dialog"
 		aria-modal="true"
 		tabindex="-1"

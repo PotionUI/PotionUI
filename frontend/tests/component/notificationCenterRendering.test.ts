@@ -155,17 +155,17 @@ describe('NotificationPanel', () => {
 		);
 		notifications.openPanel();
 
-		const { target } = mountComponent(NotificationPanel);
+		mountComponent(NotificationPanel);
 		flushSync();
 		await settle();
 		await settle();
 
-		const dayLabels = Array.from(target.querySelectorAll('div.font-mono.text-2xs.uppercase')).map((el) =>
+		const dayLabels = Array.from(document.body.querySelectorAll('div.font-mono.text-2xs.uppercase')).map((el) =>
 			el.textContent?.trim()
 		);
 		expect(dayLabels).toEqual(['Today', 'Yesterday', 'Earlier']);
 
-		const chips = target.querySelectorAll('[role="group"][aria-label="Filter by kind"] button');
+		const chips = document.body.querySelectorAll('[role="group"][aria-label="Filter by kind"] button');
 		expect(Array.from(chips).map((c) => c.textContent?.trim())).toEqual([
 			'All',
 			'Generation',
@@ -177,12 +177,12 @@ describe('NotificationPanel', () => {
 	it('shows the dot-grid empty state and no filter row when there are no items', async () => {
 		notifications.openPanel();
 
-		const { target } = mountComponent(NotificationPanel);
+		mountComponent(NotificationPanel);
 		flushSync();
 		await settle();
 
-		expect(target.textContent).toContain("You're all caught up");
-		expect(target.querySelector('[role="group"][aria-label="Filter by kind"]')).toBeNull();
+		expect(document.body.textContent).toContain("You're all caught up");
+		expect(document.body.querySelector('[role="group"][aria-label="Filter by kind"]')).toBeNull();
 	});
 });
 

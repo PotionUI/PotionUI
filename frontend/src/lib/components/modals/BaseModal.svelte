@@ -3,6 +3,7 @@
 	import { fade, scale } from 'svelte/transition';
 	import focusTrap from '$lib/actions/focusTrap';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import { IconButton } from '$lib/components/ui';
 
 	// Size presets
@@ -102,7 +103,8 @@
 	     instead of the viewport. -->
 	<div
 		use:portal
-		class="fixed inset-0 z-[9999] flex md:items-center md:justify-center bg-black/60 backdrop-blur-sm"
+		use:overlayLayer
+		class="fixed inset-0 z-overlay flex md:items-center md:justify-center bg-black/60 backdrop-blur-sm"
 		role="button"
 		tabindex="-1"
 		aria-label="Close modal"

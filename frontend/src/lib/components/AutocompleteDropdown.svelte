@@ -50,6 +50,7 @@
 	import HighlightedText from './HighlightedText.svelte';
 	import { compileTextMatcher } from '$lib/utils/textMatch';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import { resolveMentionRowAction } from '$lib/utils/mentionRowAction';
 	import {
 		computeAutocompletePlacement,
@@ -212,18 +213,9 @@
 </script>
 
 {#if variant === 'segment-composer'}
-	<!-- `display: contents`: a pure CSS-scope carrier for the portaled content,
-	     invisible to layout/positioning — the mock's `.picker` class carries its
-	     own static prototype `left`/`top` (a fixed demo position), so the real,
-	     caret-anchored position (identical to the default variant's own
-	     computeAutocompletePlacement) has to be inline on the SAME element as
-	     `.picker`, not on a wrapper `.picker` can out-position. All four
-	     offsets are set explicitly (not just the ones currently in use) so the
-	     mock's own `left`/`right`/`top` values can never leak through when
-	     `left`+`width`+`right`, or `top`+`bottom` with no explicit height, would
-	     otherwise both be "specified" at once. -->
-	<div use:portal class="segment-composer" style="display: contents;">
+	<div class="segment-composer" use:portal style="display: contents;">
 		<section
+			use:overlayLayer
 			class="floating picker {triggerChar === '$'
 				? 'variable-picker'
 				: triggerChar === '@'
@@ -232,7 +224,7 @@
 						? 'syntax-picker'
 						: 'phrasebook-picker'}"
 			aria-label={contextLabel}
-			style="position: fixed; z-index: 99999; left: {dropdownPosition.left}px; right: auto; width: {dropdownPosition.width}px;
+			style="position: fixed; left: {dropdownPosition.left}px; right: auto; width: {dropdownPosition.width}px;
 				{dropdownPosition.openAbove
 				? `bottom: ${dropdownPosition.bottom}px; top: auto;`
 				: `top: ${dropdownPosition.top}px; bottom: auto;`}"
@@ -379,8 +371,9 @@
 
 		{#if previewPlacement && selectedPreviewUrl && selectedValueItem}
 			<div
+				use:overlayLayer
 				class="picker-preview"
-				style="position: fixed; z-index: 99999; left: {previewPlacement.left}px; top: {previewPlacement.top}px;"
+				style="position: fixed; left: {previewPlacement.left}px; top: {previewPlacement.top}px;"
 			>
 				{#if triggerChar === '@'}
 					<div class="picker-preview-image">
@@ -408,7 +401,8 @@
 {:else}
 	<div
 		use:portal
-		class="fixed z-[99999] px-[2px]"
+		use:overlayLayer
+		class="fixed z-overlay px-[2px]"
 		style="{dropdownPosition.openAbove
 			? `bottom: ${dropdownPosition.bottom}px;`
 		: `top: ${dropdownPosition.top}px;`} left: {dropdownPosition.left}px; width: {dropdownPosition.width}px;"

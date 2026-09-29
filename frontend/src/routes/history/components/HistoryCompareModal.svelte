@@ -9,6 +9,7 @@
 	import CompareFrame from './CompareFrame.svelte';
 	import { COMPARE_DEFAULT, type CompareMode } from './compareFrame';
 	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import type { GenerationHistoryItem, GenerationFile } from '$lib/types/history';
 	import type { GenerationParamModel } from '$lib/types/generation';
 	import { isImageFileType, isVideoFileType } from '$lib/utils/fileType';
@@ -305,7 +306,8 @@
 	     stays mounted underneath so closing the viewer returns to it. -->
 	<div
 		use:portal
-		class="fixed inset-0 z-[10000] bg-black flex items-center justify-center"
+		use:overlayLayer
+		class="fixed inset-0 z-overlay bg-black flex items-center justify-center"
 		role="button"
 		tabindex="-1"
 		aria-label="Close full size view"

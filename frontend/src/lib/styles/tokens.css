@@ -65,6 +65,10 @@
 	/* Layout */
 	--header-h: 69px;
 
+	--z-overlay: 1000;
+	--z-toast: 10000;
+	--z-tooltip: 11000;
+
 	/* Motion */
 	--ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
 	--ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);

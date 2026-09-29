@@ -5,6 +5,7 @@ This module implements the MarketplaceProviderBase interface for CivitAI,
 providing model metadata lookup, search, and download URL functionality.
 """
 
+import re
 import asyncio
 import aiohttp
 import logging
@@ -70,6 +71,10 @@ def _html_to_text(raw_html: Optional[str]) -> Optional[str]:
     parser.feed(raw_html)
     parser.close()
     return parser.text() or None
+
+
+_MODEL_PAGE_PATH = re.compile(r'^/models/(\d+)(?:/[^/]*)?/?$')
+_DOWNLOAD_PATH = re.compile(r'^/api/download/models/(\d+)/?$')
 
 
 class CivitaiProvider(MarketplaceProviderBase):
@@ -870,6 +875,66 @@ class CivitaiProvider(MarketplaceProviderBase):
             url += f"?modelVersionId={provider_version_id}"
         return url
 
+    async def resolve_download_filename(self, session, url: str) -> Optional[str]:
+        from urllib.parse import urlparse, parse_qs
+
+        parsed = urlparse(url)
+        if 'civitai.com' not in parsed.netloc:
+            return None
+
+        query = parse_qs(parsed.query)
+        download_match = _DOWNLOAD_PATH.match(parsed.path)
+        page_match = _MODEL_PAGE_PATH.match(parsed.path)
+        if download_match:
+            version_id = download_match.group(1)
+        elif page_match:
+            version_id = (query.get('modelVersionId') or [None])[0]
+        else:
+            return None
+
+        endpoint = (
+            f"{self.BASE_URL}/model-versions/{version_id}"
+            if version_id
+            else f"{self.BASE_URL}/models/{page_match.group(1)}"
+        )
+        try:
+            async with session.get(endpoint, headers=self.get_download_headers()) as response:
+                if response.status != 200:
+                    return None
+                data = await response.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+            return None
+
+        version = data if version_id else (data.get('modelVersions') or [None])[0]
+        files = [f for f in (version or {}).get('files') or [] if f.get('name')]
+        if not files:
+            return None
+
+        def same_download(file: Dict[str, Any]) -> bool:
+            file_url = urlparse(file.get('downloadUrl') or '')
+            return file_url.path == parsed.path and parse_qs(file_url.query) == query
+
+        chosen = (
+            next((f for f in files if same_download(f)), None)
+            or next((f for f in files if f.get('primary')), None)
+            or files[0]
+        )
+        return chosen['name']
+
+    async def _resolve_model_page_url(self, url: str) -> str:
+        from urllib.parse import urlparse, parse_qs
+
+        parsed = urlparse(url)
+        match = _MODEL_PAGE_PATH.match(parsed.path)
+        if not match or 'civitai.com' not in parsed.netloc or parsed.path.startswith('/api/'):
+            return url
+
+        version_id = (parse_qs(parsed.query).get('modelVersionId') or [None])[0]
+        resolved = await self.get_download_url(match.group(1), version_id)
+        if not resolved:
+            raise ProviderNotFoundError(f"No download URL for CivitAI model {match.group(1)}")
+        return resolved
+
     async def prepare_download(self, session, url: str, headers: Dict[str, str]) -> str:
         """
         Resolve a CivitAI download to the pre-signed CDN URL the worker
@@ -884,6 +949,8 @@ class CivitaiProvider(MarketplaceProviderBase):
         from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
         headers.update(self.get_download_headers())
+
+        url = await self._resolve_model_page_url(url)
 
         if 'civitai.com/api/download' not in url or not self._api_key:
             if 'civitai.com/api/download' in url and not self._api_key:

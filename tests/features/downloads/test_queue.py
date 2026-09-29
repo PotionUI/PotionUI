@@ -808,3 +808,51 @@ class TestLoadSettings:
             )
 
         assert Path(result.destination_path).resolve() == (home / 'model.safetensors').resolve()
+
+
+class TestQueueModelDownloadProviderDerivation:
+    @pytest.fixture
+    def queued(self, manager, mock_repository):
+        mock_repository.create.side_effect = lambda d: d
+        worker = AsyncMock()
+        worker.get_queue_position.return_value = 0
+        manager.worker = worker
+        manager.conn = AsyncMock()
+        return manager
+
+    @staticmethod
+    def _registry(provider_id):
+        provider = Mock()
+        provider.provider_id = provider_id
+        registry = Mock()
+        registry.find_provider_for_url.return_value = provider if provider_id else None
+        return registry
+
+    @pytest.mark.asyncio
+    async def test_no_provider_derives_from_url(self, queued):
+        registry = self._registry("civitai")
+        with patch("src.features.providers.registry.get_provider_registry", return_value=registry):
+            result = await queued.queue_model_download(
+                url="https://civitai.com/api/download/models/1", filename="m.safetensors"
+            )
+        assert result.provider_id == "civitai"
+        registry.find_provider_for_url.assert_called_once_with("https://civitai.com/api/download/models/1")
+
+    @pytest.mark.asyncio
+    async def test_explicit_provider_wins(self, queued):
+        registry = self._registry("civitai")
+        with patch("src.features.providers.registry.get_provider_registry", return_value=registry):
+            result = await queued.queue_model_download(
+                url="https://civitai.com/api/download/models/1",
+                filename="m.safetensors",
+                provider_id="other",
+            )
+        assert result.provider_id == "other"
+
+    @pytest.mark.asyncio
+    async def test_unknown_url_stays_unset(self, queued):
+        with patch("src.features.providers.registry.get_provider_registry", return_value=self._registry(None)):
+            result = await queued.queue_model_download(
+                url="https://example.com/m.safetensors", filename="m.safetensors"
+            )
+        assert result.provider_id is None

@@ -37,7 +37,7 @@ from src.features.downloads.models import Download, DownloadStatus, DownloadType
 from src.features.downloads.repository import DownloadRepository
 from src.features.downloads.persistent_loop import PersistentLoop
 from src.features.downloads.hooks import DOWNLOAD_HOOKS
-from src.features.downloads.utils import derived_download_name, safe_download_name
+from src.features.downloads.utils import safe_download_name, url_path_name
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import execute_hook
 from src.platform.websocket.download_connection_hub import DownloadConnectionHub
@@ -428,7 +428,7 @@ class DownloadQueue:
         The decode-then-basename order the two share is what keeps an encoded
         `..%2F..%2Fetc%2Fcron` from walking out of the depot.
         """
-        name = derived_download_name(posixpath.basename(unquote(urlparse(url).path)))
+        name = url_path_name(url)
         if not name:
             name = f"{fallback_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         return name
@@ -573,7 +573,7 @@ class DownloadQueue:
             status=DownloadStatus.PENDING,
             tags=tags or [],
             checksum_sha256=checksum_sha256,
-            provider_id=provider_id,
+            provider_id=provider_id or self._provider_id_for_url(url),
             created_by=created_by,
             destination_backend_id=destination_backend_id,
         )
@@ -759,6 +759,16 @@ class DownloadQueue:
         }
 
     # ========== Hugging Face repo jobs ==========
+
+    def _provider_id_for_url(self, url: str) -> Optional[str]:
+        try:
+            from src.features.providers.registry import get_provider_registry
+
+            provider = get_provider_registry().find_provider_for_url(url)
+        except Exception as e:
+            logger.debug(f"Provider lookup for download URL failed: {e}")
+            return None
+        return provider.provider_id if provider is not None else None
 
     def _hf_token(self) -> Optional[str]:
         """A Hugging Face token, if a provider claiming huggingface.co

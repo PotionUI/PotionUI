@@ -507,6 +507,9 @@ class MarketplaceProviderBase(ABC):
         """
         return False
 
+    async def resolve_download_filename(self, session, url: str) -> Optional[str]:
+        return None
+
     def get_model_page_url(
         self, provider_model_id: Optional[str], provider_version_id: Optional[str] = None
     ) -> Optional[str]:

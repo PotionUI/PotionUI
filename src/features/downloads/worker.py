@@ -28,8 +28,12 @@ from src.features.downloads.models import Download, DownloadStatus, DownloadType
 from src.features.downloads.repository import DownloadRepository
 from src.platform.database.rows import now_utc
 from src.features.downloads.utils import (
+    extension_for_content_type,
+    extract_filename_from_content_disposition,
     extract_filename_from_url,
+    is_url_derived_name,
     safe_download_name,
+    sanitize_derived_name,
     verify_file_target,
 )
 from src.platform.websocket.download_connection_hub import DownloadConnectionHub
@@ -626,23 +630,25 @@ class DownloadWorker:
         download_url = download.url
         logger.info(f"Starting download for {download.filename}, provider_id={download.provider_id}")
 
+        name_is_open = is_url_derived_name(download.filename, download.url)
+
         provider = self._resolve_provider(download)
         if provider:
             logger.debug(f"Using provider: {provider.provider_id}")
+
+            if name_is_open:
+                provider_name = await self._provider_filename(provider, download.url)
+                if provider_name:
+                    dest_path, temp_path, resume_from = await self._adopt_filename(download, provider_name)
+                    name_is_open = False
+
             download_url = await provider.prepare_download(self.session, download_url, headers)
 
-            if download_url != download.url:
-                # A provider that resolved the request to a CDN/pre-signed URL
-                # may have surfaced the real filename along the way.
+            if name_is_open and download_url != download.url:
                 extracted_filename = extract_filename_from_url(download_url)
                 if extracted_filename and extracted_filename != download.filename:
-                    await self._update_download_filename(download, extracted_filename)
-                    dest_path = Path(download.destination_path)
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                    temp_path = Path(str(dest_path) + '.part')
-                    self._verify_write_targets(dest_path, temp_path)
-                    resume_from = temp_path.stat().st_size if temp_path.exists() else 0
-                    download.downloaded_bytes = resume_from
+                    dest_path, temp_path, resume_from = await self._adopt_filename(download, extracted_filename)
+                    name_is_open = False
 
         if resume_from > 0:
             headers['Range'] = f'bytes={resume_from}-'
@@ -678,6 +684,17 @@ class DownloadWorker:
                     f"Server returned HTML instead of a file. "
                     f"This usually means authentication failed or the model requires special permissions."
                 )
+
+            if name_is_open:
+                header_name = sanitize_derived_name(
+                    extract_filename_from_content_disposition(response.headers.get('Content-Disposition', ''))
+                )
+                if not header_name and not os.path.splitext(download.filename)[1]:
+                    extension = extension_for_content_type(content_type)
+                    header_name = sanitize_derived_name(download.filename + extension) if extension else None
+                if header_name and header_name != download.filename:
+                    if not Path(os.path.join(dest_path.parent, header_name + '.part')).exists():
+                        dest_path, temp_path, resume_from = await self._adopt_filename(download, header_name)
 
             # Get total size
             content_length = response.headers.get('Content-Length')
@@ -976,6 +993,26 @@ class DownloadWorker:
         approved_dir = dest_path.parent
         verify_file_target(dest_path, approved_dir)
         verify_file_target(temp_path, approved_dir)
+
+    async def _provider_filename(self, provider, url: str) -> Optional[str]:
+        try:
+            return sanitize_derived_name(await provider.resolve_download_filename(self.session, url))
+        except Exception as e:
+            logger.warning(f"Provider filename lookup failed for {url}: {e}")
+            return None
+
+    async def _adopt_filename(self, download: Download, new_filename: str):
+        old_temp = Path(download.destination_path + '.part')
+        await self._update_download_filename(download, new_filename)
+        dest_path = Path(download.destination_path)
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = Path(str(dest_path) + '.part')
+        self._verify_write_targets(dest_path, temp_path)
+        if old_temp != temp_path and old_temp.exists() and not temp_path.exists():
+            old_temp.replace(temp_path)
+        resume_from = temp_path.stat().st_size if temp_path.exists() else 0
+        download.downloaded_bytes = resume_from
+        return dest_path, temp_path, resume_from
 
     async def _update_download_filename(self, download: Download, new_filename: str) -> None:
         """Update a download's filename and destination path.

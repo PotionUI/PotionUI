@@ -35,6 +35,7 @@ write is not defeated by it.
 """
 
 import logging
+import mimetypes
 import os
 import posixpath
 import re
@@ -110,6 +111,41 @@ def derived_download_name(name: Optional[str], *, single_segment: bool = True) -
     except UnsafeFilenameException as e:
         logger.warning(f"Ignoring derived download filename: {e}")
         return None
+
+
+_WINDOWS_UNSAFE_CHARS = re.compile(r'[<>:"|?*\x00-\x1f\x7f]')
+_MAX_DERIVED_NAME_LENGTH = 200
+_GENERATED_NAME = re.compile(r"^(?:download|media)_\d{8}_\d{6}$")
+_UNINFORMATIVE_CONTENT_TYPES = frozenset(
+    {"application/octet-stream", "binary/octet-stream", "application/x-binary", "application/force-download"}
+)
+
+
+def sanitize_derived_name(name: Optional[str]) -> Optional[str]:
+    if not name:
+        return None
+    cleaned = _WINDOWS_UNSAFE_CHARS.sub("_", name).rstrip(" .")
+    if len(cleaned) > _MAX_DERIVED_NAME_LENGTH:
+        stem, ext = os.path.splitext(cleaned)
+        cleaned = stem[: _MAX_DERIVED_NAME_LENGTH - len(ext)].rstrip(" .") + ext
+    return derived_download_name(cleaned)
+
+
+def url_path_name(url: str) -> Optional[str]:
+    return derived_download_name(posixpath.basename(unquote(urlparse(url).path)))
+
+
+def is_url_derived_name(filename: str, url: str) -> bool:
+    return filename == url_path_name(url) or bool(_GENERATED_NAME.match(filename))
+
+
+def extension_for_content_type(content_type: Optional[str]) -> Optional[str]:
+    if not content_type:
+        return None
+    mime = content_type.split(";")[0].strip().lower()
+    if not mime or mime in _UNINFORMATIVE_CONTENT_TYPES:
+        return None
+    return mimetypes.guess_extension(mime)
 
 
 def verify_file_target(path, approved_dir) -> None:

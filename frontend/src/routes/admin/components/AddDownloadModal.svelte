@@ -3,7 +3,7 @@
 	import { createEventDispatcher, onMount, tick } from 'svelte';
 	import { downloadStore, remoteBackends, type QueueModelDownloadOptions } from '$lib/stores/downloads';
 	import { api } from '$lib/services/api/index';
-	import { detectUrl } from '$lib/utils/downloadUrlDetect';
+	import { detectUrl, resolveProviderSelection } from '$lib/utils/downloadUrlDetect';
 	import { buildSubdirNodes } from '$lib/utils/subdirTree';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
@@ -43,6 +43,7 @@
 	let filename = '';
 	let selectedTags: string[] = [];
 	let selectedProviderId = '';
+	let providerTouched = false;
 	let destinationBackendId = '';
 	let checksumSha256 = '';
 	let submitting = false;
@@ -63,6 +64,8 @@
 	let searchingTags = false;
 
 	$: detection = detectUrl(url, providers);
+	$: selectedProviderId = resolveProviderSelection(selectedProviderId, providerTouched, detection.provider);
+	$: activeProvider = providers.find((p) => p.id === selectedProviderId) ?? null;
 	$: destinationItems = [
 		{ id: '', label: 'This machine', icon: 'monitor' },
 		...$remoteBackends.map((b) => ({ id: b.id, label: b.name, icon: 'server' }))
@@ -257,7 +260,7 @@
 				options.tags = selectedTags.map((id) => getTagName(id));
 			}
 			if (checksumSha256.trim()) options.checksum_sha256 = checksumSha256.trim();
-			if (selectedProviderId) options.provider_id = selectedProviderId;
+			if (selectedProviderId && providerTouched) options.provider_id = selectedProviderId;
 			if (destinationBackendId) options.destination_backend_id = destinationBackendId;
 
 			const result = await downloadStore.queueModelDownload(url.trim(), options);
@@ -344,12 +347,12 @@
 			{#if detection.hostname}
 				<div class="flex items-center gap-2.5 flex-wrap bg-signal/6 border border-signal/20 rounded px-3 py-2.5">
 					<Icon name="check-circle" className="w-4 h-4 text-signal flex-shrink-0" />
-					{#if detection.provider}
+					{#if activeProvider}
 						<span class="flex items-center gap-1.5 flex-shrink-0">
 							<span class="w-[18px] h-[18px] rounded bg-surface-3 border border-line-strong flex items-center justify-center text-fg-muted">
 								<Icon name="globe" className="w-2.5 h-2.5" />
 							</span>
-							<span class="text-xs font-semibold text-fg">{detection.provider.name}</span>
+							<span class="text-xs font-semibold text-fg">{activeProvider.name}</span>
 						</span>
 						<span class="text-line-hover flex-shrink-0">·</span>
 					{/if}
@@ -545,7 +548,12 @@
 								<label for="provider" class="block text-xs font-mono uppercase tracking-[0.06em] text-fg-subtle mb-1.5">
 									Provider
 								</label>
-								<select id="provider" bind:value={selectedProviderId} class="input">
+								<select
+									id="provider"
+									bind:value={selectedProviderId}
+									onchange={() => (providerTouched = true)}
+									class="input"
+								>
 									<option value="">No provider</option>
 									{#each providers as provider}
 										<option value={provider.id}>

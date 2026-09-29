@@ -75,3 +75,12 @@ export function detectUrl(rawUrl: string, providers: DetectedProviderOption[] = 
 		provider: matchProvider(hostname, providers)
 	};
 }
+
+export function resolveProviderSelection(
+	current: string,
+	touched: boolean,
+	detected: DetectedProviderOption | null
+): string {
+	if (touched) return current;
+	return detected?.id ?? '';
+}

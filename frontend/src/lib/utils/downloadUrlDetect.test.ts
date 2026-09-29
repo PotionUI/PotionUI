@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectUrl } from './downloadUrlDetect';
+import { detectUrl, resolveProviderSelection } from './downloadUrlDetect';
 
 describe('detectUrl', () => {
 	it('returns an empty detection for a blank URL', () => {
@@ -64,5 +64,24 @@ describe('detectUrl', () => {
 		const result = detectUrl('https://www.civitai.com/models/1', providers);
 		expect(result.hostname).toBe('civitai.com');
 		expect(result.provider).toEqual({ id: 'p1', name: 'CivitAI' });
+	});
+});
+
+describe('resolveProviderSelection', () => {
+	const civitai = { id: 'civitai', name: 'CivitAI' };
+	const providers = [civitai, { id: 'hf', name: 'HuggingFace' }];
+
+	it('selects the detected provider for a pasted CivitAI URL', () => {
+		const detected = detectUrl('https://civitai.com/api/download/models/1', providers).provider;
+		expect(resolveProviderSelection('', false, detected)).toBe('civitai');
+	});
+
+	it('clears an auto-selected provider when the URL no longer matches', () => {
+		expect(resolveProviderSelection('civitai', false, null)).toBe('');
+	});
+
+	it('never overwrites a manual choice on re-detection', () => {
+		expect(resolveProviderSelection('hf', true, civitai)).toBe('hf');
+		expect(resolveProviderSelection('', true, civitai)).toBe('');
 	});
 });

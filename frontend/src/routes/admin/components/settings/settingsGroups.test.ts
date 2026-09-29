@@ -16,7 +16,7 @@ describe('settingsGroupHasFooter', () => {
 
 describe('computeDirtyGroups', () => {
 	it('maps dirty settings keys to their owning groups', () => {
-		const dirty = computeDirtyGroups(['file_storage_directory', 'nsfw']);
+		const dirty = computeDirtyGroups(['file_storage_directory', 'content_policy_nsfw']);
 		expect(dirty).toEqual(new Set(['media_storage', 'content_safety']));
 	});
 

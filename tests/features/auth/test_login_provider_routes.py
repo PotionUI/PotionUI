@@ -38,7 +38,7 @@ def handoff():
 
 @pytest.fixture
 def client(handoff):
-    container = SimpleNamespace(auth=Mock(spec=Auth), login_handoff=handoff)
+    container = SimpleNamespace(auth=Mock(spec=Auth), login_handoff=handoff, content_policy_resolver=None)
     app = FastAPI()
     app.include_router(build_router(container))
     return TestClient(app)

@@ -157,7 +157,7 @@ class TestSettings:
             mock_setting = Mock(spec=Setting)
             mock_setting.get_typed_value.return_value = {
                 "models_dir": "test_models",
-                "nsfw": True,
+                "content_policy_nsfw": "allowed",
             }[key]
             return mock_setting
 
@@ -180,7 +180,15 @@ class TestSettings:
         mock_repository.get_setting_by_key.return_value = None
 
         assert settings.get_models_dir() == "models"
-        assert settings.is_nsfw_enabled() is False
+        assert settings.is_nsfw_enabled() is True
+
+    def test_nsfw_is_disabled_by_any_gated_policy(self, settings, mock_repository):
+        for policy in ("blur", "blocked"):
+            mock_setting = Mock(spec=Setting)
+            mock_setting.get_typed_value.return_value = policy
+            mock_repository.get_setting_by_key.return_value = mock_setting
+
+            assert settings.is_nsfw_enabled() is False
 
 
 class TestGpuSettingsMovedToNativeBackend:

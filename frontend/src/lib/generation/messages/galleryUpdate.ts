@@ -19,7 +19,9 @@ generationMessageRegistry.register('gallery_update', {
 		let nextMeshes = cached.meshes;
 
 		// The message has 'images' array (base64 data) AND 'image_urls_list' (metadata)
-		if (message.images && Array.isArray(message.images)) {
+		const suppressed = message.preview_suppressed === true;
+
+		if (!suppressed && message.images && Array.isArray(message.images)) {
 			nextImages = message.images.map((img: any, index: number) => {
 				// Process image data (could be base64 or URL)
 				let imageUrl: string;
@@ -42,6 +44,7 @@ generationMessageRegistry.register('gallery_update', {
 				let originalUrl = imageUrl;
 				let derived = false;
 				let seed, resolution, sampler, clip_skip, cfg, denoise, step;
+				let content_flagged = message.content_flagged === true;
 
 				if (message.image_urls_list && message.image_urls_list[index]) {
 					const imageUrls = message.image_urls_list[index];
@@ -52,6 +55,7 @@ generationMessageRegistry.register('gallery_update', {
 					}
 
 					derived = imageUrls.derived === true;
+					content_flagged = (imageUrls.content_flagged ?? message.content_flagged) === true;
 					seed = imageUrls.seed;
 					sampler = imageUrls.sampler;
 					clip_skip = imageUrls.clip_skip;
@@ -83,7 +87,8 @@ generationMessageRegistry.register('gallery_update', {
 					clip_skip,
 					cfg,
 					denoise,
-					step
+					step,
+					content_flagged
 				};
 			});
 
@@ -92,7 +97,7 @@ generationMessageRegistry.register('gallery_update', {
 		// Handle final videos. The serializer provides the playable API path on
 		// `video_urls_list`; `videos` carries the same item metadata but may omit
 		// its path for temporary entries.
-		if (message.videos && Array.isArray(message.videos)) {
+		if (!suppressed && message.videos && Array.isArray(message.videos)) {
 			nextVideos = message.videos
 				.map((video: any, index: number) => {
 					const urlData = message.video_urls_list?.[index] || {};
@@ -103,6 +108,7 @@ generationMessageRegistry.register('gallery_update', {
 						originalUrl: path,
 						file_type: 'video',
 						derived: (urlData.derived ?? video.derived) === true,
+						content_flagged: (urlData.content_flagged ?? video.content_flagged ?? message.content_flagged) === true,
 						duration: urlData.duration ?? video.duration,
 						fps: urlData.fps ?? video.fps,
 						resolution: urlData.resolution ?? video.resolution,
@@ -120,7 +126,7 @@ generationMessageRegistry.register('gallery_update', {
 		}
 
 		// Handle audio files in gallery update
-		if (message.audios && Array.isArray(message.audios)) {
+		if (!suppressed && message.audios && Array.isArray(message.audios)) {
 			nextAudios = message.audios.map((audio: any, index: number) => {
 				// Get metadata from audio_urls_list if available
 				let audioUrl = audio.path || '';
@@ -151,7 +157,7 @@ generationMessageRegistry.register('gallery_update', {
 		// Final meshes. Same shape as the video branch: `mesh_urls_list` carries
 		// the servable path, `meshes` the item metadata - a temporary mesh has no
 		// path and is skipped rather than rendered as an empty viewer.
-		if (message.meshes && Array.isArray(message.meshes)) {
+		if (!suppressed && message.meshes && Array.isArray(message.meshes)) {
 			nextMeshes = message.meshes
 				.map((mesh: any, index: number) => {
 					const urlData = message.mesh_urls_list?.[index] || {};
@@ -198,6 +204,9 @@ generationMessageRegistry.register('gallery_update', {
 						generation: {
 							...targetTab.generation,
 							...(adopted ? adopted.generation : {}),
+							currentGeneration: targetTab.generation.currentGeneration
+								? { ...targetTab.generation.currentGeneration, preview_suppressed: suppressed }
+								: targetTab.generation.currentGeneration,
 							batchImages: nextImages,
 							batchVideos: nextVideos,
 							batchAudios: nextAudios,

@@ -26,6 +26,8 @@ export interface User {
 	last_login: string | null;
 	avatar_url: string | null;
 	has_local_password: boolean;
+	content_restricted?: boolean;
+	effective_content_policy?: 'allowed' | 'blur' | 'blocked';
 }
 
 interface AuthState {
@@ -288,3 +290,7 @@ function createAuthStore() {
 }
 
 export const authStore = createAuthStore();
+
+authStore.subscribe((state) => {
+	nsfwFilterStore.setRestricted(!!state.user?.content_restricted);
+});

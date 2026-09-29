@@ -51,6 +51,15 @@ class InspirationController(BaseController):
     def _not_found_status(message: str) -> int:
         return 404 if "not found" in message.lower() else 400
 
+    def _viewable(self, viewer_id: str, inspirations: list) -> list:
+        content_safety = self.collaborators.content_safety
+        if content_safety is None or not content_safety.is_restricted(viewer_id):
+            return inspirations
+        allowed = content_safety.viewable_generation_ids(
+            viewer_id, [i.source_generation_id for i in inspirations]
+        )
+        return [i for i in inspirations if i.source_generation_id in allowed]
+
     # ========== Feed ==========
 
     async def list_feed(
@@ -75,9 +84,10 @@ class InspirationController(BaseController):
                 author_id=author_id,
                 saved=saved,
             )
+            visible = self._viewable(current_user.id, items)
             return self.success_response(data={
-                "items": [inspiration_to_dto(i) for i in items],
-                "total": total,
+                "items": [inspiration_to_dto(i) for i in visible],
+                "total": max(0, total - (len(items) - len(visible))),
             })
         except Exception as e:
             self.logger.error(f"Failed to list inspirations feed: {e}")
@@ -86,7 +96,7 @@ class InspirationController(BaseController):
     async def get_inspiration(self, inspiration_id: str, current_user) -> APIResponse:
         try:
             insp = self.collaborators.repository.get_by_id(inspiration_id, viewer_id=current_user.id)
-            if not insp:
+            if not insp or not self._viewable(current_user.id, [insp]):
                 raise ValueError("Inspiration not found")
             return self.success_response(data={"inspiration": inspiration_to_dto(insp)})
         except ValueError as e:
@@ -98,7 +108,7 @@ class InspirationController(BaseController):
     async def get_params(self, inspiration_id: str, current_user) -> APIResponse:
         try:
             insp = self.collaborators.repository.get_by_id(inspiration_id)
-            if not insp:
+            if not insp or not self._viewable(current_user.id, [insp]):
                 raise ValueError("Inspiration not found")
             return self.success_response(data={
                 "form_data": insp.params_snapshot.get("form_data", {}),

@@ -96,7 +96,14 @@ def collection_repository_mock():
 
 
 @pytest.fixture
-def built_router(collaborators, generation_repo_mock, prompt_importer_registry, collection_repository_mock):
+def restricted_flag():
+    return {"value": False}
+
+
+@pytest.fixture
+def built_router(
+    collaborators, generation_repo_mock, prompt_importer_registry, collection_repository_mock, restricted_flag
+):
     preset_template_loader = SimpleNamespace(_ensure_loaded=lambda: None, presets=[])
     generation_history_facade = GenerationHistoryFacade(
         generation_repo=generation_repo_mock,
@@ -115,6 +122,7 @@ def built_router(collaborators, generation_repo_mock, prompt_importer_registry, 
             generation_history_facade=generation_history_facade,
             collection_repository=collection_repository_mock,
             model_roots=MagicMock(),
+            content_safety=SimpleNamespace(is_restricted=lambda user_id: restricted_flag["value"]),
         )
     )
 
@@ -164,6 +172,60 @@ def test_create_delegates_complete_ordered_segment_aggregate(client, collaborato
     assert collab_arg is collaborators
     assert user_id == "user-1"
     assert [segment.type for segment in request.segments] == ["content", "content"]
+
+
+def test_restricted_viewer_cannot_opt_into_nsfw_prompts(client, collaborators, restricted_flag):
+    restricted_flag["value"] = True
+    collaborators.repository.get_all.return_value = []
+    collaborators.repository.count.return_value = 0
+
+    client.get("/api/prompts?nsfw=include")
+
+    assert collaborators.repository.get_all.call_args.kwargs["nsfw"] == "exclude"
+    assert collaborators.repository.count.call_args.kwargs["nsfw"] == "exclude"
+
+
+def test_restricted_viewer_gets_no_prompt_cover_thumbnails(client, collaborators, generation_repo_mock, restricted_flag):
+    restricted_flag["value"] = True
+    collaborators.repository.get_all.return_value = [make_prompt()]
+    collaborators.repository.count.return_value = 1
+    generation_repo_mock.cover_stats_by_source_prompt.return_value = {
+        "prompt-1": {"generation_count": 2, "cover_thumbnail": "/api/media/generations/x/t.webp"}
+    }
+
+    item = client.get("/api/prompts").json()["data"]["items"][0]
+
+    assert item["generation_count"] == 2
+    assert item["cover_thumbnail"] is None
+
+
+def test_unrestricted_viewer_can_still_include_nsfw_prompts(client, collaborators):
+    collaborators.repository.get_all.return_value = []
+    collaborators.repository.count.return_value = 0
+
+    client.get("/api/prompts?nsfw=include")
+
+    assert collaborators.repository.get_all.call_args.kwargs["nsfw"] == "include"
+
+
+def test_restricted_viewer_tag_counts_ignore_the_nsfw_parameter(client, collaborators, restricted_flag):
+    restricted_flag["value"] = True
+    collaborators.repository.tag_counts.return_value = []
+
+    client.get("/api/prompts/tags?nsfw=include")
+
+    assert collaborators.repository.tag_counts.call_args.kwargs["nsfw"] == "exclude"
+
+
+def test_restricted_viewer_search_drops_nsfw_prompts(client, collaborators, mock_operations, restricted_flag):
+    restricted_flag["value"] = True
+    clean, explicit = make_prompt("clean"), make_prompt("explicit")
+    explicit.nsfw = True
+    mock_operations.search = AsyncMock(return_value=[clean, explicit])
+
+    response = client.get("/api/prompts/search?q=fox")
+
+    assert [item["id"] for item in response.json()["data"]] == ["clean"]
 
 
 def test_list_delegates_browse_filters_without_generation_configuration(client, collaborators):
@@ -499,6 +561,7 @@ def admin_client(collaborators, tmp_path):
             prompt_importer_registry=PromptImporterRegistry(),
             collection_repository=MagicMock(),
             model_roots=model_roots,
+            content_safety=SimpleNamespace(is_restricted=lambda user_id: False),
         )
     )
     app = FastAPI()

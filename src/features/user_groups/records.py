@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+from src.features.content_safety.constants import RESTRICTED_GROUP_ID
 from src.platform.database.rows import dt_column, dt_iso
 
 @dataclass
@@ -15,6 +16,11 @@ class UserGroup:
     # see src.features.user_groups.constants). operations.groups.delete_group
     # refuses to delete a group with is_system=True.
     is_system: bool = False
+    content_policy: Optional[str] = None
+
+    @property
+    def restricted(self) -> bool:
+        return self.id == RESTRICTED_GROUP_ID
 
     @classmethod
     def from_row(cls, row) -> 'UserGroup':
@@ -26,6 +32,7 @@ class UserGroup:
             created_at=dt_column(row['created_at']),
             updated_at=dt_column(row['updated_at']),
             is_system=bool(row['is_system']) if 'is_system' in row.keys() else False,
+            content_policy=row['content_policy'] if 'content_policy' in row.keys() else None,
         )
 
     def to_dict(self) -> dict:
@@ -37,6 +44,8 @@ class UserGroup:
             'created_at': dt_iso(self.created_at),
             'updated_at': dt_iso(self.updated_at),
             'is_system': self.is_system,
+            'content_policy': self.content_policy,
+            'restricted': self.restricted,
         }
 
 @dataclass

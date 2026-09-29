@@ -168,6 +168,8 @@ if TYPE_CHECKING:
     from src.features.media_index.repository import MediaIndexRepository
     from src.features.media_index.indexer import MediaIndexer
     from src.features.media_index.routes import MediaIndexController
+    from src.features.content_safety.policy import ContentPolicyResolver
+    from src.features.content_safety.manager import ContentSafetyManager
     from src.features.stats.repository import StatsRepository
     from src.features.stats.generation_stats_repository import GenerationStatsRepository
     from src.features.sessions.repository import SessionRepository
@@ -413,6 +415,9 @@ class AppContainer:
     media_index_repository: "MediaIndexRepository"
     media_indexer: "MediaIndexer"
     media_index_controller: "MediaIndexController"
+
+    content_policy_resolver: "ContentPolicyResolver"
+    content_safety: "ContentSafetyManager"
 
     # Stats
     stats_repository: "StatsRepository"
@@ -690,7 +695,13 @@ def build_container() -> AppContainer:
     model_lifecycle = ModelLifecycle(gpu_monitor=gpu_monitor, settings=settings, roots=model_roots)
     pipe_catalog = PipeCatalog("src/pipelines/pipes", "pipes/custom", plugin_registry=plugin_registry)
     pipe_install_runner = PipeInstallRunner(pipe_catalog, PipeInstaller(pipe_catalog))
-    preset_processor = PresetProcessor(template_processor, settings, preset_template_loader)
+    from src.features.content_safety.policy import ContentPolicyResolver
+    from src.features.user_groups.repository import UserGroupRepository as _UserGroupRepositoryForContent
+
+    content_policy_resolver = ContentPolicyResolver(settings, _UserGroupRepositoryForContent())
+    preset_processor = PresetProcessor(
+        template_processor, settings, preset_template_loader, content_policy=content_policy_resolver
+    )
     image_writer = ImageWriter(template_processor, settings)
 
     # Initialize LLM components
@@ -1048,11 +1059,26 @@ def build_container() -> AppContainer:
         embedder_slug=text_embedding_provider.embedder_slug,
         client_provider=chroma_client_provider,
     )
+    from src.features.content_safety.gate import ContentGate
+    from src.features.content_safety.ledger_repository import ContentLedger
+    from src.features.content_safety.manager import ContentSafetyManager
+
+    tagger_provider = build_tagger_provider(
+        settings, model_roots, download_queue=download_queue, model_lifecycle=model_lifecycle,
+    )
+    content_ledger = ContentLedger(settings)
+    content_safety = ContentSafetyManager(
+        settings=settings,
+        resolver=content_policy_resolver,
+        ledger=content_ledger,
+        gate=ContentGate(tagger_provider, settings),
+        file_service=file_service,
+        download_queue=download_queue,
+    )
     media_indexer = MediaIndexer(
         repository=media_index_repository,
-        tagger_provider=build_tagger_provider(
-            settings, model_roots, download_queue=download_queue, model_lifecycle=model_lifecycle,
-        ),
+        tagger_provider=tagger_provider,
+        content_safety=content_safety,
         file_service=file_service,
         vision_embedder=vision_embedder,
         gallery_vector_store=gallery_vector_store,
@@ -1090,6 +1116,7 @@ def build_container() -> AppContainer:
         gpu_monitor=gpu_monitor,
         router=None,  # Will be set after model_index_manager is created - see docs/generation-routing.md
         scheduling_policy_for=_scheduling_policy_for,
+        content_safety=content_safety,
     )
 
     # Initialize generation history manager
@@ -1106,7 +1133,8 @@ def build_container() -> AppContainer:
         media_index_repository=media_index_repository,
         settings=settings,
         media_indexer=media_indexer,
-        preset_name_resolver=PresetNameResolver(preset_template_loader)
+        preset_name_resolver=PresetNameResolver(preset_template_loader),
+        content_safety=content_safety,
     )
 
     # Phrasebook controller (needs generation_orchestrator)
@@ -1181,6 +1209,7 @@ def build_container() -> AppContainer:
         model_index_manager, user_model_meta_repository, download_queue,
         attribute_definition_repository=attribute_definition_repository,
         model_attributes_manager=model_attributes_manager,
+        content_safety=content_safety,
     )
 
     # Tag components
@@ -1361,6 +1390,7 @@ def build_container() -> AppContainer:
         storage_driver=storage_driver,
         upload_repository=upload_repository,
         notification_manager=notification_manager,
+        content_safety=content_safety,
     )
     inspiration_controller = InspirationController(inspiration_collaborators)
 
@@ -1461,6 +1491,7 @@ def build_container() -> AppContainer:
         embedding_provider=embedding_provider,
         plugin_registry=plugin_registry,
         model_repository=model_repository,
+        content_safety=content_safety,
     )
     prompt_database_controller = PromptDatabaseController(prompt_database)
 

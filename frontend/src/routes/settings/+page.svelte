@@ -521,7 +521,7 @@
 			</div>
 		</Card>
 
-		<!-- Content -->
+		{#if !$nsfwFilterStore.restricted}
 		<Card>
 			<h2 class="label mb-3">Content</h2>
 			<div class="flex items-center justify-between gap-4">
@@ -548,6 +548,7 @@
 				</div>
 			</div>
 		</Card>
+		{/if}
 
 		<!-- Notifications -->
 		<div id="notifications" class="scroll-mt-6">

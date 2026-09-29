@@ -81,6 +81,21 @@ _CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
             "Verify the backend's URL/port in Administration -> Backends",
         ),
     ),
+    "banned_prompt": (
+        "This prompt was refused by this server's content policy.",
+        ("Rephrase the prompt and try again",),
+    ),
+    "content_blocked": (
+        "Blocked by content policy.",
+        (
+            "Try a different prompt or seed",
+            "Ask your administrator about the content policy",
+        ),
+    ),
+    "content_check_unavailable": (
+        "Content check unavailable.",
+        ("Ask your administrator to install the content check model",),
+    ),
     UNCLASSIFIED: (
         "Something went wrong while generating.",
         (

@@ -11,6 +11,7 @@ holder (no behavior beyond field access), matching `McpToolCollaborators`
 dissolution).
 """
 from dataclasses import dataclass
+from typing import Any, Optional
 
 from src.features.models.repository import ModelRepository
 from src.features.prompt_database.embedding import EmbeddingProvider
@@ -26,3 +27,4 @@ class PromptDatabaseCollaborators:
     embedding_provider: EmbeddingProvider
     plugin_registry: PluginRegistry
     model_repository: ModelRepository
+    content_safety: Optional[Any] = None

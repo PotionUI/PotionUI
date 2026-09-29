@@ -68,10 +68,11 @@ class AuthController(BaseController):
     Uses Auth for all authentication logic.
     """
 
-    def __init__(self, auth: Auth, login_handoff: LoginHandoffStore):
+    def __init__(self, auth: Auth, login_handoff: LoginHandoffStore, content_policy=None):
         super().__init__()
         self.auth = auth
         self.login_handoff = login_handoff
+        self.content_policy = content_policy
         self.login_limiter = LoginAttemptLimiter()
         self.change_password_limiter = LoginAttemptLimiter()
         self.exchange_limiter = LoginAttemptLimiter()
@@ -193,9 +194,12 @@ class AuthController(BaseController):
         Returns:
             APIResponse with user information
         """
-        return self.success_response(
-            data=UserMeResponse(**current_user.to_dict()).model_dump()
-        )
+        profile = current_user.to_dict()
+        if self.content_policy is not None:
+            policy = self.content_policy.resolve(current_user.id)
+            profile['content_restricted'] = policy.restricted
+            profile['effective_content_policy'] = policy.mode
+        return self.success_response(data=UserMeResponse(**profile).model_dump())
 
     async def change_password(
         self, request: ChangePasswordRequest, current_user: User
@@ -236,7 +240,7 @@ class AuthController(BaseController):
 
 
 def build_router(container: "AppContainer") -> APIRouter:
-    controller = AuthController(container.auth, container.login_handoff)
+    controller = AuthController(container.auth, container.login_handoff, container.content_policy_resolver)
     router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
     @router.post("/register", response_model=APIResponse, summary="Register a new user account")

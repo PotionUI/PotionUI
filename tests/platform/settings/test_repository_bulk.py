@@ -26,27 +26,27 @@ class TestApplyBulkUpdates(PersistenceTestBase):
     def test_commits_system_and_user_together(self):
         user_id = self.create_test_user()
         models_dir = self.repo.get_setting_by_key("models_dir")
-        nsfw = self.repo.get_setting_by_key("nsfw")
+        nsfw = self.repo.get_setting_by_key("media_nsfw_filter_mode")
 
         self.repo.apply_bulk_updates(
             system_updates=[(models_dir.id, "brand-new-models")],
-            user_updates=[(user_id, nsfw.id, "true")],
+            user_updates=[(user_id, nsfw.id, "show")],
         )
 
         self.assertEqual(self.repo.get_setting_by_key("models_dir").value, "brand-new-models")
-        self.assertEqual(self.repo.get_user_setting(user_id, nsfw.id).value, "true")
+        self.assertEqual(self.repo.get_user_setting(user_id, nsfw.id).value, "show")
 
     def test_rolls_back_whole_batch_on_mid_batch_failure(self):
         """A later write that violates a FK (unknown user_id) must undo the system
         UPDATE that ran first - nothing persists."""
         models_dir = self.repo.get_setting_by_key("models_dir")
-        nsfw = self.repo.get_setting_by_key("nsfw")
+        nsfw = self.repo.get_setting_by_key("media_nsfw_filter_mode")
         original = models_dir.value
 
         with self.assertRaises(Exception):
             self.repo.apply_bulk_updates(
                 system_updates=[(models_dir.id, "should-be-rolled-back")],
-                user_updates=[("ghost-user-does-not-exist", nsfw.id, "true")],
+                user_updates=[("ghost-user-does-not-exist", nsfw.id, "show")],
             )
 
         self.assertEqual(self.repo.get_setting_by_key("models_dir").value, original)

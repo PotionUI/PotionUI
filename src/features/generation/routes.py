@@ -36,6 +36,7 @@ from src.features.forms.binding import FormBindingError
 from src.features.models.exceptions import ModelNotFoundException, ModelAccessDeniedException
 from src.features.backends.backend_registry import NoBackendForEngineError
 from src.features.generation.routing.contracts import NoEligibleBackendError
+from src.features.content_safety.errors import ContentPolicyRefusal
 from src.features.generation.output_serializer import GenerationOutputSerializer
 from src.features.generation.run_report_recorder import RunReportRecorder
 from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput
@@ -169,6 +170,8 @@ class GenerationController(BaseController):
                 message=str(e),
                 status_code=404
             )
+        except ContentPolicyRefusal as e:
+            return self.error_response(error=e.code, message=str(e), status_code=e.status_code)
         except ValueError as e:
             return self.error_response(
                 error="validation_error",
@@ -1344,6 +1347,9 @@ class GenerationController(BaseController):
             if isinstance(generation.form_data, dict):
                 prompt = generation.form_data.get('prompt')
             report = {**report, 'prompt_template': prompt}
+            safety = self.history_query.content_safety
+            if safety is not None and safety.is_restricted(current_user.id):
+                report = {**report, 'artifacts': [], 'plugin_outputs': {}}
 
         return self.success_response(data={'run_report': report})
 

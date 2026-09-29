@@ -10,7 +10,7 @@ This controller delegates all business logic to `src.features.models.operations`
 
 import asyncio
 import logging
-from typing import Optional, List, TYPE_CHECKING
+from typing import Any, Optional, List, TYPE_CHECKING
 
 from fastapi import APIRouter, BackgroundTasks, Query, Depends
 
@@ -58,6 +58,7 @@ from src.features.models.catalog import ListModelsParams
 from src.features.models.search_filter import InvalidModelSearch, parse_model_search
 from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
 from src.platform.security.user import User, AccountType
+from src.features.content_safety.restrict import provider_flags_nsfw, restrict_model_list, strip_model_media
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -80,14 +81,21 @@ class ModelController(BaseController):
         download_queue: "DownloadQueue",
         attribute_definition_repository: Optional[AttributeDefinitionRepository] = None,
         model_attributes_manager: Optional[ModelAttributeDefinitionsEditor] = None,
+        content_safety: Optional[Any] = None,
     ):
         super().__init__()
+        self.content_safety = content_safety
         self.collaborators = model_index_manager
         self.user_model_meta_repository = user_model_meta_repository
         self.download_queue = download_queue
         self.attribute_definitions = attribute_definition_repository or AttributeDefinitionRepository()
         self.attributes_manager = model_attributes_manager or ModelAttributeDefinitionsEditor(
             self.attribute_definitions, UserModelAttributeRepository()
+        )
+
+    def _restricted(self, user: Optional[User]) -> bool:
+        return bool(
+            self.content_safety is not None and user is not None and self.content_safety.is_restricted(user.id)
         )
 
     # --- Query Endpoints ---
@@ -158,6 +166,10 @@ class ModelController(BaseController):
             )
 
             data = await operations.list_models(self.collaborators, params, user)
+            if self._restricted(user):
+                visible = restrict_model_list(data.get("models") or [])
+                removed = len(data.get("models") or []) - len(visible)
+                data = {**data, "models": visible, "total": max(0, data.get("total", 0) - removed)}
             return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error listing models: {e}")
@@ -288,6 +300,11 @@ class ModelController(BaseController):
         try:
             is_admin = bool(user and user.account_type == AccountType.ADMIN)
             data = await operations.get_model_by_id(self.collaborators, model_id, user=user, admin=is_admin)
+            if self._restricted(user):
+                full = self.collaborators.catalog.model_repo.get_by_id(model_id, include_providers=True)
+                if full is None or provider_flags_nsfw(full.providers):
+                    raise ModelNotFoundException(f"Model '{model_id}' not found")
+                data = {**data, "model": strip_model_media(data["model"])}
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(
@@ -311,6 +328,12 @@ class ModelController(BaseController):
         """Get generations that used a specific model."""
         try:
             data = await operations.get_model_generations(self.collaborators, model_id, user, limit, offset)
+            if self._restricted(user):
+                viewable = self.content_safety.viewable_generation_ids(
+                    user.id, [g["id"] for g in data["generations"]]
+                )
+                kept = [g for g in data["generations"] if g["id"] in viewable]
+                data = {**data, "generations": kept, "total": max(0, data["total"] - (len(data["generations"]) - len(kept)))}
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(
@@ -665,6 +688,8 @@ class ModelController(BaseController):
         """
         try:
             previews = operations.list_model_previews_for_user(self.collaborators, model_id, user)
+            if self._restricted(user):
+                previews = []
             return self.success_response(data={"previews": previews})
         except ModelNotFoundException as e:
             return self.error_api_response(error="model_not_found", message=str(e))

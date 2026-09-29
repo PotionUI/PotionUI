@@ -214,6 +214,7 @@ class TestFieldOverridesThreadedFromRepository:
     def _build_orchestrator(self, database_preset_repository):
         instance = object.__new__(orch.GenerationOrchestrator)
         instance.model_locator = None
+        instance.content_safety = None
         instance.database_preset_repository = database_preset_repository
         instance.model_access_policy = None
         instance.user_repository = None

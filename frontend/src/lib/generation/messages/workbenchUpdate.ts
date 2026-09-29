@@ -27,6 +27,31 @@ generationMessageRegistry.register('workbench_update', {
 			: ctx.tab;
 		const activeIdPatch = adopted ? { activeGenerationId: adopted.activeGenerationId } : {};
 
+		const suppressed = message.preview_suppressed === true;
+		const policyPatch = {
+			preview_suppressed: suppressed,
+			content_flagged: message.content_flagged === true,
+			nsfw: message.nsfw === true
+		};
+
+		if (suppressed) {
+			ctx.tabsStore.updateTab(targetTabId, {
+				...activeIdPatch,
+				generation: {
+					...targetTab.generation,
+					currentGeneration: {
+						...targetTab.generation.currentGeneration,
+						current_image: null,
+						current_video: null,
+						current_audio: null,
+						status: targetTab.generation.currentGeneration?.status || 'running',
+						...policyPatch
+					}
+				}
+			});
+			return;
+		}
+
 		const imageData = message.image;
 		const videoPath = message.path;
 		const isAudioUpdate = message.file_type === 'audio';
@@ -62,7 +87,8 @@ generationMessageRegistry.register('workbench_update', {
 						current_image: null,
 						current_video: null,
 						file_type: 'audio',
-						status: targetTab.generation.currentGeneration?.status || 'running'
+						status: targetTab.generation.currentGeneration?.status || 'running',
+						...policyPatch
 					}
 				}
 			});
@@ -91,7 +117,8 @@ generationMessageRegistry.register('workbench_update', {
 						current_audio: null,
 						file_type: 'video',
 						video_metadata: videoMetadata,
-						status: targetTab.generation.currentGeneration?.status || 'running'
+						status: targetTab.generation.currentGeneration?.status || 'running',
+						...policyPatch
 					}
 				}
 			});
@@ -123,7 +150,8 @@ generationMessageRegistry.register('workbench_update', {
 						current_audio: null,
 						file_type: 'mesh',
 						mesh_metadata: meshMetadata,
-						status: targetTab.generation.currentGeneration?.status || 'running'
+						status: targetTab.generation.currentGeneration?.status || 'running',
+						...policyPatch
 					}
 				}
 			});
@@ -161,7 +189,8 @@ generationMessageRegistry.register('workbench_update', {
 						current_video: null,
 						current_audio: null,
 						file_type: 'image',
-						status: targetTab.generation.currentGeneration?.status || 'running'
+						status: targetTab.generation.currentGeneration?.status || 'running',
+						...policyPatch
 					}
 				}
 			});
@@ -193,7 +222,8 @@ generationMessageRegistry.register('workbench_update', {
 						current_audio: null,
 						file_type: 'video',
 						video_metadata: videoMetadata,
-						status: targetTab.generation.currentGeneration?.status || 'running'
+						status: targetTab.generation.currentGeneration?.status || 'running',
+						...policyPatch
 					}
 				}
 			});

@@ -18,6 +18,7 @@ from src.features.media_index.repository import MediaIndexRepository
 from src.features.media_index.tagger import WDTaggerProvider
 
 if TYPE_CHECKING:
+    from src.features.content_safety.manager import ContentSafetyManager
     from src.platform.filesystem import FileStore
     from src.features.media_index.gallery_vector_store import GalleryVectorStore
     from src.features.media_index.gallery_prompt_vector_store import GalleryPromptVectorStore
@@ -62,8 +63,10 @@ class MediaIndexer:
         gallery_vector_store: "GalleryVectorStore",
         text_embedding_provider: "EmbeddingProvider",
         gallery_prompt_vector_store: "GalleryPromptVectorStore",
+        content_safety: Optional["ContentSafetyManager"] = None,
     ):
         self.repository = repository
+        self.content_safety = content_safety
         self.tagger_provider = tagger_provider
         self.file_service = file_service
         self.vision_embedder = vision_embedder
@@ -334,6 +337,12 @@ class MediaIndexer:
             tags=result.tags,
             ratings=result.ratings,
         )
+        if self.content_safety is not None and item.file_path:
+            from src.features.content_safety.gate import nsfw_score
+
+            self.content_safety.ledger.record_tagger_score(
+                item.file_path, nsfw_score(result.ratings), self.tagger_provider.provenance
+            )
 
     def _process_clip_batch(
         self, items: List[MediaIndexQueueItem]
@@ -503,7 +512,19 @@ class MediaIndexer:
         moment, not as the previous one plus a tail.
         """
         hits = self.gallery_vector_store.search(user_id, query_embedding, limit=limit)
-        return self.apply_relative_cutoff(hits)
+        return self._viewable_hits(user_id, self.apply_relative_cutoff(hits))
+
+    def _viewable_hits(self, user_id: str, hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if self.content_safety is None or not hits or not self.content_safety.is_restricted(user_id):
+            return hits
+        summaries = self.repository.file_summaries([hit["file_id"] for hit in hits])
+        allowed = self.content_safety.filter_paths(
+            user_id, [summary["file_path"] for summary in summaries.values()]
+        )
+        return [
+            hit for hit in hits
+            if summaries.get(hit["file_id"], {}).get("file_path") in allowed
+        ]
 
     def search_gallery(
         self, user_id: str, query: str, limit: int = SEMANTIC_TOP_K

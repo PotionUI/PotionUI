@@ -12,10 +12,46 @@ from typing import Dict, Any
 
 from src.platform.util.ids import generate_ulid
 
-from src.pipelines.outputs import GenerationOutput
+from src.pipelines.outputs import (
+    CompareImagesGenerationOutput,
+    GalleryGenerationOutput,
+    GenerationOutput,
+    ImageGenerationOutput,
+    VideoGenerationOutput,
+)
 from src.features.generation.output_types import SerializeContext, output_type_registry
 
 logger = logging.getLogger(__name__)
+
+_MEDIA_OUTPUTS = (
+    ImageGenerationOutput,
+    VideoGenerationOutput,
+    GalleryGenerationOutput,
+    CompareImagesGenerationOutput,
+)
+
+ALLOWED_SUPPRESSED_KEYS = frozenset({
+    'type', 'generation_id', 'pipe_id', 'pipe_name', 'output_type', 'index',
+    'temporary', 'is_final', 'file_type', 'artifact_type', 'artifact_data',
+    'nsfw', 'content_flagged', 'preview_suppressed',
+})
+
+
+def _content_flags(output: GenerationOutput) -> Dict[str, bool]:
+    return {
+        'nsfw': bool(getattr(output, '_content_nsfw', False)),
+        'content_flagged': bool(getattr(output, '_content_flagged', False)),
+        'preview_suppressed': bool(getattr(output, '_preview_suppressed', False)),
+    }
+
+
+def _reduce_to_allowlist(message: Dict[str, Any]) -> Dict[str, Any]:
+    kept = {key: value for key, value in message.items() if key in ALLOWED_SUPPRESSED_KEYS}
+    if 'artifact_data' in kept:
+        artifact = kept['artifact_data']
+        label = artifact.get('label') if isinstance(artifact, dict) else None
+        kept['artifact_data'] = {'label': label if isinstance(label, str) and '/api/' not in label else None}
+    return kept
 
 
 class GenerationOutputSerializer:
@@ -55,6 +91,12 @@ class GenerationOutputSerializer:
             if spec is not None and spec.serializer is not None:
                 ctx = SerializeContext(generation_id=self.generation_id, preset_id=self.preset_id)
                 base_message.update(spec.serializer(output, ctx))
+
+            if isinstance(output, _MEDIA_OUTPUTS) or hasattr(output, '_preview_suppressed'):
+                flags = _content_flags(output)
+                base_message.update(flags)
+                if flags['preview_suppressed']:
+                    base_message = _reduce_to_allowlist(base_message)
 
             return base_message
 

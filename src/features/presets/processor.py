@@ -54,10 +54,12 @@ class PresetProcessor:
             template_processor: TemplateProcessor,
             settings: Settings,
             preset_template_loader: PresetTemplateLoader,
+            content_policy: Optional[Any] = None,
     ):
         self.template_processor = template_processor
         self.settings = settings
         self.preset_template_loader = preset_template_loader
+        self.content_policy = content_policy
 
     def _resolve_loop_items(self, items: Any, context: Dict[str, Any]) -> List[Any]:
         """Resolve `@loop`'s `items:` to a concrete list of loop items.
@@ -277,7 +279,11 @@ class PresetProcessor:
         """
         return {
             'file_storage_directory': self.settings.get_file_storage_directory(user_id),
-            'nsfw': self.settings.is_nsfw_enabled(user_id),
+            'nsfw': (
+                self.content_policy.allows_nsfw(user_id)
+                if self.content_policy is not None
+                else self.settings.is_nsfw_enabled(user_id)
+            ),
         }
 
     def _resolve_enabled(

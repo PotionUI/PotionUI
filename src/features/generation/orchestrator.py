@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from src.features.generation.records import File
     from src.features.generation.routing.router import GenerationRouter
     from src.features.models.locator import ModelLocator
+    from src.features.content_safety.manager import ContentSafetyManager
 
 from src.platform.util.ids import generate_ulid
 from src.features.media_index.indexer import PASS_TAGS
@@ -63,9 +64,13 @@ from src.features.generation.policy import GenerationPolicy
 from src.features.generation.failure import (
     GenerationFailure,
     apply_failure,
+    failure_for_code,
     failure_from_exception,
     failure_from_output,
 )
+from src.features.generation.content_blocked_output import ContentBlockedGenerationOutput
+from src.features.content_safety.constants import ERROR_BANNED_PROMPT, ERROR_CONTENT_BLOCKED, ERROR_CHECK_UNAVAILABLE
+from src.features.content_safety.errors import BannedPromptRefused
 from src.features.generation.status_tracker import (
     GenerationState,
     GenerationStatusTracker,
@@ -453,6 +458,7 @@ class GenerationOrchestrator:
         router: Optional['GenerationRouter'] = None,
         scheduling_policy_for: Optional[Callable[[str], SchedulingPolicy]] = None,
         model_locator: Optional['ModelLocator'] = None,
+        content_safety: Optional['ContentSafetyManager'] = None,
     ):
         """
         Initialize the generation orchestrator.
@@ -506,6 +512,8 @@ class GenerationOrchestrator:
         self.preset_template_loader = preset_template_loader
         self.backend_registry = backend_registry
         self.model_locator = model_locator
+        self.content_safety = content_safety
+        self._content_tally: Dict[str, Dict[str, int]] = {}
         self.generation_stats_repository = generation_stats_repository
         # Cheap stateless wrapper over `preset_template_loader`, used solely to
         # resolve a preset's display name at generation_stats write time (see
@@ -842,6 +850,9 @@ class GenerationOrchestrator:
                 field_overrides=field_overrides,
             )
             request.form_data = bound.values
+
+            if self.content_safety is not None:
+                self.content_safety.preflight(user_id)
 
             # Every `model:<id>` reference the bound form carries must be one
             # the requesting user may reach - except refs living under a field
@@ -1183,6 +1194,17 @@ class GenerationOrchestrator:
 
         prompts = self._expand_prompts_per_image(generation_id, request, prompts)
 
+        if self.content_safety is not None:
+            matched = await asyncio.to_thread(
+                self.content_safety.find_banned_prompt,
+                db_generation.user_id, generation_id, prompts, request.form_data,
+            )
+            if matched is not None:
+                failure = failure_for_code(ERROR_BANNED_PROMPT)
+                await self._record_failure(generation_id, failure)
+                self._queue_dispatcher.prune_finished()
+                raise BannedPromptRefused(failure.message)
+
         mode = db_generation.mode
 
         logger.debug(f"Building pipeline: mode={mode}, prompts_count={len(prompts) if prompts else 0}")
@@ -1342,6 +1364,26 @@ class GenerationOrchestrator:
         else:
             self.status_tracker.update_from_output(generation_id, output)
 
+        gate_outcome = None
+        if self.content_safety is not None and not isinstance(output, ErrorGenerationOutput):
+            gate_outcome = await self.content_safety.gate_output(generation_id, record.user_id, output)
+            if gate_outcome.unavailable:
+                await self._fail_with_code(generation_id, output, ERROR_CHECK_UNAVAILABLE, output_callback)
+                return
+            tally = self._content_tally.setdefault(generation_id, {'blocked': 0, 'delivered': 0})
+            tally['blocked'] += gate_outcome.blocked
+            tally['delivered'] += gate_outcome.finals
+            if gate_outcome.blocked and output_callback:
+                await output_callback(generation_id, ContentBlockedGenerationOutput(
+                    blocked_count=tally['blocked'],
+                    total=tally['blocked'] + tally['delivered'],
+                    pipe_id=getattr(output, 'pipe_id', None),
+                    pipe_name=getattr(output, 'pipe_name', None),
+                ))
+            if gate_outcome.output is None:
+                return
+            output = gate_outcome.output
+
         # Process output through OutputProcessor (handles file saving, etc.)
         generation = generation_repo.get_by_id(generation_id)
         user_id = generation.user_id if generation else None
@@ -1365,6 +1407,9 @@ class GenerationOrchestrator:
         # ErrorGenerationOutput: fail the generation and replace the output
         # that reaches the client with the error, instead of the workbench
         # update for a file that was never actually written.
+        if gate_outcome is not None and handler_metadata is not None:
+            self.content_safety.record_saved(gate_outcome)
+
         save_error = self._final_save_error(output, handler_metadata)
         if save_error:
             output = ErrorGenerationOutput(
@@ -1379,6 +1424,24 @@ class GenerationOrchestrator:
         # Notify callback if provided (this triggers WebSocket broadcast in controller)
         if output_callback:
             await output_callback(generation_id, output)
+
+    async def _fail_with_code(
+        self,
+        generation_id: str,
+        source: GenerationOutput,
+        code: str,
+        output_callback: Optional[Callable],
+    ) -> None:
+        failure = failure_for_code(code)
+        error_output = ErrorGenerationOutput(
+            error=failure.message,
+            pipe_id=getattr(source, 'pipe_id', None),
+            pipe_name=getattr(source, 'pipe_name', None),
+        )
+        apply_failure(error_output, failure)
+        await self._record_failure(generation_id, failure)
+        if output_callback:
+            await output_callback(generation_id, error_output)
 
     @staticmethod
     def _final_save_error(
@@ -1442,6 +1505,21 @@ class GenerationOrchestrator:
         # From dispatch, not from enqueue: a generation that waited an hour in
         # the queue took however long it actually ran, not an hour.
         duration = time.time() - (record.started_at or record.created_at)
+
+        tally = self._content_tally.pop(generation_id, None)
+        if self.content_safety is not None:
+            self.content_safety.finish_generation(generation_id)
+        if tally and tally['blocked'] and record.state not in (GenerationState.FAILED, GenerationState.CANCELLED):
+            if tally['delivered'] == 0:
+                await self._fail_with_code(
+                    generation_id, GenerationOutput(), ERROR_CONTENT_BLOCKED, output_callback
+                )
+                record = self.status_tracker.get(generation_id) or record
+            elif output_callback:
+                await output_callback(generation_id, ContentBlockedGenerationOutput(
+                    blocked_count=tally['blocked'],
+                    total=tally['blocked'] + tally['delivered'],
+                ))
 
         if record.state not in (GenerationState.FAILED, GenerationState.CANCELLED):
             record = await self.status_tracker.transition_async(generation_id, GenerationState.COMPLETED)

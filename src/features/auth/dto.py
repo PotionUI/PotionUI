@@ -80,3 +80,5 @@ class UserMeResponse(BaseModel):
     last_login: Optional[str] = None
     avatar_url: Optional[str] = None
     has_local_password: bool = True
+    content_restricted: bool = False
+    effective_content_policy: str = "allowed"

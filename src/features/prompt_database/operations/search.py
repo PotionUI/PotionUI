@@ -20,6 +20,18 @@ async def search(
     base_model: Optional[str] = None, model_id: Optional[str] = None,
     source_provider: Optional[str] = None,
 ) -> List[Any]:
+    prompts = await _search(collaborators, user_id, query, limit, base_model, model_id, source_provider)
+    safety = collaborators.content_safety
+    if safety is not None and safety.is_restricted(user_id):
+        return [prompt for prompt in prompts if not prompt.nsfw]
+    return prompts
+
+
+async def _search(
+    collaborators: PromptDatabaseCollaborators,
+    user_id: str, query: str, limit: int,
+    base_model: Optional[str], model_id: Optional[str], source_provider: Optional[str],
+) -> List[Any]:
     try:
         if await collaborators.embedding_provider.is_available():
             embeddings = await collaborators.embedding_provider.embed([query])

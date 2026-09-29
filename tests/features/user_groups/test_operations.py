@@ -211,7 +211,8 @@ class TestUserGroupOperations:
         assert result.description == "A test group"
         mock_repository.create_group.assert_called_once_with(
             name="Test Group",
-            description="A test group"
+            description="A test group",
+            content_policy=None,
         )
 
     def test_create_group_duplicate_name(self, mock_repository, mock_plugin_registry, admin_user, sample_group):
@@ -528,7 +529,8 @@ class TestUserGroupOperations:
         # Verify the modified values were used
         mock_repository.create_group.assert_called_once_with(
             name="Modified by hook",
-            description="Modified desc"
+            description="Modified desc",
+            content_policy=None,
         )
 
     def test_add_member_blocked_by_hook(self, mock_repository, mock_plugin_registry, admin_user, sample_group):

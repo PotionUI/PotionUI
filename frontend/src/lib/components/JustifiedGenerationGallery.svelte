@@ -20,7 +20,7 @@
 	function aspectOf(generation: GenerationHistoryItem): number {
 		// Same lead-file rule as GenerationCard (newest derived file leads).
 		const media = generation.files.filter(
-			(f) => f.is_final !== false && ['image', 'video'].includes(f.file_type.toLowerCase())
+			(f) => f.is_final !== false && ['image', 'video'].includes((f.file_type ?? '').toLowerCase())
 		);
 		const file = media[leadIndex(media)];
 		if (file?.width && file?.height) return clampAspect(file.width / file.height);

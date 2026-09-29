@@ -30,6 +30,8 @@ def group_to_dto(obj) -> Optional[UserGroupDTO]:
         created_at=obj.created_at,
         updated_at=obj.updated_at,
         is_system=obj.is_system,
+        content_policy=obj.content_policy,
+        restricted=obj.restricted,
     )
 
 
@@ -49,6 +51,8 @@ def group_to_counts_dto(obj, repository: UserGroupRepository) -> Optional[GroupW
         llm_count=repository.get_group_llm_count(obj.id),
         model_count=repository.get_group_model_count(obj.id),
         is_system=obj.is_system,
+        content_policy=obj.content_policy,
+        restricted=obj.restricted,
     )
 
 

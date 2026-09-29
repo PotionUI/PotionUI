@@ -78,7 +78,7 @@ describe('stores/nsfwFilter', () => {
 
 		nsfwFilterStore.reset();
 
-		expect(get(nsfwFilterStore)).toEqual({ mode: 'blur', loaded: false });
+		expect(get(nsfwFilterStore)).toEqual({ mode: 'blur', loaded: false, restricted: false });
 		expect(mockPut).not.toHaveBeenCalled();
 	});
 
@@ -136,5 +136,65 @@ describe('nsfwFilter helpers', () => {
 			{ id: 4, is_final: true, file_type: 'VIDEO' }
 		];
 		expect(selectableMediaFiles(mixed)).toEqual([mixed[0], mixed[3]]);
+	});
+});
+
+describe('forced content flag', () => {
+	it('a flagged file is blurred even in show mode, until revealed', async () => {
+		const { shouldBlurFile } = await freshStore();
+		const flagged = { nsfw: true, content_flagged: true };
+		expect(shouldBlurFile(flagged, 'show', false)).toBe(true);
+		expect(shouldBlurFile(flagged, 'blur', false)).toBe(true);
+		expect(shouldBlurFile(flagged, 'show', true)).toBe(false);
+	});
+
+	it('an unflagged nsfw file still follows the user mode', async () => {
+		const { shouldBlurFile } = await freshStore();
+		const plain = { nsfw: true };
+		expect(shouldBlurFile(plain, 'show', false)).toBe(false);
+		expect(shouldBlurFile(plain, 'blur', false)).toBe(true);
+		expect(shouldBlurFile({ nsfw: false }, 'blur', false)).toBe(false);
+	});
+
+	it('hide mode hides flagged files instead of blurring them', async () => {
+		const { shouldBlurFile, isHiddenByMode, visibleMediaFiles } = await freshStore();
+		const flagged = { content_flagged: true };
+		expect(isHiddenByMode(flagged, 'hide')).toBe(true);
+		expect(shouldBlurFile(flagged, 'hide', false)).toBe(false);
+		expect(visibleMediaFiles([flagged, { nsfw: false }], 'hide')).toEqual([{ nsfw: false }]);
+	});
+
+	it('unrated placeholders survive selection without a file type and are never nsfw', async () => {
+		const { selectableMediaFiles, isUnratedFile, isNsfwFile } = await freshStore();
+		const placeholder = { content_state: 'unrated' };
+		expect(selectableMediaFiles([placeholder as any])).toEqual([placeholder]);
+		expect(isUnratedFile(placeholder)).toBe(true);
+		expect(isNsfwFile(placeholder)).toBe(false);
+	});
+});
+
+describe('restricted accounts', () => {
+	it('ignore the stored mode and cannot change it', async () => {
+		const { nsfwFilterStore } = await freshStore();
+		await nsfwFilterStore.init();
+		expect(get(nsfwFilterStore).mode).toBe('show');
+
+		nsfwFilterStore.setRestricted(true);
+		expect(get(nsfwFilterStore).mode).toBe('hide');
+		expect(get(nsfwFilterStore).restricted).toBe(true);
+
+		await nsfwFilterStore.setMode('show');
+		expect(mockPut).not.toHaveBeenCalled();
+		expect(get(nsfwFilterStore).mode).toBe('hide');
+
+		nsfwFilterStore.setRestricted(false);
+		expect(get(nsfwFilterStore).mode).toBe('show');
+	});
+
+	it('reset clears the restricted flag', async () => {
+		const { nsfwFilterStore } = await freshStore();
+		nsfwFilterStore.setRestricted(true);
+		nsfwFilterStore.reset();
+		expect(get(nsfwFilterStore)).toEqual({ mode: 'blur', loaded: false, restricted: false });
 	});
 });

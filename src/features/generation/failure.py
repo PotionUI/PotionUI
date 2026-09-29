@@ -122,6 +122,15 @@ def failure_from_exception(exc: BaseException, detail: Optional[str] = None) -> 
     )
 
 
+def failure_for_code(code: str) -> GenerationFailure:
+    classification = classification_for_code(code)
+    return GenerationFailure(
+        error_code=classification.category,
+        message=classification.summary,
+        hints=tuple(classification.suggestions),
+    )
+
+
 def apply_failure(output: ErrorGenerationOutput, failure: GenerationFailure) -> ErrorGenerationOutput:
     output.error_code = failure.error_code
     output.message = failure.message

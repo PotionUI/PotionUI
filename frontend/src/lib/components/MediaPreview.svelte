@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { GenerationFile } from '$lib/types/history';
 	import { api } from '$lib/services/api/index';
-	import { nsfwFilterStore } from '$lib/stores/nsfwFilter';
+	import { nsfwFilterStore, isHiddenByMode, shouldBlurFile } from '$lib/stores/nsfwFilter';
 	import { nsfwRevealStore, revealKey } from '$lib/stores/nsfwReveal';
 	import { showAlphaCheckerboard } from '$lib/utils/imageAlpha';
 
@@ -24,17 +24,16 @@
 	nsfwFilterStore.init();
 
 	$: fileRevealKey = revealKey(generationId, file);
-	$: isHiddenNsfw = !!file.nsfw && $nsfwFilterStore.mode === 'hide';
-	$: shouldBlur =
-		!!file.nsfw && $nsfwFilterStore.mode === 'blur' && !$nsfwRevealStore.has(fileRevealKey);
+	$: isHiddenNsfw = isHiddenByMode(file, $nsfwFilterStore.mode);
+	$: shouldBlur = shouldBlurFile(file, $nsfwFilterStore.mode, $nsfwRevealStore.has(fileRevealKey));
 
 	function handleReveal(event: MouseEvent | KeyboardEvent) {
 		event.stopPropagation();
 		nsfwRevealStore.reveal(fileRevealKey);
 	}
 
-	$: isVideo = file.file_type.toLowerCase() === 'video';
-	$: filename = file.file_path.split('/').pop() || file.file_path;
+	$: isVideo = file.file_type?.toLowerCase() === 'video';
+	$: filename = (file.file_path ?? '').split('/').pop() || file.file_path;
 
 	function isBrowserUrl(value: string | undefined): value is string {
 		if (!value) return false;

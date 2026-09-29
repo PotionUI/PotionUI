@@ -327,6 +327,13 @@ export async function getMediaModelsStatus(options?: {
 	return response.data;
 }
 
+export async function getContentSafetyStatus(): Promise<
+	APIResponse<import('$lib/contentSafety/policy').ContentSafetyStatus>
+> {
+	const response = await api.getClient().get('/api/content-safety/status');
+	return response.data;
+}
+
 // Admin API - Users
 export async function getUsers(): Promise<APIResponse<User[]>> {
 	const response = await api.getClient().get('/api/users');
@@ -509,6 +516,7 @@ export async function getUserGroups(): Promise<APIResponse<UserGroup[]>> {
 export async function createUserGroup(data: {
 	name: string;
 	description?: string;
+	content_policy?: string | null;
 }): Promise<APIResponse> {
 	const response = await api.getClient().post('/api/user-groups', data);
 	return response.data;
@@ -516,7 +524,7 @@ export async function createUserGroup(data: {
 
 export async function updateUserGroup(
 	groupId: string,
-	data: { name?: string; description?: string }
+	data: { name?: string; description?: string; content_policy?: string | null }
 ): Promise<APIResponse> {
 	const response = await api.getClient().put(`/api/user-groups/${groupId}`, data);
 	return response.data;
@@ -674,6 +682,8 @@ export interface UserGroup {
 	model_count?: number;
 	/** True for the built-in ALL_USERS/ALL_ADMINS groups — hide/disable delete for these. */
 	is_system?: boolean;
+	content_policy?: 'allowed' | 'blur' | 'blocked' | null;
+	restricted?: boolean;
 }
 
 export interface UserGroupMember {

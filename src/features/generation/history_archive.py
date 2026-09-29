@@ -21,6 +21,7 @@ from PIL import Image
 
 from src.features.media.media_types import MediaTypeResolver, sniff_media_extension
 from src.features.generation.exceptions import (
+    GenerationNotFoundException,
     GenerationDeleteFailedException,
     UploadFailedException,
     InvalidTagException,
@@ -519,6 +520,8 @@ class GenerationHistoryArchive:
                 for generation_id in generation_ids:
                     # Verify ownership (raises GenerationNotFoundException if missing)
                     self._query._get_generation_or_raise(generation_id, user_id)
+                    if not self._query.is_viewable(generation_id, user_id):
+                        continue
 
                     files = self.generation_repo.get_files(
                         generation_id, user_id=user_id, is_final=True
@@ -706,6 +709,8 @@ class GenerationHistoryArchive:
             GenerationNotFoundException: If the generation is not found / not owned
         """
         generation = self._query._get_generation_or_raise(generation_id, user_id, include_files=True)
+        if not self._query.is_viewable(generation_id, user_id):
+            raise GenerationNotFoundException(f"Generation '{generation_id}' not found")
         envelope = self._build_bundle_envelope(generation, user_id)
 
         zip_buffer = tempfile.SpooledTemporaryFile(max_size=_EXPORT_SPOOL_MAX_MEMORY_BYTES)

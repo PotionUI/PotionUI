@@ -31,14 +31,16 @@ class UserGroupRepository:
 
     # ===== Group CRUD =====
 
-    def create_group(self, name: str, description: Optional[str] = None) -> UserGroup:
+    def create_group(
+        self, name: str, description: Optional[str] = None, content_policy: Optional[str] = None
+    ) -> UserGroup:
         """Create a new user group"""
         group_id = generate_ulid()
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
-                "INSERT INTO user_groups (id, name, description) VALUES (?, ?, ?)",
-                (group_id, name, description)
+                "INSERT INTO user_groups (id, name, description, content_policy) VALUES (?, ?, ?, ?)",
+                (group_id, name, description, content_policy or None)
             )
         return self.get_group_by_id(group_id)
 
@@ -65,7 +67,13 @@ class UserGroupRepository:
             cursor.execute("SELECT * FROM user_groups ORDER BY name")
             return [UserGroup.from_row(row) for row in cursor.fetchall()]
 
-    def update_group(self, group_id: str, name: Optional[str] = None, description: Optional[str] = None) -> Optional[UserGroup]:
+    def update_group(
+        self,
+        group_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        content_policy: Optional[str] = None,
+    ) -> Optional[UserGroup]:
         """Update a group's name and/or description"""
         group = self.get_group_by_id(group_id)
         if not group:
@@ -79,6 +87,9 @@ class UserGroupRepository:
         if description is not None:
             updates.append("description = ?")
             params.append(description)
+        if content_policy is not None:
+            updates.append("content_policy = ?")
+            params.append(content_policy or None)
 
         if not updates:
             return group

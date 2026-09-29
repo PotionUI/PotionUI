@@ -12,11 +12,12 @@ site. A plain, frozen data holder (no behavior beyond field access), matching
 dissolution).
 """
 from dataclasses import dataclass
-from typing import Any, Callable, TYPE_CHECKING
+from typing import Any, Callable, Optional, TYPE_CHECKING
 
 from src.features.inspirations.repository import InspirationRepository
 
 if TYPE_CHECKING:
+    from src.features.content_safety.manager import ContentSafetyManager
     from src.features.generation.parameter_repository import GenerationParameterRepository
     from src.features.generation.repository import GenerationRepository
     from src.features.media.file_resolver import FilePathResolver
@@ -43,3 +44,4 @@ class InspirationCollaborators:
     # A bound notify callable (`functools.partial(operations.notify,
     # collaborators)`, see `src.bootstrap.container`), not a class instance.
     notification_manager: Callable[..., Any]
+    content_safety: Optional["ContentSafetyManager"] = None

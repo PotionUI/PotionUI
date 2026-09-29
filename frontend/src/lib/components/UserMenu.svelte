@@ -132,7 +132,7 @@
 					</button>
 				</div>
 
-				<!-- Sensitive content mode -->
+				{#if !$nsfwFilterStore.restricted}
 				<div class="px-2.5 py-2 border-t border-line">
 					<p class="pb-1.5 text-2xs font-medium text-fg-subtle uppercase tracking-wide">
 						Sensitive content
@@ -158,6 +158,7 @@
 						{/each}
 					</div>
 				</div>
+				{/if}
 
 				<div class="p-1 border-t border-line">
 					<button

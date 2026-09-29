@@ -13,7 +13,13 @@
 	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
 	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
 	import ModelAssignmentPicker from '$lib/components/modals/ModelAssignmentPicker.svelte';
-	import { Button, IconButton, Badge, Input, Spinner, EmptyState, LoadErrorState, Switch } from '$lib/components/ui';
+	import { Button, IconButton, Badge, Input, Spinner, EmptyState, LoadErrorState, Switch, SegmentedControl } from '$lib/components/ui';
+	import {
+		CONTENT_POLICY_INHERIT,
+		CONTENT_POLICY_OPTIONS,
+		isContentPolicy,
+		isSystemRestrictedGroup
+	} from '$lib/contentSafety/policy';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
@@ -149,21 +155,28 @@
 	let groupsError = $state<string | null>(null);
 
 	let showGroupModal = $state(false);
-	let groupFormData = $state({ name: '', description: '' });
+	let groupFormData = $state({ name: '', description: '', content_policy: CONTENT_POLICY_INHERIT });
 	let savingNewGroup = $state(false);
 	const createGroupGate = createConfirmSettlementGate();
 	$effect(() => {
 		if (showGroupModal) createGroupGate.reset();
 	});
 
-	type GroupEditFormData = { name: string; description: string };
-	let editGroupFormData = $state<GroupEditFormData>({ name: '', description: '' });
-	let editGroupSnapshot = $state(JSON.stringify({ name: '', description: '' }));
+	type GroupEditFormData = { name: string; description: string; content_policy: string };
+	const emptyGroupEditForm = (): GroupEditFormData => ({ name: '', description: '', content_policy: CONTENT_POLICY_INHERIT });
+	const contentPolicyItems = [{ id: CONTENT_POLICY_INHERIT, label: 'Inherit' }, ...CONTENT_POLICY_OPTIONS];
+	let editGroupFormData = $state<GroupEditFormData>(emptyGroupEditForm());
+	let editGroupSnapshot = $state(JSON.stringify(emptyGroupEditForm()));
 	let editGroupSaving = $state(false);
 	const editGroupDirty = $derived(JSON.stringify(editGroupFormData) !== editGroupSnapshot);
 
 	let membersByGroup = $state<Record<string, adminApi.UserGroupMember[]>>({});
 	let loadingMemberships = $state(true);
+
+	const restrictedGroupIds = $derived(groups.filter((g) => isSystemRestrictedGroup(g)).map((g) => g.id));
+	function isUserRestricted(userId: string): boolean {
+		return (userGroupIds[userId] || []).some((id) => restrictedGroupIds.includes(id));
+	}
 
 	const userGroupIds = $derived.by(() => {
 		const map: Record<string, string[]> = {};
@@ -508,7 +521,13 @@
 	}
 
 	function loadGroupEditForm(group: any | null) {
-		editGroupFormData = group ? { name: group.name, description: group.description || '' } : { name: '', description: '' };
+		editGroupFormData = group
+			? {
+					name: group.name,
+					description: group.description || '',
+					content_policy: isContentPolicy(group.content_policy) ? group.content_policy : CONTENT_POLICY_INHERIT
+				}
+			: emptyGroupEditForm();
 		editGroupSnapshot = JSON.stringify(editGroupFormData);
 	}
 
@@ -523,6 +542,9 @@
 			const updateData: any = {};
 			if (editGroupFormData.name) updateData.name = editGroupFormData.name;
 			updateData.description = editGroupFormData.description;
+			if (!isSystemRestrictedGroup(activeGroupEntity)) {
+				updateData.content_policy = isContentPolicy(editGroupFormData.content_policy) ? editGroupFormData.content_policy : null;
+			}
 			const response: any = await adminApi.updateUserGroup(activeGroupEntity.id, updateData);
 			if (response.success !== false) {
 				toasts.success(`${editGroupFormData.name || activeGroupEntity.name} updated`);
@@ -540,14 +562,18 @@
 	}
 
 	function openCreateGroupModal() {
-		groupFormData = { name: '', description: '' };
+		groupFormData = { name: '', description: '', content_policy: CONTENT_POLICY_INHERIT };
 		showGroupModal = true;
 	}
 
 	async function handleSaveNewGroup() {
 		savingNewGroup = true;
 		try {
-			const response: any = await adminApi.createUserGroup(groupFormData);
+			const response: any = await adminApi.createUserGroup({
+				name: groupFormData.name,
+				description: groupFormData.description,
+				content_policy: isContentPolicy(groupFormData.content_policy) ? groupFormData.content_policy : null
+			});
 			await loadGroups();
 			await loadMemberships();
 			showGroupModal = false;
@@ -1124,10 +1150,12 @@
 
 {#snippet userAccountTypeCell(user: User)}
 	<Badge size="sm" variant={user.account_type === 'ADMIN' ? 'warning' : 'neutral'} class="font-mono uppercase">{user.account_type}</Badge>
+	{#if isUserRestricted(user.id)}<Badge size="sm" variant="danger">Restricted</Badge>{/if}
 {/snippet}
 
 {#snippet groupBuiltInCell(group: adminApi.UserGroup)}
 	{#if group.is_system}<Badge size="sm" variant="neutral">Built-in</Badge>{/if}
+	{#if isSystemRestrictedGroup(group)}<Badge size="sm" variant="danger">Restricted</Badge>{/if}
 {/snippet}
 
 {#snippet groupAccessCell(group: adminApi.UserGroup)}
@@ -1269,6 +1297,7 @@
 							<Badge variant={activeUser.account_type === 'ADMIN' ? 'warning' : 'neutral'} size="sm" class="font-mono uppercase">
 								{activeUser.account_type}
 							</Badge>
+							{#if isUserRestricted(activeUser.id)}<Badge variant="danger" size="sm">Restricted</Badge>{/if}
 						{/snippet}
 						{#snippet subtitle()}
 							{activeUser.email}
@@ -1463,6 +1492,7 @@
 				<DetailHeader title={activeGroupEntity.name} icon={adminSectionIcon('users')} backLabel="Users" onBack={() => navigate({ id: null })}>
 					{#snippet chips()}
 						{#if activeGroupEntity.is_system}<Badge variant="neutral" size="sm">Built-in</Badge>{/if}
+						{#if isSystemRestrictedGroup(activeGroupEntity)}<Badge variant="danger" size="sm">Restricted</Badge>{/if}
 					{/snippet}
 					{#snippet subtitle()}
 						{activeGroupEntity.member_count ?? 0} members
@@ -1495,6 +1525,27 @@
 											<textarea id="edit-group-description" class="input" rows="3" bind:value={editGroupFormData.description} placeholder="Optional description"></textarea>
 										</DetailField>
 									</div>
+								</DetailSection>
+								<DetailSection label="Content policy">
+									{#if isSystemRestrictedGroup(activeGroupEntity)}
+										<p class="text-sm text-fg-muted" data-restricted-group-note>
+											Members are always Blocked. They cannot generate or see NSFW content, cannot change their
+											own content mode, and see only media that has been rated. This cannot be overridden.
+										</p>
+									{:else}
+										<div class="flex items-start justify-between gap-6">
+											<p class="text-sm text-fg-muted">
+												Applies to members of this group. Inherit uses the instance policy.
+											</p>
+											<SegmentedControl
+												variant="toggle"
+												ariaLabel="Group content policy"
+												items={contentPolicyItems}
+												selected={editGroupFormData.content_policy}
+												onSelect={(id) => (editGroupFormData.content_policy = id)}
+											/>
+										</div>
+									{/if}
 								</DetailSection>
 							{/snippet}
 						</DetailLayout>
@@ -1653,6 +1704,7 @@
 						<div class="flex items-center gap-2">
 							<p class="truncate text-sm font-semibold text-fg">{u.username}</p>
 							<Badge size="sm" variant={u.account_type === 'ADMIN' ? 'warning' : 'neutral'} class="font-mono uppercase">{u.account_type}</Badge>
+							{#if isUserRestricted(u.id)}<Badge size="sm" variant="danger">Restricted</Badge>{/if}
 						</div>
 						<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{u.email}</p>
 					{/snippet}
@@ -1834,6 +1886,16 @@
 		<div>
 			<label class="block text-sm font-medium text-fg-muted mb-2" for="group-description-input">Description</label>
 			<textarea id="group-description-input" class="input w-full" rows="3" bind:value={groupFormData.description} placeholder="Optional description"></textarea>
+		</div>
+		<div>
+			<span class="block text-sm font-medium text-fg-muted mb-2">Content policy</span>
+			<SegmentedControl
+				variant="toggle"
+				ariaLabel="Group content policy"
+				items={contentPolicyItems}
+				selected={groupFormData.content_policy}
+				onSelect={(id) => (groupFormData.content_policy = id)}
+			/>
 		</div>
 	</div>
 	<svelte:fragment slot="footer">

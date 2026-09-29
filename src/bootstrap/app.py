@@ -447,11 +447,14 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         # startup so a fresh instance is not competing with boot work.
         container.housekeeping_worker.start()
 
+        container.content_safety.start_backfill_if_needed()
+
         yield
 
         # Shutdown
         logging.info("Shutting down PotionUI API server...")
         await container.housekeeping_worker.stop()
+        await container.content_safety.stop()
         await container.compute_status_monitor.stop()
         await container.download_queue.stop()
         await automation_runtime.stop_all()

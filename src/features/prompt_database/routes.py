@@ -72,6 +72,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     prompt_importer_registry = container.prompt_importer_registry
     collection_repository = container.collection_repository
     model_roots = container.model_roots
+    content_safety = container.content_safety
 
     def membership(prompt_ids: List[str], user_id: str) -> Dict[str, List[Dict[str, str]]]:
         grouped = collection_repository.get_for_prompts(prompt_ids, user_id)
@@ -206,6 +207,8 @@ def build_router(container: "AppContainer") -> APIRouter:
         prompts = await operations.search(
             controller.collaborators, _user_id(current_user), q, limit, base_model, model_id, source_provider,
         )
+        if content_safety.is_restricted(current_user.id):
+            prompts = [prompt for prompt in prompts if not prompt.nsfw]
         return APIResponse(success=True, data=[prompt.to_dict() for prompt in prompts])
 
     @router.get("/tags", response_model=APIResponse, summary="Tag counts across saved prompts")
@@ -213,6 +216,8 @@ def build_router(container: "AppContainer") -> APIRouter:
         nsfw: Literal["exclude", "include"] = "exclude",
         current_user: User = Depends(get_current_active_user),
     ):
+        if content_safety.is_restricted(current_user.id):
+            nsfw = "exclude"
         counts = controller.collaborators.repository.tag_counts(_user_id(current_user), nsfw=nsfw)
         return APIResponse(success=True, data={
             "tags": [{"tag": tag, "count": count} for tag, count in counts],
@@ -288,6 +293,9 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user: User = Depends(get_current_active_user),
     ):
         user_id = _user_id(current_user)
+        restricted = content_safety.is_restricted(user_id)
+        if restricted:
+            nsfw = "exclude"
         repository = controller.collaborators.repository
         tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()] if tags else None
         items = repository.get_all(
@@ -318,7 +326,9 @@ def build_router(container: "AppContainer") -> APIRouter:
             item["last_used_at"] = stats["last_used_at"] if stats else None
             cover_stats = cover.get(item["id"])
             item["generation_count"] = cover_stats["generation_count"] if cover_stats else 0
-            item["cover_thumbnail"] = cover_stats["cover_thumbnail"] if cover_stats else None
+            item["cover_thumbnail"] = (
+                None if restricted or not cover_stats else cover_stats["cover_thumbnail"]
+            )
         return APIResponse(success=True, data=data)
 
     @router.get("/{prompt_id}", response_model=APIResponse, summary="Get a prompt")
@@ -335,7 +345,9 @@ def build_router(container: "AppContainer") -> APIRouter:
         data["last_used_at"] = stats["last_used_at"] if stats else None
         cover_stats = cover.get(prompt_id)
         data["generation_count"] = cover_stats["generation_count"] if cover_stats else 0
-        data["cover_thumbnail"] = cover_stats["cover_thumbnail"] if cover_stats else None
+        data["cover_thumbnail"] = (
+            None if content_safety.is_restricted(user_id) or not cover_stats else cover_stats["cover_thumbnail"]
+        )
         data["collections"] = membership([prompt_id], user_id)[prompt_id]
         return APIResponse(success=True, data=data)
 
@@ -357,7 +369,9 @@ def build_router(container: "AppContainer") -> APIRouter:
         user_id = _user_id(current_user)
         generations = generation_repo.get_by_source_prompt(prompt_id, user_id, limit=limit, offset=offset)
         total = generation_repo.count_by_source_prompt(prompt_id, user_id)
-        items = container.generation_history_facade.query.serialize_generations(generations, include_tags=False)
+        items = container.generation_history_facade.query.serialize_generations(
+            generations, include_tags=False, viewer_id=user_id
+        )
         return APIResponse(success=True, data={"items": items, "total": total, "limit": limit, "offset": offset})
 
     @router.put("/{prompt_id}", response_model=APIResponse, summary="Replace a prompt")

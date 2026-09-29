@@ -3,21 +3,36 @@ User Group DTOs for request/response models.
 """
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ========== Request DTOs ==========
+
+CONTENT_POLICY_CHOICES = ("allowed", "blur", "blocked")
+
+
+def _check_content_policy(value: Optional[str]) -> Optional[str]:
+    if value is None or value == "" or value in CONTENT_POLICY_CHOICES:
+        return value
+    raise ValueError("content_policy must be allowed, blur or blocked")
+
 
 class GroupCreate(BaseModel):
     """Request model for creating a user group."""
     name: str
     description: Optional[str] = None
+    content_policy: Optional[str] = None
+
+    _validate_content_policy = field_validator("content_policy")(_check_content_policy)
 
 
 class GroupUpdate(BaseModel):
     """Request model for updating a user group."""
     name: Optional[str] = None
     description: Optional[str] = None
+    content_policy: Optional[str] = None
+
+    _validate_content_policy = field_validator("content_policy")(_check_content_policy)
 
 
 class MemberIds(BaseModel):
@@ -52,6 +67,8 @@ class UserGroupDTO(BaseModel):
     # True for the built-in ALL_USERS/ALL_ADMINS groups - the UI uses this to
     # hide/disable delete (and the API refuses it with a 409 regardless).
     is_system: bool = False
+    content_policy: Optional[str] = None
+    restricted: bool = False
 
     class Config:
         from_attributes = True
@@ -117,6 +134,8 @@ class GroupWithCountsDTO(BaseModel):
     llm_count: int = 0
     model_count: int = 0
     is_system: bool = False
+    content_policy: Optional[str] = None
+    restricted: bool = False
 
     class Config:
         from_attributes = True

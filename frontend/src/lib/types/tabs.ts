@@ -146,6 +146,7 @@ export interface ImageData {
 	url: string;
 	originalUrl?: string;
 	derived?: boolean;
+	content_flagged?: boolean;
 	seed?: number;
 	resolution?: [number, number];
 	sampler?: string;
@@ -159,6 +160,7 @@ export interface VideoData {
 	url: string;
 	originalUrl?: string;
 	derived?: boolean;
+	content_flagged?: boolean;
 	duration?: number;
 	fps?: number;
 	resolution?: [number, number];

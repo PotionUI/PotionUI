@@ -188,6 +188,8 @@ def serialize_gallery_output(output: GalleryGenerationOutput, ctx: SerializeCont
                             'original': api_path,
                             'derived': bool(getattr(img_output, 'derived', False)),
                             'has_alpha': bool(img_output.image and img_output.image.mode == 'RGBA'),
+                            'nsfw': bool(getattr(img_output, '_content_nsfw', False)),
+                            'content_flagged': bool(getattr(img_output, '_content_flagged', False)),
                             'seed': getattr(img_output, 'seed', None),
                             'resolution': getattr(img_output, 'resolution', None),
                             'sampler': getattr(img_output, 'sampler', None),
@@ -220,7 +222,9 @@ def serialize_gallery_output(output: GalleryGenerationOutput, ctx: SerializeCont
                     'duration': getattr(video_output, 'duration', None),
                     'fps': getattr(video_output, 'fps', None),
                     'seed': getattr(video_output, 'seed', None),
-                    'temporary': getattr(video_output, 'temporary', True)
+                    'temporary': getattr(video_output, 'temporary', True),
+                    'nsfw': bool(getattr(video_output, '_content_nsfw', False)),
+                    'content_flagged': bool(getattr(video_output, '_content_flagged', False)),
                 }
 
                 # If video has been saved, add the API path

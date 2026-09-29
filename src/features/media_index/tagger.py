@@ -125,6 +125,9 @@ class WDTaggerProvider:
     def _weights_present(self) -> bool:
         return self._weights_present_at(self._local_path())
 
+    def has_weights(self) -> bool:
+        return self._weights_present()
+
     def is_available(self) -> bool:
         return self._weights_present() or self.auto_download
 
@@ -305,14 +308,16 @@ class WDTaggerProvider:
             return self.tag_image(image)
 
     def tag_image(self, image: "Image.Image") -> TaggingResult:
+        return self.tag_images([image])[0]
+
+    def tag_images(self, images: List["Image.Image"]) -> List[TaggingResult]:
+        if not images:
+            return []
         self._ensure_loaded()
         import torch
 
         models = self._models()
         lease_id = f"tagger-{uuid.uuid4().hex}"
-        # Clears any stale native-generation owner tag on this thread/context
-        # before acquiring - see NativeLLMClient._leased's docstring for why
-        # this explicit clear (not "nothing else sets it") is load-bearing.
         models.begin_generation(None)
         models.begin_lease(lease_id)
         try:
@@ -322,13 +327,13 @@ class WDTaggerProvider:
                 self._load_model,
                 estimated_vram_gb=self._estimated_size_gb(),
             )
-            batch = self._preprocess(image).unsqueeze(0).to(self.device)
+            batch = torch.stack([self._preprocess(image) for image in images]).to(self.device)
             with torch.inference_mode():
                 logits = model(batch)
-                probs = torch.sigmoid(logits)[0].float().cpu().numpy()
+                probs = torch.sigmoid(logits).float().cpu().numpy()
         finally:
             models.end_lease(lease_id)
-        return self._predictions_to_result(probs)
+        return [self._predictions_to_result(row) for row in probs]
 
 
 def build_tagger_provider(

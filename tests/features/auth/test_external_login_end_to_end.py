@@ -99,6 +99,7 @@ class TestExternalLoginEndToEnd(unittest.TestCase):
         self.container.auth = self.auth
         self.container.login_handoff = self.handoff
         self.container.external_login = self.external_login
+        self.container.content_policy_resolver = None
 
         self._container_patcher = patch(
             "src.platform.plugins.runtime_registries._container", self.container

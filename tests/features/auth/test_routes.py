@@ -302,6 +302,25 @@ class TestAuthController:
 
         assert result.data["has_local_password"] is False
 
+    @pytest.mark.asyncio
+    async def test_get_me_reports_the_effective_content_policy(self, mock_auth_manager, sample_user):
+        from types import SimpleNamespace
+
+        resolver = SimpleNamespace(resolve=lambda user_id: SimpleNamespace(restricted=True, mode="blocked"))
+        controller = AuthController(mock_auth_manager, LoginHandoffStore(), resolver)
+
+        result = await controller.get_me(sample_user)
+
+        assert result.data["content_restricted"] is True
+        assert result.data["effective_content_policy"] == "blocked"
+
+    @pytest.mark.asyncio
+    async def test_get_me_defaults_to_unrestricted_and_allowed(self, auth_controller, sample_user):
+        result = await auth_controller.get_me(sample_user)
+
+        assert result.data["content_restricted"] is False
+        assert result.data["effective_content_policy"] == "allowed"
+
     # get_current_user dependency tests
 
     @pytest.mark.asyncio

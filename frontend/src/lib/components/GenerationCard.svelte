@@ -2,6 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 	import MediaPreview from './MediaPreview.svelte';
+	import ContentPolicyTile from '$lib/components/ContentPolicyTile.svelte';
 	import Icon from './Icon.svelte';
 	import Tooltip from './Tooltip.svelte';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
@@ -12,7 +13,7 @@
 	import { historyStore } from '$lib/stores/history';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { formatBytes, formatSeconds } from '$lib/utils/format';
-	import { nsfwFilterStore, selectableMediaFiles, visibleMediaFiles } from '$lib/stores/nsfwFilter';
+	import { nsfwFilterStore, selectableMediaFiles, visibleMediaFiles, isUnratedFile } from '$lib/stores/nsfwFilter';
 	import { leadIndex } from '$lib/generation/leadFile';
 	import { api } from '$lib/services/api/index';
 	import { getIconPath } from '$lib/utils/IconLibrary';
@@ -70,20 +71,20 @@
 
 	$: nsfwMode = $nsfwFilterStore.mode;
 	$: availableFiles = visibleMediaFiles(selectableMediaFiles(generation.files ?? []), nsfwMode);
-	$: imageFiles = availableFiles.filter((file) => file.file_type.toLowerCase() === 'image');
-	$: videoFiles = availableFiles.filter((file) => file.file_type.toLowerCase() === 'video');
+	$: imageFiles = availableFiles.filter((file) => file.file_type?.toLowerCase() === 'image' || isUnratedFile(file));
+	$: videoFiles = availableFiles.filter((file) => file.file_type?.toLowerCase() === 'video');
 	// Audio and meshes carry no `is_final`/nsfw-relevant filtering of their own,
 	// and `selectableMediaFiles` is image/video only, so both are pulled
 	// straight from the generation's files rather than through it.
 	$: audioFiles = visibleMediaFiles(
 		(generation.files ?? []).filter(
-			(file) => file.is_final !== false && file.file_type.toLowerCase() === 'audio'
+			(file) => file.is_final !== false && file.file_type?.toLowerCase() === 'audio'
 		),
 		nsfwMode
 	);
 	$: meshFiles = visibleMediaFiles(
 		(generation.files ?? []).filter(
-			(file) => file.is_final !== false && file.file_type.toLowerCase() === 'mesh'
+			(file) => file.is_final !== false && file.file_type?.toLowerCase() === 'mesh'
 		),
 		nsfwMode
 	);
@@ -308,7 +309,9 @@
 			}}
 		>
 			{#if mediaFiles.length > 0 && currentMediaFile}
-				{#if isCurrentMediaMesh}
+				{#if isUnratedFile(currentMediaFile)}
+					<ContentPolicyTile kind="checking" />
+				{:else if isCurrentMediaMesh}
 					<!-- Grid tiles stay lightweight: no <model-viewer> here. A
 					     server-rendered thumbnail (media-index queue) is preferred
 					     once one exists; otherwise fall back to the format marker. -->

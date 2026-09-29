@@ -164,6 +164,26 @@ class TestContextShape:
         settings.get_file_storage_directory.assert_called_once_with("user-1")
         settings.is_nsfw_enabled.assert_called_once_with("user-1")
 
+    def test_nsfw_runtime_key_follows_the_users_effective_content_policy(self):
+        settings = Mock()
+        settings.get_file_storage_directory.return_value = "/data/storage"
+        policy = Mock()
+        policy.allows_nsfw.side_effect = lambda user_id: user_id == "trusted"
+        processor = PresetProcessor(
+            template_processor=TemplateProcessor(settings=Mock()),
+            settings=settings,
+            preset_template_loader=Mock(),
+            content_policy=policy,
+        )
+        template = _preset(pipe_configuration={"nsfw": "{{ runtime.settings.nsfw }}"})
+
+        trusted = processor.process(template, _generation_data(), user_id="trusted")
+        restricted = processor.process(template, _generation_data(), user_id="kid")
+
+        assert trusted[0]["config"]["nsfw"] is True
+        assert restricted[0]["config"]["nsfw"] is False
+        settings.is_nsfw_enabled.assert_not_called()
+
 
 class TestObjectAndDictDirectivesAreGone:
     def test_object_prefixed_string_is_no_longer_special_cased(self):

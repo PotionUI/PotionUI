@@ -55,11 +55,13 @@ generationMessageRegistry.register('generation_complete', {
 							current_video: output.current_video,
 							current_audio: output.current_audio,
 							current_mesh: output.current_mesh,
-							file_type: output.file_type
+							file_type: output.file_type,
+							preview_suppressed: false
 						}
 					: {
 							...targetTab.generation.currentGeneration,
-							status: 'completed'
+							status: 'completed',
+							preview_suppressed: false
 						},
 				currentProgress: null,
 				totalTime,

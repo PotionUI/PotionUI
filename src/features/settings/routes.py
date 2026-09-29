@@ -10,6 +10,7 @@ from src.platform.settings.settings import Settings
 from src.features.backup.settings import validate_setting as validate_backup_setting
 from src.features.generation.thumbnail_profile import validate_setting as validate_thumbnail_setting
 from src.features.housekeeping.settings import validate_setting as validate_housekeeping_setting
+from src.features.content_safety.settings import validate_setting as validate_content_safety_setting
 from src.platform.runtime.gpu import GpuMonitor
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.settings.dto import (
@@ -141,6 +142,7 @@ class SettingsController(BaseController):
                     validate_thumbnail_setting(key, value)
                     or validate_housekeeping_setting(key, value)
                     or validate_backup_setting(key, value)
+                    or validate_content_safety_setting(key, value)
                 )
                 if rejected:
                     errors.append(f"Invalid value for '{key}': {rejected}")
@@ -294,6 +296,7 @@ class SettingsController(BaseController):
                     validate_thumbnail_setting(key, update_data.value)
                     or validate_housekeeping_setting(key, update_data.value)
                     or validate_backup_setting(key, update_data.value)
+                    or validate_content_safety_setting(key, update_data.value)
                 )
                 if rejected:
                     return self.error_response(

@@ -48,6 +48,18 @@ class TestLazyLoad:
         assert _provider(auto_download=False).is_available() is False
         assert _provider(auto_download=True).is_available() is True
 
+    def test_has_weights_needs_both_files_on_disk_whatever_the_download_gate_says(self):
+        provider = _provider(auto_download=True)
+        assert provider.has_weights() is False
+
+        target = provider._local_path()
+        target.mkdir(parents=True)
+        (target / "model.safetensors").write_bytes(b"x")
+        assert provider.has_weights() is False
+
+        (target / "selected_tags.csv").write_text("name,category\n", encoding="utf-8")
+        assert provider.has_weights() is True
+
     def test_provenance_is_model_slug(self):
         assert _provider().provenance == "smilingwolf-wd-vit-tagger-v3"
 
@@ -147,6 +159,35 @@ class TestPredictionMapping:
         assert result.ratings["general"] == pytest.approx(0.5, abs=1e-6)
         assert [t.tag for t in result.tags] == ["1girl"]
         assert result.tags[0].confidence == pytest.approx(1.0, abs=1e-6)
+
+    def test_tag_images_scores_a_batch_in_one_forward_pass(self):
+        import torch
+        from PIL import Image
+
+        provider = self._loaded_provider()
+        provider._input_size = 2
+        provider._model_lifecycle = ModelLifecycle(gpu_monitor=None, settings=None)
+        logits = torch.tensor([
+            [20.0, -20.0, -20.0, -20.0, -20.0, -20.0, -20.0],
+            [-20.0, -20.0, -20.0, 20.0, -20.0, -20.0, -20.0],
+        ])
+        model = MagicMock(return_value=logits)
+        provider._load_model = MagicMock(return_value=model)
+        image = Image.new("RGB", (2, 2), (0, 0, 0))
+
+        results = provider.tag_images([image, image])
+
+        assert model.call_count == 1
+        assert model.call_args.args[0].shape[0] == 2
+        assert results[0].ratings["general"] == pytest.approx(1.0, abs=1e-6)
+        assert results[1].ratings["explicit"] == pytest.approx(1.0, abs=1e-6)
+
+    def test_tag_images_of_nothing_never_touches_the_model(self):
+        provider = self._loaded_provider()
+        provider._load_model = MagicMock()
+
+        assert provider.tag_images([]) == []
+        provider._load_model.assert_not_called()
 
 
 class TestModelLifecycleIntegration:

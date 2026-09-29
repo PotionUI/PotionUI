@@ -61,7 +61,7 @@ class Settings:
     # engine and live on NativeBackendConfig. See docs/backends.md.
 
     def is_nsfw_enabled(self, user_id: Optional[str] = None) -> bool:
-        return self.get_setting('nsfw', False, user_id)
+        return self.get_setting('content_policy_nsfw', 'allowed', user_id) == 'allowed'
 
     def get_model_cache_scope(self, user_id: Optional[str] = None) -> str:
         """How the native model RAM cache is scoped across preset switches:

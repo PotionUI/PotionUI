@@ -40,6 +40,8 @@ export interface GenerationFile {
 	rating_scores?: RatingScores | null;
 	/** Server-side blur verdict: questionable+explicit crossed the admin threshold. */
 	nsfw?: boolean;
+	content_flagged?: boolean;
+	content_state?: 'unrated';
 	/** Mesh files only - the real container format (e.g. 'glb', 'ply'). */
 	mesh_format?: string;
 	/** Audio files only - track kind ('speech', 'mixed', 'vocal', 'instrumental').

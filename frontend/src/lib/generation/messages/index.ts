@@ -8,4 +8,5 @@ import './pipeArtifact';
 import './timerUpdate';
 import './complete';
 import './error';
+import './contentBlocked';
 import './queueUpdate';

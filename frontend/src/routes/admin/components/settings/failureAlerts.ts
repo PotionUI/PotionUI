@@ -6,6 +6,9 @@ export const FAILURE_ALERT_CATEGORIES: { value: string; label: string }[] = [
 	{ value: 'corrupt_weights', label: 'Corrupt weights' },
 	{ value: 'auth_required', label: 'Credentials required' },
 	{ value: 'backend_unreachable', label: 'Backend unreachable' },
+	{ value: 'banned_prompt', label: 'Refused prompt' },
+	{ value: 'content_blocked', label: 'Blocked by content policy' },
+	{ value: 'content_check_unavailable', label: 'Content check unavailable' },
 	{ value: 'unclassified', label: 'Unclassified' }
 ];
 

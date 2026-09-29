@@ -19,6 +19,7 @@ from src.features.generation.records import Generation
 from src.features.generation.repository import GenerationRepository
 
 if TYPE_CHECKING:
+    from src.features.content_safety.manager import ContentSafetyManager
     from src.platform.filesystem import FileStore
     from src.platform.settings.settings import Settings
     from src.features.media_index.indexer import MediaIndexer
@@ -45,6 +46,7 @@ class GenerationHistoryQuery:
         settings: Optional["Settings"] = None,
         media_indexer: Optional["MediaIndexer"] = None,
         preset_name_resolver: Optional["PresetNameResolver"] = None,
+        content_safety: Optional["ContentSafetyManager"] = None,
     ):
         """Initialize GenerationHistoryQuery.
 
@@ -73,6 +75,7 @@ class GenerationHistoryQuery:
         self.settings = settings
         self.media_indexer = media_indexer
         self.preset_name_resolver = preset_name_resolver
+        self.content_safety = content_safety
 
     def _preset_name_map(self) -> Dict[str, str]:
         """One id -> name snapshot per serialization pass; never per row."""
@@ -287,7 +290,7 @@ class GenerationHistoryQuery:
             **filter_kwargs,
         )
 
-        history_data = self.serialize_generations(generations, include_tags)
+        history_data = self.serialize_generations(generations, include_tags, viewer_id=user_id)
 
         # Get total count with tag filtering
         total_count = self.generation_repo.count_by_status(**filter_kwargs)
@@ -308,7 +311,7 @@ class GenerationHistoryQuery:
         }
 
     def serialize_generations(
-        self, generations: List[Generation], include_tags: bool
+        self, generations: List[Generation], include_tags: bool, *, viewer_id: Optional[str]
     ) -> List[Dict[str, Any]]:
         """Serialize generations for history payloads and attach system tags."""
         names = self._preset_name_map()
@@ -321,7 +324,7 @@ class GenerationHistoryQuery:
                 gen_dict['preset_name'] = "Uploaded"
             history_data.append(gen_dict)
         self._attach_system_tags(history_data)
-        return history_data
+        return self._apply_content_ledger(history_data, viewer_id=viewer_id)
 
     def _semantic_query_embedding(
         self, user_id: str, semantic_query: str
@@ -460,7 +463,9 @@ class GenerationHistoryQuery:
                 include_tags=include_tags,
             )
             page_generations.sort(key=lambda g: page_order.get(g.id, len(page_order)))
-            history_data = self.serialize_generations(page_generations, include_tags)
+            history_data = self.serialize_generations(
+                page_generations, include_tags, viewer_id=filter_kwargs.get('user_id')
+            )
 
         return {
             'generations': history_data,
@@ -532,6 +537,61 @@ class GenerationHistoryQuery:
                         )
                         file_dict['nsfw'] = nsfw_score >= threshold
 
+    def is_viewable(self, generation_id: str, viewer_id: Optional[str]) -> bool:
+        if self.content_safety is None or not self.content_safety.is_restricted(viewer_id):
+            return True
+        return generation_id in self.content_safety.viewable_generation_ids(viewer_id, [generation_id])
+
+    def _apply_content_ledger(
+        self, gen_dicts: List[Dict[str, Any]], *, viewer_id: Optional[str]
+    ) -> List[Dict[str, Any]]:
+        for gen_dict in gen_dicts:
+            for file_dict in gen_dict.get('files') or []:
+                file_dict['content_flagged'] = False
+        if self.content_safety is None:
+            return gen_dicts
+
+        paths = [
+            file_dict.get('file_path')
+            for gen_dict in gen_dicts
+            for file_dict in gen_dict.get('files') or []
+        ]
+        if not paths:
+            return gen_dicts
+
+        policy = self.content_safety.policy_for(viewer_id)
+        states = self.content_safety.ledger.states(paths)
+
+        visible: List[Dict[str, Any]] = []
+        for gen_dict in gen_dicts:
+            files = gen_dict.get('files') or []
+            kept: List[Dict[str, Any]] = []
+            for file_dict in files:
+                state = states.get(file_dict.get('file_path'), 'unrated')
+                if state == 'flagged':
+                    file_dict['nsfw'] = True
+                    file_dict['content_flagged'] = not policy.allowed
+                if not policy.restricted or state == 'safe':
+                    kept.append(file_dict)
+                elif state == 'unrated':
+                    kept.append({
+                        'id': file_dict.get('id'),
+                        'file_type': file_dict.get('file_type'),
+                        'is_final': file_dict.get('is_final'),
+                        'is_derived': file_dict.get('is_derived'),
+                        'content_state': 'unrated',
+                        'nsfw': False,
+                        'content_flagged': False,
+                        'system_tags': [],
+                        'rating_scores': None,
+                    })
+            if files and not kept:
+                continue
+            if 'files' in gen_dict:
+                gen_dict['files'] = kept
+            visible.append(gen_dict)
+        return visible
+
     def get_facets(self, user_id: str) -> Dict[str, Any]:
         """Return distinct modes, presets and models (with counts) for filter UIs."""
         facets = self.generation_repo.get_facets(user_id=user_id)
@@ -567,6 +627,8 @@ class GenerationHistoryQuery:
         generation_data = generation.to_dict(include_files=include_files)
         if include_files:
             self._attach_system_tags([generation_data])
+            if not self._apply_content_ledger([generation_data], viewer_id=user_id):
+                raise GenerationNotFoundException(f"Generation '{generation_id}' not found")
 
         # Fetch and include parameters
         from src.features.generation.parameter_repository import generation_parameter_repo

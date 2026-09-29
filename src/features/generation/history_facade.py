@@ -19,6 +19,7 @@ from src.features.generation.history_archive import GenerationHistoryArchive
 from src.features.generation.history_executor import HistoryExecutor
 
 if TYPE_CHECKING:
+    from src.features.content_safety.manager import ContentSafetyManager
     from src.platform.filesystem import FileStore
     from src.platform.settings.settings import Settings
     from src.features.media_index.indexer import MediaIndexer
@@ -56,7 +57,8 @@ class GenerationHistoryFacade:
         media_index_repository: Optional['MediaIndexRepository'] = None,
         settings: Optional['Settings'] = None,
         media_indexer: Optional['MediaIndexer'] = None,
-        preset_name_resolver: Optional['PresetNameResolver'] = None
+        preset_name_resolver: Optional['PresetNameResolver'] = None,
+        content_safety: Optional['ContentSafetyManager'] = None,
     ):
         """Initialize GenerationHistoryFacade.
 
@@ -80,7 +82,7 @@ class GenerationHistoryFacade:
 
         self._query = GenerationHistoryQuery(
             generation_repo, file_service, media_index_repository, settings,
-            media_indexer, preset_name_resolver
+            media_indexer, preset_name_resolver, content_safety
         )
         self._archive = GenerationHistoryArchive(
             generation_repo, file_service, plugin_registry, self._query, run_report_repository,

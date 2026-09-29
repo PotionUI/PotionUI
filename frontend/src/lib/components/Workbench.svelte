@@ -18,13 +18,17 @@
 	import WorkbenchProfileModal from '$lib/components/workbench/WorkbenchProfileModal.svelte';
 	import { authStore } from '$lib/stores/auth';
 	import { workbenchGallerySettingsStore } from '$lib/stores/workbenchGallerySettings';
+	import { nsfwFilterStore } from '$lib/stores/nsfwFilter';
+	import { nsfwRevealStore } from '$lib/stores/nsfwReveal';
+	import ContentPolicyTile from '$lib/components/ContentPolicyTile.svelte';
 	import { resolveWorkbenchFileRenderer } from '$lib/registries/workbenchFileRendererRegistry';
 	import ImagePreview from '$lib/components/workbench/renderers/ImagePreview.svelte';
 	import VideoPreview from '$lib/components/workbench/renderers/VideoPreview.svelte';
 	import AudioPreview from '$lib/components/workbench/renderers/AudioPreview.svelte';
 	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
 	import '$lib/components/workbench/renderers/builtin'; // registers the image/video/audio core defaults
-	import { IconButton, Button, CopyButton } from '$lib/components/ui';
+	import { IconButton, Button, CopyButton, Badge } from '$lib/components/ui';
+	import Icon from '$lib/components/Icon.svelte';
 	import { copyText } from '$lib/utils/clipboard';
 	import {
 		isAudioFileType,
@@ -202,6 +206,13 @@
 	// the raw file object rather than a resolved URL.
 	$: displayMesh = isGalleryMode && isMeshFileType(displayFileType) ? galleryItemUrl(currentGalleryItem) : currentGeneration?.current_mesh;
 	$: hasDisplayMedia = !!displayImage || !!displayVideo || !!displayAudio || !!displayMesh;
+
+	$: previewSuppressed = !!currentGeneration?.preview_suppressed;
+	$: contentBlocked = currentGeneration?.content_blocked ?? null;
+	$: displayFlagged = isGalleryMode ? !!(currentGalleryItem as { content_flagged?: boolean } | null)?.content_flagged : !!currentGeneration?.content_flagged;
+	$: flaggedRevealKey = `workbench:${currentGeneration?.id ?? ''}:${isGalleryMode ? workbenchIndex : 'live'}`;
+	$: flaggedBlur = hasDisplayMedia && displayFlagged && !$nsfwRevealStore.has(flaggedRevealKey);
+	$: revealAllowed = !$nsfwFilterStore.restricted;
 
 	// Which per-output actions apply to what is on screen. A mesh gets download
 	// and open-in-new-tab; compare/zoom/expand (all of which assume a raster
@@ -936,6 +947,36 @@
 				</div>
 			{/key}
 
+			{#if flaggedBlur}
+				<div class="absolute inset-0 z-30 flex items-center justify-center bg-canvas/40 backdrop-blur-3xl" data-flagged-blur>
+					{#if revealAllowed}
+						<button
+							type="button"
+							class="flex flex-col items-center gap-1.5 rounded-lg px-4 py-3 text-fg cursor-pointer"
+							aria-label="Sensitive content, click to reveal"
+							on:click={() => nsfwRevealStore.reveal(flaggedRevealKey)}
+						>
+							<Icon name="eyes" className="w-8 h-8" strokeWidth={1.5} />
+							<span class="text-sm font-medium">Sensitive content</span>
+							<span class="text-sm text-fg-muted">Click to reveal</span>
+						</button>
+					{:else}
+						<div class="flex flex-col items-center gap-1.5 text-fg">
+							<Icon name="shield" className="w-8 h-8" strokeWidth={1.5} />
+							<span class="text-sm font-medium">Hidden by the content policy</span>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			{#if contentBlocked}
+				<div class="absolute left-4 top-4 z-20">
+					<Badge variant="warning">
+						<span class="font-mono tabular-nums">{contentBlocked.blocked_count} of {contentBlocked.total}</span>&nbsp;blocked by content policy
+					</Badge>
+				</div>
+			{/if}
+
 			<!-- Action buttons - only when generation is settled (completed or failed) and NOT comparing or zooming -->
 			{#if hasDisplayMedia && isSettledGeneration && !isComparing && !isZoomMode}
 				<div class="absolute top-4 right-4 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex gap-2">
@@ -1274,6 +1315,19 @@
 				on:select={handleGallerySelect}
 			/>
 		{/if}
+	{:else if previewSuppressed && currentGeneration?.status !== 'failed'}
+		<div class="relative flex items-center justify-center dot-grid" style="height: {maxHeight}px">
+			<ContentPolicyTile kind="preview" class="bg-transparent" />
+		</div>
+	{:else if contentBlocked && currentGeneration?.status !== 'failed'}
+		<div class="relative flex items-center justify-center dot-grid" style="height: {maxHeight}px">
+			<ContentPolicyTile
+				kind="blocked"
+				blockedCount={contentBlocked.blocked_count}
+				total={contentBlocked.total}
+				class="bg-transparent"
+			/>
+		</div>
 	{:else if currentGeneration?.status === 'failed'}
 		<!-- Failed state: the generation errored and no media survived (or none
 			was produced before the failure) - the generic "creations appear here"

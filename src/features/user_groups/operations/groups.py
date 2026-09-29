@@ -9,6 +9,7 @@ response).
 import logging
 from typing import List
 
+from src.features.content_safety.constants import RESTRICTED_GROUP_ID
 from src.features.user_groups.dto import GroupCreate, GroupUpdate, GroupWithCountsDTO, UserGroupDTO
 from src.features.user_groups.hooks import USER_GROUP_HOOKS
 from src.features.user_groups.mappers import group_to_dto, group_to_counts_dto
@@ -84,8 +85,7 @@ def create_group(
     name = hook_data.get("name", request.name)
     description = hook_data.get("description", request.description)
 
-    # Create the group
-    group = repository.create_group(name=name, description=description)
+    group = repository.create_group(name=name, description=description, content_policy=request.content_policy)
 
     if not group:
         raise ValueError("Failed to create group")
@@ -160,7 +160,12 @@ def update_group(
     description = hook_data.get("new_description", request.description)
 
     # Update the group
-    updated = repository.update_group(group_id, name=name, description=description)
+    if request.content_policy is not None and group_id == RESTRICTED_GROUP_ID:
+        raise ValueError("The Restricted content group always blocks NSFW content")
+
+    updated = repository.update_group(
+        group_id, name=name, description=description, content_policy=request.content_policy
+    )
 
     if not updated:
         raise ValueError("Failed to update group")

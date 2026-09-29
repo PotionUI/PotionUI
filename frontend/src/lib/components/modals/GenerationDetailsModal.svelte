@@ -22,7 +22,7 @@
 	import { libraryStore } from '$lib/stores/library';
 	import { summarizeCopyOutcome } from '$lib/library/copyToLibrary';
 	import { toasts } from '$lib/stores/toast';
-	import { nsfwFilterStore, visibleMediaFiles } from '$lib/stores/nsfwFilter';
+	import { nsfwFilterStore, visibleMediaFiles, shouldBlurFile, isUnratedFile } from '$lib/stores/nsfwFilter';
 	import { nsfwRevealStore, revealKey } from '$lib/stores/nsfwReveal';
 	import { pickActiveGeneration, needsDetailFetch } from '$lib/utils/generationDetail';
 	import { Badge, Spinner, CopyButton, IconButton } from '$lib/components/ui';
@@ -210,7 +210,9 @@
 	}
 
 	// Reactive computed values; hide mode drops nsfw files from navigation.
-	$: mediaFiles = visibleMediaFiles(activeGeneration?.files || [], $nsfwFilterStore.mode);
+	$: mediaFiles = visibleMediaFiles(activeGeneration?.files || [], $nsfwFilterStore.mode).filter(
+		(file) => !isUnratedFile(file)
+	);
 	// Re-derived on every generation swap; reading `mediaFiles` orders this after it.
 	let renderedGenerationId = '';
 	$: if (activeGenerationId !== renderedGenerationId) {
@@ -235,7 +237,8 @@
 	nsfwFilterStore.init();
 	$: currentRevealKey = currentFile ? revealKey(activeGenerationId, currentFile) : '';
 	$: detailBlur =
-		!!currentFile?.nsfw && $nsfwFilterStore.mode === 'blur' && !$nsfwRevealStore.has(currentRevealKey);
+		!!currentFile &&
+		shouldBlurFile(currentFile, $nsfwFilterStore.mode, $nsfwRevealStore.has(currentRevealKey));
 
 	function handleSystemTagClick(tag: string) {
 		historyStore.setSystemTagFilter(tag);

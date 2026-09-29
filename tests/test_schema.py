@@ -44,7 +44,7 @@ def create_test_schema(db):
             ('setting_cache_dir', 'cache_dir', 'cache', 'string', 'Directory path for caching temporary files', 'SYSTEM'),
             ('setting_device', 'device', 'cuda', 'string', 'Compute device for model execution (cuda/cpu)', 'SYSTEM'),
             ('setting_precision', 'precision', 'fp16', 'string', 'Model precision (fp16/fp32/bf16)', 'SYSTEM'),
-            ('setting_nsfw_filter', 'nsfw_filter', 'false', 'boolean', 'Allow NSFW content generation', 'USER'),
+            ('setting_nsfw', 'nsfw', 'false', 'boolean', 'Allow NSFW content generation', 'USER'),
             ('setting_dtype', 'dtype', 'float16', 'string', 'Data type for model tensors', 'SYSTEM'),
             ('setting_output_directory', 'output_directory', 'outputs', 'string', 'Directory path for storing generated outputs', 'SYSTEM')
         """)

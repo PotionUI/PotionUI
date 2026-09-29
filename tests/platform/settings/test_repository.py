@@ -39,7 +39,7 @@ class TestSettingRepository:
         assert len(settings) >= 8
         keys = [s.key for s in settings]
         assert "models_dir" in keys
-        assert "nsfw_filter" in keys
+        assert "nsfw" in keys
 
     def test_get_all_settings_filtered_by_type(self, repository):
         """Test retrieving settings filtered by type"""
@@ -60,11 +60,11 @@ class TestSettingRepository:
         # Should include default settings
         assert len(effective_settings) >= 8
         assert "models_dir" in effective_settings
-        assert "nsfw_filter" in effective_settings
+        assert "nsfw" in effective_settings
         
         # Values should be properly typed
         assert isinstance(effective_settings["models_dir"], str)
-        assert isinstance(effective_settings["nsfw_filter"], bool)
+        assert isinstance(effective_settings["nsfw"], bool)
 
     def test_setting_typed_values(self, repository):
         """Test that settings return properly typed values"""
@@ -72,8 +72,8 @@ class TestSettingRepository:
         models_dir_setting = repository.get_setting_by_key("models_dir")
         assert models_dir_setting.get_typed_value() == "models"
 
-        nsfw_filter_setting = repository.get_setting_by_key("nsfw_filter")
-        assert nsfw_filter_setting.get_typed_value() is False
+        nsfw_setting = repository.get_setting_by_key("nsfw")
+        assert nsfw_setting.get_typed_value() is False
 
     def test_setting_serialize_value(self):
         """Test value serialization for different types"""

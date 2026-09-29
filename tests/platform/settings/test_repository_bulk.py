@@ -26,7 +26,7 @@ class TestApplyBulkUpdates(PersistenceTestBase):
     def test_commits_system_and_user_together(self):
         user_id = self.create_test_user()
         models_dir = self.repo.get_setting_by_key("models_dir")
-        nsfw = self.repo.get_setting_by_key("nsfw_filter")
+        nsfw = self.repo.get_setting_by_key("nsfw")
 
         self.repo.apply_bulk_updates(
             system_updates=[(models_dir.id, "brand-new-models")],
@@ -40,7 +40,7 @@ class TestApplyBulkUpdates(PersistenceTestBase):
         """A later write that violates a FK (unknown user_id) must undo the system
         UPDATE that ran first - nothing persists."""
         models_dir = self.repo.get_setting_by_key("models_dir")
-        nsfw = self.repo.get_setting_by_key("nsfw_filter")
+        nsfw = self.repo.get_setting_by_key("nsfw")
         original = models_dir.value
 
         with self.assertRaises(Exception):

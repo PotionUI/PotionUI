@@ -7,7 +7,7 @@
 // component, and a slow status response could overlap the next tick's fetch.
 // This drives the real component with controllable deferred responses across
 // unmount and reopen.
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -61,7 +61,12 @@ function flush(ms = 0) {
 
 let mounted: ReturnType<typeof mountPanel> | undefined;
 
+beforeEach(() => {
+	localStorage.setItem('potionui:modelPicker:suggestedOpen', '1');
+});
+
 afterEach(() => {
+	localStorage.clear();
 	mounted?.destroy();
 	mounted = undefined;
 	vi.clearAllMocks();
@@ -80,7 +85,7 @@ describe('ModelBrowserPanel recommendation-download lifecycle', () => {
 		await vi.advanceTimersByTimeAsync(0);
 
 		const downloadButton = mounted.target.querySelector<HTMLButtonElement>(
-			'button[title="Download this model"]'
+			'[data-recommended-download] button'
 		);
 		expect(downloadButton, 'download button rendered for the unmatched recommendation').toBeTruthy();
 		downloadButton!.click();
@@ -115,7 +120,7 @@ describe('ModelBrowserPanel recommendation-download lifecycle', () => {
 		mounted = mountPanel();
 		await vi.advanceTimersByTimeAsync(0);
 		mounted.target
-			.querySelector<HTMLButtonElement>('button[title="Download this model"]')!
+			.querySelector<HTMLButtonElement>('[data-recommended-download] button')!
 			.click();
 		await vi.advanceTimersByTimeAsync(0);
 
@@ -156,7 +161,7 @@ describe('ModelBrowserPanel recommendation-download lifecycle', () => {
 		mounted = mountPanel();
 		await vi.advanceTimersByTimeAsync(0);
 		mounted.target
-			.querySelector<HTMLButtonElement>('button[title="Download this model"]')!
+			.querySelector<HTMLButtonElement>('[data-recommended-download] button')!
 			.click();
 		await vi.advanceTimersByTimeAsync(0);
 

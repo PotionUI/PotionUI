@@ -12,6 +12,7 @@
 		reason = null,
 		current = false,
 		showUploader = false,
+		flat = false,
 		download,
 		onDownload
 	}: {
@@ -20,6 +21,7 @@
 		reason?: string | null;
 		current?: boolean;
 		showUploader?: boolean;
+		flat?: boolean;
 		download: ModelDownloadState;
 		onDownload: () => void;
 	} = $props();
@@ -30,15 +32,17 @@
 </script>
 
 <div
-	class="flex flex-col gap-1.5 px-3 py-2.5 {suggested ? 'border-l-2 border-l-signal' : ''}"
+	class="flex flex-col gap-1.5 px-3 py-2.5 {suggested && !flat ? 'border-l-2 border-l-signal' : ''}"
 	data-slot-variant={variant.id}
 >
-	<div class="flex items-center gap-2 min-w-0">
-		<span class="text-sm font-semibold text-fg truncate">{variant.label}</span>
+	<div class="flex items-center gap-2 min-w-0 {flat ? 'flex-wrap' : ''}">
+		<span class="text-sm font-semibold text-fg {flat ? 'shrink-0' : 'truncate'}">{variant.label}</span>
 		{#if variant.precision}
 			<Badge class="font-mono shrink-0">{variant.precision}</Badge>
 		{/if}
-		{#if suggested}
+		{#if suggested && flat && reason}
+			<span class="flex min-w-0" data-slot-variant-reason><Badge variant="signal" class="min-w-0 truncate">{reason}</Badge></span>
+		{:else if suggested && !flat}
 			<Badge variant="signal" class="shrink-0">Suggested</Badge>
 		{/if}
 		{#if current}
@@ -58,7 +62,7 @@
 		{:else if download.phase !== 'forbidden'}
 			<Button
 				size="xs"
-				variant={suggested ? 'primary' : 'secondary'}
+				variant={suggested && !flat ? 'primary' : 'secondary'}
 				icon="download"
 				loading={busy}
 				disabled={busy}
@@ -74,7 +78,7 @@
 	{#if showUploader && variant.uploader}
 		<span class="text-sm text-fg-subtle" data-slot-variant-uploader>Uploaded by {variant.uploader}</span>
 	{/if}
-	{#if suggested && reason}
+	{#if suggested && reason && !flat}
 		<span class="text-sm text-signal" data-slot-variant-reason>{reason}</span>
 	{/if}
 	{#if variant.gated}

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import type { SetupConsentVariant } from '$lib/services/api/setup';
 import type { RecipeSlotVariants } from '$lib/services/api/recipes';
 
@@ -100,7 +100,12 @@ function setup(slots: RecipeSlotVariants[]) {
 
 let mounted: ReturnType<typeof mountPanel> | undefined;
 
+beforeEach(() => {
+	localStorage.setItem('potionui:modelPicker:suggestedOpen', '1');
+});
+
 afterEach(() => {
+	localStorage.clear();
 	mounted?.destroy();
 	mounted = undefined;
 	vi.clearAllMocks();
@@ -109,7 +114,7 @@ afterEach(() => {
 });
 
 describe('model picker Suggested variants', () => {
-	it('shows the GPU pick with its reason, attribution and collapsed other variants', async () => {
+	it('lists every missing variant flat, recommended first with its reason inline, no nested disclosure', async () => {
 		authState.user = { account_type: 'ADMIN' };
 		setup([slot([variant('bf16', 'bf16'), variant('fp8', 'fp8'), variant('int8', 'int8', { installed: true })])]);
 		mounted = mountPanel();
@@ -117,19 +122,30 @@ describe('model picker Suggested variants', () => {
 
 		expect(api.getPresetSlotVariants).toHaveBeenCalledWith('krea2', 'diffusion_model');
 		const section = mounted.target.querySelector('[data-picker-variant-suggestions]') as HTMLElement;
-		expect(section.textContent).toContain('Suggested');
-		expect(section.querySelector('[data-slot-variant="fp8"]')).not.toBeNull();
-		expect(section.querySelector('[data-slot-variant-reason]')?.textContent).toBe('Fits your 24 GB');
-		expect(section.querySelector('[data-slot-variant="bf16"]')).toBeNull();
+		const rows = Array.from(section.querySelectorAll('[data-slot-variant]')).map((el) => el.getAttribute('data-slot-variant'));
+		expect(rows).toEqual(['fp8', 'bf16']);
+		expect(section.querySelector('[data-slot-variant="fp8"] [data-slot-variant-reason]')?.textContent?.trim()).toBe('Fits your 24 GB');
+		expect(section.querySelectorAll('[data-slot-variant-reason]').length).toBe(1);
 		expect(section.querySelector('[data-slot-variant="int8"]')).toBeNull();
-		expect(section.querySelector('[data-variant-attribution]')?.textContent).toContain(
-			'Free to download thanks to Hugging Face and Comfy-Org, who uploaded this model.'
-		);
+		expect(section.querySelector('[data-picker-other-variants-toggle]')).toBeNull();
+		expect(section.textContent).not.toContain('Other variants');
+		expect(section.querySelectorAll('[data-variant-attribution]').length).toBe(1);
+	});
 
-		(section.querySelector('[data-picker-other-variants-toggle]') as HTMLButtonElement).click();
+	it('shows the slot label only when more than one slot has suggestions', async () => {
+		authState.user = { account_type: 'ADMIN' };
+		const second = { ...slot([variant('q4', 'q4')]), id: 'te', label: 'Text encoder' };
+		setup([slot([variant('fp8', 'fp8')]), second]);
+		mounted = mountPanel();
 		await settle();
-		expect(section.querySelector('[data-slot-variant="bf16"]')).not.toBeNull();
-		expect(section.querySelector('[data-slot-variant="int8"]')).toBeNull();
+		expect(mounted.target.textContent).toContain('Krea-2 Turbo (DiT)');
+		expect(mounted.target.textContent).toContain('Text encoder');
+		mounted.destroy();
+
+		setup([slot([variant('fp8', 'fp8')])]);
+		mounted = mountPanel();
+		await settle();
+		expect(mounted.target.textContent).not.toContain('Krea-2 Turbo (DiT)');
 	});
 
 	it('Download starts the recipe slot variant download', async () => {
@@ -209,7 +225,7 @@ describe('model picker static recommendations vs. recipe variants', () => {
 
 		expect(mounted.target.textContent).toContain('Suggested');
 		expect(mounted.target.textContent).toContain('krea2_raw_bf16.safetensors');
-		expect(mounted.target.querySelector('button[title="Download this model"]')).not.toBeNull();
+		expect(mounted.target.querySelector('[data-recommended-download] button')).not.toBeNull();
 	});
 
 	it('renders a static recommendation only once when its filename matches a recipe slot variant', async () => {

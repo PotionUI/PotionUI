@@ -67,6 +67,30 @@
 	let fetchedOnce = false;
 	let presetRecipes: PresetRecipeLink[] = [];
 	let recipeVariantFilenames: Set<string> = new Set();
+	let suggestionCount = 0;
+
+	const SUGGESTED_OPEN_KEY = 'potionui:modelPicker:suggestedOpen';
+	function readSuggestedOpen(): boolean {
+		try {
+			return localStorage.getItem(SUGGESTED_OPEN_KEY) === '1';
+		} catch {
+			return false;
+		}
+	}
+	let storedOpen = readSuggestedOpen();
+	let chosenOpen: boolean | null = null;
+	$: noModelInstalled =
+		fetchedOnce && !loading && models.length === 0 && !searchQuery && tagFilters.length === 0 && !favoritesOnly;
+	$: suggestedOpen = chosenOpen ?? (noModelInstalled ? true : storedOpen);
+	function toggleSuggested() {
+		chosenOpen = !suggestedOpen;
+		storedOpen = chosenOpen;
+		try {
+			localStorage.setItem(SUGGESTED_OPEN_KEY, chosenOpen ? '1' : '0');
+		} catch {
+			return;
+		}
+	}
 
 	$: visibleModels = models.filter((m) => !excludeIds.has(m.id));
 	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
@@ -82,13 +106,23 @@
 		visibleModels.length === 0 &&
 		(isAdmin ? !!setupRecipe : true);
 	$: showVariantSuggestions = pickerView === 'global' && isAdmin && !!presetId && !searchQuery;
-	$: if (!showVariantSuggestions) recipeVariantFilenames = new Set();
+	$: if (!showVariantSuggestions) {
+		recipeVariantFilenames = new Set();
+		suggestionCount = 0;
+	}
 	$: dedupedRecommendations = recommendations && recipeVariantFilenames.size > 0
 		? recommendations.filter((r) => !recipeVariantFilenames.has(r.name))
 		: recommendations;
 	$: pickerEntries = dedupedRecommendations
 		? buildModelPickerEntries(visibleModels, dedupedRecommendations)
 		: visibleModels.map((model) => ({ kind: 'model' as const, model }));
+
+	$: downloadEntries =
+		pickerView === 'global' && fetchedOnce && !loading
+			? pickerEntries.flatMap((e) => (e.kind === 'recommended-download' ? [e] : []))
+			: [];
+	$: listEntries = pickerEntries.flatMap((e) => (e.kind === 'recommended-download' ? [] : [e]));
+	$: totalSuggested = suggestionCount + downloadEntries.length;
 
 	async function resolveTagIds(names: string[], signal: AbortSignal): Promise<string[]> {
 		if (names.length === 0) return [];
@@ -465,77 +499,96 @@
 	</div>
 {/if}
 
-{#if showVariantSuggestions}
-	<PickerVariantSuggestions {presetId} {modelType} onInstalled={() => fetchModels()} onSlotFilenames={(f) => (recipeVariantFilenames = f)} />
+{#if pickerView === 'global' && totalSuggested > 0}
+	<button
+		type="button"
+		class="flex w-full items-center gap-2 px-3 py-2 text-left border-b border-line bg-surface-1 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal"
+		aria-expanded={suggestedOpen}
+		aria-controls="model-picker-suggested"
+		data-picker-suggested-toggle
+		on:click|stopPropagation={toggleSuggested}
+	>
+		<Icon name={suggestedOpen ? 'chevron-down' : 'chevron-right'} className="w-3.5 h-3.5 text-fg-subtle" />
+		<span class="text-xs font-semibold font-mono uppercase tracking-wide text-fg-muted">Suggested</span>
+		<Badge size="sm" class="font-mono tabular-nums">{totalSuggested}</Badge>
+	</button>
 {/if}
+<div id="model-picker-suggested" hidden={!suggestedOpen || totalSuggested === 0}>
+	{#if showVariantSuggestions}
+		<PickerVariantSuggestions
+			{presetId}
+			{modelType}
+			onInstalled={() => fetchModels()}
+			onSlotFilenames={(f) => (recipeVariantFilenames = f)}
+			onCount={(n) => (suggestionCount = n)}
+		/>
+	{/if}
+	{#each downloadEntries as entry (entry.recommendation.name)}
+		{@const recommendation = entry.recommendation}
+		{@const downloadState = downloadStates[recommendation.name] || initialModelDownloadState}
+		{@const downloading = downloadState.phase === 'starting' || downloadState.phase === 'polling'}
+		<div class="flex flex-col gap-1.5 px-3 py-2.5 border-b border-line bg-surface-1" data-recommended-download>
+			<div class="flex items-center gap-2 min-w-0">
+				<span class="min-w-0 truncate text-sm font-semibold text-fg">{recommendation.name}</span>
+				<span class="flex-1"></span>
+				{#if recommendation.size}
+					<span class="shrink-0 font-mono tabular-nums text-sm text-fg-muted">{recommendation.size}</span>
+				{/if}
+				{#if downloadState.phase === 'completed'}
+					<Badge variant="success" class="shrink-0">Downloaded</Badge>
+				{:else if downloadState.phase !== 'forbidden'}
+					<Button
+						size="xs"
+						variant="secondary"
+						icon="download"
+						loading={downloading}
+						disabled={downloading}
+						onclick={(event) => {
+							event.stopPropagation();
+							startRecommendationDownload(recommendation);
+						}}
+					>
+						Download
+					</Button>
+				{/if}
+			</div>
+			{#if recommendation.description}
+				<div class="truncate text-xs text-fg-subtle">{recommendation.description}</div>
+			{/if}
+			{#if downloading}
+				<div class="flex items-center gap-2">
+					<div class="h-1 flex-1 bg-surface-3 rounded-sm overflow-hidden">
+						<div
+							class="h-full bg-signal-solid transition-all duration-300"
+							style="width: {Math.round((downloadState.progress ?? 0) * 100)}%"
+						></div>
+					</div>
+					<span class="font-mono text-xs tabular-nums text-fg-muted">
+						{downloadState.progress != null ? `${Math.round(downloadState.progress * 100)}%` : '…'}
+					</span>
+				</div>
+			{:else if downloadState.phase === 'failed'}
+				<div class="text-xs text-danger">{downloadState.error || 'Download failed'}</div>
+			{:else if downloadState.phase === 'forbidden'}
+				<div class="text-xs text-fg-subtle">Admin permission required to download this model.</div>
+			{/if}
+		</div>
+	{/each}
+</div>
 
 {#if pickerView === 'collections'}
 	<ModelCollectionBrowser {modelType} {limit} search={searchQuery} {excludeIds} {onSelect} />
 {:else if loading}
 	<div class="p-3 text-center text-fg-muted text-sm">Loading models...</div>
-{:else if pickerEntries.length > 0}
-	{#each pickerEntries as entry}
-		{#if entry.kind === 'recommended-download'}
-			{@const recommendation = entry.recommendation}
-			{@const downloadState = downloadStates[recommendation.name] || initialModelDownloadState}
-			<div class="w-full flex gap-3 items-center p-2.5 border-b border-line last:border-b-0 border-l-2 border-l-info text-left">
-				<div class="w-12 h-12 shrink-0 bg-surface-3 rounded-md flex items-center justify-center text-fg-subtle">
-					<Icon name="download" className="w-5 h-5" />
-				</div>
-				<div class="flex-1 min-w-0">
-					<div class="flex items-center gap-1.5 min-w-0">
-						<span class="text-sm font-medium text-fg truncate" title={recommendation.name}>{recommendation.name}</span>
-						<Badge variant="info" size="sm">Suggested</Badge>
-					</div>
-					{#if recommendation.description}
-						<div class="truncate text-xs text-fg-subtle mt-0.5">{recommendation.description}</div>
-					{/if}
-					{#if recommendation.size}
-						<div class="font-mono text-2xs tabular-nums text-fg-subtle mt-0.5">{recommendation.size}</div>
-					{/if}
-					{#if downloadState.phase === 'starting' || downloadState.phase === 'polling'}
-						<div class="mt-1.5 flex items-center gap-2">
-							<div class="h-1 flex-1 bg-surface-3 rounded-sm overflow-hidden">
-								<div
-									class="h-full bg-signal-solid transition-all duration-300"
-									style="width: {Math.round((downloadState.progress ?? 0) * 100)}%"
-								></div>
-							</div>
-							<span class="font-mono text-2xs tabular-nums text-fg-muted">
-								{downloadState.progress != null ? `${Math.round(downloadState.progress * 100)}%` : '…'}
-							</span>
-						</div>
-					{:else if downloadState.phase === 'failed'}
-						<div class="mt-1 text-2xs text-danger">{downloadState.error || 'Download failed'}</div>
-					{:else if downloadState.phase === 'forbidden'}
-						<div class="mt-1 text-2xs text-fg-subtle">Admin permission required to download this model.</div>
-					{/if}
-				</div>
-				{#if downloadState.phase !== 'forbidden'}
-					<button
-						type="button"
-						on:click|stopPropagation={() => startRecommendationDownload(recommendation)}
-						disabled={downloadState.phase === 'starting' || downloadState.phase === 'polling'}
-						class="shrink-0 p-1.5 hover:bg-surface-3 rounded text-fg-muted disabled:opacity-50"
-						title={downloadState.phase === 'completed' ? 'Downloaded' : 'Download this model'}
-					>
-						{#if downloadState.phase === 'starting' || downloadState.phase === 'polling'}
-							<Spinner size="sm" />
-						{:else}
-							<Icon name={downloadState.phase === 'completed' ? 'check' : 'download'} className="w-4 h-4" />
-						{/if}
-					</button>
-				{/if}
-			</div>
-		{:else}
-			<ModelResultRow
-				model={entry.model}
-				size={rowSize}
-				{onSelect}
-				onToggleFavorite={toggleFavorite}
-				accented={entry.kind === 'recommended-model'}
-			/>
-		{/if}
+{:else if listEntries.length > 0}
+	{#each listEntries as entry}
+		<ModelResultRow
+			model={entry.model}
+			size={rowSize}
+			{onSelect}
+			onToggleFavorite={toggleFavorite}
+			accented={entry.kind === 'recommended-model'}
+		/>
 	{/each}
 {:else if unindexedForType > 0}
 	<div class="p-3 text-center text-fg-muted text-sm">

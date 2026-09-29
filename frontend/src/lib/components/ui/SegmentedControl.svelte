@@ -24,22 +24,24 @@
 		selected,
 		onSelect,
 		ariaLabel = 'View switcher',
-		variant = 'nav'
+		variant = 'nav',
+		fullWidth = false
 	}: {
 		items: Item[];
 		selected: string;
 		onSelect: (id: string) => void;
 		ariaLabel?: string;
 		variant?: 'nav' | 'toggle';
+		fullWidth?: boolean;
 	} = $props();
 </script>
 
 {#if variant === 'toggle'}
-	<div class="inline-flex items-center gap-0.5 rounded border border-line bg-surface-2 p-0.5" role="group" aria-label={ariaLabel}>
+	<div class="{fullWidth ? 'flex w-full' : 'inline-flex'} items-center gap-0.5 rounded border border-line bg-surface-2 p-0.5" role="group" aria-label={ariaLabel}>
 		{#each items as item (item.id)}
 			<button
 				type="button"
-				class="rounded px-2.5 py-1 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {item.id ===
+				class="rounded px-2.5 py-1 text-sm font-medium transition-colors {fullWidth ? 'min-w-0 flex-1 truncate' : ''} disabled:cursor-not-allowed disabled:opacity-50 {item.id ===
 				selected
 					? 'bg-surface-3 text-fg'
 					: 'text-fg-muted hover:text-fg'}"

@@ -50,6 +50,7 @@
 	let selectedTags: string[] = [];
 	let providerChoice = AUTO_PROVIDER;
 	let destinationBackendId = '';
+	let destinationMode: 'local' | 'remote' = 'local';
 	let checksumSha256 = '';
 	let submitting = false;
 	let errorMessage = '';
@@ -71,11 +72,6 @@
 	$: detection = detectUrl(url, providers);
 	$: selectedProviderId = selectedProviderValue(providerChoice, detection.provider);
 	$: activeProvider = providers.find((p) => p.id === selectedProviderId) ?? null;
-	$: destinationItems = [
-		{ id: '', label: 'This machine', icon: 'monitor' },
-		...$remoteBackends.map((b) => ({ id: b.id, label: b.name, icon: 'server' }))
-	];
-	$: useSegmentedDestination = destinationItems.length <= 4;
 	$: selectedTypeEntry = modelTypes.find((t) => t.type === destinationType);
 	$: availableSubdirs = selectedTypeEntry?.subdirectories ?? [];
 	$: subdirNodes = buildSubdirNodes(availableSubdirs);
@@ -91,7 +87,6 @@
 			? `${selectedTypeEntry.directory ?? ''}/${effectiveSubdir}`
 			: (selectedTypeEntry.directory ?? '')
 		: 'models';
-	$: breadcrumbSegments = selectedDirectory.split('/').filter(Boolean);
 	// Reset to the type's root whenever the chosen type changes, including
 	// when a previously picked subfolder doesn't exist under the new type.
 	$: if (destinationType) {
@@ -146,6 +141,11 @@
 		} finally {
 			loadingData = false;
 		}
+	}
+
+	function selectDestinationMode(mode: string) {
+		destinationMode = mode === 'remote' ? 'remote' : 'local';
+		destinationBackendId = destinationMode === 'remote' ? ($remoteBackends[0]?.id ?? '') : '';
 	}
 
 	async function searchTags(query: string) {
@@ -388,147 +388,147 @@
 				</div>
 			{/if}
 
-			<div class="grid grid-cols-2 gap-4">
-				{#if $remoteBackends.length > 0}
-					<div>
-						<span class="block text-xs font-mono uppercase tracking-[0.06em] text-fg-subtle mb-1.5">Destination</span>
-						{#if useSegmentedDestination}
-							<SegmentedControl
-								items={destinationItems}
-								selected={destinationBackendId}
-								onSelect={(id) => (destinationBackendId = id)}
-								ariaLabel="Destination"
-							/>
-						{:else}
-							<select bind:value={destinationBackendId} class="input">
-								<option value="">Local</option>
-								{#each $remoteBackends as backend}
-									<option value={backend.id}>{backend.name}</option>
-								{/each}
-							</select>
-						{/if}
-					</div>
-				{/if}
+			{#if $remoteBackends.length > 0}
+				<div>
+					<span class="block text-xs font-mono uppercase tracking-[0.06em] text-fg-subtle mb-1.5">Destination</span>
+					<SegmentedControl
+						variant="toggle"
+						fullWidth
+						items={[
+							{ id: 'local', label: 'This machine' },
+							{ id: 'remote', label: 'Remote' }
+						]}
+						selected={destinationMode}
+						onSelect={selectDestinationMode}
+						ariaLabel="Destination"
+					/>
+					{#if destinationMode === 'remote'}
+						<label for="remote-backend" class="block text-xs font-mono uppercase tracking-[0.06em] text-fg-subtle mb-1.5 mt-3">
+							Remote backend
+						</label>
+						<select id="remote-backend" bind:value={destinationBackendId} class="input">
+							{#each $remoteBackends as backend (backend.id)}
+								<option value={backend.id}>{backend.name}</option>
+							{/each}
+						</select>
+					{/if}
+				</div>
+			{/if}
 
-				<div class={$remoteBackends.length > 0 ? '' : 'col-span-2'}>
-					<span class="block text-xs font-mono uppercase tracking-[0.06em] text-fg-subtle mb-1.5">
-						Model type
-					</span>
-					<div class="flex flex-wrap gap-1.5" role="group" aria-label="Model type">
-						{#each modelTypes as modelType (modelType.type)}
-							<button
-								type="button"
-								class="inline-flex items-center gap-1.5 rounded border px-2.5 py-1 font-mono text-xs uppercase tracking-wide transition-colors {destinationType ===
-								modelType.type
-									? 'border-signal/40 bg-signal/10 text-signal'
-									: modelType.count === 0
-										? 'border-line text-fg-subtle hover:bg-surface-2 hover:text-fg-muted'
-										: 'border-line text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-								aria-pressed={destinationType === modelType.type}
-								onclick={() => (destinationType = modelType.type)}
-							>
-								{modelType.type}
-								<span class="text-2xs tabular-nums opacity-70">{modelType.count}</span>
-							</button>
-						{/each}
-					</div>
-
-					<span class="block text-xs font-mono uppercase tracking-[0.06em] text-fg-subtle mb-1.5 mt-3">
-						Subfolder
-					</span>
-					<div
-						class="max-h-[220px] overflow-y-auto rounded border border-line bg-surface-2"
-						role="listbox"
-						aria-label="Subfolder"
-					>
+			<div>
+				<span class="block text-xs font-mono uppercase tracking-[0.06em] text-fg-subtle mb-1.5">Model type</span>
+				<div class="flex flex-wrap gap-1.5" role="group" aria-label="Model type">
+					{#each modelTypes as modelType (modelType.type)}
 						<button
 							type="button"
-							class="flex w-full items-center gap-1.5 border-l-2 py-1.5 pl-2.5 pr-2 text-left text-sm transition-colors {destinationSubdir ===
-							''
+							class="inline-flex items-center gap-1.5 rounded border px-2.5 py-1 font-mono text-xs uppercase tracking-wide transition-colors {destinationType ===
+							modelType.type
+								? 'border-signal/40 bg-signal/10 text-signal'
+								: modelType.count === 0
+									? 'border-line text-fg-subtle hover:bg-surface-2 hover:text-fg-muted'
+									: 'border-line text-fg-muted hover:bg-surface-2 hover:text-fg'}"
+							aria-pressed={destinationType === modelType.type}
+							onclick={() => (destinationType = modelType.type)}
+						>
+							{modelType.type}
+							<span class="text-2xs tabular-nums opacity-70">{modelType.count}</span>
+						</button>
+					{/each}
+				</div>
+			</div>
+
+			<div>
+				<span class="block text-xs font-mono uppercase tracking-[0.06em] text-fg-subtle mb-1.5">Subfolder</span>
+				<div
+					class="max-h-[220px] overflow-y-auto rounded border border-line bg-surface-2"
+					role="listbox"
+					aria-label="Subfolder"
+				>
+					<button
+						type="button"
+						class="flex w-full items-center gap-1.5 border-l-2 py-1.5 pl-2.5 pr-2 text-left text-sm transition-colors {destinationSubdir ===
+						''
+							? 'border-signal bg-signal/6 text-signal'
+							: 'border-transparent text-fg-muted hover:bg-surface-3 hover:text-fg'}"
+						aria-pressed={destinationSubdir === ''}
+						onclick={() => selectSubdir('')}
+					>
+						<Icon
+							name="folder"
+							className="w-3.5 h-3.5 flex-shrink-0 {destinationSubdir === '' ? 'text-signal' : 'text-fg-subtle'}"
+						/>
+						<span class="font-mono">/</span>
+						<span class="ml-auto flex-shrink-0 text-xs text-fg-subtle">root</span>
+					</button>
+
+					{#each subdirNodes as node (node.path)}
+						<button
+							type="button"
+							class="flex w-full items-center gap-1.5 border-l-2 py-1.5 pr-2 text-left text-sm transition-colors {destinationSubdir ===
+							node.path
 								? 'border-signal bg-signal/6 text-signal'
 								: 'border-transparent text-fg-muted hover:bg-surface-3 hover:text-fg'}"
-							aria-pressed={destinationSubdir === ''}
-							onclick={() => selectSubdir('')}
+							style="padding-left: {node.depth * 14 + 10}px"
+							aria-pressed={destinationSubdir === node.path}
+							onclick={() => selectSubdir(node.path)}
 						>
 							<Icon
 								name="folder"
-								className="w-3.5 h-3.5 flex-shrink-0 {destinationSubdir === '' ? 'text-signal' : 'text-fg-subtle'}"
+								className="w-3.5 h-3.5 flex-shrink-0 {destinationSubdir === node.path
+									? 'text-signal'
+									: 'text-fg-subtle'}"
 							/>
-							<span class="font-mono">/</span>
-							<span class="ml-auto flex-shrink-0 text-xs text-fg-subtle">root</span>
+							<span class="truncate">
+								{#if node.parentLabel}<span class="text-fg-subtle">{node.parentLabel} / </span>{/if}<span
+									class={destinationSubdir === node.path ? '' : 'font-medium'}>{node.leaf}</span
+								>
+							</span>
 						</button>
+					{/each}
 
-						{#each subdirNodes as node (node.path)}
-							<button
-								type="button"
-								class="flex w-full items-center gap-1.5 border-l-2 py-1.5 pr-2 text-left text-sm transition-colors {destinationSubdir ===
-								node.path
-									? 'border-signal bg-signal/6 text-signal'
-									: 'border-transparent text-fg-muted hover:bg-surface-3 hover:text-fg'}"
-								style="padding-left: {node.depth * 14 + 10}px"
-								aria-pressed={destinationSubdir === node.path}
-								onclick={() => selectSubdir(node.path)}
-							>
-								<Icon
-									name="folder"
-									className="w-3.5 h-3.5 flex-shrink-0 {destinationSubdir === node.path
-										? 'text-signal'
-										: 'text-fg-subtle'}"
-								/>
-								<span class="truncate">
-									{#if node.parentLabel}<span class="text-fg-subtle">{node.parentLabel} / </span>{/if}<span
-										class={destinationSubdir === node.path ? '' : 'font-medium'}>{node.leaf}</span
-									>
-								</span>
-							</button>
-						{/each}
+					{#if destinationSubdir === NEW_SUBDIR && !editingSubdir}
+						<button
+							type="button"
+							class="flex w-full items-center gap-1.5 border-l-2 border-signal bg-signal/6 py-1.5 pl-2.5 pr-2 text-left text-sm text-signal transition-colors"
+							aria-pressed="true"
+							onclick={reopenSubdirEdit}
+						>
+							<Icon name="folder-plus" className="w-3.5 h-3.5 flex-shrink-0 text-signal" />
+							<span class="truncate">{customSubdir}</span>
+							<Badge variant="signal" size="sm" class="ml-auto flex-shrink-0">new</Badge>
+						</button>
+					{/if}
 
-						{#if destinationSubdir === NEW_SUBDIR && !editingSubdir}
-							<button
-								type="button"
-								class="flex w-full items-center gap-1.5 border-l-2 border-signal bg-signal/6 py-1.5 pl-2.5 pr-2 text-left text-sm text-signal transition-colors"
-								aria-pressed="true"
-								onclick={reopenSubdirEdit}
-							>
-								<Icon name="folder-plus" className="w-3.5 h-3.5 flex-shrink-0 text-signal" />
-								<span class="truncate">{customSubdir}</span>
-								<Badge variant="signal" size="sm" class="ml-auto flex-shrink-0">new</Badge>
-							</button>
-						{/if}
-
-						{#if editingSubdir}
-							<div class="flex items-center gap-1.5 border-l-2 border-signal bg-signal/6 py-1.5 pl-2.5 pr-2">
-								<Icon name="folder-plus" className="w-3.5 h-3.5 flex-shrink-0 text-signal" />
-								<input
-									type="text"
-									bind:value={customSubdir}
-									bind:this={newSubdirInput}
-									placeholder="sdxl/characters"
-									class="input min-h-0 flex-1 bg-surface-1 px-1.5 py-0.5 font-mono text-xs"
-									aria-label="New subfolder path"
-									onkeydown={handleNewSubdirKeydown}
-									onblur={commitNewSubdir}
-								/>
-							</div>
-						{:else}
-							<button
-								type="button"
-								class="flex w-full items-center gap-1.5 border-t border-line py-1.5 pl-2.5 pr-2 text-left font-mono text-xs uppercase tracking-wide text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg-muted"
-								onclick={startNewSubdir}
-							>
-								<Icon name="plus" className="w-3.5 h-3.5 flex-shrink-0" />
-								New folder
-							</button>
-						{/if}
-					</div>
-
-					<p class="mt-1.5 flex items-center gap-1 overflow-x-auto font-mono text-xs text-fg-subtle">
-						{#each breadcrumbSegments as segment, i (i)}
-							{#if i > 0}<span class="text-line-hover">/</span>{/if}
-							<span class={i === breadcrumbSegments.length - 1 ? 'text-signal' : ''}>{segment}</span>
-						{/each}
-					</p>
+					{#if editingSubdir}
+						<div class="flex items-center gap-1.5 border-l-2 border-signal bg-signal/6 py-1.5 pl-2.5 pr-2">
+							<Icon name="folder-plus" className="w-3.5 h-3.5 flex-shrink-0 text-signal" />
+							<input
+								type="text"
+								bind:value={customSubdir}
+								bind:this={newSubdirInput}
+								placeholder="sdxl/characters"
+								class="input min-h-0 flex-1 bg-surface-1 px-1.5 py-0.5 font-mono text-xs"
+								aria-label="New subfolder path"
+								onkeydown={handleNewSubdirKeydown}
+								onblur={commitNewSubdir}
+							/>
+						</div>
+					{:else}
+						<button
+							type="button"
+							class="flex w-full items-center gap-1.5 border-t border-line py-1.5 pl-2.5 pr-2 text-left font-mono text-xs uppercase tracking-wide text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg-muted"
+							onclick={startNewSubdir}
+						>
+							<Icon name="plus" className="w-3.5 h-3.5 flex-shrink-0" />
+							New folder
+						</button>
+					{/if}
 				</div>
+				<Tooltip text={selectedDirectory} wrapperClass="mt-1.5 block min-w-0">
+					<p class="flex items-center gap-1 overflow-hidden font-mono text-xs tabular-nums text-fg-subtle" data-testid="subfolder-path">
+						<span class="truncate">{selectedDirectory}</span>
+					</p>
+				</Tooltip>
 			</div>
 
 			<!-- Advanced -->

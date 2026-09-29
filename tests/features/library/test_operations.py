@@ -59,16 +59,7 @@ class LibraryTestBase(PersistenceTestBase):
         self.other_user_id = self.create_test_user("other_user", "other", "other@example.com")
 
     def tearDown(self):
-        # PersistenceTestBase removes its temp dir with os.rmdir, which fails if
-        # anything this test wrote is still in it.
-        import shutil
-        for child in Path(self.temp_dir).iterdir():
-            if child == self.temp_db_path:
-                continue
-            if child.is_dir():
-                shutil.rmtree(child, ignore_errors=True)
-            else:
-                child.unlink()
+        self.remove_scratch_files()
         super().tearDown()
 
     # --- fixtures ---

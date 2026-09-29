@@ -83,9 +83,7 @@ class PersistenceTestBase(unittest.TestCase):
 
         self._restore_patched_db()
 
-        keeper = getattr(getattr(self, "db", None), "_keeper", None)
-        if keeper is not None:
-            keeper.close()
+        self.close_database_keeper()
 
         if self.temp_db_path.exists():
             self.temp_db_path.unlink()
@@ -93,6 +91,24 @@ class PersistenceTestBase(unittest.TestCase):
 
         # Reset singleton for next test
         Database._instance = None
+
+    def close_database_keeper(self):
+        db = getattr(self, "db", None)
+        keeper = getattr(db, "_keeper", None)
+        if keeper is not None:
+            keeper.close()
+            db._keeper = None
+
+    def remove_scratch_files(self):
+        import shutil
+        self.close_database_keeper()
+        for child in Path(self.temp_dir).iterdir():
+            if child == self.temp_db_path:
+                continue
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink()
 
     def _restore_patched_db(self):
         """Point every module that was redirected at the temp database back at

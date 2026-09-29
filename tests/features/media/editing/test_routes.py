@@ -91,15 +91,7 @@ class MediaEditRoutesTestBase(PersistenceTestBase):
 
     def tearDown(self):
         self.client.close()
-        # PersistenceTestBase removes its temp dir with os.rmdir, which fails if
-        # anything this test wrote is still in it.
-        for child in Path(self.temp_dir).iterdir():
-            if child == self.temp_db_path:
-                continue
-            if child.is_dir():
-                shutil.rmtree(child, ignore_errors=True)
-            else:
-                child.unlink()
+        self.remove_scratch_files()
         super().tearDown()
 
     # --- fixtures ---

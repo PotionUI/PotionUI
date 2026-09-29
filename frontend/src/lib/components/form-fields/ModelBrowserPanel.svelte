@@ -18,13 +18,15 @@
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import { authStore } from '$lib/stores/auth';
-	import { Badge, Button, Spinner } from '$lib/components/ui';
+	import { AdminOnlyMark, Badge, Button, Spinner } from '$lib/components/ui';
 	import Icon from '../Icon.svelte';
 	import Tooltip from '../Tooltip.svelte';
 	import { loadPresets as loadPresetCatalog } from '$lib/stores/presetsCatalog';
 	import ModelResultRow from './ModelResultRow.svelte';
 	import ModelCollectionBrowser from './ModelCollectionBrowser.svelte';
 	import PickerVariantSuggestions from '../recipes/PickerVariantSuggestions.svelte';
+	import VariantAttributionNote from '../recipes/VariantAttributionNote.svelte';
+	import { collectAttributions } from '../recipes/variantAttribution';
 	import { buildModelSearchRequest } from '$lib/utils/modelSearchParams';
 	import { toggleModelFavoriteOptimistic } from '$lib/utils/modelFavorite';
 	import { buildModelPickerEntries, downloadPayloadForRecommendation } from '$lib/utils/modelRecommendations';
@@ -68,6 +70,7 @@
 	let presetRecipes: PresetRecipeLink[] = [];
 	let recipeVariantFilenames: Set<string> = new Set();
 	let suggestionCount = 0;
+	let variantAttributions: ReturnType<typeof collectAttributions> = [];
 
 	const SUGGESTED_OPEN_KEY = 'potionui:modelPicker:suggestedOpen';
 	function readSuggestedOpen(): boolean {
@@ -79,9 +82,7 @@
 	}
 	let storedOpen = readSuggestedOpen();
 	let chosenOpen: boolean | null = null;
-	$: noModelInstalled =
-		fetchedOnce && !loading && models.length === 0 && !searchQuery && tagFilters.length === 0 && !favoritesOnly;
-	$: suggestedOpen = chosenOpen ?? (noModelInstalled ? true : storedOpen);
+	$: suggestedOpen = chosenOpen ?? storedOpen;
 	function toggleSuggested() {
 		chosenOpen = !suggestedOpen;
 		storedOpen = chosenOpen;
@@ -109,6 +110,7 @@
 	$: if (!showVariantSuggestions) {
 		recipeVariantFilenames = new Set();
 		suggestionCount = 0;
+		variantAttributions = [];
 	}
 	$: dedupedRecommendations = recommendations && recipeVariantFilenames.size > 0
 		? recommendations.filter((r) => !recipeVariantFilenames.has(r.name))
@@ -488,6 +490,7 @@
 		<Icon name="info" className="h-4 w-4 shrink-0 text-fg-subtle" />
 		{#if isAdmin && setupRecipe}
 			<p class="min-w-0 flex-1 text-sm text-fg-muted">No model installed for this preset.</p>
+			<AdminOnlyMark />
 			<Tooltip text={setupRecipe.name}>
 				<Button size="xs" variant="primary" href="/admin?tab=recipes&id={encodeURIComponent(setupRecipe.id)}">
 					Set up with recipe
@@ -511,6 +514,9 @@
 		<Icon name={suggestedOpen ? 'chevron-down' : 'chevron-right'} className="w-3.5 h-3.5 text-fg-subtle" />
 		<span class="text-xs font-semibold font-mono uppercase tracking-wide text-fg-muted">Suggested</span>
 		<Badge size="sm" class="font-mono tabular-nums">{totalSuggested}</Badge>
+		{#if isAdmin && suggestionCount > 0}
+			<AdminOnlyMark />
+		{/if}
 	</button>
 {/if}
 <div id="model-picker-suggested" hidden={!suggestedOpen || totalSuggested === 0}>
@@ -521,6 +527,7 @@
 			onInstalled={() => fetchModels()}
 			onSlotFilenames={(f) => (recipeVariantFilenames = f)}
 			onCount={(n) => (suggestionCount = n)}
+			onAttributions={(a) => (variantAttributions = a)}
 		/>
 	{/if}
 	{#each downloadEntries as entry (entry.recommendation.name)}
@@ -529,7 +536,13 @@
 		{@const downloading = downloadState.phase === 'starting' || downloadState.phase === 'polling'}
 		<div class="flex flex-col gap-1.5 px-3 py-2.5 border-b border-line bg-surface-1" data-recommended-download>
 			<div class="flex items-center gap-2 min-w-0">
-				<span class="min-w-0 truncate text-sm font-semibold text-fg">{recommendation.name}</span>
+				{#if recommendation.description}
+					<Tooltip text={recommendation.description} wrapperClass="flex min-w-0">
+						<span class="min-w-0 truncate text-sm font-semibold text-fg">{recommendation.name}</span>
+					</Tooltip>
+				{:else}
+					<span class="min-w-0 truncate text-sm font-semibold text-fg">{recommendation.name}</span>
+				{/if}
 				<span class="flex-1"></span>
 				{#if recommendation.size}
 					<span class="shrink-0 font-mono tabular-nums text-sm text-fg-muted">{recommendation.size}</span>
@@ -552,9 +565,6 @@
 					</Button>
 				{/if}
 			</div>
-			{#if recommendation.description}
-				<div class="truncate text-xs text-fg-subtle">{recommendation.description}</div>
-			{/if}
 			{#if downloading}
 				<div class="flex items-center gap-2">
 					<div class="h-1 flex-1 bg-surface-3 rounded-sm overflow-hidden">
@@ -572,6 +582,11 @@
 			{:else if downloadState.phase === 'forbidden'}
 				<div class="text-xs text-fg-subtle">Admin permission required to download this model.</div>
 			{/if}
+		</div>
+	{/each}
+	{#each variantAttributions as attribution (attribution.uploader + '|' + (attribution.source_url ?? ''))}
+		<div class="px-3 pb-2 pt-1 border-b border-line bg-surface-1" data-variant-attribution-slot>
+			<VariantAttributionNote {attribution} />
 		</div>
 	{/each}
 </div>

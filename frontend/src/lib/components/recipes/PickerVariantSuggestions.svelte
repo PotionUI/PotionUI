@@ -4,7 +4,6 @@
 	import { logger } from '$lib/utils/logger';
 	import type { RecipeSlotVariants } from '$lib/services/api/recipes';
 	import SlotVariantRow from './SlotVariantRow.svelte';
-	import VariantAttributionNote from './VariantAttributionNote.svelte';
 	import { collectAttributions } from './variantAttribution';
 	import { SlotVariantDownloads } from './slotVariantDownloads.svelte';
 
@@ -13,13 +12,15 @@
 		modelType,
 		onInstalled = () => {},
 		onSlotFilenames = () => {},
-		onCount = () => {}
+		onCount = () => {},
+		onAttributions = () => {}
 	}: {
 		presetId: string;
 		modelType: string;
 		onInstalled?: () => void;
 		onSlotFilenames?: (filenames: Set<string>) => void;
 		onCount?: (count: number) => void;
+		onAttributions?: (attributions: ReturnType<typeof collectAttributions>) => void;
 	} = $props();
 
 	let slots = $state<RecipeSlotVariants[]>([]);
@@ -58,6 +59,9 @@
 			.filter((offer) => offer.rows.length > 0)
 	);
 	$effect(() => {
+		onAttributions(collectAttributions(offers.flatMap((offer) => offer.rows)));
+	});
+	$effect(() => {
 		onCount(offers.reduce((total, offer) => total + offer.rows.length, 0));
 	});
 </script>
@@ -78,11 +82,6 @@
 				download={downloads.stateFor(row.id)}
 				onDownload={() => downloads.start(offer.slot, row.id)}
 			/>
-		{/each}
-		{#each collectAttributions(offer.rows) as attribution (attribution.uploader + '|' + (attribution.source_url ?? ''))}
-			<div class="px-3 pb-2 pt-0.5">
-				<VariantAttributionNote {attribution} />
-			</div>
 		{/each}
 	</div>
 {/each}

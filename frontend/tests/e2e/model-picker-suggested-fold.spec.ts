@@ -107,32 +107,38 @@ test('Suggested is a flat, counted fold that opens on first run and is remembere
 
 		const toggle = page.locator('[data-picker-suggested-toggle]');
 		await expect(toggle).toBeVisible({ timeout: 15000 });
+		await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+		await expect(page.locator('#model-picker-suggested')).toBeHidden();
+		await screenshot(page, JOURNEY, `flat-collapsed-${viewport.name}`);
+
+		await toggle.focus();
+		await page.keyboard.press('Enter');
 		await expect(toggle).toHaveAttribute('aria-expanded', 'true');
 		await expect(page.locator('#model-picker-suggested [data-slot-variant="int8"]')).toBeVisible();
 		await expect(page.locator('[data-picker-other-variants-toggle]')).toHaveCount(0);
 		const rows = await renderedRows(page);
 		expect(rows).toBeGreaterThanOrEqual(2);
 		expect(await badgeText(page)).toBe(String(rows));
+		const order = await page.locator('#model-picker-suggested').evaluate((el) =>
+			Array.from(el.querySelectorAll('[data-slot-variant], [data-recommended-download], [data-variant-attribution]')).map(
+				(node) => (node.hasAttribute('data-variant-attribution') ? 'note' : 'row')
+			)
+		);
+		expect(order.lastIndexOf('row')).toBeLessThan(order.indexOf('note'));
+		await expect(toggle.locator('[data-admin-only-mark]')).toHaveAttribute('aria-label', 'Only admins see this');
+		expect(await page.evaluate((key) => localStorage.getItem(key), STORAGE_KEY)).toBe('1');
 		await screenshot(page, JOURNEY, `flat-expanded-${viewport.name}`);
-
-		await toggle.focus();
-		await page.keyboard.press('Enter');
-		await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-		await expect(page.locator('#model-picker-suggested')).toBeHidden();
-		expect(await page.evaluate((key) => localStorage.getItem(key), STORAGE_KEY)).toBe('0');
-		await screenshot(page, JOURNEY, `flat-collapsed-${viewport.name}`);
 
 		await mockVariants(page, []);
 		await reopen(page);
 		await openPicker(page);
-		await expect(page.getByText('No model installed').first()).toBeVisible({ timeout: 15000 });
-		await page.waitForTimeout(1500);
+		await page.waitForTimeout(3000);
 		const recommendedRows = await page.locator('#model-picker-suggested [data-recommended-download]').count();
 		if (recommendedRows > 0) {
 			expect(await badgeText(page)).toBe(String(recommendedRows));
 			await screenshot(page, JOURNEY, `recommended-only-${viewport.name}`);
 		} else {
-			await expect(toggle).toHaveCount(0);
+			await expect(page.locator('[data-picker-suggested-toggle]')).toHaveCount(0);
 			await screenshot(page, JOURNEY, `none-${viewport.name}`);
 		}
 	}

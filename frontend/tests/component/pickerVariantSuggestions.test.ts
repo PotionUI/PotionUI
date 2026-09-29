@@ -129,7 +129,8 @@ describe('model picker Suggested variants', () => {
 		expect(section.querySelector('[data-slot-variant="int8"]')).toBeNull();
 		expect(section.querySelector('[data-picker-other-variants-toggle]')).toBeNull();
 		expect(section.textContent).not.toContain('Other variants');
-		expect(section.querySelectorAll('[data-variant-attribution]').length).toBe(1);
+		expect(mounted.target.querySelectorAll('[data-variant-attribution]').length).toBe(1);
+		expect(section.querySelector('[data-variant-attribution]')).toBeNull();
 	});
 
 	it('shows the slot label only when more than one slot has suggestions', async () => {

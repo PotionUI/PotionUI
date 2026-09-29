@@ -222,19 +222,37 @@ describe('model picker Suggested fold', () => {
 		expect(panelBody().textContent).toContain('b.safetensors');
 	});
 
-	it('opens by default when no model is installed, even if the stored choice is closed', async () => {
-		localStorage.setItem(KEY, '0');
+	it('stays collapsed by default even when no model is installed and still shows the empty text', async () => {
 		authState.user = { account_type: 'ADMIN' };
 		setup([slot([variant('fp8', 'fp8'), variant('bf16', 'bf16')])], false);
 		mounted = mountPanel();
 		await settle();
 
-		expect(toggle()!.getAttribute('aria-expanded')).toBe('true');
-		expect(panelBody().hidden).toBe(false);
-
-		toggle()!.click();
-		await settle();
 		expect(toggle()!.getAttribute('aria-expanded')).toBe('false');
+		expect(panelBody().hidden).toBe(true);
+		expect(mounted.target.textContent).toContain('No models found');
+	});
+
+	it('renders variant rows and suggested downloads as one list with attribution last', async () => {
+		localStorage.setItem(KEY, '1');
+		authState.user = { account_type: 'ADMIN' };
+		setup([slot([variant('fp8', 'fp8'), variant('bf16', 'bf16')])]);
+		mounted = mountPanel({
+			recommendations: [{ name: 'a.safetensors', link: 'https://example.com/a', sha256: 'x' }]
+		});
+		await settle();
+
+		const body = panelBody();
+		const items = Array.from(
+			body.querySelectorAll('[data-slot-variant], [data-recommended-download], [data-variant-attribution]')
+		).map((el) =>
+			el.hasAttribute('data-variant-attribution')
+				? 'attribution'
+				: el.hasAttribute('data-recommended-download')
+					? 'download'
+					: 'variant'
+		);
+		expect(items).toEqual(['variant', 'variant', 'download', 'attribution']);
 	});
 
 	it('count equals the number of variant rows', async () => {
@@ -302,5 +320,35 @@ describe('model picker Suggested fold', () => {
 		});
 		await settle();
 		expect(mounted.target.textContent).toContain('Installed');
+	});
+
+	it('marks the admin-only parts for an admin', async () => {
+		authState.user = { account_type: 'ADMIN' };
+		setup([slot([variant('fp8', 'fp8')])], false);
+		vi.mocked(api.listPresets).mockResolvedValue({
+			success: true,
+			data: [{ id: 'krea2', name: 'Krea-2', version: '1', tags: [], recipes: [{ id: 'r1', name: 'Krea-2 Starter', readiness: 'available', total_download_bytes: null }] }]
+		} as never);
+		mounted = mountPanel({ required: true });
+		await settle();
+
+		expect(toggle()!.querySelector('[data-admin-only-mark]')).not.toBeNull();
+		expect(mounted.target.querySelectorAll('[data-admin-only-mark]').length).toBeGreaterThanOrEqual(1);
+		expect(
+			mounted.target.querySelector('[data-admin-only-mark][aria-label="Only admins see this"]')
+		).not.toBeNull();
+	});
+
+	it('renders no admin-only mark for a regular user', async () => {
+		authState.user = { account_type: 'USER' };
+		setup([slot([variant('fp8', 'fp8')])], false);
+		mounted = mountPanel({
+			required: true,
+			recommendations: [{ name: 'a.safetensors', link: 'https://example.com/a', sha256: 'x' }]
+		});
+		await settle();
+
+		expect(toggle()).not.toBeNull();
+		expect(mounted.target.querySelector('[data-admin-only-mark]')).toBeNull();
 	});
 });

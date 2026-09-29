@@ -47,8 +47,11 @@ export function createSessionsApi(client: AxiosInstance) {
 		},
 
 		// Session history — newest first, [] when the session has no prior saves.
-		async getSessionVersions(sessionId: string): Promise<APIResponse<SessionVersionSummary[]>> {
-			const response = await client.get(`/api/sessions/${sessionId}/versions`);
+		async getSessionVersions(
+			sessionId: string,
+			page?: { limit?: number; before?: number }
+		): Promise<APIResponse<SessionVersionSummary[]>> {
+			const response = await client.get(`/api/sessions/${sessionId}/versions`, { params: page });
 			return response.data;
 		},
 

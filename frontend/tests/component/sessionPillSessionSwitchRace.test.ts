@@ -15,7 +15,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('$lib/services/api/index', () => ({
 	api: {
 		getSessionsForPreset: vi.fn(),
-		getSessionById: vi.fn()
+		getSessionById: vi.fn(),
+		getSessionVersions: vi.fn(async () => ({ success: true, data: [] }))
 	}
 }));
 
@@ -60,10 +61,15 @@ function mountPill(tabId: string) {
 			target.querySelector<HTMLButtonElement>('button[aria-label="Session"]')!.click();
 		},
 		clickSession: (sessionId: string) => {
-			const row = Array.from(target.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(
+			const row = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[data-session-row]')).find(
 				(el) => el.textContent?.includes(`Session ${sessionId}`)
 			);
 			row!.click();
+		},
+		confirmDiscard: () => {
+			Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button'))
+				.find((el) => el.textContent?.includes('Confirm'))
+				?.click();
 		},
 		destroy: () => {
 			component.$destroy();
@@ -111,6 +117,8 @@ describe('SessionPill session-switch race', () => {
 		mounted.openSessionMenu();
 		await settle();
 		mounted.clickSession(NEW_SESSION_ID);
+		await settle();
+		mounted.confirmDiscard();
 
 		// Flush the microtask the optimistic assignment + in-flight fetch land
 		// on without waiting for getSessionById(NEW) to fully resolve — this is

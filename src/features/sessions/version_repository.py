@@ -5,7 +5,7 @@ Handles database operations for session_versions. See migration 092 for the
 schema. Each row is an immutable snapshot of a session's `data` at save time;
 the `sessions` table itself stays the "current" state.
 """
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import json
 import uuid
 
@@ -147,6 +147,29 @@ class SessionVersionRepository:
                 )
                 for row in rows
             ]
+
+    def list_page_with_payloads(
+        self, session_id: str, limit: Optional[int] = None, before: Optional[int] = None
+    ) -> Tuple[List[SessionVersion], Optional[SessionVersion]]:
+        clauses = ["session_id = ?"]
+        params: list = [session_id]
+        if before is not None:
+            clauses.append("version_number < ?")
+            params.append(before)
+        sql = (
+            "SELECT id, session_id, version_number, payload, summary, created_at "
+            f"FROM session_versions WHERE {' AND '.join(clauses)} ORDER BY version_number DESC"
+        )
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit + 1)
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql, params)
+            versions = [self._row_to_version(row) for row in cursor.fetchall()]
+        if limit is not None and len(versions) > limit:
+            return versions[:limit], versions[limit]
+        return versions, None
 
     def get(self, session_id: str, version_number: int) -> Optional[SessionVersion]:
         """Get a single version's full record (including payload)."""

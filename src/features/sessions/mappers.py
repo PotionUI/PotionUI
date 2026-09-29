@@ -4,9 +4,10 @@ Response mappers for the sessions feature.
 Plain functions that turn Session/SessionVersion records into their API
 response dicts. No class, no state.
 """
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from src.features.sessions.dto import Session, SessionVersion
+from src.features.sessions.version_insight import changed_fields_between, changes_between, prompt_preview
 from src.platform.database.rows import dt_iso
 
 
@@ -45,6 +46,20 @@ def session_version_summary_to_dict(version: SessionVersion) -> Dict[str, Any]:
         "created_at": dt_iso(version.created_at),
         "summary": version.summary,
     }
+
+
+def session_version_list_to_dicts(
+    versions: List[SessionVersion], predecessor: Optional[SessionVersion] = None
+) -> List[Dict[str, Any]]:
+    items = []
+    for index, version in enumerate(versions):
+        older = versions[index + 1] if index + 1 < len(versions) else predecessor
+        item = session_version_summary_to_dict(version)
+        item["prompt_preview"] = prompt_preview(version.data, older.data if older else None)
+        item["changes"] = changes_between(version.data, older.data) if older else []
+        item["changed_fields"] = changed_fields_between(version.data, older.data) if older else []
+        items.append(item)
+    return items
 
 
 def session_version_to_dict(version: SessionVersion) -> Dict[str, Any]:

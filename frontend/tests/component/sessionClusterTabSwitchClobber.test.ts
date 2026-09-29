@@ -16,7 +16,8 @@ import type { Segment } from '$lib/types/segments';
 vi.mock('$lib/services/api/index', () => ({
 	api: {
 		getSessionsForPreset: vi.fn(),
-		getSessionById: vi.fn()
+		getSessionById: vi.fn(),
+		getSessionVersions: vi.fn(async () => ({ success: true, data: [] }))
 	}
 }));
 
@@ -172,7 +173,7 @@ describe('SessionCluster survives a tab-switch round trip after loading (not sav
 		// handleSessionSelect -> applySessionModeData path, not a seeded store.
 		mounted.target.querySelector<HTMLButtonElement>('button[aria-label="Session"]')!.click();
 		await settle();
-		const sessionRow = Array.from(mounted.target.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(
+		const sessionRow = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[data-session-row]')).find(
 			(el) => el.textContent?.includes('Session 1')
 		);
 		sessionRow!.click();

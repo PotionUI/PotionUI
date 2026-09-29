@@ -8,6 +8,8 @@
 	import type { PresetModeVariant } from '$lib/types/api';
 	import { sortVariants } from '$lib/utils/variants';
 	import { createSessionController, saveOrPrompt } from '$lib/session/sessionController';
+	import { loadFieldLabels } from '$lib/session/sessionFieldLabels';
+	import type { FieldLabels } from '$lib/session/sessionDrawerModel';
 	import { toasts } from '$lib/stores/toast';
 	import SessionControl from '$lib/components/session/SessionControl.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
@@ -37,6 +39,14 @@
 	const session = controller.state;
 
 	let isClient = false;
+	let fieldLabels: FieldLabels = {};
+
+	$: refreshFieldLabels(presetId, currentMode);
+
+	async function refreshFieldLabels(preset: string | null, mode: string | null) {
+		const labels = await loadFieldLabels(preset, mode);
+		if (preset === presetId && mode === currentMode) fieldLabels = labels;
+	}
 
 	// Modal states
 	let showSaveModal = false;
@@ -122,6 +132,7 @@
 
 {#if isClient}
 	<SessionControl
+		{fieldLabels}
 		compact
 		enabled={$session.sessionControlsEnabled}
 		sessions={$session.sessions}
@@ -141,6 +152,7 @@
 		onSelect={controller.select}
 		onSave={handleQuickSave}
 		onSaveAs={handleOpenSaveAsModal}
+		onNew={controller.startNew}
 		onRename={handleOpenSaveModal}
 		onDelete={handleDeleteSession}
 		onToggleAutoSave={controller.toggleAutosave}

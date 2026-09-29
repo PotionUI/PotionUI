@@ -199,6 +199,7 @@
 				onSelect={(id) => { demoSessionId = id; demoSessionDirty = false; }}
 				onSave={() => { demoSessionDirty = false; demoLastSaved = new Date(); }}
 				onSaveAs={() => undefined}
+				onNew={() => undefined}
 				onRename={() => undefined}
 				onDelete={() => undefined}
 				onToggleAutoSave={() => (demoAutoSave = !demoAutoSave)}

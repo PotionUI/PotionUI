@@ -63,7 +63,7 @@ import type { Tab } from '$lib/types/tabs';
 import type { GenerationLayoutMode } from '$lib/stores/generationLayout';
 import { resolveVariant } from '$lib/utils/variants';
 import { buildSessionRestoreTabPatch } from '$lib/utils/sessionRestore';
-import { seedModeStateFromSessionData } from '$lib/utils/modeState';
+import { seedModeStateFromSessionData, emptyModeState } from '$lib/utils/modeState';
 import { timeAgo, parseServerDate } from '$lib/utils/relativeTime';
 import {
 	collectTabSessionData,
@@ -194,7 +194,10 @@ export interface SessionControllerApi {
 		request: { name: string; data: ModeBasedSessionData }
 	): Promise<ApiResult<Session>>;
 	deleteSession(sessionId: string): Promise<ApiResult<{ message: string }>>;
-	getSessionVersions(sessionId: string): Promise<ApiResult<SessionVersionSummary[]>>;
+	getSessionVersions(
+		sessionId: string,
+		page?: { limit?: number; before?: number }
+	): Promise<ApiResult<SessionVersionSummary[]>>;
 	getSessionVersion(
 		sessionId: string,
 		versionNumber: number
@@ -292,6 +295,7 @@ export interface SessionController {
 	 *  caller should close its modal. */
 	saveAs(name: string, mode: 'rename' | 'save-as'): Promise<boolean>;
 	deleteSession(): Promise<boolean>;
+	startNew(): void;
 	/** Declared by the view when it opens a dialog and again when it closes or
 	 *  cancels one, so a completion cannot answer for a later opening. */
 	openDialog(kind: SessionDialogKind): void;
@@ -1459,6 +1463,21 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		}
 	}
 
+	function startNew() {
+		retireCommandView();
+		retireSelectionRead();
+		clearActiveSession();
+		markAppliedDirectly();
+		deps.tabs.updateTab(ctx.tabId, {
+			...emptyModeState(),
+			variables: {},
+			modeStateByMode: {},
+			selectedSessionId: null,
+			savedSessionSignature: null
+		});
+		publish();
+	}
+
 	function clearNameError() {
 		nameError = '';
 		publish();
@@ -1546,6 +1565,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		quickSave,
 		saveAs,
 		deleteSession,
+		startNew,
 		openDialog,
 		closeDialog,
 		openHistory,

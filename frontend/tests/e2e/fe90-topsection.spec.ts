@@ -88,7 +88,7 @@ test('top section — tabs row cluster + relocated preset header', async ({ page
 	await sessionTrigger.click();
 	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, '04-session-panel-open');
-	await sessionTrigger.click(); // close
+	await page.keyboard.press('Escape');
 	await page.waitForTimeout(BEAT);
 
 	// 5. Open "…" overflow menu - must show BOTH the Simple/Advanced toggle

@@ -311,7 +311,7 @@ class TestSessionVersionHistoryOperations:
         response = await controller.list_session_versions("user-1", result["id"])
 
         assert len(response.data) == 1
-        assert set(response.data[0].keys()) == {"version_number", "created_at", "summary"}
+        assert set(response.data[0].keys()) == {"version_number", "created_at", "summary", "prompt_preview", "changes", "changed_fields"}
 
     @pytest.mark.asyncio
     async def test_get_session_version_shape_has_payload(self, collaborators, controller):

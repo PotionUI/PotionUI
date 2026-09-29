@@ -6,7 +6,7 @@ Delegates mutations to `src.features.sessions.operations`.
 """
 import asyncio
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
@@ -14,7 +14,7 @@ from src.features.sessions.dto import SaveSessionRequest, UpdateSessionRequest
 from src.features.sessions import operations
 from src.features.sessions.mappers import (
     session_to_response_dict,
-    session_version_summary_to_dict,
+    session_version_list_to_dicts,
     session_version_to_dict,
 )
 from src.features.sessions.repository import SessionRepository
@@ -157,16 +157,22 @@ class SessionController(BaseController):
                 message=f"Failed to update session: {str(e)}"
             )
 
-    async def list_session_versions(self, user_id: str, session_id: str) -> APIResponse:
+    async def list_session_versions(
+        self,
+        user_id: str,
+        session_id: str,
+        limit: Optional[int] = None,
+        before: Optional[int] = None,
+    ) -> APIResponse:
         """List a session's version history (newest first, no payloads)."""
         def _list_versions() -> List[Dict[str, Any]]:
             self._get_session_or_404(user_id, session_id)
             if not self.version_repository:
                 return []
-            return [
-                session_version_summary_to_dict(v)
-                for v in self.version_repository.list_for_session(session_id)
-            ]
+            page, predecessor = self.version_repository.list_page_with_payloads(
+                session_id, limit=limit, before=before
+            )
+            return session_version_list_to_dicts(page, predecessor)
 
         try:
             versions = await asyncio.to_thread(_list_versions)
@@ -249,9 +255,14 @@ def build_router(container: "AppContainer") -> APIRouter:
         response_model=APIResponse,
         summary="List Session Versions",
     )
-    async def list_session_versions(session_id: str, current_user=Depends(get_current_active_user)):
+    async def list_session_versions(
+        session_id: str,
+        limit: Optional[int] = Query(None, ge=1, le=200),
+        before: Optional[int] = Query(None, ge=1),
+        current_user=Depends(get_current_active_user),
+    ):
         """List a session's version history, newest first (no payloads)."""
-        return await controller.list_session_versions(current_user.id, session_id)
+        return await controller.list_session_versions(current_user.id, session_id, limit, before)
 
     @router.get(
         "/{session_id}/versions/{version_number}",

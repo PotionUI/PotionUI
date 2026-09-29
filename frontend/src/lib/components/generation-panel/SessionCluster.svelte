@@ -1,11 +1,6 @@
 <script lang="ts">
-	// Session + save readout cells for the generation console bar. The session
-	// workflow itself lives in the shared controller (lib/session/sessionController.ts),
-	// which this view and session/SessionPill.svelte both drive; what is local
-	// here is the chrome: the popover body is the shared SessionPopoverContent,
-	// anchored UP since this bar sits at the bottom of the viewport.
 	import { logger } from '$lib/utils/logger';
-	import { onMount, onDestroy, tick } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { storage } from '$lib/utils/storage';
 	import { api } from '$lib/services/api/index';
 	import { tabsStore } from '$lib/stores/tabs';
@@ -13,12 +8,14 @@
 	import type { PresetModeVariant } from '$lib/types/api';
 	import { sortVariants } from '$lib/utils/variants';
 	import { createSessionController, saveOrPrompt } from '$lib/session/sessionController';
+	import { loadFieldLabels } from '$lib/session/sessionFieldLabels';
+	import type { FieldLabels } from '$lib/session/sessionDrawerModel';
 	import { activeWorkspaceSaveRequest, settleWorkspaceSaveRequest } from '$lib/stores/workspaceSaveRequest';
 	import { activeWorkspaceDirtyQuery, answerWorkspaceDirtyQuery } from '$lib/stores/workspaceDirtyQuery';
 	import { toasts } from '$lib/stores/toast';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import SessionPopoverContent from './SessionPopoverContent.svelte';
+	import SessionDrawer from '$lib/components/session/SessionDrawer.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import SessionSaveModal from '$lib/components/session/SessionSaveModal.svelte';
 
@@ -47,25 +44,13 @@
 	let sessionName = '';
 
 	let open = false;
-	let root: HTMLDivElement;
-	let sessionButtonEl: HTMLButtonElement;
-	let popoverEl: HTMLDivElement;
-	// `.floating-panel` is `position: fixed` (generation-panel-concept.html's
-	// own `positionPopover`, lines 678-683) rather than an absolutely
-	// positioned dropdown, because its real ancestor here is
-	// `.context-rail`, which clips overflow — an absolute popover would be
-	// invisible under it. Positioned imperatively against the trigger's
-	// rect on open; a resize closes it, exactly like the mock.
-	let popoverStyle = '';
+	let fieldLabels: FieldLabels = {};
 
-	async function positionPopover() {
-		await tick();
-		if (!popoverEl || !sessionButtonEl) return;
-		const rect = sessionButtonEl.getBoundingClientRect();
-		const width = popoverEl.offsetWidth || 330;
-		const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.left));
-		const bottom = window.innerHeight - rect.top + 8;
-		popoverStyle = `left:${left}px; bottom:${bottom}px;`;
+	$: refreshFieldLabels(presetId, currentMode);
+
+	async function refreshFieldLabels(preset: string | null, mode: string | null) {
+		const labels = await loadFieldLabels(preset, mode);
+		if (preset === presetId && mode === currentMode) fieldLabels = labels;
 	}
 
 	// "New workspace" (TabBar) asks whichever tab owns this mounted instance to
@@ -126,20 +111,9 @@
 					? 'Save session'
 					: 'Session saved';
 
-	function closePanel() {
-		open = false;
-		controller.closeHistory();
-	}
-
 	function toggleOpen() {
 		if (!$session.sessionControlsEnabled) return;
 		open = !open;
-		if (!open) controller.closeHistory();
-		else positionPopover();
-	}
-
-	function handleWindowResize() {
-		if (open) closePanel();
 	}
 
 	function handleSaveCellClick() {
@@ -151,38 +125,20 @@
 		}
 	}
 
-	function handleWindowClick(event: MouseEvent) {
-		if (!open || !root) return;
-		const target = event.target as Node;
-		if (!target.isConnected) return;
-		if (!root.contains(target)) closePanel();
-	}
-
 	onMount(() => {
 		controller.start();
 
-		document.addEventListener('mousedown', handleWindowClick);
-		window.addEventListener('resize', handleWindowResize);
 		// "S" (seeded in keybinding_defaults) reuses the same save-or-prompt
 		// flow as the save cell's own click handler. SessionPill registers the
 		// same action for its mobile counterpart - the two are mutually
 		// exclusive by $isMobile, so only one is ever mounted at a time.
 		keybindingsStore.registerHandler('save_session', handleQuickSave);
-		return () => {
-			document.removeEventListener('mousedown', handleWindowClick);
-			window.removeEventListener('resize', handleWindowResize);
-		};
 	});
 
 	onDestroy(() => {
 		controller.destroy();
 		keybindingsStore.unregisterHandler('save_session');
 	});
-
-	async function handleSessionSelect(sessionId: string) {
-		await controller.select(sessionId);
-		closePanel();
-	}
 
 	async function handleQuickSave() {
 		await saveOrPrompt(controller, handleOpenSaveAsModal);
@@ -235,7 +191,7 @@
 	}
 </script>
 
-<div class="session-control" bind:this={root}>
+<div class="session-control">
 	<!-- Ported literally from generation-panel-concept.html's `.session-control`
 	     > `.session-button` (lines 186-187, 443-450): the name+chevron line
 	     AND the passive status line (dirty-dot + save status text) both live
@@ -245,7 +201,6 @@
 	<button
 		type="button"
 		class="session-button"
-		bind:this={sessionButtonEl}
 		disabled={!$session.sessionControlsEnabled}
 		aria-label="Session"
 		aria-haspopup="dialog"
@@ -283,32 +238,34 @@
 	</Tooltip>
 
 	{#if open}
-		<!-- role="menu" (not the mock's role="dialog"): keeps the existing
-		     [role="menuitem"] row contract (sessionClusterTabSwitchClobber.test.ts). -->
-		<div class="floating-panel" style={popoverStyle} bind:this={popoverEl} role="menu" aria-label="Sessions">
-			<SessionPopoverContent
-				sessions={$session.sessions}
-				currentSession={$session.currentSession}
-				selectedSessionId={$session.selectedSessionId}
-				loading={$session.isSessionLoading}
-				historySessionId={$session.historySessionId}
-				historyVersions={$session.historyVersions}
-				historyLoading={$session.isHistoryLoading}
-				historyError={$session.historyError}
-				restoringVersion={$session.isRestoringVersion}
-				autoSaveEnabled={$session.autoSaveEnabled}
-				autoSaveInterval={$session.autoSaveInterval}
-				onSelect={handleSessionSelect}
-				onSaveAs={() => { closePanel(); handleOpenSaveAsModal(); }}
-				onOpenHistory={controller.openHistory}
-				onCloseHistory={controller.closeHistory}
-				onRestoreVersion={controller.restoreVersion}
-				onToggleAutoSave={controller.toggleAutosave}
-				onIntervalChange={controller.setAutosaveInterval}
-				onRename={() => { closePanel(); handleOpenSaveModal(); }}
-				onDelete={() => { closePanel(); handleDeleteSession(); }}
-			/>
-		</div>
+		<SessionDrawer
+			{fieldLabels}
+			sessions={$session.sessions}
+			currentSession={$session.currentSession}
+			selectedSessionId={$session.selectedSessionId}
+			loading={$session.isSessionLoading}
+			saving={$session.isQuickSaving}
+			dirty={$session.hasUnsavedChanges}
+			autoSaveEnabled={$session.autoSaveEnabled}
+			autoSaveInterval={$session.autoSaveInterval}
+			historySessionId={$session.historySessionId}
+			historyVersions={$session.historyVersions}
+			historyLoading={$session.isHistoryLoading}
+			historyError={$session.historyError}
+			restoringVersion={$session.isRestoringVersion}
+			onSelect={controller.select}
+			onSave={handleQuickSave}
+			onSaveAs={handleOpenSaveAsModal}
+			onNew={controller.startNew}
+			onRename={handleOpenSaveModal}
+			onDelete={handleDeleteSession}
+			onToggleAutoSave={controller.toggleAutosave}
+			onIntervalChange={controller.setAutosaveInterval}
+			onOpenHistory={controller.openHistory}
+			onCloseHistory={controller.closeHistory}
+			onRestoreVersion={controller.restoreVersion}
+			onClose={() => (open = false)}
+		/>
 	{/if}
 </div>
 

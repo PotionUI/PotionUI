@@ -491,6 +491,9 @@ export interface SessionVersionSummary {
 	created_at: string;
 	/** Jargon-free label for the save, e.g. the preset/mode name at save time. */
 	summary: string;
+	prompt_preview?: string;
+	changes?: string[];
+	changed_fields?: string[];
 }
 
 export interface SessionVersionDetail extends SessionVersionSummary {

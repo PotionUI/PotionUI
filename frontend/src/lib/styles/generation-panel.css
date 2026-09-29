@@ -254,13 +254,9 @@ button.readout:hover { background: rgb(var(--surface-3)); }
 
 .quiet-button .icon { width: 13px; height: 13px; }
 
-.session-list, .queue-list { padding: 6px; }
+.queue-list { padding: 6px; }
 
-.session-row, .queue-row { width: 100%; min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 7px 8px; border: 0; border-radius: 8px; background: transparent; color: rgb(var(--fg)); text-align: left; }
-
-button.session-row { cursor: pointer; }
-
-button.session-row:hover, .session-row.is-current { background: rgb(var(--surface-2)); }
+.queue-row { width: 100%; min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 7px 8px; border: 0; border-radius: 8px; background: transparent; color: rgb(var(--fg)); text-align: left; }
 
 .row-icon, .job-index { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 7px; background: rgb(var(--surface-3)); color: rgb(var(--fg-muted)); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
 
@@ -277,14 +273,6 @@ button.session-row:hover, .session-row.is-current { background: rgb(var(--surfac
 .row-status.live { color: rgb(var(--signal)); }
 
 .popover-footer { min-height: 43px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 12px; border-top: 1px solid rgb(var(--surface-2)); color: rgb(var(--fg-muted)); font-size: 10px; }
-
-.switch { width: 30px; height: 18px; padding: 2px; border: 0; border-radius: 99px; background: rgb(var(--fg-subtle)); cursor: pointer; }
-
-.switch::before { content: ""; display: block; width: 14px; height: 14px; border-radius: 50%; background: rgb(var(--surface-2)); transition: transform 140ms ease; }
-
-.switch[aria-checked="true"] { background: rgb(var(--signal)); }
-
-.switch[aria-checked="true"]::before { transform: translateX(12px); }
 
 .backdrop { position: fixed; z-index: 50; inset: 0; background: rgba(0, 0, 0, .32); backdrop-filter: blur(2px); }
 
@@ -413,21 +401,11 @@ button.session-row:hover, .session-row.is-current { background: rgb(var(--surfac
 & .session-save-button:disabled,
 & .icon-button:disabled,
 & .mode-button:disabled,
-& .readout:disabled,
-& .switch:disabled { opacity: .5; cursor: not-allowed; }
+& .readout:disabled { opacity: .5; cursor: not-allowed; }
 
 /* Drawer heading: the mock's own `.drawer-header strong` is a real <h2> here
    (a heading role is a real e2e/a11y contract), same type styling. */
 .drawer-header h2 { display: block; margin: 0; font-size: 13px; font-weight: 650; }
-
-/* Session popover: a per-row secondary "history" action next to the mock's
-   full-width `.session-row` button, and a highlighted state for the
-   interval-picker's `.quiet-button`s. */
-.session-row-wrap { display: flex; align-items: center; gap: 2px; }
-
-.session-row-wrap .session-row { flex: 1; min-width: 0; }
-
-.quiet-button.is-active { background: rgb(var(--signal) / 0.14); color: rgb(var(--signal)); }
 
 .popover-footer { flex-wrap: wrap; }
 

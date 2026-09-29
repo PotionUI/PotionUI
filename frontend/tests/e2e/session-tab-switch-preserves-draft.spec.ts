@@ -196,7 +196,7 @@ test('loading an existing session on a second tab, then editing it, survives swi
 	await page.waitForTimeout(500);
 
 	await page.getByRole('button', { name: 'Session', exact: true }).click();
-	await page.getByRole('menuitem', { name: new RegExp(sessionName) }).click();
+	await page.locator('[data-session-row]', { hasText: sessionName }).click();
 
 	// Confirm the load actually applied before touching anything.
 	await expect(mainList).toContainText('A quiet harbor at dawn.', { timeout: 10000 });

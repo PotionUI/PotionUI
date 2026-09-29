@@ -838,6 +838,44 @@ describe('createSessionController', () => {
 		expect(state.isSessionLoading).toBe(false);
 	});
 
+	describe('startNew', () => {
+		it('unbinds the session and blanks the draft without touching the server', async () => {
+			await bootWithDirtySession();
+
+			controller.startNew();
+			expect(get(controller.state).selectedSessionId).toBe('');
+			await settle();
+
+			const state = get(controller.state);
+			expect(state.selectedSessionId).toBe('');
+			expect(state.currentSession).toBeNull();
+			expect(state.hasUnsavedChanges).toBe(false);
+			expect(harness.tabs.tab.selectedSessionId).toBeNull();
+			expect(harness.tabs.tab.savedSessionSignature).toBeNull();
+			expect(harness.tabs.tab.promptSegments).toEqual([]);
+			expect(harness.tabs.tab.prompt).toBe('');
+			expect(state.sessions.map((entry) => entry.id)).toEqual([SESSION_A, SESSION_B]);
+			expect(harness.api.deleteSession).not.toHaveBeenCalled();
+			expect(harness.api.updateSession).not.toHaveBeenCalled();
+			expect(harness.api.saveSession).not.toHaveBeenCalled();
+		});
+
+		it('is not undone by a session load still in flight', async () => {
+			await bootWithoutSession();
+			const pending = deferred<{ success: boolean; data: Session }>();
+			harness.api.getSessionById.mockReturnValue(pending.promise as never);
+
+			void controller.select(SESSION_B);
+			controller.startNew();
+			expect(get(controller.state).isSessionLoading).toBe(false);
+			pending.resolve({ success: true, data: makeSession(SESSION_B) });
+			await settle();
+
+			expect(get(controller.state).selectedSessionId).toBe('');
+			expect(harness.tabs.tab.selectedSessionId).toBeNull();
+		});
+	});
+
 	it('does not close a delete confirmation opened after the context switched', async () => {
 		await bootWithDirtySession();
 		const first = deferred<{ success: boolean; data: { message: string } }>();

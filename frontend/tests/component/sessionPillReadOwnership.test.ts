@@ -14,7 +14,8 @@ import { get } from 'svelte/store';
 vi.mock('$lib/services/api/index', () => ({
 	api: {
 		getSessionsForPreset: vi.fn(),
-		getSessionById: vi.fn()
+		getSessionById: vi.fn(),
+		getSessionVersions: vi.fn(async () => ({ success: true, data: [] }))
 	}
 }));
 
@@ -69,7 +70,7 @@ function mountPill(tabId: string) {
 			target.querySelector<HTMLButtonElement>('button[aria-label="Session"]')!.click();
 		},
 		clickSession: (sessionId: string) => {
-			const row = Array.from(target.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(
+			const row = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[data-session-row]')).find(
 				(el) => el.textContent?.includes(`Session ${sessionId}`)
 			);
 			row!.click();

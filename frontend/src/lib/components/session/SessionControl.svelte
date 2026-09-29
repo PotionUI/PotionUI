@@ -1,15 +1,14 @@
 <script lang="ts">
 	import type { Session, SessionVersionSummary } from '$lib/types/api';
+	import type { FieldLabels } from '$lib/session/sessionDrawerModel';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Spinner } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import SessionPopoverContent from '$lib/components/generation-panel/SessionPopoverContent.svelte';
+	import SessionDrawer from '$lib/components/session/SessionDrawer.svelte';
 	import { shortcutLabels } from '$lib/stores/keybindings';
 
 	export let enabled = false;
-	// A tight single-line pill (dot + name + Save) for the tabs-row
-	// mount, in place of the wide two-line trigger. The dropdown panel below
-	// is unchanged either way.
+	export let fieldLabels: FieldLabels = {};
 	export let compact = false;
 	export let sessions: Session[] = [];
 	export let currentSession: Session | null = null;
@@ -20,8 +19,6 @@
 	export let lastSavedTime: Date | null = null;
 	export let autoSaveEnabled = false;
 	export let autoSaveInterval = 10000;
-	// Session history — which saved session's history is open (if any), its
-	// versions (newest first), and whether a restore is in flight.
 	export let historySessionId: string | null = null;
 	export let historyVersions: SessionVersionSummary[] = [];
 	export let historyLoading = false;
@@ -30,6 +27,7 @@
 	export let onSelect: (sessionId: string) => void;
 	export let onSave: () => void;
 	export let onSaveAs: () => void;
+	export let onNew: () => void;
 	export let onRename: () => void;
 	export let onDelete: () => void;
 	export let onToggleAutoSave: () => void;
@@ -39,7 +37,6 @@
 	export let onRestoreVersion: (sessionId: string, versionNumber: number) => void;
 
 	let open = false;
-	let root: HTMLDivElement;
 
 	function relativeTime(date: Date | null): string {
 		if (!date) return 'Saved';
@@ -63,45 +60,13 @@
 					: relativeTime(lastSavedTime)
 				: 'Choose or create a session';
 
-	// Closing the whole panel also resets the history sub-view — otherwise
-	// reopening it later would briefly flash the previous session's history.
-	function closePanel() {
-		open = false;
-		onCloseHistory();
-	}
-
 	function toggleOpen() {
-		if (open) {
-			closePanel();
-		} else {
-			open = true;
-		}
-	}
-
-	function select(sessionId: string) {
-		onSelect(sessionId);
-		closePanel();
-	}
-
-	function handleWindowClick(event: MouseEvent) {
-		if (!open || !root) return;
-		const target = event.target as Node;
-		// A click inside the panel can re-render it (e.g. the history button
-		// swaps the list for the history sub-view) before this window-level
-		// handler runs — the clicked node is then detached, root.contains()
-		// says "outside", and the panel wrongly closes. A detached target can
-		// only come from inside the document we just re-rendered, never from a
-		// genuine outside click, so treat it as inside.
-		if (!target.isConnected) return;
-		if (!root.contains(target)) closePanel();
+		open = !open;
 	}
 </script>
 
-<svelte:window on:click={handleWindowClick} />
-
 <div
 	class="relative session-control flex items-stretch overflow-visible rounded-lg border border-line-strong bg-surface-2 transition-colors hover:border-line-hover {compact ? 'h-[34px] flex-shrink-0' : 'w-full min-w-0 sm:w-auto'}"
-	bind:this={root}
 >
 	{#if compact}
 		<button
@@ -109,7 +74,7 @@
 			class="flex min-w-0 items-center gap-2 pl-3 pr-2.5 text-left transition-colors hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed {enabled && ((!currentSession) || (currentSession && dirty)) ? 'rounded-l-lg' : 'rounded-lg'}"
 			on:click={toggleOpen}
 			disabled={!enabled}
-			aria-haspopup="menu"
+			aria-haspopup="dialog"
 			aria-expanded={open}
 			aria-label="Session"
 		>
@@ -132,7 +97,7 @@
 			class="min-w-0 flex-1 sm:w-60 sm:flex-none flex items-center gap-2.5 px-2.5 py-1.5 text-left rounded-l-lg hover:bg-surface-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed {enabled && ((!currentSession) || (currentSession && dirty)) ? 'rounded-r-none' : 'rounded-r-lg'}"
 			on:click={toggleOpen}
 			disabled={!enabled}
-			aria-haspopup="menu"
+			aria-haspopup="dialog"
 			aria-expanded={open}
 		>
 			<span class="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded bg-surface-3 text-fg-muted">
@@ -174,29 +139,33 @@
 	{/if}
 
 	{#if open}
-		<div class="absolute right-0 top-full z-50 mt-1 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-line-strong bg-surface-1 shadow-floating" role="menu">
-			<SessionPopoverContent
-				{sessions}
-				{currentSession}
-				{selectedSessionId}
-				{loading}
-				{historySessionId}
-				{historyVersions}
-				{historyLoading}
-				{historyError}
-				{restoringVersion}
-				{autoSaveEnabled}
-				{autoSaveInterval}
-				onSelect={select}
-				onSaveAs={() => { closePanel(); onSaveAs(); }}
-				{onOpenHistory}
-				{onCloseHistory}
-				{onRestoreVersion}
-				{onToggleAutoSave}
-				{onIntervalChange}
-				onRename={() => { closePanel(); onRename(); }}
-				onDelete={() => { closePanel(); onDelete(); }}
-			/>
-		</div>
+		<SessionDrawer
+			{fieldLabels}
+			{sessions}
+			{currentSession}
+			{selectedSessionId}
+			{loading}
+			{saving}
+			{dirty}
+			{autoSaveEnabled}
+			{autoSaveInterval}
+			{historySessionId}
+			{historyVersions}
+			{historyLoading}
+			{historyError}
+			{restoringVersion}
+			{onSelect}
+			{onSave}
+			{onSaveAs}
+			{onNew}
+			{onRename}
+			{onDelete}
+			{onToggleAutoSave}
+			{onIntervalChange}
+			{onOpenHistory}
+			{onCloseHistory}
+			{onRestoreVersion}
+			onClose={() => (open = false)}
+		/>
 	{/if}
 </div>

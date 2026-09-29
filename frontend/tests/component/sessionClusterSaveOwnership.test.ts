@@ -16,6 +16,7 @@ vi.mock('$lib/services/api/index', () => ({
 	api: {
 		getSessionsForPreset: vi.fn(),
 		getSessionById: vi.fn(),
+		getSessionVersions: vi.fn(async () => ({ success: true, data: [] })),
 		updateSession: vi.fn()
 	}
 }));
@@ -79,10 +80,15 @@ function mountCluster(tabId: string) {
 		openSessionMenu: () =>
 			target.querySelector<HTMLButtonElement>('button[aria-label="Session"]')!.click(),
 		clickMenuItem: (label: string) => {
-			const row = Array.from(target.querySelectorAll<HTMLButtonElement>('button')).find((el) =>
-				el.textContent?.includes(label)
+			const row = Array.from(document.body.querySelectorAll<HTMLButtonElement>('button')).find(
+				(el) => el.textContent?.includes(label) || el.getAttribute('aria-label')?.includes(label)
 			);
 			row!.click();
+		},
+		confirmDiscard: () => {
+			Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button'))
+				.find((el) => el.textContent?.includes('Confirm'))
+				?.click();
 		},
 		destroy: () => {
 			component.$destroy();
@@ -168,6 +174,8 @@ describe('SessionCluster save ownership', () => {
 		await settle();
 		mounted.clickMenuItem('Session B');
 		await settle();
+		mounted.confirmDiscard();
+		await settle();
 
 		expect(mounted.sessionName()).toBe('Session B');
 		const baselineForB = tabState(tabId)?.savedSessionSignature;
@@ -187,7 +195,7 @@ describe('SessionCluster save ownership', () => {
 		// The saved session's own list entry still gets its refreshed record.
 		mounted.openSessionMenu();
 		await settle();
-		expect(mounted.target.textContent).toContain('Session A (saved)');
+		expect(document.body.textContent).toContain('Session A (saved)');
 	});
 
 	it('drops a save response after the cluster has been given another tab', async () => {
@@ -255,6 +263,8 @@ describe('SessionCluster save ownership', () => {
 		mounted.openSessionMenu();
 		await settle();
 		mounted.clickMenuItem('Session B');
+		await settle();
+		mounted.confirmDiscard();
 		await settle();
 
 		mounted.clickSave();

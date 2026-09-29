@@ -618,6 +618,27 @@ class TestQueueMediaDownload:
         assert result == mock_download
         mock_repository.create.assert_called_once()
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "kwargs,expected_name,expected_supplied",
+        [
+            ({"filename": "chosen.png"}, "chosen.png", True),
+            ({}, "image.png", False),
+        ],
+    )
+    async def test_queue_media_download_records_who_chose_the_name(
+        self, manager, mock_repository, kwargs, expected_name, expected_supplied
+    ):
+        mock_repository.create.side_effect = lambda d: d
+        manager.worker = AsyncMock()
+        manager.worker.get_queue_position = Mock(return_value=0)
+
+        with patch.object(manager, 'conn', AsyncMock()):
+            result = await manager.queue_media_download(url='https://example.com/image.png', **kwargs)
+
+        assert result.filename == expected_name
+        assert result.filename_supplied is expected_supplied
+
 
 class TestPauseDownload:
     """Tests for pause_download method."""
@@ -856,3 +877,25 @@ class TestQueueModelDownloadProviderDerivation:
                 url="https://example.com/m.safetensors", filename="m.safetensors"
             )
         assert result.provider_id is None
+
+    @pytest.mark.asyncio
+    async def test_a_caller_named_download_is_recorded_as_supplied(self, queued):
+        with patch("src.features.providers.registry.get_provider_registry", return_value=self._registry(None)):
+            result = await queued.queue_model_download(
+                url="https://example.com/m.safetensors", filename="m.safetensors"
+            )
+        assert result.filename_supplied is True
+
+    @pytest.mark.asyncio
+    async def test_a_url_named_download_is_recorded_as_derived(self, queued):
+        with patch("src.features.providers.registry.get_provider_registry", return_value=self._registry(None)):
+            result = await queued.queue_model_download(url="https://example.com/m.safetensors")
+        assert result.filename == "m.safetensors"
+        assert result.filename_supplied is False
+
+    @pytest.mark.asyncio
+    async def test_a_generated_name_is_recorded_as_derived(self, queued):
+        with patch("src.features.providers.registry.get_provider_registry", return_value=self._registry(None)):
+            result = await queued.queue_model_download(url="https://example.com/")
+        assert result.filename.startswith("download_")
+        assert result.filename_supplied is False

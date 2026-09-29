@@ -100,43 +100,52 @@ def safe_download_name(name: str, *, single_segment: bool = True) -> str:
     return name
 
 
-def derived_download_name(name: Optional[str], *, single_segment: bool = True) -> Optional[str]:
-    """`safe_download_name` for a name nobody asked for by hand (a URL path, a
-    `Content-Disposition`, a provider's rewrite): an unsafe one is dropped so
-    the caller can fall back, not raised."""
-    if not name:
-        return None
-    try:
-        return safe_download_name(name, single_segment=single_segment)
-    except UnsafeFilenameException as e:
-        logger.warning(f"Ignoring derived download filename: {e}")
-        return None
-
-
-_WINDOWS_UNSAFE_CHARS = re.compile(r'[<>:"|?*\x00-\x1f\x7f]')
-_MAX_DERIVED_NAME_LENGTH = 200
-_GENERATED_NAME = re.compile(r"^(?:download|media)_\d{8}_\d{6}$")
+_WINDOWS_UNSAFE_CHARS = re.compile(r'[<>:"|?*]')
+_MAX_DERIVED_NAME_CHARS = 200
+_MAX_EXTENSION_CHARS = 16
+_MAX_DERIVED_NAME_BYTES = 255 - len(".part")
 _UNINFORMATIVE_CONTENT_TYPES = frozenset(
     {"application/octet-stream", "binary/octet-stream", "application/x-binary", "application/force-download"}
 )
 
 
-def sanitize_derived_name(name: Optional[str]) -> Optional[str]:
+def derived_download_name(name: Optional[str], *, single_segment: bool = True) -> Optional[str]:
     if not name:
         return None
-    cleaned = _WINDOWS_UNSAFE_CHARS.sub("_", name).rstrip(" .")
-    if len(cleaned) > _MAX_DERIVED_NAME_LENGTH:
-        stem, ext = os.path.splitext(cleaned)
-        cleaned = stem[: _MAX_DERIVED_NAME_LENGTH - len(ext)].rstrip(" .") + ext
-    return derived_download_name(cleaned)
+    try:
+        safe = safe_download_name(
+            _WINDOWS_UNSAFE_CHARS.sub("_", name).rstrip(" ."), single_segment=single_segment
+        )
+    except UnsafeFilenameException as e:
+        logger.warning(f"Ignoring derived download filename: {e}")
+        return None
+    return _fit_name_length(safe)
+
+
+def _fit_name_length(name: str) -> Optional[str]:
+    stem, ext = os.path.splitext(name)
+    if len(ext) > _MAX_EXTENSION_CHARS or " " in ext:
+        stem, ext = name, ""
+
+    def fits(candidate_stem: str) -> bool:
+        return (
+            len(candidate_stem) + len(ext) <= _MAX_DERIVED_NAME_CHARS
+            and len((candidate_stem + ext).encode("utf-8")) <= _MAX_DERIVED_NAME_BYTES
+        )
+
+    if fits(stem):
+        return name
+    stem = stem[: max(_MAX_DERIVED_NAME_CHARS - len(ext), 0)]
+    while stem and not fits(stem):
+        stem = stem[:-1]
+    stem = stem.rstrip(" .")
+    if not stem:
+        return None
+    return stem + ext
 
 
 def url_path_name(url: str) -> Optional[str]:
     return derived_download_name(posixpath.basename(unquote(urlparse(url).path)))
-
-
-def is_url_derived_name(filename: str, url: str) -> bool:
-    return filename == url_path_name(url) or bool(_GENERATED_NAME.match(filename))
 
 
 def extension_for_content_type(content_type: Optional[str]) -> Optional[str]:

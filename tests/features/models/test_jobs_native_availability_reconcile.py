@@ -11,8 +11,10 @@ from unittest.mock import patch
 class FakeDownloadQueue:
     def __init__(self, download: Download):
         self._download = download
+        self.queued = []
 
     async def queue_model_download(self, **kwargs):
+        self.queued.append(kwargs)
         return self._download
 
     def get_download(self, download_id):
@@ -89,3 +91,25 @@ def test_run_download_and_index_indexes_off_the_event_loop_thread(tmp_path):
 
     assert len(index_threads) == 1
     assert index_threads[0] != loop_thread
+
+
+def test_a_url_derived_name_is_left_to_the_queue(tmp_path):
+    job = _job(tmp_path)
+
+    with patch("src.features.models.jobs.asyncio.sleep", new=AsyncMock()):
+        asyncio.run(job.run_download_and_index(
+            name="test-model", link="https://1.1.1.1/api/download/models/12345", sha256="",
+        ))
+
+    assert job.downloads.queued[0]["filename"] is None
+
+
+def test_a_name_made_up_from_the_model_name_is_passed_explicitly(tmp_path):
+    job = _job(tmp_path)
+
+    with patch("src.features.models.jobs.asyncio.sleep", new=AsyncMock()):
+        asyncio.run(job.run_download_and_index(
+            name="test-model", link="https://1.1.1.1/", sha256="",
+        ))
+
+    assert job.downloads.queued[0]["filename"] == "test-model.safetensors"

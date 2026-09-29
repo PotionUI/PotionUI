@@ -67,7 +67,7 @@ async def test_returns_none_when_no_file_matches_the_requested_hash(provider):
     by_hash = _by_hash_data(files=[{"primary": True, "downloadUrl": "https://x", "hashes": {"SHA256": "0" * 64}}])
     calls = []
 
-    def dispatch(url, params=None, timeout=None):
+    def dispatch(url, params=None, timeout=None, headers=None):
         calls.append(url)
         return _FakeResponse(by_hash)
 
@@ -83,7 +83,7 @@ async def test_fills_description_from_version_when_present(provider):
     by_hash = _by_hash_data(description="<p>Version <strong>desc</strong></p><p>second para</p>")
     model_data = {"id": 12345, "name": "Test Model", "description": "<p>Model desc</p>", "tags": ["x", "y"]}
 
-    def dispatch(url, params=None, timeout=None):
+    def dispatch(url, params=None, timeout=None, headers=None):
         if "by-hash" in url:
             return _FakeResponse(by_hash)
         return _FakeResponse(model_data)
@@ -100,7 +100,7 @@ async def test_falls_back_to_model_description_when_version_description_is_empty
     by_hash = _by_hash_data(description=None)
     model_data = {"id": 12345, "name": "Test Model", "description": "<p>Model &amp; desc</p>", "tags": []}
 
-    def dispatch(url, params=None, timeout=None):
+    def dispatch(url, params=None, timeout=None, headers=None):
         if "by-hash" in url:
             return _FakeResponse(by_hash)
         return _FakeResponse(model_data)
@@ -117,7 +117,7 @@ async def test_tags_come_from_the_model_and_trained_words_become_trigger_words(p
     by_hash = _by_hash_data(trained_words=["y", " z ", "y", ""])
     model_data = {"id": 12345, "name": "Test Model", "description": None, "tags": ["x", "y"]}
 
-    def dispatch(url, params=None, timeout=None):
+    def dispatch(url, params=None, timeout=None, headers=None):
         if "by-hash" in url:
             return _FakeResponse(by_hash)
         return _FakeResponse(model_data)
@@ -134,7 +134,7 @@ async def test_tags_come_from_the_model_and_trained_words_become_trigger_words(p
 async def test_enrichment_failure_does_not_fail_the_lookup(provider):
     by_hash = _by_hash_data(description=None, trained_words=["a"])
 
-    def dispatch(url, params=None, timeout=None):
+    def dispatch(url, params=None, timeout=None, headers=None):
         if "by-hash" in url:
             return _FakeResponse(by_hash)
         return _FakeResponse({}, status=404)

@@ -181,9 +181,9 @@ class ModelJobs:
                 return
 
             parsed_url = urlparse(link)
-            filename = Path(parsed_url.path).name or f"{name}.safetensors"
+            filename = None if Path(parsed_url.path).name else f"{name}.safetensors"
 
-            logger.debug(f"Downloading {name} ({model_type}) as {filename}")
+            logger.debug(f"Downloading {name} ({model_type}) as {filename or Path(parsed_url.path).name}")
 
             download = await self.downloads.queue_model_download(
                 url=link,

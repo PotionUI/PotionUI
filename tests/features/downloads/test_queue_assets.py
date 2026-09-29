@@ -11,11 +11,14 @@ is a Mock whose records report whatever terminal status the test wants.
 """
 
 import pytest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
 from src.features.downloads.queue import DownloadQueue
-from src.features.downloads.models import Download, DownloadStatus, DownloadType
+from src.features.downloads.models import DownloadStatus, DownloadSettings
+from src.features.downloads.worker import DownloadWorker
+from tests.features.downloads.fakes import FakeResponse, FakeSession
 from src.platform.assets import AssetFetchError, AssetFetcher, asset_subdir
 from tests.fixtures.model_roots import make_roots
 
@@ -75,17 +78,12 @@ def manager(mock_repository, mock_plugin_registry, depot, tmp_path):
     return manager
 
 
-def _terminal(status, error_message=None):
-    """Make the repository report `status` for whatever job was just queued."""
-    record = Download(
-        type=DownloadType.MODEL,
-        url=_URL,
-        destination_path="ignored",
-        filename="head.pth",
-        status=status,
-        error_message=error_message,
-    )
-    return record
+def _terminal(mock_repository, status, error_message=None):
+    def lookup(download_id):
+        queued = mock_repository.create.call_args[0][0]
+        return replace(queued, status=status, error_message=error_message)
+
+    mock_repository.get_by_id.side_effect = lookup
 
 
 class TestEnsureAssetFileContainment:
@@ -147,7 +145,7 @@ class TestEnsureAssetFile:
         manager.worker.enqueue.assert_not_called()
 
     def test_missing_file_is_queued_and_awaited(self, manager, mock_repository, depot):
-        mock_repository.get_by_id.return_value = _terminal(DownloadStatus.COMPLETED)
+        _terminal(mock_repository, DownloadStatus.COMPLETED)
 
         result = manager.ensure_asset_file(_URL, subdir="inpaint", poll_interval=0.01)
 
@@ -155,7 +153,7 @@ class TestEnsureAssetFile:
         manager.worker.enqueue.assert_awaited_once()
 
     def test_queued_destination_is_inside_the_depot(self, manager, mock_repository, depot):
-        mock_repository.get_by_id.return_value = _terminal(DownloadStatus.COMPLETED)
+        _terminal(mock_repository, DownloadStatus.COMPLETED)
 
         manager.ensure_asset_file(_URL, subdir="inpaint", poll_interval=0.01)
 
@@ -165,7 +163,7 @@ class TestEnsureAssetFile:
         assert resolved.name == "head.pth"
 
     def test_explicit_filename_overrides_the_url_basename(self, manager, mock_repository, depot):
-        mock_repository.get_by_id.return_value = _terminal(DownloadStatus.COMPLETED)
+        _terminal(mock_repository, DownloadStatus.COMPLETED)
 
         result = manager.ensure_asset_file(
             _URL, subdir="inpaint", filename="renamed.pth", poll_interval=0.01
@@ -178,7 +176,7 @@ class TestEnsureAssetFile:
     ):
         """The caller gets where the bytes landed, not where they were asked
         to land - a `download.before_queue` hook may redirect within the depot."""
-        mock_repository.get_by_id.return_value = _terminal(DownloadStatus.COMPLETED)
+        _terminal(mock_repository, DownloadStatus.COMPLETED)
         context = Mock()
         context.data = {"destination_dir": "elsewhere"}
         mock_plugin_registry.execute_hook.return_value = (context, [])
@@ -188,9 +186,7 @@ class TestEnsureAssetFile:
         assert result == depot / "elsewhere" / "head.pth"
 
     def test_failed_download_raises_the_platform_error(self, manager, mock_repository):
-        mock_repository.get_by_id.return_value = _terminal(
-            DownloadStatus.FAILED, error_message="connection reset"
-        )
+        _terminal(mock_repository, DownloadStatus.FAILED, error_message="connection reset")
 
         with pytest.raises(AssetFetchError) as exc:
             manager.ensure_asset_file(_URL, subdir="inpaint", poll_interval=0.01)
@@ -198,7 +194,7 @@ class TestEnsureAssetFile:
         assert "connection reset" in str(exc.value)
 
     def test_cancelled_download_raises_the_platform_error(self, manager, mock_repository):
-        mock_repository.get_by_id.return_value = _terminal(DownloadStatus.CANCELLED)
+        _terminal(mock_repository, DownloadStatus.CANCELLED)
 
         with pytest.raises(AssetFetchError):
             manager.ensure_asset_file(_URL, subdir="inpaint", poll_interval=0.01)
@@ -212,6 +208,77 @@ class TestEnsureAssetFile:
     def test_undeducible_filename_is_refused(self, manager):
         with pytest.raises(AssetFetchError):
             manager.ensure_asset_file("https://example.com/", subdir="inpaint")
+
+
+class TestEnsureAssetFileAgainstTheWorker:
+    @pytest.fixture
+    def landing(self, manager, mock_repository):
+        stored = {}
+
+        def create(download):
+            download.id = "d1"
+            stored[download.id] = download
+            return replace(download)
+
+        mock_repository.create.side_effect = create
+        mock_repository.get_by_id.side_effect = lambda download_id: replace(stored[download_id])
+
+        def update_filename(download_id, filename, destination_path):
+            stored[download_id].filename = filename
+            stored[download_id].destination_path = destination_path
+            return True
+
+        mock_repository.update_filename.side_effect = update_filename
+        worker = DownloadWorker(
+            settings=DownloadSettings(chunk_size_kb=1),
+            repo=mock_repository,
+            connection_hub=AsyncMock(),
+            provider_registry_factory=lambda: None,
+        )
+        worker.session = FakeSession(
+            FakeResponse(headers={"Content-Disposition": 'attachment; filename="server-chosen.pth"'})
+        )
+
+        async def run(download_id):
+            record = stored[download_id]
+            await worker._download_file(record)
+            record.status = DownloadStatus.COMPLETED
+
+        manager.worker.enqueue.side_effect = run
+        return worker, stored
+
+    def test_a_requested_name_is_never_renamed_by_the_server(self, manager, depot, landing):
+        worker, stored = landing
+
+        result = manager.ensure_asset_file(_URL, subdir="inpaint", poll_interval=0.01)
+
+        assert result == depot / "inpaint" / "head.pth"
+        assert result.read_bytes() == b"abcdefgh"
+        assert not (depot / "inpaint" / "server-chosen.pth").exists()
+        assert stored["d1"].filename_supplied is True
+        worker.repo.update_filename.assert_not_called()
+
+    def test_a_second_call_finds_the_file_and_does_not_download_again(self, manager, depot, landing):
+        worker, _ = landing
+
+        first = manager.ensure_asset_file(_URL, subdir="inpaint", poll_interval=0.01)
+        second = manager.ensure_asset_file(_URL, subdir="inpaint", poll_interval=0.01)
+
+        assert first == second
+        assert len(worker.session.requests) == 1
+        manager.worker.enqueue.assert_awaited_once()
+
+    def test_the_returned_path_is_the_records_current_destination(self, manager, depot, landing):
+        _, stored = landing
+        landed = depot / "inpaint" / "landed.pth"
+
+        async def relocate(download_id):
+            stored[download_id].destination_path = str(landed)
+            stored[download_id].status = DownloadStatus.COMPLETED
+
+        manager.worker.enqueue.side_effect = relocate
+
+        assert manager.ensure_asset_file(_URL, subdir="inpaint", poll_interval=0.01) == landed
 
 
 class TestEnsureAssetRepo:

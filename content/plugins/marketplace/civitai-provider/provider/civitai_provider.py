@@ -11,7 +11,7 @@ import aiohttp
 import logging
 import time
 from html.parser import HTMLParser
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.plugin_api import (
     MarketplaceProviderBase,
@@ -75,6 +75,16 @@ def _html_to_text(raw_html: Optional[str]) -> Optional[str]:
 
 _MODEL_PAGE_PATH = re.compile(r'^/models/(\d+)(?:/[^/]*)?/?$')
 _DOWNLOAD_PATH = re.compile(r'^/api/download/models/(\d+)/?$')
+
+
+def _parse_model_page_url(url: str) -> Optional[Tuple[str, Optional[str]]]:
+    from urllib.parse import urlparse, parse_qs
+
+    parsed = urlparse(url)
+    match = _MODEL_PAGE_PATH.match(parsed.path)
+    if not match or 'civitai.com' not in parsed.netloc or parsed.path.startswith('/api/'):
+        return None
+    return match.group(1), (parse_qs(parsed.query).get('modelVersionId') or [None])[0]
 
 
 class CivitaiProvider(MarketplaceProviderBase):
@@ -513,16 +523,21 @@ class CivitaiProvider(MarketplaceProviderBase):
             "required": []
         }
 
-    async def _validate_model_id(self, model_id: str) -> Optional[Dict[str, Any]]:
+    async def _validate_model_id(
+        self, model_id: str, session: Optional[aiohttp.ClientSession] = None
+    ) -> Optional[Dict[str, Any]]:
         """Validate that a model ID exists on CivitAI.
 
         Returns model data dict if valid, None if not found.
         """
         url = f"{self.BASE_URL}/models/{model_id}"
-        session = await self._get_session()
+        request_headers = self.get_download_headers() if session is not None else None
+        session = session or await self._get_session()
         await self._rate_limit()
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+            async with session.get(
+                url, headers=request_headers, timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
                 if response.status == 200:
                     return await response.json()
                 elif response.status == 404:
@@ -534,16 +549,21 @@ class CivitaiProvider(MarketplaceProviderBase):
             logger.warning(f"CivitAI model validation failed: {e}")
             return None
 
-    async def _validate_model_version_id(self, version_id: str) -> Optional[Dict[str, Any]]:
+    async def _validate_model_version_id(
+        self, version_id: str, session: Optional[aiohttp.ClientSession] = None
+    ) -> Optional[Dict[str, Any]]:
         """Validate that a model version ID exists on CivitAI.
 
         Returns version data dict if valid, None if not found.
         """
         url = f"{self.BASE_URL}/model-versions/{version_id}"
-        session = await self._get_session()
+        request_headers = self.get_download_headers() if session is not None else None
+        session = session or await self._get_session()
         await self._rate_limit()
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+            async with session.get(
+                url, headers=request_headers, timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
                 if response.status == 200:
                     return await response.json()
                 elif response.status == 404:
@@ -884,28 +904,17 @@ class CivitaiProvider(MarketplaceProviderBase):
 
         query = parse_qs(parsed.query)
         download_match = _DOWNLOAD_PATH.match(parsed.path)
-        page_match = _MODEL_PAGE_PATH.match(parsed.path)
+        page_ref = _parse_model_page_url(url)
         if download_match:
-            version_id = download_match.group(1)
-        elif page_match:
-            version_id = (query.get('modelVersionId') or [None])[0]
+            version = await self._validate_model_version_id(download_match.group(1), session)
+        elif page_ref and page_ref[1]:
+            version = await self._validate_model_version_id(page_ref[1], session)
+        elif page_ref:
+            model = await self._validate_model_id(page_ref[0], session)
+            version = ((model or {}).get('modelVersions') or [None])[0]
         else:
             return None
 
-        endpoint = (
-            f"{self.BASE_URL}/model-versions/{version_id}"
-            if version_id
-            else f"{self.BASE_URL}/models/{page_match.group(1)}"
-        )
-        try:
-            async with session.get(endpoint, headers=self.get_download_headers()) as response:
-                if response.status != 200:
-                    return None
-                data = await response.json()
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
-            return None
-
-        version = data if version_id else (data.get('modelVersions') or [None])[0]
         files = [f for f in (version or {}).get('files') or [] if f.get('name')]
         if not files:
             return None
@@ -914,25 +923,20 @@ class CivitaiProvider(MarketplaceProviderBase):
             file_url = urlparse(file.get('downloadUrl') or '')
             return file_url.path == parsed.path and parse_qs(file_url.query) == query
 
-        chosen = (
-            next((f for f in files if same_download(f)), None)
-            or next((f for f in files if f.get('primary')), None)
-            or files[0]
-        )
-        return chosen['name']
+        chosen = next((f for f in files if same_download(f)), None)
+        if chosen is None and not (set(query) - {'modelVersionId'}):
+            chosen = next((f for f in files if f.get('primary')), None) or files[0]
+        return chosen['name'] if chosen else None
 
     async def _resolve_model_page_url(self, url: str) -> str:
-        from urllib.parse import urlparse, parse_qs
-
-        parsed = urlparse(url)
-        match = _MODEL_PAGE_PATH.match(parsed.path)
-        if not match or 'civitai.com' not in parsed.netloc or parsed.path.startswith('/api/'):
+        page_ref = _parse_model_page_url(url)
+        if not page_ref:
             return url
 
-        version_id = (parse_qs(parsed.query).get('modelVersionId') or [None])[0]
-        resolved = await self.get_download_url(match.group(1), version_id)
+        model_id, version_id = page_ref
+        resolved = await self.get_download_url(model_id, version_id)
         if not resolved:
-            raise ProviderNotFoundError(f"No download URL for CivitAI model {match.group(1)}")
+            raise ProviderNotFoundError(f"No download URL for CivitAI model {model_id}")
         return resolved
 
     async def prepare_download(self, session, url: str, headers: Dict[str, str]) -> str:

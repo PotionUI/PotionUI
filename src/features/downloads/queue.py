@@ -557,6 +557,7 @@ class DownloadQueue:
         # An explicit name (request body, internal caller, or a `before_queue`
         # hook's rewrite) is untrusted and refused outright when unsafe; a
         # URL-derived one falls back to a generated name.
+        filename_supplied = bool(filename)
         if filename:
             filename = safe_download_name(filename, single_segment=False)
         else:
@@ -576,6 +577,7 @@ class DownloadQueue:
             provider_id=provider_id or self._provider_id_for_url(url),
             created_by=created_by,
             destination_backend_id=destination_backend_id,
+            filename_supplied=filename_supplied,
         )
 
         created_download = self.repo.create(download)
@@ -665,6 +667,7 @@ class DownloadQueue:
         ))
 
         # Explicit names are untrusted here too - see queue_model_download.
+        filename_supplied = bool(filename)
         if filename:
             filename = safe_download_name(filename, single_segment=False)
         else:
@@ -679,7 +682,8 @@ class DownloadQueue:
             destination_path=destination_path,
             filename=filename,
             status=DownloadStatus.PENDING,
-            created_by=created_by
+            created_by=created_by,
+            filename_supplied=filename_supplied,
         )
 
         created_download = self.repo.create(download)
@@ -1170,7 +1174,8 @@ class DownloadQueue:
             # The record's own destination, not the precomputed `target`: a
             # `download.before_queue` hook may have rewritten it (still
             # depot-contained), and the caller needs where the bytes landed.
-            return Path(download.destination_path)
+            landed = self.repo.get_by_id(download.id) or download
+            return Path(landed.destination_path)
 
     def ensure_asset_repo(
         self,

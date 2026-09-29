@@ -1,15 +1,20 @@
+import asyncio
 import importlib
 import sys
+import threading
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import aiohttp
 import pytest
+from aiohttp import web
 
 _provider_dir = Path(__file__).resolve().parents[3] / "content" / "plugins" / "marketplace" / "civitai-provider"
 sys.path.insert(0, str(_provider_dir))
 _mod = importlib.import_module("provider.civitai_provider")
 CivitaiProvider = _mod.CivitaiProvider
 
+from src.features.providers.base_provider import ProviderNotFoundError
 from src.features.providers.registry import ProviderRegistry
 
 CDN = "https://cdn.example.com/signed/model.safetensors?sig=abc"
@@ -131,34 +136,149 @@ VERSION_PAYLOAD = {
 }
 
 
+class _ApiResponse:
+    def __init__(self, status, payload=None):
+        self.status = status
+        self._payload = payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        pass
+
+    async def json(self):
+        return self._payload
+
+
+class _ApiSession:
+    def __init__(self, *responses):
+        self._responses = list(responses)
+        self.urls = []
+
+    def get(self, url, **kwargs):
+        self.urls.append(url)
+        return self._responses.pop(0)
+
+
+def _api(provider, *responses):
+    session = _ApiSession(*responses)
+    provider._get_session = AsyncMock(side_effect=AssertionError("the provider's own session must not be used"))
+    return session
+
+
 @pytest.mark.parametrize(
     "url,expected",
     [
         ("https://civitai.com/api/download/models/3361846", "model-fp16.safetensors"),
         ("https://civitai.com/api/download/models/3361846?type=Pruned%20Model", "model-pruned.safetensors"),
-        ("https://civitai.com/api/download/models/3361846?type=Model&format=SafeTensor", "model-fp16.safetensors"),
         ("https://civitai.com/models/123?modelVersionId=3361846", "model-fp16.safetensors"),
+        ("https://civitai.com/models/123/slug?modelVersionId=3361846", "model-fp16.safetensors"),
     ],
 )
 @pytest.mark.asyncio
 async def test_resolve_download_filename_from_version_metadata(provider, url, expected):
-    session = _Session([_Response(200, payload=VERSION_PAYLOAD)])
+    api = _api(provider, _ApiResponse(200, VERSION_PAYLOAD))
 
-    assert await provider.resolve_download_filename(session, url) == expected
-    assert session.calls[0][0].endswith("/model-versions/3361846")
-    assert session.calls[0][1]["Authorization"] == "Bearer test-key"
+    assert await provider.resolve_download_filename(api, url) == expected
+    assert api.urls[0].endswith("/model-versions/3361846")
 
 
 @pytest.mark.asyncio
 async def test_resolve_download_filename_for_latest_page_url(provider):
-    payload = {"modelVersions": [VERSION_PAYLOAD]}
-    session = _Session([_Response(200, payload=payload)])
+    api = _api(provider, _ApiResponse(200, {"modelVersions": [VERSION_PAYLOAD]}))
 
-    assert await provider.resolve_download_filename(session, "https://civitai.com/models/123/slug") == "model-fp16.safetensors"
-    assert session.calls[0][0].endswith("/models/123")
+    assert await provider.resolve_download_filename(api, "https://civitai.com/models/123/slug") == "model-fp16.safetensors"
+    assert api.urls[0].endswith("/models/123")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://civitai.com/api/download/models/3361846?type=Model&format=SafeTensor",
+        "https://civitai.com/api/download/models/3361846?type=Missing",
+    ],
+)
+@pytest.mark.asyncio
+async def test_resolve_download_filename_is_none_when_a_file_selecting_query_matches_no_file(provider, url):
+    api = _api(provider, _ApiResponse(200, VERSION_PAYLOAD))
+
+    assert await provider.resolve_download_filename(api, url) is None
 
 
 @pytest.mark.asyncio
 async def test_resolve_download_filename_is_none_when_lookup_fails_or_url_foreign(provider):
-    assert await provider.resolve_download_filename(_Session([_Response(404)]), DOWNLOAD_URLS[0]) is None
-    assert await provider.resolve_download_filename(_Session([]), "https://example.com/api/download/models/1") is None
+    api = _api(provider, _ApiResponse(404))
+    assert await provider.resolve_download_filename(api, DOWNLOAD_URLS[0]) is None
+    api = _api(provider)
+    assert await provider.resolve_download_filename(api, "https://example.com/api/download/models/1") is None
+    assert api.urls == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_download_filename_goes_through_the_rate_limited_lookup(provider):
+    api = _api(provider, _ApiResponse(200, VERSION_PAYLOAD))
+    provider._rate_limit = AsyncMock()
+
+    await provider.resolve_download_filename(api, DOWNLOAD_URLS[0])
+
+    provider._rate_limit.assert_awaited_once()
+
+
+@pytest.mark.parametrize("url", PAGE_URLS_LATEST)
+@pytest.mark.asyncio
+async def test_page_url_of_a_model_with_no_versions_is_not_found_without_downloading(provider, url):
+    provider._get_session = AsyncMock(return_value=_ApiSession(_ApiResponse(200, {"modelVersions": []})))
+    session = _Session([])
+
+    with pytest.raises(ProviderNotFoundError):
+        await provider.prepare_download(session, url, {})
+
+    assert session.calls == []
+
+
+def test_filename_lookup_runs_on_another_loop_with_the_workers_session(provider):
+    served = []
+
+    async def handler(request):
+        served.append(request.headers.get("Authorization"))
+        return web.json_response(VERSION_PAYLOAD)
+
+    async def start_server():
+        app = web.Application()
+        app.router.add_get("/model-versions/{vid}", handler)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        provider._session = aiohttp.ClientSession()
+        return runner, site._server.sockets[0].getsockname()[1]
+
+    result = {}
+
+    def worker_thread(base):
+        async def lookup():
+            provider.BASE_URL = base
+            async with aiohttp.ClientSession() as worker_session:
+                result["name"] = await provider.resolve_download_filename(worker_session, DOWNLOAD_URLS[0])
+
+        asyncio.run(lookup())
+
+    async def serve_until_lookup_done(base_holder):
+        thread = threading.Thread(target=worker_thread, args=(base_holder,))
+        thread.start()
+        while thread.is_alive():
+            await asyncio.sleep(0.01)
+        thread.join()
+
+    loop = asyncio.new_event_loop()
+    try:
+        runner, port = loop.run_until_complete(start_server())
+        loop.run_until_complete(serve_until_lookup_done(f"http://127.0.0.1:{port}"))
+        loop.run_until_complete(provider._session.close())
+        loop.run_until_complete(runner.cleanup())
+    finally:
+        loop.close()
+
+    assert result["name"] == "model-fp16.safetensors"
+    assert served == ["Bearer test-key"]

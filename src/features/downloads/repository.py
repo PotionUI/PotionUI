@@ -27,8 +27,8 @@ class DownloadRepository:
                     total_bytes, downloaded_bytes, speed_bytes_per_sec, error_message,
                     provider_id, tags, checksum_sha256, retry_count, group_id,
                     repo_id, revision, created_at, started_at, completed_at, created_by,
-                    destination_backend_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    destination_backend_id, filename_supplied
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 download.id,
                 download.type.value,
@@ -52,7 +52,8 @@ class DownloadRepository:
                 dt_iso(download.started_at),
                 dt_iso(download.completed_at),
                 download.created_by,
-                download.destination_backend_id
+                download.destination_backend_id,
+                1 if download.filename_supplied else 0
             ))
 
         return self.get_by_id(download.id)
@@ -229,6 +230,20 @@ class DownloadRepository:
             )
             return cursor.rowcount > 0
 
+    def is_destination_claimed(self, destination_path: str, exclude_id: Optional[str] = None) -> bool:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT 1 FROM downloads
+                WHERE destination_path = ? AND id != ?
+                  AND status IN ('pending', 'downloading', 'paused')
+                LIMIT 1
+                """,
+                (destination_path, exclude_id or ''),
+            )
+            return cursor.fetchone() is not None
+
     def update_filename(
         self,
         download_id: str,
@@ -240,7 +255,7 @@ class DownloadRepository:
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE downloads
-                SET filename = ?, destination_path = ?
+                SET filename = ?, destination_path = ?, filename_supplied = 1
                 WHERE id = ?
             """, (filename, destination_path, download_id))
             return cursor.rowcount > 0

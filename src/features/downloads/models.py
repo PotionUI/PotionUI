@@ -53,6 +53,7 @@ class Download:
     repo_id: Optional[str] = None   # hf_repo parents: the Hugging Face repo id
     revision: Optional[str] = None  # hf_repo parents: the pinned revision, if any
     destination_backend_id: Optional[str] = None  # None = local disk; set = a native.remote worker's depot
+    filename_supplied: bool = True
     created_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -81,6 +82,7 @@ class Download:
             repo_id=row['repo_id'],
             revision=row['revision'],
             destination_backend_id=row['destination_backend_id'],
+            filename_supplied=bool(row['filename_supplied']),
             created_at=dt_column(row['created_at']),
             started_at=dt_column(row['started_at']),
             completed_at=dt_column(row['completed_at']),
@@ -109,6 +111,7 @@ class Download:
             'repo_id': self.repo_id,
             'revision': self.revision,
             'destination_backend_id': self.destination_backend_id,
+            'filename_supplied': self.filename_supplied,
             'created_at': dt_iso(self.created_at),
             'started_at': dt_iso(self.started_at),
             'completed_at': dt_iso(self.completed_at),

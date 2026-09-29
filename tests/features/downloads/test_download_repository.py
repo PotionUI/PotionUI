@@ -88,6 +88,43 @@ class TestDownloadRepository(PersistenceTestBase):
         )
         return self.repository.create(download)
 
+    def test_filename_supplied_round_trips_and_defaults_to_supplied(self):
+        derived = self.repository.create(Download(
+            id="derived-dl", url="https://example.com/a.bin",
+            destination_path="/models/a.bin", filename="a.bin", filename_supplied=False,
+        ))
+        supplied = self.repository.create(Download(
+            id="supplied-dl", url="https://example.com/b.bin",
+            destination_path="/models/b.bin", filename="b.bin",
+        ))
+
+        self.assertFalse(self.repository.get_by_id(derived.id).filename_supplied)
+        self.assertTrue(self.repository.get_by_id(supplied.id).filename_supplied)
+
+    def test_a_destination_is_claimed_only_by_another_unfinished_row(self):
+        for row_id, status in (("live", "downloading"), ("done", "completed")):
+            self.repository.create(Download(
+                id=row_id, url="https://example.com/x", filename=row_id,
+                destination_path=f"/models/{row_id}.bin", status=DownloadStatus(status),
+            ))
+
+        self.assertTrue(self.repository.is_destination_claimed("/models/live.bin", "other"))
+        self.assertFalse(self.repository.is_destination_claimed("/models/live.bin", "live"))
+        self.assertFalse(self.repository.is_destination_claimed("/models/done.bin", "other"))
+        self.assertFalse(self.repository.is_destination_claimed("/models/free.bin", "other"))
+
+    def test_update_filename_marks_the_name_as_final(self):
+        derived = self.repository.create(Download(
+            id="adopt-dl", url="https://example.com/a.bin",
+            destination_path="/models/a.bin", filename="a.bin", filename_supplied=False,
+        ))
+
+        self.repository.update_filename(derived.id, "real.bin", "/models/real.bin")
+
+        stored = self.repository.get_by_id(derived.id)
+        self.assertEqual(stored.filename, "real.bin")
+        self.assertTrue(stored.filename_supplied)
+
     # ========== Create Tests ==========
 
     def test_create_download(self):

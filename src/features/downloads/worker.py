@@ -31,9 +31,8 @@ from src.features.downloads.utils import (
     extension_for_content_type,
     extract_filename_from_content_disposition,
     extract_filename_from_url,
-    is_url_derived_name,
     safe_download_name,
-    sanitize_derived_name,
+    derived_download_name,
     verify_file_target,
 )
 from src.platform.websocket.download_connection_hub import DownloadConnectionHub
@@ -134,6 +133,7 @@ class DownloadWorker:
 
         # Worker management
         self.queue: asyncio.Queue = asyncio.Queue()
+        self._adopt_lock = asyncio.Lock()
         self.workers: List[asyncio.Task] = []
         self.active_downloads: Dict[str, asyncio.Task] = {}
         self.paused_downloads: set = set()
@@ -630,7 +630,7 @@ class DownloadWorker:
         download_url = download.url
         logger.info(f"Starting download for {download.filename}, provider_id={download.provider_id}")
 
-        name_is_open = is_url_derived_name(download.filename, download.url)
+        name_is_open = not download.filename_supplied
 
         provider = self._resolve_provider(download)
         if provider:
@@ -686,15 +686,14 @@ class DownloadWorker:
                 )
 
             if name_is_open:
-                header_name = sanitize_derived_name(
+                header_name = derived_download_name(
                     extract_filename_from_content_disposition(response.headers.get('Content-Disposition', ''))
                 )
                 if not header_name and not os.path.splitext(download.filename)[1]:
                     extension = extension_for_content_type(content_type)
-                    header_name = sanitize_derived_name(download.filename + extension) if extension else None
+                    header_name = derived_download_name(download.filename + extension) if extension else None
                 if header_name and header_name != download.filename:
-                    if not Path(os.path.join(dest_path.parent, header_name + '.part')).exists():
-                        dest_path, temp_path, resume_from = await self._adopt_filename(download, header_name)
+                    dest_path, temp_path, resume_from = await self._adopt_filename(download, header_name)
 
             # Get total size
             content_length = response.headers.get('Content-Length')
@@ -996,23 +995,44 @@ class DownloadWorker:
 
     async def _provider_filename(self, provider, url: str) -> Optional[str]:
         try:
-            return sanitize_derived_name(await provider.resolve_download_filename(self.session, url))
+            return derived_download_name(await provider.resolve_download_filename(self.session, url))
         except Exception as e:
             logger.warning(f"Provider filename lookup failed for {url}: {e}")
             return None
 
+    def _claim_temp_path(self, download: Download, new_dest: Path, old_temp: Path, new_temp: Path) -> bool:
+        if new_dest.exists() or self.repo.is_destination_claimed(str(new_dest), download.id):
+            return False
+        if old_temp.exists():
+            return not new_temp.exists()
+        try:
+            with open(new_temp, 'xb'):
+                pass
+        except FileExistsError:
+            return False
+        return True
+
     async def _adopt_filename(self, download: Download, new_filename: str):
-        old_temp = Path(download.destination_path + '.part')
-        await self._update_download_filename(download, new_filename)
-        dest_path = Path(download.destination_path)
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = Path(str(dest_path) + '.part')
-        self._verify_write_targets(dest_path, temp_path)
-        if old_temp != temp_path and old_temp.exists() and not temp_path.exists():
-            old_temp.replace(temp_path)
-        resume_from = temp_path.stat().st_size if temp_path.exists() else 0
-        download.downloaded_bytes = resume_from
-        return dest_path, temp_path, resume_from
+        async with self._adopt_lock:
+            old_dest = Path(download.destination_path)
+            old_temp = Path(str(old_dest) + '.part')
+            new_dest = old_dest.parent / new_filename
+            new_temp = old_dest.parent / (new_filename + '.part')
+            if new_dest != old_dest and not self._claim_temp_path(download, new_dest, old_temp, new_temp):
+                logger.warning(f"Keeping filename {download.filename}: {new_filename} belongs to another download")
+                resume_from = old_temp.stat().st_size if old_temp.exists() else 0
+                download.downloaded_bytes = resume_from
+                return old_dest, old_temp, resume_from
+            await self._update_download_filename(download, new_filename)
+            dest_path = Path(download.destination_path)
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            temp_path = Path(str(dest_path) + '.part')
+            self._verify_write_targets(dest_path, temp_path)
+            if old_temp != temp_path and old_temp.exists():
+                old_temp.replace(temp_path)
+            resume_from = temp_path.stat().st_size if temp_path.exists() else 0
+            download.downloaded_bytes = resume_from
+            return dest_path, temp_path, resume_from
 
     async def _update_download_filename(self, download: Download, new_filename: str) -> None:
         """Update a download's filename and destination path.
@@ -1039,6 +1059,7 @@ class DownloadWorker:
 
         download.filename = safe_name
         download.destination_path = new_dest_path
+        download.filename_supplied = True
 
         # Update in database
         self.repo.update_filename(download.id, safe_name, new_dest_path)

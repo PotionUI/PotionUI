@@ -30,6 +30,7 @@ from src.features.downloads.utils import (
     verify_file_target,
 )
 from src.features.downloads.worker import DownloadWorker
+from tests.features.downloads.fakes import FakeResponse, FakeSession
 from tests.fixtures.model_roots import make_roots
 
 
@@ -117,6 +118,55 @@ class TestSafeDownloadName:
     def test_the_refusal_names_the_filename(self):
         with pytest.raises(UnsafeFilenameException, match="evil.bin"):
             safe_download_name("../evil.bin")
+
+
+class TestDerivedNameFitsTheFilesystem:
+    def test_a_long_cjk_name_is_cut_in_bytes_and_keeps_its_extension(self):
+        name = derived_download_name("模" * 200 + ".safetensors")
+
+        assert name.endswith(".safetensors")
+        assert len((name + ".part").encode("utf-8")) <= 255
+        assert len(name) <= 200
+        assert name.startswith("模")
+
+    def test_a_long_ascii_name_is_cut_to_the_character_cap(self):
+        name = derived_download_name("a" * 300 + ".bin")
+
+        assert name == "a" * 196 + ".bin"
+
+    def test_a_long_multi_dot_name_keeps_its_real_extension(self):
+        name = derived_download_name("model v1.5 final " + "x" * 300 + ".safetensors")
+
+        assert name.endswith(".safetensors")
+        assert name.startswith("model v1.5 final ")
+        assert len(name) == 200
+
+    def test_a_long_dotted_name_without_an_extension_is_shortened_whole(self):
+        name = derived_download_name("model v1.5 final long " + "y" * 300)
+
+        assert name == ("model v1.5 final long " + "y" * 300)[:200]
+
+    def test_a_short_tail_with_a_space_is_not_an_extension(self):
+        raw = "word " * 60 + "v1.5 beta"
+
+        assert not derived_download_name(raw).endswith(".5 beta")
+
+    def test_an_oversized_tail_is_not_mistaken_for_an_extension(self):
+        name = derived_download_name("a." + "模" * 100)
+
+        assert name.startswith("a.模")
+        assert len((name + ".part").encode("utf-8")) <= 255
+
+    def test_a_name_within_the_limits_is_untouched(self):
+        assert derived_download_name("My Modèl 模型.safetensors") == "My Modèl 模型.safetensors"
+
+    def test_windows_reserved_characters_are_replaced_by_the_same_policy(self):
+        assert derived_download_name('a<b>:c?d*"e|.bin') == "a_b__c_d__e_.bin"
+
+    def test_url_derived_names_go_through_the_same_policy(self):
+        url = "https://example.com/" + "a" * 300 + ".bin"
+
+        assert extract_filename_from_url(url) == "a" * 196 + ".bin"
 
 
 class TestExtractFilenameFromUrl:
@@ -354,35 +404,6 @@ class TestProviderRewrittenFilename:
         assert download.destination_path == str(tmp_path / "checkpoints" / "real_name.safetensors")
 
 
-class _FakeResponse:
-    def __init__(self, status, chunks=(), headers=None):
-        self.status = status
-        self.reason = "OK"
-        self.headers = headers or {}
-        self.content = self
-        self._chunks = list(chunks)
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    async def iter_chunked(self, size):
-        for chunk in self._chunks:
-            yield chunk
-
-
-class _FakeSession:
-    def __init__(self, response):
-        self._response = response
-        self.headers_seen = None
-
-    def get(self, url, headers=None):
-        self.headers_seen = headers
-        return self._response
-
-
 class TestWorkerWriteTargets:
     """The write/resume/rename boundary. A destination directory that is an
     admin-configured symlink into shared storage is the supported layout; a
@@ -397,7 +418,7 @@ class TestWorkerWriteTargets:
             url="https://example.com/model.safetensors",
             destination_path=str(dest),
         )
-        worker.session = _FakeSession(_FakeResponse(200, [b"abc"], {"Content-Length": "3"}))
+        worker.session = FakeSession(FakeResponse(200, [b"abc"], {"Content-Length": "3"}))
 
         assert await worker._download_file(download) is True
         assert dest.read_bytes() == b"abc"
@@ -412,12 +433,12 @@ class TestWorkerWriteTargets:
             url="https://example.com/model.safetensors",
             destination_path=str(dest),
         )
-        worker.session = _FakeSession(
-            _FakeResponse(206, [b"c"], {"Content-Length": "1", "Content-Range": "bytes 2-2/3"})
+        worker.session = FakeSession(
+            FakeResponse(206, [b"c"], {"Content-Length": "1", "Content-Range": "bytes 2-2/3"})
         )
 
         assert await worker._download_file(download) is True
-        assert worker.session.headers_seen["Range"] == "bytes=2-"
+        assert worker.session.requests[0][1]["Range"] == "bytes=2-"
         assert dest.read_bytes() == b"abc"
 
     @pytest.mark.asyncio
@@ -435,7 +456,7 @@ class TestWorkerWriteTargets:
             url="https://example.com/model.safetensors",
             destination_path=str(depot / "diffusion_models" / "model.safetensors"),
         )
-        worker.session = _FakeSession(_FakeResponse(200, [b"abc"], {"Content-Length": "3"}))
+        worker.session = FakeSession(FakeResponse(200, [b"abc"], {"Content-Length": "3"}))
 
         assert await worker._download_file(download) is True
         assert (shared / "model.safetensors").read_bytes() == b"abc"
@@ -456,7 +477,7 @@ class TestWorkerWriteTargets:
             url="https://example.com/model.safetensors",
             destination_path=str(dest),
         )
-        worker.session = _FakeSession(_FakeResponse(200, [b"abc"], {"Content-Length": "3"}))
+        worker.session = FakeSession(FakeResponse(200, [b"abc"], {"Content-Length": "3"}))
 
         with pytest.raises(UnsafeFilenameException):
             await worker._download_file(download)
@@ -479,7 +500,7 @@ class TestWorkerWriteTargets:
             url="https://example.com/model.safetensors",
             destination_path=str(dest),
         )
-        worker.session = _FakeSession(_FakeResponse(200, [b"abc"], {"Content-Length": "3"}))
+        worker.session = FakeSession(FakeResponse(200, [b"abc"], {"Content-Length": "3"}))
 
         with pytest.raises(UnsafeFilenameException):
             await worker._download_file(download)
@@ -507,7 +528,7 @@ class TestWorkerWriteTargets:
             url="https://example.com/model.safetensors",
             destination_path=str(dest),
         )
-        worker.session = _FakeSession(_FakeResponse(416))
+        worker.session = FakeSession(FakeResponse(416))
 
         with pytest.raises(UnsafeFilenameException):
             await worker._download_file(download)

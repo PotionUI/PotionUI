@@ -1,4 +1,5 @@
 import importlib.util
+import shutil
 import sys
 import tempfile
 import unittest
@@ -6,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.platform.database.database import Database
+from tests.fixtures.persistence_base import make_lean_file_database
 from src.platform.util.ids import generate_ulid
 
 _MIGRATIONS = (
@@ -23,22 +25,46 @@ def _load_migration(stem, database):
     return module
 
 
+_pre_037_template = None
+
+
+def _pre_037_template_path(repo_root):
+    global _pre_037_template
+    if _pre_037_template is None:
+        directory = Path(tempfile.mkdtemp(prefix="potionui-pre037-"))
+        path = directory / "pre037.sqlite"
+        Database._instance = None
+        database = Database()
+        database.db_path = path
+        database._initialized = True
+        make_lean_file_database(database)
+        with patch("pathlib.Path.cwd", return_value=repo_root):
+            _load_migration("001_baseline", database).up()
+            _load_migration("035_model_roots", database).up()
+            _load_migration("036_native_availability_logical_refs", database).up()
+        with database.get_connection() as conn:
+            conn.execute("PRAGMA journal_mode = DELETE").close()
+        Database._instance = None
+        _pre_037_template = path
+    return _pre_037_template
+
+
 class TestMigration037DropModelFilePath(unittest.TestCase):
 
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
         self.repo_root = Path(tempfile.mkdtemp())
+        template = _pre_037_template_path(self.repo_root)
         Database._instance = None
         self.db = Database()
         self.db.db_path = Path(self.temp_dir) / "test.sqlite"
         self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
+        shutil.copyfile(template, self.db.db_path)
+        make_lean_file_database(self.db)
 
         self.cwd_patch = patch("pathlib.Path.cwd", return_value=self.repo_root)
         self.cwd_patch.start()
 
-        _load_migration("035_model_roots", self.db).up()
-        _load_migration("036_native_availability_logical_refs", self.db).up()
         self.migration = _load_migration("037_drop_model_file_path", self.db)
 
     def tearDown(self):

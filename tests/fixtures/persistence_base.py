@@ -24,12 +24,41 @@ except ImportError:
     generate_ulid = mock_generate_ulid
 
 import importlib
+import sqlite3
+import types
+from contextlib import contextmanager
 
 from src.platform.database.database import Database, db as REAL_DB
+from src.platform.database.sql_functions import register_sql_functions
+
+
+@contextmanager
+def _lean_connection(self):
+    conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30.0)
+    conn.row_factory = sqlite3.Row
+    register_sql_functions(conn)
+    try:
+        conn.execute("PRAGMA foreign_keys = ON").close()
+        conn.execute("PRAGMA busy_timeout = 30000").close()
+        conn.execute("PRAGMA synchronous = OFF").close()
+        yield conn
+    finally:
+        conn.close()
+
+
+def make_lean_file_database(db, *, hold_open: bool = False) -> None:
+    if hold_open:
+        keeper = sqlite3.connect(db.db_path, check_same_thread=False)
+        keeper.execute("PRAGMA journal_mode = WAL").close()
+        keeper.execute("SELECT count(*) FROM sqlite_master").fetchall()
+        db._keeper = keeper
+    db.get_connection = types.MethodType(_lean_connection, db)
 
 
 class PersistenceTestBase(unittest.TestCase):
     """Base class for persistence tests with database setup"""
+
+    lean_connection = True
     
     def setUp(self):
         """Set up test database with a fully migrated schema"""
@@ -53,6 +82,10 @@ class PersistenceTestBase(unittest.TestCase):
             pass  # Ignore errors during cleanup
 
         self._restore_patched_db()
+
+        keeper = getattr(getattr(self, "db", None), "_keeper", None)
+        if keeper is not None:
+            keeper.close()
 
         if self.temp_db_path.exists():
             self.temp_db_path.unlink()
@@ -100,6 +133,8 @@ class PersistenceTestBase(unittest.TestCase):
 
         from tests.fixtures.db_template import copy_template_db
         copy_template_db(db_path)
+        if self.lean_connection:
+            make_lean_file_database(db, hold_open=True)
 
         # Repositories resolve `db` at call time, so redirecting the one
         # canonical name reaches every one of them.

@@ -94,9 +94,21 @@ def test_negative_out_of_range_raises(sample_video):
         extract_frame(sample_video, -999)
 
 
-def test_unreadable_file_raises(tmp_path):
+def test_unreadable_file_raises(tmp_path, monkeypatch):
     bogus = tmp_path / "not_a_video.mp4"
     bogus.write_bytes(b"not a real video file")
+
+    class UnopenedCapture:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def isOpened(self):
+            return False
+
+        def release(self):
+            pass
+
+    monkeypatch.setattr(cv2, "VideoCapture", UnopenedCapture)
     with pytest.raises(ValueError):
         extract_frame(bogus, 0)
 

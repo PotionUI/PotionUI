@@ -177,10 +177,12 @@ class TestPipeInstaller:
     @pytest.mark.asyncio
     async def test_uninstall_pipe_error(self):
         """Test pipe uninstallation error handling"""
+        existing_repo = self.temp_dir
+
         class PipeWithGitReq(MockPipe):
             @classmethod
             def get_requirements(cls):
-                return {'pip': [], 'git': [{'path': '/tmp'}], 'models': []}
+                return {'pip': [], 'git': [{'path': existing_repo}], 'models': []}
 
         self.catalog.pipes['mock_pipe'] = PipeWithGitReq
 

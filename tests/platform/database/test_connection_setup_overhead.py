@@ -128,6 +128,8 @@ class TestConnectionSetupOverhead(PersistenceTestBase):
     `matching_generation_ids` batch.
     """
 
+    lean_connection = False
+
     def setUp(self):
         super().setUp()
         self.repo = GenerationRepository()

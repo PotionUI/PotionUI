@@ -1,4 +1,5 @@
 import importlib.util
+import shutil
 import sys
 import tempfile
 import unittest
@@ -7,6 +8,7 @@ from unittest.mock import patch
 
 from src.features.downloads.models import Download
 from src.platform.database.database import Database
+from tests.fixtures.persistence_base import make_lean_file_database
 
 _MIGRATIONS = (
     Path(__file__).resolve().parents[3]
@@ -83,20 +85,43 @@ class TestMigration038DownloadFilenameSupplied(unittest.TestCase):
         self.assertFalse(self._has_column())
 
 
+_pre_038_template = None
+
+
+def _pre_038_template_path(repo_root):
+    global _pre_038_template
+    if _pre_038_template is None:
+        path = Path(tempfile.mkdtemp(prefix="potionui-pre038-")) / "pre038.sqlite"
+        Database._instance = None
+        database = Database()
+        database.db_path = path
+        database._initialized = True
+        make_lean_file_database(database)
+        stems = sorted(p.stem for p in _MIGRATIONS.glob("*.py") if p.name != "__init__.py")
+        with patch("pathlib.Path.cwd", return_value=repo_root):
+            for stem in [stem for stem in stems if stem < "038_download_filename_supplied"]:
+                _load_migration(stem, database).up()
+        with database.get_connection() as conn:
+            conn.execute("PRAGMA journal_mode = DELETE").close()
+        Database._instance = None
+        _pre_038_template = path
+    return _pre_038_template
+
+
 class TestMigration038OnTheFullChain(unittest.TestCase):
 
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
+        repo_root = Path(tempfile.mkdtemp())
+        template = _pre_038_template_path(repo_root)
         Database._instance = None
         self.db = Database()
         self.db.db_path = Path(self.temp_dir) / "test.sqlite"
         self.db._initialized = True
-        self.cwd_patch = patch("pathlib.Path.cwd", return_value=Path(tempfile.mkdtemp()))
+        shutil.copyfile(template, self.db.db_path)
+        make_lean_file_database(self.db)
+        self.cwd_patch = patch("pathlib.Path.cwd", return_value=repo_root)
         self.cwd_patch.start()
-        stems = sorted(p.stem for p in _MIGRATIONS.glob("*.py") if p.name != "__init__.py")
-        earlier = [stem for stem in stems if stem < "038_download_filename_supplied"]
-        for stem in earlier:
-            _load_migration(stem, self.db).up()
         self.migration = _load_migration("038_download_filename_supplied", self.db)
 
     def tearDown(self):

@@ -266,7 +266,7 @@
 	</svelte:fragment>
 	<svelte:fragment slot="header">
 		<strong class="picker-modal-title">{title}</strong>
-		<div class="picker-modal-search" class:invalid={!!compiledSearch.error}>
+		<div class="picker-modal-search field-frame" class:invalid={!!compiledSearch.error}>
 			<Icon name="search" className="icon" />
 			<input
 				bind:value={query}

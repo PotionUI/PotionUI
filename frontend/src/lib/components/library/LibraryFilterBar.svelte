@@ -5,6 +5,7 @@
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 	import Icon from '$lib/components/Icon.svelte';
+	import InputGroup from '$lib/components/ui/InputGroup.svelte';
 	import type { SortOption } from './librarySection';
 
 	const PANEL_GAP = 6;
@@ -101,22 +102,26 @@
 <svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
 
 <div class="order-last flex w-full items-center gap-1.5 xl:order-none xl:w-auto xl:min-w-[12rem] xl:max-w-md xl:flex-1">
-	<div class="input flex h-8 min-w-0 flex-1 items-center gap-2">
-		<Icon name="search" className="h-3.5 w-3.5 flex-shrink-0 text-fg-subtle" />
+	<InputGroup class="h-8 flex-1">
+		{#snippet leading()}
+			<Icon name="search" className="h-3.5 w-3.5 flex-shrink-0 text-fg-subtle" />
+		{/snippet}
 		<input
 			bind:this={searchInputEl}
 			type="search"
-			class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-fg-subtle"
+			class="min-w-0 flex-1 bg-transparent text-sm placeholder:text-fg-subtle"
 			placeholder={searchPlaceholder}
 			aria-label={searchAriaLabel ?? searchPlaceholder}
 			value={q}
 			oninput={(event) => onQueryChange((event.currentTarget as HTMLInputElement).value)}
 		/>
-		{#if searchHint}
-			<span class="whitespace-nowrap font-mono text-xs tabular-nums text-fg-subtle">{searchHint}</span>
-		{/if}
-		{@render searchAddon?.()}
-	</div>
+		{#snippet trailing()}
+			{#if searchHint}
+				<span class="whitespace-nowrap font-mono text-xs tabular-nums text-fg-subtle">{searchHint}</span>
+			{/if}
+			{@render searchAddon?.()}
+		{/snippet}
+	</InputGroup>
 </div>
 
 {#if popover}

@@ -91,7 +91,14 @@
 	}
 
 	.input {
-		@apply w-full min-h-9 px-3 py-2 bg-field-bg border border-field-border text-fg rounded focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-all placeholder-fg-subtle;
+		@apply w-full min-h-9 px-3 py-2 bg-field-bg border border-field-border text-fg rounded transition-all placeholder-fg-subtle;
+	}
+
+	.input:focus,
+	.input:has(:is(input, textarea, select):focus),
+	.field-frame:has(:is(input, textarea, select):focus) {
+		outline: none;
+		@apply ring-2 ring-signal border-transparent;
 	}
 
 	/* Enhanced select styling */
@@ -191,6 +198,30 @@
 :focus-visible {
 	outline: 2px solid rgb(var(--accent));
 	outline-offset: 2px;
+}
+
+:where(
+		input:not(.input, .outline-none, [class*='focus:outline-none'], [type='checkbox'], [type='radio'], [type='range']),
+		textarea:not(.input, .outline-none, [class*='focus:outline-none']),
+		select:not(.input, .outline-none, [class*='focus:outline-none'])
+	):focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px rgb(var(--signal));
+}
+
+.input:focus-visible,
+.field-frame:focus-visible,
+:is(input, textarea, select).outline-none:focus-visible {
+	outline: none;
+}
+
+:is(.input, .field-frame) :is(input, textarea, select):focus-visible {
+	outline: none;
+	box-shadow: none;
+}
+
+:is(.input, .field-frame) button:focus-visible {
+	outline-offset: -2px;
 }
 
 /* Remove outline for mouse/touch */

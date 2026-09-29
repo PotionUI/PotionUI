@@ -10,7 +10,7 @@ input, textarea { font: inherit; color: inherit; }
 
 button { cursor: pointer; }
 
-button:focus-visible, input:focus-visible, textarea:focus-visible, [contenteditable]:focus-visible { outline: 2px solid color-mix(in srgb, rgb(var(--fg)) 72%, transparent); outline-offset: 2px; }
+[contenteditable]:focus-visible { outline: 2px solid rgb(var(--signal)); outline-offset: 2px; }
 
 .icon { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -161,7 +161,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 
 .chip:hover { border-color: color-mix(in srgb, rgb(var(--fg)) 42%, rgb(var(--line))); background: rgb(var(--surface-2)); }
 
-.chip.active, .chip:focus-within { outline: 2px solid color-mix(in srgb, rgb(var(--fg)) 72%, transparent); outline-offset: 2px; background: rgb(var(--surface-2)); }
+.chip.active, .chip:focus-within { outline: 2px solid rgb(var(--signal)); outline-offset: 2px; background: rgb(var(--surface-2)); }
 
 .chip button:focus-visible { outline: 0; }
 
@@ -532,7 +532,7 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 
 .finder-search { width: 100%; height: 36px; padding: 0 10px 0 31px; color: rgb(var(--fg)); background: rgb(var(--surface-2)); border: 1px solid rgb(var(--line-strong)); border-radius: 6px; font: 500 8px "IBM Plex Mono"; }
 
-.finder-search:focus { outline: 1px solid color-mix(in srgb, rgb(var(--fg)) 72%, transparent); border-color: rgb(var(--line-strong)); }
+.finder-search:focus { border-color: rgb(var(--line-strong)); }
 
 .finder-label { height: 26px; display: flex; align-items: center; padding: 0 13px; color: rgb(var(--fg-subtle)); background: color-mix(in srgb, rgb(var(--surface-2)) 58%, transparent); border-block: 1px solid rgb(var(--line)); font: 500 6px "IBM Plex Mono"; text-transform: uppercase; letter-spacing: .09em; }
 

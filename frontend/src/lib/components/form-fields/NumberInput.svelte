@@ -45,7 +45,7 @@
 	<div
 		class="{fullWidth
 			? 'flex w-full'
-			: 'inline-flex'} items-stretch h-9 overflow-hidden rounded border border-line-strong bg-surface-2"
+			: 'inline-flex'} items-stretch h-9 overflow-hidden rounded border border-line-strong bg-surface-2 field-frame"
 	>
 		<button
 			type="button"
@@ -65,7 +65,7 @@
 			{max}
 			{step}
 			{disabled}
-			class="number-input-value h-9 border-0 bg-transparent text-center font-mono text-sm tabular-nums text-fg focus:outline-none {fullWidth
+			class="number-input-value h-9 border-0 bg-transparent text-center font-mono text-sm tabular-nums text-fg {fullWidth
 				? 'flex-1 min-w-0'
 				: 'w-11'}"
 			aria-describedby={descriptionId}

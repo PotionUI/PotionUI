@@ -128,7 +128,7 @@
 </script>
 
 <FieldShell {name} {label} {description} {tooltip} labelFor={name || undefined} let:descriptionId>
-	<div class="flex items-stretch h-9 bg-surface-2 border border-line-strong rounded overflow-hidden">
+	<div class="field-frame flex items-stretch h-9 bg-surface-2 border border-line-strong rounded overflow-hidden">
 		{#if isAuto}
 			<span class="flex-1 min-w-0 h-9 flex items-center px-3 font-mono text-sm italic text-fg-subtle truncate select-none">
 				random each run
@@ -142,7 +142,7 @@
 				min={inputMin}
 				{max}
 				{step}
-				class="flex-1 min-w-0 h-9 px-3 bg-transparent border-0 font-mono text-sm tabular-nums text-fg outline-none focus:ring-0"
+				class="flex-1 min-w-0 h-9 px-3 bg-transparent border-0 font-mono text-sm tabular-nums text-fg"
 				aria-describedby={descriptionId}
 			/>
 		{/if}

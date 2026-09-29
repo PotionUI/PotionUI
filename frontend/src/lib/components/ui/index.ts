@@ -7,6 +7,7 @@ export { default as PageTitle } from './PageTitle.svelte';
 export { default as Badge } from './Badge.svelte';
 export { default as Kbd } from './Kbd.svelte';
 export { default as Input } from './Input.svelte';
+export { default as InputGroup } from './InputGroup.svelte';
 export { default as Spinner } from './Spinner.svelte';
 export { default as PageContainer } from './PageContainer.svelte';
 export { default as EmptyState } from './EmptyState.svelte';

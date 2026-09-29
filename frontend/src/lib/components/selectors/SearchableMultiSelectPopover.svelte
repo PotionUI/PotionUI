@@ -196,19 +196,21 @@
 		class="fixed z-overlay bg-surface-1 border border-line-strong rounded-lg shadow-floating overflow-hidden flex flex-col {panelClass}"
 	>
 		{#if showSearch}
-			<input
-				bind:this={searchEl}
-				bind:value={searchValue}
-				onkeydown={handleKeydown}
-				type="text"
-				placeholder={searchPlaceholder}
-				class="w-full px-3 py-2 text-xs bg-surface-2 border-0 border-b border-line text-fg placeholder:text-fg-subtle outline-none"
-				role="combobox"
-				aria-expanded={open}
-				aria-controls={listboxId}
-				aria-activedescendant={activeId ? optionId(activeId) : undefined}
-				aria-autocomplete="list"
-			/>
+			<div class="field-frame ring-inset flex-shrink-0">
+				<input
+					bind:this={searchEl}
+					bind:value={searchValue}
+					onkeydown={handleKeydown}
+					type="text"
+					placeholder={searchPlaceholder}
+					class="w-full px-3 py-2 text-xs bg-surface-2 border-0 border-b border-line text-fg placeholder:text-fg-subtle"
+					role="combobox"
+					aria-expanded={open}
+					aria-controls={listboxId}
+					aria-activedescendant={activeId ? optionId(activeId) : undefined}
+					aria-autocomplete="list"
+				/>
+			</div>
 		{/if}
 		{@render panel({ activeId, optionId, listboxId })}
 	</div>

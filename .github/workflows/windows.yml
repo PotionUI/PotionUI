@@ -130,7 +130,7 @@ jobs:
       - name: pytest (CPU-only, no GPU/model-file/gc-sensitive tests)
         shell: cmd
         run: |
-          python -m pytest ${{ matrix.shard.paths }} -q --timeout=300 -n 4 -m "not requires_gpu and not requires_models and not gc_sensitive" --junitxml=junit-windows-${{ matrix.shard.name }}.xml > pytest-windows-${{ matrix.shard.name }}.log 2>&1
+          python -m pytest ${{ matrix.shard.paths }} -v --timeout=300 -o faulthandler_timeout=270 -n 4 -rfE -m "not requires_gpu and not requires_models and not gc_sensitive" --junitxml=junit-windows-${{ matrix.shard.name }}.xml > pytest-windows-${{ matrix.shard.name }}.log 2>&1
           set PYTEST_EXIT=%ERRORLEVEL%
           type pytest-windows-${{ matrix.shard.name }}.log
           exit /b %PYTEST_EXIT%

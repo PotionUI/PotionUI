@@ -2,6 +2,7 @@ import asyncio
 import importlib
 import sys
 import threading
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -259,17 +260,19 @@ def test_filename_lookup_runs_on_another_loop_with_the_workers_session(provider)
     def worker_thread(base):
         async def lookup():
             provider.BASE_URL = base
-            async with aiohttp.ClientSession() as worker_session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as worker_session:
                 result["name"] = await provider.resolve_download_filename(worker_session, DOWNLOAD_URLS[0])
 
         asyncio.run(lookup())
 
     async def serve_until_lookup_done(base_holder):
-        thread = threading.Thread(target=worker_thread, args=(base_holder,))
+        thread = threading.Thread(target=worker_thread, args=(base_holder,), daemon=True)
         thread.start()
-        while thread.is_alive():
+        deadline = time.monotonic() + 30
+        while thread.is_alive() and time.monotonic() < deadline:
             await asyncio.sleep(0.01)
-        thread.join()
+        thread.join(timeout=1)
+        assert not thread.is_alive()
 
     loop = asyncio.new_event_loop()
     try:

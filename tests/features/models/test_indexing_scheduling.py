@@ -1,4 +1,5 @@
 import threading
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 from src.features.models.indexing_coordinator import ModelIndexingCoordinator
@@ -45,7 +46,10 @@ class CountingScanner:
             first = self.calls == 1
         if first and self._hold_first_run:
             self.first_run_entered.set()
+            deadline = time.monotonic() + 20
             while not self.release_first_run.wait(timeout=0.005):
+                if time.monotonic() > deadline:
+                    return {"indexed": 0, "cancelled": False}
                 if cancel_check is not None and cancel_check():
                     self.first_run_was_cancelled = True
                     return {"indexed": 0, "cancelled": True}

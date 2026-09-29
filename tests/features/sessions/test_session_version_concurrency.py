@@ -72,7 +72,7 @@ def repos(db_path, monkeypatch):
 
 
 def _run_concurrently(*targets):
-    threads = [threading.Thread(target=t) for t in targets]
+    threads = [threading.Thread(target=t, daemon=True) for t in targets]
     for t in threads:
         t.start()
     for t in threads:

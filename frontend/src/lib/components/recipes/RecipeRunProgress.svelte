@@ -290,7 +290,7 @@
 								autocomplete="off"
 								class="flex-1 text-sm"
 								placeholder="{provider.name} API key"
-								bind:value={credentialDrafts[provider.id]}
+								bind:value={() => credentialDrafts[provider.id] ?? '', (next) => (credentialDrafts[provider.id] = next)}
 							/>
 							<Button
 								size="sm"

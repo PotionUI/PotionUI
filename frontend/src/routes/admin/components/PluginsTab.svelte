@@ -478,7 +478,7 @@
 														<Input
 															id={schema.name}
 															type={getInputType(schema)}
-															bind:value={settingsValues[schema.name]}
+															bind:value={() => settingsValues[schema.name] ?? '', (next) => (settingsValues[schema.name] = next)}
 															placeholder={schema.default !== undefined ? `Default: ${schema.default}` : 'Enter value...'}
 														/>
 													{/if}

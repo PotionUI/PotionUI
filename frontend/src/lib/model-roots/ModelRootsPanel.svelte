@@ -344,7 +344,7 @@
 										<label for="root-label-{root.id}" class="block text-xs font-medium text-fg-muted mb-1">Label</label>
 										<Input
 											id="root-label-{root.id}"
-											bind:value={labelDrafts[root.id]}
+											bind:value={() => labelDrafts[root.id] ?? root.label, (next) => (labelDrafts[root.id] = next)}
 											disabled={savingRootId === root.id}
 										/>
 									</div>
@@ -352,7 +352,7 @@
 										<label for="root-path-{root.id}" class="block text-xs font-medium text-fg-muted mb-1">Path</label>
 										<Input
 											id="root-path-{root.id}"
-											bind:value={pathDrafts[root.id]}
+											bind:value={() => pathDrafts[root.id] ?? root.path, (next) => (pathDrafts[root.id] = next)}
 											disabled={root.kind === 'home' || savingRootId === root.id}
 										/>
 									</div>

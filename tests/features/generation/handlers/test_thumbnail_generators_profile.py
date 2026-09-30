@@ -115,12 +115,16 @@ class TestVideoThumbnailProfile(unittest.TestCase):
     def setUp(self):
         self.driver = _RecordingDriver()
 
+    @staticmethod
+    def _for_clip(run, video_path):
+        argvs = [call.args[0] for call in run.call_args_list]
+        return [argv for argv in argvs if "-i" in argv and argv[argv.index("-i") + 1] == video_path]
+
     def _argv(self, profile):
         video_path = f"/tmp/clip-{uuid.uuid4().hex}.mp4"
         with patch("src.features.generation.handlers.video_handler.subprocess.run", side_effect=_ok) as run:
             generate_video_thumbnails(video_path, self.driver, "generations/x", 1, profile)
-        argvs = [call.args[0] for call in run.call_args_list]
-        return [argv for argv in argvs if "-i" in argv and argv[argv.index("-i") + 1] == video_path]
+        return self._for_clip(run, video_path)
 
     @staticmethod
     def _animated(argvs):
@@ -181,13 +185,16 @@ class TestVideoThumbnailProfile(unittest.TestCase):
             result.stderr = "boom"
             return result
 
+        video_path = f"/tmp/clip-{uuid.uuid4().hex}.mp4"
         with patch("src.features.generation.handlers.video_handler.subprocess.run", side_effect=failing) as run:
             paths = generate_video_thumbnails(
-                "/tmp/clip.mp4", self.driver, "generations/x", 1, PROFILES["full"]
+                video_path, self.driver, "generations/x", 1, PROFILES["full"]
             )
 
+        own = self._for_clip(run, video_path)
         self.assertEqual(paths, {})
-        self.assertFalse(self._animated([call.args[0] for call in run.call_args_list]))
+        self.assertEqual(len(self._static(own)), 3)
+        self.assertFalse(self._animated(own))
 
 
 if __name__ == "__main__":

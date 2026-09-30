@@ -215,6 +215,30 @@ class TestCancelGeneration:
 
         assert result is False
 
+    @pytest.mark.asyncio
+    async def test_cancel_before_the_engine_starts_is_deferred_and_accepted(
+        self, generation_engine, emit
+    ):
+        generation_engine.cancel.return_value = False
+        backend = ConcreteInProcessBackend(make_backend_config(), generation_engine)
+        backend._active.add("gen1")
+
+        result = await backend.cancel_generation("gen1")
+
+        assert result is True
+        generation_engine.cancel_on_start.assert_called_once_with("gen1")
+
+    @pytest.mark.asyncio
+    async def test_finished_run_forgets_a_deferred_cancel(self, generation_engine, emit):
+        backend = ConcreteInProcessBackend(make_backend_config(), generation_engine)
+
+        await backend.start_generation(
+            {"generation_id": "gen1", "pipes": [{"name": "x", "config": {}}]}, emit
+        )
+        await asyncio.sleep(0.05)
+
+        generation_engine.discard_cancel_on_start.assert_called_with("gen1")
+
 
 class TestStartGenerationValidation:
     @pytest.mark.asyncio

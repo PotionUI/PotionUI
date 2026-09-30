@@ -94,6 +94,7 @@ class InProcessBackend(BaseBackend):
             logger.error(f"[{self.engine.upper()}_BACKEND] Generation {generation_id} failed: {e}")
         finally:
             self._active.discard(generation_id)
+            self.generation_engine.discard_cancel_on_start(generation_id)
             emit(None)
 
     async def cancel_generation(self, generation_id: str) -> bool:
@@ -105,11 +106,12 @@ class InProcessBackend(BaseBackend):
             # against the run in flight, so this can never abort a generation
             # belonging to another backend, tab or user.
             if not self.generation_engine.cancel(generation_id):
+                self.generation_engine.cancel_on_start(generation_id)
                 logger.info(
-                    f"[{self.engine.upper()}_BACKEND] Generation {generation_id} was not running; "
-                    f"nothing to cancel"
+                    f"[{self.engine.upper()}_BACKEND] Generation {generation_id} has not started "
+                    f"executing; it will be cancelled as it starts"
                 )
-                return False
+                return True
             logger.info(f"[{self.engine.upper()}_BACKEND] Cancelled generation {generation_id}")
             return True
         except Exception as e:

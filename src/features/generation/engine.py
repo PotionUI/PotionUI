@@ -208,6 +208,7 @@ class GenerationEngine:
 
         self._cancelled = False
         self._running_generation_id: Optional[str] = None
+        self._cancel_on_start: set[str] = set()
         self._run_lock = threading.Lock()
 
         # Persistent psutil.Process() so cpu_percent() deltas are meaningful
@@ -239,6 +240,14 @@ class GenerationEngine:
                 return False
             self._cancelled = True
             return True
+
+    def cancel_on_start(self, generation_id: str) -> None:
+        with self._run_lock:
+            self._cancel_on_start.add(generation_id)
+
+    def discard_cancel_on_start(self, generation_id: str) -> None:
+        with self._run_lock:
+            self._cancel_on_start.discard(generation_id)
 
     @property
     def running_generation_id(self) -> Optional[str]:
@@ -528,7 +537,8 @@ class GenerationEngine:
                     f"refusing to start {generation_id} concurrently"
                 )
             self._running_generation_id = generation_id
-            self._cancelled = False
+            self._cancelled = generation_id in self._cancel_on_start
+            self._cancel_on_start.discard(generation_id)
 
         generation_time_start = time.perf_counter()
 

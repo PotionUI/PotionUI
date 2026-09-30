@@ -347,6 +347,7 @@ class TestGenerationController:
         # Arrange: ownership resolves to the caller, but the orchestrator can't cancel.
         controller.generation_orchestrator.get_generation_status.return_value = sample_generation_status
         controller.generation_orchestrator.cancel_generation.return_value = False
+        controller.connection_hub.broadcast_to_generation = AsyncMock()
 
         # Act & Assert
         with pytest.raises(HTTPException) as exc_info:
@@ -354,6 +355,7 @@ class TestGenerationController:
 
         assert exc_info.value.status_code == 400
         assert exc_info.value.detail['error'] == "cancel_failed"
+        controller.connection_hub.broadcast_to_generation.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_cancel_generation_exception(self, controller, sample_generation_status, mock_current_user):

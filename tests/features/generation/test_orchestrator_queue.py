@@ -393,3 +393,119 @@ class TestQueueingThroughTheOrchestrator:
 
         assert spy.call_args.kwargs['model_key'] is None
         assert result['status']['status'] == 'running'
+
+
+@pytest.mark.asyncio
+class TestCancellingARunningGeneration:
+    async def test_a_backend_that_refuses_leaves_the_run_running(self, orchestrator, backends, repo):
+        await _start(orchestrator, 'tab_a', 'gen_1')
+        backends['native'].cancel_generation.return_value = False
+
+        assert await orchestrator.cancel_generation('gen_1') is False
+
+        assert orchestrator.status_tracker.get('gen_1').state == GenerationState.RUNNING
+
+    async def test_a_backend_that_raises_leaves_the_run_running(self, orchestrator, backends, repo):
+        await _start(orchestrator, 'tab_a', 'gen_1')
+        backends['native'].cancel_generation.side_effect = RuntimeError('boom')
+
+        assert await orchestrator.cancel_generation('gen_1') is False
+
+        assert orchestrator.status_tracker.get('gen_1').state == GenerationState.RUNNING
+
+    async def test_a_missing_backend_leaves_the_run_running(self, orchestrator, backends, repo):
+        await _start(orchestrator, 'tab_a', 'gen_1')
+        orchestrator._run_backends.clear()
+        orchestrator.backend_registry.get_backend = Mock(return_value=None)
+
+        assert await orchestrator.cancel_generation('gen_1') is False
+
+        assert orchestrator.status_tracker.get('gen_1').state == GenerationState.RUNNING
+
+    async def test_a_confirmed_cancel_marks_the_run_cancelled(self, orchestrator, backends, repo):
+        await _start(orchestrator, 'tab_a', 'gen_1')
+
+        assert await orchestrator.cancel_generation('gen_1') is True
+
+        assert orchestrator.status_tracker.get('gen_1').state == GenerationState.CANCELLED
+
+    async def test_a_refused_cancel_can_be_retried(self, orchestrator, backends, repo):
+        await _start(orchestrator, 'tab_a', 'gen_1')
+        backends['native'].cancel_generation.return_value = False
+        assert await orchestrator.cancel_generation('gen_1') is False
+
+        backends['native'].cancel_generation.return_value = True
+
+        assert await orchestrator.cancel_generation('gen_1') is True
+
+    async def test_cancel_reaches_the_backend_that_started_the_run_after_a_refresh(
+        self, orchestrator, backends, repo
+    ):
+        started_on = backends['native']
+        await _start(orchestrator, 'tab_a', 'gen_1')
+
+        replacement = Mock()
+        replacement.backend_id = started_on.backend_id
+        replacement.name = started_on.name
+        replacement.engine = started_on.engine
+        replacement.cancel_generation = AsyncMock(return_value=False)
+        backends['native'] = replacement
+
+        assert await orchestrator.cancel_generation('gen_1') is True
+
+        started_on.cancel_generation.assert_awaited_once_with('gen_1')
+        replacement.cancel_generation.assert_not_awaited()
+
+    async def test_the_run_record_is_dropped_on_completion(self, orchestrator, backends, repo):
+        await _start(orchestrator, 'tab_a', 'gen_1')
+        assert 'gen_1' in orchestrator._run_backends
+
+        await orchestrator._handle_generation_completion('gen_1', None)
+
+        assert orchestrator._run_backends == {}
+
+    async def test_the_run_record_is_dropped_after_a_cancelled_run_completes(
+        self, orchestrator, backends, repo
+    ):
+        await _start(orchestrator, 'tab_a', 'gen_1')
+        await orchestrator.cancel_generation('gen_1')
+
+        await orchestrator._handle_generation_completion('gen_1', None)
+
+        assert orchestrator._run_backends == {}
+
+    async def test_the_run_record_is_dropped_when_the_backend_fails_to_start(
+        self, orchestrator, backends, repo
+    ):
+        backends['native'].start_generation.side_effect = RuntimeError('no start')
+
+        with pytest.raises(Exception):
+            await _start(orchestrator, 'tab_a', 'gen_1')
+
+        assert orchestrator._run_backends == {}
+
+    async def test_the_run_record_is_dropped_when_the_run_failed(self, orchestrator, backends, repo):
+        from src.features.generation.failure import failure_for_code
+
+        await _start(orchestrator, 'tab_a', 'gen_1')
+        await orchestrator._record_failure('gen_1', failure_for_code('generation_failed'))
+        assert orchestrator.status_tracker.get('gen_1').state == GenerationState.FAILED
+
+        await orchestrator._handle_generation_completion('gen_1', None)
+
+        assert orchestrator._run_backends == {}
+
+    @pytest.mark.parametrize('failure', ['refuse', 'raise'])
+    async def test_a_run_that_never_started_is_cancelled_even_if_the_backend_cannot(
+        self, orchestrator, backends, repo, failure
+    ):
+        orchestrator.status_tracker.create(id='gen_p', backend_id='native_1')
+        if failure == 'refuse':
+            backends['native'].cancel_generation.return_value = False
+        else:
+            backends['native'].cancel_generation.side_effect = RuntimeError('boom')
+
+        assert await orchestrator.cancel_generation('gen_p') is True
+
+        assert orchestrator.status_tracker.get('gen_p').state == GenerationState.CANCELLED
+        backends['native'].cancel_generation.assert_awaited_once_with('gen_p')

@@ -549,6 +549,7 @@ class GenerationOrchestrator:
         # Keeps OutputBridge.run() consumer tasks alive (fire-and-forget
         # tasks would otherwise be eligible for GC mid-flight).
         self._bridge_tasks: Dict[str, asyncio.Task] = {}
+        self._run_backends: Dict[str, Any] = {}
 
         # Same GC-safety reason as `_bridge_tasks`: `_schedule_mesh_thumbnails`
         # fires a background render off the completion path, and nothing else
@@ -1249,7 +1250,12 @@ class GenerationOrchestrator:
         # Start generation with processed pipeline data. Backends receive a
         # plain sync callable (`bridge.emit`) they can call from any thread
         # (including a background pipe-execution thread) without blocking.
-        await backend.start_generation(built_pipeline.to_backend_payload(), bridge.emit)
+        self._run_backends[generation_id] = backend
+        try:
+            await backend.start_generation(built_pipeline.to_backend_payload(), bridge.emit)
+        except BaseException:
+            self._run_backends.pop(generation_id, None)
+            raise
         logger.info(f"Generation {generation_id} started successfully on {backend.name}")
 
     async def _record_failure(self, generation_id: str, failure: GenerationFailure) -> None:
@@ -1480,6 +1486,7 @@ class GenerationOrchestrator:
         """
         logger.info(f"Completing generation {generation_id}")
 
+        self._run_backends.pop(generation_id, None)
         record = self.status_tracker.get(generation_id)
         if record is None:
             return
@@ -1680,31 +1687,11 @@ class GenerationOrchestrator:
         return self.status_tracker.get(generation_id)
 
     async def cancel_generation(self, generation_id: str) -> bool:
-        """
-        Cancel a running generation.
-
-        This method:
-        1. Checks if generation exists and is cancellable
-        2. Attempts to cancel on backend
-        3. Transitions status to cancelled (writes to DB)
-
-        Args:
-            generation_id: ID of the generation to cancel
-
-        Returns:
-            True if cancelled successfully, False otherwise
-
-        Example:
-            >>> success = await orchestrator.cancel_generation('01ARZ...')
-            >>> if success:
-            ...     print("Generation cancelled")
-        """
         record = self.status_tracker.get(generation_id)
         if record is None:
             logger.warning(f"Cannot cancel unknown generation {generation_id}")
             return False
 
-        # Check if already completed
         if record.state.value in TERMINAL_STATES:
             logger.debug(
                 f"Cannot cancel generation {generation_id} with status {record.state.value}"
@@ -1713,10 +1700,6 @@ class GenerationOrchestrator:
 
         logger.info(f"Cancelling generation {generation_id}")
 
-        # A generation still waiting in the queue has never reached a backend:
-        # dropping it from the queue is the whole cancellation. Going to the
-        # backend here would be wrong - it would find nothing running under this
-        # id, and (before the id check landed) could have aborted someone else's.
         if await self._queue_dispatcher.cancel(generation_id):
             await self.status_tracker.transition_async(generation_id, GenerationState.CANCELLED)
             self._queue_dispatcher.prune_finished()
@@ -1724,24 +1707,29 @@ class GenerationOrchestrator:
             logger.info(f"Cancelled queued generation {generation_id} before it started")
             return True
 
-        # Get backend and attempt cancellation
-        backend_id = record.backend_id
-        if backend_id:
+        backend = self._run_backends.get(generation_id)
+        if backend is None and record.backend_id:
+            backend = self.backend_registry.get_backend(record.backend_id)
+
+        if record.state == GenerationState.RUNNING:
             try:
-                backend = self.backend_registry.get_backend(backend_id)
-                if backend:
-                    success = await backend.cancel_generation(generation_id)
-                    if success:
-                        logger.info(
-                            f"Cancelled generation {generation_id} on backend {backend.name}"
-                        )
-                    else:
-                        logger.warning(
-                            f"Backend {backend.name} could not cancel {generation_id}"
-                        )
+                cancelled = backend is not None and await backend.cancel_generation(generation_id)
             except Exception as e:
                 logger.error(
-                    f"Error cancelling {generation_id} on backend {backend_id}: {str(e)}",
+                    f"Error cancelling {generation_id} on backend {record.backend_id}: {str(e)}",
+                    exc_info=True
+                )
+                return False
+            if not cancelled:
+                logger.warning(f"Backend could not cancel {generation_id}")
+                return False
+            logger.info(f"Cancelled generation {generation_id} on backend {backend.name}")
+        elif backend is not None:
+            try:
+                await backend.cancel_generation(generation_id)
+            except Exception as e:
+                logger.error(
+                    f"Error cancelling {generation_id} on backend {record.backend_id}: {str(e)}",
                     exc_info=True
                 )
 

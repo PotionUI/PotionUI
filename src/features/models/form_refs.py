@@ -218,7 +218,7 @@ def resolve_form_model_refs(form_data: Any, backend: Any, locator: ModelLocator)
             raise ModelDigestConflictError(_describe_conflict(model_id, row))
         if row is not None:
             try:
-                refs[model_id] = backend.resolve_ref(row.ref)
+                refs[model_id] = backend.resolve_model(model_id, row.ref)
             except ModelFileUnavailable as exc:
                 raise ModelRefNotAvailableError(_describe_unavailable(model_id, exc)) from exc
         elif indexed:

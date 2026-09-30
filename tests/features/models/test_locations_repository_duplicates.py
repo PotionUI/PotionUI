@@ -12,8 +12,13 @@ def _root(root_id: str, label: str) -> None:
 _POSITION_OFFSET = 2000
 
 
+_BINDING_IDS = {}
+
+
 def _binding(root_id: str, model_type: str, position: int) -> None:
-    ModelRootRepository().insert_binding(root_id, model_type, model_type, position + _POSITION_OFFSET, False)
+    _BINDING_IDS[(root_id, model_type)] = ModelRootRepository().insert_binding(
+        root_id, model_type, model_type, position + _POSITION_OFFSET, False
+    )
 
 
 def _model(filename: str, model_type: str) -> Model:
@@ -22,7 +27,7 @@ def _model(filename: str, model_type: str) -> Model:
 
 def _location(model_id: str, root_id: str, model_type: str, rel_path: str) -> None:
     ModelLocationsRepository().upsert(
-        model_id=model_id, root_id=root_id, model_type=model_type,
+        model_id=model_id, binding_id=_BINDING_IDS[(root_id, model_type)], root_id=root_id, model_type=model_type,
         rel_path=rel_path, rel_key=rel_path, size=1, mtime_ns=None,
         sha256=rel_path, status="present", seen_at=now_iso(),
     )
@@ -67,7 +72,7 @@ def test_list_conflicts_carries_the_root_label(mock_db):
 
     model = _model("conflict.safetensors", "checkpoint")
     ModelLocationsRepository().upsert(
-        model_id=model.id, root_id="root-a", model_type="checkpoint",
+        model_id=model.id, binding_id=_BINDING_IDS[("root-a", "checkpoint")], root_id="root-a", model_type="checkpoint",
         rel_path="conflict.safetensors", rel_key="conflict.safetensors", size=1, mtime_ns=None,
         sha256="conflict", status="conflict", seen_at=now_iso(),
     )
@@ -81,7 +86,7 @@ def test_list_conflicts_carries_the_root_label(mock_db):
 
 def _location_with(model_id: str, root_id: str, model_type: str, rel_path: str, status: str = "present") -> None:
     ModelLocationsRepository().upsert(
-        model_id=model_id, root_id=root_id, model_type=model_type,
+        model_id=model_id, binding_id=_BINDING_IDS[(root_id, model_type)], root_id=root_id, model_type=model_type,
         rel_path=rel_path, rel_key=rel_path, size=1, mtime_ns=None,
         sha256=rel_path, status=status, seen_at=now_iso(),
     )

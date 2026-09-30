@@ -209,3 +209,44 @@ class TestNativeBackendHealthCheck(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNativeBackendResolveModel(unittest.TestCase):
+
+    def test_resolves_by_model_id_when_a_locator_is_bound(self):
+        backend = _backend()
+        locator = Mock()
+        locator.path_for_model.return_value = "/lib/LyCORIS/x.safetensors"
+        backend.bind_model_locator(locator=locator)
+
+        resolved = backend.resolve_model("m1", "loras/x.safetensors")
+
+        self.assertEqual(resolved, "/lib/LyCORIS/x.safetensors")
+        locator.path_for_model.assert_called_once_with("m1")
+        locator.path_for_ref.assert_not_called()
+
+    def test_falls_back_to_the_reference_when_the_model_has_no_location(self):
+        from src.features.models.locator import ModelFileUnavailable
+
+        backend = _backend()
+        locator = Mock()
+        locator.path_for_model.side_effect = ModelFileUnavailable("no known location")
+        locator.path_for_ref.return_value = "/lib/Lora/x.safetensors"
+        backend.bind_model_locator(locator=locator)
+
+        resolved = backend.resolve_model("m1", "loras/x.safetensors")
+
+        self.assertEqual(resolved, "/lib/Lora/x.safetensors")
+        locator.path_for_ref.assert_called_once_with("loras/x.safetensors")
+
+    def test_hands_the_reference_back_without_a_locator(self):
+        self.assertEqual(_backend().resolve_model("m1", "loras/x.safetensors"), "loras/x.safetensors")
+
+    def test_the_base_backend_resolves_through_its_reference_rule(self):
+        backend = _backend()
+        backend.resolve_ref = Mock(return_value="resolved")
+
+        from src.features.backends.base_backend import BaseBackend
+
+        self.assertEqual(BaseBackend.resolve_model(backend, "m1", "ref"), "resolved")
+        backend.resolve_ref.assert_called_once_with("ref")

@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from src.features.models.locations_repository import ModelLocationsRepository
 from src.features.models.records import Model
-from src.platform.filesystem.model_roots import LogicalLocation, ModelRootError, ModelRootResolver
+from src.platform.filesystem.model_roots import LogicalLocation, ModelRootError, ModelRootResolver, TypeDir
 
 
 class ModelFileUnavailable(Exception):
@@ -71,15 +71,15 @@ class ModelLocator:
 
     def _ordered_present_rows(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         present = [row for row in rows if row["status"] == "present"]
-        positions: Dict[Any, int] = {}
+        positions: Dict[str, int] = {}
         for model_type in {row["model_type"] for row in present}:
             for td in self._resolver.type_dirs(model_type, online_only=False):
-                positions[(td.root_id, model_type)] = td.position
+                positions[td.binding_id] = td.position
         unbound = len(positions) + 1
         return sorted(
             present,
             key=lambda row: (
-                positions.get((row["root_id"], row["model_type"]), unbound),
+                positions.get(row["binding_id"], unbound),
                 len(row["rel_path"]),
                 row["rel_path"],
             ),
@@ -102,7 +102,7 @@ class ModelLocator:
                 continue
             try:
                 physical = self._resolver.physical(
-                    LogicalLocation(row["root_id"], row["model_type"], row["rel_path"])
+                    LogicalLocation(row["root_id"], row["model_type"], row["rel_path"], row["binding_id"])
                 )
             except ModelRootError:
                 continue
@@ -129,11 +129,13 @@ class ModelLocator:
         for type_dir in bindings:
             root_label = self._root_label(type_dir.root_id)
             if not self._resolver.is_online_for(type_dir.root_id, model_type):
-                if offline_label is None and self._has_present_location(type_dir.root_id, model_type, rel_path):
+                if offline_label is None and self._has_present_location(type_dir, rel_path):
                     offline_label = root_label
                 continue
             try:
-                physical = self._resolver.physical(LogicalLocation(type_dir.root_id, model_type, rel_path))
+                physical = self._resolver.physical(
+                    LogicalLocation(type_dir.root_id, model_type, rel_path, type_dir.binding_id)
+                )
             except ModelRootError:
                 continue
             if _exists(physical):
@@ -143,11 +145,11 @@ class ModelLocator:
             raise ModelFileUnavailable(f"is on '{offline_label}' (offline)", root_label=offline_label)
         raise ModelFileUnavailable(f"'{logical_ref}' was not found on any model root")
 
-    def _has_present_location(self, root_id: str, model_type: str, rel_path: str) -> bool:
+    def _has_present_location(self, type_dir: TypeDir, rel_path: str) -> bool:
         for root in self._resolver.roots():
-            if root.id == root_id:
+            if root.id == type_dir.root_id:
                 rel_key = _rel_key(rel_path, root.case_insensitive)
-                row = self._locations.get(root_id, model_type, rel_key)
+                row = self._locations.get(type_dir.binding_id, rel_key)
                 return row is not None and row["status"] == "present"
         return False
 
@@ -157,7 +159,7 @@ class ModelLocator:
             for root in self._resolver.roots():
                 if root.id == loc.root_id:
                     rel_key = _rel_key(loc.rel_path, root.case_insensitive)
-                    row = self._locations.get(loc.root_id, loc.model_type, rel_key)
+                    row = self._locations.get(loc.binding_id, rel_key) if loc.binding_id else None
                     if row is not None:
                         model = self._model_repo().get_by_id(
                             row["model_id"], include_providers=False, include_tags=False
@@ -185,7 +187,7 @@ class ModelLocator:
             location = None
             if ordered:
                 winner = ordered[0]
-                loc = LogicalLocation(winner["root_id"], winner["model_type"], winner["rel_path"])
+                loc = LogicalLocation(winner["root_id"], winner["model_type"], winner["rel_path"], winner["binding_id"])
                 try:
                     physical = self._resolver.physical(loc)
                 except ModelRootError:
@@ -211,7 +213,7 @@ class ModelLocator:
         for row in rows:
             try:
                 physical = self._resolver.physical(
-                    LogicalLocation(row["root_id"], row["model_type"], row["rel_path"])
+                    LogicalLocation(row["root_id"], row["model_type"], row["rel_path"], row["binding_id"])
                 )
             except ModelRootError:
                 physical = None

@@ -54,13 +54,13 @@ def test_an_explicit_flag_overrides_the_default(mock_db):
     assert _flag(repo, "r1", "diffusion_model") == 1
 
 
-def test_renaming_a_binding_folder_keeps_the_admins_choice(mock_db):
+def test_upserting_an_existing_folder_keeps_the_admins_choice(mock_db):
     repo = ModelRootRepository()
     _add_root(repo, "r1")
     repo.insert_binding("r1", "checkpoint", "checkpoints", 10, False)
     repo.set_scan_headers("r1", "checkpoint", True)
 
-    repo.upsert_binding("r1", "checkpoint", "renamed", 10)
+    repo.upsert_binding("r1", "checkpoint", "checkpoints", 10)
 
     assert _flag(repo, "r1", "checkpoint") == 1
 

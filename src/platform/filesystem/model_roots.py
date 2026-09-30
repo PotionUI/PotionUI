@@ -74,6 +74,7 @@ class TypeDir:
     is_write: bool
     subdir: str = ""
     scan_headers: bool = False
+    binding_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,7 @@ class LogicalLocation:
     root_id: str
     model_type: str
     rel_path: str
+    binding_id: Optional[str] = None
 
     @property
     def logical_ref(self) -> str:
@@ -120,6 +122,15 @@ def root_path_key(
     if windows or case_insensitive:
         key = key.casefold()
     return key
+
+
+def binding_subdir_key(subdir: str, *, case_insensitive: bool = False) -> str:
+    normalized = (subdir or "").replace("\\", "/").strip("/")
+    key = PurePosixPath(normalized).as_posix() if normalized else ""
+    if key == ".":
+        key = ""
+    key = unicodedata.normalize("NFC", key)
+    return key.casefold() if case_insensitive else key
 
 
 def default_case_insensitive(os_name: Optional[str] = None) -> bool:
@@ -264,6 +275,7 @@ class ModelRootResolver:
                 is_write=bool(row["is_write"]),
                 subdir=subdir,
                 scan_headers=bool(row.get("scan_headers", 0)),
+                binding_id=row.get("id", ""),
             )
             by_type.setdefault(entry.model_type, []).append(entry)
 
@@ -290,6 +302,14 @@ class ModelRootResolver:
             if state == "online":
                 online.append(entry)
         return online
+
+    def binding_dir(self, binding_id: str) -> Optional[TypeDir]:
+        snapshot = self._snapshot_or_build()
+        for entries in snapshot.type_dirs_by_type.values():
+            for entry in entries:
+                if entry.binding_id == binding_id:
+                    return entry
+        return None
 
     def is_online_for(self, root_id: str, model_type: str) -> bool:
         return any(entry.root_id == root_id for entry in self.type_dirs(model_type, online_only=True))
@@ -355,7 +375,7 @@ class ModelRootResolver:
                     rel = candidate_posix[len(bound) + 1:]
                 else:
                     continue
-                match = (len(key_bound), LogicalLocation(entry.root_id, entry.model_type, rel))
+                match = (len(key_bound), LogicalLocation(entry.root_id, entry.model_type, rel, entry.binding_id or None))
                 if best is None or match[0] > best[0]:
                     best = match
         return best[1] if best is not None else None
@@ -378,7 +398,11 @@ class ModelRootResolver:
     def physical(self, loc: LogicalLocation) -> Path:
         snapshot = self._snapshot_or_build()
         entries = snapshot.type_dirs_by_type.get(loc.model_type, ())
-        entry = next((candidate for candidate in entries if candidate.root_id == loc.root_id), None)
+        entry = None
+        if loc.binding_id:
+            entry = next((candidate for candidate in entries if candidate.binding_id == loc.binding_id), None)
+        if entry is None:
+            entry = next((candidate for candidate in entries if candidate.root_id == loc.root_id), None)
         if entry is None:
             raise RootUnavailableError(loc.root_id, "unbound")
         rel_parts = _validate_rel_path(loc.rel_path).parts

@@ -430,7 +430,7 @@ def _real_scanner(tmp_path, root_id="r_home", model_type="checkpoint"):
     key = root_path_key(str(root_dir))
     repo = ModelRootRepository()
     repo.insert_root(root_id, root_id, str(root_dir), key, "library", False, False, now)
-    repo.insert_binding(root_id, model_type, MODEL_TYPE_TO_DIRECTORY[model_type], 1000, False)
+    binding_id = repo.insert_binding(root_id, model_type, MODEL_TYPE_TO_DIRECTORY[model_type], 1000, False)
 
     resolver = ModelRootResolver(repository=None, probe=None, base_dir=Path.cwd())
     root = ModelRoot(
@@ -438,7 +438,7 @@ def _real_scanner(tmp_path, root_id="r_home", model_type="checkpoint"):
         case_insensitive=False, state="online", state_reason=None, raw_path=str(root_dir),
     )
     binding = TypeDir(root_id=root_id, model_type=model_type, path=type_dir, position=1000, is_write=False,
-                       subdir=MODEL_TYPE_TO_DIRECTORY[model_type])
+                       subdir=MODEL_TYPE_TO_DIRECTORY[model_type], binding_id=binding_id)
     resolver._snapshot = _Snapshot(
         roots=(root,), roots_by_id={root_id: root}, type_dirs_by_type={model_type: (binding,)},
     )

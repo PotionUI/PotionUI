@@ -95,6 +95,16 @@ class NativeBackend(InProcessBackend):
             return ref
         return str(self._model_locator.path_for_ref(ref))
 
+    def resolve_model(self, model_id: str, ref: str) -> str:
+        from src.features.models.locator import ModelFileUnavailable
+
+        if self._model_locator is None:
+            return ref
+        try:
+            return str(self._model_locator.path_for_model(model_id))
+        except ModelFileUnavailable:
+            return str(self._model_locator.path_for_ref(ref))
+
     def resolve_execution_device(self) -> ExecutionDeviceEvidence:
         """The class tag above is necessarily coarse: THIS instance's real
         device is admin-configured (`NativeBackendConfig.device`), and a

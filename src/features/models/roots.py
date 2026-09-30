@@ -9,6 +9,7 @@ from src.platform.filesystem.model_roots import (
     ModelRoot,
     ModelRootResolver,
     RootProbe,
+    binding_subdir_key,
     default_case_insensitive,
     paths_overlap,
     probe_case_insensitive,
@@ -111,6 +112,24 @@ class HomeProtectedError(ModelRootsError):
     def __init__(self, root_id: str, label: str):
         super().__init__(f"Root '{label}' is the built-in home root and is protected")
         self.root_id = root_id
+
+
+class BindingNestedError(ModelRootsError):
+    code = "model_roots_binding_nested"
+
+    def __init__(self, first: str, second: str):
+        super().__init__(f"'{first}' and '{second}' overlap: folders bound on one root cannot contain each other")
+        self.first = first
+        self.second = second
+
+
+class DuplicateBindingError(ModelRootsError):
+    code = "model_roots_duplicate_binding"
+
+    def __init__(self, model_type: str, subdir: str):
+        super().__init__(f"'{subdir}' is already bound for '{model_type}' on this root")
+        self.model_type = model_type
+        self.subdir = subdir
 
 
 class InvalidBindingError(ModelRootsError):
@@ -216,6 +235,47 @@ class ModelRootsManager:
             if not target.is_dir() or not os.access(target, os.R_OK):
                 raise InvalidBindingError(spec.model_type, spec.subdir)
 
+    def _nesting_key(self, target: Path, case_insensitive: bool) -> Tuple[str, str]:
+        try:
+            real = os.path.realpath(target)
+        except OSError:
+            real = str(target)
+        return root_path_key(target, case_insensitive=case_insensitive), root_path_key(
+            real, case_insensitive=case_insensitive
+        )
+
+    def _check_binding_nesting(
+        self,
+        root_row: Dict[str, Any],
+        root_path: Path,
+        specs: Sequence[BindingSpec],
+    ) -> None:
+        case_insensitive = bool(root_row["case_insensitive"]) if root_row is not None else default_case_insensitive()
+        existing = [] if root_row is None else self._repository.bindings_for_root(root_row["id"])
+        known: Dict[Tuple[str, str], str] = {
+            (b["model_type"], binding_subdir_key(b["subdir"], case_insensitive=case_insensitive)): b["subdir"]
+            for b in existing
+        }
+        seen: Dict[Tuple[str, str], str] = {}
+        fresh: List[Tuple[str, str]] = []
+        for spec in specs:
+            key = (spec.model_type, binding_subdir_key(spec.subdir, case_insensitive=case_insensitive))
+            if key in seen:
+                raise DuplicateBindingError(spec.model_type, spec.subdir)
+            seen[key] = spec.subdir
+            if key not in known:
+                fresh.append((spec.model_type, spec.subdir))
+
+        others = [(b["model_type"], b["subdir"]) for b in existing]
+        placed = list(others)
+        for model_type, subdir in fresh:
+            candidate = self._nesting_key(self._binding_path(root_path, subdir), case_insensitive)
+            for other_type, other_subdir in placed:
+                other = self._nesting_key(self._binding_path(root_path, other_subdir), case_insensitive)
+                if any(paths_overlap(a, b) for a, b in zip(candidate, other)):
+                    raise BindingNestedError(subdir, other_subdir)
+            placed.append((model_type, subdir))
+
     def _label_for(self, root_id: str) -> str:
         row = self._repository.get_root(root_id)
         return row["label"] if row is not None else root_id
@@ -275,6 +335,7 @@ class ModelRootsManager:
 
         binding_list = list(bindings)
         self._validate_binding_targets(root_path, binding_list)
+        self._check_binding_nesting(None, root_path, binding_list)
 
         candidate_paths = [self._binding_path(root_path, spec.subdir) for spec in binding_list]
         conflicts = self._overlap_conflicts(candidate_paths)
@@ -296,7 +357,7 @@ class ModelRootsManager:
         max_positions = self._repository.max_position_by_type()
         for spec in binding_list:
             position = max_positions.get(spec.model_type, -1) + 1
-            self._repository.upsert_binding(
+            self._repository.insert_binding(
                 root_id, spec.model_type, spec.subdir, position, False, spec.scan_headers
             )
             max_positions[spec.model_type] = position
@@ -309,7 +370,7 @@ class ModelRootsManager:
             error = _write_probe(target)
             if error is not None:
                 raise WriteProbeFailedError(root_id, error)
-            self._repository.set_write(root_id, model_type)
+            self._repository.set_write(root_id, model_type, spec.subdir)
 
         self._resolver.invalidate()
         self._indexing.cancel_and_restart(trigger="roots_change")
@@ -366,6 +427,7 @@ class ModelRootsManager:
         if bindings is not None:
             root_path_for_bindings = self._resolve_base(effective_path)
             self._validate_binding_targets(root_path_for_bindings, list(bindings))
+            self._check_binding_nesting(row, root_path_for_bindings, list(bindings))
 
         if read_only is True:
             self._hand_back_all_writes(root_id)
@@ -378,24 +440,24 @@ class ModelRootsManager:
             root_path_for_bindings = self._resolve_base(effective_path)
             max_positions = self._repository.max_position_by_type()
             for spec in bindings:
-                if self._repository.has_binding(root_id, spec.model_type):
-                    self._repository.upsert_binding(root_id, spec.model_type, spec.subdir, 0, False)
-                    if spec.scan_headers is not None:
-                        self._repository.set_scan_headers(root_id, spec.model_type, spec.scan_headers)
+                if self._repository.find_binding(root_id, spec.model_type, spec.subdir) is not None:
+                    self._repository.upsert_binding(
+                        root_id, spec.model_type, spec.subdir, 0, False, spec.scan_headers
+                    )
                     continue
                 position = max_positions.get(spec.model_type, -1) + 1
-                self._repository.upsert_binding(
+                self._repository.insert_binding(
                     root_id, spec.model_type, spec.subdir, position, False, spec.scan_headers
                 )
                 max_positions[spec.model_type] = position
 
         if remove_types_list:
-            current_bindings_by_type = {b["model_type"]: b for b in self._repository.bindings_for_root(root_id)}
+            current_bindings = self._repository.bindings_for_root(root_id)
             for model_type in remove_types_list:
-                binding = current_bindings_by_type.get(model_type)
-                if binding is None:
+                type_bindings = [b for b in current_bindings if b["model_type"] == model_type]
+                if not type_bindings:
                     continue
-                was_write = bool(binding["is_write"])
+                was_write = any(bool(b["is_write"]) for b in type_bindings)
                 self._repository.delete_binding(root_id, model_type)
                 self._locations.delete_for_root_and_type(root_id, model_type)
                 if was_write:
@@ -410,13 +472,9 @@ class ModelRootsManager:
         if self._repository.get_root(root_id) is None:
             raise RootNotFoundError(root_id)
         _require_header_type(model_type, subdir)
-        binding = next(
-            (b for b in self._repository.bindings_for_root(root_id) if b["model_type"] == model_type and b["subdir"] == subdir),
-            None,
-        )
-        if binding is None:
+        if self._repository.find_binding(root_id, model_type, subdir) is None:
             raise InvalidBindingError(model_type, subdir)
-        self._repository.set_scan_headers(root_id, model_type, enabled)
+        self._repository.set_scan_headers(root_id, model_type, enabled, subdir)
         self._resolver.invalidate()
         self._indexing.cancel_and_restart(trigger="roots_change")
         return self._root_view(root_id)
@@ -446,7 +504,7 @@ class ModelRootsManager:
 
         for a_type in types:
             current = sorted(self._repository.list_bindings(a_type), key=lambda b: b["position"])
-            current_ids = [b["root_id"] for b in current]
+            current_ids = list(dict.fromkeys(b["root_id"] for b in current))
             if model_type is not None:
                 unknown = [rid for rid in root_ids if rid not in current_ids]
                 if unknown:
@@ -456,7 +514,14 @@ class ModelRootsManager:
                 ordered = [rid for rid in root_ids if rid in current_ids]
                 remaining = [rid for rid in current_ids if rid not in ordered]
                 final_order = ordered + remaining
-            self._repository.reorder_bindings(a_type, final_order)
+            remaining_roots = [rid for rid in current_ids if rid not in final_order]
+            block_order = final_order + remaining_roots
+            by_root: Dict[str, List[str]] = {}
+            for binding in current:
+                by_root.setdefault(binding["root_id"], []).append(binding["id"])
+            self._repository.reorder_bindings(
+                a_type, [binding_id for rid in block_order for binding_id in by_root.get(rid, [])]
+            )
 
         self._resolver.invalidate()
         self._indexing.cancel_and_restart(trigger="roots_change")
@@ -478,7 +543,9 @@ class ModelRootsManager:
             raise RootOfflineError(root_id, row["label"], state)
 
         root_path = self._resolve_base(row["path"])
-        bindings_by_type = {b["model_type"]: b for b in self._repository.bindings_for_root(root_id)}
+        bindings_by_type: Dict[str, Dict[str, Any]] = {}
+        for b in self._repository.bindings_for_root(root_id):
+            bindings_by_type.setdefault(b["model_type"], b)
         for a_type in types:
             binding = bindings_by_type.get(a_type)
             if binding is None:
@@ -523,7 +590,7 @@ class ModelRootsManager:
         value = setting.get_typed_value() if setting else []
         return [entry for entry in (value or []) if self._resolver.to_logical(entry.get("dir", "")) is None]
 
-    def _unindexed_counts(self) -> Dict[Tuple[str, str], int]:
+    def _unindexed_counts(self) -> Dict[str, int]:
         try:
             return self._indexing.scanner.count_unindexed_by_binding()
         except Exception:
@@ -534,23 +601,24 @@ class ModelRootsManager:
         if row is None:
             raise RootNotFoundError(root_id)
         bindings = sorted(self._repository.bindings_for_root(root_id), key=lambda b: (b["model_type"], b["position"]))
-        aggregates = self._locations.aggregate_by_root_and_type()
+        aggregates = self._locations.aggregate_by_binding()
         return self._build_root_dict(row, bindings, aggregates, self._unindexed_counts())
 
     def _build_root_dict(
         self,
         row: Dict[str, Any],
         bindings: List[Dict[str, Any]],
-        aggregates: Dict[Tuple[str, str], Dict[str, int]],
-        unindexed: Optional[Dict[Tuple[str, str], int]] = None,
+        aggregates: Dict[str, Dict[str, int]],
+        unindexed: Optional[Dict[str, int]] = None,
     ) -> Dict[str, Any]:
         unindexed = unindexed or {}
         root_path = self._resolve_base(row["path"])
         binding_dicts = []
         for binding in bindings:
             target = self._binding_path(root_path, binding["subdir"])
-            agg = aggregates.get((row["id"], binding["model_type"]), {"indexed_files": 0, "size_bytes": 0})
+            agg = aggregates.get(binding["id"], {"indexed_files": 0, "size_bytes": 0})
             binding_dicts.append({
+                "binding_id": binding["id"],
                 "model_type": binding["model_type"],
                 "folder": MODEL_TYPE_TO_DIRECTORY[binding["model_type"]],
                 "subdir": binding["subdir"],
@@ -561,7 +629,7 @@ class ModelRootsManager:
                 "scan_headers": bool(binding.get("scan_headers", 0)),
                 "indexed_files": agg["indexed_files"],
                 "size_bytes": agg["size_bytes"],
-                "unindexed": unindexed.get((row["id"], binding["model_type"]), 0),
+                "unindexed": unindexed.get(binding["id"], 0),
             })
         return {
             "id": row["id"],
@@ -573,13 +641,14 @@ class ModelRootsManager:
             "state": row["state"],
             "state_reason": row.get("state_reason"),
             "state_checked_at": row.get("state_checked_at"),
+            "layout_profile": row.get("layout_profile"),
             "bindings": binding_dicts,
         }
 
     def get_overview(self) -> Dict[str, Any]:
         roots_rows = self._repository.list_roots()
         bindings_rows = self._repository.list_bindings()
-        aggregates = self._locations.aggregate_by_root_and_type()
+        aggregates = self._locations.aggregate_by_binding()
 
         bindings_by_root: Dict[str, List[Dict[str, Any]]] = {}
         for binding in bindings_rows:
@@ -605,7 +674,10 @@ class ModelRootsManager:
             types_out.append({
                 "model_type": model_type,
                 "folder": MODEL_TYPE_TO_DIRECTORY[model_type],
-                "order": [b["root_id"] for b in type_bindings],
+                "order": list(dict.fromkeys(b["root_id"] for b in type_bindings)),
+                "bindings": [
+                    {"root_id": b["root_id"], "subdir": b["subdir"], "binding_id": b["id"]} for b in type_bindings
+                ],
                 "write_root_id": write_root_id,
             })
 

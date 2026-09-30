@@ -50,8 +50,8 @@ def _binding(root_id: str, model_type: str, path, position: int, *, is_write: bo
     if subdir is None:
         subdir = MODEL_TYPE_TO_DIRECTORY[model_type]
     real_position = position + _POSITION_OFFSET
-    ModelRootRepository().insert_binding(root_id, model_type, subdir, real_position, is_write)
-    return TypeDir(root_id=root_id, model_type=model_type, path=Path(path), position=real_position, is_write=is_write, subdir=subdir)
+    binding_id = ModelRootRepository().insert_binding(root_id, model_type, subdir, real_position, is_write)
+    return TypeDir(root_id=root_id, model_type=model_type, path=Path(path), position=real_position, is_write=is_write, subdir=subdir, binding_id=binding_id)
 
 
 def _write(path: Path, content: bytes) -> None:

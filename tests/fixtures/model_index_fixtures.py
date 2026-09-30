@@ -52,10 +52,10 @@ def add_binding(
 ) -> TypeDir:
     subdir = subdir if subdir is not None else MODEL_TYPE_TO_DIRECTORY[model_type]
     real_position = position + POSITION_OFFSET
-    ModelRootRepository().insert_binding(root_id, model_type, subdir, real_position, False, scan_headers)
+    binding_id = ModelRootRepository().insert_binding(root_id, model_type, subdir, real_position, False, scan_headers)
     return TypeDir(
         root_id=root_id, model_type=model_type, path=Path(path), position=real_position,
-        is_write=False, subdir=subdir, scan_headers=scan_headers,
+        is_write=False, subdir=subdir, scan_headers=scan_headers, binding_id=binding_id,
     )
 
 
@@ -102,6 +102,7 @@ class Library:
         self.bindings[model_type] = type(binding)(
             root_id=binding.root_id, model_type=binding.model_type, path=binding.path,
             position=binding.position, is_write=binding.is_write, subdir=binding.subdir, scan_headers=enabled,
+            binding_id=binding.binding_id,
         )
         self.scanner = self.new_scanner()
 

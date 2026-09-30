@@ -71,6 +71,7 @@ class Harness:
         )
         self.locations_repository.upsert(
             model_id=model.id,
+            binding_id=self.repository.bindings_for(HOME_ROOT_ID, model_type)[0]["id"],
             root_id=HOME_ROOT_ID,
             model_type=model_type,
             rel_path=filename,

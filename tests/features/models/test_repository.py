@@ -323,9 +323,13 @@ class TestModelRepository(PersistenceTestBase):
         local_model = self._create_model(filename="kept.safetensors")
         with self.db.get_cursor() as cursor:
             cursor.execute(
-                "INSERT INTO model_locations (id, model_id, root_id, model_type, rel_path, rel_key, status, seen_at) "
-                "VALUES (?, ?, 'home', ?, ?, ?, 'present', CURRENT_TIMESTAMP)",
-                (generate_ulid(), local_model.id, local_model.model_type, "kept.safetensors", "kept.safetensors"),
+                "INSERT INTO model_locations (id, model_id, binding_id, root_id, model_type, rel_path, rel_key, status, seen_at) "
+                "VALUES (?, ?, (SELECT id FROM model_root_bindings WHERE root_id = 'home' AND model_type = ?), "
+                "'home', ?, ?, ?, 'present', CURRENT_TIMESTAMP)",
+                (
+                    generate_ulid(), local_model.id, local_model.model_type, local_model.model_type,
+                    "kept.safetensors", "kept.safetensors",
+                ),
             )
 
         removed = self.repository.delete_unclaimed_orphans([local_model.id])

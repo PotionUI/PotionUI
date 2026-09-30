@@ -55,8 +55,12 @@ def _binding(root_id: str, model_type: str, path, position: int, *, is_write: bo
     if subdir is None:
         subdir = MODEL_TYPE_TO_DIRECTORY[model_type]
     real_position = position + _POSITION_OFFSET
-    ModelRootRepository().insert_binding(root_id, model_type, subdir, real_position, is_write)
-    return TypeDir(root_id=root_id, model_type=model_type, path=Path(path), position=real_position, is_write=is_write, subdir=subdir)
+    binding_id = ModelRootRepository().insert_binding(root_id, model_type, subdir, real_position, is_write)
+    return TypeDir(root_id=root_id, model_type=model_type, path=Path(path), position=real_position, is_write=is_write, subdir=subdir, binding_id=binding_id)
+
+
+def _binding_id(scanner, root_id: str, model_type: str) -> str:
+    return next(td.binding_id for td in scanner.resolver.type_dirs(model_type, online_only=False) if td.root_id == root_id)
 
 
 def _write(path: Path, content: bytes) -> None:
@@ -219,7 +223,7 @@ def test_offline_root_is_skipped_and_its_locations_are_never_pruned(tmp_path, mo
     states["r_usb"] = ("offline", "unplugged")
     scanner.index_models(max_workers=1)
 
-    usb_location_after = scanner.locations.get("r_usb", "checkpoint", usb_location["rel_key"])
+    usb_location_after = scanner.locations.get(usb_location["binding_id"], usb_location["rel_key"])
     assert usb_location_after is not None
     assert usb_location_after["status"] == "present"
     assert any(m.filename == "keep.safetensors" for m in _models())
@@ -236,7 +240,7 @@ def test_case_insensitive_root_folds_the_rel_key(tmp_path, mock_db):
 
     scanner.index_models(max_workers=1)
 
-    loc = scanner.locations.get("r_home", "lora", "style.safetensors")
+    loc = scanner.locations.get(_binding_id(scanner, "r_home", "lora"), "style.safetensors")
     assert loc is not None
     assert loc["rel_path"] == "Style.safetensors"
 
@@ -255,8 +259,8 @@ def test_case_sensitive_root_keeps_two_locations_for_differently_cased_names(tmp
 
     scanner.index_models(max_workers=1)
 
-    assert scanner.locations.get("r_home", "lora", "A.safetensors") is not None
-    assert scanner.locations.get("r_home", "lora", "a.safetensors") is not None
+    assert scanner.locations.get(_binding_id(scanner, "r_home", "lora"), "A.safetensors") is not None
+    assert scanner.locations.get(_binding_id(scanner, "r_home", "lora"), "a.safetensors") is not None
 
 
 def test_nested_rel_path_is_stored_posix(tmp_path, mock_db):

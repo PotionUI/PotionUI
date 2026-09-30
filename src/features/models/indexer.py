@@ -49,6 +49,7 @@ class FoundFile:
     mtime_ns: int
     is_directory: bool = False
     scan_headers: bool = False
+    binding_id: str = ""
 
     @property
     def classifiable(self) -> bool:
@@ -118,12 +119,12 @@ class ModelScanner:
             key = key.casefold()
         return key
 
-    def _scanned_bindings(self) -> List[Tuple[str, str]]:
-        pairs: List[Tuple[str, str]] = []
+    def _scanned_bindings(self) -> List[str]:
+        binding_ids: List[str] = []
         for model_type in MODEL_TYPES:
             for type_dir in self.resolver.type_dirs(model_type, online_only=True):
-                pairs.append((type_dir.root_id, model_type))
-        return pairs
+                binding_ids.append(type_dir.binding_id)
+        return binding_ids
 
     def scan_roots(self) -> List[FoundFile]:
         found: List[FoundFile] = []
@@ -144,7 +145,8 @@ class ModelScanner:
                         continue
                     claimed.add(real_key)
                     found.append(FoundFile(
-                        type_dir.root_id, model_type, rel_path, abs_path, size, mtime_ns, is_dir, type_dir.scan_headers
+                        type_dir.root_id, model_type, rel_path, abs_path, size, mtime_ns, is_dir,
+                        type_dir.scan_headers, type_dir.binding_id,
                     ))
         return found
 
@@ -348,11 +350,15 @@ class ModelScanner:
     def found_file_for(
         self, loc: LogicalLocation, path: Path, size: int, mtime_ns: int, is_directory: bool
     ) -> FoundFile:
-        scan_headers = any(
-            td.root_id == loc.root_id and td.scan_headers
-            for td in self.resolver.type_dirs(loc.model_type, online_only=False)
+        candidates = [td for td in self.resolver.type_dirs(loc.model_type, online_only=False) if td.root_id == loc.root_id]
+        type_dir = next((td for td in candidates if loc.binding_id and td.binding_id == loc.binding_id), None)
+        if type_dir is None and candidates:
+            type_dir = candidates[0]
+        scan_headers = type_dir.scan_headers if type_dir is not None else False
+        binding_id = loc.binding_id or (type_dir.binding_id if type_dir is not None else "")
+        return FoundFile(
+            loc.root_id, loc.model_type, loc.rel_path, str(path), size, mtime_ns, is_directory, scan_headers, binding_id
         )
-        return FoundFile(loc.root_id, loc.model_type, loc.rel_path, str(path), size, mtime_ns, is_directory, scan_headers)
 
     def index_single_model(
         self, file_path: str, model_type: str, file_size: Optional[int] = None, cancel_check: Optional[Any] = None
@@ -501,7 +507,7 @@ class ModelScanner:
         seen_at = now_iso()
         touched: Set[str] = set()
 
-        existing_location = self.locations.get(found.root_id, found.model_type, rel_key)
+        existing_location = self.locations.get(found.binding_id, rel_key)
         location_model = None
         if existing_location is not None:
             location_model = model_repo.get_by_id(
@@ -605,7 +611,7 @@ class ModelScanner:
                 return loc
             try:
                 abs_path = self.resolver.physical(
-                    LogicalLocation(loc['root_id'], loc['model_type'], loc['rel_path'])
+                    LogicalLocation(loc['root_id'], loc['model_type'], loc['rel_path'], loc['binding_id'])
                 )
             except Exception:
                 return loc
@@ -616,7 +622,7 @@ class ModelScanner:
     def _duplicate_of(self, model: Model, location: Dict[str, Any]) -> DuplicateOf:
         root = self._root_by_id(location['root_id'])
         label = root.label if root is not None else location['root_id']
-        logical = LogicalLocation(location['root_id'], location['model_type'], location['rel_path'])
+        logical = LogicalLocation(location['root_id'], location['model_type'], location['rel_path'], location['binding_id'])
         path = None
         if self.resolver.is_online_for(location['root_id'], location['model_type']):
             try:
@@ -631,7 +637,7 @@ class ModelScanner:
         self, found: FoundFile, rel_key: str, *, model_id: str, sha256: str, status: str, seen_at: str
     ) -> None:
         self.locations.upsert(
-            model_id=model_id, root_id=found.root_id, model_type=found.model_type,
+            model_id=model_id, binding_id=found.binding_id, root_id=found.root_id, model_type=found.model_type,
             rel_path=found.rel_path, rel_key=rel_key, size=found.size, mtime_ns=found.mtime_ns,
             sha256=sha256, status=status, seen_at=seen_at,
         )
@@ -677,17 +683,17 @@ class ModelScanner:
     def _classification_candidates(
         self, found: List[FoundFile], roots_by_id: Dict[str, ModelRoot]
     ) -> Dict[str, List[Tuple[FoundFile, Dict[str, Any]]]]:
-        by_binding: Dict[Tuple[str, str], List[FoundFile]] = {}
+        by_binding: Dict[str, List[FoundFile]] = {}
         for f in found:
             if f.classifiable:
-                by_binding.setdefault((f.root_id, f.model_type), []).append(f)
+                by_binding.setdefault(f.binding_id, []).append(f)
 
         by_sha: Dict[str, List[Tuple[FoundFile, Dict[str, Any]]]] = {}
-        for (root_id, model_type), files in by_binding.items():
-            root = roots_by_id.get(root_id)
+        for binding_id, files in by_binding.items():
+            root = roots_by_id.get(files[0].root_id)
             if root is None:
                 continue
-            existing = {row['rel_key']: row for row in self.locations.list_for_root_type(root_id, model_type)}
+            existing = {row['rel_key']: row for row in self.locations.list_for_binding(binding_id)}
             for f in files:
                 row = existing.get(self._rel_key(root, f.rel_path))
                 if self._row_matches(row, f) and row['sha256']:
@@ -696,42 +702,40 @@ class ModelScanner:
         settled = self.types.settled_shas(by_sha.keys(), model_classifier_registry.fingerprint())
         return {sha: entries for sha, entries in by_sha.items() if sha not in settled}
 
-    def count_unindexed_by_binding(self) -> Dict[Tuple[str, str], int]:
+    def _unindexed_files(self) -> List[FoundFile]:
         found = self.scan_roots()
         roots_by_id = {r.id: r for r in self.resolver.roots()}
-        by_binding: Dict[Tuple[str, str], List[FoundFile]] = {}
+        by_binding: Dict[str, List[FoundFile]] = {}
         for f in found:
-            by_binding.setdefault((f.root_id, f.model_type), []).append(f)
+            by_binding.setdefault(f.binding_id, []).append(f)
 
-        counts: Dict[Tuple[str, str], int] = {}
-        for key, files in by_binding.items():
-            root_id, model_type = key
-            root = roots_by_id.get(root_id)
+        unindexed: List[FoundFile] = []
+        for binding_id, files in by_binding.items():
+            root = roots_by_id.get(files[0].root_id)
             if root is None:
                 continue
-            existing = {row['rel_key']: row for row in self.locations.list_for_root_type(root_id, model_type)}
-            n = 0
+            existing = {row['rel_key']: row for row in self.locations.list_for_binding(binding_id)}
             for f in files:
-                rel_key = self._rel_key(root, f.rel_path)
-                row = existing.get(rel_key)
+                row = existing.get(self._rel_key(root, f.rel_path))
                 if not self._row_matches(row, f):
-                    n += 1
-            if n:
-                counts[key] = n
+                    unindexed.append(f)
 
         for entries in self._classification_candidates(found, roots_by_id).values():
-            for f, _ in entries:
-                key = (f.root_id, f.model_type)
-                counts[key] = counts.get(key, 0) + 1
+            unindexed.extend(f for f, _ in entries)
+        return unindexed
+
+    def count_unindexed_by_binding(self) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        for f in self._unindexed_files():
+            counts[f.binding_id] = counts.get(f.binding_id, 0) + 1
         return counts
 
     def count_unindexed(self) -> Dict[str, Any]:
-        by_binding = self.count_unindexed_by_binding()
         by_type: Dict[str, int] = {}
         total = 0
-        for (_, model_type), n in by_binding.items():
-            by_type[model_type] = by_type.get(model_type, 0) + n
-            total += n
+        for f in self._unindexed_files():
+            by_type[f.model_type] = by_type.get(f.model_type, 0) + 1
+            total += 1
         return {'total': total, 'by_type': by_type}
 
     def index_models(self, max_workers: int = 4, cancel_check: Optional[Any] = None) -> Dict[str, Any]:
@@ -747,9 +751,9 @@ class ModelScanner:
             found_by_root[f.root_id] = found_by_root.get(f.root_id, 0) + 1
 
         roots_by_id = {r.id: r for r in self.resolver.roots()}
-        by_binding: Dict[Tuple[str, str], List[FoundFile]] = {}
+        by_binding: Dict[str, List[FoundFile]] = {}
         for f in found:
-            by_binding.setdefault((f.root_id, f.model_type), []).append(f)
+            by_binding.setdefault(f.binding_id, []).append(f)
 
         seen_at = now_iso()
         type_conflicts: List[Dict[str, Any]] = []
@@ -757,11 +761,11 @@ class ModelScanner:
         skipped_count = 0
         touched_by_diff: Set[str] = set()
 
-        for (root_id, model_type), files in by_binding.items():
-            root = roots_by_id.get(root_id)
+        for binding_id, files in by_binding.items():
+            root = roots_by_id.get(files[0].root_id)
             if root is None:
                 continue
-            existing = {row['rel_key']: row for row in self.locations.list_for_root_type(root_id, model_type)}
+            existing = {row['rel_key']: row for row in self.locations.list_for_binding(binding_id)}
             present_rel_keys: List[str] = []
             for f in files:
                 rel_key = self._rel_key(root, f.rel_path)
@@ -770,26 +774,26 @@ class ModelScanner:
                 if not self._row_matches(row, f):
                     new_or_changed.append(f)
                 elif row['mtime_ns'] != f.mtime_ns:
-                    self.locations.adopt_mtime(root_id, model_type, rel_key, f.mtime_ns, seen_at)
+                    self.locations.adopt_mtime(binding_id, rel_key, f.mtime_ns, seen_at)
                     touched_by_diff.add(row['model_id'])
                     skipped_count += 1
                 else:
-                    self.locations.touch_present(root_id, model_type, rel_key, seen_at)
+                    self.locations.touch_present(binding_id, rel_key, seen_at)
                     touched_by_diff.add(row['model_id'])
                     skipped_count += 1
             for rel_key, row in existing.items():
                 if rel_key not in present_rel_keys and row['status'] != 'missing':
                     touched_by_diff.add(row['model_id'])
-            self.locations.mark_missing_for_root_type(root_id, model_type, present_rel_keys, seen_at)
+            self.locations.mark_missing_for_binding(binding_id, present_rel_keys, seen_at)
 
-        for (root_id, model_type) in self._scanned_bindings():
-            if (root_id, model_type) in by_binding:
+        for binding_id in self._scanned_bindings():
+            if binding_id in by_binding:
                 continue
-            existing = {row['rel_key']: row for row in self.locations.list_for_root_type(root_id, model_type)}
+            existing = {row['rel_key']: row for row in self.locations.list_for_binding(binding_id)}
             for row in existing.values():
                 if row['status'] != 'missing':
                     touched_by_diff.add(row['model_id'])
-            self.locations.mark_missing_for_root_type(root_id, model_type, [], seen_at)
+            self.locations.mark_missing_for_binding(binding_id, [], seen_at)
 
         classify_jobs = list(self._classification_candidates(found, roots_by_id).items())
         total_classify = len(classify_jobs)

@@ -220,6 +220,9 @@ class BaseBackend(ABC):
     def resolve_ref(self, ref: str) -> str:
         return ref
 
+    def resolve_model(self, model_id: str, ref: str) -> str:
+        return self.resolve_ref(ref)
+
     def supports_model_listing(self) -> bool:
         """
         Whether this backend can enumerate the models it is able to load.

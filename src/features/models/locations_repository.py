@@ -3,7 +3,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from src.platform.util.ids import generate_ulid
 
 _LOCATION_COLUMNS = (
-    "id, model_id, root_id, model_type, rel_path, rel_key, size, mtime_ns, sha256, status, seen_at"
+    "id, model_id, root_id, model_type, rel_path, rel_key, size, mtime_ns, sha256, status, seen_at, binding_id"
 )
 
 
@@ -15,16 +15,24 @@ def _pick_winner(rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 class ModelLocationsRepository:
 
-    def get(self, root_id: str, model_type: str, rel_key: str) -> Optional[Dict[str, Any]]:
+    def get(self, binding_id: str, rel_key: str) -> Optional[Dict[str, Any]]:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
-                f"SELECT {_LOCATION_COLUMNS} FROM model_locations "
-                "WHERE root_id = ? AND model_type = ? AND rel_key = ?",
-                (root_id, model_type, rel_key),
+                f"SELECT {_LOCATION_COLUMNS} FROM model_locations WHERE binding_id = ? AND rel_key = ?",
+                (binding_id, rel_key),
             )
             row = cursor.fetchone()
             return dict(row) if row else None
+
+    def list_for_binding(self, binding_id: str) -> List[Dict[str, Any]]:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT {_LOCATION_COLUMNS} FROM model_locations WHERE binding_id = ?",
+                (binding_id,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
 
     def list_for_root_type(self, root_id: str, model_type: str) -> List[Dict[str, Any]]:
         from src.platform.database.database import db
@@ -69,6 +77,7 @@ class ModelLocationsRepository:
         self,
         *,
         model_id: str,
+        binding_id: str,
         root_id: str,
         model_type: str,
         rel_path: str,
@@ -85,9 +94,10 @@ class ModelLocationsRepository:
             cursor.execute(
                 """
                 INSERT INTO model_locations
-                    (id, model_id, root_id, model_type, rel_path, rel_key, size, mtime_ns, sha256, status, seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(root_id, model_type, rel_key) DO UPDATE SET
+                    (id, model_id, binding_id, root_id, model_type, rel_path, rel_key, size, mtime_ns, sha256,
+                     status, seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(binding_id, rel_key) DO UPDATE SET
                     model_id = excluded.model_id,
                     rel_path = excluded.rel_path,
                     size = excluded.size,
@@ -97,37 +107,36 @@ class ModelLocationsRepository:
                     seen_at = excluded.seen_at
                 """,
                 (
-                    location_id, model_id, root_id, model_type, rel_path, rel_key,
+                    location_id, model_id, binding_id, root_id, model_type, rel_path, rel_key,
                     size, mtime_ns, sha256, status, seen_at,
                 ),
             )
             cursor.execute(
-                "SELECT id FROM model_locations WHERE root_id = ? AND model_type = ? AND rel_key = ?",
-                (root_id, model_type, rel_key),
+                "SELECT id FROM model_locations WHERE binding_id = ? AND rel_key = ?",
+                (binding_id, rel_key),
             )
             row = cursor.fetchone()
             return row["id"] if row else location_id
 
-    def touch_present(self, root_id: str, model_type: str, rel_key: str, seen_at: str) -> None:
+    def touch_present(self, binding_id: str, rel_key: str, seen_at: str) -> None:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
-                "UPDATE model_locations SET status = 'present', seen_at = ? "
-                "WHERE root_id = ? AND model_type = ? AND rel_key = ?",
-                (seen_at, root_id, model_type, rel_key),
+                "UPDATE model_locations SET status = 'present', seen_at = ? WHERE binding_id = ? AND rel_key = ?",
+                (seen_at, binding_id, rel_key),
             )
 
-    def adopt_mtime(self, root_id: str, model_type: str, rel_key: str, mtime_ns: int, seen_at: str) -> None:
+    def adopt_mtime(self, binding_id: str, rel_key: str, mtime_ns: int, seen_at: str) -> None:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "UPDATE model_locations SET status = 'present', mtime_ns = ?, seen_at = ? "
-                "WHERE root_id = ? AND model_type = ? AND rel_key = ?",
-                (mtime_ns, seen_at, root_id, model_type, rel_key),
+                "WHERE binding_id = ? AND rel_key = ?",
+                (mtime_ns, seen_at, binding_id, rel_key),
             )
 
-    def mark_missing_for_root_type(
-        self, root_id: str, model_type: str, present_rel_keys: Sequence[str], seen_at: str
+    def mark_missing_for_binding(
+        self, binding_id: str, present_rel_keys: Sequence[str], seen_at: str
     ) -> int:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
@@ -135,15 +144,15 @@ class ModelLocationsRepository:
                 placeholders = ",".join("?" for _ in present_rel_keys)
                 cursor.execute(
                     f"UPDATE model_locations SET status = 'missing', seen_at = ? "
-                    f"WHERE root_id = ? AND model_type = ? AND status != 'missing' "
+                    f"WHERE binding_id = ? AND status != 'missing' "
                     f"AND rel_key NOT IN ({placeholders})",
-                    (seen_at, root_id, model_type, *present_rel_keys),
+                    (seen_at, binding_id, *present_rel_keys),
                 )
             else:
                 cursor.execute(
                     "UPDATE model_locations SET status = 'missing', seen_at = ? "
-                    "WHERE root_id = ? AND model_type = ? AND status != 'missing'",
-                    (seen_at, root_id, model_type),
+                    "WHERE binding_id = ? AND status != 'missing'",
+                    (seen_at, binding_id),
                 )
             return cursor.rowcount
 
@@ -173,12 +182,11 @@ class ModelLocationsRepository:
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT ml.id, ml.model_id, ml.root_id, ml.model_type, ml.rel_path, ml.rel_key,
+                SELECT ml.id, ml.model_id, ml.binding_id, ml.root_id, ml.model_type, ml.rel_path, ml.rel_key,
                        ml.size, ml.mtime_ns, ml.sha256, ml.status,
                        mrb.position AS position, mrb.subdir AS subdir
                 FROM model_locations ml
-                JOIN model_root_bindings mrb
-                    ON mrb.root_id = ml.root_id AND mrb.model_type = ml.model_type
+                JOIN model_root_bindings mrb ON mrb.id = ml.binding_id
                 WHERE ml.status = 'present' AND ml.root_id IN ({placeholders})
                 """,
                 tuple(root_ids),
@@ -195,7 +203,7 @@ class ModelLocationsRepository:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
-                "SELECT ml.id, ml.model_id, ml.root_id, ml.model_type, ml.rel_path, ml.rel_key, "
+                "SELECT ml.id, ml.model_id, ml.binding_id, ml.root_id, ml.model_type, ml.rel_path, ml.rel_key, "
                 "ml.size, ml.mtime_ns, ml.sha256, ml.status, ml.seen_at, mr.label AS root_label "
                 "FROM model_locations ml JOIN model_roots mr ON mr.id = ml.root_id "
                 "WHERE ml.status = 'conflict' ORDER BY ml.seen_at DESC LIMIT ?",
@@ -209,11 +217,11 @@ class ModelLocationsRepository:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
-                "SELECT ml.model_id, ml.model_type, ml.root_id, ml.rel_path, "
+                "SELECT ml.model_id, ml.binding_id, ml.model_type, ml.root_id, ml.rel_path, "
                 "mr.label AS root_label, mrb.position AS position "
                 "FROM model_locations ml "
                 "JOIN model_roots mr ON mr.id = ml.root_id "
-                "JOIN model_root_bindings mrb ON mrb.root_id = ml.root_id AND mrb.model_type = ml.model_type "
+                "JOIN model_root_bindings mrb ON mrb.id = ml.binding_id "
                 "WHERE ml.status = 'present' AND ml.model_id IN ("
                 "  SELECT model_id FROM model_locations WHERE status = 'present' "
                 "  GROUP BY model_id HAVING COUNT(*) > 1"
@@ -246,24 +254,33 @@ class ModelLocationsRepository:
         entries.sort(key=lambda entry: len(entry["copies"]), reverse=True)
         return entries[:limit]
 
-    def aggregate_by_root_and_type(self) -> Dict[Tuple[str, str], Dict[str, int]]:
+    def aggregate_by_binding(self) -> Dict[str, Dict[str, int]]:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
-                SELECT root_id, model_type, COUNT(*) AS indexed_files, COALESCE(SUM(size), 0) AS size_bytes
+                SELECT binding_id, COUNT(*) AS indexed_files, COALESCE(SUM(size), 0) AS size_bytes
                 FROM model_locations
                 WHERE status = 'present'
-                GROUP BY root_id, model_type
+                GROUP BY binding_id
                 """
             )
             return {
-                (row["root_id"], row["model_type"]): {
+                row["binding_id"]: {
                     "indexed_files": row["indexed_files"],
                     "size_bytes": row["size_bytes"],
                 }
                 for row in cursor.fetchall()
             }
+
+    def indexed_files_by_root(self) -> Dict[str, int]:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT root_id, COUNT(*) AS indexed_files FROM model_locations "
+                "WHERE status = 'present' GROUP BY root_id"
+            )
+            return {row["root_id"]: row["indexed_files"] for row in cursor.fetchall()}
 
     def count_for_root(self, root_id: str) -> int:
         from src.platform.database.database import db
@@ -287,6 +304,15 @@ class ModelLocationsRepository:
 
         with db.get_cursor() as cursor:
             cursor.execute(
+                "SELECT id FROM model_root_bindings WHERE root_id = ? AND model_type = ? ORDER BY position LIMIT 1",
+                (dst_root_id, model_type),
+            )
+            destination = cursor.fetchone()
+            if destination is None:
+                return 0
+            dst_binding_id = destination["id"]
+
+            cursor.execute(
                 f"SELECT {_LOCATION_COLUMNS} FROM model_locations WHERE root_id = ? AND model_type = ?",
                 (src_root_id, model_type),
             )
@@ -302,16 +328,17 @@ class ModelLocationsRepository:
                     new_rel_key = row["rel_key"]
 
                 cursor.execute(
-                    "SELECT id FROM model_locations WHERE root_id = ? AND model_type = ? AND rel_key = ?",
-                    (dst_root_id, model_type, new_rel_key),
+                    "SELECT id FROM model_locations WHERE binding_id = ? AND rel_key = ?",
+                    (dst_binding_id, new_rel_key),
                 )
                 conflict = cursor.fetchone()
                 if conflict is not None:
                     cursor.execute("DELETE FROM model_locations WHERE id = ?", (row["id"],))
                 else:
                     cursor.execute(
-                        "UPDATE model_locations SET root_id = ?, rel_path = ?, rel_key = ?, mtime_ns = NULL WHERE id = ?",
-                        (dst_root_id, new_rel_path, new_rel_key, row["id"]),
+                        "UPDATE model_locations SET root_id = ?, binding_id = ?, rel_path = ?, rel_key = ?, "
+                        "mtime_ns = NULL WHERE id = ?",
+                        (dst_root_id, dst_binding_id, new_rel_path, new_rel_key, row["id"]),
                     )
                 moved += 1
             return moved

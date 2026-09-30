@@ -22,6 +22,7 @@ def _backend(backend_id, resolve_ref=None):
     backend = Mock()
     backend.backend_id = backend_id
     backend.resolve_ref = Mock(side_effect=resolve_ref) if resolve_ref else Mock(side_effect=lambda ref: ref)
+    backend.resolve_model = Mock(side_effect=lambda model_id, ref: backend.resolve_ref(ref))
     return backend
 
 
@@ -153,6 +154,17 @@ def test_indexed_rows_are_passed_through_the_backends_own_resolve_ref(repo):
 
     assert resolved["lora"] == "/abs/models/loras/x.safetensors"
     backend.resolve_ref.assert_called_once_with("loras/x.safetensors")
+
+
+@patch.object(fr, "model_availability_repo")
+def test_the_backend_is_asked_to_resolve_by_model_id_and_ref(repo):
+    repo.any_indexed.return_value = True
+    repo.get.return_value = _avail("loras/x.safetensors", backend_id="native-1")
+    backend = _backend("native-1")
+
+    fr.resolve_form_model_refs({"lora": fr.make_model_ref("m1")}, backend, Mock())
+
+    backend.resolve_model.assert_called_once_with("m1", "loras/x.safetensors")
 
 
 @patch.object(fr, "model_availability_repo")

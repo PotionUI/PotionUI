@@ -156,7 +156,7 @@ class ModelTypeRepository:
                     SELECT ml.model_id AS model_id, ml.root_id AS root_id, ml.model_type AS model_type,
                            ml.rel_path AS rel_path, mrb.scan_headers AS scan_headers
                     FROM model_locations ml
-                    JOIN model_root_bindings mrb ON mrb.root_id = ml.root_id AND mrb.model_type = ml.model_type
+                    JOIN model_root_bindings mrb ON mrb.id = ml.binding_id
                     WHERE ml.status = 'present' AND ml.model_id IN ({placeholders})
                     """,
                     tuple(chunk),

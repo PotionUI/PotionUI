@@ -132,10 +132,7 @@ class ModelIndexingCoordinator:
             roots = list(self.scanner.resolver.roots())
         except Exception:
             return []
-        aggregates = self._safe_locations_call(self.locations_repo.aggregate_by_root_and_type, {})
-        indexed_by_root: Dict[str, int] = {}
-        for (root_id, _model_type), agg in aggregates.items():
-            indexed_by_root[root_id] = indexed_by_root.get(root_id, 0) + agg.get("indexed_files", 0)
+        indexed_by_root: Dict[str, int] = self._safe_locations_call(self.locations_repo.indexed_files_by_root, {})
         return [
             {
                 "root_id": root.id,

@@ -53,8 +53,8 @@ def _binding(root_id: str, model_type: str, path, position: int, *, is_write: bo
     if subdir is None:
         subdir = MODEL_TYPE_TO_DIRECTORY[model_type]
     real_position = position + _POSITION_OFFSET
-    ModelRootRepository().insert_binding(root_id, model_type, subdir, real_position, is_write)
-    return TypeDir(root_id=root_id, model_type=model_type, path=Path(path), position=real_position, is_write=is_write, subdir=subdir)
+    binding_id = ModelRootRepository().insert_binding(root_id, model_type, subdir, real_position, is_write)
+    return TypeDir(root_id=root_id, model_type=model_type, path=Path(path), position=real_position, is_write=is_write, subdir=subdir, binding_id=binding_id)
 
 
 def _write(path: Path, content: bytes) -> None:
@@ -84,7 +84,8 @@ def _seed_migrated_row(root_id: str, model_type: str, rel_path: str, content: by
         sha256=content_sha, model_type=model_type,
     ))
     ModelLocationsRepository().upsert(
-        model_id=model.id, root_id=root_id, model_type=model_type,
+        model_id=model.id, binding_id=ModelRootRepository().bindings_for(root_id, model_type)[0]["id"],
+        root_id=root_id, model_type=model_type,
         rel_path=rel_path, rel_key=rel_path, size=len(content), mtime_ns=None,
         sha256=content_sha, status="present", seen_at=now_iso(),
     )
@@ -98,9 +99,10 @@ def test_migrated_row_with_null_mtime_is_adopted_without_hashing(tmp_path, mock_
     _write(path, content)
 
     home_root = _root("r_home", home)
+    home_binding = _binding("r_home", "checkpoint", home / "checkpoints", 0)
     model = _seed_migrated_row("r_home", "checkpoint", "m.safetensors", content)
 
-    resolver = _resolver([home_root], [_binding("r_home", "checkpoint", home / "checkpoints", 0)])
+    resolver = _resolver([home_root], [home_binding])
     scanner = ModelScanner(resolver)
 
     with _no_hashing():
@@ -131,21 +133,20 @@ def test_rehomed_row_with_null_mtime_is_adopted_without_hashing(tmp_path, mock_d
     assert original_location["mtime_ns"] is not None
 
     lib_root = _root("r_lib", depot_alias)
+    lib_binding = _binding("r_lib", "checkpoint", depot_alias / "checkpoints", 1)
     moved = ModelLocationsRepository().rehome("r_home", "checkpoint", "r_lib")
     assert moved == 1
-    rehomed = ModelLocationsRepository().get("r_lib", "checkpoint", "m.safetensors")
+    rehomed = ModelLocationsRepository().get(lib_binding.binding_id, "m.safetensors")
     assert rehomed is not None
     assert rehomed["mtime_ns"] is None
 
-    resolver_after = _resolver(
-        [lib_root], [_binding("r_lib", "checkpoint", depot_alias / "checkpoints", 1)]
-    )
+    resolver_after = _resolver([lib_root], [lib_binding])
     scanner_after = ModelScanner(resolver_after)
 
     with _no_hashing():
         scanner_after.index_models(max_workers=1)
 
-    refreshed = ModelLocationsRepository().get("r_lib", "checkpoint", "m.safetensors")
+    refreshed = ModelLocationsRepository().get(lib_binding.binding_id, "m.safetensors")
     assert refreshed is not None
     assert refreshed["status"] == "present"
     assert refreshed["mtime_ns"] is not None

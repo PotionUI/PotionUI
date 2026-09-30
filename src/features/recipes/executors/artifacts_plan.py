@@ -45,8 +45,10 @@ class ArtifactsPlanExecutor:
         model_repository: ModelRepository,
         provider_registry_factory=None,
         gpu_profile_provider: Optional[Callable[[], GpuProfile]] = None,
+        type_manager: Optional[Any] = None,
     ):
         self.model_repository = model_repository
+        self._type_manager = type_manager
         self._provider_registry_factory = provider_registry_factory
         self._gpu_profile_provider = gpu_profile_provider or detect_gpu_profile
 
@@ -70,7 +72,7 @@ class ArtifactsPlanExecutor:
                     "ARTIFACTS_PLAN_MISCONFIGURED",
                     f"This step references an artifact ('{artifact_id}') the recipe doesn't declare.",
                 )
-            slot, choice, installed = describe_slot(self.model_repository, artifact, gpu)
+            slot, choice, installed = describe_slot(self.model_repository, artifact, gpu, self._type_manager)
             slots.append(slot)
             chosen = resolve_selection(artifact, choice.variant_id)
             entry = {

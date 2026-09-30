@@ -16,7 +16,7 @@ from src.platform.filesystem.model_roots import (
     validate_rel_path,
 )
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY, MODEL_TYPES
+from src.platform.filesystem.model_types import HEADER_CLASSIFIED_TYPES, MODEL_TYPE_TO_DIRECTORY, MODEL_TYPES
 from src.platform.settings.repository import SettingRepository
 from src.platform.util.ids import generate_ulid
 
@@ -24,6 +24,7 @@ from src.platform.util.ids import generate_ulid
 class BindingSpec(NamedTuple):
     model_type: str
     subdir: str
+    scan_headers: Optional[bool] = None
 
 
 class ModelRootsError(Exception):
@@ -32,6 +33,11 @@ class ModelRootsError(Exception):
     def __init__(self, reason: str):
         super().__init__(reason)
         self.reason = reason
+
+
+def _require_header_type(model_type: str, subdir: str) -> None:
+    if model_type not in HEADER_CLASSIFIED_TYPES:
+        raise InvalidBindingError(model_type, subdir)
 
 
 class RootNotFoundError(ModelRootsError):
@@ -204,6 +210,8 @@ class ModelRootsManager:
 
     def _validate_binding_targets(self, root_path: Path, bindings: Sequence[BindingSpec]) -> None:
         for spec in bindings:
+            if spec.scan_headers:
+                _require_header_type(spec.model_type, spec.subdir)
             target = self._binding_path(root_path, spec.subdir)
             if not target.is_dir() or not os.access(target, os.R_OK):
                 raise InvalidBindingError(spec.model_type, spec.subdir)
@@ -288,7 +296,9 @@ class ModelRootsManager:
         max_positions = self._repository.max_position_by_type()
         for spec in binding_list:
             position = max_positions.get(spec.model_type, -1) + 1
-            self._repository.upsert_binding(root_id, spec.model_type, spec.subdir, position, False)
+            self._repository.upsert_binding(
+                root_id, spec.model_type, spec.subdir, position, False, spec.scan_headers
+            )
             max_positions[spec.model_type] = position
 
         for model_type in write_types_set:
@@ -370,9 +380,13 @@ class ModelRootsManager:
             for spec in bindings:
                 if self._repository.has_binding(root_id, spec.model_type):
                     self._repository.upsert_binding(root_id, spec.model_type, spec.subdir, 0, False)
+                    if spec.scan_headers is not None:
+                        self._repository.set_scan_headers(root_id, spec.model_type, spec.scan_headers)
                     continue
                 position = max_positions.get(spec.model_type, -1) + 1
-                self._repository.upsert_binding(root_id, spec.model_type, spec.subdir, position, False)
+                self._repository.upsert_binding(
+                    root_id, spec.model_type, spec.subdir, position, False, spec.scan_headers
+                )
                 max_positions[spec.model_type] = position
 
         if remove_types_list:
@@ -390,6 +404,21 @@ class ModelRootsManager:
         self._resolver.invalidate()
         if touches_disk:
             self._indexing.cancel_and_restart(trigger="roots_change")
+        return self._root_view(root_id)
+
+    def set_binding_scan_headers(self, root_id: str, model_type: str, subdir: str, enabled: bool) -> Dict[str, Any]:
+        if self._repository.get_root(root_id) is None:
+            raise RootNotFoundError(root_id)
+        _require_header_type(model_type, subdir)
+        binding = next(
+            (b for b in self._repository.bindings_for_root(root_id) if b["model_type"] == model_type and b["subdir"] == subdir),
+            None,
+        )
+        if binding is None:
+            raise InvalidBindingError(model_type, subdir)
+        self._repository.set_scan_headers(root_id, model_type, enabled)
+        self._resolver.invalidate()
+        self._indexing.cancel_and_restart(trigger="roots_change")
         return self._root_view(root_id)
 
     def delete_root(self, root_id: str) -> None:
@@ -529,6 +558,7 @@ class ModelRootsManager:
                 "exists": target.is_dir(),
                 "position": binding["position"],
                 "is_write": bool(binding["is_write"]),
+                "scan_headers": bool(binding.get("scan_headers", 0)),
                 "indexed_files": agg["indexed_files"],
                 "size_bytes": agg["size_bytes"],
                 "unindexed": unindexed.get((row["id"], binding["model_type"]), 0),

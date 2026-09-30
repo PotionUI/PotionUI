@@ -118,6 +118,16 @@ def update_model_tags(collaborators: ModelIndexCollaborators, model_id: str, tag
     return collaborators.metadata.update_model_tags(model_id, tag_ids)
 
 
+def set_model_type(collaborators: ModelIndexCollaborators, model_id: str, model_type: str, user_id: Optional[str]) -> Dict[str, Any]:
+    collaborators.types.set_admin_type(model_id, model_type, user_id)
+    return collaborators.catalog.get_model_by_id(model_id, admin=True)
+
+
+def reset_model_type(collaborators: ModelIndexCollaborators, model_id: str) -> Dict[str, Any]:
+    collaborators.types.reset_admin_type(model_id)
+    return collaborators.catalog.get_model_by_id(model_id, admin=True)
+
+
 def update_model_description(collaborators: ModelIndexCollaborators, model_id: str, description: str) -> Dict[str, Any]:
     return collaborators.metadata.update_model_description(model_id, description)
 

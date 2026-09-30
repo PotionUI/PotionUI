@@ -17,6 +17,7 @@ from src.features.models.indexer import ModelScanner
 from src.features.models.locator import ModelLocator
 from src.features.models.repository import ModelRepository
 from src.features.models.search_filter import USAGE_SORT_FIELDS, ModelSearchFilter
+from src.features.models.type_manager import build_type_info
 from src.features.tags.repository import tag_repo
 from src.features.models.availability_repository import model_availability_repo
 from src.platform.filesystem.model_roots import ModelRootError
@@ -402,9 +403,16 @@ class ModelCatalog:
                 }
                 for loc in locations
             ]
+        if admin:
+            data["type_info"] = self._type_info(model)
         data["user_model_metadata"] = self.user_attributes.get_map(user.id, model_id) if user else {}
         self._attach_provider_mirrors(data, model.providers)
         return {"model": data}
+
+    def _type_info(self, model) -> Dict[str, Any]:
+        types = self.scanner.types
+        verdict = types.get_verdicts([model.sha256]).get(model.sha256) if model.sha256 else None
+        return build_type_info(model, types.present_copies([model.id]), verdict)
 
     def _attach_provider_mirrors(self, data: Dict[str, Any], providers: List) -> None:
         entries = data.get("providers")

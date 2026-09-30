@@ -21,6 +21,7 @@ from src.features.models.dto import (
     UpdateDescriptionRequest,
     UpdateTagsRequest,
     UpdatePromptingGuidanceRequest,
+    SetModelTypeRequest,
     UpdateModelMetadataRequest,
     UpdateModelUserAttributesRequest,
     CreateAttributeDefinitionRequest,
@@ -46,6 +47,11 @@ from src.features.models import (
     ModelAssignmentException,
 )
 from src.features.models import operations
+from src.features.models.exceptions import (
+    InvalidModelTypeException,
+    ModelTypeConflictException,
+    ModelTypeNotAssignableException,
+)
 from src.features.models.attributes.exceptions import (
     AttributeDefinitionNotFoundException,
     InvalidAttributeDefinitionException,
@@ -520,6 +526,30 @@ class ModelController(BaseController):
                 error="update_description_failed",
                 message=f"Failed to update description: {str(e)}"
             )
+
+    async def set_model_type(self, model_id: str, request: SetModelTypeRequest, user: User) -> APIResponse:
+        try:
+            data = await asyncio.to_thread(
+                operations.set_model_type, self.collaborators, model_id, request.model_type, user.id
+            )
+            return self.success_response(data=data)
+        except ModelNotFoundException as e:
+            self.error_response(error="model_not_found", message=str(e), status_code=404)
+        except (InvalidModelTypeException, ModelTypeNotAssignableException) as e:
+            self.error_response(error="model_type_not_assignable", message=str(e), status_code=422)
+        except ModelTypeConflictException as e:
+            self.error_response(error="model_type_conflict", message=str(e), status_code=409)
+
+    async def reset_model_type(self, model_id: str) -> APIResponse:
+        try:
+            data = await asyncio.to_thread(operations.reset_model_type, self.collaborators, model_id)
+            return self.success_response(data=data)
+        except ModelNotFoundException as e:
+            self.error_response(error="model_not_found", message=str(e), status_code=404)
+        except ModelTypeNotAssignableException as e:
+            self.error_response(error="model_type_not_assignable", message=str(e), status_code=422)
+        except ModelTypeConflictException as e:
+            self.error_response(error="model_type_conflict", message=str(e), status_code=409)
 
     async def update_model_prompting_guidance(
         self,
@@ -1400,6 +1430,23 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """Update description for a model (admin only)."""
         return await controller.update_model_description(model_id, request)
+
+
+    @router.put("/{model_id}/type", response_model=APIResponse, summary="Set Model Type")
+    async def set_model_type(
+        model_id: str,
+        request: SetModelTypeRequest,
+        current_user: User = Depends(get_current_admin_user)
+    ):
+        return await controller.set_model_type(model_id, request, current_user)
+
+
+    @router.delete("/{model_id}/type", response_model=APIResponse, summary="Reset Model Type to Automatic")
+    async def reset_model_type(
+        model_id: str,
+        current_user: User = Depends(get_current_admin_user)
+    ):
+        return await controller.reset_model_type(model_id)
 
 
     @router.put("/{model_id}/prompting-guidance", response_model=APIResponse, summary="Update Model Prompting Guidance")

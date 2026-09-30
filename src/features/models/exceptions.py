@@ -70,3 +70,13 @@ class ModelAlreadyAssignedException(ModelAssignmentException):
     def __init__(self, message: str, assignment=None):
         super().__init__(message)
         self.assignment = assignment
+
+
+class ModelTypeNotAssignableException(ModelIndexException):
+    pass
+
+
+class ModelTypeConflictException(ModelIndexException):
+    def __init__(self, message: str, other_model_id: str = ""):
+        super().__init__(message)
+        self.other_model_id = other_model_id

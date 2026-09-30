@@ -3,6 +3,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 _CHUNK = 500
 
+_SOURCE_RANK_SQL = "(CASE {column} WHEN 'admin' THEN 3 WHEN 'recipe' THEN 2 ELSE 1 END)"
+
 _VERDICT_COLUMNS = (
     "sha256, format, status, model_type, family, variant, components, "
     "transformer_extractable, classifier, registry_fingerprint, reason, classified_at"
@@ -93,7 +95,26 @@ class ModelTypeRepository:
                     found[row["sha256"]] = dict(row)
         return found
 
-    def put_assertion(self, sha256: str, model_type: str, source: str, set_by: Optional[str], set_at: str) -> None:
+    def put_assertion(self, sha256: str, model_type: str, source: str, set_by: Optional[str], set_at: str) -> bool:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO model_type_assertions (sha256, model_type, source, set_by, set_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(sha256) DO UPDATE SET
+                    model_type = excluded.model_type,
+                    source = excluded.source,
+                    set_by = excluded.set_by,
+                    set_at = excluded.set_at
+                WHERE {_SOURCE_RANK_SQL.format(column="excluded.source")}
+                    >= {_SOURCE_RANK_SQL.format(column="model_type_assertions.source")}
+                """,
+                (sha256, model_type, source, set_by, set_at),
+            )
+            return cursor.rowcount > 0
+
+    def replace_assertion(self, sha256: str, model_type: str, source: str, set_by: Optional[str], set_at: str) -> None:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(

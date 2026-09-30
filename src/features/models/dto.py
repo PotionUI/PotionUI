@@ -39,6 +39,10 @@ class UpdateDescriptionRequest(BaseModel):
     description: str
 
 
+class SetModelTypeRequest(BaseModel):
+    model_type: str
+
+
 class UpdatePromptingGuidanceRequest(BaseModel):
     """Request to update a model's admin-authored prompting guidance"""
     prompting_guidance: str

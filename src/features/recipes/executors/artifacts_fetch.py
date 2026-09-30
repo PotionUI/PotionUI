@@ -103,9 +103,11 @@ class ArtifactsFetchExecutor:
         download_queue,
         model_repository: ModelRepository,
         provider_registry_factory=None,
+        type_manager=None,
     ):
         self.download_queue = download_queue
         self.model_repository = model_repository
+        self._type_manager = type_manager
         # Lazy/optional: resolving the provider registry needs async
         # discovery/init this constructor shouldn't force (see
         # `src.features.providers.registry.ensure_providers_discovered`).
@@ -201,10 +203,10 @@ class ArtifactsFetchExecutor:
 
     def _target(self, artifact, variant_id: Optional[str]):
         if artifact.variants and artifact.get_variant(variant_id) is None:
-            if find_slot_model(self.model_repository, artifact) is not None:
+            if find_slot_model(self.model_repository, artifact, type_manager=self._type_manager) is not None:
                 return None
         resolved = resolve_selection(artifact, variant_id)
-        if find_artifact_model(self.model_repository, resolved) is not None:
+        if find_artifact_model(self.model_repository, resolved, self._type_manager) is not None:
             return None
         return resolved
 

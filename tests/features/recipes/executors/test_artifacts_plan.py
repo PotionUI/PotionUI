@@ -273,11 +273,15 @@ def test_non_gated_artifact_without_credentials_has_no_warning():
     assert "warnings" not in result.consent_request
 
 
-def test_hash_matched_misfiled_row_is_adopted_instead_of_redownloaded():
-    """The same bytes already indexed under another folder/type (a download
-    that landed in models/models/<type>/ and was typed 'unknown') count as
-    present: the row is retyped to the artifact's model_type and no consent
-    is requested."""
+class FakeTypeManager:
+    def __init__(self):
+        self.calls = []
+
+    def assert_type(self, sha256, model_type, source, set_by=None):
+        self.calls.append((sha256, model_type, source, set_by))
+
+
+def test_hash_matched_misfiled_row_is_adopted_through_a_recipe_assertion():
     from types import SimpleNamespace
     from src.features.recipes.schema import RecipeChecksum
 
@@ -287,15 +291,31 @@ def test_hash_matched_misfiled_row_is_adopted_instead_of_redownloaded():
         file_path="models/models/checkpoints/" + artifact.filename, is_available=True,
     )
     repo = FakeModelRepository(by_sha256={"abc123": row})
+    types = FakeTypeManager()
     recipe = _recipe([artifact])
-    executor = ArtifactsPlanExecutor(repo)
+    executor = ArtifactsPlanExecutor(repo, type_manager=types)
 
     result = executor.execute(_context(recipe, [artifact.id]))
 
     assert result.success is True
     assert result.safe_output["already_present"][0]["id"] == artifact.id
-    assert row.model_type == artifact.model_type
-    assert repo.updated == [row]
+    assert types.calls == [("abc123", artifact.model_type, "recipe", None)]
+    assert repo.updated == []
+
+
+def test_a_hash_match_that_already_has_the_right_type_asserts_nothing():
+    from types import SimpleNamespace
+    from src.features.recipes.schema import RecipeChecksum
+
+    artifact = _artifact("ckpt", checksum=RecipeChecksum(algorithm="sha256", value="abc123"))
+    row = SimpleNamespace(model_type="checkpoint", filename="other.safetensors", is_available=True)
+    types = FakeTypeManager()
+    executor = ArtifactsPlanExecutor(FakeModelRepository(by_sha256={"abc123": row}), type_manager=types)
+
+    result = executor.execute(_context(_recipe([artifact]), [artifact.id]))
+
+    assert result.success is True
+    assert types.calls == []
 
 
 def _slot_artifact():

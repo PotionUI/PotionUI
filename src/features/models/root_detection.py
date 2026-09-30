@@ -18,6 +18,7 @@ from src.platform.filesystem.model_types import (
     MODEL_DIRECTORY_NAMES,
     MODEL_TYPES,
     SUPPORTED_MODEL_EXTENSIONS,
+    binding_scans_headers_by_default,
     type_for_folder_name,
 )
 
@@ -119,10 +120,15 @@ class DetectionSuggestion:
     file_count: int
     file_count_truncated: bool
 
+    @property
+    def scan_headers(self) -> bool:
+        return binding_scans_headers_by_default(self.model_type, self.subdir)
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "model_type": self.model_type,
             "subdir": self.subdir,
+            "scan_headers": self.scan_headers,
             "matched_by": self.matched_by,
             "file_count": self.file_count,
             "file_count_truncated": self.file_count_truncated,

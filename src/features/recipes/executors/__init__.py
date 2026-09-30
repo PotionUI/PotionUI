@@ -67,6 +67,7 @@ def build_default_executor_registry(
     backend_model_indexer: Optional[Any] = None,
     step_kind_registry: Optional[Any] = None,
     model_scanner: Optional[Any] = None,
+    type_manager: Optional[Any] = None,
 ) -> RecipeExecutorRegistry:
     """Wire the built-in step executors onto a fresh registry.
 
@@ -93,10 +94,11 @@ def build_default_executor_registry(
             preset_template_loader, template_processor, pipeline_builder
         ),
         "artifacts.plan": ArtifactsPlanExecutor(
-            model_repository, provider_registry_factory=provider_registry_factory
+            model_repository, provider_registry_factory=provider_registry_factory, type_manager=type_manager
         ),
         "artifacts.fetch": ArtifactsFetchExecutor(
-            download_queue, model_repository, provider_registry_factory=provider_registry_factory
+            download_queue, model_repository, provider_registry_factory=provider_registry_factory,
+            type_manager=type_manager,
         ),
     }
     if generation_orchestrator is not None:

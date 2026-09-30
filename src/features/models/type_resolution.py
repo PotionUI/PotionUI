@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, Iterable, Optional, Sequence
 
 from src.platform.filesystem.model_types import MODEL_TYPES, UNDEFINED_MODEL_TYPE
 
@@ -21,8 +21,12 @@ class Resolution:
     source: str
 
 
+def folder_type_of(model_types: Iterable[str]) -> str:
+    return min(model_types, key=lambda t: _TYPE_ORDER.get(t, len(_TYPE_ORDER)))
+
+
 def _folder_type(copies: Sequence[Copy]) -> str:
-    return min((c.model_type for c in copies), key=lambda t: _TYPE_ORDER.get(t, len(_TYPE_ORDER)))
+    return folder_type_of(c.model_type for c in copies)
 
 
 def resolve_type(

@@ -30,6 +30,7 @@ from src.features.models.metadata_editor import ModelMetadataEditor
 from src.features.models.native_availability_reconciler import NativeAvailabilityProjector
 from src.features.models.provider_info import ProviderInfoFetcher
 from src.features.models.repository import ModelRepository
+from src.features.models.type_manager import ModelTypeManager
 from src.features.tags.repository import TagRepository
 from src.platform.filesystem.storage_driver import FileStorageDriver
 from src.platform.plugins import PluginRegistry
@@ -57,6 +58,7 @@ class ModelIndexCollaborators:
     assignments: ModelAssignmentService
     jobs: ModelJobs
     locator: ModelLocator
+    types: ModelTypeManager
 
 
 def build_model_index_collaborators(
@@ -108,4 +110,5 @@ def build_model_index_collaborators(
             backend_registry=backend_registry,
         ),
         locator=locator,
+        types=ModelTypeManager(model_repository, model_scanner.types, model_scanner.recompute_types),
     )

@@ -34,6 +34,13 @@ _STATUS_BY_CODE = {
 class BindingRequest(BaseModel):
     model_type: str
     subdir: str
+    scan_headers: Optional[bool] = None
+
+
+class BindingScanRequest(BaseModel):
+    model_type: str
+    subdir: str
+    scan_headers: bool
 
 
 class DetectRootRequest(BaseModel):
@@ -92,7 +99,7 @@ class ModelRootsController(BaseController):
             root = self.manager.create_root(
                 request.path,
                 label=request.label,
-                bindings=[BindingSpec(b.model_type, b.subdir) for b in request.bindings],
+                bindings=[BindingSpec(b.model_type, b.subdir, b.scan_headers) for b in request.bindings],
                 read_only=request.read_only,
                 write_types=request.write_types,
                 idempotent=False,
@@ -109,11 +116,20 @@ class ModelRootsController(BaseController):
                 path=request.path,
                 read_only=request.read_only,
                 bindings=(
-                    [BindingSpec(b.model_type, b.subdir) for b in request.bindings]
+                    [BindingSpec(b.model_type, b.subdir, b.scan_headers) for b in request.bindings]
                     if request.bindings is not None
                     else None
                 ),
                 remove_types=request.remove_types,
+            )
+        except ModelRootsError as error:
+            self._raise_for(error)
+        return self.success_response(data=root)
+
+    async def set_binding_scan(self, root_id: str, request: BindingScanRequest) -> APIResponse:
+        try:
+            root = self.manager.set_binding_scan_headers(
+                root_id, request.model_type, request.subdir, request.scan_headers
             )
         except ModelRootsError as error:
             self._raise_for(error)
@@ -188,6 +204,14 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user: User = Depends(get_current_admin_user),
     ):
         return await controller.update_root(root_id, request)
+
+    @router.patch("/{root_id}/bindings", response_model=APIResponse, summary="Update Model Root Binding")
+    async def update_binding(
+        root_id: str,
+        request: BindingScanRequest,
+        current_user: User = Depends(get_current_admin_user),
+    ):
+        return await controller.set_binding_scan(root_id, request)
 
     @router.delete("/{root_id}", response_model=APIResponse, summary="Delete Model Root")
     async def delete_root(

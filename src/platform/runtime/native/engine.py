@@ -40,8 +40,8 @@ from .base import load_into_module, release_derived_caches, release_module_stora
 from .detect.registry import ModelSpec, match_model_spec
 from .detect.unet_detect import detect_unet_config
 from .errors import HostMemoryExhaustedError, NativeEngineUnsupportedError
-from .io.safetensors_loader import load_torch_file, load_torch_file_prefixed
-from .io.state_dict_utils import detect_prefix, strip_prefix, weight_dtype
+from .io.safetensors_loader import load_torch_file, load_torch_file_prefixed, load_torch_file_stripped
+from .io.state_dict_utils import weight_dtype
 from .memory.device_plan import DevicePlan, make_device_plan
 from .memory.residency import (
     free_vram_gb,
@@ -127,8 +127,6 @@ Kind = Literal[
     "diffusion_model", "text_encoder", "vae", "audio_vae", "vocoder", "latent_upscaler", "duration_head",
 ]
 
-# Candidate prefixes a DiT checkpoint might be wrapped in.
-_DIT_PREFIXES = ["model.diffusion_model.", "diffusion_model."]
 _BYTES_PER_GB = 1024 ** 3
 _VAE_SPATIAL_DOWNSCALE = 8
 
@@ -771,12 +769,8 @@ class NativeEngineLoader:
     # -- per-kind ----------------------------------------------------------
 
     def _load_dit(self, path: str | Path) -> NativeModel:
-        sd, metadata = load_torch_file(path, device="cpu")
+        sd, metadata = load_torch_file_stripped(path, device="cpu")
         get_profiler().mark("load.dit.read", est_gb=_estimated_gb(sd))
-
-        prefix = detect_prefix(sd, _DIT_PREFIXES)
-        if prefix:
-            sd = strip_prefix(sd, prefix)
 
         config = detect_unet_config(sd, metadata)
         if config is None:

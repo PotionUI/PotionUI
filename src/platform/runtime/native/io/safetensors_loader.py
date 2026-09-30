@@ -16,11 +16,26 @@ import torch
 from safetensors import safe_open
 from safetensors.torch import load_file
 
+from src.platform.runtime.model_headers.signatures import detect_denoiser_prefix
+
 from ..errors import NativeEngineUnsupportedError
 
 logger = logging.getLogger(__name__)
 
 _SAFETENSORS_SUFFIXES = {".safetensors", ".sft"}
+
+
+def _require_safetensors(path: str | Path) -> Path:
+    path = Path(path)
+    suffix = path.suffix.lower()
+    if suffix not in _SAFETENSORS_SUFFIXES:
+        raise NativeEngineUnsupportedError(
+            f"native engine loads safetensors only; got '{suffix}' ({path.name}). "
+            "GGUF / pickle checkpoints are not supported."
+        )
+    if not path.is_file():
+        raise NativeEngineUnsupportedError(f"checkpoint not found: {path}")
+    return path
 
 
 def _read_metadata(path: Path) -> dict[str, str]:
@@ -45,15 +60,7 @@ def load_torch_file(
 
     Raises ``NativeEngineUnsupportedError`` for non-safetensors files.
     """
-    path = Path(path)
-    suffix = path.suffix.lower()
-    if suffix not in _SAFETENSORS_SUFFIXES:
-        raise NativeEngineUnsupportedError(
-            f"native engine loads safetensors only; got '{suffix}' ({path.name}). "
-            "GGUF / pickle checkpoints are not supported."
-        )
-    if not path.is_file():
-        raise NativeEngineUnsupportedError(f"checkpoint not found: {path}")
+    path = _require_safetensors(path)
 
     device_str = str(device)
     logger.debug("loading safetensors %s onto %s", path.name, device_str)
@@ -85,15 +92,7 @@ def load_torch_file_prefixed(
     this is a safe drop-in for callers that used to call :func:`load_torch_file`
     unconditionally.
     """
-    path = Path(path)
-    suffix = path.suffix.lower()
-    if suffix not in _SAFETENSORS_SUFFIXES:
-        raise NativeEngineUnsupportedError(
-            f"native engine loads safetensors only; got '{suffix}' ({path.name}). "
-            "GGUF / pickle checkpoints are not supported."
-        )
-    if not path.is_file():
-        raise NativeEngineUnsupportedError(f"checkpoint not found: {path}")
+    path = _require_safetensors(path)
 
     device_str = str(device)
     logger.debug("loading safetensors %s (prefix=%r) onto %s", path.name, prefix, device_str)
@@ -104,3 +103,16 @@ def load_torch_file_prefixed(
         state_dict = {k: f.get_tensor(k) for k in wanted}
     metadata = _read_metadata(path)
     return state_dict, metadata
+
+
+def load_torch_file_stripped(
+    path: str | Path,
+    *,
+    device: str | torch.device = "cpu",
+) -> tuple[dict[str, torch.Tensor], dict[str, str]]:
+    path = _require_safetensors(path)
+    with safe_open(str(path), framework="pt", device=str(device)) as f:
+        keys = list(f.keys())
+        prefix = detect_denoiser_prefix(keys) or ""
+        state_dict = {k[len(prefix):]: f.get_tensor(k) for k in keys if k.startswith(prefix)}
+    return state_dict, _read_metadata(path)

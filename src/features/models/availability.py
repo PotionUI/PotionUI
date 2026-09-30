@@ -13,6 +13,7 @@ See docs/models.md.
 from typing import Dict, List, Optional, Set
 
 from src.platform.observability.logger import logger
+from src.platform.filesystem.model_types import CHECKPOINT_MODEL_TYPE, DIFFUSION_MODEL_TYPE
 from src.features.models.availability_repository import (
     model_availability_repo,
 )
@@ -21,6 +22,8 @@ from src.features.models.availability_repository import (
 # unenabled/unindexed - once per process is enough to surface the condition.
 _warned_no_backend_for_engine: Set[str] = set()
 _warned_unindexed_engine: Set[str] = set()
+
+PACKAGING_FULL_CHECKPOINT = "full_checkpoint"
 
 
 class NoBackendHoldsAllModelsError(RuntimeError):
@@ -94,8 +97,13 @@ def models_for_engine(
             if not allowed_model_ids:
                 return []
 
+    extract_from_checkpoints = model_type == DIFFUSION_MODEL_TYPE and bool(
+        backend_registry.engine_extracts_diffusion_model_from_checkpoint(engine)
+    )
+
     models = model_repository.get_all(
         model_type=model_type,
+        include_extractable_checkpoints=extract_from_checkpoints,
         search=search,
         allowed_model_ids=allowed_model_ids,
         include_providers=list_kwargs.pop("include_providers", True),
@@ -104,23 +112,26 @@ def models_for_engine(
     )
 
     if not indexed:
-        return [_entry(model, [], admin) for model in models]
+        return [_entry(model, [], admin, model_type) for model in models]
 
     # Badges only for the rows actually returned - a page, not the library.
     by_model = model_availability_repo.backend_ids_by_model([m.id for m in models])
     engine_backends = set(backend_ids)
 
     return [
-        _entry(model, sorted(set(by_model.get(model.id, [])) & engine_backends), admin)
+        _entry(model, sorted(set(by_model.get(model.id, [])) & engine_backends), admin, model_type)
         for model in models
     ]
 
 
-def _entry(model, backend_ids: List[str], admin: bool = False) -> Dict:
+def _entry(model, backend_ids: List[str], admin: bool = False, requested_type: Optional[str] = None) -> Dict:
     if hasattr(model, "to_dict"):
         data = model.to_dict(admin=admin)
     else:
         data = dict(model.__dict__)
+
+    if requested_type == DIFFUSION_MODEL_TYPE and data.get("model_type") == CHECKPOINT_MODEL_TYPE:
+        data["packaging"] = PACKAGING_FULL_CHECKPOINT
 
     # Which backends hold a model is operational detail. A generating user picks a model;
     # routing to a backend that can load it is the system's job, not theirs.

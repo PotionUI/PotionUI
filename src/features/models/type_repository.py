@@ -14,6 +14,12 @@ def _chunks(values: Sequence[Any]) -> Iterable[Sequence[Any]]:
         yield values[start:start + _CHUNK]
 
 
+def verdict_is_current(row: Dict[str, Any], fingerprint: str) -> bool:
+    if row["registry_fingerprint"] == fingerprint:
+        return True
+    return row["status"] != "undecided" and not row["transformer_extractable"]
+
+
 class ModelTypeRepository:
 
     def get_verdicts(self, shas: Iterable[str]) -> Dict[str, Dict[str, Any]]:
@@ -37,7 +43,7 @@ class ModelTypeRepository:
         return {
             sha
             for sha, row in self.get_verdicts(shas).items()
-            if row["status"] != "undecided" or row["registry_fingerprint"] == fingerprint
+            if verdict_is_current(row, fingerprint)
         }
 
     def upsert_verdict(

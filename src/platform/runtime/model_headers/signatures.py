@@ -45,7 +45,24 @@ SD_CONTEXT_PROBES = (
 SD3_PREFIX = "joint_blocks.0."
 CHROMA_PREFIX = "distilled_guidance_layer."
 
-DENOISER_PREFIXES = ("model.diffusion_model.", "diffusion_model.", "net.")
+DENOISER_PREFIXES = ("model.diffusion_model.", "diffusion_model.")
+EXCLUSIVE_DENOISER_PREFIX = "net."
+
+TRANSFORMER_EXTRACTABLE_FAMILIES = frozenset(
+    {
+        "flux",
+        "krea2",
+        "qwen_image",
+        "qwen_image21",
+        "z_image",
+        "wan",
+        "anima",
+        "seedvr2",
+        "minimax_h3",
+    }
+)
+BNB_QUANT_SUFFIXES = (".absmax", ".quant_map")
+BNB_QUANT_STATE_MARKER = ".quant_state.bitsandbytes__"
 
 ShapeOf = Callable[[str], "tuple[int, ...] | None"]
 
@@ -56,6 +73,24 @@ class FamilyMatch:
     variant: str | None = None
     model_type: str | None = None
     transformer_extractable: bool = False
+
+
+def detect_denoiser_prefix(keys: Collection[str]) -> str | None:
+    if keys and all(k.startswith(EXCLUSIVE_DENOISER_PREFIX) for k in keys):
+        return EXCLUSIVE_DENOISER_PREFIX
+    return detect_prefix(keys, DENOISER_PREFIXES)
+
+
+def has_bnb_quantization(keys: Collection[str]) -> bool:
+    return any(k.endswith(BNB_QUANT_SUFFIXES) or BNB_QUANT_STATE_MARKER in k for k in keys)
+
+
+def is_transformer_extractable(match: FamilyMatch, keys: Collection[str], file_format: str) -> bool:
+    if file_format != "safetensors" or match.family not in TRANSFORMER_EXTRACTABLE_FAMILIES:
+        return False
+    if match.family == "wan" and match.variant in WAN_REJECT.values():
+        return False
+    return not has_bnb_quantization(keys)
 
 
 def strip_prefix(sd: Mapping[str, Any], prefix: str) -> dict[str, Any]:

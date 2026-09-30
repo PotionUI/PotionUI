@@ -7,7 +7,11 @@ import torch
 from safetensors.torch import save_file
 
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
-from src.platform.runtime.native.io.safetensors_loader import load_torch_file, load_torch_file_prefixed
+from src.platform.runtime.native.io.safetensors_loader import (
+    load_torch_file,
+    load_torch_file_prefixed,
+    load_torch_file_stripped,
+)
 
 
 def test_load_safetensors_roundtrip(tmp_path):
@@ -127,3 +131,108 @@ def test_prefixed_gguf_rejected(tmp_path):
 def test_prefixed_missing_file(tmp_path):
     with pytest.raises(NativeEngineUnsupportedError, match="not found"):
         load_torch_file_prefixed(tmp_path / "nope.safetensors", "vae.")
+
+
+def _all_in_one_dit(tmp_path, prefix="model.diffusion_model."):
+    sd = {
+        f"{prefix}blocks.0.weight": torch.full((2, 2), 1.0),
+        f"{prefix}final.weight": torch.full((2, 2), 2.0),
+        "vae.decoder.conv.weight": torch.full((3, 3), 3.0),
+        "text_encoders.t5xxl.weight": torch.full((3, 3), 4.0),
+    }
+    path = tmp_path / "all_in_one.safetensors"
+    save_file(sd, str(path), metadata={"format": "pt", "hello": "world"})
+    return path, sd
+
+
+def _counting_safe_open(monkeypatch):
+    from safetensors import safe_open as real_safe_open
+
+    read_keys = []
+
+    class _CountingHandle:
+        def __init__(self, handle):
+            self._handle = handle
+
+        def keys(self):
+            return self._handle.keys()
+
+        def get_tensor(self, key):
+            read_keys.append(key)
+            return self._handle.get_tensor(key)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return self._handle.__exit__(*a)
+
+    monkeypatch.setattr(
+        "src.platform.runtime.native.io.safetensors_loader.safe_open",
+        lambda path, framework="pt", device="cpu": _CountingHandle(real_safe_open(path, framework=framework, device=device)),
+    )
+    return read_keys
+
+
+@pytest.mark.parametrize("prefix", ["model.diffusion_model.", "diffusion_model."])
+def test_stripped_keeps_only_the_denoiser_slice_without_its_prefix(tmp_path, prefix):
+    path, sd = _all_in_one_dit(tmp_path, prefix)
+    loaded, meta = load_torch_file_stripped(path)
+    assert set(loaded) == {"blocks.0.weight", "final.weight"}
+    assert torch.equal(loaded["final.weight"], sd[f"{prefix}final.weight"])
+    assert meta["hello"] == "world"
+
+
+def test_stripped_strips_net_from_a_file_where_every_key_carries_it(tmp_path):
+    sd = {"net.blocks.0.weight": torch.ones(2, 2), "net.final.weight": torch.ones(2, 2)}
+    path = tmp_path / "net_only.safetensors"
+    save_file(sd, str(path))
+    loaded, _meta = load_torch_file_stripped(path)
+    assert set(loaded) == {"blocks.0.weight", "final.weight"}
+
+
+def test_stripped_never_reads_the_vae_or_text_encoder_tensors(tmp_path, monkeypatch):
+    path, _sd = _all_in_one_dit(tmp_path)
+    read_keys = _counting_safe_open(monkeypatch)
+    load_torch_file_stripped(path)
+    assert sorted(read_keys) == ["model.diffusion_model.blocks.0.weight", "model.diffusion_model.final.weight"]
+
+
+def test_stripped_reads_a_bare_keyed_file_whole(tmp_path):
+    sd = {"blocks.0.weight": torch.ones(2, 2), "final.weight": torch.ones(2, 2) * 5}
+    path = tmp_path / "bare.safetensors"
+    save_file(sd, str(path))
+    loaded, _meta = load_torch_file_stripped(path)
+    assert set(loaded) == set(sd)
+
+
+def test_stripped_picks_the_dominant_prefix(tmp_path):
+    sd = {
+        "model.diffusion_model.a": torch.ones(1),
+        "model.diffusion_model.b": torch.ones(1),
+        "net.stray": torch.ones(1),
+    }
+    path = tmp_path / "mixed.safetensors"
+    save_file(sd, str(path))
+    loaded, _meta = load_torch_file_stripped(path)
+    assert set(loaded) == {"a", "b"}
+
+
+def test_stripped_accepts_net_only_when_every_key_carries_it(tmp_path):
+    sd = {"blocks.0.w": torch.ones(1), "blocks.1.w": torch.ones(1), "net.stray": torch.ones(1)}
+    path = tmp_path / "few_net.safetensors"
+    save_file(sd, str(path))
+    loaded, _meta = load_torch_file_stripped(path)
+    assert set(loaded) == set(sd)
+
+
+def test_stripped_gguf_rejected(tmp_path):
+    path = tmp_path / "m.gguf"
+    path.write_bytes(b"\x00")
+    with pytest.raises(NativeEngineUnsupportedError, match="GGUF"):
+        load_torch_file_stripped(path)
+
+
+def test_stripped_missing_file(tmp_path):
+    with pytest.raises(NativeEngineUnsupportedError, match="not found"):
+        load_torch_file_stripped(tmp_path / "nope.safetensors")

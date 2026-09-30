@@ -10,13 +10,13 @@ from .signatures import (
     FamilyMatch,
     family_from_gguf_architecture,
     family_from_keys,
+    is_transformer_extractable,
     sd_family_from_keys,
 )
 
 logger = logging.getLogger(__name__)
 
 CORE_SOURCE = "core"
-NON_EXTRACTABLE_FAMILIES = frozenset({"trellis2"})
 
 
 @dataclass(frozen=True)
@@ -94,7 +94,7 @@ def _native_dit(view: HeaderView) -> FamilyMatch | None:
     match = family_from_keys(view.denoiser_keys, view.denoiser_shape)
     if match is None:
         return None
-    return replace(match, transformer_extractable=match.family not in NON_EXTRACTABLE_FAMILIES)
+    return replace(match, transformer_extractable=is_transformer_extractable(match, view.keys, view.format))
 
 
 def _sd_unet(view: HeaderView) -> FamilyMatch | None:
@@ -109,7 +109,7 @@ def _build_default() -> ModelClassifierRegistry:
     registry = ModelClassifierRegistry()
     both = ("safetensors", "gguf")
     registry.register(
-        ModelClassifierDefinition("core.native_dit", _native_dit, "Native diffusion transformers", 1, both, CORE_SOURCE, 100)
+        ModelClassifierDefinition("core.native_dit", _native_dit, "Native diffusion transformers", 2, both, CORE_SOURCE, 100)
     )
     registry.register(
         ModelClassifierDefinition("core.sd_unet", _sd_unet, "Stable Diffusion UNet families", 1, both, CORE_SOURCE, 50)

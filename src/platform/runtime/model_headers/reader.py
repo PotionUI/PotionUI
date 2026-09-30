@@ -11,7 +11,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from .signatures import DENOISER_PREFIXES, detect_prefix
+from .signatures import detect_denoiser_prefix
 
 MAX_SAFETENSORS_HEADER = 16 * 1024 * 1024
 MAX_SAFETENSORS_ENTRIES = 200_000
@@ -90,7 +90,7 @@ class HeaderView:
 
     @cached_property
     def denoiser_prefix(self) -> str | None:
-        return detect_prefix(self.keys, DENOISER_PREFIXES)
+        return detect_denoiser_prefix(self.keys)
 
     @cached_property
     def denoiser_keys(self) -> frozenset[str]:

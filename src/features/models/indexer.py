@@ -12,7 +12,7 @@ from datetime import datetime
 from src.features.models.locations_repository import ModelLocationsRepository
 from src.features.models.records import Model
 from src.features.models.repository import model_repo
-from src.features.models.type_repository import ModelTypeRepository
+from src.features.models.type_repository import ModelTypeRepository, verdict_is_current
 from src.features.models.type_resolution import Copy, resolve_type
 from src.platform.database.rows import now_iso
 from src.platform.filesystem.model_roots import (
@@ -375,9 +375,7 @@ class ModelScanner:
     def _ensure_verdict(self, abs_path: str, sha256: str, prefix: Optional[bytes]) -> bool:
         fingerprint = model_classifier_registry.fingerprint()
         existing = self.types.get_verdicts([sha256]).get(sha256)
-        if existing is not None and (
-            existing['status'] != 'undecided' or existing['registry_fingerprint'] == fingerprint
-        ):
+        if existing is not None and verdict_is_current(existing, fingerprint):
             return False
 
         result = read_header(abs_path, prefix=prefix or None)

@@ -116,6 +116,8 @@ class BaseBackendConfig(BaseModel):
     # nothing for a backend that drives a separate process/host.
     is_local: ClassVar[bool] = False
 
+    extracts_diffusion_model_from_checkpoint: ClassVar[bool] = False
+
     @model_validator(mode="after")
     def _default_driver_to_engine(self) -> "BaseBackendConfig":
         if not self.driver:
@@ -242,6 +244,7 @@ class NativeBackendConfig(BaseBackendConfig):
     engine_singleton: ClassVar[bool] = True
     # This driver runs in-process and owns this host's GPU/RAM.
     is_local: ClassVar[bool] = True
+    extracts_diffusion_model_from_checkpoint: ClassVar[bool] = True
 
     # Defaults are hardware-derived (see native_hardware.detect_native_hardware_defaults),
     # not hardcoded: a GPU-less host gets cpu/float32, a modern NVIDIA card gets
@@ -365,6 +368,7 @@ class NativeRemoteBackendConfig(BaseBackendConfig):
     engine_singleton: ClassVar[bool] = False
     # This driver dispatches to another process/host; it owns no local GPU/RAM.
     is_local: ClassVar[bool] = False
+    extracts_diffusion_model_from_checkpoint: ClassVar[bool] = True
 
     # Both blank is a legal, "not yet connected" state: a `native.remote`
     # backend row may be created before a worker exists at all, so an admin

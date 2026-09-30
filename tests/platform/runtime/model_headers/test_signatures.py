@@ -189,5 +189,6 @@ def test_strip_prefix_drops_foreign_keys():
 
 
 def test_net_is_a_denoiser_prefix_and_model_alone_is_not():
-    assert "net." in sig.DENOISER_PREFIXES
+    assert sig.detect_denoiser_prefix(["net.a", "net.b"]) == "net."
+    assert sig.detect_denoiser_prefix(["model.a", "model.b"]) is None
     assert "model." not in sig.DENOISER_PREFIXES

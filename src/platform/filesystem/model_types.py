@@ -73,6 +73,8 @@ def type_for_folder_name(name):
 
 
 UNDEFINED_MODEL_TYPE = 'undefined'
+CHECKPOINT_MODEL_TYPE = 'checkpoint'
+DIFFUSION_MODEL_TYPE = 'diffusion_model'
 HEADER_CLASSIFIED_TYPES = frozenset({'checkpoint', 'diffusion_model', 'unet'})
 HEADER_EXTENSIONS = frozenset({'.safetensors', '.sft', '.gguf'})
 SCAN_HEADERS_FOLDER_NAMES = frozenset({'stable-diffusion', 'unet'})

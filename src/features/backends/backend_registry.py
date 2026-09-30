@@ -170,6 +170,13 @@ class BackendRegistry:
             })
         return descriptors
 
+    def engine_extracts_diffusion_model_from_checkpoint(self, engine: str) -> bool:
+        return any(
+            (config_class_engine(config_class) or driver) == engine
+            and getattr(config_class, "extracts_diffusion_model_from_checkpoint", False)
+            for driver, config_class in self._registered_config_types.items()
+        )
+
     def get_registered_backend_types(self) -> Dict[str, Type[BaseBackend]]:
         """Return all registered driver -> backend classes"""
         return self._registered_backend_types.copy()

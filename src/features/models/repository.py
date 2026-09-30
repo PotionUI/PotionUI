@@ -1,6 +1,7 @@
 from typing import List, Optional, Dict, Any
 from src.features.models.records import Model, ModelInfo, ModelFile, UserModel
-from src.platform.filesystem.model_types import UNDEFINED_MODEL_TYPE
+from src.platform.filesystem.model_types import CHECKPOINT_MODEL_TYPE, DIFFUSION_MODEL_TYPE, UNDEFINED_MODEL_TYPE
+from src.platform.runtime.model_headers.signatures import TRANSFORMER_EXTRACTABLE_FAMILIES
 from src.platform.util.ids import generate_ulid
 from src.features.models.search_filter import (
     ModelSearchFilter,
@@ -15,6 +16,20 @@ import logging
 logger = logging.getLogger(__name__)
 
 _SQLITE_IN_CHUNK_SIZE = 500
+
+
+def _type_clause(model_type: str, include_extractable_checkpoints: bool):
+    if include_extractable_checkpoints and model_type == DIFFUSION_MODEL_TYPE:
+        families = sorted(TRANSFORMER_EXTRACTABLE_FAMILIES)
+        placeholders = ",".join("?" * len(families))
+        clause = (
+            "(m.model_type = ? OR (m.model_type = ? AND m.sha256 IN ("
+            "SELECT v.sha256 FROM model_header_verdicts v "
+            "WHERE v.status = 'decided' AND v.transformer_extractable = 1 "
+            f"AND v.family IN ({placeholders}))))"
+        )
+        return clause, [model_type, CHECKPOINT_MODEL_TYPE, *families]
+    return "m.model_type = ?", [model_type]
 
 class ModelRepository:
     def create(self, model: Model) -> Model:
@@ -184,7 +199,8 @@ class ModelRepository:
                 in_any_collection: bool = False,
                 search_filter: Optional[ModelSearchFilter] = None,
                 include_usage: bool = False,
-                include_undefined: bool = False) -> List[Model]:
+                include_undefined: bool = False,
+                include_extractable_checkpoints: bool = False) -> List[Model]:
         """Get all models with optional filtering.
 
         `tag_ids` requires ALL listed tags (AND, used by the library's multi-tag
@@ -260,8 +276,9 @@ class ModelRepository:
             additional_clauses = list(library_where_clauses)
             params.extend(advanced_params)
             if model_type:
-                additional_clauses.append("m.model_type = ?")
-                params.append(model_type)
+                type_clause, type_params = _type_clause(model_type, include_extractable_checkpoints)
+                additional_clauses.append(type_clause)
+                params.extend(type_params)
             elif not include_undefined:
                 additional_clauses.append("m.model_type != ?")
                 params.append(UNDEFINED_MODEL_TYPE)
@@ -309,8 +326,9 @@ class ModelRepository:
             where_clauses.extend(library_where_clauses)
             params.extend(advanced_params)
             if model_type:
-                where_clauses.append("m.model_type = ?")
-                params.append(model_type)
+                type_clause, type_params = _type_clause(model_type, include_extractable_checkpoints)
+                where_clauses.append(type_clause)
+                params.extend(type_params)
             elif not include_undefined:
                 where_clauses.append("m.model_type != ?")
                 params.append(UNDEFINED_MODEL_TYPE)

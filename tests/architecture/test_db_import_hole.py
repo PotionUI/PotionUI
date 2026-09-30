@@ -38,12 +38,14 @@ time.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SKIP_DIRS = {"__pycache__", "node_modules", "venv", ".git", "dist"}
+_DB_ASSIGNMENT = re.compile(r"\.db\s*=(?!=)")
 
 # Every module whose `db` is the same frozen singleton handle.
 TARGET_MODULES = {
@@ -240,8 +242,14 @@ def _silent_db_redirections(path: Path) -> list[str]:
     `db` - the assignment succeeds, the repository never reads it, and the
     test quietly runs against whatever database was already in place."""
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-    except (SyntaxError, UnicodeDecodeError):
+        source = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return []
+    if not _DB_ASSIGNMENT.search(source):
+        return []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
         return []
 
     aliases = _module_aliases(tree)

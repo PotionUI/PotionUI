@@ -122,15 +122,44 @@ async def test_another_users_session_cannot_be_pinned_and_looks_missing(controll
     assert repo.get_by_id(session_id).pinned is False
 
 
+def _stamp(session_id, pinned_at=None, updated_at=None):
+    with session_repository_module.get_database_connection() as conn:
+        conn.execute(
+            "UPDATE sessions SET pinned_at = COALESCE(?, pinned_at), updated_at = COALESCE(?, updated_at) WHERE id = ?",
+            (pinned_at, updated_at, session_id),
+        )
+        conn.commit()
+
+
 def test_list_puts_pinned_first_then_the_rest_by_updated(repo, registry):
     ids = {name: _save(repo, registry, "user-1", name) for name in ["A", "B", "C", "D"]}
     repo.set_pinned(ids["A"], True)
     repo.set_pinned(ids["C"], True)
+    _stamp(ids["A"], pinned_at="2026-01-01T00:00:01+00:00")
+    _stamp(ids["C"], pinned_at="2026-01-01T00:00:02+00:00")
+    _stamp(ids["B"], updated_at="2026-01-01T00:00:01")
+    _stamp(ids["D"], updated_at="2026-01-01T00:00:02")
 
-    names = _names(repo)
+    assert _names(repo) == ["C", "A", "D", "B"]
 
-    assert names[:2] == ["C", "A"]
-    assert set(names[2:]) == {"B", "D"}
+
+def test_list_order_is_deterministic_when_timestamps_tie(repo, registry):
+    ids = {name: _save(repo, registry, "user-1", name) for name in ["A", "B", "C", "D"]}
+    for name in ["A", "C"]:
+        repo.set_pinned(ids[name], True)
+        _stamp(ids[name], pinned_at="2026-01-01T00:00:00+00:00")
+    for session_id in ids.values():
+        _stamp(session_id, updated_at="2026-01-01T00:00:00")
+
+    expected = [
+        name for name, _ in sorted(ids.items(), key=lambda item: item[1], reverse=True)
+        if name in ("A", "C")
+    ] + [
+        name for name, _ in sorted(ids.items(), key=lambda item: item[1], reverse=True)
+        if name in ("B", "D")
+    ]
+
+    assert _names(repo) == expected
 
 
 def test_saving_a_pinned_session_keeps_it_pinned(repo, registry):

@@ -151,6 +151,23 @@ is skipped on Windows because `Path.chmod(0o500)` does not make a directory
 unwritable there. A new Windows-only failure in this subset is therefore a
 real portability bug until proven otherwise.
 
+### Illegal-instruction crashes in bf16 tests (`0xc000001d`)
+
+Symptom: xdist workers die with `Windows fatal exception: code 0xc000001d`
+(STATUS_ILLEGAL_INSTRUCTION), with the top frame in `torch.nn.Linear.forward`
+(reached through `vendor/gpl/comfyui/ops.py`) in bf16 or fp8 native-engine
+tests, across unrelated files at once. A hosted runner VM can advertise
+AVX-512 BF16 or AMX to PyTorch's CPU dispatch without being able to execute
+it, so the same commit can pass on a runner with a different CPU. When the
+crashing tests share nothing but a bf16 matmul, suspect the runner, not the
+change.
+
+`windows.yml` therefore pins `ATEN_CPU_CAPABILITY=avx2` (PyTorch's own
+kernel dispatch; `torch.backends.cpu.get_cpu_capability()` reports `AVX2`
+with it set) and `ONEDNN_MAX_CPU_ISA=AVX2` (oneDNN's matmul dispatch) for the
+whole workflow. The numerics under test are unaffected; only the instruction
+set is capped. Do not remove them to "speed up" CI.
+
 ## Backend: known environment noise
 
 These are container/environment artefacts, not regressions caused by your change.

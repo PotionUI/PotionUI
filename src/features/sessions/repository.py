@@ -89,7 +89,7 @@ class SessionRepository:
             cursor.execute("""
                 SELECT * FROM sessions
                 WHERE user_id = ? AND preset_id = ?
-                ORDER BY pinned DESC, pinned_at DESC, updated_at DESC
+                ORDER BY pinned DESC, pinned_at DESC, updated_at DESC, id DESC
             """, (user_id, preset_id))
 
             rows = cursor.fetchall()

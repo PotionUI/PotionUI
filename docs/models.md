@@ -90,6 +90,99 @@ reconstructing a name and simply asks the resolved backend for this model's ref.
 exists only on a remote server has no local path at all, and a model with a local copy can have
 several — see "Model roots and locations" below.
 
+## How a model's type is decided
+
+Every model has one type (`checkpoint`, `diffusion_model`, `lora`, `vae`, and so on), and pickers
+list models by type. PotionUI usually takes the type from the folder a file sits in. For a few
+folders it reads the file instead, because a folder such as `Stable-diffusion` holds full
+checkpoints and bare diffusion models side by side, and a Flux transformer filed as a checkpoint
+would never show up in the Flux presets.
+
+### Who wins
+
+When several sources disagree, the first one in this list decides:
+
+1. **A type set by an admin** (Admin → Models, on the model's page).
+2. **A type set by a recipe** that installs the model.
+3. **A type recorded when the file was downloaded.** A finished download into a checkpoint,
+   diffusion-model or `unet` folder is read in place, whatever the folder's switch says, and its
+   type is remembered. The file is never moved.
+4. **What the file's own header says**, for a copy that sits in a folder with "Detect type from
+   file" on.
+5. **The folder's type.**
+
+The first three are remembered by the file's content (its sha256), so they follow the file if it is
+moved, copied or renamed.
+
+### What PotionUI reads
+
+Only the header of a `.safetensors`, `.sft` or `.gguf` file is read: the list of tensor names,
+shapes and data types. No weights are loaded, and the header is read once per file content, not on
+every scan. Pickle files (`.ckpt`, `.pt`, `.pth`, `.bin`) are never opened for this and keep the
+folder's type.
+
+From the header PotionUI works out the model family (Flux, Qwen-Image, SDXL, and so on) and which
+parts the file contains. The parts decide the type:
+
+| The file contains | Type |
+|---|---|
+| A known transformer or UNet and nothing else | `diffusion_model` |
+| A known transformer or UNet plus a VAE, a text encoder, or both | `checkpoint` |
+| A UNet-style denoiser of an unknown family plus a VAE or text encoder | `checkpoint` |
+| Only a denoiser of an unknown family | Needs a type |
+| No denoiser at all (a VAE, text encoder or LoRA in the wrong folder) | Needs a type |
+
+A part only counts when it has at least two tensors, so one stray tensor cannot change a file's
+type. GGUF files that hold only a transformer are `diffusion_model`.
+
+### Needs a type
+
+A file in a header-detected folder that no classifier recognises gets the type **Undefined**,
+shown as **Needs a type** in Admin → Models. It is kept out of every picker, and a saved session
+that points at it is refused with a message naming the file. Give it a type by hand and it works
+straight away.
+
+### Detect type from file (per folder)
+
+Admin → Models → Folders has a **Detect type from file** switch on each checkpoint,
+diffusion-model and `unet` folder. It is on by default for folders named `Stable-diffusion` and
+`unet`, and off everywhere else, including the standard `checkpoints` and `diffusion_models`
+folders, where the folder name already means what it says. Turning it on classifies the folder's
+files without rehashing them. Turning it off puts the folder's files back to the folder's type,
+unless an admin, a recipe or a download has pinned a type; nothing is read from disk either way.
+
+Files on disk are never moved or renamed by any of this.
+
+### Full checkpoints in diffusion-model pickers
+
+Many downloads of Flux, Qwen-Image, Z-Image and similar models are all-in-one files: the
+transformer plus the VAE and text encoders. They are checkpoints by the rule above, but the native
+engine loads only the transformer part of such a file and ignores the rest. So on the native
+engine, a picker that asks for a diffusion model also lists these full checkpoints, marked
+**Full checkpoint** (`packaging: full_checkpoint` in the API). The stored type stays `checkpoint`.
+
+This applies to Flux, Qwen-Image (both versions), Z-Image, Krea-2, Wan, Anima, SeedVR2 and
+MiniMax-H3 files. It does not apply to:
+
+- bitsandbytes (nf4 or fp4) files, which the native engine cannot load;
+- GGUF files, which the native engine refuses;
+- families outside that list, and Wan add-on checkpoints (VACE, camera control, audio and similar);
+- ComfyUI, which lists its diffusion models by folder, so a file in `checkpoints` cannot be picked
+  there.
+
+### Changing a type by hand
+
+On a model's page in Admin → Models an admin can set the type. It applies to every copy of that
+file's content, wins over everything above, and is refused if another model already uses the same
+filename under that type. **Reset to automatic** removes it and the type is decided again from the
+list above.
+
+### Teaching PotionUI a new family
+
+A plugin can add a classifier for a family core does not know. See
+[Contributing a model classifier](plugin-api.md#contributing-a-model-classifier). Files that were
+"Needs a type" are looked at again the next time indexing runs after the plugin is enabled.
+
 ## Model roots and locations
 
 A **model root** is a folder an admin pointed PotionUI at (Admin → Models → Folders, or the setup
@@ -135,6 +228,11 @@ the lowest binding `position` for its type, ties broken by the shorter `rel_path
 order. Reordering roots for a type visibly changes which copy wins; nothing is renamed or moved to
 make that happen.
 
+The same file (same content) in two folders is one model with two locations, even when the two
+folders would give it different types: the type is decided once for the content, using the rules in
+[How a model's type is decided](#how-a-models-type-is-decided). When neither folder detects types
+from the file but their types disagree, the header is read to settle it.
+
 A location's `status` is `present`, `missing` (its root is online but the file is gone — the row
 survives, tags/ratings/assignments are untouched, in case the file reappears), or `conflict` (same
 identity, same filename, but this copy's own `sha256` disagrees with the model's canonical
@@ -158,6 +256,11 @@ as soon as the root is online again and a probe confirms it.
 Native's `models/loras/x.safetensors` and ComfyUI's `style/x.safetensors` both reduce to
 `('lora', 'x.safetensors')` and merge into one row. Only the filename must agree; the directory
 part belongs to the ref.
+
+The type in that pair is the model's decided type (see
+[How a model's type is decided](#how-a-models-type-is-decided)), which is not always the type of
+the folder the file sits in. A Flux transformer in a `Stable-diffusion` folder is a
+`diffusion_model` and is identified as such.
 
 A migration enforces `UNIQUE(model_type, filename)` and refuses to apply if the existing index
 already contains a collision, rather than silently merging two rows.
@@ -299,6 +402,14 @@ folder look like `style/foo.safetensors`, and that subpath *is* what the workflo
 file can appear under two refs when ComfyUI has several search roots configured for a folder
 (`upscale.pth` and `extra/upscale.pth`, identical size), so deduplicate by `(filename, size)`
 while indexing.
+
+ComfyUI reports no hashes, so a file it lists under `checkpoints` cannot be matched to a native
+file by content. If a native file with the same name and size sits in a `checkpoints` folder but
+PotionUI has decided it is a different type (say `diffusion_model`), the ComfyUI entry is not added
+as a second model and gets no availability. It is listed as a **type mismatch** in the indexing
+result for that backend, with the model it matches. ComfyUI's legacy `unet` folder is treated as
+`diffusion_models`. For a backend that does report hashes (a remote native worker), the type comes
+from the same rules as a local file, so the same bytes land on the same model.
 
 ### Do not index from `/object_info`
 

@@ -132,6 +132,14 @@ token with `@` set to the item's current 1-based position in the field. A marker
 removed item or an unmapped field fails the submission with a field-level 422. Full contract:
 [preset.yml Reference → Prompt resources](presets/manifest.md#prompt-resources).
 
+## Model types in `model` fields
+
+A `model` or `lora_picker` field's `model_type` must be one of the values listed in
+[Preset Context](preset-context.md#model_type-values). `undefined` is not one of them: it is the
+state of a file PotionUI could not classify ("Needs a type" in Admin → Models), and no field can
+ask for it. A `diffusion_model` field on the native engine also lists full checkpoints of the
+supported families; see [How a model's type is decided](models.md#how-a-models-type-is-decided).
+
 ## See also
 
 - [Backends and Engines](backends.md) — `engine:`, how a preset's pipes get executed.

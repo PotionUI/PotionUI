@@ -28,4 +28,30 @@ Ten of the eleven families below run on the native engine ([Native Engine v2](..
 
 One preset directory exists that this section does not cover: **Chroma** has loader/generator pipes on disk but no shipped preset and no native-engine detection entry — it is not a working, documentable family.
 
+## Recognition from file headers
+
+PotionUI recognises these families from the tensor names in a file's header, which is how a bare
+transformer sitting in a `Stable-diffusion` or `unet` folder ends up as a diffusion model instead
+of a checkpoint (see [How a model's type is decided](../models.md#how-a-models-type-is-decided)).
+"Full checkpoint listed" means a native diffusion-model picker also offers all-in-one files of that
+family, using only their transformer.
+
+| Family | Recognised from headers | Full checkpoint listed |
+|---|---|---|
+| Flux1 / Flux2 (Klein) | yes | yes |
+| Krea-2 | yes | yes |
+| Qwen-Image, Qwen-Image 2.1 | yes | yes |
+| Z-Image | yes | yes |
+| Anima | yes (weights stored under a `net.` prefix are handled) | yes |
+| Wan 2.1 / 2.2 | yes | yes, except the VACE, camera, audio and animate add-ons |
+| SeedVR2 | yes | yes |
+| MiniMax-H3 | yes | yes |
+| LTX-2 / 2.3 | yes | no |
+| MiniMax-Music3, YuE2 | yes | no |
+| SDXL, SD 1.x / 2.x, SD3, Chroma | yes (as checkpoints) | no |
+
+bitsandbytes (nf4, fp4) files and GGUF files are never listed as full checkpoints. A plugin can add
+recognition for another family; see
+[Contributing a model classifier](../plugin-api.md#contributing-a-model-classifier).
+
 See [Native Engine Optimizations](../native-optimizations.md) for how the technique catalog fits together, and [Models and Backend Availability](../models.md) for how a downloaded checkpoint file becomes the row a preset's `model` field picks.

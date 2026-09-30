@@ -181,6 +181,7 @@ class CloudRequest:
     inputs: Mapping[str, list[LocalMedia]] = field(default_factory=dict)
     client_reference: str = ""
     idempotency_key: str = ""
+    user_ref: str = ""
 
 
 @dataclass(frozen=True)
@@ -266,6 +267,9 @@ class CloudProvider(ABC):
         self.config = config
         self.http = http
         http.set_error_mapper(self.map_error)
+
+    def suggested_model_ids(self) -> tuple[str, ...]:
+        return ()
 
     @classmethod
     def api_base_url(cls, config: CloudBackendConfig) -> str:

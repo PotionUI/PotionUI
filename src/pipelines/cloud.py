@@ -52,6 +52,7 @@ class CloudRunRequest:
     count: int = 1
     params: Mapping[str, Any] = field(default_factory=dict)
     inputs: Mapping[str, Sequence[Path]] = field(default_factory=dict)
+    user_ref: str = ""
 
 
 @dataclass(frozen=True)

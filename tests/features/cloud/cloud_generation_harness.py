@@ -197,8 +197,8 @@ class CloudGeneration:
         self.backend.provider.behaviour = self.behaviour
         prepare = self.backend.prepare_pipes
 
-        def capture(pipes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-            prepared = prepare(pipes)
+        def capture(pipes: List[Dict[str, Any]], **kwargs: Any) -> List[Dict[str, Any]]:
+            prepared = prepare(pipes, **kwargs)
             self.prepared.append(prepared)
             return prepared
 

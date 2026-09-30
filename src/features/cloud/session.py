@@ -180,6 +180,7 @@ class CloudRunSession:
                 inputs=cloud_inputs,
                 client_reference=self._generation_id,
                 idempotency_key=f"{self._generation_id}:{self._run_number}:{job_number}",
+                user_ref=request.user_ref,
             )
             result = await self._run_job(cloud_request, job_number, total_jobs)
             fetched = await self._fetch_all(result, job_number, total_jobs, len(artifacts))

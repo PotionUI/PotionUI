@@ -15,6 +15,8 @@ protects protects nothing. Resolution order:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import os
 import stat
@@ -80,6 +82,10 @@ class SecretCipher:
         self._multi = MultiFernet(fernets)
         self._primary = fernets[0]
         self._key_count = len(fernets)
+        self._primary_key = keys[0]
+
+    def derive_subkey(self, purpose: str) -> bytes:
+        return hmac.new(self._primary_key, purpose.encode("utf-8"), hashlib.sha256).digest()
 
     @staticmethod
     def is_encrypted(value: object) -> bool:

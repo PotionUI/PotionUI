@@ -1,0 +1,15 @@
+schema: 1
+id: "01M3STAK18ES8ZGTTF3JQF1RC5"
+name: "OpenRouter Images"
+category: "image"
+version: "1.0.0"
+engine: "cloud"
+driver: "cloud.openrouter"
+tags: ["cloud", "openrouter", "image", "edit"]
+
+media:
+  cover: "public/cover.png"
+
+modes:
+  - txt2img
+  - edit

@@ -202,6 +202,7 @@ class CloudGeneratePipe(BasePipe):
                 count=count,
                 params=params,
                 inputs=inputs,
+                user_ref=str((self.config.get("cloud") or {}).get("user_ref") or ""),
             )
 
         if len(set(prompts)) == 1:

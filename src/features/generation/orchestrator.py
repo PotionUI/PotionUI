@@ -100,6 +100,7 @@ from src.features.music_director import (
     normalize_music_director,
 )
 from src.features.cloud.contracts import CLOUD_ENGINE
+from src.platform.security.user_ref import cloud_user_ref
 from src.features.generation.output_types import output_type_registry
 from src.features.forms.binding import bind_form, FormBindingError
 from src.features.prompt.resources import mode_prompt_resources, resolve_generation_prompts
@@ -1287,7 +1288,10 @@ class GenerationOrchestrator:
         # (including a background pipe-execution thread) without blocking.
         self._run_backends[generation_id] = backend
         try:
-            await backend.start_generation(built_pipeline.to_backend_payload(), bridge.emit)
+            payload = built_pipeline.to_backend_payload()
+            if backend.engine == CLOUD_ENGINE and db_generation.user_id:
+                payload['user_ref'] = cloud_user_ref(backend.backend_id, db_generation.user_id)
+            await backend.start_generation(payload, bridge.emit)
         except BaseException:
             self._run_backends.pop(generation_id, None)
             raise

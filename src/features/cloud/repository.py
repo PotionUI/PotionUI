@@ -106,6 +106,19 @@ class CloudCatalogRepository:
             )
             return [CloudCatalogEntry.from_row(row) for row in cursor.fetchall()]
 
+    def mark_suggested(self, backend_id: str, provider_model_ids: Iterable[str]) -> None:
+        from src.platform.database.database import db
+
+        wanted = list(dict.fromkeys(provider_model_ids))
+        with db.get_cursor() as cursor:
+            cursor.execute("UPDATE cloud_catalog SET suggested = 0 WHERE backend_id = ?", (backend_id,))
+            if wanted:
+                cursor.execute(
+                    f"UPDATE cloud_catalog SET suggested = 1 WHERE backend_id = ? "
+                    f"AND provider_model_id IN ({_placeholders(wanted)})",
+                    (backend_id, *wanted),
+                )
+
     def model_ids_for_tasks(self, backend_ids: list[str], tasks: list[str]) -> list[str]:
         if not backend_ids or not tasks:
             return []

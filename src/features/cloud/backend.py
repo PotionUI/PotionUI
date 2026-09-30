@@ -82,8 +82,10 @@ class CloudBackend(BaseBackend):
             for entry in self.catalog.list_enabled(self.backend_id)
         ]
 
-    def prepare_pipes(self, pipes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def prepare_pipes(self, pipes: List[Dict[str, Any]], user_ref: str = "") -> List[Dict[str, Any]]:
         identity = {"backend_id": self.backend_id, "driver": self.driver}
+        if user_ref:
+            identity["user_ref"] = user_ref
         prepared = []
         for pipe in pipes:
             if pipe.get("name") == CLOUD_PIPE:
@@ -119,7 +121,7 @@ class CloudBackend(BaseBackend):
         run = CloudRun(executor=executor, session=session, scratch=scratch)
         self._runs[generation_id] = run
         services = {CLOUD_SERVICE: CloudRunBridge(session, asyncio.get_running_loop())}
-        asyncio.create_task(self._run(generation_id, run, self.prepare_pipes(pipes), emit, services))
+        asyncio.create_task(self._run(generation_id, run, self.prepare_pipes(pipes, user_ref=pipeline_data.get("user_ref") or ""), emit, services))
         logger.info(f"[CLOUD_BACKEND] Started generation {generation_id}")
         return generation_id
 

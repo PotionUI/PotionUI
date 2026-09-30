@@ -125,6 +125,7 @@ class CloudCatalog:
                 if self.repository.upsert_discovered(backend_id, slug, spec, now):
                     created += 1
             vanished = self.repository.mark_missing(backend_id, claimed, now)
+            self.repository.mark_suggested(backend_id, backend.provider.suggested_model_ids())
             self.repository.write_state(backend_id, now, len(specs), skipped)
             index = await self._sync(backend)
         logger.info(

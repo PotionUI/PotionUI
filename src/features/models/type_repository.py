@@ -3,7 +3,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 _CHUNK = 500
 
-_SOURCE_RANK_SQL = "(CASE {column} WHEN 'admin' THEN 3 WHEN 'recipe' THEN 2 ELSE 1 END)"
+ASSERTION_SOURCE_RANK = {"download": 1, "recipe": 2, "admin": 3}
 
 _VERDICT_COLUMNS = (
     "sha256, format, status, model_type, family, variant, components, "
@@ -77,6 +77,15 @@ class ModelTypeRepository:
                 ),
             )
 
+    def get_assertion_rows(self, sha256: str) -> Dict[str, Dict[str, Any]]:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT sha256, model_type, source, set_by, set_at FROM model_type_assertions WHERE sha256 = ?",
+                (sha256,),
+            )
+            return {row["source"]: dict(row) for row in cursor.fetchall()}
+
     def get_assertions(self, shas: Iterable[str]) -> Dict[str, Dict[str, Any]]:
         unique = sorted({sha for sha in shas if sha})
         if not unique:
@@ -92,41 +101,28 @@ class ModelTypeRepository:
                     tuple(chunk),
                 )
                 for row in cursor.fetchall():
-                    found[row["sha256"]] = dict(row)
+                    best = found.get(row["sha256"])
+                    if best is None or ASSERTION_SOURCE_RANK.get(row["source"], 0) > ASSERTION_SOURCE_RANK.get(
+                        best["source"], 0
+                    ):
+                        found[row["sha256"]] = dict(row)
         return found
 
-    def put_assertion(self, sha256: str, model_type: str, source: str, set_by: Optional[str], set_at: str) -> bool:
+    def put_assertion(self, sha256: str, model_type: str, source: str, set_by: Optional[str], set_at: str) -> None:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
-                f"""
-                INSERT INTO model_type_assertions (sha256, model_type, source, set_by, set_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(sha256) DO UPDATE SET
-                    model_type = excluded.model_type,
-                    source = excluded.source,
-                    set_by = excluded.set_by,
-                    set_at = excluded.set_at
-                WHERE {_SOURCE_RANK_SQL.format(column="excluded.source")}
-                    >= {_SOURCE_RANK_SQL.format(column="model_type_assertions.source")}
-                """,
-                (sha256, model_type, source, set_by, set_at),
-            )
-            return cursor.rowcount > 0
-
-    def replace_assertion(self, sha256: str, model_type: str, source: str, set_by: Optional[str], set_at: str) -> None:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute(
-                "INSERT OR REPLACE INTO model_type_assertions (sha256, model_type, source, set_by, set_at) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO model_type_assertions (sha256, model_type, source, set_by, set_at) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(sha256, source) DO UPDATE SET "
+                "model_type = excluded.model_type, set_by = excluded.set_by, set_at = excluded.set_at",
                 (sha256, model_type, source, set_by, set_at),
             )
 
-    def delete_assertion(self, sha256: str) -> bool:
+    def delete_assertion(self, sha256: str, source: str) -> bool:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
-            cursor.execute("DELETE FROM model_type_assertions WHERE sha256 = ?", (sha256,))
+            cursor.execute("DELETE FROM model_type_assertions WHERE sha256 = ? AND source = ?", (sha256, source))
             return cursor.rowcount > 0
 
     def models_by_ids(self, model_ids: Iterable[str]) -> List[Dict[str, Any]]:

@@ -67,7 +67,7 @@ def test_a_forge_folder_is_typed_by_content_listed_in_the_native_picker_and_keep
     assert native_picker() == ["flux-aio.safetensors"]
 
 
-def test_a_download_assertion_yields_to_an_admin_override_and_a_reset_falls_back_to_the_header(lib):
+def test_a_download_assertion_yields_to_an_admin_override_and_a_reset_falls_back_to_the_download(lib):
     lib.set_scan("checkpoint", False)
     path = lib.put(lib.checkpoints, "flux-dev.safetensors", FLUX)
     types = types_for(lib)
@@ -80,13 +80,16 @@ def test_a_download_assertion_yields_to_an_admin_override_and_a_reset_falls_back
     assert (downloaded.model_type, downloaded.type_source) == ("diffusion_model", "download")
 
     types.set_admin_type(downloaded.id, "vae", None)
-    lib.set_scan("checkpoint", True)
     lib.index()
     coordinator.index_downloaded(str(path))
     overridden = lib.model("flux-dev.safetensors")
     assert (overridden.model_type, overridden.type_source) == ("vae", "admin")
+    assert set(lib.scanner.types.get_assertion_rows(downloaded.sha256)) == {"admin", "download"}
 
     types.reset_admin_type(downloaded.id)
     restored = lib.model("flux-dev.safetensors")
-    assert (restored.model_type, restored.type_source) == ("diffusion_model", "header")
-    assert lib.scanner.types.get_assertions([downloaded.sha256]) == {}
+    assert (restored.model_type, restored.type_source) == ("diffusion_model", "download")
+    assert set(lib.scanner.types.get_assertion_rows(downloaded.sha256)) == {"download"}
+    lib.index()
+    assert lib.model("flux-dev.safetensors").model_type == "diffusion_model"
+    assert native_picker() == ["flux-dev.safetensors"]

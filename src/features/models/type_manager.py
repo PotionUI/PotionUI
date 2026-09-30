@@ -74,36 +74,35 @@ class ModelTypeManager:
     def assert_type(
         self, sha256: str, model_type: str, source: str, set_by: Optional[str] = None
     ) -> AssertionOutcome:
-        current = self._types.get_assertions([sha256]).get(sha256)
-        if not self._types.put_assertion(sha256, model_type, source, set_by, now_iso()):
-            return AssertionOutcome(False)
-        return self._resolve(sha256, current)
+        previous = self._types.get_assertion_rows(sha256).get(source)
+        self._types.put_assertion(sha256, model_type, source, set_by, now_iso())
+        return self._resolve(sha256, source, previous)
 
-    def reset_type(self, sha256: str) -> AssertionOutcome:
-        current = self._types.get_assertions([sha256]).get(sha256)
-        if current is None:
+    def reset_type(self, sha256: str, source: str = SOURCE_ADMIN) -> AssertionOutcome:
+        previous = self._types.get_assertion_rows(sha256).get(source)
+        if previous is None:
             return AssertionOutcome(False)
-        self._types.delete_assertion(sha256)
-        return self._resolve(sha256, current)
+        self._types.delete_assertion(sha256, source)
+        return self._resolve(sha256, source, previous)
 
-    def _resolve(self, sha256: str, previous: Optional[Dict[str, Any]]) -> AssertionOutcome:
+    def _resolve(self, sha256: str, source: str, previous: Optional[Dict[str, Any]]) -> AssertionOutcome:
         model = self._models.get_by_sha256(sha256, include_providers=False)
         if model is None:
             return AssertionOutcome(True)
         try:
             conflicts = self._recompute([model.id])
         except Exception:
-            self._restore(sha256, previous)
+            self._restore(sha256, source, previous)
             raise
         if conflicts:
-            self._restore(sha256, previous)
+            self._restore(sha256, source, previous)
         return AssertionOutcome(not conflicts, model.id, conflicts)
 
-    def _restore(self, sha256: str, previous: Optional[Dict[str, Any]]) -> None:
+    def _restore(self, sha256: str, source: str, previous: Optional[Dict[str, Any]]) -> None:
         if previous is None:
-            self._types.delete_assertion(sha256)
+            self._types.delete_assertion(sha256, source)
         else:
-            self._types.replace_assertion(
+            self._types.put_assertion(
                 sha256, previous["model_type"], previous["source"], previous["set_by"], previous["set_at"]
             )
 

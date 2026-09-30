@@ -290,7 +290,7 @@ def test_assertions_beat_the_header_and_reset_falls_back_to_it(lib):
     model = lib.model("flux-dev.safetensors")
     assert (model.model_type, model.type_source) == ("checkpoint", "admin")
 
-    types.delete_assertion(sha_of(path))
+    types.delete_assertion(sha_of(path), "admin")
     lib.index()
     model = lib.model("flux-dev.safetensors")
     assert (model.model_type, model.type_source) == ("diffusion_model", "header")

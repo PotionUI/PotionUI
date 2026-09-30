@@ -289,3 +289,19 @@ def test_type_info_for_a_file_that_was_never_classified(lib):
     assert info["verdict_status"] is None
     assert info["family"] is None
     assert info["components"] == []
+
+
+@pytest.mark.asyncio
+async def test_delete_keeps_the_download_pin_and_falls_back_to_it(app, flux):
+    ModelTypeRepository().put_assertion(flux.sha256, "diffusion_model", "download", None, now_iso())
+    async with client_for(app) as client:
+        await client.put(f"/api/models/{flux.id}/type", json={"model_type": "vae"})
+        assert model_repo.get_by_id(flux.id).type_source == "admin"
+
+        response = await client.delete(f"/api/models/{flux.id}/type")
+
+    assert response.status_code == 200
+    stored = model_repo.get_by_id(flux.id)
+    assert (stored.model_type, stored.type_source) == ("diffusion_model", "download")
+    assert set(ModelTypeRepository().get_assertion_rows(flux.sha256)) == {"download"}
+    assert response.json()["data"]["model"]["type_info"]["source"] == "download"

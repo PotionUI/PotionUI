@@ -54,7 +54,7 @@ def test_an_assertion_retypes_the_model_and_records_its_source(lib, manager):
         ("recipe", "recipe", "recipe"),
     ],
 )
-def test_a_lower_ranked_source_never_overwrites_a_higher_one(lib, manager, first, second, wins):
+def test_the_highest_ranked_source_wins_while_every_source_keeps_its_row(lib, manager, first, second, wins):
     manager.assert_type(lib.sha, "diffusion_model", first)
 
     outcome = manager.assert_type(lib.sha, "vae", second)
@@ -62,7 +62,8 @@ def test_a_lower_ranked_source_never_overwrites_a_higher_one(lib, manager, first
     assert assertion(lib.sha)["source"] == wins
     expected_type = "vae" if second == wins else "diffusion_model"
     assert stored(lib) == (expected_type, wins)
-    assert outcome.applied is (second == wins)
+    assert outcome.applied is True
+    assert set(ModelTypeRepository().get_assertion_rows(lib.sha)) == {first, second}
 
 
 def test_an_equal_rank_assertion_replaces_the_type(lib, manager):
@@ -71,14 +72,40 @@ def test_an_equal_rank_assertion_replaces_the_type(lib, manager):
     assert stored(lib) == ("vae", "admin")
 
 
-def test_reset_deletes_the_assertion_and_resolves_automatically(lib, manager):
-    manager.assert_type(lib.sha, "diffusion_model", "recipe")
+def test_reset_deletes_only_the_admin_assertion_and_resolves(lib, manager):
+    manager.assert_type(lib.sha, "diffusion_model", "download")
+    manager.assert_type(lib.sha, "vae", "admin")
+    assert stored(lib) == ("vae", "admin")
 
     outcome = manager.reset_type(lib.sha)
 
     assert outcome.applied is True
-    assert assertion(lib.sha) is None
+    assert set(ModelTypeRepository().get_assertion_rows(lib.sha)) == {"download"}
+    assert stored(lib) == ("diffusion_model", "download")
+
+
+def test_reset_falls_back_through_the_remaining_ranks(lib, manager):
+    manager.assert_type(lib.sha, "diffusion_model", "download")
+    manager.assert_type(lib.sha, "lora", "recipe")
+    manager.assert_type(lib.sha, "vae", "admin")
+
+    manager.reset_type(lib.sha)
+    assert stored(lib) == ("lora", "recipe")
+
+    manager.reset_type(lib.sha, "recipe")
+    assert stored(lib) == ("diffusion_model", "download")
+
+    manager.reset_type(lib.sha, "download")
     assert stored(lib) == ("checkpoint", "folder")
+
+
+def test_reset_of_a_source_that_was_never_written_changes_nothing(lib, manager):
+    manager.assert_type(lib.sha, "diffusion_model", "download")
+
+    outcome = manager.reset_type(lib.sha)
+
+    assert outcome.applied is False
+    assert stored(lib) == ("diffusion_model", "download")
 
 
 def test_reset_without_an_assertion_is_a_no_op(lib, manager):
@@ -196,28 +223,38 @@ def test_the_collaborators_bundle_wires_the_manager_to_the_scanner(lib):
     assert stored(lib) == ("vae", "admin")
 
 
-def test_the_rank_rule_holds_even_when_the_read_was_stale(lib, manager):
-    ModelTypeRepository().put_assertion(lib.sha, "vae", "admin", None, "2026-01-01T00:00:00")
-    with patch.object(ModelTypeRepository, "get_assertions", return_value={}), patch.object(
-        manager, "_recompute"
-    ) as recompute:
-        outcome = manager.assert_type(lib.sha, "diffusion_model", "recipe")
+def test_a_write_replaces_only_its_own_sources_row(lib):
+    types = ModelTypeRepository()
+    types.put_assertion(lib.sha, "vae", "admin", None, "2026-01-01T00:00:00")
+    types.put_assertion(lib.sha, "lora", "download", None, "2026-01-02T00:00:00")
+    types.put_assertion(lib.sha, "checkpoint", "download", None, "2026-01-03T00:00:00")
 
-    assert outcome.applied is False
-    recompute.assert_not_called()
-    assert assertion(lib.sha)["model_type"] == "vae"
+    rows = types.get_assertion_rows(lib.sha)
+
+    assert {source: row["model_type"] for source, row in rows.items()} == {"admin": "vae", "download": "checkpoint"}
     assert assertion(lib.sha)["source"] == "admin"
 
 
-def test_the_repository_write_reports_whether_the_row_was_written(lib):
+def test_the_best_assertion_is_chosen_per_hash_in_a_batch(lib):
     types = ModelTypeRepository()
+    types.put_assertion("a" * 64, "lora", "download", None, "2026-01-01T00:00:00")
+    types.put_assertion("a" * 64, "vae", "recipe", None, "2026-01-01T00:00:00")
+    types.put_assertion("b" * 64, "lora", "download", None, "2026-01-01T00:00:00")
 
-    assert types.put_assertion(lib.sha, "vae", "recipe", None, "2026-01-01T00:00:00") is True
-    assert types.put_assertion(lib.sha, "lora", "download", None, "2026-01-02T00:00:00") is False
-    assert types.put_assertion(lib.sha, "lora", "recipe", None, "2026-01-03T00:00:00") is True
-    assert types.put_assertion(lib.sha, "checkpoint", "admin", None, "2026-01-04T00:00:00") is True
-    assert types.put_assertion(lib.sha, "lora", "recipe", None, "2026-01-05T00:00:00") is False
-    assert assertion(lib.sha)["model_type"] == "checkpoint"
+    best = types.get_assertions(["a" * 64, "b" * 64, "c" * 64])
+
+    assert {sha: row["source"] for sha, row in best.items()} == {"a" * 64: "recipe", "b" * 64: "download"}
+
+
+def test_deleting_one_source_leaves_the_others(lib):
+    types = ModelTypeRepository()
+    types.put_assertion(lib.sha, "vae", "admin", None, "2026-01-01T00:00:00")
+    types.put_assertion(lib.sha, "lora", "download", None, "2026-01-02T00:00:00")
+
+    assert types.delete_assertion(lib.sha, "admin") is True
+    assert types.delete_assertion(lib.sha, "admin") is False
+
+    assert set(types.get_assertion_rows(lib.sha)) == {"download"}
 
 
 def test_a_failing_recompute_restores_the_previous_assertion_and_reraises(lib):
@@ -229,6 +266,7 @@ def test_a_failing_recompute_restores_the_previous_assertion_and_reraises(lib):
 
     assert assertion(lib.sha)["model_type"] == "diffusion_model"
     assert assertion(lib.sha)["source"] == "download"
+    assert set(ModelTypeRepository().get_assertion_rows(lib.sha)) == {"download"}
 
 
 def test_a_failing_recompute_removes_an_assertion_that_had_no_predecessor(lib):

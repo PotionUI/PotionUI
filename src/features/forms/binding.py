@@ -55,8 +55,17 @@ import math
 import re
 from dataclasses import dataclass, field as dc_field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
+from src.features.cloud.capability_rules import (
+    CapabilityBinding,
+    find_input,
+    find_param,
+    mode_task,
+    params_for_task,
+    validate_param_value,
+    coerce_param_value,
+)
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.fields.lora_picker import LoraPicker
 from src.features.fields.resolution import Resolution
@@ -67,7 +76,7 @@ from src.features.fields.media import Media
 from src.features.fields.tags import Tags
 from src.features.presets.children_paths import DEFAULT_SHARED_PATH
 from src.features.presets.configuration import resolve_field_tag_categories
-from src.features.models.form_refs import is_model_ref
+from src.features.models.form_refs import is_model_ref, model_id_of
 from src.platform.templating import TemplateProcessor
 from src.platform.util.path_resolution import resolve_within
 from src.features.presets.templates import (
@@ -184,6 +193,11 @@ class BoundForm:
     # names: an admin-pinned hidden/locked model default bypasses the user's
     # own model-access scope by design.
     admin_pinned: List[str] = dc_field(default_factory=list)
+    cloud_params: Dict[str, Any] = dc_field(default_factory=dict)
+    capabilities: List[Dict[str, Any]] = dc_field(default_factory=list)
+
+
+CapabilityResolver = Callable[[str, Optional[str]], Any]
 
 
 def bind_form(
@@ -195,6 +209,7 @@ def bind_form(
     *,
     storage_dir: Optional[str] = None,
     field_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+    cloud_capabilities: Optional[CapabilityResolver] = None,
 ) -> BoundForm:
     """Bind `raw_form_data` against `preset_template`'s form for `mode`.
 
@@ -294,10 +309,19 @@ def bind_form(
 
     _apply_reactions(field_index, values, reaction_candidates, preset_id=preset_id, mode=mode)
 
+    plan = _plan_capabilities(field_index, values, preset_template, mode, cloud_capabilities)
+    cloud_params: Dict[str, Any] = {}
+
     for name, spec in field_index.items():
+        if name in plan.unsupported:
+            values[name] = None
+            stripped.append(name)
+            continue
         value = values[name]
         value = _coerce_leniently(value, spec, name, coercions)
         _validate_field(name, value, spec, errors, field_errors)
+        if name in plan.bindings:
+            value = _bind_capability_value(name, value, plan, errors, field_errors, stripped, cloud_params)
         if not _hidden_by_reactions(spec, values, preset_id=preset_id, mode=mode, field_name=name):
             _check_pattern(name, value, spec, errors, field_errors)
         if spec.type == "tags" and not is_model_ref(value):
@@ -359,8 +383,132 @@ def bind_form(
 
     return BoundForm(
         values=values, form_name=form.name, coercions=coercions, stripped=stripped,
-        admin_pinned=admin_pinned,
+        admin_pinned=admin_pinned, cloud_params=cloud_params,
+        capabilities=[
+            {"field": b.field, "model_field": b.model_field, "param": b.param, "input": b.input}
+            for b in plan.bindings.values()
+        ],
     )
+
+
+@dataclass
+class _CapabilityPlan:
+    bindings: Dict[str, CapabilityBinding] = dc_field(default_factory=dict)
+    specs: Dict[str, Any] = dc_field(default_factory=dict)
+    task: Optional[str] = None
+    unsupported: set = dc_field(default_factory=set)
+    option_fields: Dict[str, Dict[str, Any]] = dc_field(default_factory=dict)
+
+
+def _plan_capabilities(
+    field_index: Dict[str, FieldTemplate],
+    values: Dict[str, Any],
+    preset_template: PresetTemplate,
+    mode: str,
+    resolver: Optional[CapabilityResolver],
+) -> _CapabilityPlan:
+    plan = _CapabilityPlan()
+    for name, spec in field_index.items():
+        raw = spec.capability
+        if not raw:
+            continue
+        plan.bindings[name] = CapabilityBinding(
+            field=name, model_field=raw["model_field"], param=raw.get("param"), input=raw.get("input"),
+        )
+        if spec.type == "cloud_options":
+            plan.option_fields[name] = spec.configuration or {}
+    if not plan.bindings:
+        return plan
+
+    plan.task = mode_task(preset_template, mode)
+    driver = getattr(preset_template, "driver", None)
+    for binding in plan.bindings.values():
+        if binding.model_field in plan.specs:
+            continue
+        chosen = values.get(binding.model_field)
+        plan.specs[binding.model_field] = (
+            resolver(model_id_of(chosen), driver) if resolver is not None and is_model_ref(chosen) else None
+        )
+
+    for name, binding in plan.bindings.items():
+        model_spec = plan.specs.get(binding.model_field)
+        if model_spec is None or name in plan.option_fields:
+            continue
+        if binding.param is not None and find_param(model_spec, binding.param, plan.task) is None:
+            plan.unsupported.add(name)
+        elif binding.input is not None and find_input(model_spec, binding.input, plan.task) is None:
+            plan.unsupported.add(name)
+    return plan
+
+
+def _add_error(name: str, message: str, errors: List[str], field_errors: Dict[str, List[str]]) -> None:
+    errors.append(f"{name}: {message}")
+    field_errors.setdefault(name, []).append(message)
+
+
+def _bind_capability_value(
+    name: str,
+    value: Any,
+    plan: _CapabilityPlan,
+    errors: List[str],
+    field_errors: Dict[str, List[str]],
+    stripped: List[str],
+    cloud_params: Dict[str, Any],
+) -> Any:
+    binding = plan.bindings[name]
+    model_spec = plan.specs.get(binding.model_field)
+    if model_spec is None:
+        return value
+    if name in plan.option_fields:
+        return _bind_cloud_options(name, value, plan, model_spec, errors, field_errors, stripped, cloud_params)
+    if binding.param is None:
+        return value
+    param = find_param(model_spec, binding.param, plan.task)
+    message = validate_param_value(param, value)
+    if message is not None:
+        _add_error(name, message, errors, field_errors)
+    elif value is not None and value != "":
+        cloud_params[binding.param] = coerce_param_value(param, value)
+    return value
+
+
+def _bind_cloud_options(
+    name: str,
+    value: Any,
+    plan: _CapabilityPlan,
+    model_spec: Any,
+    errors: List[str],
+    field_errors: Dict[str, List[str]],
+    stripped: List[str],
+    cloud_params: Dict[str, Any],
+) -> Any:
+    if value is None or value == "":
+        value = {}
+    if not isinstance(value, dict):
+        _add_error(name, "must be an object of provider options", errors, field_errors)
+        return value
+    bound_elsewhere = {b.param for b in plan.bindings.values() if b.param is not None}
+    include_unbound = bool(plan.option_fields[name].get("include_unbound", True))
+    offered = {
+        param.name: param for param in params_for_task(model_spec, plan.task)
+        if param.name not in bound_elsewhere and (include_unbound or param.name.startswith("x."))
+    }
+    cleaned: Dict[str, Any] = {}
+    for key, item in value.items():
+        param = offered.get(key)
+        if param is None:
+            stripped.append(f"{name}.{key}")
+            continue
+        message = validate_param_value(param, item)
+        if message is not None:
+            _add_error(name, f"{key}: {message}", errors, field_errors)
+        if item is not None and item != "":
+            cleaned[key] = coerce_param_value(param, item)
+    for key, param in offered.items():
+        if param.required and key not in cleaned:
+            _add_error(name, f"{key}: {param.label or key} is required by this model", errors, field_errors)
+    cloud_params.update(cleaned)
+    return cleaned
 
 
 def _resolve_form(

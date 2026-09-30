@@ -134,3 +134,108 @@ def test_a_preset_without_a_driver_gets_no_driver_finding_from_the_lint(tmp_path
     write_preset(tmp_path, "Plain", "01PLAINBBBBBBBBBBBBBBBBBBBB", "native", None)
 
     assert PresetLinter([str(tmp_path)], registered_drivers=set()).lint() == []
+
+
+def field_data(**overrides):
+    data = {"type": "select", "name": "aspect_ratio", "capability": {"model_field": "model", "param": "aspect_ratio"}}
+    data.update(overrides)
+    return data
+
+
+def test_a_field_can_bind_to_a_canonical_param():
+    from src.features.presets.schema import validate_field_list
+
+    fields, errors = validate_field_list([field_data()])
+
+    assert errors == []
+    assert fields[0].capability.param == "aspect_ratio"
+
+
+def test_a_field_can_bind_to_a_provider_extra_or_a_media_role():
+    from src.features.presets.schema import validate_field_list
+
+    _, extra_errors = validate_field_list([field_data(capability={"model_field": "model", "param": "x.style"})])
+    _, role_errors = validate_field_list([field_data(type="image", capability={"model_field": "model", "input": "first_frame"})])
+
+    assert extra_errors == [] and role_errors == []
+
+
+@pytest.mark.parametrize("capability", [
+    {"model_field": "model"},
+    {"model_field": "model", "param": "aspect_ratio", "input": "reference"},
+    {"model_field": "model", "param": "not_a_param"},
+    {"model_field": "model", "input": "not_a_role"},
+    {"model_field": " ", "param": "aspect_ratio"},
+    {"param": "aspect_ratio"},
+    {"model_field": "model", "param": "aspect_ratio", "extra": 1},
+])
+def test_a_malformed_capability_is_a_schema_error(capability):
+    from src.features.presets.schema import validate_field_list
+
+    fields, errors = validate_field_list([field_data(capability=capability)])
+
+    assert fields is None and errors
+
+
+def test_a_provider_options_field_names_only_its_model_field():
+    from src.features.presets.schema import validate_field_list
+
+    _, good = validate_field_list([{"type": "cloud_options", "name": "opts", "capability": {"model_field": "model"}}])
+    _, bad = validate_field_list([{"type": "cloud_options", "name": "opts", "capability": {"model_field": "model", "param": "quality"}}])
+
+    assert good == [] and bad
+
+
+def test_the_form_schema_the_frontend_receives_carries_the_binding():
+    from src.features.fields.cloud_options import CloudOptions
+    from src.features.fields.slider import Slider
+    from src.features.presets.templates import FieldTemplate
+
+    bound = FieldTemplate(type="slider", name="quality", capability={"model_field": "model", "param": "quality", "input": None})
+    plain = FieldTemplate(type="slider", name="steps")
+    options = FieldTemplate(type="cloud_options", name="opts", capability={"model_field": "model"})
+
+    assert Slider(None).output(bound)["capability"] == {"model_field": "model", "param": "quality"}
+    assert "capability" not in Slider(None).output(plain)
+    schema = CloudOptions(None).output(options)
+    assert schema["capability"] == {"model_field": "model"}
+    assert schema["configuration"] == {"include_unbound": True}
+
+
+def test_the_provider_options_field_documents_its_config_key_for_the_lint():
+    from src.features.fields.cloud_options import CloudOptions
+
+    assert [spec.name for spec in CloudOptions.configuration()] == ["include_unbound"]
+
+
+def write_capability_form(root, form_lines):
+    preset_dir = write_preset(root, "Capable", "01CAPABLEAAAAAAAAAAAAAAAAAA", "cloud", "cloud.fake")
+    (preset_dir / "modes" / "txt2img" / "form.yml").write_text("\n".join(form_lines) + "\n", encoding="utf-8")
+    return preset_dir
+
+
+def test_a_preset_form_with_capability_bound_fields_lints_clean(tmp_path):
+    write_capability_form(tmp_path, [
+        "fields:",
+        "  - {type: model, name: model, configuration: {model_type: cloud, tasks: [txt2img]}}",
+        "  - {type: select, name: aspect_ratio, capability: {model_field: model, param: aspect_ratio}, configuration: {options: [{label: Square, value: '1:1'}]}}",
+        "  - {type: image, name: references, capability: {model_field: model, input: reference}}",
+        "  - {type: cloud_options, name: provider_options, capability: {model_field: model}, configuration: {include_unbound: false}}",
+    ])
+
+    issues = PresetLinter([str(tmp_path)], registered_drivers={"cloud.fake"}).lint()
+
+    assert [i for i in issues if i.level == "error"] == []
+    assert not [i for i in issues if "configuration has key" in i.message or "capability" in i.message]
+
+
+def test_a_preset_form_with_a_bad_capability_fails_the_lint(tmp_path):
+    write_capability_form(tmp_path, [
+        "fields:",
+        "  - {type: model, name: model}",
+        "  - {type: slider, name: quality, capability: {model_field: model, param: nope}}",
+    ])
+
+    issues = PresetLinter([str(tmp_path)], registered_drivers={"cloud.fake"}).lint()
+
+    assert any(i.level == "error" and "capability.param 'nope'" in i.message for i in issues)

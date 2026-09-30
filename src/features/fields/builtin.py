@@ -39,6 +39,7 @@ from src.features.fields.audio import Audio
 from src.features.fields.media import Media
 from src.features.fields.file import File
 from src.features.fields.model import Model
+from src.features.fields.cloud_options import CloudOptions
 from src.features.fields.lora_picker import LoraPicker
 from src.features.fields.seed import Seed
 from src.features.fields.alert import Alert
@@ -91,6 +92,7 @@ def register_builtin_fields(registry: FieldTypeRegistry, template_processor: Opt
         FieldTypeDefinition("model", Model, options_provider=model_options, frontend_component="core:ModelField", shareable=True),
         FieldTypeDefinition("models", Model, options_provider=model_options, frontend_component="core:ModelField", shareable=True),
         FieldTypeDefinition("lora_picker", LoraPicker, frontend_component="core:LoraPickerField", shareable=True),
+        FieldTypeDefinition("cloud_options", CloudOptions, frontend_component="core:CloudOptionsField"),
 
         # Sampler/schedule pickers - options come from the sampler/schedule
         # registries (src/platform/plugins/sampling.py), not

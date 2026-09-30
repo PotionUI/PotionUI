@@ -68,6 +68,7 @@ class FieldTemplate:
     # Hides this field when the Video Director editor owns its preset mode.
     # Mirrors FieldSpec.hidden_when_video_director in schema.py.
     hidden_when_video_director: bool = False
+    capability: Optional[Dict[str, Any]] = None
     # Synthetic, never authored in preset.yml (FieldSpec's `extra="forbid"`
     # rejects it there) - set by src/features/presets/form_overrides.py when
     # an admin per-field override locks this field (`editable: false`).

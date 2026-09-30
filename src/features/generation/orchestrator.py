@@ -48,6 +48,8 @@ if TYPE_CHECKING:
     from src.features.generation.routing.router import GenerationRouter
     from src.features.models.locator import ModelLocator
     from src.features.content_safety.manager import ContentSafetyManager
+    from src.features.cloud.capabilities import CloudCapabilities
+    from src.features.cloud.policy import CloudGenerationPolicy
 
 from src.platform.util.ids import generate_ulid
 from src.features.media_index.indexer import PASS_TAGS
@@ -97,6 +99,7 @@ from src.features.music_director import (
     compile_sections_to_lyrics,
     normalize_music_director,
 )
+from src.features.cloud.contracts import CLOUD_ENGINE
 from src.features.forms.binding import bind_form, FormBindingError
 from src.features.prompt.resources import mode_prompt_resources, resolve_generation_prompts
 from src.features.generation.memory_advisory import (
@@ -459,6 +462,8 @@ class GenerationOrchestrator:
         scheduling_policy_for: Optional[Callable[[str], SchedulingPolicy]] = None,
         model_locator: Optional['ModelLocator'] = None,
         content_safety: Optional['ContentSafetyManager'] = None,
+        cloud_capabilities: Optional['CloudCapabilities'] = None,
+        cloud_policy: Optional['CloudGenerationPolicy'] = None,
     ):
         """
         Initialize the generation orchestrator.
@@ -529,6 +534,8 @@ class GenerationOrchestrator:
         self.database_preset_repository = database_preset_repository
         self.model_access_policy = model_access_policy
         self.router = router
+        self.cloud_capabilities = cloud_capabilities
+        self.cloud_policy = cloud_policy
         self.user_repository = user_repository
         self.gpu_monitor = gpu_monitor
 
@@ -664,6 +671,33 @@ class GenerationOrchestrator:
         for model_id in model_ids:
             self.model_access_policy.verify_model_access(model_id, user)
 
+    def _bind(
+        self,
+        preset_template,
+        mode: str,
+        form_name: Optional[str],
+        raw_form_data: Any,
+        user_id: str,
+        storage_dir: Optional[str],
+        field_overrides: Optional[Dict[str, Any]],
+        backend: Any = None,
+    ):
+        capabilities = getattr(self, "cloud_capabilities", None)
+        cloud_args = {}
+        if capabilities is not None and preset_template.engine == CLOUD_ENGINE:
+            backend_id = backend.backend_id if backend is not None else None
+            cloud_args["cloud_capabilities"] = lambda model_id, driver: capabilities.spec_for(model_id, driver, backend_id)
+        return bind_form(
+            preset_template,
+            mode,
+            form_name,
+            raw_form_data,
+            user_id,
+            storage_dir=storage_dir,
+            field_overrides=field_overrides,
+            **cloud_args,
+        )
+
     async def preview_memory(self, request, user_id: str) -> Dict[str, Any]:
         """A non-blocking request memory advisory for a request that has NOT
         started: binds the form, canonicalizes any Video/Music Director
@@ -711,14 +745,9 @@ class GenerationOrchestrator:
             field_overrides = self.database_preset_repository.get_preset_form_overrides(
                 request.preset_id
             ).get(mode, {})
-        bound = bind_form(
-            preset_template,
-            mode,
-            getattr(request, 'form_name', None),
-            request.form_data,
-            user_id,
-            storage_dir=storage_dir,
-            field_overrides=field_overrides,
+        bound = self._bind(
+            preset_template, mode, getattr(request, 'form_name', None), request.form_data,
+            user_id, storage_dir, field_overrides,
         )
 
         router = getattr(self, "router", None)
@@ -845,14 +874,9 @@ class GenerationOrchestrator:
                 field_overrides = self.database_preset_repository.get_preset_form_overrides(
                     request.preset_id
                 ).get(mode, {})
-            bound = bind_form(
-                preset_template,
-                mode,
-                getattr(request, 'form_name', None),
-                request.form_data,
-                user_id,
-                storage_dir=storage_dir,
-                field_overrides=field_overrides,
+            bound = self._bind(
+                preset_template, mode, getattr(request, 'form_name', None), request.form_data,
+                user_id, storage_dir, field_overrides,
             )
             request.form_data = bound.values
 
@@ -921,6 +945,13 @@ class GenerationOrchestrator:
 
             logger.debug(f"Selected backend: {backend.name} (engine={backend.engine})")
 
+            if engine == CLOUD_ENGINE and getattr(self, "cloud_capabilities", None) is not None:
+                bound = self._bind(
+                    preset_template, mode, bound.form_name, bound.values,
+                    user_id, storage_dir, field_overrides, backend=backend,
+                )
+                request.form_data = bound.values
+
             # Generate unique ID for this generation
             generation_id = generate_ulid()
             logger.debug(f"Generated generation_id: {generation_id}")
@@ -972,19 +1003,18 @@ class GenerationOrchestrator:
                     logger.debug(
                         f"before_start hook modified form_data for {generation_id}; re-binding"
                     )
-                    bound = bind_form(
-                        preset_template,
-                        mode,
-                        bound.form_name,
-                        form_data,
-                        user_id,
-                        storage_dir=storage_dir,
-                        field_overrides=field_overrides,
+                    bound = self._bind(
+                        preset_template, mode, bound.form_name, form_data,
+                        user_id, storage_dir, field_overrides, backend=backend,
                     )
                     form_data = bound.values
 
                 # Update request with potentially modified (and re-validated) form_data
                 request.form_data = form_data
+
+            cloud_policy = getattr(self, "cloud_policy", None)
+            if cloud_policy is not None and engine == CLOUD_ENGINE:
+                cloud_policy.check(preset_template, mode, bound, backend)
 
             resolve_generation_prompts(
                 preset_template,

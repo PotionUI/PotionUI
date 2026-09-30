@@ -136,6 +136,7 @@ class BaseField(ABC):
                 'width': getattr(field, 'width', None),
                 'full_width': getattr(field, 'full_width', False),
                 'hidden_when_video_director': getattr(field, 'hidden_when_video_director', False),
+                'capability': self._capability_of(getattr(field, 'capability', None)),
             }
         else:
             return {
@@ -154,7 +155,12 @@ class BaseField(ABC):
                 'width': field.get('width'),
                 'full_width': field.get('full_width', False),
                 'hidden_when_video_director': field.get('hidden_when_video_director', False),
+                'capability': self._capability_of(field.get('capability')),
             }
+
+    @staticmethod
+    def _capability_of(value):
+        return value if isinstance(value, dict) else None
 
     def create_base_schema(self, field_info: Dict[str, Any]) -> Dict[str, Any]:
         """Create base schema structure for a field"""
@@ -206,6 +212,9 @@ class BaseField(ABC):
         # in formData either way).
         if field_info.get('hidden_when_video_director'):
             schema['hidden_when_video_director'] = True
+
+        if field_info.get('capability'):
+            schema['capability'] = {k: v for k, v in dict(field_info['capability']).items() if v is not None}
 
         return schema
     

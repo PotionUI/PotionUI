@@ -1,13 +1,15 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from fastapi import APIRouter, Depends, Query
 
+from src.features.cloud.capabilities import CloudCapabilities
 from src.features.cloud.catalog import CloudCatalog
 from src.features.cloud.contracts import CloudError
 from src.features.cloud.dto import CatalogSelectionRequest
 from src.features.cloud.errors import CloudCatalogError
 from src.platform.http.base_controller import APIResponse, BaseController
-from src.platform.security.current_user import get_current_admin_user
+from src.features.models.exceptions import ModelAccessDeniedException, ModelNotFoundException
+from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -57,9 +59,33 @@ class CloudCatalogController(BaseController):
         return self.success_response(data=data)
 
 
+class CloudCapabilitiesController(BaseController):
+    def __init__(self, capabilities: CloudCapabilities):
+        super().__init__()
+        self.capabilities = capabilities
+
+    async def get_capabilities(self, model_id: str, user: Any, driver: Optional[str]) -> APIResponse:
+        try:
+            data = self.capabilities.payload(model_id, user, driver)
+        except (ModelNotFoundException, ModelAccessDeniedException):
+            self.error_response(error="model_not_found", message=f"Model '{model_id}' not found", status_code=404)
+        return self.success_response(data=data)
+
+
 def build_router(container: "AppContainer") -> APIRouter:
     controller = CloudCatalogController(container.cloud_catalog)
+    capabilities_controller = CloudCapabilitiesController(container.cloud_capabilities)
     router = APIRouter(prefix="/api/cloud", tags=["Cloud"])
+
+    @router.get(
+        "/models/{model_id}/capabilities", response_model=APIResponse, summary="Get a cloud model's capabilities"
+    )
+    async def get_model_capabilities(
+        model_id: str,
+        driver: Optional[str] = None,
+        current_user=Depends(get_current_active_user),
+    ):
+        return await capabilities_controller.get_capabilities(model_id, current_user, driver)
 
     @router.get("/backends/{backend_id}/catalog", response_model=APIResponse, summary="List a cloud backend's catalog")
     async def list_catalog(

@@ -154,6 +154,28 @@ class ReactionSpec(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class CapabilitySpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_field: str
+    param: Optional[str] = None
+    input: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _validate_binding(self) -> "CapabilitySpec":
+        from src.features.cloud.contracts import MEDIA_ROLES, is_canonical_param
+
+        if not self.model_field.strip():
+            raise ValueError("capability.model_field must name the field that holds the cloud model")
+        if self.param is not None and self.input is not None:
+            raise ValueError("capability takes either param or input, not both")
+        if self.param is not None and not is_canonical_param(self.param):
+            raise ValueError(f"capability.param '{self.param}' is neither a canonical parameter nor an 'x.' extra")
+        if self.input is not None and self.input not in MEDIA_ROLES:
+            raise ValueError(f"capability.input '{self.input}' is not one of {sorted(MEDIA_ROLES)}")
+        return self
+
+
 class FieldSpec(BaseModel):
     """Mirrors src.features.presets.templates.FieldTemplate. `type` is an opaque, registry-validated
     string - this schema does not enumerate field types."""
@@ -197,6 +219,18 @@ class FieldSpec(BaseModel):
     # default still submits; only rendering changes, same contract as
     # `audience`. See docs/presets.md field reference.
     hidden_when_video_director: Optional[bool] = False
+    capability: Optional[CapabilitySpec] = None
+
+    @model_validator(mode="after")
+    def _validate_capability(self) -> "FieldSpec":
+        if self.capability is None:
+            return self
+        bound = self.capability.param is not None or self.capability.input is not None
+        if self.type == "cloud_options" and bound:
+            raise ValueError(f"field '{self.name}' (cloud_options): capability names the model field only")
+        if self.type != "cloud_options" and not bound:
+            raise ValueError(f"field '{self.name}' ({self.type}): capability needs a param or an input")
+        return self
 
     @model_validator(mode="after")
     def _validate_default(self) -> "FieldSpec":

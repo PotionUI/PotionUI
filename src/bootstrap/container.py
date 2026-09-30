@@ -148,6 +148,7 @@ if TYPE_CHECKING:
     from src.features.llm.trace_recorder import ChatCallTraceRecorder
     from src.platform.websocket.connection_hub import ConnectionHub
     from src.platform.websocket.download_connection_hub import DownloadConnectionHub
+    from src.features.cloud.capabilities import CloudCapabilities
     from src.features.cloud.catalog import CloudCatalog
     from src.features.models.repository import ModelRepository
     from src.features.tags.repository import TagRepository
@@ -363,6 +364,7 @@ class AppContainer:
     model_index_manager: ModelIndexCollaborators
     model_controller: "ModelController"
     cloud_catalog: "CloudCatalog"
+    cloud_capabilities: "CloudCapabilities"
     model_collection_repository: "ModelCollectionRepository"
     user_model_meta_repository: "UserModelMetaRepository"
     model_collection_controller: "ModelCollectionController"
@@ -1023,7 +1025,21 @@ def build_container() -> AppContainer:
     from src.features.models.access_policy import ModelAccessPolicy
 
     _preset_repo_for_orchestrator = _DatabasePresetRepositoryForOrchestrator()
-    model_access_policy = ModelAccessPolicy(_ModelRepositoryForOrchestrator())
+    _model_repository_for_orchestrator = _ModelRepositoryForOrchestrator()
+    model_access_policy = ModelAccessPolicy(_model_repository_for_orchestrator)
+
+    from src.features.cloud.capabilities import CloudCapabilities
+    from src.features.cloud.policy import CloudGenerationPolicy
+    from src.features.cloud.repository import CloudCatalogRepository
+
+    cloud_catalog_repository = CloudCatalogRepository()
+    cloud_capabilities = CloudCapabilities(
+        backend_registry=backend_registry,
+        repository=cloud_catalog_repository,
+        model_repository=_model_repository_for_orchestrator,
+        model_access_policy=model_access_policy,
+    )
+    cloud_policy = CloudGenerationPolicy(cloud_catalog_repository, _model_repository_for_orchestrator)
 
     # Durable per-generation stats store. Built here (ahead of the main "Stats
     # components" block) because the orchestrator needs it at construction time
@@ -1130,6 +1146,8 @@ def build_container() -> AppContainer:
         router=None,  # Will be set after model_index_manager is created - see docs/generation-routing.md
         scheduling_policy_for=_scheduling_policy_for,
         content_safety=content_safety,
+        cloud_capabilities=cloud_capabilities,
+        cloud_policy=cloud_policy,
     )
 
     # Initialize generation history manager
@@ -1226,12 +1244,11 @@ def build_container() -> AppContainer:
     )
 
     from src.features.cloud.catalog import CloudCatalog
-    from src.features.cloud.repository import CloudCatalogRepository
     from src.features.models.backend_indexer import backend_model_indexer as _cloud_backend_model_indexer
 
     cloud_catalog = CloudCatalog(
         backend_registry=backend_registry,
-        repository=CloudCatalogRepository(),
+        repository=cloud_catalog_repository,
         model_repository=model_repository,
         backend_indexer=_cloud_backend_model_indexer,
     )

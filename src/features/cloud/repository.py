@@ -81,6 +81,19 @@ class CloudCatalogRepository:
             )
             return {row["slug"]: row["provider_model_id"] for row in cursor.fetchall()}
 
+    def entries_for_slug(self, slug: str, backend_ids: list[str]) -> list[CloudCatalogEntry]:
+        if not backend_ids:
+            return []
+        from src.platform.database.database import db
+
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"{_ENTRY_SELECT} WHERE c.slug = ? AND c.enabled = 1 AND c.missing_since IS NULL "
+                f"AND c.backend_id IN ({_placeholders(backend_ids)})",
+                (CLOUD_MODEL_TYPE, slug, *backend_ids),
+            )
+            return [CloudCatalogEntry.from_row(row) for row in cursor.fetchall()]
+
     def get_many(self, backend_id: str, slugs: list[str]) -> list[CloudCatalogEntry]:
         if not slugs:
             return []

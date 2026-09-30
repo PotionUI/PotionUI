@@ -5,7 +5,9 @@ import pytest
 
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.cloud.backend import CloudBackend
+from src.features.cloud.capabilities import CloudCapabilities
 from src.features.cloud.catalog import CloudCatalog
+from src.features.models.access_policy import ModelAccessPolicy
 from src.features.cloud.registration import register_cloud_provider
 from src.features.cloud.repository import CloudCatalogRepository
 from src.features.cloud.testing.fake import FakeBehaviour, FakeCloudConfig, FakeCloudProvider, fake_specs
@@ -30,7 +32,8 @@ class ScriptedPluginRegistry:
 
 
 class CloudEnv:
-    def __init__(self, registry, catalog, repository):
+    def __init__(self, registry, catalog, repository, capabilities):
+        self.capabilities = capabilities
         self.registry = registry
         self.catalog = catalog
         self.repository = repository
@@ -70,7 +73,13 @@ def cloud_env(mock_db):
         model_repository=model_repo,
         backend_indexer=BackendModelIndexer(),
     )
-    return CloudEnv(registry, catalog, repository)
+    capabilities = CloudCapabilities(
+        backend_registry=registry,
+        repository=repository,
+        model_repository=model_repo,
+        model_access_policy=ModelAccessPolicy(model_repo),
+    )
+    return CloudEnv(registry, catalog, repository, capabilities)
 
 
 @pytest.fixture
@@ -87,7 +96,7 @@ async def refreshed(fake_backend):
 
 @pytest.fixture
 def container(cloud_env):
-    return SimpleNamespace(cloud_catalog=cloud_env.catalog)
+    return SimpleNamespace(cloud_catalog=cloud_env.catalog, cloud_capabilities=cloud_env.capabilities)
 
 
 def returning(specs):

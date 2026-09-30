@@ -231,9 +231,9 @@ class TestQueueingThroughTheOrchestrator:
         assert created.tab_id == 'tab_a'
 
     async def test_queue_snapshot_is_scoped_to_the_calling_user(self, orchestrator, repo):
-        await _start(orchestrator, 'tab_a', 'gen_1')  # user_1, runs
+        await _start(orchestrator, 'tab_a', 'gen_1')
         with patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_2'):
-            await orchestrator.start_generation(_request('tab_x'), 'user_2')  # queued
+            await orchestrator.start_generation(_request('tab_x'), 'user_2')
 
         mine = orchestrator.get_queue_snapshot('user_1')
         theirs = orchestrator.get_queue_snapshot('user_2')
@@ -242,6 +242,21 @@ class TestQueueingThroughTheOrchestrator:
         assert mine['running'][0]['tab_id'] == 'tab_a'
         assert mine['pending'] == [], "user_1 must not see user_2's queued generation"
         assert [p['generation_id'] for p in theirs['pending']] == ['gen_2']
+
+    async def test_all_queue_snapshot_lists_every_users_work_with_owners(self, orchestrator, repo):
+        await _start(orchestrator, 'tab_a', 'gen_1')
+        with patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_2'):
+            await orchestrator.start_generation(_request('tab_x'), 'user_2')
+
+        snapshot = orchestrator.get_all_queue_snapshot()
+
+        assert [r['generation_id'] for r in snapshot['running']] == ['gen_1']
+        assert snapshot['running'][0]['user_id'] == 'user_1'
+        assert snapshot['running'][0]['started_at'] is not None
+        assert [p['generation_id'] for p in snapshot['pending']] == ['gen_2']
+        assert snapshot['pending'][0]['user_id'] == 'user_2'
+        assert snapshot['pending'][0]['queue_position'] == 0
+        assert snapshot['pending'][0]['created_at'] is not None
 
     async def test_queue_update_is_published_for_pending_and_running(self, orchestrator, repo):
         seen = []

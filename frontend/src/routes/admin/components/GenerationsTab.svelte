@@ -19,6 +19,7 @@
 	import { selectPage, clearAll } from '$lib/components/table/selection';
 	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
 	import GenerationRunReport from './GenerationRunReport.svelte';
+	import RunningGenerationsPanel from './RunningGenerationsPanel.svelte';
 	import GenerationsFiltersPopover from './GenerationsFiltersPopover.svelte';
 	import { GENERATION_LIBRARY_SECTIONS, sectionFromStatus, statusFromSection, type GenerationSection } from './generations/generationsSections';
 	import { categoryLabel, durationFor, presetTitleFor, sortByFromSortState, sortStateFromSortBy } from './generations/generationsColumns';
@@ -342,6 +343,7 @@
 		{/if}
 	{:else}
 		<div class="flex flex-col p-4 gap-3">
+			<RunningGenerationsPanel usernameFor={(userId) => usersById.get(userId)?.username} />
 			<DataTable
 				columns={[
 					{ key: 'status', label: 'Status', width: '110px', cell: statusCell },

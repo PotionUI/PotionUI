@@ -192,3 +192,35 @@ class QueueDispatcher:
         ]
 
         return {'pending': pending, 'running': running}
+
+    def get_all_queue_snapshot(self) -> Dict[str, Any]:
+        pending = []
+        for position, item in enumerate(self.queue.pending_items()):
+            record = self.status_tracker.get(item.generation_id)
+            pending.append({
+                'generation_id': item.generation_id,
+                'backend_id': item.backend_id,
+                'preset_id': record.preset_id if record else None,
+                'tab_id': item.tab_id,
+                'user_id': item.user_id,
+                'queue_position': position,
+                'created_at': item.enqueued_at,
+            })
+
+        running = [
+            {
+                'generation_id': record.id,
+                'backend_id': record.backend_id,
+                'preset_id': record.preset_id,
+                'tab_id': record.tab_id,
+                'user_id': record.user_id,
+                'progress': record.progress,
+                'current_step': record.current_step,
+                'created_at': record.created_at,
+                'started_at': record.started_at,
+            }
+            for record in self.status_tracker.list_active()
+            if record.state == GenerationState.RUNNING
+        ]
+
+        return {'pending': pending, 'running': running}

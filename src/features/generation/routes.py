@@ -459,6 +459,16 @@ class GenerationController(BaseController):
                 message=f"Failed to read generation queue: {str(e)}"
             )
 
+    async def get_all_queue(self) -> APIResponse:
+        try:
+            return self.success_response(data=self.generation_orchestrator.get_all_queue_snapshot())
+        except Exception as e:
+            logging.error(f"Failed to read the full generation queue: {str(e)}")
+            return self.error_response(
+                error="queue_read_failed",
+                message=f"Failed to read generation queue: {str(e)}"
+            )
+
     async def cancel_generation(self, generation_id: str, current_user) -> APIResponse:
         """Cancel a running generation"""
         # Enforce ownership before cancelling. Return 404 (not 403) on a denied
@@ -1733,6 +1743,10 @@ def build_admin_router(container: "AppContainer") -> APIRouter:
     @admin_router.post("/bulk-delete", response_model=APIResponse, summary="Bulk Delete Generations (Admin)")
     async def admin_bulk_delete_generations(request: BulkDeleteRequest, current_user = Depends(get_current_admin_user)):
         return await controller.bulk_delete_generations(request.generation_ids, current_user, any_owner=True)
+
+    @admin_router.get("/queue", response_model=APIResponse, summary="Every User's Running And Queued Generations (Admin)")
+    async def admin_get_queue(current_user = Depends(get_current_admin_user)):
+        return await controller.get_all_queue()
 
     @admin_router.get("", response_model=APIResponse, summary="List All Generations (Admin)")
     async def admin_list_generations(

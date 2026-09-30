@@ -1755,6 +1755,9 @@ class GenerationOrchestrator:
         Delegates to QueueDispatcher; see queue_dispatcher.py."""
         return self._queue_dispatcher.get_queue_snapshot(user_id, tab_id)
 
+    def get_all_queue_snapshot(self) -> Dict[str, Any]:
+        return self._queue_dispatcher.get_all_queue_snapshot()
+
     def list_active_generations(self) -> list:
         """
         List all currently active generations.

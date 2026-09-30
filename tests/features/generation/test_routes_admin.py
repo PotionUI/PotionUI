@@ -312,3 +312,32 @@ class TestAdminGenerationsRouteGating:
         client = TestClient(app)
         resp = client.get("/api/admin/generations")
         assert resp.status_code == 200
+
+
+class TestAdminQueueRouteGating:
+
+    @pytest.fixture
+    def controller(self):
+        controller = GenerationController(Mock(), Mock(), Mock(), Mock(spec=RunReportRecorder))
+        controller.generation_orchestrator.get_all_queue_snapshot = Mock(
+            return_value={"pending": [], "running": [{"generation_id": "g1", "user_id": "u1"}]}
+        )
+        return controller
+
+    @pytest.fixture
+    def app(self, controller):
+        app = FastAPI()
+        app.include_router(build_admin_router(SimpleNamespace(_generation_controller=controller)))
+        return app
+
+    def test_non_admin_is_forbidden(self, app, controller):
+        app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.USER, "regular")
+        resp = TestClient(app).get("/api/admin/generations/queue")
+        assert resp.status_code == 403
+        controller.generation_orchestrator.get_all_queue_snapshot.assert_not_called()
+
+    def test_admin_sees_every_users_work(self, app, controller):
+        app.dependency_overrides[get_current_admin_user] = lambda: _user(AccountType.ADMIN)
+        resp = TestClient(app).get("/api/admin/generations/queue")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["running"][0]["user_id"] == "u1"

@@ -1448,6 +1448,38 @@ export interface AdminGenerationsParams {
 	sortDir?: string;
 }
 
+export interface AdminQueueRunning {
+	generation_id: string;
+	backend_id: string | null;
+	preset_id: string | null;
+	tab_id: string | null;
+	user_id: string | null;
+	progress: number | null;
+	current_step?: string | null;
+	created_at: number | null;
+	started_at: number | null;
+}
+
+export interface AdminQueuePending {
+	generation_id: string;
+	backend_id: string | null;
+	preset_id: string | null;
+	tab_id: string | null;
+	user_id: string | null;
+	queue_position: number;
+	created_at: number | null;
+}
+
+export interface AdminGenerationQueue {
+	pending: AdminQueuePending[];
+	running: AdminQueueRunning[];
+}
+
+export async function getAdminGenerationQueue(): Promise<APIResponse<AdminGenerationQueue>> {
+	const response = await api.getClient().get('/api/admin/generations/queue');
+	return response.data;
+}
+
 export async function getAdminGenerations(
 	params: AdminGenerationsParams = {}
 ): Promise<APIResponse<AdminGenerationsResult>> {

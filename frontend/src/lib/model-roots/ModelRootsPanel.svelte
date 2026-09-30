@@ -8,14 +8,33 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { formatBytes, formatCount } from '$lib/utils/format';
 	import { moveItem } from '$lib/utils/reorder';
-	import { ModelRootsState } from './state.svelte';
-	import { orderedRoots, bindingsSummary, bindingSupportsHeaderScan, bindingScanKey } from './logic';
+	import { ModelRootsState, detectModelRoot, listModelLayouts } from './state.svelte';
+	import {
+		orderedRoots,
+		bindingsSummary,
+		bindingSupportsHeaderScan,
+		bindingScanKey,
+		bindingRefKey,
+		bindingTitle,
+		detectAgainApplies,
+		groupBindingsByType,
+		missingSuggestions,
+		profileBadgeLabel,
+		suggestionKey
+	} from './logic';
+	import { modelTypePresentation } from '$lib/utils/modelPresentation';
+	import { modelRootsErrorMessage } from './errors';
 	import { ROOT_STATE_BADGE } from './format';
 	import { indexingStatusStore } from '$lib/models-location/indexingStatus.svelte';
 	import { indexingIsVisible } from '$lib/models-location/indexingDisplay';
 	import IndexingStatusPanel from '$lib/models-location/IndexingStatusPanel.svelte';
 	import AddRootModal from './AddRootModal.svelte';
-	import type { ModelRoot, ModelRootBinding } from '$lib/services/api/models';
+	import type {
+		ModelLayoutSummary,
+		ModelRoot,
+		ModelRootBinding,
+		ModelRootDetectionSuggestion
+	} from '$lib/services/api/models';
 
 	const roots = new ModelRootsState();
 
@@ -33,6 +52,14 @@
 	let togglingScan = $state<string | null>(null);
 	let scanErrors = $state<Record<string, string>>({});
 	let scanRevision = $state(0);
+	let catalog = $state<ModelLayoutSummary[]>([]);
+	let settingDownloads = $state<string | null>(null);
+	let bindingErrors = $state<Record<string, string>>({});
+	let detectingAgainId = $state<string | null>(null);
+	let againResults = $state<
+		Record<string, { missing: ModelRootDetectionSuggestion[]; ticks: Record<string, boolean>; note: string | null }>
+	>({});
+	let addingMissingId = $state<string | null>(null);
 
 	let addModalOpen = $state(false);
 	let addModalInitialPath = $state('');
@@ -44,6 +71,7 @@
 
 	onMount(() => {
 		void roots.load();
+		void listModelLayouts().then((layouts) => (catalog = layouts));
 	});
 
 
@@ -117,21 +145,87 @@
 		probingRootId = null;
 	}
 
-	async function removeBindingType(root: ModelRoot, binding: ModelRootBinding) {
+	async function removeBinding(root: ModelRoot, binding: ModelRootBinding) {
+		const title = bindingTitle(binding);
 		const confirmed = await confirmDialog({
-			title: 'Remove this type from the folder?',
-			message: `Models under "${binding.folder}" in "${root.label}" become unavailable until you point that type at another folder. Files on disk are not touched.`,
+			title: 'Remove this folder from the root?',
+			message: `Models under "${title}" in "${root.label}" become unavailable until you point that type at another folder. Files on disk are not touched.`,
 			variant: 'danger'
 		});
 		if (!confirmed) return;
-		removingBinding = `${root.id}:${binding.model_type}`;
+		removingBinding = bindingRefKey(root.id, binding);
 		try {
-			await roots.update(root.id, { remove_types: [binding.model_type] });
-			toasts.success(`Removed ${binding.folder} from "${root.label}".`);
+			await roots.update(root.id, { remove_bindings: [{ model_type: binding.model_type, subdir: binding.subdir }] });
+			toasts.success(`Removed ${title} from "${root.label}".`);
 		} catch {
-			toasts.error(roots.error ?? 'Failed to remove that type.');
+			toasts.error(roots.error ?? 'Failed to remove that folder.');
 		} finally {
 			removingBinding = null;
+		}
+	}
+
+	async function makeDownloadsFolder(root: ModelRoot, binding: ModelRootBinding) {
+		const key = bindingRefKey(root.id, binding);
+		settingDownloads = key;
+		bindingErrors = { ...bindingErrors, [key]: '' };
+		try {
+			await roots.setWrite(root.id, binding.model_type, binding.subdir);
+		} catch {
+			bindingErrors = { ...bindingErrors, [key]: roots.error ?? 'Failed to set the downloads folder.' };
+		} finally {
+			settingDownloads = null;
+		}
+	}
+
+	async function detectAgain(root: ModelRoot) {
+		detectingAgainId = root.id;
+		const { detection, error } = await detectModelRoot(root.path);
+		detectingAgainId = null;
+		if (!detection) {
+			againResults = { ...againResults, [root.id]: { missing: [], ticks: {}, note: error } };
+			return;
+		}
+		if (!detectAgainApplies(root, detection)) {
+			againResults = {
+				...againResults,
+				[root.id]: { missing: [], ticks: {}, note: 'This folder belongs to a larger install, so nothing was compared.' }
+			};
+			return;
+		}
+		const missing = missingSuggestions(root, detection.suggestions);
+		const ticks: Record<string, boolean> = {};
+		for (const s of missing) ticks[suggestionKey(s)] = true;
+		againResults = {
+			...againResults,
+			[root.id]: { missing, ticks, note: missing.length === 0 ? 'Nothing new found. Every detected folder is already added.' : null }
+		};
+	}
+
+	async function addMissing(root: ModelRoot) {
+		const result = againResults[root.id];
+		if (!result) return;
+		const chosen = result.missing.filter((s) => result.ticks[suggestionKey(s)]);
+		if (chosen.length === 0) return;
+		addingMissingId = root.id;
+		try {
+			await roots.update(root.id, {
+				bindings: chosen.map((s) => ({
+					model_type: s.model_type,
+					subdir: s.subdir,
+					...(s.scan_headers !== undefined ? { scan_headers: s.scan_headers } : {}),
+					write: false
+				}))
+			});
+			toasts.success(`Added ${chosen.length} folder${chosen.length === 1 ? '' : 's'} to "${root.label}".`);
+			const { [root.id]: _done, ...rest } = againResults;
+			againResults = rest;
+		} catch (e) {
+			againResults = {
+				...againResults,
+				[root.id]: { ...result, note: modelRootsErrorMessage(e, 'Failed to add those folders.') }
+			};
+		} finally {
+			addingMissingId = null;
 		}
 	}
 
@@ -225,6 +319,9 @@
 									{#if root.kind === 'home'}
 										<Badge variant="neutral" size="sm">Built-in</Badge>
 									{/if}
+									{#if root.layout_profile}
+										<Badge variant="neutral" size="sm">{profileBadgeLabel(root.layout_profile, catalog)}</Badge>
+									{/if}
 									{#if root.read_only}
 										<Badge variant="warning" size="sm">Read-only</Badge>
 									{/if}
@@ -277,6 +374,16 @@
 										<Button
 											variant="secondary"
 											size="sm"
+											icon="scan-search"
+											loading={detectingAgainId === root.id}
+											disabled={root.kind === 'home' || root.state !== 'online'}
+											onclick={() => detectAgain(root)}
+										>
+											Detect again
+										</Button>
+										<Button
+											variant="secondary"
+											size="sm"
 											icon="refresh"
 											loading={probingRootId === root.id}
 											onclick={() => probeRoot(root)}
@@ -314,14 +421,18 @@
 									{#if root.bindings.length === 0}
 										<p class="text-xs text-fg-subtle">No types bound to this folder yet.</p>
 									{:else}
-										<ul class="space-y-1.5">
-											{#each root.bindings as binding (binding.model_type)}
+										<div class="space-y-3">
+											{#each groupBindingsByType(root.bindings) as group (group.model_type)}
+												<div class="space-y-1.5">
+													<span class="block text-sm font-medium text-fg">{modelTypePresentation(group.model_type).label}</span>
+													<ul class="space-y-1.5">
+														{#each group.items as binding (binding.subdir)}
 												<li class="flex items-center gap-2.5 rounded border border-line bg-surface-2 px-3 py-2">
 													<div class="min-w-0 flex-1">
 														<div class="flex items-center gap-2">
-															<span class="text-sm text-fg">{binding.folder}</span>
+															<span class="text-sm text-fg">{bindingTitle(binding)}</span>
 															{#if binding.is_write}
-																<Badge variant="signal" size="sm">Write</Badge>
+																<Badge variant="signal" size="sm">Downloads</Badge>
 															{/if}
 															{#if !binding.exists}
 																<Tooltip text="This folder is missing on disk" position="top">
@@ -330,6 +441,9 @@
 															{/if}
 														</div>
 														<span class="block truncate font-mono text-xs text-fg-subtle">{binding.path}</span>
+														{#if bindingErrors[bindingRefKey(root.id, binding)]}
+															<p class="mt-1 text-xs text-danger">{bindingErrors[bindingRefKey(root.id, binding)]}</p>
+														{/if}
 														{#if bindingSupportsHeaderScan(binding)}
 															{@const scanKey = bindingScanKey(root.id, binding)}
 															<div class="mt-2">
@@ -361,19 +475,78 @@
 													<span class="shrink-0 font-mono text-xs tabular-nums text-fg-muted">
 														{formatCount(binding.indexed_files)}
 													</span>
-													<Tooltip text="Remove this type from the folder" position="top">
+													{#if !binding.is_write && !root.read_only}
+														<Tooltip text="Make this the downloads folder for {modelTypePresentation(binding.model_type).label}" position="top">
+															<IconButton
+																icon="download"
+																label="Make {bindingTitle(binding)} the downloads folder"
+																size="sm"
+																loading={settingDownloads === bindingRefKey(root.id, binding)}
+																onclick={() => makeDownloadsFolder(root, binding)}
+															/>
+														</Tooltip>
+													{/if}
+													<Tooltip text="Remove this folder from the root" position="top">
 														<IconButton
 															icon="trash-2"
-															label="Remove {binding.folder} from {root.label}"
+															label="Remove {bindingTitle(binding)} from {root.label}"
 															size="sm"
 															disabled={root.kind === 'home'}
-															loading={removingBinding === `${root.id}:${binding.model_type}`}
-															onclick={() => removeBindingType(root, binding)}
+															loading={removingBinding === bindingRefKey(root.id, binding)}
+															onclick={() => removeBinding(root, binding)}
 														/>
 													</Tooltip>
 												</li>
+														{/each}
+													</ul>
+												</div>
 											{/each}
-										</ul>
+										</div>
+									{/if}
+									{#if againResults[root.id]}
+										{@const again = againResults[root.id]}
+										<div class="mt-3 space-y-2 rounded border border-line bg-surface-2 px-3 py-2.5">
+											<span class="block text-xs font-medium uppercase tracking-[0.05em] text-fg-subtle">
+												Found by detecting again
+											</span>
+											{#if again.note}
+												<p class="text-sm text-fg-muted">{again.note}</p>
+											{/if}
+											{#if again.missing.length > 0}
+												<ul class="space-y-1.5">
+													{#each again.missing as suggestion (suggestionKey(suggestion))}
+														{@const key = suggestionKey(suggestion)}
+														<li class="flex items-center gap-2.5">
+															<input
+																type="checkbox"
+																id="again-{root.id}-{key}"
+																class="h-4 w-4 rounded accent-signal-solid"
+																bind:checked={again.ticks[key]}
+															/>
+															<label for="again-{root.id}-{key}" class="min-w-0 flex-1 cursor-pointer">
+																<span class="block text-sm text-fg">
+																	{modelTypePresentation(suggestion.model_type).label}
+																	{#if suggestion.label && suggestion.label.toLowerCase() !== modelTypePresentation(suggestion.model_type).label.toLowerCase()}
+																		<span class="text-fg-muted">{suggestion.label}</span>
+																	{/if}
+																</span>
+																<span class="block truncate font-mono text-xs text-fg-subtle">{suggestion.subdir}</span>
+															</label>
+														</li>
+													{/each}
+												</ul>
+												<Button
+													variant="secondary"
+													size="sm"
+													icon="plus"
+													loading={addingMissingId === root.id}
+													disabled={!again.missing.some((s) => again.ticks[suggestionKey(s)])}
+													onclick={() => addMissing(root)}
+												>
+													Add selected
+												</Button>
+											{/if}
+										</div>
 									{/if}
 								</div>
 							</div>

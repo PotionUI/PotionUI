@@ -170,3 +170,53 @@ export function pendingExtraPaths(
 ): string[] {
 	return extras.filter((e) => ticks[e.path] && !done[e.path]).map((e) => e.path);
 }
+
+export interface BindingGroup {
+	model_type: string;
+	items: ModelRootBinding[];
+}
+
+export function groupBindingsByType(bindings: readonly ModelRootBinding[]): BindingGroup[] {
+	const groups: BindingGroup[] = [];
+	for (const binding of bindings) {
+		const group = groups.find((g) => g.model_type === binding.model_type);
+		if (group) group.items.push(binding);
+		else groups.push({ model_type: binding.model_type, items: [binding] });
+	}
+	return groups;
+}
+
+export function bindingTitle(binding: Pick<ModelRootBinding, 'subdir' | 'folder'>): string {
+	const last = binding.subdir.split(/[\\/]/).filter(Boolean).pop();
+	return last || binding.folder;
+}
+
+export function bindingRefKey(rootId: string, binding: Pick<ModelRootBinding, 'model_type' | 'subdir'>): string {
+	return `${rootId}:${binding.model_type}:${binding.subdir}`;
+}
+
+function normalizedSubdir(subdir: string, caseInsensitive: boolean): string {
+	const trimmed = subdir.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+	return caseInsensitive ? trimmed.toLowerCase() : trimmed;
+}
+
+export function missingSuggestions(
+	root: Pick<ModelRoot, 'bindings' | 'case_insensitive'>,
+	suggestions: readonly ModelRootDetectionSuggestion[]
+): ModelRootDetectionSuggestion[] {
+	const have = new Set(
+		root.bindings.map((b) => `${b.model_type}:${normalizedSubdir(b.subdir, root.case_insensitive)}`)
+	);
+	return suggestions.filter((s) => !have.has(`${s.model_type}:${normalizedSubdir(s.subdir, root.case_insensitive)}`));
+}
+
+export function profileBadgeLabel(profileId: string | null | undefined, catalog: readonly ModelLayoutSummary[]): string {
+	if (!profileId) return '';
+	if (profileId === GENERIC_PROFILE_ID) return 'Generic';
+	return catalog.find((layout) => layout.id === profileId)?.label ?? profileId;
+}
+
+export function detectAgainApplies(root: Pick<ModelRoot, 'path'>, detection: Pick<ModelRootDetection, 'root_path' | 'path'>): boolean {
+	const detected = (detection.root_path ?? detection.path).replace(/[\\/]+$/, '');
+	return detected === root.path.replace(/[\\/]+$/, '');
+}

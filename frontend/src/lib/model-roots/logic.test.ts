@@ -5,7 +5,13 @@ import {
 	mergeDetectionSuggestions,
 	bindingSupportsHeaderScan,
 	bindingScanKey,
+	bindingRefKey,
+	bindingTitle,
 	buildBindings,
+	detectAgainApplies,
+	groupBindingsByType,
+	missingSuggestions,
+	profileBadgeLabel,
 	detectedLabel,
 	effectiveWriteChoices,
 	groupSuggestionsByType,
@@ -299,5 +305,94 @@ describe('pendingExtraPaths', () => {
 
 	it('never selects extras by default', () => {
 		expect(pendingExtraPaths([{ path: '/srv/a' }], {}, {})).toEqual([]);
+	});
+});
+
+function bnd(model_type: string, subdir: string, extra: Record<string, unknown> = {}) {
+	return {
+		model_type,
+		folder: model_type,
+		subdir,
+		path: `/srv/x/${subdir}`,
+		exists: true,
+		position: 0,
+		is_write: false,
+		indexed_files: 0,
+		size_bytes: 0,
+		unindexed: 0,
+		scan_headers: false,
+		...extra
+	};
+}
+
+describe('groupBindingsByType', () => {
+	it('groups several subfolders of one type together', () => {
+		const groups = groupBindingsByType([bnd('lora', 'a/Lora'), bnd('vae', 'VAE'), bnd('lora', 'a/LyCORIS')]);
+		expect(groups.map((g) => [g.model_type, g.items.length])).toEqual([
+			['lora', 2],
+			['vae', 1]
+		]);
+	});
+});
+
+describe('bindingTitle and bindingRefKey', () => {
+	it('uses the last subdir segment and falls back to the folder name', () => {
+		expect(bindingTitle({ subdir: 'Data/Models/LyCORIS', folder: 'loras' })).toBe('LyCORIS');
+		expect(bindingTitle({ subdir: 'Data\\Models\\Lora', folder: 'loras' })).toBe('Lora');
+		expect(bindingTitle({ subdir: '', folder: 'loras' })).toBe('loras');
+	});
+
+	it('keys a binding by root, type and subdir', () => {
+		expect(bindingRefKey('r1', { model_type: 'lora', subdir: 'a' })).not.toBe(
+			bindingRefKey('r1', { model_type: 'lora', subdir: 'b' })
+		);
+	});
+});
+
+describe('missingSuggestions (detect again only adds)', () => {
+	const detected = [
+		sug('lora', 'Lora'),
+		sug('lora', 'LyCORIS'),
+		sug('vae', 'VAE')
+	];
+
+	it('returns only folders the root does not have', () => {
+		const rootLike = { case_insensitive: false, bindings: [bnd('lora', 'Lora'), bnd('vae', 'VAE')] };
+		expect(missingSuggestions(rootLike, detected).map((s) => s.subdir)).toEqual(['LyCORIS']);
+	});
+
+	it('treats the same subdir under another type as missing', () => {
+		const rootLike = { case_insensitive: false, bindings: [bnd('checkpoint', 'Lora')] };
+		expect(missingSuggestions(rootLike, detected)).toHaveLength(3);
+	});
+
+	it('ignores slashes and, on a case-insensitive root, case', () => {
+		const rootLike = { case_insensitive: true, bindings: [bnd('lora', '/lora/')] };
+		expect(missingSuggestions(rootLike, [sug('lora', 'Lora')])).toEqual([]);
+		expect(missingSuggestions({ ...rootLike, case_insensitive: false }, [sug('lora', 'Lora')])).toHaveLength(1);
+	});
+
+	it('is empty when everything is already added', () => {
+		const rootLike = { case_insensitive: false, bindings: [bnd('lora', 'Lora'), bnd('lora', 'LyCORIS'), bnd('vae', 'VAE')] };
+		expect(missingSuggestions(rootLike, detected)).toEqual([]);
+	});
+});
+
+describe('profileBadgeLabel', () => {
+	const catalog = [{ id: 'comfyui', label: 'ComfyUI', source: 'marketplace' }];
+
+	it('maps ids to labels, Generic, or the raw id', () => {
+		expect(profileBadgeLabel('comfyui', catalog)).toBe('ComfyUI');
+		expect(profileBadgeLabel('generic', catalog)).toBe('Generic');
+		expect(profileBadgeLabel('gone', catalog)).toBe('gone');
+		expect(profileBadgeLabel(null, catalog)).toBe('');
+	});
+});
+
+describe('detectAgainApplies', () => {
+	it('compares the detected root with the stored root path', () => {
+		expect(detectAgainApplies({ path: '/srv/sm' }, { path: '/srv/sm', root_path: '/srv/sm/' })).toBe(true);
+		expect(detectAgainApplies({ path: '/srv/pinokio' }, { path: '/srv/pinokio', root_path: '/srv/pinokio/api/x' })).toBe(false);
+		expect(detectAgainApplies({ path: '/srv/a' }, { path: '/srv/a' })).toBe(true);
 	});
 });

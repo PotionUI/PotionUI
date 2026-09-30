@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from src.features.cloud.contracts import ParamSpec
+from src.features.cloud.scope_repository import ModelPresetScopeRepository
 from src.features.cloud.policy import CloudGenerationPolicy, CloudPolicyViolation
 from src.features.cloud.testing.fake import fake_specs
 from src.features.generation.orchestrator import GenerationOrchestrator
@@ -62,7 +63,7 @@ def make_orchestrator(env, *, hook=None, router=None, task="txt2img"):
         output_processor=Mock(process_output=AsyncMock()), preset_template_loader=loader,
         plugin_registry=plugins, router=router,
         cloud_capabilities=env.capabilities,
-        cloud_policy=CloudGenerationPolicy(env.repository, model_repo),
+        cloud_policy=CloudGenerationPolicy(env.repository, model_repo, ModelPresetScopeRepository()),
     )
     return orchestrator
 
@@ -224,3 +225,25 @@ async def test_the_capabilities_resolver_can_be_pinned_to_one_backend(refreshed)
     assert {p.name: p.maximum for p in second.params}["quality"] == 3
     assert anywhere == first
     assert refreshed.capabilities.spec_for(model_id, "cloud.fake", "cloud-9") is None
+
+
+async def test_a_model_limited_to_other_presets_is_refused_when_posted_for_this_one(refreshed, generation_repo, started):
+    image_id = await enabled(refreshed, IMAGE)
+    ModelPresetScopeRepository().replace(image_id, ["some-other-preset"])
+    orchestrator = make_orchestrator(refreshed)
+
+    with pytest.raises(CloudPolicyViolation, match="not available in this preset"):
+        await orchestrator.start_generation(make_request(image_id), "u1")
+
+    generation_repo.create.assert_not_called()
+    started.assert_not_awaited()
+
+
+async def test_a_model_limited_to_this_preset_runs(refreshed, generation_repo, started):
+    image_id = await enabled(refreshed, IMAGE)
+    ModelPresetScopeRepository().replace(image_id, ["p"])
+    orchestrator = make_orchestrator(refreshed)
+
+    await orchestrator.start_generation(make_request(image_id), "u1")
+
+    started.assert_awaited_once()

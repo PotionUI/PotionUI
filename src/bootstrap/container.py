@@ -150,6 +150,7 @@ if TYPE_CHECKING:
     from src.platform.websocket.download_connection_hub import DownloadConnectionHub
     from src.features.cloud.capabilities import CloudCapabilities
     from src.features.cloud.catalog import CloudCatalog
+    from src.features.cloud.scopes import CloudModelScopes
     from src.features.models.repository import ModelRepository
     from src.features.tags.repository import TagRepository
     from src.features.model_library.repository.model_collection_repository import ModelCollectionRepository
@@ -365,6 +366,7 @@ class AppContainer:
     model_controller: "ModelController"
     cloud_catalog: "CloudCatalog"
     cloud_capabilities: "CloudCapabilities"
+    cloud_model_scopes: "CloudModelScopes"
     model_collection_repository: "ModelCollectionRepository"
     user_model_meta_repository: "UserModelMetaRepository"
     model_collection_controller: "ModelCollectionController"
@@ -1039,7 +1041,12 @@ def build_container() -> AppContainer:
         model_repository=_model_repository_for_orchestrator,
         model_access_policy=model_access_policy,
     )
-    cloud_policy = CloudGenerationPolicy(cloud_catalog_repository, _model_repository_for_orchestrator)
+    from src.features.cloud.scope_repository import ModelPresetScopeRepository
+
+    cloud_scope_repository = ModelPresetScopeRepository()
+    cloud_policy = CloudGenerationPolicy(
+        cloud_catalog_repository, _model_repository_for_orchestrator, cloud_scope_repository
+    )
 
     # Durable per-generation stats store. Built here (ahead of the main "Stats
     # components" block) because the orchestrator needs it at construction time
@@ -1252,6 +1259,10 @@ def build_container() -> AppContainer:
         model_repository=model_repository,
         backend_indexer=_cloud_backend_model_indexer,
     )
+
+    from src.features.cloud.scopes import CloudModelScopes
+
+    cloud_model_scopes = CloudModelScopes(cloud_scope_repository, preset_template_loader, model_repository)
 
     # Tag components
     from src.features.tags.routes import TagController

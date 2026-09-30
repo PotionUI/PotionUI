@@ -5,6 +5,10 @@ from pydantic import BaseModel, Field
 from src.features.cloud.records import CloudCatalogEntry, CloudCatalogState
 
 
+class ModelScopeRequest(BaseModel):
+    preset_ids: List[str] = Field(default_factory=list, max_length=500)
+
+
 class CatalogSelectionRequest(BaseModel):
     slugs: List[str] = Field(min_length=1, max_length=500)
 

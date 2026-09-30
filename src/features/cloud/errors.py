@@ -37,3 +37,12 @@ class CloudEntryUnavailable(CloudCatalogError):
 class CloudCatalogFilterError(CloudCatalogError):
     status_code = 422
     code = "cloud_catalog_filter_invalid"
+
+
+class CloudScopeInvalid(CloudCatalogError):
+    status_code = 422
+    code = "cloud_scope_invalid"
+
+    def __init__(self, problems: Sequence[str]):
+        super().__init__("; ".join(problems))
+        self.problems = list(problems)

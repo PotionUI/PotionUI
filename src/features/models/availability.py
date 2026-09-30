@@ -45,6 +45,8 @@ def models_for_engine(
     driver: Optional[str] = None,
     tasks: Optional[List[str]] = None,
     cloud_catalog=None,
+    preset_id: Optional[str] = None,
+    scope_repository=None,
     **list_kwargs,
 ) -> List[Dict]:
     """Every model loadable by at least one enabled backend of `engine`.
@@ -104,6 +106,16 @@ def models_for_engine(
         else:
             allowed_set = set(user_allowed_model_ids)
             allowed_model_ids = [m for m in allowed_model_ids if m in allowed_set]
+            if not allowed_model_ids:
+                return []
+
+    if preset_id and allowed_model_ids is not None:
+        if scope_repository is None:
+            from src.features.cloud.scope_repository import ModelPresetScopeRepository
+            scope_repository = ModelPresetScopeRepository()
+        scoped_away = scope_repository.model_ids_scoped_away_from(preset_id)
+        if scoped_away:
+            allowed_model_ids = [m for m in allowed_model_ids if m not in scoped_away]
             if not allowed_model_ids:
                 return []
 

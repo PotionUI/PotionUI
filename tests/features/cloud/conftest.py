@@ -9,6 +9,8 @@ from src.features.cloud.capabilities import CloudCapabilities
 from src.features.cloud.catalog import CloudCatalog
 from src.features.models.access_policy import ModelAccessPolicy
 from src.features.cloud.registration import register_cloud_provider
+from src.features.cloud.scope_repository import ModelPresetScopeRepository
+from src.features.cloud.scopes import CloudModelScopes
 from src.features.cloud.repository import CloudCatalogRepository
 from src.features.cloud.testing.fake import FakeBehaviour, FakeCloudConfig, FakeCloudProvider, fake_specs
 from src.features.models.backend_indexer import BackendModelIndexer
@@ -79,7 +81,12 @@ def cloud_env(mock_db):
         model_repository=model_repo,
         model_access_policy=ModelAccessPolicy(model_repo),
     )
-    return CloudEnv(registry, catalog, repository, capabilities)
+    presets = SimpleNamespace(presets=[], _ensure_loaded=lambda: None)
+    scopes = CloudModelScopes(ModelPresetScopeRepository(), presets, model_repo)
+    env = CloudEnv(registry, catalog, repository, capabilities)
+    env.presets = presets
+    env.scopes = scopes
+    return env
 
 
 @pytest.fixture
@@ -96,7 +103,9 @@ async def refreshed(fake_backend):
 
 @pytest.fixture
 def container(cloud_env):
-    return SimpleNamespace(cloud_catalog=cloud_env.catalog, cloud_capabilities=cloud_env.capabilities)
+    return SimpleNamespace(
+        cloud_catalog=cloud_env.catalog, cloud_capabilities=cloud_env.capabilities, cloud_model_scopes=cloud_env.scopes,
+    )
 
 
 def returning(specs):

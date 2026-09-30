@@ -15,17 +15,28 @@ def _words(text: str) -> str:
 
 
 class CloudGenerationPolicy:
-    def __init__(self, repository: CloudCatalogRepository, model_repository):
+    def __init__(self, repository: CloudCatalogRepository, model_repository, scope_repository):
         self.repository = repository
         self.model_repository = model_repository
+        self.scope_repository = scope_repository
 
     def check(self, preset_template: Any, mode: str, bound: Any, backend: Any) -> None:
         task = mode_task(preset_template, mode)
         problems: List[str] = []
         for model in self._cloud_models(bound):
+            scope_problem = self._scope_problem(model, preset_template)
+            if scope_problem:
+                problems.append(scope_problem)
+                continue
             problems.extend(self._model_problems(model, task, bound, backend))
         if problems:
             raise CloudPolicyViolation(" ".join(problems))
+
+    def _scope_problem(self, model: Any, preset_template: Any) -> str:
+        scope = self.scope_repository.get(model.id)
+        if scope and getattr(preset_template, "id", None) not in scope:
+            return f"'{model.display_name}' is not available in this preset. Choose another model or another preset."
+        return ""
 
     def _cloud_models(self, bound: Any) -> List[Any]:
         models: List[Any] = []

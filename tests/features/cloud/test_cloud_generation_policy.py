@@ -2,6 +2,7 @@ from dataclasses import replace
 
 import pytest
 
+from src.features.cloud.scope_repository import ModelPresetScopeRepository
 from src.features.cloud.policy import CloudGenerationPolicy, CloudPolicyViolation
 from src.features.forms.binding import bind_form
 from src.features.models.form_refs import make_model_ref
@@ -42,7 +43,7 @@ def bound_for(env, template, model_id, **media):
 
 @pytest.fixture
 def policy(refreshed):
-    return CloudGenerationPolicy(refreshed.repository, model_repo)
+    return CloudGenerationPolicy(refreshed.repository, model_repo, ModelPresetScopeRepository())
 
 
 async def enabled(env, provider_model_id):

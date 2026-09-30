@@ -240,6 +240,7 @@ class PresetController(BaseController):
                 engine=preset.engine,
                 driver=driver,
                 tasks=task_list,
+                preset_id=preset.id if isinstance(getattr(preset, "id", None), str) else None,
                 backend_registry=self.backend_registry,
                 model_type=model_type,
                 search=search,

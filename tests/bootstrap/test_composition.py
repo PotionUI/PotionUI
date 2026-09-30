@@ -68,6 +68,15 @@ report = {
             and c.generation_orchestrator.router._model_index is c.model_index_manager
         ),
     },
+    "cloud_wiring": {
+        "orchestrator_policy_has_scopes": c.generation_orchestrator.cloud_policy.scope_repository is not None,
+        "policy_scopes_are_the_admin_scopes": (
+            c.generation_orchestrator.cloud_policy.scope_repository is c.cloud_model_scopes.repository
+        ),
+        "orchestrator_capabilities_are_the_container_capabilities": (
+            c.generation_orchestrator.cloud_capabilities is c.cloud_capabilities
+        ),
+    },
     "shutdownable": {
         "history_executor": hasattr(c.generation_history_facade.executor, "shutdown"),
         "trace_recorder": hasattr(c.chat_call_trace_recorder, "shutdown"),
@@ -119,6 +128,10 @@ def test_chat_runtime_has_no_unwired_collaborator(report):
 def test_chat_components_share_the_container_instances(report):
     shared = report["same"]
     assert [k for k, v in shared.items() if not v] == []
+
+
+def test_the_cloud_policy_enforces_the_same_scopes_the_admin_edits(report):
+    assert [k for k, v in report["cloud_wiring"].items() if not v] == []
 
 
 def test_shutdown_dependent_components_are_present(report):

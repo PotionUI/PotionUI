@@ -5,8 +5,9 @@ from fastapi import APIRouter, Depends, Query
 from src.features.cloud.capabilities import CloudCapabilities
 from src.features.cloud.catalog import CloudCatalog
 from src.features.cloud.contracts import CloudError
-from src.features.cloud.dto import CatalogSelectionRequest
+from src.features.cloud.dto import CatalogSelectionRequest, ModelScopeRequest
 from src.features.cloud.errors import CloudCatalogError
+from src.features.cloud.scopes import CloudModelScopes
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.features.models.exceptions import ModelAccessDeniedException, ModelNotFoundException
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
@@ -72,9 +73,32 @@ class CloudCapabilitiesController(BaseController):
         return self.success_response(data=data)
 
 
+class CloudModelScopeController(BaseController):
+    def __init__(self, scopes: CloudModelScopes):
+        super().__init__()
+        self.scopes = scopes
+
+    async def get_scope(self, model_id: str) -> APIResponse:
+        try:
+            data = self.scopes.describe(model_id)
+        except ModelNotFoundException:
+            self.error_response(error="model_not_found", message=f"Model '{model_id}' not found", status_code=404)
+        return self.success_response(data=data)
+
+    async def replace_scope(self, model_id: str, request: ModelScopeRequest) -> APIResponse:
+        try:
+            data = self.scopes.replace(model_id, request.preset_ids)
+        except ModelNotFoundException:
+            self.error_response(error="model_not_found", message=f"Model '{model_id}' not found", status_code=404)
+        except CloudCatalogError as error:
+            self.error_response(error=error.code, message=str(error), status_code=error.status_code)
+        return self.success_response(data=data)
+
+
 def build_router(container: "AppContainer") -> APIRouter:
     controller = CloudCatalogController(container.cloud_catalog)
     capabilities_controller = CloudCapabilitiesController(container.cloud_capabilities)
+    scope_controller = CloudModelScopeController(container.cloud_model_scopes)
     router = APIRouter(prefix="/api/cloud", tags=["Cloud"])
 
     @router.get(
@@ -86,6 +110,14 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user=Depends(get_current_active_user),
     ):
         return await capabilities_controller.get_capabilities(model_id, current_user, driver)
+
+    @router.get("/models/{model_id}/scope", response_model=APIResponse, summary="Get the presets a cloud model is limited to")
+    async def get_model_scope(model_id: str, admin=Depends(get_current_admin_user)):
+        return await scope_controller.get_scope(model_id)
+
+    @router.put("/models/{model_id}/scope", response_model=APIResponse, summary="Limit a cloud model to presets")
+    async def replace_model_scope(model_id: str, request: ModelScopeRequest, admin=Depends(get_current_admin_user)):
+        return await scope_controller.replace_scope(model_id, request)
 
     @router.get("/backends/{backend_id}/catalog", response_model=APIResponse, summary="List a cloud backend's catalog")
     async def list_catalog(

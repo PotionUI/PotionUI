@@ -1657,8 +1657,10 @@ class TestLintFieldDefaults:
         (mode_dir / "pipeline.yml").write_text("pipeline: []\n")
         (mode_dir / "form.yml").write_text(
             "name: custom\nfields:\n"
-            "  - type: tab\n"
-            "    children: \"{{ paths.preset }}/modes/txt2img/tabs/adv.yml\"\n"
+            "  - type: tabs\n"
+            "    children:\n"
+            "      - type: tab\n"
+            "        children: \"{{ paths.preset }}/modes/txt2img/tabs/adv.yml\"\n"
         )
         tab = mode_dir / "tabs" / "adv.yml"
         tab.parent.mkdir(parents=True, exist_ok=True)

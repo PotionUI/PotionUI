@@ -473,6 +473,7 @@ class PresetLinter:
             issues.extend(self._lint_option_file_refs(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_children_refs(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_form_variants(preset_file, mode_dir, mode_name))
+            issues.extend(self._lint_unnamed_top_level_fields(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_configuration_refs(preset_file, mode_dir, mode_name, manifest))
             issues.extend(self._lint_field_defaults(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_camera_shot_fields(preset_file, mode_dir, mode_name))
@@ -1019,6 +1020,25 @@ class PresetLinter:
                 f"(enable the plugin that provides it and restart)",
             )
         ]
+
+    def _lint_unnamed_top_level_fields(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        for variant_name, form_dir in discover_form_variants(mode_dir):
+            form_file = form_dir / "form.yml"
+            try:
+                with open(form_file, 'r', encoding='utf-8') as f:
+                    data = yaml.safe_load(f) or {}
+            except Exception:
+                continue
+            loc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
+            for index, field in enumerate(data.get("fields") or []):
+                if isinstance(field, dict) and not field.get("name") and field.get("type") != "tabs":
+                    issues.append(LintIssue(
+                        "error", str(preset_file),
+                        f"{loc}/form.yml: fields[{index}] (type '{field.get('type')}') will not appear in the form: "
+                        f"give it a name, or put it inside a tab",
+                    ))
+        return issues
 
     def _lint_cloud_pipeline_shape(self, preset_file: Path, manifest) -> List[LintIssue]:
         issues: List[LintIssue] = []

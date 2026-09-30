@@ -213,6 +213,7 @@ def _cloud_form_yml(mode: _CloudMode) -> str:
     return f'''name: "custom"
 fields:
   - type: "row"
+    name: "model_row"
     configuration: {{ columns: 1 }}
     children: "{{{{ paths._shared }}}}/cloud/models/{mode.task}.yml"
 

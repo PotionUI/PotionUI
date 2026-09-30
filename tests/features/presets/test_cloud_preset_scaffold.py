@@ -182,3 +182,78 @@ def test_a_driver_without_the_cloud_engine_is_refused(tmp_path):
     result = run_cli(tmp_path, "--driver", "cloud.fake")
 
     assert result.returncode != 0
+
+
+def served_model_field(root, preset_name, mode):
+    from unittest.mock import Mock
+
+    from src.features.presets import PresetTemplateLoader
+    from src.features.presets.form_serializer import PresetFormSerializer
+    from src.platform.templating.processor import TemplateProcessor
+
+    loader = PresetTemplateLoader([str(root)])
+    loader.load_presets()
+    template = next(t for t in loader.presets if t.name == preset_name)
+    schema = PresetFormSerializer(loader, TemplateProcessor(settings=Mock())).process_form_fields(
+        template.modes[mode].forms[0], template.id
+    )
+
+    def find(node):
+        if isinstance(node, dict):
+            if node.get("type") == "model":
+                return node
+            for value in node.values():
+                found = find(value)
+                if found is not None:
+                    return found
+        if isinstance(node, list):
+            for item in node:
+                found = find(item)
+                if found is not None:
+                    return found
+        return None
+
+    return find(schema["properties"])
+
+
+@pytest.mark.parametrize("mode", ALL_MODES)
+def test_the_served_form_of_every_scaffolded_mode_carries_its_model_picker(tmp_path, mode):
+    build(tmp_path, [mode])
+
+    field = served_model_field(tmp_path, "Fake std", mode)
+
+    assert field is not None and field["name"] == "model"
+    assert field["configuration"]["model_type"] == "cloud"
+    assert field["configuration"]["tasks"] == [CLOUD_MODES[mode].task]
+
+
+@pytest.mark.parametrize(
+    "preset,mode,task",
+    [
+        ("OpenRouter Images", "txt2img", "txt2img"),
+        ("OpenRouter Images", "edit", "img_edit"),
+        ("OpenRouter Video", "txt2video", "txt2video"),
+        ("OpenRouter Video", "img2video", "img2video"),
+    ],
+)
+def test_the_served_forms_of_the_openrouter_presets_carry_their_model_picker(preset, mode, task):
+    field = served_model_field(REPO / "content" / "plugins" / "marketplace" / "openrouter-provider" / "presets", preset, mode)
+
+    assert field is not None and field["configuration"]["model_type"] == "cloud"
+    assert field["configuration"]["tasks"] == [task]
+
+
+def test_an_unnamed_top_level_field_is_an_error_because_the_form_would_drop_it(tmp_path):
+    target = build(tmp_path, ["txt2img"])
+    form = target / "modes" / "txt2img" / "form.yml"
+    form.write_text(form.read_text(encoding="utf-8").replace('    name: "model_row"\n', ""), encoding="utf-8")
+
+    errors = [issue.message for issue in lint(tmp_path) if issue.level == "error"]
+
+    assert any("will not appear in the form" in message and "type 'row'" in message for message in errors)
+
+
+def test_named_top_level_fields_and_tabs_are_fine(tmp_path):
+    build(tmp_path, ["txt2img"])
+
+    assert not [issue for issue in lint(tmp_path) if "will not appear" in issue.message]

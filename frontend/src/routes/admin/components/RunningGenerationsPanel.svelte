@@ -7,7 +7,7 @@
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { logger } from '$lib/utils/logger';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Badge, Button } from '$lib/components/ui';
+	import { Badge, Button, EmptyState } from '$lib/components/ui';
 	import { createVisiblePoll } from './visiblePoll';
 	import {
 		RUNNING_PAGE_SIZE,
@@ -21,7 +21,15 @@
 		type RunningRow
 	} from './generations/runningGenerations';
 
-	let { usernameFor }: { usernameFor: (userId: string) => string | undefined } = $props();
+	let {
+		usernameFor,
+		showEmptyState = false,
+		onCountChange
+	}: {
+		usernameFor: (userId: string) => string | undefined;
+		showEmptyState?: boolean;
+		onCountChange?: (count: number) => void;
+	} = $props();
 
 	const POLL_MS = 3000;
 
@@ -34,6 +42,7 @@
 	let rowErrors = $state<Record<string, string>>({});
 	let stoppingAll = $state(false);
 	let loadError = $state<string | null>(null);
+	let loaded = $state(false);
 
 	const rows = $derived(
 		mapRunningRows(queue, {
@@ -47,6 +56,10 @@
 	const visibleRows = $derived(pageSlice(rows, clampPage(pageIndex, rows.length)));
 	const currentPage = $derived(clampPage(pageIndex, rows.length));
 	const stoppableCount = $derived(rows.filter((r) => !stopping[r.id]).length);
+
+	$effect(() => {
+		if (loaded) onCountChange?.(rows.length);
+	});
 
 	async function refresh() {
 		try {
@@ -66,6 +79,8 @@
 		} catch (e) {
 			logger.error('Failed to load the running generations:', e);
 			loadError = cancelErrorMessage(e);
+		} finally {
+			loaded = true;
 		}
 	}
 
@@ -233,4 +248,11 @@
 			</footer>
 		{/if}
 	</section>
+{:else if showEmptyState && loaded}
+	<EmptyState
+		icon="loading"
+		title="Nothing is running"
+		description="Running and queued generations from every user show up here as they start."
+		compact
+	/>
 {/if}

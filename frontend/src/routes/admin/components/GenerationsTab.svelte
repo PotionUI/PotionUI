@@ -77,6 +77,7 @@
 	const sort = $derived(sortStateFromSortBy(filters.sortBy));
 
 	let sectionCountsCache = $state<Partial<Record<GenerationSection, number>>>({});
+	const shownTotal = $derived(section === 'running' ? (sectionCountsCache.running ?? 0) : total);
 
 	$effect(() => {
 		if (filtersKey !== lastFiltersKey) {
@@ -122,7 +123,7 @@
 			if (response.success && response.data) {
 				generations = response.data.generations;
 				total = response.data.total;
-				if (!filters.q && !filters.category && !filters.userId && !filters.createdFrom && !filters.createdTo) {
+				if (section !== 'running' && !filters.q && !filters.category && !filters.userId && !filters.createdFrom && !filters.createdTo) {
 					sectionCountsCache = { ...sectionCountsCache, [section]: total };
 				}
 			} else {
@@ -201,6 +202,10 @@
 
 	function selectSection(id: GenerationSection) {
 		applyFilters({ ...filters, status: statusFromSection(id) });
+	}
+
+	function onRunningCountChange(count: number) {
+		sectionCountsCache = { ...untrack(() => sectionCountsCache), running: count };
 	}
 
 	function onPageChange(next: number) {
@@ -297,13 +302,13 @@
 	{section}
 	onSelectSection={selectSection}
 	sectionCounts={sectionCountsCache}
-	count={total}
+	count={shownTotal}
 	{detailOpen}
 	filterChips={chips}
 	{onRemoveChip}
 	onClearFilters={onClearAllFilters}
-	loadedCount={generations.length}
-	{total}
+	loadedCount={section === 'running' ? shownTotal : generations.length}
+	total={shownTotal}
 >
 	{#snippet toolbar()}
 		<LibraryFilterBar
@@ -343,7 +348,12 @@
 		{/if}
 	{:else}
 		<div class="flex flex-col p-4 gap-3">
-			<RunningGenerationsPanel usernameFor={(userId) => usersById.get(userId)?.username} />
+			<RunningGenerationsPanel
+				usernameFor={(userId) => usersById.get(userId)?.username}
+				showEmptyState={section === 'running'}
+				onCountChange={onRunningCountChange}
+			/>
+			{#if section !== 'running'}
 			<DataTable
 				columns={[
 					{ key: 'status', label: 'Status', width: '110px', cell: statusCell },
@@ -406,6 +416,7 @@
 				{onPageChange}
 				{onPageSizeChange}
 			/>
+			{/if}
 		</div>
 	{/if}
 </LibraryShell>

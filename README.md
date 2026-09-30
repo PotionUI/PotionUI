@@ -303,7 +303,7 @@ attention runs on plain SDPA and the compile optimizations stay off.
 - What happened when you generated with the smallest available preset.
 
 ```bash
-docker run --gpus all -p 7680:7680 ghcr.io/potionui/potionui:latest
+docker run --gpus all -p 26730:26730 ghcr.io/potionui/potionui:latest
 ```
 
 Requires an NVIDIA GPU +
@@ -321,20 +321,20 @@ setup:
 python -m venv venv
 source venv/bin/activate          # Windows (native, experimental): venv\Scripts\activate
 pip install -r requirements.txt -c constraints.txt
-python api.py                     # serves on http://localhost:7680
+python api.py                     # serves on http://localhost:26730
 
 # Frontend
 cd frontend
 npm install
-npm run dev                       # dev server on http://localhost:7681
+npm run dev                       # dev server on http://localhost:26731
 ```
 
 Or run both together with `./run.sh` (assumes the venv and `node_modules` are
 already installed — `./potionui start` does not):
 
 ```bash
-./run.sh                          # backend :7680, frontend :7681
-./run.sh 7680 7681 --lan          # also accept connections from the local network
+./run.sh                          # backend :26730, frontend :26731
+./run.sh 26730 26731 --lan        # also accept connections from the local network
 ```
 
 ### Logs
@@ -363,6 +363,14 @@ Start with the in-app documentation browser, or read the Markdown directly:
 
 The three most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
+
+### Unreleased
+
+- Default ports: the backend now defaults to 26730 and the frontend to 26731, to avoid
+  Windows Delivery Optimization holding 7680; set `BACKEND_PORT`/`FRONTEND_PORT` or pass
+  `--backend-port`/`--frontend-port` to keep the old ports, and update bookmarks to
+  `localhost:26731`. `./potionui start` also moves the backend to the next free port
+  when its default is taken.
 
 ### 0.0.12 — 2026-09-29
 

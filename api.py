@@ -45,7 +45,7 @@ if __name__ == "__main__":
     uvicorn.run(
         app,
         host=os.environ.get("POTIONUI_HOST", "127.0.0.1"),
-        port=7680,
+        port=26730,
         reload=False,  # Changed from True to False to prevent multiple processes
         workers=1,     # Explicitly set to 1 worker to prevent multiple processes
         log_level="info",

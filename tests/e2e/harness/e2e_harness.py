@@ -3,7 +3,7 @@
 
 Everything here boots, waits on, authenticates against, and tears down an
 ephemeral PotionUI backend subprocess - never the real instance (ports
-7680/7682/7681, or its storage/db). Two kinds of caller use this module:
+26730/26732/26731, or its storage/db). Two kinds of caller use this module:
 
   - `tests/e2e/harness/onboarding_e2e.py`, which needs full control over the
     boot sequence (recipe mutation, a dummy download server, a bespoke
@@ -48,7 +48,7 @@ DEFAULT_PORT = 8055
 # Ports a real running PotionUI instance or dev frontend might be using. This
 # module must never bind, proxy to, or otherwise touch these - see
 # reject_forbidden_port below.
-FORBIDDEN_PORTS = {7680, 7682, 7681}
+FORBIDDEN_PORTS = {26730, 26732, 26731}
 
 HEALTH_TIMEOUT_SECONDS = 120.0
 POLL_INTERVAL_SECONDS = 2.0
@@ -144,7 +144,7 @@ def reject_forbidden_port(port: int) -> None:
         raise StageError(
             "args",
             f"Refusing to use port {port}: reserved for a real PotionUI instance "
-            f"(backend 7680/7682, frontend dev server 7681). Pick a different port.",
+            f"(backend 26730/26732, frontend dev server 26731). Pick a different port.",
         )
 
 

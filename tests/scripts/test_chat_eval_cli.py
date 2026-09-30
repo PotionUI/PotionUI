@@ -160,8 +160,8 @@ class TestRunVariantNeverMutatesUserConfig:
         exit_code = chat_eval.cmd_run(args)
 
         methods_and_urls = [(m, u) for m, u, _ in calls]
-        assert ("POST", "http://localhost:7680/api/llm/configurations") in methods_and_urls
-        assert ("DELETE", "http://localhost:7680/api/llm/configurations/cfg-clone") in methods_and_urls
+        assert ("POST", "http://localhost:26730/api/llm/configurations") in methods_and_urls
+        assert ("DELETE", "http://localhost:26730/api/llm/configurations/cfg-clone") in methods_and_urls
         assert all(m != "PUT" for m, _, _ in calls), "a variant run must never PUT the user's own config"
 
         report = json.loads((tmp_path / "report.json").read_text())

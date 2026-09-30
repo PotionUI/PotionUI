@@ -124,7 +124,7 @@ PYTHONPATH=./venv/lib/python3.12/site-packages:. python -m pytest tests/evaluati
 
 ```bash
 PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/e2e/harness/chat_eval.py run \
-  --config my-ollama-config --base-url http://localhost:7680 --token "$POTIONUI_CHAT_EVAL_TOKEN"
+  --config my-ollama-config --base-url http://localhost:26730 --token "$POTIONUI_CHAT_EVAL_TOKEN"
 ```
 
 Drives the real chat HTTP API (`POST /api/chat/sessions`, then the SSE

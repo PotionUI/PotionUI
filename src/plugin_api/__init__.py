@@ -21,6 +21,8 @@ that is a gap in the API - ask for it to be added rather than importing around
 it. See docs/plugin-api.md.
 """
 
+import importlib
+
 # Who is calling - the identity every request carries.
 from src.plugin_api.identity import (
     AccountType,
@@ -128,16 +130,6 @@ from src.plugin_api.pipes import (
     output_type_registry,
 )
 
-# Driving generation against the native (in-process) engine directly.
-from src.plugin_api.native import (
-    Conditioning,
-    GeneratorContext,
-    GeneratorKrea2Pipe,
-    NativeGeneratorHandle,
-    ProgressEmitter,
-    native_step_hooks,
-)
-
 # Presets, and starting a generation.
 from src.plugin_api.presets import (
     FilePresetRepository,
@@ -167,7 +159,7 @@ from src.plugin_api.automation import (
 )
 
 # Working with images.
-from src.plugin_api.media import BackgroundMattingModel, convert_image_to_base64
+from src.plugin_api.media import convert_image_to_base64
 
 # Contributing a prompt import source.
 from src.plugin_api.prompts import (
@@ -215,13 +207,11 @@ from src.plugin_api.models import (
 )
 
 # Contributing a step algorithm or a sigma schedule to the native engine.
-from src.plugin_api.sampling import (
+from src.platform.plugins.sampling import (
     OptionSpec,
     SamplerDefinition,
-    SamplingCancelled,
     ScheduleContext,
     ScheduleDefinition,
-    sample_euler,
     sampler_registry,
     schedule_registry,
 )
@@ -388,6 +378,19 @@ __all__ = [
 ]
 
 
+_TORCH_BACKED_EXPORTS = {
+    "Conditioning": "src.plugin_api.native",
+    "GeneratorContext": "src.plugin_api.native",
+    "GeneratorKrea2Pipe": "src.plugin_api.native",
+    "NativeGeneratorHandle": "src.plugin_api.native",
+    "ProgressEmitter": "src.plugin_api.native",
+    "native_step_hooks": "src.plugin_api.native",
+    "BackgroundMattingModel": "src.plugin_api.media",
+    "SamplingCancelled": "src.plugin_api.sampling",
+    "sample_euler": "src.plugin_api.sampling",
+}
+
+
 def __getattr__(name):
     """`db` is resolved on access, not bound here at import time - a plugin
     importing this module before a test patches the process-default
@@ -398,4 +401,7 @@ def __getattr__(name):
     if name == "db":
         from src.platform.database.database import db
         return db
+    module_name = _TORCH_BACKED_EXPORTS.get(name)
+    if module_name is not None:
+        return getattr(importlib.import_module(module_name), name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

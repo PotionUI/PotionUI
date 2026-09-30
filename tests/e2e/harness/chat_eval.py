@@ -981,7 +981,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--scenario", action="append", help="Restrict to this scenario id (repeatable)")
     run.add_argument("--variant", choices=sorted(_VARIANT_CONTEXT_WINDOWS), help="Run again under a second, comparison configuration")
     run.add_argument("--variant-config", help="Use this EXISTING config for --variant instead of an auto-cloned one")
-    run.add_argument("--base-url", default="http://localhost:7680", help="Base URL of an already-running PotionUI backend")
+    run.add_argument("--base-url", default="http://localhost:26730", help="Base URL of an already-running PotionUI backend")
     run.add_argument("--token", help="Bearer token for an existing logged-in session (or set POTIONUI_CHAT_EVAL_TOKEN)")
     run.add_argument("--transcripts-dir", default=DEFAULT_LIVE_TRANSCRIPTS_DIR, help="Directory to save captured live transcripts into")
     run.add_argument("--out", help="Write the report JSON to this path instead of stdout")

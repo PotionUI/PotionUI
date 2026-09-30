@@ -37,6 +37,8 @@ venv/backend-deps/frontend-deps, which `start` repairs itself.
 ====================  ========  ========  =========================================
 code                  severity  blocking  what it checks
 ====================  ========  ========  =========================================
+VCRUNTIME             error     yes       Windows only: Visual C++ runtime DLLs that
+                                           PyTorch needs are installed
 PY312                 error     yes       a Python 3.12+ interpreter is on PATH
 VENV                  warning   no        ./venv exists (created by `start` if not)
 BACKEND_DEPS          warning   no        fastapi/torch importable from ./venv
@@ -49,7 +51,9 @@ GPU                   warning   no        nvidia-smi present and reports a GPU
                                            profile is active; error+blocking
                                            under ``worker doctor``)
 DISK                  error     yes       free disk space on the repo's filesystem
-PORT_BACKEND          error     yes       backend port is free to bind
+PORT_BACKEND          error     yes       backend port is free to bind (warning when
+                                           the default port is taken and `start`
+                                           can fall back to a free one)
 PORT_FRONTEND         error     yes       frontend port is free to bind
 STORAGE               error     yes       ./storage exists and is writable
 ENV_FILE              info      no        ./.env present (purely informational)
@@ -139,9 +143,17 @@ STATE_FILE = RUNTIME_DIR / "state.json"
 NO_GPU_PROFILE_FILE = RUNTIME_DIR / "no_gpu_profile"  # legacy 0.0.2 marker, read-only
 INSTALL_PROFILE_FILE = RUNTIME_DIR / "install_profile"
 
-DEFAULT_BACKEND_PORT = 7680
-DEFAULT_FRONTEND_PORT = 7681
+DEFAULT_BACKEND_PORT = 26730
+DEFAULT_FRONTEND_PORT = 26731
 DEFAULT_WORKER_PORT = 7690
+BACKEND_PORT_FALLBACK_SPAN = 19
+DELIVERY_OPTIMIZATION_PORT = 7680
+KNOWN_PORT_OWNERS = {
+    (DELIVERY_OPTIMIZATION_PORT, "svchost.exe"): "Windows Delivery Optimization (DoSvc)",
+}
+VC_RUNTIME_DLLS = ("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll")
+VC_RUNTIME_WINGET_COMMAND = "winget install -e --id Microsoft.VCRedist.2015+.x64"
+VC_RUNTIME_DOWNLOAD_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
 DEFAULT_WORKER_HOST = "127.0.0.1"
 DEFAULT_WORKER_DIR_NAME = "worker_data"
 WORKER_TOKEN_ENV_VAR = "POTIONUI_WORKER_TOKEN"
@@ -274,6 +286,27 @@ class RealProbe:
                 return True
             except OSError:
                 return False
+
+    def port_owner(self, port: int) -> Optional[str]:
+        try:
+            import psutil
+        except ImportError:
+            return None
+        try:
+            for conn in psutil.net_connections(kind="tcp"):
+                if conn.pid and conn.laddr and conn.laddr.port == port and conn.status == psutil.CONN_LISTEN:
+                    process_name = psutil.Process(conn.pid).name()
+                    services = []
+                    if is_windows():
+                        services = [
+                            f"{svc.display_name()} ({svc.name()})"
+                            for svc in psutil.win_service_iter()
+                            if svc.pid() == conn.pid
+                        ]
+                    return describe_port_owner(port, conn.pid, process_name, services)
+        except (psutil.Error, OSError):
+            return None
+        return None
 
     def path_exists(self, path: Path) -> bool:
         return Path(path).exists()
@@ -580,16 +613,93 @@ def check_gpu(probe, no_gpu: bool = False, required: bool = False) -> CheckResul
     return CheckResult("GPU", Severity.OK, f"GPU detected: {line}.", blocking=required)
 
 
-def check_port(probe, port: int, code: str, label: str) -> CheckResult:
+def describe_port_owner(port: int, pid: int, process_name: str, services: Sequence[str] = ()) -> str:
+    known = KNOWN_PORT_OWNERS.get((port, process_name.lower()))
+    label = f"{process_name} (pid {pid})"
+    if services:
+        return f"{label}, service {', '.join(services)}"
+    if known:
+        return f"{label}, {known}"
+    return label
+
+
+def stop_command() -> str:
+    return ".\\potionui.cmd stop" if is_windows() else "./potionui stop"
+
+
+def port_release_hint(port: int) -> str:
+    if not is_windows():
+        return (
+            f"Find and stop the process using it (`lsof -i :{port}` or `fuser {port}/tcp`), "
+            f"or if it's a previous PotionUI run: `{stop_command()}`."
+        )
+    hint = (
+        f"Find the owner with `netstat -ano | findstr :{port}` and `tasklist /FI \"PID eq <pid>\"`, "
+        "or pass --backend-port / --frontend-port (env BACKEND_PORT / FRONTEND_PORT) to use another port. "
+        f"If it's a previous PotionUI run: `{stop_command()}`."
+    )
+    if port == DELIVERY_OPTIMIZATION_PORT:
+        hint += " Port 7680 is normally held by the Windows Delivery Optimization service (DoSvc)."
+    return hint
+
+
+def find_free_port(probe, start: int, exclude: Sequence[int] = (), span: int = BACKEND_PORT_FALLBACK_SPAN) -> Optional[int]:
+    for candidate in range(start, start + span + 1):
+        if candidate not in exclude and probe.port_free(candidate):
+            return candidate
+    return None
+
+
+def backend_fallback_port(probe, backend_port: int, frontend_port: int, fixed: bool) -> Optional[int]:
+    if fixed or probe.port_free(backend_port):
+        return None
+    return find_free_port(probe, backend_port + 1, exclude=(frontend_port,))
+
+
+def apply_backend_port_fallback(probe, args) -> None:
+    fallback = backend_fallback_port(probe, args.backend_port, args.frontend_port, args.backend_port_explicit)
+    if fallback is None:
+        return
+    owner = probe.port_owner(args.backend_port) or "another program"
+    print(f"Port {args.backend_port} is used by {owner}; the backend uses port {fallback} instead.")
+    args.backend_port = fallback
+
+
+def check_port(probe, port: int, code: str, label: str, fallback_port: Optional[int] = None) -> CheckResult:
     if probe.port_free(port):
         return CheckResult(code, Severity.OK, f"Port {port} ({label}) is free.", blocking=True)
+    owner = probe.port_owner(port)
+    used_by = f" by {owner}" if owner else ""
+    if fallback_port is not None:
+        return CheckResult(
+            code,
+            Severity.WARNING,
+            f"Port {port} ({label}) is in use{used_by}; `start` will use port {fallback_port} instead.",
+            repair=port_release_hint(port),
+            blocking=False,
+        )
     return CheckResult(
         code,
         Severity.ERROR,
-        f"Port {port} ({label}) is already in use.",
+        f"Port {port} ({label}) is already in use{used_by}.",
+        repair=port_release_hint(port),
+        blocking=True,
+    )
+
+
+def check_vc_runtime(probe) -> CheckResult:
+    system_root = os.environ.get("SystemRoot") or "C:\\Windows"
+    system32 = Path(system_root) / "System32"
+    missing = [dll for dll in VC_RUNTIME_DLLS if not probe.path_exists(system32 / dll)]
+    if not missing:
+        return CheckResult("VCRUNTIME", Severity.OK, "Visual C++ runtime is installed.", blocking=True)
+    return CheckResult(
+        "VCRUNTIME",
+        Severity.ERROR,
+        f"The Visual C++ runtime is missing ({', '.join(missing)}); PyTorch cannot load without it.",
         repair=(
-            f"Find and stop the process using it (`lsof -i :{port}` or `fuser {port}/tcp`), "
-            "or if it's a previous PotionUI run: `./potionui stop`."
+            f"Install it with `{VC_RUNTIME_WINGET_COMMAND}` or download {VC_RUNTIME_DOWNLOAD_URL}, "
+            "then re-run this command."
         ),
         blocking=True,
     )
@@ -803,9 +913,12 @@ def run_docker_preflight(probe) -> list[CheckResult]:
 
 
 def run_doctor(
-    probe, repo_root: Path, backend_port: int, frontend_port: int, no_gpu: bool = False
+    probe, repo_root: Path, backend_port: int, frontend_port: int, no_gpu: bool = False,
+    backend_port_explicit: bool = True,
 ) -> list[CheckResult]:
+    runtime_checks = [check_vc_runtime(probe)] if is_windows() else []
     return [
+        *runtime_checks,
         check_python(probe),
         check_venv(probe, repo_root),
         check_backend_deps(probe, repo_root, no_gpu=no_gpu),
@@ -815,7 +928,10 @@ def run_doctor(
         check_ffmpeg(probe),
         check_gpu(probe, no_gpu=no_gpu),
         check_disk(probe, repo_root),
-        check_port(probe, backend_port, "PORT_BACKEND", "backend"),
+        check_port(
+            probe, backend_port, "PORT_BACKEND", "backend",
+            fallback_port=backend_fallback_port(probe, backend_port, frontend_port, backend_port_explicit),
+        ),
         check_port(probe, frontend_port, "PORT_FRONTEND", "frontend"),
         check_storage(probe, repo_root),
         check_env_file(probe, repo_root),
@@ -1216,7 +1332,10 @@ def cmd_doctor(args) -> int:
     probe = RealProbe()
     profile, _explicit = resolve_install_profile(args)
     no_gpu = profile == "remote"
-    results = run_doctor(probe, REPO_ROOT, args.backend_port, args.frontend_port, no_gpu=no_gpu)
+    results = run_doctor(
+        probe, REPO_ROOT, args.backend_port, args.frontend_port, no_gpu=no_gpu,
+        backend_port_explicit=args.backend_port_explicit,
+    )
     print_doctor_report(results, args.json)
     return 1 if any(r.severity == Severity.ERROR for r in results) else 0
 
@@ -1290,6 +1409,7 @@ def cmd_start(args) -> int:
         print("frontend/build is up to date — starting the backend only (single-process mode).")
         print("(pass --dev to use the Vite dev server instead)")
 
+    apply_backend_port_fallback(probe, args)
     results = run_doctor(probe, REPO_ROOT, args.backend_port, args.frontend_port, no_gpu=no_gpu)
     if single_process:
         # No Vite dev server means nothing binds the frontend port — checking
@@ -1754,12 +1874,22 @@ def cmd_restore(args) -> int:
 # argparse wiring
 # ---------------------------------------------------------------------------
 
+class _ExplicitBackendPort(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+        namespace.backend_port_explicit = True
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="potionui", description="PotionUI bootstrap CLI.")
+    parser.set_defaults(backend_port_explicit="BACKEND_PORT" in os.environ)
     parser.add_argument(
-        "--backend-port", type=int,
+        "--backend-port", type=int, action=_ExplicitBackendPort,
         default=int(os.environ.get("BACKEND_PORT", DEFAULT_BACKEND_PORT)),
-        help=f"Backend port (default {DEFAULT_BACKEND_PORT}, env BACKEND_PORT).",
+        help=(
+            f"Backend port (default {DEFAULT_BACKEND_PORT}, env BACKEND_PORT). When the default is "
+            "taken by another program `start` picks the next free port; an explicit port is never changed."
+        ),
     )
     parser.add_argument(
         "--frontend-port", type=int,

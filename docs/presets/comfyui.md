@@ -76,7 +76,7 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    fetching them live; a connected input never becomes a field candidate at all, combo or not.
 
    ```bash
-   curl -s -X POST http://localhost:7680/api/plugins/comfyui-backend/presets/import/analyze \
+   curl -s -X POST http://localhost:26730/api/plugins/comfyui-backend/presets/import/analyze \
      -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
      -d "{\"workflow\": $(cat txt2img.json)}"
    ```
@@ -117,7 +117,7 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    running preset catalogue, so the result shows up without a restart.
 
    ```bash
-   curl -s -X POST http://localhost:7680/api/plugins/comfyui-backend/presets/import \
+   curl -s -X POST http://localhost:26730/api/plugins/comfyui-backend/presets/import \
      -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
      -d '{
        "workflow": '"$(cat txt2img.json)"',

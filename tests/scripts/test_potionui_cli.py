@@ -41,8 +41,9 @@ class FakeProbe:
 
     def __init__(
         self, which=None, run=None, ports_free=None, exists=None, writable=None,
-        disk_free_gb=500.0, disk_usage_error=None,
+        disk_free_gb=500.0, disk_usage_error=None, owners=None,
     ):
+        self._owners = owners or {}
         self._which = which or {}
         self._run = run or {}
         self._ports_free = ports_free or {}
@@ -65,6 +66,9 @@ class FakeProbe:
 
     def port_free(self, port, host="127.0.0.1"):
         return self._ports_free.get(port, True)
+
+    def port_owner(self, port):
+        return self._owners.get(port)
 
     def path_exists(self, path):
         return Path(path) in self._exists or str(path) in self._exists
@@ -2037,3 +2041,186 @@ def test_cmd_worker_start_skips_install_when_deps_already_importable(monkeypatch
 
     assert code == 0
     assert streamed == []
+
+
+def test_describe_port_owner_names_the_known_windows_service_without_psutil_services():
+    text = cli.describe_port_owner(7680, 812, "svchost.exe")
+    assert "pid 812" in text and "Delivery Optimization" in text
+
+
+def test_describe_port_owner_prefers_the_services_psutil_reports():
+    text = cli.describe_port_owner(7680, 812, "svchost.exe", ["Delivery Optimization (DoSvc)"])
+    assert "service Delivery Optimization (DoSvc)" in text
+
+
+def test_describe_port_owner_plain_process():
+    assert cli.describe_port_owner(9000, 5, "node") == "node (pid 5)"
+
+
+def test_find_free_port_skips_taken_and_excluded_ports():
+    probe = FakeProbe(ports_free={26731: False, 26732: True, 26733: True})
+    assert cli.find_free_port(probe, 26731, exclude=(26732,)) == 26733
+
+
+def test_find_free_port_gives_up_after_the_span():
+    probe = FakeProbe(ports_free={port: False for port in range(26731, 26752)})
+    assert cli.find_free_port(probe, 26731) is None
+
+
+def test_check_port_occupied_names_the_owner_and_uses_posix_tools():
+    probe = FakeProbe(ports_free={8005: False}, owners={8005: "nginx (pid 9)"})
+    result = cli.check_port(probe, 8005, "PORT_BACKEND", "backend")
+    assert result.severity == cli.Severity.ERROR
+    assert "nginx (pid 9)" in result.message
+    assert "lsof" in result.repair
+
+
+def test_check_port_remedy_on_windows_never_mentions_lsof_or_fuser(monkeypatch):
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
+    probe = FakeProbe(ports_free={7680: False})
+    result = cli.check_port(probe, 7680, "PORT_BACKEND", "backend")
+    assert "lsof" not in result.repair and "fuser" not in result.repair
+    assert "netstat" in result.repair and "DoSvc" in result.repair
+    assert ".\\potionui.cmd stop" in result.repair
+
+
+def test_check_port_with_fallback_is_a_non_blocking_warning():
+    probe = FakeProbe(ports_free={26730: False}, owners={26730: "svchost.exe (pid 4)"})
+    result = cli.check_port(probe, 26730, "PORT_BACKEND", "backend", fallback_port=26731)
+    assert result.severity == cli.Severity.WARNING
+    assert result.blocking is False
+    assert "svchost.exe (pid 4)" in result.message and "26731" in result.message
+
+
+def test_run_doctor_backend_port_row_warns_when_default_port_is_taken_and_a_fallback_exists(tmp_path):
+    probe = FakeProbe(ports_free={26730: False}, owners={26730: "svchost.exe (pid 4)"})
+    results = cli.run_doctor(probe, tmp_path, 26730, 26731, backend_port_explicit=False)
+    row = next(r for r in results if r.code == "PORT_BACKEND")
+    assert row.severity == cli.Severity.WARNING
+    assert "26732" in row.message
+
+
+def test_run_doctor_backend_port_row_stays_an_error_for_an_explicit_port(tmp_path):
+    probe = FakeProbe(ports_free={26730: False})
+    results = cli.run_doctor(probe, tmp_path, 26730, 26731, backend_port_explicit=True)
+    row = next(r for r in results if r.code == "PORT_BACKEND")
+    assert row.severity == cli.Severity.ERROR and row.blocking is True
+
+
+def test_build_parser_marks_the_backend_port_explicit_only_when_given(monkeypatch):
+    monkeypatch.delenv("BACKEND_PORT", raising=False)
+    assert cli.build_parser().parse_args(["start"]).backend_port_explicit is False
+    assert cli.build_parser().parse_args(["--backend-port", "26730", "start"]).backend_port_explicit is True
+    monkeypatch.setenv("BACKEND_PORT", "7690")
+    args = cli.build_parser().parse_args(["start"])
+    assert args.backend_port_explicit is True and args.backend_port == 7690
+
+
+def test_default_ports_avoid_the_windows_delivery_optimization_port(monkeypatch):
+    monkeypatch.delenv("BACKEND_PORT", raising=False)
+    monkeypatch.delenv("FRONTEND_PORT", raising=False)
+    args = cli.build_parser().parse_args(["start"])
+    assert (args.backend_port, args.frontend_port) == (26730, 26731)
+
+
+def _stub_port_fallback_start(monkeypatch, tmp_path, ports_free):
+    captured, _marked = _stub_cmd_start_for_profile(monkeypatch, tmp_path, deps_importable=True)
+    venv_python = tmp_path / "venv" / "bin" / "python"
+    monkeypatch.setattr(
+        cli, "RealProbe",
+        lambda: FakeProbe(
+            run={str(venv_python): cp(returncode=0)}, ports_free=ports_free,
+            owners={26730: "svchost.exe (pid 4)"},
+        ),
+    )
+
+    def fake_start_supervised(name, cmd, cwd, env, port, spawn=None):
+        captured.setdefault("ports", {})[name] = port
+        captured.setdefault("envs", {})[name] = env
+        captured.setdefault("cmds", {})[name] = cmd
+        return {"pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"}
+
+    saved = {}
+    monkeypatch.setattr(cli, "start_supervised", fake_start_supervised)
+    monkeypatch.setattr(cli, "save_state", lambda state, state_file=cli.STATE_FILE: saved.update(state))
+    captured["saved"] = saved
+    return captured
+
+
+def test_cmd_start_falls_back_to_a_free_backend_port_and_tells_the_frontend(monkeypatch, tmp_path, capsys):
+    monkeypatch.delenv("BACKEND_PORT", raising=False)
+    captured = _stub_port_fallback_start(monkeypatch, tmp_path, {26730: False})
+    args = cli.build_parser().parse_args(["start", "--dev"])
+
+    assert cli.cmd_start(args) == 0
+
+    assert captured["ports"]["backend"] == 26732
+    assert captured["envs"]["frontend"]["BACKEND_PORT"] == "26732"
+    assert "26732" in captured["cmds"]["backend"]
+    assert captured["saved"]["backend"]["port"] == 26732
+    assert "Port 26730 is used by svchost.exe (pid 4); the backend uses port 26732 instead." in capsys.readouterr().out
+
+
+def test_cmd_start_never_changes_an_explicit_backend_port(monkeypatch, tmp_path, capsys):
+    monkeypatch.delenv("BACKEND_PORT", raising=False)
+    captured = _stub_port_fallback_start(monkeypatch, tmp_path, {26730: False})
+    args = cli.build_parser().parse_args(["--backend-port", "26730", "start", "--dev"])
+
+    assert cli.cmd_start(args) == 0
+
+    assert captured["ports"]["backend"] == 26730
+    assert "instead" not in capsys.readouterr().out
+
+
+def test_cmd_start_keeps_the_default_port_when_it_is_free(monkeypatch, tmp_path):
+    monkeypatch.delenv("BACKEND_PORT", raising=False)
+    captured = _stub_port_fallback_start(monkeypatch, tmp_path, {})
+    args = cli.build_parser().parse_args(["start", "--dev"])
+
+    assert cli.cmd_start(args) == 0
+
+    assert captured["ports"]["backend"] == 26730
+
+
+@pytest.fixture
+def system32(monkeypatch, tmp_path):
+    monkeypatch.setenv("SystemRoot", str(tmp_path))
+    return tmp_path / "System32"
+
+
+def test_check_vc_runtime_ok_when_all_dlls_present(system32):
+    exists = {system32 / dll for dll in cli.VC_RUNTIME_DLLS}
+    result = cli.check_vc_runtime(FakeProbe(exists=exists))
+    assert result.severity == cli.Severity.OK
+
+
+def test_check_vc_runtime_fails_with_the_exact_fix_when_a_dll_is_missing(system32):
+    exists = {system32 / "vcruntime140.dll"}
+    result = cli.check_vc_runtime(FakeProbe(exists=exists))
+    assert result.severity == cli.Severity.ERROR and result.blocking is True
+    assert "vcruntime140_1.dll" in result.message and "msvcp140.dll" in result.message
+    assert "winget install -e --id Microsoft.VCRedist.2015+.x64" in result.repair
+    assert "https://aka.ms/vs/17/release/vc_redist.x64.exe" in result.repair
+
+
+def test_run_doctor_includes_vcruntime_only_on_windows(tmp_path, monkeypatch):
+    probe = FakeProbe()
+    assert "VCRUNTIME" not in {r.code for r in cli.run_doctor(probe, tmp_path, 8005, 3001)}
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
+    assert "VCRUNTIME" in {r.code for r in cli.run_doctor(probe, tmp_path, 8005, 3001)}
+
+
+def test_cmd_start_stops_early_when_the_visual_cpp_runtime_is_missing(monkeypatch, tmp_path, system32, capsys):
+    monkeypatch.setattr(cli, "is_windows", lambda: True)
+    monkeypatch.setattr(cli, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(cli, "load_state", lambda state_file=cli.STATE_FILE: None)
+    monkeypatch.setattr(cli, "install_profile_active", lambda: None)
+    monkeypatch.setattr(cli, "RealProbe", lambda: FakeProbe())
+    monkeypatch.setattr(cli, "run_streamed", lambda *a, **k: pytest.fail("start went on to install"))
+    monkeypatch.setattr(cli, "start_supervised", lambda *a, **k: pytest.fail("start spawned a process"))
+    args = cli.build_parser().parse_args(["start"])
+
+    assert cli.cmd_start(args) == 1
+
+    out = capsys.readouterr().out
+    assert "VCRUNTIME" in out and "winget install -e --id Microsoft.VCRedist.2015+.x64" in out

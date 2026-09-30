@@ -27,10 +27,21 @@ the model depot's `detection_segm/` folder, the convention
 `content/plugins/marketplace/trellis2` established) - nothing is ever downloaded.
 """
 
-from src.platform.runtime.native.matting import BackgroundMattingModel
+from typing import TYPE_CHECKING
+
 from src.platform.util.imaging import convert_image_to_base64
+
+if TYPE_CHECKING:
+    from src.platform.runtime.native.matting import BackgroundMattingModel
 
 __all__ = [
     "BackgroundMattingModel",
     "convert_image_to_base64",
 ]
+
+
+def __getattr__(name):
+    if name == "BackgroundMattingModel":
+        from src.platform.runtime.native.matting import BackgroundMattingModel
+        return BackgroundMattingModel
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -79,7 +79,14 @@ function createdRoot(path: string, label: string) {
 
 type DetectCall = { path: string; profile?: string };
 
-async function setup(page: Page, detect: (call: DetectCall) => Record<string, unknown>) {
+type PostReply = { status: number; body: unknown } | null;
+
+async function setup(
+	page: Page,
+	detect: (call: DetectCall) => Record<string, unknown>,
+	postReply?: (body: Record<string, any>, attempt: number) => PostReply
+) {
+	const attempts: Record<string, number> = {};
 	const detects: DetectCall[] = [];
 	const creates: Record<string, any>[] = [];
 	await page.route('**/api/models/roots', (route) => {
@@ -100,6 +107,9 @@ async function setup(page: Page, detect: (call: DetectCall) => Record<string, un
 		if (method === 'POST') {
 			const body = route.request().postDataJSON();
 			creates.push(body);
+			attempts[body.path] = (attempts[body.path] ?? 0) + 1;
+			const reply = postReply?.(body, attempts[body.path]);
+			if (reply) return fulfillJson(route, reply.body, reply.status);
 			return fulfillJson(route, { success: true, data: createdRoot(body.path, body.path.split('/').pop()) }, 201);
 		}
 		return route.fallback();
@@ -290,6 +300,93 @@ test.describe('add folder with layout profiles - desktop', () => {
 		await expect(page.getByText(/folder names are used \(Generic\)/)).toBeVisible();
 		await expect(page.getByLabel('Layout')).toHaveValue('generic');
 		await screenshot(page, JOURNEY, 'desktop-no-layout');
+	});
+});
+
+test.describe('add folder with failing extra roots', () => {
+	test.use({ viewport: { width: 1440, height: 1100 } });
+
+	test('failed extras show inline, lock the form and retry only the failed ones', async ({ page }) => {
+		await loginAsOwner(page);
+		const extra = (path: string, label: string) => ({
+			path,
+			label,
+			source: 'extra_model_paths.yaml › ' + label,
+			primary: false,
+			profile_id: 'comfyui',
+			suggestions: [sug('checkpoint', 'checkpoints', 'checkpoints', true, 3)]
+		});
+		const { creates } = await setup(
+			page,
+			() => smDetection({ extra_roots: [extra('/mnt/data/soft-fail', 'soft-fail'), extra('/mnt/data/hard-fail', 'hard-fail')] }),
+			(body, attempt) => {
+				if (body.path === '/mnt/data/soft-fail' && attempt === 1) {
+					return { status: 200, body: { success: false, message: 'Folder is not readable.' } };
+				}
+				if (body.path === '/mnt/data/hard-fail' && attempt === 1) {
+					return { status: 500, body: { detail: { error: 'boom', message: 'Server exploded.' } } };
+				}
+				return null;
+			}
+		);
+		await openAddFolder(page, '/srv/sm');
+		await expect(page.getByText('Also used by this install')).toBeVisible({ timeout: 10000 });
+		const boxes = page.locator('input[id^="root-extra-"]');
+		await boxes.nth(0).check();
+		await boxes.nth(1).check();
+		await page.getByRole('button', { name: 'Add folder' }).last().click();
+
+		await expect(page.getByText('Folder is not readable.')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByText('Server exploded.')).toBeVisible();
+		await expect(page.getByText('Added', { exact: true })).toHaveCount(0);
+		await expect(page.getByLabel('Folder path')).toBeDisabled();
+		await expect(page.getByRole('button', { name: 'Detect', exact: true })).toBeDisabled();
+		await expect(page.getByLabel('Layout')).toBeDisabled();
+		await screenshot(page, JOURNEY, 'desktop-extra-failures');
+		expect(creates.map((c) => c.path)).toEqual(['/srv/sm', '/mnt/data/soft-fail', '/mnt/data/hard-fail']);
+
+		await page.getByRole('button', { name: 'Add folder' }).last().click();
+		await expect.poll(() => creates.length).toBe(5);
+		expect(creates.map((c) => c.path)).toEqual([
+			'/srv/sm',
+			'/mnt/data/soft-fail',
+			'/mnt/data/hard-fail',
+			'/mnt/data/soft-fail',
+			'/mnt/data/hard-fail'
+		]);
+		expect(creates.filter((c) => c.path === '/srv/sm')).toHaveLength(1);
+		await expect(page.getByRole('heading', { name: 'Add a model folder' })).toHaveCount(0, { timeout: 10000 });
+	});
+
+	test('a retry after one failure creates only the failed extra', async ({ page }) => {
+		await loginAsOwner(page);
+		const extra = (path: string, label: string) => ({
+			path,
+			label,
+			source: 'extra_model_paths.yaml › ' + label,
+			primary: false,
+			profile_id: 'comfyui',
+			suggestions: [sug('lora', 'loras', 'loras', true, 1)]
+		});
+		const { creates } = await setup(
+			page,
+			() => smDetection({ extra_roots: [extra('/mnt/data/ok', 'ok'), extra('/mnt/data/flaky', 'flaky')] }),
+			(body, attempt) =>
+				body.path === '/mnt/data/flaky' && attempt === 1
+					? { status: 200, body: { success: false, message: 'Try again.' } }
+					: null
+		);
+		await openAddFolder(page, '/srv/sm');
+		await expect(page.getByText('Also used by this install')).toBeVisible({ timeout: 10000 });
+		const boxes = page.locator('input[id^="root-extra-"]');
+		await boxes.nth(0).check();
+		await boxes.nth(1).check();
+		await page.getByRole('button', { name: 'Add folder' }).last().click();
+		await expect(page.getByText('Try again.')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByText('Added', { exact: true })).toHaveCount(1);
+		await page.getByRole('button', { name: 'Add folder' }).last().click();
+		await expect.poll(() => creates.length).toBe(4);
+		expect(creates.map((c) => c.path)).toEqual(['/srv/sm', '/mnt/data/ok', '/mnt/data/flaky', '/mnt/data/flaky']);
 	});
 });
 

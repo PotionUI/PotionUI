@@ -119,8 +119,10 @@
 		if (initialPath.trim()) void detect();
 	});
 
+	const locked = $derived(!!createdRoot);
+
 	async function detect(profileId?: string) {
-		if (!path.trim()) return;
+		if (!path.trim() || createdRoot) return;
 		detecting = true;
 		detectError = null;
 		createError = null;
@@ -165,7 +167,7 @@
 			for (const extra of extras) {
 				if (!extraTicked[extra.path] || extraDone[extra.path]) continue;
 				try {
-					await rootsState.create({
+					const created = await rootsState.create({
 						path: extra.path,
 						profile: extra.profile_id,
 						bindings: extra.suggestions.map((s) => ({
@@ -175,6 +177,10 @@
 							write: writeHere && !!s.write
 						}))
 					});
+					if (!created) {
+						extraErrors = { ...extraErrors, [extra.path]: rootsState.error ?? 'Failed to add this folder.' };
+						continue;
+					}
 					extraDone = { ...extraDone, [extra.path]: true };
 					extraErrors = { ...extraErrors, [extra.path]: '' };
 				} catch (e) {
@@ -203,12 +209,12 @@
 				id="model-root-path"
 				bind:value={path}
 				placeholder={serverPathPlaceholder(pathStyle)}
-				disabled={detecting || submitting}
+				disabled={detecting || submitting || locked}
 				onkeydown={(e: KeyboardEvent) => {
 					if (e.key === 'Enter') void detect();
 				}}
 			/>
-			<Button variant="secondary" size="sm" onclick={() => detect()} loading={detecting} disabled={detecting || !path.trim()}>
+			<Button variant="secondary" size="sm" onclick={() => detect()} loading={detecting} disabled={detecting || locked || !path.trim()}>
 				Detect
 			</Button>
 		</div>
@@ -241,7 +247,7 @@
 					id="model-root-layout"
 					class="input w-full text-sm"
 					value={selectedLayout}
-					disabled={detecting || submitting}
+					disabled={detecting || submitting || locked}
 					onchange={(e) => void detect((e.currentTarget as HTMLSelectElement).value)}
 				>
 					{#each options as option (option.id)}
@@ -273,7 +279,7 @@
 								? 'border-signal bg-signal/10 text-signal'
 								: 'border-line bg-surface-2 text-fg-muted hover:border-line-hover'}"
 							aria-pressed={detection.root_path === app.path}
-							disabled={detecting || submitting}
+							disabled={detecting || submitting || locked}
 							onclick={() => pickApp(app)}
 						>
 							{app.label}
@@ -308,7 +314,7 @@
 								</li>
 							{/each}
 						</ul>
-						<Button variant="secondary" size="sm" onclick={() => useInstallFolder(outside[0].install_path)}>
+						<Button variant="secondary" size="sm" disabled={locked} onclick={() => useInstallFolder(outside[0].install_path)}>
 							Use the install folder instead
 						</Button>
 					</div>
@@ -335,6 +341,7 @@
 											id="root-folder-{key}"
 											class="h-4 w-4 rounded accent-signal-solid"
 											bind:checked={ticked[key]}
+											disabled={locked}
 										/>
 										<label for="root-folder-{key}" class="min-w-0 flex-1 cursor-pointer">
 											<span class="block truncate text-sm text-fg">{suggestion.label || suggestion.subdir || '(this folder)'}</span>

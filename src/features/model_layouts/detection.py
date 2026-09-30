@@ -22,6 +22,7 @@ DETECTION_BUDGET_SECONDS = 6.0
 COUNT_LIMIT = 10_000
 COUNT_TIME_LIMIT_SECONDS = 2.0
 PRESENCE_ENTRY_LIMIT = 5_000
+PRESENCE_CLOCK_INTERVAL = 16
 EVIDENCE_LIMIT = 12
 GENERIC_LABEL = "Generic (folder names)"
 
@@ -119,12 +120,14 @@ def _posix_rel(base: Path, target: Path) -> str:
     return PurePosixPath(os.path.relpath(str(target), str(base)).replace("\\", "/")).as_posix()
 
 
-def _has_model_file(directory: Path) -> bool:
+def _has_model_file(run: "_Run", directory: Path) -> bool:
     seen = 0
     try:
         for entry in directory.rglob("*"):
             seen += 1
             if seen > PRESENCE_ENTRY_LIMIT:
+                return False
+            if seen % PRESENCE_CLOCK_INTERVAL == 0 and run.remaining() <= 0:
                 return False
             if entry.is_file() and entry.suffix.lower() in SUPPORTED_MODEL_EXTENSIONS:
                 return True
@@ -215,7 +218,7 @@ def _folder_parent(folder: LayoutFolder, install: Path, models: Optional[Path]) 
     return install if folder.base == "install" else models
 
 
-def _score_anchor(layout: ModelLayout, install: Path, models: Optional[Path]) -> _Score:
+def _score_anchor(run: _Run, layout: ModelLayout, install: Path, models: Optional[Path]) -> _Score:
     score = _Score(layout=layout, install=install, models=models)
     for marker in layout.markers:
         found = find_child_ci(install, marker.path)
@@ -231,7 +234,7 @@ def _score_anchor(layout: ModelLayout, install: Path, models: Optional[Path]) ->
         variants = _dir_variants(parent, folder.path)
         if not variants:
             continue
-        score.folder_evidence += folder.weight + (1 if _has_model_file(variants[0]) else 0)
+        score.folder_evidence += folder.weight + (1 if _has_model_file(run, variants[0]) else 0)
         score.evidence.append(folder.path)
     if layout.markers and score.marker_score >= layout.min_marker_score:
         score.confidence = "strong"
@@ -240,13 +243,13 @@ def _score_anchor(layout: ModelLayout, install: Path, models: Optional[Path]) ->
     return score
 
 
-def _best_score(layout: ModelLayout, root: Path) -> _Score:
-    scores = [_score_anchor(layout, install, models) for install, models in _anchors(layout, root)]
+def _best_score(run: _Run, layout: ModelLayout, root: Path) -> _Score:
+    scores = [_score_anchor(run, layout, install, models) for install, models in _anchors(layout, root)]
     return max(scores, key=lambda s: s.total)
 
 
-def _rank(layouts: Sequence[ModelLayout], root: Path) -> List[_Score]:
-    matches = [s for s in (_best_score(layout, root) for layout in layouts) if s.confidence is not None]
+def _rank(run: _Run, layouts: Sequence[ModelLayout], root: Path) -> List[_Score]:
+    matches = [s for s in (_best_score(run, layout, root) for layout in layouts) if s.confidence is not None]
     return sorted(matches, key=lambda s: s.rank_key())
 
 
@@ -316,7 +319,7 @@ def _folder_suggestions(
         if not variants:
             continue
         primary = variants[0]
-        kept = [primary] + [v for v in variants[1:] if _has_model_file(v)]
+        kept = [primary] + [v for v in variants[1:] if _has_model_file(run, v)]
         if len(kept) > 1:
             warnings.append(
                 f"'{folder.path}' exists in more than one spelling ({', '.join(v.name for v in kept)}); all are offered"
@@ -622,23 +625,23 @@ def detect_layout(
     raw_path = Path(unicodedata.normalize("NFC", str(path)))
     run = _Run(clock=clock, deadline=clock() + DETECTION_BUDGET_SECONDS, translator=translator, resolver=resolver)
 
-    state, _reason = root_detection._probe_path(raw_path)
+    state, _reason = root_detection.probe_path(raw_path)
     if state != "online":
         return _generic(raw_path, run, [], [])
 
     warnings: List[str] = []
-    drive_warning = root_detection._drive_letter_warning(str(raw_path), state)
+    drive_warning = root_detection.drive_letter_warning(str(raw_path), state)
     if drive_warning:
         warnings.append(drive_warning)
 
-    ranked = _rank(layouts, raw_path)
+    ranked = _rank(run, layouts, raw_path)
 
     if profile == GENERIC_LAYOUT_ID:
         return _generic(raw_path, run, [_alternative(s) for s in ranked], [])
 
     if forced_layout is not None:
         chosen = next((s for s in ranked if s.layout.id == forced_layout.id), None) or _best_score(
-            forced_layout, raw_path
+            run, forced_layout, raw_path
         )
         forced = True
     elif ranked:
@@ -666,7 +669,7 @@ def _delegated(
     inner = [layout for layout in layouts if layout.delegate is None]
     found: List[Tuple[Path, _Score]] = []
     for candidate in _expand_delegate(chosen):
-        matches = [s for s in _rank(inner, candidate) if s.confidence == "strong"]
+        matches = [s for s in _rank(run, inner, candidate) if s.confidence == "strong"]
         if matches:
             found.append((candidate, matches[0]))
     found.sort(key=lambda item: (-item[1].total, item[0].name))
@@ -687,7 +690,7 @@ def _delegated(
         return result
 
     best_path, best_score = found[0]
-    inner_alternatives = [_alternative(s) for s in _rank(inner, best_path) if s.layout.id != best_score.layout.id]
+    inner_alternatives = [_alternative(s) for s in _rank(run, inner, best_path) if s.layout.id != best_score.layout.id]
     result = _profiled(run, best_path, best_score, inner_alternatives, state, warnings, False)
     result["path"] = str(raw_path)
     result["profile"] = _profile_dict(chosen)

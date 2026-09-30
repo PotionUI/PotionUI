@@ -434,6 +434,16 @@ class TestBudgetAndCounting:
         result = detect_layout(str(tmp_path), catalog=catalog(), clock=lambda: 0.0)
         assert all(s["file_count"] == 1 and s["file_count_truncated"] is False for s in result["suggestions"])
 
+    def test_presence_scanning_stops_at_the_deadline(self, tmp_path):
+        touch(tmp_path, "folder_paths.py", "comfy/")
+        for index in range(60):
+            (tmp_path / "models" / "loras" / f"d{index:02d}").mkdir(parents=True)
+        touch(tmp_path, "models/loras/zz/deep.safetensors")
+        generous = detect_layout(str(tmp_path), catalog=catalog("comfyui"), clock=lambda: 0.0)
+        ticks = iter(range(0, 100_000, 10))
+        exhausted = detect_layout(str(tmp_path), catalog=catalog("comfyui"), clock=lambda: next(ticks))
+        assert generous["profile"]["score"] == exhausted["profile"]["score"] + 1
+
     def test_only_the_chosen_profile_is_counted(self, tmp_path, monkeypatch):
         _comfy_tree(tmp_path)
         touch(tmp_path, "webui.py", "modules/")

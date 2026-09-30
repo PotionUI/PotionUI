@@ -172,7 +172,7 @@ class DetectedLayout:
         }
 
 
-def _probe_path(path: Path) -> Tuple[str, Optional[str]]:
+def probe_path(path: Path) -> Tuple[str, Optional[str]]:
     import threading
 
     result: Dict[str, Any] = {}
@@ -219,7 +219,7 @@ def _posix_relpath(base: Path, target: Path) -> str:
     return PurePosixPath(str(rel).replace("\\", "/")).as_posix()
 
 
-def _drive_letter_warning(path_str: str, state: str) -> Optional[str]:
+def drive_letter_warning(path_str: str, state: str) -> Optional[str]:
     if not _DRIVE_LETTER_RE.match(path_str):
         return None
     if state == "online":
@@ -264,9 +264,9 @@ def detect(path: Union[str, Path], *, resolver: Optional[Any] = None) -> Detecte
     raw_path = Path(unicodedata.normalize("NFC", str(path)))
     path_str = str(raw_path)
 
-    state, _reason = _probe_path(raw_path)
+    state, _reason = probe_path(raw_path)
     warnings: List[str] = []
-    drive_warning = _drive_letter_warning(path_str, state)
+    drive_warning = drive_letter_warning(path_str, state)
     if drive_warning:
         warnings.append(drive_warning)
 

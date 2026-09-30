@@ -12,6 +12,7 @@ See docs/models.md.
 
 from typing import Dict, List, Optional, Set
 
+from src.features.cloud.presentation import CloudModelPresentation
 from src.platform.observability.logger import logger
 from src.platform.filesystem.model_types import CHECKPOINT_MODEL_TYPE, DIFFUSION_MODEL_TYPE, VIRTUAL_MODEL_TYPES
 from src.features.models.availability_repository import (
@@ -147,14 +148,18 @@ def models_for_engine(
     )
 
     if not indexed:
-        return [_entry(model, [], admin, model_type) for model in models]
+        presentation = CloudModelPresentation(backend_registry)
+        return [presentation.apply(_entry(model, [], admin, model_type), model) for model in models]
 
     # Badges only for the rows actually returned - a page, not the library.
     by_model = model_availability_repo.backend_ids_by_model([m.id for m in models])
     engine_backends = set(backend_ids)
 
+    presentation = CloudModelPresentation(backend_registry)
     return [
-        _entry(model, sorted(set(by_model.get(model.id, [])) & engine_backends), admin, model_type)
+        presentation.apply(
+            _entry(model, sorted(set(by_model.get(model.id, [])) & engine_backends), admin, model_type), model
+        )
         for model in models
     ]
 

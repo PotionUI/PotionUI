@@ -73,6 +73,10 @@ report = {
         "policy_scopes_are_the_admin_scopes": (
             c.generation_orchestrator.cloud_policy.scope_repository is c.cloud_model_scopes.repository
         ),
+        "model_catalog_labels_cloud_models_from_the_container_registry": (
+            c.model_index_manager.catalog.cloud_presentation is not None
+            and c.model_index_manager.catalog.cloud_presentation.backend_registry is c.backend_registry
+        ),
         "orchestrator_capabilities_are_the_container_capabilities": (
             c.generation_orchestrator.cloud_capabilities is c.cloud_capabilities
         ),

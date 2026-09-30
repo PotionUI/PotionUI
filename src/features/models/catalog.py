@@ -10,6 +10,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
+from src.features.cloud.presentation import CloudModelPresentation
 from src.features.models.access_policy import ModelAccessPolicy
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
 from src.features.models.exceptions import ModelNotFoundException
@@ -63,7 +64,9 @@ class ModelCatalog:
         scanner: ModelScanner,
         user_attribute_repository: Optional[UserModelAttributeRepository] = None,
         locator: Optional["ModelLocator"] = None,
+        backend_registry: Optional[Any] = None,
     ):
+        self.cloud_presentation = CloudModelPresentation(backend_registry) if backend_registry is not None else None
         self.model_repo = model_repository
         self.access_policy = access_policy
         self.scanner = scanner
@@ -74,6 +77,11 @@ class ModelCatalog:
             self.locator = ModelLocator(scanner.resolver)
         else:
             self.locator = None
+
+    def _with_cloud_fields(self, payload: Dict[str, Any], model) -> Dict[str, Any]:
+        if self.cloud_presentation is None:
+            return payload
+        return self.cloud_presentation.apply(payload, model)
 
     def list_models(self, params: ListModelsParams, user: User) -> Dict[str, Any]:
         """List models with filtering, pagination, and access control."""
@@ -146,10 +154,13 @@ class ModelCatalog:
                     model.copies = summary["copies"]
 
         models_data = [
-            model.to_dict(
-                include_providers=True,
-                include_tags=params.include_tags,
-                admin=is_admin,
+            self._with_cloud_fields(
+                model.to_dict(
+                    include_providers=True,
+                    include_tags=params.include_tags,
+                    admin=is_admin,
+                ),
+                model,
             )
             for model in models
         ]
@@ -392,7 +403,7 @@ class ModelCatalog:
                     "path": str(winner.path) if winner.path is not None else None,
                 }
 
-        data = model.to_dict(include_providers=admin, admin=admin)
+        data = self._with_cloud_fields(model.to_dict(include_providers=admin, admin=admin), model)
         if admin:
             data["locations"] = [
                 {

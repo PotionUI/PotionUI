@@ -98,7 +98,10 @@ def build_model_index_collaborators(
         tag_repo=tag_repository,
         plugins=plugin_registry,
         access=access,
-        catalog=ModelCatalog(model_repository, access, model_scanner, user_attribute_repository, locator=locator),
+        catalog=ModelCatalog(
+            model_repository, access, model_scanner, user_attribute_repository, locator=locator,
+            backend_registry=backend_registry,
+        ),
         indexing=indexing,
         metadata=metadata,
         provider_info=ProviderInfoFetcher(

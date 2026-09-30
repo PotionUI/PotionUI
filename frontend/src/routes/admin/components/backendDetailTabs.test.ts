@@ -21,6 +21,20 @@ describe('backendDetailTabsFor', () => {
 	});
 });
 
+describe('cloud backends', () => {
+	it('get a Catalog tab between Overview and Stats, keyed by engine', () => {
+		expect(backendDetailTabsFor('cloud.fake', 'cloud').map((t) => t.id)).toEqual(['overview', 'catalog', 'stats']);
+		expect(backendDetailTabsFor('cloud.openrouter', 'cloud').map((t) => t.label)).toEqual(['Overview', 'Catalog', 'Stats']);
+	});
+
+	it('are the only ones with a Catalog tab', () => {
+		expect(isBackendDetailTab('comfyui', 'catalog', 'comfyui')).toBe(false);
+		expect(isBackendDetailTab('native.local', 'catalog', 'native')).toBe(false);
+		expect(isBackendDetailTab('native.remote', 'catalog')).toBe(false);
+		expect(isBackendDetailTab('cloud.fake', 'catalog', 'cloud')).toBe(true);
+	});
+});
+
 describe('isBackendDetailTab', () => {
 	it('is true for a tab that belongs to the driver', () => {
 		expect(isBackendDetailTab('native.remote', 'infrastructure')).toBe(true);

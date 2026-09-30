@@ -68,6 +68,7 @@
 	} from './backendIndexing';
 	import BackendInfrastructureSection from './BackendInfrastructureSection.svelte';
 	import BackendModelsSection from './BackendModelsSection.svelte';
+	import CloudCatalogSection from './CloudCatalogSection.svelte';
 	import { backendDetailTabsFor, backendDetailTabHasFooter, isBackendDetailTab, type BackendDetailTabId } from './backendDetailTabs';
 	import { readBackendsUrlState, writeBackendsUrlState } from './backendsUrlState';
 	import { BACKENDS_LIBRARY_SECTIONS, type BackendLibrarySection } from './backends/backendsLibrarySections';
@@ -209,7 +210,7 @@
 	const activeBackend = $derived(backends.find((b) => b.id === selectedBackendId) ?? null);
 	const activeHealth = $derived(activeBackend ? backendsHealth.find((h) => h.backend_id === activeBackend.id) : undefined);
 	const detailOpen = $derived(selectedBackendId !== null);
-	const backendDetailTabs = $derived(backendDetailTabsFor(activeBackend?.driver ?? ''));
+	const backendDetailTabs = $derived(backendDetailTabsFor(activeBackend?.driver ?? '', activeBackend?.engine ?? ''));
 	const showFooter = $derived(backendDetailTabHasFooter(detailTab));
 
 	const headerChips = $derived.by((): DetailHeaderChip[] => {
@@ -223,7 +224,7 @@
 	});
 
 	$effect(() => {
-		if (activeBackend && !isBackendDetailTab(activeBackend.driver, detailTab)) {
+		if (activeBackend && !isBackendDetailTab(activeBackend.driver, detailTab, activeBackend.engine)) {
 			detailTab = 'overview';
 		}
 	});
@@ -289,7 +290,7 @@
 		const backend = backends.find((b) => b.id === backendId);
 		if (!backend) return;
 		await selectBackend(backend.id);
-		if (view && isBackendDetailTab(backend.driver, view)) {
+		if (view && isBackendDetailTab(backend.driver, view, backend.engine)) {
 			detailTab = view as DetailTab;
 		}
 	}
@@ -1063,6 +1064,16 @@
 											/>
 										{/key}
 									{/if}
+								{/snippet}
+							</DetailLayout>
+						</DetailBody>
+					{:else if detailTab === 'catalog' && activeBackend.engine === 'cloud'}
+						<DetailBody>
+							<DetailLayout>
+								{#snippet main()}
+									{#key activeBackend.id}
+										<CloudCatalogSection backendId={activeBackend.id} />
+									{/key}
 								{/snippet}
 							</DetailLayout>
 						</DetailBody>

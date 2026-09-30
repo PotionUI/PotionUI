@@ -17,9 +17,9 @@
 		searchAriaLabel = undefined,
 		searchHint = null,
 		searchInputEl = $bindable(undefined),
-		sortBy,
-		sortOptions,
-		onSortChange,
+		sortBy = '',
+		sortOptions = [],
+		onSortChange = () => {},
 		filterCount = 0,
 		searchAddon,
 		popover
@@ -30,9 +30,9 @@
 		searchAriaLabel?: string;
 		searchHint?: string | null;
 		searchInputEl?: HTMLInputElement;
-		sortBy: string;
-		sortOptions: readonly SortOption[];
-		onSortChange: (value: string) => void;
+		sortBy?: string;
+		sortOptions?: readonly SortOption[];
+		onSortChange?: (value: string) => void;
 		filterCount?: number;
 		searchAddon?: Snippet;
 		popover?: Snippet<[() => void]>;
@@ -147,6 +147,7 @@
 	{/if}
 {/if}
 
+{#if sortOptions.length > 0}
 <label class="relative flex-shrink-0">
 	<span class="sr-only">Sort</span>
 	<select
@@ -159,3 +160,4 @@
 		{/each}
 	</select>
 </label>
+{/if}

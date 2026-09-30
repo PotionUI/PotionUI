@@ -46,3 +46,30 @@ describe('writeBackendsUrlState', () => {
 		expect(url.searchParams.has('backend')).toBe(false);
 	});
 });
+
+describe('writeBackendsUrlState catalog filters', () => {
+	const filtered = 'https://example.test/admin?tab=backends&backend=abc&view=catalog&q=veo&task=txt2video&output=video&enabled=1';
+
+	it('keeps the catalog filters while the same backend stays on the Catalog tab', () => {
+		const next = writeBackendsUrlState(new URL(filtered), { backendId: 'abc', view: 'catalog' });
+		expect(next.searchParams.get('task')).toBe('txt2video');
+		expect(next.searchParams.get('q')).toBe('veo');
+		expect(next.searchParams.get('enabled')).toBe('1');
+	});
+
+	it('drops them when leaving the Catalog tab', () => {
+		const next = writeBackendsUrlState(new URL(filtered), { backendId: 'abc', view: 'stats' });
+		for (const key of ['q', 'task', 'output', 'enabled']) expect(next.searchParams.has(key)).toBe(false);
+		expect(next.searchParams.get('tab')).toBe('backends');
+	});
+
+	it('drops them when another backend is selected', () => {
+		const next = writeBackendsUrlState(new URL(filtered), { backendId: 'other', view: 'catalog' });
+		expect(next.searchParams.has('task')).toBe(false);
+	});
+
+	it('drops them when nothing is selected', () => {
+		const next = writeBackendsUrlState(new URL(filtered), { backendId: null, view: null });
+		expect(next.searchParams.has('q')).toBe(false);
+	});
+});

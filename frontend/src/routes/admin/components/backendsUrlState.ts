@@ -1,5 +1,8 @@
+import { CATALOG_FILTER_PARAMS } from './cloudCatalog';
+
 const BACKEND_PARAM = 'backend';
 const VIEW_PARAM = 'view';
+const CATALOG_VIEW = 'catalog';
 
 export interface BackendsUrlState {
 	backendId: string | null;
@@ -22,6 +25,7 @@ export function readBackendsUrlState(searchParams: URLSearchParams): BackendsUrl
  * removed rather than written, so an idle Backends tab keeps a clean URL. */
 export function writeBackendsUrlState(url: URL, state: BackendsUrlState): URL {
 	const next = new URL(url);
+	const previousBackendId = url.searchParams.get(BACKEND_PARAM);
 	if (state.backendId) {
 		next.searchParams.set(BACKEND_PARAM, state.backendId);
 	} else {
@@ -31,6 +35,9 @@ export function writeBackendsUrlState(url: URL, state: BackendsUrlState): URL {
 		next.searchParams.set(VIEW_PARAM, state.view);
 	} else {
 		next.searchParams.delete(VIEW_PARAM);
+	}
+	if (state.view !== CATALOG_VIEW || previousBackendId !== state.backendId) {
+		for (const param of CATALOG_FILTER_PARAMS) next.searchParams.delete(param);
 	}
 	return next;
 }

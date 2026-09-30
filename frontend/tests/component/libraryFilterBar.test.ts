@@ -98,4 +98,10 @@ describe('LibraryFilterBar', () => {
 		flushSync();
 		expect(document.body.querySelector('[data-testid="filters-popover"]')).toBeNull();
 	});
+
+	it('renders no sort control when there are no sort options', () => {
+		mountBar({ popover, sortOptions: [] });
+		expect(target.querySelector('select')).toBeNull();
+		expect(target.textContent).not.toContain('Sort');
+	});
 });

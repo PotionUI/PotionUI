@@ -3,8 +3,9 @@
 // hardcoding CLAUDE.md forbids.
 const NATIVE_LOCAL_DRIVER = 'native.local';
 const NATIVE_REMOTE_DRIVER = 'native.remote';
+const CLOUD_ENGINE = 'cloud';
 
-export type BackendDetailTabId = 'overview' | 'infrastructure' | 'models' | 'optimizations' | 'stats';
+export type BackendDetailTabId = 'overview' | 'infrastructure' | 'models' | 'optimizations' | 'catalog' | 'stats';
 
 export interface BackendDetailTabDescriptor {
 	id: BackendDetailTabId;
@@ -25,7 +26,14 @@ export interface BackendDetailTabDescriptor {
  *    (`src/features/provisioning/operations.py`), so `BackendInfrastructureSection`
  *    never renders anything for another driver.
  */
-export function backendDetailTabsFor(driver: string): BackendDetailTabDescriptor[] {
+export function backendDetailTabsFor(driver: string, engine: string = ''): BackendDetailTabDescriptor[] {
+	if (engine === CLOUD_ENGINE) {
+		return [
+			{ id: 'overview', label: 'Overview', icon: 'info' },
+			{ id: 'catalog', label: 'Catalog', icon: 'book' },
+			{ id: 'stats', label: 'Stats', icon: 'gauge' }
+		];
+	}
 	if (driver === NATIVE_REMOTE_DRIVER) {
 		return [
 			{ id: 'overview', label: 'Overview', icon: 'info' },
@@ -51,8 +59,8 @@ export function backendDetailTabsFor(driver: string): BackendDetailTabDescriptor
  * Overview when the previously-selected backend's tab doesn't exist on the
  * newly-selected one (e.g. leaving a native.remote's Infrastructure tab for
  * a comfyui backend). */
-export function isBackendDetailTab(driver: string, tab: string): boolean {
-	return backendDetailTabsFor(driver).some((t) => t.id === tab);
+export function isBackendDetailTab(driver: string, tab: string, engine: string = ''): boolean {
+	return backendDetailTabsFor(driver, engine).some((t) => t.id === tab);
 }
 
 export function backendDetailTabHasFooter(tab: BackendDetailTabId): boolean {

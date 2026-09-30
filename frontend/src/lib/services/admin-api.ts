@@ -1786,3 +1786,133 @@ export async function getRemoteModelTransfers(
 	const response = await api.getClient().get(`/api/admin/remote-models/${backendId}/transfers`);
 	return response.data;
 }
+
+export interface CloudPriceLine {
+	unit: string;
+	usd: string;
+	applies_to: string | null;
+}
+
+export interface CloudCatalogParam {
+	name: string;
+	kind: string;
+	label: string;
+	tasks: string[];
+}
+
+export interface CloudCatalogInput {
+	role: string;
+	modality: string;
+	max_items: number;
+	tasks: string[];
+}
+
+export interface CloudCatalogItem {
+	slug: string;
+	provider_model_id: string;
+	label: string;
+	vendor: string | null;
+	description: string | null;
+	tasks: string[];
+	outputs: string[];
+	enabled: boolean;
+	suggested: boolean;
+	available: boolean;
+	missing_since: string | null;
+	deprecated: boolean;
+	deprecated_at: string | null;
+	discovered_at: string | null;
+	refreshed_at: string | null;
+	enabled_at: string | null;
+	model_id: string | null;
+	max_outputs_per_job: number;
+	typical_seconds: number | null;
+	max_seconds: number | null;
+	params: CloudCatalogParam[];
+	inputs: CloudCatalogInput[];
+	pricing: CloudPriceLine[];
+}
+
+export interface CloudCatalogSkipped {
+	provider_model_id: string;
+	problems: string[];
+}
+
+export interface CloudCatalogPage {
+	backend_id: string;
+	driver: string;
+	total: number;
+	limit: number;
+	offset: number;
+	provider: {
+		key: string | null;
+		label: string | null;
+		data_notice: string;
+		supports_cancel: boolean;
+	};
+	state: { refreshed_at: string | null; listed: number; skipped: CloudCatalogSkipped[] } | null;
+	counts: { total: number; enabled: number; missing: number };
+	items: CloudCatalogItem[];
+}
+
+export interface CloudCatalogQuery {
+	task?: string;
+	output?: string;
+	enabled?: boolean;
+	search?: string;
+	limit?: number;
+	offset?: number;
+}
+
+export interface CloudCatalogRefreshResult {
+	backend_id: string;
+	refreshed_at: string | null;
+	listed: number;
+	accepted: number;
+	created: number;
+	vanished: string[];
+	skipped: CloudCatalogSkipped[];
+	index: unknown;
+	empty: boolean;
+	message: string | null;
+}
+
+export interface CloudCatalogToggleResult {
+	backend_id: string;
+	enabled: boolean;
+	changed: string[];
+	unchanged: string[];
+	models: Record<string, string>;
+	index: unknown;
+}
+
+export async function getCloudCatalog(
+	backendId: string,
+	query: CloudCatalogQuery = {}
+): Promise<APIResponse<CloudCatalogPage>> {
+	const params: Record<string, string | number | boolean> = {};
+	if (query.task) params.task = query.task;
+	if (query.output) params.output = query.output;
+	if (query.enabled !== undefined) params.enabled = query.enabled;
+	if (query.search) params.search = query.search;
+	if (query.limit !== undefined) params.limit = query.limit;
+	if (query.offset !== undefined) params.offset = query.offset;
+	const response = await api.getClient().get(`/api/cloud/backends/${backendId}/catalog`, { params });
+	return response.data;
+}
+
+export async function refreshCloudCatalog(backendId: string): Promise<APIResponse<CloudCatalogRefreshResult>> {
+	const response = await api.getClient().post(`/api/cloud/backends/${backendId}/catalog/refresh`);
+	return response.data;
+}
+
+export async function setCloudCatalogEnabled(
+	backendId: string,
+	slugs: string[],
+	enabled: boolean
+): Promise<APIResponse<CloudCatalogToggleResult>> {
+	const response = await api
+		.getClient()
+		.post(`/api/cloud/backends/${backendId}/catalog/${enabled ? 'enable' : 'disable'}`, { slugs });
+	return response.data;
+}

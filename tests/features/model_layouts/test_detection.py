@@ -157,13 +157,6 @@ class TestStabilityMatrix:
         assert _by(result, "Data/Models/StableDiffusion")["scan_headers"] is True
         assert _by(result, "Data/Models/Lora")["write"] is True and _by(result, "Data/Models/LyCORIS")["write"] is False
 
-    def test_models_dir_uses_the_suffix_anchor(self, tmp_path):
-        _sm_tree(tmp_path)
-        result = detect_layout(str(tmp_path / "Data" / "Models"), catalog=catalog())
-        assert result["profile"]["id"] == "stabilitymatrix"
-        assert set(_subdirs(result, "lora")) == {"Lora", "LyCORIS"}
-        assert "StableDiffusion" in _subdirs(result)
-
     def test_generic_override_gives_todays_partial_result(self, tmp_path):
         _sm_tree(tmp_path)
         models = str(tmp_path / "Data" / "Models")

@@ -251,6 +251,7 @@ trimesh==4.12.2
 trampoline==0.1.2
 transformers==5.13.0
 triton==3.7.1
+truststore==0.10.4
 typer==0.26.8
 typing-inspection==0.4.2
 typing_extensions==4.16.0

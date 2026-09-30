@@ -27,6 +27,7 @@ from src.features.downloads.exceptions import DownloadAuthenticationException
 from src.features.downloads.models import NO_PROVIDER, Download, DownloadStatus, DownloadType, DownloadSettings
 from src.features.downloads.repository import DownloadRepository
 from src.platform.database.rows import now_utc
+from src.platform.http.tls import aiohttp_connector, certificate_failure_message, is_certificate_error
 from src.features.downloads.utils import (
     extension_for_content_type,
     extract_filename_from_content_disposition,
@@ -157,9 +158,8 @@ class DownloadWorker:
 
         self.running = True
 
-        # Create HTTP session with reasonable timeouts
-        timeout = aiohttp.ClientTimeout(total=3600, connect=30)  # 1 hour total, 30s connect
-        self.session = aiohttp.ClientSession(timeout=timeout)
+        timeout = aiohttp.ClientTimeout(total=3600, connect=30)
+        self.session = aiohttp.ClientSession(timeout=timeout, connector=aiohttp_connector())
 
         # Start workers
         for i in range(self.settings.max_concurrent_downloads):
@@ -509,10 +509,19 @@ class DownloadWorker:
             error_message = str(e)
             logger.error(f"Download failed for {download.filename}: {error_message}")
 
-            # Check if we should retry
-            current_retries = self.repo.increment_retry(download_id)
+            certificate_error = is_certificate_error(e)
+            current_retries = None
+            if certificate_error:
+                host = getattr(e, "host", None) or urlparse(download.url).hostname or "the source"
+                error_message = certificate_failure_message(host)
+            else:
+                current_retries = self.repo.increment_retry(download_id)
 
-            if self.settings.auto_retry_failed and current_retries <= self.settings.max_retries:
+            if (
+                current_retries is not None
+                and self.settings.auto_retry_failed
+                and current_retries <= self.settings.max_retries
+            ):
                 # Re-queue for retry
                 logger.info(f"Retrying download {download.filename} (attempt {current_retries})")
                 await self.queue.put(download_id)

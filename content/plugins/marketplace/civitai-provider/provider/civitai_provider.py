@@ -24,6 +24,7 @@ from src.plugin_api import (
     ProviderNotFoundError,
     RemoteDownloadRef,
 )
+from src.plugin_api.providers import aiohttp_connector
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +179,7 @@ class CivitaiProvider(MarketplaceProviderBase):
         async context, avoiding "Timeout context manager should be used inside a task" errors.
         """
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(headers=self._headers)
+            self._session = aiohttp.ClientSession(headers=self._headers, connector=aiohttp_connector())
         return self._session
 
     async def _rate_limit(self) -> None:

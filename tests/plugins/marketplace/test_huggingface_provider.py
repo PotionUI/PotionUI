@@ -309,3 +309,22 @@ def test_settings_schema_marks_api_key_as_password(provider):
     schema = provider.get_settings_schema()
     assert schema["properties"]["api_key"]["format"] == "password"
     assert schema["required"] == []
+
+
+@pytest.mark.asyncio
+async def test_session_uses_the_shared_connector(monkeypatch):
+    sentinel = object()
+    created = []
+
+    class _RecordingSession:
+        def __init__(self, *args, **kwargs):
+            self.kwargs = kwargs
+            self.closed = False
+            created.append(self)
+
+    monkeypatch.setattr(_mod, "aiohttp_connector", lambda: sentinel)
+    monkeypatch.setattr(_mod.aiohttp, "ClientSession", _RecordingSession)
+
+    session = await HuggingFaceProvider()._get_session()
+
+    assert session.kwargs["connector"] is sentinel

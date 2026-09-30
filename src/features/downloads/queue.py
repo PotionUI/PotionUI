@@ -32,6 +32,7 @@ from src.features.downloads.exceptions import (
     InvalidTypeException,
 )
 from src.platform.assets import AssetFetchError
+from src.platform.http.tls import certificate_failure_message, client_ssl_context, is_certificate_error
 from src.features.downloads.worker import DownloadWorker
 from src.features.downloads.models import Download, DownloadStatus, DownloadType, DownloadSettings
 from src.features.downloads.repository import DownloadRepository
@@ -811,7 +812,7 @@ class DownloadQueue:
         Public repos need no token; a configured Hugging Face provider's
         credentials apply automatically for gated/private repos.
         """
-        import requests
+        import httpx
         from urllib.parse import quote
 
         rev = quote(revision, safe="") if revision else None
@@ -824,7 +825,14 @@ class DownloadQueue:
         if token:
             headers["Authorization"] = f"Bearer {token}"
 
-        response = requests.get(url, params={"blobs": "true"}, headers=headers, timeout=30)
+        response = httpx.get(
+            url,
+            params={"blobs": "true"},
+            headers=headers,
+            timeout=30,
+            verify=client_ssl_context(),
+            follow_redirects=True,
+        )
         response.raise_for_status()
         siblings = response.json().get("siblings") or []
 
@@ -933,6 +941,9 @@ class DownloadQueue:
                 self._enumerate_hf_repo, repo_id, revision, allow_patterns
             )
         except Exception as e:
+            if is_certificate_error(e):
+                logger.error(f"Could not enumerate Hugging Face repo '{repo_id}': {e}")
+                raise DownloadQueueException(certificate_failure_message(urlparse(_HF_BASE_URL).hostname))
             raise DownloadQueueException(f"Could not enumerate Hugging Face repo '{repo_id}': {e}")
 
         if not files:

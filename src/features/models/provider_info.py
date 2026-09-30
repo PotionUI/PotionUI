@@ -15,6 +15,7 @@ from src.features.models.metadata_editor import ModelMetadataEditor
 from src.features.models.records import ModelInfo
 from src.features.models.repository import ModelRepository
 from src.features.providers import ProviderConnectionError, ProviderError, ProviderRateLimitError
+from src.platform.http.tls import aiohttp_connector
 from src.platform.filesystem.storage_driver import FileStorageDriver, LocalFileStorageDriver
 from src.platform.plugins import PluginRegistry
 
@@ -306,7 +307,7 @@ class ProviderInfoFetcher:
         import aiohttp
 
         timeout = aiohttp.ClientTimeout(total=_PREVIEW_MEDIA_TIMEOUT_SECONDS)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp_connector()) as session:
             async with session.get(url) as response:
                 if response.status != 200:
                     logger.debug(f"Preview media fetch got HTTP {response.status} for {url}")

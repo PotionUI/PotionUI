@@ -78,6 +78,8 @@ requests>=2.31.0
 urllib3>=2.0.0
 tqdm>=4.66.0
 httpx>=0.27.0  # For LLM API calls
+certifi>=2024.2.2
+truststore>=0.9.0
 
 # Prompt database (semantic search)
 chromadb>=0.5.0  # Vector store for prompt embeddings (src/features/prompt_database/vector_store.py)

@@ -164,6 +164,17 @@ class TestQueueHfRepoDownload:
             with pytest.raises(DownloadQueueException):
                 await manager.queue_hf_repo_download("org/tiny")
 
+    async def test_certificate_error_is_reported_plainly(self, manager):
+        import httpx
+
+        error = httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate")
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", side_effect=error):
+            with pytest.raises(DownloadQueueException) as raised:
+                await manager.queue_hf_repo_download("org/tiny")
+
+        assert "Could not verify the secure connection to huggingface.co" in str(raised.value)
+        assert "CERTIFICATE_VERIFY_FAILED" not in str(raised.value)
+
     async def test_blocking_hook_prevents_queueing(self, repo, manager):
         context = Mock()
         context.data = {"blocked": True, "block_reason": "nope"}
@@ -443,38 +454,38 @@ class TestTrustedDestinationIsStillContained:
 
 
 class TestEnumerateHfRepo:
-    def _fake_requests(self, siblings):
-        requests_mod = types.ModuleType("requests")
+    def _fake_httpx(self, siblings):
+        httpx_mod = types.ModuleType("httpx")
         response = Mock()
         response.json.return_value = {"siblings": siblings}
         response.raise_for_status.return_value = None
-        requests_mod.get = Mock(return_value=response)
-        return requests_mod
+        httpx_mod.get = Mock(return_value=response)
+        return httpx_mod
 
     def test_enumerates_files_with_sizes_and_urls(self, manager):
         siblings = [
             {"rfilename": "model.safetensors", "size": 100},
             {"rfilename": "config.json", "size": 20},
         ]
-        requests_mod = self._fake_requests(siblings)
-        with patch.dict(sys.modules, {"requests": requests_mod}):
+        httpx_mod = self._fake_httpx(siblings)
+        with patch.dict(sys.modules, {"httpx": httpx_mod}):
             files = manager._enumerate_hf_repo("org/tiny", None, None)
 
         assert files == [
             ("model.safetensors", 100, "https://huggingface.co/org/tiny/resolve/main/model.safetensors"),
             ("config.json", 20, "https://huggingface.co/org/tiny/resolve/main/config.json"),
         ]
-        call = requests_mod.get.call_args
+        call = httpx_mod.get.call_args
         assert call.args[0] == "https://huggingface.co/api/models/org/tiny"
         assert call.kwargs["params"] == {"blobs": "true"}
         assert call.kwargs["headers"] == {}
 
     def test_revision_pins_api_and_resolve_urls(self, manager):
-        requests_mod = self._fake_requests([{"rfilename": "a.bin", "size": 1}])
-        with patch.dict(sys.modules, {"requests": requests_mod}):
+        httpx_mod = self._fake_httpx([{"rfilename": "a.bin", "size": 1}])
+        with patch.dict(sys.modules, {"httpx": httpx_mod}):
             files = manager._enumerate_hf_repo("org/tiny", "v1.0", None)
 
-        assert requests_mod.get.call_args.args[0] == (
+        assert httpx_mod.get.call_args.args[0] == (
             "https://huggingface.co/api/models/org/tiny/revision/v1.0"
         )
         assert files[0][2] == "https://huggingface.co/org/tiny/resolve/v1.0/a.bin"
@@ -484,8 +495,8 @@ class TestEnumerateHfRepo:
             {"rfilename": "model.safetensors", "size": 100},
             {"rfilename": "README.md", "size": 5},
         ]
-        requests_mod = self._fake_requests(siblings)
-        with patch.dict(sys.modules, {"requests": requests_mod}):
+        httpx_mod = self._fake_httpx(siblings)
+        with patch.dict(sys.modules, {"httpx": httpx_mod}):
             files = manager._enumerate_hf_repo("org/tiny", None, ["*.safetensors"])
 
         assert [f[0] for f in files] == ["model.safetensors"]
@@ -496,28 +507,28 @@ class TestEnumerateHfRepo:
         registry = Mock()
         registry.find_provider_for_url.return_value = provider
 
-        requests_mod = self._fake_requests([{"rfilename": "a.bin", "size": 1}])
-        with patch.dict(sys.modules, {"requests": requests_mod}):
+        httpx_mod = self._fake_httpx([{"rfilename": "a.bin", "size": 1}])
+        with patch.dict(sys.modules, {"httpx": httpx_mod}):
             with patch(
                 "src.features.providers.registry.get_provider_registry",
                 return_value=registry,
             ):
                 manager._enumerate_hf_repo("org/gated", None, None)
 
-        assert requests_mod.get.call_args.kwargs["headers"] == {"Authorization": "Bearer sekrit"}
+        assert httpx_mod.get.call_args.kwargs["headers"] == {"Authorization": "Bearer sekrit"}
 
     def test_no_provider_means_no_token(self, manager):
-        requests_mod = self._fake_requests([{"rfilename": "a.bin", "size": 1}])
+        httpx_mod = self._fake_httpx([{"rfilename": "a.bin", "size": 1}])
         registry = Mock()
         registry.find_provider_for_url.return_value = None
-        with patch.dict(sys.modules, {"requests": requests_mod}):
+        with patch.dict(sys.modules, {"httpx": httpx_mod}):
             with patch(
                 "src.features.providers.registry.get_provider_registry",
                 return_value=registry,
             ):
                 manager._enumerate_hf_repo("org/tiny", None, None)
 
-        assert requests_mod.get.call_args.kwargs["headers"] == {}
+        assert httpx_mod.get.call_args.kwargs["headers"] == {}
 
 
 class TestEnsureLocalHfRepo:

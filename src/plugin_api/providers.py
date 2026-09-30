@@ -31,6 +31,7 @@ from src.features.providers import (
 )
 from src.features.providers.registry import ensure_providers_discovered, get_provider_registry
 from src.features.models.records import ModelInfo
+from src.platform.http.tls import aiohttp_connector, client_ssl_context
 
 __all__ = [
     "MarketplaceProviderBase",
@@ -45,6 +46,8 @@ __all__ = [
     "ProviderRateLimitError",
     "ProviderSearchResult",
     "RemoteDownloadRef",
+    "aiohttp_connector",
+    "client_ssl_context",
     "ensure_providers_discovered",
     "get_provider_registry",
 ]

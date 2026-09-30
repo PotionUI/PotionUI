@@ -45,6 +45,7 @@ from src.plugin_api import (
     ProviderNotFoundError,
     RemoteDownloadRef,
 )
+from src.plugin_api.providers import aiohttp_connector
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +143,7 @@ class HuggingFaceProvider(MarketplaceProviderBase):
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create the HTTP session lazily, in the correct async context."""
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(headers=self._headers)
+            self._session = aiohttp.ClientSession(headers=self._headers, connector=aiohttp_connector())
         return self._session
 
     async def _rate_limit(self) -> None:

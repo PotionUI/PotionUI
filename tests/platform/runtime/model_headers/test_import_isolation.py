@@ -21,7 +21,7 @@ print('BAD:' + ','.join(bad))
 
 def test_model_headers_never_imports_torch_or_the_native_runtime():
     env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(p for p in [str(REPO_ROOT), *sys.path] if p)
+    env["PYTHONPATH"] = os.pathsep.join(p for p in [str(REPO_ROOT), os.environ.get("PYTHONPATH", "")] if p)
     result = subprocess.run(
         [sys.executable, "-c", SCRIPT],
         cwd=str(REPO_ROOT),

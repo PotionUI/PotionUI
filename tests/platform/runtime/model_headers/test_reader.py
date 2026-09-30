@@ -9,6 +9,7 @@ import pytest
 from src.platform.runtime.model_headers import reader
 from src.platform.runtime.model_headers.reader import (
     HeaderStatus,
+    HeaderTap,
     read_header,
     read_safetensors_header,
 )
@@ -237,3 +238,53 @@ def test_read_safetensors_header_is_bounded(tmp_path):
     path = raw_safetensors(tmp_path / "m.safetensors", b"{}", declared_length=2**63)
     with pytest.raises(ValueError):
         read_safetensors_header(path)
+
+
+def feed_in_chunks(tap, data, size):
+    for start in range(0, len(data), size):
+        tap.feed(data[start:start + size])
+
+
+def test_tap_keeps_exactly_the_safetensors_header(tmp_path):
+    path = write_safetensors(tmp_path / "m.safetensors", TENSORS)
+    header = path.read_bytes()
+    tap = HeaderTap()
+
+    feed_in_chunks(tap, header + b"\x00" * 5000, 7)
+
+    assert tap.prefix == header
+    assert read_header(path, prefix=tap.prefix).status is HeaderStatus.OK
+
+
+def test_tap_stops_collecting_once_the_header_is_complete(tmp_path):
+    header = write_safetensors(tmp_path / "m.safetensors", TENSORS).read_bytes()
+    tap = HeaderTap()
+    tap.feed(header)
+    tap.feed(b"x" * 100)
+    tap.feed(b"y" * 100)
+
+    assert tap.prefix == header
+
+
+def test_tap_keeps_nothing_for_an_absurd_header_length():
+    tap = HeaderTap()
+    tap.feed(struct.pack("<Q", 2**40) + b"{}")
+    tap.feed(b"more")
+
+    assert tap.prefix == b""
+
+
+def test_tap_keeps_a_gguf_prefix_up_to_the_read_budget():
+    tap = HeaderTap()
+    tap.feed(b"GGUF" + b"\x00" * 100)
+
+    assert tap.prefix.startswith(b"GGUF")
+    assert len(tap.prefix) == 104
+
+
+def test_tap_waits_for_eight_bytes_before_deciding():
+    tap = HeaderTap()
+    for byte in struct.pack("<Q", 2) + b"{}":
+        tap.feed(bytes([byte]))
+
+    assert tap.prefix == struct.pack("<Q", 2) + b"{}"

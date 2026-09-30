@@ -80,6 +80,25 @@ class TestCreateRoot:
         assert types == {"lora", "checkpoint"}
         assert manager.coordinator.calls == ["roots_change"]
 
+    def test_new_bindings_scan_headers_by_default_only_for_the_classified_folders(self, manager, library_dir):
+        (library_dir / "Stable-diffusion").mkdir()
+        (library_dir / "unet").mkdir()
+        result = manager.create_root(
+            str(library_dir),
+            bindings=[
+                BindingSpec("checkpoint", "Stable-diffusion"),
+                BindingSpec("unet", "unet"),
+                BindingSpec("lora", "loras"),
+                BindingSpec("diffusion_model", "checkpoints"),
+            ],
+        )
+
+        rows = {
+            b["model_type"]: b["scan_headers"]
+            for b in ModelRootRepository().bindings_for_root(result["id"])
+        }
+        assert rows == {"checkpoint": 1, "unet": 1, "lora": 0, "diffusion_model": 0}
+
     def test_is_idempotent_by_path_key(self, manager, library_dir):
         first = manager.create_root(str(library_dir), bindings=[BindingSpec("lora", "loras")])
         second = manager.create_root(str(library_dir), bindings=[BindingSpec("lora", "loras")])

@@ -6,6 +6,12 @@ from unittest.mock import patch, Mock
 from src.features.models import form_refs as fr
 
 
+@pytest.fixture(autouse=True)
+def typed_models():
+    with patch("src.features.models.repository.ModelRepository.undefined_filenames", return_value={}) as spy:
+        yield spy
+
+
 def _avail(ref=None, confidence="verified", digest=None, backend_id="comfy"):
     """A stand-in for `ModelAvailability` carrying only what `resolve_form_model_refs`
     reads: `ref`, `confidence`, `digest`, `backend_id`."""
@@ -73,6 +79,7 @@ def test_unindexed_backend_uses_filename_when_the_locator_has_no_location(repo):
     locator.path_for_model.side_effect = fr.ModelFileUnavailable("no location")
 
     with patch("src.features.models.repository.model_repo") as mr:
+        mr.undefined_filenames.return_value = {}
         mr.get_by_id.return_value = type("M", (), {"filename": "detail.safetensors"})()
         resolved = fr.resolve_form_model_refs({"lora": fr.make_model_ref("m1")}, _backend("comfy"), locator)
 
@@ -87,6 +94,7 @@ def test_unindexed_backend_prefers_the_locators_live_location(repo):
     locator.path_for_model.return_value = "/lib/loras/detail.safetensors"
 
     with patch("src.features.models.repository.model_repo") as mr:
+        mr.undefined_filenames.return_value = {}
         mr.get_by_id.return_value = type("M", (), {"filename": "detail.safetensors"})()
         resolved = fr.resolve_form_model_refs({"lora": fr.make_model_ref("m1")}, _backend("comfy"), locator)
 
@@ -100,6 +108,7 @@ def test_indexed_backend_missing_a_model_still_raises(repo):
     repo.get.return_value = None
 
     with patch("src.features.models.repository.model_repo") as mr:
+        mr.undefined_filenames.return_value = {}
         mr.get_by_id.return_value = type("M", (), {"filename": "detail.safetensors"})()
         with pytest.raises(fr.ModelRefNotAvailableError):
             fr.resolve_form_model_refs({"lora": fr.make_model_ref("m1")}, _backend("comfy"), Mock())
@@ -159,6 +168,7 @@ def test_offline_root_from_resolve_ref_raises_naming_the_root(repo):
     backend = _backend("native-1", resolve_ref=_raise_offline)
 
     with patch("src.features.models.repository.model_repo") as mr:
+        mr.undefined_filenames.return_value = {}
         mr.get_by_id.return_value = type("M", (), {"filename": "x.safetensors"})()
         with pytest.raises(fr.ModelRefNotAvailableError) as exc:
             fr.resolve_form_model_refs({"lora": fr.make_model_ref("m1")}, backend, Mock())
@@ -177,6 +187,7 @@ def test_fallback_ref_never_goes_through_resolve_ref(repo):
     backend = _backend("native-1")
 
     with patch("src.features.models.repository.model_repo") as mr:
+        mr.undefined_filenames.return_value = {}
         mr.get_by_id.return_value = type("M", (), {"filename": "detail.safetensors"})()
         fr.resolve_form_model_refs({"lora": fr.make_model_ref("m1")}, backend, locator)
 
@@ -197,6 +208,7 @@ def test_unresolvable_reference_raises_naming_the_model(repo):
     repo.get.return_value = None
 
     with patch("src.features.models.repository.model_repo") as mr:
+        mr.undefined_filenames.return_value = {}
         mr.get_by_id.return_value = type("M", (), {"filename": "detail.safetensors"})()
         with pytest.raises(fr.ModelRefNotAvailableError) as exc:
             fr.resolve_form_model_refs({"lora": fr.make_model_ref("m1")}, _backend("comfy"), Mock())
@@ -231,6 +243,7 @@ def test_digest_conflict_raises_instead_of_resolving(repo):
     )
 
     with patch("src.features.models.repository.model_repo") as mr:
+        mr.undefined_filenames.return_value = {}
         mr.get_by_id.return_value = type(
             "M", (), {"filename": "flux.safetensors", "sha256": "cafebabe" * 8}
         )()
@@ -257,6 +270,7 @@ def test_digest_conflict_is_reported_even_when_other_models_resolve_cleanly(repo
     repo.get.side_effect = _get
 
     with patch("src.features.models.repository.model_repo") as mr:
+        mr.undefined_filenames.return_value = {}
         mr.get_by_id.return_value = type("M", (), {"filename": "bad.safetensors", "sha256": None})()
         with pytest.raises(fr.ModelDigestConflictError):
             fr.resolve_form_model_refs(
@@ -307,3 +321,14 @@ def test_set_at_path_is_a_no_op_for_a_stale_path_and_keeps_tuples_as_tuples():
     out = fr.set_at_path(form, ["loras", 0, "model"], "X")
     assert isinstance(out["loras"], tuple)
     assert out["loras"][0]["model"] == "X"
+
+
+@patch.object(fr, "model_availability_repo")
+def test_a_model_without_a_type_is_refused_by_name(repo, typed_models):
+    typed_models.return_value = {"m1": "mystery.safetensors"}
+
+    with pytest.raises(fr.ModelRefNotAvailableError) as raised:
+        fr.resolve_form_model_refs({"lora": fr.make_model_ref("m1")}, _backend("comfy"), Mock())
+
+    assert "'mystery.safetensors' needs a type" in str(raised.value)
+    repo.get.assert_not_called()

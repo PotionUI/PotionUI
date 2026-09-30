@@ -24,7 +24,11 @@ from src.features.models.locator import ModelFileUnavailable, ModelLocator
 from src.features.models.records import Model
 from src.features.models.repository import ModelRepository
 from src.features.models.repository import model_repo as _default_model_repo
-from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE, MODEL_TYPE_TO_DIRECTORY
+from src.platform.filesystem.model_types import (
+    DIRECTORY_TO_MODEL_TYPE,
+    MODEL_TYPE_TO_DIRECTORY,
+    UNDEFINED_MODEL_TYPE,
+)
 from src.platform.worker_protocol import (
     ContentDigest,
     ModelBundleEntryV1,
@@ -149,6 +153,10 @@ def resolve_bundle_entry(model: Model, repo: ModelRepository, locator: ModelLoca
     demand if it has never been hashed. Shared by pipeline bundling
     (`_entry_for`) and the admin model-push op, which resolves a model by id
     rather than by the file path a pipe config carries."""
+    if model.model_type == UNDEFINED_MODEL_TYPE:
+        raise ModelBundleResolutionError(
+            f"Model {model.filename!r} needs a type before it can be bundled (Admin → Models → Needs a type)."
+        )
     if model.is_directory:
         try:
             location = str(locator.path_for_model(model.id))

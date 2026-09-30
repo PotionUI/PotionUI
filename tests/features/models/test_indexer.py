@@ -183,6 +183,7 @@ class TestIndexSingleModelCompatWrapper:
 
         resolver = Mock()
         resolver.to_logical.return_value = LogicalLocation(root_id="home", model_type="checkpoint", rel_path="m.safetensors")
+        resolver.type_dirs.return_value = []
         scanner = ModelScanner(resolver)
         recorded = {}
 

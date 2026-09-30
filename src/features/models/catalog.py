@@ -20,7 +20,7 @@ from src.features.models.search_filter import USAGE_SORT_FIELDS, ModelSearchFilt
 from src.features.tags.repository import tag_repo
 from src.features.models.availability_repository import model_availability_repo
 from src.platform.filesystem.model_roots import ModelRootError
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
+from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY, UNDEFINED_MODEL_TYPE
 from src.platform.security.user import User, AccountType
 
 logger = logging.getLogger(__name__)
@@ -281,6 +281,8 @@ class ModelCatalog:
 
         type_counts = self.model_repo.count_by_type(allowed_model_ids=allowed_model_ids)
         type_sizes = self.model_repo.get_total_size_by_type()
+        if not is_admin_unscoped:
+            type_counts = {t: n for t, n in type_counts.items() if t != UNDEFINED_MODEL_TYPE}
 
         facet_filters = None
         if facets is not None:
@@ -300,6 +302,8 @@ class ModelCatalog:
                 ),
             }
             matched_counts = self.model_repo.count_filtered_by_type(**facet_filters)
+            if not is_admin_unscoped:
+                matched_counts = {t: n for t, n in matched_counts.items() if t != UNDEFINED_MODEL_TYPE}
         else:
             matched_counts = type_counts
 

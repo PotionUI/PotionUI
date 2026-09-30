@@ -83,3 +83,7 @@ def scan_headers_by_default(folder_name):
     if not segments:
         return False
     return unicodedata.normalize('NFC', segments[-1]).casefold() in SCAN_HEADERS_FOLDER_NAMES
+
+
+def binding_scans_headers_by_default(model_type, subdir):
+    return model_type in HEADER_CLASSIFIED_TYPES and scan_headers_by_default(subdir or '')

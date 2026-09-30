@@ -1,5 +1,6 @@
 from typing import List, Optional, Dict, Any
 from src.features.models.records import Model, ModelInfo, ModelFile, UserModel
+from src.platform.filesystem.model_types import UNDEFINED_MODEL_TYPE
 from src.platform.util.ids import generate_ulid
 from src.features.models.search_filter import (
     ModelSearchFilter,
@@ -25,8 +26,8 @@ class ModelRepository:
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO models (
-                    id, filename, file_size, sha256, model_type, user_notes, description, is_directory
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    id, filename, file_size, sha256, model_type, user_notes, description, is_directory, type_source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 model.id,
                 model.filename,
@@ -35,7 +36,8 @@ class ModelRepository:
                 model.model_type,
                 getattr(model, 'description', None),  # Use description for user_notes column
                 getattr(model, 'description', None),
-                getattr(model, 'is_directory', False)
+                getattr(model, 'is_directory', False),
+                getattr(model, 'type_source', None) or 'folder',
             ))
 
         return self.get_by_id(model.id)
@@ -82,6 +84,24 @@ class ModelRepository:
             model.files = self._get_model_files_with_urls(model_id)
 
             return model
+
+    def undefined_filenames(self, model_ids: List[str]) -> Dict[str, str]:
+        unique = sorted(set(model_ids))
+        if not unique:
+            return {}
+        from src.platform.database.database import db
+        found: Dict[str, str] = {}
+        with db.get_cursor() as cursor:
+            for start in range(0, len(unique), _SQLITE_IN_CHUNK_SIZE):
+                chunk = unique[start:start + _SQLITE_IN_CHUNK_SIZE]
+                placeholders = ','.join('?' * len(chunk))
+                cursor.execute(
+                    f"SELECT id, filename FROM models WHERE model_type = ? AND id IN ({placeholders})",
+                    (UNDEFINED_MODEL_TYPE, *chunk),
+                )
+                for row in cursor.fetchall():
+                    found[row['id']] = row['filename']
+        return found
 
     def get_by_sha256(self, sha256: str, include_providers: bool = True) -> Optional[Model]:
         """Get model by SHA256 hash"""
@@ -163,7 +183,8 @@ class ModelRepository:
                 collection_id: Optional[str] = None,
                 in_any_collection: bool = False,
                 search_filter: Optional[ModelSearchFilter] = None,
-                include_usage: bool = False) -> List[Model]:
+                include_usage: bool = False,
+                include_undefined: bool = False) -> List[Model]:
         """Get all models with optional filtering.
 
         `tag_ids` requires ALL listed tags (AND, used by the library's multi-tag
@@ -241,6 +262,9 @@ class ModelRepository:
             if model_type:
                 additional_clauses.append("m.model_type = ?")
                 params.append(model_type)
+            elif not include_undefined:
+                additional_clauses.append("m.model_type != ?")
+                params.append(UNDEFINED_MODEL_TYPE)
             if search:
                 additional_clauses.append("LOWER(m.filename) LIKE LOWER(?)")
                 params.append(f"%{search}%")
@@ -287,6 +311,9 @@ class ModelRepository:
             if model_type:
                 where_clauses.append("m.model_type = ?")
                 params.append(model_type)
+            elif not include_undefined:
+                where_clauses.append("m.model_type != ?")
+                params.append(UNDEFINED_MODEL_TYPE)
             if search:
                 where_clauses.append("LOWER(m.filename) LIKE LOWER(?)")
                 params.append(f"%{search}%")
@@ -381,7 +408,7 @@ class ModelRepository:
             cursor.execute("""
                 UPDATE models
                 SET filename = ?, file_size = ?, sha256 = ?,
-                    model_type = ?, user_notes = ?, description = ?, is_directory = ?,
+                    model_type = ?, type_source = ?, user_notes = ?, description = ?, is_directory = ?,
                     is_available = ?, unavailable_at = ?,
                     indexed_at = CURRENT_TIMESTAMP
                 WHERE id = ?
@@ -390,6 +417,7 @@ class ModelRepository:
                 model.file_size,
                 model.sha256,
                 model.model_type,
+                getattr(model, 'type_source', None) or 'folder',
                 getattr(model, 'description', None),  # Use description for user_notes column
                 getattr(model, 'description', None),
                 getattr(model, 'is_directory', False),

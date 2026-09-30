@@ -8,7 +8,7 @@ from src.features.models.locations_repository import ModelLocationsRepository
 from src.platform.database.rows import dt_iso, now_iso, now_utc
 from src.platform.plugins.hooks import execute_hook
 from src.features.models.hooks import MODEL_INDEX_HOOKS
-from src.features.models.indexer import FoundFile, ModelScanner
+from src.features.models.indexer import ModelScanner
 from src.features.models.native_availability_reconciler import (
     NativeAvailabilityProjector,
     native_availability_projector as _default_native_availability_projector,
@@ -80,6 +80,7 @@ class ModelIndexingCoordinator:
         self._failed_files_total = 0
         self._skipped_duplicates: List[Dict[str, Any]] = []
         self._skipped_duplicates_total = 0
+        self._type_conflicts: List[Dict[str, Any]] = []
         self._error: Optional[str] = None
         self._last_single_index: Optional[Dict[str, Any]] = None
 
@@ -103,11 +104,14 @@ class ModelIndexingCoordinator:
                 "error": self._error,
                 "last_single_index": self._last_single_index,
             }
+            type_conflicts = list(self._type_conflicts)
             found_by_root = dict(self._found_by_root)
             failed_by_root = dict(self._failed_by_root)
 
         snapshot["roots"] = self._roots_status(found_by_root, failed_by_root)
-        snapshot["conflicts"] = self._safe_locations_call(self.locations_repo.list_conflicts, [])
+        snapshot["conflicts"] = self._safe_locations_call(self.locations_repo.list_conflicts, []) + type_conflicts
+        snapshot["needs_type_total"] = self._safe_locations_call(lambda: self.scanner.types.count_needs_type(), 0)
+        snapshot["classified_total"] = self._safe_locations_call(lambda: self.scanner.types.count_header_classified(), 0)
         snapshot["duplicates"] = self._safe_locations_call(self.locations_repo.list_duplicate_models, [])
         return snapshot
 
@@ -280,7 +284,8 @@ class ModelIndexingCoordinator:
                 self._skipped_duplicates = skipped_duplicates[:MAX_REPORTED_SKIPPED_DUPLICATES]
                 self._skipped_duplicates_total = len(skipped_duplicates)
             self._indexed = result.get('indexed', 0)
-            self._processed = result.get('new_files', self._processed)
+            self._processed = result.get('new_files', self._processed) + result.get('classified', 0)
+            self._type_conflicts = list(result.get('type_conflicts') or [])
             self._found_on_disk = result.get('found_on_disk', result.get('total', 0))
             self._found_by_root = result.get('found_by_root', {})
             self._failed_by_root = result.get('failed_by_root', {})
@@ -336,7 +341,7 @@ class ModelIndexingCoordinator:
         except OSError as e:
             raise ModelIndexingException(f"Cannot read '{path}': {e}") from e
 
-        found = FoundFile(loc.root_id, loc.model_type, loc.rel_path, str(candidate), stat.st_size, stat.st_mtime_ns, is_dir)
+        found = self.scanner.found_file_for(loc, candidate, stat.st_size, stat.st_mtime_ns, is_dir)
         outcome = self.scanner.index_file(found)
         model = outcome.model
         duplicate_of = outcome.duplicate_of.to_dict() if outcome.duplicate_of is not None else None

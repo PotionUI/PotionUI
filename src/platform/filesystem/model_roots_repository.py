@@ -1,10 +1,12 @@
 from typing import Any, Dict, List, Optional, Set
 
+from src.platform.filesystem.model_types import binding_scans_headers_by_default
+
 _ROOT_COLUMNS = (
     "id, label, path, path_key, kind, read_only, case_insensitive, "
     "state, state_reason, state_checked_at, created_at, updated_at"
 )
-_BINDING_COLUMNS = "root_id, model_type, subdir, position, is_write"
+_BINDING_COLUMNS = "root_id, model_type, subdir, position, is_write, scan_headers"
 
 
 class ModelRootRepository:
@@ -108,15 +110,18 @@ class ModelRootRepository:
         subdir: str,
         position: int,
         is_write: bool,
+        scan_headers: Optional[bool] = None,
     ) -> None:
         from src.platform.database.database import db
+        if scan_headers is None:
+            scan_headers = binding_scans_headers_by_default(model_type, subdir)
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO model_root_bindings (root_id, model_type, subdir, position, is_write)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO model_root_bindings (root_id, model_type, subdir, position, is_write, scan_headers)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (root_id, model_type, subdir, position, int(is_write)),
+                (root_id, model_type, subdir, position, int(is_write), int(scan_headers)),
             )
 
     def update_root_state(self, root_id: str, state: str, state_reason: Optional[str], checked_at: str) -> None:
@@ -188,8 +193,18 @@ class ModelRootRepository:
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM model_roots WHERE id = ?", (root_id,))
 
-    def upsert_binding(self, root_id: str, model_type: str, subdir: str, position: int, is_write: bool = False) -> None:
+    def upsert_binding(
+        self,
+        root_id: str,
+        model_type: str,
+        subdir: str,
+        position: int,
+        is_write: bool = False,
+        scan_headers: Optional[bool] = None,
+    ) -> None:
         from src.platform.database.database import db
+        if scan_headers is None:
+            scan_headers = binding_scans_headers_by_default(model_type, subdir)
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT 1 FROM model_root_bindings WHERE root_id = ? AND model_type = ?",
@@ -203,11 +218,20 @@ class ModelRootRepository:
                 return
             cursor.execute(
                 """
-                INSERT INTO model_root_bindings (root_id, model_type, subdir, position, is_write)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO model_root_bindings (root_id, model_type, subdir, position, is_write, scan_headers)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (root_id, model_type, subdir, position, int(is_write)),
+                (root_id, model_type, subdir, position, int(is_write), int(scan_headers)),
             )
+
+    def set_scan_headers(self, root_id: str, model_type: str, enabled: bool) -> bool:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE model_root_bindings SET scan_headers = ? WHERE root_id = ? AND model_type = ?",
+                (int(enabled), root_id, model_type),
+            )
+            return cursor.rowcount > 0
 
     def clear_write(self, model_type: str) -> None:
         from src.platform.database.database import db

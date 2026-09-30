@@ -88,6 +88,7 @@ class Model:
     last_used_at: Optional[datetime] = None
     location: Optional[Dict[str, Any]] = None
     copies: int = 0
+    type_source: str = 'folder'
 
     @classmethod
     def from_row(cls, row) -> 'Model':
@@ -118,6 +119,7 @@ class Model:
             ),
             use_count=int(row['use_count'] or 0) if 'use_count' in row_keys else None,
             last_used_at=dt_column(row['last_used_at']) if 'last_used_at' in row_keys else None,
+            type_source=row['type_source'] if 'type_source' in row_keys and row['type_source'] else 'folder',
         )
 
     @property

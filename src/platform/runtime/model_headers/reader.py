@@ -118,6 +118,41 @@ class HeaderResult:
     error: str | None = None
 
 
+class HeaderTap:
+    def __init__(self) -> None:
+        self._chunks: list[bytes] = []
+        self._size = 0
+        self._limit: int | None = None
+        self._done = False
+
+    def feed(self, chunk: bytes) -> None:
+        if self._done:
+            return
+        self._chunks.append(chunk)
+        self._size += len(chunk)
+        if self._limit is None and self._size >= 8:
+            self._limit = self._limit_from(b"".join(self._chunks))
+            if self._limit == 0:
+                self._chunks = []
+                self._size = 0
+        if self._limit is not None and self._size >= self._limit:
+            self._done = True
+
+    @staticmethod
+    def _limit_from(head: bytes) -> int:
+        if head[:4] == GGUF_MAGIC:
+            return MAX_GGUF_CONSUMED
+        (length,) = struct.unpack("<Q", head[:8])
+        if length == 0 or length > MAX_SAFETENSORS_HEADER:
+            return 0
+        return 8 + length
+
+    @property
+    def prefix(self) -> bytes:
+        data = b"".join(self._chunks)
+        return data if self._limit is None else data[: self._limit]
+
+
 class _Invalid(Exception):
     pass
 

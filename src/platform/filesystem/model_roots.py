@@ -73,6 +73,7 @@ class TypeDir:
     position: int
     is_write: bool
     subdir: str = ""
+    scan_headers: bool = False
 
 
 @dataclass(frozen=True)
@@ -262,6 +263,7 @@ class ModelRootResolver:
                 position=row["position"],
                 is_write=bool(row["is_write"]),
                 subdir=subdir,
+                scan_headers=bool(row.get("scan_headers", 0)),
             )
             by_type.setdefault(entry.model_type, []).append(entry)
 

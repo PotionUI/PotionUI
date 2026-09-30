@@ -200,6 +200,13 @@ def resolve_form_model_refs(form_data: Any, backend: Any, locator: ModelLocator)
     if not model_ids:
         return form_data
 
+    from src.features.models.repository import model_repo
+
+    untyped = model_repo.undefined_filenames(model_ids)
+    if untyped:
+        names = ", ".join(f"'{name}'" for name in untyped.values())
+        raise ModelRefNotAvailableError(f"{names} needs a type (Admin → Models → Needs a type).")
+
     backend_id = backend.backend_id
     indexed = model_availability_repo.any_indexed([backend_id])
 

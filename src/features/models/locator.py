@@ -69,12 +69,20 @@ class ModelLocator:
                 return root.label
         return root_id
 
-    def _ordered_present_rows(self, rows: List[Dict[str, Any]], model_type: str) -> List[Dict[str, Any]]:
-        positions = {td.root_id: td.position for td in self._resolver.type_dirs(model_type, online_only=False)}
+    def _ordered_present_rows(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         present = [row for row in rows if row["status"] == "present"]
+        positions: Dict[Any, int] = {}
+        for model_type in {row["model_type"] for row in present}:
+            for td in self._resolver.type_dirs(model_type, online_only=False):
+                positions[(td.root_id, model_type)] = td.position
+        unbound = len(positions) + 1
         return sorted(
             present,
-            key=lambda row: (positions.get(row["root_id"], len(positions) + 1), len(row["rel_path"]), row["rel_path"]),
+            key=lambda row: (
+                positions.get((row["root_id"], row["model_type"]), unbound),
+                len(row["rel_path"]),
+                row["rel_path"],
+            ),
         )
 
     def path_for_model(self, model_id: str) -> Path:
@@ -82,8 +90,7 @@ class ModelLocator:
         if not rows:
             raise ModelFileUnavailable(f"model '{model_id}' has no known location")
 
-        model_type = rows[0]["model_type"]
-        ordered = self._ordered_present_rows(rows, model_type)
+        ordered = self._ordered_present_rows(rows)
         if not ordered:
             raise ModelFileUnavailable(f"model '{model_id}' has no present location")
 
@@ -174,8 +181,7 @@ class ModelLocator:
 
         summaries: Dict[str, Dict[str, Any]] = {}
         for model_id, rows in rows_by_model.items():
-            model_type = rows[0]["model_type"]
-            ordered = self._ordered_present_rows(rows, model_type)
+            ordered = self._ordered_present_rows(rows)
             location = None
             if ordered:
                 winner = ordered[0]
@@ -198,8 +204,7 @@ class ModelLocator:
         if not rows:
             return []
 
-        model_type = rows[0]["model_type"]
-        ordered = self._ordered_present_rows(rows, model_type)
+        ordered = self._ordered_present_rows(rows)
         winner_id = ordered[0]["id"] if ordered else None
 
         views: List[LocationView] = []

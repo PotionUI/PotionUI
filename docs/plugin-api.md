@@ -578,6 +578,26 @@ Registration makes the kind both runnable and lintable: `scripts/recipe_lint.py`
 running catalog accept recipes using it, while an unregistered kind stays an unknown-kind
 error. Disabling the plugin takes the kind away again.
 
+## Contributing a model layout profile
+
+A model layout profile teaches Admin → Models → Folders how one tool arranges its model
+folders (see [Models](models.md#layout-profiles) for the file format). An enabled plugin can
+ship profiles the same way it ships recipes. Declare a `model_layouts:` root in `manifest.yml`;
+no Python import or handler is required:
+
+```yaml
+model_layouts:
+  - path: "model-layouts"   # a dir in the plugin, relative to the plugin root
+```
+
+The dir is scanned for `*.yml` profile files exactly like the core
+`content/model-layouts/` tree, and only while the plugin is enabled; enabling or disabling the
+plugin reloads the catalog. A file name must equal the profile `id`. An id colliding with a
+core profile id is reported as a load error and the core profile wins, the same precedence a
+`local` profile colliding with a `marketplace` one gets. Plugins ship YAML only: the config
+readers a profile can name are a closed set implemented in core. Check a profile with
+`python scripts/model_layout_lint.py`.
+
 ## Samplers and schedules
 
 The native engine's step algorithms (samplers) and sigma schedules are both registries. A

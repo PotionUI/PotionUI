@@ -49,6 +49,7 @@ def _rescan_presets_and_pipes(
     pipe_catalog: Optional[Any],
     recipe_catalog: Optional[Any],
     reason: str,
+    model_layout_catalog: Optional[Any] = None,
 ) -> None:
     """Refresh presets + pipes + recipes after a plugin enable/disable/delete.
 
@@ -76,6 +77,11 @@ def _rescan_presets_and_pipes(
             recipe_catalog.reload()
         except Exception:
             logger.exception(f"Recipe rescan failed after {reason}")
+    if model_layout_catalog is not None:
+        try:
+            model_layout_catalog.reload()
+        except Exception:
+            logger.exception(f"Model layout rescan failed after {reason}")
 
 
 def enable_plugin(
@@ -86,6 +92,7 @@ def enable_plugin(
     preset_loader: Optional[Any] = None,
     pipe_catalog: Optional[Any] = None,
     recipe_catalog: Optional[Any] = None,
+    model_layout_catalog: Optional[Any] = None,
 ) -> PluginResponse:
     """
     Enable a plugin and register its hooks.
@@ -163,7 +170,9 @@ def enable_plugin(
     # database. Order matters - `enable` is the transition, `boot` follows it.
     registry.run_boot_hook(plugin_id)
 
-    _rescan_presets_and_pipes(preset_loader, pipe_catalog, recipe_catalog, f"enabling plugin '{plugin_id}'")
+    _rescan_presets_and_pipes(
+        preset_loader, pipe_catalog, recipe_catalog, f"enabling plugin '{plugin_id}'", model_layout_catalog
+    )
 
     # Refresh plugin from DB and return
     updated_plugin = repo.get_plugin_by_id(plugin_id)
@@ -178,6 +187,7 @@ def disable_plugin(
     preset_loader: Optional[Any] = None,
     pipe_catalog: Optional[Any] = None,
     recipe_catalog: Optional[Any] = None,
+    model_layout_catalog: Optional[Any] = None,
 ) -> PluginResponse:
     """
     Disable a plugin and unregister its hooks.
@@ -214,7 +224,9 @@ def disable_plugin(
         raise ValueError("Failed to disable plugin in database")
 
     logger.info(f"Disabled plugin: {plugin_id}")
-    _rescan_presets_and_pipes(preset_loader, pipe_catalog, recipe_catalog, f"disabling plugin '{plugin_id}'")
+    _rescan_presets_and_pipes(
+        preset_loader, pipe_catalog, recipe_catalog, f"disabling plugin '{plugin_id}'", model_layout_catalog
+    )
 
     # Refresh plugin from DB and return
     updated_plugin = repo.get_plugin_by_id(plugin_id)
@@ -229,6 +241,7 @@ def delete_plugin(
     preset_loader: Optional[Any] = None,
     pipe_catalog: Optional[Any] = None,
     recipe_catalog: Optional[Any] = None,
+    model_layout_catalog: Optional[Any] = None,
 ) -> str:
     """
     Delete a plugin from the database (does not remove files).
@@ -255,7 +268,9 @@ def delete_plugin(
         raise ValueError("Failed to delete plugin from database")
 
     if was_enabled:
-        _rescan_presets_and_pipes(preset_loader, pipe_catalog, recipe_catalog, f"deleting enabled plugin '{plugin_id}'")
+        _rescan_presets_and_pipes(
+            preset_loader, pipe_catalog, recipe_catalog, f"deleting enabled plugin '{plugin_id}'", model_layout_catalog
+        )
 
     logger.info(f"Deleted plugin: {plugin_id}")
     return plugin_name

@@ -20,6 +20,8 @@ from typing import Dict, List, Optional, Set
 
 import yaml
 
+from src.platform.plugins.manifest_roots import PluginManifestRoot, plugin_manifest_roots
+
 from src.features.recipes.schema import (
     SOURCE_LOCAL,
     SOURCE_MARKETPLACE,
@@ -37,16 +39,7 @@ logger = logging.getLogger(__name__)
 _ROOTS = ("marketplace", "local")
 
 
-@dataclass(frozen=True)
-class PluginRecipeRoot:
-    """One plugin-contributed ``recipes:`` directory, and the plugin that
-    ships it - the id is what a recipe discovered there is attributed to."""
-
-    plugin_id: str
-    path: Path
-
-
-def plugin_recipe_roots(manifests) -> List[PluginRecipeRoot]:
+def plugin_recipe_roots(manifests) -> List[PluginManifestRoot]:
     """Resolve the recipe roots contributed by a set of plugin manifests.
 
     Each manifest's ``recipes:`` entries name a directory (relative to the
@@ -55,19 +48,7 @@ def plugin_recipe_roots(manifests) -> List[PluginRecipeRoot]:
     without a ``recipes`` section contribute nothing. Mirrors
     ``src.features.presets.loader.plugin_preset_roots``.
     """
-    roots: List[PluginRecipeRoot] = []
-    for manifest in manifests:
-        entries = getattr(manifest, "recipes", None) or []
-        plugin_dir = getattr(manifest, "plugin_dir", None)
-        if not entries or not plugin_dir:
-            continue
-        base = Path(plugin_dir).resolve()
-        plugin_id = getattr(manifest, "id", "") or ""
-        for entry in entries:
-            path = entry.get("path") if isinstance(entry, dict) else None
-            if path:
-                roots.append(PluginRecipeRoot(plugin_id=plugin_id, path=base / path))
-    return roots
+    return plugin_manifest_roots(manifests, "recipes")
 
 
 class RecipeCatalog:

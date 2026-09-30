@@ -30,6 +30,7 @@ class PluginController(BaseController):
         preset_loader: Optional[Any] = None,
         pipe_catalog: Optional[Any] = None,
         recipe_catalog: Optional[Any] = None,
+        model_layout_catalog: Optional[Any] = None,
     ):
         super().__init__()
         self.repository = plugin_repository
@@ -43,6 +44,7 @@ class PluginController(BaseController):
         self.preset_loader = preset_loader
         self.pipe_catalog = pipe_catalog
         self.recipe_catalog = recipe_catalog
+        self.model_layout_catalog = model_layout_catalog
 
     # ========== Plugin Pages ==========
 
@@ -222,6 +224,7 @@ class PluginController(BaseController):
                 preset_loader=self.preset_loader,
                 pipe_catalog=self.pipe_catalog,
                 recipe_catalog=self.recipe_catalog,
+                model_layout_catalog=self.model_layout_catalog,
             )
 
             # Reset provider service to re-discover providers from newly enabled plugin
@@ -260,6 +263,7 @@ class PluginController(BaseController):
                 preset_loader=self.preset_loader,
                 pipe_catalog=self.pipe_catalog,
                 recipe_catalog=self.recipe_catalog,
+                model_layout_catalog=self.model_layout_catalog,
             )
 
             # Reset provider service to remove providers from disabled plugin
@@ -298,6 +302,7 @@ class PluginController(BaseController):
                 preset_loader=self.preset_loader,
                 pipe_catalog=self.pipe_catalog,
                 recipe_catalog=self.recipe_catalog,
+                model_layout_catalog=self.model_layout_catalog,
             )
             return self.success_response(
                 message=f"Plugin '{plugin_name}' deleted successfully. Re-scan to rediscover."

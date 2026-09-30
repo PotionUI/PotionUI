@@ -66,6 +66,7 @@ from src.platform.security import (
 from src.features.setup import InstanceClaimRepository
 from src.features.recipes.runner import RecipeRunner
 from src.features.recipes.catalog import RecipeCatalog
+from src.features.model_layouts.catalog import ModelLayoutCatalog
 from src.features.recipes.preset_links import RecipePresetLinks
 from src.features.recipes.slot_variants import RecipeSlotVariants
 from src.features.phrasebook.preview_generator import PhrasebookPreviewGenerator
@@ -299,6 +300,7 @@ class AppContainer:
     external_login: "ExternalLoginManager"
     recipe_runner: RecipeRunner
     recipe_catalog: RecipeCatalog
+    model_layout_catalog: ModelLayoutCatalog
     recipe_preset_links: RecipePresetLinks
     recipe_slot_variants: RecipeSlotVariants
     user_controller: "UserController"
@@ -745,6 +747,10 @@ def build_container() -> AppContainer:
         plugin_registry=plugin_registry,
         step_kind_registry=recipe_step_kind_registry,
     )
+    model_layout_catalog = ModelLayoutCatalog(
+        os.getenv("POTIONUI_MODEL_LAYOUTS_DIR", "content/model-layouts"),
+        plugin_registry=plugin_registry,
+    )
 
     # Initialize phrasebook components
     from src.features.phrasebook import operations as phrasebook_operations
@@ -855,6 +861,7 @@ def build_container() -> AppContainer:
         preset_loader=preset_template_loader,
         pipe_catalog=pipe_catalog,
         recipe_catalog=recipe_catalog,
+        model_layout_catalog=model_layout_catalog,
     )
 
     # Initialize LLM controller

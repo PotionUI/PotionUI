@@ -1115,3 +1115,52 @@ def test_frontend_extensions_revision_changes_when_a_dist_bundle_is_rebuilt(
     # Assert
     assert before["test-plugin-1"]
     assert after["test-plugin-1"] != before["test-plugin-1"]
+
+
+def test_enable_plugin_reloads_model_layout_catalog(
+    mock_plugin_repo, mock_plugin_registry, sample_plugin
+):
+    _arrange_enable_success(mock_plugin_repo, mock_plugin_registry, sample_plugin)
+    catalog = Mock()
+    operations.enable_plugin(
+        mock_plugin_repo, mock_plugin_registry, "test-plugin-1", model_layout_catalog=catalog,
+    )
+    catalog.reload.assert_called_once()
+
+
+def test_disable_plugin_reloads_model_layout_catalog(
+    mock_plugin_repo, mock_plugin_registry, sample_plugin
+):
+    _arrange_disable_success(mock_plugin_repo, mock_plugin_registry, sample_plugin)
+    catalog = Mock()
+    operations.disable_plugin(
+        mock_plugin_repo, mock_plugin_registry, "test-plugin-1", model_layout_catalog=catalog,
+    )
+    catalog.reload.assert_called_once()
+
+
+def test_model_layout_reload_failure_does_not_fail_enable_or_skip_recipes(
+    mock_plugin_repo, mock_plugin_registry, mock_recipe_catalog, sample_plugin
+):
+    _arrange_enable_success(mock_plugin_repo, mock_plugin_registry, sample_plugin)
+    catalog = Mock()
+    catalog.reload.side_effect = RuntimeError("disk on fire")
+    result = operations.enable_plugin(
+        mock_plugin_repo, mock_plugin_registry, "test-plugin-1",
+        recipe_catalog=mock_recipe_catalog, model_layout_catalog=catalog,
+    )
+    assert isinstance(result, PluginResponse)
+    mock_recipe_catalog.reload.assert_called_once()
+
+
+def test_delete_disabled_plugin_does_not_reload_model_layout_catalog(
+    mock_plugin_repo, mock_plugin_registry, sample_plugin
+):
+    sample_plugin.enabled = False
+    mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
+    mock_plugin_repo.delete_plugin.return_value = True
+    catalog = Mock()
+    operations.delete_plugin(
+        mock_plugin_repo, mock_plugin_registry, "test-plugin-1", model_layout_catalog=catalog,
+    )
+    catalog.reload.assert_not_called()

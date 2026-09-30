@@ -202,6 +202,54 @@ writer of both `models` rows with a location and of `model_locations` itself —
 online root's bound directories, diffs against the last-seen `size`/`mtime_ns` per location, and
 never re-hashes a file that hasn't changed.
 
+### Layout profiles
+
+A **layout profile** describes how one tool lays out its model folders (ComfyUI, A1111/Forge,
+SD.Next, StabilityMatrix, Fooocus, SwarmUI, ...), so a folder an admin points at can be mapped to
+PotionUI model types without guessing from folder names. A profile is one YAML file. Profiles ship
+in `content/model-layouts/marketplace/`, yours go in `content/model-layouts/local/` (gitignored),
+and an enabled plugin can add more through a `model_layouts:` root (see
+[Plugin API](plugin-api.md)). `GET /api/models/layouts` (admin) lists what is loaded and the files
+that failed validation. Validate with `python scripts/model_layout_lint.py`.
+
+```yaml
+schema: 1
+id: mytool                  # ^[a-z0-9][a-z0-9-]{0,39}$, equal to the file name, "generic" is reserved
+label: My Tool              # shown as "Detected: My Tool"
+priority: 50                # 0-100, breaks ties only
+install_dirs: [".", "MyTool"]
+markers:                    # evidence that the tool is installed, relative to the install dir
+  - {path: mytool.py, kind: file, weight: 4}
+  - {path: core, kind: dir, weight: 2}
+min_marker_score: 4         # markers at or above this score = a strong match
+min_folder_evidence: 4      # folders alone at or above this score = a weak match
+models_root: ["models"]     # candidates, first existing wins
+config_readers:             # read the tool's own settings for moved folders
+  - {kind: comfyui_extra_model_paths, file: extra_model_paths.yaml}
+folders:
+  - {path: checkpoints, model_type: checkpoint, write: true, scan_headers: true}
+  - {path: loras, model_type: lora, write: true}
+  - {path: LyCORIS, model_type: lora}
+```
+
+Rules the lint enforces:
+
+- Every path is relative and POSIX: no leading `/`, no drive letter, no `\`, no `..`, no empty or
+  `.` segments, NFC-normalised, none of `:<>"|?*`, and no Windows reserved names (`CON`, `NUL`, ...).
+- `model_type` must be a known model type. `scan_headers: true` is allowed only for the
+  header-classified types (`checkpoint`, `diffusion_model`, `unet`).
+- Several folders may serve one type, but no two folders may be equal under case folding, none may
+  sit inside another, and at most one folder per type may set `write: true`.
+- `config_readers[].kind` is one of `comfyui_extra_model_paths`, `fooocus_config_txt`,
+  `swarmui_settings_fds`, `stabilitymatrix_settings_json`, `sdnext_config_json`,
+  `a1111_commandline_args`. Readers are defensive: a missing, malformed or oversized file yields
+  a warning, never an error. A Windows drive path read while running under Linux or WSL is
+  translated to the matching `/mnt/<drive>/` path when that mount exists.
+- A profile needs `markers` and `folders`, or a `delegate` (a wrapper such as Pinokio that holds
+  other installs) with no `folders`.
+- Ids are unique across all roots. A marketplace profile wins over a local or plugin profile with
+  the same id, and the loser is reported as a load error.
+
 ### The refs table
 
 | Surface | Value | Example |

@@ -10,6 +10,7 @@ Only one format is accepted for `hooks` and `dependencies` - there is no
 backward-compat fallback for legacy shapes.
 """
 
+import re
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
@@ -236,6 +237,22 @@ class RecipesRootSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     path: str
+
+
+class ModelLayoutsRootSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+
+    @field_validator("path")
+    @classmethod
+    def _contained_relative_path(cls, value: str) -> str:
+        normalized = value.replace("\\", "/")
+        if not normalized or normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized):
+            raise ValueError("must be a relative path inside the plugin directory")
+        if ".." in normalized.split("/"):
+            raise ValueError("must not contain '..' segments")
+        return value
 
 
 class PresetModeContributionSpec(BaseModel):
@@ -664,6 +681,7 @@ class PluginManifestSchema(BaseModel):
     # Recipe roots this plugin contributes, scanned like the core
     # content/recipes/ tree - see RecipesRootSpec.
     recipes: List[RecipesRootSpec] = Field(default_factory=list)
+    model_layouts: List[ModelLayoutsRootSpec] = Field(default_factory=list)
     # Recipe step kinds this plugin contributes - see RecipeStepSpec.
     recipe_steps: List[RecipeStepSpec] = Field(default_factory=list)
     # Step algorithms and sigma schedules this plugin contributes to the native

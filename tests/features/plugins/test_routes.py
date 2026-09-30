@@ -283,7 +283,7 @@ async def test_enable_plugin_success(
     assert "enabled successfully" in response.message
     mock_operations.enable_plugin.assert_called_once_with(
         mock_plugin_repository, mock_plugin_registry, "test-plugin-1",
-        preset_loader=None, pipe_catalog=None, recipe_catalog=None,
+        preset_loader=None, pipe_catalog=None, recipe_catalog=None, model_layout_catalog=None,
     )
 
 
@@ -338,7 +338,7 @@ async def test_disable_plugin_success(
     assert "disabled successfully" in response.message
     mock_operations.disable_plugin.assert_called_once_with(
         mock_plugin_repository, mock_plugin_registry, "test-plugin-1",
-        preset_loader=None, pipe_catalog=None, recipe_catalog=None,
+        preset_loader=None, pipe_catalog=None, recipe_catalog=None, model_layout_catalog=None,
     )
 
 
@@ -372,7 +372,7 @@ async def test_delete_plugin_success(controller, mock_operations, mock_plugin_re
     assert "deleted successfully" in response.message
     mock_operations.delete_plugin.assert_called_once_with(
         mock_plugin_repository, mock_plugin_registry, "test-plugin-1",
-        preset_loader=None, pipe_catalog=None, recipe_catalog=None,
+        preset_loader=None, pipe_catalog=None, recipe_catalog=None, model_layout_catalog=None,
     )
 
 

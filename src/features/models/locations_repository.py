@@ -35,6 +35,27 @@ class ModelLocationsRepository:
             )
             return [dict(row) for row in cursor.fetchall()]
 
+    def type_mismatches(self, binding_type: str, rel_paths: Sequence[str]) -> List[Dict[str, Any]]:
+        unique = sorted({path for path in rel_paths if path})
+        if not unique:
+            return []
+        from src.platform.database.database import db
+        found: List[Dict[str, Any]] = []
+        with db.get_cursor() as cursor:
+            for start in range(0, len(unique), 500):
+                chunk = unique[start:start + 500]
+                placeholders = ",".join("?" for _ in chunk)
+                cursor.execute(
+                    "SELECT ml.rel_path AS rel_path, ml.size AS size, m.id AS model_id, "
+                    "m.model_type AS model_type, m.filename AS filename, m.file_size AS file_size "
+                    "FROM model_locations ml JOIN models m ON m.id = ml.model_id "
+                    "WHERE ml.status = 'present' AND ml.model_type = ? AND m.model_type != ? "
+                    f"AND ml.rel_path IN ({placeholders})",
+                    (binding_type, binding_type, *chunk),
+                )
+                found.extend(dict(row) for row in cursor.fetchall())
+        return found
+
     def list_for_model(self, model_id: str) -> List[Dict[str, Any]]:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:

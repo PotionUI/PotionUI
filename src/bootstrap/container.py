@@ -1203,7 +1203,7 @@ def build_container() -> AppContainer:
     user_model_meta_repository = UserModelMetaRepository()
     model_collection_controller = ModelCollectionController(model_collection_repository)
 
-    download_queue.local_model_indexer = model_index_manager.indexing.index_path
+    download_queue.local_model_indexer = model_index_manager.indexing.index_downloaded
 
     model_controller = ModelController(
         model_index_manager, user_model_meta_repository, download_queue,

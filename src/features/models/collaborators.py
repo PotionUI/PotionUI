@@ -86,10 +86,12 @@ def build_model_index_collaborators(
     model_scanner = ModelScanner(model_roots)
     locator = model_locator or ModelLocator(model_roots)
     native_availability_projector = NativeAvailabilityProjector(resolver=model_roots)
+    types = ModelTypeManager(model_repository, model_scanner.types, model_scanner.recompute_types)
     indexing = ModelIndexingCoordinator(
         model_repository, plugin_registry, model_scanner, backend_registry=backend_registry,
         native_availability_projector=native_availability_projector,
         spawn=spawn,
+        type_manager=types,
     )
     return ModelIndexCollaborators(
         model_repo=model_repository,
@@ -110,5 +112,5 @@ def build_model_index_collaborators(
             backend_registry=backend_registry,
         ),
         locator=locator,
-        types=ModelTypeManager(model_repository, model_scanner.types, model_scanner.recompute_types),
+        types=types,
     )

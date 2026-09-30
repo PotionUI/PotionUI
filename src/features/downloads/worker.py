@@ -933,6 +933,10 @@ class DownloadWorker:
             logger.warning(
                 f"Downloaded {download.filename} is the same file as {result['duplicate_of']['path']}; not indexed twice"
             )
+        warning = result.get("warning")
+        if warning:
+            logger.warning(f"Classifying downloaded model '{download.filename}': {warning}")
+            self.repo.update_status(download.id, DownloadStatus.COMPLETED, warning)
 
     async def _reconcile_local_native_availability(self) -> None:
         from src.features.models.native_availability_reconciler import (

@@ -77,3 +77,71 @@ def test_list_conflicts_carries_the_root_label(mock_db):
     assert len(entries) == 1
     assert entries[0]["root_label"] == "Root A"
     assert entries[0]["rel_path"] == "conflict.safetensors"
+
+
+def _location_with(model_id: str, root_id: str, model_type: str, rel_path: str, status: str = "present") -> None:
+    ModelLocationsRepository().upsert(
+        model_id=model_id, root_id=root_id, model_type=model_type,
+        rel_path=rel_path, rel_key=rel_path, size=1, mtime_ns=None,
+        sha256=rel_path, status=status, seen_at=now_iso(),
+    )
+
+
+def _mismatch_library() -> None:
+    _root("root-a", "Root A")
+    _binding("root-a", "checkpoint", 0)
+
+
+def test_type_mismatches_returns_a_present_file_whose_model_was_retyped(mock_db):
+    _mismatch_library()
+    model = _model("flux.safetensors", "diffusion_model")
+    _location_with(model.id, "root-a", "checkpoint", "flux.safetensors")
+
+    rows = ModelLocationsRepository().type_mismatches("checkpoint", ["flux.safetensors", "other.safetensors"])
+
+    assert [(r["rel_path"], r["model_id"], r["model_type"], r["filename"]) for r in rows] == [
+        ("flux.safetensors", model.id, "diffusion_model", "flux.safetensors")
+    ]
+
+
+def test_type_mismatches_skips_a_missing_location(mock_db):
+    _mismatch_library()
+    model = _model("gone.safetensors", "diffusion_model")
+    _location_with(model.id, "root-a", "checkpoint", "gone.safetensors", status="missing")
+
+    assert ModelLocationsRepository().type_mismatches("checkpoint", ["gone.safetensors"]) == []
+
+
+def test_type_mismatches_skips_a_model_that_kept_the_binding_type(mock_db):
+    _mismatch_library()
+    model = _model("same.safetensors", "checkpoint")
+    _location_with(model.id, "root-a", "checkpoint", "same.safetensors")
+
+    assert ModelLocationsRepository().type_mismatches("checkpoint", ["same.safetensors"]) == []
+
+
+def test_type_mismatches_only_looks_at_the_asked_binding_type(mock_db):
+    _root("root-a", "Root A")
+    _binding("root-a", "checkpoint", 0)
+    _binding("root-a", "lora", 1)
+    model = _model("thing.safetensors", "diffusion_model")
+    _location_with(model.id, "root-a", "lora", "thing.safetensors")
+
+    assert ModelLocationsRepository().type_mismatches("checkpoint", ["thing.safetensors"]) == []
+
+
+def test_type_mismatches_returns_every_match_across_the_chunk_boundary(mock_db):
+    _mismatch_library()
+    names = [f"m{index:04d}.safetensors" for index in range(1203)]
+    for name in names:
+        model = _model(name, "diffusion_model")
+        _location_with(model.id, "root-a", "checkpoint", name)
+
+    rows = ModelLocationsRepository().type_mismatches("checkpoint", names + names[:10] + [""])
+
+    assert sorted(r["rel_path"] for r in rows) == sorted(names)
+
+
+def test_type_mismatches_with_nothing_to_look_up_returns_nothing(mock_db):
+    assert ModelLocationsRepository().type_mismatches("checkpoint", []) == []
+    assert ModelLocationsRepository().type_mismatches("checkpoint", [""]) == []

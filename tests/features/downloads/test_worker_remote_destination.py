@@ -105,6 +105,19 @@ class FakeDownloadRepository:
         return self.download.retry_count
 
 
+class _NoTypes:
+    def get_assertions(self, shas):
+        return {}
+
+    def get_verdicts(self, shas):
+        return {}
+
+
+class _NoLocations:
+    def type_mismatches(self, binding_type, rel_paths):
+        return []
+
+
 class RemoteDestinationTestCase(unittest.IsolatedAsyncioTestCase):
     """Wires a real worker app (fetch endpoint + depot) behind
     `httpx.ASGITransport`, with the depot's own upstream fetch pointed at a
@@ -154,6 +167,7 @@ class RemoteDestinationTestCase(unittest.IsolatedAsyncioTestCase):
         self.availability_repository = FakeAvailabilityRepository()
         self.indexer = BackendModelIndexer(
             model_repository=self.model_repository, availability_repository=self.availability_repository,
+            types_repository=_NoTypes(), locations_repository=_NoLocations(),
         )
         self.backend_registry = _FakeBackendRegistry(self.backend_config, self.backend)
 

@@ -11,8 +11,8 @@ ComfyUI cannot report hashes, so a hash can never be required. Size is compared,
 keyed on - see docs/models.md.
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Set
+from dataclasses import dataclass, field, replace
+from typing import Dict, List, Optional, Set
 
 from src.features.backends.model_listing import (
     BackendModel,
@@ -81,6 +81,17 @@ class DuplicateContent:
 
 
 @dataclass
+class TypeMismatch:
+    model_type: str
+    filename: str
+    ref: str
+    existing_model_id: str
+    existing_model_type: str
+    existing_filename: str
+    backend_id: str
+
+
+@dataclass
 class IndexResult:
     backend_id: str
     listed: int = 0
@@ -92,6 +103,7 @@ class IndexResult:
     digest_conflicts: List[DigestConflict] = field(default_factory=list)
     duplicates: List[DuplicateContent] = field(default_factory=list)
     ambiguous: List[str] = field(default_factory=list)
+    type_mismatches: List[TypeMismatch] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -105,19 +117,31 @@ class IndexResult:
             "digest_conflicts": [c.__dict__ for c in self.digest_conflicts],
             "duplicates": [d.__dict__ for d in self.duplicates],
             "ambiguous": self.ambiguous,
+            "type_mismatches": [m.__dict__ for m in self.type_mismatches],
         }
 
 
 class BackendModelIndexer:
     """Turns `backend.list_models()` into rows. One backend at a time."""
 
-    def __init__(self, model_repository=None, availability_repository=None, model_locator=None):
+    def __init__(
+        self, model_repository=None, availability_repository=None, model_locator=None,
+        types_repository=None, locations_repository=None,
+    ):
         if model_repository is None:
             from src.features.models.repository import model_repo
             model_repository = model_repo
         self.models = model_repository
         self.availability = availability_repository or model_availability_repo
         self.model_locator = model_locator
+        if types_repository is None:
+            from src.features.models.type_repository import ModelTypeRepository
+            types_repository = ModelTypeRepository()
+        if locations_repository is None:
+            from src.features.models.locations_repository import ModelLocationsRepository
+            locations_repository = ModelLocationsRepository()
+        self.types = types_repository
+        self.locations = locations_repository
 
     def _location_display(self, model) -> str:
         if self.model_locator is None:
@@ -145,12 +169,17 @@ class BackendModelIndexer:
         )
 
         previously_claimed = {a.model_id for a in self.availability.get_for_backend(backend.backend_id)}
-        by_identity = self._group_by_identity(entries, result)
+        by_identity = self._group_by_identity(self._with_resolved_types(entries), result)
         index = self._existing_by_identity()
+        mismatches = self._type_mismatches(by_identity, index)
         seen_model_ids: Set[str] = set()
 
         for identity, entry in by_identity.items():
             model = index.get(identity)
+
+            if model is None and identity in mismatches:
+                result.type_mismatches.append(self._mismatch_record(entry, mismatches[identity], backend.backend_id))
+                continue
 
             if model is None:
                 existing = self._same_content(entry)
@@ -206,6 +235,56 @@ class BackendModelIndexer:
             f"{len(result.size_conflicts)} size conflicts"
         )
         return result
+
+    def _with_resolved_types(self, entries: List[BackendModel]) -> List[BackendModel]:
+        shas = {entry.sha256 for entry in entries if entry.sha256}
+        if not shas:
+            return entries
+        assertions = self.types.get_assertions(shas)
+        verdicts = self.types.get_verdicts(shas)
+        resolved = []
+        for entry in entries:
+            model_type = self._identity_type(entry, assertions, verdicts)
+            resolved.append(entry if model_type == entry.model_type else replace(entry, model_type=model_type))
+        return resolved
+
+    @staticmethod
+    def _identity_type(entry: BackendModel, assertions: dict, verdicts: dict) -> str:
+        if not entry.sha256:
+            return entry.model_type
+        assertion = assertions.get(entry.sha256)
+        if assertion is not None:
+            return assertion["model_type"]
+        verdict = verdicts.get(entry.sha256)
+        if verdict is not None and verdict["status"] == "decided" and verdict["model_type"]:
+            return verdict["model_type"]
+        return entry.model_type
+
+    def _type_mismatches(self, by_identity: Dict[tuple, BackendModel], index: Dict[tuple, object]) -> Dict[tuple, dict]:
+        wanted: Dict[str, Dict[str, BackendModel]] = {}
+        for identity, entry in by_identity.items():
+            if identity in index or entry.sha256 or entry.size is None:
+                continue
+            wanted.setdefault(entry.model_type, {})[entry.filename] = entry
+        found: Dict[tuple, dict] = {}
+        for model_type, by_name in wanted.items():
+            for row in self.locations.type_mismatches(model_type, list(by_name)):
+                entry = by_name[row["rel_path"]]
+                if row["size"] == entry.size or row["file_size"] == entry.size:
+                    found[entry.identity] = row
+        return found
+
+    @staticmethod
+    def _mismatch_record(entry: BackendModel, row: dict, backend_id: str) -> TypeMismatch:
+        logger.warning(
+            f"[BACKEND_INDEX] {backend_id}: '{entry.ref}' ({entry.model_type}) is the same file as "
+            f"'{row['filename']}', which PotionUI classified as {row['model_type']}; not indexed twice"
+        )
+        return TypeMismatch(
+            model_type=entry.model_type, filename=entry.filename, ref=entry.ref,
+            existing_model_id=row["model_id"], existing_model_type=row["model_type"],
+            existing_filename=row["filename"], backend_id=backend_id,
+        )
 
     def _group_by_identity(
         self, entries: List[BackendModel], result: IndexResult

@@ -281,3 +281,36 @@ async def test_clip_and_text_encoders_folders_merge_into_text_encoder_type():
     assert all(entry.model_type == "text_encoder" for entry in results)
     filenames = {entry.filename for entry in results}
     assert filenames == {"qwen_2.5_vl_7b_fp8_scaled.safetensors", "clip_l.safetensors"}
+
+
+def test_every_folder_maps_to_a_core_model_type():
+    from backend.comfyui_backend import FOLDER_TO_MODEL_TYPE
+    from src.plugin_api.models import MODEL_TYPES
+
+    assert set(FOLDER_TO_MODEL_TYPE.values()) <= set(MODEL_TYPES)
+
+
+@pytest.mark.asyncio
+async def test_legacy_unet_folder_lists_as_diffusion_model_and_merges_with_diffusion_models():
+    backend = make_backend()
+    routes = {
+        f"{BASE}/models": FakeResponse(["unet", "diffusion_models"]),
+        f"{BASE}/experiment/models/unet": FakeResponse(
+            [
+                {"name": "flux1-dev.safetensors", "pathIndex": 0, "size": 10},
+                {"name": "old-only.safetensors", "pathIndex": 0, "size": 5},
+            ]
+        ),
+        f"{BASE}/experiment/models/diffusion_models": FakeResponse(
+            [{"name": "flux1-dev.safetensors", "pathIndex": 0, "size": 10}]
+        ),
+    }
+    patcher, _session = patch_session(routes)
+    with patcher:
+        results = await backend.list_models()
+
+    assert {(entry.model_type, entry.filename) for entry in results} == {
+        ("diffusion_model", "flux1-dev.safetensors"),
+        ("diffusion_model", "old-only.safetensors"),
+    }
+    assert len(results) == 2

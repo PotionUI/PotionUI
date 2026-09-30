@@ -51,7 +51,7 @@ FOLDER_TO_MODEL_TYPE = {
     "clip_gguf": "text_encoder",
     "diffusion_models": "diffusion_model",
     "unet_gguf": "diffusion_model",
-    "unet": "unet",
+    "unet": "diffusion_model",
     "upscale_models": "upscaler",
     "embeddings": "embedding",
     "controlnet": "controlnet",

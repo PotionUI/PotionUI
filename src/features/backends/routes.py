@@ -477,6 +477,7 @@ class BackendController(BaseController):
                     f"Indexed {result.listed} models from '{backend.name}': "
                     f"{result.created} new, {result.matched} matched, {result.removed} removed, "
                     f"{result.orphans_removed} orphans removed"
+                    + (f", {len(result.type_mismatches)} skipped for a type mismatch" if result.type_mismatches else "")
                 )
             )
 

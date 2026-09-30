@@ -1,5 +1,6 @@
 import logging
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -14,6 +15,7 @@ from src.features.models.native_availability_reconciler import (
     native_availability_projector as _default_native_availability_projector,
 )
 from src.features.models.repository import ModelRepository
+from src.platform.filesystem.model_types import HEADER_CLASSIFIED_TYPES
 from src.platform.plugins import PluginRegistry
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,7 @@ class ModelIndexingCoordinator:
         native_availability_projector: Optional[NativeAvailabilityProjector] = None,
         locations_repository: Optional[ModelLocationsRepository] = None,
         spawn: Callable[[Callable[[], None]], None] = spawn_daemon_thread,
+        type_manager: Optional[Any] = None,
     ):
         self.model_repo = model_repository
         self.plugins = plugin_registry
@@ -58,6 +61,7 @@ class ModelIndexingCoordinator:
         )
         self.locations_repo = locations_repository or ModelLocationsRepository()
         self._spawn = spawn
+        self.type_manager = type_manager
 
         self._lock = threading.Lock()
         self._run_lock = threading.Lock()
@@ -324,6 +328,12 @@ class ModelIndexingCoordinator:
             logger.warning(f"Error reconciling native availability after indexing: {e}")
 
     def index_path(self, path: str) -> Dict[str, Any]:
+        return self._index_one(path, classify=False)
+
+    def index_downloaded(self, path: str) -> Dict[str, Any]:
+        return self._index_one(path, classify=self.type_manager is not None)
+
+    def _index_one(self, path: str, classify: bool) -> Dict[str, Any]:
         candidate = Path(path)
         loc = self.scanner.resolver.to_logical(candidate)
         if loc is None:
@@ -342,8 +352,14 @@ class ModelIndexingCoordinator:
             raise ModelIndexingException(f"Cannot read '{path}': {e}") from e
 
         found = self.scanner.found_file_for(loc, candidate, stat.st_size, stat.st_mtime_ns, is_dir)
+        classified = classify and loc.model_type in HEADER_CLASSIFIED_TYPES
+        if classified:
+            found = replace(found, scan_headers=True)
         outcome = self.scanner.index_file(found)
         model = outcome.model
+        warning = outcome.header_error
+        if classified and model is not None and warning is None:
+            warning = self._pin_downloaded_type(model, loc)
         duplicate_of = outcome.duplicate_of.to_dict() if outcome.duplicate_of is not None else None
 
         with self._lock:
@@ -356,7 +372,39 @@ class ModelIndexingCoordinator:
         if model is not None:
             self._reconcile_native_availability()
 
-        return {"model_id": model.id if model else None, "indexed": model is not None, "duplicate_of": duplicate_of}
+        return {
+            "model_id": model.id if model else None,
+            "indexed": model is not None,
+            "duplicate_of": duplicate_of,
+            "warning": warning,
+        }
+
+    def _pin_downloaded_type(self, model: Any, loc: Any) -> Optional[str]:
+        location = next(
+            (
+                row for row in self.locations_repo.list_for_model(model.id)
+                if (row["root_id"], row["model_type"], row["rel_path"]) == (loc.root_id, loc.model_type, loc.rel_path)
+            ),
+            None,
+        )
+        if location is None or not location["sha256"]:
+            return None
+        if location["status"] == "conflict":
+            return (
+                f"Downloaded, but another model named '{model.filename}' already exists as a "
+                f"{model.model_type.replace('_', ' ')}, so this file was not indexed separately."
+            )
+        sha256 = location["sha256"]
+        verdict = self.scanner.types.get_verdicts([sha256]).get(sha256)
+        if not verdict or verdict["status"] != "decided" or not verdict["model_type"]:
+            return None
+        outcome = self.type_manager.assert_type(sha256, verdict["model_type"], "download")
+        if outcome.conflicts:
+            return (
+                f"Downloaded, but '{model.filename}' looks like a {verdict['model_type'].replace('_', ' ')} "
+                f"and another model already uses that name there, so it stays in its folder's type."
+            )
+        return None
 
     def count_unindexed(self) -> Dict[str, Any]:
         """Cheap directory-walk + DB diff: how many files on disk await indexing,

@@ -94,10 +94,37 @@ def make_backend(entries, backend_id="be1", supports=True):
     return backend
 
 
-def indexer(existing=None):
+class FakeTypesRepo:
+    def __init__(self, assertions=None, verdicts=None):
+        self.assertions = assertions or {}
+        self.verdicts = verdicts or {}
+
+    def get_assertions(self, shas):
+        return {sha: self.assertions[sha] for sha in shas if sha in self.assertions}
+
+    def get_verdicts(self, shas):
+        return {sha: self.verdicts[sha] for sha in shas if sha in self.verdicts}
+
+
+class FakeLocationsRepo:
+    def __init__(self, rows=None):
+        self.rows = rows or []
+        self.calls = []
+
+    def type_mismatches(self, binding_type, rel_paths):
+        self.calls.append((binding_type, sorted(rel_paths)))
+        return [row for row in self.rows if row["binding_type"] == binding_type and row["rel_path"] in rel_paths]
+
+
+def indexer(existing=None, assertions=None, verdicts=None, mismatch_rows=None):
     models = FakeModelRepo(existing)
     avail = FakeAvailabilityRepo()
-    return BackendModelIndexer(models, avail), models, avail
+    built = BackendModelIndexer(
+        models, avail,
+        types_repository=FakeTypesRepo(assertions, verdicts),
+        locations_repository=FakeLocationsRepo(mismatch_rows),
+    )
+    return built, models, avail
 
 
 @pytest.mark.asyncio
@@ -366,3 +393,126 @@ async def test_copy_of_an_indexed_file_under_another_type_is_reported_and_skippe
     assert dup.existing_model_type == "lora"
     assert dup.existing_location == "/models/loras/identity_edit.safetensors"
     assert result.to_dict()["duplicates"][0]["sha256"] == "abc" * 20
+
+
+def decided(model_type):
+    return {"status": "decided", "model_type": model_type}
+
+
+@pytest.mark.asyncio
+async def test_a_hashed_entry_lands_on_the_row_the_header_verdict_names():
+    existing = FakeModel("m1", "diffusion_model", "flux.safetensors", file_size=10, sha256="abc", has_location=True)
+    idx, models, avail = indexer([existing], verdicts={"abc": decided("diffusion_model")})
+    entry = BackendModel("checkpoint", "flux.safetensors", "flux.safetensors", size=10, sha256="abc")
+
+    result = await idx.index_backend(make_backend([entry], backend_id="worker1"))
+
+    assert (result.created, result.matched, result.duplicates) == (0, 1, [])
+    assert avail.rows[("m1", "worker1")].ref == "flux.safetensors"
+    assert len(models.models) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_assertion_wins_over_the_verdict_and_the_reported_type():
+    existing = FakeModel("m1", "lora", "thing.safetensors", file_size=10, sha256="abc", has_location=True)
+    idx, _, avail = indexer(
+        [existing],
+        assertions={"abc": {"model_type": "lora", "source": "admin"}},
+        verdicts={"abc": decided("diffusion_model")},
+    )
+    entry = BackendModel("checkpoint", "thing.safetensors", "thing.safetensors", size=10, sha256="abc")
+
+    result = await idx.index_backend(make_backend([entry], backend_id="worker1"))
+
+    assert result.matched == 1
+    assert ("m1", "worker1") in avail.rows
+
+
+@pytest.mark.asyncio
+async def test_an_undecided_verdict_keeps_the_reported_type():
+    idx, models, _ = indexer(verdicts={"abc": {"status": "undecided", "model_type": "diffusion_model"}})
+    entry = BackendModel("checkpoint", "x.safetensors", "x.safetensors", size=10, sha256="abc")
+
+    await idx.index_backend(make_backend([entry]))
+
+    assert models.models[0].model_type == "checkpoint"
+
+
+@pytest.mark.asyncio
+async def test_a_new_hashed_entry_is_created_under_the_resolved_type():
+    idx, models, _ = indexer(verdicts={"abc": decided("diffusion_model")})
+    entry = BackendModel("checkpoint", "x.safetensors", "x.safetensors", size=10, sha256="abc")
+
+    await idx.index_backend(make_backend([entry]))
+
+    assert models.models[0].model_type == "diffusion_model"
+
+
+def mismatch_row(**overrides):
+    row = {
+        "binding_type": "checkpoint", "rel_path": "flux.safetensors", "size": 10, "file_size": 10,
+        "model_id": "m1", "model_type": "diffusion_model", "filename": "flux.safetensors",
+    }
+    row.update(overrides)
+    return row
+
+
+@pytest.mark.asyncio
+async def test_a_comfy_file_that_is_a_retyped_native_file_is_reported_not_duplicated():
+    existing = FakeModel("m1", "diffusion_model", "flux.safetensors", file_size=10, sha256="abc", has_location=True)
+    idx, models, avail = indexer([existing], mismatch_rows=[mismatch_row()])
+    entry = BackendModel("checkpoint", "flux.safetensors", "flux.safetensors", size=10)
+
+    result = await idx.index_backend(make_backend([entry], backend_id="comfy1"))
+
+    assert (result.created, result.matched) == (0, 0)
+    assert len(models.models) == 1
+    assert avail.rows == {}
+    assert len(result.type_mismatches) == 1
+    mismatch = result.type_mismatches[0]
+    assert (mismatch.model_type, mismatch.existing_model_type, mismatch.existing_model_id) == (
+        "checkpoint", "diffusion_model", "m1"
+    )
+    assert result.to_dict()["type_mismatches"][0]["backend_id"] == "comfy1"
+
+
+@pytest.mark.asyncio
+async def test_a_different_size_is_not_a_mismatch():
+    idx, models, avail = indexer(mismatch_rows=[mismatch_row(size=99, file_size=99)])
+    entry = BackendModel("checkpoint", "flux.safetensors", "flux.safetensors", size=10)
+
+    result = await idx.index_backend(make_backend([entry], backend_id="comfy1"))
+
+    assert result.type_mismatches == []
+    assert result.created == 1
+    assert avail.rows
+
+
+@pytest.mark.asyncio
+async def test_an_entry_matching_an_existing_identity_is_never_a_mismatch():
+    existing = FakeModel("m1", "checkpoint", "flux.safetensors", file_size=10, has_location=True)
+    idx, _, avail = indexer([existing], mismatch_rows=[mismatch_row()])
+    entry = BackendModel("checkpoint", "flux.safetensors", "flux.safetensors", size=10)
+
+    result = await idx.index_backend(make_backend([entry], backend_id="comfy1"))
+
+    assert result.type_mismatches == [] and result.matched == 1
+    assert ("m1", "comfy1") in avail.rows
+
+
+@pytest.mark.asyncio
+async def test_mismatches_are_looked_up_in_one_batch_per_type():
+    idx, _, _ = indexer([FakeModel("m9", "checkpoint", "z.safetensors", file_size=4, has_location=True)])
+    entries = [
+        BackendModel("checkpoint", "z.safetensors", "z.safetensors", size=4),
+        BackendModel("checkpoint", "a.safetensors", "a.safetensors", size=1),
+        BackendModel("checkpoint", "b.safetensors", "b.safetensors", size=2),
+        BackendModel("lora", "c.safetensors", "c.safetensors", size=3),
+    ]
+
+    await idx.index_backend(make_backend(entries))
+
+    assert sorted(idx.locations.calls) == [
+        ("checkpoint", ["a.safetensors", "b.safetensors"]),
+        ("lora", ["c.safetensors"]),
+    ]

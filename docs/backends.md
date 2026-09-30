@@ -144,6 +144,37 @@ at once; the rest wait in the usual queue order. A cloud backend returns its `ma
 (default 4, 1 to 32). Native, remote-native and ComfyUI backends keep a single slot.
 `max_concurrent_generations` is not a setting; do not reintroduce it.
 
+## Drivers and the `cloud` engine
+
+An engine can have more than one **driver**: an implementation of the engine's protocol, registered
+under a key. A backend stores its `driver`, and instantiation is driver-scoped. `native` has two
+(`native.local`, the always-present singleton, and `native.remote`); an engine that registered
+once (`comfyui`) has exactly one driver, itself. A config class defaults `driver` to its engine name
+when the field is blank, and `BaseBackendConfig.effective_driver` returns that resolved value: use it
+wherever code needs "the driver this backend uses" instead of repeating the fallback.
+
+The `cloud` engine is the extreme case. It speaks to a hosted provider over HTTPS, and every provider
+is one driver of the same engine: `cloud.<provider key>`. A plugin registers a driver with
+`register_cloud_provider` (see [Cloud Models](cloud-models.md)), and `GET /api/backends/engines` then
+lists it as a creatable driver with the provider's config fields. What differs from the other engines:
+
+- **The join is engine plus driver.** A cloud preset declares `driver: cloud.acme` next to
+  `engine: cloud`. The [`PresetDriver` routing rule](generation-routing.md) keeps only backends of
+  that driver, and the model picker lists only that driver's models. Presets of other engines may
+  declare a `driver` too; one that does not is unaffected.
+- **Nothing runs on this host.** A cloud backend reports `execution_device: "remote"`, never claims a
+  GPU or VRAM, and a host with no GPU is a first-class cloud host.
+- **Parallel jobs are a real setting.** A cloud backend returns its `max_parallel` (default 4, 1 to 32)
+  from `max_concurrent_runs`, so that many generations run at once on it; `timeout_seconds` (default
+  1800) is enforced as the job's deadline.
+- **Its models come from a catalog.** `list_models()` returns the *enabled* catalog entries as model
+  type `cloud`, and the backend is authoritative about them: once a cloud backend exists, a model it
+  does not list is unavailable rather than "not indexed yet", so disabling the last model empties the
+  picker instead of showing everything. Health is the provider's own `check()`, cached for a minute.
+- **The Catalog tab.** In **Admin → Backends**, a backend of the `cloud` engine has a **Catalog** tab
+  to refresh the provider's model list, filter it, enable or disable models and see prices (admin-only),
+  plus the provider's data notice. See [Cloud Models](cloud-models.md#the-catalog-tab).
+
 ## Declaring the engine on a preset
 
 `preset.yml` carries a scalar `engine:` field:
@@ -239,7 +270,8 @@ Router: `src/features/backends/routes.py` (prefix `/api/backends`). Health paylo
 
 ### Engines describe themselves
 
-`GET /api/backends/engines` returns a descriptor per engine, not a bare name:
+`GET /api/backends/engines` returns a descriptor per driver (the `driver` key, next to `engine`), not a
+bare name; an engine with one driver has one descriptor:
 
 ```json
 [

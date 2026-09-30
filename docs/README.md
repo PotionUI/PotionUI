@@ -42,6 +42,7 @@ Subsystem docs for anyone authoring presets, plugins, or touching the engine. Ad
 - [Models and Backend Availability](models.md) — how a downloaded checkpoint file becomes the row a preset's `model` field picks.
 - [Backends and Engines](backends.md) — the `native`/`comfyui` engine split and how a backend is admin-configured.
 - [Generation Routing](generation-routing.md) — the rule chain that decides which enabled backend of an engine runs a generation.
+- [Cloud Models](cloud-models.md) — models that run on a provider's servers: the catalog, capability-driven forms, costs, scopes, and how to write a provider plugin.
 - [Model Inference Path](model-inference-path.md) — one generation, followed from the **Generate** action to its saved output.
 - [Native Engine v2](native-engine.md) — the in-process loading/detection/ops/sampling stack.
 - [The Plugin API](plugin-api.md) — `src.plugin_api`, the only surface a plugin may import from.

@@ -57,6 +57,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Providers** — talking to a model marketplace | `.providers` | `MarketplaceProviderBase`, `ProviderCapability`, `ProviderMetadata`, `ProviderModelInfo`, `ProviderSearchResult`, `ProviderPromptItem`, `ProviderError`, `ProviderConnectionError`, `ProviderRateLimitError`, `ProviderNotFoundError`, `get_provider_registry`, `ModelInfo`, `aiohttp_connector`, `client_ssl_context` |
 | **Chat** — extending the assistant | `.chat` | `BaseTool`, `ToolContext`, `ToolResult`, `ToolSource`, `PreChatAction` |
 | **Backends** — contributing an engine | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate` |
+| **Cloud** — contributing a hosted-model provider | `.cloud`, `.cloud_testing` | `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS` |
 | **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
 | **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks` |
 | **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem`, `lint_preset_dir`, `downscale_and_save_webp` |
@@ -393,6 +394,32 @@ always sign in locally — an identity provider outage never locks an instance o
 The mappings live in the `external_identities` table (`issuer`, `subject` → `user_id`,
 `created_at`, `last_login_at`), unique on `(issuer, subject)`, and cascade away with the
 user.
+
+## Contributing a cloud provider
+
+A provider plugin gives PotionUI one hosted-model service (images, video or audio generated on the
+provider's servers). It imports only from `src.plugin_api.cloud` and, in its tests,
+`src.plugin_api.cloud_testing`. Its `backend.register` handler registers the provider, and the driver
+`cloud.<key>` becomes a creatable backend type:
+
+```python
+from src.plugin_api import HookContext
+from src.plugin_api.cloud import register_cloud_provider
+
+def register_backend(context: HookContext) -> HookContext:
+    from ..provider.acme import AcmeProvider
+    register_cloud_provider(context, AcmeProvider)
+    return context
+```
+
+The provider subclasses `CloudProvider` (`discover`, `submit`, `poll`, optionally `fetch`, `cancel`,
+`check`, `map_error`) with a `CloudBackendConfig` subclass for its settings, and does all network I/O
+through `self.http` (`CloudHttp`), which sends credentials only to the API's own origin, refuses
+private download targets, redacts secrets and maps HTTP errors to the nine `CloudError` kinds. The
+plugin ships its own presets through the manifest `presets:` root, assembled from the shared blocks
+listed in `CLOUD_BLOCKS`. `cloud_testing` provides a scripted `FakeCloudProvider` and a contract
+kit (`ContractCase`, `run_contract`) to run against recorded fixtures. The full contract, the test
+kit and a step-by-step example are in [Cloud Models](cloud-models.md#writing-a-provider-plugin).
 
 ## Contributing a chat mode
 

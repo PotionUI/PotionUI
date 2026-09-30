@@ -184,7 +184,7 @@ in the [Preset Context Cheat Sheet](../preset-context.md#built-in-field-types)):
 | Text | `string`, `textbox` |
 | Numeric | `number`, `integer`, `slider`, `stepper`, `seed`, `resolution` |
 | Boolean | `boolean`, `checkbox` |
-| Options-backed | `select`, `checkbox_group`, `tags`, `model` (alias `models`), `lora_picker`, `sampler`, `schedule` |
+| Options-backed | `select`, `checkbox_group`, `tags`, `model` (alias `models`), `lora_picker`, `sampler`, `schedule`, `cloud_options` |
 | Media | `image`, `video`, `audio`, `media`, `file` |
 | Widgets | `carousel`, `llm`, `alert`, `markdown`, `header`, `section`, `gate`, `prompt_timeline`, `camera_shot` |
 | Layout containers | `tabs`, `tab`, `row`, `group`, `accordion` |
@@ -536,7 +536,7 @@ Field keys understood by the schema (`FieldSpec`): `type` (required), `name`, `l
 `ai_hint`, `configuration`, `required`, `default`, `when`, `input`, `save_into`
 (`session`|`settings`), `interactive`, `container`, `visible`, `reactions`, `listeners`,
 `children` (a list of nested fields, or a `{{ paths.preset }}/...` or `{{ paths._shared }}/...` path string to an external file),
-`audience`, `width`, `full_width`, `hidden_when_video_director`. The schema is `extra="forbid"` — the
+`audience`, `width`, `full_width`, `hidden_when_video_director`, `capability`. The schema is `extra="forbid"` — the
 removed `value:` initializer key is a load error.
 
 | Key | Required | Type | Notes |
@@ -648,6 +648,71 @@ The **closed set of 12 operators** (source: `OPERATORS` in schema.py, mirrored i
 `less_than_or_equals`, `contains`, `not_contains`, `is_empty`, `is_not_empty`.
 
 
+### Cloud model controls
+
+A preset that drives a hosted model (`engine: cloud`, see [Cloud Models](../cloud-models.md)) cannot
+hard-code its controls, because each model offers different parameters. Three pieces let a form follow
+the model the user picked:
+
+**`tasks` on a `model` field.** With `model_type: "cloud"`, `configuration.tasks: [txt2img]` keeps only
+models whose provider catalog lists at least one of those tasks. It is sent as `?tasks=` to
+`GET /api/presets/{id}/models` and ignored for every other model type.
+
+**`capability:`** binds a field to one parameter or media input of the chosen model. It is a field key
+next to `audience` and `width` (not inside `configuration`), and it is emitted to the frontend as
+`capability` on the field's schema:
+
+```yaml
+- name: "aspect_ratio"
+  type: "select"
+  label: "Aspect ratio"
+  capability: { model_field: "model", param: "aspect_ratio" }
+
+- name: "references"
+  type: "image"
+  label: "Reference images"
+  capability: { model_field: "model", input: "reference" }
+```
+
+| Key | Notes |
+|-----|-------|
+| `model_field` | Required. The `name` of the field that holds the model (a `model` field with `model_type: "cloud"`). |
+| `param` | A canonical parameter (`prompt`, `negative_prompt`, `count`, `seed`, `aspect_ratio`, `resolution`, `size`, `duration_s`, `fps`, `quality`, `output_format`, `background`, `guidance`, `steps`, `strength`, `generate_audio`, `lyrics`, `voice`, `instrumental`, `enhance_prompt`) or a provider extra `x.<wire name>`. |
+| `input` | A media role: `reference`, `first_frame`, `last_frame`, `mask`, `source_image`, `source_video`, `source_audio`. |
+
+Give exactly one of `param` and `input`. Any other key, an unknown parameter or role, or a
+capability with neither is a schema error (`preset_lint` reports it).
+
+The frontend reads the chosen model's capabilities from `GET /api/cloud/models/{model_id}/capabilities`
+and, for each bound field: hides it (and does not submit it) when the model lacks that parameter or
+input for the mode's task, replaces a `select`'s options with the model's enum values, and applies the
+model's minimum, maximum, step and integer rules to a number control. The server applies the same
+capabilities in `bind_form`, pinned to the backend the job was routed to: a value for something the
+model lacks is dropped (and listed in `stripped`), and an enum value the model does not offer, a number
+out of range, a non-integer for an integer range, a non-boolean for a boolean or a missing required
+parameter is a `field_errors` entry in the 422. The mode's task is the literal `task:` of its
+`cloud_generate` pipe.
+
+**`cloud_options`** renders the model's leftover parameters as standard controls: every `x.` extra
+and, unless `configuration.include_unbound` is `false`, every canonical parameter no other field in the
+form is bound to. Bind it to the model field only:
+
+```yaml
+- name: "provider_options"
+  type: "cloud_options"
+  label: "Provider options"
+  capability: { model_field: "model" }
+  configuration: { include_unbound: true }
+```
+
+Its value is an object keyed by full parameter name (`{"x.style": "noir"}`). Unknown keys are dropped,
+values are validated against the model's entry, and the result reaches the `cloud_generate` pipe as
+its `options`. `include_unbound` is its only configuration key.
+
+Reusable field blocks for these controls ship under `content/presets/_shared/cloud/` and are pulled in
+with `children: "{{ paths._shared }}/cloud/tabs/image.yml"`; `python scripts/preset_new.py ... --engine
+cloud --driver cloud.<key>` assembles a preset from them.
+
 ## Form binding and validation (`bind_form`)
 
 
@@ -661,7 +726,8 @@ Before any pipeline renders, the submitted `form_data` is bound against the mode
 4. **validates leaves**: `required`, numeric `min`/`max` ranges, select values against the
    declared options, checkbox values must be bools, model/media values must have the right shape;
 5. coerces string numerics from older clients (`"8"` → `8`) — one deliberate leniency, logged;
-6. resolves model references and **canonicalizes media paths** (uploads referenced by a
+6. for a cloud preset, applies the chosen model's capabilities (see "Cloud model controls" above);
+7. resolves model references and **canonicalizes media paths** (uploads referenced by a
    media/image field are containment-checked against the storage root and rewritten to their
    canonical form — preset YAML never builds storage paths itself).
 

@@ -26,6 +26,7 @@ The manifest is `PresetManifest` in `src/features/presets/schema.py`, validated 
 | `version` | yes | string | Semver, e.g. `1.0.0` (regex `^\d+\.\d+\.\d+(?:[-+].+)?$`). |
 | `category` | yes | enum | One of `image`, `video`, `audio`, `3d`, `utility`. |
 | `engine` | yes | string | The protocol this preset's pipes speak: `native` (in-process diffusers pipes) or `comfyui` (a ComfyUI server), or an engine contributed by a plugin. Scalar, not a list — a preset has exactly one engine. See [Backends and Engines](../backends.md). |
+| `driver` | no (required when `engine: cloud`) | string | The implementation of the engine this preset needs, written `<engine>.<name>` and starting with the preset's own `engine`, for example `cloud.acme`. Backends of any other driver are never offered to this preset, its model picker lists only models held by this driver's backends, and a model of another driver posted for it is refused. Leave it out for engines with a single driver. `preset_lint` reports a malformed or missing driver as an error and a driver that is not registered on the instance being linted as a warning (enable the plugin and restart). See [Cloud Models](../cloud-models.md) and [Generation Routing](../generation-routing.md). |
 | `tags` | no | list | Free-form strings (default `[]`). |
 | `media` | no | mapping | Cover image + example gallery. See [Preset media](#preset-media). |
 | `vars` | no | mapping | Preset-wide constants, read in `pipeline.yml` as `{{ preset.vars.<name> }}`. |

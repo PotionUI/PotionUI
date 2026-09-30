@@ -89,13 +89,20 @@ sequenceDiagram
 |---|---|---|---|---|---|
 | `EnabledForEngine` | no (seeds) | no | Every other rule needs a starting candidate list | Always, first | *(none — it only seeds)* |
 | `PresetDriver` | yes | no | A preset that declares `driver:` (every `engine: cloud` preset does) must run on a backend of that driver, never on another provider's backend of the same engine | The preset declares a `driver:` | `"preset requires driver cloud.openrouter; this backend uses cloud.fal"` |
-| `ModelAvailability` | yes | no | A selected checkpoint/LoRA may only be downloaded to one backend | The form references `model:<id>` values AND at least one backend of the engine has been indexed | `"does not hold every selected model"` |
+| `ModelAvailability` | yes | no | A selected checkpoint/LoRA may only be downloaded to one backend | The form references `model:<id>` values AND at least one backend of the engine has been indexed, or is authoritative about its models (cloud backends are) | `"does not hold every selected model"` |
 | `RequirementsEligibility` | yes | yes | A backend can lack something the preset needs (a ComfyUI custom node, a model file) — see [Preset Authoring Guide](presets.md) "Requirements" | The preset declares `requirements:` AND a requirements cache is wired | `"missing requirement(s): FaceDetailer node"` (dropped) / `"requirements not yet checked"` (kept, refresh scheduled) / `"requirements satisfied"` |
 | `Preference` | no | yes | Explains which survivor the final pick will choose, without re-deciding it | At least one candidate survived | `"default backend for this engine"` / `"highest priority (5) among eligible backends"` |
 
 `ModelAvailability` and `RequirementsEligibility` never treat "can't tell from here" as a reason to
 drop — an unindexed backend or an unchecked requirement is **unknown**, not missing, and stays a
-candidate. Both are pure reads: `ModelAvailability` reads the model-availability index,
+candidate. The exception is a backend that lists its own models authoritatively (every `cloud`
+backend): a model it does not list is *unavailable*, not "never indexed", so a model an admin has
+disabled is refused instead of routed anywhere.
+
+`PresetDriver` never asks the model index anything. It reads only the preset's `driver:` and each
+candidate's `effective_driver`, drops every candidate that differs, and records the reason on it. It
+runs right after `EnabledForEngine` so that later rules only weigh backends the preset could use at all;
+a preset with no `driver:` passes through untouched. Both are pure reads: `ModelAvailability` reads the model-availability index,
 `RequirementsEligibility` reads the requirements cache's *last evaluated* verdict — neither ever
 blocks the chain on live work. See "Requirements interplay" below.
 
@@ -113,6 +120,12 @@ requirements cache's last check found the node on `comfy-a` but not `comfy-b`.
 `comfy-a` the only survivor — chosen regardless of which one is marked default or has higher
 priority. If `comfy-b` is the default and BOTH backends were missing the node, the candidate list
 empties and `route()` raises `NoEligibleBackendError` naming both backends and the node they lack.
+
+**Two providers, one engine.** `acme` and `zenith` are both `cloud` backends. A preset declaring
+`driver: cloud.acme` drops the Zenith backend in `PresetDriver` (`"preset requires driver cloud.acme;
+this backend uses cloud.zenith"`). If the form also carries a Zenith model, `ModelAvailability` finds no
+remaining backend that holds it and the request fails with both drops listed. It is never run on the
+wrong provider. A preset whose driver has no enabled backend fails the same way, naming the driver.
 
 ## Reading the trace
 

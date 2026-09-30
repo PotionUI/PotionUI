@@ -3,6 +3,7 @@ import type { APIResponse } from '$lib/types/api';
 import type { User } from '$lib/stores/auth';
 import type { AdminToolsetEntry, LLMConfig } from '$lib/types/llm';
 import type { GenerationHistoryItem } from '$lib/types/history';
+import type { CostSummary, GenerationCost } from '$lib/utils/cloudCost';
 
 /**
  * Admin-specific API methods
@@ -1358,6 +1359,7 @@ export async function clearChatCallTraces(
 export interface AdminGenerationListItem extends GenerationHistoryItem {
 	user_id: string;
 	has_run_report: boolean;
+	cost?: CostSummary | null;
 }
 
 export interface AdminGenerationsResult {
@@ -1433,6 +1435,7 @@ export interface AdminGenerationDetailResult {
 	generation: AdminGenerationListItem;
 	/** Null for generations that predate run-report persistence. */
 	run_report: RunReport | null;
+	cost?: GenerationCost | null;
 }
 
 export interface AdminGenerationsParams {
@@ -1914,5 +1917,37 @@ export async function setCloudCatalogEnabled(
 	const response = await api
 		.getClient()
 		.post(`/api/cloud/backends/${backendId}/catalog/${enabled ? 'enable' : 'disable'}`, { slugs });
+	return response.data;
+}
+
+export interface CloudModelScopePreset {
+	id: string;
+	title: string | null;
+	engine: string | null;
+	driver: string | null;
+	missing: boolean;
+	compatible: boolean;
+}
+
+export interface CloudModelScope {
+	model_id: string;
+	slug: string;
+	label: string;
+	driver: string;
+	scoped: boolean;
+	preset_ids: string[];
+	presets: CloudModelScopePreset[];
+	candidates: { id: string; title: string }[];
+}
+
+export async function getCloudModelScope(modelId: string): Promise<APIResponse<CloudModelScope>> {
+	const response = await api.getClient().get(`/api/cloud/models/${encodeURIComponent(modelId)}/scope`);
+	return response.data;
+}
+
+export async function setCloudModelScope(modelId: string, presetIds: string[]): Promise<APIResponse<CloudModelScope>> {
+	const response = await api
+		.getClient()
+		.put(`/api/cloud/models/${encodeURIComponent(modelId)}/scope`, { preset_ids: presetIds });
 	return response.data;
 }

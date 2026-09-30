@@ -1,5 +1,6 @@
 import type { AxiosInstance } from 'axios';
 import type { APIResponse } from '$lib/types/api';
+import type { CloudSpend } from '$lib/utils/cloudCost';
 
 /** Every stats endpoint is scoped by the same inclusive date range (YYYY-MM-DD). */
 export interface StatsRange {
@@ -193,6 +194,11 @@ export function createStatsApi(client: AxiosInstance) {
 			params.append('bucket', bucket);
 			params.append('limit', limit.toString());
 			const response = await client.get(withQuery('/api/stats/storage', params));
+			return response.data;
+		},
+
+		async getStatsSpend(range?: StatsRange): Promise<APIResponse<CloudSpend>> {
+			const response = await client.get(withQuery('/api/stats/spend', rangeParams(range)));
 			return response.data;
 		},
 

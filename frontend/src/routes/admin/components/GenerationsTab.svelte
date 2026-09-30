@@ -18,6 +18,7 @@
 	import { DataTable, StatusCell, TablePager, pageCount, type SortState } from '$lib/components/table';
 	import { selectPage, clearAll } from '$lib/components/table/selection';
 	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
+	import CostValue from './CostValue.svelte';
 	import GenerationRunReport from './GenerationRunReport.svelte';
 	import RunningGenerationsPanel from './RunningGenerationsPanel.svelte';
 	import GenerationsFiltersPopover from './GenerationsFiltersPopover.svelte';
@@ -279,6 +280,10 @@
 	<Tooltip text={absoluteTime(row.created_at)}><span>{timeAgo(row.created_at)}</span></Tooltip>
 {/snippet}
 
+{#snippet costCell(row: AdminGenerationListItem)}
+	<CostValue cost={row.cost} class="text-xs" />
+{/snippet}
+
 {#snippet ratingCell(row: AdminGenerationListItem)}
 	<span class="inline-flex items-center gap-1 justify-end w-full">
 		{#if row.is_favorite}<Icon name="star" className="w-3 h-3 text-warning" strokeWidth={2.5} />{/if}
@@ -291,7 +296,10 @@
 		<span class="truncate text-sm font-semibold text-fg">{presetTitleFor(row)}</span>
 		<StatusCell tone={STATUS_TONE[row.status] ?? 'muted'} label={row.status} />
 	</div>
-	<div class="font-mono text-xs text-fg-subtle">{usernameFor(row.user_id)} · {timeAgo(row.created_at)} · {durationFor(row)}</div>
+	<div class="flex items-center justify-between gap-2 font-mono text-xs text-fg-subtle">
+		<span class="truncate">{usernameFor(row.user_id)} · {timeAgo(row.created_at)} · {durationFor(row)}</span>
+		{#if row.cost}<CostValue cost={row.cost} class="text-xs" />{/if}
+	</div>
 {/snippet}
 
 <LibraryShell
@@ -341,6 +349,7 @@
 			<GenerationRunReport
 				generation={detail.generation}
 				report={detail.run_report}
+				cost={detail.cost ?? null}
 				username={usernameFor(detail.generation.user_id)}
 				backLabel="Generations"
 				onBack={backToList}
@@ -363,6 +372,7 @@
 					{ key: 'user', label: 'User', width: '140px', priority: 1, accessor: (r) => usernameFor(r.user_id) },
 					{ key: 'created', label: 'Created', width: '130px', sortable: true, mono: true, cell: createdCell },
 					{ key: 'duration', label: 'Duration', width: '90px', priority: 1, mono: true, accessor: durationFor },
+					{ key: 'cost', label: 'Cost', width: '100px', priority: 1, align: 'right', cell: costCell },
 					{
 						key: 'files',
 						label: 'Files',

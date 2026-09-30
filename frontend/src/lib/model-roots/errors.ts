@@ -1,4 +1,6 @@
 export function modelRootsErrorMessage(error: unknown, fallback: string): string {
+	const top = (error as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
+	if (typeof top === 'string' && top) return top;
 	const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
 	if (typeof detail === 'object' && detail !== null && 'message' in detail) {
 		const message = (detail as { message?: unknown }).message;

@@ -11,6 +11,8 @@
 	import { browser } from '$app/environment';
 	import * as adminApi from '$lib/services/admin-api';
 	import type { AdminGenerationListItem, GenerationFailureDetail, RunReport } from '$lib/services/admin-api';
+	import type { GenerationCost } from '$lib/utils/cloudCost';
+	import GenerationCostSection from './GenerationCostSection.svelte';
 	import { groupStatusHistory, groupByPipe, findRunningPipeKey, resolveRunEnd } from './runReport';
 	import { buildTocSections, pickActiveSectionId } from './generations/runReportToc';
 	import { categoryLabel } from './generations/generationsColumns';
@@ -32,12 +34,14 @@
 	let {
 		generation,
 		report,
+		cost = null,
 		username,
 		backLabel,
 		onBack
 	}: {
 		generation: AdminGenerationListItem;
 		report: RunReport | null;
+		cost?: GenerationCost | null;
 		username: string;
 		backLabel?: string;
 		onBack?: () => void;
@@ -401,6 +405,9 @@
 						<KVItem label="Files" mono>{fileCount}</KVItem>
 					</KVGrid>
 				</DetailSection>
+				{#if cost}
+					<GenerationCostSection {cost} />
+				{/if}
 			{/snippet}
 		</DetailLayout>
 	</DetailBody>

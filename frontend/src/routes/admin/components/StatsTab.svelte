@@ -17,6 +17,8 @@
 		PresetTimingItem,
 		PresetResourcesItem
 	} from '$lib/services/api/stats';
+	import CloudSpendSection from './CloudSpendSection.svelte';
+	import type { CloudSpend } from '$lib/utils/cloudCost';
 	import { Button, Input, Spinner, EmptyState, Alert } from '$lib/components/ui';
 	import { DetailBody, DetailSection } from '$lib/components/detail';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
@@ -60,6 +62,7 @@
 	// generation is deleted.
 	let presetTiming = $state<PresetTimingItem[] | null>(null);
 	let presetResources = $state<PresetResourcesItem[] | null>(null);
+	let spend = $state<CloudSpend | null>(null);
 
 	function currentRange() {
 		return {
@@ -88,7 +91,8 @@
 				cfgsRes,
 				denoisesRes,
 				presetTimingRes,
-				presetResourcesRes
+				presetResourcesRes,
+				spendRes
 			] = await Promise.all([
 				api.getStatsOverview(range),
 				api.getStatsTimeseries('count', 'day', range),
@@ -103,7 +107,8 @@
 				api.getStatsBreakdown('cfg', limits.cfgs, range),
 				api.getStatsBreakdown('denoise', limits.denoises, range),
 				api.getStatsPresetTiming(limits.presetTiming),
-				api.getStatsPresetResources(limits.presetResources)
+				api.getStatsPresetResources(limits.presetResources),
+				api.getStatsSpend(range).catch(() => null)
 			]);
 
 			overview = overviewRes.success ? overviewRes.data ?? null : null;
@@ -120,6 +125,8 @@
 			denoises = denoisesRes.success ? denoisesRes.data ?? null : null;
 			presetTiming = presetTimingRes.success ? presetTimingRes.data?.items ?? null : null;
 			presetResources = presetResourcesRes.success ? presetResourcesRes.data?.items ?? null : null;
+
+			spend = spendRes?.success ? spendRes.data ?? null : null;
 
 			if (!overviewRes.success) {
 				error = overviewRes.message || 'Failed to load statistics';
@@ -286,6 +293,8 @@
 			</div>
 		</DetailSection>
 	{/if}
+
+	<CloudSpendSection {spend} />
 
 	<DetailSection label="Activity">
 	<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">

@@ -12,6 +12,12 @@ describe('modelRootsErrorMessage', () => {
 		expect(modelRootsErrorMessage(error, 'fallback')).toBe("Root 'x' is offline");
 	});
 
+	it('reads a top-level response message', () => {
+		const error = { response: { data: { success: false, message: 'The scope could not be read.' } } };
+
+		expect(modelRootsErrorMessage(error, 'fallback')).toBe('The scope could not be read.');
+	});
+
 	it('falls back to a plain string detail', () => {
 		const error = axiosError('not found');
 

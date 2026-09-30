@@ -1,10 +1,11 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import { formatBytes } from '$lib/utils/format';
 	import { Badge, Button, IconButton, Spinner } from '$lib/components/ui';
-	import { MODEL_TYPE_UNDEFINED, modelTypePresentation } from '$lib/utils/modelPresentation';
+	import { MODEL_TYPE_UNDEFINED, modelIsCloud, modelTypePresentation } from '$lib/utils/modelPresentation';
 	import ModelTypeBadge from '$lib/components/ModelTypeBadge.svelte';
 	import { modelRootsErrorMessage } from '$lib/model-roots/errors';
 	import {
@@ -29,6 +30,7 @@
 	import ModelOtherVariants from '$lib/components/recipes/ModelOtherVariants.svelte';
 	import { createAdminModelDetailsController } from '$lib/components/modals/model-details/modelDetailsController';
 	import { overviewDraftFromModel, overviewDraftIsDirty, type ModelOverviewDraft } from './modelOverviewDraft';
+	import ModelScopeSection from './ModelScopeSection.svelte';
 	import AssignmentCard from '$lib/components/assignment/AssignmentCard.svelte';
 	import { createModelAssignmentAdapter } from '$lib/components/assignment/modelAssignmentAdapter';
 	import { adminSectionIcon } from '../../adminSections';
@@ -66,9 +68,14 @@
 		availabilityLoading
 	} = controller;
 
+	const loadedModelId = $derived(modelId);
+
 	$effect(() => {
-		activeTab = 'overview';
-		controller.load(modelId);
+		const id = loadedModelId;
+		untrack(() => {
+			activeTab = 'overview';
+			controller.load(id);
+		});
 	});
 
 
@@ -101,12 +108,18 @@
 	const typeIsAssertion = $derived(typeSourceIsAssertion($model?.type_info));
 	const typeLocked = $derived(!$model?.sha256 || !!$model?.is_directory);
 	const typeSelectOptions = $derived(typeOptions(currentType));
-	const overviewDirty = $derived(overviewDraftIsDirty(overviewDraft, overviewSnapshot) || typeChange.kind !== 'none');
+	const isCloud = $derived(modelIsCloud($model));
+	let scopeRef: ModelScopeSection | undefined = $state();
+	let scopeDirty = $state(false);
+	const overviewDirty = $derived(
+		overviewDraftIsDirty(overviewDraft, overviewSnapshot) || typeChange.kind !== 'none' || (isCloud && scopeDirty)
+	);
 
 	function discardOverview() {
 		overviewDraft = { ...overviewSnapshot };
 		typeDraft = currentType;
 		typeError = null;
+		scopeRef?.discard();
 	}
 
 	async function saveOverview() {
@@ -130,6 +143,7 @@
 				await controller.savePromptingGuidance(overviewDraft.promptingGuidance);
 			}
 			overviewSnapshot = { ...overviewDraft };
+			if (isCloud) await scopeRef?.commit();
 		} finally {
 			overviewSaving = false;
 		}
@@ -185,12 +199,13 @@
 		}
 	}
 
-	const tabs: { id: DetailTab; label: string; icon: string }[] = [
+	const allTabs: { id: DetailTab; label: string; icon: string }[] = [
 		{ id: 'overview', label: 'Overview', icon: 'info' },
 		{ id: 'availability', label: 'Availability', icon: 'database' },
 		{ id: 'access', label: 'Access', icon: 'group' },
 		{ id: 'attributes', label: 'Attributes', icon: 'sliders' }
 	];
+	const tabs = $derived(isCloud ? allTabs.filter((tab) => tab.id !== 'availability') : allTabs);
 </script>
 
 {#snippet typeSelect()}
@@ -306,6 +321,9 @@
 								/>
 							</div>
 						</DetailSection>
+						{#if isCloud}
+							<ModelScopeSection bind:this={scopeRef} modelId={$model.id} bind:dirty={scopeDirty} />
+						{:else}
 						<DetailSection label="Model type">
 							<div class="space-y-3">
 								<DetailField label="Type" id="model-type" error={typeError} wide>
@@ -340,6 +358,7 @@
 								{/if}
 							</div>
 						</DetailSection>
+						{/if}
 						<DetailSection label="Information">
 							<ModelInfoCard
 								bare
@@ -348,9 +367,11 @@
 								createdAt={$model.created_at}
 							/>
 						</DetailSection>
-						<DetailSection label="Files">
-							<ModelFilesCard bare files={$model.files || []} />
-						</DetailSection>
+						{#if !isCloud || ($model.files?.length ?? 0) > 0}
+							<DetailSection label="Files">
+								<ModelFilesCard bare files={$model.files || []} />
+							</DetailSection>
+						{/if}
 					{/snippet}
 				</DetailLayout>
 			{:else if activeTab === 'availability'}

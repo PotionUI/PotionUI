@@ -262,7 +262,12 @@ def build_fixture_form_data(
 
     if form_name is not None:
         form_template = next(f for f in mode_data.forms if f.name == form_name)
-        context_dict = {"paths": {"preset": preset_template.path}}
+        context_dict = {
+            "paths": {
+                "preset": preset_template.path,
+                "_shared": str(preset_template_loader.shared_path),
+            }
+        }
         # Reach into the "private" `_resolve_external_children` to resolve
         # @loop / external tab files exactly like the real form-schema endpoint.
         resolved_fields = form_serializer._resolve_external_children(form_template.fields, context_dict)

@@ -43,7 +43,11 @@ fields:
         children: "{{ paths.preset }}/modes/txt2img/tabs/lora.yml"
 ```
 
-A `tabs/*.yml` file holds the fields for that tab under a `fields:` key.
+A `tabs/*.yml` file holds the fields for that tab under a `fields:` key. `children:` accepts both
+`{{ paths.preset }}` (the preset's own directory) and `{{ paths._shared }}` (the shared tree, the same
+root option files use), so a fragment reused across presets can live under `content/presets/_shared/`,
+e.g. `children: "{{ paths._shared }}/tabs/advanced.yml"`. `preset_lint` reports an error when the
+fragment a `children:` path names does not exist.
 
 
 ## Variants
@@ -531,7 +535,7 @@ here `steps` takes 3 parts of the row to `cfg`'s 2 (equivalent to `width: 3` / `
 Field keys understood by the schema (`FieldSpec`): `type` (required), `name`, `label`, `description`,
 `ai_hint`, `configuration`, `required`, `default`, `when`, `input`, `save_into`
 (`session`|`settings`), `interactive`, `container`, `visible`, `reactions`, `listeners`,
-`children` (a list of nested fields, or a `{{ paths.preset }}/...` path string to an external file),
+`children` (a list of nested fields, or a `{{ paths.preset }}/...` or `{{ paths._shared }}/...` path string to an external file),
 `audience`, `width`, `full_width`, `hidden_when_video_director`. The schema is `extra="forbid"` — the
 removed `value:` initializer key is a load error.
 
@@ -578,11 +582,11 @@ so they can be shared and edited centrally. Two locations:
   see the generated [`content/presets/_shared/**` option files listing](../preset-context.md#contentpresets_shared-option-files)
   for every file and its first entries.
 
-`{{ paths._shared }}` is only defined in **field option-file path** templates — the `file:` / `files:` /
+`{{ paths._shared }}` is defined in **field option-file path** templates — the `file:` / `files:` /
 `phrasebook_source` values of `select`/`resolution` fields, which are rendered separately when options
 are loaded (`src/features/fields/select.py`, `resolution.py`, whose context is exactly
-`{paths: {preset, _shared}}`). See "Template contexts" below for the full picture — `_shared` is **not**
-available in `pipeline.yml` or in form `children:` paths.
+`{paths: {preset, _shared}}`) — and in form `children:` paths. See "Template contexts" below for the
+full picture — `_shared` is **not** available in `pipeline.yml`.
 
 An option file is a flat list of `{value, label}` (extra keys are allowed and used by some widgets):
 

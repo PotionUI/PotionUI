@@ -22,7 +22,6 @@ in ``self.load_errors`` keyed by preset.yml path, for the preset lint tooling
 and the developer lint endpoint.
 """
 
-import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +30,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import yaml
 
 from src.platform.observability.logger import logger
+from src.features.presets.children_paths import DEFAULT_SHARED_PATH, resolve_children_path
 from src.features.presets.templates import PresetTemplate, PipeTemplate, FieldTemplate, FormTemplate, ModeTemplate
 from .schema import (
     validate_manifest,
@@ -40,12 +40,6 @@ from .schema import (
     validate_styles_file,
     validate_tag_categories_shape,
 )
-
-# The only variable ever used in an external `children:` fragment path today
-# (verified against every built-in/custom preset). Resolved here, at load
-# time, rather than through the full Jinja context - `paths.preset` is the
-# one piece of that context knowable before any form/request data exists.
-_CHILDREN_PATH_VAR_RE = re.compile(r"\{\{\s*paths\.preset\s*\}\}")
 
 
 def plugin_preset_roots(manifests) -> List[Path]:
@@ -190,7 +184,7 @@ class PresetTemplateLoader:
         self.plugin_registry = plugin_registry
         # Keep preset_files_path for backward compatibility (first path)
         self.preset_files_path = self.preset_files_paths[0] if self.preset_files_paths else Path("content/presets")
-        self.shared_path = Path(shared_path) if shared_path is not None else Path("content/presets/_shared")
+        self.shared_path = Path(shared_path) if shared_path is not None else DEFAULT_SHARED_PATH
         self.presets: List[PresetTemplate] = []
         # path (str) -> list of "<file>: <path>: <message>" validation errors
         self.load_errors: Dict[str, List[str]] = {}
@@ -612,9 +606,8 @@ class PresetTemplateLoader:
 
         children = field_data.get('children')
         if isinstance(children, str):
-            # callable, not a template string: a Windows root's backslashes would be parsed as escapes
-            resolved_path = _CHILDREN_PATH_VAR_RE.sub(lambda _m: str(preset_root), children)
-            external_fields = self._load_external_children_file(Path(resolved_path), prefix)
+            resolved_path = resolve_children_path(children, preset_root, self.shared_path)
+            external_fields = self._load_external_children_file(resolved_path, prefix)
             field_data['children'] = [
                 self._build_field_template(c, preset_root, prefix) for c in external_fields
             ]

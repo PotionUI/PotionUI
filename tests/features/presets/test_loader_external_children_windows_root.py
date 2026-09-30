@@ -31,5 +31,5 @@ def test_loader_resolves_children_path_literally(monkeypatch):
 
 
 def test_linter_resolves_children_path_literally():
-    resolved = PresetLinter._resolve_children_path("{{ paths.preset }}/modes/txt2img/tabs/advanced.yml", WINDOWS_ROOT)
+    resolved = PresetLinter([])._resolve_children_path("{{ paths.preset }}/modes/txt2img/tabs/advanced.yml", WINDOWS_ROOT)
     assert resolved == Path(str(WINDOWS_ROOT) + "/modes/txt2img/tabs/advanced.yml")

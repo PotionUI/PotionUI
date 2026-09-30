@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, MagicMock
 from src.features.presets.form_serializer import PresetFormSerializer
 from src.features.presets import PresetTemplateLoader
@@ -25,6 +26,7 @@ class TestPresetFormSerializer(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         self.mock_preset_loader = Mock(spec=PresetTemplateLoader)
+        self.mock_preset_loader.shared_path = Path("/presets/_shared")
         self.mapper = PresetFormSerializer(self.mock_preset_loader)
         
     def test_init(self):
@@ -219,6 +221,7 @@ class TestProcessFormFieldsOverrides(unittest.TestCase):
 
     def setUp(self):
         self.mock_preset_loader = Mock(spec=PresetTemplateLoader)
+        self.mock_preset_loader.shared_path = Path("/presets/_shared")
         preset_template = Mock()
         preset_template.path = "/presets/test_preset"
         self.mock_preset_loader.load_preset_by_id.return_value = preset_template

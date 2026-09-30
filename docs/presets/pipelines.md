@@ -23,7 +23,7 @@ available in another:
 | Context | Rendered by | Available |
 |---------|-------------|-----------|
 | `pipeline.yml` values | `PresetProcessor.process` (at generation time) | Full set below: `form`/`request`/`generation`/`preset`/`runtime`/`paths` context roots + the `path`/`icon`/`get_speed_profile` globals. **No `paths._shared`.** |
-| Form `children:` paths (form.yml / tab yml) | the loader, at load time (`src/features/presets/loader.py`) | **Only `{{ paths.preset }}`**, substituted textually. No form data, no `_shared`. |
+| Form `children:` paths (form.yml / tab yml) | the loader, at load time (`src/features/presets/loader.py`) | **Only `{{ paths.preset }}` and `{{ paths._shared }}`**, substituted textually. No form data. |
 | Field option-file paths (`file:`/`files:`/`phrasebook_source` of `select`/`resolution`) | `src/features/fields/select.py`, `resolution.py` (at option-load time) | **Only `paths.preset` and `paths._shared`.** |
 | A `model`/`lora_picker` field's `filter_tags: "@config:<key>"` | `src/features/presets/configuration.py`'s `resolve_field_filter_tags` (at form-schema serve time) | **Not Jinja at all** — a bare `str.startswith('@config:')` prefix match against the preset's stored `configuration:` values. No context object; a typo in `<key>` (or a preset with no `configuration:` block) resolves to "no filtering", not an error. See [Preset Context Cheat Sheet](../preset-context.md#configkey-indirection). |
 

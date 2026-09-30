@@ -33,6 +33,7 @@ def get_presets_lint(preset_loader) -> Dict[str, Any]:
     linter = PresetLinter(
         [str(p) for p in preset_loader.all_preset_roots()],
         plugin_manifests=plugin_manifests,
+        shared_path=preset_loader.shared_path,
     )
     issues = linter.lint()
 

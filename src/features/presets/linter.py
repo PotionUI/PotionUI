@@ -22,7 +22,8 @@ from src.platform.plugins.sampling import (
     sampler_registry,
     schedule_registry,
 )
-from .loader import discover_form_variants, plugin_preset_mode_contributions, _CHILDREN_PATH_VAR_RE
+from .children_paths import DEFAULT_SHARED_PATH, resolve_children_path
+from .loader import discover_form_variants, plugin_preset_mode_contributions
 from .schema import (
     SPEED_PROFILE_KNOWN_KEYS,
     validate_manifest,
@@ -252,6 +253,7 @@ class PresetLinter:
         plugin_manifests: Optional[List[Any]] = None,
         requirement_checker_registry: Optional[Any] = None,
         pipe_catalog: Optional[Any] = None,
+        shared_path: Optional[Path] = None,
     ):
         """`plugin_manifests`: discovered `PluginManifest`s (see
         `scripts/preset_lint.py`), used only to cross-check `preset_modes:`
@@ -276,6 +278,7 @@ class PresetLinter:
         same rationale as `requirement_checker_registry`. `None` falls back to
         building one from `plugin_manifests` lazily (see `_pipe_catalog`)."""
         self.paths = [Path(p) for p in paths]
+        self.shared_path = Path(shared_path) if shared_path is not None else DEFAULT_SHARED_PATH
         self.plugin_manifests = plugin_manifests or []
         self._image_processor = ImageProcessor()
         # type_name -> set(declared FieldConfigSpec names) | None (no backend
@@ -466,6 +469,7 @@ class PresetLinter:
                 )
                 continue
             issues.extend(self._lint_option_file_refs(preset_file, mode_dir, mode_name))
+            issues.extend(self._lint_children_refs(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_form_variants(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_configuration_refs(preset_file, mode_dir, mode_name, manifest))
             issues.extend(self._lint_field_defaults(preset_file, mode_dir, mode_name))
@@ -578,6 +582,7 @@ class PresetLinter:
                     continue
 
                 issues.extend(self._lint_option_file_refs(synthetic_preset_file, mode_dir, mode_name))
+                issues.extend(self._lint_children_refs(synthetic_preset_file, mode_dir, mode_name))
                 issues.extend(self._lint_form_variants(synthetic_preset_file, mode_dir, mode_name))
                 issues.extend(self._lint_configuration_refs(synthetic_preset_file, mode_dir, mode_name, target_manifest))
                 issues.extend(self._lint_field_defaults(synthetic_preset_file, mode_dir, mode_name))
@@ -1880,8 +1885,7 @@ class PresetLinter:
             return n
         return walk(template)
 
-    @staticmethod
-    def _resolve_children_path(children_ref: str, preset_root: Path) -> Path:
+    def _resolve_children_path(self, children_ref: str, preset_root: Path) -> Path:
         """Resolve an external `children:` path string ("{{ paths.preset
         }}/...") to a filesystem path (the one Jinja variable knowable at load
         time, per loader.py).
@@ -1891,7 +1895,7 @@ class PresetLinter:
         rare ref without the variable is left relative to the cwd rather than
         doubled onto ``preset_root``.
         """
-        return Path(_CHILDREN_PATH_VAR_RE.sub(lambda _m: str(preset_root), children_ref))
+        return resolve_children_path(children_ref, preset_root, self.shared_path)
 
     def _iter_external_children_refs(self, node) -> List[str]:
         """Collect every `children:` value that is an external-file path string."""
@@ -2602,6 +2606,45 @@ class PresetLinter:
             for item in node:
                 refs.extend(self._extract_config_refs(item))
         return refs
+
+    def _lint_children_refs(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+        preset_root = preset_file.parent
+
+        for variant_name, form_dir in discover_form_variants(mode_dir):
+            loc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
+            try:
+                with open(form_dir / "form.yml", 'r', encoding='utf-8') as f:
+                    form_data = yaml.safe_load(f) or {}
+            except Exception:
+                continue
+
+            seen: set = set()
+            pending = [(ref, f"{loc}/form.yml") for ref in self._iter_external_children_refs(form_data)]
+            while pending:
+                ref, origin = pending.pop()
+                frag_path = self._resolve_children_path(ref, preset_root)
+                if "{{" in str(frag_path) or "{%" in str(frag_path):
+                    continue
+                if not frag_path.is_file():
+                    issues.append(
+                        LintIssue("error", preset_str, f"{origin}: children fragment not found: {ref} -> {frag_path}")
+                    )
+                    continue
+                if frag_path in seen:
+                    continue
+                seen.add(frag_path)
+                try:
+                    with open(frag_path, 'r', encoding='utf-8') as f:
+                        frag_data = yaml.safe_load(f) or {}
+                except Exception:
+                    continue
+                pending.extend(
+                    (nested, f"{loc} -> {frag_path.name}") for nested in self._iter_external_children_refs(frag_data)
+                )
+
+        return issues
 
     def _lint_option_file_refs(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
         """Check that `files/form/*.yml`-style option file references used in field

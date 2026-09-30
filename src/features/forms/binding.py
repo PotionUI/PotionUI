@@ -65,6 +65,7 @@ from src.features.fields.video import Video
 from src.features.fields.audio import Audio
 from src.features.fields.media import Media
 from src.features.fields.tags import Tags
+from src.features.presets.children_paths import DEFAULT_SHARED_PATH
 from src.features.presets.configuration import resolve_field_tag_categories
 from src.features.models.form_refs import is_model_ref
 from src.platform.templating import TemplateProcessor
@@ -98,7 +99,7 @@ def _expand_form_fields(fields: List[FieldTemplate], preset_template: PresetTemp
 
     template_processor = TemplateProcessor(settings=None)
     form_serializer = PresetFormSerializer(preset_loader=None, template_processor=template_processor)
-    context = {"paths": {"preset": preset_template.path}}
+    context = {"paths": {"preset": preset_template.path, "_shared": str(DEFAULT_SHARED_PATH)}}
     return form_serializer._resolve_external_children(fields, context)
 
 # Registered field-type names whose value is a plain string path (see

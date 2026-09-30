@@ -52,7 +52,8 @@ class PresetFormSerializer:
             # Create context for template processing
             context = {
                 'paths': {
-                    'preset': preset_template.path
+                    'preset': preset_template.path,
+                    '_shared': str(self.preset_loader.shared_path),
                 }
             }
             fields = self._resolve_external_children(fields, context)

@@ -270,13 +270,18 @@ class TestFooocus:
         result = run_reader("fooocus_config_txt", tmp_path)
         assert result.paths == {} and any("falls back" in w for w in result.warnings)
 
-    def test_windows_drive_path_uses_the_injected_mount(self, tmp_path):
-        mount_root = tmp_path / "mnt"
-        (mount_root / "d" / "Fooocus" / "checkpoints").mkdir(parents=True)
+    def test_windows_drive_path_uses_the_injected_mount_and_existence_check(self, tmp_path):
+        existing = {"/wsl/d/Fooocus/checkpoints"}
+        translator = PathTranslator(is_windows=False, mount_root="/wsl", is_dir=lambda p: p == "/wsl/d" or p in existing)
         _write(tmp_path / "config.txt", json.dumps({"path_checkpoints": "D:\\Fooocus\\checkpoints"}))
-        translator = PathTranslator(is_windows=False, mount_root=str(mount_root))
         result = run_reader("fooocus_config_txt", tmp_path, translator=translator)
-        assert [Path(p) for p in result.paths["checkpoint"]] == [mount_root / "d" / "Fooocus" / "checkpoints"]
+        assert result.paths == {"checkpoint": ["/wsl/d/Fooocus/checkpoints"]}
+
+    def test_windows_drive_path_that_does_not_exist_falls_back(self, tmp_path):
+        translator = PathTranslator(is_windows=False, mount_root="/wsl", is_dir=lambda p: p == "/wsl/d")
+        _write(tmp_path / "config.txt", json.dumps({"path_checkpoints": "D:\\Fooocus\\checkpoints"}))
+        result = run_reader("fooocus_config_txt", tmp_path, translator=translator)
+        assert result.paths == {} and any("falls back" in w for w in result.warnings)
 
 
 SWARM_FDS = "\n".join([

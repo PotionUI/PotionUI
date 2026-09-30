@@ -76,6 +76,6 @@ def read(ctx: ReaderContext, file: Optional[str], result: ReaderResult) -> None:
             for line in lines:
                 if not line.strip():
                     continue
-                resolved = ctx.resolve(line, Path(base_path) if base_path else yaml_dir, result)
+                resolved = ctx.resolve(line, base_path if base_path else yaml_dir, result)
                 if resolved:
                     ctx.add_entry(result, model_type, resolved, str(key), section_name, is_default)

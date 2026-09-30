@@ -50,7 +50,7 @@ class ReaderContext:
         self.root = root
         self.translator = translator or default_translator()
 
-    def resolve(self, raw: Any, base: Path, result: ReaderResult) -> Optional[str]:
+    def resolve(self, raw: Any, base: Union[str, Path], result: ReaderResult) -> Optional[str]:
         if not isinstance(raw, str) or not raw.strip():
             return None
         translated = self.translator.translate(raw)

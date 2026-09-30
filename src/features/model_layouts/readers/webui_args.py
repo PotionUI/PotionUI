@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Dict, List, Optional
 
 from src.features.model_layouts.readers.base import (
@@ -134,7 +133,7 @@ def read(ctx: ReaderContext, file: Optional[str], result: ReaderResult) -> None:
         text = read_bounded_text(path, result)
         if text is None:
             continue
-        bat = Path(name).suffix.lower() in (".bat", ".cmd")
+        bat = name.lower().endswith((".bat", ".cmd"))
         line = extract_commandline_args(text, bat)
         if line:
             args.update(parse_args(tokenize(line, posix=not bat)))
@@ -144,7 +143,7 @@ def read(ctx: ReaderContext, file: Optional[str], result: ReaderResult) -> None:
     data_dir = ctx.resolve(args.get("--data-dir"), ctx.install_dir, result)
     models_dir = ctx.resolve(args.get("--models-dir"), ctx.install_dir, result)
     if models_dir is None and data_dir:
-        models_dir = str(Path(data_dir) / "models")
+        models_dir = ctx.translator.flavor.join(data_dir, "models")
     if models_dir:
         ctx.set_primary(result, models_dir)
 
@@ -153,4 +152,4 @@ def read(ctx: ReaderContext, file: Optional[str], result: ReaderResult) -> None:
         if resolved:
             ctx.add_entry(result, model_type, resolved, arg)
     if data_dir and "--embeddings-dir" not in args:
-        ctx.add_entry(result, "embedding", str(Path(data_dir) / "embeddings"), "--data-dir")
+        ctx.add_entry(result, "embedding", ctx.translator.flavor.join(data_dir, "embeddings"), "--data-dir")

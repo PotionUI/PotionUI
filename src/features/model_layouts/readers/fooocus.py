@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import Optional
 
 from src.features.model_layouts.readers.base import (
@@ -39,7 +38,7 @@ def read(ctx: ReaderContext, file: Optional[str], result: ReaderResult) -> None:
             result.warnings.append(f"{key} must be a string or a list of strings")
             continue
         resolved = [ctx.resolve(item, ctx.install_dir, result) for item in values]
-        if any(item is None for item in resolved) or not all(os.path.isdir(item) for item in resolved):
+        if any(item is None for item in resolved) or not all(ctx.translator.is_dir(item) for item in resolved):
             result.warnings.append(
                 f"{key} points at a folder that does not exist; Fooocus falls back to its default folder"
             )

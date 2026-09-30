@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import List, Optional, Tuple
 
 from src.features.model_layouts.readers.base import (
@@ -84,6 +83,6 @@ def read(ctx: ReaderContext, file: Optional[str], result: ReaderResult) -> None:
         if not value:
             continue
         for part in value.split(";"):
-            resolved = ctx.resolve(part, Path(roots[0]), result)
+            resolved = ctx.resolve(part, roots[0], result)
             if resolved:
                 ctx.add_entry(result, model_type, resolved, key)

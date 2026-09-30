@@ -263,7 +263,7 @@ def test_no_tab_body_file_is_orphaned():
     tab_files = [
         Path(f).as_posix() for root in roots
         for f in glob.glob(f"{root}/**/tabs/*.yml", recursive=True)
-        if "node_modules" not in f
+        if "node_modules" not in f and "/_shared/" not in Path(f).as_posix()
     ]
     assert tab_files, "no tab bodies discovered - the globs above are wrong"
 

@@ -39,6 +39,7 @@ _MODELS_DIR_ALLOWLIST = (
     "src/platform/filesystem/model_roots.py",
     "src/platform/filesystem/model_roots_repository.py",
     "src/features/models/roots.py",
+    "src/features/model_layouts/readers/sdnext.py",
     "src/bootstrap/app.py",
     "src/bootstrap/container.py",
     "src/features/backup/paths.py",

@@ -5,6 +5,7 @@ import {
 	backendIndexBusy,
 	indexCompletion,
 	indexResultMessage,
+	indexResultWarnings,
 	isIndexModelsResult,
 	isNativeLocalBackend
 } from './backendIndexing';
@@ -79,5 +80,26 @@ describe('indexCompletion', () => {
 		expect(indexCompletion(status({ state: 'failed', error: 'boom' }))).toEqual({ kind: 'error', message: 'boom' });
 		expect(indexCompletion(status({ state: 'done', found_on_disk: 0 }))?.kind).toBe('error');
 		expect(indexCompletion(status({ state: 'scanning' }))).toBeNull();
+	});
+});
+
+describe('indexResultWarnings', () => {
+	it('counts every warning list including type mismatches', () => {
+		const mismatch = {
+			model_type: 'checkpoint',
+			filename: 'a.safetensors',
+			ref: 'checkpoints/a.safetensors',
+			existing_model_id: 'm1',
+			existing_model_type: 'diffusion_model',
+			existing_filename: 'a.safetensors',
+			backend_id: 'c'
+		};
+		expect(indexResultWarnings({ ...result, ambiguous: [], type_mismatches: [mismatch, mismatch] })).toBe(2);
+		expect(indexResultWarnings({ ...result, type_mismatches: [mismatch] })).toBe(2);
+	});
+
+	it('treats a result without type_mismatches as none', () => {
+		expect(indexResultWarnings(result)).toBe(1);
+		expect(indexResultMessage({ ...result, ambiguous: [] }, 'Rack')).not.toContain('warning');
 	});
 });

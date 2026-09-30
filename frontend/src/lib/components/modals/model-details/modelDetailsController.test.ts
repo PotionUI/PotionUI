@@ -1,5 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { get } from 'svelte/store';
+
+vi.mock('$lib/services/api/index', () => ({
+	api: {
+		getModelById: vi.fn(),
+		getModelAvailability: vi.fn(),
+		setModelType: vi.fn(),
+		resetModelType: vi.fn()
+	}
+}));
+
+import { api } from '$lib/services/api/index';
 import {
+	createAdminModelDetailsController,
 	resolveModelDetailsCapabilities,
 	toModelSummary,
 	toAdminModelDetails
@@ -128,5 +141,63 @@ describe('toAdminModelDetails', () => {
 		expect(admin.prompting_guidance).toBeNull();
 		expect(admin.is_directory).toBe(false);
 		expect(admin.providers).toEqual([]);
+	});
+});
+
+describe('saveType', () => {
+	async function loaded() {
+		vi.mocked(api.getModelById).mockResolvedValue({
+			success: true,
+			data: { model: { ...RAW_MODEL, model_type: 'undefined', type_info: { source: 'header' } } }
+		});
+		vi.mocked(api.getModelAvailability).mockResolvedValue({ success: false } as never);
+		const controller = createAdminModelDetailsController();
+		await controller.load('m1');
+		return controller;
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('set calls setModelType and updates model_type and type_info', async () => {
+		const controller = await loaded();
+		vi.mocked(api.setModelType).mockResolvedValue({
+			success: true,
+			data: { model: { model_type: 'diffusion_model', type_info: { source: 'admin' } } }
+		});
+		await controller.saveType({ kind: 'set', modelType: 'diffusion_model' });
+		expect(api.setModelType).toHaveBeenCalledWith('m1', 'diffusion_model');
+		const model = get(controller.model);
+		expect(model?.model_type).toBe('diffusion_model');
+		expect(model?.type_info?.source).toBe('admin');
+		expect(model?.description).toBe('desc');
+	});
+
+	it('reset calls resetModelType', async () => {
+		const controller = await loaded();
+		vi.mocked(api.resetModelType).mockResolvedValue({
+			success: true,
+			data: { model: { model_type: 'checkpoint', type_info: { source: 'folder' } } }
+		});
+		await controller.saveType({ kind: 'reset' });
+		expect(api.resetModelType).toHaveBeenCalledWith('m1');
+		expect(api.setModelType).not.toHaveBeenCalled();
+		expect(get(controller.model)?.model_type).toBe('checkpoint');
+	});
+
+	it('none makes no call', async () => {
+		const controller = await loaded();
+		await controller.saveType({ kind: 'none' });
+		expect(api.setModelType).not.toHaveBeenCalled();
+		expect(api.resetModelType).not.toHaveBeenCalled();
+		expect(get(controller.model)?.model_type).toBe('undefined');
+	});
+
+	it('throws and keeps the model when the response is not successful', async () => {
+		const controller = await loaded();
+		vi.mocked(api.setModelType).mockResolvedValue({ success: false } as never);
+		await expect(controller.saveType({ kind: 'set', modelType: 'lora' })).rejects.toThrow();
+		expect(get(controller.model)?.model_type).toBe('undefined');
 	});
 });

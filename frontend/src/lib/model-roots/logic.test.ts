@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { orderedRoots, bindingsSummary, mergeDetectionSuggestions } from './logic';
+import {
+	orderedRoots,
+	bindingsSummary,
+	mergeDetectionSuggestions,
+	bindingSupportsHeaderScan,
+	bindingScanKey
+} from './logic';
 import type { ModelRoot, ModelRootDetection } from '$lib/services/api/models';
 
 function root(overrides: Partial<ModelRoot> = {}): ModelRoot {
@@ -73,7 +79,8 @@ describe('bindingsSummary', () => {
 					is_write: true,
 					indexed_files: 3,
 					size_bytes: 1000,
-					unindexed: 0
+					unindexed: 0,
+					scan_headers: false
 				},
 				{
 					model_type: 'checkpoint',
@@ -85,7 +92,8 @@ describe('bindingsSummary', () => {
 					is_write: false,
 					indexed_files: 2,
 					size_bytes: 500,
-					unindexed: 0
+					unindexed: 0,
+					scan_headers: false
 				}
 			]
 		});
@@ -135,5 +143,27 @@ describe('mergeDetectionSuggestions', () => {
 		expect(
 			mergeDetectionSuggestions(detection({ layout: 'single', suggestions: [], single_type_guess: null }))
 		).toEqual([]);
+	});
+});
+
+describe('bindingSupportsHeaderScan', () => {
+	it('is true only for checkpoint, diffusion_model and unet bindings', () => {
+		for (const model_type of ['checkpoint', 'diffusion_model', 'unet']) {
+			expect(bindingSupportsHeaderScan({ model_type })).toBe(true);
+		}
+		for (const model_type of ['lora', 'vae', 'text_encoder', 'embedding', 'upscaler']) {
+			expect(bindingSupportsHeaderScan({ model_type })).toBe(false);
+		}
+	});
+});
+
+describe('bindingScanKey', () => {
+	it('separates bindings of one root by type and subdir', () => {
+		expect(bindingScanKey('r1', { model_type: 'checkpoint', subdir: 'Stable-diffusion' })).toBe(
+			'r1:checkpoint:Stable-diffusion'
+		);
+		expect(bindingScanKey('r1', { model_type: 'checkpoint', subdir: 'a' })).not.toBe(
+			bindingScanKey('r1', { model_type: 'checkpoint', subdir: 'b' })
+		);
 	});
 });

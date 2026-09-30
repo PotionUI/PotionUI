@@ -9,7 +9,7 @@
 	import { formatBytes, formatCount } from '$lib/utils/format';
 	import { moveItem } from '$lib/utils/reorder';
 	import { ModelRootsState } from './state.svelte';
-	import { orderedRoots, bindingsSummary } from './logic';
+	import { orderedRoots, bindingsSummary, bindingSupportsHeaderScan, bindingScanKey } from './logic';
 	import { ROOT_STATE_BADGE } from './format';
 	import { indexingStatusStore } from '$lib/models-location/indexingStatus.svelte';
 	import { indexingIsVisible } from '$lib/models-location/indexingDisplay';
@@ -30,6 +30,9 @@
 	let settingWrite = $state<string | null>(null);
 	let reorderingType = $state<string | null>(null);
 	let writeErrors = $state<Record<string, string>>({});
+	let togglingScan = $state<string | null>(null);
+	let scanErrors = $state<Record<string, string>>({});
+	let scanRevision = $state(0);
 
 	let addModalOpen = $state(false);
 	let addModalInitialPath = $state('');
@@ -91,6 +94,20 @@
 			toasts.error(roots.error ?? 'Failed to update the folder.');
 		} finally {
 			togglingReadOnly = null;
+		}
+	}
+
+	async function toggleHeaderScan(root: ModelRoot, binding: ModelRootBinding, enabled: boolean) {
+		const key = bindingScanKey(root.id, binding);
+		togglingScan = key;
+		scanErrors = { ...scanErrors, [key]: '' };
+		try {
+			await roots.setBindingScan(root.id, binding, enabled);
+		} catch {
+			scanErrors = { ...scanErrors, [key]: roots.error ?? 'Failed to change header detection.' };
+			scanRevision += 1;
+		} finally {
+			togglingScan = null;
 		}
 	}
 
@@ -313,6 +330,33 @@
 															{/if}
 														</div>
 														<span class="block truncate font-mono text-xs text-fg-subtle">{binding.path}</span>
+														{#if bindingSupportsHeaderScan(binding)}
+															{@const scanKey = bindingScanKey(root.id, binding)}
+															<div class="mt-2">
+																<Tooltip
+																	text="Reads the file header to tell full checkpoints from diffusion models. Pickle files keep the folder's type."
+																	position="top"
+																>
+																	<label for="binding-scan-{scanKey}" class="inline-flex items-center gap-2 text-xs text-fg-muted">
+																		{#key scanRevision}
+																			<Switch
+																				checked={binding.scan_headers}
+																				onchange={(next) => toggleHeaderScan(root, binding, next)}
+																				disabled={togglingScan === scanKey}
+																				busy={togglingScan === scanKey}
+																				size="sm"
+																				label="Detect type from file"
+																				id="binding-scan-{scanKey}"
+																			/>
+																		{/key}
+																		Detect type from file
+																	</label>
+																</Tooltip>
+																{#if scanErrors[scanKey]}
+																	<p class="mt-1 text-xs text-danger">{scanErrors[scanKey]}</p>
+																{/if}
+															</div>
+														{/if}
 													</div>
 													<span class="shrink-0 font-mono text-xs tabular-nums text-fg-muted">
 														{formatCount(binding.indexed_files)}

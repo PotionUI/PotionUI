@@ -62,6 +62,7 @@
 		backendIndexBusy,
 		indexCompletion,
 		indexResultMessage,
+		indexResultWarnings,
 		isIndexModelsResult,
 		isNativeLocalBackend
 	} from './backendIndexing';
@@ -921,11 +922,7 @@
 									{/if}
 									{#if indexResults[activeBackend.id] && !indexUnsupported[activeBackend.id]}
 										{@const result = indexResults[activeBackend.id]}
-										{@const warningCount =
-											result.size_conflicts.length +
-											result.digest_conflicts.length +
-											result.duplicates.length +
-											result.ambiguous.length}
+										{@const warningCount = indexResultWarnings(result)}
 										{@const hasDigestConflicts = result.digest_conflicts.length > 0}
 										<DetailSection label="Last index run">
 											<p class="text-xs font-mono tabular-nums text-fg-muted">
@@ -969,6 +966,16 @@
 																({dup.model_type}) has the same sha256 as
 																<span class="text-fg-muted">{dup.existing_filename}</span>
 																({dup.existing_model_type}, {dup.existing_location}) and was skipped. Remove one copy.
+															</li>
+														{/each}
+														{#each result.type_mismatches ?? [] as mismatch}
+															<li class="font-mono">
+																Type mismatch: <span class="text-fg-muted">{mismatch.ref}</span>
+																is listed under {mismatch.model_type}, but PotionUI classified it as
+																{mismatch.existing_model_type}
+																(<span class="text-fg-muted">{mismatch.existing_filename}</span>) and did not
+																index it twice. Change the model's type in Admin → Models if the
+																classification is wrong.
 															</li>
 														{/each}
 														{#each result.ambiguous as note}

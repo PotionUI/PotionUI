@@ -9,6 +9,7 @@ vi.mock('$lib/services/api', () => ({
 		deleteModelRoot: vi.fn(),
 		reorderModelRoots: vi.fn(),
 		setModelRootWrite: vi.fn(),
+		setModelRootBindingScan: vi.fn(),
 		probeModelRoot: vi.fn()
 	}
 }));
@@ -137,6 +138,43 @@ describe('ModelRootsState', () => {
 		const state = new ModelRootsState();
 		await expect(state.setWrite('lib1', 'lora')).rejects.toBeTruthy();
 		expect(state.error).toBe('Permission denied');
+	});
+
+	it('setBindingScan() sends the binding identity and refreshes', async () => {
+		vi.mocked(api.setModelRootBindingScan).mockResolvedValue({ success: true, data: makeRoot({ id: 'lib1' }) });
+		vi.mocked(api.getModelRoots).mockResolvedValue({ success: true, data: overview() });
+
+		const state = new ModelRootsState();
+		await state.setBindingScan('lib1', { model_type: 'checkpoint', subdir: 'Stable-diffusion' }, true);
+
+		expect(api.setModelRootBindingScan).toHaveBeenCalledWith('lib1', {
+			model_type: 'checkpoint',
+			subdir: 'Stable-diffusion',
+			scan_headers: true
+		});
+		expect(api.getModelRoots).toHaveBeenCalled();
+	});
+
+	it('setBindingScan() returns null and records the message on an unsuccessful response', async () => {
+		vi.mocked(api.setModelRootBindingScan).mockResolvedValue({ success: false, message: 'x' });
+
+		const state = new ModelRootsState();
+		const result = await state.setBindingScan('lib1', { model_type: 'checkpoint', subdir: 'a' }, true);
+
+		expect(result).toBeNull();
+		expect(state.error).toBe('x');
+	});
+
+	it('setBindingScan() rethrows and records the server message', async () => {
+		vi.mocked(api.setModelRootBindingScan).mockRejectedValue({
+			response: { data: { detail: { error: 'model_roots_invalid_binding', message: 'Not supported' } } }
+		});
+
+		const state = new ModelRootsState();
+		await expect(
+			state.setBindingScan('lib1', { model_type: 'lora', subdir: 'loras' }, true)
+		).rejects.toBeTruthy();
+		expect(state.error).toBe('Not supported');
 	});
 });
 

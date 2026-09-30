@@ -435,6 +435,9 @@
 						</button>
 					{/each}
 				</div>
+				{#if destinationType === 'checkpoint' || destinationType === 'diffusion_model'}
+					<p class="mt-1.5 text-xs text-fg-subtle">The model type is read from the file after download.</p>
+				{/if}
 			</div>
 
 			<div>

@@ -3,7 +3,18 @@
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import { formatBytes } from '$lib/utils/format';
-	import { Badge, IconButton, Spinner } from '$lib/components/ui';
+	import { Badge, Button, IconButton, Spinner } from '$lib/components/ui';
+	import { MODEL_TYPE_UNDEFINED, modelTypePresentation } from '$lib/utils/modelPresentation';
+	import ModelTypeBadge from '$lib/components/ModelTypeBadge.svelte';
+	import { modelRootsErrorMessage } from '$lib/model-roots/errors';
+	import {
+		AUTOMATIC_TYPE,
+		typeChangeFromDraft,
+		typeOptions,
+		typePackagingLine,
+		typeSourceIsAssertion,
+		typeSourceLine
+	} from '$lib/utils/modelTypeControl';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailSection, DetailField, DetailFooter } from '$lib/components/detail';
 	import ModelMediaViewer from '$lib/components/modals/model-details/ModelMediaViewer.svelte';
@@ -29,12 +40,14 @@
 		modelId,
 		onBack,
 		onDeleted,
-		onAssignChanged
+		onAssignChanged,
+		onTypeChanged
 	}: {
 		modelId: string;
 		onBack: () => void;
 		onDeleted: () => void;
 		onAssignChanged: (change: { userCount: number; groupCount: number }) => void;
+		onTypeChanged?: () => void;
 	} = $props();
 
 	let activeTab = $state<DetailTab>('overview');
@@ -72,16 +85,44 @@
 		}
 	});
 
-	const overviewDirty = $derived(overviewDraftIsDirty(overviewDraft, overviewSnapshot));
+	let typeDraft = $state('');
+	let typeError = $state<string | null>(null);
+
+	const currentType = $derived($model?.model_type ?? '');
+	const currentModelId = $derived($model?.id ?? '');
+
+	$effect(() => {
+		void currentModelId;
+		typeDraft = currentType;
+		typeError = null;
+	});
+
+	const typeChange = $derived(typeChangeFromDraft(typeDraft, currentType));
+	const typeIsAssertion = $derived(typeSourceIsAssertion($model?.type_info));
+	const typeLocked = $derived(!$model?.sha256 || !!$model?.is_directory);
+	const typeSelectOptions = $derived(typeOptions(currentType));
+	const overviewDirty = $derived(overviewDraftIsDirty(overviewDraft, overviewSnapshot) || typeChange.kind !== 'none');
 
 	function discardOverview() {
 		overviewDraft = { ...overviewSnapshot };
+		typeDraft = currentType;
+		typeError = null;
 	}
 
 	async function saveOverview() {
 		if (!$model) return;
 		overviewSaving = true;
 		try {
+			if (typeChange.kind !== 'none') {
+				typeError = null;
+				try {
+					await controller.saveType(typeChange);
+				} catch (error) {
+					typeError = modelRootsErrorMessage(error, 'The model type could not be saved.');
+					return;
+				}
+				onTypeChanged?.();
+			}
 			if (overviewDraft.description !== overviewSnapshot.description) {
 				await controller.saveDescription(overviewDraft.description);
 			}
@@ -152,6 +193,17 @@
 	];
 </script>
 
+{#snippet typeSelect()}
+	<select id="model-type" class="input w-full text-sm" bind:value={typeDraft} disabled={typeLocked || overviewSaving}>
+		{#if typeDraft === AUTOMATIC_TYPE}
+			<option value={AUTOMATIC_TYPE}>Automatic</option>
+		{/if}
+		{#each typeSelectOptions as option (option.value)}
+			<option value={option.value} disabled={option.disabled}>{option.label}</option>
+		{/each}
+	</select>
+{/snippet}
+
 <div class="flex h-full flex-col">
 	{#if $loading || !$model}
 		<DetailHeader title="Loading…" icon={adminSectionIcon('models')} backLabel="Models" {onBack} />
@@ -159,7 +211,7 @@
 	{:else}
 		<DetailHeader title={$displayName} icon={adminSectionIcon('models')} backLabel="Models" {onBack}>
 			{#snippet chips()}
-				<Badge size="sm" variant="neutral" class="uppercase">{$model.model_type}</Badge>
+				<ModelTypeBadge modelType={$model.model_type} />
 				{#if $model.model_metadata?.base_model}
 					<Badge size="sm" variant="signal">{String($model.model_metadata.base_model)}</Badge>
 				{/if}
@@ -254,8 +306,47 @@
 								/>
 							</div>
 						</DetailSection>
+						<DetailSection label="Model type">
+							<div class="space-y-3">
+								<DetailField label="Type" id="model-type" error={typeError} wide>
+									{#if typeLocked}
+										<Tooltip
+											text="This model has no content hash yet, so its type cannot be set"
+											position="top"
+											wrapperClass="flex w-full"
+										>
+											{@render typeSelect()}
+										</Tooltip>
+									{:else}
+										{@render typeSelect()}
+									{/if}
+								</DetailField>
+								{#if $model.type_info || currentType === MODEL_TYPE_UNDEFINED}
+									<p class="text-sm text-fg-muted">{typeSourceLine($model.type_info, currentType)}</p>
+									{#if typePackagingLine($model.type_info)}
+										<p class="text-sm text-fg-subtle">{typePackagingLine($model.type_info)}</p>
+									{/if}
+								{/if}
+								{#if typeIsAssertion && !typeLocked}
+									<Button
+										variant="secondary"
+										size="sm"
+										icon="refresh"
+										disabled={overviewSaving || typeDraft === AUTOMATIC_TYPE}
+										onclick={() => (typeDraft = AUTOMATIC_TYPE)}
+									>
+										Reset to automatic
+									</Button>
+								{/if}
+							</div>
+						</DetailSection>
 						<DetailSection label="Information">
-							<ModelInfoCard bare modelId={$model.id} modelType={$model.model_type} createdAt={$model.created_at} />
+							<ModelInfoCard
+								bare
+								modelId={$model.id}
+								modelType={$model.model_type === MODEL_TYPE_UNDEFINED ? modelTypePresentation($model.model_type).label : $model.model_type}
+								createdAt={$model.created_at}
+							/>
 						</DetailSection>
 						<DetailSection label="Files">
 							<ModelFilesCard bare files={$model.files || []} />

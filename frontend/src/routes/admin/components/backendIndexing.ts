@@ -28,7 +28,8 @@ export function indexResultWarnings(result: IndexModelsResult): number {
 		result.size_conflicts.length +
 		result.digest_conflicts.length +
 		result.duplicates.length +
-		result.ambiguous.length
+		result.ambiguous.length +
+		(result.type_mismatches?.length ?? 0)
 	);
 }
 

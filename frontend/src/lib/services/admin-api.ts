@@ -939,6 +939,16 @@ export interface ModelDuplicateContent {
 	existing_location: string;
 }
 
+export interface ModelTypeMismatch {
+	model_type: string;
+	filename: string;
+	ref: string;
+	existing_model_id: string;
+	existing_model_type: string;
+	existing_filename: string;
+	backend_id: string;
+}
+
 export interface IndexModelsResult {
 	backend_id: string;
 	listed: number;
@@ -949,6 +959,7 @@ export interface IndexModelsResult {
 	digest_conflicts: ModelDigestConflict[];
 	duplicates: ModelDuplicateContent[];
 	ambiguous: string[];
+	type_mismatches?: ModelTypeMismatch[];
 }
 
 // Index the models a backend can see (walk disk for native, query the server for ComfyUI, etc.)

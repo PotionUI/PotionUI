@@ -42,6 +42,7 @@
 	import BulkTagModal from './models/BulkTagModal.svelte';
 	import { DetailHeader, DetailBody, DetailLayout } from '$lib/components/detail';
 	import ModelRootsPanel from '$lib/model-roots/ModelRootsPanel.svelte';
+	import ModelTypeBadge from '$lib/components/ModelTypeBadge.svelte';
 	import {
 		MODEL_LIBRARY_SECTIONS,
 		MODELS_ALL_SECTION,
@@ -175,7 +176,7 @@
 	const isFoldersSection = $derived(section === MODELS_FOLDERS_SECTION);
 	const detailOpen = $derived(!!viewId || isFoldersSection);
 
-	const typeRows = $derived(modelTypeRows(modelTypes));
+	const typeRows = $derived(modelTypeRows(modelTypes, section));
 	const selectedTypeLabel = $derived(
 		!isAttributesSection ? (typeRows.find((row) => row.type === section)?.label ?? undefined) : undefined
 	);
@@ -248,8 +249,14 @@
 		void goto(buildUrl({ id }));
 	}
 
+	let typeChangedInDetail = false;
+
 	function backToList() {
 		void goto(buildUrl({ id: null }));
+		if (typeChangedInDetail) {
+			typeChangedInDetail = false;
+			void Promise.all([loadModels(), loadModelTypes()]);
+		}
 	}
 
 	onMount(() => {
@@ -675,7 +682,7 @@
 {/snippet}
 
 {#snippet typeCell(model: ModelListItem)}
-	<Badge variant="neutral" size="sm" class="uppercase">{model.model_type as string}</Badge>
+	<ModelTypeBadge modelType={model.model_type as string} />
 {/snippet}
 
 {#snippet availabilityCell(model: ModelListItem)}
@@ -705,7 +712,7 @@
 {#snippet modelCard(model: ModelListItem)}
 	<div class="truncate text-sm font-semibold text-fg">{modelDisplayName(model)}</div>
 	<div class="mt-1 flex items-center gap-2">
-		<Badge variant="neutral" size="sm" class="uppercase">{model.model_type as string}</Badge>
+		<ModelTypeBadge modelType={model.model_type as string} />
 		<span class="font-mono text-2xs text-fg-subtle">{model.file_size ? formatBytes(model.file_size as number) : ''}</span>
 	</div>
 {/snippet}
@@ -735,11 +742,17 @@
 					{#each typeRows as row (row.type)}
 						<PaneRow
 							title={row.label}
-							count={row.count}
+							count={row.attention ? undefined : row.count}
 							inactive={row.count === 0 && section !== row.type}
 							selected={section === row.type}
 							onclick={() => selectSection(section === row.type ? MODELS_ALL_SECTION : row.type)}
-						/>
+						>
+							{#snippet trailing()}
+								{#if row.attention}
+									<Badge variant="warning" size="sm" class="ml-2 font-mono tabular-nums">{row.count}</Badge>
+								{/if}
+							{/snippet}
+						</PaneRow>
 					{/each}
 				</div>
 			</div>
@@ -1022,6 +1035,7 @@
 				onBack={backToList}
 				onDeleted={handleModelDeleted}
 				onAssignChanged={(change) => handleModelAssignChanged(selectedModel.id, change)}
+				onTypeChanged={() => (typeChangedInDetail = true)}
 			/>
 		{/if}
 	{:else if isAttributesSection}

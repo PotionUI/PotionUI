@@ -3,6 +3,7 @@ import { api } from '$lib/services/api';
 import type {
 	CreateModelRootPayload,
 	ModelRoot,
+	ModelRootBinding,
 	ModelRootDetection,
 	ModelRootsOverview,
 	UpdateModelRootPayload
@@ -89,6 +90,30 @@ export class ModelRootsState {
 			throw e;
 		} finally {
 			this.mutating = false;
+		}
+	}
+
+	async setBindingScan(
+		rootId: string,
+		binding: Pick<ModelRootBinding, 'model_type' | 'subdir'>,
+		scanHeaders: boolean
+	): Promise<ModelRoot | null> {
+		try {
+			const response = await api.setModelRootBindingScan(rootId, {
+				model_type: binding.model_type,
+				subdir: binding.subdir,
+				scan_headers: scanHeaders
+			});
+			if (response.success && response.data) {
+				await this.refresh();
+				return response.data;
+			}
+			this.error = response.message ?? 'Failed to change header detection.';
+			return null;
+		} catch (e) {
+			logger.error('Failed to change binding header detection:', e);
+			this.error = modelRootsErrorMessage(e, 'Failed to change header detection.');
+			throw e;
 		}
 	}
 

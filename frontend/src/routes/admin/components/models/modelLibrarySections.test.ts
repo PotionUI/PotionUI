@@ -37,6 +37,36 @@ describe('modelTypeRows', () => {
 	});
 });
 
+describe('modelTypeRows needs a type', () => {
+	const types = [
+		{ type: 'checkpoint', count: 5 },
+		{ type: 'undefined', count: 3 },
+		{ type: 'lora', count: 2 }
+	];
+
+	it('puts the row first with the friendly label and an attention flag', () => {
+		const rows = modelTypeRows(types);
+		expect(rows.map((r) => r.type)).toEqual(['undefined', 'checkpoint', 'lora']);
+		expect(rows[0].label).toBe('Needs a type');
+		expect(rows[0].attention).toBe(true);
+		expect(rows[1].attention).toBe(false);
+	});
+
+	it('hides the row when nothing needs a type', () => {
+		const rows = modelTypeRows([{ type: 'undefined', count: 0 }, { type: 'lora', count: 2 }]);
+		expect(rows.map((r) => r.type)).toEqual(['lora']);
+	});
+
+	it('keeps an empty row while it is the selected filter', () => {
+		const rows = modelTypeRows([{ type: 'undefined', count: 0 }, { type: 'lora', count: 2 }], 'undefined');
+		expect(rows.map((r) => r.type)).toEqual(['undefined', 'lora']);
+	});
+
+	it('counts the row in All models', () => {
+		expect(modelLibrarySectionCounts(types, 0).all).toBe(10);
+	});
+});
+
 describe('modelLibraryShellSection', () => {
 	it('keeps All models highlighted while a type narrows the list', () => {
 		expect(modelLibraryShellSection('lora')).toBe(MODELS_ALL_SECTION);

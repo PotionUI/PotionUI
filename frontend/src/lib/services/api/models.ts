@@ -109,6 +109,7 @@ export type ModelRootState = 'online' | 'offline' | 'unreadable';
 
 export interface ModelRootBinding {
 	model_type: string;
+	scan_headers: boolean;
 	folder: string;
 	subdir: string;
 	path: string;
@@ -184,6 +185,13 @@ export interface ModelRootDetection {
 export interface ModelRootBindingInput {
 	model_type: string;
 	subdir: string;
+	scan_headers?: boolean;
+}
+
+export interface ModelRootBindingScanPayload {
+	model_type: string;
+	subdir: string;
+	scan_headers: boolean;
 }
 
 export interface CreateModelRootPayload {
@@ -397,6 +405,16 @@ export function createModelsApi(client: AxiosInstance) {
 
 		async updateModelDescription(modelId: string, description: string): Promise<APIResponse> {
 			const response = await client.put(`/api/models/${modelId}/description`, { description });
+			return response.data;
+		},
+
+		async setModelType(modelId: string, modelType: string): Promise<APIResponse<{ model: any }>> {
+			const response = await client.put(`/api/models/${modelId}/type`, { model_type: modelType });
+			return response.data;
+		},
+
+		async resetModelType(modelId: string): Promise<APIResponse<{ model: any }>> {
+			const response = await client.delete(`/api/models/${modelId}/type`);
 			return response.data;
 		},
 
@@ -623,6 +641,14 @@ export function createModelsApi(client: AxiosInstance) {
 
 		async updateModelRoot(rootId: string, payload: UpdateModelRootPayload): Promise<APIResponse<ModelRoot>> {
 			const response = await client.patch(`/api/models/roots/${rootId}`, payload);
+			return response.data;
+		},
+
+		async setModelRootBindingScan(
+			rootId: string,
+			payload: ModelRootBindingScanPayload
+		): Promise<APIResponse<ModelRoot>> {
+			const response = await client.patch(`/api/models/roots/${rootId}/bindings`, payload);
 			return response.data;
 		},
 

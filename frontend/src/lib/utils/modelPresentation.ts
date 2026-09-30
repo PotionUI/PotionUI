@@ -1,3 +1,5 @@
+export const MODEL_TYPE_UNDEFINED = 'undefined';
+
 export interface ModelTypePresentation {
 	label: string;
 	purpose: string;
@@ -13,7 +15,8 @@ const MODEL_TYPES: Record<string, ModelTypePresentation> = {
 	controlnet: { label: 'ControlNet', purpose: 'Structure and composition guidance' },
 	adetailer: { label: 'Detailer', purpose: 'Automatic detail refinement' },
 	text_encoder: { label: 'Text encoder', purpose: 'Converts prompts into guidance' },
-	refmod: { label: 'RefMod', purpose: 'Pre-encoded reference latents' }
+	refmod: { label: 'RefMod', purpose: 'Pre-encoded reference latents' },
+	[MODEL_TYPE_UNDEFINED]: { label: 'Needs a type', purpose: 'Type not recognised from the file' }
 };
 
 export function modelTypePresentation(modelType?: string | null): ModelTypePresentation {

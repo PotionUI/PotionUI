@@ -9,6 +9,7 @@ import {
 	type ModelPreviewMedia,
 	type ModelPreviewMediaItem
 } from '$lib/utils/modelPreview';
+import type { ModelTypeChange, ModelTypeInfo } from '$lib/utils/modelTypeControl';
 import type { ModelAvailabilityResponse, ModelLocation, ProviderInfo } from '$lib/types/models';
 
 export type ModelDetailsScope = 'library' | 'admin';
@@ -92,6 +93,7 @@ export interface AdminModelDetails extends ModelSummary {
 	prompting_guidance: string | null;
 	is_directory: boolean;
 	providers: ProviderInfo[];
+	type_info: ModelTypeInfo | null;
 }
 
 /**
@@ -132,7 +134,8 @@ export function toAdminModelDetails(raw: any): AdminModelDetails {
 		updated_at: raw.updated_at ?? null,
 		prompting_guidance: raw.prompting_guidance ?? null,
 		is_directory: !!raw.is_directory,
-		providers: raw.providers ?? []
+		providers: raw.providers ?? [],
+		type_info: raw.type_info ?? null
 	};
 }
 
@@ -334,6 +337,7 @@ export interface AdminModelDetailsController {
 	rename(name: string): Promise<void>;
 	saveDescription(value: string): Promise<void>;
 	savePromptingGuidance(value: string): Promise<void>;
+	saveType(change: ModelTypeChange): Promise<void>;
 	updateTags(tagIds: string[]): Promise<void>;
 	handlePrimaryPreviewChange(preview: ModelPreviewMedia | null): void;
 }
@@ -463,6 +467,18 @@ export function createAdminModelDetailsController(): AdminModelDetailsController
 		}
 	}
 
+	async function saveType(change: ModelTypeChange) {
+		const current = get(model);
+		if (!current?.id || change.kind === 'none') return;
+		const response =
+			change.kind === 'set'
+				? await api.setModelType(current.id, change.modelType)
+				: await api.resetModelType(current.id);
+		const raw = response.success ? response.data?.model : null;
+		if (!raw) throw new Error('The model type could not be saved.');
+		model.update((m) => (m ? { ...m, model_type: raw.model_type, type_info: raw.type_info ?? null } : m));
+	}
+
 	async function updateTags(tagIds: string[]) {
 		const current = get(model);
 		if (!current?.id) return;
@@ -503,6 +519,7 @@ export function createAdminModelDetailsController(): AdminModelDetailsController
 		rename,
 		saveDescription,
 		savePromptingGuidance,
+		saveType,
 		updateTags,
 		handlePrimaryPreviewChange
 	};

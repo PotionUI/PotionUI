@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from src.features.model_layouts.detection import UnknownLayoutError, detect_layout
 from src.features.model_layouts.schema import GENERIC_LAYOUT_ID
+from src.features.models.root_browse import BrowseError, browse_subfolders
 from src.features.models.roots import BindingRef, BindingSpec, ModelRootsError, ModelRootsManager
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.current_user import get_current_admin_user
@@ -120,6 +121,13 @@ class ModelRootsController(BaseController):
             self.error_response(error=error.code, message=str(error), status_code=400)
         return self.success_response(data=result)
 
+    async def browse(self, path: str, sub: Optional[str]) -> APIResponse:
+        try:
+            result = await asyncio.to_thread(browse_subfolders, path, sub)
+        except BrowseError as error:
+            self.error_response(error=error.code, message=error.reason, status_code=error.status)
+        return self.success_response(data=result)
+
     async def create_root(self, request: CreateRootRequest) -> APIResponse:
         if request.profile and request.profile != GENERIC_LAYOUT_ID:
             if self.layout_catalog is None or self.layout_catalog.get_layout(request.profile) is None:
@@ -216,6 +224,14 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.post("/detect", response_model=APIResponse, summary="Detect Model Root Layout")
     async def detect_root(request: DetectRootRequest, current_user: User = Depends(get_current_admin_user)):
         return await controller.detect(request)
+
+    @router.get("/browse", response_model=APIResponse, summary="Browse Subfolders Of A Model Folder")
+    async def browse_root(
+        path: str,
+        sub: Optional[str] = None,
+        current_user: User = Depends(get_current_admin_user),
+    ):
+        return await controller.browse(path, sub)
 
     @router.put("/order", response_model=APIResponse, summary="Reorder Model Roots")
     async def reorder_roots(

@@ -15,15 +15,19 @@
 		buildBindings,
 		detectedLabel,
 		groupSuggestionsByType,
-		initialTicks,
 		initialWriteChoices,
+		isManualSuggestion,
 		layoutOptions,
+		manualSuggestion,
 		mergeDetectionSuggestions,
+		mergeTicks,
 		pendingExtraPaths,
 		suggestionKey,
-		typesWithChoice
+		typesWithChoice,
+		withManualSuggestions
 	} from './logic';
 	import { modelRootsErrorMessage } from './errors';
+	import SubfolderPicker from './SubfolderPicker.svelte';
 	import { modelTypePresentation } from '$lib/utils/modelPresentation';
 
 	let {
@@ -65,8 +69,13 @@
 	let createdRoot = $state<ModelRoot | null>(null);
 	let catalog = $state<ModelLayoutSummary[]>([]);
 	let delegatedApps = $state<ModelRootDelegatedApp[]>([]);
+	let manual = $state<ModelRootDetectionSuggestion[]>([]);
 
-	const suggestions = $derived<ModelRootDetectionSuggestion[]>(mergeDetectionSuggestions(detection));
+	const suggestions = $derived<ModelRootDetectionSuggestion[]>(
+		withManualSuggestions(mergeDetectionSuggestions(detection), manual)
+	);
+	const pickedFolders = $derived(suggestions.filter((s) => ticked[suggestionKey(s)]));
+	const browseRoot = $derived(detection ? (detection.root_path ?? detection.path) : '');
 	const groups = $derived(groupSuggestionsByType(suggestions));
 	const tickedCount = $derived(suggestions.filter((s) => ticked[suggestionKey(s)]).length);
 	const choiceTypes = $derived(typesWithChoice(suggestions, ticked));
@@ -89,10 +98,18 @@
 			(!!createdRoot ? pendingExtras.length > 0 : suggestions.length === 0 || tickedCount > 0)
 	);
 
-	$effect(() => {
-		ticked = initialTicks(suggestions);
-		writeChoices = initialWriteChoices(suggestions);
-	});
+	function syncSelections() {
+		const next = suggestions;
+		ticked = mergeTicks(ticked, next);
+		const fresh = initialWriteChoices(next);
+		const kept: Record<string, string> = {};
+		for (const [type, subdir] of Object.entries(fresh)) {
+			kept[type] = next.some((s) => s.model_type === type && s.subdir === writeChoices[type])
+				? writeChoices[type]
+				: subdir;
+		}
+		writeChoices = kept;
+	}
 
 	$effect(() => {
 		const next: Record<string, boolean> = {};
@@ -128,8 +145,10 @@
 		createError = null;
 		createdRoot = null;
 		detection = null;
+		manual = [];
 		const result = await detectModelRoot(path.trim(), profileId);
 		detection = result.detection;
+		syncSelections();
 		detectError = result.error;
 		if (result.detection?.delegated?.length) {
 			delegatedApps = result.detection.delegated;
@@ -137,6 +156,13 @@
 			delegatedApps = [];
 		}
 		detecting = false;
+	}
+
+	function addManualFolder(folder: { model_type: string; subdir: string }): string | null {
+		const suggestion = manualSuggestion(folder.model_type, folder.subdir);
+		manual = [...manual, suggestion];
+		syncSelections();
+		return null;
 	}
 
 	function useInstallFolder(installPath: string) {
@@ -361,9 +387,13 @@
 												Downloads go here
 											</label>
 										{/if}
-										<span class="shrink-0 font-mono text-xs tabular-nums text-fg-muted">
-											{suggestion.file_count}{suggestion.file_count_truncated ? '+' : ''} file{suggestion.file_count === 1 ? '' : 's'}
-										</span>
+										{#if isManualSuggestion(suggestion)}
+											<Badge variant="neutral" size="sm">Added by you</Badge>
+										{:else}
+											<span class="shrink-0 font-mono text-xs tabular-nums text-fg-muted">
+												{suggestion.file_count}{suggestion.file_count_truncated ? '+' : ''} file{suggestion.file_count === 1 ? '' : 's'}
+											</span>
+										{/if}
 									</li>
 								{/each}
 							</ul>
@@ -375,6 +405,17 @@
 					<Switch bind:checked={writeHere} label="Download new models here" id="root-write-here" />
 					<label for="root-write-here" class="text-sm text-fg cursor-pointer">Download new models here</label>
 				</div>
+			{/if}
+
+			{#if !locked}
+				<SubfolderPicker
+					idPrefix="detect-manual"
+					rootPath={browseRoot}
+					existing={pickedFolders}
+					caseInsensitive={detection.case_insensitive}
+					disabled={submitting}
+					onAdd={addManualFolder}
+				/>
 			{/if}
 
 			{#if extras.length > 0}

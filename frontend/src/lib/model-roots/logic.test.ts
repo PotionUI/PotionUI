@@ -396,3 +396,165 @@ describe('detectAgainApplies', () => {
 		expect(detectAgainApplies({ path: '/srv/a' }, { path: '/srv/a' })).toBe(true);
 	});
 });
+
+import {
+	breadcrumbs,
+	checkFolderAgainstExisting,
+	isManualSuggestion,
+	manualSuggestion,
+	mergeTicks,
+	normalizeSubdirInput,
+	subdirLabel,
+	validateManualFolder,
+	withManualSuggestions
+} from './logic';
+
+describe('normalizeSubdirInput', () => {
+	it('treats blank, dot and ./ as the folder itself', () => {
+		for (const value of ['', '   ', '.', './']) {
+			expect(normalizeSubdirInput(value)).toEqual({ ok: true, subdir: '' });
+		}
+	});
+
+	it('cleans separators, dots and edge slashes', () => {
+		expect(normalizeSubdirInput(' models\\loras\\ ')).toEqual({ ok: true, subdir: 'models/loras' });
+		expect(normalizeSubdirInput('./models//loras/')).toEqual({ ok: true, subdir: 'models/loras' });
+		expect(normalizeSubdirInput('a/./b')).toEqual({ ok: true, subdir: 'a/b' });
+	});
+
+	it('refuses full paths and drive letters', () => {
+		for (const value of ['/srv/models', '\\srv\\models', 'C:\\models', 'd:models']) {
+			expect(normalizeSubdirInput(value).ok).toBe(false);
+		}
+	});
+
+	it('refuses paths that climb out', () => {
+		expect(normalizeSubdirInput('..').ok).toBe(false);
+		expect(normalizeSubdirInput('a/../b').ok).toBe(false);
+		expect(normalizeSubdirInput('a/..').ok).toBe(false);
+	});
+
+	it('refuses control characters', () => {
+		expect(normalizeSubdirInput('a\u0007b').ok).toBe(false);
+	});
+
+	it('keeps names that merely contain dots', () => {
+		expect(normalizeSubdirInput('..hidden/v1.5')).toEqual({ ok: true, subdir: '..hidden/v1.5' });
+	});
+});
+
+describe('checkFolderAgainstExisting', () => {
+	const existing = [
+		{ model_type: 'lora', subdir: 'models/loras' },
+		{ model_type: 'vae', subdir: 'models/vae' }
+	];
+
+	it('accepts a sibling folder', () => {
+		expect(checkFolderAgainstExisting('models/LyCORIS', 'lora', existing, false)).toBeNull();
+	});
+
+	it('names an exact repeat for the same type', () => {
+		expect(checkFolderAgainstExisting('models/loras', 'lora', existing, false)).toMatch(/already added/);
+	});
+
+	it('refuses the same folder for another type as an overlap', () => {
+		expect(checkFolderAgainstExisting('models/loras', 'vae', existing, false)).toMatch(/overlaps models\/loras/);
+	});
+
+	it('refuses folders inside and around an added folder', () => {
+		expect(checkFolderAgainstExisting('models/loras/sub', 'lora', existing, false)).toMatch(/overlaps/);
+		expect(checkFolderAgainstExisting('models', 'checkpoint', existing, false)).toMatch(/overlaps/);
+	});
+
+	it('does not confuse names that only share a prefix', () => {
+		expect(checkFolderAgainstExisting('models/loras2', 'lora', existing, false)).toBeNull();
+	});
+
+	it('refuses the folder itself when anything is added, and anything when it is added', () => {
+		expect(checkFolderAgainstExisting('', 'lora', existing, false)).toMatch(/overlaps/);
+		expect(checkFolderAgainstExisting('anything', 'lora', [{ model_type: 'lora', subdir: '' }], false)).toMatch(
+			/overlaps the folder itself/
+		);
+	});
+
+	it('honours case only when the root is case-sensitive', () => {
+		expect(checkFolderAgainstExisting('Models/Loras', 'lora', existing, false)).toBeNull();
+		expect(checkFolderAgainstExisting('Models/Loras', 'lora', existing, true)).toMatch(/already added/);
+	});
+
+	it('accepts anything when nothing exists', () => {
+		expect(checkFolderAgainstExisting('x', 'lora', [], false)).toBeNull();
+		expect(checkFolderAgainstExisting('', 'lora', [], false)).toBeNull();
+	});
+});
+
+describe('validateManualFolder', () => {
+	it('needs a type', () => {
+		expect(validateManualFolder('x', '', [], false)).toEqual({ ok: false, error: 'Choose a type first.' });
+	});
+
+	it('returns the normalised subdir when valid', () => {
+		expect(validateManualFolder('models\\extra', 'lora', [], false)).toEqual({ ok: true, subdir: 'models/extra' });
+	});
+
+	it('reports a bad path before an overlap', () => {
+		const result = validateManualFolder('../x', 'lora', [{ model_type: 'lora', subdir: 'x' }], false);
+		expect(result).toEqual({ ok: false, error: 'A path cannot go up with "..".' });
+	});
+
+	it('reports overlaps with existing folders', () => {
+		const result = validateManualFolder('a/b', 'lora', [{ model_type: 'vae', subdir: 'a' }], false);
+		expect(result.ok).toBe(false);
+	});
+});
+
+describe('manual suggestions', () => {
+	it('builds a manual suggestion labelled by its last segment', () => {
+		const suggestion = manualSuggestion('lora', 'models/extra');
+		expect(suggestion).toMatchObject({
+			model_type: 'lora',
+			subdir: 'models/extra',
+			label: 'extra',
+			source: 'manual',
+			matched_by: 'manual',
+			write: false
+		});
+		expect(isManualSuggestion(suggestion)).toBe(true);
+		expect(isManualSuggestion({ source: 'profile' })).toBe(false);
+		expect(isManualSuggestion({})).toBe(false);
+	});
+
+	it('labels the folder itself with an empty label', () => {
+		expect(manualSuggestion('lora', '').label).toBe('');
+	});
+
+	it('appends manual suggestions after detected ones and skips repeats', () => {
+		const detected = [manualSuggestion('lora', 'a')];
+		const merged = withManualSuggestions(detected, [manualSuggestion('lora', 'a'), manualSuggestion('vae', 'b')]);
+		expect(merged.map((s) => `${s.model_type}:${s.subdir}`)).toEqual(['lora:a', 'vae:b']);
+	});
+
+	it('describes the folder itself', () => {
+		expect(subdirLabel('')).toBe('the folder itself');
+		expect(subdirLabel('a/b')).toBe('a/b');
+	});
+});
+
+describe('mergeTicks', () => {
+	it('keeps earlier choices, ticks new folders and drops removed ones', () => {
+		const suggestions = [manualSuggestion('lora', 'a'), manualSuggestion('lora', 'b'), manualSuggestion('vae', 'c')];
+		const ticks = mergeTicks({ 'lora:a': false, 'lora:b': true, 'gone:x': true }, suggestions);
+		expect(ticks).toEqual({ 'lora:a': false, 'lora:b': true, 'vae:c': true });
+	});
+});
+
+describe('breadcrumbs', () => {
+	it('starts at the folder and accumulates segments', () => {
+		expect(breadcrumbs('')).toEqual([{ label: 'Folder', sub: '' }]);
+		expect(breadcrumbs('models/loras')).toEqual([
+			{ label: 'Folder', sub: '' },
+			{ label: 'models', sub: 'models' },
+			{ label: 'loras', sub: 'models/loras' }
+		]);
+	});
+});

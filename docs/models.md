@@ -278,6 +278,17 @@ Rules the lint enforces:
 - Ids are unique across all roots. A marketplace profile wins over a local or plugin profile with
   the same id, and the loser is reported as a load error.
 
+### Choosing a folder by hand
+
+Detection only pre-fills suggestions. In Add folder and on each folder in Admin → Models → Folders, **Add a folder for a type**
+binds any subfolder of the root, or the root itself, to a model type. Browse the subfolders (folders with no model files
+are marked Empty) or type a path relative to the root. The path must exist, stay inside the root and not overlap a folder
+that is already added; the form checks the overlap before sending, and the server checks all three again.
+`GET /api/models/roots/browse?path=<root>&sub=<relative path>` (admin) lists the child folders of one level. It refuses
+`..` and absolute paths, never follows a link that leaves the root, and stops after 500 folders, 8 levels or 3 seconds.
+Without a profile, a folder named `upscale_models` or `latent_upscale_models` is an Upscaler folder; the latent upscalers
+of the LTX and MiniMax presets read from the same type.
+
 ### The refs table
 
 | Surface | Value | Example |

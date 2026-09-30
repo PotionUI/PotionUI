@@ -50,7 +50,7 @@ MODEL_DIRECTORY_ALIASES = {
     'checkpoints': ('Stable-diffusion',),
     'loras': ('Lora', 'LyCORIS'),
     'vae': ('VAE',),
-    'upscalers': ('upscale_models', 'ESRGAN', 'RealESRGAN'),
+    'upscalers': ('upscale_models', 'latent_upscale_models', 'ESRGAN', 'RealESRGAN'),
     'controlnet': ('ControlNet',),
     'text_encoders': ('clip',),
 }

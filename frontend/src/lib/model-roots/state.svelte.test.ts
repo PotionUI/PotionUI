@@ -11,12 +11,19 @@ vi.mock('$lib/services/api', () => ({
 		reorderModelRoots: vi.fn(),
 		setModelRootWrite: vi.fn(),
 		setModelRootBindingScan: vi.fn(),
-		probeModelRoot: vi.fn()
+		probeModelRoot: vi.fn(),
+		browseModelRoot: vi.fn()
 	}
 }));
 
 import { api } from '$lib/services/api';
-import { ModelRootsState, detectModelRoot, listModelLayouts, serverPathPlaceholder } from './state.svelte';
+import {
+	ModelRootsState,
+	browseModelRoot,
+	detectModelRoot,
+	listModelLayouts,
+	serverPathPlaceholder
+} from './state.svelte';
 import type { ModelRoot, ModelRootsOverview } from '$lib/services/api/models';
 
 function makeRoot(overrides: Partial<ModelRoot> = {}): ModelRoot {
@@ -253,5 +260,49 @@ describe('detect with a profile and layouts', () => {
 		vi.mocked(api.getModelRoots).mockResolvedValue({ success: true, data: overview() });
 		await new ModelRootsState().setWrite('lib1', 'lora', 'LyCORIS');
 		expect(api.setModelRootWrite).toHaveBeenCalledWith('lib1', 'lora', 'LyCORIS');
+	});
+});
+
+
+describe('browseModelRoot', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	const listing = {
+		path: '/srv/models',
+		sub: 'models',
+		parent: '',
+		folders: [{ name: 'loras', subdir: 'models/loras', has_models: true, linked: false }],
+		has_models: true,
+		truncated: false
+	};
+
+	it('returns the listing and leaves out an empty sub', async () => {
+		vi.mocked(api.browseModelRoot).mockResolvedValue({ success: true, data: listing } as never);
+		const result = await browseModelRoot('/srv/models');
+		expect(api.browseModelRoot).toHaveBeenCalledWith('/srv/models', undefined);
+		expect(result).toEqual({ listing, error: null });
+	});
+
+	it('passes the subfolder through', async () => {
+		vi.mocked(api.browseModelRoot).mockResolvedValue({ success: true, data: listing } as never);
+		await browseModelRoot('/srv/models', 'models');
+		expect(api.browseModelRoot).toHaveBeenCalledWith('/srv/models', 'models');
+	});
+
+	it('reports an unsuccessful response', async () => {
+		vi.mocked(api.browseModelRoot).mockResolvedValue({ success: false, message: 'nope' } as never);
+		expect(await browseModelRoot('/srv/models')).toEqual({ listing: null, error: 'nope' });
+	});
+
+	it('turns a request failure into the server message', async () => {
+		vi.mocked(api.browseModelRoot).mockRejectedValue({
+			response: { data: { detail: { error: 'model_roots_browse_failed', message: 'That subfolder doesn\'t exist.' } } }
+		});
+		expect(await browseModelRoot('/srv/models', 'gone')).toEqual({
+			listing: null,
+			error: "That subfolder doesn't exist."
+		});
 	});
 });

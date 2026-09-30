@@ -220,3 +220,117 @@ export function detectAgainApplies(root: Pick<ModelRoot, 'path'>, detection: Pic
 	const detected = (detection.root_path ?? detection.path).replace(/[\\/]+$/, '');
 	return detected === root.path.replace(/[\\/]+$/, '');
 }
+
+export interface FolderRef {
+	model_type: string;
+	subdir: string;
+}
+
+export type SubdirCheck = { ok: true; subdir: string } | { ok: false; error: string };
+
+export function normalizeSubdirInput(input: string): SubdirCheck {
+	const raw = input.trim().replace(/\\/g, '/');
+	if (raw === '' || raw === '.' || raw === './') return { ok: true, subdir: '' };
+	if (raw.startsWith('/') || /^[A-Za-z]:/.test(raw)) {
+		return { ok: false, error: 'Use a path relative to the folder, not a full path.' };
+	}
+	if (/[\u0000-\u001f]/.test(raw)) return { ok: false, error: 'That path has characters a folder name cannot have.' };
+	const parts = raw.split('/').filter((part) => part !== '' && part !== '.');
+	if (parts.includes('..')) return { ok: false, error: 'A path cannot go up with "..".' };
+	return { ok: true, subdir: parts.join('/') };
+}
+
+function folderKey(subdir: string, caseInsensitive: boolean): string {
+	const key = subdir.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+	return caseInsensitive ? key.toLowerCase() : key;
+}
+
+function foldersOverlap(a: string, b: string): boolean {
+	return a === '' || b === '' || a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+}
+
+export function subdirLabel(subdir: string): string {
+	return subdir === '' ? 'the folder itself' : subdir;
+}
+
+export function checkFolderAgainstExisting(
+	subdir: string,
+	modelType: string,
+	existing: readonly FolderRef[],
+	caseInsensitive: boolean
+): string | null {
+	const key = folderKey(subdir, caseInsensitive);
+	for (const other of existing) {
+		const otherKey = folderKey(other.subdir, caseInsensitive);
+		if (other.model_type === modelType && otherKey === key) return 'That folder is already added for this type.';
+		if (foldersOverlap(key, otherKey)) {
+			return `It overlaps ${subdirLabel(other.subdir)}, which is already used. A folder cannot sit inside another added folder.`;
+		}
+	}
+	return null;
+}
+
+export function validateManualFolder(
+	input: string,
+	modelType: string,
+	existing: readonly FolderRef[],
+	caseInsensitive: boolean
+): SubdirCheck {
+	if (!modelType) return { ok: false, error: 'Choose a type first.' };
+	const normalized = normalizeSubdirInput(input);
+	if (!normalized.ok) return normalized;
+	const conflict = checkFolderAgainstExisting(normalized.subdir, modelType, existing, caseInsensitive);
+	return conflict ? { ok: false, error: conflict } : normalized;
+}
+
+export function manualSuggestion(modelType: string, subdir: string): ModelRootDetectionSuggestion {
+	return {
+		model_type: modelType,
+		subdir,
+		matched_by: 'manual',
+		file_count: 0,
+		file_count_truncated: false,
+		label: subdir.split('/').filter(Boolean).pop() ?? '',
+		write: false,
+		source: 'manual'
+	};
+}
+
+export function isManualSuggestion(suggestion: Pick<ModelRootDetectionSuggestion, 'source'>): boolean {
+	return suggestion.source === 'manual';
+}
+
+export function withManualSuggestions(
+	base: readonly ModelRootDetectionSuggestion[],
+	manual: readonly ModelRootDetectionSuggestion[]
+): ModelRootDetectionSuggestion[] {
+	const seen = new Set(base.map(suggestionKey));
+	return [...base, ...manual.filter((m) => !seen.has(suggestionKey(m)))];
+}
+
+export function mergeTicks(
+	previous: Record<string, boolean>,
+	suggestions: readonly ModelRootDetectionSuggestion[]
+): Record<string, boolean> {
+	const ticks: Record<string, boolean> = {};
+	for (const suggestion of suggestions) {
+		const key = suggestionKey(suggestion);
+		ticks[key] = key in previous ? previous[key] : true;
+	}
+	return ticks;
+}
+
+export interface Crumb {
+	label: string;
+	sub: string;
+}
+
+export function breadcrumbs(sub: string): Crumb[] {
+	const crumbs: Crumb[] = [{ label: 'Folder', sub: '' }];
+	let acc = '';
+	for (const part of sub.split('/').filter(Boolean)) {
+		acc = acc ? `${acc}/${part}` : part;
+		crumbs.push({ label: part, sub: acc });
+	}
+	return crumbs;
+}

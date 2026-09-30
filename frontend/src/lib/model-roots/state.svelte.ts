@@ -5,6 +5,7 @@ import type {
 	ModelLayoutSummary,
 	ModelRoot,
 	ModelRootBinding,
+	ModelRootBrowseResult,
 	ModelRootDetection,
 	ModelRootsOverview,
 	UpdateModelRootPayload
@@ -206,6 +207,22 @@ export async function detectModelRoot(path: string, profile?: string): Promise<{
 	} catch (e) {
 		logger.error('Failed to detect model root layout:', e);
 		return { detection: null, error: modelRootsErrorMessage(e, 'Failed to inspect that folder.') };
+	}
+}
+
+export async function browseModelRoot(path: string, sub?: string): Promise<{
+	listing: ModelRootBrowseResult | null;
+	error: string | null;
+}> {
+	try {
+		const response = await api.browseModelRoot(path, sub);
+		if (response.success && response.data) {
+			return { listing: response.data, error: null };
+		}
+		return { listing: null, error: response.message ?? 'Could not list that folder.' };
+	} catch (e) {
+		logger.error('Failed to browse model root:', e);
+		return { listing: null, error: modelRootsErrorMessage(e, 'Could not list that folder.') };
 	}
 }
 

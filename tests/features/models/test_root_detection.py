@@ -274,3 +274,20 @@ class TestDetectLayout:
             "path", "effective_path", "state", "writable_hint", "case_insensitive",
             "layout", "suggestions", "single_type_guess", "conflicts", "warnings",
         }
+
+
+class TestLatentUpscaleAlias:
+    def test_latent_upscale_models_folder_is_an_upscaler_folder(self):
+        from src.platform.filesystem.model_types import type_for_folder_name
+
+        assert type_for_folder_name("latent_upscale_models") == "upscaler"
+        assert type_for_folder_name("Latent_Upscale_Models") == "upscaler"
+
+    def test_detect_binds_it_when_it_is_the_only_upscaler_folder(self, tmp_path):
+        folder = tmp_path / "latent_upscale_models"
+        folder.mkdir()
+        (folder / "ltx_latent_upscaler.safetensors").write_bytes(b"weights")
+
+        result = detect(str(tmp_path))
+
+        assert [(s.model_type, s.subdir) for s in result.suggestions] == [("upscaler", "latent_upscale_models")]

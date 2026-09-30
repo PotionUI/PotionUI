@@ -30,6 +30,7 @@
 	import { indexingIsVisible } from '$lib/models-location/indexingDisplay';
 	import IndexingStatusPanel from '$lib/models-location/IndexingStatusPanel.svelte';
 	import AddRootModal from './AddRootModal.svelte';
+	import SubfolderPicker from './SubfolderPicker.svelte';
 	import type {
 		ModelLayoutSummary,
 		ModelRoot,
@@ -222,6 +223,19 @@
 			};
 		} finally {
 			addingMissingId = null;
+		}
+	}
+
+	async function addFolderToRoot(root: ModelRoot, folder: { model_type: string; subdir: string }): Promise<string | null> {
+		try {
+			const updated = await roots.update(root.id, {
+				bindings: [{ model_type: folder.model_type, subdir: folder.subdir, write: false }]
+			});
+			if (!updated) return roots.error ?? 'Failed to add that folder.';
+			toasts.success(`Added a ${modelTypePresentation(folder.model_type).label} folder to "${root.label}".`);
+			return null;
+		} catch {
+			return roots.error ?? 'Failed to add that folder.';
 		}
 	}
 
@@ -497,6 +511,18 @@
 													</ul>
 												</div>
 											{/each}
+										</div>
+									{/if}
+									{#if root.kind !== 'home'}
+										<div class="mt-3">
+											<SubfolderPicker
+												idPrefix="root-{root.id}-manual"
+												rootPath={root.path}
+												existing={root.bindings}
+												caseInsensitive={root.case_insensitive}
+												disabled={root.state !== 'online' || roots.mutating}
+												onAdd={(folder) => addFolderToRoot(root, folder)}
+											/>
 										</div>
 									{/if}
 									{#if againResults[root.id]}

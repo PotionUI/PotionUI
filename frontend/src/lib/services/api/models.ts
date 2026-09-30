@@ -170,6 +170,22 @@ export interface ModelRootDetectionSuggestion {
 	source?: string;
 }
 
+export interface ModelRootBrowseFolder {
+	name: string;
+	subdir: string;
+	has_models: boolean;
+	linked: boolean;
+}
+
+export interface ModelRootBrowseResult {
+	path: string;
+	sub: string;
+	parent: string | null;
+	folders: ModelRootBrowseFolder[];
+	has_models: boolean;
+	truncated: boolean;
+}
+
 export interface ModelRootDetectedProfile {
 	id: string;
 	label: string;
@@ -699,6 +715,13 @@ export function createModelsApi(client: AxiosInstance) {
 
 		async detectModelRoot(path: string, profile?: string): Promise<APIResponse<ModelRootDetection>> {
 			const response = await client.post('/api/models/roots/detect', profile ? { path, profile } : { path });
+			return response.data;
+		},
+
+		async browseModelRoot(path: string, sub?: string): Promise<APIResponse<ModelRootBrowseResult>> {
+			const response = await client.get('/api/models/roots/browse', {
+				params: sub ? { path, sub } : { path }
+			});
 			return response.data;
 		},
 

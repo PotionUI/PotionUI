@@ -536,17 +536,22 @@ def spawn_backend(
     return proc
 
 
+def stop_backend_process(instance: EphemeralInstance, stage: str = "teardown") -> None:
+    if instance.process is None or instance.process.poll() is not None:
+        return
+    stage_log(stage, f"Stopping backend subprocess (pid={instance.process.pid})")
+    kill_group(instance.process, force=False)
+    try:
+        instance.process.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        stage_log(stage, "Backend didn't exit after SIGTERM within 15s - sending SIGKILL")
+        kill_group(instance.process, force=True)
+        with contextlib.suppress(Exception):
+            instance.process.wait(timeout=10)
+
+
 def teardown_backend(instance: EphemeralInstance, *, keep: bool) -> None:
-    if instance.process is not None and instance.process.poll() is None:
-        stage_log("teardown", f"Stopping backend subprocess (pid={instance.process.pid})")
-        kill_group(instance.process, force=False)
-        try:
-            instance.process.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            stage_log("teardown", "Backend didn't exit after SIGTERM within 15s - sending SIGKILL")
-            kill_group(instance.process, force=True)
-            with contextlib.suppress(Exception):
-                instance.process.wait(timeout=10)
+    stop_backend_process(instance)
 
     if keep:
         stage_log("teardown", f"keep=True: leaving {instance.instance_dir} on disk")

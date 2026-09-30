@@ -1,0 +1,19 @@
+id: "e2e-cloud-fake"
+name: "E2E Fake Cloud"
+version: "1.0.0"
+description: "Test-only cloud provider with deterministic images, a configurable delay and ready-made presets. Used by the browser end-to-end tests; never shipped."
+author: "PotionUI Team"
+type: "backend-only"
+category: "generation"
+
+capabilities:
+  - "backend-provider"
+  - "cloud-models"
+
+hooks:
+  backend:
+    - hook: "backend.register"
+      handler: "hooks.backend_hooks.register_backend"
+
+presets:
+  - path: "presets"

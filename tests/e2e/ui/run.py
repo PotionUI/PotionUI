@@ -68,6 +68,7 @@ HARNESS_DIR = REPO_ROOT / "tests" / "e2e" / "harness"
 if str(HARNESS_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESS_DIR))
 
+import cloud_fake
 from e2e_harness import (  # noqa: E402
     StageError,
     ThrowawayApp,
@@ -396,10 +397,14 @@ def run_chunk(
     failures) if the preview process dies while Playwright is running."""
     log(f"=== Chunk {chunk_index}/{total_chunks}: {', '.join(chunk_names)} ===")
 
+    needs_cloud_fake = cloud_fake.wants_cloud_fake(chunk_names)
     with ThrowawayApp(
         models_dir=args.models_dir, port=args.port, keep=args.keep,
         username=OWNER_USERNAME, password=OWNER_PASSWORD,
+        extra_env=cloud_fake.plugin_env() if needs_cloud_fake else None,
     ) as app:
+        if needs_cloud_fake:
+            cloud_fake.prepare(app)
         backend_port = app.instance.port
         log(f"Throwaway backend up at {app.base_url} (owner={app.username})")
 

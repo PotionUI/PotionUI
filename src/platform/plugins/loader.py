@@ -6,6 +6,7 @@ and local directories. It parses plugin manifests and loads Python modules.
 """
 
 import hashlib
+import os
 import re
 import sys
 import shutil
@@ -19,6 +20,8 @@ import logging
 from pydantic import ValidationError
 
 from src.platform.plugins.manifest import PluginManifestSchema
+
+EXTRA_PLUGIN_DIRS_ENV = "POTIONUI_EXTRA_PLUGIN_DIRS"
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +166,9 @@ class PluginLoader:
     ):
         self.marketplace_dir = Path(marketplace_dir)
         self.local_dir = Path(local_dir)
+        self.extra_dirs = [
+            Path(part) for part in os.environ.get(EXTRA_PLUGIN_DIRS_ENV, "").split(os.pathsep) if part.strip()
+        ]
         self._loaded_modules: Dict[str, Any] = {}
 
     def discover_plugins(self) -> List[PluginManifest]:
@@ -190,6 +196,24 @@ class PluginLoader:
             local_plugins = self._scan_directory(self.local_dir, source="local")
             plugins.extend(local_plugins)
             logger.info(f"Found {len(local_plugins)} local plugins")
+
+        claimed = {manifest.id: manifest for manifest in plugins if manifest.source == "local"}
+        for extra_dir in self.extra_dirs:
+            if not extra_dir.exists():
+                logger.warning(f"Extra plugin directory does not exist: {extra_dir}")
+                continue
+            extra_plugins = self._scan_directory(extra_dir, source="local")
+            logger.info(f"Found {len(extra_plugins)} plugins in extra directory {extra_dir}")
+            for manifest in extra_plugins:
+                winner = claimed.get(manifest.id)
+                if winner is not None:
+                    logger.warning(
+                        f"Plugin id '{manifest.id}' in {manifest.plugin_dir} is already provided by "
+                        f"{winner.plugin_dir} - skipping the extra-directory copy"
+                    )
+                    continue
+                claimed[manifest.id] = manifest
+                plugins.append(manifest)
 
         shadowed = self._mark_shadowed(plugins)
         plugins = [m for m in plugins if m not in shadowed]

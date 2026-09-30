@@ -1,0 +1,15 @@
+name: "custom"
+fields:
+  - type: "row"
+    configuration: { columns: 1 }
+    children: "{{ paths._shared }}/cloud/models/txt2img.yml"
+
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        children: "{{ paths._shared }}/cloud/tabs/image.yml"
+      - type: "tab"
+        label: "Provider options"
+        audience: "advanced"
+        children: "{{ paths._shared }}/cloud/tabs/provider_options.yml"

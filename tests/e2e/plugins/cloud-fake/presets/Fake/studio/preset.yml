@@ -1,0 +1,12 @@
+schema: 1
+id: "01M3SVA35XT0E7CG5JZTS9P21S"
+name: "Fake Studio"
+category: "image"
+version: "1.0.0"
+engine: "cloud"
+driver: "cloud.fake"
+tags: []
+
+modes:
+  - txt2img
+  - edit

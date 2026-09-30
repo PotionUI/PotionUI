@@ -90,3 +90,45 @@ class TestKillGroup:
         e2e_harness.kill_group(MagicMock(pid=5678), force=True)
 
         assert calls == [(5678, e2e_harness.signal.SIGKILL)]
+
+
+class TestStopBackendProcess:
+    def _instance(self, process):
+        return e2e_harness.EphemeralInstance(
+            instance_dir=Path("."), storage_dir=Path("."), db_path=Path("."), models_dir=Path("."),
+            recipes_dir=Path("."), port=1, process=process,
+        )
+
+    def test_a_backend_that_exits_on_the_polite_signal_is_not_killed(self, monkeypatch):
+        process = MagicMock()
+        process.poll.return_value = None
+        calls = []
+        monkeypatch.setattr(e2e_harness, "kill_group", lambda proc, *, force: calls.append(force))
+
+        e2e_harness.stop_backend_process(self._instance(process))
+
+        assert calls == [False]
+        process.wait.assert_called_once_with(timeout=15)
+
+    def test_a_backend_that_ignores_the_polite_signal_is_killed_and_waited_for_again(self, monkeypatch):
+        process = MagicMock()
+        process.poll.return_value = None
+        process.wait.side_effect = [subprocess.TimeoutExpired("backend", 15), None]
+        calls = []
+        monkeypatch.setattr(e2e_harness, "kill_group", lambda proc, *, force: calls.append(force))
+
+        e2e_harness.stop_backend_process(self._instance(process))
+
+        assert calls == [False, True]
+        assert [c.kwargs["timeout"] for c in process.wait.call_args_list] == [15, 10]
+
+    def test_a_backend_that_already_exited_is_left_alone(self, monkeypatch):
+        process = MagicMock()
+        process.poll.return_value = 0
+        calls = []
+        monkeypatch.setattr(e2e_harness, "kill_group", lambda proc, *, force: calls.append(force))
+
+        e2e_harness.stop_backend_process(self._instance(process))
+        e2e_harness.stop_backend_process(self._instance(None))
+
+        assert calls == []

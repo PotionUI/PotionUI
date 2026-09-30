@@ -30,6 +30,7 @@ from src.features.generation.handlers.artifact_handlers import (
     DiffTextGenerationOutputHandler,
     TextGenerationOutputHandler,
 )
+from src.features.generation.handlers.cost_handler import CostGenerationOutputHandler
 from src.features.generation.handlers.error_handler import serialize_error_output
 
 __all__ = [
@@ -52,5 +53,6 @@ __all__ = [
     'ComfyUIWorkflowGenerationOutputHandler',
     'DiffTextGenerationOutputHandler',
     'TextGenerationOutputHandler',
+    'CostGenerationOutputHandler',
     'serialize_error_output',
 ]

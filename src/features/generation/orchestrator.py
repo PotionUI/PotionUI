@@ -100,6 +100,7 @@ from src.features.music_director import (
     normalize_music_director,
 )
 from src.features.cloud.contracts import CLOUD_ENGINE
+from src.features.generation.output_types import output_type_registry
 from src.features.forms.binding import bind_form, FormBindingError
 from src.features.prompt.resources import mode_prompt_resources, resolve_generation_prompts
 from src.features.generation.memory_advisory import (
@@ -1396,6 +1397,16 @@ class GenerationOrchestrator:
             return
 
         logger.debug(f"Processing output for {generation_id}: {type(output).__name__}")
+
+        if output_type_registry.is_server_only(output):
+            generation = generation_repo.get_by_id(generation_id)
+            try:
+                await self.output_processor.process_output(
+                    generation_id, output, generation.user_id if generation else None
+                )
+            except Exception as e:
+                logger.error(f"Error recording server-only output {type(output).__name__}: {str(e)}", exc_info=True)
+            return
 
         if isinstance(output, ErrorGenerationOutput):
             failure = failure_from_output(output)

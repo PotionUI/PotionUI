@@ -21,7 +21,14 @@ from src.pipelines.contracts import (
     PipeOutput,
     PipeOutputSpec,
 )
-from src.pipelines.outputs import GenerationExecutionError, Icon, ParamGenerationOutput, Progress, ProgressGenerationOutput
+from src.pipelines.outputs import (
+    CostGenerationOutput,
+    GenerationExecutionError,
+    Icon,
+    ParamGenerationOutput,
+    Progress,
+    ProgressGenerationOutput,
+)
 
 DEFAULT_ROLES = {
     "images": "reference",
@@ -141,6 +148,15 @@ class CloudGeneratePipe(BasePipe):
             try:
                 for request in requests:
                     outcome = runner.run_blocking(request, on_progress=report, is_cancelled=is_cancelled)
+                    generation_outputs(CostGenerationOutput(
+                        model=request.model,
+                        amount_usd=outcome.cost.amount_usd if outcome.cost else None,
+                        source=outcome.cost.source if outcome.cost else "provider",
+                        task=request.task,
+                        count=request.count,
+                        params=dict(request.params),
+                        outputs=len(outcome.artifacts),
+                    ))
                     self._collect(outcome, request, images, videos, audios, seeds)
             except CloudRunCancelled:
                 self._discard(videos, audios)

@@ -150,6 +150,7 @@ if TYPE_CHECKING:
     from src.platform.websocket.download_connection_hub import DownloadConnectionHub
     from src.features.cloud.capabilities import CloudCapabilities
     from src.features.cloud.catalog import CloudCatalog
+    from src.features.cloud.cost_repository import GenerationCostRepository
     from src.features.cloud.scopes import CloudModelScopes
     from src.features.models.repository import ModelRepository
     from src.features.tags.repository import TagRepository
@@ -366,6 +367,7 @@ class AppContainer:
     model_controller: "ModelController"
     cloud_catalog: "CloudCatalog"
     cloud_capabilities: "CloudCapabilities"
+    generation_cost_repository: "GenerationCostRepository"
     cloud_model_scopes: "CloudModelScopes"
     model_collection_repository: "ModelCollectionRepository"
     user_model_meta_repository: "UserModelMetaRepository"
@@ -1035,6 +1037,9 @@ def build_container() -> AppContainer:
     from src.features.cloud.repository import CloudCatalogRepository
 
     cloud_catalog_repository = CloudCatalogRepository()
+    from src.features.cloud.cost_repository import GenerationCostRepository
+
+    generation_cost_repository = GenerationCostRepository()
     cloud_capabilities = CloudCapabilities(
         backend_registry=backend_registry,
         repository=cloud_catalog_repository,
@@ -1667,6 +1672,7 @@ def build_container() -> AppContainer:
         stats_repository=stats_repository,
         file_preset_repository=file_preset_repository,
         generation_stats_repository=generation_stats_repository,
+        generation_cost_repository=generation_cost_repository,
     )
 
     # Session components

@@ -41,6 +41,8 @@ from src.features.generation.output_serializer import GenerationOutputSerializer
 from src.features.generation.run_report_recorder import RunReportRecorder
 from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput
 from src.features.generation.handlers.error_handler import admin_error_fields
+from src.features.cloud.cost_repository import GenerationCostRepository
+from src.features.generation.output_types import output_type_registry
 from src.features.generation.failure import failure_report
 from src.features.generation import (
     GenerationHistoryFacade,
@@ -106,7 +108,8 @@ class GenerationController(BaseController):
         generation_orchestrator: GenerationOrchestrator,
         generation_history_facade: GenerationHistoryFacade,
         file_service: FileStore,
-        run_report_recorder: RunReportRecorder
+        run_report_recorder: RunReportRecorder,
+        generation_cost_repository: Optional[GenerationCostRepository] = None,
     ):
         super().__init__()  # Initialize BaseController
         self.generation_orchestrator = generation_orchestrator
@@ -114,6 +117,7 @@ class GenerationController(BaseController):
         self.history_query = generation_history_facade.query
         self.file_service = file_service
         self.run_report_recorder = run_report_recorder
+        self.generation_cost_repository = generation_cost_repository
         self.connection_hub = ConnectionHub()
         self.websocket_handler = WebSocketHandler(self.connection_hub)
         # Queued generations have no outputs to broadcast yet, so position
@@ -267,6 +271,9 @@ class GenerationController(BaseController):
         watching still gets a report); only the WebSocket broadcast itself is
         gated on having subscribers.
         """
+        if output_type_registry.is_server_only(output):
+            return
+
         has_subscribers = (
             generation_id in self.connection_hub.generation_connections and
             len(self.connection_hub.generation_connections[generation_id]) > 0
@@ -1276,8 +1283,13 @@ class GenerationController(BaseController):
 
             generation_ids = [g['id'] for g in result['generations']]
             report_ids = self.run_report_recorder.has_reports(generation_ids)
+            costs = (
+                self.generation_cost_repository.summaries(generation_ids)
+                if self.generation_cost_repository is not None else {}
+            )
             for gen_dict in result['generations']:
                 gen_dict['has_run_report'] = gen_dict['id'] in report_ids
+                gen_dict['cost'] = costs.get(gen_dict['id'])
 
             return self.success_response(data=result)
 
@@ -1320,7 +1332,16 @@ class GenerationController(BaseController):
                 'routing': generation.routing_decision,
             },
             'run_report': report,
+            'cost': self._admin_cost(generation_id),
         })
+
+    def _admin_cost(self, generation_id: str):
+        if self.generation_cost_repository is None:
+            return None
+        entries = self.generation_cost_repository.for_generation(generation_id)
+        if not entries:
+            return None
+        return {**self.generation_cost_repository.summaries([generation_id])[generation_id], 'items': entries}
 
     async def get_generation_failure(self, generation_id: str) -> APIResponse:
         generation = generation_repo.get_by_id(generation_id)
@@ -1409,6 +1430,7 @@ def _get_generation_controller(container: "AppContainer") -> GenerationControlle
             container.generation_history_facade,
             container.file_service,
             container.run_report_recorder,
+            container.generation_cost_repository,
         )
         container._generation_controller = controller
     return controller

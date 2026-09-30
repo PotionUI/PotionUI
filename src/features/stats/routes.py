@@ -18,6 +18,7 @@ from src.features.presets.file_repository import FilePresetRepository
 from src.features.stats import operations
 from src.features.stats.repository import BUCKETS, DIMENSIONS, METRICS, StatsRepository
 from src.features.stats.generation_stats_repository import GenerationStatsRepository
+from src.features.cloud.cost_repository import GenerationCostRepository
 from src.platform.security.user import AccountType, User
 
 if TYPE_CHECKING:
@@ -37,11 +38,13 @@ class StatsController(BaseController):
         stats_repository: StatsRepository,
         file_preset_repository: Optional[FilePresetRepository] = None,
         generation_stats_repository: Optional[GenerationStatsRepository] = None,
+        generation_cost_repository: Optional[GenerationCostRepository] = None,
     ):
         super().__init__()
         self.stats_repository = stats_repository
         self.file_preset_repository = file_preset_repository
         self.generation_stats_repository = generation_stats_repository
+        self.generation_cost_repository = generation_cost_repository
 
     def _require_admin(self, user: Optional[User]) -> None:
         if not user:
@@ -108,6 +111,20 @@ class StatsController(BaseController):
         self._require_admin(user)
         return self.success_response({'dimensions': operations.dimensions()})
 
+    async def get_spend(self, date_from=None, date_to=None, user=None) -> APIResponse:
+        self._require_admin(user)
+        if self.generation_cost_repository is None:
+            return self.success_response({'total_usd': '0', 'entries': 0, 'unpriced': 0, 'by_backend': [], 'by_model': []})
+        try:
+            result = await asyncio.to_thread(self.generation_cost_repository.spend, date_from, date_to)
+            return self.success_response(result)
+        except ValueError:
+            return self.error_response(
+                error="invalid_date_format", message="Dates must look like YYYY-MM-DD", status_code=400
+            )
+        except Exception as e:
+            return self.handle_exception(e, "stats_spend_failed")
+
     # --- generation_stats (durable, generation-independent store) ------
 
     async def get_preset_timing(self, limit=10, user=None) -> APIResponse:
@@ -169,6 +186,11 @@ def build_router(container: "AppContainer") -> APIRouter:
                           bucket: BucketParam = Query(BucketParam.day), limit: int = Query(30, ge=1, le=200),
                           current_user=Depends(get_current_active_user)):
         return await controller.get_storage(date_from, date_to, bucket.value, limit, current_user)
+
+    @router.get("/spend", response_model=APIResponse, summary="Cloud spend per backend and per model")
+    async def get_spend(date_from: Optional[str] = _FROM, date_to: Optional[str] = _TO,
+                        current_user=Depends(get_current_active_user)):
+        return await controller.get_spend(date_from, date_to, current_user)
 
     @router.get("/dimensions", response_model=APIResponse, summary="Dimensions valid for /breakdown")
     async def get_dimensions(current_user=Depends(get_current_active_user)):

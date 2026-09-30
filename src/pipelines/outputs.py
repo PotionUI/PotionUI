@@ -10,7 +10,8 @@ it, push it over the WebSocket) is the generation feature's job, not a pipe's.
 """
 
 from dataclasses import dataclass, field
-from typing import Tuple, Any, Literal, List, Dict
+from decimal import Decimal
+from typing import Tuple, Any, Literal, List, Dict, Optional
 from pathlib import Path
 
 from PIL import Image
@@ -198,6 +199,17 @@ class GalleryGenerationOutput(GenerationOutput):
     videos: List[VideoGenerationOutput] = field(default_factory=list)
     audios: List["AudioGenerationOutput"] = field(default_factory=list)
     meshes: List[MeshGenerationOutput] = field(default_factory=list)
+
+@dataclass
+class CostGenerationOutput(GenerationOutput):
+    model: str
+    amount_usd: Optional[Decimal] = None
+    source: str = "provider"
+    task: Optional[str] = None
+    count: int = 1
+    params: Dict[str, Any] = field(default_factory=dict)
+    outputs: int = 0
+
 
 @dataclass
 class SeedGenerationOutput(GenerationOutput):

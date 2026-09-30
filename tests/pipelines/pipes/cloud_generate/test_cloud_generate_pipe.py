@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -6,12 +7,18 @@ from PIL import Image
 from src.pipelines.cloud import (
     CloudRunArtifact,
     CloudRunCancelled,
+    CloudRunCost,
     CloudRunError,
     CloudRunOutcome,
     CloudRunProgress,
 )
 from src.pipelines.contracts import PipeInput
-from src.pipelines.outputs import GenerationExecutionError, ParamGenerationOutput, ProgressGenerationOutput
+from src.pipelines.outputs import (
+    CostGenerationOutput,
+    GenerationExecutionError,
+    ParamGenerationOutput,
+    ProgressGenerationOutput,
+)
 from src.pipelines.pipes.cloud_generate.main import CloudGeneratePipe
 
 
@@ -239,3 +246,81 @@ def test_options_that_are_not_an_object_are_ignored(tmp_path):
     run(runner, {"prompts": ["a"], "params": {"quality": 3}, "options": "None"})
 
     assert dict(runner.requests[0].params) == {"quality": 3}
+
+
+def costs_of(emitted):
+    return [item for item in emitted if isinstance(item, CostGenerationOutput)]
+
+
+def costed_outcome(tmp_path, name, amount, source="provider"):
+    path = tmp_path / name
+    Image.new("RGB", (4, 4)).save(path)
+    return CloudRunOutcome(
+        artifacts=(CloudRunArtifact(modality="image", index=0, path=path, media_type="image/png"),),
+        cost=CloudRunCost(amount_usd=Decimal(amount), source=source),
+    )
+
+
+def test_a_successful_request_emits_its_cost_with_what_an_estimate_needs(tmp_path):
+    runner = FakeRunner(tmp_path, outcomes=[costed_outcome(tmp_path, "a.png", "0.0731")])
+
+    _, emitted = run(runner, {"prompts": ["a"], "task": "txt2img", "params": {"aspect_ratio": "16:9"}})
+
+    (cost,) = costs_of(emitted)
+    assert cost.model == "fake~image-1" and cost.amount_usd == Decimal("0.0731") and cost.source == "provider"
+    assert (cost.task, cost.count, cost.outputs, cost.params) == ("txt2img", 1, 1, {"aspect_ratio": "16:9"})
+
+
+def test_a_request_the_provider_did_not_price_emits_a_cost_without_an_amount(tmp_path):
+    cost = costs_of(run(FakeRunner(tmp_path), {"prompts": ["a"], "quantity": 2})[1])[0]
+
+    assert cost.amount_usd is None and cost.source == "provider" and cost.count == 2 and cost.outputs == 2
+
+
+def test_the_source_the_provider_gave_is_passed_on(tmp_path):
+    runner = FakeRunner(tmp_path, outcomes=[costed_outcome(tmp_path, "a.png", "0.02", source="estimate")])
+
+    (cost,) = costs_of(run(runner, {"prompts": ["a"]})[1])
+
+    assert cost.source == "estimate"
+
+
+def test_each_request_emits_its_own_cost(tmp_path):
+    runner = FakeRunner(tmp_path, outcomes=[costed_outcome(tmp_path, "a.png", "0.01"), costed_outcome(tmp_path, "b.png", "0.02")])
+
+    _, emitted = run(runner, {"prompts": ["a", "b"], "quantity": 2})
+
+    assert [cost.amount_usd for cost in costs_of(emitted)] == [Decimal("0.01"), Decimal("0.02")]
+
+
+def test_a_cancelled_run_emits_no_cost(tmp_path):
+    _, emitted = run(FakeRunner(tmp_path, error=CloudRunCancelled()), {"prompts": ["a"]})
+
+    assert costs_of(emitted) == []
+
+
+def test_a_failed_run_emits_no_cost(tmp_path):
+    emitted = []
+    pipe = CloudGeneratePipe({**CloudGeneratePipe.get_default_config(), "model": "fake~image-1", "prompts": ["a"]})
+
+    with pytest.raises(CloudRunError):
+        pipe.process(
+            PipeInput(input={"CLOUD": FakeRunner(tmp_path, error=CloudRunError("credits", "Out of credits"))}),
+            emitted.append,
+        )
+
+    assert costs_of(emitted) == []
+
+
+def test_a_request_billed_before_a_later_one_was_cancelled_still_reports_its_cost(tmp_path):
+    outcomes = [costed_outcome(tmp_path, "a.png", "0.03")]
+
+    class Cancelling(FakeRunner):
+        def run_blocking(self, request, *, on_progress=None, is_cancelled=None):
+            if self.outcomes:
+                return self.outcomes.pop(0)
+            raise CloudRunCancelled()
+
+    _, emitted = run(Cancelling(tmp_path, outcomes=outcomes), {"prompts": ["a", "b"], "quantity": 2})
+
+    assert [cost.amount_usd for cost in costs_of(emitted)] == [Decimal("0.03")]

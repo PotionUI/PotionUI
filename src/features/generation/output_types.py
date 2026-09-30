@@ -39,6 +39,7 @@ class OutputTypeSpec:
     message_type: Union[str, Callable[[GenerationOutput], str]]
     serializer: Optional[Callable[[GenerationOutput, "SerializeContext"], Dict[str, Any]]]
     handler_cls: Optional[type] = None
+    server_only: bool = False
 
     def resolve_message_type(self, output: GenerationOutput) -> str:
         """Resolve the message_type for a concrete output instance."""
@@ -84,6 +85,10 @@ class OutputTypeRegistry:
                 return spec
 
         return None
+
+    def is_server_only(self, output: GenerationOutput) -> bool:
+        spec = self.spec_for(output)
+        return spec is not None and spec.server_only
 
     def all(self) -> List[OutputTypeSpec]:
         """Return all registered specs."""

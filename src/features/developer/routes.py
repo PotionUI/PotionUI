@@ -33,8 +33,10 @@ class DeveloperController(BaseController):
         self,
         template_functions_documenter: TemplateFunctionsDocumenter,
         preset_loader,
+        registered_drivers=None,
     ):
         super().__init__()
+        self.registered_drivers = registered_drivers
         self.template_functions_documenter = template_functions_documenter
         self.preset_loader = preset_loader
 
@@ -58,7 +60,10 @@ class DeveloperController(BaseController):
     async def get_presets_lint(self) -> APIResponse:
         """Get preset schema validation errors and a full lint run."""
         try:
-            data = operations.get_presets_lint(self.preset_loader)
+            data = operations.get_presets_lint(
+                self.preset_loader,
+                registered_drivers=self.registered_drivers() if self.registered_drivers else None,
+            )
             return self.success_response(data=data)
         except ValueError as e:
             return self.error_api_response(

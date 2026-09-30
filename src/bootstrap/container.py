@@ -961,7 +961,11 @@ def build_container() -> AppContainer:
     output_types_documenter = OutputTypesDocumenter(output_type_registry)
     template_functions_documenter = TemplateFunctionsDocumenter()
     from src.features.developer.routes import DeveloperController
-    developer_controller = DeveloperController(template_functions_documenter, preset_template_loader)
+    developer_controller = DeveloperController(
+        template_functions_documenter,
+        preset_template_loader,
+        registered_drivers=lambda: set(backend_registry.get_registered_config_types()),
+    )
 
     # Docs components (in-app Documentation feature - aggregates repo
     # markdown, plugin-manifest `docs:` entries, and live-reference APIs

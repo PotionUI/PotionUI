@@ -195,6 +195,7 @@ class PresetController(BaseController):
         user_id: Optional[str] = None,
         admin: bool = False,
         current_user: Optional[User] = None,
+        tasks: Optional[str] = None,
     ) -> APIResponse:
         """Models this preset could actually load, with the backends that hold each.
 
@@ -233,8 +234,12 @@ class PresetController(BaseController):
 
             # Every filter is applied server-side, alongside availability, so a page is a
             # page: filtering a LIMITed result client-side would drop rows that belong on it.
+            driver = preset.driver if isinstance(getattr(preset, "driver", None), str) else None
+            task_list = [t.strip() for t in tasks.split(",") if t.strip()] if tasks else None
             models = models_for_engine(
                 engine=preset.engine,
+                driver=driver,
+                tasks=task_list,
                 backend_registry=self.backend_registry,
                 model_type=model_type,
                 search=search,
@@ -253,6 +258,7 @@ class PresetController(BaseController):
             backend_ids = [
                 b.backend_id
                 for b in self.backend_registry.get_backends_for_engine(preset.engine)
+                if driver is None or b.config.effective_driver == driver
             ]
 
             return self.success_response(data={
@@ -485,6 +491,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         tag_ids: Optional[str] = None,
         any_tag_ids: Optional[str] = None,
         favorites_only: bool = False,
+        tasks: Optional[str] = None,
         current_user=Depends(get_current_active_user)
     ):
         """List models loadable by this preset's engine, each badged with the backends holding it.
@@ -499,6 +506,7 @@ def build_router(container: "AppContainer") -> APIRouter:
             preset_id, model_type, search, limit, offset,
             tag_ids, any_tag_ids, favorites_only, getattr(current_user, "id", None), is_admin,
             current_user=current_user,
+            tasks=tasks,
         )
 
     @router.get("/{preset_id}/modes", response_model=APIResponse, summary="Get Preset Modes")

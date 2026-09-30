@@ -243,7 +243,7 @@ class BackendRegistry:
         Instantiation is driver-scoped even though selection/defaults/priority
         stay engine-scoped everywhere else - see docs/backends.md.
         """
-        driver = config.driver or config.engine
+        driver = config.effective_driver
         backend_class = self._registered_backend_types.get(driver)
         if backend_class is None:
             raise ValueError(

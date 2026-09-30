@@ -177,3 +177,49 @@ class TestDocsLint:
         with pytest.raises(HTTPException) as exc:
             await handlers["get_docs_lint"](current_user=user)
         assert exc.value.status_code == 403
+
+
+class TestPresetsLintDriverWarning:
+
+    @staticmethod
+    def _controller(tmp_path, driver, registered):
+        from src.features.presets.loader import PresetTemplateLoader
+        from tests.features.presets.test_preset_provider_binding import write_preset
+
+        write_preset(tmp_path, "Bound", "01BOUNDFFFFFFFFFFFFFFFFFFFF", "cloud", driver)
+        loader = PresetTemplateLoader([str(tmp_path)])
+        return DeveloperController(Mock(), loader, registered_drivers=lambda: set(registered))
+
+    @staticmethod
+    def _driver_warnings(response):
+        return [
+            issue for issue in response.data["lint_issues"]
+            if issue["level"] == "warning" and "not registered" in issue["message"]
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_missing_driver_is_reported_as_a_warning(self, tmp_path):
+        controller = self._controller(tmp_path, "cloud.fake", registered={"native.local"})
+
+        response = await controller.get_presets_lint()
+
+        (warning,) = self._driver_warnings(response)
+        assert "cloud.fake" in warning["message"]
+        assert response.data["total_errors"] == 0
+
+    @pytest.mark.asyncio
+    async def test_a_registered_driver_is_not_reported(self, tmp_path):
+        controller = self._controller(tmp_path, "cloud.fake", registered={"cloud.fake"})
+
+        response = await controller.get_presets_lint()
+
+        assert self._driver_warnings(response) == []
+
+    @pytest.mark.asyncio
+    async def test_a_controller_without_a_driver_source_skips_the_check(self, tmp_path):
+        controller = self._controller(tmp_path, "cloud.fake", registered=set())
+        controller.registered_drivers = None
+
+        response = await controller.get_presets_lint()
+
+        assert self._driver_warnings(response) == []

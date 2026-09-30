@@ -32,10 +32,11 @@ flowchart TD
     subgraph Chain["GenerationRouter.route() — one pass"]
         direction TB
         Seed["1 · EnabledForEngine\nseed: every enabled backend of the engine"]
-        Avail["2 · ModelAvailability\ndrop backends missing a selected model"]
-        Req["3 · RequirementsEligibility\ndrop backends with a hard-missing requirement"]
-        Pref["4 · Preference\nannotate the default / highest-priority survivor"]
-        Seed --> Avail --> Req --> Pref
+        Drv["2 · PresetDriver\ndrop backends whose driver is not the preset's"]
+        Avail["3 · ModelAvailability\ndrop backends missing a selected model"]
+        Req["4 · RequirementsEligibility\ndrop backends with a hard-missing requirement"]
+        Pref["5 · Preference\nannotate the default / highest-priority survivor"]
+        Seed --> Drv --> Avail --> Req --> Pref
     end
 
     Pref --> AnyLeft{"any candidate\nstill kept?"}
@@ -87,6 +88,7 @@ sequenceDiagram
 | Rule | Can it drop? | Can it annotate? | Why it exists | When it fires | Example reason text |
 |---|---|---|---|---|---|
 | `EnabledForEngine` | no (seeds) | no | Every other rule needs a starting candidate list | Always, first | *(none — it only seeds)* |
+| `PresetDriver` | yes | no | A preset that declares `driver:` (every `engine: cloud` preset does) must run on a backend of that driver, never on another provider's backend of the same engine | The preset declares a `driver:` | `"preset requires driver cloud.openrouter; this backend uses cloud.fal"` |
 | `ModelAvailability` | yes | no | A selected checkpoint/LoRA may only be downloaded to one backend | The form references `model:<id>` values AND at least one backend of the engine has been indexed | `"does not hold every selected model"` |
 | `RequirementsEligibility` | yes | yes | A backend can lack something the preset needs (a ComfyUI custom node, a model file) — see [Preset Authoring Guide](presets.md) "Requirements" | The preset declares `requirements:` AND a requirements cache is wired | `"missing requirement(s): FaceDetailer node"` (dropped) / `"requirements not yet checked"` (kept, refresh scheduled) / `"requirements satisfied"` |
 | `Preference` | no | yes | Explains which survivor the final pick will choose, without re-deciding it | At least one candidate survived | `"default backend for this engine"` / `"highest priority (5) among eligible backends"` |
@@ -102,7 +104,7 @@ blocks the chain on live work. See "Requirements interplay" below.
 **Single backend.** One enabled `native` backend, no model refs, no requirements. Every rule
 after `EnabledForEngine` is a no-op; `Preference` annotates it as the only survivor (there being no
 other candidate to prefer over); the final pick returns it. `rule_trace` shows `before == after == 1`
-for all four rules.
+for all five rules.
 
 **Two ComfyUI backends, one lacking a node.** `comfy-a` and `comfy-b` are both enabled for `comfyui`;
 the preset's `requirements:` includes `{type: comfyui_node, class_type: FaceDetailer}`, and the
@@ -129,6 +131,7 @@ renders the whole decision as plain JSON:
   ],
   "rule_trace": [
     {"rule": "enabled_for_engine", "before": 0, "after": 2, "ms": 0.04},
+    {"rule": "preset_driver", "before": 2, "after": 2, "ms": 0.01},
     {"rule": "model_availability", "before": 2, "after": 2, "ms": 0.12},
     {"rule": "requirements_eligibility", "before": 2, "after": 1, "ms": 0.08},
     {"rule": "preference", "before": 1, "after": 1, "ms": 0.005}

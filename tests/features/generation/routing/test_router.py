@@ -76,7 +76,7 @@ class TestGenerationRouterChain:
         decision = await router.route(RoutingRequest(engine="native", preset=Mock(requirements=[])))
 
         assert [t.rule for t in decision.rule_trace] == [
-            "enabled_for_engine", "model_availability", "requirements_eligibility", "preference",
+            "enabled_for_engine", "preset_driver", "model_availability", "requirements_eligibility", "preference",
         ]
         assert all(t.ms >= 0 for t in decision.rule_trace)
         # The seeding rule goes from 0 -> 1; nothing else narrows this scenario.

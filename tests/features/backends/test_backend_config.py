@@ -44,5 +44,18 @@ class TestSchedulingSettings(unittest.TestCase):
         self.assertIn("scheduling_max_consecutive_same_model", BASE_CONFIG_FIELDS)
 
 
+class TestEffectiveDriver(unittest.TestCase):
+
+    def test_a_configured_driver_is_the_effective_driver(self):
+        config = NativeBackendConfig(id="b1", name="B", driver="native.remote")
+
+        self.assertEqual(config.effective_driver, "native.remote")
+
+    def test_a_blank_driver_falls_back_to_the_engine(self):
+        config = NativeBackendConfig.model_construct(id="b1", name="B", engine="native", driver="")
+
+        self.assertEqual(config.effective_driver, "native")
+
+
 if __name__ == "__main__":
     unittest.main()

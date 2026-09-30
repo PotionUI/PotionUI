@@ -16,7 +16,7 @@ from typing import Any, Dict
 from src.features.presets.linter import PresetLinter
 
 
-def get_presets_lint(preset_loader) -> Dict[str, Any]:
+def get_presets_lint(preset_loader, registered_drivers=None) -> Dict[str, Any]:
     """Get preset schema validation errors plus a full lint run.
 
     Returns:
@@ -34,6 +34,7 @@ def get_presets_lint(preset_loader) -> Dict[str, Any]:
         [str(p) for p in preset_loader.all_preset_roots()],
         plugin_manifests=plugin_manifests,
         shared_path=preset_loader.shared_path,
+        registered_drivers=registered_drivers,
     )
     issues = linter.lint()
 

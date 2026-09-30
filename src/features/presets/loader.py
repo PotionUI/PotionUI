@@ -313,6 +313,7 @@ class PresetTemplateLoader:
             speed_profiles=speed_profiles,
             base_path=str(base_path),
             engine=manifest.engine,
+            driver=manifest.driver,
             media=manifest.media.model_dump(exclude_none=True) if manifest.media else None,
             styles=styles,
             styles_preview=styles_preview,

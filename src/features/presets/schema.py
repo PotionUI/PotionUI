@@ -780,6 +780,21 @@ def _validate_prompt_syntax(prompt_syntax: Dict[str, List[PromptSyntaxSpec]]) ->
 # ---------------------------------------------------------------------------
 
 
+PRESET_DRIVER_RE = re.compile(r"^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_-]*$")
+
+
+def _driver_problems(engine: str, driver: Optional[str]) -> List[str]:
+    if driver is None:
+        if engine == "cloud":
+            return ["driver is required when engine is 'cloud' (e.g. 'cloud.openrouter')"]
+        return []
+    if not PRESET_DRIVER_RE.match(driver):
+        return [f"driver '{driver}' must look like '<engine>.<name>' (e.g. 'cloud.openrouter')"]
+    if not driver.startswith(f"{engine}."):
+        return [f"driver '{driver}' must start with the preset's engine ('{engine}.')"]
+    return []
+
+
 class PresetManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -789,6 +804,7 @@ class PresetManifest(BaseModel):
     version: str
     category: Literal["image", "video", "audio", "3d", "utility"]
     engine: str  # Engine this preset's pipes speak, e.g. "native" or "comfyui"
+    driver: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     vars: Dict[str, Any] = Field(default_factory=dict)
     # Admin-configurable knobs this preset exposes, e.g.
@@ -834,6 +850,7 @@ class PresetManifest(BaseModel):
             problems.append("engine must be a non-empty string (e.g. 'native' or 'comfyui')")
         if not self.modes:
             problems.append("modes must be a non-empty list")
+        problems.extend(_driver_problems(self.engine, self.driver))
         if problems:
             raise ValueError("; ".join(problems))
         return self

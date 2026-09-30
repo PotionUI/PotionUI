@@ -79,6 +79,7 @@ class FilePresetRepository:
             category=preset_template.category,
             source=source,
             engine=preset_template.engine,
+            driver=preset_template.driver,
             media=media,
             styles=styles,
             vars=preset_template.vars or {},

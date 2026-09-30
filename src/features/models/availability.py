@@ -13,7 +13,7 @@ See docs/models.md.
 from typing import Dict, List, Optional, Set
 
 from src.platform.observability.logger import logger
-from src.platform.filesystem.model_types import CHECKPOINT_MODEL_TYPE, DIFFUSION_MODEL_TYPE
+from src.platform.filesystem.model_types import CHECKPOINT_MODEL_TYPE, DIFFUSION_MODEL_TYPE, VIRTUAL_MODEL_TYPES
 from src.features.models.availability_repository import (
     model_availability_repo,
 )
@@ -42,6 +42,9 @@ def models_for_engine(
     model_repository=None,
     admin: bool = False,
     user_allowed_model_ids: Optional[List[str]] = None,
+    driver: Optional[str] = None,
+    tasks: Optional[List[str]] = None,
+    cloud_catalog=None,
     **list_kwargs,
 ) -> List[Dict]:
     """Every model loadable by at least one enabled backend of `engine`.
@@ -66,6 +69,8 @@ def models_for_engine(
         model_repository = model_repo
 
     engine_backends = backend_registry.get_backends_for_engine(engine)
+    if driver:
+        engine_backends = [b for b in engine_backends if b.config.effective_driver == driver]
     backend_ids = sorted({b.backend_id for b in engine_backends})
     if not backend_ids:
         if engine not in _warned_no_backend_for_engine:
@@ -101,6 +106,19 @@ def models_for_engine(
             allowed_model_ids = [m for m in allowed_model_ids if m in allowed_set]
             if not allowed_model_ids:
                 return []
+
+    if tasks and model_type in VIRTUAL_MODEL_TYPES:
+        if cloud_catalog is None:
+            from src.features.cloud.repository import CloudCatalogRepository
+            cloud_catalog = CloudCatalogRepository()
+        task_model_ids = cloud_catalog.model_ids_for_tasks(backend_ids, list(tasks))
+        if allowed_model_ids is None:
+            allowed_model_ids = task_model_ids
+        else:
+            task_set = set(task_model_ids)
+            allowed_model_ids = [m for m in allowed_model_ids if m in task_set]
+        if not allowed_model_ids:
+            return []
 
     extract_from_checkpoints = model_type == DIFFUSION_MODEL_TYPE and bool(
         backend_registry.engine_extracts_diffusion_model_from_checkpoint(engine)

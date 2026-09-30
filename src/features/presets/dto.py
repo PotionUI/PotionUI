@@ -30,6 +30,7 @@ class PresetInfo(BaseModel):
     category: Optional[str] = None
     source: Optional[str] = None
     engine: Optional[str] = None
+    driver: Optional[str] = None
     media: Optional[dict] = None
     # Curated styles from `styles.yml` (docs/presets/manifest.md "Styles"); [] when the
     # preset ships none. See `file_repository.preset_to_info`'s

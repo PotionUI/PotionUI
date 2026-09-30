@@ -48,7 +48,7 @@ class CloudCatalog:
         return backend
 
     def _provider_class(self, config) -> Optional[type[CloudProvider]]:
-        backend_class = self.backend_registry.get_registered_backend_types().get(config.driver or config.engine)
+        backend_class = self.backend_registry.get_registered_backend_types().get(config.effective_driver)
         return getattr(backend_class, "provider_class", None)
 
     def list_entries(

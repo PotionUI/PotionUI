@@ -13,6 +13,7 @@ from src.features.generation.routing.rules import (
     EnabledForEngine,
     ModelAvailability,
     Preference,
+    PresetDriver,
     RequirementsEligibility,
 )
 
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 # Fixed order - see this module's and each rule's docstring for why.
 BUILTIN_RULES: List[RoutingRule] = [
     EnabledForEngine(),
+    PresetDriver(),
     ModelAvailability(),
     RequirementsEligibility(),
     Preference(),

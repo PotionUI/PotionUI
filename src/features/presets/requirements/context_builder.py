@@ -61,7 +61,7 @@ def _resolve_backend(backend_registry: Optional[BackendRegistry], engine: str) -
     return RequirementBackendInfo(
         id=config.id,
         engine=config.engine,
-        driver=config.driver or config.engine,
+        driver=config.effective_driver,
         config=config,
         name=config.name,
         execution_device=_resolve_execution_device(backend),
@@ -81,7 +81,7 @@ def backend_infos_for_engine(backend_registry: Optional[BackendRegistry], engine
         RequirementBackendInfo(
             id=backend.backend_id,
             engine=backend.engine,
-            driver=backend.config.driver or backend.engine,
+            driver=backend.config.effective_driver,
             config=backend.config,
             name=backend.name,
             execution_device=_resolve_execution_device(backend),

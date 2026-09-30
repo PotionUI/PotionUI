@@ -124,6 +124,10 @@ class BaseBackendConfig(BaseModel):
             self.driver = self.engine
         return self
 
+    @property
+    def effective_driver(self) -> str:
+        return self.driver or self.engine
+
     @classmethod
     def engine_fields(cls) -> List[Dict[str, Any]]:
         """

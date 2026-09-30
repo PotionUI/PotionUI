@@ -38,6 +38,22 @@ class EnabledForEngine:
         return [Candidate(backend=b) for b in backends]
 
 
+class PresetDriver:
+    name = "preset_driver"
+
+    async def apply(
+        self, candidates: List[Candidate], request: RoutingRequest, ctx: RoutingContext
+    ) -> List[Candidate]:
+        driver = getattr(request.preset, "driver", None)
+        if not isinstance(driver, str) or not driver:
+            return candidates
+        for c in [c for c in candidates if not c.dropped]:
+            backend_driver = c.backend.config.effective_driver
+            if backend_driver != driver:
+                c.drop(f"preset requires driver {driver}; this backend uses {backend_driver}")
+        return candidates
+
+
 class ModelAvailability:
     """Drops a candidate that doesn't hold every `model:<id>` the submitted
     form references (`src.features.models.availability`). A no-op when the

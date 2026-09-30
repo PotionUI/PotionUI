@@ -30,6 +30,8 @@ class Model(BaseField):
             # Resolved tag-id list (or None = no filtering) - see resolve_field_filter_tags.
             'filter_tags': resolve_field_filter_tags(field_info['configuration'].get('filter_tags'), preset_id),
         }
+        if field_info['configuration'].get('tasks'):
+            schema['configuration']['tasks'] = list(field_info['configuration']['tasks'])
 
         # Lets the frontend source options from this preset's engine
         # (`GET /api/presets/{preset_id}/models`) instead of the global library.
@@ -170,6 +172,17 @@ class Model(BaseField):
                     "resolved value means no filtering."
                 ),
                 example="@config:checkpoint_tags"
+            ),
+            FieldConfigSpec(
+                name="tasks",
+                param_type=list,
+                default=None,
+                description=(
+                    "Cloud models only: keep the models whose provider catalog lists at least one "
+                    "of these tasks (for example txt2img or txt2video). Ignored for every other "
+                    "model type."
+                ),
+                example=["txt2img"]
             ),
         ]
 

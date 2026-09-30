@@ -93,6 +93,21 @@ class CloudCatalogRepository:
             )
             return [CloudCatalogEntry.from_row(row) for row in cursor.fetchall()]
 
+    def model_ids_for_tasks(self, backend_ids: list[str], tasks: list[str]) -> list[str]:
+        if not backend_ids or not tasks:
+            return []
+        from src.platform.database.database import db
+
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT DISTINCT m.id AS id FROM cloud_catalog c "
+                "JOIN models m ON m.model_type = ? AND m.filename = c.slug "
+                f"WHERE c.backend_id IN ({_placeholders(backend_ids)}) AND c.enabled = 1 AND c.missing_since IS NULL "
+                f"AND EXISTS (SELECT 1 FROM json_each(c.tasks) WHERE json_each.value IN ({_placeholders(tasks)}))",
+                (CLOUD_MODEL_TYPE, *backend_ids, *tasks),
+            )
+            return [row["id"] for row in cursor.fetchall()]
+
     def list_enabled(self, backend_id: str) -> list[CloudCatalogEntry]:
         from src.platform.database.database import db
 

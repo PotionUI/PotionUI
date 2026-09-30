@@ -254,6 +254,7 @@ class PresetLinter:
         requirement_checker_registry: Optional[Any] = None,
         pipe_catalog: Optional[Any] = None,
         shared_path: Optional[Path] = None,
+        registered_drivers: Optional[Any] = None,
     ):
         """`plugin_manifests`: discovered `PluginManifest`s (see
         `scripts/preset_lint.py`), used only to cross-check `preset_modes:`
@@ -279,6 +280,7 @@ class PresetLinter:
         building one from `plugin_manifests` lazily (see `_pipe_catalog`)."""
         self.paths = [Path(p) for p in paths]
         self.shared_path = Path(shared_path) if shared_path is not None else DEFAULT_SHARED_PATH
+        self.registered_drivers = frozenset(registered_drivers) if registered_drivers is not None else None
         self.plugin_manifests = plugin_manifests or []
         self._image_processor = ImageProcessor()
         # type_name -> set(declared FieldConfigSpec names) | None (no backend
@@ -492,6 +494,8 @@ class PresetLinter:
         issues.extend(self._lint_styles(preset_file))
 
         issues.extend(self._lint_engine_matches_pipes(preset_file, manifest))
+
+        issues.extend(self._lint_driver_registered(preset_file, manifest))
 
         issues.extend(self._lint_speed_profiles(preset_file, manifest))
 
@@ -999,6 +1003,20 @@ class PresetLinter:
                     )
 
         return issues
+
+    def _lint_driver_registered(self, preset_file: Path, manifest) -> List[LintIssue]:
+        if self.registered_drivers is None or not manifest.driver:
+            return []
+        if manifest.driver in self.registered_drivers:
+            return []
+        return [
+            LintIssue(
+                "warning",
+                str(preset_file),
+                f"driver '{manifest.driver}' is not registered on this instance "
+                f"(enable the plugin that provides it and restart)",
+            )
+        ]
 
     def _lint_engine_matches_pipes(self, preset_file: Path, manifest) -> List[LintIssue]:
         """

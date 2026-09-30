@@ -15,8 +15,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.features.models.attributes.well_known import WellKnownModelAttribute as WellKnownModelMetadataField
-from src.platform.filesystem.model_types import MODEL_DIRECTORY_ALIASES, type_for_folder_name
+from src.platform.filesystem.model_types import MODEL_DIRECTORY_ALIASES, MODEL_TYPES, type_for_folder_name
 from src.platform.plugins.runtime_registries import get_container
+from src.platform.runtime.model_headers import (
+    ClassifierMatch,
+    FamilyMatch,
+    HeaderView,
+    ModelClassifierDefinition,
+    TensorInfo,
+    model_classifier_registry as _model_classifier_registry,
+)
 
 __all__ = [
     "WellKnownModelMetadataField",
@@ -27,7 +35,33 @@ __all__ = [
     "model_for_path",
     "MODEL_DIRECTORY_ALIASES",
     "type_for_folder_name",
+    "MODEL_TYPES",
+    "HeaderView",
+    "TensorInfo",
+    "FamilyMatch",
+    "ModelClassifierCatalog",
+    "model_classifier_registry",
 ]
+
+
+class ModelClassifierCatalog:
+    def __init__(self, registry) -> None:
+        self._registry = registry
+
+    def get(self, key: str) -> Optional[ModelClassifierDefinition]:
+        return self._registry.get(key)
+
+    def definitions(self) -> tuple:
+        return self._registry.definitions()
+
+    def fingerprint(self) -> str:
+        return self._registry.fingerprint()
+
+    def classify(self, view: HeaderView) -> Optional[ClassifierMatch]:
+        return self._registry.classify(view)
+
+
+model_classifier_registry = ModelClassifierCatalog(_model_classifier_registry)
 
 
 def model_type_dirs(model_type: str) -> List[Path]:

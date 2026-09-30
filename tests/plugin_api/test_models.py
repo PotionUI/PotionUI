@@ -110,3 +110,27 @@ def test_model_for_path_returns_none_when_unresolvable():
         result = model_for_path("/somewhere/else.safetensors")
 
     assert result is None
+
+
+def test_classifier_exports_are_available():
+    from src.platform.filesystem.model_types import MODEL_TYPES as core_types
+    from src.plugin_api import models as api
+
+    for name in ("HeaderView", "TensorInfo", "FamilyMatch", "MODEL_TYPES", "model_classifier_registry"):
+        assert name in api.__all__
+        assert hasattr(api, name)
+    assert api.MODEL_TYPES == core_types
+
+
+def test_the_classifier_registry_view_is_read_only():
+    from src.plugin_api.models import FamilyMatch, HeaderView, TensorInfo, model_classifier_registry
+
+    assert not hasattr(model_classifier_registry, "register")
+    assert not hasattr(model_classifier_registry, "unregister")
+    assert not hasattr(model_classifier_registry, "unregister_source")
+    keys = {d.key for d in model_classifier_registry.definitions()}
+    assert {"core.native_dit", "core.sd_unet", "core.gguf_arch"} <= keys
+    assert model_classifier_registry.get("core.native_dit").source == "core"
+    view = HeaderView("safetensors", {"a": TensorInfo("F16", (1,))})
+    assert model_classifier_registry.classify(view) is None
+    assert FamilyMatch("x").family == "x"

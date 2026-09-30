@@ -63,7 +63,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Compute** — renting GPU compute for a Remote Native worker | `.compute` | `ComputeProvisioner`, `ComputeProvisionerError`, `ComputeStatus`, `ProvisionRequest`, `ProvisionResult`, `ProvisionProgress`, `ProgressReporter`, `ComputeFieldDescriptorV1`, `ComputeFieldOptionV1`, `COMPUTE_STATES`, `STATE_*`, `STAGE_*`, `COMPUTE_HOOKS` |
 | **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `Settings`, `SettingRepository`, `PluginRepository` |
 | **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel` |
-| **Models** — model metadata fields, provider links, and resolving a model's file/folder across roots | `.models` | `WellKnownModelMetadataField`, `get_model_provider_info`, `model_type_dirs`, `model_write_dir`, `resolve_model_file`, `model_for_path`, `MODEL_DIRECTORY_ALIASES`, `type_for_folder_name` |
+| **Models** — model metadata fields, provider links, and resolving a model's file/folder across roots | `.models` | `WellKnownModelMetadataField`, `get_model_provider_info`, `model_type_dirs`, `model_write_dir`, `resolve_model_file`, `model_for_path`, `MODEL_DIRECTORY_ALIASES`, `type_for_folder_name`, `MODEL_TYPES`, `HeaderView`, `TensorInfo`, `FamilyMatch`, `model_classifier_registry` (read-only) |
 | **Phrasebook** — contributing a batch tool to Find & replace | `.phrasebook` | `PhrasebookBatchOperation`, `PhrasebookBatchContext`, `BatchOutcome`, `BatchPreview`, `BatchOperationError` |
 | **Sampling** — contributing a step algorithm or a sigma schedule | `.sampling` | `SamplerDefinition`, `ScheduleDefinition`, `ScheduleContext`, `OptionSpec`, `GuidanceStrategy`, `SamplingCancelled`, `run_hooks`, `sample_euler`, `sampler_registry`, `schedule_registry` |
 
@@ -691,6 +691,48 @@ registry rather than a hardcoded enum:
 
 A `schedule` field takes the same three configuration keys against the schedule registry.
 Leaving `family`, `include` and `exclude` off shows everything registered.
+
+## Contributing a model classifier
+
+PotionUI reads the header of every safetensors or GGUF file in a folder that has header scanning
+on, and decides the model type from what it finds. A classifier teaches it a new model family:
+it looks at the tensor names and shapes and says which family the file belongs to. Core then
+works out the type (`checkpoint` when the file also carries a VAE or text encoder, otherwise
+`diffusion_model`). Files nothing recognises are listed under "Needs a type" in Admin -> Models.
+
+```yaml
+model_classifiers:
+  - key: hidream                  # unique across every classifier, core included
+    handler: "classifiers.classify_hidream"   # "module.function" in your plugin
+    label: "HiDream"
+    version: 1                    # bump when the logic changes
+    formats: [safetensors, gguf]  # header formats the classifier is offered
+    priority: 0                   # optional; higher runs first (core native families run at 100)
+```
+
+```python
+# classifiers.py, in your plugin directory
+from src.plugin_api.models import FamilyMatch, HeaderView
+
+
+def classify_hidream(view: HeaderView) -> FamilyMatch | None:
+    if "double_stream_blocks.0.block.attn1.to_q.weight" not in view.denoiser_keys:
+        return None
+    return FamilyMatch("hidream")
+```
+
+The handler gets a `HeaderView` (parsed data only: `format`, `keys`, `denoiser_keys`, `shape(key)`,
+`dtype(key)`, `denoiser_shape(key)`, `metadata`, `file_size`, `filename`; no path and no file handle)
+and returns a `FamilyMatch(family, variant=None, model_type=None)` or `None`. The first match
+wins, highest priority first. Set `model_type` only when the content rule is wrong for your
+family. An exception in a handler is logged once and treated as `None`. `transformer_extractable`
+is reserved for core families the native loader is known to handle; leave it at its default.
+
+Enabling the plugin registers its classifiers and changes the registry fingerprint, so files
+that no classifier recognised before are evaluated again at the next indexing run. Files already
+decided keep their verdict; an admin can retype them. Disabling the plugin removes its
+classifiers. `src.plugin_api.models.model_classifier_registry` is a read-only view for listing
+and looking up classifiers; there is no register call, plugins register through the manifest.
 
 ## Contributing a prompt importer
 

@@ -118,3 +118,26 @@ def test_fingerprint_ignores_registration_order():
     two.register(definition("b", constant("b")))
     two.register(definition("a", constant("a")))
     assert one.fingerprint() == two.fingerprint()
+
+
+def test_definitions_survive_an_unregister_that_lands_while_sorting():
+    registry = ModelClassifierRegistry()
+
+    class Racing(ModelClassifierDefinition):
+        @property
+        def priority(self):
+            registry.unregister("victim")
+            return 0
+
+        @priority.setter
+        def priority(self, value):
+            pass
+
+    registry.register(Racing("racer", constant("a"), "racer", 1, ("safetensors",), "test", 0))
+    registry.register(definition("victim", constant("b")))
+
+    keys = [d.key for d in registry.definitions()]
+
+    assert keys[0] == "racer"
+    assert registry.get("victim") is None
+

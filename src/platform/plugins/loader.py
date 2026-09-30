@@ -61,6 +61,7 @@ class PluginManifest:
     # Native sampling extension points: [{key, handler, label, ...}]
     samplers: List[Dict[str, Any]] = field(default_factory=list)
     schedules: List[Dict[str, Any]] = field(default_factory=list)
+    model_classifiers: List[Dict[str, Any]] = field(default_factory=list)
 
     # Frontend components
     frontend_entry: Optional[str] = None  # Path to frontend entry point
@@ -421,6 +422,7 @@ class PluginLoader:
             recipe_steps=[s.model_dump() for s in schema.recipe_steps],
             samplers=[s.model_dump() for s in schema.samplers],
             schedules=[s.model_dump() for s in schema.schedules],
+            model_classifiers=[c.model_dump() for c in schema.model_classifiers],
             frontend_entry=schema.frontend,
             manifest_path=manifest_path,
             plugin_dir=plugin_dir,

@@ -13,7 +13,7 @@ backward-compat fallback for legacy shapes.
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class PluginCategory(str, Enum):
@@ -195,6 +195,33 @@ class ScheduleSpec(BaseModel):
     description: str = ""
     owns_steps: bool = False
     requires_image_seq_len: bool = False
+
+
+class ModelClassifierSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1)
+    handler: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    version: int = Field(ge=1)
+    formats: List[str] = Field(min_length=1)
+    priority: int = 0
+
+    @field_validator("handler")
+    @classmethod
+    def _dotted_handler(cls, value: str) -> str:
+        module, _, function = value.rpartition(".")
+        if not module or not function:
+            raise ValueError("handler must be 'module.function', for example 'classifiers.classify_hidream'")
+        return value
+
+    @field_validator("formats")
+    @classmethod
+    def _known_formats(cls, value: List[str]) -> List[str]:
+        unknown = sorted(set(value) - {"safetensors", "gguf"})
+        if unknown:
+            raise ValueError(f"unknown model file format(s): {', '.join(unknown)}")
+        return value
 
 
 class RecipesRootSpec(BaseModel):
@@ -643,6 +670,7 @@ class PluginManifestSchema(BaseModel):
     # sampling core - see SamplerSpec / ScheduleSpec.
     samplers: List[SamplerSpec] = Field(default_factory=list)
     schedules: List[ScheduleSpec] = Field(default_factory=list)
+    model_classifiers: List[ModelClassifierSpec] = Field(default_factory=list)
 
     # Frontend components
     frontend: Optional[str] = None  # Path to a frontend entry point, if any

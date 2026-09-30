@@ -26,6 +26,7 @@ from src.platform.plugins.prompt_importers import PromptImporterRegistry
 from src.platform.plugins.phrasebook_ops import PhrasebookOperationRegistry
 from src.platform.plugins.recipe_steps import RecipeStepKindRegistry
 from src.platform.plugins.requirement_checkers import RequirementCheckerRegistry
+from src.platform.runtime.model_headers import ModelClassifierDefinition, model_classifier_registry
 from src.platform.plugins.sampling import (
     ANY_FAMILY,
     DuplicateSamplingEntryError,
@@ -432,6 +433,7 @@ class PluginRegistry:
             self._register_plugin_recipe_steps,
             self._register_plugin_samplers,
             self._register_plugin_schedules,
+            self._register_plugin_model_classifiers,
         ):
             error_msg = register_step(manifest)
             if error_msg:
@@ -868,6 +870,26 @@ class PluginRegistry:
 
         return None
 
+    def _register_plugin_model_classifiers(self, manifest: PluginManifest) -> Optional[str]:
+        for entry in manifest.model_classifiers:
+            handler_ref = entry['handler']
+            handler = self.loader.load_hook_handler(manifest, handler_ref)
+            if handler is None:
+                return f"Failed to load model classifier handler: {handler_ref}"
+            try:
+                model_classifier_registry.register(ModelClassifierDefinition(
+                    key=entry['key'],
+                    classify=handler,
+                    label=entry['label'],
+                    version=entry['version'],
+                    formats=tuple(entry['formats']),
+                    source=manifest.id,
+                    priority=entry.get('priority', 0),
+                ))
+            except ValueError as e:
+                return str(e)
+        return None
+
     def _rollback_partial_enable(self, plugin_id: str) -> None:
         """Tear down everything the plugin registered: hooks, field types,
         model attributes, LLM chat extensions (tools/modes/resources),
@@ -902,6 +924,7 @@ class PluginRegistry:
         if self.recipe_step_kind_registry is not None:
             self.recipe_step_kind_registry.unregister_source(plugin_id)
         self._unregister_sampling_entries(plugin_id)
+        model_classifier_registry.unregister_source(plugin_id)
         login_provider_registry.unregister_source(plugin_id)
         if self.router_mounter is not None:
             self.router_mounter.unmount(plugin_id)

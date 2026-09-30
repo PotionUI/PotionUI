@@ -10,6 +10,7 @@ from .reader import (
     read_safetensors_header,
 )
 from .registry import (
+    ClassifierMatch,
     ModelClassifierDefinition,
     ModelClassifierRegistry,
     model_classifier_registry,
@@ -29,6 +30,7 @@ def classify_header(view: HeaderView, registry: ModelClassifierRegistry | None =
 
 
 __all__ = [
+    "ClassifierMatch",
     "Components",
     "FamilyMatch",
     "HeaderResult",

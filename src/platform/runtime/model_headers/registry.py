@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
@@ -42,36 +43,40 @@ class ModelClassifierRegistry:
         self._sequence: dict[str, int] = {}
         self._counter = 0
         self._warned: set[str] = set()
+        self._lock = threading.RLock()
 
     def register(self, definition: ModelClassifierDefinition) -> None:
-        if definition.key in self._definitions:
-            raise ValueError(f"model classifier '{definition.key}' is already registered")
-        self._definitions[definition.key] = definition
-        self._sequence[definition.key] = self._counter
-        self._counter += 1
+        with self._lock:
+            if definition.key in self._definitions:
+                raise ValueError(f"model classifier '{definition.key}' is already registered")
+            self._definitions[definition.key] = definition
+            self._sequence[definition.key] = self._counter
+            self._counter += 1
 
     def unregister(self, key: str) -> None:
-        self._definitions.pop(key, None)
-        self._sequence.pop(key, None)
-        self._warned.discard(key)
+        with self._lock:
+            self._definitions.pop(key, None)
+            self._sequence.pop(key, None)
+            self._warned.discard(key)
 
     def unregister_source(self, source: str) -> None:
-        for key in [k for k, d in self._definitions.items() if d.source == source]:
-            self.unregister(key)
+        with self._lock:
+            for key in [k for k, d in self._definitions.items() if d.source == source]:
+                self.unregister(key)
 
     def get(self, key: str) -> ModelClassifierDefinition | None:
         return self._definitions.get(key)
 
     def definitions(self) -> tuple[ModelClassifierDefinition, ...]:
-        return tuple(
-            sorted(
-                self._definitions.values(),
-                key=lambda d: (-d.priority, self._sequence[d.key]),
-            )
-        )
+        with self._lock:
+            snapshot = [(d, self._sequence[d.key]) for d in self._definitions.values()]
+        snapshot.sort(key=lambda item: (-item[0].priority, item[1]))
+        return tuple(d for d, _ in snapshot)
 
     def fingerprint(self) -> str:
-        entries = sorted(f"{d.key}@{d.version}" for d in self._definitions.values())
+        with self._lock:
+            members = list(self._definitions.values())
+        entries = sorted(f"{d.key}@{d.version}" for d in members)
         return hashlib.sha1("\n".join(entries).encode("utf-8"), usedforsecurity=False).hexdigest()
 
     def classify(self, view: HeaderView) -> ClassifierMatch | None:

@@ -26,6 +26,12 @@ class BindingSpec(NamedTuple):
     model_type: str
     subdir: str
     scan_headers: Optional[bool] = None
+    write: Optional[bool] = None
+
+
+class BindingRef(NamedTuple):
+    model_type: str
+    subdir: str
 
 
 class ModelRootsError(Exception):
@@ -302,7 +308,13 @@ class ModelRootsManager:
                 return root_id
         return ordered[0]
 
-    def _hand_write_back(self, root_id: str, model_type: str) -> None:
+    def _hand_write_back(self, root_id: str, model_type: str, *, prefer_sibling: bool = False) -> None:
+        if prefer_sibling:
+            row = self._repository.get_root(root_id)
+            siblings = self._repository.bindings_for(root_id, model_type)
+            if row is not None and not row["read_only"] and siblings:
+                self._repository.set_write(root_id, model_type, siblings[0]["subdir"])
+                return
         successor = self._write_successor(model_type, root_id)
         if successor is None:
             raise NoWriteSuccessorError(model_type)
@@ -347,6 +359,10 @@ class ModelRootsManager:
         label_value = label or root_path.name or root_id
 
         write_types_set = set(write_types)
+        flagged = [spec for spec in binding_list if spec.write]
+        if len({spec.model_type for spec in flagged}) != len(flagged):
+            raise InvalidBindingError(flagged[0].model_type, flagged[0].subdir)
+        write_types_set.update(spec.model_type for spec in flagged)
         if write_types_set and read_only:
             raise RootReadOnlyRefusalError(root_id, label_value)
 
@@ -363,7 +379,9 @@ class ModelRootsManager:
             max_positions[spec.model_type] = position
 
         for model_type in write_types_set:
-            spec = next((s for s in binding_list if s.model_type == model_type), None)
+            spec = next((s for s in flagged if s.model_type == model_type), None) or next(
+                (s for s in binding_list if s.model_type == model_type), None
+            )
             if spec is None:
                 raise InvalidBindingError(model_type, "")
             target = self._binding_path(root_path, spec.subdir)
@@ -385,20 +403,27 @@ class ModelRootsManager:
         read_only: Optional[bool] = None,
         bindings: Optional[Sequence[BindingSpec]] = None,
         remove_types: Optional[Sequence[str]] = None,
+        remove_bindings: Optional[Sequence[BindingRef]] = None,
     ) -> Dict[str, Any]:
         row = self._repository.get_root(root_id)
         if row is None:
             raise RootNotFoundError(root_id)
 
         remove_types_list = [t for t in (remove_types or []) if t]
-        touches_disk = path is not None or bindings is not None or bool(remove_types_list)
+        remove_bindings_list = list(remove_bindings or [])
+        touches_disk = (
+            path is not None or bindings is not None or bool(remove_types_list) or bool(remove_bindings_list)
+        )
         if touches_disk and self._generation_active():
             raise GenerationActiveError()
 
         if root_id == HOME_ROOT_ID and read_only:
             raise HomeProtectedError(root_id, row["label"])
-        if root_id == HOME_ROOT_ID and remove_types_list:
+        if root_id == HOME_ROOT_ID and (remove_types_list or remove_bindings_list):
             raise HomeProtectedError(root_id, row["label"])
+        for ref in remove_bindings_list:
+            if self._repository.find_binding(root_id, ref.model_type, ref.subdir) is None:
+                raise InvalidBindingError(ref.model_type, ref.subdir)
 
         now = now_iso()
         new_path_str: Optional[str] = None
@@ -428,6 +453,13 @@ class ModelRootsManager:
             root_path_for_bindings = self._resolve_base(effective_path)
             self._validate_binding_targets(root_path_for_bindings, list(bindings))
             self._check_binding_nesting(row, root_path_for_bindings, list(bindings))
+            flagged = [spec for spec in bindings if spec.write]
+            if flagged and (row["read_only"] if read_only is None else read_only):
+                raise RootReadOnlyRefusalError(root_id, row["label"])
+            for spec in flagged:
+                error = _write_probe(self._binding_path(root_path_for_bindings, spec.subdir))
+                if error is not None:
+                    raise WriteProbeFailedError(root_id, error)
 
         if read_only is True:
             self._hand_back_all_writes(root_id)
@@ -450,6 +482,18 @@ class ModelRootsManager:
                     root_id, spec.model_type, spec.subdir, position, False, spec.scan_headers
                 )
                 max_positions[spec.model_type] = position
+            for spec in bindings:
+                if spec.write:
+                    self._repository.set_write(root_id, spec.model_type, spec.subdir)
+
+        if remove_bindings_list:
+            for ref in remove_bindings_list:
+                binding = self._repository.find_binding(root_id, ref.model_type, ref.subdir)
+                if binding is None:
+                    continue
+                self._repository.delete_binding(root_id, ref.model_type, ref.subdir)
+                if binding["is_write"]:
+                    self._hand_write_back(root_id, ref.model_type, prefer_sibling=True)
 
         if remove_types_list:
             current_bindings = self._repository.bindings_for_root(root_id)
@@ -526,12 +570,17 @@ class ModelRootsManager:
         self._resolver.invalidate()
         self._indexing.cancel_and_restart(trigger="roots_change")
 
-    def set_write_root(self, model_type: Optional[str], root_id: str) -> Dict[str, Any]:
+    def set_write_root(self, model_type: Optional[str], root_id: str, subdir: Optional[str] = None) -> Dict[str, Any]:
         row = self._repository.get_root(root_id)
         if row is None:
             raise RootNotFoundError(root_id)
         if row["read_only"]:
             raise RootReadOnlyRefusalError(root_id, row["label"])
+        if subdir is not None:
+            if not model_type:
+                raise InvalidBindingError("*", subdir)
+            if self._repository.find_binding(root_id, model_type, subdir) is None:
+                raise InvalidBindingError(model_type, subdir)
 
         types = [model_type] if model_type else self._types_bound_by([root_id])
         if not types:
@@ -544,8 +593,11 @@ class ModelRootsManager:
 
         root_path = self._resolve_base(row["path"])
         bindings_by_type: Dict[str, Dict[str, Any]] = {}
-        for b in self._repository.bindings_for_root(root_id):
-            bindings_by_type.setdefault(b["model_type"], b)
+        if subdir is not None:
+            bindings_by_type[model_type] = self._repository.find_binding(root_id, model_type, subdir)
+        else:
+            for b in self._repository.bindings_for_root(root_id):
+                bindings_by_type.setdefault(b["model_type"], b)
         for a_type in types:
             binding = bindings_by_type.get(a_type)
             if binding is None:
@@ -556,7 +608,7 @@ class ModelRootsManager:
                 raise WriteProbeFailedError(root_id, error)
 
         for a_type in types:
-            self._repository.set_write(root_id, a_type)
+            self._repository.set_write(root_id, a_type, subdir)
 
         self._resolver.invalidate()
         self._indexing.cancel_and_restart(trigger="roots_change")

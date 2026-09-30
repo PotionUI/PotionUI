@@ -9,10 +9,12 @@ from src.features.models.records import Model
 from src.features.models.repository import model_repo
 from src.features.models.roots import (
     BindingNestedError,
+    BindingRef,
     BindingSpec,
     DuplicateBindingError,
     InvalidBindingError,
     ModelRootsManager,
+    RootReadOnlyRefusalError,
 )
 from src.platform.database.rows import now_iso
 from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe
@@ -409,3 +411,162 @@ class TestNestingInvariant:
 
         with pytest.raises(InvalidBindingError):
             stack.manager.create_root(str(library), bindings=[BindingSpec("lora", "Nope")])
+
+
+class TestWriteFolderPerBinding:
+
+    def _write_subdirs(self, stack, root_id):
+        return [b["subdir"] for b in stack.repository.bindings_for(root_id, "lora") if b["is_write"]]
+
+    def test_the_write_flag_picks_the_folder_on_create(self, stack):
+        library = _matrix(stack)
+
+        root = stack.manager.create_root(
+            str(library),
+            bindings=[BindingSpec("lora", "Lora"), BindingSpec("lora", "LyCORIS", None, True)],
+        )
+
+        assert self._write_subdirs(stack, root["id"]) == ["LyCORIS"]
+        assert stack.resolver.write_dir("lora").path == library / "LyCORIS"
+
+    def test_write_types_alone_picks_the_first_folder_of_the_type(self, stack):
+        library = _matrix(stack)
+
+        root = _create(stack, library)
+
+        assert self._write_subdirs(stack, root["id"]) == ["Lora"]
+
+    def test_write_types_and_a_flag_agree_on_the_flagged_folder(self, stack):
+        library = _matrix(stack)
+
+        root = stack.manager.create_root(
+            str(library),
+            bindings=[BindingSpec("lora", "Lora"), BindingSpec("lora", "LyCORIS", None, True)],
+            write_types=["lora"],
+        )
+
+        assert self._write_subdirs(stack, root["id"]) == ["LyCORIS"]
+
+    def test_two_flagged_folders_of_one_type_are_refused(self, stack):
+        library = _matrix(stack)
+
+        with pytest.raises(InvalidBindingError):
+            stack.manager.create_root(
+                str(library),
+                bindings=[BindingSpec("lora", "Lora", None, True), BindingSpec("lora", "LyCORIS", None, True)],
+            )
+
+        assert stack.repository.get_root_by_path_key(str(library)) is None
+
+    def test_a_flag_on_a_read_only_root_is_refused(self, stack):
+        library = _matrix(stack)
+
+        with pytest.raises(RootReadOnlyRefusalError):
+            stack.manager.create_root(
+                str(library), bindings=[BindingSpec("lora", "Lora", None, True)], read_only=True
+            )
+
+    def test_updating_with_a_flag_moves_the_write_folder(self, stack):
+        library = _matrix(stack)
+        root = _create(stack, library)
+
+        stack.manager.update_root(root["id"], bindings=[BindingSpec("lora", "LyCORIS", None, True)])
+
+        assert self._write_subdirs(stack, root["id"]) == ["LyCORIS"]
+
+    def test_updating_can_add_a_folder_and_make_it_the_write_folder(self, stack):
+        library = _matrix(stack)
+        root = _create(stack, library)
+        (library / "Locon").mkdir()
+
+        stack.manager.update_root(root["id"], bindings=[BindingSpec("lora", "Locon", None, True)])
+
+        assert self._write_subdirs(stack, root["id"]) == ["Locon"]
+
+    def test_a_flag_on_a_read_only_root_is_refused_on_update(self, stack):
+        library = _matrix(stack)
+        root = _create(stack, library)
+        stack.manager.update_root(root["id"], read_only=True)
+
+        with pytest.raises(RootReadOnlyRefusalError):
+            stack.manager.update_root(root["id"], bindings=[BindingSpec("lora", "LyCORIS", None, True)])
+
+    def test_set_write_root_takes_a_subdir(self, stack):
+        library = _matrix(stack)
+        root = _create(stack, library)
+
+        stack.manager.set_write_root("lora", root["id"], "LyCORIS")
+
+        assert self._write_subdirs(stack, root["id"]) == ["LyCORIS"]
+        assert stack.resolver.write_dir("lora").path == library / "LyCORIS"
+
+    def test_set_write_root_without_a_subdir_uses_the_first_folder(self, stack):
+        library = _matrix(stack)
+        root = _create(stack, library)
+        stack.manager.set_write_root("lora", root["id"], "LyCORIS")
+
+        stack.manager.set_write_root("lora", root["id"])
+
+        assert self._write_subdirs(stack, root["id"]) == ["Lora"]
+
+    def test_set_write_root_refuses_a_subdir_the_root_does_not_bind(self, stack):
+        library = _matrix(stack)
+        root = _create(stack, library)
+
+        with pytest.raises(InvalidBindingError):
+            stack.manager.set_write_root("lora", root["id"], "Nope")
+        with pytest.raises(InvalidBindingError):
+            stack.manager.set_write_root(None, root["id"], "Lora")
+
+
+class TestRemoveBindings:
+
+    def test_removing_one_folder_keeps_its_sibling_and_its_files(self, stack):
+        library = _matrix(stack)
+        root = _create(stack, library)
+        _put(library / "Lora" / "a.safetensors", b"A")
+        kept = _put(library / "LyCORIS" / "c.safetensors", b"C")
+        stack.scanner.index_models(max_workers=1)
+
+        updated = stack.manager.update_root(root["id"], remove_bindings=[BindingRef("lora", "Lora")])
+
+        assert [b["subdir"] for b in updated["bindings"] if b["model_type"] == "lora"] == ["LyCORIS"]
+        assert stack.locator.path_for_model(_model_ids("c.safetensors")[0]) == kept
+        with pytest.raises(ModelFileUnavailable):
+            stack.locator.path_for_model(_model_ids("a.safetensors")[0])
+
+    def test_removing_the_write_folder_hands_writes_to_the_sibling(self, stack):
+        library = _matrix(stack)
+        root = _create(stack, library)
+
+        stack.manager.update_root(root["id"], remove_bindings=[BindingRef("lora", "Lora")])
+
+        assert stack.resolver.write_dir("lora").path == library / "LyCORIS"
+
+    def test_removing_the_only_write_folder_hands_writes_to_another_root(self, stack):
+        library = _matrix(stack)
+        root = stack.manager.create_root(
+            str(library), bindings=[BindingSpec("lora", "Lora")], write_types=["lora"]
+        )
+
+        stack.manager.update_root(root["id"], remove_bindings=[BindingRef("lora", "Lora")])
+
+        assert stack.repository.bindings_for(root["id"], "lora") == []
+        assert [b["root_id"] for b in stack.repository.list_bindings("lora") if b["is_write"]] == ["home"]
+
+    def test_an_unknown_folder_is_refused_and_nothing_is_removed(self, stack):
+        library = _matrix(stack)
+        root = _create(stack, library)
+
+        with pytest.raises(InvalidBindingError):
+            stack.manager.update_root(
+                root["id"], remove_bindings=[BindingRef("lora", "Lora"), BindingRef("lora", "Nope")]
+            )
+
+        assert len(stack.repository.bindings_for(root["id"], "lora")) == 2
+
+    def test_the_home_root_cannot_lose_folders(self, stack):
+        from src.features.models.roots import HomeProtectedError
+
+        with pytest.raises(HomeProtectedError):
+            stack.manager.update_root("home", remove_bindings=[BindingRef("lora", "loras")])

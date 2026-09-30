@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from src.features.models import root_detection
-from src.features.models.roots import BindingSpec, ModelRootsError, ModelRootsManager
+from src.features.models.roots import BindingRef, BindingSpec, ModelRootsError, ModelRootsManager
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.current_user import get_current_admin_user
 from src.platform.security.user import User
@@ -27,6 +27,8 @@ _STATUS_BY_CODE = {
     "model_roots_home_protected": 409,
     "model_roots_duplicate": 409,
     "model_roots_invalid_binding": 422,
+    "model_roots_binding_nested": 422,
+    "model_roots_duplicate_binding": 422,
     "model_roots_not_found": 404,
 }
 
@@ -35,6 +37,12 @@ class BindingRequest(BaseModel):
     model_type: str
     subdir: str
     scan_headers: Optional[bool] = None
+    write: Optional[bool] = None
+
+
+class BindingRefRequest(BaseModel):
+    model_type: str
+    subdir: str
 
 
 class BindingScanRequest(BaseModel):
@@ -61,6 +69,7 @@ class UpdateRootRequest(BaseModel):
     read_only: Optional[bool] = None
     bindings: Optional[List[BindingRequest]] = None
     remove_types: Optional[List[str]] = None
+    remove_bindings: Optional[List[BindingRefRequest]] = None
 
 
 class ReorderRootsRequest(BaseModel):
@@ -71,6 +80,7 @@ class ReorderRootsRequest(BaseModel):
 class SetWriteRootRequest(BaseModel):
     model_type: Optional[str] = None
     root_id: str
+    subdir: Optional[str] = None
 
 
 class ModelRootsController(BaseController):
@@ -99,7 +109,7 @@ class ModelRootsController(BaseController):
             root = self.manager.create_root(
                 request.path,
                 label=request.label,
-                bindings=[BindingSpec(b.model_type, b.subdir, b.scan_headers) for b in request.bindings],
+                bindings=[BindingSpec(b.model_type, b.subdir, b.scan_headers, b.write) for b in request.bindings],
                 read_only=request.read_only,
                 write_types=request.write_types,
                 idempotent=False,
@@ -116,11 +126,16 @@ class ModelRootsController(BaseController):
                 path=request.path,
                 read_only=request.read_only,
                 bindings=(
-                    [BindingSpec(b.model_type, b.subdir, b.scan_headers) for b in request.bindings]
+                    [BindingSpec(b.model_type, b.subdir, b.scan_headers, b.write) for b in request.bindings]
                     if request.bindings is not None
                     else None
                 ),
                 remove_types=request.remove_types,
+                remove_bindings=(
+                    [BindingRef(b.model_type, b.subdir) for b in request.remove_bindings]
+                    if request.remove_bindings is not None
+                    else None
+                ),
             )
         except ModelRootsError as error:
             self._raise_for(error)
@@ -151,7 +166,7 @@ class ModelRootsController(BaseController):
 
     async def set_write_root(self, request: SetWriteRootRequest) -> APIResponse:
         try:
-            root = self.manager.set_write_root(request.model_type, request.root_id)
+            root = self.manager.set_write_root(request.model_type, request.root_id, request.subdir)
         except ModelRootsError as error:
             self._raise_for(error)
         return self.success_response(data=root)

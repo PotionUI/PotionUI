@@ -330,6 +330,7 @@ PIPE_FAMILY_TITLES: Dict[str, str] = {
     "video_speed": "Adjusting video speed",
     "audio_trim": "Trimming audio",
     "output_skipper": "Finalizing",
+    "cloud_generate": "Generating in the cloud",
     "gallery": "Saving to gallery",
     "artifact": "Recording artifact",
 }

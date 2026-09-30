@@ -10,7 +10,7 @@ Implementations are single-occupancy: one run in flight per executor, which is
 why every backend gets its own.
 """
 
-from typing import Any, Callable, Dict, List, Optional, Protocol
+from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol
 
 
 class PipelineExecutor(Protocol):
@@ -22,6 +22,7 @@ class PipelineExecutor(Protocol):
         generation_outputs: Callable[[Any], None],
         generation_id: Optional[str] = None,
         cache_owner: Optional[str] = None,
+        services: Optional[Mapping[str, Any]] = None,
     ) -> Any:
         """Execute `pipes`, calling `generation_outputs` with each output.
 

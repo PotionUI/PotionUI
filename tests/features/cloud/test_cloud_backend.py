@@ -2,7 +2,7 @@ import pytest
 
 from src.features.backends.backend_config import config_class_engine
 from src.features.backends.backend_registry import BackendRegistry
-from src.features.cloud.backend import CloudBackend, CloudGenerationUnavailable
+from src.features.cloud.backend import CloudBackend
 from src.features.cloud.contracts import CloudError, CloudHealth
 from src.features.cloud.testing.fake import FakeClock, FakeCloudConfig, FakeCloudProvider
 from src.features.generation.routing.contracts import Candidate, RoutingContext, RoutingRequest
@@ -178,12 +178,6 @@ async def test_system_info_reports_catalog_counts_and_never_a_gpu(refreshed):
     assert info["provider"] == "Fake cloud"
     assert info["last_refreshed_at"] is not None
     assert not {"gpu", "vram", "gpu_info", "devices"} & set(info)
-
-
-async def test_starting_a_generation_fails_clearly_until_the_runner_exists(fake_backend):
-    with pytest.raises(CloudGenerationUnavailable, match="not available yet"):
-        await fake_backend.backend().start_generation({"generation_id": "g1", "pipes": []}, lambda output: None)
-    assert await fake_backend.backend().cancel_generation("g1") is False
 
 
 async def test_routing_fails_loudly_for_a_model_that_is_no_longer_enabled(refreshed):

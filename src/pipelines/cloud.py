@@ -36,6 +36,12 @@ class CloudRunError(Exception):
         self.retry_after_s = retry_after_s
 
 
+class CloudRunCancelled(Exception):
+    def __init__(self, *, cancel_confirmed: Optional[bool] = None) -> None:
+        super().__init__("The cloud run was cancelled")
+        self.cancel_confirmed = cancel_confirmed
+
+
 @dataclass(frozen=True)
 class CloudRunRequest:
     task: str
@@ -89,5 +95,15 @@ class CloudRunner(Protocol):
         request: CloudRunRequest,
         *,
         on_progress: Optional[ProgressCallback] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None,
+    ) -> CloudRunOutcome: ...
+
+
+class BlockingCloudRunner(Protocol):
+    def run_blocking(
+        self,
+        request: CloudRunRequest,
+        *,
+        on_progress: Optional[Callable[[CloudRunProgress], None]] = None,
         is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> CloudRunOutcome: ...

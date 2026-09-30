@@ -84,6 +84,10 @@ class FakeBehaviour:
     fail_stage: Literal["discover", "submit", "poll", "fetch"] = "submit"
     retry_after_s: Optional[float] = None
     outputs: int = 1
+    fail_times: Optional[int] = None
+    request_sent: bool = True
+    keys: list[str] = field(default_factory=list)
+    fetch_limits: list[Optional[int]] = field(default_factory=list)
     cost_usd: Decimal = Decimal("0.04")
     calls: list[str] = field(default_factory=list)
 
@@ -152,11 +156,16 @@ class FakeCloudProvider(CloudProvider):
     def _maybe_fail(self, stage: str) -> None:
         behaviour = self.behaviour
         if behaviour.fail_kind and behaviour.fail_stage == stage:
+            if behaviour.fail_times is not None:
+                if behaviour.fail_times <= 0:
+                    return
+                behaviour.fail_times -= 1
             raise CloudError(
                 behaviour.fail_kind,
                 FAKE_USER_MESSAGES[behaviour.fail_kind],
                 detail=f"scripted failure at {stage}",
                 retry_after_s=behaviour.retry_after_s,
+                request_sent=behaviour.request_sent,
             )
 
     def _result(self, job_id: str, request_count: int, modality: str) -> CloudResult:
@@ -184,6 +193,7 @@ class FakeCloudProvider(CloudProvider):
 
     async def submit(self, request: CloudRequest) -> CloudJob:
         self.behaviour.calls.append("submit")
+        self.behaviour.keys.append(request.idempotency_key)
         self._maybe_fail("submit")
         self._counter += 1
         job_id = f"fake-job-{self._counter}"
@@ -218,6 +228,7 @@ class FakeCloudProvider(CloudProvider):
 
     async def fetch(self, artifact: CloudArtifact, dest: Path, *, max_bytes: Optional[int] = None) -> Path:
         self.behaviour.calls.append("fetch")
+        self.behaviour.fetch_limits.append(max_bytes)
         self._maybe_fail("fetch")
         payload = artifact.data if artifact.data is not None else PNG_1X1
         if max_bytes is not None and len(payload) > max_bytes:
@@ -242,13 +253,19 @@ class FakeNoCancelProvider(FakeCloudProvider):
     supports_cancel: ClassVar[bool] = False
 
 
+class FakeIdempotentProvider(FakeCloudProvider):
+    key: ClassVar[str] = "fake"
+    idempotent_submit: ClassVar[bool] = True
+
+
 def build_fake_provider(
     behaviour: Optional[FakeBehaviour] = None,
     *,
     clock: Optional[FakeClock] = None,
     supports_cancel: bool = True,
+    idempotent: bool = False,
 ) -> FakeCloudProvider:
     config = FakeCloudConfig(id="fake-1", name="Fake")
     http = CloudHttp("https://fake.invalid", max_parallel=config.max_parallel)
-    provider_class = FakeCloudProvider if supports_cancel else FakeNoCancelProvider
+    provider_class = FakeIdempotentProvider if idempotent else FakeCloudProvider if supports_cancel else FakeNoCancelProvider
     return provider_class(config, http, clock=clock or FakeClock(), behaviour=behaviour)

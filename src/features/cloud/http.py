@@ -372,14 +372,19 @@ class CloudHttp:
                 ) from error
             except aiohttp.ClientError as error:
                 host = urlsplit(url).hostname or url
+                never_sent = isinstance(error, aiohttp.ClientConnectorError)
                 if is_certificate_error(error):
                     raise CloudError(
-                        "unavailable", certificate_failure_message(host), detail=scrub_text(str(error), secrets)
+                        "unavailable",
+                        certificate_failure_message(host),
+                        detail=scrub_text(str(error), secrets),
+                        request_sent=not never_sent,
                     ) from error
                 raise CloudError(
                     "unavailable",
                     f"Could not reach {host}.",
                     detail=scrub_text(f"{type(error).__name__}: {error}", secrets),
+                    request_sent=not never_sent,
                 ) from error
 
     async def _error_for(self, response: aiohttp.ClientResponse, url: str, secrets: tuple[str, ...]) -> CloudError:

@@ -9,6 +9,15 @@ export const FAILURE_ALERT_CATEGORIES: { value: string; label: string }[] = [
 	{ value: 'banned_prompt', label: 'Refused prompt' },
 	{ value: 'content_blocked', label: 'Blocked by content policy' },
 	{ value: 'content_check_unavailable', label: 'Content check unavailable' },
+	{ value: 'cloud_auth', label: 'Cloud provider key rejected' },
+	{ value: 'cloud_credits', label: 'Cloud provider out of credits' },
+	{ value: 'cloud_refused', label: 'Cloud provider refused' },
+	{ value: 'cloud_rate_limited', label: 'Cloud provider rate limited' },
+	{ value: 'cloud_invalid_request', label: 'Cloud provider rejected settings' },
+	{ value: 'cloud_unavailable', label: 'Cloud provider unavailable' },
+	{ value: 'cloud_timeout', label: 'Cloud provider timed out' },
+	{ value: 'cloud_failed', label: 'Cloud provider failed' },
+	{ value: 'cloud_expired', label: 'Cloud result expired' },
 	{ value: 'unclassified', label: 'Unclassified' }
 ];
 

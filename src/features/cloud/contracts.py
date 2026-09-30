@@ -180,6 +180,7 @@ class CloudRequest:
     params: Mapping[str, Any] = field(default_factory=dict)
     inputs: Mapping[str, list[LocalMedia]] = field(default_factory=dict)
     client_reference: str = ""
+    idempotency_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -232,7 +233,17 @@ class CloudHealth:
 
 
 class CloudError(CloudRunError):
-    pass
+    def __init__(
+        self,
+        kind: CloudErrorKind,
+        user_message: str,
+        *,
+        detail: str = "",
+        retry_after_s: Optional[float] = None,
+        request_sent: bool = True,
+    ) -> None:
+        super().__init__(kind, user_message, detail=detail, retry_after_s=retry_after_s)
+        self.request_sent = request_sent
 
 
 class CloudBackendConfig(BaseBackendConfig):
@@ -249,6 +260,7 @@ class CloudProvider(ABC):
     config_class: ClassVar[type[CloudBackendConfig]]
     data_notice: ClassVar[str] = ""
     supports_cancel: ClassVar[bool] = False
+    idempotent_submit: ClassVar[bool] = False
 
     def __init__(self, config: CloudBackendConfig, http: CloudHttp) -> None:
         self.config = config

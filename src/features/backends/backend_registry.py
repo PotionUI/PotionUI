@@ -266,6 +266,9 @@ class BackendRegistry:
         if hasattr(backend, "bind_remote_context"):
             backend.bind_remote_context(pipe_catalog=self.pipe_catalog, plugin_registry=self.plugin_registry)
 
+        if hasattr(backend, "bind_executor_factory"):
+            backend.bind_executor_factory(self.generation_engine_factory)
+
         model_locator = getattr(self, "model_locator", None)
         if model_locator is not None and hasattr(backend, "bind_model_locator"):
             backend.bind_model_locator(locator=model_locator)

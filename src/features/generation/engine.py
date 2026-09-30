@@ -2,7 +2,7 @@ import asyncio
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Mapping, Optional
 
 
 from src.pipelines.outputs import (
@@ -303,7 +303,12 @@ class GenerationEngine:
             f"cache_entries={entries} cache_keys={keys} pinned_cum_gb={pinned_note}"
         )
 
-    def _inject_built_in_services(self, pipe_class: type, pipe_input: Dict[str, Any]) -> Dict[str, Any]:
+    def _inject_built_in_services(
+            self,
+            pipe_class: type,
+            pipe_input: Dict[str, Any],
+            services: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """
         Inject built-in services (GPU, SYSTEM, MEMORY, LLM, MODELS, ASSETS)
         into pipe inputs.
@@ -329,6 +334,10 @@ class GenerationEngine:
             # Check if this is a service input (SERVICE IOType)
             if input_spec.io_type == IOType.SERVICE:
                 service_name = input_spec.name.upper()  # Services use uppercase names
+
+                if services and service_name in services:
+                    pipe_input[input_spec.name] = services[service_name]
+                    continue
 
                 # Inject appropriate service
                 if service_name == "GPU":
@@ -517,6 +526,7 @@ class GenerationEngine:
             generation_outputs: callable,
             generation_id: str = None,
             cache_owner: str = None,
+            services: Optional[Mapping[str, Any]] = None,
     ):
         # Deferred: importing the `native` package (even just its lightweight,
         # dependency-free errors module) executes its `__init__`, which pulls
@@ -732,7 +742,7 @@ class GenerationEngine:
                             logger.warning(f"[GENERATION] Could not find output {provider_pipe_name}.{provider_output_var} for input {param_name}")
 
                 # Inject built-in services (GPU, SYSTEM, MEMORY) if pipe requests them
-                pipe_input = self._inject_built_in_services(pipe_class, pipe_input)
+                pipe_input = self._inject_built_in_services(pipe_class, pipe_input, services)
 
                 # Execute pipe.before_execute hook
                 if self.plugin_registry:

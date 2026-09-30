@@ -4,6 +4,8 @@ import errno
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
+from src.pipelines.cloud import CloudRunError
+
 _CUDA_OOM_MARKERS = ("cuda out of memory", "hip out of memory")
 
 _MODEL_FILE_EXTENSIONS = (
@@ -96,6 +98,48 @@ _CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
         "Content check unavailable.",
         ("Ask your administrator to install the content check model",),
     ),
+    "cloud_auth": (
+        "The cloud provider rejected the API key.",
+        ("Ask your administrator to check the key in Administration -> Backends",),
+    ),
+    "cloud_credits": (
+        "The cloud provider account is out of credits.",
+        ("Ask your administrator to top up the provider account",),
+    ),
+    "cloud_refused": (
+        "The cloud provider refused this request.",
+        (
+            "Try a different prompt or input",
+            "Ask your administrator about the provider's content rules",
+        ),
+    ),
+    "cloud_rate_limited": (
+        "The cloud provider is rate limiting requests.",
+        ("Wait a little and try again",),
+    ),
+    "cloud_invalid_request": (
+        "The cloud provider rejected the request settings.",
+        ("Change the settings or the input files and try again",),
+    ),
+    "cloud_unavailable": (
+        "The cloud provider is temporarily unavailable.",
+        ("Try again in a few minutes",),
+    ),
+    "cloud_timeout": (
+        "The cloud provider did not finish in time.",
+        (
+            "Try again",
+            "Ask your administrator to raise the backend's time limit",
+        ),
+    ),
+    "cloud_failed": (
+        "The cloud provider could not complete the request.",
+        ("Try again", "Try a different model"),
+    ),
+    "cloud_expired": (
+        "The cloud provider's result expired before it could be downloaded.",
+        ("Try again",),
+    ),
     UNCLASSIFIED: (
         "Something went wrong while generating.",
         (
@@ -122,6 +166,8 @@ def classification_for_code(code: Optional[str]) -> ErrorClassification:
 
 
 def classify_generation_error(exc: BaseException) -> ErrorClassification:
+    if isinstance(exc, CloudRunError):
+        return classification_for_code(f"cloud_{exc.kind}")
     for category, matches in _EXCEPTION_CHECKS:
         if matches(exc):
             return classification_for_code(category)

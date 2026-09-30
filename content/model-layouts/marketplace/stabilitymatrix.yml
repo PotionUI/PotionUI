@@ -1,0 +1,39 @@
+schema: 1
+id: stabilitymatrix
+label: StabilityMatrix
+priority: 60
+sources:
+  - {title: "SharedFolderType.cs:8-61 enum names are the folder names", url: "https://github.com/LykosAI/StabilityMatrix/blob/fcfab8b7fb9da1dd35c9f8f8c5163a17d91bb074/StabilityMatrix.Core/Models/SharedFolderType.cs"}
+  - {title: "SharedFolders.cs:23-31 legacy names, :267-290 folder creation including Ultralytics/bbox and segm", url: "https://github.com/LykosAI/StabilityMatrix/blob/fcfab8b7fb9da1dd35c9f8f8c5163a17d91bb074/StabilityMatrix.Core/Helper/SharedFolders.cs"}
+  - {title: "EnumAttributes.cs:20-24 GetStringValue falls back to the enum name", url: "https://github.com/LykosAI/StabilityMatrix/blob/fcfab8b7fb9da1dd35c9f8f8c5163a17d91bb074/StabilityMatrix.Core/Extensions/EnumAttributes.cs"}
+  - {title: "SettingsManager.cs:65-66 settings.json and the Models dir or override, :341-365 portable Data/.sm-portable and library.json", url: "https://github.com/LykosAI/StabilityMatrix/blob/fcfab8b7fb9da1dd35c9f8f8c5163a17d91bb074/StabilityMatrix.Core/Services/SettingsManager.cs"}
+  - {title: "Settings.cs:288 ModelDirectoryOverride", url: "https://github.com/LykosAI/StabilityMatrix/blob/fcfab8b7fb9da1dd35c9f8f8c5163a17d91bb074/StabilityMatrix.Core/Models/Settings/Settings.cs"}
+install_dirs: [".", "Data"]
+markers:
+  - {path: .sm-portable, kind: file, weight: 4}
+  - {path: Packages, kind: dir, weight: 2}
+  - {path: settings.json, kind: file, weight: 1}
+  - {path: Models, kind: dir, weight: 1}
+min_marker_score: 3
+min_folder_evidence: 5
+models_root: ["Models"]
+config_readers:
+  - {kind: stabilitymatrix_settings_json, file: settings.json}
+folders:
+  - {path: StableDiffusion, model_type: checkpoint, write: true, scan_headers: true, weight: 3}
+  - {path: DiffusionModels, model_type: diffusion_model, write: true, weight: 3}
+  - {path: TextEncoders, model_type: text_encoder, write: true, weight: 2}
+  - {path: Lora, model_type: lora, write: true}
+  - {path: LyCORIS, model_type: lora}
+  - {path: VAE, model_type: vae, write: true}
+  - {path: Embeddings, model_type: embedding, write: true}
+  - {path: ESRGAN, model_type: upscaler, write: true}
+  - {path: RealESRGAN, model_type: upscaler}
+  - {path: ControlNet, model_type: controlnet, write: true}
+  - {path: T2IAdapter, model_type: controlnet}
+  - {path: AfterDetailer, model_type: adetailer, write: true}
+  - {path: Ultralytics/bbox, model_type: detection_bbox, write: true}
+  - {path: Ultralytics/segm, model_type: detection_segm, write: true}
+  - {path: CLIP, model_type: text_encoder, optional: true}
+  - {path: Unet, model_type: diffusion_model, scan_headers: true, optional: true}
+  - {path: TextualInversion, model_type: embedding, optional: true}

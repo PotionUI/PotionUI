@@ -1,0 +1,47 @@
+schema: 1
+id: a1111
+label: "AUTOMATIC1111 / Forge / SD.Next"
+priority: 50
+sources:
+  - {title: "A1111 modules/paths_internal.py:32 models_path", url: "https://github.com/AUTOMATIC1111/stable-diffusion-webui/blob/82a973c04367123ae98bd9abdf80d9eda9b910e2/modules/paths_internal.py"}
+  - {title: "A1111 modules/cmd_args.py:34 embeddings at the data dir, :54 and :56 ESRGAN and RealESRGAN", url: "https://github.com/AUTOMATIC1111/stable-diffusion-webui/blob/82a973c04367123ae98bd9abdf80d9eda9b910e2/modules/cmd_args.py"}
+  - {title: "A1111 modules/sd_models.py:21-22 Stable-diffusion, modules/sd_vae.py:11 VAE", url: "https://github.com/AUTOMATIC1111/stable-diffusion-webui/blob/82a973c04367123ae98bd9abdf80d9eda9b910e2/modules/sd_models.py"}
+  - {title: "A1111 extensions-builtin/Lora/preload.py:7-8 Lora and LyCORIS", url: "https://github.com/AUTOMATIC1111/stable-diffusion-webui/blob/82a973c04367123ae98bd9abdf80d9eda9b910e2/extensions-builtin/Lora/preload.py"}
+  - {title: "sd-webui-controlnet scripts/global_state.py:14 models/ControlNet", url: "https://github.com/Mikubill/sd-webui-controlnet/blob/main/scripts/global_state.py"}
+  - {title: "adetailer scripts/!adetailer.py:87 models/adetailer", url: "https://github.com/Bing-su/adetailer/blob/main/scripts/!adetailer.py"}
+  - {title: "Forge modules/cmd_args.py:29 --text-encoder-dir, modules_forge/main_entry.py:151-152 models/text_encoder", url: "https://github.com/lllyasviel/stable-diffusion-webui-forge/blob/dfdcbab685e57677014f05a3309b48cc87383167/modules_forge/main_entry.py"}
+  - {title: "Forge modules_forge/shared.py:29 ControlNet, :38 diffusers", url: "https://github.com/lllyasviel/stable-diffusion-webui-forge/blob/dfdcbab685e57677014f05a3309b48cc87383167/modules_forge/shared.py"}
+  - {title: "SD.Next modules/ui_definitions.py:477-493 folder options", url: "https://github.com/vladmandic/sdnext/blob/ff14b17c7f56f447066742f4be115771cde1a9fa/modules/ui_definitions.py"}
+  - {title: "SD.Next modules/paths.py:37-38 models_dir from config.json", url: "https://github.com/vladmandic/sdnext/blob/ff14b17c7f56f447066742f4be115771cde1a9fa/modules/paths.py"}
+install_dirs: ["."]
+markers:
+  - {path: webui.py, kind: file, weight: 2}
+  - {path: launch.py, kind: file, weight: 1}
+  - {path: modules, kind: dir, weight: 1}
+  - {path: extensions-builtin, kind: dir, weight: 1}
+  - {path: webui-user.bat, kind: file, weight: 1}
+  - {path: webui-user.sh, kind: file, weight: 1}
+min_marker_score: 4
+min_folder_evidence: 4
+variants:
+  - {label: "Forge", markers: [{path: modules_forge, kind: dir}]}
+  - {label: "SD.Next", markers: [{path: installer.py, kind: file}, {path: modules/ui_definitions.py, kind: file}]}
+  - {label: "AUTOMATIC1111", markers: [{path: modules/paths_internal.py, kind: file}]}
+models_root: ["models"]
+config_readers:
+  - {kind: a1111_commandline_args}
+  - {kind: sdnext_config_json, file: config.json}
+folders:
+  - {path: Stable-diffusion, model_type: checkpoint, write: true, scan_headers: true, weight: 3}
+  - {path: UNET, model_type: diffusion_model, write: true, scan_headers: true, optional: true}
+  - {path: text_encoder, model_type: text_encoder, write: true, optional: true}
+  - {path: Text-encoder, model_type: text_encoder, optional: true}
+  - {path: Lora, model_type: lora, write: true}
+  - {path: LyCORIS, model_type: lora}
+  - {path: VAE, model_type: vae, write: true}
+  - {path: ESRGAN, model_type: upscaler, write: true}
+  - {path: RealESRGAN, model_type: upscaler}
+  - {path: ControlNet, model_type: controlnet, write: true, optional: true}
+  - {path: adetailer, model_type: adetailer, write: true, optional: true}
+  - {path: embeddings, base: install, model_type: embedding, write: true}
+  - {path: embeddings, model_type: embedding, optional: true}

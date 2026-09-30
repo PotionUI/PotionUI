@@ -13,7 +13,8 @@ before it ships, and prints one clear pass/fail summary at the end.
     python tests/release/release_gate.py --lint-only
 
 Gates, in order:
-  1. Recipe lint          — `python scripts/recipe_lint.py` over `recipes/`.
+  1. Recipe lint          — `python scripts/recipe_lint.py` over `recipes/`, then
+     `python scripts/model_layout_lint.py` over `content/model-layouts/`.
   2. Architecture layering — `pytest tests/architecture/` (+
      `tests/scripts/test_constraints_cover_requirements.py` if present),
      matching the `layering` job in `.github/workflows/onboarding-smoke.yml`.
@@ -87,6 +88,10 @@ def gate_recipe_lint() -> bool:
     to linting `content/recipes/marketplace` + `content/recipes/local` with no
     arguments (see its `main`)."""
     return _run([sys.executable, "scripts/recipe_lint.py"], label="recipe-lint")
+
+
+def gate_model_layout_lint() -> bool:
+    return _run([sys.executable, "scripts/model_layout_lint.py"], label="model-layout-lint")
 
 
 def gate_layering() -> bool:
@@ -217,13 +222,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--lint-only",
         action="store_true",
-        help="Run only recipe-lint and preset-lint-budget.",
+        help="Run only recipe-lint, model-layout-lint and preset-lint-budget.",
     )
     args = parser.parse_args(argv)
 
     results = []
 
     results.append(("recipe-lint", PASS if gate_recipe_lint() else FAIL))
+    results.append(("model-layout-lint", PASS if gate_model_layout_lint() else FAIL))
 
     if args.lint_only:
         print(

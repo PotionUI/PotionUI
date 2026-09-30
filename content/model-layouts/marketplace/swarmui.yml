@@ -1,0 +1,36 @@
+schema: 1
+id: swarmui
+label: SwarmUI
+priority: 60
+sources:
+  - {title: "src/Core/Settings.cs:312-343 Paths ModelRoot and SD*Folder defaults", url: "https://github.com/mcmonkeyprojects/SwarmUI/blob/de7b834b4aabc6b0239acb76940833277445fe51/src/Core/Settings.cs"}
+  - {title: "src/Core/Program.cs:144 Data/Settings.fds, :531-547 model sets (Stable-Diffusion plus tensorrt, diffusion_models and unet)", url: "https://github.com/mcmonkeyprojects/SwarmUI/blob/de7b834b4aabc6b0239acb76940833277445fe51/src/Core/Program.cs"}
+  - {title: "ComfyUISelfStartBackend.cs:74 forwarded folders, :289-305 upscale_models, clip and loras mapping", url: "https://github.com/mcmonkeyprojects/SwarmUI/blob/de7b834b4aabc6b0239acb76940833277445fe51/src/BuiltinExtensions/ComfyUIBackend/ComfyUISelfStartBackend.cs"}
+install_dirs: ["."]
+markers:
+  - {path: src/SwarmUI.csproj, kind: file, weight: 4}
+  - {path: launch-windows.bat, kind: file, weight: 1}
+  - {path: launch-linux.sh, kind: file, weight: 1}
+  - {path: Data/Settings.fds, kind: file, weight: 2}
+  - {path: dlbackend, kind: dir, weight: 1}
+min_marker_score: 4
+min_folder_evidence: 5
+models_root: ["Models"]
+config_readers:
+  - {kind: swarmui_settings_fds, file: Data/Settings.fds}
+folders:
+  - {path: Stable-Diffusion, model_type: checkpoint, key: SDModelFolder, write: true, scan_headers: true, weight: 3}
+  - {path: diffusion_models, model_type: diffusion_model, write: true}
+  - {path: unet, model_type: diffusion_model, scan_headers: true}
+  - {path: Lora, model_type: lora, key: SDLoraFolder, write: true}
+  - {path: VAE, model_type: vae, key: SDVAEFolder, write: true}
+  - {path: Embeddings, model_type: embedding, key: SDEmbeddingFolder, write: true}
+  - {path: controlnet, model_type: controlnet, key: SDControlNetsFolder, write: true}
+  - {path: text_encoders, model_type: text_encoder, key: SDClipFolder, write: true}
+  - {path: clip, model_type: text_encoder, key: SDClipFolder}
+  - {path: upscale_models, model_type: upscaler, write: true}
+  - {path: ESRGAN, model_type: upscaler}
+  - {path: RealESRGAN, model_type: upscaler}
+  - {path: upscale-models, model_type: upscaler, optional: true}
+  - {path: latent_upscale_models, model_type: upscaler, optional: true}
+  - {path: yolov8, model_type: adetailer, write: true, optional: true}

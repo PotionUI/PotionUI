@@ -1,0 +1,26 @@
+schema: 1
+id: fooocus
+label: Fooocus
+priority: 50
+sources:
+  - {title: "modules/config.py:25 config.txt, :146-188 get_dir_or_set_default, :191-198 path_* defaults", url: "https://github.com/lllyasviel/Fooocus/blob/ae05379cc97bc4361ec8b4ec90193dab21be763f/modules/config.py"}
+  - {title: "entry_with_update.py:5-7 chdir to the Fooocus dir", url: "https://github.com/lllyasviel/Fooocus/blob/ae05379cc97bc4361ec8b4ec90193dab21be763f/entry_with_update.py"}
+  - {title: "readme.md:317-351 config.txt location and example", url: "https://github.com/lllyasviel/Fooocus/blob/ae05379cc97bc4361ec8b4ec90193dab21be763f/readme.md"}
+install_dirs: [".", "Fooocus"]
+markers:
+  - {path: entry_with_update.py, kind: file, weight: 3}
+  - {path: fooocus_version.py, kind: file, weight: 3}
+  - {path: launch.py, kind: file, weight: 1}
+  - {path: config.txt, kind: file, weight: 1}
+min_marker_score: 3
+match_on_folders: false
+models_root: ["models"]
+config_readers:
+  - {kind: fooocus_config_txt, file: config.txt}
+folders:
+  - {path: checkpoints, model_type: checkpoint, key: path_checkpoints, write: true}
+  - {path: loras, model_type: lora, key: path_loras, write: true}
+  - {path: embeddings, model_type: embedding, key: path_embeddings, write: true}
+  - {path: vae, model_type: vae, key: path_vae, write: true}
+  - {path: upscale_models, model_type: upscaler, key: path_upscale_models, write: true}
+  - {path: controlnet, model_type: controlnet, key: path_controlnet, write: true}

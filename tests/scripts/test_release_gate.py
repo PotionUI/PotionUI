@@ -12,6 +12,7 @@ import release_gate  # noqa: E402
 class TestLintOnly:
     def test_lint_only_skips_heavy_gates(self):
         with patch.object(release_gate, "gate_recipe_lint", return_value=True) as recipe_lint, \
+                patch.object(release_gate, "gate_model_layout_lint", return_value=True) as layout_lint, \
                 patch.object(release_gate, "gate_layering") as layering, \
                 patch.object(release_gate, "gate_setup_suite") as setup_suite, \
                 patch.object(release_gate, "gate_gpu_preset_e2e") as gpu_gate, \
@@ -20,6 +21,7 @@ class TestLintOnly:
 
         assert exit_code == 0
         recipe_lint.assert_called_once()
+        layout_lint.assert_called_once()
         lint_budget.assert_called_once()
         layering.assert_not_called()
         setup_suite.assert_not_called()
@@ -27,6 +29,7 @@ class TestLintOnly:
 
     def test_default_runs_all_gates(self):
         with patch.object(release_gate, "gate_recipe_lint", return_value=True), \
+                patch.object(release_gate, "gate_model_layout_lint", return_value=True), \
                 patch.object(release_gate, "gate_layering", return_value=True) as layering, \
                 patch.object(release_gate, "gate_setup_suite", return_value=True) as setup_suite, \
                 patch.object(release_gate, "gate_gpu_preset_e2e", return_value=release_gate.SKIP) as gpu_gate, \
@@ -40,6 +43,7 @@ class TestLintOnly:
 
     def test_lint_only_failure_propagates(self):
         with patch.object(release_gate, "gate_recipe_lint", return_value=True), \
+                patch.object(release_gate, "gate_model_layout_lint", return_value=True), \
                 patch.object(release_gate, "gate_layering") as layering, \
                 patch.object(release_gate, "gate_setup_suite") as setup_suite, \
                 patch.object(release_gate, "gate_gpu_preset_e2e") as gpu_gate, \
@@ -50,3 +54,17 @@ class TestLintOnly:
         layering.assert_not_called()
         setup_suite.assert_not_called()
         gpu_gate.assert_not_called()
+
+
+class TestModelLayoutLintGate:
+    def test_a_failing_layout_lint_fails_the_gate(self):
+        with patch.object(release_gate, "gate_recipe_lint", return_value=True), \
+                patch.object(release_gate, "gate_model_layout_lint", return_value=False), \
+                patch.object(release_gate, "gate_preset_lint_budget", return_value=True):
+            assert release_gate.main(["--lint-only"]) == 1
+
+    def test_the_gate_runs_the_lint_script(self):
+        with patch.object(release_gate, "_run", return_value=True) as run:
+            assert release_gate.gate_model_layout_lint() is True
+
+        assert run.call_args.args[0][1:] == ["scripts/model_layout_lint.py"]

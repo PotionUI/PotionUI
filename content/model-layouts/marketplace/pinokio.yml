@@ -1,0 +1,23 @@
+schema: 1
+id: pinokio
+label: Pinokio
+priority: 70
+sources:
+  - {title: "pinokiod kernel/index.js:263,295 apps under <home>/api/<app>", url: "https://github.com/pinokiocomputer/pinokiod/blob/add4a674ad1ba95bb62ec427fce519fe5bf0e9bf/kernel/index.js"}
+  - {title: "pinokiod kernel/api/fs/index.js:118-205 fs.link and fs.share drive mapping", url: "https://github.com/pinokiocomputer/pinokiod/blob/add4a674ad1ba95bb62ec427fce519fe5bf0e9bf/kernel/api/fs/index.js"}
+  - {title: "pdrive 0.0.27 index.js:196-235 move a folder into the drive and symlink it back", url: "https://www.npmjs.com/package/pdrive/v/0.0.27"}
+  - {title: "pinokiofactory/comfy install.js:11 clone into app/, :50-72 drive map", url: "https://github.com/pinokiofactory/comfy/blob/ba110479f88835d64c603044c2fe69102833fa55/install.js"}
+  - {title: "pinokiofactory/stable-diffusion-webui-forge install.js:10 clone into app/, :64-83 drive map", url: "https://github.com/pinokiofactory/stable-diffusion-webui-forge/blob/e44fda22458c495919a1c90ed9e7d5c63c37adfb/install.js"}
+  - {title: "cocktailpeanut/fooocus.pinokio install.json:6 clone into Fooocus/", url: "https://github.com/cocktailpeanut/fooocus.pinokio/blob/0eca16368496c59dfe6ed12a84046aa623ab55f2/install.json"}
+install_dirs: ["."]
+markers:
+  - {path: api, kind: dir, weight: 2}
+  - {path: drive, kind: dir, weight: 2}
+  - {path: ENVIRONMENT, kind: file, weight: 2}
+  - {path: bin, kind: dir, weight: 1}
+  - {path: pinokio.js, kind: file, weight: 4}
+  - {path: pinokio_meta.json, kind: file, weight: 1}
+min_marker_score: 4
+delegate:
+  search: ["api/*/app", "api/*/*", "app", "*"]
+  max_candidates: 32

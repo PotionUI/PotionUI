@@ -838,7 +838,8 @@ class ModelRepository:
                     assigned_group_id: Optional[str] = None, library_user_id: Optional[str] = None,
                     favorites_only: bool = False, collection_id: Optional[str] = None,
                     in_any_collection: bool = False,
-                    search_filter: Optional[ModelSearchFilter] = None) -> int:
+                    search_filter: Optional[ModelSearchFilter] = None,
+                    include_undefined: bool = False) -> int:
         """Count total models with optional tag, search, type, and access filtering"""
         rows = self._filtered_aggregate(
             "COUNT(DISTINCT m.id) AS count", "", "",
@@ -847,6 +848,7 @@ class ModelRepository:
             assigned_group_id=assigned_group_id, library_user_id=library_user_id,
             favorites_only=favorites_only, collection_id=collection_id,
             in_any_collection=in_any_collection, search_filter=search_filter,
+            include_undefined=include_undefined,
         )
         return rows[0]['count'] if rows else 0
 
@@ -872,7 +874,8 @@ class ModelRepository:
                             assigned_group_id: Optional[str] = None, library_user_id: Optional[str] = None,
                             favorites_only: bool = False, collection_id: Optional[str] = None,
                             in_any_collection: bool = False,
-                            search_filter: Optional[ModelSearchFilter] = None) -> List[Any]:
+                            search_filter: Optional[ModelSearchFilter] = None,
+                            include_undefined: bool = False) -> List[Any]:
         if allowed_model_ids is not None and len(allowed_model_ids) == 0:
             return []
 
@@ -914,6 +917,9 @@ class ModelRepository:
         if model_type:
             where_clauses.append("m.model_type = ?")
             params.append(model_type)
+        elif not include_undefined:
+            where_clauses.append("m.model_type != ?")
+            params.append(UNDEFINED_MODEL_TYPE)
         if allowed_model_ids is not None:
             where_clauses.append(f"m.id IN ({','.join('?' * len(allowed_model_ids))})")
             params.extend(allowed_model_ids)

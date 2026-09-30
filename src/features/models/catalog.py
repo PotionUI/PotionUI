@@ -80,6 +80,7 @@ class ModelCatalog:
         # Determine allowed model IDs based on user permissions
         allowed_model_ids = self.access_policy.get_allowed_model_ids(user, params.all_models)
         is_admin = user.account_type == AccountType.ADMIN
+        include_undefined = is_admin and allowed_model_ids is None
         search_filter = self._visible_search_filter(params.search_filter, is_admin)
         sort_by = params.sort_by
         if not is_admin and sort_by in USAGE_SORT_FIELDS:
@@ -106,6 +107,7 @@ class ModelCatalog:
             in_any_collection=params.in_any_collection,
             search_filter=search_filter,
             include_usage=is_admin,
+            include_undefined=include_undefined,
         )
 
         # Get total count for pagination
@@ -122,6 +124,7 @@ class ModelCatalog:
             collection_id=params.collection_id,
             in_any_collection=params.in_any_collection,
             search_filter=search_filter,
+            include_undefined=include_undefined,
         )
 
         # Get statistics
@@ -301,6 +304,7 @@ class ModelCatalog:
                 "search_filter": self._visible_search_filter(
                     facets.search_filter, user.account_type == AccountType.ADMIN
                 ),
+                "include_undefined": is_admin_unscoped,
             }
             matched_counts = self.model_repo.count_filtered_by_type(**facet_filters)
             if not is_admin_unscoped:
@@ -340,7 +344,9 @@ class ModelCatalog:
             "total": sum(matched_counts.values()),
         }
         if include_tag_counts:
-            tag_filters = dict(facet_filters or {"allowed_model_ids": allowed_model_ids})
+            tag_filters = dict(
+                facet_filters or {"allowed_model_ids": allowed_model_ids, "include_undefined": is_admin_unscoped}
+            )
             if facets is not None and facets.model_type:
                 tag_filters["model_type"] = facets.model_type
             result["tag_counts"] = self.model_repo.count_filtered_by_tag(**tag_filters)

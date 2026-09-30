@@ -29,7 +29,7 @@ const TITLECASE = {
 
 let target: HTMLDivElement;
 let component: ReturnType<typeof mount>;
-let onRunOp: ReturnType<typeof vi.fn>;
+let onRunOp: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
 
 function mountBar(extraOps: (typeof TITLECASE)[]) {
 	target = document.createElement('div');

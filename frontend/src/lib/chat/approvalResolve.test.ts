@@ -22,6 +22,7 @@ function execution(): ToolExecution {
 describe('resolveApproval', () => {
 	beforeEach(() => {
 		approveToolExecution.mockReset();
+		vi.restoreAllMocks();
 		vi.spyOn(window, 'dispatchEvent');
 	});
 

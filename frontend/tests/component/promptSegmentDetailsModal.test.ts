@@ -33,8 +33,8 @@ function segment(partial: Partial<Segment> = {}): Segment {
 
 let target: HTMLDivElement;
 let component: ReturnType<typeof mount>;
-let onClose: ReturnType<typeof import('vitest').vi.fn>;
-let onSave: ReturnType<typeof import('vitest').vi.fn>;
+let onClose: ReturnType<typeof import('vitest').vi.fn<(...args: any[]) => any>>;
+let onSave: ReturnType<typeof import('vitest').vi.fn<(...args: any[]) => any>>;
 
 async function mountModal(props: Record<string, unknown> = {}) {
 	const { vi } = await import('vitest');

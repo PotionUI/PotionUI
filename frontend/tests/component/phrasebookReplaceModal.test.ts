@@ -53,8 +53,8 @@ const EMPTY_PREVIEW = { items: [], changed: 0, unchanged: ['v1', 'v2'] };
 
 let target: HTMLDivElement;
 let component: ReturnType<typeof mount>;
-let onClose: ReturnType<typeof vi.fn>;
-let onApplied: ReturnType<typeof vi.fn>;
+let onClose: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+let onApplied: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
 
 function mountModal() {
 	target = document.createElement('div');

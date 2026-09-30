@@ -106,8 +106,8 @@ const CONTEXT: MediaToolContext = {
 
 let target: HTMLDivElement;
 let component: ReturnType<typeof mount> | undefined;
-let onClose: ReturnType<typeof vi.fn>;
-let onDone: ReturnType<typeof vi.fn>;
+let onClose: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+let onDone: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
 
 async function mountModal() {
 	target = document.createElement('div');

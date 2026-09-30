@@ -53,8 +53,8 @@ function versionPayload(version: string) {
 }
 
 describe('stores/historyVersionWatcher', () => {
-	let fetchVersion: ReturnType<typeof vi.fn>;
-	let reload: ReturnType<typeof vi.fn>;
+	let fetchVersion: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+	let reload: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
 	let visible: boolean;
 	let page: number;
 	let watcher: HistoryVersionWatcher;

@@ -29,6 +29,10 @@ vi.mock('$lib/utils/storage', () => ({
 	storage: { get: vi.fn().mockReturnValue(null), set: vi.fn(), remove: vi.fn() }
 }));
 
+vi.mock('$lib/components/form-fields/mediaLoaderProbe', () => ({
+	probeMediaFile: vi.fn().mockResolvedValue({})
+}));
+
 const { default: MediaLoaderField } = await import(
 	'$lib/components/form-fields/MediaLoaderField.svelte'
 );

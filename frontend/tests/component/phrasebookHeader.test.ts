@@ -52,8 +52,8 @@ function buttonByText(text: string, root: ParentNode = document): HTMLButtonElem
 
 let target: HTMLDivElement;
 let component: ReturnType<typeof mount>;
-let onChange: ReturnType<typeof vi.fn>;
-let onClear: ReturnType<typeof vi.fn>;
+let onChange: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+let onClear: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
 
 function mountHeader(filters = defaultFilters(), extra: Record<string, unknown> = {}) {
 	target = document.createElement('div');

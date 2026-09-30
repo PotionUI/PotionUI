@@ -50,7 +50,7 @@ describe('fetchAndCache', () => {
 
 	it('still returns the network response when cache.put throws (e.g. QuotaExceededError)', async () => {
 		const cache = makeFakeCache();
-		(cache.put as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+		(cache.put as ReturnType<typeof vi.fn<(...args: any[]) => any>>).mockRejectedValueOnce(
 			new DOMException('quota exceeded', 'QuotaExceededError')
 		);
 		const fetchImpl = vi.fn().mockResolvedValue(new Response('body', { status: 200 }));
@@ -197,7 +197,7 @@ describe('install/activate lifecycle (modeled with the runtime helpers)', () => 
 	async function runInstall(
 		caches: ReturnType<typeof makeFakeCacheStorage>,
 		cacheName: string,
-		fetchImpl: ReturnType<typeof vi.fn>
+		fetchImpl: ReturnType<typeof vi.fn<(...args: any[]) => any>>
 	): Promise<void> {
 		const cache = await caches.open(cacheName);
 		await precacheShell(cache, [], '/', fetchImpl);

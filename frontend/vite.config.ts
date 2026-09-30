@@ -1,5 +1,5 @@
 import { sveltekit } from '@sveltejs/kit/vite';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 const backendPort = process.env.BACKEND_PORT || '7680';
 const frontendPort = parseInt(process.env.FRONTEND_PORT || '7681', 10);

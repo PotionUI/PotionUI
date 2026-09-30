@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import type { Writable } from 'svelte/store';
 import type { ChipData, SavedSegment, SegmentCategory } from '$lib/types/segments';
 
@@ -86,7 +86,7 @@ async function settle() {
 }
 
 let mounted: ReturnType<typeof mountWorkspace> | undefined;
-let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+let consoleErrorSpy: MockInstance<typeof console.error>;
 let windowErrors: ErrorEvent[];
 let onWindowError: (event: ErrorEvent) => void;
 

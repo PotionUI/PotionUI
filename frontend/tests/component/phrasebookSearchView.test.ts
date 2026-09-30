@@ -90,8 +90,8 @@ async function settle() {
 
 let target: HTMLDivElement;
 let component: ReturnType<typeof mount>;
-let onClearQuery: ReturnType<typeof vi.fn>;
-let onRerun: ReturnType<typeof vi.fn>;
+let onClearQuery: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+let onRerun: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
 
 function mountView(filters = { ...defaultFilters(), query: 'dog' }) {
 	target = document.createElement('div');

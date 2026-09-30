@@ -3,8 +3,8 @@ import { applyFieldErrorFix, type FormFieldErrorActions } from './fieldErrorActi
 import { deriveFieldErrorFix } from '$lib/utils/formValidationErrors';
 
 function fakeActions(): FormFieldErrorActions & {
-	setFieldValue: ReturnType<typeof vi.fn>;
-	clearFields: ReturnType<typeof vi.fn>;
+	setFieldValue: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+	clearFields: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
 } {
 	return { setFieldValue: vi.fn(), clearFields: vi.fn() };
 }

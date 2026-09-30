@@ -46,6 +46,10 @@ MODEL_TYPE_TO_DIRECTORY = {model_type: directory for directory, model_type in DI
 MODEL_DIRECTORY_NAMES = tuple(DIRECTORY_TO_MODEL_TYPE.keys())
 MODEL_TYPES = tuple(DIRECTORY_TO_MODEL_TYPE.values())
 
+CLOUD_MODEL_TYPE = 'cloud'
+VIRTUAL_MODEL_TYPES = (CLOUD_MODEL_TYPE,)
+PICKABLE_MODEL_TYPES = (*MODEL_TYPES, *VIRTUAL_MODEL_TYPES)
+
 MODEL_DIRECTORY_ALIASES = {
     'checkpoints': ('Stable-diffusion',),
     'loras': ('Lora', 'LyCORIS'),

@@ -17,6 +17,7 @@ from .backend_config import (
 )
 from src.platform.observability.logger import logger
 from src.features.backends.hooks import BACKEND_HOOKS
+from src.features.cloud.backend import cloud_backend_class
 
 
 class NoBackendForEngineError(RuntimeError):
@@ -109,7 +110,11 @@ class BackendRegistry:
             )
 
             if success or context:
-                plugin_backend_types = context.data.get('backend_types', {})
+                cloud_backend_types = {
+                    driver: cloud_backend_class(provider_class)
+                    for driver, provider_class in context.data.get('cloud_providers', {}).items()
+                }
+                plugin_backend_types = {**context.data.get('backend_types', {}), **cloud_backend_types}
                 plugin_config_types = context.data.get('config_types', {})
 
                 self._registered_backend_types.update(plugin_backend_types)

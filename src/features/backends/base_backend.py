@@ -111,6 +111,8 @@ class BaseBackend(ABC):
     # question and predate the instance-level resolution below.
     execution_device: ClassVar[ExecutionDevice] = "unestablished"
 
+    authoritative_listing: ClassVar[bool] = False
+
     def __init__(self, backend_config):
         self.config = backend_config
         self.backend_id = backend_config.id

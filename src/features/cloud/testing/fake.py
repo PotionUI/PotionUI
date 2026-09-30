@@ -140,11 +140,11 @@ class FakeCloudProvider(CloudProvider):
         config: CloudBackendConfig,
         http: CloudHttp,
         *,
-        clock: Any,
+        clock: Any = None,
         behaviour: Optional[FakeBehaviour] = None,
     ) -> None:
         super().__init__(config, http)
-        self.clock = clock
+        self.clock = clock if clock is not None else FakeClock()
         self.behaviour = behaviour or FakeBehaviour()
         self._cancelled: set[str] = set()
         self._counter = 0

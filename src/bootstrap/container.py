@@ -148,6 +148,7 @@ if TYPE_CHECKING:
     from src.features.llm.trace_recorder import ChatCallTraceRecorder
     from src.platform.websocket.connection_hub import ConnectionHub
     from src.platform.websocket.download_connection_hub import DownloadConnectionHub
+    from src.features.cloud.catalog import CloudCatalog
     from src.features.models.repository import ModelRepository
     from src.features.tags.repository import TagRepository
     from src.features.model_library.repository.model_collection_repository import ModelCollectionRepository
@@ -361,6 +362,7 @@ class AppContainer:
     tag_repository: "TagRepository"
     model_index_manager: ModelIndexCollaborators
     model_controller: "ModelController"
+    cloud_catalog: "CloudCatalog"
     model_collection_repository: "ModelCollectionRepository"
     user_model_meta_repository: "UserModelMetaRepository"
     model_collection_controller: "ModelCollectionController"
@@ -1217,6 +1219,17 @@ def build_container() -> AppContainer:
         attribute_definition_repository=attribute_definition_repository,
         model_attributes_manager=model_attributes_manager,
         content_safety=content_safety,
+    )
+
+    from src.features.cloud.catalog import CloudCatalog
+    from src.features.cloud.repository import CloudCatalogRepository
+    from src.features.models.backend_indexer import backend_model_indexer as _cloud_backend_model_indexer
+
+    cloud_catalog = CloudCatalog(
+        backend_registry=backend_registry,
+        repository=CloudCatalogRepository(),
+        model_repository=model_repository,
+        backend_indexer=_cloud_backend_model_indexer,
     )
 
     # Tag components

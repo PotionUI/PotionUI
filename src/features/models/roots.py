@@ -17,7 +17,12 @@ from src.platform.filesystem.model_roots import (
     validate_rel_path,
 )
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
-from src.platform.filesystem.model_types import HEADER_CLASSIFIED_TYPES, MODEL_TYPE_TO_DIRECTORY, MODEL_TYPES
+from src.platform.filesystem.model_types import (
+    HEADER_CLASSIFIED_TYPES,
+    MODEL_TYPE_TO_DIRECTORY,
+    MODEL_TYPES,
+    VIRTUAL_MODEL_TYPES,
+)
 from src.platform.settings.repository import SettingRepository
 from src.platform.util.ids import generate_ulid
 
@@ -235,6 +240,8 @@ class ModelRootsManager:
 
     def _validate_binding_targets(self, root_path: Path, bindings: Sequence[BindingSpec]) -> None:
         for spec in bindings:
+            if spec.model_type in VIRTUAL_MODEL_TYPES:
+                raise InvalidBindingError(spec.model_type, spec.subdir)
             if spec.scan_headers:
                 _require_header_type(spec.model_type, spec.subdir)
             target = self._binding_path(root_path, spec.subdir)

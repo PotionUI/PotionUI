@@ -17,6 +17,7 @@ from src.platform.plugins.hooks import execute_hook
 from src.features.models.hooks import MODEL_INDEX_HOOKS
 from src.features.models.repository import ModelRepository
 from src.features.tags.repository import TagRepository
+from src.platform.filesystem.model_types import VIRTUAL_MODEL_TYPES
 from src.platform.filesystem.storage_driver import FileStorageDriver
 from src.platform.plugins import PluginRegistry
 from src.platform.settings.settings import Settings
@@ -55,6 +56,11 @@ class ModelMetadataEditor:
         model = self.model_repo.get_by_id(model_id, include_providers=False)
         if not model:
             raise ModelNotFoundException(f"Model '{model_id}' not found")
+
+        if model.model_type in VIRTUAL_MODEL_TYPES:
+            raise ModelIndexingException(
+                f"'{model.filename}' is offered by a provider; disable it in the backend's catalog instead of deleting it"
+            )
 
         hook_data, blocked = execute_hook(
             self.plugins,

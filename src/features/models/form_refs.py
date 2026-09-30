@@ -20,6 +20,7 @@ See docs/models.md.
 from typing import Any, Dict, List
 
 from src.platform.observability.logger import logger
+from src.features.models.availability import has_authoritative_listing
 from src.features.models.availability_repository import (
     model_availability_repo,
 )
@@ -208,7 +209,7 @@ def resolve_form_model_refs(form_data: Any, backend: Any, locator: ModelLocator)
         raise ModelRefNotAvailableError(f"{names} needs a type (Admin → Models → Needs a type).")
 
     backend_id = backend.backend_id
-    indexed = model_availability_repo.any_indexed([backend_id])
+    indexed = has_authoritative_listing([backend]) or model_availability_repo.any_indexed([backend_id])
 
     refs: Dict[str, str] = {}
     missing: List[str] = []

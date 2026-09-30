@@ -1,6 +1,11 @@
 from typing import List, Optional, Dict, Any
 from src.features.models.records import Model, ModelInfo, ModelFile, UserModel
-from src.platform.filesystem.model_types import CHECKPOINT_MODEL_TYPE, DIFFUSION_MODEL_TYPE, UNDEFINED_MODEL_TYPE
+from src.platform.filesystem.model_types import (
+    CHECKPOINT_MODEL_TYPE,
+    DIFFUSION_MODEL_TYPE,
+    UNDEFINED_MODEL_TYPE,
+    VIRTUAL_MODEL_TYPES,
+)
 from src.platform.runtime.model_headers.signatures import TRANSFORMER_EXTRACTABLE_FAMILIES
 from src.platform.util.ids import generate_ulid
 from src.features.models.search_filter import (
@@ -88,7 +93,7 @@ class ModelRepository:
 
             model = Model.from_row(row)
 
-            if include_providers:
+            if include_providers or model.model_type in VIRTUAL_MODEL_TYPES:
                 model.providers = self.get_providers(model_id)
 
             if include_tags:
@@ -159,7 +164,7 @@ class ModelRepository:
 
             model = Model.from_row(row)
 
-            if include_providers:
+            if include_providers or model.model_type in VIRTUAL_MODEL_TYPES:
                 model.providers = self.get_providers(model.id)
 
             model.files = self._get_model_files_with_urls(model.id)
@@ -394,10 +399,14 @@ class ModelRepository:
             models = [Model.from_row(row) for row in cursor.fetchall()]
             model_ids = [model.id for model in models]
 
-            if include_providers:
-                providers_by_model = self._providers_bulk(cursor, model_ids)
+            labelled_ids = model_ids if include_providers else [
+                model.id for model in models if model.model_type in VIRTUAL_MODEL_TYPES
+            ]
+            if labelled_ids:
+                providers_by_model = self._providers_bulk(cursor, labelled_ids)
                 for model in models:
-                    model.providers = providers_by_model[model.id]
+                    if model.id in providers_by_model:
+                        model.providers = providers_by_model[model.id]
 
             if include_files:
                 files_by_model = self._files_with_urls_bulk(cursor, model_ids)
@@ -721,7 +730,11 @@ class ModelRepository:
         """Get models that don't have SHA256 hashes yet"""
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
-            cursor.execute("SELECT * FROM models WHERE sha256 IS NULL ORDER BY filename")
+            placeholders = ",".join("?" for _ in VIRTUAL_MODEL_TYPES)
+            cursor.execute(
+                f"SELECT * FROM models WHERE sha256 IS NULL AND model_type NOT IN ({placeholders}) ORDER BY filename",
+                VIRTUAL_MODEL_TYPES,
+            )
             return [Model.from_row(row) for row in cursor.fetchall()]
 
     # Provider Methods
@@ -816,12 +829,14 @@ class ModelRepository:
         """Get models that don't have info from a specific provider"""
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
-            cursor.execute("""
-                SELECT m.* FROM models m
-                LEFT JOIN providers p ON m.id = p.model_id AND p.provider = ?
-                WHERE p.model_id IS NULL
-                ORDER BY m.filename
-            """, (provider,))
+            placeholders = ",".join("?" for _ in VIRTUAL_MODEL_TYPES)
+            cursor.execute(
+                "SELECT m.* FROM models m "
+                "LEFT JOIN providers p ON m.id = p.model_id AND p.provider = ? "
+                f"WHERE p.model_id IS NULL AND m.model_type NOT IN ({placeholders}) "
+                "ORDER BY m.filename",
+                (provider, *VIRTUAL_MODEL_TYPES),
+            )
             models = [Model.from_row(row) for row in cursor.fetchall()]
 
             if include_tags:

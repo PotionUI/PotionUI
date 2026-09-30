@@ -12,7 +12,7 @@ from src.features.models.exceptions import (
 from src.features.models.type_repository import ModelTypeRepository
 from src.features.models.type_resolution import folder_type_of
 from src.platform.database.rows import now_iso
-from src.platform.filesystem.model_types import CHECKPOINT_MODEL_TYPE, MODEL_TYPES
+from src.platform.filesystem.model_types import CHECKPOINT_MODEL_TYPE, MODEL_TYPES, VIRTUAL_MODEL_TYPES
 
 SOURCE_ADMIN = "admin"
 SOURCE_RECIPE = "recipe"
@@ -112,6 +112,7 @@ class ModelTypeManager:
         model = self._models.get_by_id(model_id, include_providers=False, include_tags=False)
         if model is None:
             raise ModelNotFoundException(f"Model '{model_id}' not found")
+        self._refuse_virtual(model)
         if model.is_directory:
             raise ModelTypeNotAssignableException("Directory models keep the type of their folder")
         if not model.sha256:
@@ -125,12 +126,20 @@ class ModelTypeManager:
         model = self._models.get_by_id(model_id, include_providers=False, include_tags=False)
         if model is None:
             raise ModelNotFoundException(f"Model '{model_id}' not found")
+        self._refuse_virtual(model)
         if not model.sha256:
             raise ModelTypeNotAssignableException("This model has no content hash yet, so it has no set type")
         outcome = self.reset_type(model.sha256)
         if outcome.conflicts:
             raise ModelTypeConflictException(
                 f"'{model.filename}' cannot return to its automatic type: another model already uses that name there"
+            )
+
+    @staticmethod
+    def _refuse_virtual(model: Any) -> None:
+        if model.model_type in VIRTUAL_MODEL_TYPES:
+            raise ModelTypeNotAssignableException(
+                f"'{model.filename}' is a {model.model_type} model offered by a provider, so its type cannot be changed"
             )
 
     def _raise_on_collision(self, model: Any, model_type: str) -> None:

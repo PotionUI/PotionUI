@@ -30,6 +30,10 @@ class NoBackendHoldsAllModelsError(RuntimeError):
     """No single backend of the preset's engine can load every selected model."""
 
 
+def has_authoritative_listing(backends) -> bool:
+    return any(getattr(backend, "authoritative_listing", False) is True for backend in backends)
+
+
 def models_for_engine(
     engine: str,
     backend_registry,
@@ -61,7 +65,8 @@ def models_for_engine(
         from src.features.models.repository import model_repo
         model_repository = model_repo
 
-    backend_ids = sorted({b.backend_id for b in backend_registry.get_backends_for_engine(engine)})
+    engine_backends = backend_registry.get_backends_for_engine(engine)
+    backend_ids = sorted({b.backend_id for b in engine_backends})
     if not backend_ids:
         if engine not in _warned_no_backend_for_engine:
             logger.warning(f"[AVAILABILITY] No enabled backend provides engine '{engine}'")
@@ -72,7 +77,7 @@ def models_for_engine(
     # means "nobody asked", not "nothing available". Constraining on it would leave the
     # picker blank. Show the index unbadged, exactly as before availability existed -
     # the same asymmetry the orchestrator applies when routing.
-    indexed = model_availability_repo.any_indexed(backend_ids)
+    indexed = has_authoritative_listing(engine_backends) or model_availability_repo.any_indexed(backend_ids)
     if not indexed:
         if engine not in _warned_unindexed_engine:
             logger.warning(

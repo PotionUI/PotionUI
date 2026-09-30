@@ -53,7 +53,7 @@ class ModelAvailability:
     async def apply(
         self, candidates: List[Candidate], request: RoutingRequest, ctx: RoutingContext
     ) -> List[Candidate]:
-        from src.features.models.availability import require_candidate_backends
+        from src.features.models.availability import has_authoritative_listing, require_candidate_backends
         from src.features.models.availability_repository import model_availability_repo
         from src.features.models.form_refs import collect_model_ids
 
@@ -63,7 +63,10 @@ class ModelAvailability:
 
         live = [c for c in candidates if not c.dropped]
         engine_backend_ids = [c.backend_id for c in live]
-        if not model_availability_repo.any_indexed(engine_backend_ids):
+        indexed = has_authoritative_listing([c.backend for c in live]) or model_availability_repo.any_indexed(
+            engine_backend_ids
+        )
+        if not indexed:
             if request.engine not in _warned_unindexed_engine:
                 logger.warning(
                     f"No backend for engine '{request.engine}' has been indexed; skipping "

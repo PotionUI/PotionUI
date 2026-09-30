@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any, List
 import json
 
 from src.platform.database.rows import dt_column, dt_iso
+from src.platform.filesystem.model_types import VIRTUAL_MODEL_TYPES
 
 @dataclass
 class ModelInfo:
@@ -140,6 +141,8 @@ class Model:
                 return name
 
         if self.filename:
+            if self.model_type in VIRTUAL_MODEL_TYPES:
+                return self.filename
             stem, _, _ = self.filename.rpartition('.')
             return stem or self.filename
 

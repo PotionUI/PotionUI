@@ -59,6 +59,7 @@ from src.features.cloud.redaction import redact_headers, redact_url, scrub_text
 from src.features.cloud.registration import register_cloud_provider
 
 __all__ = [
+    "CLOUD_BLOCKS",
     "CANONICAL_PARAMS",
     "CLOUD_ENGINE",
     "CloudArtifact",
@@ -123,3 +124,24 @@ __all__ = [
     "scrub_text",
     "spec_problems",
 ]
+
+CLOUD_BLOCKS = (
+    "tabs/image.yml",
+    "tabs/image_edit.yml",
+    "tabs/video.yml",
+    "tabs/img2video.yml",
+    "tabs/provider_options.yml",
+    "tabs/_image_params.yml",
+    "tabs/_video_params.yml",
+    "models/txt2img.yml",
+    "models/img_edit.yml",
+    "models/inpaint.yml",
+    "models/txt2video.yml",
+    "models/img2video.yml",
+    "models/ref2video.yml",
+    "models/video2video.yml",
+    "models/txt2audio.yml",
+    "models/txt2speech.yml",
+    "models/upscale_image.yml",
+    "models/upscale_video.yml",
+)

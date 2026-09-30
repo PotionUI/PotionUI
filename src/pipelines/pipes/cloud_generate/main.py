@@ -23,7 +23,13 @@ from src.pipelines.contracts import (
 )
 from src.pipelines.outputs import GenerationExecutionError, Icon, ParamGenerationOutput, Progress, ProgressGenerationOutput
 
-DEFAULT_ROLES = {"images": "reference", "video": "source_video", "audio": "source_audio"}
+DEFAULT_ROLES = {
+    "images": "reference",
+    "first_frame": "first_frame",
+    "last_frame": "last_frame",
+    "video": "source_video",
+    "audio": "source_audio",
+}
 RANDOM_SEED = -1
 
 
@@ -64,6 +70,7 @@ class CloudGeneratePipe(BasePipe):
             "negative_prompt": "",
             "quantity": 1,
             "params": {},
+            "options": {},
             "roles": {},
             "cloud": {},
         }
@@ -77,6 +84,7 @@ class CloudGeneratePipe(BasePipe):
             PipeConfigSpec("negative_prompt", str, "", "Negative prompt shared by every image"),
             PipeConfigSpec("quantity", int, 1, "How many outputs to generate", min_value=1, max_value=64),
             PipeConfigSpec("params", dict, {}, "Canonical generation parameters passed to the provider"),
+            PipeConfigSpec("options", dict, {}, "Provider options chosen on the form, merged under params"),
             PipeConfigSpec("roles", dict, {}, "Media role for each media input, keyed by input name"),
             PipeConfigSpec("cloud", dict, {}, "Backend identity, filled in by the cloud backend"),
         ]
@@ -86,6 +94,8 @@ class CloudGeneratePipe(BasePipe):
         return [
             PipeInputSpec("CLOUD", IOType.SERVICE, True, "Cloud run service bound to this generation"),
             PipeInputSpec("images", IOType.IMAGE, False, "Input images", True),
+            PipeInputSpec("first_frame", IOType.IMAGE, False, "First frame of a video"),
+            PipeInputSpec("last_frame", IOType.IMAGE, False, "Last frame of a video"),
             PipeInputSpec("video", IOType.VIDEO, False, "Input video files", True),
             PipeInputSpec("audio", IOType.AUDIO, False, "Input audio files", True),
             PipeInputSpec("seed", IOType.SEED, False, "Seeds for the outputs", True),
@@ -161,7 +171,9 @@ class CloudGeneratePipe(BasePipe):
         shared_negative = str(self.config.get("negative_prompt") or "")
         prompts = [_prompt_pair(entry, shared_negative) for entry in _as_list(self.config.get("prompts"))] or [("", shared_negative)]
         seeds = [int(seed) for seed in _as_list(pipe_input.input.get("seed")) if seed is not None]
-        params = dict(self.config.get("params") or {})
+        options = self.config.get("options")
+        params = {**(options if isinstance(options, dict) else {}), **(self.config.get("params") or {})}
+        params = {name: value for name, value in params.items() if value is not None and value != ""}
         task = str(self.config.get("task") or "txt2img")
 
         def build(prompt: Tuple[str, str], count: int, seed: Optional[int]) -> CloudRunRequest:

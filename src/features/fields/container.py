@@ -185,6 +185,13 @@ class Container(BaseField):
                 example=True
             ),
             FieldConfigSpec(
+                name="columns",
+                param_type=int,
+                default=2,
+                description="Row only: how many equal columns its children are laid out in (1 stacks them)",
+                example=1
+            ),
+            FieldConfigSpec(
                 name="icon_display",
                 param_type=str,
                 default="",

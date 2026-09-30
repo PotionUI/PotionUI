@@ -9,6 +9,7 @@ from typing import Any, Callable, Mapping, Optional
 
 from PIL import Image
 
+from src.features.cloud.capability_rules import params_for_task
 from src.features.cloud.clock import Clock
 from src.features.cloud.contracts import (
     TERMINAL_STATES,
@@ -175,7 +176,7 @@ class CloudRunSession:
                 count=count,
                 negative_prompt=request.negative_prompt,
                 seed=seed,
-                params=dict(request.params),
+                params=self._supported_params(spec, request),
                 inputs=cloud_inputs,
                 client_reference=self._generation_id,
                 idempotency_key=f"{self._generation_id}:{self._run_number}:{job_number}",
@@ -202,6 +203,15 @@ class CloudRunSession:
         if not entries:
             raise CloudRunError("invalid_request", "This model is not offered by the selected backend.")
         return entries[0].spec
+
+    @staticmethod
+    def _supported_params(spec: CloudModelSpec, request: CloudRunRequest) -> dict[str, Any]:
+        offered = {param.name for param in params_for_task(spec, request.task)}
+        return {
+            name: value
+            for name, value in request.params.items()
+            if name in offered and value is not None and value != ""
+        }
 
     def _local_inputs(self, spec: CloudModelSpec, request: CloudRunRequest) -> dict[str, list[LocalMedia]]:
         limits = {item.role: item for item in spec.inputs}

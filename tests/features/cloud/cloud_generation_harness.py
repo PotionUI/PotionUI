@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, Mock, patch
 
 from src.features.backends.backend_registry import BackendRegistry
+from src.features.cloud.capabilities import CloudCapabilities
 from src.features.cloud.catalog import CloudCatalog
 from src.features.cloud.repository import CloudCatalogRepository
 from src.features.cloud.testing.fake import FakeBehaviour, FakeClock, FakeCloudConfig, FakeCloudProvider
@@ -15,6 +16,7 @@ from src.features.generation.output_processor import OutputProcessor
 from src.features.generation.pipeline_builder import PipelineBuilder
 from src.features.models.backend_indexer import BackendModelIndexer
 from src.features.models.repository import model_repo
+from src.features.models.form_refs import make_model_ref
 from src.features.presets import PresetProcessor, PresetTemplateLoader
 from src.platform.templating.processor import TemplateProcessor
 from src.pipelines.catalog import PipeCatalog
@@ -104,12 +106,12 @@ MODEL_EMITTER_YML = (
 def write_preset(root: Path, emit_model: bool = False) -> Path:
     preset = root / "cloud" / "Test" / "v1"
     (preset / "modes" / "txt2img").mkdir(parents=True)
-    (preset / "preset.yml").write_text(PRESET_YML.format(preset_id=PRESET_ID))
-    (preset / "modes" / "txt2img" / "form.yml").write_text(FORM_YML)
+    (preset / "preset.yml").write_text(PRESET_YML.format(preset_id=PRESET_ID), encoding="utf-8")
+    (preset / "modes" / "txt2img" / "form.yml").write_text(FORM_YML, encoding="utf-8")
     pipeline = PIPELINE_YML
     if emit_model:
         pipeline = pipeline.replace("pipeline:\n", "pipeline:\n" + MODEL_EMITTER_YML, 1)
-    (preset / "modes" / "txt2img" / "pipeline.yml").write_text(pipeline)
+    (preset / "modes" / "txt2img" / "pipeline.yml").write_text(pipeline, encoding="utf-8")
     return preset
 
 
@@ -137,7 +139,11 @@ class CloudGeneration:
         timeout_seconds: int = 1800,
         max_parallel: int = 4,
         emit_model: bool = False,
+        scaffold_modes: Optional[List[str]] = None,
+        provider_model: str = IMAGE,
     ) -> None:
+        self.scaffold_modes = scaffold_modes
+        self.provider_model = provider_model
         self.max_parallel = max_parallel
         self.timeout_seconds = timeout_seconds
         self.prepared: List[List[Dict[str, Any]]] = []
@@ -146,7 +152,15 @@ class CloudGeneration:
         (self.storage / "generations").mkdir(parents=True)
         (self.storage / "tmp").mkdir()
         self.presets = tmp_path / "presets"
-        write_preset(self.presets, emit_model)
+        if scaffold_modes:
+            from scripts.preset_new import scaffold
+
+            scaffold(
+                self.presets / "cloud" / "Test" / "v1", PRESET_ID, "Cloud Test", "image", "cloud",
+                scaffold_modes, False, driver="cloud.fake",
+            )
+        else:
+            write_preset(self.presets, emit_model)
         self.behaviour = behaviour
         self.content_safety = content_safety
         self.clock = FakeClock()
@@ -197,8 +211,11 @@ class CloudGeneration:
             backend_indexer=BackendModelIndexer(),
         )
         await self.catalog.refresh(BACKEND_ID)
-        self.slug = next(slug for slug, known in repository.provider_ids(BACKEND_ID).items() if known == IMAGE)
+        self.slug = next(
+            slug for slug, known in repository.provider_ids(BACKEND_ID).items() if known == self.provider_model
+        )
         await self.catalog.set_enabled(BACKEND_ID, [self.slug], True)
+        self.model_ref = make_model_ref(model_repo.get_by_identity("cloud", self.slug).id)
 
         loader = PresetTemplateLoader([str(self.presets)])
         loader.load_presets()
@@ -215,19 +232,22 @@ class CloudGeneration:
             output_processor=OutputProcessor(settings=self.settings),
             preset_template_loader=loader,
             content_safety=self.content_safety,
+            cloud_capabilities=CloudCapabilities(
+                backend_registry=self.registry, repository=repository, model_repository=model_repo
+            ),
         )
         self.baseline = len(self.executors)
         return self
 
-    def request(self, prompt: str = "a cat", quantity: int = 1, **form: Any) -> Any:
+    def request(self, prompt: str = "a cat", quantity: int = 1, mode: str = "txt2img", **form: Any) -> Any:
         return SimpleNamespace(
             preset_id=PRESET_ID,
-            form_data={"model": self.slug, "quantity": quantity, **form},
+            form_data={"model": self.model_ref, "quantity": quantity, **form},
             prompt=prompt,
             negative_prompt="",
             prompts=None,
             prompt_state=None,
-            mode="txt2img",
+            mode=mode,
             form_name=None,
             backend_id=None,
             tag_ids=None,

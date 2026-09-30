@@ -1,0 +1,10 @@
+fields:
+  - name: "model"
+    type: "model"
+    label: "Image upscaling model"
+    required: true
+    ai_hint: "The hosted model that runs this generation. Only models an administrator has enabled for this provider appear here, and every control below follows what the chosen model supports."
+    configuration:
+      model_type: "cloud"
+      tasks: ["upscale_image"]
+      placeholder: "Choose a model..."

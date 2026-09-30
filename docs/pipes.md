@@ -206,6 +206,8 @@ Generates media with a model hosted by a cloud provider
 |---|---|---|---|---|
 | `CLOUD` | `SERVICE` | yes | no | Cloud run service bound to this generation |
 | `images` | `IMAGE` | no | yes | Input images |
+| `first_frame` | `IMAGE` | no | no | First frame of a video |
+| `last_frame` | `IMAGE` | no | no | Last frame of a video |
 | `video` | `VIDEO` | no | yes | Input video files |
 | `audio` | `AUDIO` | no | yes | Input audio files |
 | `seed` | `SEED` | no | yes | Seeds for the outputs |
@@ -229,6 +231,7 @@ Generates media with a model hosted by a cloud provider
 | `negative_prompt` | `str` | `""` | no | — | — | — | Negative prompt shared by every image |
 | `quantity` | `int` | `1` | no | — | 1 | 64 | How many outputs to generate |
 | `params` | `dict` | `{}` | no | — | — | — | Canonical generation parameters passed to the provider |
+| `options` | `dict` | `{}` | no | — | — | — | Provider options chosen on the form, merged under params |
 | `roles` | `dict` | `{}` | no | — | — | — | Media role for each media input, keyed by input name |
 | `cloud` | `dict` | `{}` | no | — | — | — | Backend identity, filled in by the cloud backend |
 

@@ -1,0 +1,21 @@
+fields:
+  - name: "references"
+    type: "image"
+    label: "Reference images"
+    required: true
+    ai_hint: "The pictures to edit or use as references. The model decides how many it accepts; the first one is normally the one that gets edited."
+    configuration:
+      multi: true
+      max_items: 10
+    capability: { model_field: "model", input: "reference" }
+
+  - type: "row"
+    configuration: { columns: 1 }
+    children: "{{ paths._shared }}/cloud/tabs/_image_params.yml"
+
+  - name: "strength"
+    type: "number"
+    label: "Edit strength"
+    ai_hint: "How far the result may drift from the reference. Only shown when the model supports it."
+    capability: { model_field: "model", param: "strength" }
+

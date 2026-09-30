@@ -87,6 +87,7 @@ class FakeBehaviour:
     fail_times: Optional[int] = None
     request_sent: bool = True
     keys: list[str] = field(default_factory=list)
+    requests: list[Any] = field(default_factory=list)
     fetch_limits: list[Optional[int]] = field(default_factory=list)
     cost_usd: Decimal = Decimal("0.04")
     calls: list[str] = field(default_factory=list)
@@ -124,7 +125,10 @@ def fake_specs() -> list[CloudModelSpec]:
                 ParamSpec(name="duration_s", kind="range", minimum=2, maximum=10, default=4),
                 ParamSpec(name="generate_audio", kind="boolean", default=True),
             ),
-            inputs=(MediaInputSpec(role="first_frame", modality="image", tasks=frozenset({"img2video"})),),
+            inputs=(
+                MediaInputSpec(role="first_frame", modality="image", tasks=frozenset({"img2video"})),
+                MediaInputSpec(role="last_frame", modality="image", tasks=frozenset({"img2video"})),
+            ),
             pricing=(PriceLine(unit="second", usd=Decimal("0.40")),),
             typical_seconds=90,
             max_seconds=600,
@@ -194,6 +198,7 @@ class FakeCloudProvider(CloudProvider):
     async def submit(self, request: CloudRequest) -> CloudJob:
         self.behaviour.calls.append("submit")
         self.behaviour.keys.append(request.idempotency_key)
+        self.behaviour.requests.append(request)
         self._maybe_fail("submit")
         self._counter += 1
         job_id = f"fake-job-{self._counter}"

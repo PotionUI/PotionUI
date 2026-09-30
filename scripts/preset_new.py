@@ -19,6 +19,11 @@ Options:
     --category   One of: image | video | audio | 3d | utility   (default: image)
     --modes      Comma-separated list of mode names          (default: txt2img)
     --engine     Engine value written into preset.yml         (default: native)
+    --driver     Required with --engine cloud: the provider driver, e.g.
+                 cloud.openrouter. --modes then takes cloud mode names:
+                 txt2img | edit | txt2video | img2video. Each mode gets a form
+                 assembled from content/presets/_shared/cloud/ blocks and the
+                 standard cloud pipeline.
     --family     A native pipe family (e.g. z_image, flux, krea2) to scaffold the
                  standard native chain for, wired to that family's real
                  model_loader/<family> and generator/<family> pipes - discovered
@@ -66,8 +71,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CORE_PIPES_DIR = REPO_ROOT / "src" / "pipelines" / "pipes"
 
 
-def _preset_yml(preset_id: str, name: str, category: str, engine: str, modes: List[str]) -> str:
+def _preset_yml(preset_id: str, name: str, category: str, engine: str, modes: List[str],
+                driver: Optional[str] = None) -> str:
 
+    driver_line = f'driver: "{driver}"\n' if driver else ""
     modes_yaml = "\n".join(f"  - {m}" for m in modes)
     return f"""########
 ## {name} preset configuration
@@ -79,7 +86,7 @@ name: "{name}"
 category: "{category}"
 version: "1.0.0"
 engine: "{engine}"
-tags: []
+{driver_line}tags: []
 
 # Preset-wide constants. Reference them in pipeline.yml as {{{{ preset.vars.<name> }}}}.
 vars:
@@ -169,6 +176,152 @@ def _tab_yml() -> str:
       step: 1
     default: 30
 """
+
+
+@dataclass(frozen=True)
+class _CloudMode:
+    task: str
+    category: str
+    tab_block: str
+    params: Tuple[Tuple[str, str], ...]
+    media: str
+
+
+_IMAGE_PARAMS = (
+    ("aspect_ratio", "aspect_ratio"),
+    ("resolution", "resolution"),
+    ("quality", "quality"),
+    ("output_format", "output_format"),
+    ("background", "background"),
+)
+_VIDEO_PARAMS = (
+    ("aspect_ratio", "aspect_ratio"),
+    ("resolution", "resolution"),
+    ("duration_s", "duration"),
+    ("generate_audio", "generate_audio"),
+)
+
+CLOUD_MODES: Dict[str, _CloudMode] = {
+    "txt2img": _CloudMode("txt2img", "image", "image", _IMAGE_PARAMS, "none"),
+    "edit": _CloudMode("img_edit", "image", "image_edit", _IMAGE_PARAMS + (("strength", "strength"),), "references"),
+    "txt2video": _CloudMode("txt2video", "video", "video", _VIDEO_PARAMS, "none"),
+    "img2video": _CloudMode("img2video", "video", "img2video", _VIDEO_PARAMS, "frames"),
+}
+
+
+def _cloud_form_yml(mode: _CloudMode) -> str:
+    return f'''name: "custom"
+fields:
+  - type: "row"
+    configuration: {{ columns: 1 }}
+    children: "{{{{ paths._shared }}}}/cloud/models/{mode.task}.yml"
+
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        children: "{{{{ paths._shared }}}}/cloud/tabs/{mode.tab_block}.yml"
+      - type: "tab"
+        label: "Provider options"
+        audience: "advanced"
+        children: "{{{{ paths._shared }}}}/cloud/tabs/provider_options.yml"
+'''
+
+
+def _cloud_media_yaml(mode: _CloudMode) -> Tuple[str, str]:
+    if mode.media == "references":
+        loaders = '''  - name: "media_loader"
+    id: "media_loader"
+    enabled: "{{ (form.references or []) | length > 0 }}"
+    configuration:
+      media:
+        "@loop":
+          items: "{{ form.references }}"
+          template:
+            type: "image"
+            path: "{{ item.path | default(item) }}"
+
+'''
+        return loaders, '''      - ["images", "media_loader", "image"]
+'''
+    if mode.media == "frames":
+        loaders = ""
+        inputs = ""
+        for frame in ("first_frame", "last_frame"):
+            loaders += f'''  - name: "media_loader"
+    id: "{frame}_loader"
+    enabled: "{{{{ (form.{frame} or '') != '' }}}}"
+    configuration:
+      media:
+        - type: "image"
+          path: "{{{{ form.{frame} }}}}"
+
+'''
+            inputs += f'''      - ["{frame}", "{frame}_loader", "image"]
+'''
+        return loaders, inputs
+    return "", ""
+
+
+def _cloud_pipeline_yml(name: str, mode: _CloudMode) -> str:
+    loaders, media_inputs = _cloud_media_yaml(mode)
+    params = "\n".join(f'        {param}: "{{{{ form.{field} }}}}"' for param, field in mode.params)
+    return f'''pipeline:
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{{{ generation.prompts.pairs }}}}"
+      quantity: "{{{{ form.count or 1 }}}}"
+
+  - name: "seed_generator"
+    id: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{{{ form.seed }}}}"
+      quantity: "{{{{ form.count or 1 }}}}"
+
+{loaders}  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{{{ form.count or 1 }}}}"
+      parameters:
+        - ["positive_prompt", "{{{{ generation.prompts.positives }}}}"]
+        - ["negative_prompt", "{{{{ generation.prompts.negatives }}}}"]
+
+  - name: "cloud_generate"
+    id: "cloud_generate"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+{media_inputs}    configuration:
+      task: "{mode.task}"
+      model: "{{{{ form.model }}}}"
+      quantity: "{{{{ form.count or 1 }}}}"
+      prompts: "{{{{ generation.prompts.pairs }}}}"
+      params:
+{params}
+      options: "{{{{ form.provider_options }}}}"
+
+  - name: "gallery"
+    id: "gallery"
+    enabled: true
+    input:
+      - ["image", "cloud_generate", "image"]
+      - ["video", "cloud_generate", "video"]
+      - ["seed", "cloud_generate", "seed"]
+'''
 
 
 # --------------------------------------------------------------- --family
@@ -483,7 +636,7 @@ def _family_advanced_tab_yml(fp: _FamilyPipes) -> str:
 
 def scaffold(target: Path, preset_id: str, name: str, category: str,
              engine: str, modes: List[str], force: bool,
-             family: Optional[str] = None) -> List[Path]:
+             family: Optional[str] = None, driver: Optional[str] = None) -> List[Path]:
     if target.exists() and not force:
         raise FileExistsError(f"{target} already exists (use --force to overwrite)")
 
@@ -491,10 +644,18 @@ def scaffold(target: Path, preset_id: str, name: str, category: str,
 
     def write(path: Path, content: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content)
+        path.write_text(content, encoding="utf-8")
         written.append(path)
 
-    write(target / "preset.yml", _preset_yml(preset_id, name, category, engine, modes))
+    write(target / "preset.yml", _preset_yml(preset_id, name, category, engine, modes, driver))
+
+    if engine == "cloud":
+        for mode in modes:
+            cloud_mode = CLOUD_MODES[mode]
+            mode_dir = target / "modes" / mode
+            write(mode_dir / "pipeline.yml", _cloud_pipeline_yml(mode, cloud_mode))
+            write(mode_dir / "form.yml", _cloud_form_yml(cloud_mode))
+        return written
 
     fp = _load_family_pipes(family) if (family and engine != "comfyui") else None
 
@@ -520,7 +681,9 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("path", help="<Model>/<variant>, e.g. MyModel/standard")
-    parser.add_argument("--category", default="image", choices=CATEGORIES)
+    parser.add_argument("--category", default=None, choices=CATEGORIES)
+    parser.add_argument("--driver", default=None,
+                        help="Provider driver for --engine cloud, e.g. cloud.openrouter")
     parser.add_argument("--modes", default="txt2img", help="Comma-separated mode names")
     parser.add_argument("--engine", default="native", help="Engine value written into preset.yml (default: native)")
     parser.add_argument("--family", default=None,
@@ -540,6 +703,19 @@ def main() -> int:
         parser.error("--modes must contain at least one mode name")
 
     engine = args.engine.strip()
+    if engine == "cloud":
+        if not args.driver or not args.driver.startswith("cloud."):
+            parser.error("--engine cloud needs --driver cloud.<provider>, e.g. --driver cloud.openrouter")
+        unknown = [m for m in modes if m not in CLOUD_MODES]
+        if unknown:
+            parser.error(f"unknown cloud mode(s) {unknown}; choose from {sorted(CLOUD_MODES)}")
+        if args.family:
+            parser.error("--family scaffolds the native chain; it has no effect with --engine cloud")
+        category = args.category or CLOUD_MODES[modes[0]].category
+    else:
+        if args.driver:
+            parser.error("--driver only applies to --engine cloud")
+        category = args.category or "image"
     name = args.name or f"{model} {variant}"
     preset_id = generate_ulid()
 
@@ -558,13 +734,15 @@ def main() -> int:
         "schema": 1,
         "id": preset_id,
         "name": name,
-        "category": args.category,
+        "category": category,
         "version": "1.0.0",
         "engine": engine,
         "tags": [],
         "vars": {"default_steps": 30},
         "modes": modes,
     }
+    if args.driver:
+        manifest_data["driver"] = args.driver
     _, errors = validate_manifest(manifest_data)
     if errors:
         print("Refusing to scaffold - manifest would be invalid:", file=sys.stderr)
@@ -574,7 +752,7 @@ def main() -> int:
 
     target = Path(args.root) / model / variant
     try:
-        written = scaffold(target, preset_id, name, args.category, engine, modes, args.force, family=args.family)
+        written = scaffold(target, preset_id, name, category, engine, modes, args.force, family=args.family, driver=args.driver)
     except FileExistsError as e:
         print(str(e), file=sys.stderr)
         return 1
@@ -586,7 +764,9 @@ def main() -> int:
     for path in written:
         print(f"  created {path}")
     print("\nNext steps:")
-    if args.family:
+    if engine == "cloud":
+        print("  1. The forms and pipelines are complete: add a cover, a description, and any provider-only tab.")
+    elif args.family:
         print(f"  1. Fill in the model pickers and check the {args.family} generator's config in docs/pipes.md.")
     else:
         print(f"  1. Fill in modes/<mode>/pipeline.yml with the real pipes for this model (see docs/presets/tutorial.md).")

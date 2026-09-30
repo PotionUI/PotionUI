@@ -463,3 +463,12 @@ async def test_a_provider_cancel_that_raises_is_reported_as_unconfirmed(tmp_path
 
     assert raised.value.cancel_confirmed is False
     assert any("may still finish this job and bill it" in (item.message or "") for item in h.progress)
+
+
+async def test_only_parameters_the_model_offers_for_the_task_reach_the_provider(harness):
+    h = harness(behaviour=FakeBehaviour(mode="sync"))
+
+    await h.run(params={"aspect_ratio": "16:9", "resolution": "4K", "quality": None, "x.style": "", "x.other": 1, "background": False})
+
+    (request,) = h.provider.behaviour.requests
+    assert dict(request.params) == {"aspect_ratio": "16:9", "background": False}

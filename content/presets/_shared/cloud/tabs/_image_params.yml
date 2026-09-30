@@ -1,0 +1,45 @@
+fields:
+  - name: "count"
+    type: "stepper"
+    label: "Images"
+    default: 1
+    configuration: { min: 1, max: 8, step: 1 }
+    ai_hint: "How many images to generate. Each model produces a fixed number per request, so a larger count is split into several requests and billed for each."
+
+  - name: "seed"
+    type: "seed"
+    label: "Seed"
+    default: -1
+    ai_hint: "-1 picks a random seed each time. Not every hosted model honours a seed; when it does not, the result is simply not repeatable."
+
+  - name: "aspect_ratio"
+    type: "select"
+    label: "Aspect ratio"
+    ai_hint: "The shape of the picture. The choices come from the selected model; a control the model does not support is hidden."
+    capability: { model_field: "model", param: "aspect_ratio" }
+
+  - name: "resolution"
+    type: "select"
+    label: "Resolution"
+    ai_hint: "The size tier of the result. Larger tiers usually cost more."
+    capability: { model_field: "model", param: "resolution" }
+
+  - name: "quality"
+    type: "select"
+    label: "Quality"
+    ai_hint: "Trades cost and time for detail, where the model offers it."
+    capability: { model_field: "model", param: "quality" }
+
+  - name: "output_format"
+    type: "select"
+    label: "File format"
+    ai_hint: "The file type the model returns."
+    capability: { model_field: "model", param: "output_format" }
+
+  - name: "background"
+    type: "checkbox"
+    label: "Transparent background"
+    default: false
+    ai_hint: "Ask for a transparent background, where the model supports it."
+    capability: { model_field: "model", param: "background" }
+

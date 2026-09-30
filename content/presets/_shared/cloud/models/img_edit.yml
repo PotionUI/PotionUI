@@ -1,0 +1,10 @@
+fields:
+  - name: "model"
+    type: "model"
+    label: "Image editing model"
+    required: true
+    ai_hint: "The hosted model that runs this generation. Only models an administrator has enabled for this provider appear here, and every control below follows what the chosen model supports."
+    configuration:
+      model_type: "cloud"
+      tasks: ["img_edit"]
+      placeholder: "Choose a model..."

@@ -205,3 +205,37 @@ def test_files_fetched_for_earlier_requests_are_removed_when_a_later_one_is_canc
     output, _ = run(Cancelling(tmp_path, outcomes=outcomes), {"prompts": ["a", "b"], "quantity": 2, "task": "txt2video"})
 
     assert output["video"] == [] and not first.exists()
+
+
+def test_explicit_params_win_over_provider_options(tmp_path):
+    runner = FakeRunner(tmp_path)
+
+    run(
+        runner,
+        {"prompts": ["a"], "params": {"aspect_ratio": "16:9"}, "options": {"aspect_ratio": "1:1", "x.style": "noir"}},
+    )
+
+    assert dict(runner.requests[0].params) == {"aspect_ratio": "16:9", "x.style": "noir"}
+
+
+def test_empty_and_missing_values_are_not_sent(tmp_path):
+    runner = FakeRunner(tmp_path)
+
+    run(
+        runner,
+        {
+            "prompts": ["a"],
+            "params": {"resolution": None, "quality": "", "background": False, "duration_s": 0},
+            "options": {"x.other": None, "x.blank": ""},
+        },
+    )
+
+    assert dict(runner.requests[0].params) == {"background": False, "duration_s": 0}
+
+
+def test_options_that_are_not_an_object_are_ignored(tmp_path):
+    runner = FakeRunner(tmp_path)
+
+    run(runner, {"prompts": ["a"], "params": {"quality": 3}, "options": "None"})
+
+    assert dict(runner.requests[0].params) == {"quality": 3}

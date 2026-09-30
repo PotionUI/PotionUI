@@ -1,0 +1,4 @@
+fields:
+  - type: "row"
+    configuration: { columns: 1 }
+    children: "{{ paths._shared }}/cloud/tabs/_image_params.yml"

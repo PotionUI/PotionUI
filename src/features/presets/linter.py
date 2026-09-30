@@ -495,6 +495,8 @@ class PresetLinter:
 
         issues.extend(self._lint_engine_matches_pipes(preset_file, manifest))
 
+        issues.extend(self._lint_cloud_pipeline_shape(preset_file, manifest))
+
         issues.extend(self._lint_driver_registered(preset_file, manifest))
 
         issues.extend(self._lint_speed_profiles(preset_file, manifest))
@@ -1017,6 +1019,85 @@ class PresetLinter:
                 f"(enable the plugin that provides it and restart)",
             )
         ]
+
+    def _lint_cloud_pipeline_shape(self, preset_file: Path, manifest) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        if manifest.engine != "cloud":
+            return issues
+        preset_str = str(preset_file)
+        preset_root = preset_file.parent
+
+        for mode_name in manifest.modes:
+            mode_dir = preset_root / "modes" / mode_name
+            pipeline_file = mode_dir / "pipeline.yml"
+            if not pipeline_file.exists():
+                continue
+            loc = f"modes/{mode_name}"
+            try:
+                with open(pipeline_file, 'r', encoding='utf-8') as f:
+                    data = yaml.safe_load(f)
+            except Exception:
+                continue
+            pipes = data.get("pipeline") if isinstance(data, dict) else None
+            cloud_pipes = [
+                pipe for pipe in (pipes or [])
+                if isinstance(pipe, dict) and pipe.get("name") == "cloud_generate"
+            ]
+            if not cloud_pipes:
+                issues.append(LintIssue(
+                    "warning", preset_str,
+                    f"{loc}: engine: cloud but the pipeline has no 'cloud_generate' pipe"
+                ))
+                continue
+
+            task = (cloud_pipes[0].get("configuration") or {}).get("task")
+            if not isinstance(task, str) or not task or "{{" in task:
+                issues.append(LintIssue(
+                    "warning", preset_str,
+                    f"{loc}: cloud_generate has no literal 'task' (the form and the server both read it "
+                    f"to decide which controls and models apply)"
+                ))
+                continue
+
+            offered = self._cloud_model_field_tasks(mode_dir, preset_root)
+            if offered and task not in offered:
+                issues.append(LintIssue(
+                    "warning", preset_str,
+                    f"{loc}: cloud_generate task '{task}' is not among the model field's tasks {sorted(offered)}"
+                ))
+        return issues
+
+    def _cloud_model_field_tasks(self, mode_dir: Path, preset_root: Path) -> set:
+        tasks: set = set()
+
+        def walk(node) -> None:
+            if isinstance(node, list):
+                for item in node:
+                    walk(item)
+                return
+            if not isinstance(node, dict):
+                return
+            config = node.get("configuration") or {}
+            if node.get("type") == "model" and isinstance(config, dict) and config.get("model_type") == "cloud":
+                tasks.update(task for task in (config.get("tasks") or []) if isinstance(task, str))
+            children = node.get("children")
+            if isinstance(children, str):
+                fragment = self._resolve_children_path(children, preset_root)
+                try:
+                    with open(fragment, 'r', encoding='utf-8') as f:
+                        walk((yaml.safe_load(f) or {}).get("fields", []))
+                except Exception:
+                    return
+            else:
+                walk(children)
+
+        for _, form_dir in discover_form_variants(mode_dir):
+            try:
+                with open(form_dir / "form.yml", 'r', encoding='utf-8') as f:
+                    walk((yaml.safe_load(f) or {}).get("fields", []))
+            except Exception:
+                continue
+        return tasks
 
     def _lint_engine_matches_pipes(self, preset_file: Path, manifest) -> List[LintIssue]:
         """

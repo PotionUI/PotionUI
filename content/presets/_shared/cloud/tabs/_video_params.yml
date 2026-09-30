@@ -1,0 +1,39 @@
+fields:
+  - name: "count"
+    type: "stepper"
+    label: "Videos"
+    default: 1
+    configuration: { min: 1, max: 8, step: 1 }
+    ai_hint: "How many videos to generate. Each model produces a fixed number per request, so a larger count is split into several requests and billed for each."
+
+  - name: "seed"
+    type: "seed"
+    label: "Seed"
+    default: -1
+    ai_hint: "-1 picks a random seed each time. Not every hosted model honours a seed; when it does not, the result is simply not repeatable."
+
+  - name: "aspect_ratio"
+    type: "select"
+    label: "Aspect ratio"
+    ai_hint: "The shape of the video. The choices come from the selected model."
+    capability: { model_field: "model", param: "aspect_ratio" }
+
+  - name: "resolution"
+    type: "select"
+    label: "Resolution"
+    ai_hint: "The size tier of the video. Larger tiers usually cost more."
+    capability: { model_field: "model", param: "resolution" }
+
+  - name: "duration"
+    type: "number"
+    label: "Duration (seconds)"
+    ai_hint: "How long the clip runs. Longer clips cost more."
+    capability: { model_field: "model", param: "duration_s" }
+
+  - name: "generate_audio"
+    type: "checkbox"
+    label: "Generate audio"
+    default: false
+    ai_hint: "Also generate a soundtrack, where the model supports it."
+    capability: { model_field: "model", param: "generate_audio" }
+

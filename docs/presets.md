@@ -25,6 +25,21 @@ python scripts/preset_lint.py content/presets/marketplace/MyModel/standard
 
 Then fill in `modes/<mode>/pipeline.yml` with the real pipes and flesh out the form.
 
+A preset for a hosted (cloud) model is scaffolded differently: its form and pipeline are complete
+from the start, assembled from the shared blocks in `content/presets/_shared/cloud/`.
+
+```bash
+python scripts/preset_new.py MyProvider/standard --engine cloud --driver cloud.myprovider \
+  --modes txt2img,edit,txt2video,img2video --root content/plugins/local/my-provider/presets
+```
+
+Each mode gets a model picker for its task and capability-bound controls (they follow what the chosen
+model supports), plus the standard pipeline `dynamic_prompts_renderer` -> `seed_generator` ->
+`media_loader` (edit and image-to-video only) -> `param_emitter` -> `cloud_generate` -> `gallery`.
+`preset_lint` warns (`cloud_pipeline_shape`) when an `engine: cloud` mode has no `cloud_generate` pipe,
+no literal `task`, or a `task` its model picker does not offer. A plugin's own tests can check its
+presets against `src.plugin_api.cloud.CLOUD_BLOCKS`, the list of shared blocks.
+
 ### Reference pages
 
 This guide is split across several pages under `docs/presets/` — see

@@ -1,0 +1,9 @@
+fields:
+  - type: "accordion"
+    label: "Provider options"
+    children:
+      - name: "provider_options"
+        type: "cloud_options"
+        label: "Provider options"
+        capability: { model_field: "model" }
+        configuration: { include_unbound: true }

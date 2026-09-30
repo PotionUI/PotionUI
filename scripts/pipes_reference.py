@@ -334,6 +334,8 @@ def _shared_option_samples(repo_root: Path) -> List[Tuple[str, str]]:
         except Exception as e:  # noqa: BLE001 - reported inline, not raised
             samples.append((rel, f"<failed to parse: {e}>"))
             continue
+        if isinstance(data, dict) and "fields" in data:
+            continue
         if not isinstance(data, list):
             samples.append((rel, f"<not a list: {type(data).__name__}>"))
             continue

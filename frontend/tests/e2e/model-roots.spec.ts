@@ -151,7 +151,7 @@ test.describe('model roots - setup wizard', () => {
 		await gotoSetup(page);
 		await page.getByLabel('Folder path').fill('/mnt/storage/ComfyUI/models');
 		await page.getByRole('button', { name: 'Detect' }).click();
-		await expect(page.getByText('Detected types')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByText('Detected folders')).toBeVisible({ timeout: 10000 });
 		await expect(page.getByText('30+ files')).toBeVisible();
 		await screenshot(page, JOURNEY, 'wizard-detected');
 

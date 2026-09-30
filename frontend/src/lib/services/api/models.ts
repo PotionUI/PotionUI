@@ -132,6 +132,7 @@ export interface ModelRoot {
 	state_reason: string | null;
 	state_checked_at: string | null;
 	bindings: ModelRootBinding[];
+	layout_profile?: string | null;
 }
 
 export interface ModelRootTypeOrder {
@@ -139,6 +140,7 @@ export interface ModelRootTypeOrder {
 	folder: string;
 	order: string[];
 	write_root_id: string | null;
+	bindings?: { root_id: string; subdir: string; binding_id: string }[];
 }
 
 export interface ModelRootsUnplacedEntry {
@@ -159,9 +161,61 @@ export interface ModelRootsOverview {
 export interface ModelRootDetectionSuggestion {
 	model_type: string;
 	subdir: string;
-	matched_by: 'canonical' | 'alias';
+	matched_by: string;
 	file_count: number;
 	file_count_truncated: boolean;
+	label?: string;
+	write?: boolean;
+	scan_headers?: boolean;
+	source?: string;
+}
+
+export interface ModelRootDetectedProfile {
+	id: string;
+	label: string;
+	variant: string | null;
+	confidence: 'strong' | 'weak' | null;
+	score: number;
+	source: string;
+	install_path: string;
+	models_path: string | null;
+	evidence: string[];
+}
+
+export interface ModelRootProfileAlternative {
+	id: string;
+	label: string;
+	confidence: 'strong' | 'weak' | null;
+	score: number;
+}
+
+export interface ModelRootOutsideFolder {
+	model_type: string;
+	path: string;
+	label: string;
+	install_path: string;
+}
+
+export interface ModelRootExtraRoot {
+	path: string;
+	label: string;
+	source: string;
+	primary: boolean;
+	profile_id: string;
+	suggestions: ModelRootDetectionSuggestion[];
+}
+
+export interface ModelRootDelegatedApp {
+	path: string;
+	label: string;
+	profile: { id: string; label: string; confidence: 'strong' | 'weak' | null };
+}
+
+export interface ModelLayoutSummary {
+	id: string;
+	label: string;
+	source: string;
+	plugin_id?: string | null;
 }
 
 export interface ModelRootConflict {
@@ -180,12 +234,24 @@ export interface ModelRootDetection {
 	single_type_guess: string | null;
 	conflicts: ModelRootConflict[];
 	warnings: string[];
+	root_path?: string;
+	profile?: ModelRootDetectedProfile | null;
+	alternatives?: ModelRootProfileAlternative[];
+	outside_folders?: ModelRootOutsideFolder[];
+	extra_roots?: ModelRootExtraRoot[];
+	delegated?: ModelRootDelegatedApp[];
 }
 
 export interface ModelRootBindingInput {
 	model_type: string;
 	subdir: string;
 	scan_headers?: boolean;
+	write?: boolean;
+}
+
+export interface ModelRootBindingRef {
+	model_type: string;
+	subdir: string;
 }
 
 export interface ModelRootBindingScanPayload {
@@ -200,6 +266,7 @@ export interface CreateModelRootPayload {
 	bindings: ModelRootBindingInput[];
 	read_only?: boolean;
 	write_types?: string[];
+	profile?: string;
 }
 
 export interface UpdateModelRootPayload {
@@ -208,6 +275,7 @@ export interface UpdateModelRootPayload {
 	read_only?: boolean;
 	bindings?: ModelRootBindingInput[];
 	remove_types?: string[];
+	remove_bindings?: ModelRootBindingRef[];
 }
 
 export interface UnindexedModelsCount {
@@ -629,8 +697,13 @@ export function createModelsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async detectModelRoot(path: string): Promise<APIResponse<ModelRootDetection>> {
-			const response = await client.post('/api/models/roots/detect', { path });
+		async detectModelRoot(path: string, profile?: string): Promise<APIResponse<ModelRootDetection>> {
+			const response = await client.post('/api/models/roots/detect', profile ? { path, profile } : { path });
+			return response.data;
+		},
+
+		async listModelLayouts(): Promise<{ layouts: ModelLayoutSummary[] }> {
+			const response = await client.get('/api/models/layouts');
 			return response.data;
 		},
 
@@ -665,10 +738,11 @@ export function createModelsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async setModelRootWrite(rootId: string, modelType?: string): Promise<APIResponse<ModelRoot>> {
+		async setModelRootWrite(rootId: string, modelType?: string, subdir?: string): Promise<APIResponse<ModelRoot>> {
 			const response = await client.put('/api/models/roots/write', {
 				model_type: modelType ?? null,
-				root_id: rootId
+				root_id: rootId,
+				...(subdir !== undefined ? { subdir } : {})
 			});
 			return response.data;
 		},

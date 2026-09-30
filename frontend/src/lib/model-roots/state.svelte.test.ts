@@ -4,6 +4,7 @@ vi.mock('$lib/services/api', () => ({
 	api: {
 		getModelRoots: vi.fn(),
 		detectModelRoot: vi.fn(),
+		listModelLayouts: vi.fn(),
 		createModelRoot: vi.fn(),
 		updateModelRoot: vi.fn(),
 		deleteModelRoot: vi.fn(),
@@ -15,7 +16,7 @@ vi.mock('$lib/services/api', () => ({
 }));
 
 import { api } from '$lib/services/api';
-import { ModelRootsState, detectModelRoot, serverPathPlaceholder } from './state.svelte';
+import { ModelRootsState, detectModelRoot, listModelLayouts, serverPathPlaceholder } from './state.svelte';
 import type { ModelRoot, ModelRootsOverview } from '$lib/services/api/models';
 
 function makeRoot(overrides: Partial<ModelRoot> = {}): ModelRoot {
@@ -224,5 +225,33 @@ describe('serverPathPlaceholder', () => {
 
 	it('defaults to posix when the server has not reported yet', () => {
 		expect(serverPathPlaceholder(undefined)).toBe('/mnt/storage/ComfyUI/models');
+	});
+});
+
+describe('detect with a profile and layouts', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('passes the chosen profile to the API', async () => {
+		vi.mocked(api.detectModelRoot).mockResolvedValue({ success: false, message: 'nope' });
+		await detectModelRoot('/mnt/nas', 'comfyui');
+		expect(api.detectModelRoot).toHaveBeenCalledWith('/mnt/nas', 'comfyui');
+	});
+
+	it('lists layouts and falls back to an empty list on failure', async () => {
+		vi.mocked(api.listModelLayouts).mockResolvedValue({
+			layouts: [{ id: 'comfyui', label: 'ComfyUI', source: 'marketplace' }]
+		});
+		expect((await listModelLayouts()).map((l) => l.id)).toEqual(['comfyui']);
+		vi.mocked(api.listModelLayouts).mockRejectedValue(new Error('down'));
+		expect(await listModelLayouts()).toEqual([]);
+	});
+
+	it('setWrite() forwards the subdir', async () => {
+		vi.mocked(api.setModelRootWrite).mockResolvedValue({ success: true, data: makeRoot() });
+		vi.mocked(api.getModelRoots).mockResolvedValue({ success: true, data: overview() });
+		await new ModelRootsState().setWrite('lib1', 'lora', 'LyCORIS');
+		expect(api.setModelRootWrite).toHaveBeenCalledWith('lib1', 'lora', 'LyCORIS');
 	});
 });

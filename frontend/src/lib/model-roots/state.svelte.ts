@@ -2,6 +2,7 @@ import { logger } from '$lib/utils/logger';
 import { api } from '$lib/services/api';
 import type {
 	CreateModelRootPayload,
+	ModelLayoutSummary,
 	ModelRoot,
 	ModelRootBinding,
 	ModelRootDetection,
@@ -157,11 +158,11 @@ export class ModelRootsState {
 		}
 	}
 
-	async setWrite(rootId: string, modelType?: string): Promise<ModelRoot | null> {
+	async setWrite(rootId: string, modelType?: string, subdir?: string): Promise<ModelRoot | null> {
 		this.mutating = true;
 		this.error = null;
 		try {
-			const response = await api.setModelRootWrite(rootId, modelType);
+			const response = await api.setModelRootWrite(rootId, modelType, subdir);
 			if (response.success && response.data) {
 				await this.refresh();
 				return response.data;
@@ -192,12 +193,12 @@ export class ModelRootsState {
 	}
 }
 
-export async function detectModelRoot(path: string): Promise<{
+export async function detectModelRoot(path: string, profile?: string): Promise<{
 	detection: ModelRootDetection | null;
 	error: string | null;
 }> {
 	try {
-		const response = await api.detectModelRoot(path);
+		const response = await api.detectModelRoot(path, profile);
 		if (response.success && response.data) {
 			return { detection: response.data, error: null };
 		}
@@ -205,6 +206,16 @@ export async function detectModelRoot(path: string): Promise<{
 	} catch (e) {
 		logger.error('Failed to detect model root layout:', e);
 		return { detection: null, error: modelRootsErrorMessage(e, 'Failed to inspect that folder.') };
+	}
+}
+
+export async function listModelLayouts(): Promise<ModelLayoutSummary[]> {
+	try {
+		const response = await api.listModelLayouts();
+		return response.layouts ?? [];
+	} catch (e) {
+		logger.error('Failed to load model layouts:', e);
+		return [];
 	}
 }
 

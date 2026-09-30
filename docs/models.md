@@ -188,14 +188,30 @@ A plugin can add a classifier for a family core does not know. See
 A **model root** is a folder an admin pointed PotionUI at (Admin → Models → Folders, or the setup
 wizard) — the built-in `home` root (the `models_dir` setting) or a **library** root added later
 (an existing ComfyUI/A1111 install, a NAS share, a second drive). A root is bound to one or more
-model types through `model_root_bindings` (`model_type → subdir`), and per type the bindings are
+model types through `model_root_bindings` (`model_type + subdir`), and per type the bindings are
 ordered (`position`); at most one binding per type is the **write root** (`is_write`), where a
-download for that type lands. `src/platform/filesystem/model_roots.py` (`ModelRootResolver`) is
+download for that type lands. A root can bind several subfolders of one type (StabilityMatrix
+keeps `Lora` and `LyCORIS` side by side), but no bound folder may equal or sit inside another
+bound folder on the same root. `src/platform/filesystem/model_roots.py` (`ModelRootResolver`) is
 the pure mapping from a root/type/relative-path to a filesystem `Path`, with no knowledge of
 `models` rows; `src/features/models/roots.py` (`ModelRootsManager`) is the admin logic (detect,
 create, relink, reorder, write-probe) behind `/api/models/roots*`.
 
-A **location** (`model_locations`, one row per `(root, model_type, rel_path)`) is one on-disk copy
+Editing a root's folders through `PATCH /api/models/roots/{id}`:
+
+- `bindings` adds or updates by `(model_type, subdir)`. A subdir the root does not bind yet is
+  **added** next to the existing folders of that type; it never re-points one. A binding may carry
+  `write: true` to become the write folder for its type.
+- `remove_bindings` (`[{model_type, subdir}]`) removes single folders. If one was the write
+  folder, writes move to another folder of the type on the same root, else to another root; if
+  no writable root can take over the request is refused before anything changes.
+- `remove_types` removes every folder of the type on that root.
+- To re-point a type, send the new subdir in `bindings` and the old one in `remove_bindings` in
+  the same request.
+- `PUT /api/models/roots/write` takes an optional `subdir` to pick the write folder of a type on
+  a root.
+
+A **location** (`model_locations`, one row per `(binding, rel_path)`) is one on-disk copy
 of a model: `src/features/models/locator.py` (`ModelLocator`) turns a model id or a logical ref
 into the winning physical `Path`, and `ModelScanner` (`src/features/models/indexer.py`) is the only
 writer of both `models` rows with a location and of `model_locations` itself — it walks every
@@ -231,6 +247,18 @@ folders:
   - {path: loras, model_type: lora, write: true}
   - {path: LyCORIS, model_type: lora}
 ```
+
+When an admin points Add folder at a path, `POST /api/models/roots/detect` scores every profile against the
+typed path, against subfolders named in `install_dirs`, and against the ancestor left after stripping a
+`models_root` folder off the end. A profile whose markers reach `min_marker_score` is a strong match and
+always beats a match on folder names alone; ties fall to score, then `priority`, then `id`. The tool the admin
+pointed at wins, so a ComfyUI inside a SwarmUI install is not considered when the SwarmUI folder is typed.
+Profiles with a `delegate` (such as a Pinokio home) look for installed apps and detect each one. The
+`profile` request field forces a profile id, or `generic` for plain folder-name matching, which is also the
+fallback when no profile matches. Folders a tool keeps outside the typed path are returned as `outside_folders`,
+and folders or model roots found through the tool's own settings are returned as `extra_roots`; neither is ever
+added without the admin's choice. Counting files stops after 6 seconds in total, and folders past that report
+`file_count_truncated`.
 
 Rules the lint enforces:
 

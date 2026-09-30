@@ -14,6 +14,7 @@ from src.features.models.roots import (
     DuplicateBindingError,
     InvalidBindingError,
     ModelRootsManager,
+    NoWriteSuccessorError,
     RootReadOnlyRefusalError,
 )
 from src.platform.database.rows import now_iso
@@ -570,3 +571,165 @@ class TestRemoveBindings:
 
         with pytest.raises(HomeProtectedError):
             stack.manager.update_root("home", remove_bindings=[BindingRef("lora", "loras")])
+
+
+class TestUpdateIsAtomic:
+
+    def _lone_writer(self, stack):
+        stack.repository.delete_binding("home", "lora")
+        library = _matrix(stack)
+        return library, _create(stack, library)
+
+    def _snapshot(self, stack, root_id):
+        row = stack.repository.get_root(root_id)
+        bindings = [(b["subdir"], b["is_write"]) for b in stack.repository.bindings_for_root(root_id)]
+        return row["label"], row["read_only"], bindings
+
+    def test_a_removal_without_a_write_successor_changes_nothing(self, stack):
+        library, root = self._lone_writer(stack)
+        before = self._snapshot(stack, root["id"])
+
+        with pytest.raises(NoWriteSuccessorError):
+            stack.manager.update_root(
+                root["id"], label="Renamed",
+                remove_bindings=[BindingRef("lora", "Lora"), BindingRef("lora", "LyCORIS")],
+            )
+
+        assert self._snapshot(stack, root["id"]) == before
+
+    def test_remove_types_without_a_write_successor_changes_nothing(self, stack):
+        library, root = self._lone_writer(stack)
+        before = self._snapshot(stack, root["id"])
+
+        with pytest.raises(NoWriteSuccessorError):
+            stack.manager.update_root(root["id"], label="Renamed", remove_types=["lora"])
+
+        assert self._snapshot(stack, root["id"]) == before
+
+    def test_going_read_only_without_a_write_successor_changes_nothing(self, stack):
+        library, root = self._lone_writer(stack)
+        before = self._snapshot(stack, root["id"])
+
+        with pytest.raises(NoWriteSuccessorError):
+            stack.manager.update_root(root["id"], label="Renamed", read_only=True)
+
+        assert self._snapshot(stack, root["id"]) == before
+
+    def test_deleting_a_root_without_a_write_successor_changes_nothing(self, stack):
+        library, root = self._lone_writer(stack)
+        before = self._snapshot(stack, root["id"])
+
+        with pytest.raises(NoWriteSuccessorError):
+            stack.manager.delete_root(root["id"])
+
+        assert self._snapshot(stack, root["id"]) == before
+
+    def test_a_later_type_without_a_successor_leaves_earlier_writes_where_they_were(self, stack):
+        stack.repository.delete_binding("home", "lora")
+        library = _matrix(stack)
+        root = _create(stack, library, write_types=["lora", "embedding"])
+        before = [(b["model_type"], b["is_write"]) for b in stack.repository.bindings_for_root(root["id"])]
+
+        with pytest.raises(NoWriteSuccessorError):
+            stack.manager.delete_root(root["id"])
+
+        assert [(b["model_type"], b["is_write"]) for b in stack.repository.bindings_for_root(root["id"])] == before
+        assert [b["root_id"] for b in stack.repository.list_bindings("embedding") if b["is_write"]] == [root["id"]]
+
+    def test_the_resolver_is_refreshed_even_when_an_update_fails_midway(self, stack, monkeypatch):
+        library = _matrix(stack)
+        root = _create(stack, library)
+        stack.resolver.type_dirs("lora")
+        assert stack.resolver._snapshot is not None
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("disk full")
+
+        monkeypatch.setattr(stack.repository, "delete_binding", boom)
+        with pytest.raises(RuntimeError):
+            stack.manager.update_root(root["id"], remove_bindings=[BindingRef("lora", "LyCORIS")])
+
+        assert stack.resolver._snapshot is None
+
+    def test_removing_the_write_folder_and_relabelling_apply_together(self, stack):
+        library = _matrix(stack)
+        root = _create(stack, library)
+
+        updated = stack.manager.update_root(
+            root["id"], label="Renamed", remove_bindings=[BindingRef("lora", "Lora")]
+        )
+
+        assert updated["label"] == "Renamed"
+        assert [(b["subdir"], b["is_write"]) for b in updated["bindings"] if b["model_type"] == "lora"] == [
+            ("LyCORIS", True)
+        ]
+
+
+class TestRepointingAFolder:
+
+    def test_a_new_subdir_in_bindings_adds_a_second_folder(self, stack):
+        library = _matrix(stack)
+        (library / "Locon").mkdir()
+        root = stack.manager.create_root(str(library), bindings=[BindingSpec("lora", "Lora")])
+
+        updated = stack.manager.update_root(root["id"], bindings=[BindingSpec("lora", "Locon")])
+
+        assert [b["subdir"] for b in updated["bindings"] if b["model_type"] == "lora"] == ["Lora", "Locon"]
+
+    def test_remove_bindings_removes_the_old_folder(self, stack):
+        library = _matrix(stack)
+        (library / "Locon").mkdir()
+        root = stack.manager.create_root(str(library), bindings=[BindingSpec("lora", "Lora")])
+        stack.manager.update_root(root["id"], bindings=[BindingSpec("lora", "Locon")])
+
+        updated = stack.manager.update_root(root["id"], remove_bindings=[BindingRef("lora", "Lora")])
+
+        assert [b["subdir"] for b in updated["bindings"] if b["model_type"] == "lora"] == ["Locon"]
+
+    def test_repointing_in_one_request_nests_only_with_the_removed_folder(self, stack):
+        library = _matrix(stack)
+        (library / "Lora" / "Sub").mkdir()
+        root = stack.manager.create_root(str(library), bindings=[BindingSpec("lora", "Lora")], write_types=["lora"])
+
+        updated = stack.manager.update_root(
+            root["id"],
+            bindings=[BindingSpec("lora", "Lora/Sub")],
+            remove_bindings=[BindingRef("lora", "Lora")],
+        )
+
+        lora = [b for b in updated["bindings"] if b["model_type"] == "lora"]
+        assert [(b["subdir"], b["is_write"]) for b in lora] == [("Lora/Sub", True)]
+
+    def test_repointing_by_remove_types_also_drops_the_nesting(self, stack):
+        library = _matrix(stack)
+        (library / "Lora" / "Sub").mkdir()
+        root = stack.manager.create_root(str(library), bindings=[BindingSpec("lora", "Lora")])
+
+        updated = stack.manager.update_root(
+            root["id"], bindings=[BindingSpec("lora", "Lora/Sub")], remove_types=["embedding", "lora"]
+        )
+
+        assert [b["subdir"] for b in updated["bindings"]] == []
+
+    def test_adding_and_removing_the_same_folder_in_one_request_is_refused(self, stack):
+        library = _matrix(stack)
+        root = _create(stack, library)
+
+        with pytest.raises(InvalidBindingError):
+            stack.manager.update_root(
+                root["id"], bindings=[BindingSpec("lora", "Lora")], remove_bindings=[BindingRef("lora", "Lora")]
+            )
+
+        assert len(stack.repository.bindings_for(root["id"], "lora")) == 2
+
+    def test_a_nested_addition_is_still_refused_when_nothing_covering_it_is_removed(self, stack):
+        library = _matrix(stack)
+        (library / "Lora" / "Sub").mkdir()
+        root = _create(stack, library)
+
+        with pytest.raises(BindingNestedError):
+            stack.manager.update_root(
+                root["id"],
+                bindings=[BindingSpec("lora", "Lora/Sub")],
+                remove_bindings=[BindingRef("lora", "LyCORIS")],
+            )

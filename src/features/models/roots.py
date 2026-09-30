@@ -255,9 +255,11 @@ class ModelRootsManager:
         root_row: Dict[str, Any],
         root_path: Path,
         specs: Sequence[BindingSpec],
+        removed_ids: Optional[set] = None,
     ) -> None:
         case_insensitive = bool(root_row["case_insensitive"]) if root_row is not None else default_case_insensitive()
         existing = [] if root_row is None else self._repository.bindings_for_root(root_row["id"])
+        existing = [b for b in existing if b["id"] not in (removed_ids or set())]
         known: Dict[Tuple[str, str], str] = {
             (b["model_type"], binding_subdir_key(b["subdir"], case_insensitive=case_insensitive)): b["subdir"]
             for b in existing
@@ -308,22 +310,40 @@ class ModelRootsManager:
                 return root_id
         return ordered[0]
 
-    def _hand_write_back(self, root_id: str, model_type: str, *, prefer_sibling: bool = False) -> None:
-        if prefer_sibling:
-            row = self._repository.get_root(root_id)
-            siblings = self._repository.bindings_for(root_id, model_type)
-            if row is not None and not row["read_only"] and siblings:
-                self._repository.set_write(root_id, model_type, siblings[0]["subdir"])
-                return
-        successor = self._write_successor(model_type, root_id)
-        if successor is None:
-            raise NoWriteSuccessorError(model_type)
-        self._repository.set_write(successor, model_type)
+    def _plan_handoffs(
+        self,
+        root_id: str,
+        leaving: Sequence[Dict[str, Any]],
+        removed_ids: set,
+        *,
+        sibling_ok: bool,
+        added: Optional[Dict[str, List[str]]] = None,
+    ) -> List[Tuple[str, str, Optional[str]]]:
+        plan: List[Tuple[str, str, Optional[str]]] = []
+        for binding in leaving:
+            model_type = binding["model_type"]
+            if sibling_ok:
+                siblings = [
+                    b for b in self._repository.bindings_for(root_id, model_type)
+                    if b["id"] != binding["id"] and b["id"] not in removed_ids
+                ]
+                candidates = [b["subdir"] for b in siblings] + (added or {}).get(model_type, [])
+                if candidates:
+                    plan.append((model_type, root_id, candidates[0]))
+                    continue
+            successor = self._write_successor(model_type, root_id)
+            if successor is None:
+                raise NoWriteSuccessorError(model_type)
+            plan.append((model_type, successor, None))
+        return plan
+
+    def _apply_handoffs(self, plan: Sequence[Tuple[str, str, Optional[str]]]) -> None:
+        for model_type, target_root_id, subdir in plan:
+            self._repository.set_write(target_root_id, model_type, subdir)
 
     def _hand_back_all_writes(self, root_id: str) -> None:
-        for binding in self._repository.bindings_for_root(root_id):
-            if binding["is_write"]:
-                self._hand_write_back(root_id, binding["model_type"])
+        leaving = [b for b in self._repository.bindings_for_root(root_id) if b["is_write"]]
+        self._apply_handoffs(self._plan_handoffs(root_id, leaving, set(), sibling_ok=False))
 
     def create_root(
         self,
@@ -334,6 +354,7 @@ class ModelRootsManager:
         read_only: bool = False,
         write_types: Sequence[str] = (),
         idempotent: bool = True,
+        layout_profile: Optional[str] = None,
     ) -> Dict[str, Any]:
         root_path = self._resolve_base(path)
         case_insensitive = probe_case_insensitive(root_path) if root_path.is_dir() else default_case_insensitive()
@@ -367,7 +388,7 @@ class ModelRootsManager:
             raise RootReadOnlyRefusalError(root_id, label_value)
 
         self._repository.insert_root(
-            root_id, label_value, path, path_key, "library", read_only, case_insensitive, now
+            root_id, label_value, path, path_key, "library", read_only, case_insensitive, now, layout_profile
         )
 
         max_positions = self._repository.max_position_by_type()
@@ -449,10 +470,23 @@ class ModelRootsManager:
             new_path_str = path
             effective_path = path
 
+        current_bindings = self._repository.bindings_for_root(root_id)
+        removed_ids = set()
+        for ref in remove_bindings_list:
+            removed_ids.add(self._repository.find_binding(root_id, ref.model_type, ref.subdir)["id"])
+        for binding in current_bindings:
+            if binding["model_type"] in remove_types_list:
+                removed_ids.add(binding["id"])
+
+        flagged: List[BindingSpec] = []
         if bindings is not None:
             root_path_for_bindings = self._resolve_base(effective_path)
             self._validate_binding_targets(root_path_for_bindings, list(bindings))
-            self._check_binding_nesting(row, root_path_for_bindings, list(bindings))
+            for spec in bindings:
+                found = self._repository.find_binding(root_id, spec.model_type, spec.subdir)
+                if found is not None and found["id"] in removed_ids:
+                    raise InvalidBindingError(spec.model_type, spec.subdir)
+            self._check_binding_nesting(row, root_path_for_bindings, list(bindings), removed_ids)
             flagged = [spec for spec in bindings if spec.write]
             if flagged and (row["read_only"] if read_only is None else read_only):
                 raise RootReadOnlyRefusalError(root_id, row["label"])
@@ -461,55 +495,51 @@ class ModelRootsManager:
                 if error is not None:
                     raise WriteProbeFailedError(root_id, error)
 
-        if read_only is True:
-            self._hand_back_all_writes(root_id)
-
-        self._repository.update_root(
-            root_id, label=label, path=new_path_str, path_key=new_path_key, read_only=read_only, now=now
+        effective_read_only = bool(row["read_only"]) if read_only is None else read_only
+        flagged_types = {spec.model_type for spec in flagged}
+        leaving = [
+            b for b in current_bindings
+            if b["is_write"] and (read_only is True or b["id"] in removed_ids) and b["model_type"] not in flagged_types
+        ]
+        added: Dict[str, List[str]] = {}
+        for spec in bindings or []:
+            if self._repository.find_binding(root_id, spec.model_type, spec.subdir) is None:
+                added.setdefault(spec.model_type, []).append(spec.subdir)
+        plan = self._plan_handoffs(
+            root_id, leaving, removed_ids, sibling_ok=not effective_read_only, added=added
         )
 
-        if bindings is not None:
-            root_path_for_bindings = self._resolve_base(effective_path)
-            max_positions = self._repository.max_position_by_type()
-            for spec in bindings:
-                if self._repository.find_binding(root_id, spec.model_type, spec.subdir) is not None:
-                    self._repository.upsert_binding(
-                        root_id, spec.model_type, spec.subdir, 0, False, spec.scan_headers
+        try:
+            self._repository.update_root(
+                root_id, label=label, path=new_path_str, path_key=new_path_key, read_only=read_only, now=now
+            )
+
+            if bindings is not None:
+                max_positions = self._repository.max_position_by_type()
+                for spec in bindings:
+                    if self._repository.find_binding(root_id, spec.model_type, spec.subdir) is not None:
+                        self._repository.upsert_binding(
+                            root_id, spec.model_type, spec.subdir, 0, False, spec.scan_headers
+                        )
+                        continue
+                    position = max_positions.get(spec.model_type, -1) + 1
+                    self._repository.insert_binding(
+                        root_id, spec.model_type, spec.subdir, position, False, spec.scan_headers
                     )
-                    continue
-                position = max_positions.get(spec.model_type, -1) + 1
-                self._repository.insert_binding(
-                    root_id, spec.model_type, spec.subdir, position, False, spec.scan_headers
-                )
-                max_positions[spec.model_type] = position
-            for spec in bindings:
-                if spec.write:
+                    max_positions[spec.model_type] = position
+                for spec in flagged:
                     self._repository.set_write(root_id, spec.model_type, spec.subdir)
 
-        if remove_bindings_list:
+            self._apply_handoffs(plan)
             for ref in remove_bindings_list:
-                binding = self._repository.find_binding(root_id, ref.model_type, ref.subdir)
-                if binding is None:
-                    continue
                 self._repository.delete_binding(root_id, ref.model_type, ref.subdir)
-                if binding["is_write"]:
-                    self._hand_write_back(root_id, ref.model_type, prefer_sibling=True)
-
-        if remove_types_list:
-            current_bindings = self._repository.bindings_for_root(root_id)
             for model_type in remove_types_list:
-                type_bindings = [b for b in current_bindings if b["model_type"] == model_type]
-                if not type_bindings:
-                    continue
-                was_write = any(bool(b["is_write"]) for b in type_bindings)
                 self._repository.delete_binding(root_id, model_type)
                 self._locations.delete_for_root_and_type(root_id, model_type)
-                if was_write:
-                    self._hand_write_back(root_id, model_type)
-
-        self._resolver.invalidate()
-        if touches_disk:
-            self._indexing.cancel_and_restart(trigger="roots_change")
+        finally:
+            self._resolver.invalidate()
+            if touches_disk:
+                self._indexing.cancel_and_restart(trigger="roots_change")
         return self._root_view(root_id)
 
     def set_binding_scan_headers(self, root_id: str, model_type: str, subdir: str, enabled: bool) -> Dict[str, Any]:

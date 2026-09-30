@@ -40,7 +40,9 @@ def manager(mock_db, tmp_path):
 @pytest.fixture
 def app(manager):
     container = SimpleNamespace(
-        model_roots_manager=manager, model_index_manager=SimpleNamespace(indexing=manager._indexing)
+        model_roots_manager=manager,
+        model_index_manager=SimpleNamespace(indexing=manager._indexing),
+        model_layout_catalog=None,
     )
     fastapi_app = FastAPI()
     fastapi_app.include_router(build_router(container))
@@ -203,7 +205,9 @@ async def test_patch_requires_admin(manager, library):
         raise HTTPException(status_code=403, detail="forbidden")
 
     container = SimpleNamespace(
-        model_roots_manager=manager, model_index_manager=SimpleNamespace(indexing=manager._indexing)
+        model_roots_manager=manager,
+        model_index_manager=SimpleNamespace(indexing=manager._indexing),
+        model_layout_catalog=None,
     )
     fastapi_app = FastAPI()
     fastapi_app.include_router(build_router(container))

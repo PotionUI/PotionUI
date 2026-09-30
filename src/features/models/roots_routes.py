@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import platform
@@ -6,7 +7,8 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from src.features.models import root_detection
+from src.features.model_layouts.detection import UnknownLayoutError, detect_layout
+from src.features.model_layouts.schema import GENERIC_LAYOUT_ID
 from src.features.models.roots import BindingRef, BindingSpec, ModelRootsError, ModelRootsManager
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.current_user import get_current_admin_user
@@ -53,6 +55,7 @@ class BindingScanRequest(BaseModel):
 
 class DetectRootRequest(BaseModel):
     path: str
+    profile: Optional[str] = None
 
 
 class CreateRootRequest(BaseModel):
@@ -61,6 +64,7 @@ class CreateRootRequest(BaseModel):
     bindings: List[BindingRequest] = []
     read_only: bool = False
     write_types: List[str] = []
+    profile: Optional[str] = None
 
 
 class UpdateRootRequest(BaseModel):
@@ -85,10 +89,13 @@ class SetWriteRootRequest(BaseModel):
 
 class ModelRootsController(BaseController):
 
-    def __init__(self, manager: ModelRootsManager, indexing_coordinator: "ModelIndexingCoordinator"):
+    def __init__(
+        self, manager: ModelRootsManager, indexing_coordinator: "ModelIndexingCoordinator", layout_catalog: Any = None
+    ):
         super().__init__()
         self.manager = manager
         self.indexing = indexing_coordinator
+        self.layout_catalog = layout_catalog
 
     def _raise_for(self, error: ModelRootsError):
         status_code = _STATUS_BY_CODE.get(error.code, 400)
@@ -101,10 +108,26 @@ class ModelRootsController(BaseController):
         return self.success_response(data=data)
 
     async def detect(self, request: DetectRootRequest) -> APIResponse:
-        result = root_detection.detect(request.path, resolver=self.manager.resolver)
-        return self.success_response(data=result.to_dict())
+        try:
+            result = await asyncio.to_thread(
+                detect_layout,
+                request.path,
+                catalog=self.layout_catalog,
+                profile=request.profile,
+                resolver=self.manager.resolver,
+            )
+        except UnknownLayoutError as error:
+            self.error_response(error=error.code, message=str(error), status_code=400)
+        return self.success_response(data=result)
 
     async def create_root(self, request: CreateRootRequest) -> APIResponse:
+        if request.profile and request.profile != GENERIC_LAYOUT_ID:
+            if self.layout_catalog is None or self.layout_catalog.get_layout(request.profile) is None:
+                self.error_response(
+                    error="model_layout_unknown",
+                    message=f"Unknown model layout '{request.profile}'",
+                    status_code=400,
+                )
         try:
             root = self.manager.create_root(
                 request.path,
@@ -113,6 +136,7 @@ class ModelRootsController(BaseController):
                 read_only=request.read_only,
                 write_types=request.write_types,
                 idempotent=False,
+                layout_profile=request.profile,
             )
         except ModelRootsError as error:
             self._raise_for(error)
@@ -180,7 +204,9 @@ class ModelRootsController(BaseController):
 
 
 def build_router(container: "AppContainer") -> APIRouter:
-    controller = ModelRootsController(container.model_roots_manager, container.model_index_manager.indexing)
+    controller = ModelRootsController(
+        container.model_roots_manager, container.model_index_manager.indexing, container.model_layout_catalog
+    )
     router = APIRouter(prefix="/api/models/roots", tags=["Model Roots"])
 
     @router.get("", response_model=APIResponse, summary="List Model Roots")

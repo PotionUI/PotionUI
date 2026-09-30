@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
 
+from src.features.model_layouts.catalog import ModelLayoutCatalog
 from src.features.models.roots import ModelRootsManager
 from src.features.models.roots_routes import build_router
 from src.platform.filesystem.model_roots import HOME_ROOT_ID, ModelRootResolver, RootProbe
@@ -58,11 +59,27 @@ def manager(mock_db, tmp_path):
 
 
 @pytest.fixture
-def container(manager):
+def layout_catalog(tmp_path):
+    from tests.features.model_layouts.helpers import write_layout
+
+    write_layout(
+        tmp_path / "layouts" / "marketplace",
+        "tool",
+        markers=[{"path": "tool.py", "kind": "file", "weight": 4}],
+        config_readers=[],
+        models_root=["models"],
+        folders=[{"path": "loras", "model_type": "lora", "write": True}],
+    )
+    return ModelLayoutCatalog(str(tmp_path / "layouts"))
+
+
+@pytest.fixture
+def container(manager, layout_catalog):
     indexing = manager._indexing
     return SimpleNamespace(
         model_roots_manager=manager,
         model_index_manager=SimpleNamespace(indexing=indexing),
+        model_layout_catalog=layout_catalog,
     )
 
 
@@ -105,6 +122,80 @@ class TestDetect:
         data = response.json()["data"]
         assert data["layout"] == "typed"
         assert any(s["model_type"] == "lora" for s in data["suggestions"])
+
+
+class TestDetectWithProfiles:
+    @pytest.mark.asyncio
+    async def test_response_keeps_the_existing_fields_and_adds_the_new_ones(self, app, library_dir):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/models/roots/detect", json={"path": str(library_dir)})
+
+        data = response.json()["data"]
+        assert {"path", "effective_path", "state", "layout", "suggestions", "single_type_guess", "conflicts", "warnings"} <= set(data)
+        assert {"root_path", "profile", "alternatives", "outside_folders", "extra_roots", "delegated"} <= set(data)
+        assert data["profile"] is None and data["alternatives"][-1]["id"] == "generic"
+
+    @pytest.mark.asyncio
+    async def test_a_matching_profile_is_detected(self, app, tmp_path):
+        install = tmp_path / "install"
+        (install / "models" / "loras").mkdir(parents=True)
+        (install / "tool.py").write_text("", encoding="utf-8")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/models/roots/detect", json={"path": str(install)})
+
+        data = response.json()["data"]
+        assert data["profile"]["id"] == "tool"
+        assert [s["subdir"] for s in data["suggestions"]] == ["models/loras"]
+
+    @pytest.mark.asyncio
+    async def test_generic_override_skips_the_profile(self, app, tmp_path):
+        install = tmp_path / "install"
+        (install / "models" / "loras").mkdir(parents=True)
+        (install / "tool.py").write_text("", encoding="utf-8")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/models/roots/detect", json={"path": str(install), "profile": "generic"})
+
+        assert response.json()["data"]["profile"] is None
+
+    @pytest.mark.asyncio
+    async def test_unknown_profile_is_a_bad_request(self, app, library_dir):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/models/roots/detect", json={"path": str(library_dir), "profile": "nope"})
+
+        assert response.status_code == 400
+        assert response.json()["detail"]["error"] == "model_layout_unknown"
+
+
+class TestCreateRootWithProfile:
+    @pytest.mark.asyncio
+    async def test_the_profile_is_stored_on_the_root(self, app, library_dir):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/models/roots",
+                json={"path": str(library_dir), "profile": "tool", "bindings": [{"model_type": "lora", "subdir": "loras"}]},
+            )
+            listing = await client.get("/api/models/roots")
+
+        assert response.status_code == 201
+        stored = next(r for r in listing.json()["data"]["roots"] if r["id"] == response.json()["data"]["id"])
+        assert stored["layout_profile"] == "tool"
+
+    @pytest.mark.asyncio
+    async def test_generic_is_accepted_and_unknown_is_rejected(self, app, library_dir, tmp_path):
+        other = tmp_path / "other"
+        (other / "loras").mkdir(parents=True)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            ok = await client.post(
+                "/api/models/roots",
+                json={"path": str(other), "profile": "generic", "bindings": [{"model_type": "lora", "subdir": "loras"}]},
+            )
+            bad = await client.post(
+                "/api/models/roots",
+                json={"path": str(library_dir), "profile": "nope", "bindings": [{"model_type": "lora", "subdir": "loras"}]},
+            )
+
+        assert ok.status_code == 201
+        assert bad.status_code == 400 and bad.json()["detail"]["error"] == "model_layout_unknown"
 
 
 class TestCreateRoot:

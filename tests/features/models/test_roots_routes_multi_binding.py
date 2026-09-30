@@ -63,6 +63,7 @@ def container(manager):
     return SimpleNamespace(
         model_roots_manager=manager,
         model_index_manager=SimpleNamespace(indexing=indexing),
+        model_layout_catalog=None,
     )
 
 

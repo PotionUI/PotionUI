@@ -78,6 +78,38 @@ ENDPOINTS = {
 }
 
 
+VIDEO_MODELS = {
+    "data": [
+        {
+            "id": "vendor-v/clip-pro",
+            "name": "Clip Pro",
+            "description": "Makes clips",
+            "supported_durations": [4, 6, 8],
+            "supported_resolutions": ["720p", "1080p"],
+            "supported_aspect_ratios": ["16:9", "9:16"],
+            "supported_sizes": ["1280x720"],
+            "generate_audio": True,
+            "supported_frame_images": ["first_frame", "last_frame"],
+            "max_input_references": 3,
+            "pricing_skus": {"per_second_720p": "0.10", "audio_addon": 0.02},
+            "allowed_passthrough_parameters": ["motion"],
+        },
+        {
+            "id": "vendor-v/clip-lite",
+            "supported_durations": [5],
+            "supported_aspect_ratios": ["16:9"],
+            "pricing_skus": [{"sku": "video_tokens", "cost_usd": 0.000001}],
+        },
+        {"id": "vendor-v/odd", "architecture": {"output_modalities": ["text"]}},
+        {"id": "", "supported_durations": [3]},
+        {"supported_durations": [3]},
+        12,
+    ]
+}
+
+VIDEO_BYTES = b"\x00\x00\x00\x18ftypmp42" + b"v" * 2000
+
+
 class OpenRouterFixture:
     def __init__(self) -> None:
         self.mode = "b64"
@@ -86,6 +118,12 @@ class OpenRouterFixture:
         self.api_url = ""
         self.cdn_url = ""
         self.failing_endpoints: set = set()
+        self.video_mode = "ok"
+        self.video_submit_mode = "ok"
+        self.video_polls = 0
+        self.video_bytes = VIDEO_BYTES
+        self.videos_listed = True
+        self.videos_fail = 0
         self.moderation_metadata = {
             "reasons": ["violence"],
             "flagged_input": "SECRET PROMPT TEXT",
@@ -140,6 +178,54 @@ class OpenRouterFixture:
         metadata = self.moderation_metadata if mode == "moderation" else None
         return self.error(status, f"{mode} happened", headers, metadata)
 
+    def video_script(self):
+        content = f"{self.api_url}/videos/vid-1/content?index=0"
+        done = {"status": "completed", "unsigned_urls": [content], "usage": {"cost": 0.8, "is_byok": False}}
+        scripts = {
+            "ok": [{"status": "pending", "queue_position": 2}, {"status": "in_progress", "progress": 40}, done],
+            "foreign": [{"status": "completed", "unsigned_urls": [f"{self.cdn_url}/files/clip.mp4"]}],
+            "failed": [{"status": "in_progress"}, {"status": "failed", "error": {"message": "render crashed upstream"}}],
+            "moderated": [{"status": "failed", "error": {"message": "blocked by the safety policy"}}],
+            "cancelled": [{"status": "in_progress"}, {"status": "cancelled"}],
+            "expired": [{"status": "expired"}],
+            "forever": [{"status": "in_progress", "progress": 10}],
+        }
+        return scripts[self.video_mode]
+
+    async def list_videos(self, request: web.Request) -> web.Response:
+        self.record(request)
+        if self.videos_fail:
+            return self.error(self.videos_fail, "trouble")
+        if not self.videos_listed:
+            return self.error(404, "no such route")
+        return web.json_response(VIDEO_MODELS)
+
+    async def submit_video(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        self.record(request, body)
+        if self.video_submit_mode == "credits":
+            return self.error(402, "no credits", {"Retry-After": "7"})
+        return web.json_response(
+            {"id": "vid-1", "polling_url": f"{self.api_url}/videos/vid-1", "status": "pending"}, status=202
+        )
+
+    async def poll_video(self, request: web.Request) -> web.Response:
+        self.record(request)
+        script = self.video_script()
+        step = script[min(self.video_polls, len(script) - 1)]
+        self.video_polls += 1
+        return web.json_response(step)
+
+    async def video_content(self, request: web.Request) -> web.Response:
+        self.record(request)
+        if request.headers.get("Authorization") != f"Bearer {KEY}":
+            return self.error(401, "missing key")
+        return web.Response(body=self.video_bytes, content_type="video/mp4")
+
+    async def cdn_clip(self, request: web.Request) -> web.Response:
+        self.cdn_requests.append({"headers": dict(request.headers)})
+        return web.Response(body=VIDEO_BYTES, content_type="video/mp4")
+
     async def cdn_file(self, request: web.Request) -> web.Response:
         self.cdn_requests.append({"headers": dict(request.headers)})
         return web.Response(body=PNG, content_type="image/png")
@@ -152,8 +238,13 @@ async def openrouter():
     api.router.add_get("/images/models", state.list_models)
     api.router.add_get("/images/models/{vendor}/{name}/endpoints", state.endpoints)
     api.router.add_post("/images", state.generate)
+    api.router.add_get("/videos/models", state.list_videos)
+    api.router.add_post("/videos", state.submit_video)
+    api.router.add_get("/videos/{id}", state.poll_video)
+    api.router.add_get("/videos/{id}/content", state.video_content)
     cdn = web.Application()
     cdn.router.add_get("/files/out.png", state.cdn_file)
+    cdn.router.add_get("/files/clip.mp4", state.cdn_clip)
     api_server = TestServer(api, host="127.0.0.1")
     cdn_server = TestServer(cdn, host="127.0.0.1")
     await api_server.start_server()

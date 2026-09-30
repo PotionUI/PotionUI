@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Mapping, Optional, Tuple
+from typing import Any, ClassVar, Dict, Iterable, List, Mapping, Optional, Tuple
 
 import yaml
 
@@ -14,17 +14,20 @@ from src.plugin_api.cloud import (
     CloudModelSpec,
     CloudProvider,
     CloudRequest,
+    CloudStatus,
     parse_retry_after,
     spec_problems,
 )
 
 from .config import DEFAULT_BASE_URL, OpenRouterConfig
 from .mapping import build_body, endpoint_list, model_spec, parse_result
+from .video import FIRST_POLL_SECONDS, build_video_body, is_video_spec, parse_status, polling_target, video_spec
 
 logger = logging.getLogger(__name__)
 
 SUGGESTIONS_FILE = Path(__file__).resolve().parents[1] / "cloud_models.yml"
 ENDPOINT_LOOKUPS_AT_ONCE = 4
+ROUTE_NOT_OFFERED = ("HTTP 404", "HTTP 405")
 
 DATA_NOTICE = (
     "Your prompts, any pictures you add and the settings you choose are sent to OpenRouter (openrouter.ai). "
@@ -105,6 +108,10 @@ class OpenRouterProvider(CloudProvider):
                 "unavailable", "No provider could serve this request with the current routing settings.",
                 detail=f"HTTP 503: {message}", retry_after_s=retry_after,
             )
+        if status in (404, 405):
+            return CloudError(
+                "invalid_request", "OpenRouter does not offer this.", detail=f"HTTP {status}: {message}",
+            )
         if status in (400, 422):
             return CloudError(
                 "invalid_request", "OpenRouter rejected the request settings.", detail=f"HTTP {status}: {message}",
@@ -125,14 +132,23 @@ class OpenRouterProvider(CloudProvider):
                 return []
 
     async def discover(self) -> List[CloudModelSpec]:
-        payload = await self._get("/images/models")
+        return [*await self._discover_images(), *await self._discover_videos()]
+
+    async def _discover_videos(self) -> List[CloudModelSpec]:
+        try:
+            payload = await self._get("/videos/models")
+        except CloudError as error:
+            if not error.detail.startswith(ROUTE_NOT_OFFERED):
+                raise
+            logger.info("[OPENROUTER] this account's API does not offer video models")
+            return []
         items = payload.get("data", []) if isinstance(payload, dict) else payload
-        items = [item for item in items if isinstance(item, dict) and isinstance(item.get("id"), str)] if isinstance(items, list) else []
-        gate = asyncio.Semaphore(ENDPOINT_LOOKUPS_AT_ONCE)
-        endpoints = await asyncio.gather(*(self._endpoints(item["id"], gate) for item in items))
+        return self._valid_specs(video_spec(item) for item in items if isinstance(items, list))
+
+    @staticmethod
+    def _valid_specs(candidates: Iterable[Optional[CloudModelSpec]]) -> List[CloudModelSpec]:
         specs: List[CloudModelSpec] = []
-        for item, details in zip(items, endpoints):
-            spec = model_spec(item, details)
+        for spec in candidates:
             if spec is None:
                 continue
             problems = spec_problems(spec)
@@ -142,7 +158,39 @@ class OpenRouterProvider(CloudProvider):
             specs.append(spec)
         return specs
 
+    async def _discover_images(self) -> List[CloudModelSpec]:
+        payload = await self._get("/images/models")
+        items = payload.get("data", []) if isinstance(payload, dict) else payload
+        items = [item for item in items if isinstance(item, dict) and isinstance(item.get("id"), str)] if isinstance(items, list) else []
+        gate = asyncio.Semaphore(ENDPOINT_LOOKUPS_AT_ONCE)
+        endpoints = await asyncio.gather(*(self._endpoints(item["id"], gate) for item in items))
+        return self._valid_specs(model_spec(item, details) for item, details in zip(items, endpoints))
+
+    async def submit_video(self, request: CloudRequest) -> CloudJob:
+        body = await asyncio.to_thread(
+            build_video_body, request, self.config.upstream_list(),
+            request.user_ref if self.config.send_user_hash else None,
+        )
+        payload = await self.http.request_json(
+            "POST", "/videos", json=body, headers=self.attribution_headers(),
+            timeout_s=float(self.config.timeout_seconds),
+        )
+        job_id = payload.get("id") if isinstance(payload, dict) else None
+        if not isinstance(job_id, str) or not job_id:
+            raise CloudError("failed", "OpenRouter did not accept the video job.", detail="no job id in the answer")
+        return CloudJob(
+            job_id=job_id,
+            handle={"target": polling_target(self.http, payload, job_id)},
+            poll_after_s=FIRST_POLL_SECONDS,
+        )
+
+    async def poll(self, job: CloudJob) -> CloudStatus:
+        payload = await self.http.request_json("GET", job.handle["target"], headers=self.attribution_headers())
+        return parse_status(self.http, payload, job.job_id)
+
     async def submit(self, request: CloudRequest) -> CloudJob:
+        if is_video_spec(request.model):
+            return await self.submit_video(request)
         body = await asyncio.to_thread(
             build_body, request, self.config.upstream_list(), request.user_ref if self.config.send_user_hash else None
         )

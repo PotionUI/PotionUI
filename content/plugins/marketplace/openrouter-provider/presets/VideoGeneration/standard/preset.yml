@@ -1,0 +1,15 @@
+schema: 1
+id: "01M3SV8HJTGT3JPPH2BA5MP6PR"
+name: "OpenRouter Video"
+category: "video"
+version: "1.0.0"
+engine: "cloud"
+driver: "cloud.openrouter"
+tags: ["cloud", "openrouter", "video"]
+
+media:
+  cover: "public/cover.png"
+
+modes:
+  - txt2video
+  - img2video

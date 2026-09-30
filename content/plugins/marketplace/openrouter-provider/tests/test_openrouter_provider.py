@@ -39,6 +39,10 @@ async def spec_of(provider, model_id):
     return next(spec for spec in await provider.discover() if spec.provider_model_id == model_id)
 
 
+def images_only(specs):
+    return [spec for spec in specs if "image" in spec.outputs]
+
+
 async def request_for(provider, task="txt2img", model_id="vendor-a/image-pro", **fields):
     return CloudRequest(model=await spec_of(provider, model_id), task=task, prompt="a lighthouse", client_reference="gen-1", **fields)
 
@@ -48,7 +52,7 @@ def generate_calls(fixture):
 
 
 async def test_discovery_keeps_image_models_and_skips_what_does_not_map(provider):
-    specs = await provider.discover()
+    specs = images_only(await provider.discover())
 
     assert sorted(spec.provider_model_id for spec in specs) == ["vendor-a/image-pro", "vendor-b/text-only", "vendor-d/odd"]
     assert all(spec_problems(spec) == [] for spec in specs)
@@ -341,7 +345,7 @@ async def test_the_contract_kit_passes_against_the_recorded_fixtures(provider, o
         async def probe():
             openrouter.mode = mode
             try:
-                await provider.submit(CloudRequest(model=(await provider.discover())[0], task="txt2img", prompt="x"))
+                await provider.submit(CloudRequest(model=images_only(await provider.discover())[0], task="txt2img", prompt="x"))
             finally:
                 openrouter.mode = "b64"
 
@@ -351,7 +355,7 @@ async def test_the_contract_kit_passes_against_the_recorded_fixtures(provider, o
         make_provider=lambda scenario: provider,
         advance=advance,
         scenarios=(SCENARIO_SYNC,),
-        make_request=lambda specs, scenario: CloudRequest(model=specs[0], task="txt2img", prompt="a lighthouse", client_reference="contract"),
+        make_request=lambda specs, scenario: CloudRequest(model=images_only(specs)[0], task="txt2img", prompt="a lighthouse", client_reference="contract"),
         error_probes={
             "auth": failing("auth"), "credits": failing("credits"), "refused": failing("moderation"),
             "rate_limited": failing("rate"), "unavailable": failing("down"), "invalid_request": failing("bad"),

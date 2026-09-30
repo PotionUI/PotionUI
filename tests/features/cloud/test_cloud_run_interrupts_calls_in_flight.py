@@ -153,3 +153,26 @@ async def test_cancelling_the_whole_run_waits_for_the_in_flight_call_to_let_go(t
         await task
 
     assert released == [True]
+
+
+async def test_stopping_a_job_the_provider_cannot_cancel_stops_polling_at_once_and_warns(tmp_path):
+    h = Harness(
+        tmp_path,
+        behaviour=FakeBehaviour(mode="async", duration_s=10_000, poll_after_s=1),
+        supports_cancel=False,
+        clock=MonotonicClock(),
+    )
+    task = asyncio.ensure_future(h.run())
+    while "poll" not in h.provider.behaviour.calls:
+        await asyncio.sleep(0.05)
+
+    started = time.monotonic()
+    await h.session.cancel()
+    with pytest.raises(CloudRunCancelled) as raised:
+        await task
+    polls = h.provider.behaviour.calls.count("poll")
+    await asyncio.sleep(0.3)
+
+    assert time.monotonic() - started < 1.0 and raised.value.cancel_confirmed is False
+    assert h.provider.behaviour.calls.count("poll") == polls and "cancel" not in h.provider.behaviour.calls
+    assert any("may still finish this job and bill it" in (item.message or "") for item in h.progress)

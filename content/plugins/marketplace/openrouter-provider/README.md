@@ -1,7 +1,7 @@
-# OpenRouter Images
+# OpenRouter Images and Video
 
-Adds an OpenRouter cloud backend (driver `cloud.openrouter`), discovers OpenRouter's image models
-and ships the "OpenRouter Images" preset with a text-to-image and an edit mode.
+Adds an OpenRouter cloud backend (driver `cloud.openrouter`), discovers OpenRouter's image and video models
+and ships two presets: "OpenRouter Images" (text to image and edit) and "OpenRouter Video" (text to video and image to video).
 
 ## Setting it up (needs a real OpenRouter key to try out)
 
@@ -48,6 +48,29 @@ does not map is skipped instead of failing the refresh.
 - The key is checked with a listing request. It is sent only to the API address, never to the download
   addresses of finished pictures.
 
+## What the plugin assumes about the OpenRouter video API
+
+- `GET /videos/models` answers `{"data": [...]}`. A missing route only hides the video models. Each model has `id`, optional
+  `name`, `description`, `supported_durations`, `supported_resolutions`, `supported_aspect_ratios`, `supported_sizes`,
+  `pricing_skus`, `allowed_passthrough_parameters`, and optionally `generate_audio` (true when the model can make sound),
+  `supported_frame_images` (`first_frame`, `last_frame`), `max_input_references` and `supported_parameters`.
+- Durations that are three or more whole numbers in even steps become a range, otherwise a list of choices.
+- A model accepts image to video when it lists frame images, or when `image` is among its input modalities (then only a
+  first frame is assumed). `pricing_skus` is an object of name to cost, or a list of `{sku, cost_usd}`; a name containing
+  "second" is priced per second, the others as named extras. `seed` is sent unless `supported_parameters` exists without it.
+- `POST /videos` answers 202 with `{id, polling_url, status}`. The body carries `duration`, `resolution`, `aspect_ratio`,
+  `size`, `generate_audio`, `seed`, `frame_images` (objects with `type: image_url`, `image_url.url` as a data address and
+  `frame_type`), `input_references` (data addresses) and the same `provider` and `user` fields as images.
+- A polling address is used only when it is on the API host; otherwise `/videos/{id}` is polled. Polling starts after
+  5 seconds and then every 30 seconds.
+- A poll answers `{status, progress?, queue_position?, error?, unsigned_urls?, usage?}`. `pending` is queued;
+  `in_progress` is running; `completed`, `failed`, `cancelled` and `expired` end the job. `progress` may be 0 to 1 or 0 to 100.
+  A failure whose message mentions moderation, safety, policy or blocking is a refusal; other reasons stay in the admin-only
+  detail. The finished files are the `unsigned_urls`; if none are listed, `/videos/{id}/content?index=0` is used.
+- Files on the API host are downloaded with the key and files on any other host without it, with a size cap.
+- OpenRouter documents no way to cancel a video. Stopping a video only stops PotionUI from waiting, and the user is told the
+  job may still finish and be billed.
+
 `cloud_models.yml` lists the model ids the catalog marks as suggested. Ids OpenRouter does not list are
 ignored.
 
@@ -63,3 +86,15 @@ This run needs an OpenRouter account with credits and a key, so it is done by ha
 6. Generate in edit mode with one picture, then with two.
 7. Check the pictures arrive in history, and that a prompt the model refuses is shown as blocked.
 8. With the anonymous user id switched on, check in the OpenRouter activity log that requests carry an id that is not a user name.
+
+## Trying video with a real key
+
+Needs the same key and credits as above, and video costs more than pictures, so pick a short duration.
+
+1. With the backend set up and the catalog refreshed, enable one video model, preferably one that takes a first frame.
+2. Generate from "OpenRouter Video" in text to video mode. Watch the progress: it should show the queue position and then
+   elapsed time, and the video should arrive in history.
+3. Generate in image to video mode with a start picture, and with a last picture if the model offers it.
+4. Start another video and stop it while it runs. Polling should stop at once and the message should say the job may still
+   finish and be billed. Check the OpenRouter activity log to see whether it was billed.
+5. If a model is missing or misses controls, see the skipped list in the Catalog tab and the assumptions above.

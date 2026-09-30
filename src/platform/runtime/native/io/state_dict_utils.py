@@ -10,31 +10,17 @@ from collections import Counter
 
 import torch
 
+from src.platform.runtime.model_headers.signatures import detect_prefix, strip_prefix
 
-def strip_prefix(sd: dict[str, torch.Tensor], prefix: str) -> dict[str, torch.Tensor]:
-    """Return a new dict with ``prefix`` removed from every key that has it.
-
-    Keys that do not start with ``prefix`` are dropped — this mirrors
-    ComfyUI's component-extraction behaviour (isolate one sub-model).
-    """
-    return {k[len(prefix):]: v for k, v in sd.items() if k.startswith(prefix)}
-
-
-def detect_prefix(sd: dict[str, torch.Tensor], candidates: list[str]) -> str | None:
-    """Pick the candidate prefix that the most keys share.
-
-    Count-based like ComfyUI's ``unet_prefix_from_state_dict``: the winning
-    prefix is the one owning the largest number of keys. Returns ``None`` when
-    no candidate matches any key.
-    """
-    best: str | None = None
-    best_count = 0
-    for prefix in candidates:
-        count = sum(1 for k in sd if k.startswith(prefix))
-        if count > best_count:
-            best = prefix
-            best_count = count
-    return best
+__all__ = [
+    "count_blocks",
+    "detect_prefix",
+    "is_nvfp4_packed",
+    "key_shapes",
+    "linear_in_features",
+    "strip_prefix",
+    "weight_dtype",
+]
 
 
 def count_blocks(sd: dict[str, torch.Tensor], pattern: str) -> int:

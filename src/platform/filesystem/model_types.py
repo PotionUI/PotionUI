@@ -16,6 +16,9 @@ there is one home for a conditioning encoder, and adding a second would split
 the pickers that list them.
 """
 
+import re
+import unicodedata
+
 DIRECTORY_TO_MODEL_TYPE = {
     'checkpoints': 'checkpoint',
     'diffusion_models': 'diffusion_model',
@@ -67,3 +70,16 @@ for _directory, _aliases in MODEL_DIRECTORY_ALIASES.items():
 
 def type_for_folder_name(name):
     return _FOLDER_NAME_TO_MODEL_TYPE.get(name.lower())
+
+
+UNDEFINED_MODEL_TYPE = 'undefined'
+HEADER_CLASSIFIED_TYPES = frozenset({'checkpoint', 'diffusion_model', 'unet'})
+HEADER_EXTENSIONS = frozenset({'.safetensors', '.sft', '.gguf'})
+SCAN_HEADERS_FOLDER_NAMES = frozenset({'stable-diffusion', 'unet'})
+
+
+def scan_headers_by_default(folder_name):
+    segments = [part for part in re.split(r'[\\/]', folder_name) if part]
+    if not segments:
+        return False
+    return unicodedata.normalize('NFC', segments[-1]).casefold() in SCAN_HEADERS_FOLDER_NAMES

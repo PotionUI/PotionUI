@@ -53,14 +53,13 @@ defence in depth).
 
 from __future__ import annotations
 
-import json
 import logging
-import struct
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
 from src.platform.filesystem.model_roots import ModelRootResolver
+from src.platform.runtime.model_headers.reader import read_safetensors_header
 
 logger = logging.getLogger(__name__)
 
@@ -158,15 +157,6 @@ class AdoptedTEEntry:
     nvfp4: bool = False        # mixed bf16/nvfp4 repack (see `_detect_quantization`)
 
 
-def read_safetensors_header(path: str | Path) -> dict[str, Any]:
-    """Parse a safetensors file's JSON header (keys + per-tensor dtype/shape +
-    ``__metadata__``) WITHOUT reading any tensor data — the first 8 bytes are the
-    little-endian header length, followed by that many bytes of JSON."""
-    with open(path, "rb") as f:
-        (header_len,) = struct.unpack("<Q", f.read(8))
-        return json.loads(f.read(header_len))
-
-
 def _family_from_keys(keys: set[str]) -> Optional[str]:
     """Which causal-LM family a comfy TE state dict belongs to, from key shape
     alone — or None for a non-causal TE (T5 / CLIP / UMT5) we don't adopt."""
@@ -244,7 +234,7 @@ def _inspect(path: str | Path, resolver: ModelRootResolver) -> Optional[AdoptedT
     file isn't a causal-LM TE (skipped, not listed)."""
     try:
         header = read_safetensors_header(path)
-    except (OSError, ValueError, struct.error) as e:
+    except (OSError, ValueError) as e:
         logger.debug("[NativeTEAdoption] could not read header of %s: %s", path, e)
         return None
 

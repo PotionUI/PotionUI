@@ -31,94 +31,37 @@ import math
 
 import torch
 
+from src.platform.runtime.model_headers.signatures import (
+    ANIMA_SIG,
+    FLUX2_SIG,
+    FLUX_SIG,
+    KREA2_SIG,
+    LTX_SIG,
+    LUMINA2_SIG,
+    MINIMAX_H3_SIG,
+    MINIMAX_H3_SIG2,
+    MINIMAX_MUSIC3_SIG,
+    MINIMAX_MUSIC3_SIG2,
+    MINIMAX_MUSIC3_SIG3,
+    QWEN_IMAGE21_SIG,
+    QWEN_IMAGE21_SIG2,
+    QWEN_IMAGE_SIG,
+    SEEDVR2_SIG,
+    SEEDVR2_SIG2,
+    TRELLIS2_SHAPE_512_PREFIX,
+    TRELLIS2_SHAPE_PREFIX,
+    TRELLIS2_STRUCTURE_PREFIX,
+    TRELLIS2_TEXTURE_PREFIX,
+    WAN_REJECT,
+    WAN_SIG,
+    YUE2_SIG,
+    YUE2_SIG2,
+)
+
 from ..errors import NativeEngineUnsupportedError
 from ..io.state_dict_utils import count_blocks, linear_in_features
 
 logger = logging.getLogger(__name__)
-
-# Signature keys (ComfyUI convention).
-_FLUX_SIG = "double_blocks.0.img_attn.norm.key_norm.scale"
-_FLUX2_SIG = "double_stream_modulation_img.lin.weight"
-# Krea-2 (novel arch, see arch/krea2's headers): the text-fusion projector is unique
-# to Krea-2 and shares no key space with flux/flux2 (double_blocks) or the
-# future wan/qwen/ltx families.
-_KREA2_SIG = "txtfusion.projector.weight"
-# Qwen-Image MMDiT: the joint-attention text projection (`add_q_proj`) inside
-# `transformer_blocks` is unique among the image families (flux uses double_blocks,
-# krea2 uses blocks/txtfusion). Paired with `txt_norm.weight` (ComfyUI signature).
-_QWEN_IMAGE_SIG = "transformer_blocks.0.attn.add_q_proj.weight"
-_QWEN_IMAGE21_SIG = "modulation.1.weight"
-_QWEN_IMAGE21_SIG2 = "txt_in.text_norm.weight"
-# Wan 2.1 / 2.2: the per-token final-layer modulation is unique to Wan among all
-# the DiT families (ComfyUI's ``head.modulation`` signature). ``image_model`` is
-# "wan2.1" for BOTH Wan 2.1 and 2.2 — the 2.2 14B dual-expert split is a
-# weights/sampling difference, not a structural one, so it is NOT detectable
-# from a single checkpoint (handled at the loader/generator via the expert router).
-_WAN_SIG = "head.modulation"
-# LTX-2 / LTX-Video (PixArt-style adaLN-single + patchify_proj). ltxv (video) vs
-# ltxav (audio-video) is distinguished by the audio_adaln_single key. No collision
-# with flux (double_blocks) / qwen (add_q_proj) / wan (head.modulation).
-_LTX_SIG = "adaln_single.emb.timestep_embedder.linear_1.weight"
-# Anima (NVIDIA Cosmos-Predict2 MiniTrainDIT + an in-model LLMAdapter text-fusion
-# head). The ``llm_adapter`` cross-attention projection is unique to Anima — the
-# plain Cosmos-Predict2 backbone (``blocks.0.mlp.layer1.weight``) has no adapter,
-# and no other native family carries an ``llm_adapter.*`` namespace.
-_ANIMA_SIG = "llm_adapter.blocks.0.cross_attn.q_proj.weight"
-# Z-Image / Lumina-Image-2.0 NextDiT: the ``cap_embedder.1`` caption projection is
-# unique to the NextDiT family (flux uses double_blocks, qwen add_q_proj, wan
-# head.modulation). Only the ``dim==3840`` z_image variant is supported.
-_LUMINA2_SIG = "cap_embedder.1.weight"
-# SeedVR2 (ByteDance native-resolution restoration NaDiT). ``vid_in.proj`` (the
-# native-resolution video patch-embed) plus the per-layer ``AdaSingle`` shift
-# parameter ``blocks.0.ada.vid.attn_shift`` are both unique to SeedVR2 — no other
-# native family carries a ``vid_in`` embed or an ``.ada.vid`` modulation namespace
-# (flux double_blocks, qwen add_q_proj, wan head.modulation, ltx patchify_proj).
-_SEEDVR2_SIG = "vid_in.proj.weight"
-_SEEDVR2_SIG2 = "blocks.0.ada.vid.attn_shift"
-# MiniMax-H3 (packed-sequence audio-video DiT). The two patch projections plus
-# the text-condition projection plus the block-level fused-qkv attention are a
-# combination unique to H3 among every family here (no other family names a
-# ``video_patch_proj``/``audio_patch_proj`` pair, and no other family fuses
-# q/k/v into one ``qkv_proj`` at the block level -- SeedVR2 fuses qkv too, but
-# under ``proj_qkv``, and behind its own ``vid_in``/``ada.vid`` signature).
-_MINIMAX_H3_SIG = "video_patch_proj.weight"
-_MINIMAX_H3_SIG2 = "audio_patch_proj.weight"
-# MiniMax-Music3 (text-to-music flow-matching DiT + fused condition encoder in one
-# file). ``# Derived from: ComfyUI model_detection.py:47-52`` — the three-key
-# conjunction is ComfyUI's own signature (it returns ``{"audio_model":
-# "minimax_music3"}`` there; this registry always keys on ``image_model``
-# regardless of modality, matching every other family here including the also
-# audio-video MiniMax-H3). No other family names a ``cond_layer_logits`` buffer,
-# a ``latent_conditioners`` module, or a ``diffusion_transformer.transformer.*``
-# namespace. The discriminator value is "minimax_music3_dit" (not plain
-# "minimax_music3") because that name is shared across three independent
-# checkpoint files here — the DiT, the text encoder, and the DAV vocoder — and
-# the DiT arch module (``arch/minimax_music3/model.py``) guards on the "_dit"
-# suffix specifically.
-_MINIMAX_MUSIC3_SIG = "cond_layer_logits"
-_MINIMAX_MUSIC3_SIG2 = "latent_conditioners.0.weight"
-_MINIMAX_MUSIC3_SIG3 = "diffusion_transformer.transformer.layers.0.self_attn.to_qkv.weight"
-_YUE2_SIG = "vae2llm.weight"
-_YUE2_SIG2 = "model.layers.0.nar_self_attn.q_proj.weight"
-# TRELLIS.2 (Comfy-Org unified file). Unlike every other family here this is not
-# one DiT: four flow models sit side by side under four prefixes, so the config
-# returned below describes the BUNDLE, and ``arch/trellis2/load.py`` — not
-# ``NativeEngineLoader._load_dit`` — is what builds them. Detection still lives
-# here so a user who points a plain diffusion-model slot at this file gets a
-# named family instead of "not a recognised native DiT".
-_TRELLIS2_STRUCTURE_PREFIX = "model.structure_model."
-_TRELLIS2_SHAPE_PREFIX = "model.img2shape."
-_TRELLIS2_SHAPE_512_PREFIX = "model.img2shape_512."
-_TRELLIS2_TEXTURE_PREFIX = "model.shape2txt."
-# Extra-module signature key -> the Wan variant it marks. These carry modules the
-# native engine does not vendor (base t2v/i2v only), so they are rejected up front.
-_WAN_REJECT: dict[str, str] = {
-    "vace_patch_embedding.weight": "vace",
-    "control_adapter.conv.weight": "camera / control-adapter",
-    "casual_audio_encoder.encoder.final_linear.weight": "s2v (audio)",
-    "audio_proj.audio_proj_glob_1.layer.bias": "humo (audio)",
-    "face_adapter.fuser_blocks.0.k_norm.weight": "animate",
-}
 
 
 def detect_unet_config(sd: dict[str, torch.Tensor], metadata: dict[str, str] | None = None) -> dict | None:
@@ -136,40 +79,40 @@ def detect_unet_config(sd: dict[str, torch.Tensor], metadata: dict[str, str] | N
     if trellis2 is not None:
         return trellis2
 
-    if _KREA2_SIG in sd:
+    if KREA2_SIG in sd:
         return _detect_krea2(sd)
 
-    if _QWEN_IMAGE21_SIG in sd and _QWEN_IMAGE21_SIG2 in sd:
+    if QWEN_IMAGE21_SIG in sd and QWEN_IMAGE21_SIG2 in sd:
         return _detect_qwen_image21(sd)
 
-    if _QWEN_IMAGE_SIG in sd and "txt_norm.weight" in sd:
+    if QWEN_IMAGE_SIG in sd and "txt_norm.weight" in sd:
         return _detect_qwen_image(sd)
 
-    if _WAN_SIG in sd:
+    if WAN_SIG in sd:
         return _detect_wan(sd)
 
-    if _LTX_SIG in sd and "patchify_proj.weight" in sd:
+    if LTX_SIG in sd and "patchify_proj.weight" in sd:
         return _detect_ltx(sd, metadata)
 
-    if _LUMINA2_SIG in sd:
+    if LUMINA2_SIG in sd:
         return _detect_lumina2(sd)
 
-    if _ANIMA_SIG in sd:
+    if ANIMA_SIG in sd:
         return _detect_anima(sd)
 
-    if _SEEDVR2_SIG in sd and _SEEDVR2_SIG2 in sd:
+    if SEEDVR2_SIG in sd and SEEDVR2_SIG2 in sd:
         return _detect_seedvr2(sd)
 
-    if _MINIMAX_H3_SIG in sd and _MINIMAX_H3_SIG2 in sd:
+    if MINIMAX_H3_SIG in sd and MINIMAX_H3_SIG2 in sd:
         return _detect_minimax_h3(sd)
 
-    if _MINIMAX_MUSIC3_SIG in sd and _MINIMAX_MUSIC3_SIG2 in sd and _MINIMAX_MUSIC3_SIG3 in sd:
+    if MINIMAX_MUSIC3_SIG in sd and MINIMAX_MUSIC3_SIG2 in sd and MINIMAX_MUSIC3_SIG3 in sd:
         return _detect_minimax_music3(sd)
 
-    if _YUE2_SIG in sd and _YUE2_SIG2 in sd:
+    if YUE2_SIG in sd and YUE2_SIG2 in sd:
         return _detect_yue2(sd)
 
-    if _FLUX_SIG not in sd:
+    if FLUX_SIG not in sd:
         return None
     # Flux family also requires the input embedder (guards against Chroma, which
     # reuses the double-block layout but has no img_in.weight).
@@ -177,7 +120,7 @@ def detect_unet_config(sd: dict[str, torch.Tensor], metadata: dict[str, str] | N
         return None
 
     config: dict = {}
-    is_flux2 = _FLUX2_SIG in sd
+    is_flux2 = FLUX2_SIG in sd
 
     if is_flux2:
         config["image_model"] = "flux2"
@@ -245,20 +188,20 @@ def _detect_trellis2(sd: dict[str, torch.Tensor]) -> dict | None:
     grids come from ``arch/trellis2/config.py``, not from here.
     """
     prefixes = (
-        _TRELLIS2_STRUCTURE_PREFIX,
-        _TRELLIS2_SHAPE_PREFIX,
-        _TRELLIS2_SHAPE_512_PREFIX,
-        _TRELLIS2_TEXTURE_PREFIX,
+        TRELLIS2_STRUCTURE_PREFIX,
+        TRELLIS2_SHAPE_PREFIX,
+        TRELLIS2_SHAPE_512_PREFIX,
+        TRELLIS2_TEXTURE_PREFIX,
     )
     if not all(any(k.startswith(p) for k in sd) for p in prefixes):
         return None
 
     config: dict = {"image_model": "trellis2"}
     for name, prefix in (
-        ("structure", _TRELLIS2_STRUCTURE_PREFIX),
-        ("shape_512", _TRELLIS2_SHAPE_512_PREFIX),
-        ("shape_1024", _TRELLIS2_SHAPE_PREFIX),
-        ("texture", _TRELLIS2_TEXTURE_PREFIX),
+        ("structure", TRELLIS2_STRUCTURE_PREFIX),
+        ("shape_512", TRELLIS2_SHAPE_512_PREFIX),
+        ("shape_1024", TRELLIS2_SHAPE_PREFIX),
+        ("texture", TRELLIS2_TEXTURE_PREFIX),
     ):
         config[name] = {
             "model_channels": int(sd[f"{prefix}input_layer.weight"].shape[0]),
@@ -427,7 +370,7 @@ def _detect_wan(sd: dict[str, torch.Tensor]) -> dict:
     VAE); the 14B t2v/i2v models are ``out_dim == 16`` (Wan21 VAE). i2v carries
     the CLIP-vision projector (``img_emb``).
     """
-    for key, variant in _WAN_REJECT.items():
+    for key, variant in WAN_REJECT.items():
         if key in sd:
             raise NativeEngineUnsupportedError(
                 f"Wan '{variant}' checkpoints are not supported by the native engine "
@@ -717,7 +660,7 @@ def _detect_lumina2(sd: dict[str, torch.Tensor]) -> dict | None:
     and RoPE constants are the ComfyUI ``ZImage`` values (not shape-recoverable --
     qkv is fused and Z-Image has no GQA).
     """
-    cap = sd[_LUMINA2_SIG]                       # cap_embedder.1.weight [dim, cap_feat_dim]
+    cap = sd[LUMINA2_SIG]
     dim = int(cap.shape[0])
     if dim != 3840:
         return None                             # only Z-Image is vendored
@@ -729,7 +672,7 @@ def _detect_lumina2(sd: dict[str, torch.Tensor]) -> dict | None:
         "patch_size": patch_size,
         "in_channels": in_channels,
         "dim": dim,
-        "cap_feat_dim": linear_in_features(sd, _LUMINA2_SIG),
+        "cap_feat_dim": linear_in_features(sd, LUMINA2_SIG),
         "n_layers": count_blocks(sd, "layers.{}."),
         "n_refiner_layers": count_blocks(sd, "noise_refiner.{}."),
         "intermediate_size": int(sd["layers.0.feed_forward.w1.weight"].shape[0]),
@@ -829,7 +772,7 @@ def _detect_minimax_h3(sd: dict[str, torch.Tensor]) -> dict:
     ``linear_in_features`` is used anyway wherever the IN dimension is read,
     for the same nvfp4-awareness every other detector here keeps).
     """
-    hidden_size = int(sd[_MINIMAX_H3_SIG].shape[0])
+    hidden_size = int(sd[MINIMAX_H3_SIG].shape[0])
     num_layers = count_blocks(sd, "blocks.{}.")
     num_refiner_layers = count_blocks(sd, "token_refiner.blocks.{}.")
     attention_head_dim = int(sd["blocks.0.attn.q_norm.weight"].shape[0])
@@ -909,9 +852,9 @@ def _detect_minimax_music3(sd: dict[str, torch.Tensor]) -> dict:
     num_layers = count_blocks(sd, "diffusion_transformer.transformer.layers.{}.")
     ffn_inner_dim = linear_in_features(sd, "diffusion_transformer.transformer.layers.0.ff.ff.2.weight")
     in_channels = int(sd["diffusion_transformer.transformer.project_out.weight"].shape[0])
-    condition_dim = int(sd[_MINIMAX_MUSIC3_SIG2].shape[0])
-    condition_hidden_dim = linear_in_features(sd, _MINIMAX_MUSIC3_SIG2)
-    num_condition_layers = int(sd[_MINIMAX_MUSIC3_SIG].shape[0])
+    condition_dim = int(sd[MINIMAX_MUSIC3_SIG2].shape[0])
+    condition_hidden_dim = linear_in_features(sd, MINIMAX_MUSIC3_SIG2)
+    num_condition_layers = int(sd[MINIMAX_MUSIC3_SIG].shape[0])
     # `inv_freq`'s row count is the number of rotated frequency PAIRS; the
     # arch config's `rotary_dim` counts the rotated head DIMENSIONS (2 per
     # pair, cos+sin), and `fourier_dim` is the Fourier embedding's concatenated

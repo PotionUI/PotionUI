@@ -1,0 +1,182 @@
+from __future__ import annotations
+
+DEFAULT_SHAPE = (128, 128)
+
+FAMILY_OVERRIDES: dict[str, dict[str, tuple[int, ...]]] = {
+    "z_image": {"cap_embedder.1.weight": (3840, 128)},
+}
+
+FAMILY_KEYS: dict[str, tuple[str, ...]] = {
+    "flux1": (
+        "double_blocks.0.img_attn.norm.key_norm.scale",
+        "img_in.weight",
+    ),
+    "flux2": (
+        "double_blocks.0.img_attn.norm.key_norm.scale",
+        "double_stream_modulation_img.lin.weight",
+        "img_in.weight",
+    ),
+    "krea2": (
+        "txtfusion.projector.weight",
+        "first.weight",
+        "blocks.0.attn.qknorm.qnorm.scale",
+        "blocks.0.attn.wk.weight",
+        "txtmlp.1.weight",
+        "txtfusion.layerwise_blocks.0.attn.qknorm.qnorm.scale",
+        "txtfusion.layerwise_blocks.0.attn.wk.weight",
+        "blocks.0.mlp.gate.weight",
+        "tmlp.0.weight",
+    ),
+    "qwen_image21": (
+        "modulation.1.weight",
+        "txt_in.text_norm.weight",
+        "img_in.weight",
+        "transformer_blocks.0.attn.norm_q.weight",
+        "transformer_blocks.0.img_mlp.gate_layer.weight",
+        "proj_out.weight",
+        "txt_in.in_layer.weight",
+    ),
+    "qwen_image": (
+        "transformer_blocks.0.attn.add_q_proj.weight",
+        "txt_norm.weight",
+        "img_in.weight",
+        "transformer_blocks.0.attn.norm_q.weight",
+        "proj_out.weight",
+        "txt_in.weight",
+    ),
+    "wan": (
+        "head.modulation",
+        "head.head.weight",
+        "patch_embedding.weight",
+        "blocks.0.ffn.0.weight",
+        "text_embedding.0.weight",
+    ),
+    "ltxv": (
+        "adaln_single.emb.timestep_embedder.linear_1.weight",
+        "patchify_proj.weight",
+        "proj_out.weight",
+        "transformer_blocks.0.attn2.to_k.weight",
+    ),
+    "ltxav": (
+        "adaln_single.emb.timestep_embedder.linear_1.weight",
+        "patchify_proj.weight",
+        "audio_adaln_single.linear.weight",
+        "proj_out.weight",
+        "transformer_blocks.0.attn2.to_k.weight",
+        "audio_patchify_proj.weight",
+        "transformer_blocks.0.audio_attn2.to_k.weight",
+    ),
+    "z_image": (
+        "cap_embedder.1.weight",
+        "x_embedder.weight",
+        "layers.0.feed_forward.w1.weight",
+    ),
+    "anima": (
+        "llm_adapter.blocks.0.cross_attn.q_proj.weight",
+        "x_embedder.proj.1.weight",
+        "final_layer.linear.weight",
+        "blocks.0.self_attn.q_norm.weight",
+        "blocks.0.cross_attn.k_proj.weight",
+        "blocks.0.adaln_modulation_self_attn.1.weight",
+        "blocks.0.mlp.layer1.weight",
+        "llm_adapter.blocks.0.cross_attn.q_norm.weight",
+        "llm_adapter.embed.weight",
+        "llm_adapter.blocks.0.cross_attn.k_proj.weight",
+    ),
+    "seedvr2_3b": (
+        "vid_in.proj.weight",
+        "blocks.0.ada.vid.attn_shift",
+        "blocks.0.mlp.vid.proj_in_gate.weight",
+        "blocks.0.attn.norm_q.vid.weight",
+        "vid_out.proj.weight",
+        "txt_in.weight",
+        "emb_in.proj_out.weight",
+        "blocks.0.attn.proj_qkv.vid.weight",
+        "blocks.0.mlp.vid.proj_in.weight",
+    ),
+    "seedvr2_7b": (
+        "vid_in.proj.weight",
+        "blocks.0.ada.vid.attn_shift",
+        "blocks.0.attn.norm_q.vid.weight",
+        "vid_out.proj.weight",
+        "txt_in.weight",
+        "emb_in.proj_out.weight",
+        "blocks.0.attn.proj_qkv.vid.weight",
+        "blocks.0.mlp.vid.proj_in.weight",
+    ),
+    "minimax_h3": (
+        "video_patch_proj.weight",
+        "audio_patch_proj.weight",
+        "blocks.0.attn.q_norm.weight",
+        "blocks.0.attn.qkv_proj.weight",
+        "blocks.0.mlp.fc1.weight",
+        "final_layer.video_out.weight",
+        "final_layer.audio_out.weight",
+        "condition_proj.weight",
+        "rope.inv_freq",
+        "time_embedder.proj_in.weight",
+        "time_embedder.proj_out.weight",
+    ),
+    "minimax_music3": (
+        "cond_layer_logits",
+        "latent_conditioners.0.weight",
+        "diffusion_transformer.transformer.layers.0.self_attn.to_qkv.weight",
+        "diffusion_transformer.transformer.layers.0.ff.ff.2.weight",
+        "diffusion_transformer.transformer.project_out.weight",
+        "diffusion_transformer.transformer.rotary_pos_emb.inv_freq",
+        "diffusion_transformer.timestep_features.weight",
+    ),
+    "yue2": (
+        "vae2llm.weight",
+        "model.layers.0.nar_self_attn.q_proj.weight",
+        "model.embed_tokens.weight",
+        "model.layers.0.self_attn.q_norm.weight",
+        "model.layers.0.self_attn.o_proj.weight",
+        "model.layers.0.self_attn.k_proj.weight",
+        "model.layers.0.mlp.down_proj.weight",
+    ),
+    "trellis2": (
+        "model.structure_model.input_layer.weight",
+        "model.structure_model.out_layer.weight",
+        "model.structure_model.blocks.0.cross_attn.to_kv.weight",
+        "model.structure_model.blocks.0.self_attn.q_rms_norm.gamma",
+        "model.img2shape.input_layer.weight",
+        "model.img2shape.out_layer.weight",
+        "model.img2shape.blocks.0.cross_attn.to_kv.weight",
+        "model.img2shape.blocks.0.self_attn.q_rms_norm.gamma",
+        "model.img2shape_512.input_layer.weight",
+        "model.img2shape_512.out_layer.weight",
+        "model.img2shape_512.blocks.0.cross_attn.to_kv.weight",
+        "model.img2shape_512.blocks.0.self_attn.q_rms_norm.gamma",
+        "model.shape2txt.input_layer.weight",
+        "model.shape2txt.out_layer.weight",
+        "model.shape2txt.blocks.0.cross_attn.to_kv.weight",
+        "model.shape2txt.blocks.0.self_attn.q_rms_norm.gamma",
+    ),
+}
+
+EXPECTED_FAMILY: dict[str, tuple[str, str | None]] = {
+    "flux1": ("flux", "flux1"),
+    "flux2": ("flux", "flux2"),
+    "krea2": ("krea2", None),
+    "qwen_image21": ("qwen_image21", None),
+    "qwen_image": ("qwen_image", None),
+    "wan": ("wan", "t2v"),
+    "ltxv": ("ltx", "ltxv"),
+    "ltxav": ("ltx", "ltxav"),
+    "z_image": ("z_image", None),
+    "anima": ("anima", None),
+    "seedvr2_3b": ("seedvr2", "3b"),
+    "seedvr2_7b": ("seedvr2", "7b"),
+    "minimax_h3": ("minimax_h3", None),
+    "minimax_music3": ("minimax_music3", None),
+    "yue2": ("yue2", None),
+    "trellis2": ("trellis2", None),
+}
+
+
+def family_shapes(name: str, **overrides: tuple[int, ...]) -> dict[str, tuple[int, ...]]:
+    shapes = {key: DEFAULT_SHAPE for key in FAMILY_KEYS[name]}
+    shapes.update(FAMILY_OVERRIDES.get(name, {}))
+    shapes.update(overrides)
+    return shapes

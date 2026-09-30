@@ -6,7 +6,8 @@
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import { filesWithPreview } from '$lib/utils/modelPreview';
 	import {
-		modelFilenameStem,
+		modelIsCloud,
+		modelOriginLine,
 		modelSummaryParts,
 		modelTypePresentation
 	} from '$lib/utils/modelPresentation';
@@ -90,8 +91,8 @@
 		return modelTypePresentation(m?.model_type).purpose;
 	}
 
-	function filenameStem(m: any): string {
-		return modelFilenameStem(m);
+	function originLine(m: any): string {
+		return modelOriginLine(m);
 	}
 
 	// Only the compact "selected model" card's own star lives here - the
@@ -479,9 +480,9 @@
 				<div class="text-sm font-semibold text-fg truncate" title={displayName(selectedModelData)}>
 					{displayName(selectedModelData)}
 				</div>
-				{#if filenameStem(selectedModelData)}
-					<div class="truncate font-mono text-2xs text-fg-subtle" title={selectedModelData.filename}>
-						File · {filenameStem(selectedModelData)}
+				{#if originLine(selectedModelData)}
+					<div class="truncate font-mono text-2xs text-fg-subtle" title={modelIsCloud(selectedModelData) ? undefined : selectedModelData.filename}>
+						{originLine(selectedModelData)}
 					</div>
 				{/if}
 				<div class="mt-1 flex min-w-0 items-center gap-1 overflow-hidden">

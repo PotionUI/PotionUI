@@ -26,6 +26,18 @@
 		type SectionCollapsedContext
 	} from '$lib/form/sectionCollapsedContext';
 	import { shouldPublishFormData } from '$lib/utils/formDataPublication';
+	import {
+		applyCapabilitiesToSchema,
+		capabilityValueChanges,
+		cloudModelId,
+		collectCapabilityModelFields,
+		omitCapabilityHidden,
+		resolveCapabilities
+	} from '$lib/form/capabilityBinder';
+	import { createCapabilityTracker, sharedCapabilityCache } from '$lib/form/capabilityTracker';
+	import { fetchCloudCapabilities } from '$lib/services/cloudCapabilities';
+
+	const PUBLISHED_SNAPSHOT_LIMIT = 8;
 
 	// Props
 	export let presetId: string;
@@ -91,6 +103,15 @@
 	let schemaError = '';
 	let initialLoadComplete = false;
 	const schemaRequest = createLatestRequestGuard();
+	let capabilityRevision = 0;
+	let capabilityHiddenNames: Set<string> = new Set();
+	const capabilityTracker = createCapabilityTracker({
+		fetch: fetchCloudCapabilities,
+		cache: sharedCapabilityCache,
+		onLoaded() {
+			capabilityRevision += 1;
+		}
+	});
 
 	// Track previous preset/mode to avoid unnecessary reloads
 	let previousKey = '';
@@ -109,6 +130,13 @@
 		allFields = extractAllFields(formSchema);
 	}
 
+	$: capabilityModelFields = formSchema ? collectCapabilityModelFields(formSchema) : [];
+	$: if (formData) {
+		for (const modelField of capabilityModelFields) {
+			capabilityTracker.select(modelField, cloudModelId(formData[modelField]));
+		}
+	}
+
 	// Fields with a server-validation error must render even if they're
 	// `audience: 'advanced'` and we're in Simple mode (see `fieldErrors` prop).
 	$: forceVisibleFieldNames = new Set(
@@ -123,6 +151,15 @@
 		// so a reaction's set_disabled: false can never re-enable a field the admin
 		// locked via a per-field form override.
 		applyReadonlyToSchema(result.processedSchema);
+		const capabilities = resolveCapabilities(
+			capabilityModelFields,
+			formData,
+			(modelId) => (capabilityRevision >= 0 ? sharedCapabilityCache.get(modelId) : undefined)
+		);
+		const hiddenByCapability = applyCapabilitiesToSchema(result.processedSchema, capabilities);
+		if (hiddenByCapability.join('|') !== [...capabilityHiddenNames].join('|')) {
+			capabilityHiddenNames = new Set(hiddenByCapability);
+		}
 		// Audience/Director filtering runs after reactions: a field already
 		// hidden by a reaction stays hidden regardless of either; an
 		// 'advanced' field is additionally hidden in 'simple' mode, and a
@@ -149,7 +186,10 @@
 		// of (formSchema, formData), a reassignment that already matches what a
 		// reaction computes converges on the next reprocess with no further
 		// reassignment, so this cannot re-trigger indefinitely.
-		const valueChanges = result.valueChanges;
+		const valueChanges = {
+			...result.valueChanges,
+			...capabilityValueChanges(result.processedSchema, formData, capabilities)
+		};
 		if (valueChanges && Object.keys(valueChanges).length > 0 && initialLoadComplete) {
 			const applied = applyReactionValueChanges(formData, valueChanges);
 			if (applied.changed) {
@@ -189,10 +229,13 @@
 	}
 
 	// Helper to flatten form data for submission
-	function flattenFormData(data: Record<string, any>): Record<string, any> {
+	function flattenFormData(
+		data: Record<string, any>,
+		hiddenNames: ReadonlySet<string> = capabilityHiddenNames
+	): Record<string, any> {
 		const flattened: Record<string, any> = {};
 
-		for (const [key, value] of Object.entries(data)) {
+		for (const [key, value] of Object.entries(omitCapabilityHidden(data, hiddenNames))) {
 			if (value && typeof value === 'object' && !Array.isArray(value) && value.constructor === Object) {
 				// Check if this is a model selector object
 				if (value.hasOwnProperty('modelPath') && value.hasOwnProperty('tagFilters')) {
@@ -220,6 +263,9 @@
 		const requestMode = mode;
 		const requestVariant = variant;
 		try {
+			capabilityTracker.reset();
+			publishedSnapshots = [];
+			capabilityHiddenNames = new Set();
 			schemaLoading = true;
 			schemaError = '';
 			initialLoadComplete = false;
@@ -340,7 +386,7 @@
 
 		// Only update formData if initialData has changed (not just different from formData)
 		// This prevents overwriting user edits while still allowing session loads to update the form
-		if (currentInitialDataKey !== previousInitialDataKey) {
+		if (currentInitialDataKey !== previousInitialDataKey && !isStalePublishEcho(currentInitialDataKey)) {
 			previousInitialDataKey = currentInitialDataKey;
 			// Server/session hydration can provide the same normalized payload as a
 			// previous component state. It is still a new input generation and must
@@ -361,15 +407,29 @@
 	// switch. The tab store already debounces localStorage persistence, so this
 	// does not turn field input into synchronous storage writes.
 	let lastPublishedFormDataKey: string | null = null;
+	let publishedSnapshots: string[] = [];
+
+	function rememberPublish(key: string) {
+		publishedSnapshots = [...publishedSnapshots.filter((stored) => stored !== key), key].slice(
+			-PUBLISHED_SNAPSHOT_LIMIT
+		);
+	}
+
+	function isStalePublishEcho(key: string): boolean {
+		if (capabilityModelFields.length === 0) return false;
+		if (key === publishedSnapshots[publishedSnapshots.length - 1]) return false;
+		return publishedSnapshots.includes(key);
+	}
 	// An empty object is a complete normalized form too. It must publish once so
 	// a hydrated session with no defaults can consume its pending saved baseline
 	// before the user's first real field edit.
 	$: if (initialLoadComplete && formData && onFormDataChange) {
-		const flattenedData = flattenFormData(formData);
+		const flattenedData = flattenFormData(formData, capabilityHiddenNames);
 		const flattenedDataKey = JSON.stringify(flattenedData);
 		if (shouldPublishFormData(lastPublishedFormDataKey, flattenedData)) {
 			lastPublishedFormDataKey = flattenedDataKey;
 			previousInitialDataKey = flattenedDataKey;
+			rememberPublish(flattenedDataKey);
 			onFormDataChange(flattenedData);
 		}
 	}
@@ -387,6 +447,7 @@
 	}
 
 	onDestroy(() => {
+		capabilityTracker.destroy();
 		schemaRequest.invalidate();
 	});
 </script>

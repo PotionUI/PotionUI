@@ -7,7 +7,8 @@
 	import { isAvailabilityKnown } from '$lib/utils/modelAvailability';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import {
-		modelFilenameStem,
+		modelIsCloud,
+		modelOriginLine,
 		modelSummaryParts,
 		modelTypePresentation
 	} from '$lib/utils/modelPresentation';
@@ -109,7 +110,7 @@
 	// File size is operational. It appears only where the context asks for it, so an
 	// admin browsing the library sees the same card a user does.
 	$: displayName = modelDisplayName(model);
-	$: filenameStem = modelFilenameStem(model);
+	$: originLine = modelOriginLine(model);
 	$: typePresentation = modelTypePresentation(model.model_type);
 	$: summaryParts = modelSummaryParts(model);
 
@@ -305,10 +306,10 @@
 						{displayName}
 					</h4>
 				</Tooltip>
-				{#if filenameStem}
-					<Tooltip text={model.filename} wrapperClass="block min-w-0">
+				{#if originLine}
+					<Tooltip text={modelIsCloud(model) ? originLine : model.filename} wrapperClass="block min-w-0">
 						<p class="truncate font-mono text-2xs text-white/65">
-							File · {filenameStem}
+							{originLine}
 						</p>
 					</Tooltip>
 				{/if}

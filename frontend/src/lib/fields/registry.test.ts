@@ -11,7 +11,8 @@ import {
 	unregisterFieldComponent,
 	resolveFieldComponent,
 	hasFieldComponent,
-	listFieldTypes
+	listFieldTypes,
+	fieldOwnsErrors
 } from './registry';
 
 describe('fields/registry', () => {
@@ -69,5 +70,15 @@ describe('fields/registry', () => {
 	it('listFieldTypes reflects registered types', () => {
 		registerFieldComponent('select', { component: {} });
 		expect(listFieldTypes()).toContain('select');
+	});
+
+	it('reports which field types render their own validation errors', () => {
+		registerFieldComponent('owns-errors-type', { component: {}, ownsErrors: true });
+		registerFieldComponent('plain-type', { component: {} });
+		expect(fieldOwnsErrors('owns-errors-type')).toBe(true);
+		expect(fieldOwnsErrors('plain-type')).toBe(false);
+		expect(fieldOwnsErrors('never-registered')).toBe(false);
+		unregisterFieldComponent('owns-errors-type');
+		unregisterFieldComponent('plain-type');
 	});
 });

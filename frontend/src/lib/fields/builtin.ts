@@ -30,6 +30,7 @@ import GateField from '$lib/components/form-fields/GateField.svelte';
 import PromptTimelineField from '$lib/components/form-fields/PromptTimelineField.svelte';
 import CameraShotField from '$lib/components/form-fields/CameraShotField.svelte';
 import TagsField from '$lib/components/form-fields/TagsField.svelte';
+import CloudOptionsField from '$lib/components/form-fields/CloudOptionsField.svelte';
 
 let registered = false;
 
@@ -79,4 +80,6 @@ export function registerBuiltinFieldComponents(): void {
 	for (const [type, component] of Object.entries(table)) {
 		registerFieldComponent(type, { component });
 	}
+
+	registerFieldComponent('cloud_options', { component: CloudOptionsField, ownsErrors: true });
 }

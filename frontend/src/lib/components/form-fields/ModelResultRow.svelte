@@ -10,7 +10,7 @@
 <script lang="ts">
 	import { filesWithPreview } from '$lib/utils/modelPreview';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
-	import { modelFilenameStem, modelSummaryParts, modelTypePresentation } from '$lib/utils/modelPresentation';
+	import { modelFilenameStem, modelIsCloud, modelSummaryParts, modelTypePresentation } from '$lib/utils/modelPresentation';
 	import Icon from '../Icon.svelte';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
 
@@ -26,7 +26,7 @@
 	$: fallbackFile = previewFiles.find((f: any) => f.thumbnail_small);
 	$: thumbnailUrl = imageFile?.thumbnail_small || fallbackFile?.thumbnail_small;
 	$: displayName = modelDisplayName(model);
-	$: filenameStem = modelFilenameStem(model);
+	$: filenameStem = modelIsCloud(model) ? '' : modelFilenameStem(model);
 	$: summaryParts = modelSummaryParts(model);
 	$: purpose = modelTypePresentation(model?.model_type).purpose;
 

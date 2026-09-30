@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte';
 	import { writable, type Writable } from 'svelte/store';
-	import { resolveFieldComponent } from '$lib/fields/registry';
+	import { fieldOwnsErrors, resolveFieldComponent } from '$lib/fields/registry';
 	import { FORM_FIELD_ERRORS_CONTEXT_KEY } from '$lib/form/fieldErrorsContext';
 	import {
 		FORM_FIELD_ERROR_ACTIONS_CONTEXT_KEY,
@@ -47,7 +47,7 @@
 	const fieldErrorsStore =
 		getContext<Writable<Record<string, string[]>>>(FORM_FIELD_ERRORS_CONTEXT_KEY) ??
 		writable<Record<string, string[]>>({});
-	$: fieldErrorMessages = name ? ($fieldErrorsStore[name] ?? []) : [];
+	$: fieldErrorMessages = name && !fieldOwnsErrors(fieldType) ? ($fieldErrorsStore[name] ?? []) : [];
 
 	// Quick-fixes need a form to write into; absent the actions context (field
 	// rendered in isolation) the messages stay read-only.

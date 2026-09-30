@@ -13,7 +13,8 @@
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import { filesWithPreview } from '$lib/utils/modelPreview';
 	import {
-		modelFilenameStem,
+		modelIsCloud,
+		modelOriginLine,
 		modelSummaryParts,
 		modelTypePresentation
 	} from '$lib/utils/modelPresentation';
@@ -608,8 +609,8 @@
 		return imageFile?.thumbnail_small || fallbackFile?.thumbnail_small;
 	}
 
-	function filenameStem(model?: Model): string {
-		return modelFilenameStem(model);
+	function originLine(model?: Model): string {
+		return modelOriginLine(model);
 	}
 
 	function summaryParts(model?: Model): string[] {
@@ -817,9 +818,9 @@
 										<div class="text-sm font-medium text-fg truncate" title={displayName(model, row.model)}>
 											{displayName(model, row.model)}
 										</div>
-										{#if model && filenameStem(model)}
-											<div class="truncate font-mono text-2xs text-fg-subtle" title={model.filename}>
-												File · {filenameStem(model)}
+										{#if model && originLine(model)}
+											<div class="truncate font-mono text-2xs text-fg-subtle" title={modelIsCloud(model) ? undefined : model.filename}>
+												{originLine(model)}
 											</div>
 										{/if}
 										{#if model}

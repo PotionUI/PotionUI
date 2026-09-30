@@ -26,7 +26,7 @@ function bindingView(root: string, b: Binding) {
 	};
 }
 
-async function setup(page: Page) {
+async function setup(page: Page, options: { readOnly?: boolean; detectRootPath?: string } = {}) {
 	const rootPath = '/srv/sm';
 	const bindings: Binding[] = [
 		{ model_type: 'checkpoint', subdir: 'Data/Models/StableDiffusion', is_write: true, scan_headers: true },
@@ -40,7 +40,7 @@ async function setup(page: Page) {
 		label: 'StabilityMatrix',
 		path: rootPath,
 		kind: 'library',
-		read_only: false,
+		read_only: options.readOnly ?? false,
 		case_insensitive: false,
 		state: 'online',
 		state_reason: null,
@@ -97,7 +97,7 @@ async function setup(page: Page) {
 			success: true,
 			data: {
 				path: rootPath,
-				root_path: rootPath,
+				root_path: options.detectRootPath ?? rootPath,
 				effective_path: rootPath,
 				state: 'online',
 				writable_hint: true,
@@ -200,6 +200,30 @@ test.describe('folders panel with layout profiles - desktop', () => {
 		await expect(page.getByText('VAE', { exact: true }).first()).toBeVisible();
 		await page.getByRole('button', { name: 'Detect again' }).click();
 		await expect(page.getByText('Nothing new found')).toBeVisible({ timeout: 10000 });
+	});
+});
+
+test.describe('folders panel edge cases', () => {
+	test.use({ viewport: { width: 1440, height: 1100 } });
+
+	test('a read-only root offers no downloads folder button', async ({ page }) => {
+		await loginAsOwner(page);
+		await setup(page, { readOnly: true });
+		await openRoot(page);
+		await expect(page.getByRole('button', { name: /the downloads folder$/ })).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'Remove LyCORIS from StabilityMatrix' })).toBeVisible();
+	});
+
+	test('detect again on a root inside a larger install compares nothing', async ({ page }) => {
+		await loginAsOwner(page);
+		await setup(page, { detectRootPath: '/srv/sm/api/app.git' });
+		await openRoot(page);
+		await page.getByRole('button', { name: 'Detect again' }).click();
+		await expect(page.getByText('This folder belongs to a larger install, so nothing was compared.')).toBeVisible({
+			timeout: 10000
+		});
+		await expect(page.getByRole('button', { name: 'Add selected' })).toHaveCount(0);
+		await expect(page.locator('input[id^="again-"]')).toHaveCount(0);
 	});
 });
 

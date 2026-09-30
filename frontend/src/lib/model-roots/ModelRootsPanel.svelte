@@ -16,6 +16,7 @@
 		bindingScanKey,
 		bindingRefKey,
 		bindingTitle,
+		buildBindings,
 		detectAgainApplies,
 		groupBindingsByType,
 		missingSuggestions,
@@ -209,12 +210,7 @@
 		addingMissingId = root.id;
 		try {
 			await roots.update(root.id, {
-				bindings: chosen.map((s) => ({
-					model_type: s.model_type,
-					subdir: s.subdir,
-					...(s.scan_headers !== undefined ? { scan_headers: s.scan_headers } : {}),
-					write: false
-				}))
+				bindings: buildBindings(result.missing, result.ticks, {}, false).bindings
 			});
 			toasts.success(`Added ${chosen.length} folder${chosen.length === 1 ? '' : 's'} to "${root.label}".`);
 			const { [root.id]: _done, ...rest } = againResults;

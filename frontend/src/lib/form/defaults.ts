@@ -119,16 +119,14 @@ function getInitialDataFromFields(children: DefaultableField[]): Record<string, 
 	return data;
 }
 
-/**
- * DynamicForm's original default-seeding entry point: `schema.properties` is
- * `{rootKey: {children: [...]}}` (a single root wrapping a field tree, as
- * returned by `GET /api/presets/{id}/form`). Picks the first root key and
- * recurses into its children — identical to the pre-refactor inline logic.
- */
 export function getSchemaDefaults(schema: { properties?: Record<string, DefaultableField> } | null | undefined): Record<string, any> {
 	if (!schema || !schema.properties) return {};
-	const rootKey = Object.keys(schema.properties)[0];
-	if (!rootKey) return {};
-	const rootProperties = schema.properties[rootKey];
-	return getInitialDataFromFields(rootProperties?.children ?? []);
+	const defaults: Record<string, any> = {};
+	for (const root of Object.values(schema.properties)) {
+		const rootDefaults = getInitialDataFromFields(root?.children ?? []);
+		for (const [name, value] of Object.entries(rootDefaults)) {
+			if (!(name in defaults)) defaults[name] = value;
+		}
+	}
+	return defaults;
 }

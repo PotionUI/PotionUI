@@ -130,6 +130,65 @@ describe('applyCapabilitiesToSchema', () => {
 		expect([field.minimum, field.maximum, field.step]).toEqual([1, 10, 0.5]);
 	});
 
+	it('turns a range bound to a select into one option per step', () => {
+		const select = { type: 'select', name: 'quality', capability: { model_field: 'model', param: 'quality' } };
+		const schema = schemaWith([MODEL, select]);
+		const quality = caps({ params: [{ name: 'quality', kind: 'range', minimum: 1, maximum: 4, integer: true }] });
+		applyCapabilitiesToSchema(schema, { model: quality });
+		expect(fieldOf(schema, 'quality').options).toEqual([
+			{ label: '1', value: 1 },
+			{ label: '2', value: 2 },
+			{ label: '3', value: 3 },
+			{ label: '4', value: 4 }
+		]);
+	});
+
+	it('steps a fractional range bound to a select', () => {
+		const select = { type: 'select', name: 'quality', capability: { model_field: 'model', param: 'quality' } };
+		const schema = schemaWith([MODEL, select]);
+		const half = caps({ params: [{ name: 'quality', kind: 'range', minimum: 0, maximum: 1, step: 0.25 }] });
+		applyCapabilitiesToSchema(schema, { model: half });
+		expect(fieldOf(schema, 'quality').options.map((o: { value: number }) => o.value)).toEqual([0, 0.25, 0.5, 0.75, 1]);
+	});
+
+	it('lists at most fifty steps exactly and samples wider ranges', () => {
+		const select = { type: 'select', name: 'quality', capability: { model_field: 'model', param: 'quality' } };
+		const fifty = caps({ params: [{ name: 'quality', kind: 'range', minimum: 1, maximum: 50, integer: true }] });
+		const exact = schemaWith([MODEL, select]);
+		applyCapabilitiesToSchema(exact, { model: fifty });
+		expect(fieldOf(exact, 'quality').options).toHaveLength(50);
+
+		const wide = caps({ params: [{ name: 'quality', kind: 'range', minimum: 0, maximum: 1000, integer: true, default: 333 }] });
+		const sampled = schemaWith([MODEL, select]);
+		applyCapabilitiesToSchema(sampled, { model: wide });
+		const values = fieldOf(sampled, 'quality').options.map((option: { value: number }) => option.value);
+		expect(values.length).toBeLessThanOrEqual(12);
+		expect(values[0]).toBe(0);
+		expect(values[values.length - 1]).toBe(1000);
+		expect(values).toContain(333);
+		expect(values).toEqual([...values].sort((a: number, b: number) => a - b));
+		expect(new Set(values).size).toBe(values.length);
+	});
+
+	it('keeps every sampled value on the step grid', () => {
+		const select = { type: 'select', name: 'quality', capability: { model_field: 'model', param: 'quality' } };
+		const schema = schemaWith([MODEL, select]);
+		const grid = caps({ params: [{ name: 'quality', kind: 'range', minimum: 10, maximum: 1010, step: 10, default: 505 }] });
+		applyCapabilitiesToSchema(schema, { model: grid });
+		const values = fieldOf(schema, 'quality').options.map((option: { value: number }) => option.value);
+		for (const value of values) expect((value - 10) % 10).toBe(0);
+		expect(values[0]).toBe(10);
+		expect(values[values.length - 1]).toBe(1010);
+	});
+
+	it('leaves a select alone when the range has no bounds', () => {
+		const select = { type: 'select', name: 'quality', options: [{ label: 'x', value: 1 }], capability: { model_field: 'model', param: 'quality' } };
+		const schema = schemaWith([MODEL, select]);
+		const open = caps({ params: [{ name: 'quality', kind: 'range' }] });
+		applyCapabilitiesToSchema(schema, { model: open });
+		expect(fieldOf(schema, 'quality').options).toEqual([{ label: 'x', value: 1 }]);
+	});
+
 	it('makes an integer range step in whole numbers', () => {
 		const schema = schemaWith([MODEL, GUIDANCE]);
 		const integer = caps({ params: [{ name: 'guidance', kind: 'range', minimum: 1, maximum: 4, step: 0.25, integer: true }] });

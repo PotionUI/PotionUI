@@ -148,7 +148,39 @@ function constrainEnum(node: SchemaNode, param: CapabilityParam): void {
 	node.options = (param.values ?? []).map((value) => ({ label: labels.get(String(value)) ?? String(value), value }));
 }
 
+const MAX_RANGE_OPTIONS = 50;
+const SAMPLED_RANGE_OPTIONS = 11;
+
+function rangeOptions(param: CapabilityParam): Array<{ label: string; value: number }> | null {
+	if (typeof param.minimum !== 'number' || typeof param.maximum !== 'number') return null;
+	const min = param.minimum;
+	const max = param.maximum;
+	const step = typeof param.step === 'number' && param.step > 0 ? param.step : 1;
+	const stepSize = param.integer ? Math.max(1, Math.round(step)) : step;
+	const decimals = (String(stepSize).split('.')[1] ?? '').length;
+	const steps = Math.floor((max - min) / stepSize + 1e-9);
+	if (steps < 0) return null;
+	const round = (value: number) => Number(value.toFixed(decimals));
+	const snap = (value: number) => round(min + Math.min(steps, Math.max(0, Math.round((value - min) / stepSize))) * stepSize);
+	const picked = new Set<number>();
+	if (steps + 1 <= MAX_RANGE_OPTIONS) {
+		for (let index = 0; index <= steps; index++) picked.add(round(min + index * stepSize));
+	} else {
+		for (let index = 0; index < SAMPLED_RANGE_OPTIONS; index++) {
+			picked.add(snap(min + ((max - min) * index) / (SAMPLED_RANGE_OPTIONS - 1)));
+		}
+		picked.add(round(min + steps * stepSize));
+		if (typeof param.default === 'number') picked.add(snap(param.default));
+	}
+	return [...picked].sort((left, right) => left - right).map((value) => ({ label: String(value), value }));
+}
+
 function constrainRange(node: SchemaNode, param: CapabilityParam): void {
+	if (node.type === 'select') {
+		const options = rangeOptions(param);
+		if (options) node.options = options;
+		return;
+	}
 	if (typeof param.minimum === 'number') {
 		node.minimum = param.minimum;
 		node.min = param.minimum;

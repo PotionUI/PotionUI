@@ -33,6 +33,7 @@ class QueueDispatcher:
         status_tracker: GenerationStatusTracker,
         dispatch: Callable[..., Any],
         policy_for: Optional[Callable[[str], SchedulingPolicy]] = None,
+        capacity_for: Optional[Callable[[str], int]] = None,
     ):
         """Initialize the dispatcher.
 
@@ -46,13 +47,17 @@ class QueueDispatcher:
                 every backend FIFO, matching pre-fair-scheduling behaviour.
                 Supplied by the composition root, which reads it off the
                 backend's persisted settings.
+            capacity_for: Resolves a backend id to how many generations it
+                runs at once. `None` gives every backend one slot.
         """
         self.status_tracker = status_tracker
         self._dispatch = dispatch
 
-        # Nothing executes directly any more: work is enqueued, and the queue
-        # dispatches it when the target backend's single slot frees up.
-        self.queue = GenerationQueue(dispatch=self._dispatch_queued, policy_for=policy_for)
+        self.queue = GenerationQueue(
+            dispatch=self._dispatch_queued,
+            policy_for=policy_for,
+            capacity_for=capacity_for,
+        )
         # Set by the controller; pushes `queue_update` to a generation's WS
         # subscribers when its position changes or it starts running.
         self._queue_listener: Optional[Callable[[str, Dict[str, Any]], Any]] = None

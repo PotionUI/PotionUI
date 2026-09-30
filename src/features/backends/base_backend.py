@@ -119,6 +119,10 @@ class BaseBackend(ABC):
         self.name = backend_config.name
         self.engine = backend_config.engine
 
+    @property
+    def max_concurrent_runs(self) -> int:
+        return 1
+
     def resolve_execution_device(self) -> ExecutionDeviceEvidence:
         """This INSTANCE's own answer to `ExecutionDeviceEvidence` - the
         default simply wraps the class-level `execution_device` tag with no

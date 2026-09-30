@@ -1177,7 +1177,7 @@ def build_container() -> AppContainer:
     tag_repository = TagRepository()
     def _generation_active() -> bool:
         snapshot = generation_orchestrator.queue.snapshot()
-        return bool(snapshot["pending"]) or bool(snapshot["running"])
+        return bool(snapshot["pending"]) or any(snapshot["running"].values())
 
     model_index_manager = build_model_index_collaborators(
         model_repository=model_repository,

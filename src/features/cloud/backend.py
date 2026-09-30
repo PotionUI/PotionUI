@@ -38,6 +38,10 @@ class CloudBackend(BaseBackend):
         self._health_at = 0.0
 
     @property
+    def max_concurrent_runs(self) -> int:
+        return self.config.max_parallel
+
+    @property
     def driver(self) -> str:
         return self.config.driver
 

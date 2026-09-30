@@ -1,14 +1,17 @@
 """
-The generation queue: one execution slot per backend, dispatch order set by
-that backend's scheduling policy.
+The generation queue: a backend's capacity (one slot unless the backend says
+otherwise) bounds its concurrent generations, dispatch order set by that
+backend's scheduling policy.
 
 Before this existed, `orchestrator.start_generation` handed work straight to
 `backend.start_generation`, which spawned a thread immediately. Two users - or
 one user with two tabs - could therefore drive the same backend concurrently.
 
 The queue is the thing that enforces the invariant the rest of the code already
-assumed: a backend executes exactly one generation at a time. Backends still run
-in parallel with each other, since each owns its own `GenerationEngine`.
+assumed: a backend executes no more generations at once than its capacity
+allows, which is one for every backend that does not declare more. Backends
+still run in parallel with each other, since each owns its own
+`GenerationEngine`.
 
 By default every backend is FIFO: dispatch is arrival order, only skipping
 items whose backend is busy, so a native job waiting on the GPU does not block
@@ -73,7 +76,7 @@ class QueuedGeneration:
 
 class GenerationQueue:
     """
-    Queue with per-backend concurrency of 1; per-backend FIFO or fair scheduling.
+    Queue with per-backend concurrency bounded by `capacity_for`; per-backend FIFO or fair scheduling.
 
     All public methods are coroutines and must be awaited on the event loop;
     the queue is not thread-safe by design, because every caller (the API
@@ -83,20 +86,21 @@ class GenerationQueue:
     backend to a "fair" `SchedulingPolicy` instead, which round-robins between
     users with a model-affinity allowance - see `scheduling.select_next`. The
     two policies only ever affect *which pending item* is picked next; the
-    one-slot-per-backend and dispatch-failure invariants are unchanged.
+    slot-capacity and dispatch-failure invariants are unchanged.
     """
 
     def __init__(
         self,
         dispatch: Callable[[QueuedGeneration], Awaitable[None]],
         policy_for: Optional[Callable[[str], SchedulingPolicy]] = None,
+        capacity_for: Optional[Callable[[str], int]] = None,
     ):
         self._dispatch = dispatch
+        self._capacity_for = capacity_for or (lambda backend_id: 1)
         # None means every backend is plain FIFO - the pre-fair-scheduling default.
         self._policy_for = policy_for or (lambda backend_id: SchedulingPolicy())
         self._pending: List[QueuedGeneration] = []
-        # backend_id -> generation_id currently occupying that backend's slot
-        self._busy: Dict[str, str] = {}
+        self._busy: Dict[str, Dict[str, None]] = {}
         # backend_id -> that backend's fairness bookkeeping (rotation cursor,
         # loaded model, consecutive-dispatch count). Absent == fresh/FIFO.
         self._scheduling_state: Dict[str, BackendSchedulingState] = {}
@@ -128,11 +132,22 @@ class GenerationQueue:
         superseded generation must not free the slot of the one that replaced it.
         """
         async with self._lock:
-            if self._busy.get(backend_id) != generation_id:
+            if generation_id not in self._busy.get(backend_id, ()):
                 return
-            del self._busy[backend_id]
+            self._free_slot_locked(backend_id, generation_id)
         logger.debug(f"[QUEUE] Released backend {backend_id} from {generation_id}")
         await self._pump()
+
+    def _has_free_slot(self, backend_id: str) -> bool:
+        return len(self._busy.get(backend_id, ())) < max(1, self._capacity_for(backend_id))
+
+    def _free_slot_locked(self, backend_id: str, generation_id: str) -> None:
+        slots = self._busy.get(backend_id)
+        if slots is None:
+            return
+        slots.pop(generation_id, None)
+        if not slots:
+            del self._busy[backend_id]
 
     def _select_ready_item_locked(self) -> Optional[Tuple[QueuedGeneration, str, BackendSchedulingState]]:
         """
@@ -151,7 +166,7 @@ class GenerationQueue:
         `test_a_failed_same_model_dispatch_leaves_scheduling_state_unchanged`).
         """
         backend_id = next(
-            (i.backend_id for i in self._pending if i.backend_id not in self._busy),
+            (i.backend_id for i in self._pending if self._has_free_slot(i.backend_id)),
             None,
         )
         if backend_id is None:
@@ -181,7 +196,7 @@ class GenerationQueue:
                     break
                 item, backend_id, next_state = selection
                 self._pending.remove(item)
-                self._busy[backend_id] = item.generation_id
+                self._busy.setdefault(backend_id, {})[item.generation_id] = None
 
             try:
                 await self._dispatch(item)
@@ -192,8 +207,7 @@ class GenerationQueue:
                 # have advanced to, so the turn it would have taken is still up
                 # for grabs on the next iteration.
                 async with self._lock:
-                    if self._busy.get(backend_id) == item.generation_id:
-                        del self._busy[backend_id]
+                    self._free_slot_locked(backend_id, item.generation_id)
 
                 if item.generation_id == raise_for:
                     deferred_error = e
@@ -288,8 +302,8 @@ class GenerationQueue:
                 return index
         return None
 
-    def running_generation_id(self, backend_id: str) -> Optional[str]:
-        return self._busy.get(backend_id)
+    def running_generation_ids(self, backend_id: str) -> List[str]:
+        return list(self._busy.get(backend_id, ()))
 
     def pending_items(self) -> List[QueuedGeneration]:
         """Pending work in projected dispatch order; index is the queue position."""
@@ -305,5 +319,5 @@ class GenerationQueue:
         """Serializable view of the queue, for the API and `queue_update` pushes."""
         return {
             "pending": [i.to_dict() for i in self._projected_pending()],
-            "running": dict(self._busy),
+            "running": {backend_id: list(ids) for backend_id, ids in self._busy.items()},
         }

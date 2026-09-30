@@ -138,9 +138,11 @@ native engine is a singleton today, so that is latent, not useful — but it is 
 `POST /api/backends/{id}/set-default` — a plain `PUT /api/backends/{id}` cannot flip it, because
 clearing the flag on the backend's siblings has to happen in the same transaction.
 
-> `max_concurrent_generations` no longer exists. It was a config field that nothing ever enforced —
-> not the registry, not the backends, not the pipeline. It has been removed from the config model,
-> the persisted config blob, the admin form, and the API. Do not reintroduce it.
+A backend runs one generation at a time unless its class says otherwise. The queue asks each
+backend for `max_concurrent_runs` (default `1`) and dispatches up to that many generations onto it
+at once; the rest wait in the usual queue order. A cloud backend returns its `max_parallel` setting
+(default 4, 1 to 32). Native, remote-native and ComfyUI backends keep a single slot.
+`max_concurrent_generations` is not a setting; do not reintroduce it.
 
 ## Declaring the engine on a preset
 

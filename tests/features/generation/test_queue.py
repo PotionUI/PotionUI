@@ -67,7 +67,7 @@ class TestGenerationQueue(unittest.IsolatedAsyncioTestCase):
         await self.queue.release("native", "a")
 
         self.assertEqual(self.dispatched, ["a", "b"])
-        self.assertEqual(self.queue.running_generation_id("native"), "b")
+        self.assertEqual(self.queue.running_generation_ids("native"), ["b"])
 
     async def test_cancelling_a_pending_item_removes_it_without_dispatch(self):
         await self.queue.enqueue(_item("a"))
@@ -108,7 +108,7 @@ class TestGenerationQueue(unittest.IsolatedAsyncioTestCase):
         await self.queue.enqueue(_item("running", tab="t1"))
         cleared = await self.queue.clear_tab("u1", "t1")
         self.assertEqual(cleared, [])
-        self.assertEqual(self.queue.running_generation_id("native"), "running")
+        self.assertEqual(self.queue.running_generation_ids("native"), ["running"])
 
     async def test_a_failing_inline_dispatch_frees_the_slot_and_raises(self):
         """
@@ -120,7 +120,7 @@ class TestGenerationQueue(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             await boom.enqueue(_item("a"))
 
-        self.assertIsNone(boom.running_generation_id("native"))
+        self.assertEqual(boom.running_generation_ids("native"), [])
 
     async def _explode(self, item):
         raise RuntimeError("dispatch blew up")
@@ -156,7 +156,7 @@ class TestGenerationQueue(unittest.IsolatedAsyncioTestCase):
         # Must not raise, even though dispatching "bad" blows up.
         await q.release("native", "good")
 
-        self.assertIsNone(q.running_generation_id("native"))
+        self.assertEqual(q.running_generation_ids("native"), [])
 
     async def test_a_failed_item_leaves_its_backend_usable(self):
         async def flaky(item):
@@ -169,7 +169,7 @@ class TestGenerationQueue(unittest.IsolatedAsyncioTestCase):
 
         # The slot it briefly held must be reusable by the next generation.
         await q.enqueue(_item("good"))
-        self.assertEqual(q.running_generation_id("native"), "good")
+        self.assertEqual(q.running_generation_ids("native"), ["good"])
 
     async def test_snapshot_reports_pending_and_running(self):
         await self.queue.enqueue(_item("a"))
@@ -177,7 +177,7 @@ class TestGenerationQueue(unittest.IsolatedAsyncioTestCase):
 
         snap = self.queue.snapshot()
 
-        self.assertEqual(snap["running"], {"native": "a"})
+        self.assertEqual(snap["running"], {"native": ["a"]})
         self.assertEqual([p["generation_id"] for p in snap["pending"]], ["b"])
         self.assertEqual(snap["pending"][0]["tab_id"], "t9")
 
@@ -269,7 +269,7 @@ class TestFairSchedulingThroughTheRealQueue(unittest.IsolatedAsyncioTestCase):
         await q.release("native", "running")
 
         self.assertEqual(self.dispatched, ["running", "u3_next"])
-        self.assertEqual(q.running_generation_id("native"), "u3_next")
+        self.assertEqual(q.running_generation_ids("native"), ["u3_next"])
 
     async def test_a_failed_same_model_dispatch_leaves_scheduling_state_unchanged(self):
         """A same-model job whose dispatch fails must not get to consume the
@@ -301,7 +301,7 @@ class TestFairSchedulingThroughTheRealQueue(unittest.IsolatedAsyncioTestCase):
         await q.release("native", "running")
 
         self.assertEqual(self.dispatched, ["running", "u3_ok"])
-        self.assertEqual(q.running_generation_id("native"), "u3_ok")
+        self.assertEqual(q.running_generation_ids("native"), ["u3_ok"])
 
         await q.release("native", "u3_ok")
         self.assertEqual(self.dispatched, ["running", "u3_ok", "u4_y"])

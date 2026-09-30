@@ -534,14 +534,11 @@ class GenerationOrchestrator:
 
         self.status_tracker = status_tracker or GenerationStatusTracker()
 
-        # Nothing executes directly any more: work is enqueued, and the
-        # dispatcher runs it when the target backend's single slot frees up.
-        # Dispatch loops back into `_start_generation` because only the
-        # orchestrator knows how to build and start a pipeline.
         self._queue_dispatcher = QueueDispatcher(
             status_tracker=self.status_tracker,
             dispatch=self._start_generation,
             policy_for=scheduling_policy_for,
+            capacity_for=self._backend_capacity,
         )
         self._prompt_expander = PromptExpander(plugin_registry=plugin_registry)
         self._notifier = GenerationNotifier(notification_manager=notification_manager)
@@ -558,6 +555,13 @@ class GenerationOrchestrator:
         self._media_tag_tasks: set = set()
 
         logger.debug("GenerationOrchestrator initialized")
+
+    def _backend_capacity(self, backend_id: str) -> int:
+        backend = self.backend_registry.get_backend(backend_id)
+        capacity = getattr(backend, 'max_concurrent_runs', 1)
+        if isinstance(capacity, int) and not isinstance(capacity, bool) and capacity >= 1:
+            return capacity
+        return 1
 
     @property
     def queue(self):

@@ -28,7 +28,8 @@ describe('host ui component registration', () => {
 			'DetailHeader',
 			'DetailBody',
 			'LibraryFilterBar',
-			'LibraryShell'
+			'LibraryShell',
+			'DynamicForm'
 		]) {
 			expect(registered, name).toContain(name);
 		}

@@ -1485,7 +1485,10 @@ Registered names: every component of `$lib/components/ui/` (`Button`, `IconButto
 `DetailField`, `KVGrid`, `KVItem`), every component of `$lib/components/library/`
 (`LibraryShell`, `LibraryFilterBar`, `LibraryEntryCard`, `LibraryDensityToggle`,
 `LibraryFilterChipRow`, `FilterPopoverFrame`), plus `Tooltip` and `Icon`. A new component
-dropped into one of those folders is registered automatically. `window.__potionui.confirm({title?,
+dropped into one of those folders is registered automatically. `DynamicForm` renders a preset's
+form outside the Generate page: pass `presetId`, `mode`, `variant`, `initialData` and
+`onFormDataChange(data)`, and optionally `audience` (`'simple'` or `'advanced'`) to show that
+audience's fields without changing the user's own Simple/Advanced choice. `window.__potionui.confirm({title?,
 message, variant?})` opens the app's confirm dialog and resolves to a boolean, and
 `window.__potionui.notifications.toast(level, message)` shows a toast.
 

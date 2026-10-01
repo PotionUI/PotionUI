@@ -1,5 +1,9 @@
 export type FormAudience = 'simple' | 'advanced';
 
+export function resolveAudience(override: FormAudience | undefined, stored: FormAudience): FormAudience {
+	return override ?? stored;
+}
+
 /** Minimal shape this module cares about — deliberately loose (`any`-ish)
  *  because it walks the same free-form field-tree as `src/lib/form/reactions.ts`. */
 interface AudienceNode {

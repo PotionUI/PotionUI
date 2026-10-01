@@ -13,7 +13,7 @@
 	import { getSchemaDefaults } from '$lib/form/defaults';
 	import { createLatestRequestGuard, getCachedSchema } from '$lib/form/schemaCache';
 	import { formAudienceStore } from '$lib/stores/formAudience';
-	import { applyAudienceVisibilityToSchema } from '$lib/utils/audienceFilter';
+	import { applyAudienceVisibilityToSchema, resolveAudience, type FormAudience } from '$lib/utils/audienceFilter';
 	import { applyReadonlyToSchema } from '$lib/utils/readonlyFilter';
 	import { FORM_FIELD_ERRORS_CONTEXT_KEY } from '$lib/form/fieldErrorsContext';
 	import {
@@ -70,6 +70,7 @@
 	// `$lib/utils/audienceFilter.ts`). Callers with no Director concept
 	// simply don't pass it.
 	export let videoDirectorActive = false;
+	export let audience: FormAudience | undefined = undefined;
 	export let onFormDataChange: ((data: Record<string, any>) => void) | null = null;
 	// Per-field server-side validation errors (from a 422 `form_validation_failed`
 	// response to `POST /api/generations/start`), keyed by field name. Rendered under
@@ -170,7 +171,7 @@
 		// (getFormData/flattenFormData) is unaffected.
 		applyAudienceVisibilityToSchema(
 			result.processedSchema,
-			$formAudienceStore,
+			resolveAudience(audience, $formAudienceStore),
 			forceVisibleFieldNames,
 			videoDirectorActive
 		);

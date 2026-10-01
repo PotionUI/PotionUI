@@ -7,7 +7,7 @@
 	import { ACTIVE_TAB_ID_CONTEXT_KEY } from '$lib/form/activeTabContext';
 	import { registerLoraTriggerSource } from '$lib/stores/activeLoraTriggers';
 	import { registerLoraSelectionSource } from '$lib/stores/loraPickerSelections';
-	import { combineSegmentsToString } from '$lib/utils/generationOrchestrator';
+	import { promptTextForTab } from './loraPromptSource';
 	import { hasTriggerWordMatch } from '$lib/utils/triggerWords';
 	import { copyText } from '$lib/utils/clipboard';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
@@ -212,13 +212,7 @@
 	}
 
 	// Active prompt text (for trigger chip "already used" state)
-	$: activePromptText = (() => {
-		const state = $tabsStore;
-		const tab = state.tabs.find((t) => t.id === state.activeTabId);
-		if (!tab) return '';
-		const segments = tab.promptSegments || [];
-		return segments.length > 0 ? combineSegmentsToString(segments) : tab.prompt || '';
-	})();
+	$: activePromptText = promptTextForTab($tabsStore.tabs, activeTabId);
 
 	// --- Add / search panel state ---
 	let showSearch = false;

@@ -6,6 +6,7 @@ const GLOBS: Record<string, () => Promise<any>>[] = [
 	import.meta.glob('$lib/components/library/*.svelte'),
 	import.meta.glob('$lib/components/Tooltip.svelte'),
 	import.meta.glob('$lib/components/Icon.svelte'),
+	import.meta.glob('$lib/components/DynamicForm.svelte'),
 	import.meta.glob('$lib/components/modals/UploadLibraryModal.svelte')
 ];
 

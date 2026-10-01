@@ -36,6 +36,7 @@
 	} from '$lib/form/capabilityBinder';
 	import { createCapabilityTracker, sharedCapabilityCache } from '$lib/form/capabilityTracker';
 	import { fetchCloudCapabilities } from '$lib/services/cloudCapabilities';
+	import { clearFormulaDeclarations } from '$lib/stores/formulas';
 
 	const PUBLISHED_SNAPSHOT_LIMIT = 8;
 
@@ -441,6 +442,7 @@
 
 	// Expose method to force schema reload (used by preset reload)
 	export function forceReload(): void {
+		clearFormulaDeclarations();
 		previousKey = `${presetId}-${mode}-${variant ?? ''}`;
 		lastPublishedFormDataKey = null;
 		void loadFormSchema(true);

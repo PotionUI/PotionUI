@@ -139,6 +139,7 @@
 		onVariantChange={tabHandlers.handleVariantChange}
 		{onReload}
 		onClose={closeSheet}
+		onFormulaApplied={() => (openSheet = 'settings')}
 	/>
 {:else if openSheet === 'chat'}
 	<StudioChatSheet onClose={closeSheet} />

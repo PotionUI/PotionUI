@@ -2,6 +2,9 @@
 	import { getContext } from 'svelte';
 	import { writable, type Writable } from 'svelte/store';
 	import { fieldOwnsErrors, resolveFieldComponent } from '$lib/fields/registry';
+	import { ACTIVE_TAB_ID_CONTEXT_KEY } from '$lib/form/activeTabContext';
+	import { formulaApplied } from '$lib/stores/formulaApplied';
+	import { formatValue } from '$lib/formulas/format';
 	import { FORM_FIELD_ERRORS_CONTEXT_KEY } from '$lib/form/fieldErrorsContext';
 	import {
 		FORM_FIELD_ERROR_ACTIONS_CONTEXT_KEY,
@@ -49,6 +52,9 @@
 		writable<Record<string, string[]>>({});
 	$: fieldErrorMessages = name && !fieldOwnsErrors(fieldType) ? ($fieldErrorsStore[name] ?? []) : [];
 
+	const appliedTabId = getContext<string | undefined>(ACTIVE_TAB_ID_CONTEXT_KEY);
+	$: appliedChange = appliedTabId && name ? $formulaApplied[appliedTabId]?.changed[name] : undefined;
+
 	// Quick-fixes need a form to write into; absent the actions context (field
 	// rendered in isolation) the messages stay read-only.
 	const errorActions = getContext<FormFieldErrorActions | undefined>(
@@ -62,7 +68,12 @@
 </script>
 
 {#if isVisible && !isTabEntry}
-	<div data-field-name={name || undefined}>
+	<div data-field-name={name || undefined} class:formula-changed={!!appliedChange}>
+		{#if appliedChange}
+			<div class="mb-1 truncate font-mono text-xs text-fg-subtle" data-testid="formula-previous-value">
+				was <s>{formatValue(config, appliedChange.old)}</s>
+			</div>
+		{/if}
 		{#await componentPromise then Component}
 			{#if Component}
 				<svelte:component this={Component} {name} {config} {value} {onChange} {onOriginChange} {onMaskChange} {host} {fieldPath} />
@@ -94,3 +105,19 @@
 		{/if}
 	</div>
 {/if}
+
+<style>
+	.formula-changed {
+		position: relative;
+	}
+
+	.formula-changed::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: -10px;
+		width: 2px;
+		background: rgb(var(--signal));
+	}
+</style>

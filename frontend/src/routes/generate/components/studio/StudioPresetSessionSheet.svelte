@@ -17,6 +17,7 @@
 	export let onVariantChange: (variant: string) => void;
 	export let onReload: () => void;
 	export let onClose: () => void;
+	export let onFormulaApplied: (() => void) | undefined = undefined;
 
 	$: tabs = $tabsStore.tabs;
 	$: activeTabId = $tabsStore.activeTabId;
@@ -51,6 +52,7 @@
 			{onModeChange}
 			{onVariantChange}
 			{onReload}
+			{onFormulaApplied}
 		/>
 
 		<SessionPill

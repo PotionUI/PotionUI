@@ -16,6 +16,7 @@
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import SessionDrawer from '$lib/components/session/SessionDrawer.svelte';
+	import { sideDrawer } from '$lib/stores/sideDrawer';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import SessionSaveModal from '$lib/components/session/SessionSaveModal.svelte';
 
@@ -44,6 +45,7 @@
 	let sessionName = '';
 
 	let open = false;
+	$: if ($sideDrawer === 'formulas') open = false;
 	let fieldLabels: FieldLabels = {};
 
 	$: refreshFieldLabels(presetId, currentMode);
@@ -114,6 +116,7 @@
 	function toggleOpen() {
 		if (!$session.sessionControlsEnabled) return;
 		open = !open;
+		if (open) sideDrawer.open('sessions');
 	}
 
 	function handleSaveCellClick() {

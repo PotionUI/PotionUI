@@ -299,6 +299,32 @@ function isInvalid(param: CapabilityParam, value: unknown): boolean {
 	return false;
 }
 
+export function validateAgainstCapabilities(
+	schema: SchemaLike | null | undefined,
+	patch: Record<string, unknown>,
+	caps: CapabilitiesByModelField
+): Record<string, string[]> {
+	const invalid: Record<string, string[]> = {};
+	walkSchema(schema, (node) => {
+		const binding = node.capability;
+		if (!binding?.model_field || !node.name || !(node.name in patch)) return;
+		const modelCaps = caps[binding.model_field] ?? null;
+		if (!modelCaps) return;
+		const value = patch[node.name];
+		if (node.type === CLOUD_OPTIONS_TYPE) {
+			const params = (node.resolved_params as CapabilityParam[] | undefined) ?? [];
+			const current = (value as Record<string, unknown> | undefined) ?? {};
+			const bad = params.filter((param) => param.name in current && isInvalid(param, current[param.name])).map((param) => param.name);
+			if (bad.length > 0) invalid[node.name] = bad;
+			return;
+		}
+		if (!binding.param) return;
+		const param = modelCaps.params.find((entry) => entry.name === binding.param);
+		if (param && isInvalid(param, value)) invalid[node.name] = [];
+	});
+	return invalid;
+}
+
 export function capabilityValueChanges(
 	schema: SchemaLike | null | undefined,
 	formData: Record<string, unknown>,

@@ -5,6 +5,8 @@
 	import Icon from '../Icon.svelte';
 	import Tooltip from '../Tooltip.svelte';
 	import { FORM_FIELD_ERRORS_CONTEXT_KEY } from '$lib/form/fieldErrorsContext';
+	import { ACTIVE_TAB_ID_CONTEXT_KEY } from '$lib/form/activeTabContext';
+	import { formulaApplied } from '$lib/stores/formulaApplied';
 
 	export let name: string | null;
 	export let config: any;
@@ -21,6 +23,9 @@
 	const fieldErrorsStore =
 		getContext<Writable<Record<string, string[]>>>(FORM_FIELD_ERRORS_CONTEXT_KEY) ??
 		writable<Record<string, string[]>>({});
+
+	const formTabId = getContext<string | undefined>(ACTIVE_TAB_ID_CONTEXT_KEY);
+	$: appliedState = formTabId ? $formulaApplied[formTabId] : undefined;
 
 	// All field names nested (at any depth) under a tab, used both for the
 	// per-tab error-count badge and to auto-switch to the first erroring tab.
@@ -81,6 +86,22 @@
 			return [index, count] as [number, number];
 		})
 	);
+
+	$: changeCountByIndex = new Map<number, number>(
+		visibleTabEntries.map(({ tab, index }: { tab: any; index: number }) => [
+			index,
+			appliedState ? collectFieldNames(tab).filter((n) => n in appliedState.changed).length : 0
+		] as [number, number])
+	);
+
+	let lastAppliedRevision = 0;
+	$: if (appliedState && appliedState.revision !== lastAppliedRevision) {
+		lastAppliedRevision = appliedState.revision;
+		const first = visibleTabEntries.find((entry: { tab: any; index: number }) => (changeCountByIndex.get(entry.index) ?? 0) > 0);
+		if (first) activeTab = first.index;
+	} else if (!appliedState) {
+		lastAppliedRevision = 0;
+	}
 
 	// Keep the active tab pointed at a visible one (e.g. right after the
 	// Simple/Advanced toggle hides whichever tab is currently open).
@@ -264,6 +285,7 @@
 					{@const displayMode = getTabDisplayMode(tab)}
 					{@const tooltipText = getTabTooltip(tab, tabLabel, displayMode)}
 					{@const errorCount = errorCountByIndex.get(index) ?? 0}
+					{@const changeCount = changeCountByIndex.get(index) ?? 0}
 
 					{@const buttonClass = `px-3 py-2.5 text-sm font-medium transition-colors whitespace-nowrap border-b-2 flex items-center justify-center gap-1.5 ${activeTab === index
 						? 'border-signal text-signal'
@@ -281,6 +303,9 @@
 								{#if errorCount > 0}
 									<span class="inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-danger/15 px-1 font-mono text-2xs text-danger">{errorCount}</span>
 								{/if}
+								{#if changeCount > 0}
+									<span class="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-signal/15 px-1 font-mono text-xs text-signal" data-testid="formula-tab-count">{changeCount}</span>
+								{/if}
 							</button>
 						</Tooltip>
 					{:else}
@@ -295,6 +320,9 @@
 							{/if}
 							{#if errorCount > 0}
 								<span class="inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-danger/15 px-1 font-mono text-2xs text-danger">{errorCount}</span>
+							{/if}
+							{#if changeCount > 0}
+								<span class="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-signal/15 px-1 font-mono text-xs text-signal" data-testid="formula-tab-count">{changeCount}</span>
 							{/if}
 						</button>
 					{/if}

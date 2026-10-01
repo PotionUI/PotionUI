@@ -145,8 +145,9 @@
 	</div>
 
 	{#if availableModes.length > 0}
+		<div class="flex items-stretch gap-1.5">
 		<div
-			class="grid gap-0.5 rounded-lg bg-surface-2 p-0.5"
+			class="grid min-w-0 flex-1 gap-0.5 rounded-lg bg-surface-2 p-0.5"
 			style="grid-template-columns: repeat({availableModes.length}, minmax(0, 1fr));"
 		>
 			{#each availableModes as mode}
@@ -187,6 +188,8 @@
 					</button>
 				{/if}
 			{/each}
+		</div>
+		<slot name="mode-actions" />
 		</div>
 	{/if}
 

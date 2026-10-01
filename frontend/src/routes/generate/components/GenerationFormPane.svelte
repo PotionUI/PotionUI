@@ -2,6 +2,7 @@
 	import { setContext } from 'svelte';
 	import { writable } from 'svelte/store';
 	import DynamicForm from '$lib/components/DynamicForm.svelte';
+	import FormulaAppliedBar from '$lib/components/formulas/FormulaAppliedBar.svelte';
 	import { formValidationStore } from '$lib/stores/formValidation';
 	import { createSectionCollapsedController } from '$lib/utils/sectionCollapsedController';
 	import { getPresetPromptResources } from '$lib/utils/presetPromptResourcesCache';
@@ -78,6 +79,8 @@
 		resourceUsage.set({ specs, counts });
 	});
 </script>
+
+<FormulaAppliedBar {tab} />
 
 <DynamicForm
 	bind:this={formRef}

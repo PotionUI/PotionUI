@@ -5,6 +5,7 @@
 	import { Spinner } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import SessionDrawer from '$lib/components/session/SessionDrawer.svelte';
+	import { sideDrawer } from '$lib/stores/sideDrawer';
 	import { shortcutLabels } from '$lib/stores/keybindings';
 
 	export let enabled = false;
@@ -38,6 +39,7 @@
 	export let onRestoreVersion: (sessionId: string, versionNumber: number) => void;
 
 	let open = false;
+	$: if ($sideDrawer === 'formulas') open = false;
 
 	function relativeTime(date: Date | null): string {
 		if (!date) return 'Saved';
@@ -63,6 +65,7 @@
 
 	function toggleOpen() {
 		open = !open;
+		if (open) sideDrawer.open('sessions');
 	}
 </script>
 

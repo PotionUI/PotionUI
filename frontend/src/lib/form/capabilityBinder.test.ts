@@ -11,6 +11,7 @@ import {
 	resolveCapabilities,
 	resolveCloudOptionParams,
 	splitOptionErrors,
+	validateAgainstCapabilities,
 	type CapabilityParam,
 	type CloudCapabilities
 } from './capabilityBinder';
@@ -370,5 +371,44 @@ describe('resolveCapabilities', () => {
 		expect(resolveCapabilities(['model'], { model: { modelPath: 'model:zzz' } }, lookup)).toEqual({ model: null });
 		expect(resolveCapabilities(['model'], { model: { modelPath: 'x/y.safetensors' } }, lookup)).toEqual({ model: null });
 		expect(resolveCapabilities(['model'], {}, lookup)).toEqual({ model: null });
+	});
+});
+
+describe('validateAgainstCapabilities', () => {
+	function applied(fields: any[], c: CloudCapabilities) {
+		const schema = schemaWith(fields);
+		applyCapabilitiesToSchema(schema, { model: c });
+		return schema;
+	}
+
+	it('reports a proposed value the model rejects without proposing a replacement', () => {
+		const schema = applied([MODEL, ASPECT, GUIDANCE], caps());
+		expect(validateAgainstCapabilities(schema, { aspect_ratio: '21:9', guidance: 4 }, { model: caps() })).toEqual({ aspect_ratio: [] });
+	});
+
+	it('accepts values inside what the model offers', () => {
+		const schema = applied([MODEL, ASPECT, GUIDANCE], caps());
+		expect(validateAgainstCapabilities(schema, { aspect_ratio: '16:9', guidance: 10 }, { model: caps() })).toEqual({});
+	});
+
+	it('rejects a range value outside the model bounds', () => {
+		const schema = applied([MODEL, GUIDANCE], caps());
+		expect(validateAgainstCapabilities(schema, { guidance: 50 }, { model: caps() })).toEqual({ guidance: [] });
+	});
+
+	it('names the invalid keys inside a cloud options object', () => {
+		const schema = applied([MODEL, OPTIONS], caps());
+		const result = validateAgainstCapabilities(schema, { provider_options: { 'x.style': 'gothic', 'x.hdr': true } }, { model: caps() });
+		expect(result).toEqual({ provider_options: ['x.style'] });
+	});
+
+	it('checks nothing when no model is selected', () => {
+		const schema = applied([MODEL, ASPECT], caps());
+		expect(validateAgainstCapabilities(schema, { aspect_ratio: '21:9' }, { model: null })).toEqual({});
+	});
+
+	it('ignores fields that are not in the patch', () => {
+		const schema = applied([MODEL, ASPECT], caps());
+		expect(validateAgainstCapabilities(schema, {}, { model: caps() })).toEqual({});
 	});
 });

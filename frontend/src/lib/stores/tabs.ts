@@ -6,6 +6,7 @@ import { randomUUID } from '$lib/utils/uuid';
 import { getGlobalSoundDefault } from '$lib/utils/soundSettings';
 import { tabClaimedGenerationIds } from '$lib/generation/messages/ownership';
 import { retireOrphanedGenerationIds } from '$lib/generation/messages/generationOutputs';
+import { formulaApplied } from './formulaApplied';
 
 function createInitialGenerationState(): GenerationState {
 	return {
@@ -223,6 +224,7 @@ function createTabsStore() {
 		},
 
 		removeTab: (tabId: string) => {
+			formulaApplied.clear(tabId);
 			update((state) => {
 				const closedTab = state.tabs.find((t) => t.id === tabId);
 				const newTabs = state.tabs.filter((t) => t.id !== tabId);

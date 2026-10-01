@@ -85,7 +85,7 @@
 			data-testid="formulas-button"
 			onclick={toggle}
 		>
-			<Icon name="flask" className="h-4 w-4" />
+			<Icon name="book" className="h-4 w-4" />
 			{#if count > 0}
 				<span class="absolute -right-1 -top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full border border-line-strong bg-surface-3 px-1 font-mono text-xs tabular-nums text-fg">{count}</span>
 			{/if}

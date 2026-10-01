@@ -20,7 +20,8 @@ export const ASSIGNABLE_MODEL_TYPES: readonly string[] = [
 	'detection_bbox',
 	'mediapipe',
 	'vfi',
-	'refmod'
+	'refmod',
+	'model_patch'
 ];
 
 export interface ModelTypeInfo {

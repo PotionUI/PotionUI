@@ -301,10 +301,9 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
 
         cond_model = conditioning[index] if index < len(conditioning) else conditioning[-1]
         uncond = cond_model.n_embeds or None
-        conditioning_obj = Conditioning(
-            cond=_attach_nag(cond_model.embeds, uncond, self.config),
-            uncond=uncond,
-        )
+        cond = _attach_nag(cond_model.embeds, uncond, self.config)
+        cond, uncond = self.attach_conditioning(ctx, cond, uncond)
+        conditioning_obj = Conditioning(cond=cond, uncond=uncond)
 
         img2img = self.maybe_img2img(gen, conditioning_obj, ctx, index, seed, progress)
         if img2img is not None:
@@ -359,6 +358,10 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
             image=image, temporary=True, seed=seed,
             resolution=(width, height), cfg=guidance, step=steps,
         )
+
+    def attach_conditioning(self, ctx: GeneratorContext, cond: dict,
+                            uncond: Optional[dict]) -> Tuple[dict, Optional[dict]]:
+        return cond, uncond
 
     # -- config validation ---------------------------------------------------
 

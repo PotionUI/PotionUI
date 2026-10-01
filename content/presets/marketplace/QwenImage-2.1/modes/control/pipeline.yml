@@ -1,0 +1,163 @@
+pipeline:
+  - name: "model_loader/qwen_image21"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      control_model:
+        file_path: "{{ form.control_model }}"
+        name: "{{ form.control_model }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  - name: "media_loader"
+    id: "source_loader"
+    enabled: true
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  - name: "media_loader"
+    id: "inpaint_loader"
+    enabled: "{{ (form.source_image_inpaint_mask | default('', true)) != '' }}"
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  - name: "media_loader"
+    id: "mask_loader"
+    enabled: "{{ (form.source_image_inpaint_mask | default('', true)) != '' }}"
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.source_image_inpaint_mask | default('', true) }}"
+
+  - name: "media_loader"
+    id: "guide_loader"
+    enabled: "{{ (form.guide | default('canny')) != 'none' and (form.guide_from_other | default(false)) and (form.guide_image | default('', true)) != '' }}"
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.guide_image | default('', true) }}"
+
+  - name: "controlnet_preprocessor"
+    id: "controlnet_preprocessor"
+    enabled: "{{ (form.guide | default('canny')) not in ('none', 'as_is') }}"
+    input:
+      - ["image", "{% if (form.guide_from_other | default(false)) %}guide_loader{% else %}source_loader{% endif %}", "image"]
+    configuration:
+      strict: true
+      preprocessors:
+        - type: "{{ form.guide | default('canny') }}"
+          enabled: true
+          parameters: {}
+
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader/qwen_image21", "text_encoder"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+      guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - ["model", "{{ form.control_model }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - ["schedule", "{{ form.schedule }}"]
+        - ["resolution", "{{ form.resolution }}"]
+        - ["guide", "{{ form.guide | default('canny') }}"]
+        - ["guide_from_other", "{{ form.guide_from_other | default(false) }}"]
+        - ["control_strength", "{{ form.control_strength }}"]
+        - ["control_start", "{{ form.control_start | default(0.0) }}"]
+        - ["control_end", "{{ form.control_end | default(1.0) }}"]
+
+  - name: "generator/qwen_image21"
+    input:
+      - ["model", "model_loader/qwen_image21", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "source_loader", "image"]
+      - ["control_image", "{% if (form.guide | default('canny')) != 'as_is' %}controlnet_preprocessor{% elif (form.guide_from_other | default(false)) %}guide_loader{% else %}source_loader{% endif %}", "image"]
+      - ["inpaint_image", "inpaint_loader", "image"]
+      - ["inpaint_mask", "mask_loader", "image"]
+    enabled: true
+    configuration:
+      mode: "control"
+      control_strength: "{{ form.control_strength }}"
+      control_start: "{% if (form.guide | default('canny')) == 'none' %}0.0{% else %}{{ form.control_start | default(0.0) }}{% endif %}"
+      control_end: "{% if (form.guide | default('canny')) == 'none' %}1.0{% else %}{{ form.control_end | default(1.0) }}{% endif %}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      guidance: "{{ form.cfg | default(generation.profile.guidance) }}"
+      shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      schedule: "{{ form.schedule }}"
+      resolution: "{{ form.resolution }}"
+      quantity: "{{ form.quantity }}"
+      step_cache:
+        rel_threshold: "{{ form.step_cache_threshold }}"
+        warmup_steps: "{{ form.step_cache_warmup_steps }}"
+        max_consecutive_skips: "{{ form.step_cache_max_skips }}"
+
+  - name: "gallery"
+    input:
+      - ["image", "generator/qwen_image21", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true

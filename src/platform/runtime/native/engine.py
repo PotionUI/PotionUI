@@ -751,7 +751,7 @@ class NativeEngineLoader:
 
     def load(self, path: str | Path, kind: Kind, **kwargs: Any) -> NativeModel:
         if kind == "diffusion_model":
-            return self._load_dit(path)
+            return self._load_dit(path, **kwargs)
         if kind == "text_encoder":
             return self._load_te(path, **kwargs)
         if kind == "vae":
@@ -768,7 +768,7 @@ class NativeEngineLoader:
 
     # -- per-kind ----------------------------------------------------------
 
-    def _load_dit(self, path: str | Path) -> NativeModel:
+    def _load_dit(self, path: str | Path, model_patch: str | Path | None = None) -> NativeModel:
         sd, metadata = load_torch_file_stripped(path, device="cpu")
         get_profiler().mark("load.dit.read", est_gb=_estimated_gb(sd))
 
@@ -788,6 +788,8 @@ class NativeEngineLoader:
         remap = spec.resolve_state_dict_map()
         if remap is not None:
             sd = remap(sd)
+        if model_patch is not None:
+            config, sd = self._attach_model_patch(spec, config, sd, model_patch)
 
         quant_format = detect_quant_format(metadata, sd)
         # storage = TRUE checkpoint dtype (so a fp32 VAE/DiT selects manual_cast
@@ -820,6 +822,17 @@ class NativeEngineLoader:
             "diffusion_model", module, spec=spec, estimated_vram_gb=est_gb,
             compute_dtype=compute_dtype, quant_format=quant_format,
         )
+
+    @staticmethod
+    def _attach_model_patch(spec: ModelSpec, config: dict, sd: dict, model_patch: str | Path) -> tuple[dict, dict]:
+        attach = spec.resolve_model_patch_map()
+        if attach is None:
+            raise NativeEngineUnsupportedError(
+                f"{spec.family} takes no model patch, but '{Path(model_patch).name}' was given"
+            )
+        patch_sd, _ = load_torch_file_stripped(model_patch, device="cpu")
+        get_profiler().mark("load.dit.patch.read", est_gb=_estimated_gb(patch_sd))
+        return attach(config, sd, patch_sd)
 
     def _maybe_quantize_fp8(self, sd, spec, quant_format, sd_dtype, est_gb):
         """Apply the ``fp8_quantize`` policy to a DiT state dict at load.
@@ -2380,6 +2393,10 @@ class NativeGenerator:
             image_slots = conditioning.get("image_slots")
             if image_slots is not None:
                 extra["image_slots"] = image_slots
+            for _control_key in ("control_context", "control_context_scale", "control_sigma_range"):
+                _control = conditioning.get(_control_key)
+                if _control is not None:
+                    extra[_control_key] = _control
             # Krea-2 edit ref_boost: scalar reference-fidelity dials the
             # krea2-edit pipe puts in the cond dict. Same conditional-forwarding
             # idiom -- only Krea2.forward declares these kwargs (defaults 1.0 =

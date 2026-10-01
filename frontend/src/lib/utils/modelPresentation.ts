@@ -16,6 +16,7 @@ const MODEL_TYPES: Record<string, ModelTypePresentation> = {
 	adetailer: { label: 'Detailer', purpose: 'Automatic detail refinement' },
 	text_encoder: { label: 'Text encoder', purpose: 'Converts prompts into guidance' },
 	refmod: { label: 'RefMod', purpose: 'Pre-encoded reference latents' },
+	model_patch: { label: 'Model patch', purpose: 'Add-on branch loaded with a diffusion model' },
 	[MODEL_TYPE_UNDEFINED]: { label: 'Needs a type', purpose: 'Type not recognised from the file' }
 };
 

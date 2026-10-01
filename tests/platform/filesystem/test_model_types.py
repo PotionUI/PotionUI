@@ -47,3 +47,8 @@ def test_every_depot_scanner_shares_the_same_supported_extensions():
     from src.features.models.indexer import ModelScanner
 
     assert ModelScanner.SUPPORTED_EXTENSIONS is SUPPORTED_MODEL_EXTENSIONS
+
+
+def test_model_patches_hold_model_patch_files():
+    assert DIRECTORY_TO_MODEL_TYPE['model_patches'] == 'model_patch'
+    assert MODEL_TYPE_TO_DIRECTORY['model_patch'] == 'model_patches'

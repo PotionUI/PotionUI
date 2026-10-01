@@ -121,9 +121,9 @@ def test_default_steps_and_guidance():
     assert cfg["sampler"] == "euler"
 
 
-def test_mode_choices_are_txt2img_and_edit():
+def test_mode_choices_are_txt2img_edit_and_control():
     mode_spec = next(s for s in GeneratorQwenImage21Pipe.configuration() if s.name == "mode")
-    assert mode_spec.choices == ["txt2img", "edit"]
+    assert mode_spec.choices == ["txt2img", "edit", "control"]
 
 
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)

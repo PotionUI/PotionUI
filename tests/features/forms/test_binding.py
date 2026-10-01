@@ -807,3 +807,65 @@ class TestReturnShape:
         assert isinstance(bound, BoundForm)
         with pytest.raises(Exception):
             bound.form_name = "other"
+
+
+def _reacting(name, type_, reactions, **kwargs):
+    field = _field(name, type_, **kwargs)
+    field.reactions = reactions
+    return field
+
+
+class TestReactionValidation:
+    _REQUIRE_WHEN_ANOTHER = [{
+        "when": {"field": "source", "operator": "equals", "value": "another"},
+        "then": {"update_validation": {"required": True, "message": "Add the other image."}},
+    }]
+    _MASK_WHEN_NONE = [{
+        "when": {"field": "guide", "operator": "equals", "value": "none"},
+        "then": {"update_validation": {"mask_required": True, "message": "Paint a mask."}},
+    }]
+
+    def _required_preset(self):
+        return _preset([
+            _field("source", "select", default="this"),
+            _reacting("other_image", "image", self._REQUIRE_WHEN_ANOTHER),
+        ])
+
+    def test_a_reaction_can_make_a_field_required_with_its_own_message(self):
+        with pytest.raises(FormBindingError) as refused:
+            bind_form(self._required_preset(), "txt2img", None, {"source": "another"}, "user_1")
+        assert refused.value.field_errors["other_image"] == ["Add the other image."]
+
+    def test_the_reaction_requirement_lapses_when_its_condition_does_not_hold(self):
+        bound = bind_form(self._required_preset(), "txt2img", None, {"source": "this"}, "user_1")
+        assert bound.values["other_image"] is None
+
+    def test_a_reaction_requirement_is_met_by_a_value(self):
+        bound = bind_form(
+            self._required_preset(), "txt2img", None, {"source": "another", "other_image": "uploads/b.png"}, "user_1")
+        assert bound.values["other_image"] == "uploads/b.png"
+
+    def _mask_preset(self, type_="image"):
+        return _preset([
+            _field("guide", "select", default="canny"),
+            _reacting("photo", type_, self._MASK_WHEN_NONE, configuration={"allow_inpaint": True}),
+        ])
+
+    def test_a_reaction_can_require_a_painted_mask(self):
+        with pytest.raises(FormBindingError) as refused:
+            bind_form(self._mask_preset(), "txt2img", None, {"guide": "none", "photo": "uploads/a.png"}, "user_1")
+        assert refused.value.field_errors["photo"] == ["Paint a mask."]
+
+    def test_a_painted_mask_satisfies_the_requirement(self):
+        bound = bind_form(
+            self._mask_preset(), "txt2img", None,
+            {"guide": "none", "photo": "uploads/a.png", "photo_inpaint_mask": "uploads/a_mask.png"}, "user_1")
+        assert bound.values["photo_inpaint_mask"] == "uploads/a_mask.png"
+
+    def test_no_mask_is_needed_while_the_condition_does_not_hold(self):
+        bound = bind_form(self._mask_preset(), "txt2img", None, {"guide": "canny", "photo": "uploads/a.png"}, "user_1")
+        assert bound.values["photo"] == "uploads/a.png"
+
+    def test_a_mask_requirement_on_a_non_media_field_is_ignored(self):
+        bound = bind_form(self._mask_preset("string"), "txt2img", None, {"guide": "none", "photo": "x"}, "user_1")
+        assert bound.values["photo"] == "x"

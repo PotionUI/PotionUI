@@ -366,21 +366,54 @@ def _build_shift_schedule(ctx: ScheduleContext) -> Tensor:
     ``image_seq_len``, see :func:`_flux_mu`); else constant ``shift``,
     defaulting to ``1.0`` (identity ramp)."""
     t = torch.linspace(1.0, 0.0, ctx.steps + 1, dtype=torch.float32)
-    if ctx.fixed_mu is not None:
-        logger.debug("fixed-mu schedule: mu=%.5f (resolution-independent)", ctx.fixed_mu)
-        return _flux_time_shift_sigmas(t, float(ctx.fixed_mu))
-    if ctx.dynamic_shift is not None and ctx.image_seq_len is not None:
-        mu = _anchored_mu(ctx.dynamic_shift, int(ctx.image_seq_len))
-        logger.debug("anchored dynamic-mu schedule: seq_len=%d -> mu=%.5f", ctx.image_seq_len, mu)
+    return _shift_curve(
+        t, shift=ctx.shift, base_shift=ctx.base_shift, max_shift=ctx.max_shift,
+        dynamic_shift=ctx.dynamic_shift, fixed_mu=ctx.fixed_mu, image_seq_len=ctx.image_seq_len,
+    )
+
+
+def _shift_curve(
+    t: Tensor,
+    *,
+    shift: float | None,
+    base_shift: float | None,
+    max_shift: float | None,
+    dynamic_shift: dict | None,
+    fixed_mu: float | None,
+    image_seq_len: int | None,
+) -> Tensor:
+    if fixed_mu is not None:
+        logger.debug("fixed-mu schedule: mu=%.5f (resolution-independent)", fixed_mu)
+        return _flux_time_shift_sigmas(t, float(fixed_mu))
+    if dynamic_shift is not None and image_seq_len is not None:
+        mu = _anchored_mu(dynamic_shift, int(image_seq_len))
+        logger.debug("anchored dynamic-mu schedule: seq_len=%d -> mu=%.5f", image_seq_len, mu)
         return _flux_time_shift_sigmas(t, mu)
-    if ctx.base_shift is not None and ctx.max_shift is not None and ctx.image_seq_len is not None:
-        mu = _flux_mu(float(ctx.base_shift), float(ctx.max_shift), int(ctx.image_seq_len))
+    if base_shift is not None and max_shift is not None and image_seq_len is not None:
+        mu = _flux_mu(float(base_shift), float(max_shift), int(image_seq_len))
         logger.debug(
             "flux dynamic-mu schedule: seq_len=%d base=%.3f max=%.3f -> mu=%.5f",
-            ctx.image_seq_len, ctx.base_shift, ctx.max_shift, mu,
+            image_seq_len, base_shift, max_shift, mu,
         )
         return _flux_time_shift_sigmas(t, mu)
-    return _constant_shift_sigmas(t, 1.0 if ctx.shift is None else float(ctx.shift))
+    return _constant_shift_sigmas(t, 1.0 if shift is None else float(shift))
+
+
+def percent_to_sigma(percent: float, sampling_settings: dict, image_seq_len: int | None = None) -> float:
+    if percent <= 0.0:
+        return 1.0
+    if percent >= 1.0:
+        return 0.0
+    t = torch.tensor([1.0 - float(percent)], dtype=torch.float64)
+    return float(_shift_curve(
+        t,
+        shift=sampling_settings.get("shift"),
+        base_shift=sampling_settings.get("base_shift"),
+        max_shift=sampling_settings.get("max_shift"),
+        dynamic_shift=sampling_settings.get("dynamic_shift"),
+        fixed_mu=sampling_settings.get("fixed_mu"),
+        image_seq_len=image_seq_len,
+    )[0])
 
 
 def _build_beta_schedule(ctx: ScheduleContext) -> Tensor:

@@ -49,6 +49,7 @@ class ModelLoaderQwenImage21Pipe(BaseModelLoaderPipe):
             "device": "cuda",
             "dtype": "bfloat16",
             "vision": False,
+            "control_model": None,
         }
 
     @classmethod
@@ -63,6 +64,7 @@ class ModelLoaderQwenImage21Pipe(BaseModelLoaderPipe):
                            choices=["bfloat16", "float16", "float32"]),
             PipeConfigSpec("vram_limit_gb", float, None, "VRAM budget hint (backend-injected)", required=False),
             PipeConfigSpec("vision", bool, False, "Load the vision tower for image-conditioned editing", required=False),
+            PipeConfigSpec("control_model", dict, None, "Fun ControlNet Union patch loaded with the DiT", required=False),
         ]
 
     @classmethod
@@ -89,6 +91,7 @@ class ModelLoaderQwenImage21Pipe(BaseModelLoaderPipe):
             ("diffusion_model", "qwen_image21_dit"),
             ("text_encoder", "qwen_image21_text_encoder"),
             ("vae", "qwen_image21_vae"),
+            ("control_model", "qwen_image21_fun_control"),
         ):
             cfg = self.config.get(key)
             if _path_of(cfg):
@@ -111,6 +114,7 @@ class ModelLoaderQwenImage21Pipe(BaseModelLoaderPipe):
         dtype = self.config.get("dtype", "bfloat16")
         loras = _active_loras(self.config.get("loras"))
         vision = bool(self.config.get("vision", False))
+        control_path = _path_of(self.config.get("control_model"))
 
         vram_gb = self._vram_budget(pipe_input)
         loader = NativeEngineLoader(device=device, vram_gb=vram_gb)
@@ -119,6 +123,8 @@ class ModelLoaderQwenImage21Pipe(BaseModelLoaderPipe):
         vae_fp = f"{vae_path}|{dtype}"
         lora_fp = _lora_stack_fingerprint(loras) or "none"
         dit_fp = f"{dit_path}|{dtype}|{lora_fp}"
+        if control_path:
+            dit_fp = f"{dit_fp}|control={control_path}"
 
         def load_te() -> NativeModel:
             return loader.load(te_path, "text_encoder", vision=vision)
@@ -127,7 +133,10 @@ class ModelLoaderQwenImage21Pipe(BaseModelLoaderPipe):
             return loader.load(vae_path, "vae")
 
         def load_dit() -> NativeModel:
-            model = loader.load(dit_path, "diffusion_model")
+            if control_path:
+                model = loader.load(dit_path, "diffusion_model", model_patch=control_path)
+            else:
+                model = loader.load(dit_path, "diffusion_model")
             model._active_lora_application = self._apply_loras(model, loras)  # noqa: SLF001
             return model
 
@@ -138,7 +147,10 @@ class ModelLoaderQwenImage21Pipe(BaseModelLoaderPipe):
         te_key = f"native/te/{te_path}"
         te = Component("text encoder", te_key, te_fp, load_te, file_size_gb(te_path))
         vae = Component("VAE", f"native/vae/{vae_path}", vae_fp, load_vae, file_size_gb(vae_path))
-        dit = Component("DiT", f"native/dit/{dit_path}", dit_fp, load_dit, file_size_gb(dit_path))
+        dit_gb = file_size_gb(dit_path)
+        if control_path and dit_gb is not None:
+            dit_gb += file_size_gb(control_path) or 0.0
+        dit = Component("DiT", f"native/dit/{dit_path}", dit_fp, load_dit, dit_gb)
 
         if not lifecycle.caching:
             te_model = lifecycle.acquire(te)

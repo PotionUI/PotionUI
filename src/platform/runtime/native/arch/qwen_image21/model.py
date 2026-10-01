@@ -69,6 +69,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from vendor.gpl.comfyui.flux.layers import EmbedND
+from vendor.gpl.comfyui.qwen_image21.fun_control import QwenImage21FunControl
 from vendor.gpl.comfyui.qwen_image21.layers import (
     QwenImage21TextProjection,
     QwenImage21TimestepProjEmbeddings,
@@ -134,7 +135,8 @@ def _block_causal_mask(token_kind: Tensor, key_valid: Tensor | None) -> Tensor:
 class QwenImage21DiT(NativeArchModule):
     """Qwen-Image-2.1 single-stream DiT."""
 
-    def __init__(self, config: QwenImage21Config, operations, dtype=None, device=None):
+    def __init__(self, config: QwenImage21Config, operations, dtype=None, device=None,
+                 fun_control: dict[str, Any] | None = None):
         super().__init__()
         self.config = config
         self.patch_size = 1
@@ -151,13 +153,21 @@ class QwenImage21DiT(NativeArchModule):
         ])
         self.norm_out = _LastLayer(d, operations, dtype=dtype, device=device)
         self.proj_out = operations.Linear(d, config.out_channels, bias=False, dtype=dtype, device=device)
+        self.fun_control = None
+        if fun_control is not None:
+            self.fun_control = QwenImage21FunControl(
+                int(fun_control["num_blocks"]), int(fun_control["control_in_dim"]), d,
+                config.num_attention_heads, config.attention_head_dim, operations,
+                mlp_ratio=int(fun_control["mlp_ratio"]), dtype=dtype, device=device,
+            )
 
 
     @classmethod
     def from_config(cls, config: dict[str, Any], operations: Any) -> "QwenImage21DiT":
         """Build empty-weight from a detected config dict (wrap in
         ``with torch.device("meta")`` to avoid allocating the real weights)."""
-        return cls(QwenImage21Config.from_detect_config(config), operations=operations)
+        return cls(QwenImage21Config.from_detect_config(config), operations=operations,
+                   fun_control=config.get("fun_control"))
 
     def post_load(self) -> None:
         """No-op: RoPE (EmbedND) and the sinusoidal timestep embedding are
@@ -248,6 +258,28 @@ class QwenImage21DiT(NativeArchModule):
                tuple(image_slots) if image_slots else (), *ids)
         return cache, key
 
+    def _control_tokens(self, x: Tensor, timestep: Tensor, control_context: Tensor | None,
+                        scale: float | None, sigma_range=None) -> tuple[Tensor, float] | None:
+        if control_context is None:
+            return None
+        scale = 1.0 if scale is None else float(scale)
+        if scale == 0.0:
+            return None
+        if sigma_range is not None:
+            sigma = float(timestep.flatten()[0])
+            if not float(sigma_range[1]) <= sigma <= float(sigma_range[0]):
+                return None
+        if self.fun_control is None:
+            raise ValueError("control_context needs a Fun ControlNet loaded with the diffusion model")
+        if tuple(control_context.shape[-2:]) != tuple(x.shape[-2:]):
+            raise ValueError(
+                f"control_context is {tuple(control_context.shape[-2:])} latents, the image is {tuple(x.shape[-2:])}"
+            )
+        tokens = control_context.flatten(2).transpose(1, 2).to(x.dtype)
+        if tokens.shape[0] != x.shape[0]:
+            tokens = tokens.expand(x.shape[0], -1, -1)
+        return tokens, scale
+
     def forward(self, x: Tensor, timestep: Tensor, context: Tensor, attention_mask: Tensor | None = None,
                 ref_latents=None, image_slots=None, **kwargs) -> Tensor:
         ref_latents = list(ref_latents or [])
@@ -267,7 +299,13 @@ class QwenImage21DiT(NativeArchModule):
         mod = (_split_rows(scale1), _split_rows(gate1.tanh()), _split_rows(scale2), _split_rows(gate2.tanh()))
 
         step_cache = kwargs.get("step_cache")
-        prefix_cache, prefix_key = self._prefix_kv_cache(x, context, attention_mask, tuple(ref_latents), image_slots)
+        control = self._control_tokens(x, timestep, kwargs.get("control_context"),
+                                       kwargs.get("control_context_scale"), kwargs.get("control_sigma_range"))
+        if control is not None:
+            prefix_cache, prefix_key = None, None
+        else:
+            prefix_cache, prefix_key = self._prefix_kv_cache(
+                x, context, attention_mask, tuple(ref_latents), image_slots)
         cached_kvs = prefix_cache.get(prefix_key) if prefix_key is not None else None
 
         probe = None
@@ -284,13 +322,24 @@ class QwenImage21DiT(NativeArchModule):
         else:
             capture = prefix_key is not None and prefix_len > 0
             captured_kvs = [] if capture else None
+            injection = {}
+            stream = None
+            if control is not None:
+                injection = {layer: j for j, layer in enumerate(
+                    self.fun_control.injection_layers(len(self.transformer_blocks)))}
             for i, block in enumerate(self.transformer_blocks):
+                if control is not None and i == 0:
+                    stream = self.fun_control.init_stream(hidden_states, control[0], prefix_len)
                 if capture:
                     hidden_states, block_kv = block(hidden_states, mod, pe, mask, prefix_len, target_key_mask,
                                                       capture_prefix=True)
                     captured_kvs.append(block_kv)
                 else:
                     hidden_states = block(hidden_states, mod, pe, mask, prefix_len, target_key_mask)
+                if i in injection:
+                    stream, skip = self.fun_control.step(
+                        injection[i], stream, mod, pe, mask, prefix_len, target_key_mask)
+                    hidden_states = hidden_states + skip * control[1]
                 if i == 0 and step_cache is not None:
                     probe = hidden_states[:, prefix_len:]
                     if step_cache.should_skip(probe):

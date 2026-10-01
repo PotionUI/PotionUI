@@ -2287,6 +2287,39 @@ def test_make_forward_forwards_image_slots_when_present():
     assert calls[0]["image_slots"] == [3]
 
 
+
+def _recording_forward():
+    gen = NativeGenerator.__new__(NativeGenerator)
+    calls = []
+
+    def fake_module(x, sigma, context, **kwargs):
+        calls.append(kwargs)
+        return x
+
+    gen.dit = type("Fake", (), {"module": staticmethod(fake_module)})()
+    return gen._make_forward("cpu", torch.float32), calls
+
+
+def test_make_forward_forwards_the_fun_control_context_and_strength():
+    model_forward, calls = _recording_forward()
+    control = torch.ones(1, 129, 1, 4, 4)
+    model_forward(torch.zeros(1), torch.zeros(1), {
+        "context": torch.zeros(1), "control_context": control, "control_context_scale": 0.6,
+        "control_sigma_range": (0.9, 0.2),
+    })
+    assert calls[0]["control_context"] is control
+    assert calls[0]["control_context_scale"] == 0.6
+    assert calls[0]["control_sigma_range"] == (0.9, 0.2)
+
+
+def test_make_forward_omits_the_fun_control_keys_when_absent():
+    model_forward, calls = _recording_forward()
+    model_forward(torch.zeros(1), torch.zeros(1), {"context": torch.zeros(1)})
+    assert "control_context" not in calls[0]
+    assert "control_context_scale" not in calls[0]
+    assert "control_sigma_range" not in calls[0]
+
+
 class TestMoveCondListValues:
     """ref_latents rides the cond dict as a LIST of tensors (wire contract shared
     with ComfyUI); _move_cond must move each element instead of calling tensor

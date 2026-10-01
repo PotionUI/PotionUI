@@ -315,6 +315,7 @@ Preprocess images for ControlNet (Canny, Depth, OpenPose, etc.)
 |---|---|---|---|---|---|---|---|
 | `preprocessors` | `list` | `[]` | no | — | — | — | List of preprocessor configurations |
 | `output_resolution` | `list` | — | no | — | — | — | Optional output resolution [width, height] |
+| `strict` | `bool` | `false` | no | — | — | — | Fail the generation instead of passing an image through unprocessed |
 
 ## crop_subject
 
@@ -1046,6 +1047,9 @@ Native Qwen-Image-2.1 generator (flow matching, true CFG)
 | `conditioning` | `CONDITIONING` | yes | yes | Encoded prompt conditioning (per image) |
 | `seed` | `SEED` | no | yes | Random seeds |
 | `image` | `IMAGE` | no | yes | Input images for img2img mode |
+| `control_image` | `IMAGE` | no | yes | Control image for the Fun ControlNet |
+| `inpaint_image` | `IMAGE` | no | yes | Image to inpaint through the Fun ControlNet |
+| `inpaint_mask` | `IMAGE` | no | yes | Inpaint mask, white where to regenerate |
 
 **Outputs**
 
@@ -1057,7 +1061,10 @@ Native Qwen-Image-2.1 generator (flow matching, true CFG)
 
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
-| `mode` | `str` | `"txt2img"` | yes | `txt2img`, `edit` | — | — | Generation mode |
+| `mode` | `str` | `"txt2img"` | yes | `txt2img`, `edit`, `control` | — | — | Generation mode |
+| `control_strength` | `float` | `1.0` | no | — | 0.0 | 2.0 | Fun ControlNet strength (control_context_scale) |
+| `control_start` | `float` | `0.0` | no | — | 0.0 | 1.0 | Fraction of the sampling where the Fun ControlNet starts |
+| `control_end` | `float` | `1.0` | no | — | 0.0 | 1.0 | Fraction of the sampling where the Fun ControlNet ends |
 | `steps` | `int` | `40` | no | — | 1 | 100 | Denoising steps |
 | `guidance` | `float` | `4.0` | no | — | 0.0 | 30.0 | True CFG scale (Qwen true_cfg_scale) |
 | `shift` | `float` | — | no | — | — | — | Sigma-shift override (multiplicative); blank -> resolution-dynamic mu (0.5 @ 256 tokens .. 0.9 @ 8192) |
@@ -2032,6 +2039,7 @@ Load a native Qwen-Image-2.1 checkpoint set (MMDiT + Qwen3-VL-8B TE + RGBA 16x V
 | `dtype` | `str` | `"bfloat16"` | no | `bfloat16`, `float16`, `float32` | — | — | Compute dtype |
 | `vram_limit_gb` | `float` | — | no | — | — | — | VRAM budget hint (backend-injected) |
 | `vision` | `bool` | `false` | no | — | — | — | Load the vision tower for image-conditioned editing |
+| `control_model` | `dict` | — | no | — | — | — | Fun ControlNet Union patch loaded with the DiT |
 
 ### <a id="pipe-model-loader-seedvr2"></a>`model_loader/seedvr2`
 

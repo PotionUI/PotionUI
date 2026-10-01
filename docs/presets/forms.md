@@ -701,6 +701,12 @@ indirection in form fields" above). This lets one field's value (e.g. a speed/qu
 narrow another field's model options — without a preset ever naming a model filename — while
 condition evaluation and action application both stay frontend-only, same as every other action.
 
+`update_validation` also binds server-side for two keys, so a submission is refused (422 with the
+field's error) while the reaction's condition holds: `required: true` makes the field required, and
+`mask_required: true` on an `allow_inpaint` image field requires its painted `<name>_inpaint_mask`.
+An optional `message` replaces the default error text. Both are checked by `bind_form`; the rest of
+the object only reaches the frontend.
+
 The **closed set of 12 operators** (source: `OPERATORS` in schema.py, mirrored in reactions.ts):
 `equals`, `not_equals`, `in`, `not_in`, `greater_than`, `less_than`, `greater_than_or_equals`,
 `less_than_or_equals`, `contains`, `not_contains`, `is_empty`, `is_not_empty`.

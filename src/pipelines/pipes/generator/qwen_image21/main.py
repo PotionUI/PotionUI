@@ -18,7 +18,7 @@ text.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
@@ -33,7 +33,13 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
 )
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter, native_step_hooks
 from src.pipelines.pipes._shared.imaging.alpha import drop_opaque_alpha, flatten_onto
+from src.pipelines.pipes.generator.qwen_image21.control import (
+    control_canvas,
+    encode_control_context,
+    first_image,
+)
 from src.platform.runtime.native.engine import Conditioning, NativeGenerator
+from src.platform.runtime.native.sampling.flow_schedule import percent_to_sigma
 
 
 class GeneratorQwenImage21Pipe(FlowMatchGeneratorPipe):
@@ -64,12 +70,22 @@ class GeneratorQwenImage21Pipe(FlowMatchGeneratorPipe):
             "detail_start": None,
             "detail_end": None,
             "step_cache": {},
+            "control_strength": 1.0,
+            "control_start": 0.0,
+            "control_end": 1.0,
         }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
-            PipeConfigSpec("mode", str, "txt2img", "Generation mode", required=True, choices=["txt2img", "edit"]),
+            PipeConfigSpec("mode", str, "txt2img", "Generation mode", required=True,
+                           choices=["txt2img", "edit", "control"]),
+            PipeConfigSpec("control_strength", float, 1.0, "Fun ControlNet strength (control_context_scale)",
+                           required=False, min_value=0.0, max_value=2.0),
+            PipeConfigSpec("control_start", float, 0.0, "Fraction of the sampling where the Fun ControlNet starts",
+                           required=False, min_value=0.0, max_value=1.0),
+            PipeConfigSpec("control_end", float, 1.0, "Fraction of the sampling where the Fun ControlNet ends",
+                           required=False, min_value=0.0, max_value=1.0),
             PipeConfigSpec("steps", int, 40, "Denoising steps", required=False, min_value=1, max_value=100),
             PipeConfigSpec("guidance", float, 4.0, "True CFG scale (Qwen true_cfg_scale)", required=False,
                            min_value=0.0, max_value=30.0),
@@ -102,6 +118,9 @@ class GeneratorQwenImage21Pipe(FlowMatchGeneratorPipe):
             PipeInputSpec("conditioning", IOType.CONDITIONING, True, "Encoded prompt conditioning (per image)", is_array=True),
             PipeInputSpec("seed", IOType.SEED, False, "Random seeds", is_array=True),
             cls.img2img_input_spec(),
+            PipeInputSpec("control_image", IOType.IMAGE, False, "Control image for the Fun ControlNet", is_array=True),
+            PipeInputSpec("inpaint_image", IOType.IMAGE, False, "Image to inpaint through the Fun ControlNet", is_array=True),
+            PipeInputSpec("inpaint_mask", IOType.IMAGE, False, "Inpaint mask, white where to regenerate", is_array=True),
         ]
 
     @classmethod
@@ -113,7 +132,52 @@ class GeneratorQwenImage21Pipe(FlowMatchGeneratorPipe):
     def build_context(self, pipe_input: PipeInput) -> GeneratorContext:
         ctx = super().build_context(pipe_input)
         apply_schedule_settings(ctx, self.config)
+        if ctx.extra.get("mode") == "control":
+            self._control_context_setup(ctx, pipe_input)
         return ctx
+
+    def _control_context_setup(self, ctx: GeneratorContext, pipe_input: PipeInput) -> None:
+        control_image = first_image(pipe_input.input.get("control_image"))
+        inpaint_image = first_image(pipe_input.input.get("inpaint_image"))
+        if control_image is None and inpaint_image is None:
+            raise GenerationExecutionError(
+                "Choose a Guide, or paint the area to repaint on the image.")
+        mask = first_image(pipe_input.input.get("inpaint_mask")) if inpaint_image is not None else None
+        canvas = first_image(pipe_input.input.get("image")) or inpaint_image or control_image
+        gen = ctx.extra["generator"]
+        width, height = control_canvas(gen, ctx.extra["width"], ctx.extra["height"], canvas)
+        latent_shape = gen.latent_shape_for(width, height)
+        image_seq_len = int(latent_shape[-2]) * int(latent_shape[-1])
+        settings = gen.spec.sampling_settings
+        sigma_range = (
+            percent_to_sigma(float(self.config.get("control_start", 0.0)), settings, image_seq_len),
+            percent_to_sigma(float(self.config.get("control_end", 1.0)), settings, image_seq_len),
+        )
+        ctx.extra.update({
+            "control_sigma_range": sigma_range,
+            "width": width,
+            "height": height,
+            "iterate_mode": False,
+            "control_inputs": (control_image, inpaint_image, mask),
+            "control_strength": float(self.config.get("control_strength", 1.0)),
+        })
+
+    def attach_conditioning(self, ctx: GeneratorContext, cond: dict,
+                            uncond: Optional[dict]) -> Tuple[dict, Optional[dict]]:
+        if ctx.extra.get("mode") != "control":
+            return cond, uncond
+        context = ctx.extra.get("control_context")
+        if context is None:
+            control_image, inpaint_image, mask = ctx.extra["control_inputs"]
+            context = encode_control_context(
+                ctx.extra["generator"], ctx.extra["width"], ctx.extra["height"], control_image, inpaint_image, mask)
+            ctx.extra["control_context"] = context
+        extra = {
+            "control_context": context,
+            "control_context_scale": ctx.extra["control_strength"],
+            "control_sigma_range": ctx.extra["control_sigma_range"],
+        }
+        return {**cond, **extra}, ({**uncond, **extra} if uncond is not None else None)
 
     def generate_one(self, ctx: GeneratorContext, index: int, seed: int, progress: ProgressEmitter):
         edit = self.maybe_edit(ctx, index, seed, progress)

@@ -187,3 +187,51 @@ def test_vision_flag_threaded_to_the_engine_loader(monkeypatch):
     pipe = ModelLoaderQwenImage21Pipe(config=_config(vision=True))
     pipe.process(PipeInput(input={}), lambda o: None)
     assert received == {"vision": True}
+
+
+_CONTROL = {"file_path": "/m/fun_control.safetensors", "name": "fun_control"}
+
+
+def test_a_control_model_changes_only_the_dit_fingerprint():
+    plain = _fps([])
+    models, out = _run(ModelLoaderQwenImage21Pipe(config=_config(control_model=_CONTROL)))
+    _ = out.output["text_encoder"].encoder
+    controlled = dict(models.calls)
+
+    dit_key = "native/dit//m/dit.safetensors"
+    assert controlled[dit_key] != plain[dit_key]
+    assert "control=/m/fun_control.safetensors" in controlled[dit_key]
+    for key in ("native/te//m/te.safetensors", "native/vae//m/vae.safetensors"):
+        assert controlled[key] == plain[key]
+
+
+def test_an_empty_control_model_leaves_the_dit_fingerprint_alone():
+    plain = _fps([])
+    models, out = _run(ModelLoaderQwenImage21Pipe(
+        config=_config(control_model={"file_path": "", "name": ""})))
+    _ = out.output["text_encoder"].encoder
+    assert dict(models.calls)["native/dit//m/dit.safetensors"] == plain["native/dit//m/dit.safetensors"]
+
+
+def test_the_control_model_is_loaded_with_the_dit(monkeypatch):
+    received = []
+
+    class _FakeLoader:
+        def __init__(self, *a, **kw):
+            pass
+
+        def load(self, path, kind, **kwargs):
+            received.append((path, kind, kwargs))
+            return SimpleNamespace(module=object(), spec=None, estimated_vram_gb=1.0)
+
+    import src.pipelines.pipes.model_loader.qwen_image21.main as qi21_main
+    monkeypatch.setattr(qi21_main, "NativeEngineLoader", _FakeLoader)
+
+    pipe = ModelLoaderQwenImage21Pipe(config=_config(control_model=_CONTROL))
+    pipe.process(PipeInput(input={}), lambda o: None)
+    assert ("/m/dit.safetensors", "diffusion_model", {"model_patch": "/m/fun_control.safetensors"}) in received
+
+
+def test_the_control_model_is_listed_with_the_models():
+    pipe = ModelLoaderQwenImage21Pipe(config=_config(control_model=_CONTROL))
+    assert ("fun_control", "qwen_image21_fun_control") in {(m.name, m.type) for m in pipe.describe_models()}

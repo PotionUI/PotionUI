@@ -1,0 +1,111 @@
+fields:
+  - type: "section"
+    label: "Image"
+    children:
+      - name: "source_image"
+        type: "image"
+        label: "Image"
+        required: true
+        configuration:
+          allow_inpaint: true
+        ai_hint: "The image to work from. The output takes its aspect ratio at the chosen resolution's size. Paint a mask on it to repaint only that area and keep the rest; without a mask the whole image is generated new, following the guide."
+        reactions:
+          - when: { field: "guide", equals: "none" }
+            then:
+              update_validation:
+                mask_required: true
+                message: "Paint the area to repaint on the image, or choose a Guide."
+
+  - type: "section"
+    label: "Guide"
+    children:
+      - name: "guide"
+        type: "select"
+        formula: "control"
+        label: "Guide"
+        default: "canny"
+        ai_hint: "What the output follows. Canny, HED, Lineart, MLSD and Scribble follow outlines; Depth follows the 3D layout; Pose follows a person's body; Grayscale keeps the light and shade; Use as is takes a ready-made control map. None only repaints the masked area and needs a painted mask."
+        configuration:
+          options:
+            - { label: "None", value: "none" }
+            - { label: "Canny", value: "canny" }
+            - { label: "Depth", value: "depth" }
+            - { label: "Pose", value: "openpose" }
+            - { label: "Lineart", value: "lineart" }
+            - { label: "HED", value: "hed" }
+            - { label: "MLSD", value: "mlsd" }
+            - { label: "Scribble", value: "scribble" }
+            - { label: "Grayscale", value: "grayscale" }
+            - { label: "Use as is", value: "as_is" }
+
+      - name: "guide_from_other"
+        type: "checkbox"
+        formula: "control"
+        label: "Take the guide from a different image"
+        default: false
+        description: "For example, a photo of the pose you want."
+        ai_hint: "Turn on to take the guide from a second image instead of the main Image, for example a pose from one photo applied to another."
+        reactions:
+          - when: { field: "guide", equals: "none" }
+            then: { set_visibility: false, set_value: false }
+          - when: { field: "guide", not_equals: "none" }
+            then: { set_visibility: true }
+
+      - name: "guide_image"
+        type: "image"
+        label: "Guide image"
+        ai_hint: "The image the guide is taken from when Take the guide from a different image is on."
+        reactions:
+          - when: { field: "guide_from_other", equals: true }
+            then:
+              set_visibility: true
+              update_validation:
+                required: true
+                message: "Add the image to take the guide from, or turn off Take the guide from a different image."
+          - when: { field: "guide_from_other", not_equals: true }
+            then: { set_visibility: false }
+
+      - name: "control_strength"
+        type: "slider"
+        formula: "control"
+        label: "Strength"
+        default: 1.0
+        ai_hint: "How closely the output follows the guide. 1.0 is what the model was trained for; lower it toward 0.6 to give the prompt more freedom."
+        configuration: {min: 0.0, max: 2.0, step: 0.05}
+        reactions:
+          - when: { field: "guide", equals: "none" }
+            then: { set_visibility: false }
+          - when: { field: "guide", not_equals: "none" }
+            then: { set_visibility: true }
+
+      - type: "row"
+        children:
+          - name: "control_start"
+            type: "slider"
+            formula: "control"
+            label: "Control start"
+            audience: "advanced"
+            default: 0.0
+            width: "1/2"
+            ai_hint: "Fraction of the sampling where the guide starts to apply. 0 applies it from the first step."
+            configuration: {min: 0.0, max: 1.0, step: 0.05}
+            reactions:
+              - when: { field: "guide", equals: "none" }
+                then: { set_visibility: false }
+              - when: { field: "guide", not_equals: "none" }
+                then: { set_visibility: true }
+
+          - name: "control_end"
+            type: "slider"
+            formula: "control"
+            label: "Control end"
+            audience: "advanced"
+            default: 1.0
+            width: "1/2"
+            ai_hint: "Fraction of the sampling where the guide stops applying. Lower it, for example to 0.8, to let the last steps refine detail freely."
+            configuration: {min: 0.0, max: 1.0, step: 0.05}
+            reactions:
+              - when: { field: "guide", equals: "none" }
+                then: { set_visibility: false }
+              - when: { field: "guide", not_equals: "none" }
+                then: { set_visibility: true }

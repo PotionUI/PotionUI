@@ -39,6 +39,7 @@ DIRECTORY_TO_MODEL_TYPE = {
     'llm': 'llm',
     'vfi': 'vfi',
     'refmods': 'refmod',
+    'model_patches': 'model_patch',
 }
 
 MODEL_TYPE_TO_DIRECTORY = {model_type: directory for directory, model_type in DIRECTORY_TO_MODEL_TYPE.items()}

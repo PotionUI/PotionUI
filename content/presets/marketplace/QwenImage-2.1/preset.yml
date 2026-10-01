@@ -45,6 +45,10 @@ configuration:
     type: "model_tags"
     label: "LoRA tags"
     description: "Only LoRAs with any of these tags appear in the LoRA picker."
+  control_tags:
+    type: "model_tags"
+    label: "Fun ControlNet tags"
+    description: "Only model patches with any of these tags appear in the Fun ControlNet picker."
 
 # balanced sourced from ComfyUI's reference Qwen-Image-2.1 workflow (not
 # distilled -> ~40 steps at cfg ~4.0). turbo is a PROPOSED fast profile (no
@@ -54,6 +58,7 @@ speed_profiles:
   balanced: { steps: 40, guidance: 4.0, sampler: "euler" }
   turbo:    { steps: 20, guidance: 1.0, sampler: "euler" }
   custom:   { steps: 40, guidance: 4.0, sampler: "euler" }
+  control:  { steps: 40, guidance: 1.0, sampler: "euler" }
 
 vars:
   default_shift: 2.0
@@ -70,7 +75,9 @@ llm:
     transparency or an alpha channel. Edit mode takes 1-10 reference images: the
     first sets the output's size and is the image being edited; describe the
     change you want in the prompt (e.g. "change the sign text to ..."), not the
-    whole scene from scratch.
+    whole scene from scratch. Control mode follows the structure of a control
+    image (edges, depth, pose, lines or grayscale) and can repaint a masked part
+    of an image; describe the whole finished image, not just the masked part.
 
 prompt_resources:
   edit:
@@ -94,6 +101,13 @@ prompt_syntax:
       insert: '"{}"'
       help: "Exact text to render in the image, verbatim"
       color: "coral"
+  control:
+    - token: '"…"'
+      kind: "wrap"
+      pattern: '"[^"\n]*"'
+      insert: '"{}"'
+      help: "Exact text to render in the image, verbatim"
+      color: "coral"
 
 formulas:
   groups:
@@ -101,11 +115,13 @@ formulas:
     size:   { label: "Size" }
     loras:  { label: "LoRAs" }
     cache:  { label: "Step cache" }
+    control: { label: "Control" }
     models: { label: "Models", preselect: false }
 
 modes:
   - txt2img
   - edit
+  - control
 
 media:
   cover: "public/examples/0-yn3kd9j4.webp"

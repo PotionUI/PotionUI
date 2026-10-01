@@ -319,7 +319,12 @@ def bind_form(
             continue
         value = values[name]
         value = _coerce_leniently(value, spec, name, coercions)
-        _validate_field(name, value, spec, errors, field_errors)
+        validation = _reaction_validation(spec, values, preset_id=preset_id, mode=mode, field_name=name)
+        _validate_field(name, value, spec, errors, field_errors, validation)
+        if validation.get("mask_required") and _is_media_path_field(spec) and not raw.get(f"{name}_inpaint_mask"):
+            message = validation.get("message") or "paint a mask on this image"
+            errors.append(f"{name}: {message}")
+            field_errors.setdefault(name, []).append(message)
         if name in plan.bindings:
             value = _bind_capability_value(name, value, plan, errors, field_errors, stripped, cloud_params)
         if not _hidden_by_reactions(spec, values, preset_id=preset_id, mode=mode, field_name=name):
@@ -884,6 +889,7 @@ def _validate_field(
     field: FieldTemplate,
     errors: List[str],
     field_errors: Dict[str, List[str]],
+    validation: Optional[Dict[str, Any]] = None,
 ) -> None:
     def _fail(message: str) -> None:
         errors.append(f"{name}: {message}")
@@ -892,13 +898,17 @@ def _validate_field(
     if is_model_ref(value):
         return  # resolved later, per-backend; not this boundary's concern
 
+    validation = validation or {}
+    required = field.required or validation.get("required") is True
+    missing = validation.get("message") or "required field is missing"
+
     if field.type == "tags":
-        if field.required and _tags_value_is_empty(value):
-            _fail("required field is missing")
+        if required and _tags_value_is_empty(value):
+            _fail(missing)
         return
 
-    if field.required and (value is None or value == ""):
-        _fail("required field is missing")
+    if required and (value is None or value == ""):
+        _fail(missing)
         return
 
     if value is None:
@@ -928,6 +938,21 @@ def _validate_field(
             allowed = {opt.get("value") for opt in static_options if isinstance(opt, dict)}
             if allowed and value not in allowed:
                 _fail(f"{value!r} is not one of the declared options")
+
+
+def _reaction_validation(
+    field: FieldTemplate, values: Dict[str, Any], *, preset_id: str, mode: str, field_name: str
+) -> Dict[str, Any]:
+    merged: Dict[str, Any] = {}
+    for reaction in field.reactions or []:
+        if not isinstance(reaction, dict):
+            continue
+        update = (reaction.get("then") or {}).get("update_validation")
+        if isinstance(update, dict) and _reaction_matches(
+            reaction.get("when"), values, preset_id=preset_id, mode=mode, field_name=field_name
+        ):
+            merged.update(update)
+    return merged
 
 
 def _hidden_by_reactions(

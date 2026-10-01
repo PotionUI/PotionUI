@@ -56,6 +56,7 @@ class ModelSpec:
     # "module.path:callable" mapping checkpoint keys to this arch's own module
     # names. None means the checkpoint keys are already this arch's names.
     state_dict_map: str | None = None
+    model_patch_map: str | None = None
 
     def matches(self, config: dict[str, Any]) -> bool:
         """True when every key/value in ``signature`` is present in ``config``."""
@@ -70,6 +71,11 @@ class ModelSpec:
         if self.state_dict_map is None:
             return None
         return _resolve_dotted(self.state_dict_map, "ModelSpec.state_dict_map")
+
+    def resolve_model_patch_map(self) -> Callable[..., tuple[dict[str, Any], dict[str, Any]]] | None:
+        if self.model_patch_map is None:
+            return None
+        return _resolve_dotted(self.model_patch_map, "ModelSpec.model_patch_map")
 
     def key_is_expected_missing(self, key: str) -> bool:
         return any(fnmatch.fnmatch(key, pat) for pat in self.expected_missing_keys)
@@ -276,6 +282,7 @@ _VENDORED_SPECS: list[ModelSpec] = [
         signature={"image_model": "qwen_image21"},
         model_class="src.platform.runtime.native.arch.qwen_image21.model:QwenImage21DiT",
         state_dict_map="src.platform.runtime.native.arch.qwen_image21.model:convert_qwen_image21_state_dict",
+        model_patch_map="src.platform.runtime.native.arch.qwen_image21.fun_control:attach_fun_control",
         sampling_settings={
             "prediction": "const",          # flow-matching CONST (ComfyUI QwenImage21)
             "shift": 2.0,

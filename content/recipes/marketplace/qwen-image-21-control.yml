@@ -1,0 +1,155 @@
+schema_version: 1
+id: "qwen-image-21-control"
+version: 1
+name: "Qwen-Image-2.1 Fun ControlNet"
+engine: "native"
+category: "image"
+summary: "Set up Qwen-Image-2.1 with the Fun ControlNet Union for structure control and inpainting."
+description: >
+  Installs the bundled Qwen-Image-2.1 preset on the native (in-process) engine
+  for its Control mode: generation guided by an image's structure (canny,
+  depth, pose, lineart, HED, MLSD, scribble or grayscale) and repainting of
+  a masked area, alone or together. Fetches the bf16 MMDiT checkpoint, the Qwen3-VL-8B text
+  encoder and the RGBA VAE from Comfy-Org's repack of Qwen/Qwen-Image-2.1,
+  plus Alibaba PAI's Fun ControlNet Union (~7.55 GB), skipping any file you
+  already have (~41 GB in total from scratch). Every file ships under the
+  Qwen Research License (NOT Apache-2.0) - commercial use requires accepting
+  Alibaba's separate terms at
+  https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE.
+
+plugins:
+  - id: "huggingface-provider"
+    reason: >
+      Resolves the diffusion model, text encoder, VAE and Fun ControlNet from HuggingFace
+      by exact repo path. HuggingFace has no hash-lookup API, so each
+      artifact below names its file explicitly; the sha256 in each
+      artifact's checksum still verifies the download afterwards.
+
+backend:
+  engine: "native"
+
+artifacts:
+  - id: "qwenimage21-diffusion-model"
+    kind: "diffusion_model"
+    model_type: "diffusion_model"
+    filename: "qwen_image_2.1_bf16.safetensors"
+    display_name: "Qwen-Image-2.1 (MMDiT, bf16)"
+    required: true
+    size_bytes: 14230280616
+    checksum:
+      algorithm: "sha256"
+      value: "89f4158d066cc33906a199fca85634f766892dd78f49b6698dabf187ac86c4bc"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Qwen-Image-2.1"
+      version_id: "main@diffusion_models/qwen_image_2.1_bf16.safetensors"
+
+  - id: "qwenimage21-text-encoder"
+    kind: "text_encoder"
+    model_type: "text_encoder"
+    filename: "qwen3vl_8b_bf16.safetensors"
+    display_name: "Qwen3-VL-8B text encoder (bf16)"
+    required: true
+    size_bytes: 17534334616
+    checksum:
+      algorithm: "sha256"
+      value: "68bdc82bc1b66851162ae656225e7e2068166b603db19bd5d5a3b90eb12669a9"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Qwen-Image-2.1"
+      version_id: "main@text_encoders/qwen3vl_8b_bf16.safetensors"
+
+  - id: "qwenimage21-vae"
+    kind: "vae"
+    model_type: "vae"
+    filename: "qwen_image_2.1_vae_bf16.safetensors"
+    display_name: "Qwen-Image-2.1 VAE (RGBA, 16x latent)"
+    required: true
+    size_bytes: 675509688
+    checksum:
+      algorithm: "sha256"
+      value: "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Qwen-Image-2.1"
+      version_id: "main@vae/qwen_image_2.1_vae_bf16.safetensors"
+
+  - id: "qwenimage21-fun-controlnet"
+    kind: "model_patch"
+    model_type: "model_patch"
+    filename: "Qwen-Image-2.1-Fun-Controlnet-Union.safetensors"
+    display_name: "Qwen-Image-2.1 Fun ControlNet Union (bf16)"
+    required: true
+    size_bytes: 7550979904
+    checksum:
+      algorithm: "sha256"
+      value: "65d6b66d734da9e7ff5ef04e7db3a133553a52a3f29a7fcb3e9cce8fa21dcfcd"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "alibaba-pai/Qwen-Image-2.1-Fun-Controlnet-Union"
+      version_id: "main@Qwen-Image-2.1-Fun-Controlnet-Union.safetensors"
+
+presets:
+  - preset_id: "01M31Y6WNM07EHAXXCDV1QVJVX"
+    path_hint: "marketplace/QwenImage-2.1"
+    assign_to_owner: true
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable required plugins"
+    params:
+      plugin_ids: ["huggingface-provider"]
+
+  - key: "backend.ensure"
+    kind: "backend.ensure"
+    title: "Prepare the native backend"
+    params:
+      engine: "native"
+
+  - key: "models.index"
+    kind: "models.index"
+    title: "Find models you already have"
+    params:
+      engine: "native"
+
+  - key: "artifacts.plan"
+    kind: "artifacts.plan"
+    title: "Plan required downloads"
+    params:
+      artifact_ids: ["qwenimage21-diffusion-model", "qwenimage21-text-encoder", "qwenimage21-vae", "qwenimage21-fun-controlnet"]
+
+  - key: "artifacts.fetch"
+    kind: "artifacts.fetch"
+    title: "Download the Qwen-Image-2.1 and Fun ControlNet files"
+    params:
+      artifact_ids: ["qwenimage21-diffusion-model", "qwenimage21-text-encoder", "qwenimage21-vae", "qwenimage21-fun-controlnet"]
+
+  - key: "models.index.downloads"
+    kind: "models.index"
+    title: "Register downloaded models"
+    params:
+      engine: "native"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign the Qwen-Image-2.1 preset"
+    params:
+      preset_id: "01M31Y6WNM07EHAXXCDV1QVJVX"
+
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the pipeline"
+    params:
+      preset_id: "01M31Y6WNM07EHAXXCDV1QVJVX"
+      mode: "control"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    onboarding_only: true
+    params: {}

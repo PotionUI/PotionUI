@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image
 
 from src.platform.assets import asset_subdir
-from src.pipelines.outputs import ProgressGenerationOutput, ImageGenerationOutput
+from src.pipelines.outputs import GenerationExecutionError, ProgressGenerationOutput, ImageGenerationOutput
 from src.pipelines.contracts import BasePipe, logger
 from src.pipelines.contracts import (
     PipeInput,
@@ -29,6 +29,7 @@ ANNOTATORS_REPO = "lllyasviel/Annotators"
 _WEIGHTED_PREPROCESSORS = frozenset(
     {"depth", "openpose", "normal", "scribble", "lineart", "mlsd", "hed"}
 )
+_PLAIN_PREPROCESSORS = frozenset({"grayscale"})
 
 # Import controlnet_aux processors
 try:
@@ -49,6 +50,7 @@ class ControlNetPreprocessorPipe(BasePipe):
         return {
             "preprocessors": [],  # List of preprocessor configurations
             "output_resolution": None,  # Optional resize for output (e.g., [512, 512])
+            "strict": False,
         }
 
     @classmethod
@@ -57,6 +59,7 @@ class ControlNetPreprocessorPipe(BasePipe):
         return [
             PipeConfigSpec("preprocessors", list, [], "List of preprocessor configurations", required=False),
             PipeConfigSpec("output_resolution", list, None, "Optional output resolution [width, height]", required=False),
+            PipeConfigSpec("strict", bool, False, "Fail the generation instead of passing an image through unprocessed", required=False),
         ]
 
     @classmethod
@@ -119,6 +122,9 @@ class ControlNetPreprocessorPipe(BasePipe):
         except Exception as e:
             logger.error(f"[CONTROLNET PREPROCESSOR] Canny preprocessing failed: {e}")
             return image
+
+    def _preprocess_grayscale(self, image: Image.Image, params: Dict[str, Any]) -> Image.Image:
+        return image.convert("L").convert("RGB")
 
     def _preprocess_depth(self, image: Image.Image, params: Dict[str, Any], annotators: str) -> Image.Image:
         """Apply depth map generation using MiDaS"""
@@ -259,8 +265,18 @@ class ControlNetPreprocessorPipe(BasePipe):
                 _no_preprocessors_warned = True
             return PipeOutput(output={"image": images})
 
-        # Check if controlnet_aux is available
-        if not CONTROLNET_AUX_AVAILABLE:
+        strict = bool(self.config.get("strict", False))
+        needs_aux = any(
+            config.get("enabled", False)
+            and str(config.get("type", "canny")).lower() not in _PLAIN_PREPROCESSORS
+            for config in preprocessors_config
+        )
+        if strict and needs_aux and not CONTROLNET_AUX_AVAILABLE:
+            raise GenerationExecutionError(
+                "Control image preprocessing needs the controlnet-aux package, which is not installed. "
+                "Install it, or set Control Type to Use as is with a ready-made control map."
+            )
+        if needs_aux and not CONTROLNET_AUX_AVAILABLE:
             logger.error("[CONTROLNET PREPROCESSOR] controlnet_aux not available - skipping preprocessing")
             generation_outputs(ProgressGenerationOutput(
                 state="ControlNet preprocessing unavailable - install controlnet-aux",
@@ -298,6 +314,8 @@ class ControlNetPreprocessorPipe(BasePipe):
             # Apply the appropriate preprocessor
             if preprocessor_type == 'canny':
                 processed = self._preprocess_canny(image, params)
+            elif preprocessor_type == 'grayscale':
+                processed = self._preprocess_grayscale(image, params)
             elif preprocessor_type == 'depth':
                 processed = self._preprocess_depth(image, params, annotators)
             elif preprocessor_type == 'openpose':
@@ -315,6 +333,11 @@ class ControlNetPreprocessorPipe(BasePipe):
             else:
                 logger.warning(f"[CONTROLNET PREPROCESSOR] Unknown preprocessor type: {preprocessor_type}")
                 processed = image
+
+            if strict and processed is image:
+                raise GenerationExecutionError(
+                    f"Control image preprocessing ({preprocessor_type}) failed; the log has the details."
+                )
 
             # Optional: resize to output resolution
             output_resolution = self.config.get("output_resolution")

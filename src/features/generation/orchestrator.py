@@ -1772,6 +1772,7 @@ class GenerationOrchestrator:
             if not cancelled:
                 logger.warning(f"Backend could not cancel {generation_id}")
                 return False
+            self.status_tracker.set_cancel_notice(generation_id, backend.take_cancel_notice(generation_id))
             logger.info(f"Cancelled generation {generation_id} on backend {backend.name}")
         elif backend is not None:
             try:

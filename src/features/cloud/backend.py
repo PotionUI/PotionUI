@@ -61,6 +61,7 @@ class CloudBackend(BaseBackend):
         self._health_at = 0.0
         self._executor_factory: Optional[Callable[[], Any]] = None
         self._runs: Dict[str, CloudRun] = {}
+        self._cancel_notices: Dict[str, str] = {}
 
     def bind_executor_factory(self, factory: Callable[[], Any]) -> None:
         self._executor_factory = factory
@@ -182,10 +183,16 @@ class CloudBackend(BaseBackend):
             if not run.executor.cancel(generation_id):
                 run.executor.cancel_on_start(generation_id)
             await run.session.cancel()
+            notice = await run.session.settled_cancel_notice()
+            if notice:
+                self._cancel_notices[generation_id] = notice
         except Exception as error:
             logger.error(f"[CLOUD_BACKEND] Error cancelling generation {generation_id}: {type(error).__name__}")
             return False
         return True
+
+    def take_cancel_notice(self, generation_id: str) -> Optional[str]:
+        return self._cancel_notices.pop(generation_id, None)
 
     async def health_check(self) -> Dict[str, Any]:
         now = self.clock.now()

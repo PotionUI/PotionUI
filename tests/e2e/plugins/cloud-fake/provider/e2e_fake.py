@@ -21,6 +21,7 @@ class E2eFakeConfig(FakeCloudConfig):
     poll_seconds: float = Field(default=0.25, gt=0, title="Poll seconds", description="How often an async job is polled")
     fail_kind: str = Field(default="", title="Fail with", description="Make every submit fail with this error kind", json_schema_extra={"options": FAIL_KINDS})
     cost_usd: float = Field(default=0.04, ge=0, title="Reported cost", description="Cost the provider reports for each job")
+    supports_cancel: bool = Field(default=True, title="Can cancel jobs", description="Off makes the provider unable to cancel a job it already accepted")
 
 
 def image_bytes(seed: str, size: int = IMAGE_SIZE) -> bytes:
@@ -73,6 +74,7 @@ class E2eFakeProvider(FakeCloudProvider):
             cost_usd=Decimal(str(config.cost_usd)),
         )
         super().__init__(config, http, clock=MonotonicClock(), behaviour=behaviour)
+        self.supports_cancel = config.supports_cancel
 
     async def discover(self) -> list[CloudModelSpec]:
         self.behaviour.calls.append("discover")

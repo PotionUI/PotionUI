@@ -41,6 +41,7 @@ CANCEL_CHECK_SECONDS = 0.5
 INFLIGHT_SETTLE_SECONDS = 2.0
 PROVIDER_CANCEL_WAIT_SECONDS = 1.0
 PROVIDER_CANCEL_CAP_SECONDS = 5.0
+CANCEL_SETTLE_SECONDS = 3.0
 FIRST_POLL_SECONDS = 2.0
 MAX_POLL_SECONDS = 30.0
 POLL_GROWTH = 1.5
@@ -103,6 +104,9 @@ class CloudRunSession:
         self._run_number = 0
         self._run_dir = self._scratch
         self._orphan_risk = False
+        self._cancel_notice: Optional[str] = None
+        self._active = False
+        self._settled: Optional[asyncio.Event] = None
         self._is_cancelled: Optional[Callable[[], bool]] = None
         self._on_progress: Optional[ProgressCallback] = None
 
@@ -114,9 +118,22 @@ class CloudRunSession:
             self._cancel_event = asyncio.Event()
         return self._cancel_event
 
+    def _settled_event(self) -> asyncio.Event:
+        if self._settled is None:
+            self._settled = asyncio.Event()
+        return self._settled
+
     async def cancel(self) -> None:
         self._cancel_requested = True
         self._event().set()
+
+    async def settled_cancel_notice(self) -> Optional[str]:
+        if self._active:
+            try:
+                await asyncio.wait_for(self._settled_event().wait(), CANCEL_SETTLE_SECONDS)
+            except asyncio.TimeoutError:
+                pass
+        return self._cancel_notice
 
     def cleanup(self) -> None:
         shutil.rmtree(self._run_dir, ignore_errors=True)
@@ -130,6 +147,8 @@ class CloudRunSession:
     ) -> CloudRunOutcome:
         self._is_cancelled = is_cancelled
         self._on_progress = on_progress
+        self._active = True
+        self._settled_event().clear()
         try:
             return await self._run(request)
         except (CloudRunError, CloudRunCancelled):
@@ -141,6 +160,9 @@ class CloudRunSession:
         except Exception as error:
             self.cleanup()
             raise self._wrap_unexpected(error) from None
+        finally:
+            self._active = False
+            self._settled_event().set()
 
     async def _run(self, request: CloudRunRequest) -> CloudRunOutcome:
         spec = self._spec_for(request.model)
@@ -149,6 +171,7 @@ class CloudRunSession:
         self._orphan_risk = False
         self._job = None
         self._cancel_confirmed = None
+        self._cancel_notice = None
         cloud_inputs = self._local_inputs(spec, request)
         self._started = self._clock.now()
         limit = self._timeout_seconds
@@ -297,11 +320,11 @@ class CloudRunSession:
         if job is None:
             if self._orphan_risk:
                 self._cancel_confirmed = False
-                await self._emit("running", message=UNCONFIRMED_CANCEL_MESSAGE)
+                await self._warn_unconfirmed()
             return
         if not self._provider.supports_cancel:
             self._cancel_confirmed = False
-            await self._emit("running", message=UNCONFIRMED_CANCEL_MESSAGE)
+            await self._warn_unconfirmed()
             return
 
         async def ask() -> bool:
@@ -316,7 +339,11 @@ class CloudRunSession:
         confirmed = task.result() if task in done else None
         self._cancel_confirmed = confirmed
         if confirmed is not True:
-            await self._emit("running", message=UNCONFIRMED_CANCEL_MESSAGE)
+            await self._warn_unconfirmed()
+
+    async def _warn_unconfirmed(self) -> None:
+        self._cancel_notice = UNCONFIRMED_CANCEL_MESSAGE
+        await self._emit("running", message=UNCONFIRMED_CANCEL_MESSAGE)
 
     async def _retry_delay(self, error: CloudRunError, attempt: int) -> None:
         if error.kind == "rate_limited":

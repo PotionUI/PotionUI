@@ -9,7 +9,7 @@ from src.features.backends.backend_registry import BackendRegistry
 from src.features.cloud.capabilities import CloudCapabilities
 from src.features.cloud.catalog import CloudCatalog
 from src.features.cloud.repository import CloudCatalogRepository
-from src.features.cloud.testing.fake import FakeBehaviour, FakeClock, FakeCloudConfig, FakeCloudProvider
+from src.features.cloud.testing.fake import FakeBehaviour, FakeClock, FakeCloudConfig, FakeCloudProvider, FakeNoCancelProvider
 from src.features.generation.engine import GenerationEngine
 from src.features.generation.orchestrator import GenerationOrchestrator
 from src.features.generation.output_processor import OutputProcessor
@@ -57,6 +57,10 @@ FORM_YML = textwrap.dedent(
         type: "string"
         label: "Aspect ratio"
         default: "1:1"
+      - name: "seed"
+        type: "number"
+        label: "Seed"
+        default: -1
     """
 )
 
@@ -141,7 +145,9 @@ class CloudGeneration:
         emit_model: bool = False,
         scaffold_modes: Optional[List[str]] = None,
         provider_model: str = IMAGE,
+        supports_cancel: bool = True,
     ) -> None:
+        self.supports_cancel = supports_cancel
         self.scaffold_modes = scaffold_modes
         self.provider_model = provider_model
         self.max_parallel = max_parallel
@@ -188,7 +194,7 @@ class CloudGeneration:
     async def start(self) -> "CloudGeneration":
         self.registry = BackendRegistry(
             generation_engine_factory=self.engine,
-            plugin_registry=ScriptedPluginRegistry(FakeCloudProvider),
+            plugin_registry=ScriptedPluginRegistry(FakeCloudProvider if self.supports_cancel else FakeNoCancelProvider),
         )
         await self.registry.add_backend(FakeCloudConfig(id=BACKEND_ID, name="Fake cloud", api_key=SECRET, timeout_seconds=self.timeout_seconds, max_parallel=self.max_parallel))
         self.backend = self.registry.get_backend(BACKEND_ID)

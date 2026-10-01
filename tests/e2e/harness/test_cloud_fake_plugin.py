@@ -177,12 +177,28 @@ async def test_a_configured_failure_kind_fails_every_submit():
     assert raised.value.kind == "credits"
 
 
+async def test_the_cancel_knob_decides_whether_the_provider_accepts_a_cancel():
+    from src.features.cloud.contracts import CloudJob
+    from src.features.cloud.http import CloudHttp
+
+    module = load_provider_module()
+    job = CloudJob(job_id="j-1")
+
+    def provider(**knobs):
+        return module.E2eFakeProvider(module.E2eFakeConfig(id="b", name="B", **knobs), CloudHttp("https://fake.invalid"))
+
+    assert await provider().cancel(job) is True
+    assert await provider(supports_cancel=False).cancel(job) is False
+    assert provider(supports_cancel=False).supports_cancel is False
+    assert provider().supports_cancel is True
+
+
 def test_the_config_exposes_its_delay_knobs_to_the_admin_form():
     module = load_provider_module()
 
     names = {field["name"]: field for field in module.E2eFakeConfig.engine_fields()}
 
-    assert {"mode", "queue_seconds", "duration_seconds", "poll_seconds", "fail_kind", "cost_usd", "api_key"} <= set(names)
+    assert {"mode", "queue_seconds", "duration_seconds", "poll_seconds", "fail_kind", "cost_usd", "supports_cancel", "api_key"} <= set(names)
     assert names["mode"]["options"] == ["sync", "async"]
     assert names["api_key"]["secret"] is True
     assert set(cloud_fake.DEFAULT_KNOBS) <= set(names)

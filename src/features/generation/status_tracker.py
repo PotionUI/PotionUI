@@ -57,6 +57,7 @@ class GenerationRecord:
     message: Optional[str] = None
     error: Optional[str] = None
     error_code: Optional[str] = None
+    cancel_notice: Optional[str] = None
     created_at: float = field(default_factory=time.time)
     # Set when the queue dispatches the generation. `created_at` is enqueue
     # time, so only `started_at` measures execution rather than queue wait.
@@ -80,6 +81,7 @@ class GenerationRecord:
             'current_step_num': self.current_step_num,
             'message': self.message,
             'error_code': self.error_code,
+            'cancel_notice': self.cancel_notice,
             'error_id': self.id if self.state == GenerationState.FAILED else None,
             'segment_id': self.segment_id,
             'created_at': str(self.created_at),
@@ -195,6 +197,12 @@ class GenerationStatusTracker:
         included, has returned.
         """
         return await asyncio.to_thread(self.transition, id, state, failure)
+
+    def set_cancel_notice(self, id: str, notice: Optional[str]) -> None:
+        with self._lock:
+            record = self._records.get(id)
+            if record is not None:
+                record.cancel_notice = notice
 
     def get(self, id: str) -> Optional[GenerationRecord]:
         with self._lock:

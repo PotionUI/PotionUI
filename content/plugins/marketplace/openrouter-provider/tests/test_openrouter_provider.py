@@ -148,8 +148,10 @@ async def test_edit_sends_the_reference_pictures_as_data_addresses(provider, ope
     await provider.submit(request)
 
     sent = generate_calls(openrouter)[-1]["body"]["input_references"]
-    assert [item.split(",", 1)[0] for item in sent] == ["data:image/png;base64"] * 2
-    assert [base64.b64decode(item.split(",", 1)[1]) for item in sent] == [PNG, PNG + b"x"]
+    assert [item["type"] for item in sent] == ["image_url"] * 2
+    urls = [item["image_url"]["url"] for item in sent]
+    assert [url.split(",", 1)[0] for url in urls] == ["data:image/png;base64"] * 2
+    assert [base64.b64decode(url.split(",", 1)[1]) for url in urls] == [PNG, PNG + b"x"]
 
 
 async def test_the_allowed_upstream_providers_limit_routing(openrouter):

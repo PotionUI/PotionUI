@@ -225,7 +225,9 @@ async def test_image_to_video_sends_the_first_and_last_frame_and_the_references(
     body = video_calls(openrouter)[-1]["body"]
     assert [frame["frame_type"] for frame in body["frame_images"]] == ["first_frame", "last_frame"]
     assert all(frame["image_url"]["url"].startswith("data:image/png;base64,") for frame in body["frame_images"])
-    assert len(body["input_references"]) == 1 and body["input_references"][0].startswith("data:image/png;base64,")
+    assert len(body["input_references"]) == 1
+    assert body["input_references"][0]["type"] == "image_url"
+    assert body["input_references"][0]["image_url"]["url"].startswith("data:image/png;base64,")
 
 
 async def test_a_text_to_video_request_sends_no_frames(provider, openrouter):

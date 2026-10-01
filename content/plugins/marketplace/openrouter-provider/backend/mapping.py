@@ -281,7 +281,7 @@ def build_body(request: Any, provider_only: List[str], user_hash: Optional[str])
             body[CANONICAL_WIRE[name]] = value
     references = request.inputs.get("reference") or []
     if references:
-        body["input_references"] = [data_url(media.path, media.media_type) for media in references]
+        body["input_references"] = [{"type": "image_url", "image_url": {"url": data_url(media.path, media.media_type)}} for media in references]
     if provider_only:
         body["provider"] = {"only": provider_only}
     if user_hash:

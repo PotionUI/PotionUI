@@ -220,7 +220,7 @@ does not map is skipped instead of failing the refresh.
   "second" is priced per second, the others as named extras. `seed` is sent unless `supported_parameters` exists without it.
 - `POST /videos` answers 202 with `{id, polling_url, status}`. The body carries `duration`, `resolution`, `aspect_ratio`,
   `size`, `generate_audio`, `seed`, `frame_images` (objects with `type: image_url`, `image_url.url` as a data address and
-  `frame_type`), `input_references` (data addresses) and the same `provider` and `user` fields as images.
+  `frame_type`), `input_references` (objects with `type: image_url` and `image_url.url` as a data address) and the same `provider` and `user` fields as images.
 - A polling address is used only when it is on the API host; otherwise `/videos/{id}` is polled. Polling starts after
   5 seconds and then every 30 seconds.
 - A poll answers `{status, progress?, queue_position?, error?, unsigned_urls?, usage?}`. `pending` is queued;

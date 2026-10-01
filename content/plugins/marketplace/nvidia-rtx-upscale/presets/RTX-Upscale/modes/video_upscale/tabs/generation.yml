@@ -1,6 +1,7 @@
 fields:
   - name: "intent"
     type: "select"
+    formula: "restoration"
     label: "Intent"
     default: "upscale"
     ai_hint: "What the RTX effect does to each frame. Upscale and Upscale (compressed source) both increase resolution by Scale (Advanced tab); Denoise and Deblur enhance at the SAME resolution and ignore Scale entirely."
@@ -13,6 +14,7 @@ fields:
 
   - name: "quality"
     type: "select"
+    formula: "restoration"
     label: "Quality"
     default: "ultra"
     configuration:

@@ -1,6 +1,7 @@
 fields:
   - name: "scale"
     type: "slider"
+    formula: "size"
     label: "Scale"
     audience: "advanced"
     default: 2.0

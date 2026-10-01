@@ -33,6 +33,11 @@ llm:
     and (for the two upscale intents) scale from the form summary below;
     never suggest prompt text.
 
+formulas:
+  groups:
+    restoration: { label: "Restoration" }
+    size:        { label: "Size" }
+
 modes:
   - upscale
   - video_upscale

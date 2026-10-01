@@ -316,16 +316,24 @@ def test_a_plugin_contributed_mode_is_checked_against_the_target_catalog(tmp_pat
 
 
 def test_every_shipped_preset_declares_formula_groups_that_lint_clean():
-    comfyui = REPO_ROOT / "content" / "plugins" / "marketplace" / "comfyui-backend" / "presets"
-    preset_files = sorted(MARKETPLACE.rglob("preset.yml")) + sorted(comfyui.rglob("preset.yml"))
+    plugins = REPO_ROOT / "content" / "plugins" / "marketplace"
+    preset_files = sorted(MARKETPLACE.rglob("preset.yml")) + [
+        path
+        for plugin in ("comfyui-backend", "nvidia-rtx-upscale")
+        for path in sorted((plugins / plugin / "presets").rglob("preset.yml"))
+    ]
     linter = PresetLinter([])
     issues = []
+    undeclared = []
     for preset_file in preset_files:
         manifest, errors = validate_manifest(yaml.safe_load(preset_file.read_text(encoding="utf-8")))
         assert errors == [], preset_file
+        if manifest.formulas is None or not manifest.formulas.groups:
+            undeclared.append(str(preset_file))
         issues.extend(linter._lint_formulas(preset_file, manifest))
 
-    assert len(preset_files) >= 27
+    assert len(preset_files) >= 28
+    assert undeclared == []
 
     assert [str(i) for i in issues if "formula" in i.message and i.level != "info"] == []
     assert [str(i) for i in issues if "declares no formulas.groups" in i.message] == []

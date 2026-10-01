@@ -22,6 +22,7 @@
  */
 
 import type { EditedMediaItem } from '$lib/services/api/media';
+import type { DrawConfig } from '$lib/components/imageEditor/drawConfig';
 
 /**
  * Every editor there is.
@@ -39,7 +40,8 @@ export const MEDIA_EDITOR_KINDS = [
 	/** Paint an inpainting mask. */
 	'mask',
 	/** Cut audio into consecutive parts of a given length. */
-	'split'
+	'split',
+	'paint'
 ] as const;
 
 export type MediaEditorKind = (typeof MEDIA_EDITOR_KINDS)[number];
@@ -71,6 +73,7 @@ export interface MediaEditorSource {
 export interface MediaEditorRequest {
 	kind: MediaEditorKind;
 	source: MediaEditorSource;
+	draw?: DrawConfig;
 	/**
 	 * Position in the host's value, or null when there is only one item. An
 	 * editor result must be written back to the item it came from — a multi
@@ -91,7 +94,7 @@ export interface MediaEditorRequest {
  * `${name}_inpaint_mask` sibling channel, which is not a value at all.
  */
 export type MediaEditorResult =
-	| { type: 'item'; item: EditedMediaItem; replaced: boolean }
+	| { type: 'item'; item: EditedMediaItem; replaced: boolean; keepMask?: boolean }
 	| { type: 'items'; items: EditedMediaItem[] }
 	| { type: 'mask'; maskPath: string };
 
@@ -112,14 +115,15 @@ export type EditorCommitRequest =
 	/** Cut into consecutive parts of `partSeconds` each - never a replace. */
 	| { via: 'split'; partSeconds: number }
 	/** The painted mask as a PNG data URL; the host stores it and returns a path. */
-	| { via: 'mask'; dataUrl: string };
+	| { via: 'mask'; dataUrl: string }
+	| { via: 'paint'; file: File; geometryChanged: boolean; sourceReplaced: boolean };
 
 export type EditorCommitFn = (request: EditorCommitRequest) => void | Promise<void>;
 
 /** True when this kind of item has an editor to open at all. */
 export function hasEditor(kind: MediaEditorKind, mediaKind: EditorMediaKind | null): boolean {
 	if (!mediaKind) return false;
-	if (kind === 'crop' || kind === 'mask') return mediaKind === 'image';
+	if (kind === 'crop' || kind === 'mask' || kind === 'paint') return mediaKind === 'image';
 	if (kind === 'frame') return mediaKind === 'video';
 	if (kind === 'split') return mediaKind === 'audio';
 	return mediaKind === 'video' || mediaKind === 'audio';
@@ -138,7 +142,8 @@ export const RESOURCE_EDIT_TOOLS: { key: MediaEditorKind; label: string; icon: s
 	{ key: 'crop', label: 'Crop', icon: 'pencil-square' },
 	{ key: 'trim', label: 'Trim', icon: 'sliders' },
 	{ key: 'split', label: 'Split', icon: 'split' },
-	{ key: 'frame', label: 'Frame', icon: 'photo' }
+	{ key: 'frame', label: 'Frame', icon: 'photo' },
+	{ key: 'paint', label: 'Edit', icon: 'paint-brush' }
 ];
 
 /** Title bar copy, and the label the button carries. */
@@ -152,6 +157,8 @@ export function editorTitle(kind: MediaEditorKind, mediaKind: EditorMediaKind | 
 			return 'Create inpainting mask';
 		case 'split':
 			return 'Split into parts';
+		case 'paint':
+			return 'Edit image';
 		case 'trim':
 			return mediaKind === 'audio' ? 'Trim on waveform' : 'Trim in / out';
 	}
@@ -163,5 +170,5 @@ export function editorTitle(kind: MediaEditorKind, mediaKind: EditorMediaKind | 
  * nothing about the resource and needs no row.
  */
 export function editsTheResource(kind: MediaEditorKind): boolean {
-	return kind !== 'mask';
+	return kind !== 'mask' && kind !== 'paint';
 }

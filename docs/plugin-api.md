@@ -1040,7 +1040,7 @@ history_tools:
     icon: "grid"                          # optional, an Icon name; default "extension"
     category: "compose"                   # core: analyze | compose | export; any other string = a plugin-owned group
     component: "ContactSheetModal.svelte" # your plugin frontend asset, same build as any other
-    scopes: ["history"]                   # optional; history | library; default ["history"] (every tool declared before scopes existed)
+    scopes: ["history"]                   # optional; history | library | field (a media field's Tools menu, one selected item); default ["history"] (every tool declared before scopes existed)
     applies_to:                           # optional; every key optional
       min_selection: 2                    # selected generations (history) or items (library)
       max_selection: 12
@@ -1451,6 +1451,66 @@ yourself, and you should never call anything on `gen` beyond this surface — ev
 (device placement, VRAM streaming, quantization, ...) is exactly the kind of internal that
 `src.plugin_api` exists to keep you out of. If your pipe genuinely needs another `NativeGenerator`
 operation, that is a gap in this surface — ask for it, the same as any other plugin_api gap.
+
+## Extending the image editor
+
+The media loader's image editor (**Edit** on a loaded image, **Draw a new image** on an empty
+field, **Edit** on History and Library items) is built on registries a plugin frontend can
+extend through `window.__potionui.imageEditor`. Every `register*` call returns an unregister
+function. Registrations are global and survive editor sessions, so register once when your
+plugin's frontend loads.
+
+```js
+const editor = window.__potionui.imageEditor;
+
+const offTool = editor.registerTool({
+  id: 'line',
+  label: 'Line',
+  icon: 'M5 19L19 5',
+  key: 'N',
+  group: 'shapes',
+  options: ['size', 'color'],
+  hint: 'Drag to draw a straight line.',
+  cursor: 'crosshair',
+  pointerDown(host, point) { start = point; },
+  pointerUp(host, point) {
+    const layer = host.activeLayer;
+    const before = host.snapshotLayer(layer);
+    const context = layer.canvas.getContext('2d');
+    context.strokeStyle = host.settings.color;
+    context.lineWidth = host.settings.size;
+    context.beginPath();
+    context.moveTo(start.x - layer.x, start.y - layer.y);
+    context.lineTo(point.x - layer.x, point.y - layer.y);
+    context.stroke();
+    host.commitPixels('Line', layer, { x: 0, y: 0, width: layer.canvas.width, height: layer.canvas.height }, before);
+  }
+});
+```
+
+- **Tools** (`registerTool`): a `PaintTool` with `id`, `label`, `icon` (an SVG path `d` for a
+  24x24 viewBox), optional `key` shortcut, `group` (tools in the same group sit together),
+  `options` (any of `size`, `opacity`, `color`, `tolerance`) and pointer handlers
+  `pointerDown`, `pointerMove`, `pointerUp`, `pointerCancel` receiving the `host` and a
+  document-space point. `overlay(host, context)` draws guides above the canvas. Edit pixels
+  on `host.activeLayer`, then call `host.commitPixels(label, layer, dirtyRect, before)` with a
+  copy from `host.snapshotLayer(layer)` taken first; that single call is what makes the edit
+  undoable. Pointer handlers run only for the primary button.
+- **Filters** (`registerFilter`): a `PaintFilter` with `id`, `label`, numeric `params`
+  (`{id, label, min, max, value}`) or `toggle: true`, `active(values)` and
+  `apply(image, values)` returning the new `{width, height, data}` RGBA buffer (it may be a
+  promise). Filters appear in the Adjust panel, preview live, and honour the selection
+  automatically: the editor blends the result back through the selection mask, so a filter
+  never needs to know about it.
+- **Image sources** (`registerImageSource`): `{id, label, pick()}`; `pick()` resolves
+  `{url | blob | canvas, name}` or `null`. The source is listed in the Open and Add image menus.
+- **Actions** (`registerAction`): `{id, label, run(editor)}` shown in the Canvas panel; `editor`
+  offers `flatten()`, `addImage(canvas, name)` and `openImage(canvas, name)`.
+- `addImage(canvas, name)` / `openImage(canvas, name)` / `isOpen()` act on the editor that is
+  currently open and return `false` when none is.
+
+The editor saves a flattened PNG as a new Library upload through the normal upload API, so a
+plugin never writes files itself.
 
 ## Overlays and z-index layering
 

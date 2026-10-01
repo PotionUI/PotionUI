@@ -114,7 +114,7 @@
 	}
 </script>
 
-<BaseModal isOpen={true} size="xl" title={displayName} on:close={onClose}>
+<BaseModal isOpen={true} size="xl" title={displayName} closeable={editorRequest === null} on:close={onClose}>
 	<div class="p-4 md:p-6 flex flex-col gap-4">
 		<div class="rounded-lg border border-line-strong bg-black overflow-hidden flex items-center justify-center min-h-[16rem] max-h-[60vh]">
 			{#if kind === 'video'}

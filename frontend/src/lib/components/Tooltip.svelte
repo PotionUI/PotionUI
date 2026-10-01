@@ -15,6 +15,7 @@
 	// Optional formatted keyboard shortcut (e.g. "Ctrl+K"), rendered as a small
 	// mono chip next to the tooltip text. Omit when the action has no binding.
 	export let kbd: string | undefined = undefined;
+	export let kbdSize: 'sm' | 'md' = 'sm';
 	// Classes for the trigger wrappers. Defaults to inline layout (forms); the
 	// sidebar passes a flex/centering class so vertically-stacked icon buttons
 	// keep their layout instead of collapsing to inline boxes.
@@ -123,7 +124,7 @@
 	>
 		<span>{text}</span>
 		{#if kbd}
-			<Kbd keys={kbd} />
+			<Kbd keys={kbd} size={kbdSize} />
 		{/if}
 		<!-- Arrow -->
 		<div

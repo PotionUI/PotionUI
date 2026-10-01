@@ -26,6 +26,7 @@ import { provideContext, declareMode, onToolApplied } from '$lib/chat/pageContex
 import overlayLayer from '$lib/actions/overlayLayer';
 import { acquireLayer, releaseLayer } from '$lib/actions/layerStack';
 import { prepareRequestFromSession } from '$lib/generation/prepareRequest';
+import { createImageEditorApi, type PluginImageEditorApi } from '$lib/components/imageEditor/registries';
 
 export type RendererKind = 'history.artifact' | 'workbench.file' | 'model.view' | 'chat.tool';
 
@@ -109,6 +110,7 @@ export interface PotionUIHostApi {
 	chat: PluginChatApi;
 	layers: PluginLayersApi;
 	generation: { prepareRequest: typeof prepareRequestFromSession };
+	imageEditor: PluginImageEditorApi;
 }
 
 const TOAST_LEVELS: readonly ToastType[] = ['success', 'error', 'info', 'warning'];
@@ -183,7 +185,8 @@ export function initHostApi(): void {
 		},
 		generation: {
 			prepareRequest: prepareRequestFromSession
-		}
+		},
+		imageEditor: createImageEditorApi()
 	};
 
 	w.__potionui = host;

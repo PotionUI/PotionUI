@@ -28,6 +28,9 @@
 	import { Badge, Spinner, CopyButton, IconButton } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import PublishToInspirationsModal from './PublishToInspirationsModal.svelte';
+	import MediaEditors from '$lib/media/editors/MediaEditors.svelte';
+	import type { MediaEditorRequest } from '$lib/media/editors/types';
+	import { PAINT_ICONS } from '$lib/components/imageEditor/icons';
 	import GenerationArtifacts from '$lib/components/generation/artifacts/GenerationArtifacts.svelte';
 	import { filesWithPreview, mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
 	import { showAlphaCheckerboard } from '$lib/utils/imageAlpha';
@@ -495,6 +498,29 @@
 
 	let showPublishModal = false;
 
+	let editorRequest: MediaEditorRequest | null = null;
+	$: canEditImage = !!currentFile && currentFile.file_type?.toLowerCase?.() === 'image';
+
+	function openImageEditor() {
+		if (!currentFile) return;
+		editorRequest = {
+			kind: 'paint',
+			source: {
+				url: getImageUrl(currentFile),
+				kind: 'image',
+				fileName: currentFile.file_path.split('/').pop() || 'image.png',
+				width: currentFile.width ?? null,
+				height: currentFile.height ?? null
+			},
+			itemIndex: null
+		};
+	}
+
+	async function handleEditorResult() {
+		await libraryStore.showNewRows();
+		toasts.success('Saved to your library as a new image');
+	}
+
 	let exportingBundle = false;
 
 	async function handleExportBundle() {
@@ -556,6 +582,7 @@
 	{isOpen}
 	title="Generation Details"
 	sizeClass="md:w-[85vw] md:h-[85vh]"
+	closeable={editorRequest === null}
 	on:close={handleClose}
 >
 	<svelte:fragment slot="headerIcon">
@@ -728,6 +755,20 @@
 							>
 								<Icon name="photo" className="h-6 w-6" />
 							</button>
+						{/if}
+
+						{#if canEditImage}
+							<Tooltip text="Edit this image" position="left">
+								<button
+									on:click={openImageEditor}
+									class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
+									aria-label="Edit this image"
+								>
+									<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d={PAINT_ICONS.brush} />
+									</svg>
+								</button>
+							</Tooltip>
 						{/if}
 
 						<!-- Open in new tab button -->
@@ -1215,6 +1256,12 @@
 	{/if}
 </BaseModal>
 </div>
+
+<MediaEditors
+	request={editorRequest}
+	onClose={() => (editorRequest = null)}
+	onResult={handleEditorResult}
+/>
 
 {#if showPublishModal && activeGeneration}
 	<PublishToInspirationsModal

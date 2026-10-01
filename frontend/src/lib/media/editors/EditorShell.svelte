@@ -9,6 +9,7 @@
 	 * already have rather than growing a fourth implementation of them.
 	 */
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { EDITOR_ICONS, type EditorIconName } from './editorIcons';
 
 	export let title: string;
@@ -35,9 +36,11 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="header">
-		<span class="hidden sm:block min-w-0 truncate font-mono text-2xs tracking-[0.05em] text-fg-subtle" title={fileName}>
-			{fileName}
-		</span>
+		<Tooltip text={fileName} position="bottom" wrapperClass="hidden sm:block min-w-0">
+			<span class="block min-w-0 max-w-[16rem] truncate font-mono text-xs tracking-[0.05em] text-fg-subtle">
+				{fileName}
+			</span>
+		</Tooltip>
 	</svelte:fragment>
 
 	<slot />

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { maskSubjectKey, shouldClearMask } from './mediaLoaderMask';
+import { maskSubjectKey, resolveMaskBinding, shouldClearMask } from './mediaLoaderMask';
 
 const uploaded = {
 	path: '/abs/uploads/cat.png',
@@ -76,5 +76,43 @@ describe('shouldClearMask', () => {
 	it('clears when a same-named file is re-uploaded to a different path', () => {
 		const subject = maskSubjectKey(uploaded);
 		expect(shouldClearMask(subject, { ...uploaded, relative_path: 'uploads/cat_1.png' })).toBe(true);
+	});
+});
+
+describe('resolveMaskBinding', () => {
+	const edited = { relative_path: 'uploads/cat-edit.png' };
+
+	it('clears a mask when the value is a different image and nothing is being adopted', () => {
+		expect(resolveMaskBinding('uploads/cat.png', null, edited)).toEqual({
+			subject: 'uploads/cat.png',
+			adopt: null,
+			clear: true
+		});
+	});
+
+	it('leaves the mask alone while an adopted image has not arrived yet', () => {
+		expect(resolveMaskBinding('uploads/cat.png', 'uploads/cat-edit.png', uploaded)).toEqual({
+			subject: 'uploads/cat.png',
+			adopt: 'uploads/cat-edit.png',
+			clear: false
+		});
+	});
+
+	it('rebinds the mask to the adopted image once it becomes the value', () => {
+		expect(resolveMaskBinding('uploads/cat.png', 'uploads/cat-edit.png', edited)).toEqual({
+			subject: 'uploads/cat-edit.png',
+			adopt: null,
+			clear: false
+		});
+	});
+
+	it('clears the mask when some other image replaces the value mid-adoption', () => {
+		expect(
+			resolveMaskBinding('uploads/cat.png', 'uploads/cat-edit.png', { relative_path: 'uploads/dog.png' })
+		).toEqual({ subject: 'uploads/cat.png', adopt: null, clear: true });
+	});
+
+	it('does nothing when no mask is held', () => {
+		expect(resolveMaskBinding(null, null, edited)).toEqual({ subject: null, adopt: null, clear: false });
 	});
 });

@@ -31,6 +31,8 @@
 	import FrameEditor from './FrameEditor.svelte';
 	import MaskEditor from './MaskEditor.svelte';
 	import SplitEditor from './SplitEditor.svelte';
+	import PaintEditor from '$lib/components/imageEditor/PaintEditor.svelte';
+	import { decideMaskFate } from '$lib/components/imageEditor/maskPolicy';
 	import { resolveEditableResource, type ResourceOrigin } from './editorSource';
 	import { describeEditFailure } from './editErrors';
 	import { dataUrlToFile } from './maskFile';
@@ -166,6 +168,40 @@
 			return { type: 'mask', maskPath: stored.data.path };
 		}
 
+		if (commitRequest.via === 'paint') {
+			const stored = await api.uploadMedia(commitRequest.file, 'user_upload');
+			if (!stored.success || !stored.data) {
+				throw new Error(stored.message || 'The image could not be saved');
+			}
+			const upload = stored.data;
+			const resolved = await resolveEditableResource(
+				null,
+				upload.relative_path || `uploads/${upload.filename}`,
+				'image'
+			);
+			const fate = decideMaskFate({
+				hasMask: existingMaskUrl !== null,
+				geometryChanged: commitRequest.geometryChanged,
+				sourceReplaced: commitRequest.sourceReplaced
+			}).fate;
+			return {
+				type: 'item',
+				item: {
+					id: resolved.itemId ?? upload.filename,
+					filename: upload.filename,
+					original_filename: commitRequest.file.name,
+					media_type: 'image',
+					mime_type: 'image/png',
+					url: upload.url,
+					width: upload.width,
+					height: upload.height,
+					size: upload.size
+				},
+				replaced: false,
+				keepMask: fate === 'keep'
+			};
+		}
+
 		if (!resolvedItemId) throw new Error(resourceReason || 'There is nothing to edit yet');
 
 		if (commitRequest.via === 'split') {
@@ -231,6 +267,16 @@
 			failureMessage={failure}
 			startTime={frameHandoff?.time ?? 0}
 			onClose={closeFrameEditor}
+			{commit}
+		/>
+	{:else if kind === 'paint'}
+		<PaintEditor
+			source={request.source}
+			draw={request.draw ?? null}
+			hasMask={existingMaskUrl !== null}
+			{busy}
+			failureMessage={failure}
+			{onClose}
 			{commit}
 		/>
 	{:else}

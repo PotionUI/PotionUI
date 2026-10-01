@@ -11,6 +11,7 @@
  * ends up rendering an empty `<path>`.
  */
 
+import { PAINT_ICONS } from '$lib/components/imageEditor/icons';
 import type { MediaToolKey } from './mediaLoaderFaces';
 import type { MetaChipIcon } from './mediaLoaderMeta';
 
@@ -37,6 +38,7 @@ const TRASH =
 export const EDITOR_ICON_PATHS = { crop: CROP, trim: SCISSORS } as const;
 
 export const TOOL_ICON_PATHS: Record<MediaToolKey, string> = {
+	edit: PAINT_ICONS.brush,
 	crop: CROP,
 	mask: BRUSH,
 	trim: SCISSORS,

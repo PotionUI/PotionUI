@@ -23,6 +23,7 @@
 	import EditorSaveControls from './EditorSaveControls.svelte';
 	import { EDITOR_ICONS } from './editorIcons';
 	import { loadImage } from './loadImage';
+	import { canvasPoint, drawSegment } from '$lib/components/imageEditor/raster/brush';
 	import type { EditorCommitFn, MediaEditorSource } from './types';
 
 	export let source: MediaEditorSource;
@@ -105,30 +106,18 @@
 		}
 	}
 
-	/** Pointer position in the canvas's own pixels, which is where strokes live. */
 	function pointAt(event: PointerEvent): { x: number; y: number } | null {
 		if (!canvasElement) return null;
-		const box = canvasElement.getBoundingClientRect();
-		if (box.width <= 0 || box.height <= 0) return null;
-		return {
-			x: ((event.clientX - box.left) / box.width) * canvasElement.width,
-			y: ((event.clientY - box.top) / box.height) * canvasElement.height
-		};
+		return canvasPoint(canvasElement.getBoundingClientRect(), canvasElement, event.clientX, event.clientY);
 	}
 
 	function strokeTo(point: { x: number; y: number }) {
 		if (!context) return;
-		context.globalCompositeOperation = erasing ? 'destination-out' : 'source-over';
-		context.strokeStyle = 'rgb(255, 255, 255)';
-		context.fillStyle = 'rgb(255, 255, 255)';
-		context.lineWidth = brushSize;
-
-		const from = lastPoint ?? point;
-		context.beginPath();
-		context.moveTo(from.x, from.y);
-		context.lineTo(point.x, point.y);
-		context.stroke();
-
+		drawSegment(context, lastPoint ?? point, point, {
+			size: brushSize,
+			color: 'rgb(255, 255, 255)',
+			erase: erasing
+		});
 		lastPoint = point;
 		if (!erasing) hasStrokes = true;
 	}

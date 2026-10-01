@@ -40,3 +40,23 @@ export function shouldClearMask(maskSubject: string | null, value: unknown): boo
 	if (maskSubject === null) return false;
 	return maskSubjectKey(value) !== maskSubject;
 }
+
+export interface MaskBinding {
+	subject: string | null;
+	adopt: string | null;
+	clear: boolean;
+}
+
+export function resolveMaskBinding(
+	subject: string | null,
+	adopt: string | null,
+	value: unknown
+): MaskBinding {
+	const key = maskSubjectKey(value);
+	if (adopt !== null) {
+		if (key === adopt) return { subject: adopt, adopt: null, clear: false };
+		if (key !== subject) return { subject, adopt: null, clear: true };
+		return { subject, adopt, clear: false };
+	}
+	return { subject, adopt: null, clear: shouldClearMask(subject, value) };
+}

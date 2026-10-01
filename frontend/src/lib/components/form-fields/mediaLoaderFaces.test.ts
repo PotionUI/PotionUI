@@ -51,8 +51,14 @@ describe('selectFace', () => {
 describe('toolbarTools', () => {
 	const options = { allowInpaint: false, compact: false, canEmitMask: true };
 
-	it('offers crop, full, swap and remove on an image', () => {
-		expect(toolbarTools('image', options).map((t) => t.key)).toEqual(['crop', 'full', 'swap', 'remove']);
+	it('offers edit, crop, full, swap and remove on an image', () => {
+		expect(toolbarTools('image', options).map((t) => t.key)).toEqual([
+			'edit',
+			'crop',
+			'full',
+			'swap',
+			'remove'
+		]);
 	});
 
 	it('offers the mask tool only when the field allows inpainting', () => {

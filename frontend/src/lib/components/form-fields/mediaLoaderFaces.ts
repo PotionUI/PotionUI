@@ -41,7 +41,7 @@ export function selectFace(state: FaceState): MediaLoaderFace {
 	return state.compact ? 'empty-compact' : 'empty-full';
 }
 
-export type MediaToolKey = 'crop' | 'mask' | 'trim' | 'frame' | 'full' | 'swap' | 'remove';
+export type MediaToolKey = 'edit' | 'crop' | 'mask' | 'trim' | 'frame' | 'full' | 'swap' | 'remove';
 
 export interface MediaTool {
 	key: MediaToolKey;
@@ -91,6 +91,7 @@ export function toolbarTools(kind: MediaKind, options: ToolbarOptions): MediaToo
 	const tools: MediaTool[] = [];
 
 	if (kind === 'image') {
+		tools.push(tool('edit', 'Edit', 'Edit image', { showLabels }));
 		tools.push(tool('crop', 'Crop', 'Crop & frame', { showLabels }));
 		if (options.allowInpaint && options.canEmitMask) {
 			tools.push(tool('mask', 'Mask', 'Create inpainting mask', { showLabels }));

@@ -18,7 +18,10 @@
 	} from '$lib/media/editors';
 	import Waveform from '$lib/components/Waveform.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { maskSubjectKey, shouldClearMask } from './mediaLoaderMask';
+	import { maskSubjectKey, resolveMaskBinding } from './mediaLoaderMask';
+	import NewDrawingModal from '$lib/components/imageEditor/NewDrawingModal.svelte';
+	import { readDrawConfig, type DrawConfig } from '$lib/components/imageEditor/drawConfig';
+	import { PAINT_ICONS } from '$lib/components/imageEditor/icons';
 	import { buildUploadedMediaItem, pastedImageFileName, type UploadedMediaItem } from './mediaLoaderUpload';
 	import { describeDropTarget, describeFormats, readMediaLoaderConfig, type MediaKind } from './mediaLoaderConfig';
 	import { locateMediaPath, mediaPathPreviewUrl } from './mediaLoaderPreview';
@@ -252,10 +255,13 @@
 		}
 	}
 
-	// Catches every way the image can change, including a parent swapping the
-	// value in from outside (session restore, a chat tool, the video director).
-	$: if (shouldClearMask(maskSubject, value)) {
-		clearMask();
+	let maskAdopt: string | null = null;
+
+	$: {
+		const binding = resolveMaskBinding(maskSubject, maskAdopt, value);
+		maskAdopt = binding.adopt;
+		if (binding.subject !== maskSubject) maskSubject = binding.subject;
+		if (binding.clear) clearMask();
 	}
 
 	// The open media editor, or null. Its `itemIndex` is the multi-item slot the
@@ -628,6 +634,22 @@
 				})
 			: [];
 
+	let showDrawModal = false;
+	$: drawDefaults = readDrawConfig(config);
+	$: canDraw = !multiple && limits.kinds.includes('image') && !compact;
+
+	function startDrawing(draw: DrawConfig) {
+		showDrawModal = false;
+		const request: MediaEditorRequest = {
+			kind: 'paint',
+			source: { url: '', kind: 'image', fileName: 'Untitled drawing' },
+			itemIndex: null,
+			draw
+		};
+		if (onOpenEditor) onOpenEditor(request);
+		else editorRequest = request;
+	}
+
 	function openEditor(kind: MediaEditorKind, item: unknown, index: number | null) {
 		const mediaKind = kindOfMediaItem(item);
 		if (!mediaKind || !hasEditor(kind, mediaKind)) return;
@@ -673,11 +695,15 @@
 			applySplitItems(result.items, request.itemIndex);
 			return;
 		}
-		applyEditedItem(buildEditedMediaItem(result.item), request.itemIndex);
+		applyEditedItem(buildEditedMediaItem(result.item), request.itemIndex, result.keepMask === true);
 	}
 
 	/** An edit the server performed, written back to the slot it came from. */
-	function applyEditedItem(mediaItem: ReturnType<typeof buildEditedMediaItem>, target: number | null) {
+	function applyEditedItem(
+		mediaItem: ReturnType<typeof buildEditedMediaItem>,
+		target: number | null,
+		keepMask: boolean = false
+	) {
 		if (!name) return;
 
 		if (multiple) {
@@ -691,7 +717,8 @@
 		mediaMetadata = mediaItem.metadata;
 		onChange(name, mediaItem);
 		clearOriginKey();
-		clearMask();
+		if (keepMask && existingMaskUrl !== null) maskAdopt = maskSubjectKey(mediaItem);
+		else clearMask();
 	}
 
 	/**
@@ -729,6 +756,9 @@
 
 	function runTool(tool: MediaToolKey) {
 		switch (tool) {
+			case 'edit':
+				openEditor('paint', value, null);
+				break;
 			case 'crop':
 				openEditor('crop', value, null);
 				break;
@@ -1739,6 +1769,19 @@
 						<Icon name="grid" className="w-3.5 h-3.5" />
 						{#if !compact || fill}<span>Library</span>{/if}
 					</button>
+					{#if canDraw}
+						<button
+							type="button"
+							class="col-span-2 h-7 px-2 justify-center gap-1.5 inline-flex items-center border border-line-strong bg-surface-2 rounded text-xs text-fg-muted hover:bg-surface-3 hover:text-fg hover:border-line-hover transition-colors"
+							on:click|stopPropagation={() => (showDrawModal = true)}
+							aria-label="Draw a new image"
+						>
+							<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d={PAINT_ICONS.brush} />
+							</svg>
+							<span>Draw a new image</span>
+						</button>
+					{/if}
 				</div>
 			</div>
 		</div>
@@ -1767,6 +1810,15 @@
 		: historyPickerKind === 'video'
 			? 'Video'
 			: 'Media'} from Generation History"
+/>
+
+<NewDrawingModal
+	isOpen={showDrawModal}
+	presetSize={drawDefaults.size}
+	defaultBackground={drawDefaults.background ?? 'white'}
+	defaultPen={drawDefaults.pen}
+	onCreate={startDrawing}
+	onClose={() => (showDrawModal = false)}
 />
 
 <!-- Upload Library Modal -->

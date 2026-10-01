@@ -11,6 +11,12 @@ import {
 const KINDS: readonly MediaEditorKind[] = MEDIA_EDITOR_KINDS;
 
 describe('hasEditor', () => {
+	it('offers the paint editor on images only', () => {
+		expect(hasEditor('paint', 'image')).toBe(true);
+		expect(hasEditor('paint', 'video')).toBe(false);
+		expect(hasEditor('paint', 'audio')).toBe(false);
+	});
+
 	it('offers crop and mask on images only', () => {
 		expect(hasEditor('crop', 'image')).toBe(true);
 		expect(hasEditor('mask', 'image')).toBe(true);
@@ -61,6 +67,7 @@ describe('editorTitle', () => {
 		expect(editorTitle('frame', 'video')).toBe('Extract a frame');
 		expect(editorTitle('mask', 'image')).toBe('Create inpainting mask');
 		expect(editorTitle('split', 'audio')).toBe('Split into parts');
+		expect(editorTitle('paint', 'image')).toBe('Edit image');
 	});
 
 	it('answers for every kind, so a new one cannot render an empty title', () => {
@@ -80,6 +87,10 @@ describe('editsTheResource', () => {
 
 	it('is false for a mask, which is stored beside the media and changes no row', () => {
 		expect(editsTheResource('mask')).toBe(false);
+	});
+
+	it('is false for the paint editor, which saves a new upload and needs no row', () => {
+		expect(editsTheResource('paint')).toBe(false);
 	});
 });
 

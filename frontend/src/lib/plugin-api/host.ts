@@ -12,6 +12,8 @@
  */
 import * as formReactions from '$lib/form/reactions';
 import { getRegistry, type MountableComponentRegistry } from '$lib/plugin-api/componentRegistry';
+import { registerHostUiComponents } from '$lib/plugin-api/hostUi';
+import { confirmDialog } from '$lib/stores/confirm';
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
 import { artifactRendererRegistry } from '$lib/registries/artifactRendererRegistry';
 import { registerFieldComponent } from '$lib/fields/registry';
@@ -85,6 +87,7 @@ export interface PotionUIHostApi {
 	version: 1;
 	/** Core + plugin-registered mountable components (e.g. `GenerationHistoryModal`), by name. */
 	components: MountableComponentRegistry;
+	confirm: typeof confirmDialog;
 	/** The shared `when`/`then` form reaction engine - identical evaluation on core forms and plugin-contributed ones. */
 	formReactions: typeof formReactions;
 	/** Register a plugin-provided form field type component (roadmap A4). */
@@ -119,9 +122,11 @@ function toToastType(level: string): ToastType {
  */
 export function initHostApi(): void {
 	const w = window as unknown as { __potionui?: Partial<PotionUIHostApi> };
+	registerHostUiComponents();
 	const host: PotionUIHostApi = {
 		version: 1,
 		components: getRegistry(),
+		confirm: confirmDialog,
 		formReactions,
 		registerFieldComponent,
 		registerRenderer(kind, key, entry) {

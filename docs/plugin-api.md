@@ -1420,6 +1420,53 @@ itself part of this same layering system: inside a `PluginModal`, or inside an e
 using `layers.overlayLayer` as described above. Mounting it into a plain, unlayered
 `<div>` risks its own picker rendering under whatever else happens to be open.
 
+## Using the app's UI components and Tailwind in a plugin frontend
+
+A plugin frontend is bundled on its own and cannot import `$lib`, but every shared UI
+component of the app is available through the host: `window.__potionui.components.<Name>`
+exposes `mount(el, props)`, `update(instance, props)` and `unmount(instance)`. Components
+load on first use, so `mount` returns immediately and the component appears once its code
+has arrived; `update` calls made in between are merged.
+
+Registered names: every component of `$lib/components/ui/` (`Button`, `IconButton`,
+`CopyButton`, `Card`, `PageHeader`, `PageTitle`, `Badge`, `Kbd`, `Input`, `InputGroup`,
+`Spinner`, `PageContainer`, `EmptyState`, `LoadErrorState`, `SegmentedControl`, `Pagination`,
+`Switch`, `Alert`, `UserPicker`, `AdminOnlyMark`), every component of `$lib/components/detail/`
+(`DetailLayout`, `DetailHeader`, `DetailBody`, `DetailSection`, `DetailFooter`, `DetailTabs`,
+`DetailField`, `KVGrid`, `KVItem`), every component of `$lib/components/library/`
+(`LibraryShell`, `LibraryFilterBar`, `LibraryEntryCard`, `LibraryDensityToggle`,
+`LibraryFilterChipRow`, `FilterPopoverFrame`), plus `Tooltip` and `Icon`. A new component
+dropped into one of those folders is registered automatically. `window.__potionui.confirm({title?,
+message, variant?})` opens the app's confirm dialog and resolves to a boolean, and
+`window.__potionui.notifications.toast(level, message)` shows a toast.
+
+Snippet props cannot cross the bundle boundary, so pass `children` as a string or as
+`(el) => cleanup?` that fills the slot element. Any other snippet prop takes `{ slot: string |
+(el) => cleanup? }`.
+
+In a Svelte plugin component, `content/plugins/sdk/HostUi.svelte` does the mounting,
+updating and cleanup for you, and its markup children are projected into the host component:
+
+```svelte
+<script>
+  import HostUi from '../../../../sdk/HostUi.svelte';
+  let clicks = $state(0);
+</script>
+
+<HostUi name="Button" props={{ variant: 'primary', onclick: () => (clicks += 1) }}>
+  Clicked {clicks} times
+</HostUi>
+<HostUi name="Tooltip" props={{ text: 'Rendered by the host' }}>
+  <span class="text-fg-muted">Hover me</span>
+</HostUi>
+```
+
+Tailwind classes written in a plugin's `frontend/src/**/*.{svelte,js,ts}` (marketplace and
+local) and in `content/plugins/sdk/` are scanned by the app's Tailwind build, so the semantic
+token classes (`bg-surface-2`, `text-fg-muted`, `border-line`, ...) and arbitrary values work
+in plugin markup. Rebuild the app frontend after adding new classes; the plugin's own `dist/`
+carries no Tailwind CSS. Use the token classes only, as in the app.
+
 ## Building your plugin's frontend
 
 Every plugin frontend (a `pages[].component`, a `field_types[].component`, an

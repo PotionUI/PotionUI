@@ -5,7 +5,13 @@
 const t = (v) => `rgb(var(--${v}) / <alpha-value>)`;
 
 export default {
-	content: ['./src/**/*.{html,js,svelte,ts}', './node_modules/layerchart/**/*.{svelte,js}'],
+	content: [
+		'./src/**/*.{html,js,svelte,ts}',
+		'./node_modules/layerchart/**/*.{svelte,js}',
+		'../content/plugins/sdk/**/*.svelte',
+		'../content/plugins/*/*/frontend/src/**/*.{svelte,js,ts}',
+		'!../content/plugins/**/node_modules/**'
+	],
 	theme: {
 		extend: {
 			colors: {

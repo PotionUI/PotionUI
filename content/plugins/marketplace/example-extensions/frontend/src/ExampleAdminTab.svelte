@@ -1,22 +1,20 @@
 <script>
-	/**
-	 * Reference `admin.tabs` extension slot contribution (A5). Mounted by
-	 * `routes/admin/+page.svelte` with no props when the plugin's tab is active.
-	 */
+	import HostUi from '../../../../sdk/HostUi.svelte';
+
+	let clicks = $state(0);
 </script>
 
-<div class="example-admin-tab">
-	<h2>Example Extension</h2>
-	<p>This tab is contributed by the <code>example-extensions</code> plugin via the <code>admin.tabs</code> extension slot.</p>
+<div class="p-6 space-y-4" data-testid="example-host-ui">
+	<h2 class="text-lg font-semibold tracking-[0.37em]" data-testid="example-host-ui-title">Example Extension</h2>
+	<p class="text-fg-muted">
+		This tab is contributed by the <code>example-extensions</code> plugin via the <code>admin.tabs</code> extension slot.
+	</p>
+	<div class="flex items-center gap-3">
+		<HostUi name="Button" props={{ variant: 'primary', onclick: () => (clicks += 1) }}>Host button</HostUi>
+		<HostUi name="Badge">Host badge</HostUi>
+		<HostUi name="Tooltip" props={{ text: 'Rendered by the host Tooltip' }}>
+			<span class="text-fg-muted underline decoration-dotted">Hover me</span>
+		</HostUi>
+		<span class="font-mono tabular-nums text-fg-muted" data-testid="example-host-ui-clicks">{clicks}</span>
+	</div>
 </div>
-
-<style>
-	.example-admin-tab {
-		padding: 1.5rem;
-	}
-	h2 {
-		font-size: 1.125rem;
-		font-weight: 600;
-		margin-bottom: 0.5rem;
-	}
-</style>

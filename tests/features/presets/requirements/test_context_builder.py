@@ -75,6 +75,10 @@ class _FakeConfig:
         if device is not None:
             self.device = device
 
+    @property
+    def effective_driver(self):
+        return self.driver or self.engine
+
 
 class _FakeBackend:
     def __init__(self, config, execution_device=None):

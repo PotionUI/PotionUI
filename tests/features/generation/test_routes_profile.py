@@ -21,7 +21,9 @@ from src.features.generation import profile_paths
 from src.features.generation.routes import GenerationController, build_router
 from src.features.generation.orchestrator import GenerationOrchestrator
 from src.features.generation import GenerationHistoryFacade
+from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
 from src.features.generation.run_report_recorder import RunReportRecorder
+from src.platform.websocket.connection_hub import ConnectionHub
 from src.platform.filesystem import FileStore
 from src.platform.security.current_user import (
     get_current_active_user,
@@ -76,6 +78,7 @@ class TestGetGenerationProfileController:
             Mock(spec=GenerationHistoryFacade),
             file_service,
             Mock(spec=RunReportRecorder),
+            output_broadcaster=GenerationOutputBroadcaster(ConnectionHub(), Mock(), Mock()),
         )
 
     @pytest.fixture
@@ -161,6 +164,7 @@ class TestGetGenerationProfileRouteGating:
             Mock(spec=GenerationHistoryFacade),
             file_service,
             Mock(spec=RunReportRecorder),
+            output_broadcaster=GenerationOutputBroadcaster(ConnectionHub(), Mock(), Mock()),
         )
         container = SimpleNamespace(_generation_controller=controller)
         router = build_router(container)

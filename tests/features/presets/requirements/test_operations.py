@@ -262,6 +262,10 @@ class _FakeBackendConfig:
         self.engine = engine
         self.driver = driver or engine
 
+    @property
+    def effective_driver(self):
+        return self.driver or self.engine
+
 
 class _FakeBackend:
     def __init__(self, config, execution_device=None):
@@ -552,6 +556,10 @@ class _ComfyUIShapedConfig:
         self.engine = "comfyui"
         self.driver = "comfyui"
         self.host = host
+
+    @property
+    def effective_driver(self):
+        return self.driver or self.engine
 
 
 class _ComfyUIShapedBackend(InProcessBackend):

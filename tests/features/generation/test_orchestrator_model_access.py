@@ -230,6 +230,7 @@ class TestFieldOverridesThreadedFromRepository:
         instance.backend_registry.select_backend_for_generation = Mock(return_value=backend)
         instance.backend_registry.get_backends_for_engine = Mock(return_value=[backend])
         instance.plugin_registry = None
+        instance.output_broadcaster = None
         instance.status_tracker = Mock()
         instance.status_tracker.create = Mock(return_value=Mock(model_dump=Mock(return_value={})))
         instance._queue_dispatcher = Mock()

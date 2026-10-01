@@ -56,9 +56,11 @@ from src.features.presets.requirements.contracts import (
 from src.features.presets.schema import GalleryItem, PresetMedia
 from src.features.presets.style_previews import downscale_and_save_webp
 from src.features.presets.templates import default_form_name
+from src.features.video_director.binding import DirectorBindingError, bind_director_media
 from src.platform.plugins.runtime_registries import get_container
 
 __all__ = [
+    "DirectorBindingError",
     "FieldDescription",
     "FilePresetRepository",
     "GalleryItem",
@@ -71,6 +73,7 @@ __all__ = [
     "RequirementChecker",
     "RequirementContext",
     "RequirementResult",
+    "bind_director_media",
     "describe_preset",
     "downscale_and_save_webp",
     "lint_preset_dir",

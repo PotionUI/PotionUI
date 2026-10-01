@@ -132,6 +132,7 @@ from src.plugin_api.pipes import (
 
 # Presets, and starting a generation.
 from src.plugin_api.presets import (
+    DirectorBindingError,
     FieldDescription,
     FilePresetRepository,
     GalleryItem,
@@ -140,6 +141,7 @@ from src.plugin_api.presets import (
     PresetCollaborators,
     PresetDescription,
     PresetMedia,
+    bind_director_media,
     describe_preset,
     downscale_and_save_webp,
     lint_preset_dir,
@@ -315,6 +317,7 @@ __all__ = [
     "ProgressEmitter",
     "native_step_hooks",
     # Presets and generation
+    "DirectorBindingError",
     "FieldDescription",
     "FilePresetRepository",
     "GalleryItem",
@@ -323,6 +326,7 @@ __all__ = [
     "PresetCollaborators",
     "PresetDescription",
     "PresetMedia",
+    "bind_director_media",
     "describe_preset",
     "downscale_and_save_webp",
     "lint_preset_dir",

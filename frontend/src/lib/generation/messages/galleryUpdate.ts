@@ -43,6 +43,7 @@ generationMessageRegistry.register('gallery_update', {
 				// Get metadata from image_urls_list if available
 				let originalUrl = imageUrl;
 				let derived = false;
+				let label: string | null = null;
 				let seed, resolution, sampler, clip_skip, cfg, denoise, step;
 				let content_flagged = message.content_flagged === true;
 
@@ -55,6 +56,7 @@ generationMessageRegistry.register('gallery_update', {
 					}
 
 					derived = imageUrls.derived === true;
+					label = imageUrls.label ?? null;
 					content_flagged = (imageUrls.content_flagged ?? message.content_flagged) === true;
 					seed = imageUrls.seed;
 					sampler = imageUrls.sampler;
@@ -81,6 +83,7 @@ generationMessageRegistry.register('gallery_update', {
 					url: imageUrl,
 					originalUrl: originalUrl,
 					derived,
+					label,
 					seed,
 					resolution,
 					sampler,

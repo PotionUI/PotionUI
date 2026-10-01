@@ -585,6 +585,7 @@ class GenerationHistoryQuery:
                         'file_type': file_dict.get('file_type'),
                         'is_final': file_dict.get('is_final'),
                         'is_derived': file_dict.get('is_derived'),
+                        'label': file_dict.get('label'),
                         'content_state': 'unrated',
                         'nsfw': False,
                         'content_flagged': False,

@@ -248,6 +248,39 @@ describe('prepareRequestFromSession', () => {
 		expect(result.ok).toBe(true);
 	});
 
+	it('needs no prompt only while a conditional promptless entry holds', () => {
+		const run = (guideOnly: boolean) =>
+			prepareRequestFromSession({
+				presetId: 'preset-1',
+				mode: 'control',
+				session: { prompt: '', formData: { guide: 'openpose', guide_only: guideOnly } },
+				presetVars: {
+					promptless_modes: [
+						{
+							mode: 'control',
+							when: {
+								logic: 'AND',
+								conditions: [
+									{ field: 'guide_only', equals: true },
+									{ field: 'guide', not_in: ['none', 'grayscale'] }
+								]
+							}
+						}
+					]
+				},
+				random: () => 0,
+				now: () => 1
+			});
+
+		const extractOnly = run(true);
+		expect(extractOnly.ok).toBe(true);
+		if (extractOnly.ok) expect(extractOnly.request.mode).toBe('control');
+
+		const generating = run(false);
+		expect(generating.ok).toBe(false);
+		if (!generating.ok) expect(generating.code).toBe('no_prompt');
+	});
+
 	it('leaves the session and overrides untouched and shares nothing with them', () => {
 		const freeze = (value: any): any => {
 			if (value && typeof value === 'object') {

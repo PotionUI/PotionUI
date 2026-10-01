@@ -35,6 +35,12 @@ class GalleryPipe(BasePipe):
                 default=False,
                 description="Mark emitted media as derived from another final output of this generation (e.g. an enhance pass). Presentation hint only - persisted file order is unchanged.",
             ),
+            PipeConfigSpec(
+                name="label",
+                param_type=str,
+                default=None,
+                description="Caption saved with each emitted image, shown on it in the workbench and History (e.g. \"Guide: Pose\")",
+            ),
         ]
 
     @classmethod
@@ -64,6 +70,7 @@ class GalleryPipe(BasePipe):
         if isinstance(derived, str):
             derived = derived.lower() in ("true", "1", "yes", "on")
         derived = bool(derived)
+        label = self.config.get("label") or None
 
         image_outputs = []
         video_outputs = []
@@ -76,6 +83,7 @@ class GalleryPipe(BasePipe):
                     image=image,
                     temporary=False,
                     derived=derived,
+                    label=label,
                 ))
 
         # Handle videos

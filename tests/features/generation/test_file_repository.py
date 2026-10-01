@@ -119,6 +119,18 @@ class TestFileRepository(PersistenceTestBase):
         self.assertIs(retrieved.has_alpha, True)
         self.assertIs(retrieved.to_dict()['has_alpha'], True)
 
+    def test_create_file_persists_its_label(self):
+        self.test_file.label = "Guide: Pose"
+        created = self.repo.create(self.test_file)
+
+        retrieved = self.repo.get_by_id(created.id)
+        self.assertEqual(retrieved.label, "Guide: Pose")
+        self.assertEqual(retrieved.to_dict()['label'], "Guide: Pose")
+
+    def test_create_file_label_defaults_to_none(self):
+        created = self.repo.create(self.test_file)
+        self.assertIsNone(self.repo.get_by_id(created.id).label)
+
     def test_create_file_with_existing_id(self):
         """Test creating a file with predefined ID"""
         file_id = generate_ulid()

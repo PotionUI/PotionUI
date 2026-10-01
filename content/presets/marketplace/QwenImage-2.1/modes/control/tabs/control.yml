@@ -55,6 +55,34 @@ fields:
           - when: { field: "guide", equals: "as_is" }
             then: { set_value: false }
 
+      - name: "guide_only"
+        type: "checkbox"
+        formula: "control"
+        label: "Only extract the guide"
+        default: false
+        description: "Skip the image generation and keep just the extracted map, no prompt needed."
+        ai_hint: "Runs only the guide extraction and saves the map (for example a pose taken from a photo) to History, without loading the image model or generating."
+        reactions:
+          - when: { field: "guide", in: ["none", "grayscale"] }
+            then: { set_visibility: false }
+          - when: { field: "guide_extract", equals: false }
+            then: { set_visibility: false }
+
+      - name: "guide_save"
+        type: "checkbox"
+        formula: "control"
+        label: "Also save the extracted guide"
+        default: false
+        description: "Keep the map next to the generated image."
+        ai_hint: "Saves the extracted map to History as an extra output beside the result, labelled with the guide type."
+        reactions:
+          - when: { field: "guide", in: ["none", "grayscale"] }
+            then: { set_visibility: false }
+          - when: { field: "guide_extract", equals: false }
+            then: { set_visibility: false }
+          - when: { field: "guide_only", equals: true }
+            then: { set_visibility: false }
+
       - name: "guide_from_other"
         type: "checkbox"
         formula: "control"

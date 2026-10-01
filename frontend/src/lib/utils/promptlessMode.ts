@@ -1,3 +1,5 @@
+import { evaluateCondition, type Condition, type LogicalCondition } from '$lib/form/reactions';
+
 /**
  * Promptless-mode gating.
  *
@@ -8,18 +10,24 @@
  * preset.yml under `vars:` and surfaced on the loaded preset's `vars` object.
  */
 
-/**
- * True when `mode` is listed in the preset's `promptless_modes` var.
- *
- * Tolerates the many shapes preset vars arrive in: a missing var, a non-array
- * value, or a null/empty mode all resolve to `false` (i.e. prompt required).
- */
 export function isPromptlessMode(
 	presetVars: Record<string, unknown> | null | undefined,
-	mode: string | null | undefined
+	mode: string | null | undefined,
+	formData?: Record<string, unknown> | null
 ): boolean {
 	if (!mode || !presetVars) return false;
 	const modes = presetVars.promptless_modes;
 	if (!Array.isArray(modes)) return false;
-	return modes.includes(mode);
+	return modes.some((entry) => {
+		if (typeof entry === 'string') return entry === mode;
+		if (!entry || typeof entry !== 'object' || (entry as { mode?: unknown }).mode !== mode) return false;
+		const when = (entry as { when?: Condition | Condition[] | LogicalCondition }).when;
+		if (when == null) return true;
+		if (!formData) return false;
+		try {
+			return evaluateCondition(when, formData);
+		} catch {
+			return false;
+		}
+	});
 }

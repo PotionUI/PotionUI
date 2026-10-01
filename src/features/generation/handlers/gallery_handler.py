@@ -187,6 +187,7 @@ def serialize_gallery_output(output: GalleryGenerationOutput, ctx: SerializeCont
                         image_data = {
                             'original': api_path,
                             'derived': bool(getattr(img_output, 'derived', False)),
+                            'label': getattr(img_output, 'label', None),
                             'has_alpha': bool(img_output.image and img_output.image.mode == 'RGBA'),
                             'nsfw': bool(getattr(img_output, '_content_nsfw', False)),
                             'content_flagged': bool(getattr(img_output, '_content_flagged', False)),

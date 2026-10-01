@@ -575,6 +575,7 @@ Pipe that will output an gallery
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
 | `derived` | `bool` | `false` | no | — | — | — | Mark emitted media as derived from another final output of this generation (e.g. an enhance pass). Presentation hint only - persisted file order is unchanged. |
+| `label` | `str` | — | no | — | — | — | Caption saved with each emitted image, shown on it in the workbench and History (e.g. "Guide: Pose") |
 
 ## generator
 

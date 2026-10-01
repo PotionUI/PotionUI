@@ -495,7 +495,8 @@ class TestFileModel(unittest.TestCase):
             'height': None,
             'duration_seconds': None,
             'fps': None,
-            'has_alpha': False
+            'has_alpha': False,
+            'label': None
         }
 
         self.assertEqual(result, expected)

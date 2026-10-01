@@ -23,6 +23,7 @@ export interface GenerationFile {
 	is_final: boolean;
 	/** Produced from another final file of this generation (e.g. an enhance pass). */
 	is_derived?: boolean;
+	label?: string | null;
 	created_at: string;
 	width?: number;
 	height?: number;

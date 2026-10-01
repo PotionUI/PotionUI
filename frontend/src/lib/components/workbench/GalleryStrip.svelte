@@ -2,6 +2,8 @@
 	import { createEventDispatcher } from 'svelte';
 	import type { ImageData, VideoData, MeshData } from '$lib/types/tabs';
 	import type { AudioData } from '$lib/types/audio';
+	import { Badge } from '$lib/components/ui';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
 
 	export let batchImages: ImageData[] = [];
@@ -45,6 +47,16 @@
 					<div class="absolute top-1 left-1 bg-black/70 text-white text-xs font-mono tabular-nums px-1.5 py-0.5 rounded-full font-medium">
 						#{index + 1}
 					</div>
+
+					{#if imageData.label}
+						<div class="absolute bottom-1 left-1 right-1 flex" data-output-label>
+							<Tooltip text={imageData.label} position="top" wrapperClass="inline-flex items-center max-w-full min-w-0">
+								<Badge size="lg" class="max-w-full font-mono uppercase tracking-[0.07em] bg-black/70 text-white border-white/20">
+									<span class="truncate">{imageData.label}</span>
+								</Badge>
+							</Tooltip>
+						</div>
+					{/if}
 				</div>
 			{/each}
 

@@ -523,6 +523,16 @@
 				</div>
 			{/if}
 
+			{#if currentMediaFile?.label && !isCurrentMediaVideo && !isCurrentMediaAudio && !isCurrentMediaMesh}
+				<div class="absolute top-2 left-1/2 -translate-x-1/2 z-20 max-w-[60%] flex" data-output-label>
+					<Tooltip text={currentMediaFile.label} position="bottom" wrapperClass="inline-flex items-center max-w-full min-w-0">
+						<Badge size="lg" class="max-w-full font-mono uppercase tracking-[0.07em] bg-black/70 text-white border-white/20">
+							<span class="truncate">{currentMediaFile.label}</span>
+						</Badge>
+					</Tooltip>
+				</div>
+			{/if}
+
 			<!-- Justified tile: media-type + position/duration chip, bottom-left. -->
 			{#if tile && chromeBucket?.showMediaChip && generation.status === 'completed' && (mediaFiles.length > 1 || isCurrentMediaVideo)}
 				<div

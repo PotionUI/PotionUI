@@ -20,8 +20,8 @@ class FileRepository:
                 INSERT INTO files (
                     id, file_path, file_type, user_id, mime_type, file_size,
                     pipe_name, is_final, is_derived, thumbnail_small, thumbnail_medium, thumbnail_large,
-                    thumbnail_profile, width, height, duration_seconds, fps, has_alpha
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    thumbnail_profile, width, height, duration_seconds, fps, has_alpha, label
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 file.id,
                 file.file_path,
@@ -40,7 +40,8 @@ class FileRepository:
                 file.height,
                 file.duration_seconds,
                 file.fps,
-                file.has_alpha
+                file.has_alpha,
+                file.label
             ))
             
             # Retrieve the file within the same transaction

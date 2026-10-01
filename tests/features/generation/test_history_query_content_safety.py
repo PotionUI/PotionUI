@@ -58,6 +58,18 @@ class TestRestrictedViewer(ContentHistoryBase):
         assert "file_path" not in placeholder
         assert not any(key.startswith("thumbnail") for key in placeholder)
 
+    def test_an_unrated_placeholder_keeps_its_caption(self):
+        query = self.build_query()
+        self.generation_with("guide-gen", "guide-file")
+        with self.db.get_cursor() as cursor:
+            cursor.execute("UPDATE files SET label = 'Guide: Pose' WHERE id = 'guide-file'")
+
+        result = query.get_history(self.user_id, include_tags=False)
+
+        placeholder = result["generations"][0]["files"][0]
+        assert placeholder["content_state"] == "unrated"
+        assert placeholder["label"] == "Guide: Pose"
+
     def test_a_generation_with_only_flagged_files_is_hidden(self):
         query = self.build_query()
         self.generation_with("bad-gen", "bad-file", 0.99)

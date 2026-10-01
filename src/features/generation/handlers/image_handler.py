@@ -242,7 +242,8 @@ class ImageGenerationOutputHandler(BaseGenerationOutputHandler):
                 thumbnail_profile=profile_hash(self.thumbnail_profile),
                 width=width,
                 height=height,
-                has_alpha=bool(output.image and output.image.mode == 'RGBA')
+                has_alpha=bool(output.image and output.image.mode == 'RGBA'),
+                label=None if getattr(output, 'isArtifact', False) else getattr(output, 'label', None),
             )
 
             # Save to database and associate with generation

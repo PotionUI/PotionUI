@@ -25,6 +25,7 @@
 	import GenerationPanels from './components/GenerationPanels.svelte';
 	import PresetControls from './components/PresetControls.svelte';
 	import StudioView from './components/studio/StudioView.svelte';
+	import { isPromptlessMode } from '$lib/utils/promptlessMode';
 	import { resolveNegativeApplicability } from '$lib/generation/negativeApplied';
 	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
 	import { attachChatStartedGeneration } from '$lib/generation/restore/chatGeneration';
@@ -664,7 +665,9 @@
 	// Promptless: modes (per current preset) that need no prompt at all (upscale,
 	// slow-motion, LTX utility passes). The prompt pane is hidden and Generate no
 	// longer requires prompt text. See docs/presets.md `promptless_modes`.
-	$: promptlessActive = requestContext.promptlessActive;
+	$: promptlessActive =
+		requestContext.promptlessActive ||
+		isPromptlessMode(currentPresetVars, currentTab.selectedMode, currentTab.formData);
 
 	// Load preset vars when preset changes
 	$: if (currentTab.selectedPreset && mounted) {

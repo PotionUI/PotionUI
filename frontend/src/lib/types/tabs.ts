@@ -146,6 +146,7 @@ export interface ImageData {
 	url: string;
 	originalUrl?: string;
 	derived?: boolean;
+	label?: string | null;
 	content_flagged?: boolean;
 	seed?: number;
 	resolution?: [number, number];

@@ -38,6 +38,7 @@ class File:
     duration_seconds: Optional[float] = None
     fps: Optional[float] = None
     has_alpha: bool = False
+    label: Optional[str] = None
 
     @classmethod
     def from_row(cls, row) -> 'File':
@@ -61,7 +62,8 @@ class File:
             height=row_get(row, 'height'),
             duration_seconds=row_get(row, 'duration_seconds'),
             fps=row_get(row, 'fps'),
-            has_alpha=bool(row_get(row, 'has_alpha') or 0)
+            has_alpha=bool(row_get(row, 'has_alpha') or 0),
+            label=row_get(row, 'label'),
         )
 
     def to_dict(self) -> dict:
@@ -85,7 +87,8 @@ class File:
             'height': self.height,
             'duration_seconds': self.duration_seconds,
             'fps': self.fps,
-            'has_alpha': self.has_alpha
+            'has_alpha': self.has_alpha,
+            'label': self.label,
         }
 
 @dataclass

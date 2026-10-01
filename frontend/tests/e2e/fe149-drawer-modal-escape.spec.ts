@@ -55,7 +55,7 @@ try:
 finally:
     conn.close()
 `;
-	execFileSync('python3', ['-c', script]);
+	execFileSync(process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3'), ['-c', script]);
 }
 
 test('generation details modal opened from the Last Generations drawer escapes the drawer', async ({

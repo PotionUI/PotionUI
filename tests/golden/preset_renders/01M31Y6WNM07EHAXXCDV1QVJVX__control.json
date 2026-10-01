@@ -383,7 +383,16 @@
         "type": "bool",
         "value": true
       },
-      "id": null,
+      "id": "gallery",
+      "name": "gallery"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "guide_gallery",
       "name": "gallery"
     }
   ],

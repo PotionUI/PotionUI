@@ -184,3 +184,15 @@ def test_audio_metadata_is_not_fabricated_by_the_pipe(minimal_wav_file):
     assert audio_output.duration is None
     assert audio_output.sample_rate is None
     assert audio_output.channels is None
+
+
+def test_a_label_is_carried_on_every_image():
+    emitted = _run(PipeInput(input={"image": ["img-a", "img-b"]}), {"label": "Guide: Pose"})
+    gallery = next(o for o in emitted if isinstance(o, GalleryGenerationOutput))
+    assert [i.label for i in gallery.images] == ["Guide: Pose", "Guide: Pose"]
+
+
+def test_images_have_no_label_by_default():
+    emitted = _run(PipeInput(input={"image": ["img-a"]}))
+    gallery = next(o for o in emitted if isinstance(o, GalleryGenerationOutput))
+    assert gallery.images[0].label is None

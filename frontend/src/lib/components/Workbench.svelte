@@ -198,6 +198,7 @@
 
 	$: previewSuppressed = !!currentGeneration?.preview_suppressed;
 	$: contentBlocked = currentGeneration?.content_blocked ?? null;
+	$: currentImageLabel = isGalleryMode && displayFileType === 'image' ? ((currentGalleryItem as { label?: string | null } | null)?.label ?? null) : null;
 	$: displayFlagged = isGalleryMode ? !!(currentGalleryItem as { content_flagged?: boolean } | null)?.content_flagged : !!currentGeneration?.content_flagged;
 	$: flaggedRevealKey = `workbench:${currentGeneration?.id ?? ''}:${isGalleryMode ? workbenchIndex : 'live'}`;
 	$: flaggedBlur = hasDisplayMedia && displayFlagged && !$nsfwRevealStore.has(flaggedRevealKey);
@@ -935,6 +936,16 @@
 					{/if}
 				</div>
 			{/key}
+
+			{#if currentImageLabel}
+				<div class="absolute top-3 left-3 z-20 max-w-[60%] flex" data-output-label>
+					<Tooltip text={currentImageLabel} position="bottom" wrapperClass="inline-flex items-center max-w-full min-w-0">
+						<Badge size="lg" class="max-w-full font-mono uppercase tracking-[0.07em] bg-black/70 text-white border-white/20">
+							<span class="truncate">{currentImageLabel}</span>
+						</Badge>
+					</Tooltip>
+				</div>
+			{/if}
 
 			{#if flaggedBlur}
 				<div class="absolute inset-0 z-30 flex items-center justify-center bg-canvas/40 backdrop-blur-3xl" data-flagged-blur>

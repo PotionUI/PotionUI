@@ -144,6 +144,7 @@ export function mapGenerationFiles(files: any[], generationId: string): Restored
 				url,
 				originalUrl: url,
 				derived: f.is_derived === true,
+				label: f.label ?? null,
 				seed: f.seed,
 				resolution: f.resolution,
 				sampler: f.sampler,

@@ -84,6 +84,16 @@ vars:
   promptless_modes: [upscale, slowmo]
 ```
 
+An entry can also be a mapping that makes a mode promptless only for some form values, with
+`when` in the same shape as a reaction condition (a single condition, a list, or a `logic` group):
+
+```yaml
+vars:
+  promptless_modes:
+    - mode: "control"
+      when: { field: "guide_only", equals: true }
+```
+
 It's a pure UI hint (read from `preset.vars.promptless_modes` on the frontend); the backend
 needs no schema change and rejects nothing when the prompt is empty. A promptless mode's
 `pipeline.yml` **must not read `generation.prompts`** — with no prompt submitted, the array is

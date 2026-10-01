@@ -308,6 +308,19 @@ describe('buildVariablesPayload', () => {
 });
 
 describe('mapGenerationFiles', () => {
+	it('keeps a file label on images and null when absent', () => {
+		const { images } = mapGenerationFiles(
+			[
+				{ file_type: 'IMAGE', file_path: 'generations/d/G/0.png', is_derived: true, label: 'Guide: Pose' },
+				{ file_type: 'IMAGE', file_path: 'generations/d/G/1.png' }
+			],
+			'G'
+		);
+
+		expect(images[0].label).toBe('Guide: Pose');
+		expect(images[1].label).toBeNull();
+	});
+
 	// The history API serializes `files` DB rows verbatim: file_type is
 	// UPPERCASE and there is no `url` — only `file_path`. These fixtures use
 	// that real payload shape; lowercasing them here would make the tests

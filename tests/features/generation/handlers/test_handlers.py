@@ -254,6 +254,38 @@ class TestImageGenerationOutputHandler:
             assert file_obj.is_derived is True
             assert file_obj.is_final is True
 
+    def test_save_file_record_keeps_the_output_label(self):
+        file_path = "generations/2024-01-15/test_gen_123/image.png"
+        output = ImageGenerationOutput(image=self.test_image, temporary=False, label="Guide: Pose")
+
+        with patch('src.platform.filesystem.file_store.FileStore') as mock_file_service_class, \
+             patch('src.features.generation.handlers.image_handler.generation_repo') as mock_repo, \
+             patch('src.features.generation.handlers.image_handler.generate_ulid', return_value="ulid_123"):
+
+            mock_file_service_class.return_value = Mock()
+            self.mock_storage_driver.size.return_value = 1024
+            mock_repo.add_file.return_value = Mock()
+
+            self.handler._save_file_record(file_path, output, {})
+
+            assert mock_repo.add_file.call_args[0][1].label == "Guide: Pose"
+
+    def test_save_file_record_drops_an_artifact_label(self):
+        file_path = "generations/2024-01-15/test_gen_123/image.png"
+        output = ImageGenerationOutput(image=self.test_image, temporary=False, isArtifact=True, label="Preview")
+
+        with patch('src.platform.filesystem.file_store.FileStore') as mock_file_service_class, \
+             patch('src.features.generation.handlers.image_handler.generation_repo') as mock_repo, \
+             patch('src.features.generation.handlers.image_handler.generate_ulid', return_value="ulid_123"):
+
+            mock_file_service_class.return_value = Mock()
+            self.mock_storage_driver.size.return_value = 1024
+            mock_repo.add_file.return_value = Mock()
+
+            self.handler._save_file_record(file_path, output, {})
+
+            assert mock_repo.add_file.call_args[0][1].label is None
+
     def test_save_file_record_marks_has_alpha_for_rgba_output(self):
         file_path = "generations/2024-01-15/test_gen_123/image.png"
         rgba_image = Image.new('RGBA', (10, 10), (1, 2, 3, 128))
@@ -783,6 +815,28 @@ class TestGalleryGenerationOutputHandler:
         assert result['processed_images'] == []
         assert result['processed_videos'] == []
         assert result['processed_audios'] == []
+
+
+class TestGalleryOutputSerialization:
+    def _saved(self, index, **kwargs):
+        output = ImageGenerationOutput(image=Image.new('RGB', (8, 8)), temporary=False, **kwargs)
+        output._saved_path = f"outputs/2026-10-01/gen-label/{index}.png"
+        return output
+
+    def test_each_image_url_entry_carries_its_label(self):
+        from src.features.generation.handlers.gallery_handler import serialize_gallery_output
+        from src.features.generation.output_types import SerializeContext
+
+        gallery = GalleryGenerationOutput(images=[self._saved(0), self._saved(1, derived=True, label="Guide: Pose")])
+
+        payload = serialize_gallery_output(gallery, SerializeContext(generation_id="gen-label"))
+
+        assert [entry['original'] for entry in payload['image_urls_list']] == [
+            "/api/media/generations/gen-label/0.png",
+            "/api/media/generations/gen-label/1.png",
+        ]
+        assert payload['image_urls_list'][0]['label'] is None
+        assert payload['image_urls_list'][1]['label'] == "Guide: Pose"
 
 
 class TestCompareImagesGenerationOutputHandler:

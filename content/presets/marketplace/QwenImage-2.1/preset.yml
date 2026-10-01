@@ -62,6 +62,14 @@ speed_profiles:
 
 vars:
   default_shift: 2.0
+  promptless_modes:
+    - mode: "control"
+      when:
+        logic: "AND"
+        conditions:
+          - { field: "guide_only", equals: true }
+          - { field: "guide_extract", equals: true }
+          - { field: "guide", not_in: ["none", "grayscale"] }
 
 llm:
   guide: |

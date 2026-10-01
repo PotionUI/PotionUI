@@ -34,4 +34,41 @@ describe('isPromptlessMode', () => {
 		expect(isPromptlessMode({ promptless_modes: 'upscale' }, 'upscale')).toBe(false);
 		expect(isPromptlessMode({ promptless_modes: true }, 'upscale')).toBe(false);
 	});
+
+	describe('a mode that is promptless only for some form values', () => {
+		const vars = {
+			promptless_modes: [
+				'upscale',
+				{
+					mode: 'control',
+					when: {
+						logic: 'AND',
+						conditions: [
+							{ field: 'guide_only', equals: true },
+							{ field: 'guide', not_in: ['none', 'grayscale'] }
+						]
+					}
+				}
+			]
+		};
+
+		it('needs the condition to hold', () => {
+			expect(isPromptlessMode(vars, 'control', { guide_only: true, guide: 'openpose' })).toBe(true);
+			expect(isPromptlessMode(vars, 'control', { guide_only: false, guide: 'openpose' })).toBe(false);
+			expect(isPromptlessMode(vars, 'control', { guide_only: true, guide: 'none' })).toBe(false);
+		});
+
+		it('is never promptless without the form', () => {
+			expect(isPromptlessMode(vars, 'control')).toBe(false);
+		});
+
+		it('keeps plain mode names working beside it', () => {
+			expect(isPromptlessMode(vars, 'upscale')).toBe(true);
+			expect(isPromptlessMode(vars, 'txt2img', { guide_only: true, guide: 'canny' })).toBe(false);
+		});
+	});
+
+	it('skips an entry without a mode', () => {
+		expect(isPromptlessMode({ promptless_modes: [{ when: { field: 'x', equals: 1 } }] }, 'control', { x: 1 })).toBe(false);
+	});
 });

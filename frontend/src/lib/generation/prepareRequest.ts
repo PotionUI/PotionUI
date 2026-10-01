@@ -6,6 +6,7 @@ import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 import type { PredecessorOutputLike } from '$lib/utils/directorContinuation';
 import type { SegmentJoin } from '$lib/utils/richSegments';
 import type { VariableRoll } from '$lib/utils/variableDefs';
+import { isPromptlessMode } from '$lib/utils/promptlessMode';
 import { assembleDirectorRequest } from '$lib/generation/requestAssembly';
 import { buildSegmentsPayload, buildVariablesPayload } from '$lib/utils/generationOrchestrator';
 import { resolvePromptSegments } from '$lib/utils/promptSegments';
@@ -290,7 +291,7 @@ export function prepareRequestFromSession(input: SessionRequestInput): PreparedR
 		numPrompts: context.numPrompts,
 		segmentJoin: context.segmentJoin,
 		promptRelayActive: context.promptRelayActive,
-		promptlessActive: context.promptlessActive,
+		promptlessActive: context.promptlessActive || isPromptlessMode(vars, input.mode, tab.formData),
 		videoDirector:
 			context.videoDirectorActive && context.videoDirectorCaps
 				? { caps: context.videoDirectorCaps, checked: new Set(), predecessorOutputs: null }

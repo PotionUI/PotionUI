@@ -379,3 +379,66 @@ def test_a_rendered_control_pipeline_loads_the_patched_dit(qwen_image21_template
     assert dit_fp.endswith("|control=/models/fun_control.safetensors")
     assert ("/models/qwen21_dit.safetensors", "diffusion_model",
             {"model_patch": "/models/fun_control.safetensors"}) in loads
+
+
+_GENERATION_PIPES = ("model_loader/qwen_image21", "prompt_encoder", "seed_generator", "dynamic_prompts_renderer",
+                     "from_iotype", "param_emitter", "generator/qwen_image21", "gallery")
+
+
+def test_by_default_the_extracted_guide_is_not_saved(qwen_image21_template):
+    pipes = _process(qwen_image21_template, {"guide": "openpose"}, mode="control")
+    assert not _enabled(pipes, "guide_gallery")
+    assert all(_enabled(pipes, name) for name in _GENERATION_PIPES)
+
+
+def test_also_saving_the_guide_adds_a_labelled_derived_output(qwen_image21_template):
+    pipes = _process(qwen_image21_template, {"guide": "openpose", "guide_save": True}, mode="control")
+    guide = _pipe(pipes, "guide_gallery")
+    assert _enabled(pipes, "guide_gallery")
+    assert guide["input"][0]["provider"] == "controlnet_preprocessor"
+    assert guide["config"]["label"] == "Guide: Pose"
+    assert guide["config"]["derived"] is True
+    assert all(_enabled(pipes, name) for name in _GENERATION_PIPES)
+
+
+def test_only_extracting_skips_every_model_and_the_generation(qwen_image21_template):
+    pipes = _process(qwen_image21_template, {"guide": "depth", "guide_only": True, "guide_save": True},
+                     mode="control")
+    assert not any(_enabled(pipes, name) for name in _GENERATION_PIPES)
+    assert not _enabled(pipes, "inpaint_loader") and not _enabled(pipes, "mask_loader")
+    assert _enabled(pipes, "controlnet_preprocessor")
+    guide = _pipe(pipes, "guide_gallery")
+    assert _enabled(pipes, "guide_gallery")
+    assert guide["config"]["label"] == "Guide: Depth"
+    assert guide["config"]["derived"] is False
+
+
+@pytest.mark.parametrize("form", [
+    {"guide": "none", "guide_only": True, "source_image_inpaint_mask": "/uploads/room_mask.png"},
+    {"guide": "grayscale", "guide_only": True},
+    {"guide": "openpose", "guide_extract": False, "guide_only": True},
+])
+def test_a_hidden_only_extract_switch_never_skips_the_generation(qwen_image21_template, form):
+    pipes = _process(qwen_image21_template, form, mode="control")
+    assert _enabled(pipes, "generator/qwen_image21")
+    assert not _enabled(pipes, "guide_gallery")
+
+
+def test_only_extracting_needs_no_prompt(qwen_image21_template):
+    import yaml
+    vars_ = yaml.safe_load((PRESET_DIR / "preset.yml").read_text())["vars"]
+    entry = next(e for e in vars_["promptless_modes"] if isinstance(e, dict) and e["mode"] == "control")
+    conditions = entry["when"]["conditions"]
+    assert entry["when"]["logic"] == "AND"
+    assert {"field": "guide_only", "equals": True} in conditions
+    assert {"field": "guide_extract", "equals": True} in conditions
+    assert {"field": "guide", "not_in": ["none", "grayscale"]} in conditions
+    pipes = _process(qwen_image21_template, {"guide": "depth", "guide_only": True}, mode="control")
+    assert not _enabled(pipes, "prompt_encoder")
+
+
+def test_the_new_switches_join_the_control_formula_group(qwen_image21_template):
+    assert _field(qwen_image21_template, "guide_only").formula == "control"
+    assert _field(qwen_image21_template, "guide_save").formula == "control"
+    assert _field(qwen_image21_template, "guide_save").default is False
+    assert _field(qwen_image21_template, "guide_only").default is False

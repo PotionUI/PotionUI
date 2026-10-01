@@ -173,6 +173,7 @@ set is capped. Do not remove them to "speed up" CI.
 These are container/environment artefacts, not regressions caused by your change.
 
 
+- `opencv-python`, `opencv-contrib-python` and `opencv-python-headless` (pulled in by `controlnet-aux`) all install `cv2`, so `constraints.txt` pins the three to one version; keep them pinned together.
 - The cv2-dependent tests (`tests/pipelines/pipes/test_detailer_sdxl.py`,
   `video_frame_extractor/`, `video_frame_merger/`, `media_loader/`) guard their
   `cv2` import with

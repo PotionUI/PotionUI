@@ -183,6 +183,8 @@ feature's config may reference fields that only exist when the feature is on (li
 `controlnet_1_image` above) without needing `| default(...)` on every line — the references are
 simply never evaluated while the gate is off.
 
+`controlnet_preprocessor` needs the `controlnet-aux` package (in `requirements.txt`); without it a non-strict run passes the raw image through. Its annotator weights download from `lllyasviel/Annotators` on first use.
+
 
 > Note: a `cache:` key is still accepted on a pipe by the schema/processor but is a no-op — model reuse
 > now goes through `ModelLifecycle` (the `MODELS` built-in service), not per-pipeline cache keys.

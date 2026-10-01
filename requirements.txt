@@ -27,9 +27,11 @@ ftfy>=6.1.0  # For text fixing
 # Image processing
 Pillow>=11.0.0
 opencv-python>=4.10.0.84
+opencv-python-headless<4.12
 numpy>=1.21.0
 scipy>=1.11.0  # For scientific computing
 scikit-image>=0.21.0  # For image processing
+controlnet-aux>=0.0.10,<0.1
 kornia>=0.7.0  # Computer vision library
 
 # Mesh post-processing (native 3D generation: clean, decimate, unwrap, GLB export)

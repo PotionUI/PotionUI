@@ -86,6 +86,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     return user
 
 
+def is_active_user(user: Optional[User]) -> bool:
+    return user is not None
+
+
 async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
     """
     Ensure user is active.
@@ -101,6 +105,8 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
     """
     # For now, all authenticated users are considered active.
     # Add additional checks here if needed (e.g., current_user.is_active)
+    if not is_active_user(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
     return current_user
 
 

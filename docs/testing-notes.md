@@ -319,7 +319,7 @@ state can leak between specs in the same chunk: a spec asserting a global
 empty state passes alone and can fail after a same-chunk sibling installs a
 preset — order specs accordingly, or run the affected spec alone.
 
-**One UI run at a time.** Every run shares `frontend/build` and the preview
+**One UI run at a time.** The harness builds and serves from its own gitignored `frontend/.e2e-build`, never `frontend/build` (the live app's folder). Every run shares the harness build folder and the preview
 port, so two runs started together corrupt each other (a blank login page,
 "Username already exists"). `run.py` therefore takes an exclusive lock,
 `tests/e2e/ui/.run.lock` (gitignored, holds the pid and UTC start time),

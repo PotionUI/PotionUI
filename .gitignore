@@ -93,6 +93,7 @@ frontend/.env.*.local
 frontend/.svelte-kit/
 frontend/node_modules/
 frontend/build/
+frontend/.e2e-build/
 
 # Repo-root equivalents: npm/vite invoked from the repo root instead of
 # frontend/ drops these here, where the frontend-scoped rules above miss them.

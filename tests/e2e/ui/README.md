@@ -162,7 +162,7 @@ PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/e2e/ui/run.py
 # one spec
 PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/e2e/ui/run.py empty-group-tabs
 
-# reuse the last build (skip the ~25s rebuild)
+# reuse the last harness build in frontend/.e2e-build (skip the ~25s rebuild)
 PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/e2e/ui/run.py --skip-build
 
 # keep the throwaway backend + temp dir on disk for inspection

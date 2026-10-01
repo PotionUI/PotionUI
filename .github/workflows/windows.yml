@@ -331,15 +331,15 @@ jobs:
       - name: npm run build
         shell: cmd
         working-directory: frontend
+        env:
+          E2E_BUILD_DIR: ${{ github.workspace }}\frontend\.e2e-build
         run: npm run build
 
       - name: Upload frontend build
         uses: actions/upload-artifact@v4
         with:
           name: frontend-build-windows
-          path: |
-            frontend/build
-            frontend/.svelte-kit
+          path: frontend/.e2e-build
           include-hidden-files: true
           retention-days: 1
 
@@ -433,7 +433,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: frontend-build-windows
-          path: frontend
+          path: frontend/.e2e-build
 
       - name: HTTP journeys (throwaway backend)
         if: matrix.shard == 1

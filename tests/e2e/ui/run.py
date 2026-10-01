@@ -7,7 +7,8 @@ Chromium browser against the built frontend, so it catches the class of
 frontend-reactivity bug (stuck spinners, `$effect` request loops, controls that
 never settle) that an HTTP assertion can't see. Each run:
 
-  1. Builds the frontend once (`npm run build`) unless --skip-build.
+  1. Builds the frontend once (`npm run build`) into frontend/.e2e-build
+     (never frontend/build, which the live backend serves) unless --skip-build.
   2. Splits the requested specs into fixed-size chunks (default 3 - see
      DEFAULT_CHUNK_SIZE) and, for each chunk:
        a. Boots one throwaway backend (`ThrowawayApp`, port >= 8055, temp
@@ -95,6 +96,7 @@ NPX = shutil.which("npx") or "npx"
 NPM = shutil.which("npm") or "npm"
 PLAYWRIGHT_OUTPUT_DIR = SPECS_DIR / ".playwright-artifacts"
 ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
+HARNESS_BUILD_DIR = FRONTEND_DIR / ".e2e-build"
 
 # A fixed owner password so the browser can log in as the instance owner that
 # ThrowawayApp already claimed - it's a throwaway loopback-only instance.
@@ -342,12 +344,22 @@ def termination_signals_raise_system_exit():
                 signal.signal(signum, handler)
 
 
-def run_build() -> None:
+def build_env(build_dir: Path) -> dict:
+    env = dict(os.environ)
+    env["E2E_BUILD_DIR"] = str(build_dir)
+    return env
+
+
+def has_build_output(build_dir: Path) -> bool:
+    return (build_dir / ".svelte-kit" / "output" / "client").is_dir()
+
+
+def run_build(build_dir: Path) -> None:
     """`npm run build`, retried once after a pause: the tree can be mid-edit by
     a concurrent agent and fail transiently."""
     for attempt in (1, 2):
         log(f"Building frontend (npm run build, attempt {attempt})...")
-        proc = subprocess.run([NPM, "run", "build"], cwd=str(FRONTEND_DIR))
+        proc = subprocess.run([NPM, "run", "build"], cwd=str(FRONTEND_DIR), env=build_env(build_dir))
         if proc.returncode == 0:
             log("Frontend build OK")
             return
@@ -357,8 +369,8 @@ def run_build() -> None:
     raise StageError("build", "npm run build failed twice")
 
 
-def start_preview(backend_port: int, preview_port: int, log_path: Path) -> subprocess.Popen:
-    env = dict(os.environ)
+def start_preview(backend_port: int, preview_port: int, log_path: Path, build_dir: Path) -> subprocess.Popen:
+    env = build_env(build_dir)
     env["E2E_BACKEND_PORT"] = str(backend_port)
     env["E2E_PREVIEW_PORT"] = str(preview_port)
     cmd = [NPX, "vite", "preview", "--port", str(preview_port), "--host", "127.0.0.1"]
@@ -560,7 +572,7 @@ def run_chunk(
         preview_port = args.preview_port or pick_free_port(PREVIEW_START_PORT)
         base_url = f"http://127.0.0.1:{preview_port}"
         preview_log_path = ARTIFACTS_DIR / f"preview-chunk{chunk_index}.log"
-        preview_proc = start_preview(backend_port, preview_port, preview_log_path)
+        preview_proc = start_preview(backend_port, preview_port, preview_log_path, args.build_dir)
         try:
             wait_for_preview(base_url)
 
@@ -626,7 +638,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--preview-port", type=int, default=None, help="Preview port (default: auto from 4173).")
     parser.add_argument("--keep", action="store_true", help="Leave the backend + temp dir on disk after the run.")
     parser.add_argument("--headed", action="store_true", help="Run Chromium headed (needs a display).")
-    parser.add_argument("--skip-build", action="store_true", help="Reuse the existing .svelte-kit build output.")
+    parser.add_argument("--skip-build", action="store_true", help="Reuse the existing harness build output.")
+    parser.add_argument("--build-dir", type=Path, default=HARNESS_BUILD_DIR, help="Folder the harness builds into and serves from (default: frontend/.e2e-build; must stay inside frontend/ so the server bundle resolves node_modules).")
+    parser.add_argument("--build-only", action="store_true", help="Build into the build dir and exit.")
     parser.add_argument(
         "--chunk-size",
         type=int,
@@ -660,10 +674,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         metavar="MIN",
         help=(
             f"Minutes to wait for another UI run to release {RUN_LOCK_PATH.name} "
-            f"(default {DEFAULT_LOCK_TIMEOUT_MINUTES:.0f}); runs share frontend/build and the preview port."
+            f"(default {DEFAULT_LOCK_TIMEOUT_MINUTES:.0f}); runs share the harness build folder and the preview port."
         ),
     )
     args = parser.parse_args(argv)
+    args.build_dir = args.build_dir.resolve()
 
     names = args.journeys or discover_specs()
     if not names:
@@ -718,9 +733,11 @@ def _run_locked(
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
     if not args.skip_build:
-        run_build()
-    elif not (FRONTEND_DIR / ".svelte-kit" / "output" / "client").is_dir():
+        run_build(args.build_dir)
+    elif not has_build_output(args.build_dir):
         raise StageError("build", "--skip-build given but no build output exists; run once without it.")
+    if args.build_only:
+        return EXIT_OK
 
     log(
         f"Shard {shard_index}/{shard_total}: {len(names)} spec(s) as {len(numbered)} of "

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -99,9 +100,15 @@ def test_first_image_takes_lists_and_arrays():
     assert first_image(np.zeros((4, 4, 3), dtype=np.uint8)).size == (4, 4)
 
 
-def _control_input(quantity=1, **images):
+def _controlled_bundle():
+    bundle = _bundle()
+    bundle.dit.module = SimpleNamespace(fun_control=object())
+    return bundle
+
+
+def _control_input(quantity=1, bundle=None, **images):
     inp = {
-        "model": _bundle(),
+        "model": bundle or _controlled_bundle(),
         "conditioning": [_cond_model(True) for _ in range(quantity)],
         "seed": list(range(1, quantity + 1)),
     }
@@ -215,3 +222,9 @@ def test_the_window_is_mapped_through_the_model_schedule():
     expected = (percent_to_sigma(0.2, settings, 16), percent_to_sigma(0.7, settings, 16))
     assert gen.sample_calls[0]["conditioning"].cond["control_sigma_range"] == expected
     assert 1.0 > expected[0] > expected[1] > 0.0
+
+
+def test_control_without_the_fun_controlnet_loaded_is_refused():
+    with pytest.raises(GenerationExecutionError, match="The Fun ControlNet model isn't loaded"):
+        _run(_control_input(bundle=_bundle(), image=_solid(64, 64, 255), control_image=_solid(64, 64, 255)))
+    assert _PoolingGenerator.instances == [] or not _PoolingGenerator.instances[-1].sample_calls

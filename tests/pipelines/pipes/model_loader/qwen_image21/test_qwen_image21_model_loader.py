@@ -192,15 +192,18 @@ def test_vision_flag_threaded_to_the_engine_loader(monkeypatch):
 _CONTROL = {"file_path": "/m/fun_control.safetensors", "name": "fun_control"}
 
 
-def test_a_control_model_changes_only_the_dit_fingerprint():
+def test_a_control_model_gets_its_own_dit_cache_entry():
     plain = _fps([])
     models, out = _run(ModelLoaderQwenImage21Pipe(config=_config(control_model=_CONTROL)))
     _ = out.output["text_encoder"].encoder
     controlled = dict(models.calls)
 
-    dit_key = "native/dit//m/dit.safetensors"
-    assert controlled[dit_key] != plain[dit_key]
-    assert "control=/m/fun_control.safetensors" in controlled[dit_key]
+    plain_key = "native/dit//m/dit.safetensors"
+    controlled_key = "native/dit//m/dit.safetensors+control=/m/fun_control.safetensors"
+    assert plain_key in plain and plain_key not in controlled
+    assert controlled_key in controlled and controlled_key not in plain
+    assert "control=/m/fun_control.safetensors" in controlled[controlled_key]
+    assert "control=" not in plain[plain_key]
     for key in ("native/te//m/te.safetensors", "native/vae//m/vae.safetensors"):
         assert controlled[key] == plain[key]
 

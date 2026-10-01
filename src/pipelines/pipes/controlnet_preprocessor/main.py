@@ -30,6 +30,12 @@ _WEIGHTED_PREPROCESSORS = frozenset(
     {"depth", "openpose", "normal", "scribble", "lineart", "mlsd", "hed"}
 )
 _PLAIN_PREPROCESSORS = frozenset({"grayscale"})
+_GUIDE_LABELS = {"openpose": "Pose", "hed": "HED", "mlsd": "MLSD", "lineart": "Lineart"}
+
+
+def _is_blank(image: Any) -> bool:
+    values = np.asarray(image)
+    return values.size == 0 or int(values.max()) == int(values.min())
 
 def _stub_mediapipe_face_without_solutions():
     import sys
@@ -366,6 +372,12 @@ class ControlNetPreprocessorPipe(BasePipe):
             if strict and processed is image:
                 raise GenerationExecutionError(
                     f"Control image preprocessing ({preprocessor_type}) failed; the log has the details."
+                )
+            if strict and preprocessor_type not in _PLAIN_PREPROCESSORS and _is_blank(processed):
+                label = _GUIDE_LABELS.get(preprocessor_type, preprocessor_type.capitalize())
+                raise GenerationExecutionError(
+                    f"The {label} guide found nothing in this image. If the image already is a "
+                    f"{label.lower()} map, set Guide to Use as is."
                 )
 
             # Optional: resize to output resolution

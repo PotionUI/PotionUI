@@ -150,7 +150,8 @@ class ModelLoaderQwenImage21Pipe(BaseModelLoaderPipe):
         dit_gb = file_size_gb(dit_path)
         if control_path and dit_gb is not None:
             dit_gb += file_size_gb(control_path) or 0.0
-        dit = Component("DiT", f"native/dit/{dit_path}", dit_fp, load_dit, dit_gb)
+        dit_key = f"native/dit/{dit_path}+control={control_path}" if control_path else f"native/dit/{dit_path}"
+        dit = Component("DiT", dit_key, dit_fp, load_dit, dit_gb)
 
         if not lifecycle.caching:
             te_model = lifecycle.acquire(te)

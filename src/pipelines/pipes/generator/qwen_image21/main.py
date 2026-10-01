@@ -137,6 +137,9 @@ class GeneratorQwenImage21Pipe(FlowMatchGeneratorPipe):
         return ctx
 
     def _control_context_setup(self, ctx: GeneratorContext, pipe_input: PipeInput) -> None:
+        dit_module = getattr(getattr(pipe_input.input.get("model"), "dit", None), "module", None)
+        if getattr(dit_module, "fun_control", None) is None:
+            raise GenerationExecutionError("The Fun ControlNet model isn't loaded. Pick it in the Models section.")
         control_image = first_image(pipe_input.input.get("control_image"))
         inpaint_image = first_image(pipe_input.input.get("inpaint_image"))
         if control_image is None and inpaint_image is None:

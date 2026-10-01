@@ -273,3 +273,13 @@ def test_inpaint_without_a_guide_ignores_a_leftover_window(qwen_image21_template
     cfg = _pipe(pipes, "generator/qwen_image21")["config"]
     assert float(cfg["control_start"]) == 0.0
     assert float(cfg["control_end"]) == 1.0
+
+
+@pytest.mark.parametrize("guide", ["canny", "none"])
+def test_the_fun_controlnet_model_must_be_picked(qwen_image21_template, guide):
+    form = {"source_image": "/uploads/room.png", "guide": guide, "control_model": ""}
+    if guide == "none":
+        form["source_image_inpaint_mask"] = "/uploads/room_mask.png"
+    with pytest.raises(FormBindingError) as refused:
+        _bind_control(qwen_image21_template, **form)
+    assert "control_model" in refused.value.field_errors

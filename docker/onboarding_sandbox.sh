@@ -22,9 +22,6 @@
 #     unchanged builds take seconds)
 #   - runs a brand new container (a timestamped, never-reused name) with:
 #       * the models directory bind-mounted READ-ONLY at /app/models
-#       * ANONYMOUS volumes for /app/storage and /app/outputs - not the named
-#         `potionui-storage`/`potionui-outputs` volumes docker-compose.yml
-#         uses, specifically so nothing persists across runs
 #       * the frontend published on a host port (default 8065) and the
 #         backend API on the next port up (default 8066), for anyone who
 #         wants to poke the API directly instead of the UI
@@ -106,7 +103,7 @@ echo " PotionUI onboarding sandbox - a completely fresh container"
 echo "================================================================"
 echo " Container:     $CONTAINER_NAME"
 echo " Models (RO):   $MODELS_DIR -> /app/models"
-echo " Storage/outputs: fresh anonymous volumes, discarded on exit"
+echo " Storage:        fresh anonymous volume, discarded on exit"
 echo ""
 echo " Open once ready:  http://localhost:${FRONTEND_PORT}"
 echo " Backend API:       http://localhost:${BACKEND_PORT}"
@@ -172,5 +169,4 @@ docker run \
     -v "${MODELS_DIR}:/app/models:ro" \
     "${SYMLINK_MOUNTS[@]}" \
     -v "/app/storage" \
-    -v "/app/outputs" \
     "$IMAGE_NAME"

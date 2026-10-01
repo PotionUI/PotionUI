@@ -9,7 +9,6 @@ by `.github/workflows/docker-publish.yml`:
 docker run --gpus all -p 26730:26730 \
   -v potionui-models:/app/models \
   -v potionui-storage:/app/storage \
-  -v potionui-outputs:/app/outputs \
   ghcr.io/potionui/potionui:latest
 
 # open http://localhost:26730
@@ -22,9 +21,9 @@ The worker image, `ghcr.io/potionui/potionui-worker`, carries the same tags.
 Unlike the rig-simulation harness below, this image runs exactly one process
 on exactly one port: the backend serves the prebuilt SvelteKit SPA itself
 (`src/bootstrap/static_frontend.py`), so there is no node runtime, no dev
-server, and nothing to configure beyond the three volumes (`models`,
-`storage`, `outputs` — all runtime state lives there; the image contains
-none). The `storage` volume also holds the rotating log file at
+server, and nothing to configure beyond the two volumes (`models`,
+`storage` — all runtime state lives there, generated work included; the image
+contains none). The `storage` volume also holds the rotating log file at
 `/app/storage/logs/potionui.log`, so the server's own log survives outside
 `docker logs`; set `POTIONUI_LOG_FILE=off` if the container runs with a
 read-only filesystem. GPU access works the same way as everything
@@ -135,8 +134,8 @@ What it does, honestly — no dev shortcuts a real user wouldn't also get:
   standalone-upscale RAM floor, ...) would overshoot the container's real
   ceiling — a bug real users would hit in any memory-limited container, not
   just a test-harness artifact.
-- **Models/outputs/settings persist** in named volumes
-  (`potionui-models`/`potionui-outputs`/`potionui-storage`) shared across
+- **Models/settings persist** in named volumes
+  (`potionui-models`/`potionui-storage`) shared across
   both profiles, so a model downloaded under `rig-mid` doesn't need
   re-downloading under `rig-small`. Drop a volume to force a genuinely clean
   onboarding run, e.g. `docker volume rm docker_potionui-storage`.
@@ -172,10 +171,10 @@ above, but runs a single throwaway container instead of the persistent
   --lan`) as the rig-simulation harness - no shortcuts.
 - **A brand new container every run** (a timestamped name, never reused).
   Your models directory is bind-mounted **read-only** at `/app/models`;
-  `/app/storage` and `/app/outputs` are **anonymous** volumes (not the
-  `potionui-storage`/`potionui-outputs` named volumes `docker-compose.yml`
+  `/app/storage` is an **anonymous** volume (not the
+  `potionui-storage` named volume `docker-compose.yml`
   uses) - deliberately so nothing persists across runs. `docker run --rm`
-  removes both the container and its anonymous volumes on exit, so the next
+  removes both the container and its anonymous volume on exit, so the next
   run starts from a genuinely clean machine: no claimed owner, no database, no
   generated files, same as a maintainer's first-ever install.
 - **Ports**: frontend on `POTIONUI_SANDBOX_PORT` (default `8065`), backend API

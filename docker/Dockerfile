@@ -14,7 +14,6 @@
 #   docker run --gpus all -p 26730:26730 \
 #     -v potionui-models:/app/models \
 #     -v potionui-storage:/app/storage \
-#     -v potionui-outputs:/app/outputs \
 #     ghcr.io/potionui/potionui:latest
 #
 # CI builds and publishes this to GHCR on version tags — see
@@ -85,7 +84,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 COPY . .
 COPY --from=frontend-builder /frontend/build ./frontend/build
 
-RUN mkdir -p storage models outputs
+RUN mkdir -p storage models
 
 # Containers publish ports explicitly, so the loopback default that protects
 # a bare-metal install (see api.py) would only make the published port dead.

@@ -79,7 +79,7 @@ RUN cd frontend && npm ci
 COPY . .
 
 RUN chmod +x ./potionui ./run.sh docker/scripts/entrypoint.sh \
-    && mkdir -p storage models outputs
+    && mkdir -p storage models
 
 # Backend + frontend dev-server ports (see run.sh). Published/consumed via
 # docker-compose.yml's rig profiles.

@@ -30,11 +30,6 @@
 # Requires nvidia-container-toolkit installed and configured as the Docker
 # GPU runtime (https://github.com/NVIDIA/nvidia-container-toolkit) - `docker
 # info | grep -i nvidia` should show the nvidia runtime before `up`.
-#
-# Models/outputs/settings persist in named volumes across runs (and across
-# rig-mid <-> rig-small - a model downloaded under one profile doesn't need
-# re-downloading under the other). Drop a volume to force a truly clean
-# onboarding run, e.g.: `docker volume rm docker_potionui-storage`.
 
 x-potionui-base: &potionui-base
   build:
@@ -54,7 +49,6 @@ x-potionui-base: &potionui-base
             capabilities: [gpu]
   volumes:
     - potionui-models:/app/models
-    - potionui-outputs:/app/outputs
     - potionui-storage:/app/storage
 
 services:
@@ -91,5 +85,4 @@ services:
 
 volumes:
   potionui-models:
-  potionui-outputs:
   potionui-storage:

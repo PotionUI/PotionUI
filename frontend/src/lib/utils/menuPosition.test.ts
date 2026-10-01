@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
 	computeAnchoredMenuPosition,
 	computeFlippedMenuPosition,
+	computeSelectMenuPlacement,
 	MENU_EDGE_GUTTER,
 	MENU_GAP,
 	MENU_HEIGHT_ESTIMATE,
@@ -218,5 +219,71 @@ describe('computeFlippedMenuPosition', () => {
 		expect(pos.top).toBeUndefined();
 		expect(pos.bottom).toBe(40 - 20 + MENU_GAP);
 		expect(pos.maxHeight).toBe(MENU_MIN_HEIGHT);
+	});
+});
+
+describe('computeSelectMenuPlacement', () => {
+	const base = { viewportHeight: 900, contentHeight: 440, maxMenuHeight: 256, bottomInset: 82 };
+
+	it('opens downward when the full menu fits above the dock', () => {
+		const p = computeSelectMenuPlacement({ ...base, triggerTop: 200, triggerBottom: 240 });
+		expect(p).toEqual({ openUpward: false, maxHeight: 256 });
+	});
+
+	it('flips upward when the dock leaves too little room below', () => {
+		const p = computeSelectMenuPlacement({ ...base, triggerTop: 700, triggerBottom: 740 });
+		expect(p).toEqual({ openUpward: true, maxHeight: 256 });
+	});
+
+	it('treats the dock as lost space: fits without a dock, flips with one', () => {
+		const input = { ...base, triggerTop: 560, triggerBottom: 600 };
+		expect(computeSelectMenuPlacement({ ...input, bottomInset: 0 }).openUpward).toBe(false);
+		expect(computeSelectMenuPlacement({ ...input, bottomInset: 82 }).openUpward).toBe(true);
+	});
+
+	it('caps the height to the larger side and scrolls when neither side fits', () => {
+		const p = computeSelectMenuPlacement({
+			viewportHeight: 400,
+			bottomInset: 82,
+			triggerTop: 100,
+			triggerBottom: 140,
+			contentHeight: 440,
+			maxMenuHeight: 256
+		});
+		expect(p.openUpward).toBe(false);
+		expect(p.maxHeight).toBe(400 - 82 - 140 - MENU_GAP - MENU_EDGE_GUTTER);
+	});
+
+	it('caps against the space above when that side is larger', () => {
+		const p = computeSelectMenuPlacement({
+			viewportHeight: 400,
+			bottomInset: 82,
+			triggerTop: 220,
+			triggerBottom: 260,
+			contentHeight: 440,
+			maxMenuHeight: 256
+		});
+		expect(p.openUpward).toBe(true);
+		expect(p.maxHeight).toBe(220 - MENU_GAP - MENU_EDGE_GUTTER);
+	});
+
+	it('short menus that fit stay downward', () => {
+		const p = computeSelectMenuPlacement({ ...base, contentHeight: 80, triggerTop: 660, triggerBottom: 700 });
+		expect(p.openUpward).toBe(false);
+	});
+});
+
+describe('computeFlippedMenuPosition with a bottom inset', () => {
+	afterEach(() => {
+		delete (globalThis as { window?: unknown }).window;
+	});
+
+	it('flips upward when the inset eats the room below', () => {
+		stubViewport(1440, 900);
+		const trigger = fakeTrigger({ top: 600, bottom: 640, left: 100, right: 200 });
+		const free = computeFlippedMenuPosition(trigger, { heightEstimate: 220, bottomInset: 0 });
+		const docked = computeFlippedMenuPosition(trigger, { heightEstimate: 220, bottomInset: 82 });
+		expect(free.top).toBeDefined();
+		expect(docked.bottom).toBeDefined();
 	});
 });

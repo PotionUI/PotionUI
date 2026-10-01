@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { createEventDispatcher, onDestroy } from 'svelte';
+	import { createEventDispatcher, tick } from 'svelte';
+	import { computeSelectMenuPlacement, dockInsetFor } from '$lib/utils/menuPosition';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 
-	// Props
 	export let value: any = '';
 	export let options: Array<{ value: any; label: string; description?: string }> = [];
 	export let placeholder: string = 'Select an option...';
@@ -11,20 +11,18 @@
 	export let searchable: boolean = false;
 	export let size: 'sm' | 'md' | 'lg' = 'md';
 
-	// Events
 	const dispatch = createEventDispatcher<{
 		change: any;
 	}>();
 
-	// State
 	let isDropdownOpen = false;
 	let filterText = '';
 	let containerRef: HTMLDivElement;
 	let dropdownRef: HTMLDivElement;
 	let inputRef: HTMLElement;
-	let dropdownPosition = { top: 0, bottom: 0, left: 0, width: 0, openUpward: false };
+	let dropdownPosition = { top: 0, bottom: 0, left: 0, width: 0, openUpward: false, maxHeight: 256 };
+	let activeIndex = 0;
 
-	// Reactive statements
 	$: selectedOption = options.find((opt) => opt.value === value);
 	$: displayValue = filterText || selectedOption?.label || '';
 
@@ -35,31 +33,55 @@
 		: options;
 
 
-	// Calculate dropdown position when opened
-	// Automatically flips to open upward if not enough space below
+	const MAX_MENU_HEIGHT = 256;
+	const ROW_ESTIMATE = 44;
+
 	function updateDropdownPosition() {
-		if (inputRef) {
-			const rect = inputRef.getBoundingClientRect();
-			const dropdownMaxHeight = 256; // max-h-64 = 16rem = 256px
-			const viewportHeight = window.innerHeight;
-			const spaceBelow = viewportHeight - rect.bottom;
-			const spaceAbove = rect.top;
-			const gap = 4;
-
-			// Determine if we should open upward
-			const openUpward = spaceBelow < dropdownMaxHeight && spaceAbove > spaceBelow;
-
-			dropdownPosition = {
-				top: rect.bottom + gap,
-				bottom: viewportHeight - rect.top + gap,
-				left: rect.left,
-				width: rect.width,
-				openUpward
-			};
-		}
+		if (!inputRef) return;
+		const rect = inputRef.getBoundingClientRect();
+		const gap = 4;
+		const contentHeight = dropdownRef
+			? dropdownRef.scrollHeight
+			: Math.max(1, filteredOptions.length) * ROW_ESTIMATE;
+		const placement = computeSelectMenuPlacement({
+			triggerTop: rect.top,
+			triggerBottom: rect.bottom,
+			viewportHeight: window.innerHeight,
+			bottomInset: dockInsetFor(inputRef),
+			contentHeight,
+			maxMenuHeight: MAX_MENU_HEIGHT,
+			gap
+		});
+		dropdownPosition = {
+			top: rect.bottom + gap,
+			bottom: window.innerHeight - rect.top + gap,
+			left: rect.left,
+			width: rect.width,
+			openUpward: placement.openUpward,
+			maxHeight: placement.maxHeight
+		};
 	}
 
-	// Size classes
+	async function openMenu() {
+		updateDropdownPosition();
+		isDropdownOpen = true;
+		activeIndex = Math.max(0, filteredOptions.findIndex((o) => o.value === value));
+		await tick();
+		updateDropdownPosition();
+		scrollActiveIntoView();
+	}
+
+	function scrollActiveIntoView() {
+		dropdownRef?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
+	}
+
+	async function moveActive(next: number) {
+		if (filteredOptions.length === 0) return;
+		activeIndex = (next + filteredOptions.length) % filteredOptions.length;
+		await tick();
+		scrollActiveIntoView();
+	}
+
 	const sizeClasses = {
 		sm: 'px-2 py-1 text-xs',
 		md: 'px-3 py-2 text-sm min-h-9',
@@ -81,16 +103,16 @@
 
 	function handleInputClick() {
 		if (disabled) return;
-		updateDropdownPosition();
-		isDropdownOpen = !isDropdownOpen;
+		if (isDropdownOpen) isDropdownOpen = false;
+		else openMenu();
 	}
 
 	function handleInputInput(event: Event) {
 		if (!searchable || disabled) return;
 		const target = event.target as HTMLInputElement;
 		filterText = target.value;
-		updateDropdownPosition();
-		isDropdownOpen = true;
+		openMenu();
+		activeIndex = 0;
 	}
 
 	function handleClearFilter() {
@@ -98,7 +120,6 @@
 		isDropdownOpen = false;
 	}
 
-	// Click outside to close dropdown
 	function handleWindowClick(event: MouseEvent) {
 		if (
 			containerRef &&
@@ -111,15 +132,28 @@
 		}
 	}
 
-	// Keyboard navigation
 	function handleKeyDown(event: KeyboardEvent) {
 		if (disabled) return;
 
 		if (event.key === 'Escape') {
 			isDropdownOpen = false;
 			filterText = '';
-		} else if (event.key === 'ArrowDown' && !isDropdownOpen) {
-			isDropdownOpen = true;
+		} else if (event.key === 'ArrowDown') {
+			event.preventDefault();
+			if (!isDropdownOpen) openMenu();
+			else moveActive(activeIndex + 1);
+		} else if (event.key === 'ArrowUp' && isDropdownOpen) {
+			event.preventDefault();
+			moveActive(activeIndex - 1);
+		} else if (event.key === 'Home' && isDropdownOpen && !searchable) {
+			event.preventDefault();
+			moveActive(0);
+		} else if (event.key === 'End' && isDropdownOpen && !searchable) {
+			event.preventDefault();
+			moveActive(filteredOptions.length - 1);
+		} else if (event.key === 'Enter' && isDropdownOpen && filteredOptions[activeIndex]) {
+			event.preventDefault();
+			handleOptionSelect(filteredOptions[activeIndex].value);
 		}
 	}
 </script>
@@ -127,7 +161,6 @@
 <svelte:window on:click={handleWindowClick} />
 
 <div class="relative w-full" bind:this={containerRef}>
-	<!-- Input/Button -->
 	<div class="relative" bind:this={inputRef}>
 		{#if searchable}
 			<input
@@ -171,11 +204,11 @@
 			</button>
 		{/if}
 
-		<!-- Dropdown Arrow -->
 		<button
 			type="button"
 			class="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg transition-colors"
 			on:click={handleInputClick}
+			on:keydown={handleKeyDown}
 			disabled={disabled}
 		>
 			<svg
@@ -193,29 +226,29 @@
 
 </div>
 
-<!-- Dropdown Menu - Rendered at body level using Svelte portal pattern -->
 {#if isDropdownOpen}
 	<div
 		use:portal
 		use:overlayLayer
 		bind:this={dropdownRef}
 		data-dropdown="true"
-		class="fixed z-overlay bg-surface-2 border border-line-hover rounded-xl shadow-overlay max-h-64 overflow-y-auto"
+		class="fixed z-overlay bg-surface-2 border border-line-hover rounded-xl shadow-overlay overflow-y-auto"
 		role="listbox"
-		style="{dropdownPosition.openUpward ? `bottom: ${dropdownPosition.bottom}px` : `top: ${dropdownPosition.top}px`}; left: {dropdownPosition.left}px; width: {dropdownPosition.width}px;"
+		style="{dropdownPosition.openUpward ? `bottom: ${dropdownPosition.bottom}px` : `top: ${dropdownPosition.top}px`}; left: {dropdownPosition.left}px; width: {dropdownPosition.width}px; max-height: {dropdownPosition.maxHeight}px;"
 	>
 		{#if filteredOptions.length === 0}
 			<div class="px-4 py-3 text-sm text-fg-subtle text-center">No options found</div>
 		{:else}
-			{#each filteredOptions as option}
+			{#each filteredOptions as option, index}
 				<button
 					type="button"
 					class="w-full text-left px-4 py-2.5 transition-colors border-b border-line-strong last:border-b-0 {option.value ===
 					value
 						? 'bg-signal/10'
-						: 'hover:bg-surface-3'}"
+						: 'hover:bg-surface-3'} {index === activeIndex ? 'bg-surface-3' : ''}"
 					on:click={() => handleOptionSelect(option.value)}
 					role="option"
+					data-active={index === activeIndex}
 					aria-selected={option.value === value}
 				>
 					<div class="flex flex-col gap-1">

@@ -31,6 +31,50 @@ export function computeAnchoredMenuPosition(
 	return { top: rect.bottom + gap, left };
 }
 
+export function dockInsetFor(trigger: HTMLElement): number {
+	if (typeof document === 'undefined' || typeof trigger.closest !== 'function') return 0;
+	if (trigger.closest('[role="dialog"]')) return 0;
+	const dock = document.querySelector('.generation-panel');
+	if (!dock) return 0;
+	const rect = dock.getBoundingClientRect();
+	if (rect.height <= 0) return 0;
+	return Math.max(0, window.innerHeight - rect.top);
+}
+
+export interface SelectMenuPlacement {
+	openUpward: boolean;
+	maxHeight: number;
+}
+
+export function computeSelectMenuPlacement(input: {
+	triggerTop: number;
+	triggerBottom: number;
+	viewportHeight: number;
+	bottomInset?: number;
+	contentHeight: number;
+	maxMenuHeight?: number;
+	gap?: number;
+	edgeGutter?: number;
+}): SelectMenuPlacement {
+	const {
+		triggerTop,
+		triggerBottom,
+		viewportHeight,
+		bottomInset = 0,
+		contentHeight,
+		maxMenuHeight = 256,
+		gap = MENU_GAP,
+		edgeGutter = MENU_EDGE_GUTTER
+	} = input;
+	const need = Math.min(contentHeight, maxMenuHeight);
+	const below = Math.max(0, viewportHeight - bottomInset - triggerBottom - gap - edgeGutter);
+	const above = Math.max(0, triggerTop - gap - edgeGutter);
+	if (below >= need) return { openUpward: false, maxHeight: maxMenuHeight };
+	if (above >= need) return { openUpward: true, maxHeight: maxMenuHeight };
+	const openUpward = above > below;
+	return { openUpward, maxHeight: Math.floor(Math.min(maxMenuHeight, openUpward ? above : below)) };
+}
+
 export interface FlippedMenuPosition {
 	left: number;
 	top?: number;
@@ -65,6 +109,7 @@ export function computeFlippedMenuPosition(
 		edgeGutter?: number;
 		align?: 'left' | 'right';
 		preferred?: 'up' | 'down';
+		bottomInset?: number;
 	} = {}
 ): FlippedMenuPosition {
 	const {
@@ -73,7 +118,8 @@ export function computeFlippedMenuPosition(
 		gap = MENU_GAP,
 		edgeGutter = MENU_EDGE_GUTTER,
 		align = 'left',
-		preferred = 'down'
+		preferred = 'down',
+		bottomInset = dockInsetFor(trigger)
 	} = options;
 	const rect = trigger.getBoundingClientRect();
 
@@ -82,7 +128,7 @@ export function computeFlippedMenuPosition(
 	if (left > maxLeft) left = maxLeft;
 	if (left < edgeGutter) left = edgeGutter;
 
-	const spaceBelow = window.innerHeight - rect.bottom;
+	const spaceBelow = window.innerHeight - bottomInset - rect.bottom;
 	const spaceAbove = rect.top;
 	const preferUp = preferred === 'up';
 	const fitsPreferred = preferUp ? spaceAbove >= heightEstimate : spaceBelow >= heightEstimate;

@@ -1,8 +1,10 @@
 import type { ComponentType } from 'svelte';
 import { registerMediaTool } from '$lib/tools/tools';
 import HistoryCompareModal from '../components/HistoryCompareModal.svelte';
+import HistoryEditImageModal from '../components/HistoryEditImageModal.svelte';
 import HistoryExportZipModal from '../components/HistoryExportZipModal.svelte';
 import HistoryStitchModal from '../components/HistoryStitchModal.svelte';
+import { editImageAvailability } from './editImage';
 
 let registered = false;
 
@@ -56,5 +58,17 @@ export function registerCoreHistoryTools(): void {
 				? { enabled: true }
 				: { enabled: false, reason: 'Select at least 2 images' },
 		component: HistoryStitchModal as unknown as ComponentType
+	});
+
+	registerMediaTool({
+		id: 'edit-image',
+		label: 'Edit image',
+		description: 'Open the selected image in the image editor',
+		icon: 'paint-brush',
+		category: 'compose',
+		source: 'core',
+		scopes: ['history', 'library'],
+		applies: editImageAvailability,
+		component: HistoryEditImageModal as unknown as ComponentType
 	});
 }

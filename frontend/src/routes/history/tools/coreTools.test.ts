@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildHistoryToolContext, listToolGroups } from '$lib/tools/tools';
+import { buildHistoryToolContext, buildLibraryToolContext, listToolGroups } from '$lib/tools/tools';
 import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 
 // The modals are leaves here: only the registrations and their `applies()`
 // predicates are under test, and mounting one would drag the whole modal stack
 // into a node-environment run.
 vi.mock('../components/HistoryCompareModal.svelte', () => ({ default: {} }));
+vi.mock('../components/HistoryEditImageModal.svelte', () => ({ default: {} }));
 vi.mock('../components/HistoryExportZipModal.svelte', () => ({ default: {} }));
 vi.mock('../components/HistoryStitchModal.svelte', () => ({ default: {} }));
 
@@ -68,5 +69,40 @@ describe('core history tools', () => {
 	it('offers the zip export for any non-empty selection', () => {
 		expect(entryFor('export-zip', ['a']).availability).toEqual({ enabled: true });
 		expect(entryFor('export-zip', ['a', 'b', 'c']).availability).toEqual({ enabled: true });
+	});
+
+	it('files edit image under Compose on both pages', () => {
+		const history = entryFor('edit-image', ['a']);
+		expect(history.category.id).toBe('compose');
+		expect(history.tool.scopes).toEqual(['history', 'library']);
+		expect(history.tool.label).toBe('Edit image');
+	});
+
+	it('offers edit image for exactly one image on the history page', () => {
+		expect(entryFor('edit-image', ['a']).availability).toEqual({ enabled: true });
+		expect(entryFor('edit-image', ['a', 'b']).availability).toEqual({
+			enabled: false,
+			reason: 'Select exactly 1 image'
+		});
+		expect(entryFor('edit-image', []).availability).toEqual({
+			enabled: false,
+			reason: 'Select 1 image'
+		});
+	});
+
+	it('offers edit image for exactly one image on the library page', () => {
+		const item = (id: string, media_type: string) =>
+			({ id, filename: `${id}.png`, media_type, url: `/u/${id}.png` }) as never;
+		const entry = (items: never[]) =>
+			listToolGroups(buildLibraryToolContext(items, null))
+				.flatMap((group) => group.tools)
+				.find(({ tool }) => tool.id === 'edit-image');
+
+		expect(entry([item('a', 'image')])?.availability).toEqual({ enabled: true });
+		expect(entry([item('a', 'image'), item('b', 'image')])?.availability.enabled).toBe(false);
+		expect(entry([item('v', 'video')])?.availability).toEqual({
+			enabled: false,
+			reason: 'Only images can be edited'
+		});
 	});
 });

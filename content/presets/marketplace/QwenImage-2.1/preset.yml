@@ -95,6 +95,14 @@ prompt_syntax:
       help: "Exact text to render in the image, verbatim"
       color: "coral"
 
+formulas:
+  groups:
+    speed:  { label: "Speed and sampling" }
+    size:   { label: "Size" }
+    loras:  { label: "LoRAs" }
+    cache:  { label: "Step cache" }
+    models: { label: "Models", preselect: false }
+
 modes:
   - txt2img
   - edit

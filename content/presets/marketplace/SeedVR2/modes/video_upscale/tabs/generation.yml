@@ -7,6 +7,7 @@
 fields:
   - name: "restoration_intent"
     type: "select"
+    formula: "restoration"
     label: "Restoration Intent"
     default: "faithful"
     configuration:
@@ -16,6 +17,7 @@ fields:
 
   - name: "resolution_target"
     type: "select"
+    formula: "size"
     label: "Output Size"
     default: "fhd1080"
     configuration:
@@ -43,6 +45,7 @@ fields:
 
   - type: "section"
     label: "Models"
+    formula: "models"
     children:
       # Same SeedVR2 components as the image 'upscale' mode's Generation tab,
       # without the download recommendations (that sibling tab owns the

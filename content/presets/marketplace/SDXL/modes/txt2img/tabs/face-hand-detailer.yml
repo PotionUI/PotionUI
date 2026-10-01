@@ -1,6 +1,7 @@
 fields:
   - type: "gate"
     name: "face_detailer_enabled"
+    formula: "detailer"
     label: "Face Detailer"
     default: true
     configuration:
@@ -56,6 +57,7 @@ fields:
 
       - name: "face_detector_model"
         type: "model"
+        formula: "models"
         label: "Face Detection Model"
         configuration:
           model_type: "detection_bbox"
@@ -63,6 +65,7 @@ fields:
 
   - type: "gate"
     name: "hand_detailer_enabled"
+    formula: "detailer"
     label: "Hand Detailer"
     default: false
     configuration:
@@ -105,6 +108,7 @@ fields:
         configuration: { min: 0, max: 200, step: 8 }
 
       - name: "hand_detector_model"
+        formula: "models"
         label: "Hand Detection Model"
         type: "model"
         configuration:
@@ -113,6 +117,7 @@ fields:
 
   - type: "gate"
     name: "eyes_detailer_enabled"
+    formula: "detailer"
     label: "Eyes Detailer"
     default: false
     configuration:
@@ -161,6 +166,7 @@ fields:
         configuration: { min: 0, max: 10, step: 1 }
 
       - name: "eye_detector_model"
+        formula: "models"
         label: "Eye Detection Model"
         type: "model"
         configuration:
@@ -174,6 +180,7 @@ fields:
 
   - type: "gate"
     name: "teeth_detailer_enabled"
+    formula: "detailer"
     label: "Teeth Detailer"
     default: false
     configuration:
@@ -228,6 +235,7 @@ fields:
         configuration: { min: 0, max: 10, step: 1 }
 
       - name: "teeth_detector_model"
+        formula: "models"
         label: "Teeth Detection Model"
         type: "model"
         configuration:
@@ -241,6 +249,7 @@ fields:
 
   - type: "gate"
     name: "person_detailer_enabled"
+    formula: "detailer"
     label: "Person Detailer"
     default: false
     configuration:
@@ -283,6 +292,7 @@ fields:
         configuration: { min: 0, max: 200, step: 8 }
 
       - name: "person_detector_model"
+        formula: "models"
         label: "Person Detection Model"
         type: "model"
         configuration:

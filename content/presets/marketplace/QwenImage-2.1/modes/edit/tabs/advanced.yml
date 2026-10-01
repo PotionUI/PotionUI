@@ -1,6 +1,7 @@
 fields:
   - type: "section"
     label: "Sampling"
+    formula: "speed"
     children:
       # Same defaults as txt2img -- edit runs the identical checkpoint, just
       # with the vision tower loaded and ref_latents added to the DiT call.
@@ -78,6 +79,7 @@ fields:
 
   - type: "section"
     label: "Step Cache"
+    formula: "cache"
     children:
       - type: "row"
         children:

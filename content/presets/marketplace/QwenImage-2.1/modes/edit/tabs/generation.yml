@@ -1,6 +1,7 @@
 fields:
   - name: "speed_profile"
     type: "select"
+    formula: "speed"
     label: "Speed profile"
     default: "balanced"
     configuration:
@@ -30,6 +31,7 @@ fields:
 
   - type: "section"
     label: "Models"
+    formula: "models"
     children:
       - name: "diffusion_model"
         type: "model"

@@ -1,6 +1,7 @@
 fields:
   - type: "section"
     label: "Sampling"
+    formula: "speed"
     children:
       - name: "cfg_scale"
         type: "slider"
@@ -60,6 +61,7 @@ fields:
 
       - name: "abc"
         type: "string"
+        formula: false
         label: "ABC transcription"
         default: ""
         audience: "advanced"

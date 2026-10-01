@@ -8,6 +8,7 @@ fields:
   # whatever regime the base generation used, but nothing here enforces that.
   - name: "cfg"
     type: "slider"
+    formula: "speed"
     label: "CFG Scale"
     audience: "advanced"
     default: 1.0

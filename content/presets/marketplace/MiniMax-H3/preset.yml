@@ -80,6 +80,17 @@ speed_profiles:
   custom:
     steps: 24
 
+formulas:
+  groups:
+    speed:   { label: "Speed and sampling" }
+    size:    { label: "Size" }
+    loras:   { label: "LoRAs" }
+    cache:   { label: "Step cache" }
+    sparse:  { label: "Sparse attention" }
+    enhance: { label: "Upscale and refine" }
+    memory:  { label: "Memory and tiling" }
+    models:  { label: "Models", preselect: false }
+
 vars:
   # H3's frame rate is fixed by the model, not chosen per request: the audio
   # stream's latent count is derived from it (40 latents per second of video),

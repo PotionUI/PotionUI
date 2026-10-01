@@ -4,6 +4,7 @@
 fields:
   - name: "anchor"
     type: "select"
+    formula: "canvas"
     label: "Canvas Anchor"
     audience: "advanced"
     default: "center"

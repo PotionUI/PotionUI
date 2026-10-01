@@ -20,6 +20,7 @@ fields:
 
       - name: "upscale_by"
         type: "select"
+        formula: "enhance"
         label: "Upscale by"
         default: "2x"
         ai_hint: "This IS the upscale control: the source is Lanczos-fit to (upscale factor)x its own resolution (aspect preserved) before the refine pass runs."
@@ -31,6 +32,7 @@ fields:
 
       - name: "enhance_detail"
         type: "select"
+        formula: "enhance"
         label: "Enhance detail"
         default: "balanced"
         ai_hint: "How much of the fixed-mu schedule's tail to walk: more steps = more added detail/change, fewer = closer to the base image."
@@ -42,6 +44,7 @@ fields:
 
   - type: "gate"
     name: "nag_enabled"
+    formula: "speed"
     label: "NAG"
     default: false
     configuration:
@@ -83,6 +86,7 @@ fields:
 
   - type: "section"
     label: "Models"
+    formula: "models"
     children:
       - name: "diffusion_model"
         type: "model"

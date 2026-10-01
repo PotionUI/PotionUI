@@ -16,6 +16,7 @@ fields:
         children:
           - name: "cot"
             type: "select"
+            formula: "song"
             label: "Chain of thought"
             default: "off"
             configuration:
@@ -28,6 +29,7 @@ fields:
 
           - name: "duration"
             type: "integer"
+            formula: "song"
             label: "Max duration (seconds, 0 = auto)"
             default: 60
             configuration: {min: 0, max: 360}
@@ -42,6 +44,7 @@ fields:
 
   - type: "section"
     label: "Models"
+    formula: "models"
     children:
       - name: "model"
         type: "model"

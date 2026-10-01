@@ -1,6 +1,7 @@
 fields:
   - type: "section"
     label: "Sampling"
+    formula: "speed"
     children:
       - name: "steps"
         type: "slider"
@@ -60,6 +61,7 @@ fields:
 
   - type: "gate"
     name: "adm_guidance_enabled"
+    formula: "guidance"
     label: "Adaptive Diffusion Model (ADM) Guidance"
     default: true
     configuration:
@@ -85,6 +87,7 @@ fields:
 
   - type: "gate"
     name: "sag_enabled"
+    formula: "guidance"
     label: "Self-Attention Guidance (SAG)"
     default: false
     configuration:

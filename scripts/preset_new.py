@@ -92,6 +92,9 @@ engine: "{engine}"
 vars:
   default_steps: 30
 
+formulas:
+  groups: {{}}
+
 modes:
 {modes_yaml}
 """

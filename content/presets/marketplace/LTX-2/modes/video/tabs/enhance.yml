@@ -12,6 +12,7 @@ fields:
   #############
   - name: "upscale"
     type: "select"
+    formula: "enhance"
     label: "Upscale"
     ai_hint: "Two-stage latent upscale, same recipe as the standalone Upscale mode -- Requires the Spatial Upscaler selected below on this tab. The selected Resolution (Generation tab) is always stage 1's resolution; Upscale multiplies it -- 2.0x doubles your selected resolution for stage 2 and the final output (e.g. 544x960 selected + 2.0x -> 1088x1920 out), 1.5x scales it by 1.5x. 2.0x is the first-party recipe and the recommended choice (any /32-aligned resolution doubles onto the /64 grid the DiT needs, so 2.0x always works); 1.5x keeps more of stage 1's detail but only lands on a clean grid when both Resolution axes are multiples of 64px -- an off-grid pick (e.g. most of the built-in Resolution presets) is now rejected immediately at submission time with the nearest achievable resolution named in the error, rather than failing after stage 1 has already rendered. Mind VRAM: stage 1 now renders at the FULL selected resolution (heavier than before) and stage 2 at factor x that -- warn users combining a large selected resolution with 2.0x. Composes freely with audio (Generate Audio checkbox, or a Director timeline with its own audio clips): stage 1's audio track (generated or muxed from a user file) is decoded/passed through independently of the video refine and gets muxed into stage 2's refined output -- no need to disable Upscale when audio is on."
     default: "off"
@@ -23,6 +24,7 @@ fields:
 
   - name: "refine_strength"
     type: "select"
+    formula: "enhance"
     label: "Refine Strength"
     ai_hint: "Friendly control for the two-stage upscale refine pass (Upscale field, this tab). Strong is Lightricks' first-party recipe and the recommended default; suggest Balanced/Light only if the user wants the refine to preserve more of the upsampled latent as-is. The Advanced tab's Upscale Refine Sigmas field is an expert override of this same knob -- prefer this select."
     default: "strong"
@@ -39,6 +41,7 @@ fields:
 
   - name: "upscale_model"
     type: "model"
+    formula: "models"
     label: "Spatial Upscaler (optional)"
     configuration:
       model_type: "upscaler"
@@ -58,6 +61,7 @@ fields:
 
   - name: "enhancement_loras"
     type: "lora_picker"
+    formula: "loras"
     default: []
     label: "Refine LoRAs (stage 2)"
     ai_hint: "ADDED to the generation LoRAs (Generation tab's LoRAs field) for the two-stage refine pass ONLY -- stage 1 renders with the plain generation LoRA stack, unaffected. First-party recipe: put the distilled LoRA here at strength 1.0 (stage 1 stays undistilled, full CFG/steps; stage 2 becomes Lightricks' short, low-CFG distilled refine) and keep style/character LoRAs on the Generation tab's LoRAs field, not here. Empty = the refine pass shares the generation LoRA stack exactly as before this field existed."
@@ -84,6 +88,7 @@ fields:
   #############
   - type: "section"
     label: "Negative prompt guidance (NAG)"
+    formula: "guidance"
     children:
       - type: "row"
         children:
@@ -124,6 +129,7 @@ fields:
   #############
   - type: "gate"
     name: "enhance_faces_hands"
+    formula: "detailer"
     label: "Enhance faces and hands"
     default: false
     configuration:
@@ -154,12 +160,14 @@ fields:
       #############
       - name: "face_detector_model"
         type: "model"
+        formula: "models"
         label: "Face Detection Model"
         configuration:
           model_type: "mediapipe"
 
       - name: "hand_detector_model"
         type: "model"
+        formula: "models"
         label: "Hand Detection Model"
         configuration:
           model_type: "mediapipe"

@@ -78,6 +78,16 @@ llm:
     full detailed description. For text in the image, put the exact words in
     double quotes.
 
+formulas:
+  groups:
+    speed:    { label: "Speed and sampling" }
+    size:     { label: "Size" }
+    loras:    { label: "LoRAs" }
+    enhance:  { label: "Upscale and refine" }
+    detailer: { label: "Face and hand detailer" }
+    cache:    { label: "Step cache" }
+    models:   { label: "Models", preselect: false }
+
 modes:
   - txt2img
   - enhance

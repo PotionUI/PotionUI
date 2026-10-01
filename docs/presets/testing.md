@@ -151,6 +151,9 @@ python scripts/preset_lint.py content/presets/marketplace/SDXL   # lint a subtre
 python scripts/preset_lint.py --fix              # migrate preset.yml to canonical schema, then lint
 ```
 
+`python scripts/preset_lint.py --formulas <preset-id-name-or-dir>` prints the
+[formula groups](manifest.md#formulas) each mode and variant resolves to, then exits.
+
 The linter (`src/features/presets/linter.py`) exits non-zero only if there are **errors** (warnings do
 not fail the run). It checks: manifest validity (via the schema), unique ids, that every declared
 mode has a directory on disk, that no mode directory is orphaned (warning), that literal

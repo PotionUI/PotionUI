@@ -1,6 +1,7 @@
 fields:
   - type: "section"
     label: "Sampling"
+    formula: "speed"
     children:
       - name: "steps"
         type: "slider"

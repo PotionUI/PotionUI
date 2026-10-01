@@ -44,6 +44,14 @@ llm:
     fit_canvas (resize/pad to target dimensions), prepare (crop + spritesheet prep).
     Read the form summary below and use update_form_settings; never suggest prompt text.
 
+formulas:
+  groups:
+    background: { label: "Background removal" }
+    crop:       { label: "Crop" }
+    canvas:     { label: "Canvas" }
+    color_key:  { label: "Color key" }
+    models:     { label: "Models", preselect: false }
+
 modes:
   - prepare
   - remove_background

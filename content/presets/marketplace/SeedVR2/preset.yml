@@ -54,6 +54,13 @@ llm:
     Never write or improve prompts here. Help the user configure upscale settings
     (resolution, tiling, video vs image mode) from the form summary below.
 
+formulas:
+  groups:
+    size:        { label: "Size" }
+    restoration: { label: "Restoration" }
+    memory:      { label: "Memory and tiling" }
+    models:      { label: "Models", preselect: false }
+
 modes:
   - upscale
   - video_upscale

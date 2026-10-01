@@ -1,6 +1,7 @@
 fields:
   - name: "loras"
     type: "lora_picker"
+    formula: "loras"
     default: []
     label: "LoRAs"
     configuration:

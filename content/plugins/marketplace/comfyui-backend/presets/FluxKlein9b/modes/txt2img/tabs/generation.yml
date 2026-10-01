@@ -1,6 +1,7 @@
 fields:
   - name: "speed_profile"
     type: "select"
+    formula: "speed"
     label: "Speed"
     description: "Fast uses a separately-trained distilled checkpoint, not a sampling shortcut on the same model - pick it in Diffusion Model below (the picker narrows to it automatically)."
     default: "balanced"
@@ -33,6 +34,7 @@ fields:
 
       - name: "resolution"
         type: "resolution"
+        formula: "size"
         label: "Resolution"
         configuration:
           files:
@@ -42,6 +44,7 @@ fields:
 
   - type: "section"
     label: "Models"
+    formula: "models"
     children:
       - name: "diffusion_model"
         type: "model"

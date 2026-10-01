@@ -6,6 +6,14 @@ category: "utility"
 engine: "native"
 tags: [development, frontend, form-catalog]
 
+formulas:
+  groups:
+    basics: { label: "Basic inputs" }
+    size:   { label: "Size" }
+    loras:  { label: "LoRAs" }
+    layout: { label: "Layout examples" }
+    models: { label: "Models", preselect: false }
+
 # A deliberately inert preset for inspecting form rendering.  Its gallery-only
 # pipeline keeps the catalog loadable without claiming to generate media.
 modes:

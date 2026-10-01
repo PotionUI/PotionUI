@@ -1,6 +1,7 @@
 fields:
   - type: "section"
     label: "Positive Embeddings"
+    formula: "embeddings"
     children:
       - name: "positive_embedding_1"
         type: "model"
@@ -29,6 +30,7 @@ fields:
 
   - type: "section"
     label: "Negative Embeddings"
+    formula: "embeddings"
     children:
       - name: "negative_embedding_1"
         type: "model"

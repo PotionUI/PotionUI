@@ -9,6 +9,7 @@ fields:
 
   - name: "matting_model"
     type: "model"
+    formula: "models"
     label: "Matting Model"
     required: true
     ai_hint: "A BiRefNet checkpoint, dropped in `models/detection_segm/`. BiRefNet-general (ZhengPeng7/BiRefNet, MIT) is the default pick and the permissively-licensed one. RMBG-2.0 (briaai/RMBG-2.0) separates edges more confidently on products, packshots and objects photographed against busy backgrounds, at the cost of a non-commercial licence -- check that before shipping anything made with it. Both are swin_v1_l-backbone BiRefNet with 754 tensors, so the loader accepts either file without any variant selection."

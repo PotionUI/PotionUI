@@ -6,6 +6,7 @@
 fields:
   - type: "section"
     label: "Output Size (Expert Override)"
+    formula: "size"
     children:
       - type: "row"
         children:
@@ -59,6 +60,7 @@ fields:
 
   - type: "section"
     label: "Restoration Intent (Expert Override)"
+    formula: "restoration"
     children:
       - type: "row"
         children:
@@ -96,6 +98,7 @@ fields:
 
   - name: "color_correction"
     type: "select"
+    formula: "restoration"
     label: "Color Correction"
     audience: "advanced"
     default: "wavelet"
@@ -107,6 +110,7 @@ fields:
 
   - type: "section"
     label: "Temporal Batching"
+    formula: "memory"
     children:
       - type: "row"
         children:
@@ -164,6 +168,7 @@ fields:
 
   - type: "section"
     label: "VAE Decode Tiling"
+    formula: "memory"
     children:
       - type: "row"
         children:

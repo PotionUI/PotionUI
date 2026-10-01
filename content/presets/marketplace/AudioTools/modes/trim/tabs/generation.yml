@@ -10,6 +10,7 @@ fields:
 
   - name: "duration_seconds"
     type: "slider"
+    formula: "trim"
     label: "Duration"
     default: 10.0
     ai_hint: "How many seconds to keep, starting at Trim Start (Advanced tab). This is the length of the OUTPUT, not a position in the source -- pair it with Trim Start on the Advanced tab, which is the position it counts from. If Trim Start plus this value overshoots the source's own length, the result is silently clamped to 'everything remaining after Trim Start', which is almost always what's wanted; there is no separate 'trim to end' toggle because clamping already produces that result whenever Duration is set larger than the remainder."

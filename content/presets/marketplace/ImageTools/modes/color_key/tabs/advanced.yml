@@ -3,6 +3,7 @@
 fields:
   - name: "softness"
     type: "slider"
+    formula: "color_key"
     label: "Softness"
     audience: "advanced"
     default: 10
@@ -14,6 +15,7 @@ fields:
 
   - name: "despill"
     type: "checkbox"
+    formula: "color_key"
     label: "Suppress Spill"
     audience: "advanced"
     default: true
@@ -21,6 +23,7 @@ fields:
 
   - name: "key_feather"
     type: "slider"
+    formula: "color_key"
     label: "Feather"
     audience: "advanced"
     default: 0

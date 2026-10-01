@@ -3,6 +3,7 @@
 fields:
   - name: "start_seconds"
     type: "slider"
+    formula: "trim"
     label: "Trim Start"
     audience: "advanced"
     default: 0.0

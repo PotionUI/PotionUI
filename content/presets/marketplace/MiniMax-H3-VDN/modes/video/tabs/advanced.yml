@@ -11,6 +11,7 @@ fields:
     children:
       - name: "steps"
         type: "slider"
+        formula: "speed"
         label: "Steps"
         audience: "advanced"
         default: 8
@@ -27,6 +28,7 @@ fields:
         children:
           - name: "sampler"
             type: "select"
+            formula: "speed"
             label: "Sampler"
             audience: "advanced"
             default: "euler"
@@ -52,6 +54,7 @@ fields:
 
           - name: "scheduler"
             type: "select"
+            formula: "speed"
             label: "Scheduler"
             audience: "advanced"
             default: "simple"
@@ -100,6 +103,7 @@ fields:
 
   - type: "section"
     label: "Step cache (FBCache)"
+    formula: "cache"
     audience: "advanced"
     children:
       - type: "row"

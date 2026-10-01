@@ -137,6 +137,7 @@ class BaseField(ABC):
                 'full_width': getattr(field, 'full_width', False),
                 'hidden_when_video_director': getattr(field, 'hidden_when_video_director', False),
                 'capability': self._capability_of(getattr(field, 'capability', None)),
+                'formula': self._formula_of(getattr(field, 'formula', None)),
             }
         else:
             return {
@@ -156,11 +157,16 @@ class BaseField(ABC):
                 'full_width': field.get('full_width', False),
                 'hidden_when_video_director': field.get('hidden_when_video_director', False),
                 'capability': self._capability_of(field.get('capability')),
+                'formula': self._formula_of(field.get('formula')),
             }
 
     @staticmethod
     def _capability_of(value):
         return value if isinstance(value, dict) else None
+
+    @staticmethod
+    def _formula_of(value):
+        return value if isinstance(value, str) or value is False else None
 
     def create_base_schema(self, field_info: Dict[str, Any]) -> Dict[str, Any]:
         """Create base schema structure for a field"""
@@ -215,6 +221,9 @@ class BaseField(ABC):
 
         if field_info.get('capability'):
             schema['capability'] = {k: v for k, v in dict(field_info['capability']).items() if v is not None}
+
+        if field_info.get('formula') is not None:
+            schema['formula'] = field_info['formula']
 
         return schema
     

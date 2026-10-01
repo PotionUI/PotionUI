@@ -4,11 +4,13 @@ Module-level functions, `PresetCollaborators` as their leading arg - no class
 holds them together (see `src.features.presets.collaborators`'s docstring).
 """
 import logging
+from dataclasses import asdict
 from typing import Any, Dict, List, Optional
 
 from src.features.forms.binding import bind_form
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.presets.collaborators import PresetCollaborators
+from src.features.presets.formula_groups import resolve_formula_groups
 from src.features.presets.exceptions import (
     InvalidModeDataException,
     ModeNotFoundException,
@@ -248,7 +250,7 @@ def get_form_schema(
     # Process form fields
     form_schema = collaborators.form_serializer.process_form_fields(form_config, preset_id, overrides=stored_overrides)
 
-    return {
+    result = {
         'preset_id': preset_id,
         'form_schema': form_schema,
         'prompt_resources': list(found_preset.prompt_resources.get(mode, [])),
@@ -262,6 +264,10 @@ def get_form_schema(
             'fields_types': [f.type for f in form_config.fields] if hasattr(form_config, 'fields') else []
         }
     }
+    formula_groups = resolve_formula_groups(found_preset, mode, getattr(form_config, 'name', None))
+    if formula_groups:
+        result['formulas'] = {'groups': [asdict(group) for group in formula_groups]}
+    return result
 
 
 def _get_form_config(

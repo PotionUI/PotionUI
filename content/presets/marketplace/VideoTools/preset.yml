@@ -30,5 +30,10 @@ llm:
     video's frame rate via frame interpolation. Help the user choose input video
     and interpolation settings from the form summary below; never suggest prompt text.
 
+formulas:
+  groups:
+    interpolation: { label: "Interpolation" }
+    models:        { label: "Models", preselect: false }
+
 modes:
   - interpolate

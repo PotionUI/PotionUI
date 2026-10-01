@@ -31,6 +31,7 @@ The manifest is `PresetManifest` in `src/features/presets/schema.py`, validated 
 | `media` | no | mapping | Cover image + example gallery. See [Preset media](#preset-media). |
 | `vars` | no | mapping | Preset-wide constants, read in `pipeline.yml` as `{{ preset.vars.<name> }}`. |
 | `speed_profiles` | no | mapping | Named generation profiles (e.g. `draft`/`standard`/`max`), read via `get_speed_profile()`. See [Speed profiles](#speed-profiles). |
+| `formulas` | no | mapping | The groups of form settings a user may save as a formula, in display order. See [Formulas](#formulas). |
 | `llm` | no | mapping | Preset/family-level prompting guide + chat-workspace context knobs. See [LLM context](#llm-context). |
 | `requires` | no | mapping | Optional VRAM/RAM guidance shown at preset-choice time. See [Hardware requirements](#hardware-requirements). |
 | `prompt_resources` | no | mapping | Per mode, the media picker fields a prompt may reference with `@`. See [Prompt resources](#prompt-resources). |
@@ -597,6 +598,75 @@ preset's `tests.yml` (see `docs/presets/testing.md` "Testing presets"): the firs
 `models:` map, read-only against the live models table before anything else runs. A preset with
 no `tests.yml`, no cases, an empty `models:` map on its first case, or a model ref that isn't
 already present locally (the script never downloads) fails before rendering anything.
+
+
+## Formulas
+
+A formula is a saved subset of one mode's form settings (speed, size, LoRAs, ...) that a user
+reapplies in another session. `formulas.groups` in `preset.yml` is the catalog of groups a
+formula can hold; the form files assign fields to them with `formula:` (see
+[Forms → Formula groups](forms.md#formula-groups)).
+
+```yaml
+formulas:
+  groups:
+    speed:   { label: "Speed and sampling" }
+    size:    { label: "Size", description: "Resolution and aspect" }
+    loras:   { label: "LoRAs" }
+    cache:   { label: "Step cache" }
+    models:  { label: "Models", preselect: false }
+```
+
+| Key | Required | Type | Notes |
+|-----|----------|------|-------|
+| `label` | yes | string | Shown in the save dialog. |
+| `description` | no | string | One line shown under the label. |
+| `preselect` | no | bool | Default `true`. `false` means the save dialog never ticks the group by default; use it for model pickers, which differ between machines. |
+
+Declaration order is display order. A preset with no groups, or a mode whose form resolves to
+none, shows no Formulas control. `scripts/preset_new.py` scaffolds an empty `groups: {}`.
+
+Reuse the shipped ids and labels for the same concept, so a group means the same thing in every
+preset:
+
+| id | Label | Holds |
+|----|-------|-------|
+| `speed` | Speed and sampling | speed profile, steps, sampler, schedule, CFG/guidance, shift, denoise, and anything a speed profile pins |
+| `size` | Size | resolution, megapixels, upscale target, frame rate, clip length |
+| `loras` | LoRAs | every LoRA picker outside a feature gate |
+| `embeddings` | Embeddings | textual-inversion pickers |
+| `enhance` | Upscale and refine | second-pass upscale and refine settings |
+| `detailer` | Face and hand detailer | face, hand and body detailer gates |
+| `guidance` | Guidance | NAG, CFG-Zero*, APG, SLG, ADM, SAG |
+| `effects` | Effects | film grain, sharpness |
+| `quality` | Quality tweaks | detail warp, FreeInit, RIFLEx |
+| `continuity` | Long video continuity | SVI Pro continuity |
+| `restoration` | Restoration | restoration intent and its noise overrides |
+| `cache` | Step cache | FBCache |
+| `sparse` | Sparse attention | sparse attention settings |
+| `memory` | Memory and tiling | VAE tiling, temporal batching, low-VRAM chunking |
+| `models` | Models | every model picker, with `preselect: false` |
+
+Seeds, quantities, prompts, media inputs and manual sigma overrides stay out of every group.
+
+### Rules
+
+`scripts/preset_lint.py` (and `GET /api/developer/presets/lint`) checks every mode and form
+variant:
+
+1. **Error:** a `formula:` naming a group the catalog does not declare, and a group without a
+   `label`. **Warning:** a group no field in any mode uses.
+2. **Error:** an input or display field (`image`, `video`, `audio`, `media`, `file`,
+   `prompt_timeline`, `camera_shot`, `seed`, `alert`, `markdown`, `header`) inside a group.
+3. **Error:** the same field name in two different groups in one form.
+4. **Error:** a field in a group whose reaction is driven by a field in another group or in no
+   group. Reactions that only set visibility or `set_filter_tags` are exempt.
+5. **Info:** a group whose fields all carry `audience: advanced`, since it looks empty in the
+   Simple view. Common and fine for sampling knobs that live on the Advanced tab.
+6. **Info:** the preset has a `lora_picker` or `speed_profiles` but declares no groups.
+
+`python scripts/preset_lint.py --formulas <preset-id-name-or-dir>` prints the groups each mode
+and variant resolves to.
 
 
 ## Hardware requirements

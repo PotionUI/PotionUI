@@ -19,6 +19,7 @@ fields:
 
       - name: "denoise"
         type: "slider"
+        formula: "speed"
         label: "Denoising Strength"
         default: 0.75
         configuration:
@@ -38,6 +39,7 @@ fields:
           tooltip: "Blur the mask edges for smoother blending"
   - type: "section"
     label: "Model"
+    formula: "models"
     children:
       - name: "model"
         type: "model"

@@ -13,5 +13,12 @@ requires:
 vars:
   promptless_modes: [img2mesh]
 
+formulas:
+  groups:
+    speed:  { label: "Speed and sampling" }
+    size:   { label: "Size" }
+    mesh:   { label: "Mesh and texture" }
+    models: { label: "Models", preselect: false }
+
 modes:
   - img2mesh

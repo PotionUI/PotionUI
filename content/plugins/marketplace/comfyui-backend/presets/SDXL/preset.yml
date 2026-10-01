@@ -37,5 +37,12 @@ vars:
   # LoRA is selected, or chains onto as node 0 when one is.
   lora_chain_base_node: "4"
 
+formulas:
+  groups:
+    speed:  { label: "Speed and sampling" }
+    size:   { label: "Size" }
+    loras:  { label: "LoRAs" }
+    models: { label: "Models", preselect: false }
+
 modes:
   - txt2img

@@ -216,5 +216,13 @@ llm:
     over more shots when the user wants length - the long clip is the whole
     point of the variant.
 
+formulas:
+  groups:
+    speed:  { label: "Speed and sampling" }
+    size:   { label: "Size" }
+    loras:  { label: "LoRAs" }
+    cache:  { label: "Step cache" }
+    models: { label: "Models", preselect: false }
+
 modes:
   - video

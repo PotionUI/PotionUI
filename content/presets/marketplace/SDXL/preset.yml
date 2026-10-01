@@ -160,6 +160,18 @@ prompt_syntax:
       help: "Splits the prompt into separate ~75-token CLIP chunks, encoded independently"
       tone: "accent"
 
+formulas:
+  groups:
+    speed:      { label: "Speed and sampling" }
+    size:       { label: "Size" }
+    loras:      { label: "LoRAs" }
+    embeddings: { label: "Embeddings" }
+    enhance:    { label: "Upscale and refine" }
+    detailer:   { label: "Face and hand detailer" }
+    effects:    { label: "Effects" }
+    guidance:   { label: "Guidance" }
+    models:     { label: "Models", preselect: false }
+
 modes:
   - txt2img
   - inpaint

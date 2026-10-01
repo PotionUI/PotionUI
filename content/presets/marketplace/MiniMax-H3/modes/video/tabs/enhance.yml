@@ -1,6 +1,7 @@
 fields:
   - name: "latent_upscale"
     type: "select"
+    formula: "enhance"
     label: "Latent Upscale"
     ai_hint: "Two-stage latent upscale, same recipe as the standalone Upscale mode -- requires the Latent Upscaler selected below on this tab. Stage 1 renders at the picked Resolution (Generation tab) without decoding, using the LoRA tab's own LoRAs; the latent upscaler resizes that latent to the picked target; stage 2 refines it at the new resolution using ITS OWN separate model load, with its own LoRAs (Refine LoRAs below, not the LoRA tab's) and its own steps/denoise/sampler/shift. Composes freely with audio and with a first/last frame or Video Director document: stage 1's audio track is decoded/passed through independently of the video refine and muxed into stage 2's output, and whatever keyframe or Director conditioning shaped stage 1's generation is already baked into the latent stage 2 refines -- MiniMax-H3's refine entry does not re-apply keyframe conditioning at stage 2's resolution the way LTX's does, since the model treats a refine and a keyframe/reference overlay as mutually exclusive."
     default: "off"
@@ -14,6 +15,7 @@ fields:
 
   - name: "upscale_model"
     type: "model"
+    formula: "models"
     label: "Latent Upscaler (required when Latent Upscale is not Off)"
     ai_hint: "The 3D latent-upscale checkpoint stage 1's output is resized through. Also used by the standalone Upscale mode. Unset while Latent Upscale is not Off fails the render with a clear error at generation time."
     configuration:
@@ -34,6 +36,7 @@ fields:
 
   - name: "refine_loras"
     type: "lora_picker"
+    formula: "loras"
     label: "Refine LoRAs (stage 2)"
     default: []
     ai_hint: "Stage 2's OWN LoRA stack, used INSTEAD of the LoRA tab's LoRAs -- stage 2 runs its own separate model load, so it never inherits stage 1's LoRAs. Put a distillation LoRA here for a fast stage-2 refine pass (e.g. a 3-step distilled LoRA) while stage 1 keeps running the base model, undistilled, at its own step count. Empty = stage 2 runs the base model with no LoRAs regardless of what the LoRA tab has loaded for stage 1."
@@ -56,6 +59,7 @@ fields:
 
   - name: "refine_steps"
     type: "slider"
+    formula: "enhance"
     label: "Refine steps"
     default: 4
     ai_hint: "Denoising steps for the refine pass; video and audio share the count but step their own sigma schedules. 4 is the default recipe -- raise if the refine looks under-cooked at Strong denoise, or if Refine LoRAs is empty (no distillation LoRA) and the refine needs more steps to converge. Only has an effect when Latent Upscale is not Off."
@@ -68,6 +72,7 @@ fields:
 
   - name: "refine_denoise"
     type: "select"
+    formula: "enhance"
     label: "Refine denoise"
     default: "0.45"
     ai_hint: "Fraction of the refine schedule actually walked. Balanced (0.45) is the recommended default. Light (0.30) stays closer to the upsampled latent as-is (less fixing of upsampling softness, less risk of drifting from stage 1); Strong (0.60) gives the refine more freedom to add detail at the cost of drifting further from stage 1. Only has an effect when Latent Upscale is not Off."
@@ -84,6 +89,7 @@ fields:
 
   - name: "refine_sampler"
     type: "select"
+    formula: "enhance"
     label: "Refine sampler"
     default: "euler"
     ai_hint: "How each refine step advances between two sigmas -- the same choices as stage 1's own Sampler (Generation tab), set independently. Euler is the reference solver and the right default for a distilled refine LoRA. Only has an effect when Latent Upscale is not Off."

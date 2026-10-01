@@ -1,6 +1,7 @@
 fields:
   - name: "enhance_enabled"
     type: "gate"
+    formula: "enhance"
     label: "Enhance"
     default: false
     configuration:
@@ -39,6 +40,7 @@ fields:
 
   - name: "face_detailer_enabled"
     type: "gate"
+    formula: "detailer"
     label: "Face Detailer"
     default: false
     configuration:
@@ -254,6 +256,7 @@ fields:
 
       - name: "face_detailer_mediapipe_model"
         type: "model"
+        formula: "models"
         label: "Face Detection Model"
         visible: true
         configuration:
@@ -272,6 +275,7 @@ fields:
 
       - name: "face_detailer_yolo_model"
         type: "model"
+        formula: "models"
         label: "Face Detection Model (YOLO, AGPL-3.0)"
         visible: false
         configuration:
@@ -285,6 +289,7 @@ fields:
 
   - type: "gate"
     name: "nag_enabled"
+    formula: "speed"
     label: "NAG"
     default: false
     configuration:

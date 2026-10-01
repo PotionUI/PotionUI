@@ -1,6 +1,7 @@
 fields:
   - name: "refine_loras"
     type: "lora_picker"
+    formula: "loras"
     label: "LoRAs"
     default: []
     ai_hint: >-

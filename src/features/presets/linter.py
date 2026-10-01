@@ -23,6 +23,7 @@ from src.platform.plugins.sampling import (
     schedule_registry,
 )
 from .children_paths import DEFAULT_SHARED_PATH, resolve_children_path
+from .formula_groups import FORMULA_INPUT_TYPES, iter_formula_fields
 from .loader import discover_form_variants, plugin_preset_mode_contributions
 from .schema import (
     SPEED_PROFILE_KNOWN_KEYS,
@@ -72,6 +73,7 @@ _KNOWN_LORA_ROW_OPTION_KEYS = frozenset({"step_start", "step_end", "audio"})
 # treats them as known.
 _INJECTED_FORM_KEYS = frozenset({"video_director", "music_director", "timeline", "llm", "prompt_timeline"})
 _PROMPT_RESOURCE_FIELD_TYPES = frozenset({"image", "video", "audio", "media"})
+_FORMULA_EXEMPT_ACTIONS = frozenset({"set_visibility", "set_filter_tags"})
 
 # `{{ loop.index }}` / `{{ loop.index0 }}` inside a form `@loop` template's
 # field names, expanded statically (1..count / 0..count-1) so the generated
@@ -502,6 +504,8 @@ class PresetLinter:
 
         issues.extend(self._lint_speed_profiles(preset_file, manifest))
 
+        issues.extend(self._lint_formulas(preset_file, manifest))
+
         issues.extend(self._lint_segment_templates(preset_file, manifest))
 
         issues.extend(self._lint_prompt_resources(preset_file, manifest))
@@ -598,6 +602,10 @@ class PresetLinter:
                 issues.extend(self._lint_lora_picker_row_fields(synthetic_preset_file, mode_dir, mode_name))
                 issues.extend(self._lint_tags_categories(synthetic_preset_file, mode_dir, mode_name))
                 issues.extend(self._lint_alert_field_config(synthetic_preset_file, mode_dir, mode_name))
+                issues.extend(self._lint_formula_mode(
+                    mode_location, contribution.modes_root, mode_dir, mode_name,
+                    self._formula_catalog(target_manifest), set(), set(),
+                ))
 
         return issues
 
@@ -2266,6 +2274,189 @@ class PresetLinter:
                     )
 
         return issues
+
+    @staticmethod
+    def _formula_catalog(manifest) -> Dict[str, Any]:
+        formulas = getattr(manifest, "formulas", None)
+        return dict(formulas.groups) if formulas is not None else {}
+
+    def _lint_formulas(self, preset_file: Path, manifest) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+        catalog = self._formula_catalog(manifest)
+
+        for group_id, spec in catalog.items():
+            if not (spec.label or "").strip():
+                issues.append(LintIssue(
+                    "error", preset_str, f"formulas.groups.{group_id}: a group needs a label",
+                ))
+
+        used: set = set()
+        field_types: set = set()
+        for mode_name in manifest.modes:
+            mode_dir = preset_file.parent / "modes" / mode_name
+            if mode_dir.is_dir():
+                issues.extend(self._lint_formula_mode(
+                    preset_str, preset_file.parent, mode_dir, mode_name, catalog, used, field_types,
+                ))
+
+        for group_id in catalog:
+            if group_id not in used:
+                issues.append(LintIssue(
+                    "warning", preset_str,
+                    f"formulas.groups.{group_id}: no field in any mode is in this group",
+                ))
+
+        if not catalog and (manifest.speed_profiles or "lora_picker" in field_types):
+            issues.append(LintIssue(
+                "info", preset_str,
+                "this preset has LoRAs or speed profiles but declares no formulas.groups, "
+                "so users cannot save its settings as a formula",
+            ))
+        return issues
+
+    def _lint_formula_mode(
+        self, preset_str: str, preset_root: Path, mode_dir: Path, mode_name: str,
+        catalog: Dict[str, Any], used: set, field_types: set,
+    ) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        for variant_name, form_dir in discover_form_variants(mode_dir):
+            loc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
+            fields = self._expanded_form_fields(form_dir / "form.yml", preset_root)
+
+            for node in self._iter_field_tree(fields):
+                field_types.add(node.get("type"))
+                own = node.get("formula")
+                if isinstance(own, str) and own not in catalog:
+                    issues.append(LintIssue(
+                        "error", preset_str,
+                        f"{loc}: {self._formula_node_label(node)} has formula '{own}', which is not "
+                        f"declared in preset.yml formulas.groups",
+                    ))
+
+            entries = list(iter_formula_fields(fields))
+            groups_by_name: Dict[str, set] = {}
+            for node, group in entries:
+                groups_by_name.setdefault(node["name"], set()).add(group)
+
+            for name, groups in groups_by_name.items():
+                declared = sorted(g for g in groups if g in catalog)
+                if len(declared) > 1:
+                    issues.append(LintIssue(
+                        "error", preset_str,
+                        f"{loc}: field '{name}' is in more than one formula group ({', '.join(declared)})",
+                    ))
+
+            members: Dict[str, List[dict]] = {}
+            reported: set = set()
+            for node, group in entries:
+                if group not in catalog:
+                    continue
+                name = node["name"]
+                used.add(group)
+                members.setdefault(group, []).append(node)
+                if node.get("type") in FORMULA_INPUT_TYPES:
+                    issues.append(LintIssue(
+                        "error", preset_str,
+                        f"{loc}: field '{name}' ({node.get('type')}) is an input, not a setting, "
+                        f"and cannot be in formula group '{group}'",
+                    ))
+                for controller in self._formula_controllers(node):
+                    if controller == name or controller not in groups_by_name or (name, controller) in reported:
+                        continue
+                    controller_groups = sorted(g for g in groups_by_name[controller] if g in catalog)
+                    if group in controller_groups:
+                        continue
+                    reported.add((name, controller))
+                    if not controller_groups:
+                        message = (
+                            f"{loc}: '{name}' is pinned by '{controller}', which is in no formula group; "
+                            f"put '{controller}' in group '{group}'"
+                        )
+                    else:
+                        message = (
+                            f"{loc}: '{name}' (group '{group}') is pinned by '{controller}' "
+                            f"(group '{controller_groups[0]}'); a field and the field whose reaction "
+                            f"sets it must be in the same formula group"
+                        )
+                    issues.append(LintIssue("error", preset_str, message))
+
+            for group, nodes in members.items():
+                if all(n.get("audience") == "advanced" for n in nodes):
+                    issues.append(LintIssue(
+                        "info", preset_str,
+                        f"{loc}: every field in formula group '{group}' is audience: advanced, "
+                        f"so the group looks empty in the Simple view",
+                    ))
+        return issues
+
+    @staticmethod
+    def _formula_node_label(node: dict) -> str:
+        if node.get("name"):
+            return f"field '{node['name']}'"
+        if node.get("label"):
+            return f"{node.get('type')} '{node['label']}'"
+        return f"a {node.get('type')}"
+
+    def _formula_controllers(self, node: dict) -> List[str]:
+        controllers: List[str] = []
+        for reaction in node.get("reactions") or []:
+            if not isinstance(reaction, dict):
+                continue
+            then = reaction.get("then")
+            if not isinstance(then, dict) or not set(then) - _FORMULA_EXEMPT_ACTIONS:
+                continue
+            for field_name in self._condition_fields(reaction.get("when")):
+                if field_name not in controllers:
+                    controllers.append(field_name)
+        return controllers
+
+    def _condition_fields(self, when) -> List[str]:
+        if isinstance(when, list):
+            return [name for item in when for name in self._condition_fields(item)]
+        if not isinstance(when, dict):
+            return []
+        if isinstance(when.get("conditions"), list):
+            return self._condition_fields(when["conditions"])
+        return [when["field"]] if isinstance(when.get("field"), str) else []
+
+    def _iter_field_tree(self, fields):
+        for node in fields:
+            yield node
+            if isinstance(node.get("children"), list):
+                yield from self._iter_field_tree(node["children"])
+
+    def _expanded_form_fields(self, form_file: Path, preset_root: Path) -> List[dict]:
+        try:
+            with open(form_file, 'r', encoding='utf-8') as f:
+                form_data = yaml.safe_load(f) or {}
+        except Exception:
+            return []
+        if not isinstance(form_data, dict):
+            return []
+        return self._inline_children(form_data.get("fields"), preset_root, ())
+
+    def _inline_children(self, nodes, preset_root: Path, chain: Tuple[Path, ...]) -> List[dict]:
+        inlined: List[dict] = []
+        for node in nodes if isinstance(nodes, list) else []:
+            if not isinstance(node, dict):
+                continue
+            node = dict(node)
+            children = node.get("children")
+            if isinstance(children, str):
+                frag_path = self._resolve_children_path(children, preset_root)
+                frag_fields: Any = []
+                if frag_path not in chain and frag_path.is_file():
+                    try:
+                        with open(frag_path, 'r', encoding='utf-8') as f:
+                            frag_fields = (yaml.safe_load(f) or {}).get("fields")
+                    except Exception:
+                        frag_fields = []
+                node["children"] = self._inline_children(frag_fields, preset_root, chain + (frag_path,))
+            elif isinstance(children, list):
+                node["children"] = self._inline_children(children, preset_root, chain)
+            inlined.append(node)
+        return inlined
 
     def _lint_lora_picker_row_fields(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
         issues: List[LintIssue] = []

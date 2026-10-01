@@ -110,6 +110,12 @@ llm:
     how many lyric sections the Prompt box carries, the same as every other
     text-to-music family this engine documents.
 
+formulas:
+  groups:
+    speed:  { label: "Speed and sampling" }
+    song:   { label: "Song" }
+    models: { label: "Models", preselect: false }
+
 modes:
   - song
 

@@ -6,6 +6,7 @@
 fields:
   - type: "section"
     label: "SVI Pro 2.0 continuity"
+    formula: "continuity"
     children:
       - type: "alert"
         configuration:

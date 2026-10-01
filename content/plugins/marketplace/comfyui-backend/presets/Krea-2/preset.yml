@@ -41,5 +41,12 @@ configuration:
     label: "LoRA tags"
     description: "Only LoRAs with any of these tags appear in the LoRA picker."
 
+formulas:
+  groups:
+    speed:  { label: "Speed and sampling" }
+    size:   { label: "Size" }
+    loras:  { label: "LoRAs" }
+    models: { label: "Models", preselect: false }
+
 modes:
   - txt2img

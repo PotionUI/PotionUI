@@ -51,6 +51,7 @@ fields:
 
   - type: "section"
     label: "Sparse attention"
+    formula: "sparse"
     audience: "advanced"
     children:
       - name: "sparse_attn"
@@ -97,6 +98,7 @@ fields:
 
   - type: "section"
     label: "Low-VRAM"
+    formula: "memory"
     audience: "advanced"
     children:
       - name: "seq_chunk_rows"
@@ -109,6 +111,7 @@ fields:
 
   - type: "section"
     label: "Step cache (FBCache)"
+    formula: "cache"
     audience: "advanced"
     children:
       - type: "row"

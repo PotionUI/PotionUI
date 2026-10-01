@@ -17,6 +17,7 @@ fields:
 
   - type: "section"
     label: "Effects"
+    formula: "effects"
     children:
       - name: "film_grain"
         type: "select"
@@ -42,9 +43,11 @@ fields:
 
   - type: "section"
     label: "Upscaler"
+    formula: "enhance"
     children:
       - name: "upscale_model"
         type: "model"
+        formula: "models"
         label: "Upscaler Model"
         configuration:
           model_type: "upscaler"
@@ -78,6 +81,7 @@ fields:
 
   - name: "td_enable"
     type: "gate"
+    formula: "enhance"
     label: "Enable Tiled-Detailer Post-Processing"
     default: true
     configuration:

@@ -23,6 +23,7 @@ fields:
         children:
           - name: "duration"
             type: "integer"
+            formula: "song"
             label: "Max duration (seconds, 0 = auto)"
             default: 60
             configuration: {min: 0, max: 360}
@@ -31,6 +32,7 @@ fields:
 
           - name: "instrumental"
             type: "boolean"
+            formula: "song"
             label: "Instrumental (no vocals)"
             default: false
             ai_hint: "Composes the literal '[instrumental]' lyrics regardless of what the Prompt box contains."
@@ -44,6 +46,7 @@ fields:
 
   - type: "section"
     label: "Models"
+    formula: "models"
     children:
       - name: "model"
         type: "model"

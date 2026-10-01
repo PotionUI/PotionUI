@@ -4,6 +4,7 @@ fields:
 
   - name: "resolution_picker"
     type: "resolution"
+    formula: "size"
     label: "Resolution"
     configuration:
       options: ["768x768", "832x1216", "1216x832"]
@@ -11,6 +12,7 @@ fields:
 
   - name: "carousel_picker"
     type: "carousel"
+    formula: "basics"
     label: "Carousel"
     description: "Selectable tiles rendered without external assets."
     configuration:
@@ -62,6 +64,7 @@ fields:
     children:
       - name: "model_picker"
         type: "model"
+        formula: "models"
         label: "Model"
         configuration:
           model_type: "checkpoint"
@@ -69,6 +72,7 @@ fields:
           allow_info_modal: true
       - name: "models_picker"
         type: "models"
+        formula: "models"
         label: "Models alias"
         configuration:
           model_type: "checkpoint"
@@ -77,6 +81,7 @@ fields:
 
   - name: "lora_picker"
     type: "lora_picker"
+    formula: "loras"
     label: "LoRA picker"
     configuration:
       model_type: "lora"

@@ -369,6 +369,36 @@ def render_check(paths: List[str], presets_root: Optional[Path] = None) -> List[
     return issues
 
 
+def print_formulas(preset_ref: str, presets_root: Optional[Path] = None) -> int:
+    from scripts.preset_render import find_preset, load_all_presets
+    from src.features.presets.formula_groups import resolve_formula_groups
+    from src.features.presets.templates import sorted_forms
+
+    presets, _load_errors = load_all_presets(presets_root=presets_root)
+    preset = find_preset(presets, preset_ref)
+    if preset is None:
+        target = Path(preset_ref).resolve()
+        preset = next(
+            (p for p in presets if p.name == preset_ref or Path(p.path).resolve() == target), None
+        )
+    if preset is None:
+        print(f"Preset not found: {preset_ref}")
+        return 1
+
+    print(f"=== Formula groups: {preset.name} ({preset.id}) ===")
+    for mode_name, mode in preset.modes.items():
+        for form in sorted_forms(mode):
+            print(f"\n{mode_name} / {form.name}")
+            groups = resolve_formula_groups(preset, mode_name, form.name)
+            if not groups:
+                print("  no formula groups")
+            for group in groups:
+                preselect = "" if group.preselect else " (never preselected)"
+                print(f"  {group.id}: {group.label}{preselect}")
+                print(f"    {', '.join(group.fields)}")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -383,7 +413,14 @@ def main() -> int:
         help="Also render every in-scope preset x mode's default form variant and report "
              "template evaluation failures (see this module's docstring)",
     )
+    parser.add_argument(
+        "--formulas", metavar="PRESET",
+        help="Print the formula groups each mode of PRESET (id, name or directory) resolves to, then exit",
+    )
     args = parser.parse_args()
+
+    if args.formulas:
+        return print_formulas(args.formulas)
 
     # Plugin manifests are always discovered (cheap - manifest.yml files on
     # disk, no app boot, no imports) and handed to `PresetLinter` so it can

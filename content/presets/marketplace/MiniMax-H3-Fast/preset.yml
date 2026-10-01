@@ -210,5 +210,15 @@ prompt_syntax:
       help: "Wraps a speaker's exact words, preserved verbatim"
       color: "mediumseagreen"
 
+formulas:
+  groups:
+    speed:   { label: "Speed and sampling" }
+    size:    { label: "Size" }
+    loras:   { label: "LoRAs" }
+    enhance: { label: "Upscale and refine" }
+    cache:   { label: "Step cache" }
+    sparse:  { label: "Sparse attention" }
+    models:  { label: "Models", preselect: false }
+
 modes:
   - video

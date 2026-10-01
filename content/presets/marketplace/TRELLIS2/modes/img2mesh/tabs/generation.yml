@@ -1,6 +1,7 @@
 fields:
   - name: "resolution_tier"
     type: "select"
+    formula: "size"
     label: "Detail Level"
     default: "1024"
     description: "How finely the shape is resolved. Higher captures more detail and costs sharply more time and VRAM."
@@ -16,6 +17,7 @@ fields:
     children:
       - name: "remove_background"
         type: "checkbox"
+        formula: "mesh"
         label: "Remove background"
         default: false
         description: "Segment the subject out of its background before reconstructing it."
@@ -30,6 +32,7 @@ fields:
         children:
           - name: "decimation_target"
             type: "slider"
+            formula: "mesh"
             label: "Decimation Target"
             default: 100000
             description: "Face budget the exported mesh is simplified down to."
@@ -41,6 +44,7 @@ fields:
 
           - name: "texture_size"
             type: "select"
+            formula: "mesh"
             label: "Texture Size"
             default: 2048
             description: "Edge length of the baked PBR maps."
@@ -52,6 +56,7 @@ fields:
 
   - type: "section"
     label: "Models"
+    formula: "models"
     children:
       - name: "diffusion_model"
         type: "model"

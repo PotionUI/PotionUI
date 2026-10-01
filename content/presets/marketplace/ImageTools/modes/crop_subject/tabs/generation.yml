@@ -9,6 +9,7 @@ fields:
 
   - name: "crop_margin"
     type: "slider"
+    formula: "crop"
     label: "Margin"
     default: 0
     ai_hint: "Extra pixels kept on every side of the subject's bounding box. 0 is a tight crop to the last pixel above the alpha threshold, and is the right default when the output feeds a further placement step (Fit to Canvas, or a compositor) -- padding added here just has to be accounted for again later. Raise it when the crop is clipping something you want kept: a wisp of hair, a soft shadow you deliberately matted in, a prop the threshold nibbled at. It is also the knob to reach for when you want the cutout to keep a little visual breathing room as a standalone asset -- 16-48px reads as deliberate framing rather than a mechanical trim."

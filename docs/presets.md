@@ -117,7 +117,8 @@ back here for the rest, in the order most authors need them:
 
 1. [Tutorial: Your first native preset](presets/tutorial.md) — scaffold, wire, lint, render.
 2. [preset.yml Reference](presets/manifest.md) — the manifest: `vars:`, speed profiles, admin-set
-   `configuration:`, media, hardware guidance, LLM chat context, prompt resources.
+   `configuration:`, media, hardware guidance, LLM chat context, prompt resources, and the
+   [formula groups](presets/manifest.md#formulas) users can save and reapply.
 3. [Forms](presets/forms.md) — `form.yml`, tabs, variants, field types, typed defaults, external
    option files, reactions, and the `bind_form`/422 validation contract.
 4. [Pipelines](presets/pipelines.md) — `pipeline.yml`: pipe shape, `enabled:`, the three template

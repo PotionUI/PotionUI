@@ -162,5 +162,16 @@ llm:
     changes in one clip, legible-text requirements, long choreographed sequences,
     lip-synced dialogue.
 
+formulas:
+  groups:
+    speed:      { label: "Speed and sampling" }
+    size:       { label: "Size" }
+    loras:      { label: "LoRAs" }
+    guidance:   { label: "Guidance" }
+    quality:    { label: "Quality tweaks" }
+    continuity: { label: "Long video continuity" }
+    cache:      { label: "Step cache" }
+    models:     { label: "Models", preselect: false }
+
 modes:
   - video

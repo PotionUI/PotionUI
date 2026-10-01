@@ -31,6 +31,7 @@ fields:
     children:
       - name: "refine_strength"
         type: "select"
+        formula: "enhance"
         label: "Refine Strength"
         ai_hint: "Friendly control for the standalone upscale mode's refine pass. Strong is Lightricks' first-party recipe and the recommended default; suggest Balanced/Light only if the user wants the refine to preserve more of the upsampled source video as-is. The Advanced tab's Refine Sigmas field is an expert override of this same knob -- prefer this select."
         default: "strong"
@@ -42,11 +43,13 @@ fields:
 
       - name: "enhance_faces_hands"
         type: "checkbox"
+        formula: "detailer"
         label: "Enhance faces and hands"
         default: false
 
       - name: "enhancement_strength"
         type: "select"
+        formula: "detailer"
         label: "Enhancement strength"
         ai_hint: "Only used when Enhance faces and hands is on. Balanced is the safe default; suggest Light when the user worries the enhancement changes a face's identity, Strong only when they explicitly want maximum detail and accept more deviation."
         default: "balanced"
@@ -69,6 +72,7 @@ fields:
       #############
       - name: "face_detector_model"
         type: "model"
+        formula: "models"
         label: "Face Detection Model"
         configuration:
           model_type: "mediapipe"
@@ -80,6 +84,7 @@ fields:
 
       - name: "hand_detector_model"
         type: "model"
+        formula: "models"
         label: "Hand Detection Model"
         configuration:
           model_type: "mediapipe"

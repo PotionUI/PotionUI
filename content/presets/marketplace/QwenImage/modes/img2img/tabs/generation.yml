@@ -1,6 +1,7 @@
 fields:
   - name: "speed_profile"
     type: "select"
+    formula: "speed"
     label: "Speed profile"
     default: "balanced"
     configuration:
@@ -31,6 +32,7 @@ fields:
 
       - name: "denoise"
         type: "slider"
+        formula: "speed"
         label: "Denoising Strength"
         default: 0.55
         configuration:
@@ -41,6 +43,7 @@ fields:
 
   - type: "section"
     label: "Models"
+    formula: "models"
     children:
       - name: "diffusion_model"
         type: "model"

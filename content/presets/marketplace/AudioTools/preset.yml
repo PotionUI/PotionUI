@@ -27,5 +27,9 @@ llm:
     start/length range. Help the user set the trim fields from the form summary
     below; never suggest prompt text.
 
+formulas:
+  groups:
+    trim: { label: "Trim" }
+
 modes:
   - trim

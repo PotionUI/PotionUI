@@ -9,6 +9,7 @@
 fields:
   - name: "speed_profile"
     type: "select"
+    formula: "speed"
     label: "Speed"
     default: "balanced"
     configuration:
@@ -28,6 +29,7 @@ fields:
 
       - name: "resolution"
         type: "resolution"
+        formula: "size"
         label: "Resolution"
         configuration:
           files:
@@ -37,6 +39,7 @@ fields:
 
       - name: "fps"
         type: "slider"
+        formula: "size"
         label: "FPS"
         default: 25
         configuration: {min: 1, max: 60, step: 1}

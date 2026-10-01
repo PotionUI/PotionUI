@@ -1,6 +1,7 @@
 fields:
   - name: "speed_profile"
     type: "select"
+    formula: "speed"
     label: "Speed"
     default: "distilled"
     ai_hint: >-
@@ -33,6 +34,7 @@ fields:
 
       - name: "resolution"
         type: "resolution"
+        formula: "size"
         label: "Resolution"
         ai_hint: "Both axes must be multiples of 32, aspect ratio between 1:4 and 4:1 -- the same sizes as the base MiniMax-H3 preset. The native canvas (768 short edge, 768x1344 max) is what FastVideo trained and released the FastH3 8-Step V2 recipe on; the faster sizes trade quality for speed. Area is the dominant cost."
         configuration:
@@ -43,6 +45,7 @@ fields:
 
   - type: "section"
     label: "Models"
+    formula: "models"
     children:
       - name: "model"
         type: "model"

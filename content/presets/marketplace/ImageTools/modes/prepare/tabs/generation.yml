@@ -15,6 +15,7 @@ fields:
 
   - name: "remove_background"
     type: "gate"
+    formula: "background"
     label: "Remove Background"
     default: true
     configuration:
@@ -22,6 +23,7 @@ fields:
     children:
       - name: "matting_model"
         type: "model"
+        formula: "models"
         label: "Matting Model"
         required: false
         ai_hint: "A BiRefNet checkpoint, dropped in `models/detection_segm/`. Two work, and they are the same architecture so either loads: BiRefNet-general (ZhengPeng7/BiRefNet, MIT) or RMBG-2.0 (briaai/RMBG-2.0, stronger on product shots but licensed non-commercial). Required whenever this gate is on -- with the gate on and no model selected the run fails at the matting stage rather than silently skipping it. Prefer BiRefNet-general unless the subject is a product/packshot on a busy background, where RMBG-2.0 separates edges more confidently; check its licence before commercial use. If the source image ALREADY has an alpha channel (a previous Remove Background run, a PNG cutout), turn this gate OFF instead of picking a model: re-matting an existing cutout re-decides edges that were already decided and usually eats hair and thin limbs."
@@ -33,6 +35,7 @@ fields:
 
   - name: "trim_to_subject"
     type: "gate"
+    formula: "crop"
     label: "Trim to Subject"
     default: true
     configuration:
@@ -53,6 +56,7 @@ fields:
 
   - name: "canvas_resolution"
     type: "resolution"
+    formula: "canvas"
     label: "Canvas Size"
     default: "832x480"
     ai_hint: "This is the FINAL frame size handed to the video model, not the size of the subject -- match it to the resolution the video model you are feeding actually runs at. Pick from the Video group when the output feeds an image-to-video model -- 832x480 and 480x832 are the native Wan sizes, 1280x720/720x1280 the HD ones; an off-native canvas costs quality before a single frame is sampled. The Image group is for stills. Orientation matters more than pixel count here: a character that will walk left-to-right wants a landscape canvas, one that will jump or grow wants portrait."
@@ -64,6 +68,7 @@ fields:
 
   - name: "scale_percent"
     type: "slider"
+    formula: "canvas"
     label: "Subject Scale"
     default: 70
     ai_hint: "How large the subject is drawn on the canvas, as a percentage of the CANVAS'S SHORT SIDE -- not of the canvas area and not of the source image. So on an 832x480 canvas, 100% means the subject's long side is 480px and 70% means 336px, regardless of whether the subject is portrait or landscape. That definition is what makes the setting orientation-independent: the same number gives the same visual headroom on 832x480 and 480x832. 100% is 'fills the frame', which is exactly the framing that makes animation walk out of shot, so it is the wrong answer here. 60-75% is the useful band for a character that will walk, gesture or turn; go down to 45-55% for large motion (jumping, running across frame, a camera push); 85%+ only for a talking-head or portrait shot where nothing below the shoulders moves."
@@ -74,6 +79,7 @@ fields:
 
   - name: "fill"
     type: "string"
+    formula: "canvas"
     label: "Padding Fill"
     default: "#00B140"
     ai_hint: "The colour the padding around the subject is filled with -- a hex colour like `#00B140`, or the literal word `transparent`. Do not leave this transparent for anything that feeds a video model. Video models take opaque RGB; hand one an alpha channel and it gets flattened by whichever component touches it first -- usually to white, sometimes to black, never with a warning and never consistently. Picking the colour yourself is the whole trick: you know exactly what the background is, so you can pull it back out afterwards (this preset's Colour Key mode, or any compositor) instead of guessing. #00B140 is broadcast chroma-key green and is the default for that reason. Use #0047BB (chroma blue) instead when the subject has green in it -- foliage, green clothing, green hair -- since a key can only remove a colour the subject does not also wear. Flat neutrals (#808080, #000000, #FFFFFF) are fine when you never intend to key it back out and just want a stable, predictable backdrop."

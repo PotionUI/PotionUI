@@ -13,6 +13,7 @@
 fields:
   - name: "model"
     type: "model"
+    formula: "models"
     label: "LTX-2.5 DiT (transformer-only)"
     required: true
     configuration:
@@ -43,6 +44,7 @@ fields:
 
   - name: "text_encoder"
     type: "model"
+    formula: "models"
     label: "Text Encoder (Gemma4-12B with projection)"
     required: true
     configuration:
@@ -63,6 +65,7 @@ fields:
 
   - type: "section"
     label: "VAEs"
+    formula: "models"
     children:
       # Only the conv-decode video VAE is supported -- the non-conv variant
       # needs a diffusion decoder this engine doesn't implement

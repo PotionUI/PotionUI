@@ -48,6 +48,13 @@ vars:
     txt2img: "37"
     img2img: "91:12"
 
+formulas:
+  groups:
+    speed:  { label: "Speed and sampling" }
+    size:   { label: "Size" }
+    loras:  { label: "LoRAs" }
+    models: { label: "Models", preselect: false }
+
 modes:
   - txt2img
   - img2img

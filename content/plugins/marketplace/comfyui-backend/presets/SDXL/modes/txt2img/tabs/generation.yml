@@ -23,6 +23,7 @@ fields:
 
       - name: "resolution"
         type: "resolution"
+        formula: "size"
         label: "Image Resolution"
         configuration:
           files:
@@ -32,6 +33,7 @@ fields:
 
   - type: "section"
     label: "Models"
+    formula: "models"
     children:
       - name: "checkpoint"
         type: "model"

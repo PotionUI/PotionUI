@@ -1,6 +1,7 @@
 fields:
   - name: "speed_profile"
     type: "select"
+    formula: "speed"
     label: "Speed"
     default: "turbo"
     ai_hint: >-
@@ -41,6 +42,7 @@ fields:
 
       - name: "resolution"
         type: "resolution"
+        formula: "size"
         label: "Resolution"
         ai_hint: "Both axes must be multiples of 32, aspect ratio between 1:4 and 4:1 — the offered sizes are what MiniMax-H3's own canvas math produces. Area is the dominant cost."
         configuration:
@@ -51,6 +53,7 @@ fields:
 
   - type: "section"
     label: "Models"
+    formula: "models"
     children:
       - name: "model"
         type: "model"

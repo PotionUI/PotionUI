@@ -4,6 +4,7 @@
 fields:
   - name: "loras"
     type: "lora_picker"
+    formula: "loras"
     label: "LoRAs"
     default: []
     ai_hint: >-

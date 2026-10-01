@@ -4,6 +4,7 @@
 fields:
   - name: "matte_strength"
     type: "slider"
+    formula: "background"
     label: "Matte Strength"
     audience: "advanced"
     default: 50
@@ -15,6 +16,7 @@ fields:
 
   - name: "matte_feather"
     type: "slider"
+    formula: "background"
     label: "Matte Feather"
     audience: "advanced"
     default: 0
@@ -26,6 +28,7 @@ fields:
 
   - name: "crop_alpha_threshold"
     type: "slider"
+    formula: "crop"
     label: "Crop Alpha Threshold"
     audience: "advanced"
     default: 16
@@ -37,6 +40,7 @@ fields:
 
   - name: "anchor"
     type: "select"
+    formula: "canvas"
     label: "Canvas Anchor"
     audience: "advanced"
     default: "center"

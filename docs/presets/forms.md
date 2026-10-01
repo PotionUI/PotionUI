@@ -536,15 +536,73 @@ Field keys understood by the schema (`FieldSpec`): `type` (required), `name`, `l
 `ai_hint`, `configuration`, `required`, `default`, `when`, `input`, `save_into`
 (`session`|`settings`), `interactive`, `container`, `visible`, `reactions`, `listeners`,
 `children` (a list of nested fields, or a `{{ paths.preset }}/...` or `{{ paths._shared }}/...` path string to an external file),
-`audience`, `width`, `full_width`, `hidden_when_video_director`, `capability`. The schema is `extra="forbid"` — the
+`audience`, `width`, `full_width`, `hidden_when_video_director`, `capability`, `formula`. The schema is `extra="forbid"` — the
 removed `value:` initializer key is a load error.
 
 | Key | Required | Type | Notes |
 |-----|----------|------|-------|
 | `audience` | no | `"simple"` \| `"advanced"` | Default `"simple"`. Lets the frontend hide `"advanced"` fields behind a toggle, without a separate form/mode. Applies to every field, including nested `children` (tab bodies, `@loop`-expanded rows) — each is serialized independently, so a child's own `audience:` is what's read, not its parent's. |
+| `formula` | no | string \| `false` | The formula group this field belongs to, an id from `formulas.groups` in `preset.yml`. On a container it applies to every descendant without its own `formula:`; `false` opts a field out. Emitted to the frontend only when set. See [Formula groups](#formula-groups). |
 | `width` | no | number \| `"a/b"` string | A field's fractional share of the row it sits in, read by the frontend as a CSS grid `fr` weight for a `type: "row"` container's child. Either a positive number used directly as the weight (`width: 2`) or a string fraction of positive numbers (`width: "3/5"`). Absent/`null` takes the default weight. Emitted to the frontend exactly as authored (a string stays a string) — the frontend does its own parsing. |
 | `full_width` | no | bool | Default `false`. Stretch the field to fill its column/track instead of hugging its content. Has no visible effect on field types that already fill their column (most of them) — today it only matters for controls that hug their content, such as `stepper`. Emitted to the frontend only when `true`. |
 | `hidden_when_video_director` | no | bool | Default `false`. Hides this field in the rendered form whenever the Video Director editor is active for the current preset mode (`vars.video_director.preset_modes`) — for a field whose value the director's own document overrides once attached, but that still needs to render for a mode usable outside the director too. Rendering-only, same contract as `audience`: the value/default stays in `formData` and still submits. Emitted to the frontend only when `true`. |
+
+### Formula groups
+
+A **formula** is a saved subset of one mode's settings that a user reapplies in another session.
+The preset decides which fields a formula may hold: `preset.yml` declares the groups
+(see [preset.yml Reference → Formulas](manifest.md#formulas)), and the form files say which group
+each field belongs to with `formula:`.
+
+```yaml
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+  - type: "section"
+    label: "Sampling"
+    formula: "speed"
+    children:
+      - name: "steps"
+        type: "slider"
+      - name: "manual_sigmas"
+        type: "textbox"
+        formula: false
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children:
+      - name: "model"
+        type: "model"
+```
+
+- `formula:` goes on a field or on a container (`tabs`, `tab`, `section`, `row`, `group`,
+  `accordion`, `gate`). A container's value applies to every descendant that has no `formula:`
+  of its own; `formula: false` opts a descendant out.
+- A field with no `formula:` and no annotated ancestor is in no group, so a formula never saves
+  or changes it. Seeds, quantities, prompts and media stay out this way.
+- A `gate` is a field: its own boolean joins the group together with its children.
+- Annotate a shared tab fragment once: every mode that includes it offers the same groups.
+  Plugin-contributed modes annotate their own form files against the target preset's catalog.
+- Input and display types (`image`, `video`, `audio`, `media`, `file`, `prompt_timeline`,
+  `camera_shot`, `seed`, `alert`, `markdown`, `header`) can never be in a group.
+- A field whose reaction is driven by another field (`set_value`, `set_disabled`,
+  `update_options`, `update_validation`) must share that field's group, so applying a formula
+  never fights the reaction engine. Reactions that only set visibility or narrow a model
+  picker's `set_filter_tags` are exempt, so a speed profile that filters the checkpoint list
+  can stay in `speed` while the picker stays in `models`.
+
+`GET /api/presets/{id}/form?mode=&form_name=` adds the resolved groups for that mode and variant,
+with inheritance applied, in catalog order:
+
+```json
+"formulas": {"groups": [{"id": "speed", "label": "Speed and sampling", "description": null,
+  "preselect": true, "fields": ["speed_profile", "steps"]}]}
+```
+
+The block is left out when the mode resolves to no groups, and the Generate page then shows no
+Formulas control. `python scripts/preset_lint.py --formulas <preset>` prints the same groups for
+every mode and variant.
 
 ### Field `default:` typing
 

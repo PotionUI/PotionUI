@@ -8,6 +8,7 @@
 fields:
   - name: "restoration_intent"
     type: "select"
+    formula: "restoration"
     label: "Restoration Intent"
     default: "faithful"
     configuration:
@@ -17,6 +18,7 @@ fields:
 
   - name: "resolution_target"
     type: "select"
+    formula: "size"
     label: "Output Size"
     default: "fhd1080"
     configuration:
@@ -44,6 +46,7 @@ fields:
 
   - type: "section"
     label: "Models"
+    formula: "models"
     children:
       - name: "diffusion_model"
         type: "model"

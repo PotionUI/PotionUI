@@ -67,5 +67,13 @@ llm:
     "worst quality, low quality, score_1, score_2, score_3, artist name, blurry, jpeg
     artifacts, chromatic aberration."
 
+formulas:
+  groups:
+    speed:  { label: "Speed and sampling" }
+    size:   { label: "Size" }
+    loras:  { label: "LoRAs" }
+    cache:  { label: "Step cache" }
+    models: { label: "Models", preselect: false }
+
 modes:
   - txt2img

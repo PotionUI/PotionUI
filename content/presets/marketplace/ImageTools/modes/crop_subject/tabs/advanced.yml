@@ -2,6 +2,7 @@
 fields:
   - name: "crop_alpha_threshold"
     type: "slider"
+    formula: "crop"
     label: "Alpha Threshold"
     audience: "advanced"
     default: 16

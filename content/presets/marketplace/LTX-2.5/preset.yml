@@ -220,6 +220,17 @@ llm:
     motion artifacts, fused fingers, bad anatomy, weird hand, ugly, transition,
     static." Trim items that don't apply and add what the shot risks.
 
+formulas:
+  groups:
+    speed:    { label: "Speed and sampling" }
+    size:     { label: "Size" }
+    loras:    { label: "LoRAs" }
+    enhance:  { label: "Upscale and refine" }
+    detailer: { label: "Face and hand detailer" }
+    guidance: { label: "Guidance" }
+    cache:    { label: "Step cache" }
+    models:   { label: "Models", preselect: false }
+
 modes:
   - video
   - upscale

@@ -1,6 +1,7 @@
 fields:
   - type: "section"
     label: "I2V Models"
+    formula: "models"
     children:
       - name: "i2v_high_noise_model"
         type: "model"
@@ -48,6 +49,7 @@ fields:
 
   - type: "section"
     label: "I2V LoRAs"
+    formula: "loras"
     children:
       - name: "i2v_loras_high"
         type: "lora_picker"

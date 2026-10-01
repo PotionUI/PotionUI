@@ -91,5 +91,11 @@ llm:
     Max duration at 0 (auto) the model ends the song itself; a low cap cuts
     it mid-phrase instead.
 
+formulas:
+  groups:
+    speed:  { label: "Speed and sampling" }
+    song:   { label: "Song" }
+    models: { label: "Models", preselect: false }
+
 modes:
   - song

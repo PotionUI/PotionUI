@@ -6,11 +6,13 @@ fields:
     children:
       - name: "string_input"
         type: "string"
+        formula: "basics"
         label: "String"
         description: "The canonical one-line text input."
         default: "A short value"
       - name: "textbox_input"
         type: "textbox"
+        formula: "basics"
         label: "Textbox alias"
         description: "The textbox alias uses the same frontend text component."
         default: "A longer sample value"
@@ -19,14 +21,17 @@ fields:
     children:
       - name: "number_input"
         type: "number"
+        formula: "basics"
         label: "Number"
         default: 2.5
       - name: "integer_input"
         type: "integer"
+        formula: "basics"
         label: "Integer"
         default: 7
       - name: "stepper_input"
         type: "stepper"
+        formula: "basics"
         label: "Stepper"
         configuration:
           min: 1
@@ -37,6 +42,7 @@ fields:
 
   - name: "slider_input"
     type: "slider"
+    formula: "basics"
     label: "Slider"
     description: "A fractional slider with an explicit range and tooltip."
     configuration:
@@ -55,15 +61,18 @@ fields:
     children:
       - name: "boolean_input"
         type: "boolean"
+        formula: "basics"
         label: "Boolean alias"
         default: true
       - name: "checkbox_input"
         type: "checkbox"
+        formula: "basics"
         label: "Checkbox"
         default: false
 
   - name: "select_input"
     type: "select"
+    formula: "basics"
     label: "Select"
     configuration:
       allow_empty: true
@@ -79,6 +88,7 @@ fields:
 
   - name: "checkbox_group_input"
     type: "checkbox_group"
+    formula: "basics"
     label: "Checkbox group"
     configuration:
       layout: "horizontal"

@@ -323,6 +323,7 @@ class PresetTemplateLoader:
             requirements=requirements,
             prompt_resources=prompt_resources,
             prompt_syntax=prompt_syntax,
+            formulas=manifest.formulas.model_dump() if manifest.formulas else None,
         )
 
     _NO_STYLES_PREVIEW: Dict[str, str] = {"prompt_prefix": "", "negative": "", "example_prompt": ""}

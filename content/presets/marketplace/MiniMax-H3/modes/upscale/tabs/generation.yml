@@ -26,6 +26,7 @@ fields:
 
       - name: "target_size"
         type: "select"
+        formula: "size"
         label: "Target Size"
         default: "hd"
         ai_hint: "How large the upscale targets, as an area or a straight multiple of the source's own encode canvas. 'HD' is the checkpoint's own release canvas area and the recommended default. '2K' is a heavier area target for a source that is already close to HD. The two multiplier options scale the source canvas directly rather than hitting a fixed area -- reach for those when the user wants a specific size relationship to the source rather than a fixed resolution class. All four still round onto the model's own 32px canvas grid."
@@ -38,6 +39,7 @@ fields:
 
       - name: "refine_denoise"
         type: "select"
+        formula: "enhance"
         label: "Refine denoise"
         default: "0.45"
         ai_hint: "Fraction of the refine schedule actually walked. Balanced (0.45) is the recommended default. Light (0.30) stays closer to the upsampled source as-is (less fixing of upsampling softness, less risk of drifting from the source); Strong (0.60) gives the refine more freedom to add detail at the cost of drifting further from the source."
@@ -49,6 +51,7 @@ fields:
 
       - name: "refine_steps"
         type: "slider"
+        formula: "enhance"
         label: "Refine steps"
         default: 4
         ai_hint: "Denoising steps for the refine pass; video and audio share the count but step their own sigma schedules. The released recipe runs 4 -- raise only if the refine looks under-cooked at Strong denoise, or the user explicitly asks for more steps."
@@ -56,6 +59,7 @@ fields:
 
       - name: "refine_sampler"
         type: "select"
+        formula: "enhance"
         label: "Refine sampler"
         default: "euler"
         ai_hint: "How each step advances between two sigmas. Euler is the reference solver and what the model was distilled against -- leave it there for an ordinary refine. Res multistep, DPM++ 2M and SA-Solver are deterministic second-order solvers that cost no extra time and mostly buy sharpness at this mode's low step counts. ER-SDE is stochastic instead, trading exact reproducibility for more variety."
@@ -69,6 +73,7 @@ fields:
 
   - type: "section"
     label: "Models"
+    formula: "models"
     children:
       - name: "model"
         type: "model"

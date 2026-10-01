@@ -1,6 +1,7 @@
 fields:
   - name: "latent_upscale"
     type: "select"
+    formula: "enhance"
     label: "Latent Upscale"
     ai_hint: "Two-stage latent upscale, same recipe as the base MiniMax-H3 preset's Enhance tab -- requires the Latent Upscaler selected below on this tab. Stage 1 renders at the picked Resolution (Generation tab) without decoding; the latent upscaler resizes that latent to the picked target; stage 2 refines it at the new resolution with its own LoRAs/steps/denoise/shift below, added on top of stage 1's own LoRA chain. Composes freely with audio and with a first/last frame or Video Director document: stage 1's audio track is decoded/passed through independently of the video refine and muxed into stage 2's output, and whatever keyframe or Director conditioning shaped stage 1's generation is already baked into the latent stage 2 refines -- the refine entry path does not re-apply keyframe conditioning at stage 2's resolution."
     default: "off"
@@ -14,6 +15,7 @@ fields:
 
   - name: "upscale_model"
     type: "model"
+    formula: "models"
     label: "Latent Upscaler (required when Latent Upscale is not Off)"
     ai_hint: "The 3D latent-upscale checkpoint stage 1's output is resized through -- the same checkpoint the base MiniMax-H3 preset's Enhance tab and standalone Upscale mode use. Unset while Latent Upscale is not Off fails the render with a clear error at generation time."
     configuration:
@@ -34,6 +36,7 @@ fields:
 
   - name: "refine_loras"
     type: "lora_picker"
+    formula: "loras"
     label: "Refine LoRAs (stage 2)"
     default: []
     ai_hint: "ADDED to the generation LoRAs (LoRA tab's LoRAs field) for the two-stage refine pass ONLY -- stage 1 renders with the plain generation LoRA stack, unaffected. Empty = the refine pass shares the generation LoRA stack exactly as before this field existed."
@@ -56,6 +59,7 @@ fields:
 
   - name: "refine_steps"
     type: "slider"
+    formula: "enhance"
     label: "Refine steps"
     default: 4
     ai_hint: "Denoising steps for the refine pass; video and audio share the count but step their own sigma schedules. 4 is the released recipe -- raise if the refine looks under-cooked at Strong denoise. Only has an effect when Latent Upscale is not Off."
@@ -68,6 +72,7 @@ fields:
 
   - name: "refine_denoise"
     type: "select"
+    formula: "enhance"
     label: "Refine denoise"
     default: "0.45"
     ai_hint: "Fraction of the refine schedule actually walked. Balanced (0.45) is the recommended default. Light (0.30) stays closer to the upsampled latent as-is; Strong (0.60) gives the refine more freedom to add detail at the cost of drifting further from stage 1. Only has an effect when Latent Upscale is not Off."
@@ -84,6 +89,7 @@ fields:
 
   - name: "refine_sampler"
     type: "select"
+    formula: "enhance"
     label: "Refine sampler"
     default: "euler"
     ai_hint: "How each refine step advances between two sigmas -- the same choices as stage 1's own Sampler (Advanced tab), set independently. Euler is the reference solver; stage 1 defaults to Res multistep instead, FastVideo's own recommendation for the 8-step base pass, but the refine is a separate, shorter schedule the released recipe leaves at the reference solver. Only has an effect when Latent Upscale is not Off."

@@ -27,6 +27,7 @@ fields:
 
   - type: "section"
     label: "Models"
+    formula: "models"
     children:
       - name: "model"
         type: "model"
@@ -108,6 +109,7 @@ fields:
     children:
       - name: "refine_strength"
         type: "select"
+        formula: "enhance"
         label: "Refine Strength"
         ai_hint: "Friendly control for the standalone upscale mode's refine pass. Strong is Lightricks' first-party recipe and the recommended default; suggest Balanced/Light only if the user wants the refine to preserve more of the upsampled source video as-is. The Advanced tab's Refine Sigmas field is an expert override of this same knob -- prefer this select."
         default: "strong"
@@ -119,6 +121,7 @@ fields:
 
       - type: "gate"
         name: "enhance_faces_hands"
+        formula: "detailer"
         label: "Enhance faces and hands"
         default: false
         configuration:
@@ -143,12 +146,14 @@ fields:
           #############
           - name: "face_detector_model"
             type: "model"
+            formula: "models"
             label: "Face Detection Model"
             configuration:
               model_type: "mediapipe"
 
           - name: "hand_detector_model"
             type: "model"
+            formula: "models"
             label: "Hand Detection Model"
             configuration:
               model_type: "mediapipe"

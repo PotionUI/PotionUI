@@ -4,6 +4,7 @@ fields:
     children:
       - name: "steps"
         type: "slider"
+        formula: "speed"
         label: "Steps"
         audience: "advanced"
         default: 4
@@ -20,6 +21,7 @@ fields:
         children:
           - name: "sampler"
             type: "select"
+            formula: "speed"
             label: "Sampler"
             audience: "advanced"
             default: "euler"
@@ -46,6 +48,7 @@ fields:
 
           - name: "scheduler"
             type: "select"
+            formula: "speed"
             label: "Scheduler"
             audience: "advanced"
             default: "simple"
@@ -118,6 +121,7 @@ fields:
             
   - type: "section"
     label: "Sparse attention"
+    formula: "sparse"
     audience: "advanced"
     children:
       - name: "sparse_attn"
@@ -166,6 +170,7 @@ fields:
   # tab.
   - type: "section"
     label: "Step cache (FBCache)"
+    formula: "cache"
     audience: "advanced"
     children:
       - type: "row"

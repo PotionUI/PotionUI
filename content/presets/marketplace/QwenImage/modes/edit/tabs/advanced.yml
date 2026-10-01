@@ -1,6 +1,7 @@
 fields:
   - type: "section"
     label: "Sampling"
+    formula: "speed"
     children:
       # Same defaults as txt2img/img2img (2512): the 2511 edit checkpoint is also
       # not distilled. Unvalidated specifically for edit -- flag for maintainer

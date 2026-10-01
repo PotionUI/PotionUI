@@ -1,6 +1,7 @@
 fields:
   - type: "section"
     label: "Sampling"
+    formula: "speed"
     children:
       - name: "steps"
         type: "slider"
@@ -59,6 +60,7 @@ fields:
 
   - type: "section"
     label: "Step cache (FBCache)"
+    formula: "cache"
     audience: "advanced"
     children:
       - type: "row"

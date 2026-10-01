@@ -2,6 +2,7 @@
 fields:
   - name: "flow_scale"
     type: "select"
+    formula: "interpolation"
     label: "Flow Scale"
     audience: "advanced"
     default: 1.0

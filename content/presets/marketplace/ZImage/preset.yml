@@ -54,6 +54,14 @@ speed_profiles:
   base:   { steps: 30, guidance: 4.0, sampler: "euler" }
   custom: { steps: 30, guidance: 4.0, sampler: "euler" }
 
+formulas:
+  groups:
+    speed:  { label: "Speed and sampling" }
+    size:   { label: "Size" }
+    loras:  { label: "LoRAs" }
+    cache:  { label: "Step cache" }
+    models: { label: "Models", preselect: false }
+
 vars:
   default_shift: 3.0
 

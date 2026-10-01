@@ -17,7 +17,7 @@ a preset instead of stopping at the first one.
 import re
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, ValidationError, model_validator
 
 from src.features.presets.css_named_colors import CSS_NAMED_COLORS
 
@@ -220,6 +220,7 @@ class FieldSpec(BaseModel):
     # `audience`. See docs/presets.md field reference.
     hidden_when_video_director: Optional[bool] = False
     capability: Optional[CapabilitySpec] = None
+    formula: Optional[Union[StrictStr, Literal[False]]] = None
 
     @model_validator(mode="after")
     def _validate_capability(self) -> "FieldSpec":
@@ -596,6 +597,20 @@ class SpeedProfile(BaseModel):
     extra: Optional[Dict[str, Any]] = None
 
 
+class FormulaGroupSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: Optional[str] = None
+    description: Optional[str] = None
+    preselect: bool = True
+
+
+class FormulasSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    groups: Dict[str, FormulaGroupSpec] = Field(default_factory=dict)
+
+
 CONFIGURATION_TYPES = frozenset({"model_tags", "tag_categories"})
 
 
@@ -856,6 +871,7 @@ class PresetManifest(BaseModel):
     # variant would mean threading a second field through loader.py's mode
     # parsing for no shipped use case that needs mode-scoped profiles.
     speed_profiles: Optional[Dict[str, SpeedProfile]] = None
+    formulas: Optional[FormulasSpec] = None
     modes: List[str]
     media: Optional[PresetMedia] = None
     # Optional hardware guidance shown at preset-choice time, before a user

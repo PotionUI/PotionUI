@@ -53,6 +53,14 @@ llm:
     negative prompt, so express constraints positively ("empty street" not "no people").
     More concrete detail yields better results; think of briefing a photographer.
 
+formulas:
+  groups:
+    speed:  { label: "Speed and sampling" }
+    size:   { label: "Size" }
+    loras:  { label: "LoRAs" }
+    cache:  { label: "Step cache" }
+    models: { label: "Models", preselect: false }
+
 modes:
   - txt2img
   - img2img

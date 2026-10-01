@@ -4,6 +4,7 @@
 fields:
   - name: "matte_strength"
     type: "slider"
+    formula: "background"
     label: "Matte Strength"
     audience: "advanced"
     default: 50
@@ -15,6 +16,7 @@ fields:
 
   - name: "matte_feather"
     type: "slider"
+    formula: "background"
     label: "Matte Feather"
     audience: "advanced"
     default: 0

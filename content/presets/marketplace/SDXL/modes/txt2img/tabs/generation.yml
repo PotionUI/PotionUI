@@ -18,6 +18,7 @@ fields:
             configuration: { min: 1, max: 30, step: 1 }
       - name: "resolution"
         type: "resolution"
+        formula: "size"
         label: "Resolution"
         ai_hint: "SDXL works best at 1024x1024 total pixel area. Portrait: 896x1152 or 832x1216. Landscape: 1152x896 or 1216x832. Going much larger may cause duplicate subjects or distortion."
         configuration:
@@ -28,6 +29,7 @@ fields:
 
   - type: "section"
     label: "Model"
+    formula: "models"
     children:
       - name: "model"
         type: "model"

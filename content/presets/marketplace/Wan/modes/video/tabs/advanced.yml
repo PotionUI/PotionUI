@@ -1,6 +1,7 @@
 fields:
   - type: "section"
     label: "Sampling"
+    formula: "speed"
     children:
       # Krea-2 layout: steps, then Sampler + Schedule sharing one row, then
       # cfg, each carrying audience: advanced individually. Manual sigmas has
@@ -128,6 +129,7 @@ fields:
 
       - name: "manual_sigmas"
         type: "textbox"
+        formula: false
         label: "Manual sigmas"
         default: ""
         configuration:
@@ -135,6 +137,7 @@ fields:
 
   - type: "section"
     label: "Expert switching"
+    formula: "speed"
     children:
       - type: "row"
         children:
@@ -163,6 +166,7 @@ fields:
 
   - type: "section"
     label: "Negative prompt guidance (NAG)"
+    formula: "guidance"
     children:
       # NAG applies the negative prompt through attention instead of a second
       # CFG forward pass -- the way to keep a working negative prompt on
@@ -188,6 +192,7 @@ fields:
 
   - type: "section"
     label: "CFG-Zero*"
+    formula: "guidance"
     children:
       # CFG-Zero* rescales the uncond branch onto cond before extrapolation -- a
       # near-free quality correction, on by default. Zero-init returns a zero
@@ -207,6 +212,7 @@ fields:
 
   - type: "section"
     label: "Adaptive Projected Guidance (APG)"
+    formula: "guidance"
     audience: "advanced"
     children:
       # APG reshapes the CFG delta to cut oversaturation/artifacts at high CFG.
@@ -233,6 +239,7 @@ fields:
 
   - type: "section"
     label: "Skip-Layer Guidance (SLG)"
+    formula: "guidance"
     audience: "advanced"
     children:
       # SLG pushes the prediction away from a degraded pass that skips certain
@@ -266,6 +273,7 @@ fields:
 
   - type: "section"
     label: "Detail warp (sigma daemon)"
+    formula: "quality"
     audience: "advanced"
     children:
       # Bumps mid-trajectory sigmas up (positive) or down (negative) over a
@@ -293,6 +301,7 @@ fields:
 
   - type: "section"
     label: "FreeInit (temporal flicker) -- text-to-video only"
+    formula: "quality"
     audience: "advanced"
     children:
       # FreeInit runs extra full denoise passes, re-noising the previous pass's
@@ -320,6 +329,7 @@ fields:
 
   - type: "gate"
     name: "riflex"
+    formula: "quality"
     label: "Long-video RoPE (RIFLEx)"
     audience: "advanced"
     default: false
@@ -334,6 +344,7 @@ fields:
 
   - type: "section"
     label: "Step cache (FBCache)"
+    formula: "cache"
     audience: "advanced"
     children:
       - type: "row"

@@ -23,10 +23,7 @@ Images, video and music on your own GPU · Free and open source · Linux & Windo
 
 **[Install](#install)** · [Quick start](#60-seconds-to-first-image) · [Website](https://potionui.com) · [Docs](https://potionui.com/docs) · [Changelog](#changelog) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
-</div>
-
-Run Krea-2, Anima, SDXL, Flux, Wan, LTX, Qwen-Image, MiniMax and YuE2 on one box — then give your team, your household, or your agents their own logins, presets, and limits. No node
-graphs. No per-model setup. Pick a model, type, watch it render live.
+Run Krea-2, Anima, SDXL, Flux, Wan, LTX, Qwen-Image, MiniMax and YuE2 on one box — then give your team, your household, or your agents their own logins, presets, and limits. No node graphs. No per-model setup. Pick a model, type, watch it render live.
 
 ![The generate workspace: model tabs, a prompt built from colored segments, and the finished render](docs/media/potionui-generation-page.png)
 
@@ -36,6 +33,8 @@ graphs. No per-model setup. Pick a model, type, watch it render live.
 https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 
 </details>
+
+</div>
 
 **Why PotionUI:**
 

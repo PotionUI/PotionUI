@@ -8,7 +8,8 @@ The gallery-only pipeline is intentionally inert.
 Coverage is organized as follows:
 
 - **Inputs:** `string`, `textbox`, `number`, `integer`, `stepper`, `slider`, `seed`,
-  `boolean`, `checkbox`, `select`, and `checkbox_group`.
+  `boolean`, `checkbox`, `select`, and `checkbox_group`, plus a select and a checkbox that
+  reveal a field through `set_visibility` reactions.
 - **Pickers:** `resolution`, `carousel`, `image`, `video`, `audio`, `media`, `model`,
   `models`, `lora_picker`, `llm`, `camera_shot`, and `prompt_timeline`.
 - **Layout:** `tabs`/`tab`, `header`, `section`, `group`, `accordion`, `gate`, and `row`.

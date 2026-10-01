@@ -100,3 +100,44 @@ fields:
         - label: "WEBP"
           value: "webp"
     default: ["png", "webp"]
+
+  - type: "header"
+    label: "Reactions"
+
+  - name: "reaction_switch"
+    type: "select"
+    label: "Reaction switch"
+    description: "Shows the next field only while it is set to Reveal."
+    default: "hide"
+    configuration:
+      options:
+        - label: "Hide"
+          value: "hide"
+        - label: "Reveal"
+          value: "reveal"
+
+  - name: "reaction_revealed"
+    type: "string"
+    label: "Revealed by the switch"
+    default: "Visible while the switch is set to Reveal"
+    reactions:
+      - when: { field: "reaction_switch", equals: "reveal" }
+        then: { set_visibility: true }
+      - when: { field: "reaction_switch", not_equals: "reveal" }
+        then: { set_visibility: false }
+
+  - name: "reaction_toggle"
+    type: "checkbox"
+    label: "Reaction toggle"
+    description: "Shows the next field only while ticked."
+    default: false
+
+  - name: "reaction_ticked"
+    type: "string"
+    label: "Revealed by the toggle"
+    default: "Visible while the toggle is ticked"
+    reactions:
+      - when: { field: "reaction_toggle", equals: true }
+        then: { set_visibility: true }
+      - when: { field: "reaction_toggle", not_equals: true }
+        then: { set_visibility: false }

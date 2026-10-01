@@ -98,6 +98,8 @@
 	setContext(FORM_FIELD_ERROR_ACTIONS_CONTEXT_KEY, fieldErrorActions);
 	$: fieldErrorsStore.set(fieldErrors || {});
 
+	const MAX_REACTION_ROUNDS = 8;
+
 	// State
 	let formSchema: any = null;
 	let formData: Record<string, any> = {};
@@ -148,56 +150,43 @@
 	// Reactive: Process schema with reactions when formData changes
 	// This computes the processed schema and immediately applies value changes if needed
 	$: if (formSchema && formData && forceVisibleFieldNames) {
-		const result = processSchemaWithReactions(formSchema, formData);
-		// Admin-locked (readonly) fields fold into `disabled` after reactions run,
-		// so a reaction's set_disabled: false can never re-enable a field the admin
-		// locked via a per-field form override.
-		applyReadonlyToSchema(result.processedSchema);
-		const capabilities = resolveCapabilities(
-			capabilityModelFields,
-			formData,
-			(modelId) => (capabilityRevision >= 0 ? sharedCapabilityCache.get(modelId) : undefined)
-		);
-		const hiddenByCapability = applyCapabilitiesToSchema(result.processedSchema, capabilities);
-		if (hiddenByCapability.join('|') !== [...capabilityHiddenNames].join('|')) {
-			capabilityHiddenNames = new Set(hiddenByCapability);
+		let data = formData;
+		let pass = reprocessSchema(formSchema, data, capabilityModelFields, capabilityRevision);
+		for (let round = 0; round < MAX_REACTION_ROUNDS && initialLoadComplete; round++) {
+			const applied = applyReactionValueChanges(data, pass.valueChanges);
+			if (!applied.changed) break;
+			data = applied.data;
+			pass = reprocessSchema(formSchema, data, capabilityModelFields, capabilityRevision);
 		}
-		// Audience/Director filtering runs after reactions: a field already
-		// hidden by a reaction stays hidden regardless of either; an
-		// 'advanced' field is additionally hidden in 'simple' mode, and a
-		// `hidden_when_video_director` field is additionally hidden while
-		// `videoDirectorActive`. Only rendering changes - the field's
-		// value/default stays in formData either way, so submission
-		// (getFormData/flattenFormData) is unaffected.
+		if (pass.hiddenByCapability.join('|') !== [...capabilityHiddenNames].join('|')) {
+			capabilityHiddenNames = new Set(pass.hiddenByCapability);
+		}
 		applyAudienceVisibilityToSchema(
-			result.processedSchema,
+			pass.processedSchema,
 			resolveAudience(audience, $formAudienceStore),
 			forceVisibleFieldNames,
 			videoDirectorActive
 		);
-		processedSchema = result.processedSchema;
+		processedSchema = pass.processedSchema;
+		if (data !== formData) {
+			formData = data;
+		}
+	}
 
-		// Apply value changes immediately if needed (don't store as reactive variable).
-		//
-		// This reprocesses on every formData change unconditionally - there is
-		// deliberately no "did a trigger field actually change" pre-check. The
-		// loop guard is entirely inside applyReactionValueChanges: it reports
-		// `changed: true` - and only then do we reassign `formData` - when a
-		// value actually differs (structurally, not just by reference; see
-		// valuesEqual there). Since processSchemaWithReactions is a pure function
-		// of (formSchema, formData), a reassignment that already matches what a
-		// reaction computes converges on the next reprocess with no further
-		// reassignment, so this cannot re-trigger indefinitely.
+	function reprocessSchema(schema: any, data: Record<string, any>, modelFields: string[], revision: number) {
+		const result = processSchemaWithReactions(schema, data);
+		applyReadonlyToSchema(result.processedSchema);
+		const capabilities = resolveCapabilities(
+			modelFields,
+			data,
+			(modelId) => (revision >= 0 ? sharedCapabilityCache.get(modelId) : undefined)
+		);
+		const hiddenByCapability = applyCapabilitiesToSchema(result.processedSchema, capabilities);
 		const valueChanges = {
 			...result.valueChanges,
-			...capabilityValueChanges(result.processedSchema, formData, capabilities)
+			...capabilityValueChanges(result.processedSchema, data, capabilities)
 		};
-		if (valueChanges && Object.keys(valueChanges).length > 0 && initialLoadComplete) {
-			const applied = applyReactionValueChanges(formData, valueChanges);
-			if (applied.changed) {
-				formData = applied.data;
-			}
-		}
+		return { processedSchema: result.processedSchema, valueChanges, hiddenByCapability };
 	}
 
 	// Helper to merge form data
@@ -382,9 +371,11 @@
 
 	// Reactive: Update formData when initialData changes (for session loading)
 	// IMPORTANT: Only react to actual changes in initialData reference/content, NOT user edits to formData
-	$: if (initialLoadComplete && initialData && formSchema) {
+	$: if (initialLoadComplete && initialData && formSchema) hydrateFromInitialData(initialData, formSchema);
+
+	function hydrateFromInitialData(incoming: Record<string, any>, schema: any) {
 		// Create a stable key from initialData to detect when it actually changes
-		const currentInitialDataKey = JSON.stringify(initialData);
+		const currentInitialDataKey = JSON.stringify(incoming);
 
 		// Only update formData if initialData has changed (not just different from formData)
 		// This prevents overwriting user edits while still allowing session loads to update the form
@@ -396,10 +387,10 @@
 			lastPublishedFormDataKey = null;
 
 			// Get root schema for defaults
-			const schemaDefaults = getSchemaDefaults(formSchema);
+			const schemaDefaults = getSchemaDefaults(schema);
 
 			// Merge initialData with schema defaults
-			const mergedData = mergeFormData(schemaDefaults, initialData);
+			const mergedData = mergeFormData(schemaDefaults, incoming);
 			formData = mergedData;
 		}
 	}

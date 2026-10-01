@@ -21,6 +21,7 @@
 	import { maskSubjectKey, shouldClearMask } from './mediaLoaderMask';
 	import { buildUploadedMediaItem, pastedImageFileName, type UploadedMediaItem } from './mediaLoaderUpload';
 	import { describeDropTarget, describeFormats, readMediaLoaderConfig, type MediaKind } from './mediaLoaderConfig';
+	import { locateMediaPath, mediaPathPreviewUrl } from './mediaLoaderPreview';
 	import { kindFromDeclared, kindFromFilename, kindFromMimeType, kindOfMediaItem } from './mediaLoaderKind';
 	import {
 		describeCandidate,
@@ -151,21 +152,9 @@
 	}
 
 	function parseMediaLocator(rawPath: string): MediaLocator | null {
-		if (rawPath.includes('/tmp/')) return null; // temporary file, never persisted - nothing to resolve
-		const segments = rawPath.split('/').filter((s) => s.length > 0);
-		if (segments.length === 0) return null;
-		const filename = segments[segments.length - 1];
-
-		if (segments[0] === 'tmp') return null;
-		if (rawPath.startsWith('/') || segments[0] === 'uploads') {
-			return { kind: 'upload', filename };
-		}
-		if (segments.length >= 2) {
-			// Relative generation-storage path, e.g. "generations/2024-01-01/<genId>/0.png".
-			const generationId = segments[segments.length - 2];
-			return { kind: 'generation', generationId, filename };
-		}
-		return null;
+		const location = locateMediaPath(rawPath);
+		if (!location || location.kind === 'tmp') return null;
+		return location;
 	}
 
 	async function fetchMissingMetadata() {
@@ -301,20 +290,8 @@
 			// Legacy string value support - this is a file path from generation
 			// history or an upload; both conventions resolve to a served URL.
 			mediaMetadata = null;
-			const pathParts = value.split('/');
-			const filename = pathParts[pathParts.length - 1];
-
-			if (!value.startsWith('/')) {
-				// Relative path = generation media. The generation id is the
-				// second-to-last segment.
-				const segments = value.split('/').filter((s: string) => s);
-				const generationId = segments[segments.length - 2];
-				previewUrl = `/api/media/generations/${generationId}/${filename}`;
-			} else if (value.includes('/tmp/')) {
-				previewUrl = `/api/media/tmp/${filename}`;
-			} else {
-				previewUrl = `/api/media/uploads/${filename}`;
-			}
+			const filename = value.split('/').pop() || '';
+			previewUrl = mediaPathPreviewUrl(value);
 			fileName = filename;
 			fileType = kindFromFilename(filename);
 		} else if (!value) {

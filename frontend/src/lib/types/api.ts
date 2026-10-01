@@ -757,7 +757,7 @@ export interface DocItem {
 }
 
 export interface DocSection {
-	id: 'user' | 'developer' | 'contributor';
+	id: 'user' | 'admin' | 'developer' | 'contributor';
 	title: string;
 	items: DocItem[];
 }

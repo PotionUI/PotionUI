@@ -171,6 +171,7 @@ class BackendRegistry:
                 "label": getattr(config_class, "engine_label", None) or engine,
                 "singleton": singleton,
                 "creatable": not singleton,
+                "timeout_seconds": config_class.model_fields["timeout_seconds"].default,
                 "fields": config_class.engine_fields(),
             })
         return descriptors

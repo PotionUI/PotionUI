@@ -108,7 +108,7 @@ class _DocRecord:
     source: str  # "repo" | "plugin"
     plugin_id: Optional[str]
     order: int
-    audience: str  # "user" | "developer" | "contributor"
+    audience: str
     category: Optional[str] = None
     category_order: Optional[int] = None
     file_path: Optional[Path] = None
@@ -169,11 +169,18 @@ def build_tree(plugin_registry, base_docs_path: "Path | str", is_admin: bool) ->
     contributor_items = [r.to_item() for r in records if r.audience == "contributor"]
     contributor_items.sort(key=lambda item: (item["order"], item["title"]))
 
+    admin_items = [r.to_item() for r in records if r.audience == "admin"]
+    admin_items.sort(key=lambda item: (item["order"], item["title"]))
+
     hidden_sections: List[Dict[str, Any]] = []
     if is_admin:
+        if admin_items:
+            sections.append({"id": "admin", "title": "Administration", "items": admin_items})
         sections.append({"id": "developer", "title": "Developer", "items": dev_items})
         sections.append({"id": "contributor", "title": "Contributor", "items": contributor_items})
     else:
+        if admin_items:
+            hidden_sections.append({"id": "admin", "title": "Administration", "count": len(admin_items)})
         if dev_items:
             hidden_sections.append({"id": "developer", "title": "Developer", "count": len(dev_items)})
         if contributor_items:
@@ -360,7 +367,7 @@ def _record_from_plugin_doc(
     stable_suffix = stem if stem not in seen_ids else str(index)
 
     audience = entry.get("audience") or "user"
-    if audience not in ("user", "developer", "contributor"):
+    if audience not in ("user", "admin", "developer", "contributor"):
         audience = "user"
 
     title = entry.get("title") or _title_from_filename(stem)

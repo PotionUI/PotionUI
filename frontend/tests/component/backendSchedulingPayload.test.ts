@@ -39,6 +39,7 @@ const ENGINE: EngineDescriptor = {
 	label: 'Native (Remote)',
 	singleton: false,
 	creatable: true,
+	timeout_seconds: 300,
 	fields: []
 };
 

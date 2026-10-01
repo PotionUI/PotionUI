@@ -28,8 +28,8 @@ const { default: BackendsTab } = await import('../../src/routes/admin/components
 const { createClassComponent } = await import('svelte/legacy');
 
 const ENGINES: EngineDescriptor[] = [
-	{ engine: 'cloud', driver: 'cloud.fake', label: 'Fake Cloud', singleton: false, creatable: true, fields: [] },
-	{ engine: 'comfyui', driver: 'comfyui', label: 'ComfyUI', singleton: false, creatable: true, fields: [] }
+	{ engine: 'cloud', driver: 'cloud.fake', label: 'Fake Cloud', singleton: false, creatable: true, timeout_seconds: 300, fields: [] },
+	{ engine: 'comfyui', driver: 'comfyui', label: 'ComfyUI', singleton: false, creatable: true, timeout_seconds: 300, fields: [] }
 ];
 
 function backend(overrides: Partial<Backend> = {}): Backend {

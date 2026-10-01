@@ -1,6 +1,6 @@
 from typing import ClassVar, List, Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from src.plugin_api.cloud import CloudBackendConfig
 
@@ -10,7 +10,6 @@ DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 class OpenRouterConfig(CloudBackendConfig):
     driver: str = Field(default="cloud.openrouter")
     api_key: str = Field(
-        default="",
         title="API key",
         description="Created at openrouter.ai under Keys. Stored encrypted and never shown again.",
         json_schema_extra={"secret": True},
@@ -40,6 +39,16 @@ class OpenRouterConfig(CloudBackendConfig):
         title="Send an anonymous user id",
         description="Send an anonymous id per user so OpenRouter can tell users apart without knowing who they are. It cannot be traced back to a person without this server's secret key.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _require_api_key(cls, data):
+        if isinstance(data, dict):
+            key = data.get("api_key")
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError("Add your OpenRouter API key.")
+            data = {**data, "api_key": key.strip()}
+        return data
 
     engine_label: ClassVar[Optional[str]] = "OpenRouter"
 

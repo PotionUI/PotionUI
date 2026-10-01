@@ -1,8 +1,10 @@
 """Tests for src.features.docs.operations (build_tree / get_content)."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from src.features.docs import operations
 from src.features.docs.operations import (
@@ -425,3 +427,44 @@ class TestGetContent:
 
         with pytest.raises(DocForbiddenError):
             operations.get_content(registry, base_docs_path, "live/hooks", is_admin=False)
+
+
+OPENROUTER_PLUGIN_DIR = (
+    Path(__file__).resolve().parents[3] / "content" / "plugins" / "marketplace" / "openrouter-provider"
+)
+
+
+def openrouter_registry():
+    manifest_data = yaml.safe_load((OPENROUTER_PLUGIN_DIR / "manifest.yml").read_text(encoding="utf-8"))
+    return FakePluginRegistry([make_manifest("openrouter-provider", OPENROUTER_PLUGIN_DIR, manifest_data["docs"])])
+
+
+class TestAdminAudience:
+    def test_admin_sees_openrouter_guide_under_administration(self, tmp_path):
+        tree = operations.build_tree(openrouter_registry(), str(tmp_path / "docs"), is_admin=True)
+
+        by_id = {s["id"]: s for s in tree["sections"]}
+        assert [i["id"] for i in by_id["admin"]["items"]] == ["plugin/openrouter-provider/README"]
+        assert by_id["admin"]["title"] == "Administration"
+        assert by_id["user"]["items"] == []
+
+    def test_regular_user_gets_no_listing_entry_for_admin_guide(self, tmp_path):
+        tree = operations.build_tree(openrouter_registry(), str(tmp_path / "docs"), is_admin=False)
+
+        assert [s["id"] for s in tree["sections"]] == ["user"]
+        assert tree["sections"][0]["items"] == []
+        hidden = {h["id"]: h for h in tree["hidden_sections"]}
+        assert hidden["admin"]["count"] == 1
+
+    def test_regular_user_cannot_read_admin_guide_by_id(self, tmp_path):
+        with pytest.raises(DocForbiddenError):
+            operations.get_content(
+                openrouter_registry(), str(tmp_path / "docs"), "plugin/openrouter-provider/README", is_admin=False
+            )
+
+    def test_admin_reads_admin_guide(self, tmp_path):
+        content = operations.get_content(
+            openrouter_registry(), str(tmp_path / "docs"), "plugin/openrouter-provider/README", is_admin=True
+        )
+
+        assert content["markdown"].strip()

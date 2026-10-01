@@ -127,7 +127,7 @@
 			driver,
 			enabled: true,
 			priority: 1,
-			timeout_seconds: 300,
+			timeout_seconds: descriptor?.timeout_seconds ?? 0,
 			scheduling_policy: 'fifo',
 			scheduling_max_consecutive_same_model: 3
 		};

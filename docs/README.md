@@ -7,7 +7,9 @@ order: 1
 
 PotionUI's docs are split by audience: end-user guides, subsystem reference for anyone touching
 the code, and contributor process notes. All of it also renders in-app (Help → Documentation) for
-signed-in users, role-filtered.
+signed-in users, role-filtered. A plugin doc declares its audience in the manifest `docs:` entry:
+`user` (everyone), `admin` (admins only, listed under Administration), `developer` or `contributor`
+(admins only).
 
 ## For users
 

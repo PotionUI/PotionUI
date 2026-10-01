@@ -768,6 +768,7 @@ export interface EngineDescriptor {
 	singleton: boolean;
 	/** Server-computed `!singleton`, reported explicitly so the frontend never re-derives it. */
 	creatable: boolean;
+	timeout_seconds: number;
 	fields: EngineField[];
 }
 

@@ -22,7 +22,7 @@ from src.platform.security.user import AccountType, User
 
 
 from typing import Optional
-from pydantic import Field
+from pydantic import Field, model_validator
 
 
 class PluginBackendConfig(BaseBackendConfig):
@@ -37,6 +37,18 @@ class SecretBackendConfig(BaseBackendConfig):
     engine: str = "comfyui"
     host: str = "127.0.0.1"
     api_key: Optional[str] = Field(default=None, json_schema_extra={"secret": True})
+
+
+class RequiredSecretBackendConfig(BaseBackendConfig):
+    engine: str = "cloud"
+    api_key: str = Field(json_schema_extra={"secret": True})
+
+    @model_validator(mode="before")
+    @classmethod
+    def _require_api_key(cls, data):
+        if isinstance(data, dict) and not str(data.get("api_key") or "").strip():
+            raise ValueError("Add your API key.")
+        return data
 
 
 class TestBackendController:
@@ -740,6 +752,45 @@ class TestBackendSecretRedaction:
 
         merged = controller.backend_config_store.validate_backend_config.call_args[0][0]
         assert merged["api_key"] == "rotated-key"
+
+
+class TestRequiredSecretBackend:
+    @pytest.fixture
+    def controller(self):
+        store = Mock(spec=BackendConfigStore)
+        store.get_default_backend_ids.return_value = {}
+        store.validate_backend_config.side_effect = lambda data: RequiredSecretBackendConfig(**data)
+        registry = Mock(spec=BackendRegistry)
+        registry.refresh_backends = AsyncMock()
+        registry.backend_config_store = store
+        return BackendController(Mock(spec=Settings), registry)
+
+    @pytest.mark.asyncio
+    async def test_create_without_the_required_secret_is_refused_and_not_saved(self, controller):
+        with pytest.raises(HTTPException) as refused:
+            await controller.create_backend({"name": "Cloud", "engine": "cloud", "api_key": ""})
+
+        assert refused.value.status_code == 400
+        assert "Add your API key." in str(refused.value.detail)
+        controller.backend_config_store.add_backend.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_create_with_the_required_secret_is_saved(self, controller):
+        await controller.create_backend({"name": "Cloud", "engine": "cloud", "api_key": "k-1"})
+
+        saved = controller.backend_config_store.add_backend.call_args[0][0]
+        assert saved.api_key == "k-1"
+
+    @pytest.mark.asyncio
+    async def test_update_with_a_blank_required_secret_keeps_the_stored_one(self, controller):
+        existing = RequiredSecretBackendConfig(id="c1", name="Cloud", api_key="stored-key")
+        controller.backend_config_store.get_backend.return_value = existing
+
+        await controller.update_backend("c1", {"name": "Renamed", "api_key": ""})
+
+        saved = controller.backend_config_store.update_backend.call_args[0][1]
+        assert saved.api_key == "stored-key"
+        assert saved.name == "Renamed"
 
 
 class TestRemoteBackendConfiguredGuard:

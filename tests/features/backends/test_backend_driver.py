@@ -262,6 +262,25 @@ class TestEngineDescriptorsAreDriverAware(unittest.TestCase):
         worker_token_field = next(f for f in remote["fields"] if f["name"] == "worker_token")
         self.assertTrue(worker_token_field["secret"])
 
+    def test_each_descriptor_reports_its_own_timeout_default(self):
+        from pydantic import Field
+
+        from src.features.backends.backend_config import NativeRemoteBackendConfig
+
+        class SlowConfig(BaseBackendConfig):
+            engine: str = "cloud"
+            timeout_seconds: int = Field(default=1800)
+
+        registry = BackendRegistry.__new__(BackendRegistry)
+        registry._registered_config_types = {
+            "native.remote": NativeRemoteBackendConfig,
+            "cloud.slow": SlowConfig,
+        }
+
+        timeouts = {d["driver"]: d["timeout_seconds"] for d in registry.get_engine_descriptors()}
+
+        self.assertEqual(timeouts, {"native.remote": 300, "cloud.slow": 1800})
+
     def test_single_driver_engine_still_reports_exactly_one_descriptor(self):
         class ComfyLikeConfig(BaseBackendConfig):
             engine: str = "comfyui"

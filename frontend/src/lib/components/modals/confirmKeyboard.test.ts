@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	createConfirmSettlementGate,
 	getConfirmKeyboardAction,
+	isSubmitEnter,
 	resolveConfirmKeydown,
 	settleIfEligible
 } from './confirmKeyboard';
@@ -208,5 +209,17 @@ describe('settleIfEligible (history modal wiring)', () => {
 		expect(settleIfEligible(gate, true, createTag)).toBe(true);
 		expect(settleIfEligible(gate, true, createTag)).toBe(false);
 		expect(createTag).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('isSubmitEnter', () => {
+	it('accepts a plain Enter', () => {
+		expect(isSubmitEnter({ key: 'Enter', repeat: false })).toBe(true);
+	});
+
+	it('rejects repeats, IME composition and other keys', () => {
+		expect(isSubmitEnter({ key: 'Enter', repeat: true })).toBe(false);
+		expect(isSubmitEnter({ key: 'Enter', repeat: false, isComposing: true })).toBe(false);
+		expect(isSubmitEnter({ key: 'a', repeat: false })).toBe(false);
 	});
 });

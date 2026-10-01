@@ -33,6 +33,10 @@ export function getConfirmKeyboardAction(event: KeyboardEventLike): ConfirmKeybo
 	return { action: event.repeat ? null : 'confirm', suppress: true };
 }
 
+export function isSubmitEnter(event: { key: string; repeat: boolean; isComposing?: boolean }): boolean {
+	return event.key === 'Enter' && !event.repeat && !event.isComposing;
+}
+
 export type ConfirmSettlementGate = ReturnType<typeof createConfirmSettlementGate>;
 
 export function createConfirmSettlementGate() {

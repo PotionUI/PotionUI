@@ -57,6 +57,7 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
+		if (!isOpen) return;
 		const { action, suppress } = getConfirmKeyboardAction(e);
 		if (action === 'cancel') handleCancel();
 		else if (action === 'confirm') handleConfirm();

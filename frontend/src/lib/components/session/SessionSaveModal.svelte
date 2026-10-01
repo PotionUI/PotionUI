@@ -5,6 +5,7 @@
 	import {
 		createConfirmSettlementGate,
 		getConfirmKeyboardAction,
+		isSubmitEnter,
 		settleIfEligible
 	} from '$lib/components/modals/confirmKeyboard';
 	import { Input, Alert } from '$lib/components/ui';
@@ -33,6 +34,12 @@
 		settleIfEligible(settlementGate, canConfirm, () => dispatch('confirm'));
 	}
 
+	function handleNameKeydown(event: KeyboardEvent) {
+		if (!isOpen || isSaving || !isSubmitEnter(event)) return;
+		event.preventDefault();
+		handleConfirm();
+	}
+
 	function handleKeydown(event: KeyboardEvent) {
 		if (!isOpen || isSaving) return;
 		const { action, suppress } = getConfirmKeyboardAction(event);
@@ -54,6 +61,7 @@
 				bind:value={sessionName}
 				placeholder="Enter session name"
 				invalid={!!nameError}
+				onkeydown={handleNameKeydown}
 				data-autofocus
 			/>
 			{#if nameError}

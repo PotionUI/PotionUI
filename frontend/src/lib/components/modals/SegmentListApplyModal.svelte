@@ -300,6 +300,7 @@
 	}
 
 	function handleWindowKeydown(event: KeyboardEvent) {
+		if (!isOpen) return;
 		if (showModelPicker) return;
 		if (filtersOpen) {
 			if (event.key === 'Escape') {

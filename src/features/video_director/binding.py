@@ -5,6 +5,7 @@ from src.features.generation.dto import GenerationRequest
 
 BINDABLE_ROLES = ("first", "last")
 SINGLE_SHOT_MODES_FOR_ROLE = {"first": ("i2v", "flf"), "last": ("flf",)}
+PROMOTED_MODE_FOR_ROLE = {"first": {"t2v": "i2v"}, "last": {"i2v": "flf"}}
 
 RequestLike = TypeVar("RequestLike", GenerationRequest, Dict[str, Any])
 
@@ -25,11 +26,18 @@ def _media_value(media: Mapping[str, Any]) -> Dict[str, Any]:
     return {"path": value, "relative_path": value, "type": "image"}
 
 
-def _bind(document: Mapping[str, Any], role: str, media: Mapping[str, Any], segment_id: Optional[str]) -> Dict[str, Any]:
+def _bind(
+    document: Mapping[str, Any],
+    role: str,
+    media: Mapping[str, Any],
+    segment_id: Optional[str],
+    promote: bool = False,
+) -> Dict[str, Any]:
     if role not in BINDABLE_ROLES:
         raise DirectorBindingError("invalid_role", f"Only {' and '.join(BINDABLE_ROLES)} frames can be bound")
     mode = document.get("mode")
-    if mode not in SINGLE_SHOT_MODES_FOR_ROLE[role]:
+    promoted = PROMOTED_MODE_FOR_ROLE[role].get(mode) if promote else None
+    if mode not in SINGLE_SHOT_MODES_FOR_ROLE[role] and promoted is None:
         allowed = " or ".join(SINGLE_SHOT_MODES_FOR_ROLE[role])
         raise DirectorBindingError(
             "unsupported_mode",
@@ -45,6 +53,10 @@ def _bind(document: Mapping[str, Any], role: str, media: Mapping[str, Any], segm
     value = _media_value(media)
     bound = dict(document)
     entries = [entry for entry in bound.get("media") or [] if isinstance(entry, dict)]
+    if promoted == "flf" and not any(
+        entry.get("role") == "first" and entry.get("segment_id") == segment_id for entry in entries
+    ):
+        raise DirectorBindingError("first_frame_required", "A last frame needs a first frame on the same shot")
     existing = next(
         (entry for entry in entries if entry.get("role") == role and entry.get("segment_id") == segment_id),
         None,
@@ -52,15 +64,18 @@ def _bind(document: Mapping[str, Any], role: str, media: Mapping[str, Any], segm
     if existing is not None:
         existing["media"] = value
     else:
+        duration = (bound.get("settings") or {}).get("duration")
         entries.append({
             "id": f"bound-{role}-{segment_id}",
             "role": role,
             "segment_id": segment_id,
-            "at": 0 if role == "first" else None,
+            "at": 0 if role == "first" else (duration if isinstance(duration, (int, float)) else None),
             "strength": 1.0,
             "media": value,
         })
     bound["media"] = entries
+    if promoted is not None:
+        bound["mode"] = promoted
     return bound
 
 
@@ -69,6 +84,7 @@ def bind_director_media(
     role: str,
     media: Mapping[str, Any],
     segment_id: Optional[str] = None,
+    promote: bool = False,
 ) -> RequestLike:
     is_model = isinstance(request, GenerationRequest)
     data = request.model_dump() if is_model else copy.deepcopy(dict(request))
@@ -76,6 +92,6 @@ def bind_director_media(
     document = form_data.get("video_director")
     if not isinstance(document, Mapping):
         raise DirectorBindingError("no_director", "The request has no Video Director document to bind into")
-    form_data["video_director"] = _bind(document, role, media, segment_id)
+    form_data["video_director"] = _bind(document, role, media, segment_id, promote)
     data["form_data"] = form_data
     return GenerationRequest.model_validate(data) if is_model else data

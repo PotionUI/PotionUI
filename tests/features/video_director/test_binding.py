@@ -160,3 +160,64 @@ def test_exported_from_the_plugin_api():
     for name in ("bind_director_media", "DirectorBindingError"):
         assert name in presets_api.__all__ and name in plugin_api.__all__
         assert getattr(plugin_api, name) is getattr(presets_api, name)
+
+
+def test_a_first_frame_turns_a_text_only_shot_into_a_start_image_shot_when_asked(storage):
+    bound = bind_director_media(request_with(document("t2v")), "first", IMAGE, promote=True)
+
+    doc = bound.form_data["video_director"]
+    assert doc["mode"] == "i2v"
+    normalized = normalize_video_director(doc, CAPS, str(storage))
+    assert normalized["mode"] == "i2v"
+    assert [entry["role"] for entry in normalized["media"]] == ["first"]
+
+
+def test_a_last_frame_turns_a_start_image_shot_into_a_first_and_last_shot_when_asked(storage):
+    doc = document("i2v", media=[frame("first", "uploads/saved-first.png")])
+
+    bound = bind_director_media(request_with(doc), "last", IMAGE, promote=True)
+
+    promoted = bound.form_data["video_director"]
+    assert promoted["mode"] == "flf"
+    normalized = normalize_video_director(promoted, CAPS, str(storage))
+    by_role = {entry["role"]: entry for entry in normalized["media"]}
+    assert by_role["first"]["media"]["path"] == str(storage / "uploads" / "saved-first.png")
+    assert by_role["last"]["media"]["path"] == str(storage / "uploads" / "new.png")
+    assert by_role["last"]["at"] == 5.0
+
+
+def test_first_then_last_turn_a_text_only_shot_into_a_first_and_last_shot(storage):
+    request = bind_director_media(request_with(document("t2v")), "first", IMAGE, promote=True)
+    last = {**IMAGE, "value": "uploads/saved-last.png"}
+
+    bound = bind_director_media(request, "last", last, promote=True)
+
+    doc = bound.form_data["video_director"]
+    assert doc["mode"] == "flf"
+    normalized = normalize_video_director(doc, CAPS, str(storage))
+    assert sorted(entry["role"] for entry in normalized["media"]) == ["first", "last"]
+
+
+@pytest.mark.parametrize(
+    "doc, role, code",
+    [
+        (document("t2v", segments=[{"id": "a", "prompt": "a"}, {"id": "b", "prompt": "b"}]), "first", "segment_required"),
+        (document("director"), "first", "unsupported_mode"),
+        (document("t2v"), "last", "unsupported_mode"),
+        (document("i2v"), "last", "first_frame_required"),
+    ],
+)
+def test_promoting_still_refuses_what_cannot_become_a_single_shot(doc, role, code):
+    with pytest.raises(DirectorBindingError) as refused:
+        bind_director_media(request_with(doc), role, IMAGE, promote=True)
+
+    assert refused.value.code == code
+
+
+def test_without_promote_a_text_only_shot_is_still_refused_and_left_alone():
+    request = request_with(document("t2v"))
+
+    with pytest.raises(DirectorBindingError):
+        bind_director_media(request, "first", IMAGE)
+
+    assert request.form_data["video_director"]["mode"] == "t2v"

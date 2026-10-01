@@ -298,9 +298,11 @@ blocks that exist:
 
 - `models/<task>.yml`: a one-field model picker (`model`, `model_type: cloud`) restricted to that task,
   for each task kind;
-- `tabs/image.yml`, `tabs/image_edit.yml`, `tabs/video.yml`, `tabs/img2video.yml`: the generation
-  controls for each kind, all capability-bound, with shared parts in `tabs/_image_params.yml` and
-  `tabs/_video_params.yml`;
+- `tabs/image.yml`, `tabs/image_edit.yml`, `tabs/video.yml`, `tabs/img2video.yml`: the Generation tab
+  for each kind, an Image (or Video) section followed by a Models section, with the capability-bound
+  controls shared in `tabs/_image_params.yml` and `tabs/_video_params.yml`;
+- `tabs/references_edit.yml`, `tabs/references_img2video.yml`: the References tab for the modes that
+  take input images (reference images and edit strength, or first and last frame);
 - `tabs/provider_options.yml`: an accordion holding one `cloud_options` field.
 
 The blocks use fixed field names (`model`, `count`, `seed`, `aspect_ratio`, `resolution`, `quality`,

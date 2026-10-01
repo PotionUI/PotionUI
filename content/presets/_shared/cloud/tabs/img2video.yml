@@ -1,17 +1,8 @@
 fields:
-  - name: "first_frame"
-    type: "image"
-    label: "First frame"
-    required: true
-    ai_hint: "The picture the video starts from."
-    capability: { model_field: "model", input: "first_frame" }
-
-  - name: "last_frame"
-    type: "image"
-    label: "Last frame"
-    ai_hint: "Optional picture the video should end on. Only shown when the model supports it."
-    capability: { model_field: "model", input: "last_frame" }
-
-  - type: "row"
-    configuration: { columns: 1 }
+  - type: "section"
+    label: "Video"
     children: "{{ paths._shared }}/cloud/tabs/_video_params.yml"
+
+  - type: "section"
+    label: "Models"
+    children: "{{ paths._shared }}/cloud/models/img2video.yml"

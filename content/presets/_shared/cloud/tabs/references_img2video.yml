@@ -1,0 +1,13 @@
+fields:
+  - name: "first_frame"
+    type: "image"
+    label: "First frame"
+    required: true
+    ai_hint: "The picture the video starts from."
+    capability: { model_field: "model", input: "first_frame" }
+
+  - name: "last_frame"
+    type: "image"
+    label: "Last frame"
+    ai_hint: "Optional picture the video should end on. Only shown when the model supports it."
+    capability: { model_field: "model", input: "last_frame" }

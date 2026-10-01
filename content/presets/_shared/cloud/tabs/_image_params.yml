@@ -1,16 +1,21 @@
 fields:
-  - name: "count"
-    type: "stepper"
-    label: "Images"
-    default: 1
-    configuration: { min: 1, max: 8, step: 1 }
-    ai_hint: "How many images to generate. Each model produces a fixed number per request, so a larger count is split into several requests and billed for each."
+  - type: "row"
+    children:
+      - name: "seed"
+        type: "seed"
+        label: "Seed"
+        default: -1
+        width: "3/5"
+        ai_hint: "-1 picks a random seed each time. Not every hosted model honours a seed; when it does not, the result is simply not repeatable."
 
-  - name: "seed"
-    type: "seed"
-    label: "Seed"
-    default: -1
-    ai_hint: "-1 picks a random seed each time. Not every hosted model honours a seed; when it does not, the result is simply not repeatable."
+      - name: "count"
+        type: "stepper"
+        label: "Quantity"
+        default: 1
+        width: "2/5"
+        full_width: true
+        configuration: { min: 1, max: 8, step: 1 }
+        ai_hint: "How many images to generate. Each model produces a fixed number per request, so a larger count is split into several requests and billed for each."
 
   - name: "aspect_ratio"
     type: "select"

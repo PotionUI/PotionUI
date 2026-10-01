@@ -212,22 +212,30 @@ CLOUD_MODES: Dict[str, _CloudMode] = {
 }
 
 
+_CLOUD_REFERENCE_BLOCKS = {"references": "references_edit", "frames": "references_img2video"}
+
+
 def _cloud_form_yml(mode: _CloudMode) -> str:
+    references = ""
+    block = _CLOUD_REFERENCE_BLOCKS.get(mode.media)
+    if block:
+        references = f'''      - type: "tab"
+        label: "References"
+        configuration: {{icon: "image", icon_display: "icon_only"}}
+        children: "{{{{ paths._shared }}}}/cloud/tabs/{block}.yml"
+'''
     return f'''name: "custom"
 fields:
-  - type: "row"
-    name: "model_row"
-    configuration: {{ columns: 1 }}
-    children: "{{{{ paths._shared }}}}/cloud/models/{mode.task}.yml"
-
   - type: "tabs"
     children:
       - type: "tab"
         label: "Generation"
+        configuration: {{icon: "generation", icon_display: "icon_only"}}
         children: "{{{{ paths._shared }}}}/cloud/tabs/{mode.tab_block}.yml"
-      - type: "tab"
+{references}      - type: "tab"
         label: "Provider options"
         audience: "advanced"
+        configuration: {{icon: "settings", icon_display: "icon_only"}}
         children: "{{{{ paths._shared }}}}/cloud/tabs/provider_options.yml"
 '''
 

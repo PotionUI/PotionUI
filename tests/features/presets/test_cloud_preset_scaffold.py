@@ -41,7 +41,8 @@ def test_each_mode_declares_the_driver_and_points_its_tabs_at_shared_blocks(tmp_
     pipeline = yaml.safe_load((target / "modes" / mode / "pipeline.yml").read_text(encoding="utf-8"))["pipeline"]
 
     assert manifest["engine"] == "cloud" and manifest["driver"] == "cloud.fake"
-    assert "{{ paths._shared }}/cloud/models/" in form and "{{ paths._shared }}/cloud/tabs/" in form
+    assert "{{ paths._shared }}/cloud/tabs/" in form and "{{ paths._shared }}/cloud/models/" not in form
+    assert ("References" in form) == (mode in ("edit", "img2video"))
     names = [pipe["name"] for pipe in pipeline]
     assert names[-2:] == ["cloud_generate", "gallery"]
     assert names.index("dynamic_prompts_renderer") < names.index("seed_generator") < names.index("cloud_generate")
@@ -93,7 +94,7 @@ def test_every_control_in_the_blocks_is_bound_to_the_model_or_needs_no_binding()
     unbound = {"model", "count", "seed"}
     for path in (SHARED_CLOUD / "tabs").glob("*.yml"):
         for field in block_fields(path):
-            if field["type"] == "accordion" or field.get("name") in unbound:
+            if field["type"] in ("accordion", "row") or field.get("name") in unbound:
                 continue
             assert field.get("capability"), f"{path.name}: {field.get('name')} is not capability-bound"
 
@@ -102,12 +103,14 @@ def test_edit_and_image_to_video_reuse_the_shared_parameter_fragments_in_the_ord
     def names(tab):
         return [field["name"] for field in block_fields(SHARED_CLOUD / "tabs" / tab) if "name" in field]
 
-    image = names("image.yml")
-    assert image == ["count", "seed", "aspect_ratio", "resolution", "quality", "output_format", "background"]
-    assert names("image_edit.yml") == ["references"] + image + ["strength"]
-    video = names("video.yml")
-    assert video == ["count", "seed", "aspect_ratio", "resolution", "duration", "generate_audio"]
-    assert names("img2video.yml") == ["first_frame", "last_frame"] + video
+    image = ["seed", "count", "aspect_ratio", "resolution", "quality", "output_format", "background"]
+    assert names("image.yml") == image + ["model"]
+    assert names("image_edit.yml") == image + ["model"]
+    assert names("references_edit.yml") == ["references", "strength"]
+    video = ["seed", "count", "aspect_ratio", "resolution", "duration", "generate_audio"]
+    assert names("video.yml") == video + ["model"]
+    assert names("img2video.yml") == video + ["model"]
+    assert names("references_img2video.yml") == ["first_frame", "last_frame"]
 
 
 def test_a_mode_without_the_cloud_pipe_is_warned(tmp_path):
@@ -246,7 +249,7 @@ def test_the_served_forms_of_the_openrouter_presets_carry_their_model_picker(pre
 def test_an_unnamed_top_level_field_is_an_error_because_the_form_would_drop_it(tmp_path):
     target = build(tmp_path, ["txt2img"])
     form = target / "modes" / "txt2img" / "form.yml"
-    form.write_text(form.read_text(encoding="utf-8").replace('    name: "model_row"\n', ""), encoding="utf-8")
+    form.write_text(form.read_text(encoding="utf-8").replace('fields:\n', 'fields:\n  - type: "row"\n    children: []\n', 1), encoding="utf-8")
 
     errors = [issue.message for issue in lint(tmp_path) if issue.level == "error"]
 

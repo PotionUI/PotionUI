@@ -1,4 +1,8 @@
 fields:
-  - type: "row"
-    configuration: { columns: 1 }
+  - type: "section"
+    label: "Image"
     children: "{{ paths._shared }}/cloud/tabs/_image_params.yml"
+
+  - type: "section"
+    label: "Models"
+    children: "{{ paths._shared }}/cloud/models/txt2img.yml"

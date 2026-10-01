@@ -130,6 +130,8 @@ CLOUD_BLOCKS = (
     "tabs/image_edit.yml",
     "tabs/video.yml",
     "tabs/img2video.yml",
+    "tabs/references_edit.yml",
+    "tabs/references_img2video.yml",
     "tabs/provider_options.yml",
     "tabs/_image_params.yml",
     "tabs/_video_params.yml",

@@ -283,3 +283,41 @@ def test_the_fun_controlnet_model_must_be_picked(qwen_image21_template, guide):
     with pytest.raises(FormBindingError) as refused:
         _bind_control(qwen_image21_template, **form)
     assert "control_model" in refused.value.field_errors
+
+
+def test_a_rendered_control_pipeline_loads_the_patched_dit(qwen_image21_template, monkeypatch):
+    from types import SimpleNamespace
+
+    from src.pipelines.contracts import PipeInput
+    import src.pipelines.pipes.model_loader.qwen_image21.main as loader_module
+    from src.pipelines.pipes.model_loader.qwen_image21.main import ModelLoaderQwenImage21Pipe
+
+    loads = []
+    acquired = []
+
+    class _Loader:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def load(self, path, kind, **kwargs):
+            loads.append((path, kind, kwargs))
+            return SimpleNamespace(module=object(), spec=None, estimated_vram_gb=1.0)
+
+    class _Models:
+        def acquire(self, key, fingerprint, loader, estimated_vram_gb=None):
+            acquired.append((key, fingerprint))
+            return loader()
+
+        def retain(self, key, fingerprint):
+            return True
+
+    monkeypatch.setattr(loader_module, "NativeEngineLoader", _Loader)
+    pipes = _process(qwen_image21_template, {"guide": "openpose"}, mode="control")
+    config = _pipe(pipes, "model_loader/qwen_image21")["config"]
+    ModelLoaderQwenImage21Pipe(config=config).process(PipeInput(input={"MODELS": _Models()}), lambda _o: None)
+
+    dit_key, dit_fp = next((k, f) for k, f in acquired if k.startswith("native/dit/"))
+    assert dit_key == "native/dit//models/qwen21_dit.safetensors+control=/models/fun_control.safetensors"
+    assert dit_fp.endswith("|control=/models/fun_control.safetensors")
+    assert ("/models/qwen21_dit.safetensors", "diffusion_model",
+            {"model_patch": "/models/fun_control.safetensors"}) in loads

@@ -271,6 +271,7 @@ export interface GenerationState {
 	 * artifact card falls back to plain rendering in that case.
 	 */
 	submittedPromptTemplate: { positive: string; negative: string } | null;
+	cancelNotice?: string | null;
 }
 
 export interface PromptTabData {

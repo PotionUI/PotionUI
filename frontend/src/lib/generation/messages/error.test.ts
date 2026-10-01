@@ -155,3 +155,65 @@ describe('generation_error message handler — failure payloads', () => {
 		expect(generation.errorDetail).toBeNull();
 	});
 });
+
+describe('generation_cancelled cancel notice', () => {
+	const NOTICE = 'Stopped waiting. The provider may still finish this job and bill it.';
+
+	beforeEach(() => {
+		tabsStore.reset();
+	});
+
+	function noticeOf(tabId: string) {
+		return get(tabsStore).tabs.find((t) => t.id === tabId)!.generation.cancelNotice;
+	}
+
+	it('keeps the notice the backend sends on the cancelled message', () => {
+		const tabId = defaultTabId();
+		setCurrentGeneration(tabId, { generation_id: 'gen-n1' });
+
+		dispatchGenerationMessage(
+			{ type: 'generation_cancelled', generation_id: 'gen-n1', data: { cancel_notice: NOTICE } } as any,
+			{ unsubscribe: vi.fn() }
+		);
+
+		expect(noticeOf(tabId)).toBe(NOTICE);
+		expect(get(tabsStore).tabs.find((t) => t.id === tabId)!.generation.isGenerating).toBe(false);
+	});
+
+	it('has no notice when the cancel was confirmed', () => {
+		const tabId = defaultTabId();
+		setCurrentGeneration(tabId, { generation_id: 'gen-n2' });
+
+		dispatchGenerationMessage(
+			{ type: 'generation_cancelled', generation_id: 'gen-n2', data: { cancel_notice: null } } as any,
+			{ unsubscribe: vi.fn() }
+		);
+
+		expect(noticeOf(tabId)).toBeNull();
+	});
+
+	it('does not show a notice for an error, even one carrying the field', () => {
+		const tabId = defaultTabId();
+		setCurrentGeneration(tabId, { generation_id: 'gen-n3' });
+
+		dispatchGenerationMessage(
+			{ type: 'generation_error', generation_id: 'gen-n3', error: 'boom', data: { cancel_notice: NOTICE } } as any,
+			{ unsubscribe: vi.fn() }
+		);
+
+		expect(noticeOf(tabId)).toBeNull();
+	});
+
+	it('does not touch another tab showing a different generation', () => {
+		const tabId = defaultTabId();
+		setCurrentGeneration(tabId, { generation_id: 'gen-shown' });
+
+		dispatchGenerationMessage(
+			{ type: 'generation_cancelled', generation_id: 'gen-other', data: { cancel_notice: NOTICE } } as any,
+			{ unsubscribe: vi.fn() }
+		);
+
+		expect(noticeOf(tabId)).toBeFalsy();
+	});
+});
+

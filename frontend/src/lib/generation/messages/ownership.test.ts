@@ -9,6 +9,7 @@ vi.mock('$lib/utils/generationSounds', () => ({
 }));
 
 import { tabsStore } from '$lib/stores/tabs';
+import { beginGenerationOwnership } from './ownership';
 import { dispatchGenerationMessage } from '$lib/stores/generation';
 import { tabClaimedGenerationIds } from './ownership';
 import { resetGenerationOutputsRetirementForTests } from './generationOutputs';
@@ -348,3 +349,25 @@ describe('generation message ownership — A running, B queued in the same tab',
 		});
 	});
 });
+
+describe('a new generation taking over the display', () => {
+	beforeEach(() => {
+		tabsStore.reset();
+	});
+
+	it('clears the previous cancel notice', () => {
+		const tabId = get(tabsStore).tabs[0].id;
+		const tab = get(tabsStore).tabs[0];
+		tabsStore.updateTab(tabId, { generation: { ...tab.generation, cancelNotice: 'Stopped waiting.' } });
+
+		const adopted = beginGenerationOwnership('gen-next');
+		const latest = get(tabsStore).tabs[0];
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: adopted.activeGenerationId,
+			generation: { ...latest.generation, ...adopted.generation }
+		});
+
+		expect(get(tabsStore).tabs[0].generation.cancelNotice).toBeNull();
+	});
+});
+

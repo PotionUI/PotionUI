@@ -1606,6 +1606,7 @@
 					generation: {
 						...currentTab.generation,
 						isGenerating: true,
+						cancelNotice: null,
 						startedAt: Date.now(),
 						totalTime: null,
 						currentGeneration: {

@@ -497,6 +497,8 @@
 							.join(' · ')}
 					{:else if generatingTabName && !isActiveTabGenerating}
 						Another tab currently owns the generation worker
+					{:else if generation.cancelNotice}
+						{generation.cancelNotice}
 					{:else}
 						{markState === 'disabled' && disabledReason
 							? disabledReason

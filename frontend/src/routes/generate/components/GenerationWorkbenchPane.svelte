@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Workbench from '$lib/components/Workbench.svelte';
 	import PluginOutputs from '$lib/components/generation/PluginOutputs.svelte';
+	import CancelNotice from '$lib/components/generation/CancelNotice.svelte';
 	import LiveTextArtifacts from '$lib/components/generation/LiveTextArtifacts.svelte';
 	import type { Tab } from '$lib/types/tabs';
 
@@ -14,6 +15,8 @@
 	export let onWorkbenchHeightChange: (event: CustomEvent<string>) => void;
 	export let onMoveToWorkbench: (event: CustomEvent<{ item: any; index: number }>) => void;
 </script>
+
+<CancelNotice {tab} />
 
 <Workbench
 	currentGeneration={tab.generation.currentGeneration}

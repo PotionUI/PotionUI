@@ -125,6 +125,7 @@ export function beginGenerationOwnership(
 			isGenerating: true,
 			currentGeneration,
 			currentProgress: null,
+			cancelNotice: null,
 			startedAt: now(),
 			totalTime: null,
 			batchImages: output.batchImages,

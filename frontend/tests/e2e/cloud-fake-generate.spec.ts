@@ -182,6 +182,33 @@ test.describe('cloud generation against the fake provider', () => {
 		}
 	});
 
+	test('cancelling on a provider that cannot cancel leaves a calm notice', async ({ page }) => {
+		test.setTimeout(180000);
+		await loginAsOwner(page);
+		token = await ownerToken(page);
+		id = await backendId(page, token);
+		await setKnob(page, token, id, { duration_seconds: 120, supports_cancel: false });
+		try {
+			await openFakeStudio(page);
+			await pickModel(page, 'Fake Image');
+			await typePrompt(page, 'a patient tide');
+			await page.getByRole('button', { name: 'Generate', exact: true }).click();
+			const cancel = page.getByRole('button', { name: 'Cancel generation' });
+			await expect(cancel).toBeVisible({ timeout: 15000 });
+			await page.waitForTimeout(2000);
+			await cancel.click();
+			const notice = page.getByTestId('cancel-notice');
+			await expect(notice).toContainText('Stopped waiting. The provider may still finish this job and bill it.', { timeout: 15000 });
+			await expect(notice.getByRole('alert')).toHaveCount(0);
+			await expect(page.getByRole('button', { name: 'Generate', exact: true })).toBeVisible();
+			await screenshot(page, JOURNEY, 'cancel-notice-1440');
+			await notice.getByRole('button', { name: 'Dismiss' }).click();
+			await expect(notice).toHaveCount(0);
+		} finally {
+			await setKnob(page, token, id, { duration_seconds: 2, supports_cancel: true });
+		}
+	});
+
 	test('the admin sees the cost of the completed generation', async ({ page }) => {
 		test.setTimeout(120000);
 		await loginAsOwner(page);

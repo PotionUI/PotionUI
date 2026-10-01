@@ -231,6 +231,28 @@ describe('applyConfirmedCancellations', () => {
 		expect(tab.generation.queue).toEqual([]);
 	});
 
+	it('keeps a cancel notice the live cancelled event already put on the tab', () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: 'gen-1',
+			generation: {
+				...currentTab(tabId).generation,
+				isGenerating: true,
+				currentGeneration: { id: 'gen-1', generation_id: 'gen-1', status: 'running' },
+				queue: [{ generation_id: 'gen-1', queue_position: null, status: 'running' }]
+			}
+		});
+		dispatchGenerationMessage(
+			{ type: 'generation_cancelled', generation_id: 'gen-1', data: { cancel_notice: 'Stopped waiting.' } } as any,
+			{ unsubscribe: () => {} }
+		);
+
+		applyConfirmedCancellations(tabsStore, tabId, ['gen-1']);
+
+		expect(currentTab(tabId).generation.cancelNotice).toBe('Stopped waiting.');
+		expect(currentTab(tabId).generation.isGenerating).toBe(false);
+	});
+
 	it('writes into the ORIGINAL tab, not whichever tab is active by completion time (deferred single cancel)', () => {
 		const tabA = defaultTabId();
 		const tabB = tabsStore.addTabWithData('Tab B', {

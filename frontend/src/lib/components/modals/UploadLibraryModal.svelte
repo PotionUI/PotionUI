@@ -5,6 +5,18 @@
 	import type { LibraryItem } from '$lib/services/api/library';
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaPickerFrame from './MediaPickerFrame.svelte';
+	import MediaPickerSelectionBar from './MediaPickerSelectionBar.svelte';
+	import MediaPickTile from './MediaPickTile.svelte';
+	import MediaPickPreviewPanel from './MediaPickPreviewPanel.svelte';
+	import MediaPickConstraintNote from './MediaPickConstraintNote.svelte';
+	import {
+		createMediaSelection,
+		isMediaTypeSelectable,
+		mediaTypeConstraintMessage,
+		pickedFromLibraryItem,
+		type PickedMedia,
+		type PickerMediaType
+	} from './mediaPickerSelection';
 	import QuickTagFilterBar from '$lib/components/QuickTagFilterBar.svelte';
 	import { Badge, Button, Spinner, EmptyState } from '$lib/components/ui';
 	import { buildLibraryQuery, DEFAULT_LIBRARY_FILTERS } from '$lib/library/libraryQuery';
@@ -17,9 +29,33 @@
 	// shows - so anything curated there is pickable here.
 	export let isOpen: boolean = false;
 	export let onClose: () => void;
-	export let onSelect: (item: LibraryItem) => void;
+	export let onSelect: (item: LibraryItem) => void = () => {};
 	export let mediaType: 'image' | 'video' | 'audio' | undefined = undefined;
 	export let title: string = 'Select from Your Library';
+	export let multiple: boolean = false;
+	export let selectedKeys: string[] | undefined = undefined;
+	export let onSelectionChange: ((keys: string[], items: PickedMedia[]) => void) | undefined = undefined;
+	export let onConfirm: ((keys: string[], items: PickedMedia[]) => void) | undefined = undefined;
+	export let selectableMediaTypes: PickerMediaType[] | undefined = undefined;
+
+	const picker = createMediaSelection('library');
+	const selection = picker.selection;
+	let previewId: string | null = null;
+
+	$: picker.follow(selectedKeys);
+	$: picker.track(isOpen);
+	$: if (!isOpen) previewId = null;
+	$: constraintMessage = mediaTypeConstraintMessage(selectableMediaTypes);
+	$: previewItem = previewId ? (items.find((i) => i.id === previewId) ?? null) : null;
+
+	function handleCancel() {
+		if (multiple) picker.cancel(onSelectionChange);
+		onClose();
+	}
+
+	function handleConfirm() {
+		if (picker.confirm(onConfirm)) onClose();
+	}
 
 	let items: LibraryItem[] = [];
 	let availableTags: Tag[] = [];
@@ -58,6 +94,7 @@
 
 			if (response.success && response.data) {
 				items = response.data.items || [];
+				if (multiple) picker.remember(items.map(pickedFromLibraryItem));
 				total = response.data.total || 0;
 			} else {
 				loadError = 'Could not load your library.';
@@ -147,7 +184,7 @@
 
 <MediaPickerFrame
 	{isOpen}
-	{onClose}
+	onClose={multiple ? handleCancel : onClose}
 	{title}
 	subtitle="Everything in your library - uploads and copies you took from history"
 >
@@ -199,6 +236,50 @@
 			{#if loadError}
 				<p class="text-sm text-danger mb-3">{loadError}</p>
 			{/if}
+			{#if multiple}
+				<MediaPickConstraintNote message={constraintMessage} />
+				{#if previewItem}
+					<MediaPickPreviewPanel label={libraryItemDisplayName(previewItem)} onClose={() => (previewId = null)}>
+						{#if previewItem.media_type === 'video'}
+							<video src={previewItem.url} class="max-h-60 object-contain" controls>
+								<track kind="captions" />
+							</video>
+						{:else if previewItem.media_type === 'image'}
+							<img src={previewItem.url} alt={libraryItemDisplayName(previewItem)} class="max-h-60 object-contain" />
+						{:else}
+							<Icon name="audio" className="w-8 h-8 text-fg-muted" />
+						{/if}
+					</MediaPickPreviewPanel>
+				{/if}
+				<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+					{#each items as item (item.id)}
+						{@const allowed = isMediaTypeSelectable(item.media_type, selectableMediaTypes)}
+						<MediaPickTile
+							label={libraryItemDisplayName(item)}
+							sublabel={metadataLine(item) ?? ''}
+							checked={$selection.includes(item.id)}
+							disabled={!allowed}
+							disabledReason={constraintMessage}
+							onToggle={() => picker.toggle(item.id, onSelectionChange)}
+							onPreview={() => (previewId = item.id)}
+						>
+							{#if item.media_type === 'image'}
+								<img
+									src={item.thumbnail_medium || item.url}
+									alt={libraryItemDisplayName(item)}
+									class="max-w-full max-h-full object-contain"
+								/>
+							{:else if item.media_type === 'video'}
+								<video src={item.url} class="max-w-full max-h-full object-contain" muted>
+									<track kind="captions" />
+								</video>
+							{:else}
+								<Icon name="audio" className="w-8 h-8 text-fg-muted" />
+							{/if}
+						</MediaPickTile>
+					{/each}
+				</div>
+			{:else}
 			<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
 				{#each items as item (item.id)}
 					<div class="flex flex-col">
@@ -282,10 +363,14 @@
 					</div>
 				{/each}
 			</div>
+			{/if}
 		{/if}
 	</div>
 
 	<svelte:fragment slot="footer">
+		{#if multiple}
+			<MediaPickerSelectionBar count={$selection.length} onCancel={handleCancel} onConfirm={handleConfirm} />
+		{/if}
 		{#if !isLoading && items.length > 0}
 			<div class="p-3 md:p-4 flex items-center justify-between">
 				<span class="text-xs md:text-sm text-fg-muted font-mono tabular-nums">
@@ -316,13 +401,15 @@
 					</div>
 				{/if}
 
-				<button
-					type="button"
-					class="px-4 py-2 text-sm font-medium text-fg-muted hover:bg-surface-3/50 rounded transition-colors"
-					on:click={onClose}
-				>
-					Close
-				</button>
+				{#if !multiple}
+					<button
+						type="button"
+						class="px-4 py-2 text-sm font-medium text-fg-muted hover:bg-surface-3/50 rounded transition-colors"
+						on:click={onClose}
+					>
+						Close
+					</button>
+				{/if}
 			</div>
 		{/if}
 	</svelte:fragment>

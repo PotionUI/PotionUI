@@ -1516,6 +1516,53 @@ token classes (`bg-surface-2`, `text-fg-muted`, `border-line`, ...) and arbitrar
 in plugin markup. Rebuild the app frontend after adding new classes; the plugin's own `dist/`
 carries no Tailwind CSS. Use the token classes only, as in the app.
 
+### Media pickers with multi-select
+
+`GenerationHistoryModal` and `UploadLibraryModal` are mountable from a plugin
+(`window.__potionui.components.<Name>`, props below; `UploadLibraryModal` loads on first use).
+Both keep their single-select behaviour unless `multiple` is set:
+
+| Prop | Meaning |
+| --- | --- |
+| `isOpen`, `onClose`, `title`, `mediaType` | As for single-select. `mediaType` filters what is listed. |
+| `multiple` | Switches to multi-select: every file gets its own checkbox, a separate preview button, a selected count and Cancel / Use selected buttons. `onSelect` is not called. |
+| `selectedKeys` | The selection, as a string array. Optional; when given the picker follows it, so a plugin can keep the selection across closing and reopening, and across switching between the two pickers. |
+| `onSelectionChange(keys, items)` | Called on every toggle with the new keys and the picked items the picker has seen. |
+| `onConfirm(keys, items)` | Called by Use selected, which is disabled while nothing is selected; the picker then calls `onClose`. |
+| `selectableMediaTypes` | `['image']`, `['video']` or both. Other files stay listed but dimmed, with the reason under them. |
+
+Keys are `generation_id:file_id` in History (every file of a generation is selectable on its own)
+and the item id in the Library. Each item is `{key, mediaType, filename, origin, generation?, file?,
+item?}`, where `origin` is `{kind: 'history', generationId, fileId}` or `{kind: 'library', itemId}`.
+Cancel, the close button, Escape and the backdrop all restore the selection the picker was opened
+with before calling `onClose`. Selected keys survive paging, searching and filtering. `items` always
+lines up with `keys`: for a file the picker has not loaded since it was mounted, the item carries
+only `key` and `origin`, and `mediaType` and `filename` are `null`.
+
+```js
+const picker = window.__potionui.components.UploadLibraryModal;
+const el = document.body.appendChild(document.createElement('div'));
+let keys = [];
+const handle = picker.mount(el, {
+  isOpen: true,
+  multiple: true,
+  selectedKeys: keys,
+  selectableMediaTypes: ['image', 'video'],
+  onSelectionChange: (next) => { keys = next; },
+  onConfirm: (next, items) => useMedia(items),
+  onClose: () => picker.unmount(handle)
+});
+```
+
+### Graph canvases with `@xyflow/svelte`
+
+`@xyflow/svelte` is part of the plugin toolchain (`content/plugins/package.json`), at the same
+version as the app (pinned exactly in both). A plugin imports it like any other dependency
+(`import { SvelteFlow, Background } from '@xyflow/svelte'`) and it is bundled into the plugin's
+own dist (about 250 kB minified). The build writes only `.js`, so the library's stylesheet is not
+shipped as a file: copy what you need from `@xyflow/svelte/dist/style.css` into the component's
+`<style>` block, using `:global(...)` selectors.
+
 ## Building your plugin's frontend
 
 Every plugin frontend (a `pages[].component`, a `field_types[].component`, an

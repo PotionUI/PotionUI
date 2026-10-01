@@ -4,6 +4,19 @@
 	import GenerationCard from '$lib/components/GenerationCard.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaPickerFrame from './MediaPickerFrame.svelte';
+	import MediaPickerSelectionBar from './MediaPickerSelectionBar.svelte';
+	import MediaPickTile from './MediaPickTile.svelte';
+	import MediaPickPreviewPanel from './MediaPickPreviewPanel.svelte';
+	import MediaPreview from '$lib/components/MediaPreview.svelte';
+	import MediaPickConstraintNote from './MediaPickConstraintNote.svelte';
+	import {
+		createMediaSelection,
+		isMediaTypeSelectable,
+		mediaTypeConstraintMessage,
+		pickedFromHistoryFile,
+		type PickedMedia,
+		type PickerMediaType
+	} from './mediaPickerSelection';
 	import { Badge, Button, Spinner, Pagination } from '$lib/components/ui';
 	import type { GenerationFile, GenerationHistoryItem, Tag } from '$lib/types/history';
 	import { filterFilesByMediaType } from './generationHistoryMediaFilter';
@@ -16,9 +29,45 @@
 	// Props
 	export let isOpen: boolean = false;
 	export let onClose: () => void;
-	export let onSelect: (generation: GenerationHistoryItem, file: GenerationFile) => void;
+	export let onSelect: (generation: GenerationHistoryItem, file: GenerationFile) => void = () => {};
 	export let mediaType: 'image' | 'video' | 'audio' | 'mesh' | undefined = undefined;
 	export let title: string = 'Select Media from Generation History';
+	export let multiple: boolean = false;
+	export let selectedKeys: string[] | undefined = undefined;
+	export let onSelectionChange: ((keys: string[], items: PickedMedia[]) => void) | undefined = undefined;
+	export let onConfirm: ((keys: string[], items: PickedMedia[]) => void) | undefined = undefined;
+	export let selectableMediaTypes: PickerMediaType[] | undefined = undefined;
+
+	const picker = createMediaSelection('history');
+	const selection = picker.selection;
+	let previewKey: string | null = null;
+	let previewable = new Map<string, PickedMedia>();
+
+	$: picker.follow(selectedKeys);
+	$: picker.track(isOpen);
+	$: if (!isOpen) previewKey = null;
+	$: constraintMessage = mediaTypeConstraintMessage(selectableMediaTypes);
+
+	function handleCancel() {
+		if (multiple) picker.cancel(onSelectionChange);
+		onClose();
+	}
+
+	function handleConfirm() {
+		if (picker.confirm(onConfirm)) onClose();
+	}
+
+	function rememberFiles(generations: GenerationHistoryItem[]) {
+		const items: PickedMedia[] = [];
+		for (const generation of generations) {
+			for (const file of filterFilesByMediaType(generation.files, mediaType)) {
+				items.push(pickedFromHistoryFile(generation, file));
+			}
+		}
+		picker.remember(items);
+		for (const item of items) previewable.set(item.key, item);
+		previewable = previewable;
+	}
 
 	// State
 	let generationHistory: GenerationHistoryItem[] = [];
@@ -150,6 +199,7 @@
 
 			if (response.success && response.data) {
 				generationHistory = response.data.generations || [];
+				if (multiple) rememberFiles(generationHistory);
 				totalGenerations = response.data.total || 0;
 			}
 		} catch (error) {
@@ -238,7 +288,7 @@
 
 <MediaPickerFrame
 	{isOpen}
-	{onClose}
+	onClose={multiple ? handleCancel : onClose}
 	{title}
 	subtitle="Browse and select {mediaTypeLabel.toLowerCase()}s from your previous generations"
 >
@@ -520,6 +570,47 @@
 				<p class="text-fg-subtle text-sm mt-1">Try adjusting your filters or create some generations first</p>
 			</div>
 		{:else}
+			{#if multiple}
+				<MediaPickConstraintNote message={constraintMessage} />
+				{#if previewKey && previewable.get(previewKey)?.file && previewable.get(previewKey)?.generation}
+					{@const previewing = previewable.get(previewKey)}
+					<MediaPickPreviewPanel label={previewing?.filename ?? ''} onClose={() => (previewKey = null)}>
+						{#if previewing?.file && previewing?.generation}
+							<MediaPreview
+								file={previewing.file}
+								generationId={previewing.generation.id}
+								className="max-h-60"
+								fit="contain"
+								showVideoControls={true}
+								startFullLoaded={true}
+							/>
+						{/if}
+					</MediaPickPreviewPanel>
+				{/if}
+				<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+					{#each generationHistory as generation (generation.id)}
+						{#each filterFilesByMediaType(generation.files, mediaType) as file (file.id)}
+							{@const picked = pickedFromHistoryFile(generation, file)}
+							{@const allowed = isMediaTypeSelectable(picked.mediaType ?? '', selectableMediaTypes)}
+							<MediaPickTile
+								label={picked.filename ?? ''}
+								sublabel={generation.preset_name ?? ''}
+								checked={$selection.includes(picked.key)}
+								disabled={!allowed}
+								disabledReason={constraintMessage}
+								onToggle={() => picker.toggle(picked.key, onSelectionChange)}
+								onPreview={() => (previewKey = picked.key)}
+							>
+								{#if picked.mediaType === 'image' || picked.mediaType === 'video'}
+									<MediaPreview {file} generationId={generation.id} className="w-full h-full" loadFullOnClick={false} />
+								{:else}
+									<Icon name={picked.mediaType === 'audio' ? 'audio' : 'cube'} className="w-8 h-8 text-fg-muted" />
+								{/if}
+							</MediaPickTile>
+						{/each}
+					{/each}
+				</div>
+			{:else}
 			<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
 				{#each generationHistory as generation}
 					{@const filteredFiles = filterFilesByMediaType(generation.files, mediaType)}
@@ -534,10 +625,14 @@
 					{/if}
 				{/each}
 			</div>
+			{/if}
 		{/if}
 	</div>
 
 	<svelte:fragment slot="footer">
+		{#if multiple}
+			<MediaPickerSelectionBar count={$selection.length} onCancel={handleCancel} onConfirm={handleConfirm} />
+		{/if}
 		<div class="p-3 md:p-4">
 			<!-- Mobile footer: stacked layout -->
 			<div class="flex flex-col gap-2 md:hidden">
@@ -592,13 +687,15 @@
 					/>
 				</div>
 
-				<button
-					type="button"
-					class="px-4 py-2 text-sm font-medium text-fg-muted hover:bg-surface-3/50 rounded transition-colors"
-					on:click={onClose}
-				>
-					Cancel
-				</button>
+				{#if !multiple}
+					<button
+						type="button"
+						class="px-4 py-2 text-sm font-medium text-fg-muted hover:bg-surface-3/50 rounded transition-colors"
+						on:click={onClose}
+					>
+						Cancel
+					</button>
+				{/if}
 			</div>
 		</div>
 	</svelte:fragment>

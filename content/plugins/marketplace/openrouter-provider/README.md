@@ -1,11 +1,11 @@
-# OpenRouter Images and Video
+# OpenRouter
 
 Adds an OpenRouter cloud backend (driver `cloud.openrouter`), discovers OpenRouter's image and video models
 and ships two presets: "OpenRouter Images" (text to image and edit) and "OpenRouter Video" (text to video and image to video).
 
 ## Setting it up (needs a real OpenRouter key to try out)
 
-1. Admin, Plugins: enable "OpenRouter Images" and restart the server once, so the new backend type is
+1. Admin, Plugins: enable "OpenRouter" and restart the server once, so the new backend type is
    registered.
 2. Admin, Backends: add a backend and choose "OpenRouter". Paste the API key (created at
    openrouter.ai under Keys) and save. Optionally set the app name and address OpenRouter shows in its

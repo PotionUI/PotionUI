@@ -1,7 +1,7 @@
 id: "openrouter-provider"
-name: "OpenRouter Images"
+name: "OpenRouter"
 version: "0.1.0"
-description: "Generate images with hosted models through OpenRouter. Adds an OpenRouter cloud backend, its model catalog and ready-made text-to-image and image-edit presets."
+description: "Generate images and video with hosted models through OpenRouter. Adds an OpenRouter cloud backend, its model catalog and ready-made image (text to image, edit) and video (text to video, image to video) presets."
 author: "PotionUI Team"
 type: "backend-only"
 category: "generation"
@@ -20,5 +20,5 @@ presets:
 
 docs:
   - path: "README.md"
-    title: "OpenRouter Images"
+    title: "OpenRouter"
     audience: "admin"

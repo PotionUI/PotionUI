@@ -29,7 +29,9 @@ describe('host ui component registration', () => {
 			'DetailBody',
 			'LibraryFilterBar',
 			'LibraryShell',
-			'DynamicForm'
+			'DynamicForm',
+			'GenerationDetailsModal',
+			'MediaPreviewModal'
 		]) {
 			expect(registered, name).toContain(name);
 		}

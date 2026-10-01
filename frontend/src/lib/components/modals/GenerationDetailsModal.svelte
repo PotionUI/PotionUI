@@ -45,6 +45,7 @@
 	export let hasPrevious: boolean = false;
 	export let hasNext: boolean = false;
 	export let position: { index: number; total: number } | null = null;
+	export let onClose: (() => void) | undefined = undefined;
 
 	const dispatch = createEventDispatcher();
 
@@ -454,6 +455,7 @@
 
 	function handleClose() {
 		dispatch('close');
+		onClose?.();
 	}
 
 	function handleRatingChange(rating: number) {

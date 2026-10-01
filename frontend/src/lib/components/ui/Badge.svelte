@@ -2,7 +2,7 @@
 	import type { Snippet } from 'svelte';
 
 	type Variant = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'signal';
-	type Size = 'sm' | 'md';
+	type Size = 'sm' | 'md' | 'lg';
 
 	let {
 		variant = 'neutral',
@@ -39,7 +39,8 @@
 
 	const sizeClasses: Record<Size, string> = {
 		sm: 'px-1.5 py-0 text-2xs',
-		md: 'px-2 py-0.5 text-xs'
+		md: 'px-2 py-0.5 text-xs',
+		lg: 'px-2 py-0.5 text-sm'
 	};
 
 	let classes = $derived(

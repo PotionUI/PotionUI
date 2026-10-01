@@ -4,7 +4,7 @@ widgets, renderer/extension-slot contributions, and the hooks catalog.
 """
 import hashlib
 from pathlib import Path
-from typing import Any, Dict, Iterator, List
+from typing import Any, Dict, Iterator, List, Optional
 
 from src.features.plugins.repository import PluginRepository
 from src.platform.plugins.registry import PluginRegistry
@@ -93,13 +93,24 @@ def get_active_history_tools(repo: PluginRepository, registry: PluginRegistry) -
     return tools
 
 
-def get_active_sidebar_widgets(repo: PluginRepository, registry: PluginRegistry) -> List[Dict[str, Any]]:
-    """
-    Get sidebar widgets from enabled plugins.
+def role_gate_open(
+    repo: PluginRepository,
+    plugin_id: str,
+    require_role: Optional[str],
+    role_setting: Optional[str],
+    account_type: str,
+) -> bool:
+    if not require_role or account_type == require_role:
+        return True
+    if not role_setting:
+        return False
+    setting = repo.get_plugin_setting(plugin_id, role_setting)
+    return setting is not None and str(setting.setting_value).strip().lower() == "everyone"
 
-    Returns:
-        List of sidebar widget dicts sorted by order
-    """
+
+def get_active_sidebar_widgets(
+    repo: PluginRepository, registry: PluginRegistry, account_type: str
+) -> List[Dict[str, Any]]:
     widgets = []
     enabled_db_plugins = repo.get_enabled_plugins()
 
@@ -109,6 +120,14 @@ def get_active_sidebar_widgets(repo: PluginRepository, registry: PluginRegistry)
             continue
 
         for widget_def in manifest.sidebar_widgets:
+            if not role_gate_open(
+                repo,
+                manifest.id,
+                widget_def.get("require_role"),
+                widget_def.get("role_setting"),
+                account_type,
+            ):
+                continue
             widgets.append({
                 "plugin_id": manifest.id,
                 "widget_id": widget_def.get("id"),

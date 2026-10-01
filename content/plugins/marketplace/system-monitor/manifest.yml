@@ -16,10 +16,17 @@ sidebar_widgets:
     component: "SystemMonitorWidget.js"
     order: 10
     label: "System Monitor"
+    require_role: "ADMIN"
+    role_setting: "visible_to"
 
 settings:
-  - name: "enabled"
-    type: "boolean"
-    label: "Show in Sidebar"
-    description: "Display system resource monitor in the sidebar"
-    default: true
+  - name: "visible_to"
+    type: "select"
+    label: "Visible to"
+    description: "Who sees the sidebar monitor and may read live system statistics"
+    default: "admins"
+    options:
+      - value: "admins"
+        label: "Admins only"
+      - value: "everyone"
+        label: "Everyone"

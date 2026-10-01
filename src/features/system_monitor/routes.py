@@ -11,6 +11,7 @@ from fastapi import APIRouter, WebSocket, Depends, Query
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user, authenticate_websocket_token
 from src.features.system_monitor import SystemMonitorCoordinator
+from src.features.system_monitor.access import monitor_visible_to, require_monitor_access
 from src.platform.security.user import User
 from src.platform.runtime.gpu_profile import detect_gpu_profile
 
@@ -64,15 +65,23 @@ def build_router(container: "AppContainer") -> APIRouter:
     controller = container.system_monitor_controller
     router = APIRouter(prefix="/api/system", tags=["System & Health"])
 
+    async def monitor_user(current_user=Depends(get_current_active_user)):
+        return require_monitor_access(container.plugin_repository, current_user)
+
     # Route handlers
     @router.get("/stats", response_model=APIResponse, summary="Get System Statistics")
-    async def get_system_stats(current_user=Depends(get_current_active_user)):
+    async def get_system_stats(current_user=Depends(monitor_user)):
         """Get current system statistics including GPU, RAM, and CPU usage."""
         return await controller.get_system_stats(current_user)
 
     @router.get("/gpu-profile", summary="Get GPU Profile")
-    async def get_gpu_profile(current_user=Depends(get_current_active_user)):
+    async def get_gpu_profile(current_user=Depends(monitor_user)):
         return detect_gpu_profile().to_dict()
+
+    @router.get("/vram", summary="Get Total GPU Memory")
+    async def get_total_vram(current_user=Depends(get_current_active_user)):
+        profile = detect_gpu_profile()
+        return {"vram_gb": profile.vram_gb if profile.has_gpu else None}
 
     @router.post("/monitoring/interval", response_model=APIResponse, summary="Set Monitoring Interval")
     async def set_system_monitoring_interval(interval: float, current_user=Depends(get_current_admin_user)):
@@ -96,7 +105,10 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
             await websocket.close(code=4001, reason=auth_error)
             return
 
-        # Authentication successful, handle the connection
+        if not monitor_visible_to(container.plugin_repository, user):
+            await websocket.close(code=4003, reason="System monitor is restricted to administrators")
+            return
+
         client_id = str(uuid.uuid4())
         await controller.handle_websocket(websocket, client_id)
 

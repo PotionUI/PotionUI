@@ -367,6 +367,8 @@ class SidebarWidgetSpec(BaseModel):
     position: str = "bottom"
     order: int = 100
     label: Optional[str] = None
+    require_role: Optional[str] = None
+    role_setting: Optional[str] = None
 
 
 class SettingSpec(BaseModel):

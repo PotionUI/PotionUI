@@ -67,8 +67,7 @@
                 connected = false;
                 ws = null;
 
-                // Only reconnect for unexpected disconnections and only if not already scheduled
-                if (event.code !== 1000 && event.code !== 1001 && !reconnectTimeout) {
+                if (![1000, 1001, 4001, 4003].includes(event.code) && !reconnectTimeout) {
                     const token = context.token;
                     if (token) {
                         reconnectTimeout = setTimeout(() => {

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { formatVramBadge, formatRamBadge, vramShortfall } from './presetHardware';
+import { describe, it, expect, vi } from 'vitest';
+import { formatVramBadge, formatRamBadge, vramShortfall, fetchDetectedVramGb } from './presetHardware';
 
 describe('formatVramBadge', () => {
 	it('is null when requires is absent', () => {
@@ -56,5 +56,23 @@ describe('vramShortfall', () => {
 
 	it('warns when detected VRAM is below the minimum', () => {
 		expect(vramShortfall({ min_vram_gb: 12 }, 8)).toBe('needs 12 GB — this machine has 8 GB');
+	});
+});
+
+describe('fetchDetectedVramGb', () => {
+	it('reads the total from the vram endpoint, not the admin stats', async () => {
+		const get = vi.fn().mockResolvedValue({ data: { vram_gb: 24 } });
+		expect(await fetchDetectedVramGb({ get })).toBe(24);
+		expect(get).toHaveBeenCalledWith('/api/system/vram');
+	});
+
+	it('is null on a machine without a GPU', async () => {
+		const get = vi.fn().mockResolvedValue({ data: { vram_gb: null } });
+		expect(await fetchDetectedVramGb({ get })).toBeNull();
+	});
+
+	it('is null when the request fails', async () => {
+		const get = vi.fn().mockRejectedValue(new Error('403'));
+		expect(await fetchDetectedVramGb({ get })).toBeNull();
 	});
 });

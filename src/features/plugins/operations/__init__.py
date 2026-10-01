@@ -31,6 +31,7 @@ from src.features.plugins.operations.frontend import (
     get_active_quick_actions,
     get_active_history_tools,
     get_active_sidebar_widgets,
+    role_gate_open,
     get_frontend_extensions,
     get_hooks_catalog,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "get_active_quick_actions",
     "get_active_history_tools",
     "get_active_sidebar_widgets",
+    "role_gate_open",
     "get_frontend_extensions",
     "get_hooks_catalog",
 ]

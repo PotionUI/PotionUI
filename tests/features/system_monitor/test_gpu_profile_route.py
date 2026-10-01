@@ -6,12 +6,17 @@ from fastapi.testclient import TestClient
 from src.features.system_monitor import routes
 from src.platform.runtime.gpu_profile import build_gpu_profile
 from src.platform.security.current_user import get_current_active_user
+from src.platform.security.user import AccountType
 
 
 def _client():
     app = FastAPI()
-    app.include_router(routes.build_router(SimpleNamespace(system_monitor_controller=object())))
-    app.dependency_overrides[get_current_active_user] = lambda: SimpleNamespace(id="u")
+    repo = SimpleNamespace(get_plugin_by_id=lambda _id: None, get_plugin_setting=lambda *_a: None)
+    container = SimpleNamespace(system_monitor_controller=object(), plugin_repository=repo)
+    app.include_router(routes.build_router(container))
+    app.dependency_overrides[get_current_active_user] = lambda: SimpleNamespace(
+        id="u", account_type=AccountType.ADMIN
+    )
     return TestClient(app)
 
 

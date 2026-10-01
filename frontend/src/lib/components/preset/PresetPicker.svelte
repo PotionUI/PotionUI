@@ -14,7 +14,7 @@
 	import { recipeCatalog, loadRecipeCatalog } from '$lib/stores/recipeCatalog';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import { api } from '$lib/services/api/index';
-	import { formatVramBadge, formatRamBadge, vramShortfall } from '$lib/utils/presetHardware';
+	import { formatVramBadge, formatRamBadge, vramShortfall, fetchDetectedVramGb } from '$lib/utils/presetHardware';
 	import { fallbackIconForCategory } from '$lib/utils/presetMedia';
 
 	export let presets: PresetInfo[] = [];
@@ -34,10 +34,6 @@
 	let selectedEngine: string | null = null;
 	let selectedCategory: string | null = null;
 	let previewPresetId = '';
-	// Best-effort GPU VRAM detection for the "needs X GB - this machine has Y GB"
-	// warning. `/api/system/stats` is available to any authenticated user (not
-	// admin-gated); null stays null on a headless/no-GPU box or a failed fetch,
-	// which just suppresses the comparison, never the base requirement badge.
 	let detectedVramGb: number | null = null;
 	let vramFetchAttempted = false;
 	const categoryFilters = [
@@ -110,15 +106,7 @@
 	async function loadDetectedVram() {
 		if (vramFetchAttempted) return;
 		vramFetchAttempted = true;
-		try {
-			const response = await api.getClient().get('/api/system/stats');
-			const gpu = response.data?.data?.gpu;
-			if (gpu?.available && typeof gpu.vram_total === 'number') {
-				detectedVramGb = gpu.vram_total / 1024;
-			}
-		} catch {
-			// Comparison is a non-blocking hint - silently skip it on failure.
-		}
+		detectedVramGb = await fetchDetectedVramGb(api.getClient());
 	}
 
 	function closePicker() {

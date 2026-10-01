@@ -40,3 +40,15 @@ export function vramShortfall(
 	if (detectedVramGb >= requires.min_vram_gb) return null;
 	return `needs ${formatGb(requires.min_vram_gb)} GB — this machine has ${formatGb(detectedVramGb)} GB`;
 }
+
+export async function fetchDetectedVramGb(
+	client: { get: (url: string) => Promise<{ data?: { vram_gb?: unknown } }> }
+): Promise<number | null> {
+	try {
+		const response = await client.get('/api/system/vram');
+		const vramGb = response.data?.vram_gb;
+		return typeof vramGb === 'number' ? vramGb : null;
+	} catch {
+		return null;
+	}
+}

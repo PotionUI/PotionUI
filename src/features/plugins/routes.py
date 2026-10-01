@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
+from src.platform.security.user import User
 from src.features.plugins.dto import (
     PluginDetailResponse,
     PluginPageResponse,
@@ -143,10 +144,11 @@ class PluginController(BaseController):
 
     # ========== Sidebar Widgets ==========
 
-    async def get_sidebar_widgets(self) -> APIResponse:
-        """Get sidebar widgets from enabled plugins"""
+    async def get_sidebar_widgets(self, user: User) -> APIResponse:
         try:
-            widgets = operations.get_active_sidebar_widgets(self.repository, self.registry)
+            widgets = operations.get_active_sidebar_widgets(
+                self.repository, self.registry, user.account_type.value
+            )
             return self.success_response(data=widgets)
         except Exception as e:
             self.logger.error(f"Failed to get sidebar widgets: {str(e)}")
@@ -649,7 +651,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("/sidebar-widgets", response_model=APIResponse, summary="Get Sidebar Widgets")
     async def get_sidebar_widgets(current_user = Depends(get_current_active_user)):
         """Get sidebar widgets from enabled plugins."""
-        return await controller.get_sidebar_widgets()
+        return await controller.get_sidebar_widgets(current_user)
 
     @router.get("/{plugin_id}", response_model=APIResponse, summary="Get Plugin Details")
     async def get_plugin(plugin_id: str, current_user = Depends(get_current_admin_user)):

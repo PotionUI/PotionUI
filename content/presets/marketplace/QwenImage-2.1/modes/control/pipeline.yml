@@ -55,11 +55,12 @@ pipeline:
 
   - name: "controlnet_preprocessor"
     id: "controlnet_preprocessor"
-    enabled: "{{ (form.guide | default('canny')) not in ('none', 'as_is') }}"
+    enabled: "{{ (form.guide | default('canny')) == 'grayscale' or ((form.guide | default('canny')) != 'none' and (form.guide_extract | default(true))) }}"
     input:
       - ["image", "{% if (form.guide_from_other | default(false)) %}guide_loader{% else %}source_loader{% endif %}", "image"]
     configuration:
       strict: true
+      blank_hint: "turn off Extract the guide from a photo"
       preprocessors:
         - type: "{{ form.guide | default('canny') }}"
           enabled: true
@@ -125,6 +126,7 @@ pipeline:
         - ["resolution", "{{ form.resolution }}"]
         - ["guide", "{{ form.guide | default('canny') }}"]
         - ["guide_from_other", "{{ form.guide_from_other | default(false) }}"]
+        - ["guide_extract", "{{ form.guide_extract | default(true) }}"]
         - ["control_strength", "{{ form.control_strength }}"]
         - ["control_start", "{{ form.control_start | default(0.0) }}"]
         - ["control_end", "{{ form.control_end | default(1.0) }}"]
@@ -135,7 +137,7 @@ pipeline:
       - ["conditioning", "prompt_encoder", "conditioning"]
       - ["seed", "seed_generator", "seed"]
       - ["image", "source_loader", "image"]
-      - ["control_image", "{% if (form.guide | default('canny')) != 'as_is' %}controlnet_preprocessor{% elif (form.guide_from_other | default(false)) %}guide_loader{% else %}source_loader{% endif %}", "image"]
+      - ["control_image", "{% set g = form.guide | default('canny') %}{% if g in ('none', 'grayscale') or (form.guide_extract | default(true)) %}controlnet_preprocessor{% elif (form.guide_from_other | default(false)) %}guide_loader{% else %}source_loader{% endif %}", "image"]
       - ["inpaint_image", "inpaint_loader", "image"]
       - ["inpaint_mask", "mask_loader", "image"]
     enabled: true

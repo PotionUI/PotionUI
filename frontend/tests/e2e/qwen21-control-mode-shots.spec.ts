@@ -190,36 +190,45 @@ for (const size of SIZES) {
 		await top(root);
 		await shoot(page, `04-mask-applied-${tag}`);
 
+		const extractLabel = root.getByText('Extract the guide from a photo', { exact: true }).first();
+		const extractBox = root.locator('[data-field-name="guide_extract"] input[type="checkbox"]');
+		await center(extractLabel);
+		await expect(root.getByText('Turn off when your image already is a pose, edge or depth map.', { exact: true })).toBeVisible();
+		await expect(extractBox).toBeChecked();
+		await shoot(page, `05a-extract-on-${tag}`);
+		await extractLabel.click();
+		await expect(extractBox).not.toBeChecked();
+		await shoot(page, `05b-extract-off-${tag}`);
+		await extractLabel.click();
+		await expect(extractBox).toBeChecked();
+
 		const checkboxLabel = root.getByText('Take the guide from a different image', { exact: true }).first();
+		const guideImage = root.getByText('Guide image', { exact: true });
 		await center(checkboxLabel);
 		await expect(root.getByText('For example, a photo of the pose you want.', { exact: true })).toBeVisible();
-		await expect(root.getByText('Guide image', { exact: true })).toHaveCount(0);
-		await shoot(page, `05-guide-checkbox-off-${tag}`);
-
-		const guideImage = root.getByText('Guide image', { exact: true }).first();
-		const note = async (type: string) =>
-			test.info().annotations.push({
-				type,
-				description: `guideImage=${await guideImage.count()} strength=${await root.getByText('Strength', { exact: true }).count()} checkbox=${await root.getByText('Take the guide from a different image', { exact: true }).count()}`
-			});
+		await expect(guideImage).toHaveCount(0);
+		await shoot(page, `06a-guide-checkbox-off-${tag}`);
 
 		await checkboxLabel.click();
-		await page.waitForTimeout(1200);
-		await note('after-tick');
-		await center(checkboxLabel);
-		await shoot(page, `06-guide-checkbox-ticked-${tag}`);
+		await expect(guideImage.first()).toBeVisible();
+		await center(guideImage.first());
+		await shoot(page, `06b-guide-checkbox-ticked-${tag}`);
 
 		await checkboxLabel.click();
-		await page.waitForTimeout(1200);
-		await note('after-untick');
-		await center(checkboxLabel);
-		await shoot(page, `07-guide-checkbox-unticked-after-tick-${tag}`);
-
+		await expect(guideImage).toHaveCount(0);
 		await checkboxLabel.click();
-		await page.waitForTimeout(1200);
+		await expect(guideImage.first()).toBeVisible();
+
+		await choose(page, root, 'Guide', 'Grayscale', 1);
+		await expect(root.getByText('Extract the guide from a photo', { exact: true })).toHaveCount(0);
+		await center(root.getByText('Guide', { exact: true }).nth(1));
+		await shoot(page, `07-guide-grayscale-${tag}`);
+
 		await choose(page, root, 'Guide', 'None', 1);
-		await page.waitForTimeout(1200);
-		await note('after-none');
+		await expect(root.getByText('Extract the guide from a photo', { exact: true })).toHaveCount(0);
+		await expect(root.getByText('Take the guide from a different image', { exact: true })).toHaveCount(0);
+		await expect(root.getByText('Strength', { exact: true })).toHaveCount(0);
+		await expect(guideImage).toHaveCount(0);
 		await center(root.getByText('Guide', { exact: true }).nth(1));
 		await shoot(page, `08-guide-none-${tag}`);
 	});

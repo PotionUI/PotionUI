@@ -664,7 +664,7 @@ class TestRealPresetTreeReactionShapes:
     this evaluator doesn't handle must fail HERE, loudly, rather than
     silently diverging from the frontend at generation time."""
 
-    _SUPPORTED_OPERATORS = {"equals", "not_equals", "in", "contains", "not_contains"}
+    _SUPPORTED_OPERATORS = set(_REACTION_OPERATORS)
     # Actions that affect a BOUND VALUE. `set_visibility`/`set_disabled` are
     # presentation-only (see TestSetVisibilityBinding); `update_options`/
     # `update_validation`/`set_filter_tags` never set a value either.

@@ -85,6 +85,7 @@ class ControlNetPreprocessorPipe(BasePipe):
             "preprocessors": [],  # List of preprocessor configurations
             "output_resolution": None,  # Optional resize for output (e.g., [512, 512])
             "strict": False,
+            "blank_hint": "use it without preprocessing",
         }
 
     @classmethod
@@ -94,6 +95,8 @@ class ControlNetPreprocessorPipe(BasePipe):
             PipeConfigSpec("preprocessors", list, [], "List of preprocessor configurations", required=False),
             PipeConfigSpec("output_resolution", list, None, "Optional output resolution [width, height]", required=False),
             PipeConfigSpec("strict", bool, False, "Fail the generation instead of passing an image through unprocessed", required=False),
+            PipeConfigSpec("blank_hint", str, "use it without preprocessing",
+                           "What to tell the user when a strict guide finds nothing in the image", required=False),
         ]
 
     @classmethod
@@ -375,9 +378,10 @@ class ControlNetPreprocessorPipe(BasePipe):
                 )
             if strict and preprocessor_type not in _PLAIN_PREPROCESSORS and _is_blank(processed):
                 label = _GUIDE_LABELS.get(preprocessor_type, preprocessor_type.capitalize())
+                hint = self.config.get("blank_hint") or "use it without preprocessing"
                 raise GenerationExecutionError(
-                    f"The {label} guide found nothing in this image. If the image already is a "
-                    f"{label.lower()} map, set Guide to Use as is."
+                    f"The {label} guide found nothing in this image. If your image already is a "
+                    f"{label.lower()} map, {hint}."
                 )
 
             # Optional: resize to output resolution

@@ -95,6 +95,10 @@
     },
     {
       "config": {
+        "blank_hint": {
+          "type": "str",
+          "value": "turn off Extract the guide from a photo"
+        },
         "preprocessors": {
           "type": "list",
           "value": [
@@ -276,6 +280,10 @@
             [
               "guide_from_other",
               false
+            ],
+            [
+              "guide_extract",
+              true
             ],
             [
               "control_strength",

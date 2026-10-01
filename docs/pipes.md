@@ -316,6 +316,7 @@ Preprocess images for ControlNet (Canny, Depth, OpenPose, etc.)
 | `preprocessors` | `list` | `[]` | no | — | — | — | List of preprocessor configurations |
 | `output_resolution` | `list` | — | no | — | — | — | Optional output resolution [width, height] |
 | `strict` | `bool` | `false` | no | — | — | — | Fail the generation instead of passing an image through unprocessed |
+| `blank_hint` | `str` | `"use it without preprocessing"` | no | — | — | — | What to tell the user when a strict guide finds nothing in the image |
 
 ## crop_subject
 

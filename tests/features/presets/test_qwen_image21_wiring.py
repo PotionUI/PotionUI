@@ -214,9 +214,67 @@ def test_a_guide_from_a_different_image(qwen_image21_template):
 @pytest.mark.parametrize("other,provider", [(False, "source_loader"), (True, "guide_loader")])
 def test_a_ready_made_map_skips_preprocessing(qwen_image21_template, other, provider):
     pipes, providers, enabled = _control_case(
-        qwen_image21_template, guide="as_is", guide_from_other=other, guide_image="/uploads/depth.png")
+        qwen_image21_template, guide="openpose", guide_extract=False, guide_from_other=other,
+        guide_image="/uploads/pose.png")
     assert enabled["controlnet_preprocessor"] is False
     assert providers["control_image"] == provider
+
+
+@pytest.mark.parametrize("other,source", [(False, "source_loader"), (True, "guide_loader")])
+def test_extracting_from_a_photo_runs_the_preprocessor(qwen_image21_template, other, source):
+    pipes, providers, enabled = _control_case(
+        qwen_image21_template, guide="depth", guide_extract=True, guide_from_other=other,
+        guide_image="/uploads/photo.png")
+    pre = _pipe(pipes, "controlnet_preprocessor")
+    assert enabled["controlnet_preprocessor"] is True
+    assert pre["input"][0]["provider"] == source
+    assert pre["config"]["preprocessors"][0]["type"] == "depth"
+    assert pre["config"]["blank_hint"] == "turn off Extract the guide from a photo"
+    assert providers["control_image"] == "controlnet_preprocessor"
+
+
+@pytest.mark.parametrize("extract", [True, False])
+def test_grayscale_is_converted_either_way(qwen_image21_template, extract):
+    pipes, providers, enabled = _control_case(qwen_image21_template, guide="grayscale", guide_extract=extract)
+    assert enabled["controlnet_preprocessor"] is True
+    assert providers["control_image"] == "controlnet_preprocessor"
+
+
+def _field(template, name):
+    def walk(fields):
+        for field in fields:
+            if getattr(field, "name", None) == name:
+                return field
+            found = walk(field.children) if isinstance(getattr(field, "children", None), list) else None
+            if found is not None:
+                return found
+        return None
+    return walk(template.modes["control"].forms[0].fields)
+
+
+def test_the_extract_switch_hides_for_none_and_grayscale(qwen_image21_template):
+    field = _field(qwen_image21_template, "guide_extract")
+    hide = [r for r in field.reactions if r["then"].get("set_visibility") is False]
+    show = [r for r in field.reactions if r["then"].get("set_visibility") is True]
+    assert [r["when"] for r in hide] == [{"field": "guide", "operator": "in", "value": ["none", "grayscale"],
+                                         "in": ["none", "grayscale"]}]
+    assert [r["when"]["operator"] for r in show] == ["not_in"]
+    assert field.default is True
+    assert field.description == "Turn off when your image already is a pose, edge or depth map."
+
+
+def test_an_old_use_as_is_guide_migrates_to_a_guide_with_the_switch_off(qwen_image21_template):
+    guide = _field(qwen_image21_template, "guide")
+    extract = _field(qwen_image21_template, "guide_extract")
+    assert {"label": "Use as is", "value": "as_is"} not in guide.configuration["options"]
+    assert any(r["when"].get("value") == "as_is" and r["then"].get("set_value") == "canny" for r in guide.reactions)
+    assert any(r["when"].get("value") == "as_is" and r["then"].get("set_value") is False for r in extract.reactions)
+
+
+def test_a_raw_submission_with_the_old_value_is_refused(qwen_image21_template):
+    with pytest.raises(FormBindingError) as refused:
+        _bind_control(qwen_image21_template, source_image="/uploads/room.png", guide="as_is")
+    assert "guide" in refused.value.field_errors
 
 
 def _bind_control(template, **form):

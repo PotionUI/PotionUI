@@ -53,8 +53,13 @@ def test_strict_refuses_a_guide_that_found_nothing(monkeypatch):
         ControlNetPreprocessorPipe, "_preprocess_openpose",
         lambda self, image, params, annotators: Image.new("RGB", (8, 8), (0, 0, 0)),
     )
-    with pytest.raises(GenerationExecutionError, match="The Pose guide found nothing in this image"):
-        _process([{"type": "openpose", "enabled": True}], [Image.new("RGB", (8, 8), (40, 40, 40))], strict=True)
+    with pytest.raises(GenerationExecutionError) as refused:
+        _process([{"type": "openpose", "enabled": True}], [Image.new("RGB", (8, 8), (40, 40, 40))], strict=True,
+                 blank_hint="turn off Extract the guide from a photo")
+    assert str(refused.value) == (
+        "The Pose guide found nothing in this image. If your image already is a pose map, "
+        "turn off Extract the guide from a photo."
+    )
 
 
 def test_a_guide_with_content_passes(monkeypatch):

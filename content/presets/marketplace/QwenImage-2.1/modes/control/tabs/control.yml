@@ -24,7 +24,10 @@ fields:
         formula: "control"
         label: "Guide"
         default: "canny"
-        ai_hint: "What the output follows. Canny, HED, Lineart, MLSD and Scribble follow outlines; Depth follows the 3D layout; Pose follows a person's body; Grayscale keeps the light and shade; Use as is takes a ready-made control map. None only repaints the masked area and needs a painted mask."
+        ai_hint: "What the output follows. Canny, HED, Lineart, MLSD and Scribble follow outlines; Depth follows the 3D layout; Pose follows a person's body; Grayscale keeps the light and shade. None only repaints the masked area and needs a painted mask."
+        reactions:
+          - when: { field: "guide", equals: "as_is" }
+            then: { set_value: "canny" }
         configuration:
           options:
             - { label: "None", value: "none" }
@@ -36,7 +39,21 @@ fields:
             - { label: "MLSD", value: "mlsd" }
             - { label: "Scribble", value: "scribble" }
             - { label: "Grayscale", value: "grayscale" }
-            - { label: "Use as is", value: "as_is" }
+
+      - name: "guide_extract"
+        type: "checkbox"
+        formula: "control"
+        label: "Extract the guide from a photo"
+        default: true
+        description: "Turn off when your image already is a pose, edge or depth map."
+        ai_hint: "On: the chosen guide is worked out from a photo (edges, depth, a person's pose). Off: the image is used as the guide unchanged, for a ready-made pose, edge or depth map."
+        reactions:
+          - when: { field: "guide", in: ["none", "grayscale"] }
+            then: { set_visibility: false }
+          - when: { field: "guide", not_in: ["none", "grayscale"] }
+            then: { set_visibility: true }
+          - when: { field: "guide", equals: "as_is" }
+            then: { set_value: false }
 
       - name: "guide_from_other"
         type: "checkbox"

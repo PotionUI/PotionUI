@@ -56,7 +56,7 @@ This is where all of the OpenRouter settings live.
 | **API key** | The key from openrouter.ai. It is stored encrypted and never shown again; to change it, paste a new one. |
 | **API address** | Leave the default (`https://openrouter.ai/api/v1`). Change it only to reach OpenRouter through a proxy. |
 | **App name** | The name OpenRouter shows for this app in its usage statistics. Defaults to "PotionUI". |
-| **App address** | The web address OpenRouter shows for this app. Leave it empty to send none. |
+| **App address** | The web address OpenRouter shows for this app, `https://potionui.com` by default. Together with **App name** it lists PotionUI on OpenRouter's app rankings. Requests carry only these two values, nothing about who uses the app. Leave it empty to send none. |
 | **Allowed upstream providers** | Optional. A comma separated list of the providers OpenRouter may send requests to, named as OpenRouter names them. Leave it empty to allow all of them. |
 | **Send an anonymous user id** | Off by default. When on, OpenRouter gets a different anonymous id for each PotionUI user, so it can tell them apart without knowing who they are. Nobody can trace the id back to a person without your server's secret key. |
 | **Parallel jobs** | How many generations this backend runs at the same time (1 to 32, default 4). Any more wait in the queue. |

@@ -247,11 +247,11 @@ async def test_empty_attribution_is_not_sent(openrouter):
     assert "HTTP-Referer" not in openrouter.requests[0]["headers"]
 
 
-async def test_the_default_attribution_names_the_app_without_an_address(provider, openrouter):
+async def test_the_default_attribution_names_the_app_and_its_website(provider, openrouter):
     await provider.discover()
 
     assert openrouter.requests[0]["headers"]["X-OpenRouter-Title"] == "PotionUI"
-    assert "HTTP-Referer" not in openrouter.requests[0]["headers"]
+    assert openrouter.requests[0]["headers"]["HTTP-Referer"] == "https://potionui.com"
 
 
 async def test_no_user_id_is_sent_by_default(provider, openrouter):

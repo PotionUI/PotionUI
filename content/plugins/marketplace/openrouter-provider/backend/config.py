@@ -25,9 +25,9 @@ class OpenRouterConfig(CloudBackendConfig):
         description="Shown to OpenRouter as the name of this app in its usage statistics",
     )
     app_url: str = Field(
-        default="",
+        default="https://potionui.com",
         title="App address",
-        description="Shown to OpenRouter as the address of this app. Leave empty to send none.",
+        description="Shown to OpenRouter as the address of this app, so its usage appears on OpenRouter's app rankings. Leave empty to send none.",
     )
     upstream_providers: str = Field(
         default="",

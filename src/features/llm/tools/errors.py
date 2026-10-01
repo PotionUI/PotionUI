@@ -9,7 +9,7 @@ module names that shape so a new call site reaches for it instead of
 reinventing a bare `f"Failed: {e}"`.
 """
 
-from typing import Optional
+from typing import Optional, Union
 
 
 def teach(problem: str, expected: str, next_step: Optional[str] = None) -> str:
@@ -25,7 +25,7 @@ def teach(problem: str, expected: str, next_step: Optional[str] = None) -> str:
     return ". ".join(sentences) + "."
 
 
-def unexpected(tool: str, operation: str, error: Exception) -> str:
+def unexpected(tool: str, operation: str, error: Union[Exception, str]) -> str:
     """Error text for an unexpected-exception catch-all.
 
     Names the tool and the operation that failed instead of returning a bare
@@ -36,6 +36,6 @@ def unexpected(tool: str, operation: str, error: Exception) -> str:
     returned on its own. Callers should still log `error` for a human.
     """
     return (
-        f"{tool}'s {operation} failed unexpectedly: {error}. This is not "
+        f"{tool}'s {operation} failed unexpectedly: {str(error).rstrip('.')}. This is not "
         "something you can fix by changing your call - tell the user, or try once more."
     )

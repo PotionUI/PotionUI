@@ -161,6 +161,27 @@ class TestExecuteConfirmed:
         assert result.success is False
         assert "backend unavailable" in result.error.lower() or "failed" in result.error.lower()
 
+    @pytest.mark.asyncio
+    async def test_a_regular_user_gets_the_safe_summary_never_the_raw_exception(self):
+        orchestrator = AsyncMock()
+        orchestrator.start_generation.side_effect = FileNotFoundError(2, "No such file or directory", "/srv/models/private/unet.safetensors")
+        result = await StartGenerationTool().execute_confirmed(
+            make_context(generation_orchestrator=orchestrator), preset_id="sdxl/base",
+        )
+        assert result.success is False
+        assert "A model file this preset needs is missing" in result.error
+        for marker in ("/srv/", "Errno", "unet.safetensors"):
+            assert marker not in result.error
+
+    @pytest.mark.asyncio
+    async def test_an_admin_gets_the_raw_exception(self):
+        orchestrator = AsyncMock()
+        orchestrator.start_generation.side_effect = FileNotFoundError(2, "No such file or directory", "/srv/models/private/unet.safetensors")
+        ctx = ToolContext(user_id="admin-1", is_admin=True, generation_orchestrator=orchestrator)
+        result = await StartGenerationTool().execute_confirmed(ctx, preset_id="sdxl/base")
+        assert result.success is False
+        assert "/srv/models/private/unet.safetensors" in result.error
+
 
 class TestMediaOverrideValidation:
     @pytest.mark.asyncio

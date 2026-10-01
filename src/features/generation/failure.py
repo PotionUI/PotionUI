@@ -122,6 +122,12 @@ def failure_from_exception(exc: BaseException, detail: Optional[str] = None) -> 
     )
 
 
+def start_failure_reason(exc: BaseException, privileged: bool) -> str:
+    if privileged:
+        return str(exc)
+    return classify_generation_error(exc).summary
+
+
 def failure_for_code(code: str) -> GenerationFailure:
     classification = classification_for_code(code)
     return GenerationFailure(

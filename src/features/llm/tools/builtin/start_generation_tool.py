@@ -11,6 +11,7 @@ import json
 import logging
 from typing import Any, Dict
 
+from src.features.generation.failure import start_failure_reason
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import build_generation_preview
 from src.features.llm.tools.errors import unexpected
@@ -177,4 +178,4 @@ class StartGenerationTool(BaseTool):
             }))
         except Exception as e:
             logger.error(f"Failed to start generation: {e}")
-            return ToolResult(success=False, data="", error=unexpected("start_generation", "start the generation", e))
+            return ToolResult(success=False, data="", error=unexpected("start_generation", "start the generation", start_failure_reason(e, context.is_admin)))

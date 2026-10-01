@@ -271,6 +271,52 @@ def test_state_of_someone_elses_generation_is_not_found(world):
     assert api.generation_state(world.admin, "g1")["id"] == "g1"
 
 
+def _failure():
+    from src.features.generation.failure import failure_from_exception
+
+    return failure_from_exception(
+        FileNotFoundError(2, "No such file or directory", "/srv/models/private/unet.safetensors"),
+        'Traceback (most recent call last):\n  File "/srv/app/src/pipelines/pipes/loader.py", line 42\n',
+    )
+
+
+def _assert_no_leak(state):
+    rendered = repr(state)
+    for marker in ("/srv/", "Traceback", "Errno", "FileNotFoundError", "loader.py"):
+        assert marker not in rendered, marker
+
+
+def test_state_of_a_stored_failed_generation_never_carries_the_detail(world):
+    world.generation("g1")
+    world.generations.update_status("g1", "failed", failure=_failure().columns())
+    assert world.generations.get_by_id("g1").error_detail
+
+    for user in (world.owner, world.admin):
+        state = api.generation_state(user, "g1")
+        assert state["status"] == "failed"
+        assert state["error_code"] == "missing_model_file"
+        assert state["error_id"] == "g1"
+        _assert_no_leak(state)
+
+
+def test_state_of_a_live_failed_generation_never_carries_the_detail(world):
+    from unittest.mock import patch
+
+    from src.features.generation.status_tracker import GenerationState, GenerationStatusTracker
+
+    world.generation("g1")
+    tracker = GenerationStatusTracker()
+    tracker.create(id="g1", user_id="owner")
+    with patch("src.features.generation.status_tracker.generation_repo"):
+        tracker.transition("g1", GenerationState.FAILED, _failure())
+    world.live["g1"] = tracker.get("g1")
+
+    state = api.generation_state(world.owner, "g1")
+    assert state["status"] == "failed"
+    assert state["error_code"] == "missing_model_file"
+    _assert_no_leak(state)
+
+
 def test_files_come_in_canonical_order_with_their_unfiltered_index(world):
     world.generation("g1")
     world.file("g1", "f-a", is_final=False)

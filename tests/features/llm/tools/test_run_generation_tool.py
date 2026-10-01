@@ -459,6 +459,34 @@ class TestRunGenerationToolExecuteConfirmed:
         assert "failed" in result.error.lower() or "backend unavailable" in result.error.lower()
 
     @pytest.mark.asyncio
+    async def test_a_regular_user_gets_the_safe_summary_never_the_raw_exception(self):
+        orchestrator = AsyncMock()
+        orchestrator.start_generation.side_effect = FileNotFoundError(2, "No such file or directory", "/srv/models/private/unet.safetensors")
+        ctx = make_context(
+            session_metadata={"form_state": make_form_state()},
+            generation_orchestrator=orchestrator,
+        )
+        result = await RunGenerationTool().execute_confirmed(ctx)
+        assert result.success is False
+        assert "A model file this preset needs is missing" in result.error
+        for marker in ("/srv/", "Errno", "unet.safetensors"):
+            assert marker not in result.error
+
+    @pytest.mark.asyncio
+    async def test_an_admin_gets_the_raw_exception(self):
+        orchestrator = AsyncMock()
+        orchestrator.start_generation.side_effect = FileNotFoundError(2, "No such file or directory", "/srv/models/private/unet.safetensors")
+        ctx = ToolContext(
+            user_id="admin-1",
+            is_admin=True,
+            session_metadata={"form_state": make_form_state()},
+            generation_orchestrator=orchestrator,
+        )
+        result = await RunGenerationTool().execute_confirmed(ctx)
+        assert result.success is False
+        assert "/srv/models/private/unet.safetensors" in result.error
+
+    @pytest.mark.asyncio
     async def test_confirmed_passes_tab_id_to_request(self):
         form_state = make_form_state()
         form_state["tab_id"] = "tab-42"

@@ -27,11 +27,11 @@
 	import AudioPreview from '$lib/components/workbench/renderers/AudioPreview.svelte';
 	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
 	import '$lib/components/workbench/renderers/builtin'; // registers the image/video/audio core defaults
-	import { IconButton, Button, CopyButton, Badge } from '$lib/components/ui';
+	import { Button, CopyButton, Badge } from '$lib/components/ui';
+	import FailureTechnicalDetails from '$lib/components/FailureTechnicalDetails.svelte';
 	import FailureNotice from '$lib/components/FailureNotice.svelte';
 	import { isContentPolicyCode, policyShowsErrorId, firstHintLine } from '$lib/generation/failurePolicy';
 	import Icon from '$lib/components/Icon.svelte';
-	import { copyText } from '$lib/utils/clipboard';
 	import {
 		isAudioFileType,
 		isMeshFileType,
@@ -102,19 +102,6 @@
 	let showProfileModal = false;
 	let hasProfile = false;
 	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
-
-	// Copy-the-error-detail affordance for the failed-generation empty state
-	// (same idiom as NotificationItem's "Copy error" control).
-	let copiedErrorDetail = false;
-	async function handleCopyErrorDetail() {
-		const detail = currentGeneration?.errorDetail;
-		if (!detail) return;
-		const ok = await copyText(detail);
-		if (ok) {
-			copiedErrorDetail = true;
-			setTimeout(() => (copiedErrorDetail = false), 1500);
-		}
-	}
 
 	// Height slider interaction state
 	let isAdjustingHeight = false;
@@ -1373,23 +1360,7 @@
 
 				{/if}
 
-				{#if currentGeneration?.errorDetail}
-					<details class="mt-3 w-full max-w-sm text-left select-text">
-						<summary class="text-sm text-fg-subtle cursor-pointer select-none w-fit mx-auto">Traceback</summary>
-						<div class="relative mt-1.5">
-							<pre class="font-mono text-sm bg-surface-3 text-fg-muted rounded px-2 py-1.5 pr-8 overflow-x-auto whitespace-pre-wrap break-words max-h-32 overflow-y-auto text-left">{currentGeneration.errorDetail}</pre>
-							<div class="absolute top-1 right-1">
-								<IconButton
-									icon={copiedErrorDetail ? 'check' : 'copy'}
-									label="Copy error"
-									size="sm"
-									class={copiedErrorDetail ? 'text-success' : ''}
-									onclick={handleCopyErrorDetail}
-								/>
-							</div>
-						</div>
-					</details>
-				{/if}
+				<FailureTechnicalDetails detail={currentGeneration?.errorDetail} />
 
 				{#if isAdmin && hasProfile}
 					<div class="mt-4">

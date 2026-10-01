@@ -41,7 +41,7 @@ from src.features.generation.exceptions import IdempotencyKeyConflict
 from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
 from src.features.generation.run_report_recorder import RunReportRecorder
 from src.features.cloud.cost_repository import GenerationCostRepository
-from src.features.generation.failure import failure_report
+from src.features.generation.failure import failure_report, start_failure_reason
 from src.features.generation import (
     GenerationHistoryFacade,
     GenerationNotFoundException,
@@ -195,7 +195,7 @@ class GenerationController(BaseController):
             logging.error(error_details)
             return self.error_response(
                 error="generation_start_failed",
-                message=f"Failed to start generation: {str(e)}"
+                message=f"Failed to start generation: {start_failure_reason(e, GenerationPolicy.is_admin(current_user))}"
             )
 
     async def preview_memory(self, request: GenerationRequest, current_user) -> APIResponse:

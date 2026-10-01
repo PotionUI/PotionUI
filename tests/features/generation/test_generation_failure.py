@@ -352,3 +352,42 @@ class TestFailureRest(PersistenceTestBase):
         response = self._client(self.admin).get("/api/generations/no-such-id/failure")
 
         assert response.status_code == 404
+
+
+class TestStartFailureRest:
+    def _controller(self, exc):
+        orchestrator = Mock()
+        orchestrator.start_generation = AsyncMock(side_effect=exc)
+        run_report_recorder = Mock()
+        return GenerationController(orchestrator, Mock(), Mock(), run_report_recorder)
+
+    def _start(self, user):
+        from src.features.generation.dto import GenerationRequest
+
+        controller = self._controller(FileNotFoundError(2, "No such file or directory", "/srv/models/private/unet.safetensors"))
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(controller.start_generation(GenerationRequest(preset_id="p", mode="txt2img"), user))
+        return raised.value
+
+    def test_a_regular_user_gets_the_classified_summary_not_the_raw_exception(self):
+        raised = self._start(_user(AccountType.USER, "owner-1"))
+
+        assert raised.detail["error"] == "generation_start_failed"
+        assert raised.detail["message"] == "Failed to start generation: A model file this preset needs is missing."
+        _assert_no_leak(raised.detail)
+
+    def test_an_unclassified_start_failure_gets_the_generic_summary(self):
+        controller = self._controller(RuntimeError("boom in /srv/app/src/pipelines/pipes/loader.py"))
+        from src.features.generation.dto import GenerationRequest
+
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(controller.start_generation(GenerationRequest(preset_id="p", mode="txt2img"), _user(AccountType.USER, "owner-1")))
+
+        assert raised.value.detail["message"] == "Failed to start generation: Something went wrong while generating."
+        _assert_no_leak(raised.value.detail)
+
+    def test_an_admin_gets_the_raw_exception(self):
+        raised = self._start(_user(AccountType.ADMIN, "admin-1"))
+
+        assert "/srv/models/private/unet.safetensors" in raised.detail["message"]
+

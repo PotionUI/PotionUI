@@ -4,7 +4,7 @@ from src.platform.plugins.hooks import hooks_registry
 
 PLUGIN_LIFECYCLE_HOOKS = hooks_registry.declare(
     "plugin.lifecycle", "backend",
-    "enable", "boot", "disable",
+    "enable", "boot", "ready", "disable",
     specs={
         "enable": {
             "description": "Fired after a plugin has been enabled in the database and registry (its own hooks are already registered by this point), on the disabled->enabled transition ONLY - never again on a restart of an already-enabled plugin. Per-process initialization belongs in 'plugin.lifecycle.boot', which fires on both paths. The hook chain's result is not consulted - this cannot block enabling.",
@@ -36,6 +36,23 @@ PLUGIN_LIFECYCLE_HOOKS = hooks_registry.declare(
             "example": (
                 "def handler(ctx):\n"
                 "    MyPluginTables().create_all()\n"
+                "    return ctx"
+            ),
+        },
+        "ready": {
+            "description": "Fired once per process for each enabled plugin, from the application lifespan right after the interrupted-generation reconciliation: the event loop is running, the container is fully built and every generation left pending or running by a previous process has already been marked failed. Dispatched only to the subject plugin's own handler. A handler that raises is logged and skipped. The hook chain's result is not consulted. Handlers are synchronous; use run_on_app_loop from src.plugin_api.hooks to start asynchronous work on the application loop.",
+            "payload": {
+                "plugin_id": {"type": "str", "description": "Identifier of the plugin the application is ready for - always the handler's own plugin"},
+            },
+            "mutable": [],
+            "use_when": [
+                "Reconciling the plugin's own persisted state against the database after a restart",
+                "Starting a background coroutine on the application event loop",
+            ],
+            "example": (
+                "from src.plugin_api.hooks import run_on_app_loop\n\n"
+                "def handler(ctx):\n"
+                "    run_on_app_loop(reconcile())\n"
                 "    return ctx"
             ),
         },

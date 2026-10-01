@@ -151,7 +151,7 @@ class TestGenerationController:
         controller.generation_orchestrator.start_generation.assert_called_once_with(
             sample_generation_request,
             mock_current_user.id,
-            output_callback=controller._handle_generation_output
+            output_callback=controller.output_broadcaster.handle_output
         )
 
     @pytest.mark.asyncio
@@ -325,6 +325,7 @@ class TestGenerationController:
         # Arrange
         controller.generation_orchestrator.cancel_generation.return_value = True
         controller.generation_orchestrator.get_generation_status.return_value = sample_generation_status
+        controller.generation_orchestrator.status_tracker.get.return_value = sample_generation_status
         controller.connection_hub.broadcast_to_generation = AsyncMock()
 
         # Act
@@ -700,11 +701,11 @@ class TestGenerationController:
     async def test_handle_generation_output_completion(self, controller, sample_generation_status):
         """Test handling generation completion output"""
         # Arrange
-        controller.generation_orchestrator.get_generation_status.return_value = sample_generation_status
+        controller.generation_orchestrator.status_tracker.get.return_value = sample_generation_status
         controller.connection_hub.broadcast_to_generation = AsyncMock()
 
         # Act - passing None signals completion
-        await controller._handle_generation_output("test-gen-123", None)
+        await controller.output_broadcaster.handle_output("test-gen-123", None)
 
         # Assert
         controller.connection_hub.broadcast_to_generation.assert_called_once()
@@ -716,8 +717,8 @@ class TestGenerationController:
     async def test_handle_generation_output_with_output(self, controller, sample_generation_status, sample_image):
         """Test handling generation output with actual output"""
         # Arrange
-        controller.generation_orchestrator.get_generation_status.return_value = sample_generation_status
-        controller._broadcast_generation_output = AsyncMock()
+        controller.generation_orchestrator.status_tracker.get.return_value = sample_generation_status
+        controller.output_broadcaster.broadcast_output = AsyncMock()
         
         output = ProgressGenerationOutput(
             pipe_id=2,
@@ -726,10 +727,10 @@ class TestGenerationController:
         )
 
         # Act
-        await controller._handle_generation_output("test-gen-123", output)
+        await controller.output_broadcaster.handle_output("test-gen-123", output)
 
         # Assert
-        controller._broadcast_generation_output.assert_called_once_with(
+        controller.output_broadcaster.broadcast_output.assert_called_once_with(
             "test-gen-123", output, sample_generation_status
         )
 
@@ -737,13 +738,13 @@ class TestGenerationController:
     async def test_handle_generation_output_no_status(self, controller):
         """Test handling output when generation status not found"""
         # Arrange
-        controller.generation_orchestrator.get_generation_status.return_value = None
+        controller.generation_orchestrator.status_tracker.get.return_value = None
         controller.connection_hub.broadcast_to_generation = AsyncMock()
 
         output = ProgressGenerationOutput(pipe_id=2, state="Processing...", title="Running")
 
         # Act
-        await controller._handle_generation_output("nonexistent", output)
+        await controller.output_broadcaster.handle_output("nonexistent", output)
 
         # Assert - should return early, no broadcast
         controller.connection_hub.broadcast_to_generation.assert_not_called()
@@ -758,7 +759,7 @@ class TestGenerationController:
         output = ProgressGenerationOutput(pipe_id=2, state="Processing...", title="Running")
 
         # Act
-        await controller._broadcast_generation_output("test-gen-123", output, sample_generation_status)
+        await controller.output_broadcaster.broadcast_output("test-gen-123", output, sample_generation_status)
 
         # Assert - should not broadcast
         controller.connection_hub.broadcast_to_generation.assert_not_called()
@@ -775,7 +776,7 @@ class TestGenerationController:
 
         output = ProgressGenerationOutput(pipe_id=2, state="Processing...", title="Running")
 
-        await controller._broadcast_generation_output("test-gen-123", output, sample_generation_status)
+        await controller.output_broadcaster.broadcast_output("test-gen-123", output, sample_generation_status)
 
         controller.run_report_recorder.record_output.assert_called_once()
         assert controller.run_report_recorder.record_output.call_args[0][0] == "test-gen-123"
@@ -787,10 +788,10 @@ class TestGenerationController:
         """The completion sentinel (output=None) must flush the run report -
         it is the only terminal signal every generation reaches, regardless
         of whether it completed, failed, or was cancelled."""
-        controller.generation_orchestrator.get_generation_status.return_value = sample_generation_status
+        controller.generation_orchestrator.status_tracker.get.return_value = sample_generation_status
         controller.connection_hub.broadcast_to_generation = AsyncMock()
 
-        await controller._handle_generation_output("test-gen-123", None)
+        await controller.output_broadcaster.handle_output("test-gen-123", None)
 
         controller.run_report_recorder.flush.assert_called_once()
         assert controller.run_report_recorder.flush.call_args[0][0] == "test-gen-123"
@@ -809,7 +810,7 @@ class TestGenerationController:
         )
 
         # Mock the GenerationOutputSerializer
-        with patch('src.features.generation.routes.GenerationOutputSerializer') as mock_mapper_class:
+        with patch('src.features.generation.output_broadcaster.GenerationOutputSerializer') as mock_mapper_class:
             mock_mapper = Mock()
             mock_mapper.serialize_output.return_value = {
                 'type': 'generation_status',
@@ -820,7 +821,7 @@ class TestGenerationController:
             mock_mapper_class.return_value = mock_mapper
 
             # Act
-            await controller._broadcast_generation_output("test-gen-123", output, sample_generation_status)
+            await controller.output_broadcaster.broadcast_output("test-gen-123", output, sample_generation_status)
 
             # Assert
             controller.connection_hub.broadcast_to_generation.assert_called_once()
@@ -840,13 +841,13 @@ class TestGenerationController:
         output = ProgressGenerationOutput(pipe_id=2, state="Processing...", title="Running")
 
         # Mock the GenerationOutputSerializer to raise exception
-        with patch('src.features.generation.routes.GenerationOutputSerializer') as mock_mapper_class:
+        with patch('src.features.generation.output_broadcaster.GenerationOutputSerializer') as mock_mapper_class:
             mock_mapper = Mock()
             mock_mapper.serialize_output.side_effect = Exception("Serialization failed")
             mock_mapper_class.return_value = mock_mapper
 
             # Act
-            await controller._broadcast_generation_output("test-gen-123", output, sample_generation_status)
+            await controller.output_broadcaster.broadcast_output("test-gen-123", output, sample_generation_status)
 
             # Assert - error message should be broadcast
             controller.connection_hub.broadcast_to_generation.assert_called_once()

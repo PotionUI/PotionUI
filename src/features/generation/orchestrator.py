@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     from src.features.content_safety.manager import ContentSafetyManager
     from src.features.cloud.capabilities import CloudCapabilities
     from src.features.cloud.policy import CloudGenerationPolicy
+    from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
 
 from src.platform.util.ids import generate_ulid
 from src.features.media_index.indexer import PASS_TAGS
@@ -466,6 +467,7 @@ class GenerationOrchestrator:
         content_safety: Optional['ContentSafetyManager'] = None,
         cloud_capabilities: Optional['CloudCapabilities'] = None,
         cloud_policy: Optional['CloudGenerationPolicy'] = None,
+        output_broadcaster: Optional['GenerationOutputBroadcaster'] = None,
     ):
         """
         Initialize the generation orchestrator.
@@ -529,6 +531,7 @@ class GenerationOrchestrator:
         self._file_preset_repository_for_stats = FilePresetRepository(preset_template_loader)
         self.media_indexer = media_indexer
         self.connection_hub = connection_hub
+        self.output_broadcaster = output_broadcaster
         self.settings = settings
         self.output_processor = output_processor
         self.plugin_registry = plugin_registry
@@ -850,6 +853,9 @@ class GenerationOrchestrator:
             >>> print(result['generation_id'])
             '01ARZ3NDEKTSV4RRFFQ69G5FAV'
         """
+        if output_callback is None and self.output_broadcaster is not None:
+            output_callback = self.output_broadcaster.handle_output
+
         try:
             logger.info(f"Starting generation for user={user_id}, preset={request.preset_id}")
 

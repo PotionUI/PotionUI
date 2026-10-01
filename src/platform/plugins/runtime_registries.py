@@ -6,6 +6,10 @@ lazily — they cannot import the composition root at module scope without
 creating an import cycle.
 """
 
+import asyncio
+from concurrent.futures import Future
+from typing import Any, Coroutine
+
 from src.platform.plugins.registry import PluginRegistry
 
 # Global registry references (set during container construction)
@@ -69,3 +73,21 @@ def get_container():
     if _container is None:
         raise RuntimeError("AppContainer not initialized yet")
     return _container
+
+
+def get_app_loop() -> asyncio.AbstractEventLoop:
+    loop = get_container().app_loop
+    if loop is None:
+        raise RuntimeError("Application event loop not available yet")
+    return loop
+
+
+def run_on_app_loop(coro: Coroutine[Any, Any, Any]) -> Future:
+    try:
+        loop = get_app_loop()
+        if loop.is_closed():
+            raise RuntimeError("Application event loop is closed")
+    except RuntimeError:
+        coro.close()
+        raise
+    return asyncio.run_coroutine_threadsafe(coro, loop)

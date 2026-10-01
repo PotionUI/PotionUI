@@ -86,7 +86,7 @@ async def test_the_controller_never_broadcasts_or_reports_a_cost_output(generati
     controller.connection_hub.broadcast_to_generation = AsyncMock()
     status = SimpleNamespace(preset_id="p")
 
-    await controller._broadcast_generation_output("g1", CostGenerationOutput(model="x", amount_usd=Decimal(AMOUNT)), status)
+    await controller.output_broadcaster.broadcast_output("g1", CostGenerationOutput(model="x", amount_usd=Decimal(AMOUNT)), status)
 
     controller.connection_hub.broadcast_to_generation.assert_not_awaited()
     controller.run_report_recorder.record_output.assert_not_called()

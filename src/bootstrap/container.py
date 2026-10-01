@@ -25,12 +25,13 @@ Routers and the controllers bound to them are assembled in `src.bootstrap.app`.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import functools
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, TYPE_CHECKING
+from typing import Any, Callable, Optional, TYPE_CHECKING
 
 import src.platform.plugins.runtime_registries as _rr
 
@@ -126,6 +127,7 @@ from src.features.generation.parameter_repository import GenerationParameterRepo
 from src.features.generation.run_report_repository import GenerationRunReportRepository
 from src.platform.database.migration_runner import MigrationRunner
 from src.features.generation.run_report_recorder import RunReportRecorder
+from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
 from src.features.segments.repository import (
     SavedSegmentRepository,
     SegmentCategoryRepository,
@@ -353,6 +355,8 @@ class AppContainer:
     generation_history_facade: GenerationHistoryFacade
     run_report_repository: GenerationRunReportRepository
     run_report_recorder: RunReportRecorder
+    output_broadcaster: GenerationOutputBroadcaster
+    app_loop: Optional[asyncio.AbstractEventLoop]
 
     # Segments
     segment_category_repo: SegmentCategoryRepository
@@ -1144,6 +1148,13 @@ def build_container() -> AppContainer:
             max_consecutive_same_model=backend_config.scheduling_max_consecutive_same_model,
         )
 
+    run_report_repository = GenerationRunReportRepository()
+    run_report_recorder = RunReportRecorder(run_report_repository, file_service)
+    app_loop = None
+    output_broadcaster = GenerationOutputBroadcaster(
+        connection_hub, generation_status_tracker, run_report_recorder
+    )
+
     generation_orchestrator = GenerationOrchestrator(
         pipeline_builder, backend_registry, connection_hub, settings, output_processor,
         preset_template_loader, status_tracker=generation_status_tracker,
@@ -1160,14 +1171,13 @@ def build_container() -> AppContainer:
         content_safety=content_safety,
         cloud_capabilities=cloud_capabilities,
         cloud_policy=cloud_policy,
+        output_broadcaster=output_broadcaster,
     )
 
     # Initialize generation history manager
     generation_repository = GenerationRepository()
     generation_parameter_repository = GenerationParameterRepository()
     generation_model_repository = GenerationModelRepository()
-    run_report_repository = GenerationRunReportRepository()
-    run_report_recorder = RunReportRecorder(run_report_repository, file_service)
     generation_history_facade = GenerationHistoryFacade(
         generation_repo=generation_repository,
         file_service=file_service,

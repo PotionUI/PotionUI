@@ -37,12 +37,9 @@ from src.features.models.exceptions import ModelNotFoundException, ModelAccessDe
 from src.features.backends.backend_registry import NoBackendForEngineError
 from src.features.generation.routing.contracts import NoEligibleBackendError
 from src.features.content_safety.errors import ContentPolicyRefusal
-from src.features.generation.output_serializer import GenerationOutputSerializer
+from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
 from src.features.generation.run_report_recorder import RunReportRecorder
-from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput
-from src.features.generation.handlers.error_handler import admin_error_fields
 from src.features.cloud.cost_repository import GenerationCostRepository
-from src.features.generation.output_types import output_type_registry
 from src.features.generation.failure import failure_report
 from src.features.generation import (
     GenerationHistoryFacade,
@@ -110,6 +107,7 @@ class GenerationController(BaseController):
         file_service: FileStore,
         run_report_recorder: RunReportRecorder,
         generation_cost_repository: Optional[GenerationCostRepository] = None,
+        output_broadcaster: Optional[GenerationOutputBroadcaster] = None,
     ):
         super().__init__()  # Initialize BaseController
         self.generation_orchestrator = generation_orchestrator
@@ -118,7 +116,10 @@ class GenerationController(BaseController):
         self.file_service = file_service
         self.run_report_recorder = run_report_recorder
         self.generation_cost_repository = generation_cost_repository
-        self.connection_hub = ConnectionHub()
+        self.output_broadcaster = output_broadcaster or GenerationOutputBroadcaster(
+            ConnectionHub(), generation_orchestrator.status_tracker, run_report_recorder
+        )
+        self.connection_hub = self.output_broadcaster.connection_hub
         self.websocket_handler = WebSocketHandler(self.connection_hub)
         # Queued generations have no outputs to broadcast yet, so position
         # changes reach the client through this side channel instead.
@@ -135,7 +136,7 @@ class GenerationController(BaseController):
             result = await self.generation_orchestrator.start_generation(
                 request,
                 current_user.id,
-                output_callback=self._handle_generation_output
+                output_callback=self.output_broadcaster.handle_output
             )
 
             return self.success_response(data=result)
@@ -234,89 +235,6 @@ class GenerationController(BaseController):
             return self.error_response(
                 error="memory_preview_failed",
                 message=f"Failed to preview memory: {str(e)}"
-            )
-
-    async def _handle_generation_output(self, generation_id: str, output: GenerationOutput):
-        """Handle generation output and broadcast to WebSocket clients"""
-        # Get generation status from orchestrator
-        status = await self.generation_orchestrator.get_generation_status(generation_id)
-        if not status:
-            return
-
-        # Check for completion signal
-        if output is None:
-            status_dict = status.model_dump()
-            try:
-                self.run_report_recorder.flush(
-                    generation_id,
-                    terminal_status=status_dict.get('status'),
-                    terminal_message=status_dict.get('message'),
-                )
-            except Exception:
-                logging.exception(f"Failed to flush run report for {generation_id}")
-            await self.connection_hub.broadcast_to_generation(
-                generation_id,
-                {'type': 'generation_complete', 'data': status_dict}
-            )
-            return
-
-        # Serialize and broadcast the output
-        await self._broadcast_generation_output(generation_id, output, status)
-
-
-    async def _broadcast_generation_output(self, generation_id: str, output: GenerationOutput, status):
-        """Record and broadcast generation output.
-
-        The run report is recorded unconditionally (a generation nobody is
-        watching still gets a report); only the WebSocket broadcast itself is
-        gated on having subscribers.
-        """
-        if output_type_registry.is_server_only(output):
-            return
-
-        has_subscribers = (
-            generation_id in self.connection_hub.generation_connections and
-            len(self.connection_hub.generation_connections[generation_id]) > 0
-        )
-
-        try:
-            serializer = GenerationOutputSerializer(
-                generation_id=generation_id,
-                preset_id=status.preset_id,
-            )
-
-            # Serialize the output
-            message = serializer.serialize_output(output)
-
-            try:
-                self.run_report_recorder.record_output(generation_id, message)
-            except Exception:
-                logging.exception(f"Failed to record run report output for {generation_id}")
-
-            if not has_subscribers:
-                return
-
-            privileged_message = None
-            if isinstance(output, ErrorGenerationOutput):
-                privileged_message = {**message, **admin_error_fields(output)}
-
-            # Broadcast the message
-            await self.connection_hub.broadcast_to_generation(generation_id, message, privileged_message)
-
-        except Exception as e:
-            logging.error(f"Failed to broadcast generation output: {str(e)}")
-
-            # Send error message
-            await self.connection_hub.broadcast_to_generation(
-                generation_id,
-                {
-                    'type': 'generation_error',
-                    'data': {
-                        'generation_id': generation_id,
-                        'message': "Output processing failed",
-                        'status': status.model_dump()
-                    }
-                }
             )
 
     async def _resolve_generation_owner(self, generation_id: str):
@@ -434,12 +352,7 @@ class GenerationController(BaseController):
             )
 
             for generation_id in cancelled:
-                status = await self.generation_orchestrator.get_generation_status(generation_id)
-                if status:
-                    await self.connection_hub.broadcast_to_generation(
-                        generation_id,
-                        {'type': 'generation_cancelled', 'data': status.model_dump()}
-                    )
+                await self.output_broadcaster.broadcast_cancelled(generation_id)
 
             return self.success_response(
                 data={'cancelled': cancelled, 'count': len(cancelled)},
@@ -501,12 +414,7 @@ class GenerationController(BaseController):
                 )
 
             # Broadcast cancellation to WebSocket clients
-            status = await self.generation_orchestrator.get_generation_status(generation_id)
-            if status:
-                await self.connection_hub.broadcast_to_generation(
-                    generation_id,
-                    {'type': 'generation_cancelled', 'data': status.model_dump()}
-                )
+            await self.output_broadcaster.broadcast_cancelled(generation_id)
 
             return self.success_response(message="Generation cancelled successfully")
 
@@ -1431,6 +1339,7 @@ def _get_generation_controller(container: "AppContainer") -> GenerationControlle
             container.file_service,
             container.run_report_recorder,
             container.generation_cost_repository,
+            container.output_broadcaster,
         )
         container._generation_controller = controller
     return controller

@@ -391,6 +391,9 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         if reconciled:
             logging.info(f"Reconciled {reconciled} interrupted generation(s) as failed after restart")
 
+        container.app_loop = asyncio.get_running_loop()
+        container.plugin_registry.run_ready_hooks()
+
         # Same idea for native.remote rows: reclaim any lease a dead process
         # left dangling, expire anything past its package deadline, fail
         # anything that exhausted its attempts, and best-effort resume the

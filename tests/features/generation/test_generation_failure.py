@@ -166,7 +166,7 @@ class TestWebSocketPerRecipient:
         output = _error_output()
         apply_failure(output, failure_from_output(output))
 
-        await controller._broadcast_generation_output("gen-1", output, SimpleNamespace(preset_id="p1"))
+        await controller.output_broadcaster.broadcast_output("gen-1", output, SimpleNamespace(preset_id="p1"))
 
         user_message = json.loads(user_socket.sent[-1])
         admin_message = json.loads(admin_socket.sent[-1])
@@ -195,7 +195,7 @@ class TestWebSocketPerRecipient:
         await self._subscribe(controller.connection_hub, "c1", "gen-1", privileged=True)
         output = _error_output()
 
-        await controller._broadcast_generation_output("gen-1", output, SimpleNamespace(preset_id="p1"))
+        await controller.output_broadcaster.broadcast_output("gen-1", output, SimpleNamespace(preset_id="p1"))
 
         recorded = controller.run_report_recorder.record_output.call_args[0][1]
         assert recorded["type"] == "generation_error"
@@ -209,7 +209,7 @@ class TestWebSocketPerRecipient:
         user_socket = await self._subscribe(hub, "u", "gen-1", privileged=False)
         admin_socket = await self._subscribe(hub, "a", "gen-1", privileged=True)
 
-        await controller._broadcast_generation_output("gen-1", ProgressGenerationOutput(state="x"), SimpleNamespace(preset_id="p1"))
+        await controller.output_broadcaster.broadcast_output("gen-1", ProgressGenerationOutput(state="x"), SimpleNamespace(preset_id="p1"))
 
         assert user_socket.sent[-1] == admin_socket.sent[-1]
 

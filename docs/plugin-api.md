@@ -53,7 +53,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | Group | Module | Exports |
 |---|---|---|
 | **Identity** — who is calling, and signing them in | `.identity` | `User`, `AccountType`, `get_current_active_user`, `register_login_provider`, `unregister_login_provider`, `sign_in_external`, `ExternalSession`, `ExternalLoginError` |
-| **Hooks and runtime** — reacting to the app, reaching its managers | `.hooks` | `HookContext`, `HookResult`, `HookSpec`, `hooks_registry`, `PluginRegistry`, `get_container`, `get_global_plugin_registry`, `get_global_tool_registry`, `ModelLifecycle` |
+| **Hooks and runtime** — reacting to the app, reaching its managers | `.hooks` | `HookContext`, `HookResult`, `HookSpec`, `hooks_registry`, `PluginRegistry`, `get_container`, `get_app_loop`, `run_on_app_loop`, `get_global_plugin_registry`, `get_global_tool_registry`, `ModelLifecycle` |
 | **Providers** — talking to a model marketplace | `.providers` | `MarketplaceProviderBase`, `ProviderCapability`, `ProviderMetadata`, `ProviderModelInfo`, `ProviderSearchResult`, `ProviderPromptItem`, `ProviderError`, `ProviderConnectionError`, `ProviderRateLimitError`, `ProviderNotFoundError`, `get_provider_registry`, `ModelInfo`, `aiohttp_connector`, `client_ssl_context` |
 | **Chat** — extending the assistant | `.chat` | `BaseTool`, `ToolContext`, `ToolResult`, `ToolSource`, `PreChatAction` |
 | **Backends** — contributing an engine | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate` |
@@ -61,6 +61,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
 | **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks` |
 | **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem`, `lint_preset_dir`, `downscale_and_save_webp` |
+| **Generation** — submitting, following and reading generations | `.generation` | `submit_generation`, `cancel_generation`, `generation_state`, `list_generation_files`, `resolve_media_ref`, `get_session_snapshot`, `GenerationRequest`, `MediaRefError`, `SessionNotFoundError` |
 | **Compute** — renting GPU compute for a Remote Native worker | `.compute` | `ComputeProvisioner`, `ComputeProvisionerError`, `ComputeStatus`, `ProvisionRequest`, `ProvisionResult`, `ProvisionProgress`, `ProgressReporter`, `ComputeFieldDescriptorV1`, `ComputeFieldOptionV1`, `COMPUTE_STATES`, `STATE_*`, `STAGE_*`, `COMPUTE_HOOKS` |
 | **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `Settings`, `SettingRepository`, `PluginRepository` |
 | **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel` |
@@ -181,7 +182,7 @@ async def start_something():
 
 ## Initializing your plugin: `boot` vs `enable`
 
-Three lifecycle hooks fire around a plugin's own life. They are ordinary manifest hooks —
+Four lifecycle hooks fire around a plugin's own life. They are ordinary manifest hooks —
 declare a handler the same way you would for any other hook point:
 
 ```yaml
@@ -189,6 +190,8 @@ hooks:
   backend:
     - hook: "plugin.lifecycle.boot"
       handler: "backend.hooks.lifecycle_hooks.on_boot"
+    - hook: "plugin.lifecycle.ready"
+      handler: "backend.hooks.lifecycle_hooks.on_ready"
     - hook: "plugin.lifecycle.enable"
       handler: "backend.hooks.lifecycle_hooks.on_enable"
     - hook: "plugin.lifecycle.disable"
@@ -198,6 +201,7 @@ hooks:
 | Hook | Fires |
 |---|---|
 | `plugin.lifecycle.boot` | Once per process, for every enabled plugin — at startup, and right after `enable` when a plugin is enabled at runtime |
+| `plugin.lifecycle.ready` | Once per process, for every enabled plugin, once the event loop is running and generations a previous process left unfinished have been marked failed |
 | `plugin.lifecycle.enable` | Only on the disabled → enabled transition, **never** at boot |
 | `plugin.lifecycle.disable` | On the enabled → disabled transition, before the plugin's hooks are unregistered |
 
@@ -1344,6 +1348,42 @@ stops being selected for generations. It never re-enables on a return to
 `running` — that is operator intent, and the UI offers an "Enable backend"
 action instead. `GET /api/admin/provisioning/{row_id}` is the same reconcile
 on demand.
+
+## Running generations from a plugin
+
+`src.plugin_api.generation` is the supported way to start, follow and read generations from
+outside the Generate page. Each function takes the acting user and enforces the same rules the
+HTTP API enforces for that user: anything that is not theirs is reported as not found rather than
+forbidden (administrators may reach anything), and a content-restricted user only sees what the
+history API would show them.
+
+| Function | Does |
+|---|---|
+| `await submit_generation(user, request)` | Same path as `POST /api/generations/start`: routing, form binding, cloud and content policy. Returns `{generation_id, status, queue_position}` and raises what the route turns into HTTP errors |
+| `await cancel_generation(user, generation_id)` | Cancels one generation; returns whether anything was cancelled |
+| `generation_state(user, generation_id)` | The live status record, or the stored row once the process no longer tracks it |
+| `list_generation_files(user, generation_id, final_only=True)` | The generation's files in canonical order, each with its `index` in the unfiltered list (the `file_index` of a `<field>__origin` link). `final_only` leaves out intermediate and derived files |
+| `resolve_media_ref(user, ref)` | Turns `{"kind": "history", "generation_id", "file_id"}` or `{"kind": "library", "item_id"}` into `{value, media_type, original_filename, origin}`; `value` is what a media field accepts. Paths and URLs are never accepted; a bad, foreign, hidden or deleted reference raises `MediaRefError` with a `code` of `invalid_ref` or `not_found` |
+| `get_session_snapshot(user, session_id, version=None)` | The owner's session payload, or one of its saved versions; raises `SessionNotFoundError` for anyone else |
+
+Generations started this way stream progress to websocket subscribers and write a run report,
+exactly like ones started from the page.
+
+```python
+from src.plugin_api.generation import (
+    GenerationRequest, list_generation_files, resolve_media_ref, submit_generation,
+)
+
+async def upscale_last_result(user, preset_id, generation_id):
+    first = list_generation_files(user, generation_id)[0]
+    media = resolve_media_ref(
+        user, {"kind": "history", "generation_id": generation_id, "file_id": first["id"]}
+    )
+    form_data = {"image": media["value"], "image__origin": media["origin"]}
+    return await submit_generation(
+        user, GenerationRequest(preset_id=preset_id, mode="img2img", form_data=form_data)
+    )
+```
 
 ## Driving native-engine generation directly
 

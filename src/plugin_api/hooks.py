@@ -15,9 +15,11 @@ from src.features.generation.exceptions import GenerationNotFoundException
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import HookContext, HookResult, HookSpec, hooks_registry
 from src.platform.plugins.runtime_registries import (
+    get_app_loop,
     get_container,
     get_global_plugin_registry,
     get_global_tool_registry,
+    run_on_app_loop,
 )
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 
@@ -28,8 +30,10 @@ __all__ = [
     "HookSpec",
     "ModelLifecycle",
     "PluginRegistry",
+    "get_app_loop",
     "get_container",
     "get_global_plugin_registry",
     "get_global_tool_registry",
     "hooks_registry",
+    "run_on_app_loop",
 ]

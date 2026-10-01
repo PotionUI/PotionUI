@@ -1279,6 +1279,19 @@ class PluginRegistry:
                 f"Error running boot hook for plugin {plugin_id}: {e}", exc_info=True
             )
 
+    def run_ready_hooks(self) -> None:
+        for manifest in self.get_enabled_plugins():
+            try:
+                self.hook_chain.execute_for_plugin(
+                    PLUGIN_LIFECYCLE_HOOKS.ready,
+                    manifest.id,
+                    initial_data={"plugin_id": manifest.id},
+                )
+            except Exception as e:
+                logger.error(
+                    f"Error running ready hook for plugin {manifest.id}: {e}", exc_info=True
+                )
+
     def run_boot_hooks(self) -> None:
         """Fire the boot hook for every currently enabled plugin, in registry order."""
         for manifest in self.get_enabled_plugins():

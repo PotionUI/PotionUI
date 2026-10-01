@@ -542,6 +542,12 @@ class GenerationHistoryQuery:
             return True
         return generation_id in self.content_safety.viewable_generation_ids(viewer_id, [generation_id])
 
+    def visible_file_dicts(
+        self, file_dicts: List[Dict[str, Any]], *, viewer_id: Optional[str]
+    ) -> List[Dict[str, Any]]:
+        visible = self._apply_content_ledger([{'files': file_dicts}], viewer_id=viewer_id)
+        return visible[0]['files'] if visible else []
+
     def _apply_content_ledger(
         self, gen_dicts: List[Dict[str, Any]], *, viewer_id: Optional[str]
     ) -> List[Dict[str, Any]]:

@@ -34,6 +34,7 @@ _PROBE = r"""
 import json, sys
 from src.bootstrap.app import run_migrations_sync
 from src.bootstrap.container import build_container
+from src.features.generation.routes import _get_generation_controller as _generation_controller
 
 run_migrations_sync()
 c = build_container()
@@ -80,6 +81,12 @@ report = {
         "orchestrator_capabilities_are_the_container_capabilities": (
             c.generation_orchestrator.cloud_capabilities is c.cloud_capabilities
         ),
+    },
+    "generation_output": {
+        "broadcaster_uses_the_container_hub": c.output_broadcaster.connection_hub is c.connection_hub,
+        "orchestrator_uses_the_broadcaster": c.generation_orchestrator.output_broadcaster is c.output_broadcaster,
+        "controller_uses_the_broadcaster": _generation_controller(c).output_broadcaster is c.output_broadcaster,
+        "websocket_handler_uses_the_container_hub": _generation_controller(c).websocket_handler.connection_hub is c.connection_hub,
     },
     "shutdownable": {
         "history_executor": hasattr(c.generation_history_facade.executor, "shutdown"),
@@ -132,6 +139,10 @@ def test_chat_runtime_has_no_unwired_collaborator(report):
 def test_chat_components_share_the_container_instances(report):
     shared = report["same"]
     assert [k for k, v in shared.items() if not v] == []
+
+
+def test_generation_outputs_go_through_one_broadcaster_and_one_hub(report):
+    assert [k for k, v in report["generation_output"].items() if not v] == []
 
 
 def test_the_cloud_policy_enforces_the_same_scopes_the_admin_edits(report):

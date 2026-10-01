@@ -35,6 +35,10 @@ fields:
             type: "image"
             label: "Source"
             required: true
+          - name: "references"
+            type: "image"
+            label: "References"
+            configuration: {multi: true, max_items: 4}
           - type: "row"
             children:
               - name: "seed"
@@ -95,8 +99,10 @@ def test_describes_modes_forms_and_nested_fields(described):
     assert set(edit.forms) == {"simple", "detailed"}
     assert edit.forms["simple"] == {
         "source_image": FieldDescription(type="image", required=True),
+        "references": FieldDescription(type="image", required=False, multi=True),
         "seed": FieldDescription(type="seed", required=False),
     }
+    assert edit.forms["simple"]["source_image"].multi is False
     assert edit.forms["detailed"]["source_image"] == FieldDescription(type="image", required=False)
     assert edit.forms["detailed"]["strength"].type == "slider"
 

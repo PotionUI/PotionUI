@@ -109,6 +109,7 @@ def lint_preset_dir(path: str) -> Tuple[List[str], List[str]]:
 class FieldDescription:
     type: Optional[str]
     required: bool
+    multi: bool = False
 
 
 @dataclass(frozen=True)
@@ -128,7 +129,11 @@ class PresetDescription:
 def _describe_fields(fields: Iterable[Any], out: Dict[str, FieldDescription]) -> None:
     for form_field in fields or []:
         if form_field.name and form_field.name not in out:
-            out[form_field.name] = FieldDescription(type=form_field.type, required=bool(form_field.required))
+            out[form_field.name] = FieldDescription(
+                type=form_field.type,
+                required=bool(form_field.required),
+                multi=bool((form_field.configuration or {}).get("multi")),
+            )
         if isinstance(form_field.children, list):
             _describe_fields(form_field.children, out)
 

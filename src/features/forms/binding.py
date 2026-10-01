@@ -361,6 +361,7 @@ def bind_form(
     # renders reach the generator ("'caption' cannot be empty", 2026-08-18).
     _PASSTHROUGH_KEYS = {"video_director", "music_director", "llm", "prompt_timeline", "timeline"}
     _ORIGIN_SUFFIX = "__origin"
+    _INPAINT_MASK_SUFFIX = "_inpaint_mask"
     for key, value in raw.items():
         if key in field_index:
             continue
@@ -369,6 +370,10 @@ def bind_form(
             continue
         if key.endswith(_ORIGIN_SUFFIX) and key[: -len(_ORIGIN_SUFFIX)] in field_index:
             values[key] = value
+            continue
+        masked = field_index.get(key[: -len(_INPAINT_MASK_SUFFIX)]) if key.endswith(_INPAINT_MASK_SUFFIX) else None
+        if masked is not None and _is_media_path_field(masked):
+            values[key] = _check_single_media_value(value, storage_dir, key, errors, field_errors)
             continue
         stripped.append(key)
 

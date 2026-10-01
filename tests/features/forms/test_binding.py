@@ -187,6 +187,37 @@ class TestUnknownKeys:
         assert "source_image__origin" not in bound.values
         assert "source_image__origin" in bound.stripped
 
+    def test_a_painted_mask_rides_with_its_image(self):
+        preset = _preset([_field("source_image", "image", configuration={"allow_inpaint": True})])
+        bound = bind_form(
+            preset, "txt2img", None,
+            {"source_image": "uploads/a.png", "source_image_inpaint_mask": "uploads/a_mask.png"},
+            "user_1",
+        )
+        assert bound.values["source_image_inpaint_mask"] == "uploads/a_mask.png"
+        assert "source_image_inpaint_mask" not in bound.stripped
+
+    def test_a_mask_for_a_field_the_preset_lacks_is_stripped(self):
+        preset = _preset([_field("prompt", "string")])
+        bound = bind_form(preset, "txt2img", None, {"source_image_inpaint_mask": "uploads/m.png"}, "user_1")
+        assert "source_image_inpaint_mask" in bound.stripped
+
+    def test_a_mask_for_a_non_media_field_is_stripped(self):
+        preset = _preset([_field("caption", "string")])
+        bound = bind_form(preset, "txt2img", None, {"caption_inpaint_mask": "uploads/m.png"}, "user_1")
+        assert "caption_inpaint_mask" in bound.stripped
+
+    def test_a_mask_outside_the_user_storage_is_refused(self, tmp_path):
+        storage = tmp_path / "storage"
+        storage.mkdir()
+        preset = _preset([_field("source_image", "image", configuration={"allow_inpaint": True})])
+        with pytest.raises(FormBindingError, match="source_image_inpaint_mask"):
+            bind_form(
+                preset, "txt2img", None,
+                {"source_image_inpaint_mask": str(tmp_path / "elsewhere" / "m.png")},
+                "user_1", storage_dir=str(storage),
+            )
+
 
 class TestValidation:
     def test_required_missing_raises(self):

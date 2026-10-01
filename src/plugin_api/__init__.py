@@ -132,11 +132,15 @@ from src.plugin_api.pipes import (
 
 # Presets, and starting a generation.
 from src.plugin_api.presets import (
+    FieldDescription,
     FilePresetRepository,
     GalleryItem,
     GenerationRequest,
+    ModeDescription,
     PresetCollaborators,
+    PresetDescription,
     PresetMedia,
+    describe_preset,
     downscale_and_save_webp,
     lint_preset_dir,
     preset_operations,
@@ -311,11 +315,15 @@ __all__ = [
     "ProgressEmitter",
     "native_step_hooks",
     # Presets and generation
+    "FieldDescription",
     "FilePresetRepository",
     "GalleryItem",
     "GenerationRequest",
+    "ModeDescription",
     "PresetCollaborators",
+    "PresetDescription",
     "PresetMedia",
+    "describe_preset",
     "downscale_and_save_webp",
     "lint_preset_dir",
     "preset_operations",

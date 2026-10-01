@@ -38,7 +38,9 @@ backend, this host's platform) and returns a `RequirementResult` - never
 See docs/presets.md.
 """
 
-from typing import List, Tuple
+import copy
+from dataclasses import dataclass, field
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from src.features.generation.dto import GenerationRequest, PromptPair
 from src.features.presets.collaborators import PresetCollaborators
@@ -53,18 +55,23 @@ from src.features.presets.requirements.contracts import (
 )
 from src.features.presets.schema import GalleryItem, PresetMedia
 from src.features.presets.style_previews import downscale_and_save_webp
+from src.features.presets.templates import default_form_name
 from src.platform.plugins.runtime_registries import get_container
 
 __all__ = [
+    "FieldDescription",
     "FilePresetRepository",
     "GalleryItem",
     "GenerationRequest",
+    "ModeDescription",
     "PresetCollaborators",
+    "PresetDescription",
     "PresetMedia",
     "RequirementAction",
     "RequirementChecker",
     "RequirementContext",
     "RequirementResult",
+    "describe_preset",
     "downscale_and_save_webp",
     "lint_preset_dir",
     "preset_operations",
@@ -93,3 +100,51 @@ def lint_preset_dir(path: str) -> Tuple[List[str], List[str]]:
     errors = [str(issue) for issue in issues if issue.level == "error"]
     warnings = [str(issue) for issue in issues if issue.level == "warning"]
     return errors, warnings
+
+
+@dataclass(frozen=True)
+class FieldDescription:
+    type: Optional[str]
+    required: bool
+
+
+@dataclass(frozen=True)
+class ModeDescription:
+    default_form: Optional[str]
+    forms: Dict[str, Dict[str, FieldDescription]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PresetDescription:
+    id: str
+    name: str
+    vars: Dict[str, Any] = field(default_factory=dict)
+    modes: Dict[str, ModeDescription] = field(default_factory=dict)
+
+
+def _describe_fields(fields: Iterable[Any], out: Dict[str, FieldDescription]) -> None:
+    for form_field in fields or []:
+        if form_field.name and form_field.name not in out:
+            out[form_field.name] = FieldDescription(type=form_field.type, required=bool(form_field.required))
+        if isinstance(form_field.children, list):
+            _describe_fields(form_field.children, out)
+
+
+def describe_preset(preset_id: str) -> Optional[PresetDescription]:
+    template = get_container().file_preset_repository.find_preset_by_id(preset_id)
+    if template is None:
+        return None
+    modes = {}
+    for mode_name, mode in (template.modes or {}).items():
+        forms = {}
+        for form in mode.forms:
+            described: Dict[str, FieldDescription] = {}
+            _describe_fields(form.fields, described)
+            forms[form.name] = described
+        modes[mode_name] = ModeDescription(default_form=default_form_name(mode), forms=forms)
+    return PresetDescription(
+        id=template.id,
+        name=template.name,
+        vars=copy.deepcopy(template.vars or {}),
+        modes=modes,
+    )

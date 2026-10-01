@@ -64,8 +64,9 @@ const handler: GenerationMessageHandler = {
 				currentProgress: null,
 				cancelNotice:
 					message.type === 'generation_cancelled'
-						? (message.cancel_notice ?? message.data?.cancel_notice ?? null)
+						? (message.cancel_notice ?? message.data?.cancel_notice ?? targetTab.generation.cancelNotice ?? null)
 						: null,
+				cancelledGenerationId: message.type === 'generation_cancelled' ? ctx.generationId : null,
 				totalTime,
 				workbenchIndex: totalItems > 0 ? 0 : targetTab.generation.workbenchIndex,
 				workbenchTotal: totalItems

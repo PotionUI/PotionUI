@@ -215,5 +215,64 @@ describe('generation_cancelled cancel notice', () => {
 
 		expect(noticeOf(tabId)).toBeFalsy();
 	});
-});
 
+	function ownTab(tabId: string, id: string) {
+		setCurrentGeneration(tabId, { generation_id: id });
+		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		tabsStore.updateTab(tabId, { activeGenerationId: id, generation: { ...tab.generation, isGenerating: true } });
+	}
+
+	it('shows the notice when the completion arrives before the cancelled message', () => {
+		const tabId = defaultTabId();
+		ownTab(tabId, 'gen-n4');
+
+		dispatchGenerationMessage(
+			{ type: 'generation_complete', generation_id: 'gen-n4', data: { status: 'cancelled', cancel_notice: NOTICE } } as any,
+			{ unsubscribe: vi.fn() }
+		);
+		dispatchGenerationMessage(
+			{ type: 'generation_cancelled', generation_id: 'gen-n4', data: { cancel_notice: null } } as any,
+			{ unsubscribe: vi.fn() }
+		);
+
+		expect(noticeOf(tabId)).toBe(NOTICE);
+	});
+
+	it('shows a notice that only arrives on the completion after the cancelled message', () => {
+		const tabId = defaultTabId();
+		ownTab(tabId, 'gen-n5');
+
+		dispatchGenerationMessage(
+			{ type: 'generation_cancelled', generation_id: 'gen-n5', data: { cancel_notice: null } } as any,
+			{ unsubscribe: vi.fn() }
+		);
+		expect(noticeOf(tabId)).toBeNull();
+
+		dispatchGenerationMessage(
+			{ type: 'generation_complete', generation_id: 'gen-n5', data: { status: 'cancelled', cancel_notice: NOTICE } } as any,
+			{ unsubscribe: vi.fn() }
+		);
+
+		expect(noticeOf(tabId)).toBe(NOTICE);
+	});
+
+	it('does not attach a completion notice to a generation that was not the one cancelled', () => {
+		const tabId = defaultTabId();
+		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: 'gen-z',
+			generation: {
+				...tab.generation,
+				currentGeneration: { generation_id: 'gen-y' } as any,
+				cancelledGenerationId: 'gen-x'
+			}
+		});
+
+		dispatchGenerationMessage(
+			{ type: 'generation_complete', generation_id: 'gen-y', data: { id: 'gen-y', status: 'cancelled', cancel_notice: NOTICE } } as any,
+			{ unsubscribe: vi.fn() }
+		);
+
+		expect(noticeOf(tabId)).toBeFalsy();
+	});
+});

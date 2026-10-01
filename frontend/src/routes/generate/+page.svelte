@@ -1319,6 +1319,7 @@
 						...currentTab.generation,
 						isGenerating: true,
 						cancelNotice: null,
+						cancelledGenerationId: null,
 						startedAt: Date.now(),
 						totalTime: null,
 						currentGeneration: {

@@ -163,3 +163,60 @@ def test_a_generation_that_was_never_cancelled_carries_no_notice():
 
 def test_backends_without_a_cancel_outcome_report_no_notice():
     assert BaseBackend.take_cancel_notice(object(), "gen-1") is None
+
+
+async def test_a_run_that_unwinds_after_the_settle_wait_still_leaves_its_notice(started, monkeypatch):
+    async def hang(self, job):
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(session, "CANCEL_SETTLE_SECONDS", 0.05)
+    monkeypatch.setattr(session, "PROVIDER_CANCEL_WAIT_SECONDS", 0.4)
+    monkeypatch.setattr(FakeCloudProvider, "cancel", hang)
+    run = await started()
+
+    assert await run.orchestrator.cancel_generation("gen-1") is True
+    assert notice_of(run) is None
+    await run.finished()
+
+    assert notice_of(run) == UNCONFIRMED_CANCEL_MESSAGE
+    assert run.orchestrator.status_tracker.get("gen-1").state == GenerationState.CANCELLED
+    assert run.backend.take_cancel_notice("gen-1") is None
+
+
+async def _complete_with_deposited_notice(run, state, cancel_requested):
+    tracker = run.orchestrator.status_tracker
+    run.backend._cancel_notices["gen-1"] = UNCONFIRMED_CANCEL_MESSAGE
+    if cancel_requested:
+        run.orchestrator._cancel_requested.add("gen-1")
+    if state is not None:
+        await tracker.transition_async("gen-1", state)
+    await run.orchestrator._handle_generation_completion("gen-1", None)
+    return tracker.get("gen-1")
+
+
+async def test_a_run_that_failed_after_a_cancel_request_leaves_no_notice_behind(started):
+    run = await started()
+
+    record = await _complete_with_deposited_notice(run, GenerationState.FAILED, cancel_requested=False)
+
+    assert record.cancel_notice is None
+    assert run.backend.take_cancel_notice("gen-1") is None
+    assert "gen-1" not in run.orchestrator._cancel_requested
+
+
+async def test_the_notice_is_delivered_when_completion_runs_before_the_cancelled_transition(started):
+    run = await started()
+
+    record = await _complete_with_deposited_notice(run, None, cancel_requested=True)
+
+    assert record.cancel_notice == UNCONFIRMED_CANCEL_MESSAGE
+    assert run.backend.take_cancel_notice("gen-1") is None
+
+
+async def test_a_notice_without_a_cancel_request_is_not_attached_to_a_finished_run(started):
+    run = await started()
+
+    record = await _complete_with_deposited_notice(run, None, cancel_requested=False)
+
+    assert record.cancel_notice is None
+    assert run.backend.take_cancel_notice("gen-1") is None

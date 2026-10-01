@@ -272,6 +272,7 @@ export interface GenerationState {
 	 */
 	submittedPromptTemplate: { positive: string; negative: string } | null;
 	cancelNotice?: string | null;
+	cancelledGenerationId?: string | null;
 }
 
 export interface PromptTabData {

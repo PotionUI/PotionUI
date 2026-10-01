@@ -126,6 +126,7 @@ export function beginGenerationOwnership(
 			currentGeneration,
 			currentProgress: null,
 			cancelNotice: null,
+			cancelledGenerationId: null,
 			startedAt: now(),
 			totalTime: null,
 			batchImages: output.batchImages,

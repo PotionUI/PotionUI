@@ -38,6 +38,7 @@ class CloudRun:
     executor: Any
     session: CloudRunSession
     scratch: Path
+    notice_handed: bool = False
 
 
 class CloudBackend(BaseBackend):
@@ -141,6 +142,9 @@ class CloudBackend(BaseBackend):
             logger.error(f"[CLOUD_BACKEND] Generation {generation_id} failed: {type(error).__name__}")
         finally:
             self._runs.pop(generation_id, None)
+            late_notice = run.session.cancel_notice
+            if late_notice and not run.notice_handed:
+                self._cancel_notices[generation_id] = late_notice
             discard = getattr(run.executor, "discard_cancel_on_start", None)
             if discard is not None:
                 discard(generation_id)
@@ -186,6 +190,7 @@ class CloudBackend(BaseBackend):
             notice = await run.session.settled_cancel_notice()
             if notice:
                 self._cancel_notices[generation_id] = notice
+                run.notice_handed = True
         except Exception as error:
             logger.error(f"[CLOUD_BACKEND] Error cancelling generation {generation_id}: {type(error).__name__}")
             return False

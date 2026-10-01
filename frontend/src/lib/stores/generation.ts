@@ -32,6 +32,7 @@ export function findTabByGenerationId(generationId: string | undefined): string 
 		(t) =>
 			t.generation.currentGeneration?.generation_id === generationId ||
 			t.generation.currentGeneration?.id === generationId ||
+			t.generation.cancelledGenerationId === generationId ||
 			(t.generation.queue || []).some((q: { generation_id: string }) => q.generation_id === generationId)
 	);
 

@@ -369,5 +369,9 @@ describe('a new generation taking over the display', () => {
 
 		expect(get(tabsStore).tabs[0].generation.cancelNotice).toBeNull();
 	});
+
+	it('forgets which generation was last cancelled', () => {
+		expect(beginGenerationOwnership('gen-next').generation.cancelledGenerationId).toBeNull();
+	});
 });
 

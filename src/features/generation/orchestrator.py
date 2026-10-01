@@ -585,6 +585,7 @@ class GenerationOrchestrator:
         self._bridge_tasks: Dict[str, asyncio.Task] = {}
         self._idempotency_locks: Dict[tuple, tuple] = {}
         self._run_backends: Dict[str, Any] = {}
+        self._cancel_requested: set = set()
 
         # Same GC-safety reason as `_bridge_tasks`: `_schedule_mesh_thumbnails`
         # fires a background render off the completion path, and nothing else
@@ -1658,10 +1659,16 @@ class GenerationOrchestrator:
         """
         logger.info(f"Completing generation {generation_id}")
 
-        self._run_backends.pop(generation_id, None)
+        backend = self._run_backends.pop(generation_id, None)
         record = self.status_tracker.get(generation_id)
         if record is None:
             return
+
+        cancel_requested = generation_id in self._cancel_requested
+        self._cancel_requested.discard(generation_id)
+        late_notice = backend.take_cancel_notice(generation_id) if backend is not None else None
+        if late_notice and not record.cancel_notice and (record.state == GenerationState.CANCELLED or cancel_requested):
+            self.status_tracker.set_cancel_notice(generation_id, late_notice)
 
         try:
             await self._finish_generation(generation_id, record, output_callback)
@@ -1884,6 +1891,7 @@ class GenerationOrchestrator:
             backend = self.backend_registry.get_backend(record.backend_id)
 
         if record.state == GenerationState.RUNNING:
+            self._cancel_requested.add(generation_id)
             try:
                 cancelled = backend is not None and await backend.cancel_generation(generation_id)
             except Exception as e:
@@ -1895,7 +1903,9 @@ class GenerationOrchestrator:
             if not cancelled:
                 logger.warning(f"Backend could not cancel {generation_id}")
                 return False
-            self.status_tracker.set_cancel_notice(generation_id, backend.take_cancel_notice(generation_id))
+            handed_notice = backend.take_cancel_notice(generation_id)
+            if handed_notice:
+                self.status_tracker.set_cancel_notice(generation_id, handed_notice)
             logger.info(f"Cancelled generation {generation_id} on backend {backend.name}")
         elif backend is not None:
             try:

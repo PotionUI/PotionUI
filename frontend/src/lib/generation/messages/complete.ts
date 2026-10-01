@@ -6,7 +6,7 @@ import { peekGenerationOutputs, retireGeneration, leadOutputPatch } from './gene
 
 generationMessageRegistry.register('generation_complete', {
 	type: 'generation_complete',
-	handle(_message, ctx) {
+	handle(message: any, ctx) {
 		const targetTabId = ctx.tabId;
 		const targetTab = ctx.tab;
 		const isOwner = isTabsCurrentGeneration(targetTab, ctx.generationId);
@@ -29,6 +29,11 @@ generationMessageRegistry.register('generation_complete', {
 		const remainingQueue = withoutQueueEntry(targetTab.generation.queue, ctx.generationId);
 		const generationPatch: Record<string, unknown> = { queue: remainingQueue };
 		let nextActiveGenerationId: string | null = null;
+
+		const cancelNotice: string | null = message?.data?.status === 'cancelled' ? (message?.data?.cancel_notice ?? null) : null;
+		const noticeFollowsCancel =
+			!!cancelNotice && !isOwner && targetTab.generation.cancelledGenerationId === ctx.generationId && !targetTab.generation.cancelNotice;
+		if (noticeFollowsCancel) generationPatch.cancelNotice = cancelNotice;
 
 		// The rest of this generation's state (display, progress, workbench
 		// indices, batch arrays) only ever belongs to the tab if this
@@ -64,6 +69,7 @@ generationMessageRegistry.register('generation_complete', {
 							preview_suppressed: false
 						},
 				currentProgress: null,
+				...(cancelNotice ? { cancelNotice } : {}),
 				totalTime,
 				lastDurationMs: totalTime !== null ? Math.round(totalTime * 1000) : targetTab.generation.lastDurationMs,
 				workbenchIndex: output.workbenchIndex,
@@ -107,7 +113,7 @@ generationMessageRegistry.register('generation_complete', {
 				: {})
 		});
 
-		if (targetTab.soundOnComplete) {
+		if (targetTab.soundOnComplete && !noticeFollowsCancel) {
 			playGenerationCompleteSound();
 		}
 

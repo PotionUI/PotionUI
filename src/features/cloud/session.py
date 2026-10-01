@@ -127,6 +127,10 @@ class CloudRunSession:
         self._cancel_requested = True
         self._event().set()
 
+    @property
+    def cancel_notice(self) -> Optional[str]:
+        return self._cancel_notice
+
     async def settled_cancel_notice(self) -> Optional[str]:
         if self._active:
             try:

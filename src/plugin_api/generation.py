@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 
 from src.features.generation.dto import GenerationRequest
-from src.features.generation.exceptions import GenerationNotFoundException
+from src.features.generation.exceptions import GenerationNotFoundException, IdempotencyKeyConflict
 from src.features.generation.file_repository import file_repo
 from src.features.generation.policy import GenerationPolicy
 from src.platform.plugins.runtime_registries import get_container
@@ -9,6 +9,7 @@ from src.platform.plugins.runtime_registries import get_container
 __all__ = [
     "GenerationNotFoundException",
     "GenerationRequest",
+    "IdempotencyKeyConflict",
     "HistoryMediaRef",
     "LibraryMediaRef",
     "MediaRefError",

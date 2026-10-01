@@ -31,9 +31,12 @@ Example:
 """
 
 import asyncio
+import hashlib
+import json
 import logging
 import time
 import traceback
+from contextlib import asynccontextmanager
 from functools import partial
 from typing import Dict, Any, List, Optional, Callable, TYPE_CHECKING
 
@@ -86,7 +89,12 @@ from src.features.models.exceptions import ModelAccessDeniedException
 from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput, ProgressGenerationOutput
 from src.features.generation.repository import generation_repo
 from src.features.generation.records import Generation
-from src.features.generation.exceptions import InvalidGenerationSourceException
+from src.features.generation.dto import GenerationStatus
+from src.features.generation.exceptions import (
+    DuplicateIdempotencyKey,
+    IdempotencyKeyConflict,
+    InvalidGenerationSourceException,
+)
 from src.features.generation.temp_source_tracker import temp_source_tracker
 from src.platform.websocket.connection_hub import ConnectionHub
 from src.platform.settings.settings import Settings
@@ -345,6 +353,23 @@ def _estimate_generation_vram_gb(form_data: Any) -> Optional[float]:
 _ORIGIN_SUFFIX = "__origin"
 
 
+def _submission_fingerprint(request) -> str:
+    def plain(value):
+        return value.model_dump() if hasattr(value, 'model_dump') else value
+
+    prompts = getattr(request, 'prompts', None)
+    payload = {
+        'preset_id': getattr(request, 'preset_id', None),
+        'mode': getattr(request, 'mode', None),
+        'form_name': getattr(request, 'form_name', None),
+        'form_data': getattr(request, 'form_data', None),
+        'prompt': getattr(request, 'prompt', None),
+        'negative_prompt': getattr(request, 'negative_prompt', None),
+        'prompts': [plain(p) for p in prompts] if prompts else None,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+
+
 def _parse_generation_origins(form_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Extract and shape-validate every `<field>__origin` sibling key
     put on the wire, so a standalone run (e.g. Krea-2's Whole-Frame Enhance)
@@ -558,6 +583,7 @@ class GenerationOrchestrator:
         # Keeps OutputBridge.run() consumer tasks alive (fire-and-forget
         # tasks would otherwise be eligible for GC mid-flight).
         self._bridge_tasks: Dict[str, asyncio.Task] = {}
+        self._idempotency_locks: Dict[tuple, tuple] = {}
         self._run_backends: Dict[str, Any] = {}
 
         # Same GC-safety reason as `_bridge_tasks`: `_schedule_mesh_thumbnails`
@@ -819,9 +845,98 @@ class GenerationOrchestrator:
 
     async def start_generation(
         self,
-        request,  # GenerationRequest type from API layer
+        request,
         user_id: str,
         output_callback: Optional[Callable[[str, GenerationOutput], Any]] = None
+    ) -> Dict[str, Any]:
+        key = getattr(request, 'idempotency_key', None)
+        if not isinstance(key, str) or not key:
+            return await self._submit_generation(request, user_id, output_callback)
+
+        fingerprint = _submission_fingerprint(request)
+        async with self._idempotency_lock(user_id, key):
+            existing = generation_repo.get_by_idempotency_key(user_id, key)
+            if existing is not None:
+                return self._existing_submission(existing, fingerprint)
+            try:
+                return await self._submit_generation(request, user_id, output_callback, key, fingerprint)
+            except DuplicateIdempotencyKey:
+                return self._existing_submission(
+                    generation_repo.get_by_idempotency_key(user_id, key), fingerprint
+                )
+            except BaseException:
+                orphan = generation_repo.get_by_idempotency_key(user_id, key)
+                if orphan is not None:
+                    self._settle_orphan(orphan)
+                raise
+
+    @asynccontextmanager
+    async def _idempotency_lock(self, user_id: str, key: str):
+        slot = (user_id, key)
+        lock, holders = self._idempotency_locks.get(slot) or (asyncio.Lock(), 0)
+        self._idempotency_locks[slot] = (lock, holders + 1)
+        try:
+            async with lock:
+                yield
+        finally:
+            lock, holders = self._idempotency_locks[slot]
+            if holders <= 1:
+                del self._idempotency_locks[slot]
+            else:
+                self._idempotency_locks[slot] = (lock, holders - 1)
+
+    def _dispatcher_holds(self, generation) -> bool:
+        dispatcher = self._queue_dispatcher
+        return (
+            dispatcher.position(generation.id) is not None
+            or generation.id in dispatcher.queue.running_generation_ids(generation.backend_id)
+        )
+
+    def _settle_orphan(self, generation) -> None:
+        if generation.status != 'pending' or self._dispatcher_holds(generation):
+            return
+        if self.status_tracker.get(generation.id) is not None:
+            self.status_tracker.transition(generation.id, GenerationState.FAILED)
+        else:
+            generation_repo.update_status(
+                generation.id, 'failed', {'error_message': 'Interrupted before it was queued'}
+            )
+
+    def _existing_submission(self, generation, fingerprint: str) -> Dict[str, Any]:
+        if generation.idempotency_fingerprint not in (None, fingerprint):
+            raise IdempotencyKeyConflict(generation.idempotency_key)
+        self._settle_orphan(generation)
+        record = self.status_tracker.get(generation.id)
+        if record is not None:
+            return {
+                'generation_id': generation.id,
+                'status': record.model_dump(),
+                'queue_position': self._queue_dispatcher.position(generation.id),
+            }
+        current = generation_repo.get_by_id(generation.id) or generation
+        status = GenerationStatus(
+            id=current.id,
+            status=current.status,
+            user_id=current.user_id,
+            preset_id=current.preset_id,
+            progress=current.progress,
+            message=current.error_message,
+            created_at=current.created_at.isoformat() if current.created_at else '',
+            completed_at=current.completed_at.isoformat() if current.completed_at else None,
+        )
+        return {
+            'generation_id': current.id,
+            'status': status.model_dump(),
+            'queue_position': None,
+        }
+
+    async def _submit_generation(
+        self,
+        request,
+        user_id: str,
+        output_callback: Optional[Callable[[str, GenerationOutput], Any]] = None,
+        idempotency_key: Optional[str] = None,
+        idempotency_fingerprint: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Start a new generation with the given request.
@@ -1064,7 +1179,9 @@ class GenerationOrchestrator:
                 # actually ran even when the client submitted no explicit form_name
                 # and the mode's default was used.
                 form_name=bound.form_name,
-                source_prompt_id=getattr(request, 'source_prompt_id', None)
+                source_prompt_id=getattr(request, 'source_prompt_id', None),
+                idempotency_key=idempotency_key,
+                idempotency_fingerprint=idempotency_fingerprint
             )
             generation_repo.create(db_generation)
             logger.debug(f"Created database record for generation {generation_id}")

@@ -37,6 +37,7 @@ from src.features.models.exceptions import ModelNotFoundException, ModelAccessDe
 from src.features.backends.backend_registry import NoBackendForEngineError
 from src.features.generation.routing.contracts import NoEligibleBackendError
 from src.features.content_safety.errors import ContentPolicyRefusal
+from src.features.generation.exceptions import IdempotencyKeyConflict
 from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
 from src.features.generation.run_report_recorder import RunReportRecorder
 from src.features.cloud.cost_repository import GenerationCostRepository
@@ -177,6 +178,12 @@ class GenerationController(BaseController):
             )
         except ContentPolicyRefusal as e:
             return self.error_response(error=e.code, message=str(e), status_code=e.status_code)
+        except IdempotencyKeyConflict:
+            return self.error_response(
+                error="idempotency_key_conflict",
+                message="This idempotency key was already used for a different request",
+                status_code=409
+            )
         except ValueError as e:
             return self.error_response(
                 error="validation_error",

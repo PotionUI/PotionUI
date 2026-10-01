@@ -49,13 +49,24 @@ _ID_FILTER_BATCH = 900
 class GenerationRepository:
     def create(self, generation: Generation) -> Generation:
         """Create a new generation"""
+        import sqlite3
+        from src.features.generation.exceptions import DuplicateIdempotencyKey
         from src.platform.database.database import db
+        try:
+            self._insert(db, generation)
+        except sqlite3.IntegrityError as exc:
+            if 'idempotency_key' in str(exc):
+                raise DuplicateIdempotencyKey(generation.idempotency_key) from exc
+            raise
+        return self.get_by_id(generation.id)
+
+    def _insert(self, db, generation: Generation) -> None:
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO generations (
                     id, preset_id, preset_version, form_data, user_id, status, progress,
-                    mode, prompt_state, backend_id, tab_id, form_name, source_prompt_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    mode, prompt_state, backend_id, tab_id, form_name, source_prompt_id, idempotency_key, idempotency_fingerprint
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 generation.id,
                 generation.preset_id,
@@ -69,11 +80,21 @@ class GenerationRepository:
                 generation.backend_id,
                 generation.tab_id,
                 generation.form_name,
-                generation.source_prompt_id
+                generation.source_prompt_id,
+                generation.idempotency_key,
+                generation.idempotency_fingerprint
             ))
             bump_history_revision(cursor, generation.user_id)
 
-        return self.get_by_id(generation.id)
+    def get_by_idempotency_key(self, user_id: str, idempotency_key: str) -> Optional[Generation]:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM generations WHERE user_id = ? AND idempotency_key = ?",
+                (user_id, idempotency_key)
+            )
+            row = cursor.fetchone()
+            return Generation.from_row(row) if row else None
 
     def get_by_id(self, generation_id: str, user_id: Optional[str] = None, include_files: bool = False) -> Optional[Generation]:
         """Get generation by ID, optionally filtered by user"""

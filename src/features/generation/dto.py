@@ -1,5 +1,5 @@
 from typing import Dict, Any, Optional, List
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, Field, validator
 
 from src.features.generation.validators import validate_rating_policy
 
@@ -52,6 +52,7 @@ class GenerationRequest(BaseModel):
     # generations" provenance. Not validated against the prompt table here; a
     # stale or unknown id is stored as-is and just resolves to nothing later.
     source_prompt_id: Optional[str] = None
+    idempotency_key: Optional[str] = Field(default=None, min_length=1, max_length=200)
     tag_ids: Optional[List[str]] = None  # Auto-tags to apply after generation is created
     collection_ids: Optional[List[str]] = None  # Collections to add the generation to on creation
     # Client-minted id of the tab that queued this. Routes queued results back to

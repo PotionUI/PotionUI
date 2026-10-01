@@ -138,6 +138,8 @@ class Generation:
     # generations" provenance). No FK: a deleted prompt must not break
     # generation history, so a dangling id simply resolves to nothing.
     source_prompt_id: Optional[str] = None
+    idempotency_key: Optional[str] = None
+    idempotency_fingerprint: Optional[str] = None
     # The router's `RoutingDecision.to_trace_dict()` (plus a `reason` on
     # `chosen`), captured at creation. `None` for a generation started with no
     # router wired, or one that predates migration 009. Never surfaced by
@@ -180,6 +182,8 @@ class Generation:
             prompt_state=json.loads(row['prompt_state']) if row['prompt_state'] else None,
             form_name=row_get(row, 'form_name'),
             source_prompt_id=row_get(row, 'source_prompt_id'),
+            idempotency_key=row_get(row, 'idempotency_key'),
+            idempotency_fingerprint=row_get(row, 'idempotency_fingerprint'),
             routing_decision=(
                 json.loads(row_get(row, 'routing_decision'))
                 if row_get(row, 'routing_decision') else None

@@ -61,7 +61,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
 | **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks` |
 | **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem`, `lint_preset_dir`, `downscale_and_save_webp` |
-| **Generation** — submitting, following and reading generations | `.generation` | `submit_generation`, `cancel_generation`, `generation_state`, `list_generation_files`, `resolve_media_ref`, `get_session_snapshot`, `GenerationRequest`, `MediaRefError`, `SessionNotFoundError` |
+| **Generation** — submitting, following and reading generations | `.generation` | `submit_generation`, `cancel_generation`, `generation_state`, `list_generation_files`, `resolve_media_ref`, `get_session_snapshot`, `GenerationRequest`, `MediaRefError`, `SessionNotFoundError`, `IdempotencyKeyConflict` |
 | **Compute** — renting GPU compute for a Remote Native worker | `.compute` | `ComputeProvisioner`, `ComputeProvisionerError`, `ComputeStatus`, `ProvisionRequest`, `ProvisionResult`, `ProvisionProgress`, `ProgressReporter`, `ComputeFieldDescriptorV1`, `ComputeFieldOptionV1`, `COMPUTE_STATES`, `STATE_*`, `STAGE_*`, `COMPUTE_HOOKS` |
 | **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `Settings`, `SettingRepository`, `PluginRepository` |
 | **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel` |
@@ -1359,12 +1359,21 @@ history API would show them.
 
 | Function | Does |
 |---|---|
-| `await submit_generation(user, request)` | Same path as `POST /api/generations/start`: routing, form binding, cloud and content policy. Returns `{generation_id, status, queue_position}` and raises what the route turns into HTTP errors |
+| `await submit_generation(user, request)` | Same path as `POST /api/generations/start`: routing, form binding, cloud and content policy. Returns `{generation_id, status, queue_position}` and raises what the route turns into HTTP errors. With `request.idempotency_key` set, submitting the same key again returns the first submission instead of starting another (see below) |
 | `await cancel_generation(user, generation_id)` | Cancels one generation; returns whether anything was cancelled |
 | `generation_state(user, generation_id)` | The live status record, or the stored row once the process no longer tracks it |
 | `list_generation_files(user, generation_id, final_only=True)` | The generation's files in canonical order, each with its `index` in the unfiltered list (the `file_index` of a `<field>__origin` link). `final_only` leaves out intermediate and derived files |
 | `resolve_media_ref(user, ref)` | Turns `{"kind": "history", "generation_id", "file_id"}` or `{"kind": "library", "item_id"}` into `{value, media_type, original_filename, origin}`; `value` is what a media field accepts. Paths and URLs are never accepted; a bad, foreign, hidden or deleted reference raises `MediaRefError` with a `code` of `invalid_ref` or `not_found` |
 | `get_session_snapshot(user, session_id, version=None)` | The owner's session payload, or one of its saved versions; raises `SessionNotFoundError` for anyone else |
+
+**Idempotent submits.** `GenerationRequest.idempotency_key` (1 to 200 characters, also accepted as the
+`idempotency_key` field of the `POST /api/generations/start` body) makes a submit safe to retry. Keys are
+scoped to the submitting user, so two users may use the same key. A second submit with a key the user
+already used starts nothing and returns the original `{generation_id, status, queue_position}`; it is
+resolved before the form is bound or any backend is chosen, and concurrent submits with one key produce
+exactly one generation. The key is stored with a fingerprint of the request (preset, mode, form name, form data and prompts); reusing a key for a different request raises `IdempotencyKeyConflict` (HTTP 409 on the route). If the original row exists but this process is no longer tracking it (for example
+the process stopped between recording and queueing it), the retry reports it as `failed` rather than
+leaving it pending; use a new key to run it again. A submit with no key behaves as it always did.
 
 Generations started this way stream progress to websocket subscribers and write a run report,
 exactly like ones started from the page.

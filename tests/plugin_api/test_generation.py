@@ -155,6 +155,21 @@ async def test_submit_goes_through_the_orchestrators_ordinary_start(world):
 
 
 @pytest.mark.asyncio
+async def test_submit_carries_the_idempotency_key_on_the_request(world):
+    await api.submit_generation(world.owner, {"preset_id": "p", "idempotency_key": "k2"})
+
+    assert world.orchestrator.start_generation.await_args[0][0].idempotency_key == "k2"
+
+
+@pytest.mark.asyncio
+async def test_submit_lets_a_key_conflict_through(world):
+    world.orchestrator.start_generation.side_effect = api.IdempotencyKeyConflict("k")
+
+    with pytest.raises(api.IdempotencyKeyConflict):
+        await api.submit_generation(world.owner, {"preset_id": "p", "idempotency_key": "k"})
+
+
+@pytest.mark.asyncio
 async def test_submit_accepts_a_plain_dict(world):
     await api.submit_generation(world.owner, {"preset_id": "p", "form_data": {"a": 1}})
 

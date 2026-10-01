@@ -12,6 +12,14 @@ class GenerationException(Exception):
     pass
 
 
+class DuplicateIdempotencyKey(GenerationException):
+    pass
+
+
+class IdempotencyKeyConflict(GenerationException):
+    pass
+
+
 class GenerationNotFoundException(GenerationException):
     """Generation not found in the database."""
     pass

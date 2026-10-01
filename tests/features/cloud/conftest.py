@@ -1,3 +1,4 @@
+import tempfile
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -16,6 +17,13 @@ from src.features.cloud.testing.fake import FakeBehaviour, FakeCloudConfig, Fake
 from src.features.models.backend_indexer import BackendModelIndexer
 from src.features.models.repository import model_repo
 from src.platform.plugins.hooks import HookContext
+
+
+@pytest.fixture(autouse=True)
+def private_system_temp(tmp_path_factory, monkeypatch):
+    root = tmp_path_factory.mktemp("systmp")
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(root))
+    return root
 
 
 class ScriptedPluginRegistry:

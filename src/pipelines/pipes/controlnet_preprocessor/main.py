@@ -31,14 +31,42 @@ _WEIGHTED_PREPROCESSORS = frozenset(
 )
 _PLAIN_PREPROCESSORS = frozenset({"grayscale"})
 
-# Import controlnet_aux processors
+def _stub_mediapipe_face_without_solutions():
+    import sys
+    import types
+
+    try:
+        import mediapipe
+        if hasattr(mediapipe, "solutions"):
+            return
+    except Exception:
+        pass
+    module_name = "controlnet_aux.mediapipe_face"
+    if module_name in sys.modules:
+        return
+
+    class MediapipeFaceDetector:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError(
+                "controlnet_aux's MediapipeFaceDetector needs the legacy mediapipe.solutions API, "
+                "which the installed mediapipe does not provide."
+            )
+
+    stub = types.ModuleType(module_name)
+    stub.MediapipeFaceDetector = MediapipeFaceDetector
+    sys.modules[module_name] = stub
+
+
+CONTROLNET_AUX_ERROR = ""
 try:
+    _stub_mediapipe_face_without_solutions()
     from controlnet_aux import CannyDetector, HEDdetector, MLSDdetector, OpenposeDetector
     from controlnet_aux import LineartDetector, NormalBaeDetector, MidasDetector
     CONTROLNET_AUX_AVAILABLE = True
-except ImportError:
+except Exception as e:
     CONTROLNET_AUX_AVAILABLE = False
-    logger.warning("[CONTROLNET PREPROCESSOR] controlnet_aux not available - install with: pip install controlnet-aux")
+    CONTROLNET_AUX_ERROR = f"{type(e).__name__}: {e}"
+    logger.warning(f"[CONTROLNET PREPROCESSOR] controlnet_aux unavailable ({CONTROLNET_AUX_ERROR}) - install with: pip install controlnet-aux")
 
 
 class ControlNetPreprocessorPipe(BasePipe):
@@ -273,8 +301,9 @@ class ControlNetPreprocessorPipe(BasePipe):
         )
         if strict and needs_aux and not CONTROLNET_AUX_AVAILABLE:
             raise GenerationExecutionError(
-                "Control image preprocessing needs the controlnet-aux package, which is not installed. "
-                "Install it, or set Control Type to Use as is with a ready-made control map."
+                "Control image preprocessing needs the controlnet-aux package, which is not usable"
+                + (f" ({CONTROLNET_AUX_ERROR})" if CONTROLNET_AUX_ERROR else " (not installed)")
+                + ". Fix or install it, or set Control Type to Use as is with a ready-made control map."
             )
         if needs_aux and not CONTROLNET_AUX_AVAILABLE:
             logger.error("[CONTROLNET PREPROCESSOR] controlnet_aux not available - skipping preprocessing")

@@ -7,7 +7,7 @@ Designed for memory management and resource allocation decisions.
 
 import psutil
 from threading import Lock
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from pynvml import *
 
 from src.platform.observability.logger import logger
@@ -31,6 +31,7 @@ class SystemMonitor:
         self.lock = Lock()
         self.gpu_available = False
         self.gpu_handle = None
+        self.gpu_handles = []
 
         # Initialize NVML for GPU monitoring. Detection is NVML-only (no torch
         # import, no CUDA context init) so constructing a SystemMonitor never
@@ -39,7 +40,8 @@ class SystemMonitor:
         # locally at the point of use.
         try:
             nvmlInit()
-            self.gpu_handle = nvmlDeviceGetHandleByIndex(0)
+            self.gpu_handles = [nvmlDeviceGetHandleByIndex(i) for i in range(nvmlDeviceGetCount())]
+            self.gpu_handle = self.gpu_handles[0]
             self.gpu_available = True
             logger.info("[SYSTEM_MONITOR] GPU monitoring initialized")
         except Exception as e:
@@ -217,6 +219,32 @@ class SystemMonitor:
                     'available': False
                 }
 
+    def get_gpus_info(self) -> List[Dict[str, Any]]:
+        if not self.gpu_available:
+            return []
+
+        devices = []
+        with self.lock:
+            for index, handle in enumerate(self.gpu_handles):
+                try:
+                    mem_info = nvmlDeviceGetMemoryInfo(handle)
+                    total_gb = mem_info.total / (1024**3)
+                    used_gb = mem_info.used / (1024**3)
+                    name = nvmlDeviceGetName(handle)
+                    devices.append({
+                        'index': index,
+                        'name': name.decode('utf-8') if isinstance(name, bytes) else str(name),
+                        'temperature_c': float(nvmlDeviceGetTemperature(handle, NVML_TEMPERATURE_GPU)),
+                        'utilization_percent': float(nvmlDeviceGetUtilizationRates(handle).gpu),
+                        'vram_total_gb': total_gb,
+                        'vram_used_gb': used_gb,
+                        'vram_free_gb': mem_info.free / (1024**3),
+                        'vram_usage_percent': (used_gb / total_gb * 100) if total_gb > 0 else 0.0,
+                    })
+                except Exception as e:
+                    logger.error(f"[SYSTEM_MONITOR] Error getting info for GPU {index}: {e}")
+        return devices
+
     def get_system_snapshot(self) -> Dict[str, Any]:
         """
         Get comprehensive system snapshot.
@@ -229,11 +257,33 @@ class SystemMonitor:
                 'gpu': dict
             }
         """
+        gpus = self.get_gpus_info()
+        if gpus:
+            primary = gpus[0]
+            vram = {
+                'total_gb': primary['vram_total_gb'],
+                'available_gb': primary['vram_free_gb'],
+                'used_gb': primary['vram_used_gb'],
+                'free_gb': primary['vram_free_gb'],
+                'reserved_gb': 0.0,
+                'allocated_gb': 0.0,
+                'usage_percent': primary['vram_usage_percent']
+            }
+            gpu = {
+                'temperature_c': primary['temperature_c'],
+                'utilization_percent': primary['utilization_percent'],
+                'name': primary['name'],
+                'available': True
+            }
+        else:
+            vram = self.get_vram_info()
+            gpu = self.get_gpu_info()
         return {
             'cpu': self.get_cpu_info(),
             'ram': self.get_ram_info(),
-            'vram': self.get_vram_info(),
-            'gpu': self.get_gpu_info()
+            'vram': vram,
+            'gpu': gpu,
+            'gpus': gpus
         }
 
     def __del__(self):

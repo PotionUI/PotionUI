@@ -23,7 +23,7 @@ def _user(account_type):
     )
 
 
-def _make_client(user):
+def _make_client(user, raise_server_exceptions=True):
     bcm = Mock()
     bcm.get_backends.return_value = []
     bcm.get_default_backend_ids.return_value = {}
@@ -43,7 +43,7 @@ def _make_client(user):
         return user
 
     app.dependency_overrides[get_current_active_user] = _fake_active_user
-    return TestClient(app)
+    return TestClient(app, raise_server_exceptions=raise_server_exceptions)
 
 
 # (method, path, json body) for every admin-gated write/action route.
@@ -55,6 +55,23 @@ GATED = [
     ("post", "/api/backends/b1/index-models", None),
     ("post", "/api/backends/b1/set-default", None),
 ]
+
+HARDWARE_READS = [
+    "/api/backends/health",
+    "/api/backends/b1/health",
+    "/api/backends/b1/system-info",
+]
+
+
+@pytest.mark.parametrize("path", HARDWARE_READS)
+def test_hardware_reads_denied_for_regular_user(path):
+    assert _make_client(_user(AccountType.USER)).get(path).status_code == 403
+
+
+@pytest.mark.parametrize("path", HARDWARE_READS)
+def test_hardware_reads_pass_gate_for_admin(path):
+    client = _make_client(_user(AccountType.ADMIN), raise_server_exceptions=False)
+    assert client.get(path).status_code != 403
 
 
 @pytest.mark.parametrize("method,path,body", GATED)

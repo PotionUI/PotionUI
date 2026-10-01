@@ -1,5 +1,23 @@
 <script>
+    import BackendPanel from './BackendPanel.svelte';
+
     let { context = {} } = $props();
+
+    let panelOpen = $state(false);
+    let panelTrigger = null;
+
+    function openPanel(event) {
+        if (!context.isAdmin) return;
+        hideTooltip();
+        panelTrigger = event.currentTarget;
+        panelOpen = true;
+    }
+
+    function closePanel() {
+        panelOpen = false;
+        panelTrigger?.focus?.();
+        panelTrigger = null;
+    }
 
     let stats = $state(null);
     let connected = $state(false);
@@ -220,8 +238,11 @@
             <button
                 type="button"
                 class="resource-trigger"
+                class:openable={context.isAdmin}
                 aria-label={`GPU memory ${stats.gpu.vram_usage_percent.toFixed(0)} percent used`}
                 aria-describedby={activeTooltip === 'gpu' ? 'resource-monitor-tooltip' : undefined}
+                aria-haspopup={context.isAdmin ? 'dialog' : undefined}
+                onclick={openPanel}
                 onmouseenter={(event) => showTooltip('gpu', event)}
                 onmouseleave={hideTooltip}
                 onfocus={(event) => showTooltip('gpu', event, 0)}
@@ -252,8 +273,11 @@
             <button
                 type="button"
                 class="resource-trigger"
+                class:openable={context.isAdmin}
                 aria-label={`System memory ${stats.ram.usage_percent.toFixed(0)} percent used`}
                 aria-describedby={activeTooltip === 'ram' ? 'resource-monitor-tooltip' : undefined}
+                aria-haspopup={context.isAdmin ? 'dialog' : undefined}
+                onclick={openPanel}
                 onmouseenter={(event) => showTooltip('ram', event)}
                 onmouseleave={hideTooltip}
                 onfocus={(event) => showTooltip('ram', event, 0)}
@@ -284,8 +308,11 @@
             <button
                 type="button"
                 class="resource-trigger"
+                class:openable={context.isAdmin}
                 aria-label={`CPU ${stats.cpu.usage_percent.toFixed(0)} percent used`}
                 aria-describedby={activeTooltip === 'cpu' ? 'resource-monitor-tooltip' : undefined}
+                aria-haspopup={context.isAdmin ? 'dialog' : undefined}
+                onclick={openPanel}
                 onmouseenter={(event) => showTooltip('cpu', event)}
                 onmouseleave={hideTooltip}
                 onfocus={(event) => showTooltip('cpu', event, 0)}
@@ -313,6 +340,10 @@
         {/if}
     {/if}
 </div>
+
+{#if panelOpen}
+    <BackendPanel {context} onclose={closePanel} />
+{/if}
 
 {#if activeTooltip}
     <div
@@ -436,6 +467,10 @@
         color: rgb(var(--fg-muted, 161 161 170));
         background: transparent;
         cursor: default;
+    }
+
+    .resource-trigger.openable {
+        cursor: pointer;
     }
 
     .connection-trigger {

@@ -49,7 +49,7 @@ class TestSystemProbe:
     def test_snapshot_shape(self, cpu_only_probe):
         snapshot = cpu_only_probe.get_system_snapshot()
 
-        assert set(snapshot) == {"cpu", "ram", "vram", "gpu"}
+        assert set(snapshot) == {"cpu", "ram", "vram", "gpu", "gpus"}
         assert set(snapshot["cpu"]) == {"usage_percent", "core_count", "core_count_physical"}
         assert set(snapshot["ram"]) == {
             "total_gb", "available_gb", "used_gb", "usage_percent"

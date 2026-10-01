@@ -257,12 +257,13 @@ compete — a preset picks its engine, and only that engine's backends are consi
 | `GET` | `/api/backends/enabled` | enabled only, priority descending |
 | `GET` | `/api/backends/default?engine=native` | default for an engine; `engine` is required |
 | `GET` | `/api/backends/engines` | one descriptor per registered engine (see below) |
-| `GET` | `/api/backends/health` | health of every backend |
+| `GET` | `/api/backends/health` | health of every backend (admin only) |
 | `POST` | `/api/backends` | create; the body carries `engine` |
 | `GET` `PUT` `DELETE` | `/api/backends/{id}` | read / update / delete |
 | `POST` | `/api/backends/{id}/test` | test the connection |
-| `GET` | `/api/backends/{id}/health` | health of one backend |
-| `GET` | `/api/backends/{id}/system-info` | GPU / memory / disk info |
+| `GET` | `/api/backends/{id}/health` | health of one backend (admin only) |
+| `GET` | `/api/backends/{id}/system-info` | GPU / memory / disk info (admin only) |
+| `GET` | `/api/system/backends` | live hardware, status and job counts of every enabled backend in one normalized list (admin only; each backend has a 4 second budget and reports `unreachable` past it) |
 | `POST` | `/api/backends/{id}/set-default` | make this the default for its engine |
 
 Router: `src/features/backends/routes.py` (prefix `/api/backends`). Health payloads carry

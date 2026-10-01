@@ -1105,8 +1105,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         return await controller.get_default_backend(engine)
 
     @router.get("/health", response_model=APIResponse, summary="Get All Backends Health")
-    async def list_backend_health(current_user=Depends(get_current_active_user)):
-        """Get health status for all configured backends."""
+    async def list_backend_health(current_user=Depends(get_current_admin_user)):
         return await controller.list_backend_health()
 
     @router.get("/engines", response_model=APIResponse, summary="Get Registered Engines")
@@ -1157,13 +1156,11 @@ def build_router(container: "AppContainer") -> APIRouter:
         return await controller.set_default_backend(backend_id)
 
     @router.get("/{backend_id}/health", response_model=APIResponse, summary="Get Backend Health")
-    async def get_backend_health(backend_id: str, current_user=Depends(get_current_active_user)):
-        """Get health status for a specific backend."""
+    async def get_backend_health(backend_id: str, current_user=Depends(get_current_admin_user)):
         return await controller.get_backend_health(backend_id)
 
     @router.get("/{backend_id}/system-info", response_model=APIResponse, summary="Get Backend System Info")
-    async def get_backend_system_info(backend_id: str, current_user=Depends(get_current_active_user)):
-        """Get system information for a specific backend."""
+    async def get_backend_system_info(backend_id: str, current_user=Depends(get_current_admin_user)):
         return await controller.get_backend_system_info(backend_id)
 
     @router.post("/{backend_id}/actions/clear-vram", response_model=APIResponse, summary="Clear Native Backend VRAM")

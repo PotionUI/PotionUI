@@ -11,6 +11,7 @@ from fastapi import APIRouter, WebSocket, Depends, Query
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user, authenticate_websocket_token
 from src.features.system_monitor import SystemMonitorCoordinator
+from src.features.system_monitor.backend_snapshots import collect_backend_snapshots
 from src.features.system_monitor.access import monitor_visible_to, require_monitor_access
 from src.platform.security.user import User
 from src.platform.runtime.gpu_profile import detect_gpu_profile
@@ -77,6 +78,18 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("/gpu-profile", summary="Get GPU Profile")
     async def get_gpu_profile(current_user=Depends(monitor_user)):
         return detect_gpu_profile().to_dict()
+
+    @router.get("/backends", response_model=APIResponse, summary="Get Per-Backend Hardware Snapshot")
+    async def get_backend_snapshots(current_user=Depends(get_current_admin_user)):
+        try:
+            host_stats = await container.system_monitor_coordinator.collect_system_stats()
+        except ValueError:
+            host_stats = {}
+        configs = container.backend_registry.backend_config_store.get_enabled_backends()
+        snapshots = await collect_backend_snapshots(
+            configs, container.backend_registry, container.generation_status_tracker, host_stats
+        )
+        return controller.success_response(data=snapshots)
 
     @router.get("/vram", summary="Get Total GPU Memory")
     async def get_total_vram(current_user=Depends(get_current_active_user)):

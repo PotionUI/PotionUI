@@ -301,13 +301,26 @@ class SystemMonitorCoordinator:
         Returns:
             Formatted GPU stats dictionary
         """
+        devices = snapshot.get("gpus") or []
+        if devices:
+            formatted = [self._format_gpu_device(device) for device in devices]
+            busiest = max(formatted, key=lambda device: device["vram_usage_percent"])
+            return {
+                "vram_used": busiest["vram_used"],
+                "vram_free": busiest["vram_free"],
+                "vram_total": busiest["vram_total"],
+                "vram_usage_percent": busiest["vram_usage_percent"],
+                "temperature": busiest["temperature"],
+                "available": True,
+                "devices": formatted,
+            }
+
         vram = snapshot.get("vram", {})
         gpu = snapshot.get("gpu", {})
 
         if not gpu.get("available", False):
             return {"available": False}
 
-        # Convert GB to MB for API compatibility
         return {
             "vram_used": int(vram.get("used_gb", 0) * 1024),
             "vram_free": int(vram.get("free_gb", 0) * 1024),
@@ -315,6 +328,19 @@ class SystemMonitorCoordinator:
             "vram_usage_percent": vram.get("usage_percent", 0),
             "temperature": gpu.get("temperature_c", 0),
             "available": True
+        }
+
+    @staticmethod
+    def _format_gpu_device(device: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "index": device.get("index", 0),
+            "name": device.get("name", ""),
+            "vram_used": int(device.get("vram_used_gb", 0) * 1024),
+            "vram_free": int(device.get("vram_free_gb", 0) * 1024),
+            "vram_total": int(device.get("vram_total_gb", 0) * 1024),
+            "vram_usage_percent": device.get("vram_usage_percent", 0),
+            "temperature": device.get("temperature_c", 0),
+            "utilization_percent": device.get("utilization_percent", 0),
         }
 
     def _format_ram_stats(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:

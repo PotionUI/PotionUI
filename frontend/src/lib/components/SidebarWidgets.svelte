@@ -4,6 +4,7 @@
 	import { logger } from '$lib/utils/logger';
 	import { onMount, onDestroy } from 'svelte';
 	import { getWsUrl } from '$lib/services/wsUrl';
+	import { authStore } from '$lib/stores/auth';
 
 	// Props
 	export let position: string;
@@ -59,6 +60,7 @@
 				context: {
 					apiBaseUrl: api.getBaseURL(),
 					token: api.getToken(),
+					isAdmin: $authStore.user?.account_type === 'ADMIN',
 					wsUrl: getWsUrl
 				}
 			});

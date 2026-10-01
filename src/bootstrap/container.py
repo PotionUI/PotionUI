@@ -219,6 +219,7 @@ if TYPE_CHECKING:
     from src.features.prompt_database.routes import PromptDatabaseController
     from src.features.stats.routes import StatsController
     from src.features.sessions.routes import SessionController
+    from src.features.formulas.routes import FormulaController
     from src.features.workspaces.routes import WorkspaceController
     from src.features.user_groups.routes import UserGroupController
 
@@ -446,6 +447,7 @@ class AppContainer:
     # (migration 092); see src/features/sessions/manager.py.
     session_version_repository: "SessionVersionRepository"
     session_controller: "SessionController"
+    formula_controller: "FormulaController"
 
     # Workspaces
     workspace_repository: "WorkspaceRepository"
@@ -1703,6 +1705,19 @@ def build_container() -> AppContainer:
         plugin_registry=plugin_registry,
         session_version_repository=session_version_repository,
         file_preset_repository=file_preset_repository,
+    )
+
+    from src.features.formulas.collaborators import FormulaCollaborators
+    from src.features.formulas.repository import FormulaRepository
+    from src.features.formulas.routes import FormulaController
+    from src.features.formulas.sources import ModelRepositoryRefChecker, PresetFormSource
+
+    formula_controller = FormulaController(
+        FormulaCollaborators(
+            repository=FormulaRepository(),
+            forms=PresetFormSource(preset_collaborators),
+            models=ModelRepositoryRefChecker(model_repository),
+        )
     )
 
     # Workspace components

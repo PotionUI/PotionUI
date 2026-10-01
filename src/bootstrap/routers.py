@@ -16,6 +16,7 @@ from src.features.setup.routes import build_router as build_setup_router
 from src.features.recipes.routes import build_router as build_recipes_router
 from src.features.users.routes import build_router as build_user_router
 from src.features.sessions.routes import build_router as build_session_router
+from src.features.formulas.routes import build_router as build_formula_router
 from src.features.workspaces.routes import build_router as build_workspace_router
 from src.features.presets.routes import build_router as build_preset_router
 from src.features.forms.routes import build_router as build_form_router
@@ -98,6 +99,7 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_recipes_router(container))  # /api/recipes (admin-only)
     app.include_router(build_user_router(container))  # User management routes
     app.include_router(build_session_router(container))  # Session management routes
+    app.include_router(build_formula_router(container))
     app.include_router(build_workspace_router(container))  # Workspace management routes
     app.include_router(build_preset_router(container))
     app.include_router(build_form_router(container))

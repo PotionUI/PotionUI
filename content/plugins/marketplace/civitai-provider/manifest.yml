@@ -4,7 +4,7 @@ version: "1.0.0"
 description: "Marketplace provider for CivitAI - fetch model metadata, preview images, and download links"
 author: "PotionUI Team"
 type: "full-stack"
-category: "models"
+category: "sources"
 
 capabilities:
   - "marketplace-provider"

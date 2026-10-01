@@ -24,19 +24,18 @@ function plugin(overrides: Partial<Plugin> & Pick<Plugin, 'id' | 'name'>): Plugi
 }
 
 const plugins: Plugin[] = [
-	plugin({ id: 'civitai-provider', name: 'CivitAI Provider', category: 'models', tags: ['marketplace'], enabled: true }),
-	plugin({ id: 'huggingface-provider', name: 'HuggingFace Provider', category: 'models', type: 'backend-only', enabled: false }),
-	plugin({ id: 'nvidia-rtx-upscale', name: 'NVIDIA RTX Upscale', category: 'generation', type: 'backend-only', enabled: true, state: 'error', error: 'Invalid manifest' }),
-	plugin({ id: 'system-monitor', name: 'System Monitor', category: 'system', type: 'frontend-only', enabled: false })
+	plugin({ id: 'civitai-provider', name: 'CivitAI Provider', category: 'sources', tags: ['marketplace'], enabled: true }),
+	plugin({ id: 'huggingface-provider', name: 'HuggingFace Provider', category: 'sources', type: 'backend-only', enabled: false }),
+	plugin({ id: 'nvidia-rtx-upscale', name: 'NVIDIA RTX Upscale', category: 'steps', type: 'backend-only', enabled: true, state: 'error', error: 'Invalid manifest' }),
+	plugin({ id: 'system-monitor', name: 'System Monitor', category: 'monitoring', type: 'frontend-only', enabled: false })
 ];
 
 describe('pluginFilters URL round-trip', () => {
 	it('round-trips every non-default value', () => {
-		const filters: PluginFilters = { q: 'civ', state: 'enabled', type: 'full-stack', sortBy: 'category' };
+		const filters: PluginFilters = { q: 'civ', state: 'enabled', sortBy: 'category' };
 		const params = pluginFiltersToSearchParams(filters);
 		expect(params.get('q')).toBe('civ');
 		expect(params.get('state')).toBe('enabled');
-		expect(params.get('type')).toBe('full-stack');
 		expect(params.get('sort_by')).toBe('category');
 		expect(pluginFiltersFromSearchParams(params)).toEqual(filters);
 	});
@@ -46,14 +45,14 @@ describe('pluginFilters URL round-trip', () => {
 	});
 
 	it('falls back to defaults for unknown values', () => {
-		const params = new URLSearchParams('state=bogus&type=nope&sort_by=whatever');
+		const params = new URLSearchParams('state=bogus&sort_by=whatever');
 		expect(pluginFiltersFromSearchParams(params)).toEqual(DEFAULT_PLUGIN_FILTERS);
 	});
 });
 
 describe('applyPluginFilters', () => {
 	it('filters by section (category)', () => {
-		const result = applyPluginFilters(plugins, 'models', DEFAULT_PLUGIN_FILTERS);
+		const result = applyPluginFilters(plugins, 'sources', DEFAULT_PLUGIN_FILTERS);
 		expect(result.map((p) => p.id)).toEqual(['civitai-provider', 'huggingface-provider']);
 	});
 
@@ -77,9 +76,16 @@ describe('applyPluginFilters', () => {
 		expect(result.map((p) => p.id)).toEqual(['nvidia-rtx-upscale']);
 	});
 
-	it('filters by type', () => {
-		const result = applyPluginFilters(plugins, 'all', { ...DEFAULT_PLUGIN_FILTERS, type: 'frontend-only' });
-		expect(result.map((p) => p.id)).toEqual(['system-monitor']);
+	it('ignores a leftover type value from an old link', () => {
+		const filters = pluginFiltersFromSearchParams(new URLSearchParams('type=frontend-only'));
+		expect(filters).toEqual(DEFAULT_PLUGIN_FILTERS);
+		expect(applyPluginFilters(plugins, 'all', filters)).toHaveLength(4);
+	});
+
+	it('puts a legacy category in the Other section', () => {
+		const legacy = [plugin({ id: 'old', name: 'Old', category: 'workflow' as never })];
+		expect(applyPluginFilters(legacy, 'other', DEFAULT_PLUGIN_FILTERS).map((p) => p.id)).toEqual(['old']);
+		expect(applyPluginFilters(legacy, 'tools', DEFAULT_PLUGIN_FILTERS)).toEqual([]);
 	});
 
 	it('sorts by name by default', () => {
@@ -104,20 +110,17 @@ describe('applyPluginFilters', () => {
 });
 
 describe('plugin filter chips', () => {
-	it('emits chips for state and type and clears them by key', () => {
-		const filters: PluginFilters = { ...DEFAULT_PLUGIN_FILTERS, state: 'enabled', type: 'backend-only' };
-		expect(pluginFilterChips(filters)).toEqual([
-			{ key: 'state', label: 'Enabled' },
-			{ key: 'type', label: 'Backend-only' }
-		]);
-		expect(pluginFilterActiveCount(filters)).toBe(2);
+	it('emits a chip for state and clears it by key', () => {
+		const filters: PluginFilters = { ...DEFAULT_PLUGIN_FILTERS, state: 'enabled' };
+		expect(pluginFilterChips(filters)).toEqual([{ key: 'state', label: 'Enabled' }]);
+		expect(pluginFilterActiveCount(filters)).toBe(1);
 		expect(clearPluginFilterChip(filters, 'state')).toEqual({ ...filters, state: '' });
 		expect(clearPluginFilterChip(filters, 'unknown')).toBe(filters);
 	});
 
 	it('clear all keeps the query and the sort', () => {
-		const filters: PluginFilters = { q: 'civ', state: 'enabled', type: 'backend-only', sortBy: 'category' };
-		expect(clearAllPluginFilters(filters)).toEqual({ q: 'civ', state: '', type: '', sortBy: 'category' });
+		const filters: PluginFilters = { q: 'civ', state: 'enabled', sortBy: 'category' };
+		expect(clearAllPluginFilters(filters)).toEqual({ q: 'civ', state: '', sortBy: 'category' });
 		expect(pluginFilterChips(DEFAULT_PLUGIN_FILTERS)).toEqual([]);
 		expect(pluginFilterActiveCount(DEFAULT_PLUGIN_FILTERS)).toBe(0);
 	});
@@ -127,11 +130,12 @@ describe('pluginCategoryCounts', () => {
 	it('seeds every known category with zero and counts the rest, plus "all"', () => {
 		const counts = pluginCategoryCounts(plugins);
 		expect(counts.all).toBe(4);
-		expect(counts.models).toBe(2);
-		expect(counts.generation).toBe(1);
-		expect(counts.system).toBe(1);
-		expect(counts.media).toBe(0);
-		expect(counts.workflow).toBe(0);
+		expect(counts.sources).toBe(2);
+		expect(counts.steps).toBe(1);
+		expect(counts.monitoring).toBe(1);
+		expect(counts.backends).toBe(0);
+		expect(counts.tools).toBe(0);
+		expect(counts.security).toBe(0);
 		expect(counts.developer).toBe(0);
 		expect(counts.other).toBe(0);
 	});

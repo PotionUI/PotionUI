@@ -2,6 +2,7 @@ import { logger, getErrorMessage } from '$lib/utils/logger';
 import { writable, derived, get } from 'svelte/store';
 import type { Writable } from 'svelte/store';
 import { api } from '$lib/services/api/index';
+import type { PluginCategoryId } from '$lib/plugins/categories';
 
 // Plugin page interface
 export interface PluginPage {
@@ -18,8 +19,9 @@ export interface PluginPage {
 // Types
 export interface PluginSettingSchema {
 	name: string;
-	type: 'string' | 'number' | 'boolean' | 'info';
+	type: 'string' | 'number' | 'boolean' | 'info' | 'select';
 	label: string;
+	options?: { value: string; label: string }[];
 	description?: string;
 	href?: string;
 	link_label?: string;
@@ -47,7 +49,7 @@ export interface Plugin {
 	/** Error message when `state` is "error" (e.g. invalid manifest) */
 	error?: string;
 	/** Catalogue category id, defaults to "other" when absent. */
-	category?: 'generation' | 'models' | 'system' | 'media' | 'workflow' | 'developer' | 'other';
+	category?: PluginCategoryId;
 	tags?: string[];
 	capabilities?: string[];
 	source?: 'marketplace' | 'local';

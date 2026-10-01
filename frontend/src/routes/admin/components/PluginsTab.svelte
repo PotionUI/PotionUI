@@ -5,7 +5,7 @@
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { pluginStore, plugins, frontendHooks, loading, error, pendingPluginIds, type Plugin, type PluginSettingSchema } from '$lib/stores/plugins';
 	import { authStore } from '$lib/stores/auth';
-	import { Button, Badge, Spinner, Input, EmptyState, LoadErrorState, Switch, Alert } from '$lib/components/ui';
+	import { Button, Badge, Spinner, Input, EmptyState, LoadErrorState, Switch, Alert, SegmentedControl } from '$lib/components/ui';
 	import {
 		DetailHeader,
 		DetailTabs,
@@ -25,7 +25,7 @@
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 	import { refreshPluginExtensions } from '$lib/plugin-api/extensionRefresh';
 	import { pluginDetailTabsFor, isPluginDetailTab, hasHiddenAdminTabs, ADMIN_PLUGIN_TABS_HOOK, type PluginDetailTabId } from './pluginDetailTabs';
-	import { resolveCategory } from '$lib/plugins/categories';
+	import { resolveCategory, pluginTypeLabel } from '$lib/plugins/categories';
 	import { PLUGIN_SECTIONS, pluginSectionFromSearchParams, type PluginSection } from './plugins/pluginSections';
 	import PluginFiltersPopover from './plugins/PluginFiltersPopover.svelte';
 	import PluginCard from './plugins/PluginCard.svelte';
@@ -86,7 +86,6 @@
 					...(liveSelected.shadows ? [{ key: 'shadows', label: 'SHADOWS MARKETPLACE COPY', tone: 'warning' as const }] : []),
 					...(liveSelected.state === 'error' ? [{ key: 'error', label: 'ERROR', tone: 'danger' as const }] : []),
 					{ key: 'version', label: `v${liveSelected.version}`, tone: 'neutral' as const },
-					{ key: 'type', label: liveSelected.type.toUpperCase(), tone: 'neutral' as const },
 					...(liveSelected.source ? [{ key: 'source', label: liveSelected.source.toUpperCase(), tone: 'neutral' as const }] : [])
 				]
 			: []
@@ -354,14 +353,6 @@
 											</div>
 										{/if}
 
-										{#if liveSelected.capabilities && liveSelected.capabilities.length > 0}
-											<div class="flex flex-wrap gap-1.5">
-												{#each liveSelected.capabilities as cap}
-													<Badge variant="info" size="sm">{cap}</Badge>
-												{/each}
-											</div>
-										{/if}
-
 										<KVGrid>
 											{#if liveSelected.author}
 												<KVItem label="Author">{liveSelected.author}</KVItem>
@@ -386,13 +377,29 @@
 										</KVGrid>
 									</div>
 								</DetailSection>
-							{/snippet}
 
-							{#if liveSelected.hooks && liveSelected.hooks.length > 0}
-								{#snippet hooksAside()}
-									<DetailSection label="Registered Hooks">
-										<div class="space-y-2">
-											{#each liveSelected.hooks as hook}
+								<DetailSection label="Technical details" collapsible open={false}>
+									<div class="space-y-4">
+										<KVGrid>
+											<KVItem label="Parts">{pluginTypeLabel(liveSelected.type)}</KVItem>
+										</KVGrid>
+
+										{#if liveSelected.capabilities && liveSelected.capabilities.length > 0}
+											<div class="space-y-1.5">
+												<span class="text-xs font-medium text-fg-muted">Capabilities</span>
+												<div class="flex flex-wrap gap-1.5">
+													{#each liveSelected.capabilities as cap}
+														<Badge variant="info" size="sm">{cap}</Badge>
+													{/each}
+												</div>
+											</div>
+										{/if}
+
+										{#if liveSelected.hooks && liveSelected.hooks.length > 0}
+											<div class="space-y-1.5">
+												<span class="text-xs font-medium text-fg-muted">Registered hooks</span>
+												<div class="space-y-2">
+													{#each liveSelected.hooks as hook}
 												<div class="p-3 {DETAIL_INSET_CLASS}">
 													<div class="flex items-center justify-between mb-1 gap-2">
 														<span class="font-medium text-sm text-fg truncate">{hook.hook_name}</span>
@@ -412,16 +419,15 @@
 												</div>
 											{/each}
 										</div>
-									</DetailSection>
-								{/snippet}
-								<DetailBody>
-									<DetailLayout main={overviewMain} aside={hooksAside} />
-								</DetailBody>
-							{:else}
-								<DetailBody>
-									<DetailLayout main={overviewMain} />
-								</DetailBody>
-							{/if}
+											</div>
+										{/if}
+									</div>
+								</DetailSection>
+							{/snippet}
+
+							<DetailBody>
+								<DetailLayout main={overviewMain} />
+							</DetailBody>
 						{:else if detailTab === 'settings'}
 							<DetailBody>
 								<DetailLayout>
@@ -473,6 +479,14 @@
 															onchange={(v) => (settingsValues[schema.name] = v)}
 															label={schema.label}
 															id={schema.name}
+														/>
+													{:else if schema.type === 'select'}
+														<SegmentedControl
+															variant="toggle"
+															ariaLabel={schema.label}
+															items={(schema.options ?? []).map((o) => ({ id: o.value, label: o.label }))}
+															selected={String(settingsValues[schema.name] ?? schema.default ?? '')}
+															onSelect={(v) => (settingsValues[schema.name] = v)}
 														/>
 													{:else}
 														<Input

@@ -63,8 +63,6 @@
 			<Tooltip text={plugin.error || 'Invalid manifest'}>
 				<Badge variant="danger" dot>Error</Badge>
 			</Tooltip>
-		{:else}
-			<Badge class="font-mono uppercase">{plugin.type}</Badge>
 		{/if}
 	{/snippet}
 </LibraryEntryCard>

@@ -4,7 +4,7 @@ version: "0.1.0"
 description: "Provisions a RunPod GPU Pod running the PotionUI Remote Native worker, through core's compute-provisioning API (Admin -> Remote Compute)."
 author: "PotionUI Team"
 type: "backend-only"
-category: "system"
+category: "backends"
 
 capabilities:
   - "compute-provisioning"

@@ -167,12 +167,8 @@ class TestPluginManifestSchema(unittest.TestCase):
         self.assertEqual(schema.category.value, "other")
 
     def test_category_accepts_valid_value(self):
-        schema = PluginManifestSchema.model_validate(self._minimal(category="generation"))
-        self.assertEqual(schema.category, PluginCategory.GENERATION)
-
-    def test_category_rejects_invalid_value(self):
-        with self.assertRaises(ValidationError):
-            PluginManifestSchema.model_validate(self._minimal(category="not-a-real-category"))
+        schema = PluginManifestSchema.model_validate(self._minimal(category="backends"))
+        self.assertEqual(schema.category, PluginCategory.BACKENDS)
 
     def test_pipes_and_pages_and_api(self):
         data = self._minimal(

@@ -367,7 +367,7 @@ name: "Acme"
 version: "1.0.0"
 description: "Generate images and video with Acme Studio"
 type: "backend-only"
-category: "generation"
+category: "backends"
 
 presets:
   - path: "presets"

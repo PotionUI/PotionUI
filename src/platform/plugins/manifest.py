@@ -10,27 +10,54 @@ Only one format is accepted for `hooks` and `dependencies` - there is no
 backward-compat fallback for legacy shapes.
 """
 
+import logging
 import re
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class PluginCategory(str, Enum):
-    """
-    Plugin catalogue grouping, used to organize the plugin list/marketplace UI.
-
-    Unknown or omitted `category:` values in a manifest default to `OTHER`.
-    """
-
-    GENERATION = "generation"
-    MODELS = "models"
-    SYSTEM = "system"
-    MEDIA = "media"
-    WORKFLOW = "workflow"
+    BACKENDS = "backends"
+    SOURCES = "sources"
+    STEPS = "steps"
+    TOOLS = "tools"
+    SECURITY = "security"
+    MONITORING = "monitoring"
     DEVELOPER = "developer"
     OTHER = "other"
+
+
+LEGACY_PLUGIN_CATEGORIES: Dict[str, PluginCategory] = {
+    "generation": PluginCategory.BACKENDS,
+    "models": PluginCategory.SOURCES,
+    "media": PluginCategory.TOOLS,
+    "workflow": PluginCategory.TOOLS,
+    "system": PluginCategory.OTHER,
+}
+
+
+def resolve_plugin_category(value: Any, plugin_id: str = "") -> PluginCategory:
+    if isinstance(value, PluginCategory):
+        return value
+    key = str(value).strip().lower() if value is not None else ""
+    if not key:
+        return PluginCategory.OTHER
+    try:
+        return PluginCategory(key)
+    except ValueError:
+        pass
+    mapped = LEGACY_PLUGIN_CATEGORIES.get(key, PluginCategory.OTHER)
+    logger.warning(
+        "Plugin %r declares unknown category %r; using %r",
+        plugin_id or "<unknown>",
+        value,
+        mapped.value,
+    )
+    return mapped
 
 
 class BackendHookSpec(BaseModel):
@@ -664,6 +691,11 @@ class PluginManifestSchema(BaseModel):
     repository: Optional[str] = None
     license: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _resolve_category(cls, value: Any, info: ValidationInfo) -> PluginCategory:
+        return resolve_plugin_category(value, str(info.data.get("id", "")))
 
     # Hooks / dependencies (canonical formats only)
     hooks: HooksSpec = Field(default_factory=HooksSpec)

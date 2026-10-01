@@ -4,7 +4,7 @@ version: "0.1.0"
 description: "Generate images and video with hosted models through OpenRouter. Adds an OpenRouter cloud backend, its model catalog and ready-made image (text to image, edit) and video (text to video, image to video) presets."
 author: "PotionUI Team"
 type: "backend-only"
-category: "generation"
+category: "backends"
 
 capabilities:
   - "backend-provider"

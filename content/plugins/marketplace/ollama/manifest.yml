@@ -4,7 +4,7 @@ version: "1.0.0"
 description: "Quick action to free VRAM held by a local Ollama daemon"
 author: "PotionUI Team"
 type: "backend-only"
-category: "system"
+category: "monitoring"
 
 capabilities:
   - "gpu-management"

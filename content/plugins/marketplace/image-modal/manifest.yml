@@ -4,7 +4,7 @@ version: "1.0.0"
 description: "View generated images in a full-screen modal with zoom and pan capabilities"
 author: "PotionUI Team"
 type: "frontend-only"
-category: "media"
+category: "tools"
 
 hooks:
   frontend:

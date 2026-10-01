@@ -4,7 +4,7 @@ version: "1.0.0"
 description: "Marketplace provider for HuggingFace Hub - resolve repo files to download URLs, search public models, and authenticate gated/private downloads"
 author: "PotionUI Team"
 type: "backend-only"
-category: "models"
+category: "sources"
 
 capabilities:
   - "marketplace-provider"

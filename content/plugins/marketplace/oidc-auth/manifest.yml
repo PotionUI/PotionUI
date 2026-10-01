@@ -4,7 +4,7 @@ version: "1.0.0"
 description: "Generic OpenID Connect login provider - Authentik, Keycloak, Zitadel, Auth0, Entra ID or any other OIDC issuer, through discovery."
 author: "PotionUI Team"
 type: "backend-only"
-category: "system"
+category: "security"
 
 capabilities:
   - "login-provider"

@@ -4,7 +4,7 @@ version: "1.0.0"
 description: "Export generations as PNGs carrying A1111/Forge-style parameters metadata, readable by A1111, Forge, CivitAI and PNG-info tools"
 author: "PotionUI Team"
 type: "full-stack"
-category: "media"
+category: "tools"
 license: "MIT"
 
 capabilities:

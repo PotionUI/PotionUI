@@ -4,17 +4,15 @@ import { pluginCategories, resolveCategory } from '$lib/plugins/categories';
 import type { Plugin } from '$lib/stores/plugins';
 
 export type PluginStateFilter = '' | 'enabled' | 'disabled' | 'error';
-export type PluginTypeFilter = '' | 'full-stack' | 'backend-only' | 'frontend-only';
 export type PluginSortBy = 'name' | 'category' | 'state';
 
 export interface PluginFilters {
 	q: string;
 	state: PluginStateFilter;
-	type: PluginTypeFilter;
 	sortBy: PluginSortBy;
 }
 
-export const DEFAULT_PLUGIN_FILTERS: PluginFilters = { q: '', state: '', type: '', sortBy: 'name' };
+export const DEFAULT_PLUGIN_FILTERS: PluginFilters = { q: '', state: '', sortBy: 'name' };
 
 export const PLUGIN_SORT_OPTIONS: ReadonlyArray<SortOption<PluginSortBy>> = [
 	{ value: 'name', label: 'Name' },
@@ -29,13 +27,6 @@ export const PLUGIN_STATE_OPTIONS: ReadonlyArray<{ value: PluginStateFilter; lab
 	{ value: 'error', label: 'Errored' }
 ];
 
-export const PLUGIN_TYPE_OPTIONS: ReadonlyArray<{ value: PluginTypeFilter; label: string }> = [
-	{ value: '', label: 'All types' },
-	{ value: 'full-stack', label: 'Full-stack' },
-	{ value: 'backend-only', label: 'Backend-only' },
-	{ value: 'frontend-only', label: 'Frontend-only' }
-];
-
 const FIELDS: readonly FilterFieldDescriptor<PluginFilters>[] = [
 	{
 		kind: 'enum',
@@ -45,15 +36,6 @@ const FIELDS: readonly FilterFieldDescriptor<PluginFilters>[] = [
 		values: ['enabled', 'disabled', 'error'],
 		default: '',
 		chipLabel: (value) => PLUGIN_STATE_OPTIONS.find((option) => option.value === value)?.label ?? value
-	},
-	{
-		kind: 'enum',
-		key: 'type',
-		param: 'type',
-		label: 'Type',
-		values: ['full-stack', 'backend-only', 'frontend-only'],
-		default: '',
-		chipLabel: (value) => PLUGIN_TYPE_OPTIONS.find((option) => option.value === value)?.label ?? value
 	}
 ];
 
@@ -111,7 +93,6 @@ export function applyPluginFilters(plugins: readonly Plugin[], section: string, 
 		if (filters.state === 'enabled' && !(plugin.enabled && plugin.state !== 'error')) return false;
 		if (filters.state === 'disabled' && (plugin.enabled || plugin.state === 'error')) return false;
 		if (filters.state === 'error' && plugin.state !== 'error') return false;
-		if (filters.type && plugin.type !== filters.type) return false;
 		return matchesSearch(plugin, query);
 	});
 	if (filters.sortBy === 'category') {

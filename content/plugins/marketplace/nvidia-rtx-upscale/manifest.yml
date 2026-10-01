@@ -4,7 +4,7 @@ version: "0.1.0"
 description: "NVIDIA RTX Video Super Resolution (nvidia-vfx) as a native pipe: per-frame RTX Tensor Core upscaling, denoise and deblur for images and video. No diffusion checkpoint, no prompt -- a Tensor Core effect, not a generative model. Needs an NVIDIA RTX GPU (Turing or newer), a Linux driver >= 570.190, and the nvidia-vfx pip package -- the pipe names the exact install command when it isn't there."
 author: "PotionUI Team"
 type: "backend-only"
-category: "generation"
+category: "steps"
 license: "MIT"
 homepage: "https://developer.nvidia.com/maxine/nvidia-vfx"
 tags: ["upscale", "video-super-resolution", "denoise", "deblur", "rtx", "nvidia", "video", "image", "local"]

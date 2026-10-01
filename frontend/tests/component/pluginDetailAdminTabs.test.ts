@@ -54,7 +54,7 @@ const PLUGIN_LIST_ENTRY = {
 	enabled: true,
 	manifest_path: '/plugins/comfyui-backend/manifest.yml',
 	description: 'ComfyUI backend integration',
-	category: 'workflow',
+	category: 'tools',
 	tags: [],
 	capabilities: [],
 	source: 'marketplace'

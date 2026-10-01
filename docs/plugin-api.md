@@ -232,7 +232,47 @@ handler there must check `plugin_id` before assuming the event is about itself.
 
 A handler that raises is logged and skipped: one plugin's failing `boot` cannot abort
 startup, block another plugin's `boot`, or fail the enable that triggered it. None of the
-three can block the transition they report.
+hooks can block the transition they report.
+
+`ready` is for work that needs the running application rather than just the process:
+reconciling the plugin's own records against generation state after a restart, or starting
+a background coroutine. Like `boot` it is dispatched only to the plugin's own handler. Handlers
+are synchronous; `src.plugin_api.hooks.run_on_app_loop(coro)` schedules a coroutine on the
+application's event loop from any thread and returns a `concurrent.futures.Future`
+(`get_app_loop()` returns the loop itself). Both raise `RuntimeError` before the application has
+started, and `ready` is the first point at which they work. Do not block a `ready` handler on that
+future: the handler runs on the loop it is waiting for.
+
+```python
+from src.plugin_api.hooks import run_on_app_loop
+
+def on_ready(context):
+    run_on_app_loop(reconcile_my_records())
+    return context
+```
+
+## Choosing a plugin category
+
+`category:` in `manifest.yml` decides which group the plugin appears under in Admin → Plugins.
+It describes what the plugin adds, not how it is built.
+
+| Value | Label | What belongs here |
+|---|---|---|
+| `backends` | Backends & compute | Engines, cloud providers and compute hosts that run generations |
+| `sources` | Model sources | Marketplaces and hubs models are browsed and downloaded from |
+| `steps` | Generation steps | Pipes and processing steps that run inside a generation |
+| `tools` | Tools & pages | Editors, exporters, viewers and importers the user works with |
+| `security` | Sign-in & security | Login providers and access control |
+| `monitoring` | Monitoring | Resource monitors and cleanup helpers |
+| `developer` | Developer | Examples and reference extensions |
+| `other` | Other | Anything that fits none of the above (the default) |
+
+The old values `generation`, `models`, `media`, `workflow` and `system` still load: they map to
+`backends`, `sources`, `tools`, `tools` and `other`. Any unknown value loads as `other`. Both
+cases log a warning that names the plugin.
+
+The plugin `type`, its `capabilities` and its registered hooks are not shown on plugin cards; they
+sit in a collapsed "Technical details" section on the plugin's page.
 
 ## Settings form
 

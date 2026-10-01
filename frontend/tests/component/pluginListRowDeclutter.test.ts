@@ -37,7 +37,7 @@ const SHORT_PLUGIN = {
 	enabled: true,
 	manifest_path: '/plugins/short-plugin/manifest.yml',
 	description: 'A brief description.',
-	category: 'workflow',
+	category: 'tools',
 	tags: ['alpha'],
 	capabilities: ['does-a-thing'],
 	source: 'marketplace',
@@ -54,7 +54,7 @@ const LONG_PLUGIN = {
 	manifest_path: '/plugins/local/long-plugin/manifest.yml',
 	description:
 		'This description is deliberately long so that it would wrap onto more than one line once rendered inside the narrow list pane, which is exactly the case the expand chevron needs to catch.',
-	category: 'workflow',
+	category: 'tools',
 	tags: [],
 	capabilities: ['streams-video', 'transcodes-audio'],
 	source: 'local',

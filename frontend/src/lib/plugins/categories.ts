@@ -3,11 +3,12 @@
 // plugin catalogue (see admin/components/PluginsTab.svelte).
 
 export type PluginCategoryId =
-	| 'generation'
-	| 'models'
-	| 'system'
-	| 'media'
-	| 'workflow'
+	| 'backends'
+	| 'sources'
+	| 'steps'
+	| 'tools'
+	| 'security'
+	| 'monitoring'
 	| 'developer'
 	| 'other';
 
@@ -21,45 +22,51 @@ export interface PluginCategoryMeta {
 
 export const pluginCategories: PluginCategoryMeta[] = [
 	{
-		id: 'generation',
-		label: 'Generation & Backends',
-		description: 'Engines and remote services that produce images and video',
+		id: 'backends',
+		label: 'Backends & compute',
+		description: 'Engines, cloud providers and compute hosts that run generations',
 		icon: 'bolt'
 	},
 	{
-		id: 'models',
-		label: 'Models & Assets',
-		description: 'Downloading, browsing, and organising models and datasets',
+		id: 'sources',
+		label: 'Model sources',
+		description: 'Marketplaces and hubs to browse and download models from',
 		icon: 'model'
 	},
 	{
-		id: 'system',
-		label: 'System & Performance',
-		description: 'GPU memory, monitoring, and resource management',
-		icon: 'sliders'
-	},
-	{
-		id: 'media',
-		label: 'Media & Editing',
-		description: 'Viewing and editing generated media',
-		icon: 'image'
-	},
-	{
-		id: 'workflow',
-		label: 'Workflow & Authoring',
-		description: 'Building presets, forms, and pipelines',
+		id: 'steps',
+		label: 'Generation steps',
+		description: 'Processing steps that run inside a generation',
 		icon: 'layers'
 	},
 	{
+		id: 'tools',
+		label: 'Tools & pages',
+		description: 'Editors, exporters and viewers you work with',
+		icon: 'image'
+	},
+	{
+		id: 'security',
+		label: 'Sign-in & security',
+		description: 'Login providers and access control',
+		icon: 'shield'
+	},
+	{
+		id: 'monitoring',
+		label: 'Monitoring',
+		description: 'Resource monitors and cleanup helpers',
+		icon: 'sliders'
+	},
+	{
 		id: 'developer',
-		label: 'Developer & Examples',
+		label: 'Developer',
 		description: 'Reference implementations and extension examples',
 		icon: 'code'
 	},
 	{
 		id: 'other',
 		label: 'Other',
-		description: 'Uncategorised plugins',
+		description: 'Plugins that fit no other group',
 		icon: 'folder'
 	}
 ];
@@ -70,4 +77,15 @@ const otherCategory = pluginCategories[pluginCategories.length - 1];
 export function resolveCategory(id: string | undefined | null): PluginCategoryMeta {
 	if (!id) return otherCategory;
 	return pluginCategories.find((c) => c.id === id) ?? otherCategory;
+}
+
+const pluginTypeLabels: Record<string, string> = {
+	'full-stack': 'Server and interface parts',
+	'backend-only': 'Server part only',
+	'frontend-only': 'Interface part only'
+};
+
+export function pluginTypeLabel(type: string | undefined | null): string {
+	if (!type) return 'Unknown';
+	return pluginTypeLabels[type] ?? type;
 }

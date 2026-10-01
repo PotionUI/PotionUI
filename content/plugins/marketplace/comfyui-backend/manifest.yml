@@ -4,7 +4,7 @@ version: "1.0.0"
 description: "Backend for connecting to ComfyUI servers for remote generation"
 author: "PotionUI Team"
 type: "full-stack"
-category: "generation"
+category: "backends"
 
 capabilities:
   - "backend-provider"

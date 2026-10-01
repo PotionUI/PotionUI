@@ -4,9 +4,9 @@
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
 	import type { PromptTabData, DirectorRunState, Tab } from '$lib/types/tabs';
 	import { authStore } from '$lib/stores/auth';
-	import { api, type GenerationRequest, type PromptPair, type PresetStyle } from '$lib/services/api';
+	import { api, type GenerationRequest, type PresetStyle } from '$lib/services/api';
 	import type { GenerationQueueSnapshot } from '$lib/types/api';
-	import { buildSegmentsPayload, buildVariablesPayload } from '$lib/utils/generationOrchestrator';
+	import { buildVariablesPayload } from '$lib/utils/generationOrchestrator';
 	import { findUndefinedVariableUsages } from '$lib/utils/promptVariables';
 	import { buildSessionRestoreTabPatch } from '$lib/utils/sessionRestore';
 	import {
@@ -44,7 +44,8 @@
 	import { isMobile, viewportWidth } from '$lib/stores/viewport';
 	import { settingsPaneWidth } from '$lib/stores/generationLayout';
 	import { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText } from '$lib/utils/videoDirector';
-	import { assembleDirectorRequest } from '$lib/generation/requestAssembly';
+	import { buildGenerationRequest, prepareRequest } from '$lib/generation/prepareRequest';
+	import { createRequestContextCache, resolveRequestContext } from '$lib/generation/requestContext';
 	import {
 		directorShotInputIdentity,
 		directorPredecessorShotId,
@@ -57,10 +58,8 @@
 	import { peekGenerationOutputs, setGenerationUnsubscribeHandler } from '$lib/generation/messages/generationOutputs';
 	import type { VideoDirectorWireDoc, VideoDirectorValue } from '$lib/types/videoDirector';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
-	import { resolveMusicDirectorCapabilities, normalizeMusicDirectorValue, validateMusicDirector, buildMusicDirectorSubmission } from '$lib/utils/musicDirector';
-	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
+	import { normalizeMusicDirectorValue, validateMusicDirector, buildMusicDirectorSubmission } from '$lib/utils/musicDirector';
 	import { resolveVariant } from '$lib/utils/variants';
-	import { isPromptlessMode } from '$lib/utils/promptlessMode';
 	import { resolvePresetSegmentTemplates } from '$lib/utils/presetSegmentTemplates';
 	import { toasts } from '$lib/stores/toast';
 	import { buildActiveTabReuseUpdate } from '$lib/utils/historyReuse';
@@ -234,29 +233,14 @@
 		const positive = resolvedDoc.segments[0]?.prompt ?? '';
 		const negative = resolvedDoc.segments[0]?.negative_prompt ?? '';
 		const variablesResult = buildVariablesPayload(tab);
-		const request: GenerationRequest = {
-			preset_id: tab.selectedPreset!,
+		const request: GenerationRequest = buildGenerationRequest(tab, {
+			tabId: tab.id,
 			prompts: [{ positive, negative }],
-			mode: tab.selectedMode ?? undefined,
-			form_name: tab.selectedVariant ?? undefined,
-			form_data: { ...tab.formData, video_director: resolvedDoc },
-			tag_ids: tab.autoTagIds?.length ? tab.autoTagIds : undefined,
-			collection_ids: tab.autoCollectionIds?.length ? tab.autoCollectionIds : undefined,
+			formData: { ...tab.formData, video_director: resolvedDoc },
 			variables: variablesResult.variables,
-			tab_id: tab.id,
-			source_prompt_id: tab.sourcePromptId ?? undefined,
-			prompt_state: {
-				prompt: tab.prompt,
-				negativePrompt: tab.negativePrompt,
-				promptSegments: tab.promptSegments,
-				negativePromptSegments: tab.negativePromptSegments,
-				promptTabs: tab.promptTabs,
-				activePromptTab: tab.activePromptTab,
-				promptRelay: tab.promptRelay,
-				videoDirector: tab.videoDirector
-			},
-			segments: buildSegmentsPayload(tab, presetVars[tab.selectedPreset!]?.num_prompts || 1)
-		};
+			numPrompts: resolveRequestContext(presetVars[tab.selectedPreset!], tab.selectedMode).numPrompts,
+			promptStateVariables: false
+		});
 
 		const undefinedVariables = findUndefinedVariableUsages(
 			resolvedDoc.segments.flatMap((s) => [s.prompt, s.negative_prompt]),
@@ -591,7 +575,13 @@
 	$: isGenerating = generation.isGenerating;
 
 	// Get num_prompts for current preset (default 1)
-	$: numPrompts = presetVars[currentTab.selectedPreset || '']?.num_prompts || 1;
+	const requestContextFor = createRequestContextCache();
+	$: requestContext = requestContextFor(
+		currentTab.selectedPreset || '',
+		presetVars[currentTab.selectedPreset || ''],
+		currentTab.selectedMode
+	);
+	$: numPrompts = requestContext.numPrompts;
 	$: currentPresetVars = presetVars[currentTab.selectedPreset || ''] || {};
 	// Preset-declared Segment Templates for the tab's selected mode — merged into
 	// the segment editors' apply picker beside the user's own library.
@@ -623,9 +613,7 @@
 
 	// Prompt Relay: modes (per current preset) whose prompt section uses the
 	// timeline-based Prompt Relay editor instead of the standard prompt editors.
-	$: promptRelayModes = presetVars[currentTab.selectedPreset || '']?.prompt_relay_modes || [];
-	$: promptRelayActive =
-		!!currentTab.selectedMode && promptRelayModes.includes(currentTab.selectedMode);
+	$: promptRelayActive = requestContext.promptRelayActive;
 
 	// Video Director: modes (per current preset) whose prompt section uses the
 	// structured multi-mode video composition editor instead of the standard
@@ -646,39 +634,13 @@
 	// and raw JSON: switching preset modes on the same preset (e.g. H3's
 	// "video" <-> "refs") changes the resolved result even though neither of
 	// the other two key parts changed.
-	let videoDirectorCapsCache: { key: string; caps: DirectorCapabilities | null } | null = null;
-	$: videoDirectorCapsRaw = presetVars[currentTab.selectedPreset || '']?.video_director;
-	$: videoDirectorCapsKey = `${currentTab.selectedPreset || ''}:${currentTab.selectedMode || ''}:${JSON.stringify(videoDirectorCapsRaw ?? null)}`;
-	$: videoDirectorCaps = (() => {
-		if (videoDirectorCapsCache && videoDirectorCapsCache.key === videoDirectorCapsKey) {
-			return videoDirectorCapsCache.caps;
-		}
-		const caps = resolveDirectorCapabilities(videoDirectorCapsRaw, currentTab.selectedMode);
-		videoDirectorCapsCache = { key: videoDirectorCapsKey, caps };
-		return caps;
-	})();
-	$: videoDirectorActive =
-		!!videoDirectorCaps &&
-		!!currentTab.selectedMode &&
-		(videoDirectorCaps.presetModes === null || videoDirectorCaps.presetModes.includes(currentTab.selectedMode));
+	$: videoDirectorCaps = requestContext.videoDirectorCaps;
+	$: videoDirectorActive = requestContext.videoDirectorActive;
 
 	// Music Director: same shape/memoization reasoning as videoDirectorCaps
 	// above -- a preset opts in via `vars.music_director` (docs/music-director.md).
-	let musicDirectorCapsCache: { key: string; caps: MusicDirectorCapabilities | null } | null = null;
-	$: musicDirectorCapsRaw = presetVars[currentTab.selectedPreset || '']?.music_director;
-	$: musicDirectorCapsKey = `${currentTab.selectedPreset || ''}:${currentTab.selectedMode || ''}:${JSON.stringify(musicDirectorCapsRaw ?? null)}`;
-	$: musicDirectorCaps = (() => {
-		if (musicDirectorCapsCache && musicDirectorCapsCache.key === musicDirectorCapsKey) {
-			return musicDirectorCapsCache.caps;
-		}
-		const caps = resolveMusicDirectorCapabilities(musicDirectorCapsRaw, currentTab.selectedMode);
-		musicDirectorCapsCache = { key: musicDirectorCapsKey, caps };
-		return caps;
-	})();
-	$: musicDirectorActive =
-		!!musicDirectorCaps &&
-		!!currentTab.selectedMode &&
-		(musicDirectorCaps.presetModes === null || musicDirectorCaps.presetModes.includes(currentTab.selectedMode));
+	$: musicDirectorCaps = requestContext.musicDirectorCaps;
+	$: musicDirectorActive = requestContext.musicDirectorActive;
 
 	// A mode that only just gained
 	// Director (H3's `refs` did, alongside `video`) leaves whatever text a tab
@@ -702,7 +664,7 @@
 	// Promptless: modes (per current preset) that need no prompt at all (upscale,
 	// slow-motion, LTX utility passes). The prompt pane is hidden and Generate no
 	// longer requires prompt text. See docs/presets.md `promptless_modes`.
-	$: promptlessActive = isPromptlessMode(currentPresetVars, currentTab.selectedMode);
+	$: promptlessActive = requestContext.promptlessActive;
 
 	// Load preset vars when preset changes
 	$: if (currentTab.selectedPreset && mounted) {
@@ -1108,7 +1070,7 @@
 	// The preset-declared separator between enabled prompt segments
 	// (`vars.prompt.segment_join` in preset.yml — `paragraph` for song-section-style
 	function segmentJoinForPreset(presetId: string | null | undefined): SegmentJoin {
-		return presetVars[presetId || '']?.prompt?.segment_join === 'paragraph' ? 'paragraph' : 'space';
+		return resolveRequestContext(presetVars[presetId || ''], null).segmentJoin;
 	}
 
 	// "Reuse in this tab" from the last-generations drawer — applies a past
@@ -1253,252 +1215,42 @@
 
 	async function startGeneration() {
 		unlockGenerationSoundContext();
-
-		// Shuffle chips with shuffle mode enabled BEFORE collecting data
-		let shuffledPromptSegments = [...(currentTab.promptSegments || [])];
-		let shuffledNegativePromptSegments = [...(currentTab.negativePromptSegments || [])];
-		let hasShuffledChips = false;
-
-		// Helper function to shuffle a chip's value
-		function shuffleChip(chip: any): any {
-			if (!chip.shuffle || !chip.allValues || chip.allValues.length <= 1) {
-				return chip;
-			}
-
-			// Pick a random value different from current
-			const availableValues = chip.allValues.filter((v: any) => v.id !== chip.valueId);
-			if (availableValues.length === 0) {
-				return chip;
-			}
-
-			const randomValue = availableValues[Math.floor(Math.random() * availableValues.length)];
-			return {
-				...chip,
-				valueId: randomValue.id,
-				label: randomValue.label,
-				value: randomValue.value
-			};
-		}
-
-		// Process positive prompt segments
-		for (let i = 0; i < shuffledPromptSegments.length; i++) {
-			const segment = shuffledPromptSegments[i];
-			if (segment.chips && Object.keys(segment.chips).length > 0) {
-				const updatedChips: Record<string, any> = {};
-				let segmentUpdated = false;
-
-				for (const [chipId, chipData] of Object.entries(segment.chips)) {
-					const shuffled = shuffleChip(chipData);
-					updatedChips[chipId] = shuffled;
-					if (shuffled !== chipData) {
-						segmentUpdated = true;
-						hasShuffledChips = true;
-					}
-				}
-
-				if (segmentUpdated) {
-					shuffledPromptSegments[i] = {
-						...segment,
-						chips: updatedChips
-					};
-				}
-			}
-		}
-
-		// Process negative prompt segments
-		for (let i = 0; i < shuffledNegativePromptSegments.length; i++) {
-			const segment = shuffledNegativePromptSegments[i];
-			if (segment.chips && Object.keys(segment.chips).length > 0) {
-				const updatedChips: Record<string, any> = {};
-				let segmentUpdated = false;
-
-				for (const [chipId, chipData] of Object.entries(segment.chips)) {
-					const shuffled = shuffleChip(chipData);
-					updatedChips[chipId] = shuffled;
-					if (shuffled !== chipData) {
-						segmentUpdated = true;
-						hasShuffledChips = true;
-					}
-				}
-
-				if (segmentUpdated) {
-					shuffledNegativePromptSegments[i] = {
-						...segment,
-						chips: updatedChips
-					};
-				}
-			}
-		}
-
-		// Build prompts array based on mode (single vs multi-prompt vs prompt-relay)
-		let promptsArray: PromptPair[];
-		const currentNumPrompts = presetVars[currentTab.selectedPreset || '']?.num_prompts || 1;
-		const currentSegmentJoin = segmentJoinForPreset(currentTab.selectedPreset);
-
-		// form_data sent to the backend; prompt-relay mode injects its timeline + global prompt
-		let formDataForRequest: Record<string, unknown> = currentTab.formData;
-
-		// "One clip = one generation" still holds (PLAN.md §B): a chain doc,
-		// or a single-shot timeline/t2v/i2v/flf doc, is exactly one wire doc,
-		// but a multi-shot LTX film is N -- `directorRemainingShotIds` carries
-		// the shot ids of the follow-up submissions after the primary one
-		// below, submitted through `submitDirectorTimelinePlan` (the SAME
-		// dependency-aware handoff `submitVideoDirectorShots` uses) rather
-		// than pre-built here: a later shot's wire doc can only be built once
-		// its own predecessor's resolved output is known, which isn't true
-		// yet at this point in the function for anything but the primary.
-		let primaryDirectorShotIds: string[] = [];
-		let directorRemainingShotIds: string[] = [];
-		let directorValueForRuns: VideoDirectorValue | null = null;
-
-		if (videoDirectorActive && videoDirectorCaps) {
-			// The console's own transient row-checkbox selection (ShotConsole,
-			// mirrored up via onCheckedChange) -- empty means "the whole film",
-			// same as before the console had checkboxes at all.
-			const directorChecked = directorCheckedByTab[activeTabId] ?? new Set<string>();
-			// Shared with the memory-preview feed (requestAssembly.ts) so the
-			// estimate's active loader set matches what this submission
-			// actually builds -- see that module's doc comment.
-			const assembled = assembleDirectorRequest({
-				formData: currentTab.formData,
-				videoDirectorActive,
-				videoDirectorCaps,
-				videoDirectorValue: currentTab.videoDirector,
-				directorRuns: currentTab.directorRuns,
-				directorChecked,
-				predecessorOutputs: snapshotDirectorGenerationOutputs(currentTab.directorRuns),
-				musicDirectorActive: false,
-				musicDirectorCaps: null,
-				musicDirectorValue: null
-			});
-			if (assembled.kind === 'video' && !assembled.ok) {
-				toasts.error(assembled.reason);
-				return;
-			}
-			if (assembled.kind !== 'video' || !assembled.ok) {
-				// Unreachable given the `videoDirectorActive && videoDirectorCaps`
-				// guard above -- narrows the type for the assignments below.
-				return;
-			}
-			formDataForRequest = assembled.formData;
-			promptsArray = assembled.prompts;
-			primaryDirectorShotIds = assembled.primaryShotIds;
-			directorRemainingShotIds = assembled.remainingShotIds;
-			directorValueForRuns = assembled.directorValue;
-		} else if (musicDirectorActive && musicDirectorCaps) {
-			const assembled = assembleDirectorRequest({
-				formData: currentTab.formData,
-				videoDirectorActive: false,
-				videoDirectorCaps: null,
-				videoDirectorValue: null,
-				directorRuns: null,
-				directorChecked: new Set(),
-				predecessorOutputs: null,
-				musicDirectorActive,
-				musicDirectorCaps,
-				musicDirectorValue: currentTab.musicDirector
-			});
-			if (assembled.kind !== 'music') return; // unreachable given the guard above
-			formDataForRequest = assembled.formData;
-			promptsArray = assembled.prompts;
-		} else if (promptRelayActive) {
-			// Prompt Relay mode: prompts + duration live on the timeline editor (tab.promptRelay).
-			// The pipeline reads them from form_data via get_form('custom', ['timeline'|'global_prompt']).
-			const relay = currentTab.promptRelay;
-			const segments = (relay?.timeline?.segments || [])
-				.slice()
-				.sort((a, b) => a.start - b.start);
-			const globalPrompt = (relay?.global_prompt || '').trim();
-			const joinedSegments = segments.map((s) => (s.text || '').trim()).filter(Boolean).join(' | ');
-
-			formDataForRequest = {
-				...currentTab.formData,
-				global_prompt: globalPrompt,
-				timeline: relay?.timeline ?? { duration: 5, fps: 24, segments: [] }
-			};
-
-			// A representative positive prompt so the standard validation/record path is satisfied.
-			promptsArray = [{ positive: [globalPrompt, joinedSegments].filter(Boolean).join(' | '), negative: '' }];
-		} else if (currentNumPrompts > 1 && currentTab.promptTabs && currentTab.promptTabs.length > 0) {
-			// Multi-prompt mode: build array from all prompt tabs
-			promptsArray = currentTab.promptTabs.slice(0, currentNumPrompts).map((promptTab) => {
-				// Apply chip shuffling to each prompt tab
-				let tabPromptSegments = [...(promptTab.promptSegments || [])];
-				let tabNegativeSegments = [...(promptTab.negativePromptSegments || [])];
-
-				// Process positive segments for this tab
-				for (let i = 0; i < tabPromptSegments.length; i++) {
-					const segment = tabPromptSegments[i];
-					if (segment.chips && Object.keys(segment.chips).length > 0) {
-						const updatedChips: Record<string, any> = {};
-						let segmentUpdated = false;
-
-						for (const [chipId, chipData] of Object.entries(segment.chips)) {
-							const shuffled = shuffleChip(chipData);
-							updatedChips[chipId] = shuffled;
-							if (shuffled !== chipData) {
-								segmentUpdated = true;
-							}
+		const prepared = prepareRequest({
+			tab: currentTab,
+			tabId: activeTabId,
+			numPrompts: requestContext.numPrompts,
+			segmentJoin: segmentJoinForPreset(currentTab.selectedPreset),
+			promptRelayActive,
+			promptlessActive,
+			videoDirector:
+				videoDirectorActive && videoDirectorCaps
+					? {
+							caps: videoDirectorCaps,
+							checked: directorCheckedByTab[activeTabId] ?? new Set<string>(),
+							predecessorOutputs: snapshotDirectorGenerationOutputs(currentTab.directorRuns)
 						}
-
-						if (segmentUpdated) {
-							tabPromptSegments[i] = { ...segment, chips: updatedChips };
-						}
-					}
-				}
-
-				// Process negative segments for this tab
-				for (let i = 0; i < tabNegativeSegments.length; i++) {
-					const segment = tabNegativeSegments[i];
-					if (segment.chips && Object.keys(segment.chips).length > 0) {
-						const updatedChips: Record<string, any> = {};
-						let segmentUpdated = false;
-
-						for (const [chipId, chipData] of Object.entries(segment.chips)) {
-							const shuffled = shuffleChip(chipData);
-							updatedChips[chipId] = shuffled;
-							if (shuffled !== chipData) {
-								segmentUpdated = true;
-							}
-						}
-
-						if (segmentUpdated) {
-							tabNegativeSegments[i] = { ...segment, chips: updatedChips };
-						}
-					}
-				}
-
-				return {
-					positive: tabPromptSegments.length > 0
-						? resolvePromptSegments(tabPromptSegments, currentSegmentJoin)
-						: promptTab.prompt || '',
-					negative: tabNegativeSegments.length > 0
-						? resolvePromptSegments(tabNegativeSegments, currentSegmentJoin)
-						: promptTab.negativePrompt || ''
-				};
-			});
-		} else {
-			// Single prompt mode (legacy): use shuffled segments
-			const mergedPrompt = shuffledPromptSegments.length > 0
-				? resolvePromptSegments(shuffledPromptSegments, currentSegmentJoin)
-				: currentTab.prompt;
-
-			const mergedNegativePrompt = shuffledNegativePromptSegments.length > 0
-				? resolvePromptSegments(shuffledNegativePromptSegments, currentSegmentJoin)
-				: currentTab.negativePrompt;
-
-			promptsArray = [{
-				positive: mergedPrompt.trim(),
-				negative: mergedNegativePrompt.trim()
-			}];
-		}
-
-		// Validate at least one prompt has content (promptless modes skip this —
-		// upscale/slow-motion/etc. legitimately submit an empty prompt).
-		const hasValidPrompt = promptsArray.some(p => p.positive.trim().length > 0);
-		if (!currentTab.selectedPreset || (!hasValidPrompt && !promptlessActive)) {
+					: null,
+			musicDirector: musicDirectorActive && musicDirectorCaps ? { caps: musicDirectorCaps } : null
+		});
+		if (!prepared.ok) {
+			if (prepared.reason) toasts.error(prepared.reason);
 			return;
 		}
+		const {
+			request,
+			variableRolls,
+			submittedPromptTemplate,
+			shuffled: {
+				changed: hasShuffledChips,
+				promptSegments: shuffledPromptSegments,
+				negativePromptSegments: shuffledNegativePromptSegments
+			},
+			director: {
+				primaryShotIds: primaryDirectorShotIds,
+				remainingShotIds: directorRemainingShotIds,
+				value: directorValueForRuns
+			}
+		} = prepared;
 
 		// No single-in-flight guard: the backend now queues generations, so any
 		// tab can enqueue at any time (including a second generation from the
@@ -1530,50 +1282,10 @@
 					workbenchIndex: 0,
 					workbenchTotal: 0,
 					queue: currentTab.generation.queue || [],
-					// Only `promptsArray[0]` is ever treated as a template by the
-					// backend expander (prompt_expansion.py) — capture it now so the
-					// rendered-prompt artifact card can show what each `{a|b}`/`${var}`
-					// resolved to, without drifting if the prompt is edited while this
-					// generation is in flight.
-					submittedPromptTemplate: promptsArray[0]
-						? { positive: promptsArray[0].positive, negative: promptsArray[0].negative }
-						: null
+					submittedPromptTemplate
 				}
 			});
 
-			// Definitions ride separately from the prompt text — see
-			// GenerationRequest.variables (src/features/generation/dto.py) and
-			// expander.py's _base_context(). Shared with generationOrchestrator.ts's
-			// startGeneration() via buildVariablesPayload so the two request-assembly
-			// implementations can't drift. This is also where shuffle-mode choice
-			// variables get rolled for THIS Generate click — `variablesResult.rolls`
-			// is persisted onto the tab in the success block below.
-			const variablesResult = buildVariablesPayload(currentTab);
-
-			const request: GenerationRequest = {
-				preset_id: currentTab.selectedPreset,
-				prompts: promptsArray,
-				mode: currentTab.selectedMode ?? undefined,
-				form_name: currentTab.selectedVariant ?? undefined,
-				form_data: formDataForRequest,
-				tag_ids: currentTab.autoTagIds?.length ? currentTab.autoTagIds : undefined,
-				collection_ids: currentTab.autoCollectionIds?.length ? currentTab.autoCollectionIds : undefined,
-				variables: variablesResult.variables,
-				tab_id: activeTabId,
-				source_prompt_id: currentTab.sourcePromptId ?? undefined,
-				prompt_state: {
-					prompt: currentTab.prompt,
-					negativePrompt: currentTab.negativePrompt,
-					promptSegments: currentTab.promptSegments,
-					negativePromptSegments: currentTab.negativePromptSegments,
-					variables: currentTab.variables,
-					promptTabs: currentTab.promptTabs,
-					activePromptTab: currentTab.activePromptTab,
-					promptRelay: currentTab.promptRelay,
-					videoDirector: currentTab.videoDirector
-				},
-				segments: buildSegmentsPayload(currentTab, currentNumPrompts)
-			};
 
 			// Non-blocking: an undefined ${name} doesn't fail the generation, the
 			// backend expander binds unknown_variable_value="" and it silently
@@ -1633,8 +1345,8 @@
 					// rolls as run state so `${name}` usage chips re-render showing the
 					// pick — merge, don't replace, so a variable rolled
 					// on an earlier click keeps its last roll until it's rolled again.
-					...(Object.keys(variablesResult.rolls).length > 0 ? {
-						variableRolls: { ...(currentTab.variableRolls || {}), ...variablesResult.rolls }
+					...(Object.keys(variableRolls).length > 0 ? {
+						variableRolls: { ...(currentTab.variableRolls || {}), ...variableRolls }
 					} : {}),
 					// Per-shot Video Director run tracking (PLAN.md §C W3) -- only
 					// when this submission actually covered shot(s) (Video Director
@@ -1827,7 +1539,7 @@
 			const hasGlobal = (relay?.global_prompt || '').trim().length > 0;
 			hasPrompt = hasSegmentText || hasGlobal;
 		} else {
-			const currentNumPrompts = presetVars[currentTab.selectedPreset || '']?.num_prompts || 1;
+			const currentNumPrompts = requestContext.numPrompts;
 
 			if (currentNumPrompts > 1 && currentTab.promptTabs && currentTab.promptTabs.length > 0) {
 				// Multi-prompt mode: check if any prompt tab has content
@@ -1847,7 +1559,7 @@
 
 		let resourceIssue: string | undefined;
 		if (!promptlessActive && !videoDirectorActive && !musicDirectorActive && !promptRelayActive) {
-			const currentNumPrompts = presetVars[currentTab.selectedPreset || '']?.num_prompts || 1;
+			const currentNumPrompts = requestContext.numPrompts;
 			const formValues = currentTab.formData || {};
 			resourceIssue =
 				currentNumPrompts > 1 && currentTab.promptTabs && currentTab.promptTabs.length > 0

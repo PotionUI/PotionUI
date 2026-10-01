@@ -25,6 +25,7 @@ import { api } from '$lib/services/api';
 import { provideContext, declareMode, onToolApplied } from '$lib/chat/pageContext';
 import overlayLayer from '$lib/actions/overlayLayer';
 import { acquireLayer, releaseLayer } from '$lib/actions/layerStack';
+import { prepareRequestFromSession } from '$lib/generation/prepareRequest';
 
 export type RendererKind = 'history.artifact' | 'workbench.file' | 'model.view' | 'chat.tool';
 
@@ -107,6 +108,7 @@ export interface PotionUIHostApi {
 	/** Page-scoped hooks into the global chat assistant: context, mode takeover, tool result handling. */
 	chat: PluginChatApi;
 	layers: PluginLayersApi;
+	generation: { prepareRequest: typeof prepareRequestFromSession };
 }
 
 const TOAST_LEVELS: readonly ToastType[] = ['success', 'error', 'info', 'warning'];
@@ -178,6 +180,9 @@ export function initHostApi(): void {
 			overlayLayer,
 			acquire: acquireLayer,
 			release: releaseLayer
+		},
+		generation: {
+			prepareRequest: prepareRequestFromSession
 		}
 	};
 

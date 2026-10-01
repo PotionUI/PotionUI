@@ -1394,6 +1394,26 @@ async def upscale_last_result(user, preset_id, generation_id):
     )
 ```
 
+### Preparing a request from a saved session
+
+A plugin frontend can turn a saved session into the same `GenerationRequest` the Generate page
+would send, without a Generate tab: `window.__potionui.generation.prepareRequest(input)`.
+
+| Input | Meaning |
+| --- | --- |
+| `presetId`, `mode` | The preset and the mode to run. |
+| `session` | One mode's saved settings, as a session stores them (`prompt`, `promptSegments`, `promptTabs`, `promptRelay`, `videoDirector`, `variables`, `formData`, `selectedVariant`, ...). |
+| `overrides` | Optional changes on top of the session: `formData` is merged field by field, every other key replaces the session's value. |
+| `presetVars` | The preset's `vars` (from `GET /api/presets/{id}`), which decide multi-prompt, Prompt Relay, promptless modes and the Video or Music Director. |
+| `tabId` | Optional; becomes the request's `tab_id`. |
+| `random`, `now` | Optional sources for chip shuffles and shuffled variables, for repeatable results. |
+
+It returns `{ok: true, request, variableRolls, submittedPromptTemplate, shuffled, director}`, or
+`{ok: false, code, reason}` where `code` is `no_preset`, `no_prompt` or `director` and `reason`
+is a message when there is one. Chip shuffles and shuffled variables are resolved in the call, so
+each call is a fresh roll. Submit the request with `submit_generation` (or
+`POST /api/generations/start`); the server still binds and checks it like any other request.
+
 ## Driving native-engine generation directly
 
 Most pipes just assemble existing pipes into a pipeline. A pipe that needs to run inference

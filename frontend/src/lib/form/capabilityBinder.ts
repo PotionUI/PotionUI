@@ -277,11 +277,23 @@ function replacementFor(param: CapabilityParam, value: unknown): unknown {
 		if (typeof param.default === 'number' && withinRange(param, param.default)) return param.default;
 		return typeof value === 'number' ? clampToRange(param, value) : param.minimum;
 	}
+	if (param.kind === 'boolean' && typeof param.default === 'boolean') return param.default;
 	return value;
 }
 
+function hasUsableDefault(param: CapabilityParam): boolean {
+	if (isBlank(param.default)) return false;
+	if (param.kind === 'enum') return validEnum(param, param.default);
+	if (param.kind === 'range') return typeof param.default === 'number' && withinRange(param, param.default);
+	if (param.kind === 'boolean') return typeof param.default === 'boolean';
+	return false;
+}
+
 function isInvalid(param: CapabilityParam, value: unknown): boolean {
-	if (isBlank(value)) return Boolean(param.required) && (param.kind === 'enum' || param.kind === 'range');
+	if (isBlank(value)) {
+		if (hasUsableDefault(param)) return true;
+		return Boolean(param.required) && (param.kind === 'enum' || param.kind === 'range');
+	}
 	if (param.kind === 'enum') return !validEnum(param, value);
 	if (param.kind === 'range') return typeof value !== 'number' || !withinRange(param, value);
 	return false;
@@ -304,7 +316,7 @@ export function capabilityValueChanges(
 			const next: Record<string, unknown> = {};
 			for (const param of params) {
 				const value = current[param.name];
-				if (isBlank(value)) continue;
+				if (isBlank(value) && !hasUsableDefault(param)) continue;
 				if (isInvalid(param, value)) {
 					const replacement = replacementFor(param, value);
 					if (!isBlank(replacement)) next[param.name] = replacement;

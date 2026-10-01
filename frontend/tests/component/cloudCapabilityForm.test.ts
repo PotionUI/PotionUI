@@ -105,6 +105,16 @@ function capsFor(id: string): CloudCapabilities {
 			inputs: []
 		};
 	}
+	if (id === 'c') {
+		return {
+			model_id: 'c',
+			params: [
+				{ name: 'aspect_ratio', kind: 'enum', values: ['1:1', '4:3'], default: '4:3' },
+				{ name: 'guidance', kind: 'range', minimum: 0, maximum: 3, integer: true, default: 2 }
+			],
+			inputs: []
+		};
+	}
 	if (id === 'b') return { model_id: 'b', params: [], inputs: [] };
 	return { model_id: id, params: [], inputs: [] };
 }
@@ -260,6 +270,50 @@ describe('Capability-bound fields', () => {
 
 		await mounted.chooseModel('');
 		expect(mounted.field('aspect_ratio')).toBeTruthy();
+	});
+});
+
+describe('Defaults of the chosen model', () => {
+	function bareSchema() {
+		const schema = JSON.parse(JSON.stringify(SCHEMA));
+		const fields = schema.properties.generation.children;
+		for (const field of fields) if (field.name === 'aspect_ratio' || field.name === 'guidance') delete field.default;
+		return schema;
+	}
+
+	beforeEach(() => {
+		vi.mocked(api.getPresetFormSchema).mockResolvedValue({ success: true, data: { preset_id: 'p', form_schema: bareSchema() } } as never);
+	});
+
+	it('shows the model default on an untouched form', async () => {
+		mounted = mountForm();
+		await settle();
+
+		expect(mounted.published().aspect_ratio).toBe('1:1');
+		expect(mounted.published().guidance).toBe(5);
+		expect(mounted.field('aspect_ratio')!.textContent).toContain('Square');
+	});
+
+	it('keeps a valid pick when switching to a model that also offers it', async () => {
+		mounted = mountForm({ initialData: { aspect_ratio: '1:1', guidance: 2 } });
+		await settle();
+		sharedCapabilityCache.set('c', capsFor('c'));
+
+		await mounted.chooseModel('model:c');
+
+		expect(mounted.published().aspect_ratio).toBe('1:1');
+		expect(mounted.published().guidance).toBe(2);
+	});
+
+	it('resets to the new default when the new model does not offer the pick', async () => {
+		mounted = mountForm({ initialData: { aspect_ratio: '16:9', guidance: 7 } });
+		await settle();
+		sharedCapabilityCache.set('c', capsFor('c'));
+
+		await mounted.chooseModel('model:c');
+
+		expect(mounted.published().aspect_ratio).toBe('4:3');
+		expect(mounted.published().guidance).toBe(2);
 	});
 });
 

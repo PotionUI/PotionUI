@@ -51,6 +51,17 @@ async function pickModel(page: Page, label: string) {
 	await page.waitForTimeout(BEAT);
 }
 
+async function choose(page: Page, name: string, option: string) {
+	await field(page, name).locator('button[aria-haspopup="listbox"]').click();
+	await page.getByRole('option', { name: option, exact: true }).click();
+	await page.waitForTimeout(BEAT);
+}
+
+async function expectChosen(page: Page) {
+	await expect(field(page, 'aspect_ratio').locator('button[aria-haspopup="listbox"]')).toHaveText(/16:9/);
+	await expect(field(page, 'quality').locator('button[aria-haspopup="listbox"]')).toHaveText(/7/);
+}
+
 async function typePrompt(page: Page, text: string) {
 	const editor = page.locator('[contenteditable="true"]').first();
 	await editor.click();
@@ -114,6 +125,8 @@ test.describe('cloud generation against the fake provider', () => {
 		await expect(field(page, 'quality')).toBeVisible();
 		await expect(field(page, 'background')).toBeVisible();
 		await expect(field(page, 'count').locator('input')).toHaveValue('1');
+		await expect(field(page, 'aspect_ratio').locator('button[aria-haspopup="listbox"]')).toHaveText(/1:1/);
+		await expect(field(page, 'quality').locator('button[aria-haspopup="listbox"]')).toHaveText(/5/);
 		await field(page, 'quality').locator('button[aria-haspopup="listbox"]').click();
 		await expect(page.getByRole('option', { name: '1', exact: true })).toBeVisible();
 		await expect(page.getByRole('option', { name: '10', exact: true })).toBeVisible();
@@ -136,13 +149,25 @@ test.describe('cloud generation against the fake provider', () => {
 		token = await ownerToken(page);
 		await openFakeStudio(page);
 		await pickModel(page, 'Fake Image');
+		await choose(page, 'aspect_ratio', '16:9');
+		await choose(page, 'quality', '7');
+		await expectChosen(page);
 		await typePrompt(page, 'a lighthouse at dusk');
+		await expectChosen(page);
 
+		const request = page.waitForRequest(
+			(candidate) => candidate.method() === 'POST' && (candidate.postData() ?? '').includes('"form_data"')
+		);
 		await page.getByRole('button', { name: 'Generate', exact: true }).click();
+		const sent = JSON.parse((await request).postData() ?? '{}');
+		expect(sent.form_data.aspect_ratio).toBe('16:9');
+		expect(sent.form_data.quality).toBe(7);
 		await expect(page.getByRole('button', { name: 'Cancel generation' })).toBeVisible({ timeout: 15000 });
+		await expectChosen(page);
 		await screenshot(page, JOURNEY, 'generating-1440');
 		await expect(page.getByRole('button', { name: 'Generate', exact: true })).toBeVisible({ timeout: 60000 });
 		await page.waitForTimeout(BEAT);
+		await expectChosen(page);
 		const generation = await latestGeneration(page, token);
 		expect(generation.status).toBe('completed');
 		await expect
@@ -191,6 +216,8 @@ test.describe('cloud generation against the fake provider', () => {
 		try {
 			await openFakeStudio(page);
 			await pickModel(page, 'Fake Image');
+			await choose(page, 'aspect_ratio', '16:9');
+			await choose(page, 'quality', '7');
 			await typePrompt(page, 'a patient tide');
 			await page.getByRole('button', { name: 'Generate', exact: true }).click();
 			const cancel = page.getByRole('button', { name: 'Cancel generation' });
@@ -201,6 +228,7 @@ test.describe('cloud generation against the fake provider', () => {
 			await expect(notice).toContainText('Stopped waiting. The provider may still finish this job and bill it.', { timeout: 15000 });
 			await expect(notice.getByRole('alert')).toHaveCount(0);
 			await expect(page.getByRole('button', { name: 'Generate', exact: true })).toBeVisible();
+			await expectChosen(page);
 			await screenshot(page, JOURNEY, 'cancel-notice-1440');
 			await notice.getByRole('button', { name: 'Dismiss' }).click();
 			await expect(notice).toHaveCount(0);

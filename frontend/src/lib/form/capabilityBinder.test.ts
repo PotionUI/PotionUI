@@ -265,10 +265,30 @@ describe('capabilityValueChanges', () => {
 		expect(capabilityValueChanges(schema, { aspect_ratio: '21:9' }, { model: noDefault })).toEqual({ aspect_ratio: '4:3' });
 	});
 
-	it('keeps a valid value and ignores an empty optional one', () => {
+	it('keeps a valid value and fills an empty one with the model default', () => {
 		const schema = applied([MODEL, ASPECT], caps());
 		expect(capabilityValueChanges(schema, { aspect_ratio: '16:9' }, { model: caps() })).toEqual({});
-		expect(capabilityValueChanges(schema, {}, { model: caps() })).toEqual({});
+		expect(capabilityValueChanges(schema, {}, { model: caps() })).toEqual({ aspect_ratio: '1:1' });
+	});
+
+	it('ignores an empty optional param that has no default', () => {
+		const bare = caps({ params: [{ name: 'aspect_ratio', kind: 'enum', values: ['1:1', '16:9'] }] });
+		const schema = applied([MODEL, ASPECT], bare);
+		expect(capabilityValueChanges(schema, {}, { model: bare })).toEqual({});
+	});
+
+	it('fills an empty range and an empty boolean with their defaults', () => {
+		const withDefaults = caps({
+			params: [
+				{ name: 'guidance', kind: 'range', minimum: 1, maximum: 10, default: 5 },
+				{ name: 'x.hdr', kind: 'boolean', extra: true, default: true }
+			]
+		});
+		const schema = applied([MODEL, GUIDANCE, OPTIONS], withDefaults);
+		expect(capabilityValueChanges(schema, {}, { model: withDefaults })).toEqual({
+			guidance: 5,
+			provider_options: { 'x.hdr': true }
+		});
 	});
 
 	it('fills a required enum that is empty', () => {
@@ -304,7 +324,7 @@ describe('capabilityValueChanges', () => {
 		const schema = applied([MODEL, OPTIONS], caps());
 		const current = { provider_options: { 'x.style': 'retro', 'x.hdr': true, 'x.gone': 'a' } };
 		expect(capabilityValueChanges(schema, current, { model: caps() })).toEqual({
-			provider_options: { 'x.style': 'noir', 'x.hdr': true }
+			provider_options: { aspect_ratio: '1:1', guidance: 5, 'x.style': 'noir', 'x.hdr': true }
 		});
 	});
 });

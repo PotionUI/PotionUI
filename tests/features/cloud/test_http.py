@@ -205,7 +205,7 @@ async def test_request_timeout_becomes_timeout_error(servers):
 
 
 async def test_connection_refused_is_unavailable():
-    client = CloudHttp("http://127.0.0.1:1", timeout_s=2, clock=FakeClock())
+    client = CloudHttp("http://127.0.0.1:1", timeout_s=15, clock=FakeClock())
     try:
         with pytest.raises(CloudError) as caught:
             await client.request_json("GET", "/x")

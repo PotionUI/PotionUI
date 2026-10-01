@@ -4,12 +4,13 @@ import shutil
 import sqlite3
 import tempfile
 import threading
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
 from typing import Optional
 
 from src.platform.database.database import Database
 from src.platform.database.migration_runner import MigrationRunner
+from src.platform.database.sql_functions import register_sql_functions
 
 _lock = threading.Lock()
 _template_path: Optional[Path] = None
@@ -38,6 +39,18 @@ def _build_template(path: Path) -> None:
     template_db.db_path = path
     template_db.db_path.parent.mkdir(exist_ok=True)
     template_db._initialized = True
+    build_connection = sqlite3.connect(path, check_same_thread=False)
+    build_connection.row_factory = sqlite3.Row
+    register_sql_functions(build_connection)
+    build_connection.execute("PRAGMA journal_mode = MEMORY").close()
+    build_connection.execute("PRAGMA synchronous = OFF").close()
+    build_connection.execute("PRAGMA foreign_keys = ON").close()
+
+    @contextmanager
+    def shared_connection():
+        yield build_connection
+
+    template_db.get_connection = shared_connection
     database_module.db = template_db
     migration_runner_module.db = template_db
     try:
@@ -47,6 +60,7 @@ def _build_template(path: Path) -> None:
         Database._instance = previous_instance
         database_module.db = previous_db
         migration_runner_module.db = previous_migration_db
+        build_connection.close()
 
     checkpoint_wal(path)
 

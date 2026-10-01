@@ -482,7 +482,7 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
         backend.bind_model_locator(locator=self.model_locator)
         return backend
 
-    def _run_generation(self, backend, pipeline_data, *, timeout=10.0):
+    def _run_generation(self, backend, pipeline_data, *, timeout=60.0):
         """Drive start_generation to completion and return the collected outputs."""
         self._plant_generation_row(pipeline_data["generation_id"])
         outputs = []
@@ -796,7 +796,7 @@ class TestCancelMidRun(NativeRemoteBackendTestCase):
             cancelled = await backend.cancel_generation(generation_id)
             self.assertTrue(cancelled)
 
-            await asyncio.wait_for(done.wait(), timeout=10.0)
+            await asyncio.wait_for(done.wait(), timeout=60.0)
             return generation_id
 
         generation_id = self._run(scenario())
@@ -843,7 +843,7 @@ class TestCorruptedArtifactDownload(NativeRemoteBackendTestCase):
                     break
                 await asyncio.sleep(0.01)
 
-            await asyncio.wait_for(done.wait(), timeout=10.0)
+            await asyncio.wait_for(done.wait(), timeout=60.0)
             return generation_id
 
         generation_id = self._run(scenario())

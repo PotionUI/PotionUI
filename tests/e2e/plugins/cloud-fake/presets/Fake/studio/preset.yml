@@ -7,6 +7,13 @@ engine: "cloud"
 driver: "cloud.fake"
 tags: []
 
+formulas:
+  groups:
+    size:     { label: "Size" }
+    output:   { label: "Output format" }
+    provider: { label: "Provider options" }
+    models:   { label: "Models", preselect: false }
+
 modes:
   - txt2img
   - edit

@@ -19,30 +19,35 @@ fields:
 
   - name: "aspect_ratio"
     type: "select"
+    formula: "size"
     label: "Aspect ratio"
     ai_hint: "The shape of the picture. The choices come from the selected model; a control the model does not support is hidden."
     capability: { model_field: "model", param: "aspect_ratio" }
 
   - name: "resolution"
     type: "select"
+    formula: "size"
     label: "Resolution"
     ai_hint: "The size tier of the result. Larger tiers usually cost more."
     capability: { model_field: "model", param: "resolution" }
 
   - name: "quality"
     type: "select"
+    formula: "size"
     label: "Quality"
     ai_hint: "Trades cost and time for detail, where the model offers it."
     capability: { model_field: "model", param: "quality" }
 
   - name: "output_format"
     type: "select"
+    formula: "output"
     label: "File format"
     ai_hint: "The file type the model returns."
     capability: { model_field: "model", param: "output_format" }
 
   - name: "background"
     type: "checkbox"
+    formula: "output"
     label: "Transparent background"
     default: false
     ai_hint: "Ask for a transparent background, where the model supports it."

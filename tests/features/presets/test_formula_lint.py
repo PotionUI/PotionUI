@@ -319,7 +319,7 @@ def test_every_shipped_preset_declares_formula_groups_that_lint_clean():
     plugins = REPO_ROOT / "content" / "plugins" / "marketplace"
     preset_files = sorted(MARKETPLACE.rglob("preset.yml")) + [
         path
-        for plugin in ("comfyui-backend", "nvidia-rtx-upscale")
+        for plugin in ("comfyui-backend", "nvidia-rtx-upscale", "openrouter-provider")
         for path in sorted((plugins / plugin / "presets").rglob("preset.yml"))
     ]
     linter = PresetLinter([])
@@ -332,7 +332,7 @@ def test_every_shipped_preset_declares_formula_groups_that_lint_clean():
             undeclared.append(str(preset_file))
         issues.extend(linter._lint_formulas(preset_file, manifest))
 
-    assert len(preset_files) >= 28
+    assert len(preset_files) >= 30
     assert undeclared == []
 
     assert [str(i) for i in issues if "formula" in i.message and i.level != "info"] == []

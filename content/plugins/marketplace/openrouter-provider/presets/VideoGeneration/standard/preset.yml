@@ -10,6 +10,12 @@ tags: ["cloud", "openrouter", "video"]
 media:
   cover: "public/cover.png"
 
+formulas:
+  groups:
+    size:     { label: "Size" }
+    provider: { label: "Provider options" }
+    models:   { label: "Models", preselect: false }
+
 modes:
   - txt2video
   - img2video

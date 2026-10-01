@@ -1,6 +1,7 @@
 fields:
   - type: "accordion"
     label: "Provider options"
+    formula: "provider"
     children:
       - name: "provider_options"
         type: "cloud_options"

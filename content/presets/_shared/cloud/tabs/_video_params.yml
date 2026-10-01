@@ -19,18 +19,21 @@ fields:
 
   - name: "aspect_ratio"
     type: "select"
+    formula: "size"
     label: "Aspect ratio"
     ai_hint: "The shape of the video. The choices come from the selected model."
     capability: { model_field: "model", param: "aspect_ratio" }
 
   - name: "resolution"
     type: "select"
+    formula: "size"
     label: "Resolution"
     ai_hint: "The size tier of the video. Larger tiers usually cost more."
     capability: { model_field: "model", param: "resolution" }
 
   - name: "duration"
     type: "number"
+    formula: "size"
     label: "Duration (seconds)"
     ai_hint: "How long the clip runs. Longer clips cost more."
     capability: { model_field: "model", param: "duration_s" }

@@ -5,4 +5,5 @@ fields:
 
   - type: "section"
     label: "Models"
+    formula: "models"
     children: "{{ paths._shared }}/cloud/models/img2video.yml"

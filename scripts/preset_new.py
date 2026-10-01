@@ -72,7 +72,7 @@ CORE_PIPES_DIR = REPO_ROOT / "src" / "pipelines" / "pipes"
 
 
 def _preset_yml(preset_id: str, name: str, category: str, engine: str, modes: List[str],
-                driver: Optional[str] = None) -> str:
+                driver: Optional[str] = None, formula_groups: str = "  groups: {}\n") -> str:
 
     driver_line = f'driver: "{driver}"\n' if driver else ""
     modes_yaml = "\n".join(f"  - {m}" for m in modes)
@@ -93,8 +93,7 @@ vars:
   default_steps: 30
 
 formulas:
-  groups: {{}}
-
+{formula_groups}
 modes:
 {modes_yaml}
 """
@@ -213,6 +212,15 @@ CLOUD_MODES: Dict[str, _CloudMode] = {
 
 
 _CLOUD_REFERENCE_BLOCKS = {"references": "references_edit", "frames": "references_img2video"}
+
+
+def _cloud_formula_groups(modes: List[str]) -> str:
+    groups = [("size", '{ label: "Size" }')]
+    if any(CLOUD_MODES[mode].category == "image" for mode in modes):
+        groups.append(("output", '{ label: "Output format" }'))
+    groups += [("provider", '{ label: "Provider options" }'), ("models", '{ label: "Models", preselect: false }')]
+    width = max(len(group_id) for group_id, _ in groups) + 1
+    return "  groups:\n" + "".join(f"    {(group_id + ':').ljust(width)} {spec}\n" for group_id, spec in groups)
 
 
 def _cloud_form_yml(mode: _CloudMode) -> str:
@@ -659,7 +667,8 @@ def scaffold(target: Path, preset_id: str, name: str, category: str,
         path.write_text(content, encoding="utf-8")
         written.append(path)
 
-    write(target / "preset.yml", _preset_yml(preset_id, name, category, engine, modes, driver))
+    formula_groups = _cloud_formula_groups(modes) if engine == "cloud" else "  groups: {}\n"
+    write(target / "preset.yml", _preset_yml(preset_id, name, category, engine, modes, driver, formula_groups))
 
     if engine == "cloud":
         for mode in modes:

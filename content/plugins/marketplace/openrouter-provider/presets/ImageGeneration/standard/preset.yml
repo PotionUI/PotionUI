@@ -10,6 +10,13 @@ tags: ["cloud", "openrouter", "image", "edit"]
 media:
   cover: "public/cover.png"
 
+formulas:
+  groups:
+    size:     { label: "Size" }
+    output:   { label: "Output format" }
+    provider: { label: "Provider options" }
+    models:   { label: "Models", preselect: false }
+
 modes:
   - txt2img
   - edit

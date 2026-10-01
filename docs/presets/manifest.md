@@ -645,9 +645,16 @@ preset:
 | `cache` | Step cache | FBCache |
 | `sparse` | Sparse attention | sparse attention settings |
 | `memory` | Memory and tiling | VAE tiling, temporal batching, low-VRAM chunking |
+| `output` | Output format | file format, transparent background (cloud image presets) |
+| `provider` | Provider options | a cloud preset's `cloud_options` field |
 | `models` | Models | every model picker, with `preselect: false` |
 
 Seeds, quantities, prompts, media inputs and manual sigma overrides stay out of every group.
+
+Cloud-bound fields (with `capability:`) belong in groups like any other setting: when a formula
+is applied, values the chosen model does not support are skipped. The shared cloud blocks under
+`content/presets/_shared/cloud/` carry `size`, `output`, `provider` and `models`, so a preset that
+includes them declares those ids; `scripts/preset_new.py --engine cloud` scaffolds that catalog.
 
 ### Rules
 

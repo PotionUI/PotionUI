@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import json
 import os
 import shutil
 import signal
@@ -58,8 +59,11 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
+
+import psutil
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
@@ -109,6 +113,12 @@ EXIT_OK = 0
 EXIT_TEST_FAILURE = 1
 EXIT_ARGS_ERROR = 2
 EXIT_PREVIEW_DIED = 3
+EXIT_LOCK_TIMEOUT = 4
+
+RUN_LOCK_PATH = Path(__file__).resolve().parent / ".run.lock"
+DEFAULT_LOCK_TIMEOUT_MINUTES = 30.0
+LOCK_POLL_SECONDS = 5.0
+UNREADABLE_LOCK_GRACE_SECONDS = 10.0
 
 
 def discover_specs() -> List[str]:
@@ -191,6 +201,145 @@ def describe_exit_status(code: Optional[int]) -> str:
             name = f"signal {sig_num}"
         return f"exited with code {code} (128+{sig_num} - conventionally a child killed by {name})"
     return f"exited with code {code}"
+
+
+class RunLockTimeout(Exception):
+    def __init__(self, holder: dict):
+        super().__init__(describe_lock_holder(holder))
+        self.holder = holder
+
+
+def describe_lock_holder(holder: Optional[dict]) -> str:
+    if not holder:
+        return "an unknown run (the lock file is empty or unreadable)"
+    command = holder.get("command") or "run.py"
+    return f"pid {holder.get('pid')} started {holder.get('started_at', '?')} ({command})"
+
+
+def read_lock_holder(path: Path) -> Optional[dict]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return {}
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def lock_holder_alive(holder: dict) -> bool:
+    pid = holder.get("pid")
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0 or not psutil.pid_exists(pid):
+        return False
+    created = holder.get("process_created")
+    if not isinstance(created, (int, float)):
+        return True
+    try:
+        return abs(psutil.Process(pid).create_time() - created) < 1.0
+    except psutil.NoSuchProcess:
+        return False
+    except psutil.Error:
+        return True
+
+
+def _lock_is_stale(path: Path, holder: dict) -> bool:
+    if holder:
+        return not lock_holder_alive(holder)
+    try:
+        age = time.time() - path.stat().st_mtime
+    except FileNotFoundError:
+        return False
+    return age > UNREADABLE_LOCK_GRACE_SECONDS
+
+
+def _own_lock_record() -> dict:
+    pid = os.getpid()
+    try:
+        created = psutil.Process(pid).create_time()
+    except psutil.Error:
+        created = None
+    return {
+        "pid": pid,
+        "process_created": created,
+        "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "command": " ".join([Path(sys.argv[0]).name] + sys.argv[1:]) if sys.argv else "run.py",
+    }
+
+
+def acquire_run_lock(
+    path: Path = RUN_LOCK_PATH,
+    timeout_seconds: float = DEFAULT_LOCK_TIMEOUT_MINUTES * 60,
+    poll_seconds: float = LOCK_POLL_SECONDS,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+    say: Callable[[str], None] = log,
+) -> dict:
+    deadline = clock() + timeout_seconds
+    announced = None
+    while True:
+        try:
+            fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            holder = read_lock_holder(path)
+            if holder is None:
+                continue
+            if _lock_is_stale(path, holder):
+                if read_lock_holder(path) == holder:
+                    say(f"Taking over a stale run lock left by {describe_lock_holder(holder)}: that process is gone.")
+                    with contextlib.suppress(FileNotFoundError):
+                        path.unlink()
+                continue
+            remaining = deadline - clock()
+            if remaining <= 0:
+                raise RunLockTimeout(holder)
+            if holder != announced:
+                say(
+                    f"Another UI run holds {path.name}: {describe_lock_holder(holder)}. Waiting for it to "
+                    f"finish (up to {timeout_seconds / 60:.0f} min, --lock-timeout to change)..."
+                )
+                announced = holder
+            else:
+                say(f"Still waiting for pid {holder.get('pid')} to release {path.name} ({remaining / 60:.1f} min left)...")
+            sleep(min(poll_seconds, remaining))
+            continue
+        record = _own_lock_record()
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(record, handle)
+        return record
+
+
+def release_run_lock(record: dict, path: Path = RUN_LOCK_PATH) -> None:
+    holder = read_lock_holder(path)
+    if holder and holder.get("pid") == record.get("pid") and holder.get("started_at") == record.get("started_at"):
+        with contextlib.suppress(FileNotFoundError):
+            path.unlink()
+
+
+@contextlib.contextmanager
+def termination_signals_raise_system_exit():
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def _raise(signum, _frame):
+        raise SystemExit(128 + signum)
+
+    previous = {}
+    for name in ("SIGTERM", "SIGBREAK", "SIGHUP"):
+        signum = getattr(signal, name, None)
+        if signum is None:
+            continue
+        with contextlib.suppress(OSError, ValueError):
+            previous[signum] = signal.signal(signum, _raise)
+    try:
+        yield
+    finally:
+        for signum, handler in previous.items():
+            with contextlib.suppress(OSError, ValueError):
+                signal.signal(signum, handler)
 
 
 def run_build() -> None:
@@ -504,6 +653,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Minutes of other work already assigned to shard 1 (e.g. the HTTP journeys); balances the split.",
     )
     parser.add_argument("--list", action="store_true", help="Print the chunks this invocation would run and exit.")
+    parser.add_argument(
+        "--lock-timeout",
+        type=float,
+        default=DEFAULT_LOCK_TIMEOUT_MINUTES,
+        metavar="MIN",
+        help=(
+            f"Minutes to wait for another UI run to release {RUN_LOCK_PATH.name} "
+            f"(default {DEFAULT_LOCK_TIMEOUT_MINUTES:.0f}); runs share frontend/build and the preview port."
+        ),
+    )
     args = parser.parse_args(argv)
 
     names = args.journeys or discover_specs()
@@ -529,6 +688,31 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"Shard {shard_index}/{shard_total} has no chunks.", file=sys.stderr)
         return EXIT_ARGS_ERROR
 
+    try:
+        lock = acquire_run_lock(RUN_LOCK_PATH, timeout_seconds=max(args.lock_timeout, 0.0) * 60)
+    except RunLockTimeout as exc:
+        print(
+            f"\nGave up after {args.lock_timeout:g} min waiting for {RUN_LOCK_PATH}: still held by {exc}. "
+            f"Wait for that run to finish, or delete the file if you are sure it is not running.",
+            file=sys.stderr,
+        )
+        return EXIT_LOCK_TIMEOUT
+    try:
+        with termination_signals_raise_system_exit():
+            return _run_locked(args, names, numbered, all_chunks, shard_index, shard_total, chunk_size)
+    finally:
+        release_run_lock(lock, RUN_LOCK_PATH)
+
+
+def _run_locked(
+    args: argparse.Namespace,
+    names: List[str],
+    numbered: List[tuple],
+    all_chunks: List[List[str]],
+    shard_index: int,
+    shard_total: int,
+    chunk_size: int,
+) -> int:
     for name in names:
         shutil.rmtree(ARTIFACTS_DIR / name, ignore_errors=True)
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)

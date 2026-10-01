@@ -318,6 +318,18 @@ state can leak between specs in the same chunk: a spec asserting a global
 empty state passes alone and can fail after a same-chunk sibling installs a
 preset — order specs accordingly, or run the affected spec alone.
 
+**One UI run at a time.** Every run shares `frontend/build` and the preview
+port, so two runs started together corrupt each other (a blank login page,
+"Username already exists"). `run.py` therefore takes an exclusive lock,
+`tests/e2e/ui/.run.lock` (gitignored, holds the pid and UTC start time),
+before it builds or starts any server. A second run prints who holds it and
+waits, polling every few seconds, for up to `--lock-timeout` minutes
+(default 30), then exits with status 4. A lock whose pid is gone, or whose pid
+now belongs to a different process, is stale and is taken over with a message.
+The lock is released when the run ends, on Ctrl-C, and on SIGTERM (SIGBREAK
+on Windows). A run killed outright (`kill -9`, Task Manager) leaves the file
+behind, and the next run takes it over as stale. `--list` never takes the lock.
+
 
 **`chat-tool-approval.spec.ts` fails before it reaches the dock (pre-existing,
 confirmed 2026-08-28).** In this container the scripted fake-LLM turn emits the

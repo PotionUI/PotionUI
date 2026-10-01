@@ -133,6 +133,7 @@ storage/model_hash_cache.json
 
 # Browser-UI journey artifacts (screenshots, video clips, preview log) — tests/e2e/ui/run.py
 /tests/e2e/ui/artifacts/
+/tests/e2e/ui/.run.lock
 # Playwright browser-E2E run output
 frontend/tests/e2e/.playwright-artifacts/
 frontend/test-results/

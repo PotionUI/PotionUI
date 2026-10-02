@@ -32,6 +32,7 @@ class SystemMonitor:
         self.gpu_available = False
         self.gpu_handle = None
         self.gpu_handles = []
+        self._failing_gpus = set()
 
         # Initialize NVML for GPU monitoring. Detection is NVML-only (no torch
         # import, no CUDA context init) so constructing a SystemMonitor never
@@ -241,8 +242,11 @@ class SystemMonitor:
                         'vram_free_gb': mem_info.free / (1024**3),
                         'vram_usage_percent': (used_gb / total_gb * 100) if total_gb > 0 else 0.0,
                     })
+                    self._failing_gpus.discard(index)
                 except Exception as e:
-                    logger.error(f"[SYSTEM_MONITOR] Error getting info for GPU {index}: {e}")
+                    if index not in self._failing_gpus:
+                        self._failing_gpus.add(index)
+                        logger.error(f"[SYSTEM_MONITOR] Error getting info for GPU {index}: {e}")
         return devices
 
     def get_system_snapshot(self) -> Dict[str, Any]:
@@ -258,8 +262,8 @@ class SystemMonitor:
             }
         """
         gpus = self.get_gpus_info()
-        if gpus:
-            primary = gpus[0]
+        primary = next((g for g in gpus if g['index'] == 0), None)
+        if primary is not None:
             vram = {
                 'total_gb': primary['vram_total_gb'],
                 'available_gb': primary['vram_free_gb'],

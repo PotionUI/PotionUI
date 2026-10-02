@@ -733,12 +733,6 @@
 					<strong class="composer-title negative section-title negative">Negative</strong>
 					<span class="composer-count section-count font-mono tabular-nums">{segmentCountLabel(negativeCount)}</span>
 
-					{#if negativePromptUnavailable}
-						<span class="inline-note-warning">Not used by this preset</span>
-					{:else if negativeInert}
-						<span class="inline-warning">Not applied at current guidance</span>
-					{/if}
-
 					<div class="toolbar-spacer"></div>
 
 					{#if showLibraryActions}
@@ -775,6 +769,12 @@
 						</div>
 					{/if}
 				</header>
+
+				{#if negativePromptUnavailable}
+					<p class="negative-note inline-warning" data-testid="negative-note">Not used by this preset</p>
+				{:else if negativeInert}
+					<p class="negative-note inline-warning" data-testid="negative-note">Not applied at current guidance</p>
+				{/if}
 
 				{@render negativeRail()}
 			</section>
@@ -850,6 +850,19 @@
 	.inline-warning {
 		font-size: 0.75rem;
 		color: rgb(var(--warning));
+	}
+
+	.negative-note {
+		margin: 0;
+		padding: 0.375rem 0.875rem 0;
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
+	}
+
+	.composer.plain .negative-note {
+		padding-left: 0;
+		padding-right: 0;
 	}
 
 	.inline-note-warning {

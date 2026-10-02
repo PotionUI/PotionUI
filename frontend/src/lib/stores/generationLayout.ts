@@ -87,3 +87,66 @@ export function restorePromptPanelFromDirector(
 		promptPanelWidthBeforeDirector: undefined
 	};
 }
+
+export const PROMPT_PANE_READABLE_MIN_WIDTH = 640;
+export const WORKBENCH_COMFORT_WIDTH = 480;
+export const WORKBENCH_FLOOR_WIDTH = 320;
+export const FORM_RAIL_WIDTH = 12;
+export const PANE_HANDLE_WIDTH = 4;
+export const FORM_MAX_VIEWPORT_SHARE = 0.45;
+
+export interface ThreePaneInput {
+	panelsWidth: number;
+	viewportWidth: number;
+	formWidth: number;
+	layoutMode: 'two' | 'three';
+	promptless: boolean;
+	leftPanelCollapsed: boolean;
+	formUnfoldedByUser: boolean;
+	workbenchCollapsed: boolean;
+	promptPanelWidth: number;
+	promptPanelWidthFolded?: number;
+}
+
+export interface ThreePaneLayout {
+	formFolded: boolean;
+	autoFolded: boolean;
+	canAutoFold: boolean;
+	promptMinWidth: number;
+	promptWidth: number;
+	workbenchMinWidth: number;
+}
+
+export function resolveThreePaneLayout(input: ThreePaneInput): ThreePaneLayout {
+	const threePane = input.layoutMode === 'three' && !input.promptless;
+	const formOpenWidth = Math.min(input.formWidth, input.viewportWidth * FORM_MAX_VIEWPORT_SHARE);
+	const workbenchRail = input.workbenchCollapsed ? 0 : PANE_HANDLE_WIDTH;
+	const workbenchNeed = input.workbenchCollapsed ? FORM_RAIL_WIDTH : WORKBENCH_COMFORT_WIDTH;
+	const roomWithFormOpen =
+		input.panelsWidth - formOpenWidth - FORM_RAIL_WIDTH - workbenchRail - workbenchNeed;
+	const canAutoFold =
+		threePane &&
+		input.panelsWidth > 0 &&
+		!input.leftPanelCollapsed &&
+		roomWithFormOpen < PROMPT_PANE_READABLE_MIN_WIDTH;
+	const autoFolded = canAutoFold && !input.formUnfoldedByUser;
+	const formFolded = input.leftPanelCollapsed || autoFolded;
+	const promptMinWidth = threePane ? PROMPT_PANE_READABLE_MIN_WIDTH : PROMPT_PANEL_MIN_WIDTH;
+
+	const stored = formFolded
+		? (input.promptPanelWidthFolded ?? foldedPromptPanelWidth(input.panelsWidth))
+		: input.promptPanelWidth;
+	const formSpace = formFolded ? FORM_RAIL_WIDTH : formOpenWidth + FORM_RAIL_WIDTH;
+	const ceiling = input.panelsWidth - formSpace - workbenchRail - WORKBENCH_FLOOR_WIDTH;
+	const promptWidth = Math.round(Math.max(promptMinWidth, Math.min(stored, ceiling)));
+	const squeezed = input.panelsWidth - formSpace - workbenchRail - promptWidth < WORKBENCH_FLOOR_WIDTH;
+
+	return {
+		formFolded,
+		autoFolded,
+		canAutoFold,
+		promptMinWidth,
+		promptWidth,
+		workbenchMinWidth: squeezed ? 0 : WORKBENCH_FLOOR_WIDTH
+	};
+}

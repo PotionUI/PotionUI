@@ -11,12 +11,12 @@
 	import FloatingWorkbench from './FloatingWorkbench.svelte';
 	import { Kbd, IconButton } from '$lib/components/ui';
 	import {
-		PROMPT_PANEL_MIN_WIDTH,
 		widenPromptPanelForDirector,
 		restorePromptPanelFromDirector,
-		foldedPromptPanelWidth
+		resolveThreePaneLayout
 	} from '$lib/stores/generationLayout';
 	import { tabsStore } from '$lib/stores/tabs';
+	import { viewportWidth } from '$lib/stores/viewport';
 	import { shortcutLabels } from '$lib/stores/keybindings';
 	import { closeFloatingForm } from '$lib/generation/floatingForm';
 	import { closeFloatingWorkbench } from '$lib/generation/floatingWorkbench';
@@ -99,11 +99,38 @@
 	let isResizingPrompt = false;
 	const WORKBENCH_MIN_WIDTH = 320;
 	const RESIZE_HANDLE_WIDTH = 4;
-	$: formPanelWidth = tab.leftPanelCollapsed ? '0.75rem' : `min(${leftPanelWidth}px, 45vw)`;
+	let formUnfoldedByUser = false;
+	$: paneLayout = resolveThreePaneLayout({
+		panelsWidth,
+		viewportWidth: $viewportWidth,
+		formWidth: leftPanelWidth,
+		layoutMode: tab.layoutMode === 'three' ? 'three' : 'two',
+		promptless,
+		leftPanelCollapsed: !!tab.leftPanelCollapsed,
+		formUnfoldedByUser,
+		workbenchCollapsed: !!tab.workbenchCollapsed,
+		promptPanelWidth: tab.promptPanelWidth,
+		promptPanelWidthFolded: tab.promptPanelWidthFolded
+	});
+	$: formFolded = paneLayout.formFolded;
+	$: releaseUnfoldWhenRoomReturns(paneLayout.canAutoFold);
+	$: formPanelWidth = formFolded ? '0.75rem' : `min(${leftPanelWidth}px, 45vw)`;
 	$: floatingPresetName = presets.find((p) => p.id === tab.selectedPreset)?.name;
-	$: activePromptPanelWidth = tab.leftPanelCollapsed
-		? tab.promptPanelWidthFolded ?? foldedPromptPanelWidth(panelsWidth)
-		: tab.promptPanelWidth;
+	$: activePromptPanelWidth = paneLayout.promptWidth;
+
+	function releaseUnfoldWhenRoomReturns(canAutoFold: boolean) {
+		if (!canAutoFold) formUnfoldedByUser = false;
+	}
+
+	function expandForm() {
+		if (tab.leftPanelCollapsed) tabsStore.updateTab(tab.id, { leftPanelCollapsed: false });
+		else formUnfoldedByUser = true;
+	}
+
+	function collapseForm() {
+		if (paneLayout.canAutoFold) formUnfoldedByUser = false;
+		else tabsStore.updateTab(tab.id, { leftPanelCollapsed: true });
+	}
 
 	// The floating workbench opens at the inline pane's own width —
 	// captured here (the pane container's width doesn't change when its
@@ -144,13 +171,13 @@
 			0,
 			panelRight - promptLeft - WORKBENCH_MIN_WIDTH - RESIZE_HANDLE_WIDTH
 		);
-		const minimum = Math.min(PROMPT_PANEL_MIN_WIDTH, availableMaximum);
+		const minimum = Math.min(paneLayout.promptMinWidth, availableMaximum);
 		return Math.min(availableMaximum, Math.max(minimum, clientX - promptLeft));
 	}
 
 	function setPromptWidth(width: number) {
 		const nextWidth = Math.round(promptWidthForClientX(promptPaneEl.getBoundingClientRect().left + width));
-		if (tab.leftPanelCollapsed) {
+		if (formFolded) {
 			tabsStore.updateTab(tab.id, { promptPanelWidthFolded: nextWidth });
 		} else {
 			tabsStore.updateTab(tab.id, { promptPanelWidth: nextWidth });
@@ -254,14 +281,14 @@
 
 <div bind:this={panelsEl} bind:clientWidth={panelsWidth} data-testid="generation-panels-root" class="flex h-full">
 	<!-- Left Panel: Form -->
-	{#if tab.leftPanelCollapsed}
+	{#if formFolded}
 		<Tooltip text="Expand generation settings" kbd={$shortcutLabels['toggle_left_panel']} position="right" delay={150} wrapperClass="flex h-full flex-shrink-0">
 			<button
 				type="button"
 				class="group flex w-3 h-full flex-shrink-0 items-center justify-center border-r border-line bg-surface-3 transition-colors hover:bg-line-hover"
 				aria-label="Expand generation settings"
 				aria-expanded="false"
-				on:click={() => tabsStore.updateTab(tab.id, { leftPanelCollapsed: false })}
+				on:click={expandForm}
 			>
 				<Icon
 					name="chevron-right"
@@ -301,7 +328,7 @@
 					class="group relative w-3 h-full flex-shrink-0 border-r border-line bg-surface-3 transition-colors hover:bg-line-hover"
 					aria-label="Collapse generation settings"
 					aria-expanded="true"
-					on:click={() => tabsStore.updateTab(tab.id, { leftPanelCollapsed: true })}
+					on:click={collapseForm}
 				>
 					<Icon
 						name="chevron-left"
@@ -322,7 +349,7 @@
 				: 'flex-shrink-0 overflow-y-auto bg-surface-1/20 pb-[var(--dock-height)]'}
 			style={tab.workbenchCollapsed
 				? ''
-				: `width: ${activePromptPanelWidth}px; max-width: calc(100% - ${formPanelWidth} - ${workbenchBoundWidth})`}
+				: `width: ${activePromptPanelWidth}px; min-width: ${paneLayout.promptMinWidth}px; max-width: calc(100% - ${formPanelWidth} - ${workbenchBoundWidth})`}
 		>
 			<div class="p-4">
 				<PromptSection
@@ -382,7 +409,8 @@
 			</Tooltip>
 		{:else}
 			<div
-				class="relative flex-1 min-w-[320px] overflow-y-auto p-4 pb-[var(--dock-height)]"
+				class="relative flex-1 overflow-y-auto p-4 pb-[var(--dock-height)]"
+				style="min-width: {paneLayout.workbenchMinWidth}px"
 				data-testid="workbench-pane"
 				bind:clientWidth={measuredPaneWidth}
 			>

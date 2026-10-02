@@ -3,6 +3,10 @@ import {
 	widenPromptPanelForDirector,
 	restorePromptPanelFromDirector,
 	foldedPromptPanelWidth,
+	resolveThreePaneLayout,
+	PROMPT_PANE_READABLE_MIN_WIDTH,
+	WORKBENCH_FLOOR_WIDTH,
+	type ThreePaneInput,
 	PROMPT_PANEL_FOLDED_MIN_WIDTH,
 	PROMPT_PANEL_FOLDED_MAX_WIDTH
 } from './generationLayout';
@@ -92,5 +96,91 @@ describe('foldedPromptPanelWidth', () => {
 	it('clamps to the maximum on a wide row', () => {
 		expect(foldedPromptPanelWidth(1920)).toBe(806);
 		expect(foldedPromptPanelWidth(2560)).toBe(PROMPT_PANEL_FOLDED_MAX_WIDTH);
+	});
+});
+
+const base: ThreePaneInput = {
+	panelsWidth: 1480,
+	viewportWidth: 1536,
+	formWidth: 460,
+	layoutMode: 'three',
+	promptless: false,
+	leftPanelCollapsed: false,
+	formUnfoldedByUser: false,
+	workbenchCollapsed: false,
+	promptPanelWidth: 420
+};
+
+describe('resolveThreePaneLayout', () => {
+	it('folds the form at a 1536 px viewport', () => {
+		const out = resolveThreePaneLayout(base);
+		expect(out.formFolded).toBe(true);
+		expect(out.autoFolded).toBe(true);
+		expect(out.promptWidth).toBeGreaterThanOrEqual(PROMPT_PANE_READABLE_MIN_WIDTH);
+	});
+
+	it('shows all three panes at 1920 px', () => {
+		const out = resolveThreePaneLayout({ ...base, panelsWidth: 1864, viewportWidth: 1920 });
+		expect(out.formFolded).toBe(false);
+		expect(out.canAutoFold).toBe(false);
+		expect(out.promptWidth).toBe(PROMPT_PANE_READABLE_MIN_WIDTH);
+	});
+
+	it('keeps a wider stored prompt width when there is room', () => {
+		const out = resolveThreePaneLayout({
+			...base,
+			panelsWidth: 1864,
+			viewportWidth: 1920,
+			promptPanelWidth: 800
+		});
+		expect(out.promptWidth).toBe(800);
+	});
+
+	it('never auto-folds in two-pane layout', () => {
+		const out = resolveThreePaneLayout({ ...base, layoutMode: 'two' });
+		expect(out.formFolded).toBe(false);
+		expect(out.canAutoFold).toBe(false);
+	});
+
+	it('never auto-folds a promptless mode', () => {
+		expect(resolveThreePaneLayout({ ...base, promptless: true }).formFolded).toBe(false);
+	});
+
+	it('lets the user unfold the form and keeps prompts at the minimum while the workbench shrinks', () => {
+		const out = resolveThreePaneLayout({
+			...base,
+			panelsWidth: 1200,
+			viewportWidth: 1280,
+			formWidth: 420,
+			formUnfoldedByUser: true
+		});
+		expect(out.formFolded).toBe(false);
+		expect(out.promptWidth).toBe(PROMPT_PANE_READABLE_MIN_WIDTH);
+		expect(out.workbenchMinWidth).toBe(0);
+	});
+
+	it('keeps the workbench floor when the prompts pane leaves room', () => {
+		const out = resolveThreePaneLayout({ ...base, panelsWidth: 1864, viewportWidth: 1920 });
+		expect(out.workbenchMinWidth).toBe(WORKBENCH_FLOOR_WIDTH);
+	});
+
+	it('respects a form the user folded at any width', () => {
+		const out = resolveThreePaneLayout({
+			...base,
+			panelsWidth: 1864,
+			viewportWidth: 1920,
+			leftPanelCollapsed: true
+		});
+		expect(out.formFolded).toBe(true);
+		expect(out.autoFolded).toBe(false);
+	});
+
+	it('uses the folded prompt width while folded', () => {
+		const out = resolveThreePaneLayout({ ...base, promptPanelWidthFolded: 700 });
+		expect(out.promptWidth).toBe(700);
+	});
+
+	it('does not fold before the pane width is measured', () => {
+		expect(resolveThreePaneLayout({ ...base, panelsWidth: 0 }).formFolded).toBe(false);
 	});
 });

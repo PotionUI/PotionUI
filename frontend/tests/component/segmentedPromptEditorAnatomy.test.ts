@@ -75,6 +75,14 @@ describe('the negative region', () => {
 		expect(live.text()).not.toContain('Not applied at current guidance');
 	});
 
+	it('puts the inert note on its own line under the header instead of inside it', () => {
+		const inert = mount({ negativeSegments: [segment('n1', 'blurry')], negativeInert: true });
+		const note = inert.target.querySelector('[data-testid="negative-note"]');
+		expect(note).not.toBeNull();
+		expect(note?.closest('header')).toBeNull();
+		expect(note?.previousElementSibling?.tagName).toBe('HEADER');
+	});
+
 	it('is absent entirely when the call site pairs no negative list', () => {
 		const editor = mount();
 		expect(editor.lists()).not.toContain('Negative segments');

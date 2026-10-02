@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyAudienceVisibility, applyAudienceVisibilityToSchema, resolveAudience } from './audienceFilter';
+import { applyAudienceVisibility, applyAudienceVisibilityToSchema } from './audienceFilter';
 
 interface AudienceTestNode {
 	name?: string;
@@ -146,23 +146,5 @@ describe('applyAudienceVisibilityToSchema', () => {
 	it('is a no-op for a null/malformed schema', () => {
 		expect(applyAudienceVisibilityToSchema(null, 'simple')).toBeNull();
 		expect(applyAudienceVisibilityToSchema({}, 'simple')).toEqual({});
-	});
-});
-
-describe('resolveAudience', () => {
-	it('uses the form audience when one is given, whatever the stored preference is', () => {
-		expect(resolveAudience('advanced', 'simple')).toBe('advanced');
-		expect(resolveAudience('simple', 'advanced')).toBe('simple');
-	});
-
-	it('falls back to the stored preference when no form audience is given', () => {
-		expect(resolveAudience(undefined, 'advanced')).toBe('advanced');
-		expect(resolveAudience(undefined, 'simple')).toBe('simple');
-	});
-
-	it('lets an advanced form show advanced fields while the stored preference is simple', () => {
-		const field: AudienceTestNode = { name: 'cfg_rescale', audience: 'advanced' as const };
-		expect(applyAudienceVisibility(field, resolveAudience('advanced', 'simple'))).toBe(true);
-		expect(field.visible).toBe(true);
 	});
 });

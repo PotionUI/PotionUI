@@ -45,7 +45,6 @@ from src.platform.security.current_user import (
     authenticate_websocket_token,
     get_current_active_user,
     get_current_admin_user,
-    is_active_user,
 )
 from src.platform.security.user import AccountType, User
 
@@ -76,8 +75,7 @@ def list_user_ids() -> List[str]:
 def get_user(user_id: str) -> Optional[User]:
     if not user_id:
         return None
-    user = get_container().user_repository.get_by_id(user_id)
-    return user if is_active_user(user) else None
+    return get_container().user_repository.get_by_id(user_id)
 
 
 def register_login_provider(id: str, label: str, start_path: str) -> None:

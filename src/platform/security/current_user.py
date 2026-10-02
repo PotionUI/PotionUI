@@ -4,7 +4,7 @@ FastAPI authentication dependencies.
 This module provides FastAPI dependencies for authentication:
 - oauth2_scheme: OAuth2 password bearer scheme
 - get_current_user: Get authenticated user from JWT token
-- get_current_active_user: Ensure user is active
+- get_current_active_user: Authenticated user (accounts have no disabled flag)
 - authenticate_websocket_token: WebSocket authentication helper
 """
 import asyncio
@@ -86,27 +86,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     return user
 
 
-def is_active_user(user: Optional[User]) -> bool:
-    return user is not None
-
-
 async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
     """
-    Ensure user is active.
-
-    This dependency wraps get_current_user and can be extended
-    to add additional checks (e.g., is_active, is_verified flags).
-
-    Args:
-        current_user: Currently authenticated user (injected by FastAPI)
-
-    Returns:
-        User object if active
+    Alias dependency for an authenticated user; accounts carry no
+    disabled flag, so a valid token is the whole check.
     """
-    # For now, all authenticated users are considered active.
-    # Add additional checks here if needed (e.g., current_user.is_active)
-    if not is_active_user(current_user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
     return current_user
 
 

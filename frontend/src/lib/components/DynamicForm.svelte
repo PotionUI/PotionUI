@@ -14,7 +14,7 @@
 	import { applyMergeFrom } from '$lib/form/mergeFrom';
 	import { createLatestRequestGuard, getCachedSchema } from '$lib/form/schemaCache';
 	import { formAudienceStore } from '$lib/stores/formAudience';
-	import { applyAudienceVisibilityToSchema, resolveAudience, type FormAudience } from '$lib/utils/audienceFilter';
+	import { applyAudienceVisibilityToSchema, type FormAudience } from '$lib/utils/audienceFilter';
 	import { applyReadonlyToSchema } from '$lib/utils/readonlyFilter';
 	import { FORM_FIELD_ERRORS_CONTEXT_KEY } from '$lib/form/fieldErrorsContext';
 	import {
@@ -164,7 +164,7 @@
 		}
 		applyAudienceVisibilityToSchema(
 			pass.processedSchema,
-			resolveAudience(audience, $formAudienceStore),
+			audience ?? $formAudienceStore,
 			forceVisibleFieldNames,
 			videoDirectorActive
 		);

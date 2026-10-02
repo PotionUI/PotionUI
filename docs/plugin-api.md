@@ -1639,12 +1639,12 @@ your content below. Pass the content as `children`.
 <HostUi
   name="LibraryPage"
   props={{
-    title: 'Elixirs',
-    titleLabel: 'Elixirs',
+    title: 'Widgets',
+    titleLabel: 'Widgets',
     persistKey: 'my-plugin:list',
     sections, section, onSelectSection, sectionCounts,
-    q, onQueryChange, searchPlaceholder: 'Search elixirs',
-    primaryLabel: 'New elixir', primaryIcon: 'plus', onPrimary: create
+    q, onQueryChange, searchPlaceholder: 'Search widgets',
+    primaryLabel: 'New widget', primaryIcon: 'plus', onPrimary: create
   }}
 >
   <MyCards />

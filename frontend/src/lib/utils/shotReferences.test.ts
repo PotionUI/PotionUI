@@ -214,3 +214,19 @@ describe('one field carrying several kinds', () => {
 		expect(numbering.positionFor('references', '/pool/b.png')).toBe(2);
 	});
 });
+
+describe('shotResourceNumbering positionIfAdded', () => {
+	it('gives an uncited item the number it will take once cited', () => {
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[references:/pool/c.png]' }])]);
+		const numbering = shotResourceNumbering(doc, chainCaps, 's1', formData, specs);
+		expect(numbering.positionFor('references', '/pool/b.png')).toBeNull();
+		expect(numbering.positionIfAdded?.('references', '/pool/b.png')).toBe(1);
+		expect(numbering.positionIfAdded?.('references', '/pool/c.png')).toBe(1);
+	});
+
+	it('counts earlier cited items of the same kind', () => {
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[references:/pool/a.png]' }])]);
+		const numbering = shotResourceNumbering(doc, chainCaps, 's1', formData, specs);
+		expect(numbering.positionIfAdded?.('references', '/pool/c.png')).toBe(2);
+	});
+});

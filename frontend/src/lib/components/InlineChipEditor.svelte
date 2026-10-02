@@ -344,12 +344,12 @@
 	// ${name} variable usages) — see chipSegments.ts.
 	$: contentSegments = parseValueToSegments(value, chips, resources);
 
-	function resourceItemCount(spec: PromptResourceSpec): number {
-		return specItems(promptResources, spec, resourceFieldValues[spec.field]).length;
+	function resourceItemCount(spec: PromptResourceSpec, values: Record<string, unknown>): number {
+		return specItems(promptResources, spec, values[spec.field]).length;
 	}
 
-	function resourceGroupDescription(spec: PromptResourceSpec): string {
-		const count = resourceItemCount(spec);
+	function resourceGroupDescription(spec: PromptResourceSpec, values: Record<string, unknown>): string {
+		const count = resourceItemCount(spec, values);
 		if (count === 0) return `No ${kindLabel(spec.kind).toLowerCase()}s added yet`;
 		return `${count} available`;
 	}
@@ -366,7 +366,7 @@
 					id: resourceGroupKey(promptResources, spec),
 					name: resourceGroupLabel(spec),
 					path: resourceGroupLabel(spec),
-					description: resourceGroupDescription(spec),
+					description: resourceGroupDescription(spec, resourceFieldValues),
 					created_at: '',
 					updated_at: ''
 				})) as DropdownAutocompleteCategory[]);
@@ -380,15 +380,15 @@
 		.map((spec) => ({
 			id: resourceGroupKey(promptResources, spec),
 			name: resourceGroupLabel(spec),
-			description: resourceGroupDescription(spec),
+			description: resourceGroupDescription(spec, resourceFieldValues),
 			icon: spec.kind === 'image' ? 'image' : spec.kind === 'video' ? 'video' : 'audio',
-			count: resourceItemCount(spec)
+			count: resourceItemCount(spec, resourceFieldValues)
 		}));
 
 	$: effectiveResourceField =
 		resourceGroupField ??
 		(() => {
-			const spec = promptResources.find((s) => resourceItemCount(s) > 0) ?? promptResources[0];
+			const spec = promptResources.find((s) => resourceItemCount(s, resourceFieldValues) > 0) ?? promptResources[0];
 			return spec ? resourceGroupKey(promptResources, spec) : null;
 		})();
 
@@ -420,7 +420,10 @@
 					return {
 						id: key,
 						category_id: activeResourceSpec!.field,
-						label: resourceHandleLabel(activeResourceSpec!, index + 1),
+						label: resourceHandleLabel(
+							activeResourceSpec!,
+							$resourceNumbering?.positionIfAdded?.(activeResourceSpec!.field, key) ?? index + 1
+						),
 						value: itemDisplayName(item, key),
 						sort_order: index,
 						created_at: '',
@@ -1249,7 +1252,7 @@
 
 	function handleSelectResourceGroup(field: string) {
 		const group = findSpecByGroupKey(promptResources, field);
-		if (!group || resourceItemCount(group) === 0) return;
+		if (!group || resourceItemCount(group, resourceFieldValues) === 0) return;
 		if (resourceSwitchContainer) {
 			resourceGroupField = field;
 			resourceQuery = '';
@@ -2118,10 +2121,11 @@
 			if (!ref) return;
 
 			const state = resourceMarkerState(ref, promptResources, resourceFieldValues, $resourceNumbering);
-			const item =
-				state.spec && state.position !== null
-					? specItems(promptResources, state.spec, resourceFieldValues[ref.field])[state.position - 1]
-					: undefined;
+			const item = state.spec
+				? specItems(promptResources, state.spec, resourceFieldValues[ref.field]).find(
+						(candidate) => mediaItemKey(candidate) === ref.item_key
+					)
+				: undefined;
 
 			const component = mount(PromptResourceChip, {
 				target: container,

@@ -85,7 +85,8 @@ export function shotResourcePositions(
 	caps: DirectorCapabilities,
 	shotId: string,
 	formData: Record<string, unknown> | null | undefined,
-	specs: readonly PromptResourceSpec[]
+	specs: readonly PromptResourceSpec[],
+	include: string | null = null
 ): Map<string, number> {
 	const counts = countResourceReferences(shotReferenceSegmentGroups(doc, caps, shotId));
 	const positions = new Map<string, number>();
@@ -98,7 +99,7 @@ export function shotResourcePositions(
 			const identity = resourceIdentity(field, itemKey);
 			if (seen.has(identity)) continue;
 			seen.add(identity);
-			if (resourceUseCount(counts, field, itemKey) <= 0) continue;
+			if (identity !== include && resourceUseCount(counts, field, itemKey) <= 0) continue;
 			const { kind } = itemSpec(specs, field, item);
 			const position = (perKind[kind] ?? 0) + 1;
 			perKind[kind] = position;
@@ -117,7 +118,13 @@ export function shotResourceNumbering(
 ): ResourceNumbering {
 	const positions = shotResourcePositions(doc, caps, shotId, formData, specs);
 	return {
-		positionFor: (field, itemKey) => positions.get(resourceIdentity(field, itemKey)) ?? null
+		positionFor: (field, itemKey) => positions.get(resourceIdentity(field, itemKey)) ?? null,
+		positionIfAdded: (field, itemKey) => {
+			const identity = resourceIdentity(field, itemKey);
+			const existing = positions.get(identity);
+			if (existing !== undefined) return existing;
+			return shotResourcePositions(doc, caps, shotId, formData, specs, identity).get(identity) ?? null;
+		}
 	};
 }
 

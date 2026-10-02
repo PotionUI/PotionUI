@@ -586,6 +586,10 @@ describe('deriveShotLabel', () => {
 		expect(deriveShotLabel('Lanterns, rain on paper lanterns', 0)).toBe('Lanterns');
 		expect(deriveShotLabel('   ', 2)).toBe('Shot 3');
 	});
+
+	it('shows a resource marker as its item name', () => {
+		expect(deriveShotLabel('the potion from @[references:pool/0-edit.png] on a table', 0)).toBe('the potion from 0-edit on a table');
+	});
 });
 
 // ─── Composition-scoped lanes + unified chain edge keyframes ──────────────

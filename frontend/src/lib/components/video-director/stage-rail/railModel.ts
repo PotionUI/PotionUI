@@ -29,6 +29,7 @@ import {
 	DEFAULT_MAX_KEYFRAMES
 } from '$lib/utils/videoDirector';
 import { sortByStart, neighborBounds, trimSegmentLeft, trimSegmentRight, clamp } from '../timelineCore';
+import { resourceMarkerRegex } from '$lib/utils/promptResources';
 
 // A `doc.timeline.shots` array is never empty in a normalized document (see
 // `normalizeDirectorValue`), but `deriveRailModel` is a pure function of
@@ -217,8 +218,13 @@ function framesToSeconds(frames: number, fps: number): number {
 /** A shot has no name field in the document -- only a prompt. Mirrors the
  * mock's per-shot titles without inventing new document schema: the first
  * clause of the prompt stands in for a name, falling back to an ordinal. */
+function markerLabel(itemKey: string): string {
+	const name = itemKey.replace(/\\/g, '/').split('/').pop() || itemKey;
+	return name.replace(/\.[A-Za-z0-9]{1,5}$/, '').replace(/[,.;\n]/g, ' ');
+}
+
 export function deriveShotLabel(prompt: string, index: number): string {
-	const text = prompt.trim();
+	const text = prompt.replace(resourceMarkerRegex(), (_full, _field: string, itemKey: string) => markerLabel(itemKey)).trim();
 	if (!text) return `Shot ${index + 1}`;
 	const firstClause = text.split(/[,.;\n]/, 1)[0]?.trim() ?? text;
 	const MAX = 40;

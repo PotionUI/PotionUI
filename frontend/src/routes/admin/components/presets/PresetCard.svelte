@@ -46,6 +46,7 @@
 	role="button"
 	tabindex="0"
 	data-preset-card
+	data-cover-host
 	aria-label={preset.name}
 	onclick={() => onOpen(preset)}
 	onkeydown={handleKeydown}

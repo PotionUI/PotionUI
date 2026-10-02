@@ -2565,3 +2565,36 @@ fields:
 
         issues = [i for i in self._lint(tmp_path, samplers=samplers) if "schedule" in i.message.lower()]
         assert issues == []
+
+
+class TestLintVideoCover:
+    MEDIA = """
+media:
+  cover: "public/cover.webm"
+"""
+
+    def _preset(self, tmp_path, name, size):
+        preset_dir = _write_preset(tmp_path, "p", name, ["txt2img"], extra_yaml=self.MEDIA)
+        cover = preset_dir / "public" / "cover.webm"
+        cover.parent.mkdir(parents=True, exist_ok=True)
+        cover.write_bytes(b"\x1a\x45\xdf\xa3" + b"\0" * size)
+
+    def test_small_video_cover_is_clean(self, tmp_path):
+        self._preset(tmp_path, "vid_ok", 100 * 1024)
+        assert PresetLinter([str(tmp_path)]).lint() == []
+
+    def test_missing_video_cover_is_error(self, tmp_path):
+        _write_preset(tmp_path, "p", "vid_missing", ["txt2img"], extra_yaml=self.MEDIA)
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(i.level == "error" and "media.cover" in i.message for i in issues)
+
+    def test_heavy_video_cover_warns_over_budget(self, tmp_path):
+        self._preset(tmp_path, "vid_heavy", 1800 * 1024)
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert any(i.level == "warning" and "video cover" in i.message for i in issues)
+        assert not any(i.level == "error" for i in issues)
+
+    def test_video_cover_over_hard_budget_warns_once(self, tmp_path):
+        self._preset(tmp_path, "vid_huge", 3 * 1024 * 1024)
+        issues = PresetLinter([str(tmp_path)]).lint()
+        assert len([i for i in issues if i.level == "warning"]) == 1

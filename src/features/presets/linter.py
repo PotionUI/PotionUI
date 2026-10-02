@@ -157,6 +157,8 @@ _WAN_GUIDANCE_GENERATOR_PIPES = frozenset({
 # Above this, warn - mirrors the generation thumbnail sizes (image_handler.py), just
 # applied to the source file instead of a generated derivative.
 _MEDIA_MAX_BYTES = 2 * 1024 * 1024
+_COVER_VIDEO_MAX_BYTES = 1536 * 1024
+_COVER_VIDEO_SUFFIXES = frozenset({".mp4", ".webm"})
 _MEDIA_MAX_DIMENSION = 4096
 _MEDIA_RESIZABLE_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".webp"})
 
@@ -3036,6 +3038,19 @@ class PresetLinter:
                 )
             else:
                 issues.extend(self._lint_media_weight(preset_str, label, src, path))
+                if (
+                    label == "media.cover"
+                    and path.suffix.lower() in _COVER_VIDEO_SUFFIXES
+                    and _MEDIA_MAX_BYTES >= path.stat().st_size > _COVER_VIDEO_MAX_BYTES
+                ):
+                    issues.append(
+                        LintIssue(
+                            "warning",
+                            preset_str,
+                            f"{label}: {src} is {path.stat().st_size // 1024} KiB, "
+                            f"over the {_COVER_VIDEO_MAX_BYTES // 1024} KiB budget for a video cover",
+                        )
+                    )
 
             if mode is not None and mode not in declared_modes:
                 issues.append(

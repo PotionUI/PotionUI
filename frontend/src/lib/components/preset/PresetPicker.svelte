@@ -126,6 +126,7 @@
 	on:click={openPicker}
 	disabled={disabled || loading}
 	aria-haspopup="dialog"
+	data-cover-host
 >
 	{#if loading}
 		<Spinner size="sm" />
@@ -136,6 +137,7 @@
 			cover={currentPreset.media?.cover}
 			category={currentPreset.category}
 			size="w-9 h-9"
+			zoom={false}
 		/>
 	{:else}
 		<span class="w-9 h-9 flex items-center justify-center rounded-md bg-surface-3 text-fg-subtle">

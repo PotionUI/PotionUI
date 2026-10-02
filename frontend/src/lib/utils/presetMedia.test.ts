@@ -5,6 +5,7 @@ import {
 	presetAltText,
 	exampleAltText,
 	isVideoExample,
+	isVideoCover,
 	fallbackIconForCategory
 } from './presetMedia';
 
@@ -92,5 +93,21 @@ describe('fallbackIconForCategory', () => {
 		expect(fallbackIconForCategory('utility')).toBe('layers');
 		expect(fallbackIconForCategory(undefined)).toBe('layers');
 		expect(fallbackIconForCategory(null)).toBe('layers');
+	});
+});
+
+describe('isVideoCover', () => {
+	it('recognizes mp4 and webm paths, ignoring case and a query string', () => {
+		expect(isVideoCover('public/cover.webm')).toBe(true);
+		expect(isVideoCover('public/cover.MP4')).toBe(true);
+		expect(isVideoCover('/api/media/presets/p/public/cover.webm?size=small')).toBe(true);
+	});
+
+	it('treats images, empty values and a video name in the query as not video', () => {
+		expect(isVideoCover('public/cover.png')).toBe(false);
+		expect(isVideoCover('public/cover.gif')).toBe(false);
+		expect(isVideoCover('public/cover.png?x=a.webm')).toBe(false);
+		expect(isVideoCover(null)).toBe(false);
+		expect(isVideoCover('')).toBe(false);
 	});
 });

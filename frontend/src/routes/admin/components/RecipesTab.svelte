@@ -510,7 +510,8 @@
 																		presetId={linkedPreset.id}
 																		presetName={linkedPreset.name}
 																		cover={linkedPreset.cover_url ? `${api.getBaseURL()}${linkedPreset.cover_url}` : null}
-																		class="h-5 w-5 rounded"
+																		zoom={false}
+																class="h-5 w-5 rounded"
 																	/>
 																	<span class="max-w-[10rem] truncate text-xs text-fg">{linkedPreset.name}</span>
 																	{#if linkedPreset.installed}

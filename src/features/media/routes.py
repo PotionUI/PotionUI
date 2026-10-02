@@ -297,6 +297,13 @@ class MediaController(BaseController):
                     media_type=result.media_type,
                     headers=result.headers
                 )
+            elif result.media_type.startswith("video/") and result.file_path:
+                headers = {k: v for k, v in result.headers.items() if k.lower() != "content-length"}
+                return FileResponse(
+                    path=result.file_path,
+                    media_type=result.media_type,
+                    headers=headers
+                )
             elif result.use_streaming and result.file_path:
                 return StreamingResponse(
                     self._stream_file(result.file_path),

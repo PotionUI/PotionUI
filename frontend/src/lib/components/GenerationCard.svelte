@@ -712,28 +712,6 @@
 </div>
 
 <style>
-	/* Hover zoom — scale the media inside the fixed, clipped frame so the tile
-	   itself stays put and the image gently pushes toward the viewer. */
-	.media-zoom :global(img),
-	.media-zoom :global(video) {
-		transition: transform 450ms cubic-bezier(0.22, 1, 0.36, 1);
-		will-change: transform;
-	}
-	.group:hover .media-zoom :global(img),
-	.group:hover .media-zoom :global(video) {
-		transform: scale(1.06);
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.media-zoom :global(img),
-		.media-zoom :global(video) {
-			transition: none;
-		}
-		.group:hover .media-zoom :global(img),
-		.group:hover .media-zoom :global(video) {
-			transform: none;
-		}
-	}
-
 	/* Tick-ruler progress bar */
 	.tick-track {
 		position: relative;

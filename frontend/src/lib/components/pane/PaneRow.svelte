@@ -148,6 +148,7 @@
      dynamic prop, so the a11y linter can't verify that statically. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
+	data-cover-host
 	class="pane-row group relative flex items-center {size === 'md'
 		? 'px-4 py-2.5 text-sm border-b border-line/50 last:border-b-0'
 		: 'h-7 px-2 rounded text-xs'} {disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} {size ===

@@ -27,6 +27,12 @@ export function isVideoExample(item: Pick<PresetGalleryItem, 'src'>): boolean {
 	return /\.(mp4|webm)$/i.test(item.src);
 }
 
+export function isVideoCover(cover: string | null | undefined): boolean {
+	if (!cover) return false;
+	const path = cover.split(/[?#]/, 1)[0];
+	return /\.(mp4|webm)$/i.test(path);
+}
+
 /**
  * Maps a preset category to the Icon name used as the fallback glyph when no
  * cover/media is available. Falls back to `layers` (the admin empty-state icon)

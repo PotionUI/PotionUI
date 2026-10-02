@@ -515,12 +515,39 @@ neutral placeholder.
   `modes:`. These are lint checks rather than schema checks on purpose: a renamed mode or a
   missing image should not make the whole preset fail to load.
 
+### Video covers
+
+`media.cover` may be a short clip (`.webm` or `.mp4`) instead of an image, for presets whose
+output moves. Everywhere the cover appears (the preset picker and the chip on Generate, the
+Admin presets grid and detail, the media modal) it shows the first frame as a still and plays
+the clip, muted and looping, while the card is hovered or focused. On touch devices it plays
+while the card is at least half in view. Visitors who prefer reduced motion only ever see the
+still, and a clip that fails to load falls back to the still.
+
+The still is the clip's first frame, rendered by the server (`?size=` on a video returns a JPEG
+poster), so no separate poster file is needed. Make sure the first frame looks good on its own.
+
+| Setting | Guidance |
+| --- | --- |
+| Format | WebM (VP9) or MP4 (H.264). WebM is the safer choice for the widest playback. |
+| Length | 4 seconds or less, authored as a seamless loop. |
+| Size | 1.5 MiB or less; `scripts/preset_lint.py` warns above that for a video cover. |
+| Frame | 16:9, around 640 px wide. Covers are cropped to fit like image covers. |
+| Audio | None. Covers always play muted; strip the audio track. |
+
+```yaml
+media:
+  cover: "public/cover.webm"
+```
+
 ### Serving
 
 Assets are served by `GET /api/media/presets/{preset_id}/{path}`, optionally resized with
 `?size=small|medium|large` (480 / 768 / 1024 px wide). Renders are cached on disk under
 `storage/preset_media/` and keyed by the source file's mtime, so editing an image invalidates
-both the cache entry and the `ETag`. An unknown `size` is a `400`.
+both the cache entry and the `ETag`. An unknown `size` is a `400`. On a video, `?size=` returns
+a JPEG poster of the first frame (this needs `ffmpeg` on the server); without `size` the clip
+itself is served with `Accept-Ranges` and byte-range support, so browsers can stream and loop it.
 
 `GET /api/presets` returns only `media.cover`; the full gallery comes from
 `GET /api/presets/{id}`, so the list payload stays small.

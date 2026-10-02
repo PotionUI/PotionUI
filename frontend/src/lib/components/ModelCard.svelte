@@ -358,24 +358,6 @@
 </div>
 
 <style>
-	/* Hover zoom — scale the media inside the fixed, clipped frame so the tile
-	   itself stays put and the image gently pushes toward the viewer. */
-	.media-zoom :global(img) {
-		transition: transform 450ms cubic-bezier(0.22, 1, 0.36, 1);
-		will-change: transform;
-	}
-	.group:hover .media-zoom :global(img) {
-		transform: scale(1.06);
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.media-zoom :global(img) {
-			transition: none;
-		}
-		.group:hover .media-zoom :global(img) {
-			transform: none;
-		}
-	}
-
 	@property --work-angle {
 		syntax: '<angle>';
 		inherits: false;

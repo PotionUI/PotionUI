@@ -239,27 +239,3 @@
 		</div>
 	</div>
 </div>
-
-<style>
-	/* Hover zoom — same treatment as the generation card: the media scales
-	   inside the clipped frame while the tile itself stays put. */
-	.media-zoom :global(img),
-	.media-zoom :global(video) {
-		transition: transform 450ms cubic-bezier(0.22, 1, 0.36, 1);
-		will-change: transform;
-	}
-	.group:hover .media-zoom :global(img),
-	.group:hover .media-zoom :global(video) {
-		transform: scale(1.06);
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.media-zoom :global(img),
-		.media-zoom :global(video) {
-			transition: none;
-		}
-		.group:hover .media-zoom :global(img),
-		.group:hover .media-zoom :global(video) {
-			transform: none;
-		}
-	}
-</style>

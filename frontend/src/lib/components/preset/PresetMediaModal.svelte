@@ -2,12 +2,13 @@
 	import { createEventDispatcher } from 'svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import PresetExampleCard from './PresetExampleCard.svelte';
+	import PresetCoverMedia from './PresetCoverMedia.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Spinner } from '$lib/components/ui';
 	import { api } from '$lib/services/api/index';
 	import { logger } from '$lib/utils/logger';
 	import { processMarkdown } from '$lib/utils/markdown';
-	import { fallbackIconForCategory, presetAltText } from '$lib/utils/presetMedia';
+	import { fallbackIconForCategory } from '$lib/utils/presetMedia';
 	import type { PresetGalleryItem, PresetInfo } from '$lib/types/api';
 
 	export let isOpen: boolean = false;
@@ -46,9 +47,9 @@
 		dispatch('close');
 	}
 
-	$: coverUrl = preset?.media?.cover
-		? api.getPresetAssetURL(preset.id, preset.media.cover, 'medium')
-		: null;
+	let coverFailed = false;
+	$: preset?.media?.cover, (coverFailed = false);
+	$: cover = preset?.media?.cover && !coverFailed ? preset.media.cover : null;
 	$: fallbackIcon = fallbackIconForCategory(preset?.category);
 	$: descriptionHtml = preset?.description ? processMarkdown(preset.description) : '';
 </script>
@@ -65,9 +66,15 @@
 
 	{#if preset}
 		<!-- Cover banner -->
-		<div class="w-full h-48 bg-surface-2 border-b border-line">
-			{#if coverUrl}
-				<img src={coverUrl} alt={presetAltText(preset.name)} class="w-full h-full object-cover" loading="lazy" />
+		<div class="w-full h-48 bg-surface-2 border-b border-line" data-cover-host>
+			{#if cover}
+				<PresetCoverMedia
+					presetId={preset.id}
+					presetName={preset.name}
+					{cover}
+					variant="medium"
+					onfail={() => (coverFailed = true)}
+				/>
 			{:else}
 				<div class="w-full h-full flex items-center justify-center text-fg-subtle" aria-hidden="true">
 					<Icon name={fallbackIcon} className="w-12 h-12" strokeWidth={1.5} />

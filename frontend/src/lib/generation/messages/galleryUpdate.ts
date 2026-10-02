@@ -3,6 +3,16 @@ import { directorShotIdsFor, withDirectorRunPoster } from './directorRuns';
 import { resolveOwnership } from './ownership';
 import { peekGenerationOutputs, setGenerationOutputs } from './generationOutputs';
 
+function mergeSavedImages(previous: any[], incoming: any[]): any[] {
+	const merged = [...previous];
+	for (const image of incoming) {
+		const at = merged.findIndex((existing) => existing.originalUrl === image.originalUrl);
+		if (at >= 0) merged[at] = image;
+		else merged.push(image);
+	}
+	return merged;
+}
+
 // Gallery updates can contain any combination of images, videos, and audio.
 generationMessageRegistry.register('gallery_update', {
 	type: 'gallery_update',
@@ -22,7 +32,7 @@ generationMessageRegistry.register('gallery_update', {
 		const suppressed = message.preview_suppressed === true;
 
 		if (!suppressed && message.images && Array.isArray(message.images)) {
-			nextImages = message.images.map((img: any, index: number) => {
+			const incomingImages = message.images.map((img: any, index: number) => {
 				// Process image data (could be base64 or URL)
 				let imageUrl: string;
 				if (typeof img === 'string') {
@@ -94,7 +104,13 @@ generationMessageRegistry.register('gallery_update', {
 					content_flagged
 				};
 			});
-
+			const allSaved =
+				incomingImages.length > 0 &&
+				incomingImages.every((_: unknown, index: number) => {
+					const entry = message.image_urls_list?.[index];
+					return !!(entry && (entry.original || entry.path));
+				});
+			nextImages = allSaved ? mergeSavedImages(cached.images, incomingImages) : incomingImages;
 		}
 
 		// Handle final videos. The serializer provides the playable API path on

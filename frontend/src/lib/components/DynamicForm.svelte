@@ -9,7 +9,7 @@
 		extractAllFields,
 		processSchemaWithReactions
 	} from '$lib/form/reactions';
-	import { applyReactionValueChanges } from './dynamicFormReactionApply';
+	import { applyReactionValueChanges, valuesEqual } from './dynamicFormReactionApply';
 	import { getSchemaDefaults } from '$lib/form/defaults';
 	import { applyMergeFrom } from '$lib/form/mergeFrom';
 	import { createLatestRequestGuard, getCachedSchema } from '$lib/form/schemaCache';
@@ -100,6 +100,7 @@
 	$: fieldErrorsStore.set(fieldErrors || {});
 
 	const MAX_REACTION_ROUNDS = 8;
+	let reactionNonConvergenceWarned = false;
 
 	// State
 	let formSchema: any = null;
@@ -153,11 +154,20 @@
 	$: if (formSchema && formData && forceVisibleFieldNames) {
 		let data = formData;
 		let pass = reprocessSchema(formSchema, data, capabilityModelFields, capabilityRevision);
+		let unsettled = false;
 		for (let round = 0; round < MAX_REACTION_ROUNDS && initialLoadComplete; round++) {
 			const applied = applyReactionValueChanges(data, pass.valueChanges);
+			unsettled = applied.changed;
 			if (!applied.changed) break;
 			data = applied.data;
 			pass = reprocessSchema(formSchema, data, capabilityModelFields, capabilityRevision);
+		}
+		if (unsettled && !reactionNonConvergenceWarned) {
+			const stillChanging = Object.keys(pass.valueChanges).filter((name) => !valuesEqual(data[name], pass.valueChanges[name]));
+			if (stillChanging.length) {
+				reactionNonConvergenceWarned = true;
+				console.warn(`Form reactions did not settle after ${MAX_REACTION_ROUNDS} rounds; fields still changing: ${stillChanging.join(', ')}`);
+			}
 		}
 		if (pass.hiddenByCapability.join('|') !== [...capabilityHiddenNames].join('|')) {
 			capabilityHiddenNames = new Set(pass.hiddenByCapability);

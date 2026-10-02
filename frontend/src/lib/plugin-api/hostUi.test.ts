@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getRegistry } from './componentRegistry';
@@ -9,7 +9,19 @@ function uiIndexExports(): string[] {
 	return [...source.matchAll(/export \{ default as (\w+) \}/g)].map((m) => m[1]);
 }
 
+const existing = { mount: () => null, update: () => {}, unmount: () => {} };
+
 describe('host ui component registration', () => {
+	const original = { ...getRegistry() };
+
+	afterEach(() => {
+		const registry = getRegistry();
+		for (const name of Object.keys(registry)) {
+			if (!(name in original)) delete registry[name];
+		}
+		Object.assign(registry, original);
+	});
+
 	it('registers every component exported from the ui index', () => {
 		registerHostUiComponents();
 		const registered = Object.keys(getRegistry());
@@ -40,9 +52,13 @@ describe('host ui component registration', () => {
 
 	it('keeps an already registered component instead of replacing it', () => {
 		const registry = getRegistry();
-		const existing = { mount: () => null, update: () => {}, unmount: () => {} };
 		registry.Button = existing;
 		registerHostUiComponents();
 		expect(registry.Button).toBe(existing);
+	});
+
+	it('does not carry a replaced entry over from the previous test', () => {
+		registerHostUiComponents();
+		expect(getRegistry().Button).not.toBe(existing);
 	});
 });

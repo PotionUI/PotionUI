@@ -1590,6 +1590,11 @@ audience's fields without changing the user's own Simple/Advanced choice. `windo
 message, variant?})` opens the app's confirm dialog and resolves to a boolean, and
 `window.__potionui.notifications.toast(level, message)` shows a toast.
 
+Because registration is automatic, the props of every component in `ui/`, `detail/` and
+`library/` are a public contract: a plugin may pass any of them, so renaming or removing one
+breaks plugins that use it. Treat such a change as an API change and note it in the changelog;
+a component that must stay private belongs outside those folders.
+
 Snippet props cannot cross the bundle boundary, so pass `children` as a string or as
 `(el) => cleanup?` that fills the slot element. Any other snippet prop takes `{ slot: string |
 (el) => cleanup? }`.

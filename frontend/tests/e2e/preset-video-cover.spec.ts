@@ -70,7 +70,7 @@ async function withFixture(run: (familyId: string) => Promise<void>) {
 		writeFixturePreset(presetDir, familyId);
 		await run(familyId);
 	} finally {
-		rmSync(presetDir, { recursive: true, force: true });
+		rmSync(presetDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 	}
 }
 
@@ -111,7 +111,7 @@ test.describe('desktop', () => {
 				expect(await video.evaluate((el: HTMLVideoElement) => el.currentTime)).toBe(0);
 			}
 			const media = card.locator('img, video').first();
-			expect(await media.evaluate((el) => getComputedStyle(el).transform)).toBe('none');
+			await expect.poll(() => media.evaluate((el) => getComputedStyle(el).transform)).toBe('none');
 		});
 	});
 });

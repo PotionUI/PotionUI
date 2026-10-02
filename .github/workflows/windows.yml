@@ -349,14 +349,14 @@ jobs:
           retention-days: 1
 
   e2e:
-    name: HTTP journeys + Playwright UI (Windows, shard ${{ matrix.shard }}/3)
+    name: HTTP journeys + Playwright UI (Windows, shard ${{ matrix.shard }}/6)
     runs-on: windows-latest
     timeout-minutes: 90
     needs: frontend-build
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5, 6]
     env:
       PLAYWRIGHT_BROWSERS_PATH: "0"
     steps:
@@ -453,18 +453,18 @@ jobs:
         if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
         shell: cmd
         run: |
-          python tests/e2e/ui/run.py --skip-build --shard ${{ matrix.shard }}/3 --shard-head-start 1.5 > playwright-windows-${{ matrix.shard }}of3.log 2>&1
+          python tests/e2e/ui/run.py --skip-build --shard ${{ matrix.shard }}/6 --shard-head-start 1.5 > playwright-windows-${{ matrix.shard }}of6.log 2>&1
           set RUN_EXIT=%ERRORLEVEL%
-          type playwright-windows-${{ matrix.shard }}of3.log
+          type playwright-windows-${{ matrix.shard }}of6.log
           exit /b %RUN_EXIT%
 
       - name: Upload E2E logs + artifacts (Windows)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-windows-${{ matrix.shard }}of3
+          name: e2e-windows-${{ matrix.shard }}of6
           path: |
             journeys-windows.log
-            playwright-windows-${{ matrix.shard }}of3.log
+            playwright-windows-${{ matrix.shard }}of6.log
             tests/e2e/ui/artifacts/
           retention-days: 14

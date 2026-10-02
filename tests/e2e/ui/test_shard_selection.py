@@ -46,9 +46,12 @@ def test_chunk_numbers_are_global_and_unique():
 
 
 def test_head_start_moves_work_off_shard_one():
-    plain = run.shard_assignment(9, 3)
-    loaded = run.shard_assignment(9, 3, {1: 1.5})
-    assert plain.count(1) > loaded.count(1)
+    def shard_one_minutes(assignment):
+        return sum(run.CHUNK_MINUTES[i] for i, shard in enumerate(assignment) if shard == 1)
+
+    plain = run.shard_assignment(13, 3)
+    loaded = run.shard_assignment(13, 3, {1: 1.5})
+    assert shard_one_minutes(plain) > shard_one_minutes(loaded)
 
 
 def test_chunk_size_change_still_covers_every_spec():

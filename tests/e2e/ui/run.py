@@ -138,8 +138,8 @@ def chunked(items: List[str], size: int) -> List[List[str]]:
     return solo + [shared[i : i + size] for i in range(0, len(shared), size)]
 
 
-CHUNK_MINUTES = (0.5, 1.9, 1.3, 1.2, 1.4, 1.9, 1.7, 2.0, 0.75)
-DEFAULT_CHUNK_MINUTES = 1.5
+CHUNK_MINUTES = (0.55, 5.2, 2.3, 4.0, 1.8, 1.9, 6.2, 7.0, 5.2, 2.9, 2.9, 3.2, 1.25)
+DEFAULT_CHUNK_MINUTES = 3.0
 
 
 def parse_shard(value: str) -> tuple:

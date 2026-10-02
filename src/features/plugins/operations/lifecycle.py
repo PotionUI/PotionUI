@@ -169,6 +169,7 @@ def enable_plugin(
     # boot hook the startup resync fires for plugins already enabled in the
     # database. Order matters - `enable` is the transition, `boot` follows it.
     registry.run_boot_hook(plugin_id)
+    registry.run_ready_hook(plugin_id)
 
     _rescan_presets_and_pipes(
         preset_loader, pipe_catalog, recipe_catalog, f"enabling plugin '{plugin_id}'", model_layout_catalog

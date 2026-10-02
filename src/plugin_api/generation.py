@@ -4,6 +4,7 @@ from src.features.generation.dto import GenerationRequest
 from src.features.generation.exceptions import GenerationNotFoundException, IdempotencyKeyConflict
 from src.features.generation.file_repository import file_repo
 from src.features.generation.policy import GenerationPolicy
+from src.features.generation.state_lookup import GenerationStateView, resolve_generation_state
 from src.platform.plugins.runtime_registries import get_container
 
 __all__ = [
@@ -63,20 +64,19 @@ def _not_found(generation_id: str) -> GenerationNotFoundException:
     return GenerationNotFoundException(f"Generation '{generation_id}' not found")
 
 
-def _owner_of(container, generation_id: str) -> tuple:
-    record = container.generation_orchestrator.status_tracker.get(generation_id)
-    if record is not None:
-        return True, getattr(record, "user_id", None)
-    generation = container.generation_repository.get_by_id(generation_id)
-    if generation is None:
-        return False, None
-    return True, getattr(generation, "user_id", None)
+def _state_of(container, generation_id: str) -> Optional[GenerationStateView]:
+    return resolve_generation_state(
+        container.generation_orchestrator.status_tracker.get(generation_id),
+        container.generation_repository,
+        generation_id,
+    )
 
 
-def _require_access(container, user, generation_id: str) -> None:
-    exists, owner_id = _owner_of(container, generation_id)
-    if not exists or not GenerationPolicy.can_access(user, owner_id):
+def _require_access(container, user, generation_id: str) -> GenerationStateView:
+    state = _state_of(container, generation_id)
+    if state is None or not GenerationPolicy.can_access(user, state.owner_id):
         raise _not_found(generation_id)
+    return state
 
 
 async def submit_generation(
@@ -105,12 +105,7 @@ async def cancel_generation(user, generation_id: str) -> bool:
 
 
 def generation_state(user, generation_id: str) -> Dict[str, Any]:
-    container = get_container()
-    _require_access(container, user, generation_id)
-    record = container.generation_orchestrator.status_tracker.get(generation_id)
-    if record is not None:
-        return record.model_dump()
-    return container.generation_repository.get_by_id(generation_id).to_dict()
+    return _require_access(get_container(), user, generation_id).payload
 
 
 def _visible_files(container, user, generation_id: str) -> List[Dict[str, Any]]:

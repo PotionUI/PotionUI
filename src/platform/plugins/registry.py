@@ -156,6 +156,8 @@ class PluginRegistry:
         # Plugin storage
         self._plugins: Dict[str, PluginManifest] = {}
         self._plugin_states: Dict[str, PluginState] = {}
+        self._ready_phase_reached = False
+        self._ready_fired: set = set()
         self._plugin_errors: Dict[str, str] = {}
 
         # Discovery state
@@ -1280,17 +1282,24 @@ class PluginRegistry:
             )
 
     def run_ready_hooks(self) -> None:
+        self._ready_phase_reached = True
         for manifest in self.get_enabled_plugins():
-            try:
-                self.hook_chain.execute_for_plugin(
-                    PLUGIN_LIFECYCLE_HOOKS.ready,
-                    manifest.id,
-                    initial_data={"plugin_id": manifest.id},
-                )
-            except Exception as e:
-                logger.error(
-                    f"Error running ready hook for plugin {manifest.id}: {e}", exc_info=True
-                )
+            self.run_ready_hook(manifest.id)
+
+    def run_ready_hook(self, plugin_id: str) -> None:
+        if not self._ready_phase_reached or plugin_id in self._ready_fired:
+            return
+        self._ready_fired.add(plugin_id)
+        try:
+            self.hook_chain.execute_for_plugin(
+                PLUGIN_LIFECYCLE_HOOKS.ready,
+                plugin_id,
+                initial_data={"plugin_id": plugin_id},
+            )
+        except Exception as e:
+            logger.error(
+                f"Error running ready hook for plugin {plugin_id}: {e}", exc_info=True
+            )
 
     def run_boot_hooks(self) -> None:
         """Fire the boot hook for every currently enabled plugin, in registry order."""

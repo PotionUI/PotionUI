@@ -201,7 +201,7 @@ hooks:
 | Hook | Fires |
 |---|---|
 | `plugin.lifecycle.boot` | Once per process, for every enabled plugin — at startup, and right after `enable` when a plugin is enabled at runtime |
-| `plugin.lifecycle.ready` | Once per process, for every enabled plugin, once the event loop is running and generations a previous process left unfinished have been marked failed |
+| `plugin.lifecycle.ready` | Once per process, for every enabled plugin, once the event loop is running and generations a previous process left unfinished have been marked failed — and right after `boot` when a plugin is enabled at runtime |
 | `plugin.lifecycle.enable` | Only on the disabled → enabled transition, **never** at boot |
 | `plugin.lifecycle.disable` | On the enabled → disabled transition, before the plugin's hooks are unregistered |
 

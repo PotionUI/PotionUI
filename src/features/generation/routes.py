@@ -55,6 +55,7 @@ from src.features.generation import (
 )
 from src.features.generation.history_executor import HistoryExecutorSaturated
 from src.features.generation.repository import generation_repo
+from src.features.generation.state_lookup import resolve_generation_state
 from src.features.generation.status_tracker import TERMINAL_STATES
 from src.features.generation.file_repository import file_repo
 
@@ -244,58 +245,24 @@ class GenerationController(BaseController):
                 message=f"Failed to preview memory: {str(e)}"
             )
 
-    async def _resolve_generation_owner(self, generation_id: str):
-        """Resolve the owning user id for a generation.
-
-        Checks the live status tracker first (active generations), then falls
-        back to the history database. Returns ``(exists, owner_id)`` where
-        ``exists`` is False when the generation is unknown in both places.
-        """
-        record = await self.generation_orchestrator.get_generation_status(generation_id)
-        if record is not None:
-            return True, getattr(record, "user_id", None)
-
-        generation = generation_repo.get_by_id(generation_id)
-        if generation is not None:
-            return True, getattr(generation, "user_id", None)
-
-        return False, None
+    async def _resolve_generation_state(self, generation_id: str):
+        live = await self.generation_orchestrator.get_generation_status(generation_id)
+        return resolve_generation_state(live, generation_repo, generation_id)
 
     async def get_generation_status(self, generation_id: str, current_user) -> APIResponse:
         """Get status of a specific generation"""
-        status = await self.generation_orchestrator.get_generation_status(generation_id)
-
-        if not status:
-            # The status tracker is in-memory: uploaded generations never enter
-            # it, and finished runs fall out on restart/prune. A generation that
-            # still has a DB row must not report not-found - the frontend's
-            # reload-restore path takes a 404 as "gone" and silently drops the
-            # tab's completed result.
-            generation = generation_repo.get_by_id(generation_id)
-            if generation is None:
-                return self.error_response(
-                    error="generation_not_found",
-                    message=f"Generation '{generation_id}' not found",
-                    status_code=404
-                )
-            if not GenerationPolicy.can_access(current_user, getattr(generation, "user_id", None)):
-                return self.error_response(
-                    error="generation_not_found",
-                    message=f"Generation '{generation_id}' not found",
-                    status_code=404
-                )
-            return self.success_response(data=generation.to_dict())
+        state = await self._resolve_generation_state(generation_id)
 
         # Return 404 (not 403) for a non-owner: a 403 would confirm that the
         # generation id exists and belongs to someone else.
-        if not GenerationPolicy.can_access(current_user, getattr(status, "user_id", None)):
+        if state is None or not GenerationPolicy.can_access(current_user, state.owner_id):
             return self.error_response(
                 error="generation_not_found",
                 message=f"Generation '{generation_id}' not found",
                 status_code=404
             )
 
-        return self.success_response(data=status.model_dump())
+        return self.success_response(data=state.payload)
 
     async def get_generation_profile(
         self, generation_id: str, current_user, file: Optional[str] = None,
@@ -402,8 +369,8 @@ class GenerationController(BaseController):
         # non-owner so the response can't be used to probe for the existence of
         # another user's generation ids. This runs outside the try/except below
         # so the 404 isn't swallowed and re-wrapped as a generic cancel error.
-        exists, owner_id = await self._resolve_generation_owner(generation_id)
-        if exists and not GenerationPolicy.can_access(current_user, owner_id):
+        state = await self._resolve_generation_state(generation_id)
+        if state is not None and not GenerationPolicy.can_access(current_user, state.owner_id):
             return self.error_response(
                 error="generation_not_found",
                 message=f"Generation '{generation_id}' not found",

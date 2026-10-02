@@ -107,6 +107,29 @@ class TestPluginReadyHook(unittest.TestCase):
 
         self.assertEqual(sorted(self._events()), ["aaa-broken:ready:aaa-broken", "bbb-healthy:ready:bbb-healthy"])
 
+    def test_a_plugin_enabled_after_startup_is_notified_once(self):
+        self._create_plugin("plugin-a")
+        self._create_plugin("plugin-late")
+        self.assertTrue(self.registry.enable_plugin("plugin-a"))
+        self.registry.run_ready_hooks()
+        self.assertTrue(self.registry.enable_plugin("plugin-late"))
+
+        self.registry.run_ready_hook("plugin-late")
+        self.registry.run_ready_hook("plugin-late")
+        self.registry.run_ready_hook("plugin-a")
+
+        self.assertEqual(sorted(self._events()), ["plugin-a:ready:plugin-a", "plugin-late:ready:plugin-late"])
+
+    def test_a_single_ready_hook_waits_for_the_startup_phase(self):
+        self._create_plugin("plugin-a")
+        self.assertTrue(self.registry.enable_plugin("plugin-a"))
+
+        self.registry.run_ready_hook("plugin-a")
+        self.assertEqual(self._events(), [])
+
+        self.registry.run_ready_hooks()
+        self.assertEqual(self._events(), ["plugin-a:ready:plugin-a"])
+
     def test_the_lifespan_fires_the_hook_once_right_after_the_reconciliation(self):
         tree = ast.parse((ROOT / "src/bootstrap/app.py").read_text())
         lifespan = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "lifespan")

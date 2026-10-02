@@ -123,10 +123,7 @@ def test_enable_plugin_success(mock_plugin_repo, mock_plugin_registry, sample_pl
     mock_plugin_registry.enable_plugin.assert_called_once_with("test-plugin-1")
 
 
-def test_enable_plugin_fires_enable_then_boot(mock_plugin_repo, mock_plugin_registry, sample_plugin):
-    """A runtime enable owes the plugin both lifecycle events, in that order:
-    `enable` is the transition, `boot` the per-process init it would otherwise
-    only get on the next restart."""
+def test_enable_plugin_fires_enable_then_boot_then_ready(mock_plugin_repo, mock_plugin_registry, sample_plugin):
     # Arrange
     mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
     mock_plugin_repo.enable_plugin.return_value = True
@@ -140,12 +137,13 @@ def test_enable_plugin_fires_enable_then_boot(mock_plugin_repo, mock_plugin_regi
     # Assert
     lifecycle_calls = [
         call for call in mock_plugin_registry.mock_calls
-        if call[0] in ("hook_chain.execute", "run_boot_hook")
+        if call[0] in ("hook_chain.execute", "run_boot_hook", "run_ready_hook")
     ]
-    assert [call[0] for call in lifecycle_calls] == ["hook_chain.execute", "run_boot_hook"]
+    assert [call[0] for call in lifecycle_calls] == ["hook_chain.execute", "run_boot_hook", "run_ready_hook"]
     assert lifecycle_calls[0][1][0] == "plugin.lifecycle.enable"
     assert lifecycle_calls[0][2]["initial_data"] == {"plugin_id": "test-plugin-1"}
     assert lifecycle_calls[1][1] == ("test-plugin-1",)
+    assert lifecycle_calls[2][1] == ("test-plugin-1",)
 
 
 def test_disable_plugin_does_not_fire_boot(mock_plugin_repo, mock_plugin_registry, sample_plugin):

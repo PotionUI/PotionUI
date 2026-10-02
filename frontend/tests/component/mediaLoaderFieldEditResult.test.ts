@@ -232,7 +232,7 @@ describe('MediaLoaderField × the shared editors', () => {
 		);
 	});
 
-	it('copies a generated image into the library before editing it', async () => {
+	it('adds a generated image to the library only as its edited result', async () => {
 		// The field's value may point at generated media, which is not a
 		// resource at all - and every edit is server-side.
 		listGenerationMedia.mockResolvedValue({
@@ -275,14 +275,15 @@ describe('MediaLoaderField × the shared editors', () => {
 		await pickTool(target, 'crop');
 		await settle();
 
-		expect(copyGenerationFileToLibrary).toHaveBeenCalledWith('file-3');
-		expect(target.textContent).toContain('a copy was added to your library');
+		expect(copyGenerationFileToLibrary).not.toHaveBeenCalled();
+		expect(target.textContent).toContain('Saves the edited copy to your Library');
 
 		buttonByText(target, '1:1')!.click();
 		await settle();
 		buttonByText(target, 'Save as new')!.click();
 		await settle();
 
+		expect(copyGenerationFileToLibrary).toHaveBeenCalledWith('file-3');
 		expect(editMediaItem.mock.calls[0][0]).toBe('copied-1');
 		expect(onChange.mock.calls.at(-1)?.[1]).toMatchObject({
 			relative_path: 'uploads/cropped.png',

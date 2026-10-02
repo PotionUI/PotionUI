@@ -17,8 +17,9 @@
 	 * Because every edit is server-side, every source needs a library resource
 	 * behind it. A Library row already is one; a field value pointing into
 	 * `uploads/` is one that has to be found; a generated file is not one at all
-	 * and is copied into the library first, which the editor says out loud
-	 * rather than doing silently.
+	 * and is copied into the library only when an edit is saved, as a draft that
+	 * becomes the edited result (or is removed once a frame or split has been
+	 * taken from it), so the unedited file never stays in the library.
 	 *
 	 * Nothing that leaves here is a blob URL - `URL.createObjectURL` handles die
 	 * with the document, and a persisted one is a reference that 404s after a
@@ -33,7 +34,11 @@
 	import SplitEditor from './SplitEditor.svelte';
 	import PaintEditor from '$lib/components/imageEditor/PaintEditor.svelte';
 	import { decideMaskFate } from '$lib/components/imageEditor/maskPolicy';
-	import { resolveEditableResource, type ResourceOrigin } from './editorSource';
+	import {
+		materializeGeneratedFile,
+		resolveEditableResource,
+		type ResourceOrigin
+	} from './editorSource';
 	import { describeEditFailure } from './editErrors';
 	import { dataUrlToFile } from './maskFile';
 	import {
@@ -57,6 +62,7 @@
 	let busy = false;
 	let failure: string | null = null;
 	let resolvedItemId: string | null = null;
+	let pendingFileId: string | null = null;
 	let resourceOrigin: ResourceOrigin | null = null;
 	let resourceReason: string | null = null;
 	let resolving = false;
@@ -76,6 +82,7 @@
 		failure = null;
 		frameHandoff = null;
 		resolvedItemId = null;
+		pendingFileId = null;
 		resourceOrigin = null;
 		resourceReason = null;
 		resolving = false;
@@ -96,6 +103,7 @@
 			// this resource to whatever is open now.
 			if (lastRequest !== next) return;
 			resolvedItemId = resolved.itemId;
+			pendingFileId = resolved.generationFileId;
 			resourceOrigin = resolved.origin;
 			resourceReason = resolved.reason;
 		} finally {
@@ -108,20 +116,20 @@
 	// flight would be wrong for the second it takes.
 	$: blockedReason = !kind || !editsTheResource(kind)
 		? null
-		: resolvedItemId
+		: resolvedItemId || pendingFileId
 			? null
 			: resolving
 				? 'Preparing this media…'
 				: resourceReason;
 
 	/**
-	 * Named when the editors made the resource themselves. Editing a generated
-	 * file means adding it to the library, and a user who did not ask for that
-	 * should still be told it happened.
+	 * Named when the source is a generated file: only the edited result is
+	 * added to the library, and a user who did not ask for that should still
+	 * be told it will happen.
 	 */
 	$: resourceNote =
-		resourceOrigin === 'copied'
-			? 'This was generated, so a copy was added to your library — the generation is untouched.'
+		resourceOrigin === 'pending'
+			? 'Saves the edited copy to your Library'
 			: null;
 
 	/**
@@ -202,25 +210,64 @@
 			};
 		}
 
-		if (!resolvedItemId) throw new Error(resourceReason || 'There is nothing to edit yet');
+		if (resolvedItemId) return applyToResource(resolvedItemId, commitRequest, false);
+		if (!pendingFileId) throw new Error(resourceReason || 'There is nothing to edit yet');
 
+		const draftId = await materializeGeneratedFile(pendingFileId);
+		try {
+			return await applyToResource(draftId, commitRequest, true);
+		} catch (error) {
+			await discardDraft(draftId);
+			throw error;
+		}
+	}
+
+	async function discardDraft(itemId: string) {
+		try {
+			await api.deleteLibraryItem(itemId);
+		} catch (error) {
+			logger.error('Failed to remove the draft library copy:', error);
+		}
+	}
+
+	async function applyToResource(
+		itemId: string,
+		commitRequest: EditorCommitRequest,
+		isDraft: boolean
+	): Promise<MediaEditorResult> {
 		if (commitRequest.via === 'split') {
-			const split = await api.splitMediaItem(resolvedItemId, commitRequest.partSeconds);
+			const split = await api.splitMediaItem(itemId, commitRequest.partSeconds);
 			if (!split.success || !split.data) {
 				throw new Error(split.message || 'The split could not be applied');
 			}
+			if (isDraft) await discardDraft(itemId);
 			return { type: 'items', items: split.data.items };
 		}
 
-		const response =
-			commitRequest.via === 'operations'
-				? await api.editMediaItem(resolvedItemId, commitRequest.operations, commitRequest.mode)
-				: await api.extractMediaFrame(resolvedItemId, commitRequest.timeSeconds);
+		if (commitRequest.via === 'frame') {
+			const frame = await api.extractMediaFrame(itemId, commitRequest.timeSeconds);
+			if (!frame.success || !frame.data) {
+				throw new Error(frame.message || 'The edit could not be applied');
+			}
+			if (isDraft) await discardDraft(itemId);
+			return { type: 'item', item: frame.data.item, replaced: frame.data.replaced };
+		}
 
+		if (commitRequest.via !== 'operations') throw new Error('There is nothing to edit yet');
+
+		const response = await api.editMediaItem(
+			itemId,
+			commitRequest.operations,
+			isDraft ? 'replace' : commitRequest.mode
+		);
 		if (!response.success || !response.data) {
 			throw new Error(response.message || 'The edit could not be applied');
 		}
-		return { type: 'item', item: response.data.item, replaced: response.data.replaced };
+		return {
+			type: 'item',
+			item: response.data.item,
+			replaced: isDraft ? false : response.data.replaced
+		};
 	}
 </script>
 

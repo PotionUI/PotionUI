@@ -13,8 +13,9 @@
  *   just-uploaded file and a just-picked library item are both near the front -
  *   and the page cap bounds the worst case rather than walking a whole library.
  * - `generations/<date>/<id>/0.png` is not a row at all. A generated file has
- *   no resource to edit, so one is made: the same copy-into-library the history
- *   view offers, run on the user's behalf. A copy, never a move - the
+ *   no resource to edit, so a draft one is made on save: the same
+ *   copy-into-library the history view offers, run on the user's behalf.
+ *   Opening only identifies the file, so cancelling creates nothing. A copy, never a move - the
  *   generation and its files stay exactly as they were.
  */
 
@@ -81,10 +82,11 @@ export function matchGenerationFileId(
 }
 
 /** How a source came to have a row, so the editor can say what it did. */
-export type ResourceOrigin = 'given' | 'found' | 'copied';
+export type ResourceOrigin = 'given' | 'found' | 'pending';
 
 export interface ResolvedResource {
 	itemId: string | null;
+	generationFileId: string | null;
 	origin: ResourceOrigin | null;
 	/** Why there is no resource, when there is none. */
 	reason: string | null;
@@ -102,25 +104,29 @@ export async function resolveEditableResource(
 	storedPath: string | null | undefined,
 	mediaKind: EditorMediaKind
 ): Promise<ResolvedResource> {
-	if (itemId) return { itemId, origin: 'given', reason: null };
+	if (itemId) return { itemId, generationFileId: null, origin: 'given', reason: null };
 
 	const uploadFilename = uploadFilenameFromPath(storedPath);
 	if (uploadFilename) {
 		const found = await findUploadId(uploadFilename, mediaKind);
 		return found
-			? { itemId: found, origin: 'found', reason: null }
-			: { itemId: null, origin: null, reason: NOT_RESOLVED };
+			? { itemId: found, generationFileId: null, origin: 'found', reason: null }
+			: unresolved();
 	}
 
 	const locator = generationLocatorFromPath(storedPath);
 	if (locator) {
-		const copied = await copyGeneratedFile(locator.generationId, locator.filename);
-		return copied
-			? { itemId: copied, origin: 'copied', reason: null }
-			: { itemId: null, origin: null, reason: NOT_RESOLVED };
+		const fileId = await findGeneratedFileId(locator.generationId, locator.filename);
+		return fileId
+			? { itemId: null, generationFileId: fileId, origin: 'pending', reason: null }
+			: unresolved();
 	}
 
-	return { itemId: null, origin: null, reason: NOT_RESOLVED };
+	return unresolved();
+}
+
+function unresolved(): ResolvedResource {
+	return { itemId: null, generationFileId: null, origin: null, reason: NOT_RESOLVED };
 }
 
 async function findUploadId(filename: string, mediaKind: EditorMediaKind): Promise<string | null> {
@@ -145,22 +151,24 @@ async function findUploadId(filename: string, mediaKind: EditorMediaKind): Promi
 	return null;
 }
 
-async function copyGeneratedFile(
+async function findGeneratedFileId(
 	generationId: string,
 	filename: string
 ): Promise<string | null> {
 	try {
 		const listing = await api.listGenerationMedia(generationId);
 		if (!listing.success || !listing.data) return null;
-
-		const fileId = matchGenerationFileId(listing.data.media, filename);
-		if (!fileId) return null;
-
-		const copied = await api.copyGenerationFileToLibrary(fileId);
-		if (!copied.success || !copied.data) return null;
-		return copied.data.item.id;
+		return matchGenerationFileId(listing.data.media, filename);
 	} catch (error) {
-		logger.error('Failed to copy a generated file into the library for editing:', error);
+		logger.error('Failed to look up a generated file for editing:', error);
 		return null;
 	}
+}
+
+export async function materializeGeneratedFile(fileId: string): Promise<string> {
+	const copied = await api.copyGenerationFileToLibrary(fileId);
+	if (!copied.success || !copied.data) {
+		throw new Error(copied.message || 'This media could not be added to your library');
+	}
+	return copied.data.item.id;
 }

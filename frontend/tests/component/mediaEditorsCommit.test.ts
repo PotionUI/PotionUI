@@ -22,6 +22,7 @@ const listUploads = vi.fn();
 const listGenerationMedia = vi.fn();
 const copyGenerationFileToLibrary = vi.fn();
 const uploadMedia = vi.fn();
+const deleteLibraryItem = vi.fn();
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -31,7 +32,8 @@ vi.mock('$lib/services/api/index', () => ({
 		listUploads: (...args: unknown[]) => listUploads(...args),
 		listGenerationMedia: (...args: unknown[]) => listGenerationMedia(...args),
 		copyGenerationFileToLibrary: (...args: unknown[]) => copyGenerationFileToLibrary(...args),
-		uploadMedia: (...args: unknown[]) => uploadMedia(...args)
+		uploadMedia: (...args: unknown[]) => uploadMedia(...args),
+		deleteLibraryItem: (...args: unknown[]) => deleteLibraryItem(...args)
 	}
 }));
 
@@ -104,6 +106,8 @@ beforeEach(() => {
 	listGenerationMedia.mockReset();
 	copyGenerationFileToLibrary.mockReset();
 	uploadMedia.mockReset();
+	deleteLibraryItem.mockReset();
+	deleteLibraryItem.mockResolvedValue({ success: true });
 	listGenerationMedia.mockResolvedValue({ success: false });
 	copyGenerationFileToLibrary.mockResolvedValue({ success: false });
 	uploadMedia.mockResolvedValue({
@@ -284,46 +288,6 @@ describe('trim editor', () => {
 		expect(buttonByText(target, 'Save as new')!.disabled).toBe(true);
 	});
 
-	it('copies a generated clip into the library first, and says so', async () => {
-		// A generated file is not a resource, and every edit is server-side - so
-		// one is made rather than refusing to edit generated media at all.
-		listGenerationMedia.mockResolvedValue({
-			success: true,
-			data: { media: [{ id: 'file-7', filename: '0.mp4' }] }
-		});
-		copyGenerationFileToLibrary.mockResolvedValue({
-			success: true,
-			data: { item: { id: 'copied-row', filename: 'copy.mp4' } }
-		});
-
-		const target = mount({
-			request: {
-				kind: 'trim',
-				source: {
-					...clipSource,
-					itemId: null,
-					storedPath: 'outputs/2026-08-13/01KABC/0.mp4'
-				},
-				itemIndex: null
-			},
-			onClose: vi.fn(),
-			onResult: vi.fn()
-		});
-		await settle();
-
-		expect(listGenerationMedia).toHaveBeenCalledWith('01KABC');
-		expect(copyGenerationFileToLibrary).toHaveBeenCalledWith('file-7');
-		// Adding to the library on the user's behalf is announced, not silent.
-		expect(target.textContent).toContain('a copy was added to your library');
-
-		nudgeOut(target);
-		await settle();
-		buttonByText(target, 'Save as new')!.click();
-		await settle();
-
-		expect(editMediaItem.mock.calls[0][0]).toBe('copied-row');
-	});
-
 	it('explains itself rather than offering a save when nothing can be prepared', async () => {
 		listGenerationMedia.mockResolvedValue({ success: true, data: { media: [] } });
 
@@ -374,6 +338,142 @@ describe('trim editor', () => {
 
 		expect(listUploads).toHaveBeenCalledWith(expect.objectContaining({ mediaType: 'video' }));
 		expect(editMediaItem.mock.calls[0][0]).toBe('row-77');
+	});
+});
+
+describe('generated media', () => {
+	const generatedPath = 'outputs/2026-08-13/01KABC/0.png';
+	const cases = [
+		{
+			kind: 'crop' as const,
+			source: { ...imageSource, itemId: null, storedPath: generatedPath },
+			filename: '0.png',
+			prepare: async (target: HTMLElement) => {
+				buttonByText(target, '1:1')!.click();
+				await settle();
+			},
+			save: 'Save as new'
+		},
+		{
+			kind: 'trim' as const,
+			source: { ...clipSource, itemId: null, storedPath: 'outputs/2026-08-13/01KABC/0.mp4' },
+			filename: '0.mp4',
+			prepare: async (target: HTMLElement) => {
+				const handle = Array.from(target.querySelectorAll('button')).find(
+					(button) => button.getAttribute('aria-label') === 'Trim out point'
+				);
+				handle!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+				await settle();
+			},
+			save: 'Save as new'
+		},
+		{
+			kind: 'frame' as const,
+			source: { ...clipSource, itemId: null, storedPath: 'outputs/2026-08-13/01KABC/0.mp4' },
+			filename: '0.mp4',
+			prepare: async () => {},
+			save: 'Save frame'
+		}
+	];
+
+	beforeEach(() => {
+		copyGenerationFileToLibrary.mockResolvedValue({
+			success: true,
+			data: { item: { id: 'draft-row', filename: 'copy' } }
+		});
+	});
+
+	describe.each(cases)('$kind', ({ kind, source, filename, prepare, save }) => {
+		function open(onClose = vi.fn(), onResult = vi.fn()) {
+			listGenerationMedia.mockResolvedValue({
+				success: true,
+				data: { media: [{ id: 'file-7', filename }] }
+			});
+			return mount({ request: { kind, source, itemIndex: null }, onClose, onResult });
+		}
+
+		it('adds nothing to the library when opened and cancelled', async () => {
+			const onClose = vi.fn();
+			const target = open(onClose);
+			await settle();
+
+			expect(target.textContent).toContain('Saves the edited copy to your Library');
+			buttonByText(target, 'Cancel')!.click();
+			await settle();
+
+			expect(onClose).toHaveBeenCalled();
+			expect(copyGenerationFileToLibrary).not.toHaveBeenCalled();
+			expect(uploadMedia).not.toHaveBeenCalled();
+		});
+
+		it('makes one draft copy on save and edits it, leaving no unedited file behind', async () => {
+			const target = open();
+			await settle();
+			await prepare(target);
+
+			buttonByText(target, save)!.click();
+			await settle();
+
+			expect(copyGenerationFileToLibrary).toHaveBeenCalledTimes(1);
+			expect(copyGenerationFileToLibrary).toHaveBeenCalledWith('file-7');
+			if (kind === 'frame') {
+				expect(extractMediaFrame).toHaveBeenCalledWith('draft-row', 0);
+				expect(deleteLibraryItem).toHaveBeenCalledWith('draft-row');
+			} else {
+				expect(editMediaItem.mock.calls[0][0]).toBe('draft-row');
+				expect(editMediaItem.mock.calls[0][2]).toBe('replace');
+				expect(deleteLibraryItem).not.toHaveBeenCalled();
+			}
+		});
+
+		it('keeps the editor open and removes the draft when the edit fails', async () => {
+			editMediaItem.mockRejectedValue(new Error('The edit failed'));
+			extractMediaFrame.mockRejectedValue(new Error('The edit failed'));
+			const onClose = vi.fn();
+			const target = open(onClose);
+			await settle();
+			await prepare(target);
+
+			buttonByText(target, save)!.click();
+			await settle();
+
+			expect(target.textContent).toContain('The edit failed');
+			expect(onClose).not.toHaveBeenCalled();
+			expect(deleteLibraryItem).toHaveBeenCalledWith('draft-row');
+		});
+
+		it('keeps the editor open when the copy fails', async () => {
+			copyGenerationFileToLibrary.mockResolvedValue({ success: false, message: 'Disk is full' });
+			const onClose = vi.fn();
+			const target = open(onClose);
+			await settle();
+			await prepare(target);
+
+			buttonByText(target, save)!.click();
+			await settle();
+
+			expect(target.textContent).toContain('Disk is full');
+			expect(onClose).not.toHaveBeenCalled();
+			expect(editMediaItem).not.toHaveBeenCalled();
+			expect(extractMediaFrame).not.toHaveBeenCalled();
+		});
+
+		it('never copies a library item', async () => {
+			const libraryItem = kind === 'crop' ? imageSource : clipSource;
+			const target = mount({
+				request: { kind, source: libraryItem, itemIndex: null },
+				onClose: vi.fn(),
+				onResult: vi.fn()
+			});
+			await settle();
+			await prepare(target);
+			buttonByText(target, save)!.click();
+			await settle();
+
+			expect(copyGenerationFileToLibrary).not.toHaveBeenCalled();
+			expect(deleteLibraryItem).not.toHaveBeenCalled();
+			expect(target.textContent).not.toContain('Saves the edited copy');
+		});
 	});
 });
 

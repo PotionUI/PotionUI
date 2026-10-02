@@ -1,6 +1,6 @@
 pipeline:
   - name: "model_loader/qwen_image21"
-    enabled: "{{ not ((form.guide | default('canny')) not in ('none', 'grayscale') and (form.guide_extract | default(true)) and (form.guide_only | default(false))) }}"
+    enabled: &not_guide_only "{{ not ((form.guide | default('canny')) not in ('none', 'grayscale') and (form.guide_extract | default(true)) and (form.guide_only | default(false))) }}"
     configuration:
       diffusion_model:
         file_path: "{{ form.diffusion_model }}"
@@ -69,7 +69,7 @@ pipeline:
   - name: "prompt_encoder"
     input:
       - ["text_encoder", "model_loader/qwen_image21", "text_encoder"]
-    enabled: "{{ not ((form.guide | default('canny')) not in ('none', 'grayscale') and (form.guide_extract | default(true)) and (form.guide_only | default(false))) }}"
+    enabled: *not_guide_only
     configuration:
       p_prompt:
         input: "{{ generation.prompts.first.positive }}"
@@ -82,21 +82,21 @@ pipeline:
       guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
 
   - name: "seed_generator"
-    enabled: "{{ not ((form.guide | default('canny')) not in ('none', 'grayscale') and (form.guide_extract | default(true)) and (form.guide_only | default(false))) }}"
+    enabled: *not_guide_only
     configuration:
       seed: "{{ form.seed }}"
       quantity: "{{ form.quantity }}"
 
   - name: "dynamic_prompts_renderer"
     id: "dynamic_prompts_renderer"
-    enabled: "{{ not ((form.guide | default('canny')) not in ('none', 'grayscale') and (form.guide_extract | default(true)) and (form.guide_only | default(false))) }}"
+    enabled: *not_guide_only
     configuration:
       pairs: "{{ generation.prompts.pairs }}"
       quantity: "{{ form.quantity }}"
 
   - name: "from_iotype"
     id: "from_iotype"
-    enabled: "{{ not ((form.guide | default('canny')) not in ('none', 'grayscale') and (form.guide_extract | default(true)) and (form.guide_only | default(false))) }}"
+    enabled: *not_guide_only
     input:
       - ["seed", "seed_generator", "seed"]
     configuration:
@@ -104,7 +104,7 @@ pipeline:
 
   - name: "param_emitter"
     id: "param_emitter"
-    enabled: "{{ not ((form.guide | default('canny')) not in ('none', 'grayscale') and (form.guide_extract | default(true)) and (form.guide_only | default(false))) }}"
+    enabled: *not_guide_only
     input:
       - ["seed", "from_iotype", "seed"]
     configuration:
@@ -140,7 +140,7 @@ pipeline:
       - ["control_image", "{% set g = form.guide | default('canny') %}{% if g in ('none', 'grayscale') or (form.guide_extract | default(true)) %}controlnet_preprocessor{% elif (form.guide_from_other | default(false)) %}guide_loader{% else %}source_loader{% endif %}", "image"]
       - ["inpaint_image", "inpaint_loader", "image"]
       - ["inpaint_mask", "mask_loader", "image"]
-    enabled: "{{ not ((form.guide | default('canny')) not in ('none', 'grayscale') and (form.guide_extract | default(true)) and (form.guide_only | default(false))) }}"
+    enabled: *not_guide_only
     configuration:
       mode: "control"
       control_strength: "{{ form.control_strength }}"
@@ -163,13 +163,13 @@ pipeline:
     input:
       - ["image", "generator/qwen_image21", "image"]
       - ["seed", "seed_generator", "seed"]
-    enabled: "{{ not ((form.guide | default('canny')) not in ('none', 'grayscale') and (form.guide_extract | default(true)) and (form.guide_only | default(false))) }}"
+    enabled: *not_guide_only
 
   - name: "gallery"
     id: "guide_gallery"
     input:
       - ["image", "controlnet_preprocessor", "image"]
-    enabled: "{{ ((form.guide | default('canny')) not in ('none', 'grayscale') and (form.guide_extract | default(true)) and (form.guide_only | default(false))) or ((form.guide | default('canny')) not in ('none', 'grayscale') and (form.guide_extract | default(true)) and (form.guide_save | default(false))) }}"
+    enabled: "{{ (form.guide | default('canny')) not in ('none', 'grayscale') and (form.guide_extract | default(true)) and ((form.guide_only | default(false)) or (form.guide_save | default(false))) }}"
     configuration:
-      derived: "{{ not ((form.guide | default('canny')) not in ('none', 'grayscale') and (form.guide_extract | default(true)) and (form.guide_only | default(false))) }}"
+      derived: *not_guide_only
       label: "Guide: {{ {'canny': 'Canny', 'depth': 'Depth', 'openpose': 'Pose', 'lineart': 'Lineart', 'hed': 'HED', 'mlsd': 'MLSD', 'scribble': 'Scribble'}.get(form.guide | default('canny'), 'Guide') }}"

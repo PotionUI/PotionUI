@@ -173,7 +173,7 @@
 						navigate: (path: string) => goto(path),
 						headerActions: headerActionsEl,
 						setHeaderTitleHidden: headerControls.setTitleHidden,
-					setHeaderHidden: headerControls.setHidden
+						setHeaderHidden: headerControls.setHidden
 					}
 				});
 			}
@@ -219,28 +219,27 @@
 	{:else}
 		<!-- Header -->
 		<div class:hidden={headerHidden}>
-		<PageHeader sticky={false}>
-			<div class="flex items-center gap-6 w-full min-w-0">
-				{#if !titleHidden}
-				<PageTitle title={pageInfo?.label || 'Plugin'}>
-					{#snippet leading()}
-						{#if pageInfo?.icon_svg}
-							<svg class="w-5 h-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={pageInfo.icon_svg} />
-							</svg>
-						{:else}
-							<svg class="w-5 h-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
-							</svg>
-						{/if}
-					{/snippet}
-				</PageTitle>
-				{/if}
+			<PageHeader sticky={false}>
+				<div class="flex items-center gap-6 w-full min-w-0">
+					{#if !titleHidden}
+					<PageTitle title={pageInfo?.label || 'Plugin'}>
+						{#snippet leading()}
+							{#if pageInfo?.icon_svg}
+								<svg class="w-5 h-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={pageInfo.icon_svg} />
+								</svg>
+							{:else}
+								<svg class="w-5 h-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
+								</svg>
+							{/if}
+						{/snippet}
+					</PageTitle>
+					{/if}
 
-				<!-- Plugin-provided header actions -->
-				<div bind:this={headerActionsEl} class="flex items-center gap-3 flex-1 min-w-0"></div>
-			</div>
-		</PageHeader>
+					<div bind:this={headerActionsEl} class="flex items-center gap-3 flex-1 min-w-0"></div>
+				</div>
+			</PageHeader>
 		</div>
 
 		<!-- Plugin Content -->

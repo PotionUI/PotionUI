@@ -25,7 +25,7 @@
 	import { nsfwFilterStore, visibleMediaFiles, shouldBlurFile, isUnratedFile } from '$lib/stores/nsfwFilter';
 	import { nsfwRevealStore, revealKey } from '$lib/stores/nsfwReveal';
 	import { pickActiveGeneration, needsDetailFetch } from '$lib/utils/generationDetail';
-	import { Badge, Button, Spinner, CopyButton, IconButton } from '$lib/components/ui';
+	import { Badge, Button, Spinner, CopyButton, IconButton, Switch } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import PublishToInspirationsModal from './PublishToInspirationsModal.svelte';
 	import MediaEditors from '$lib/media/editors/MediaEditors.svelte';
@@ -966,12 +966,12 @@
 									{#each section.rows as row (row.id)}
 										<li>
 											<label class="flex min-h-[2.25rem] cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm text-fg {row.disabled ? 'opacity-60' : ''}">
-												<input
-													type="checkbox"
+												<Switch
+													size="sm"
 													checked={row.checked}
 													disabled={row.disabled}
-													aria-label={row.label}
-													on:change={(event) => row.onToggle(event.currentTarget.checked)}
+													label={row.label}
+													onchange={(checked) => row.onToggle(checked)}
 												/>
 												<span class="min-w-0 flex-1 truncate">{row.label}</span>
 											</label>

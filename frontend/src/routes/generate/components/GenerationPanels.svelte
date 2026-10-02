@@ -13,7 +13,10 @@
 	import {
 		widenPromptPanelForDirector,
 		restorePromptPanelFromDirector,
-		resolveThreePaneLayout
+		resolveThreePaneLayout,
+		formFoldStates,
+		setFormAutoFoldable,
+		toggleFormPane
 	} from '$lib/stores/generationLayout';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { viewportWidth } from '$lib/stores/viewport';
@@ -99,7 +102,7 @@
 	let isResizingPrompt = false;
 	const WORKBENCH_MIN_WIDTH = 320;
 	const RESIZE_HANDLE_WIDTH = 4;
-	let formUnfoldedByUser = false;
+	$: formUnfoldedByUser = $formFoldStates[tab.id]?.unfolded ?? false;
 	$: paneLayout = resolveThreePaneLayout({
 		panelsWidth,
 		viewportWidth: $viewportWidth,
@@ -113,23 +116,14 @@
 		promptPanelWidthFolded: tab.promptPanelWidthFolded
 	});
 	$: formFolded = paneLayout.formFolded;
-	$: releaseUnfoldWhenRoomReturns(paneLayout.canAutoFold);
+	$: setFormAutoFoldable(tab.id, paneLayout.canAutoFold);
 	$: formPanelWidth = formFolded ? '0.75rem' : `min(${leftPanelWidth}px, 45vw)`;
 	$: floatingPresetName = presets.find((p) => p.id === tab.selectedPreset)?.name;
 	$: activePromptPanelWidth = paneLayout.promptWidth;
 
-	function releaseUnfoldWhenRoomReturns(canAutoFold: boolean) {
-		if (!canAutoFold) formUnfoldedByUser = false;
-	}
-
-	function expandForm() {
-		if (tab.leftPanelCollapsed) tabsStore.updateTab(tab.id, { leftPanelCollapsed: false });
-		else formUnfoldedByUser = true;
-	}
-
-	function collapseForm() {
-		if (paneLayout.canAutoFold) formUnfoldedByUser = false;
-		else tabsStore.updateTab(tab.id, { leftPanelCollapsed: true });
+	function toggleForm() {
+		const patch = toggleFormPane(tab.id, !!tab.leftPanelCollapsed);
+		if (patch) tabsStore.updateTab(tab.id, patch);
 	}
 
 	// The floating workbench opens at the inline pane's own width —
@@ -288,7 +282,7 @@
 				class="group flex w-3 h-full flex-shrink-0 items-center justify-center border-r border-line bg-surface-3 transition-colors hover:bg-line-hover"
 				aria-label="Expand generation settings"
 				aria-expanded="false"
-				on:click={expandForm}
+				on:click={toggleForm}
 			>
 				<Icon
 					name="chevron-right"
@@ -328,7 +322,7 @@
 					class="group relative w-3 h-full flex-shrink-0 border-r border-line bg-surface-3 transition-colors hover:bg-line-hover"
 					aria-label="Collapse generation settings"
 					aria-expanded="true"
-					on:click={collapseForm}
+					on:click={toggleForm}
 				>
 					<Icon
 						name="chevron-left"

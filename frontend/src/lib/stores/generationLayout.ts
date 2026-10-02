@@ -1,3 +1,4 @@
+import { writable } from 'svelte/store';
 // Layout (2/3 panes) and prompt-pane width are per-tab now (see `$lib/types/tabs`
 // Tab.layoutMode / Tab.promptPanelWidth), persisted with the rest of the tab state.
 // This module only keeps the shared type + sizing constants.
@@ -149,4 +150,50 @@ export function resolveThreePaneLayout(input: ThreePaneInput): ThreePaneLayout {
 		promptWidth,
 		workbenchMinWidth: squeezed ? 0 : WORKBENCH_FLOOR_WIDTH
 	};
+}
+
+export interface FormFoldState {
+	canAutoFold: boolean;
+	unfolded: boolean;
+}
+
+export const formFoldStates = writable<Record<string, FormFoldState>>({});
+
+export interface FormTogglePlan {
+	leftPanelCollapsed?: boolean;
+	unfolded?: boolean;
+}
+
+export function planFormToggle(input: {
+	leftPanelCollapsed: boolean;
+	canAutoFold: boolean;
+	unfolded: boolean;
+}): FormTogglePlan {
+	if (input.leftPanelCollapsed) return { leftPanelCollapsed: false };
+	if (input.canAutoFold) return { unfolded: !input.unfolded };
+	return { leftPanelCollapsed: true };
+}
+
+export function setFormAutoFoldable(tabId: string, canAutoFold: boolean): void {
+	formFoldStates.update((all) => {
+		const current = all[tabId] ?? { canAutoFold: false, unfolded: false };
+		const unfolded = canAutoFold ? current.unfolded : false;
+		if (current.canAutoFold === canAutoFold && current.unfolded === unfolded && all[tabId]) return all;
+		return { ...all, [tabId]: { canAutoFold, unfolded } };
+	});
+}
+
+export function toggleFormPane(
+	tabId: string,
+	leftPanelCollapsed: boolean
+): { leftPanelCollapsed: boolean } | null {
+	let patch: { leftPanelCollapsed: boolean } | null = null;
+	formFoldStates.update((all) => {
+		const current = all[tabId] ?? { canAutoFold: false, unfolded: false };
+		const plan = planFormToggle({ leftPanelCollapsed, ...current });
+		if (plan.leftPanelCollapsed !== undefined) patch = { leftPanelCollapsed: plan.leftPanelCollapsed };
+		if (plan.unfolded === undefined) return all;
+		return { ...all, [tabId]: { ...current, unfolded: plan.unfolded } };
+	});
+	return patch;
 }

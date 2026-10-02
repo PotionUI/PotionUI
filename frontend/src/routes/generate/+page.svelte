@@ -43,7 +43,7 @@
 	import { unlockGenerationSoundContext } from '$lib/utils/generationSounds';
 	import { keybindingsStore } from '$lib/stores/keybindings';
 	import { isMobile, viewportWidth } from '$lib/stores/viewport';
-	import { settingsPaneWidth } from '$lib/stores/generationLayout';
+	import { settingsPaneWidth, toggleFormPane } from '$lib/stores/generationLayout';
 	import { normalizeDirectorValue, validateDirector, buildDirectorSubmission, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText } from '$lib/utils/videoDirector';
 	import { buildGenerationRequest, prepareRequest } from '$lib/generation/prepareRequest';
 	import { createRequestContextCache, resolveRequestContext } from '$lib/generation/requestContext';
@@ -853,7 +853,8 @@
 			requestCloseTab(activeTabId);
 		});
 		keybindingsStore.registerHandler('toggle_left_panel', () => {
-			tabsStore.updateTab(activeTabId, { leftPanelCollapsed: !currentTab.leftPanelCollapsed });
+			const patch = toggleFormPane(activeTabId, !!currentTab.leftPanelCollapsed);
+			if (patch) tabsStore.updateTab(activeTabId, patch);
 		});
 		keybindingsStore.registerHandler('toggle_workbench_panel', () => {
 			tabsStore.updateTab(activeTabId, { workbenchCollapsed: !currentTab.workbenchCollapsed });

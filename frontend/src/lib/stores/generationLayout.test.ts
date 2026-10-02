@@ -1,9 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { get } from 'svelte/store';
 import {
 	widenPromptPanelForDirector,
 	restorePromptPanelFromDirector,
 	foldedPromptPanelWidth,
 	resolveThreePaneLayout,
+	toggleFormPane,
+	setFormAutoFoldable,
+	formFoldStates,
 	PROMPT_PANE_READABLE_MIN_WIDTH,
 	WORKBENCH_FLOOR_WIDTH,
 	type ThreePaneInput,
@@ -182,5 +186,37 @@ describe('resolveThreePaneLayout', () => {
 
 	it('does not fold before the pane width is measured', () => {
 		expect(resolveThreePaneLayout({ ...base, panelsWidth: 0 }).formFolded).toBe(false);
+	});
+});
+
+describe('toggleFormPane', () => {
+	beforeEach(() => {
+		formFoldStates.set({});
+	});
+
+	it('unfolds an auto-folded form without touching the stored fold', () => {
+		setFormAutoFoldable('t', true);
+		expect(toggleFormPane('t', false)).toBeNull();
+		expect(get(formFoldStates).t.unfolded).toBe(true);
+	});
+
+	it('folds the form back on the next toggle', () => {
+		setFormAutoFoldable('t', true);
+		toggleFormPane('t', false);
+		expect(toggleFormPane('t', false)).toBeNull();
+		expect(get(formFoldStates).t.unfolded).toBe(false);
+	});
+
+	it('flips the stored fold when the screen is wide', () => {
+		setFormAutoFoldable('t', false);
+		expect(toggleFormPane('t', false)).toEqual({ leftPanelCollapsed: true });
+		expect(toggleFormPane('t', true)).toEqual({ leftPanelCollapsed: false });
+	});
+
+	it('forgets the unfold once the screen is wide again', () => {
+		setFormAutoFoldable('t', true);
+		toggleFormPane('t', false);
+		setFormAutoFoldable('t', false);
+		expect(get(formFoldStates).t.unfolded).toBe(false);
 	});
 });

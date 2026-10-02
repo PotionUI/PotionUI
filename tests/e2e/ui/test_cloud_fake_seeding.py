@@ -52,7 +52,7 @@ def chunk_env(monkeypatch, tmp_path):
 
 
 def args():
-    return argparse.Namespace(models_dir=None, port=None, keep=False, headed=False, preview_port=None)
+    return argparse.Namespace(models_dir=None, port=None, keep=False, headed=False, preview_port=None, build_dir=None)
 
 
 def test_a_cloud_fake_spec_chunk_points_the_backend_at_the_plugin_and_seeds_it_before_the_preview(chunk_env):

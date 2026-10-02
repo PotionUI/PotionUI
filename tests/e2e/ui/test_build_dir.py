@@ -51,3 +51,35 @@ def test_skip_build_checks_the_harness_folder_never_the_live_build(monkeypatch, 
     args = argparse.Namespace(skip_build=True, build_only=False, build_dir=tmp_path / "empty")
     with pytest.raises(run.StageError):
         run._run_locked(args, [], [], [], 1, 1, 1)
+
+
+def test_a_fresh_checkout_gets_the_kit_tsconfig_before_the_harness_build(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(cmd, cwd=None, env=None):
+        calls.append((list(cmd), dict(env or {})))
+        return type("P", (), {"returncode": 0})()
+
+    monkeypatch.setattr(run, "FRONTEND_DIR", tmp_path)
+    monkeypatch.setenv("E2E_BUILD_DIR", "elsewhere")
+    monkeypatch.setattr(run.subprocess, "run", fake_run)
+    run.run_build(tmp_path / "out")
+    sync_cmd, sync_env = calls[0]
+    assert sync_cmd[-2:] == ["svelte-kit", "sync"]
+    assert "E2E_BUILD_DIR" not in sync_env
+    assert calls[1][1]["E2E_BUILD_DIR"] == str(tmp_path / "out")
+
+
+def test_an_existing_kit_tsconfig_is_left_alone(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(cmd, cwd=None, env=None):
+        calls.append(list(cmd))
+        return type("P", (), {"returncode": 0})()
+
+    (tmp_path / ".svelte-kit").mkdir()
+    (tmp_path / ".svelte-kit" / "tsconfig.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(run, "FRONTEND_DIR", tmp_path)
+    monkeypatch.setattr(run.subprocess, "run", fake_run)
+    run.run_build(tmp_path / "out")
+    assert all("sync" not in cmd for cmd in calls)

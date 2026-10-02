@@ -328,6 +328,11 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: svelte-kit sync
+        shell: cmd
+        working-directory: frontend
+        run: npx svelte-kit sync
+
       - name: npm run build
         shell: cmd
         working-directory: frontend

@@ -72,7 +72,7 @@
 	}
 
 	function scrollActiveIntoView() {
-		dropdownRef?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
+		dropdownRef?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView?.({ block: 'nearest' });
 	}
 
 	async function moveActive(next: number) {

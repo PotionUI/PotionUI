@@ -354,9 +354,17 @@ def has_build_output(build_dir: Path) -> bool:
     return (build_dir / ".svelte-kit" / "output" / "client").is_dir()
 
 
+def ensure_kit_tsconfig() -> None:
+    if (FRONTEND_DIR / ".svelte-kit" / "tsconfig.json").is_file():
+        return
+    env = {key: value for key, value in os.environ.items() if key != "E2E_BUILD_DIR"}
+    subprocess.run([NPX, "svelte-kit", "sync"], cwd=str(FRONTEND_DIR), env=env)
+
+
 def run_build(build_dir: Path) -> None:
     """`npm run build`, retried once after a pause: the tree can be mid-edit by
     a concurrent agent and fail transiently."""
+    ensure_kit_tsconfig()
     for attempt in (1, 2):
         log(f"Building frontend (npm run build, attempt {attempt})...")
         proc = subprocess.run([NPM, "run", "build"], cwd=str(FRONTEND_DIR), env=build_env(build_dir))

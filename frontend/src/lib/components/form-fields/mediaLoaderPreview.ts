@@ -3,7 +3,8 @@ export type MediaPathLocation =
 	| { kind: 'tmp'; filename: string }
 	| { kind: 'generation'; generationId: string; filename: string };
 
-export function locateMediaPath(rawPath: string): MediaPathLocation | null {
+export function locateMediaPath(storedPath: string): MediaPathLocation | null {
+	const rawPath = storedPath.replace(/\\/g, '/');
 	const segments = rawPath.split('/').filter((s) => s.length > 0);
 	if (segments.length === 0) return null;
 	const filename = segments[segments.length - 1];
@@ -11,7 +12,7 @@ export function locateMediaPath(rawPath: string): MediaPathLocation | null {
 
 	if (parent === 'uploads') return { kind: 'upload', filename };
 	if (parent === 'tmp') return { kind: 'tmp', filename };
-	if (rawPath.startsWith('/') && !segments.includes('generations')) return { kind: 'upload', filename };
+	if ((rawPath.startsWith('/') || /^[a-zA-Z]:\//.test(rawPath)) && !segments.includes('generations')) return { kind: 'upload', filename };
 	if (parent === null) return null;
 	return { kind: 'generation', generationId: parent, filename };
 }

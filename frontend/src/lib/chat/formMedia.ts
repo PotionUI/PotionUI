@@ -12,7 +12,7 @@ export interface FormImageEntry {
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'];
 
 function filenameOf(raw: string): string {
-	const segments = raw.split('/').filter((s) => s.length > 0);
+	const segments = raw.replace(/\\/g, '/').split('/').filter((s) => s.length > 0);
 	return segments[segments.length - 1] || raw;
 }
 
@@ -61,7 +61,7 @@ function resolveMediaUrl(media: MediaRef | string): string {
 		return media.url;
 	}
 
-	const raw = durablePath(media);
+	const raw = durablePath(media).replace(/\\/g, '/');
 	if (!raw) return '';
 
 	const filename = filenameOf(raw);
@@ -70,7 +70,7 @@ function resolveMediaUrl(media: MediaRef | string): string {
 	if (raw.includes('/tmp/') || segments[0] === 'tmp') {
 		return `/api/media/tmp/${filename}`;
 	}
-	if (raw.startsWith('/') || segments[0] === 'uploads') {
+	if (raw.startsWith('/') || /^[a-zA-Z]:\//.test(raw) || segments[0] === 'uploads') {
 		return `/api/media/uploads/${filename}`;
 	}
 	if (segments.length >= 2) {

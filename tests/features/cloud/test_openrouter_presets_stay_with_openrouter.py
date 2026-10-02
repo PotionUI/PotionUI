@@ -46,12 +46,17 @@ def preset_named(loader, name):
     return next(template for template in loader.presets if template.name == name)
 
 
+def declared_cover(variant_dir):
+    preset = yaml.safe_load((variant_dir / "preset.yml").read_text(encoding="utf-8"))
+    return variant_dir / preset["media"]["cover"]
+
+
 def test_the_plugin_ships_an_image_preset_and_a_video_preset(templates):
     assert sorted(template.name for template in templates.presets) == ["OpenRouter Images", "OpenRouter Video"]
     video = preset_named(templates, "OpenRouter Video")
     assert video.category == "video" and video.driver == "cloud.openrouter"
     assert set(video.modes) == {"txt2video", "img2video"}
-    assert (PRESETS / "VideoGeneration" / "standard" / "public" / "cover.png").is_file()
+    assert declared_cover(PRESETS / "VideoGeneration" / "standard").is_file()
 
 
 def test_the_plugin_ships_one_image_preset_with_a_text_to_image_and_an_edit_mode(templates):
@@ -60,7 +65,7 @@ def test_the_plugin_ships_one_image_preset_with_a_text_to_image_and_an_edit_mode
     assert template.engine == "cloud" and template.driver == "cloud.openrouter"
     assert template.name == "OpenRouter Images"
     assert set(template.modes) == {"edit", "txt2img"}
-    assert (PRESETS / "ImageGeneration" / "standard" / "public" / "cover.png").is_file()
+    assert declared_cover(PRESETS / "ImageGeneration" / "standard").is_file()
 
 
 def test_the_plugin_presets_lint_clean():

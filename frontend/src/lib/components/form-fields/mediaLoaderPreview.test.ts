@@ -37,3 +37,21 @@ describe('mediaPathPreviewUrl', () => {
 		expect(mediaPathPreviewUrl('')).toBeNull();
 	});
 });
+
+describe('mediaPathPreviewUrl with Windows paths', () => {
+	it('serves a backslash uploads path from the uploads route', () => {
+		expect(mediaPathPreviewUrl('C:\\Users\\runner\\potionui\\storage\\uploads\\abc.png')).toBe('/api/media/uploads/abc.png');
+	});
+
+	it('serves a backslash tmp path from the tmp route', () => {
+		expect(mediaPathPreviewUrl('C:\\Users\\runner\\storage\\tmp\\abc.png')).toBe('/api/media/tmp/abc.png');
+	});
+
+	it('serves a backslash generation path from the generation route', () => {
+		expect(mediaPathPreviewUrl('D:\\storage\\generations\\01K77DF21Z\\0.png')).toBe('/api/media/generations/01K77DF21Z/0.png');
+	});
+
+	it('keeps treating other drive-letter paths as uploads', () => {
+		expect(locateMediaPath('C:\\somewhere\\else\\abc.png')).toEqual({ kind: 'upload', filename: 'abc.png' });
+	});
+});

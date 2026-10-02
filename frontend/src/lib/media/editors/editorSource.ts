@@ -35,7 +35,7 @@ const MAX_PAGES = 10;
  */
 export function uploadFilenameFromPath(path: string | null | undefined): string | null {
 	if (!path || typeof path !== 'string') return null;
-	const segments = path.split('/').filter((segment) => segment.length > 0);
+	const segments = path.replace(/\\/g, '/').split('/').filter((segment) => segment.length > 0);
 	if (segments.length < 2) return null;
 
 	const parent = segments[segments.length - 2];
@@ -56,9 +56,10 @@ export function generationLocatorFromPath(
 	path: string | null | undefined
 ): { generationId: string; filename: string } | null {
 	if (!path || typeof path !== 'string') return null;
-	if (path.includes('/tmp/')) return null;
+	const normalized = path.replace(/\\/g, '/');
+	if (normalized.includes('/tmp/')) return null;
 
-	const segments = path.split('/').filter((segment) => segment.length > 0);
+	const segments = normalized.split('/').filter((segment) => segment.length > 0);
 	if (segments.length < 2) return null;
 
 	const filename = segments[segments.length - 1];

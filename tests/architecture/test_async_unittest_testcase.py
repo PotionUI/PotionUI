@@ -23,6 +23,7 @@ Like `test_layering.py`, this walks source with the standard library only
 from __future__ import annotations
 
 import ast
+import os
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
@@ -42,9 +43,11 @@ def _py_files():
         base = ROOT / scope
         if not base.is_dir():
             continue
-        for f in base.rglob("*.py"):
-            if not any(part in SKIP_DIRS for part in f.parts):
-                yield f
+        for directory, subdirs, names in os.walk(base):
+            subdirs[:] = [d for d in subdirs if d not in SKIP_DIRS]
+            for name in names:
+                if name.endswith(".py"):
+                    yield Path(directory) / name
 
 
 def _base_name(node: ast.expr):
@@ -70,8 +73,11 @@ def _collect():
     async_tests: Dict[Tuple[Path, str], List[Tuple[str, int]]] = {}
 
     for f in _py_files():
+        source = f.read_text(encoding="utf-8")
+        if "class " not in source:
+            continue
         try:
-            tree = ast.parse(f.read_text(encoding="utf-8"), filename=str(f))
+            tree = ast.parse(source, filename=str(f))
         except SyntaxError:
             continue
         for node in ast.walk(tree):

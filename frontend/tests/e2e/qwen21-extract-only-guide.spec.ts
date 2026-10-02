@@ -130,20 +130,23 @@ test('only extracting the guide needs no prompt and saves a labelled map', async
 	const name = await prepare(page, headers);
 	const seeded = await seedGuideGeneration(page, headers);
 
-	await page.route(`**/api/generations/${seeded.id}/status`, (route) =>
-		route.fulfill({
+	const reattached = { statusServed: 0, subscribed: false };
+	await page.route(`**/api/generations/${seeded.id}/status`, (route) => {
+		reattached.statusServed += 1;
+		return route.fulfill({
 			json: {
 				success: true,
 				data: { id: seeded.id, generation_id: seeded.id, status: 'running', progress: 0.5, created_at: new Date().toISOString() }
 			}
-		})
-	);
+		});
+	});
 	const send: { fn: ((message: unknown) => void) | null } = { fn: null };
 	await page.routeWebSocket('**/ws/generation*', (ws) => {
 		send.fn = (message) => ws.send(JSON.stringify(message));
 		ws.send(JSON.stringify({ type: 'connection_established' }));
 		ws.onMessage((raw) => {
 			const msg = JSON.parse(String(raw));
+			if (msg.type === 'subscribe_generation' && msg.generation_id === seeded.id) reattached.subscribed = true;
 			if (msg.type === 'subscribe_generation') ws.send(JSON.stringify({ type: 'subscribed', generation_id: msg.generation_id }));
 			if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }));
 		});
@@ -182,9 +185,12 @@ test('only extracting the guide needs no prompt and saves a labelled map', async
 		{ key: TABS_STORAGE_KEY, genId: seeded.id }
 	);
 	send.fn = null;
+	reattached.statusServed = 0;
+	reattached.subscribed = false;
 	await page.reload();
 	await page.waitForURL(/\/generate/, { timeout: 15000 });
 	await expect.poll(() => send.fn !== null, { timeout: 20000 }).toBe(true);
+	await expect.poll(() => reattached.statusServed > 0 && reattached.subscribed, { timeout: 30000 }).toBe(true);
 	await page.waitForTimeout(1500);
 
 	send.fn!({

@@ -23,6 +23,14 @@ export function clickIsOutside(root: HTMLElement | undefined, target: Node): boo
 	return !layer || !layer.contains(target);
 }
 
+const KEEP_SELECTION_SELECTOR =
+	'[data-media-tile], [data-media-inspector], [role="dialog"], [role="menu"], [role="listbox"], button, a, input, textarea, select, label';
+
+export function clickClearsSelection(target: EventTarget | null): boolean {
+	if (!target || typeof (target as Element).closest !== 'function') return false;
+	return (target as Element).closest(KEEP_SELECTION_SELECTOR) === null;
+}
+
 export interface FileDropHandlers {
 	onFiles: (files: FileList) => void;
 	onActive: (active: boolean) => void;

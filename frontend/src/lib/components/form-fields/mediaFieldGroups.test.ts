@@ -137,7 +137,7 @@ describe('selection', () => {
 
 	it('clamps a selection past the end and clears it when the list empties', () => {
 		expect(clampSelection(5, 3)).toBe(2);
-		expect(clampSelection(null, 3)).toBe(0);
+		expect(clampSelection(null, 3)).toBeNull();
 		expect(clampSelection(0, 0)).toBeNull();
 	});
 });

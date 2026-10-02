@@ -397,6 +397,33 @@ describe('multi face', () => {
 		expect(target.querySelector('[data-media-handle]')!.textContent).toContain('Picture 3');
 	});
 
+	it('clears the selection when the selected tile is pressed again', async () => {
+		const { target } = mount({ ...multi(), value: [imageItem('a'), imageItem('b')] });
+		await tick();
+
+		tiles(target)[1].click();
+		await tick();
+		expect(tiles(target)[1].getAttribute('data-selected')).toBe('true');
+		tiles(target)[1].click();
+		await tick();
+		expect(tiles(target).some((tile) => tile.hasAttribute('data-selected'))).toBe(false);
+		expect(target.querySelector('[data-media-inspector]')).toBeNull();
+	});
+
+	it('clears the selection when neutral space is pressed and keeps it for the inspector', async () => {
+		const { target } = mount({ ...multi(), value: [imageItem('a'), imageItem('b')] });
+		await tick();
+
+		const press = (el: Element) => el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+		press(target.querySelector('[data-media-inspector]')!);
+		await tick();
+		expect(tiles(target)[0].getAttribute('data-selected')).toBe('true');
+
+		press(document.body);
+		await tick();
+		expect(tiles(target).some((tile) => tile.hasAttribute('data-selected'))).toBe(false);
+	});
+
 	it('writes a typed label onto the selected item', async () => {
 		const props = { ...multi(), value: [imageItem('a'), imageItem('b')] };
 		const { target } = mount(props);
@@ -542,7 +569,7 @@ describe('multi face', () => {
 		await tick();
 
 		async function peek(index: number) {
-			tiles(target)[index].click();
+			if (!tiles(target)[index].hasAttribute('data-selected')) tiles(target)[index].click();
 			await tick();
 			await pickTool(target, 'full');
 			return document.body.querySelector('[aria-label="Media preview"]');

@@ -18,7 +18,7 @@
 	import { fetchMediaMetadata } from './mediaLoaderMetadata';
 	import { readSingleValue, type SingleValue } from './mediaLoaderValue';
 	import { pickFromGeneration, pickFromUpload } from './mediaLoaderPicks';
-	import { clickIsOutside, fileDrop, readPastedImage } from './mediaFieldInput';
+	import { clickClearsSelection, clickIsOutside, fileDrop, readPastedImage } from './mediaFieldInput';
 	import { itemLimitFor, readMediaLoaderConfig, type MediaKind } from './mediaLoaderConfig';
 	import { kindFromMimeType, kindFromFilename, kindOfMediaItem } from './mediaLoaderKind';
 	import {
@@ -261,6 +261,11 @@
 
 	function handleClickOutside(event: MouseEvent) {
 		if (clickIsOutside(uploadAreaRef, event.target as Node)) isPasteActive = false;
+		if (multiple && clickClearsSelection(event.target)) selected = null;
+	}
+
+	function toggleSelection(flatIndex: number) {
+		selected = selected === flatIndex ? null : flatIndex;
 	}
 
 	let resizeObserver: ResizeObserver | null = null;
@@ -504,6 +509,13 @@
 		onChange(name, next);
 	}
 
+	let selectionSeeded = false;
+	$: if (multiple && multiItems.length > 0 && !selectionSeeded) {
+		selectionSeeded = true;
+		selected = 0;
+	} else if (multiItems.length === 0) {
+		selectionSeeded = false;
+	}
 	$: selected = clampSelection(selected, multiItems.length);
 	$: selectedItem = multiple && selected !== null ? (multiItems[selected] ?? null) : null;
 	$: selectedKind = selectedItem ? kindOfMediaItem(selectedItem) : null;
@@ -866,7 +878,7 @@
 					adding={addingKind}
 					addingProgress={uploadProgress}
 					offersDraw={false}
-					onSelect={(flatIndex) => (selected = flatIndex)}
+					onSelect={toggleSelection}
 					onReorder={reorderItems}
 					onRemove={removeMultiItem}
 					onSource={handleSource}

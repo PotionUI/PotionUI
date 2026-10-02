@@ -70,7 +70,7 @@ export function displayOrder<T>(groups: readonly MediaGroup<T>[]): number[] {
 
 export function clampSelection(selected: number | null, count: number): number | null {
 	if (count === 0) return null;
-	if (selected === null || selected < 0) return 0;
+	if (selected === null || selected < 0) return null;
 	return Math.min(selected, count - 1);
 }
 

@@ -10,14 +10,11 @@ Only one format is accepted for `hooks` and `dependencies` - there is no
 backward-compat fallback for legacy shapes.
 """
 
-import logging
 import re
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
-
-logger = logging.getLogger(__name__)
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class PluginCategory(str, Enum):
@@ -29,35 +26,6 @@ class PluginCategory(str, Enum):
     MONITORING = "monitoring"
     DEVELOPER = "developer"
     OTHER = "other"
-
-
-LEGACY_PLUGIN_CATEGORIES: Dict[str, PluginCategory] = {
-    "generation": PluginCategory.BACKENDS,
-    "models": PluginCategory.SOURCES,
-    "media": PluginCategory.TOOLS,
-    "workflow": PluginCategory.TOOLS,
-    "system": PluginCategory.OTHER,
-}
-
-
-def resolve_plugin_category(value: Any, plugin_id: str = "") -> PluginCategory:
-    if isinstance(value, PluginCategory):
-        return value
-    key = str(value).strip().lower() if value is not None else ""
-    if not key:
-        return PluginCategory.OTHER
-    try:
-        return PluginCategory(key)
-    except ValueError:
-        pass
-    mapped = LEGACY_PLUGIN_CATEGORIES.get(key, PluginCategory.OTHER)
-    logger.warning(
-        "Plugin %r declares unknown category %r; using %r",
-        plugin_id or "<unknown>",
-        value,
-        mapped.value,
-    )
-    return mapped
 
 
 class BackendHookSpec(BaseModel):
@@ -693,11 +661,6 @@ class PluginManifestSchema(BaseModel):
     repository: Optional[str] = None
     license: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
-
-    @field_validator("category", mode="before")
-    @classmethod
-    def _resolve_category(cls, value: Any, info: ValidationInfo) -> PluginCategory:
-        return resolve_plugin_category(value, str(info.data.get("id", "")))
 
     # Hooks / dependencies (canonical formats only)
     hooks: HooksSpec = Field(default_factory=HooksSpec)

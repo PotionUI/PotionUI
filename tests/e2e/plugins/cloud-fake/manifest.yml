@@ -4,7 +4,7 @@ version: "1.0.0"
 description: "Test-only cloud provider with deterministic images, a configurable delay and ready-made presets. Used by the browser end-to-end tests; never shipped."
 author: "PotionUI Team"
 type: "backend-only"
-category: "generation"
+category: "backends"
 
 capabilities:
   - "backend-provider"

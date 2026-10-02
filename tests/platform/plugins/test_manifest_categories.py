@@ -1,11 +1,10 @@
-import logging
 import unittest
 from pathlib import Path
 
 import yaml
+from pydantic import ValidationError
 
 from src.platform.plugins.manifest import (
-    LEGACY_PLUGIN_CATEGORIES,
     PluginCategory,
     PluginManifestSchema,
 )
@@ -38,36 +37,13 @@ class TestManifestCategories(unittest.TestCase):
             ["backends", "sources", "steps", "tools", "security", "monitoring", "developer", "other"],
         )
 
-    def test_legacy_values_map_with_a_warning_naming_the_plugin(self):
-        for legacy, expected in LEGACY_PLUGIN_CATEGORIES.items():
-            with self.assertLogs("src.platform.plugins.manifest", level=logging.WARNING) as logs:
-                schema = PluginManifestSchema.model_validate(_manifest(category=legacy))
-            self.assertEqual(schema.category, expected)
-            self.assertEqual(len(logs.records), 1)
-            self.assertIn("cat-plugin", logs.output[0])
-            self.assertIn(legacy, logs.output[0])
+    def test_retired_and_unknown_values_are_rejected(self):
+        for value in ["generation", "models", "media", "workflow", "system", "not-a-real-category", "Tools", ""]:
+            with self.assertRaises(ValidationError, msg=value):
+                PluginManifestSchema.model_validate(_manifest(category=value))
 
-    def test_legacy_mapping_choices(self):
-        self.assertEqual(LEGACY_PLUGIN_CATEGORIES["generation"], PluginCategory.BACKENDS)
-        self.assertEqual(LEGACY_PLUGIN_CATEGORIES["models"], PluginCategory.SOURCES)
-        self.assertEqual(LEGACY_PLUGIN_CATEGORIES["media"], PluginCategory.TOOLS)
-        self.assertEqual(LEGACY_PLUGIN_CATEGORIES["workflow"], PluginCategory.TOOLS)
-        self.assertEqual(LEGACY_PLUGIN_CATEGORIES["system"], PluginCategory.OTHER)
-
-    def test_unknown_value_loads_as_other_with_a_warning(self):
-        with self.assertLogs("src.platform.plugins.manifest", level=logging.WARNING) as logs:
-            schema = PluginManifestSchema.model_validate(_manifest(category="not-a-real-category"))
-        self.assertEqual(schema.category, PluginCategory.OTHER)
-        self.assertIn("cat-plugin", logs.output[0])
-
-    def test_valid_and_omitted_values_do_not_warn(self):
-        with self.assertNoLogs("src.platform.plugins.manifest", level=logging.WARNING):
-            PluginManifestSchema.model_validate(_manifest(category="tools"))
-            PluginManifestSchema.model_validate(_manifest())
-
-    def test_value_is_case_insensitive(self):
-        schema = PluginManifestSchema.model_validate(_manifest(category="Tools"))
-        self.assertEqual(schema.category, PluginCategory.TOOLS)
+    def test_omitted_value_defaults_to_other(self):
+        self.assertEqual(PluginManifestSchema.model_validate(_manifest()).category, PluginCategory.OTHER)
 
     def test_every_marketplace_manifest_uses_a_current_value(self):
         manifests = sorted(MARKETPLACE.glob("*/manifest.yml"))

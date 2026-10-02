@@ -18,7 +18,7 @@ def write_plugin(root: Path, folder: str, plugin_id: str) -> Path:
             'description: "test plugin"',
             'author: "tests"',
             'type: "backend-only"',
-            'category: "generation"',
+            'category: "other"',
         ]) + "\n",
         encoding="utf-8",
     )

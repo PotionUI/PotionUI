@@ -84,7 +84,7 @@ from src.features.generation.status_tracker import (
 )
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.generation.routing.contracts import RoutingRequest
-from src.features.models.form_refs import collect_model_ids, resolve_form_model_refs
+from src.features.models.form_refs import collect_model_ids, is_model_ref, model_id_of, resolve_form_model_refs
 from src.features.models.exceptions import ModelAccessDeniedException
 from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput, ProgressGenerationOutput
 from src.features.generation.repository import generation_repo
@@ -102,13 +102,19 @@ from src.platform.plugins.hooks import HookContext, await_hook_blocking_waits
 from src.features.generation.hooks import GENERATION_HOOKS
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.templates import PresetTemplate
-from src.features.video_director import apply_preset_mode_overlay, compile_shot_plan, normalize_video_director
+from src.features.video_director import (
+    apply_model_overlay,
+    apply_preset_mode_overlay,
+    compile_shot_plan,
+    normalize_video_director,
+)
 from src.features.music_director import (
     apply_preset_mode_overlay as apply_music_director_mode_overlay,
     compile_sections_to_lyrics,
     normalize_music_director,
 )
 from src.features.cloud.contracts import CLOUD_ENGINE
+from src.features.cloud.director import director_overlay
 from src.platform.security.user_ref import cloud_user_ref
 from src.features.generation.output_types import output_type_registry
 from src.features.forms.binding import bind_form, FormBindingError
@@ -192,6 +198,7 @@ def _prepare_director_form_data(
     form_data: Dict[str, Any],
     user_id: Optional[str],
     settings: Settings,
+    model_overlay: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
 ) -> Dict[str, Any]:
     """Pure Video/Music Director canonicalization, shared by `start_generation`
     and `GenerationOrchestrator.preview_memory` so a preview's active loader
@@ -223,6 +230,9 @@ def _prepare_director_form_data(
         # (e.g. MiniMax-H3's `video` vs `refs`) via
         # `preset_mode_overrides` -- see apply_preset_mode_overlay().
         capabilities = apply_preset_mode_overlay(capabilities, mode)
+        model_field = capabilities.get('model_field')
+        if model_overlay is not None and isinstance(model_field, str) and model_field:
+            capabilities = apply_model_overlay(capabilities, model_overlay(form_data.get(model_field)))
         storage_dir = settings.get_file_storage_directory(user_id)
         raw_doc = form_data['video_director']
 
@@ -730,6 +740,19 @@ class GenerationOrchestrator:
             **cloud_args,
         )
 
+    def _director_model_overlay(self, preset_template) -> Optional[Callable[[Any], Optional[Dict[str, Any]]]]:
+        capabilities = getattr(self, "cloud_capabilities", None)
+        if capabilities is None or preset_template.engine != CLOUD_ENGINE:
+            return None
+        driver = getattr(preset_template, "driver", None)
+
+        def overlay(value: Any) -> Optional[Dict[str, Any]]:
+            if not is_model_ref(value):
+                return None
+            return director_overlay(capabilities.spec_for(model_id_of(value), driver))
+
+        return overlay
+
     async def preview_memory(self, request, user_id: str) -> Dict[str, Any]:
         """A non-blocking request memory advisory for a request that has NOT
         started: binds the form, canonicalizes any Video/Music Director
@@ -796,7 +819,8 @@ class GenerationOrchestrator:
 
         try:
             prepared_form_data = _prepare_director_form_data(
-                preset_template, mode, bound.values, user_id, self.settings
+                preset_template, mode, bound.values, user_id, self.settings,
+                model_overlay=self._director_model_overlay(preset_template),
             )
             built = self.pipeline_builder.build_pipeline(
                 preset_id=preset_template,
@@ -1026,7 +1050,8 @@ class GenerationOrchestrator:
             # for why that matters for the Wan family's active loader set.
             if isinstance(request.form_data, dict):
                 request.form_data = _prepare_director_form_data(
-                    preset_template, mode, request.form_data, user_id, self.settings
+                    preset_template, mode, request.form_data, user_id, self.settings,
+                    model_overlay=self._director_model_overlay(preset_template),
                 )
 
             # LTX two-stage upscale geometry: fail fast, before the (expensive)
@@ -1071,7 +1096,7 @@ class GenerationOrchestrator:
 
             if engine == CLOUD_ENGINE and getattr(self, "cloud_capabilities", None) is not None:
                 bound = self._bind(
-                    preset_template, mode, bound.form_name, bound.values,
+                    preset_template, mode, bound.form_name, request.form_data,
                     user_id, storage_dir, field_overrides, backend=backend,
                 )
                 request.form_data = bound.values

@@ -159,7 +159,7 @@ async def test_director_document_is_scanned(repo, backend):
 
     with patch('src.features.generation.orchestrator.generate_ulid', return_value='g3'), \
             patch('src.features.generation.orchestrator._prepare_director_form_data',
-                  side_effect=lambda template, mode, form, user, settings: form):
+                  side_effect=lambda template, mode, form, user, settings, **kwargs: form):
         with pytest.raises(BannedPromptRefused):
             await orchestrator.start_generation(request, 'u1')
 

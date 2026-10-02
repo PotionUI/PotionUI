@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, ClassVar, Dict, Iterable, List, Mapping, Optional, Tuple
 
@@ -21,7 +22,15 @@ from src.plugin_api.cloud import (
 
 from .config import DEFAULT_BASE_URL, OpenRouterConfig
 from .mapping import build_body, endpoint_list, model_spec, parse_result
-from .video import FIRST_POLL_SECONDS, build_video_body, is_video_spec, parse_status, polling_target, video_spec
+from .video import (
+    FIRST_POLL_SECONDS,
+    build_video_body,
+    is_video_spec,
+    merge_director,
+    parse_status,
+    polling_target,
+    video_spec,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,12 +73,22 @@ class OpenRouterProvider(CloudProvider):
             headers["X-OpenRouter-Title"] = self.config.app_title
         return headers
 
-    def suggested_model_ids(self) -> Tuple[str, ...]:
+    @staticmethod
+    def _catalog_file() -> Dict[str, Any]:
         try:
             data = yaml.safe_load(SUGGESTIONS_FILE.read_text(encoding="utf-8")) or {}
         except (OSError, yaml.YAMLError):
-            return ()
-        return tuple(item for item in data.get("suggested", []) if isinstance(item, str))
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def suggested_model_ids(self) -> Tuple[str, ...]:
+        return tuple(item for item in self._catalog_file().get("suggested", []) or [] if isinstance(item, str))
+
+    def director_overrides(self) -> Dict[str, Dict[str, Any]]:
+        entries = self._catalog_file().get("director") or {}
+        if not isinstance(entries, dict):
+            return {}
+        return {str(model_id): value for model_id, value in entries.items() if isinstance(value, dict)}
 
     def map_error(self, status: int, headers: Mapping[str, str], body: Any) -> Optional[CloudError]:
         error = body.get("error") if isinstance(body, dict) else None
@@ -143,7 +162,13 @@ class OpenRouterProvider(CloudProvider):
             logger.info("[OPENROUTER] this account's API does not offer video models")
             return []
         items = payload.get("data", []) if isinstance(payload, dict) else payload
-        return self._valid_specs(video_spec(item) for item in items if isinstance(items, list))
+        overrides = self.director_overrides()
+        specs = self._valid_specs(video_spec(item) for item in items if isinstance(items, list))
+        return [
+            replace(spec, director=merge_director(spec.director, overrides[spec.provider_model_id]))
+            if spec.provider_model_id in overrides else spec
+            for spec in specs
+        ]
 
     @staticmethod
     def _valid_specs(candidates: Iterable[Optional[CloudModelSpec]]) -> List[CloudModelSpec]:

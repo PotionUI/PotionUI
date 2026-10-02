@@ -234,6 +234,7 @@ Generates media with a model hosted by a cloud provider
 | `options` | `dict` | `{}` | no | — | — | — | Provider options chosen on the form, merged under params |
 | `roles` | `dict` | `{}` | no | — | — | — | Media role for each media input, keyed by input name |
 | `cloud` | `dict` | `{}` | no | — | — | — | Backend identity, filled in by the cloud backend |
+| `director` | `dict` | — | no | — | — | — | Video Director document; when set, every shot is one request and the clips are joined |
 
 ## color_key
 

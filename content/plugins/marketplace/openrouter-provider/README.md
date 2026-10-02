@@ -14,7 +14,8 @@ covers costs and the usual problems.
   backend's Catalog tab. You choose which ones people may use.
 - **Two presets:**
   - **OpenRouter Images**: text to image, and editing pictures you add.
-  - **OpenRouter Video**: text to video, and image to video from a start picture.
+  - **OpenRouter Video**: text to video, image to video from a start picture (and an end
+    picture where the model takes one), and multi-shot films made with the Video Director.
 
 > Every generation runs on OpenRouter and is **billed to your OpenRouter account**, whoever in
 > PotionUI starts it. The prompt and any pictures a user adds leave your server to do so.
@@ -131,6 +132,29 @@ progress line shows "Waiting at the provider" (with a queue position when OpenRo
 "Generating" with the time so far, then "Downloading the result". You can keep working in the
 meantime.
 
+**Films with the Video Director.** OpenRouter Video uses the Video Director in place of the plain
+prompt box. One shot works like before. Switch to several shots to make a film:
+
+- Each shot has its own prompt and length. The lengths you can pick are the ones the chosen model
+  makes (for example 4, 6 or 8 seconds); anything else is refused before anything is sent.
+- A shot can **continue** from the shot before it: PotionUI takes the last frame of the finished
+  shot and sends it as the next shot's start picture. Or it can **cut** to something new, with its
+  own start picture if you give it one. Models that take no start picture only offer cuts.
+- Shots run one after another, never at the same time. The progress line says which shot is
+  running ("Shot 2 of 4: Generating"), and each shot shows up as soon as it is done.
+- Each shot is saved as soon as it is done, and at the end the shots are joined into one video on
+  your server. The generation keeps every shot and the joined film.
+- **Every shot is its own paid request.** A film of four shots is billed as four videos.
+- If a shot fails, the run stops there. The shots that finished are kept, and the message names
+  the shot that failed and why ("Shot 3 of 4 failed. Shots 1-2 were kept. ..."). You can retry
+  from the failed shot: it starts from the last frame of the shot before it, so the shots that
+  already finished are not made (or billed) again.
+- Cancelling a film stops it before the next shot, so nothing more is billed after that. The shot
+  that was running when you cancelled may still finish at OpenRouter and be billed (see below).
+
+The start, end and size controls follow the chosen model: pick another model and the lengths, the
+start and end picture wells and the number of shots change with it.
+
 **Cancelling.** OpenRouter offers no way to stop a video job. When you choose **Cancel generation**,
 PotionUI stops waiting straight away and tells you: "Stopped waiting. The provider may still finish
 this job and bill it." Check your OpenRouter activity page if you need to know whether it was billed.
@@ -143,6 +167,10 @@ Only admins see costs.
   with one line per request.
 - **Administration → Stats** shows **Cloud spend** for the date range you pick: the total, by backend
   and by model. It appears once there is spend in that range.
+
+Before you brew a film, admins can see an estimate of what it will cost: the shots times the price
+per second (or per video) OpenRouter lists for the model. When OpenRouter lists no usable price for
+the model, the estimate says the price is not known instead of guessing.
 
 Where the numbers come from: when OpenRouter reports what a request cost, PotionUI records that
 amount (labelled **Reported**). When it does not, PotionUI estimates the cost from the catalog prices
@@ -166,6 +194,10 @@ OpenRouter account is the final word on what you were billed.
 | A model is missing from the preset's model picker. | Check that it is turned on in the **Catalog** tab, that it can do this mode (an image model is not offered for video, and a model without editing is not offered in edit mode), and that **Allowed in presets** on its model page does not leave this preset out. For users who are not admins, also check the model's **Access** tab. |
 | A video fails with "The provider did not finish in time." | The backend's **Timeout (seconds)** ran out. Raise it on the backend's Overview tab. OpenRouter may still finish and bill that job. |
 | Videos seem stuck. | This is usually normal. Video jobs often take minutes, and PotionUI checks only every 30 seconds. Watch the progress line; the job ends on its own once the time limit passes. |
+| A film is refused with "is not a length this model makes". | Pick one of the lengths the message lists for that shot. They come from the model's catalog entry. |
+| The Director offers no start or end picture, or every shot is a cut. | The chosen model takes no start picture (or no end picture). Pick a model that does, or refresh the catalog if OpenRouter added it. |
+| A film failed part way. | Open it in History: the finished shots are there. The message names the shot that failed and the reason. Generate again to retry. |
+| The joined film has no sound although the shots do. | The server has no `ffmpeg`. Without it, shots are joined without sound. Install `ffmpeg` on the server. |
 | A model setting you expected is missing. | It may be on the **Provider options** tab, which needs field visibility set to Advanced. If not, the model does not offer it. |
 
 ## For testing and troubleshooting: technical notes
@@ -231,8 +263,28 @@ does not map is skipped instead of failing the refresh.
 - OpenRouter documents no way to cancel a video. Stopping a video only stops PotionUI from waiting, and the user is told the
   job may still finish and be billed.
 
-`cloud_models.yml` lists the model ids the catalog marks as suggested. Ids OpenRouter does not list are
-ignored.
+- A model that lists exactly one frame rate (`supported_fps`, or `fps`) declares it for the Video Director,
+  so a shot's length in frames is counted at that rate. Without one, 24 frames per second is used; for
+  cloud models the rate only converts the Director's frame counts into seconds.
+- The Video Director's per-model limits are derived in core from the same entry: the lengths a film may
+  use come from `supported_durations`, start and end pictures from `supported_frame_images`, and a model
+  without frame images gets cuts only. A Director shot is an ordinary video request: its length is sent as
+  `duration`, a start picture (yours, or the previous shot's last frame) as a `first_frame` entry of
+  `frame_images` and an end picture as a `last_frame` entry.
+
+`cloud_models.yml` lists the model ids the catalog marks as suggested (`suggested:`) and, under
+`director:`, optional Video Director settings per model id for what OpenRouter's listing does not say,
+for example:
+
+```yaml
+director:
+  vendor/model-id:
+    limits: { default_fps: 30 }
+    modes: { director: { max_segments: 3 } }
+```
+
+The shipped file sets none: every value comes from OpenRouter's own model listing, read when the catalog
+is refreshed. Ids OpenRouter does not list are ignored.
 
 ### Trying images with a real key
 
@@ -260,3 +312,8 @@ Needs the same key and credits as above, and video costs more than pictures, so 
 4. Start another video and stop it while it runs. Polling should stop at once and the message should say the job may still
    finish and be billed. Check the OpenRouter activity log to see whether it was billed.
 5. If a model is missing or misses controls, see the skipped list in the Catalog tab and the assumptions above.
+6. Switch the Director to two shots of the shortest length, the second continuing from the first, and
+   generate. Check that two requests appear in the OpenRouter activity log, that the second one carries a
+   start picture, and that History shows both shots and the joined film.
+7. Start a three-shot film and cancel it during the first shot. Check that no second request reaches
+   OpenRouter.

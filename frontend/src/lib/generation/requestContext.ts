@@ -1,7 +1,8 @@
 import type { DirectorCapabilities } from '$lib/types/videoDirector';
 import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 import type { SegmentJoin } from '$lib/utils/richSegments';
-import { resolveDirectorCapabilities } from '$lib/utils/videoDirector';
+import { parseDirectorCapabilities, resolveDirectorRaw } from '$lib/utils/videoDirector';
+import { applyModelOverlay, type DirectorModelOverlay } from '$lib/utils/cloudDirector';
 import { resolveMusicDirectorCapabilities } from '$lib/utils/musicDirector';
 import { isPromptlessMode } from '$lib/utils/promptlessMode';
 
@@ -22,10 +23,14 @@ function modeEnabled(caps: { presetModes: string[] | null } | null, mode: string
 	return !!caps && !!mode && (caps.presetModes === null || caps.presetModes.includes(mode));
 }
 
-export function resolveRequestContext(presetVars: PresetVars, mode: string | null | undefined): RequestContext {
+export function resolveRequestContext(
+	presetVars: PresetVars,
+	mode: string | null | undefined,
+	directorOverlay: DirectorModelOverlay | null = null
+): RequestContext {
 	const vars = presetVars ?? undefined;
 	const relayModes: string[] = vars?.prompt_relay_modes || [];
-	const videoDirectorCaps = resolveDirectorCapabilities(vars?.video_director, mode);
+	const videoDirectorCaps = parseDirectorCapabilities(applyModelOverlay(resolveDirectorRaw(vars?.video_director, mode), directorOverlay));
 	const musicDirectorCaps = resolveMusicDirectorCapabilities(vars?.music_director, mode);
 	return {
 		numPrompts: vars?.num_prompts || 1,
@@ -39,7 +44,12 @@ export function resolveRequestContext(presetVars: PresetVars, mode: string | nul
 	};
 }
 
-function contextKey(presetId: string, presetVars: PresetVars, mode: string | null | undefined): string {
+function contextKey(
+	presetId: string,
+	presetVars: PresetVars,
+	mode: string | null | undefined,
+	directorOverlay: DirectorModelOverlay | null
+): string {
 	const vars = presetVars ?? undefined;
 	return JSON.stringify([
 		presetId,
@@ -49,16 +59,22 @@ function contextKey(presetId: string, presetVars: PresetVars, mode: string | nul
 		vars?.num_prompts ?? null,
 		vars?.prompt?.segment_join ?? null,
 		vars?.prompt_relay_modes ?? null,
-		vars?.promptless_modes ?? null
+		vars?.promptless_modes ?? null,
+		directorOverlay
 	]);
 }
 
 export function createRequestContextCache() {
 	let cached: { key: string; context: RequestContext } | null = null;
-	return (presetId: string, presetVars: PresetVars, mode: string | null | undefined): RequestContext => {
-		const key = contextKey(presetId, presetVars, mode);
+	return (
+		presetId: string,
+		presetVars: PresetVars,
+		mode: string | null | undefined,
+		directorOverlay: DirectorModelOverlay | null = null
+	): RequestContext => {
+		const key = contextKey(presetId, presetVars, mode, directorOverlay);
 		if (cached && cached.key === key) return cached.context;
-		const context = resolveRequestContext(presetVars, mode);
+		const context = resolveRequestContext(presetVars, mode, directorOverlay);
 		cached = { key, context };
 		return context;
 	};

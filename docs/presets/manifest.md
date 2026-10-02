@@ -64,7 +64,7 @@ modes:
   - txt2img
 ```
 
-### `vars.video_director` (native video presets)
+### `vars.video_director` (native and cloud video presets)
 
 One `vars:` key gets its own document: a `video_director` block declares which [Video
 Director](../video-director.md) composition modes (`t2v`/`i2v`/`flf`/`director`/`chain`) a
@@ -72,6 +72,11 @@ native video preset supports, plus per-mode capability flags (director audio/IC-
 chain per-segment LoRAs, keyframe limits) and defaults (fps, duration). See
 [Video Director → Preset capability declaration](../video-director.md#preset-capability-declaration)
 for the full schema and worked examples.
+
+A cloud video preset adds `model_field: "model"`: the chosen model's own capabilities
+(allowed clip lengths, start and end pictures, shot count) are then merged on top of the block
+for each request, so one preset follows every model it offers. See
+[Video Director → Cloud presets](../video-director.md#cloud-presets).
 
 ### `vars.promptless_modes` (modes that need no prompt)
 

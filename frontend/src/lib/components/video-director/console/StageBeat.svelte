@@ -17,12 +17,13 @@
 	import { withShotPromptSegments } from '../stage-rail/stageModel';
 	import { resizeTimelineBlockEdge, withTimelineSegmentEdge } from '../stage-rail/railModel';
 	import { applyDirectorOperations } from '$lib/utils/videoDirector';
-	import { getContext } from 'svelte';
+	import { getContext, untrack } from 'svelte';
 	import { readable, type Readable } from 'svelte/store';
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
 	import ResolvedPromptPreview from '$lib/components/ResolvedPromptPreview.svelte';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import type { Segment } from '$lib/types/segments';
+	import { ensureSegmentList } from '$lib/utils/richSegments';
 	import { directorShotWirePrompt } from '$lib/utils/videoDirector';
 	import { resolvePromptSegments } from '$lib/utils/promptSegments';
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
@@ -75,6 +76,10 @@
 	function updatePromptSegments(segments: Segment[]) {
 		onDoc(withShotPromptSegments(doc, caps, model.id, segments, timelineShotId));
 	}
+	$effect(() => {
+		if (model.promptSegments.length === 0) untrack(() => updatePromptSegments(ensureSegmentList([])));
+	});
+
 	function setStart(e: Event) {
 		if (!timelineShot) return;
 		const raw = parseFloat((e.currentTarget as HTMLInputElement).value);

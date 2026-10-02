@@ -1,9 +1,13 @@
+import hashlib
+import os
+import shutil
 import struct
+import tempfile
 import zlib
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, ClassVar, Literal, Optional
+from typing import Any, ClassVar, Literal, Optional, Sequence
 
 from pydantic import Field
 
@@ -23,6 +27,7 @@ from src.features.cloud.contracts import (
     ParamSpec,
     PriceLine,
 )
+from src.features.cloud.capability_rules import find_input, find_param, validate_param_value
 from src.features.cloud.http import CloudHttp
 
 def _png_1x1() -> bytes:
@@ -36,6 +41,80 @@ def _png_1x1() -> bytes:
 
 
 PNG_1X1 = _png_1x1()
+VIDEO_FPS = 8
+VIDEO_SIZE = (32, 24)
+VIDEO_ROLES = ("first_frame", "last_frame")
+SAMPLE_RATE = 16000
+
+
+def _colour(text: str) -> tuple[int, int, int]:
+    digest = hashlib.sha256(text.encode("utf-8")).digest()
+    return digest[0], digest[1], digest[2]
+
+
+def image_colour(path: Path) -> tuple[int, int, int]:
+    from PIL import Image
+
+    with Image.open(path) as image:
+        small = image.convert("RGB").resize((1, 1))
+        return small.getpixel((0, 0))
+
+
+def _encode_with_ffmpeg(frames: Any, path: str, fps: int, sound: bool) -> None:
+    import numpy as np
+
+    from src.pipelines.pipes._shared.media.video_encode import AudioTrack, encode_frames_to_mp4
+
+    audio = None
+    if sound:
+        samples = int(SAMPLE_RATE * len(frames) / fps)
+        tone = 0.05 * np.sin(2 * np.pi * 440 * np.arange(samples) / SAMPLE_RATE)
+        audio = AudioTrack(waveform=np.stack([tone, tone]).astype(np.float32), sample_rate=SAMPLE_RATE)
+    encode_frames_to_mp4(frames, path, float(fps), audio=audio)
+
+
+def _encode_with_opencv(frames: Any, path: str, fps: int, size: tuple[int, int]) -> None:
+    import cv2
+
+    writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
+    try:
+        for frame in frames:
+            writer.write(frame[:, :, ::-1])
+    finally:
+        writer.release()
+
+
+def fake_video_bytes(
+    seconds: float,
+    *,
+    start: Sequence[int],
+    end: Sequence[int],
+    fps: int = VIDEO_FPS,
+    size: tuple[int, int] = VIDEO_SIZE,
+    sound: bool = False,
+) -> bytes:
+    import numpy as np
+
+    count = max(2, int(round(float(seconds) * fps)))
+    frames = np.stack([
+        np.full(
+            (size[1], size[0], 3),
+            [int(round(a * (1 - index / (count - 1)) + b * index / (count - 1))) for a, b in zip(start, end)],
+            dtype=np.uint8,
+        )
+        for index in range(count)
+    ])
+    handle, name = tempfile.mkstemp(suffix=".mp4", prefix="potionui-fake-video-")
+    os.close(handle)
+    try:
+        if shutil.which("ffmpeg") is not None:
+            _encode_with_ffmpeg(frames, name, fps, sound)
+        else:
+            _encode_with_opencv(frames, name, fps, size)
+        return Path(name).read_bytes()
+    finally:
+        Path(name).unlink(missing_ok=True)
+
 
 FAKE_USER_MESSAGES = {
     "auth": "Fake auth failure",
@@ -91,6 +170,10 @@ class FakeBehaviour:
     fetch_limits: list[Optional[int]] = field(default_factory=list)
     cost_usd: Decimal = Decimal("0.04")
     calls: list[str] = field(default_factory=list)
+    real_video: bool = False
+    strict_capabilities: bool = False
+    fail_from_submit: Optional[int] = None
+    specs: Optional[list[CloudModelSpec]] = None
 
 
 def fake_specs() -> list[CloudModelSpec]:
@@ -136,6 +219,56 @@ def fake_specs() -> list[CloudModelSpec]:
     ]
 
 
+def fake_director_specs() -> list[CloudModelSpec]:
+    return [
+        CloudModelSpec(
+            provider_model_id="fake/director-1",
+            label="Fake Director",
+            vendor="fake",
+            description="Scripted video model with start and end frames, sound and fixed clip lengths",
+            tasks=frozenset({"txt2video", "img2video"}),
+            outputs=frozenset({"video"}),
+            params=(
+                ParamSpec(name="duration_s", kind="enum", values=(2, 4, 6), default=4),
+                ParamSpec(name="aspect_ratio", kind="enum", values=("16:9", "9:16"), default="16:9"),
+                ParamSpec(name="generate_audio", kind="boolean", default=False),
+            ),
+            inputs=(
+                MediaInputSpec(role="first_frame", modality="image", tasks=frozenset({"img2video"})),
+                MediaInputSpec(role="last_frame", modality="image", tasks=frozenset({"img2video"})),
+            ),
+            pricing=(PriceLine(unit="second", usd=Decimal("0.10")),),
+            typical_seconds=30,
+            max_seconds=600,
+            director={"modes": {"director": {"max_segments": 4}}},
+        ),
+        CloudModelSpec(
+            provider_model_id="fake/director-start-1",
+            label="Fake Director Start",
+            vendor="fake",
+            description="Scripted video model that takes a start frame but no end frame",
+            tasks=frozenset({"txt2video", "img2video"}),
+            outputs=frozenset({"video"}),
+            params=(ParamSpec(name="duration_s", kind="enum", values=(3, 5), default=3),),
+            inputs=(MediaInputSpec(role="first_frame", modality="image", tasks=frozenset({"img2video"})),),
+            pricing=(PriceLine(unit="request", usd=Decimal("0.25")),),
+            typical_seconds=30,
+            max_seconds=600,
+        ),
+        CloudModelSpec(
+            provider_model_id="fake/director-text-1",
+            label="Fake Director Text",
+            vendor="fake",
+            description="Scripted text-only video model with an unknown price",
+            tasks=frozenset({"txt2video"}),
+            outputs=frozenset({"video"}),
+            params=(ParamSpec(name="duration_s", kind="enum", values=(5,), default=5),),
+            typical_seconds=30,
+            max_seconds=600,
+        ),
+    ]
+
+
 class FakeCloudProvider(CloudProvider):
     key: ClassVar[str] = "fake"
     label: ClassVar[str] = "Fake cloud"
@@ -156,9 +289,12 @@ class FakeCloudProvider(CloudProvider):
         self.behaviour = behaviour or FakeBehaviour()
         self._cancelled: set[str] = set()
         self._counter = 0
+        self._videos: dict[str, bytes] = {}
 
     def _maybe_fail(self, stage: str) -> None:
         behaviour = self.behaviour
+        if stage == "submit" and behaviour.fail_from_submit is not None:
+            return
         if behaviour.fail_kind and behaviour.fail_stage == stage:
             if behaviour.fail_times is not None:
                 if behaviour.fail_times <= 0:
@@ -172,13 +308,18 @@ class FakeCloudProvider(CloudProvider):
                 request_sent=behaviour.request_sent,
             )
 
+    def _payload(self, job_id: str, modality: str) -> bytes:
+        if modality == "video" and job_id in self._videos:
+            return self._videos[job_id]
+        return PNG_1X1
+
     def _result(self, job_id: str, request_count: int, modality: str) -> CloudResult:
         count = min(self.behaviour.outputs, max(1, request_count))
         artifacts = tuple(
             CloudArtifact(
                 modality=modality,
                 index=index,
-                data=PNG_1X1 if self.behaviour.mode == "sync" else None,
+                data=self._payload(job_id, modality) if self.behaviour.mode == "sync" else None,
                 url=None if self.behaviour.mode == "sync" else f"https://fake.invalid/{job_id}/{index}",
                 media_type="image/png" if modality == "image" else "video/mp4",
             )
@@ -193,16 +334,51 @@ class FakeCloudProvider(CloudProvider):
     async def discover(self) -> list[CloudModelSpec]:
         self.behaviour.calls.append("discover")
         self._maybe_fail("discover")
-        return fake_specs()
+        return list(self.behaviour.specs) if self.behaviour.specs is not None else fake_specs()
+
+    def _check_capabilities(self, request: CloudRequest) -> None:
+        problems: list[str] = []
+        for name, value in request.params.items():
+            param = find_param(request.model, name, request.task)
+            if param is None:
+                problems.append(f"{name} is not offered")
+            elif validate_param_value(param, value) is not None:
+                problems.append(f"{name}={value!r} is not offered")
+        for role, items in request.inputs.items():
+            if items and find_input(request.model, role, request.task) is None:
+                problems.append(f"{role} is not accepted")
+        if request.task not in request.model.tasks:
+            problems.append(f"{request.task} is not offered")
+        if problems:
+            raise CloudError("invalid_request", FAKE_USER_MESSAGES["invalid_request"], detail="; ".join(problems))
+
+    def _fail_this_submit(self) -> None:
+        behaviour = self.behaviour
+        submits = behaviour.calls.count("submit")
+        if behaviour.fail_from_submit is not None and submits >= behaviour.fail_from_submit:
+            kind = behaviour.fail_kind or "failed"
+            raise CloudError(kind, FAKE_USER_MESSAGES[kind], detail=f"scripted failure at submit {submits}")
+
+    def _video(self, request: CloudRequest, job_id: str) -> bytes:
+        frames = {role: (request.inputs.get(role) or [None])[0] for role in VIDEO_ROLES}
+        start = image_colour(frames["first_frame"].path) if frames["first_frame"] else _colour(f"{job_id}:start")
+        end = image_colour(frames["last_frame"].path) if frames["last_frame"] else _colour(f"{job_id}:end")
+        seconds = request.params.get("duration_s") or 2
+        return fake_video_bytes(float(seconds), start=start, end=end, sound=request.params.get("generate_audio") is True)
 
     async def submit(self, request: CloudRequest) -> CloudJob:
         self.behaviour.calls.append("submit")
         self.behaviour.keys.append(request.idempotency_key)
         self.behaviour.requests.append(request)
         self._maybe_fail("submit")
+        self._fail_this_submit()
+        modality = "video" if "video" in request.task else "image"
+        if self.behaviour.strict_capabilities and modality == "video":
+            self._check_capabilities(request)
         self._counter += 1
         job_id = f"fake-job-{self._counter}"
-        modality = "video" if "video" in request.task else "image"
+        if modality == "video" and self.behaviour.real_video:
+            self._videos[job_id] = self._video(request, job_id)
         handle = {
             "submitted_at": self.clock.now(),
             "count": request.count,
@@ -235,7 +411,8 @@ class FakeCloudProvider(CloudProvider):
         self.behaviour.calls.append("fetch")
         self.behaviour.fetch_limits.append(max_bytes)
         self._maybe_fail("fetch")
-        payload = artifact.data if artifact.data is not None else PNG_1X1
+        job_id = (artifact.url or "").rsplit("/", 2)[-2] if artifact.url else ""
+        payload = artifact.data if artifact.data is not None else self._payload(job_id, artifact.modality)
         if max_bytes is not None and len(payload) > max_bytes:
             raise CloudError("failed", "The result is larger than the allowed size.", detail="fake max_bytes")
         dest.parent.mkdir(parents=True, exist_ok=True)

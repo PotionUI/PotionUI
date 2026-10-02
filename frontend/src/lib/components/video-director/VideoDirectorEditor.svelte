@@ -22,6 +22,7 @@
 	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 	import type { ConsoleHeader as ConsoleHeaderModel } from './console/consoleModel';
 	import ShotConsole from './console/ShotConsole.svelte';
+	import ModelLimits from './ModelLimits.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 
@@ -144,6 +145,10 @@
 			</header>
 		</section>
 	</div>
+
+	{#if capabilities.modelLabel}
+		<ModelLimits {value} {capabilities} {onChange} />
+	{/if}
 
 	<ShotConsole
 		{value}

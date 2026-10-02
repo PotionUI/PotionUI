@@ -131,6 +131,10 @@ export interface DirectorRunState {
 	 *  the dependency is still satisfied and reports `unverified` rather than
 	 *  `continuous`/`stale`. */
 	predecessorRef?: DirectorPredecessorRef | null;
+	reported?: boolean;
+	outputPath?: string | null;
+	flagged?: boolean;
+	message?: string | null;
 }
 
 /** Maps a generation id back to the shot id(s) it covers -- see

@@ -57,10 +57,13 @@
 	} from '$lib/chat/turnController';
 	import { scheduleFrame, cancelFrame } from '$lib/chat/streamCoalescer';
 	import {
-		resolveDirectorCapabilities,
+		parseDirectorCapabilities,
+		resolveDirectorRaw,
 		normalizeDirectorValue,
 		applyDirectorSegmentPrompt
 	} from '$lib/utils/videoDirector';
+	import { applyModelOverlay, directorOverlayFrom, selectedCloudModelId } from '$lib/utils/cloudDirector';
+	import { sharedCapabilityCache } from '$lib/form/capabilityTracker';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import {
 		resolveMusicDirectorCapabilities,
@@ -464,12 +467,18 @@
 	// mode. The cache key includes `selectedMode` for the same reason as there.
 	let videoDirectorCapsCache: { key: string; caps: DirectorCapabilities | null } | null = null;
 	$: videoDirectorCapsRaw = directorPresetVarsCache[contextTab?.selectedPreset || '']?.video_director;
-	$: videoDirectorCapsKey = `${contextTab?.selectedPreset || ''}:${contextTab?.selectedMode || ''}:${JSON.stringify(videoDirectorCapsRaw ?? null)}`;
+	$: videoDirectorOverlay = (() => {
+		const modelId = selectedCloudModelId(contextTab?.formData);
+		return modelId ? directorOverlayFrom(sharedCapabilityCache.get(modelId)) : null;
+	})();
+	$: videoDirectorCapsKey = `${contextTab?.selectedPreset || ''}:${contextTab?.selectedMode || ''}:${JSON.stringify(videoDirectorCapsRaw ?? null)}:${JSON.stringify(videoDirectorOverlay)}`;
 	$: videoDirectorCaps = (() => {
 		if (videoDirectorCapsCache && videoDirectorCapsCache.key === videoDirectorCapsKey) {
 			return videoDirectorCapsCache.caps;
 		}
-		const caps = resolveDirectorCapabilities(videoDirectorCapsRaw, contextTab?.selectedMode ?? null);
+		const caps = parseDirectorCapabilities(
+			applyModelOverlay(resolveDirectorRaw(videoDirectorCapsRaw, contextTab?.selectedMode ?? null), videoDirectorOverlay)
+		);
 		videoDirectorCapsCache = { key: videoDirectorCapsKey, caps };
 		return caps;
 	})();

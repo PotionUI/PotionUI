@@ -44,9 +44,13 @@
 	import { keybindingsStore } from '$lib/stores/keybindings';
 	import { isMobile, viewportWidth } from '$lib/stores/viewport';
 	import { settingsPaneWidth } from '$lib/stores/generationLayout';
-	import { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText } from '$lib/utils/videoDirector';
+	import { normalizeDirectorValue, validateDirector, buildDirectorSubmission, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText } from '$lib/utils/videoDirector';
 	import { buildGenerationRequest, prepareRequest } from '$lib/generation/prepareRequest';
 	import { createRequestContextCache, resolveRequestContext } from '$lib/generation/requestContext';
+	import { createCapabilityTracker, sharedCapabilityCache } from '$lib/form/capabilityTracker';
+	import { fetchCloudCapabilities } from '$lib/services/cloudCapabilities';
+	import { fetchCloudEstimate } from '$lib/services/cloudEstimate';
+	import { describeEstimate, directorOverlayFrom, estimateShotsFor, hostedRetryNotice, planHostedRetry, selectedCloudModelId, type DirectorModelOverlay } from '$lib/utils/cloudDirector';
 	import {
 		directorShotInputIdentity,
 		directorPredecessorShotId,
@@ -94,6 +98,20 @@
 	// Deliberately plain state, not persisted (PLAN.md §C W3: the checked set
 	// is transient, unlike `directorRuns`).
 	let directorCheckedByTab: Record<string, Set<string>> = {};
+
+	let overlayRevision = 0;
+	const overlayTracker = createCapabilityTracker({
+		fetch: fetchCloudCapabilities,
+		cache: sharedCapabilityCache,
+		onLoaded: () => {
+			overlayRevision += 1;
+		}
+	});
+
+	function directorOverlayFor(tab: Pick<Tab, 'formData'>): DirectorModelOverlay | null {
+		const modelId = selectedCloudModelId(tab.formData);
+		return modelId ? directorOverlayFrom(sharedCapabilityCache.get(modelId)) : null;
+	}
 	function handleDirectorCheckedChange(tabId: string, checked: Set<string>) {
 		directorCheckedByTab = { ...directorCheckedByTab, [tabId]: checked };
 	}
@@ -435,10 +453,14 @@
 	async function submitVideoDirectorShots(tabId: string, shotIds: string[]): Promise<void> {
 		const tab = $tabsStore.tabs.find((t) => t.id === tabId);
 		if (!tab || !tab.selectedPreset || shotIds.length === 0) return;
-		const caps = resolveDirectorCapabilities(presetVars[tab.selectedPreset]?.video_director, tab.selectedMode);
+		const caps = resolveRequestContext(presetVars[tab.selectedPreset], tab.selectedMode, directorOverlayFor(tab)).videoDirectorCaps;
 		if (!caps) return;
 
-		const doc = normalizeDirectorValue(tab.videoDirector, caps);
+		const baseDoc = normalizeDirectorValue(tab.videoDirector, caps);
+		const retry = planHostedRetry(baseDoc, caps, tab.directorRuns, shotIds);
+		const doc = retry.doc;
+		shotIds = retry.shotIds;
+		if (retry.kind === 'restart') toasts.info(hostedRetryNotice(caps));
 		// Gated to exactly the requested shots (Retry's one id, or a broken
 		// join's contiguous span) -- an unrelated shot's own problems must
 		// never block this targeted resubmission (directorPlanner.ts).
@@ -588,10 +610,14 @@
 
 	// Get num_prompts for current preset (default 1)
 	const requestContextFor = createRequestContextCache();
+	$: cloudModelId = selectedCloudModelId(currentTab.formData);
+	$: overlayTracker.select('video_director', cloudModelId);
+	$: directorOverlay = overlayRevision >= 0 ? directorOverlayFor(currentTab) : null;
 	$: requestContext = requestContextFor(
 		currentTab.selectedPreset || '',
 		presetVars[currentTab.selectedPreset || ''],
-		currentTab.selectedMode
+		currentTab.selectedMode,
+		directorOverlay
 	);
 	$: numPrompts = requestContext.numPrompts;
 	$: currentPresetVars = presetVars[currentTab.selectedPreset || ''] || {};
@@ -648,6 +674,54 @@
 	// the other two key parts changed.
 	$: videoDirectorCaps = requestContext.videoDirectorCaps;
 	$: videoDirectorActive = requestContext.videoDirectorActive;
+
+	let costNote: string | null = null;
+	let estimateTimer: ReturnType<typeof setTimeout> | undefined;
+	let estimateKey = '';
+	let estimateSeq = 0;
+	$: scheduleDirectorEstimate(currentTab, videoDirectorActive, videoDirectorCaps, directorCheckedByTab, isAdmin);
+
+	function resetDirectorEstimate() {
+		clearTimeout(estimateTimer);
+		estimateSeq += 1;
+		estimateKey = '';
+		costNote = null;
+	}
+
+	function scheduleDirectorEstimate(
+		tab: Tab,
+		active: boolean,
+		caps: DirectorCapabilities | null,
+		checkedByTab: Record<string, Set<string>>,
+		_admin: boolean
+	) {
+		const modelId = selectedCloudModelId(tab.formData);
+		if (!isAdmin || !active || !caps || !caps.modelLabel || !caps.segmentRouting || !modelId) {
+			resetDirectorEstimate();
+			return;
+		}
+		const doc = normalizeDirectorValue(tab.videoDirector, caps);
+		const checked = checkedByTab[tab.id] ?? new Set<string>();
+		const plan = planDirectorSelection(doc, caps, tab.directorRuns, checked);
+		const shots = estimateShotsFor(doc, tab.formData, checked);
+		if (shots.length < 2 || plan.blockingReasons.length > 0) {
+			resetDirectorEstimate();
+			return;
+		}
+		const key = JSON.stringify([modelId, shots]);
+		if (key === estimateKey) return;
+		clearTimeout(estimateTimer);
+		estimateKey = key;
+		estimateTimer = setTimeout(async () => {
+			const seq = ++estimateSeq;
+			try {
+				const estimate = await fetchCloudEstimate(modelId, shots);
+				if (seq === estimateSeq) costNote = describeEstimate(estimate);
+			} catch {
+				if (seq === estimateSeq) costNote = null;
+			}
+		}, 500);
+	}
 
 	// Music Director: same shape/memoization reasoning as videoDirectorCaps
 	// above -- a preset opts in via `vars.music_director` (docs/music-director.md).
@@ -951,6 +1025,8 @@
 	}
 
 	onDestroy(() => {
+		overlayTracker.destroy();
+		clearTimeout(estimateTimer);
 		restoreController.abort();
 		unregisterChatRunGeneration?.();
 		unregisterChatRunGeneration = null;
@@ -1742,6 +1818,7 @@
 						{cancelGeneration}
 						{canGenerate}
 						{generateDisabledReason}
+						{costNote}
 						{promptRelayActive}
 						{videoDirectorActive}
 						{videoDirectorCaps}
@@ -1863,6 +1940,7 @@
 			onCancel={cancelGeneration}
 			{canGenerate}
 			disabledReason={generateDisabledReason}
+			{costNote}
 			{generatingTabName}
 			isActiveTabGenerating={$isActiveTabGenerating}
 			onSwitchToGeneratingTab={switchToGeneratingTab}

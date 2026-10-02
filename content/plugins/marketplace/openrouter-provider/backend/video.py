@@ -89,6 +89,31 @@ def _sku_lines(skus: Any) -> Tuple[PriceLine, ...]:
     return tuple(sorted(lines, key=lambda line: (line.unit, line.applies_to or "")))
 
 
+def _single_number(value: Any) -> Optional[float]:
+    numbers = _numbers(value) if isinstance(value, list) else _numbers([value])
+    numbers = [number for number in numbers if math.isfinite(number) and number > 0]
+    return numbers[0] if len(set(numbers)) == 1 else None
+
+
+def _director(item: Dict[str, Any]) -> Dict[str, Any]:
+    fps = _single_number(item.get("supported_fps")) or _single_number(item.get("fps"))
+    if fps is None:
+        return {}
+    return {"limits": {"default_fps": int(fps) if fps.is_integer() else fps}}
+
+
+def merge_director(base: Dict[str, Any], extra: Any) -> Dict[str, Any]:
+    merged = dict(base or {})
+    if not isinstance(extra, dict):
+        return merged
+    for key, value in extra.items():
+        if key in ("limits", "modes") and isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = {**merged[key], **value}
+        else:
+            merged[key] = value
+    return merged
+
+
 def video_spec(item: Any) -> Optional[CloudModelSpec]:
     if not isinstance(item, dict):
         return None
@@ -146,6 +171,7 @@ def video_spec(item: Any) -> Optional[CloudModelSpec]:
         typical_seconds=120,
         deprecated_at=item.get("expiration_date") if isinstance(item.get("expiration_date"), str) else None,
         raw={"supported": supported},
+        director=_director(item),
     )
 
 

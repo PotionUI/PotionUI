@@ -167,6 +167,17 @@ message, history entry, gallery item, session or model listing carries a price o
   be written, a minimal `unknown` row with the reason is written instead; if even that fails the
   amount is logged at error level so it can be reconciled.
 
+Before brewing, an admin can ask what a run of video shots would cost (used by the Video
+Director, where every shot is its own paid request):
+`POST /api/cloud/models/{model_id}/estimate` (admin only) with
+`{"shots": [{"task": "txt2video", "params": {"duration_s": 6, "resolution": "720p"}}, ...], "driver": null}`
+answers `known`, `total_usd` (a decimal string, or `null` when no line could be priced), `shots`
+(each with `index`, `task`, `amount_usd`, `lines` and `skipped_units`), `shot_count`, `source`
+(`estimate`) and `message`. The same price lines as above are applied per shot. When the model
+has no usable price, `known` is `false`, `total_usd` is `null` and `message` says the price is not
+known; when only some lines could be priced, `known` is `false` and `total_usd` covers what could.
+No price is ever made up.
+
 Where admins see it:
 
 - **Admin → Generations**: each item of `GET /api/admin/generations` has `cost` (`null`, or
@@ -509,11 +520,20 @@ A `CloudModelSpec` describes one model in normalized terms: `provider_model_id`,
 `tasks`), `inputs` (`MediaInputSpec`: `role`, `modality`, `min_items`, `max_items`, `max_bytes`,
 `formats`, `tasks`), `max_outputs_per_job`, `pricing` (`PriceLine`: `unit` of `request`, `image`,
 `megapixel`, `second`, `token` or `sku`, `usd` as a `Decimal`, optional `applies_to`),
-`typical_seconds`, `max_seconds`, `deprecated_at` and `raw`. Express whatever the provider's schema
+`typical_seconds`, `max_seconds`, `deprecated_at`, `raw` and `director`. Express whatever the provider's schema
 language is in the four parameter kinds: a fixed choice is `enum`, a bounded number `range`, a flag
 `boolean`, free text `text`. Use canonical parameter names wherever one fits and `x.<wire name>`
 otherwise. A parameter or input with `tasks` applies only to those tasks. Prices are shown to admins
 only.
+
+`director` is optional and only matters for video models: a partial `vars.video_director` block
+(same shape as a preset's `preset_mode_overrides` entry) for what the catalog cannot say on its
+own, such as `{"limits": {"default_fps": 30}}` or `{"modes": {"director": {"max_segments": 3}}}`.
+Core already derives the allowed clip lengths from `duration_s`, start and end pictures from the
+`first_frame`/`last_frame` inputs, and text-only shots from the tasks (see
+[Video Director → Model overlays](video-director.md#model-overlays)); what the provider declares
+is merged on top of that. Leave it empty when you do not know a value: the derived overlay is
+already conservative (no end frame, no continuation, unless the model lists the inputs).
 
 #### Requests and results
 
@@ -652,6 +672,18 @@ async def test_acme_passes_the_contract(server, tmp_path):
 
     assert "async_poll_reaches_success" in ran
 ```
+
+For video presets with a Video Director, `FakeBehaviour` has a few more switches:
+`real_video=True` makes video jobs return a real, tiny MP4 (8 fps, 32×24, as long as `duration_s`)
+whose colour runs from the `first_frame` picture to the `last_frame` picture, so a continuation can
+be checked frame by frame (with `ffmpeg` on the path it is H.264 and carries a quiet tone when
+`generate_audio` is on; without it, an MPEG-4 clip without sound written with `cv2`, which some
+browsers do not play); `strict_capabilities=True` refuses a video request whose parameters,
+pictures or task the model does not offer (`invalid_request`), the way a real provider would;
+`fail_from_submit=n` fails the n-th request and every later one with `fail_kind`; and `specs`
+replaces the discovered models. `fake_director_specs()` lists three video models (start and end
+frames with fixed lengths and a price per second; start frame only, priced per request; text only
+with no price), and `fake_video_bytes(...)` writes such a clip directly. They need `cv2`.
 
 `scenarios` lists what your recorded fixtures can play, and checks that need another scenario are
 skipped (`applicable_checks` tells you which run). Supply `error_probes` (a mapping of error kind to an

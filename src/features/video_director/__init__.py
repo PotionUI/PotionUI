@@ -1,6 +1,7 @@
 from src.features.video_director.compile import compile_shot_plan
 from src.features.video_director.normalize import (
     VideoDirectorValidationError,
+    apply_model_overlay,
     apply_preset_mode_overlay,
     derive_ltx_media_fields,
     derive_segment_routing,
@@ -14,6 +15,7 @@ __all__ = [
     "normalize_video_director",
     "compile_shot_plan",
     "apply_preset_mode_overlay",
+    "apply_model_overlay",
     "derive_ltx_media_fields",
     "derive_segment_routing",
     "derive_segment_sub_type",

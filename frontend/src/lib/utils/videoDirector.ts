@@ -326,7 +326,8 @@ function parseModeCapability(
 		continuation,
 		maxOverlapFrames: typeof r.max_overlap_frames === 'number' ? r.max_overlap_frames : null,
 		continuationDisabled,
-		fpsLocked: r.fps_locked === true
+		fpsLocked: r.fps_locked === true,
+		...('continue_from_video' in r ? { continueFromVideo: r.continue_from_video === true } : {})
 	};
 }
 
@@ -344,7 +345,7 @@ function parseModeCapability(
  * identical to the backend -- there is no separate coercion path to drift
  * out of sync with `parseModeCapability`.
  */
-function mergeRawCapabilities(base: Record<string, unknown>, override: Record<string, unknown>): Record<string, unknown> {
+export function mergeRawCapabilities(base: Record<string, unknown>, override: Record<string, unknown>): Record<string, unknown> {
 	const merged: Record<string, unknown> = { ...base };
 	for (const [key, value] of Object.entries(override)) {
 		if (key !== 'modes') merged[key] = value;
@@ -367,12 +368,16 @@ function mergeRawCapabilities(base: Record<string, unknown>, override: Record<st
  * merges that raw block onto the base raw block (`mergeRawCapabilities`) and
  * parses the RESULT; otherwise identical to `parseDirectorCapabilities(raw)`.
  */
-export function resolveDirectorCapabilities(raw: unknown, presetMode: string | null | undefined): DirectorCapabilities | null {
-	if (!isRecord(raw) || !presetMode) return parseDirectorCapabilities(raw);
+export function resolveDirectorRaw(raw: unknown, presetMode: string | null | undefined): unknown {
+	if (!isRecord(raw) || !presetMode) return raw;
 	const overridesRaw = isRecord(raw.preset_mode_overrides) ? raw.preset_mode_overrides : null;
 	const overrideRaw = overridesRaw && isRecord(overridesRaw[presetMode]) ? overridesRaw[presetMode] : null;
-	if (!overrideRaw) return parseDirectorCapabilities(raw);
-	return parseDirectorCapabilities(mergeRawCapabilities(raw, overrideRaw));
+	if (!overrideRaw) return raw;
+	return mergeRawCapabilities(raw, overrideRaw);
+}
+
+export function resolveDirectorCapabilities(raw: unknown, presetMode: string | null | undefined): DirectorCapabilities | null {
+	return parseDirectorCapabilities(resolveDirectorRaw(raw, presetMode));
 }
 
 /** Parses the preset var `vars.video_director`. Returns null when the shape has no usable modes. */
@@ -389,6 +394,10 @@ export function parseDirectorCapabilities(raw: unknown): DirectorCapabilities | 
 	const defaultFps = typeof limits.default_fps === 'number' ? limits.default_fps : 24;
 	const maxDuration = typeof limits.max_duration === 'number' ? limits.max_duration : null;
 	const maxFrames = typeof limits.max_frames === 'number' ? limits.max_frames : null;
+	const durations = Array.isArray(limits.durations)
+		? limits.durations.filter((d): d is number => typeof d === 'number' && Number.isFinite(d) && d > 0).sort((a, b) => a - b)
+		: [];
+	const modelLabel = typeof raw.model_label === 'string' && raw.model_label.trim() ? raw.model_label.trim() : null;
 
 	const modes: Partial<Record<DirectorMode, DirectorModeCapability>> = {};
 	for (const m of enabledModes) {
@@ -437,7 +446,9 @@ export function parseDirectorCapabilities(raw: unknown): DirectorCapabilities | 
 		references,
 		referenceFields,
 		family,
-		timing
+		timing,
+		modelLabel,
+		durations: durations.length > 0 ? durations : null
 	};
 }
 
@@ -1342,6 +1353,35 @@ export function toModelessDirectorValue(value: VideoDirectorValue, caps: Directo
 	return next.ui?.modeless ? next : { ...next, ui: { ...next.ui, modeless: true } };
 }
 
+function formatSecondsList(values: number[]): string {
+	const text = values.map((v) => String(Number(v.toFixed(2))));
+	if (text.length === 1) return `${text[0]} s`;
+	return `${text.slice(0, -1).join(', ')} or ${text[text.length - 1]} s`;
+}
+
+function modelShotDurationReason(duration: number, caps: DirectorCapabilities, prefix: string): string | null {
+	const model = caps.modelLabel;
+	if (!model) return null;
+	const shown = Number(duration.toFixed(2));
+	if (caps.durations && !caps.durations.some((d) => Math.abs(d - duration) < 0.005)) {
+		return `${prefix}${shown} s is not a length ${model} renders. Use ${formatSecondsList(caps.durations)}.`;
+	}
+	if (!caps.durations && caps.maxDuration != null && duration > caps.maxDuration + 0.005) {
+		return `${prefix}${shown} s is longer than ${model} renders. The most it does is ${Number(caps.maxDuration.toFixed(2))} s.`;
+	}
+	return null;
+}
+
+export function modelShotDurationReasons(shotDurations: number[], caps: DirectorCapabilities): string[] {
+	const multi = shotDurations.length > 1;
+	const reasons: string[] = [];
+	shotDurations.forEach((duration, i) => {
+		const reason = modelShotDurationReason(duration, caps, multi ? `Shot ${i + 1}: ` : '');
+		if (reason) reasons.push(reason);
+	});
+	return reasons;
+}
+
 // ─── Validation ───────────────────────────────────────────────────────────────
 
 /**
@@ -1380,12 +1420,14 @@ export function validateDirector(
 		case 't2v': {
 			const shot = extractSingleShot(value, caps);
 			addTimingReasons(shot.duration, shot.fps);
+			reasons.push(...modelShotDurationReasons([shot.duration], caps));
 			if (!value.global_prompt.trim() && !shot.promptText.trim()) reasons.push('Missing prompt');
 			break;
 		}
 		case 'i2v': {
 			const shot = extractSingleShot(value, caps);
 			addTimingReasons(shot.duration, shot.fps);
+			reasons.push(...modelShotDurationReasons([shot.duration], caps));
 			if (!shot.leading) reasons.push('Missing start image');
 			if (!value.global_prompt.trim() && !shot.promptText.trim()) reasons.push('Missing prompt');
 			break;
@@ -1393,6 +1435,7 @@ export function validateDirector(
 		case 'flf': {
 			const shot = extractSingleShot(value, caps);
 			addTimingReasons(shot.duration, shot.fps);
+			reasons.push(...modelShotDurationReasons([shot.duration], caps));
 			if (!shot.leading) reasons.push('Missing first frame');
 			if (!shot.trailing) reasons.push('Missing last frame');
 			if (!value.global_prompt.trim() && !shot.promptText.trim()) reasons.push('Missing prompt');
@@ -1408,15 +1451,20 @@ export function validateDirector(
 				const segs = value.chain.segments;
 				if (segs.length === 0) reasons.push('At least one segment is required');
 				if (segs.some((s) => !s.prompt.trim())) reasons.push('Every segment needs a prompt');
+				reasons.push(...modelShotDurationReasons(segs.map((s) => s.duration), caps));
 				if (cap?.maxSegments != null && segs.length > cap.maxSegments) {
-					reasons.push(`Too many segments (max ${cap.maxSegments})`);
+					reasons.push(
+						caps.modelLabel
+							? `${caps.modelLabel} makes up to ${cap.maxSegments} shots in one film, this one has ${segs.length}.`
+							: `Too many segments (max ${cap.maxSegments})`
+					);
 				}
 				// A leading frame is join-aware, not index-pinned: any segment may
 				// carry its own (chainSegmentEdgeAllowances) once it opens fresh --
 				// the editor's own well only ever renders where that's already
 				// true, so there's nothing further to check per-segment here.
 				if (!(cap?.keyframes === 'first_only' || cap?.keyframes === 'anywhere') && segs.some((s) => s.keyframe)) {
-					reasons.push('Keyframes are not supported in this mode');
+					reasons.push(caps.modelLabel ? `${caps.modelLabel} cannot start a shot from a picture.` : 'Keyframes are not supported in this mode');
 				}
 				// A trailing frame mirrors normalize.py's dead-knob guard: it's only
 				// ever consumed paired with a leading frame on the SAME segment
@@ -1424,7 +1472,7 @@ export function validateDirector(
 				// so an unpaired one is rejected rather than silently dropped.
 				const trailingCapabilityAllowed = cap?.keyframes === 'anywhere' || caps.enabledModes.includes('flf');
 				if (!trailingCapabilityAllowed && segs.some((s) => s.last_keyframe)) {
-					reasons.push('Trailing frames are not supported in this mode');
+					reasons.push(caps.modelLabel ? `${caps.modelLabel} cannot end a shot on a picture.` : 'Trailing frames are not supported in this mode');
 				} else if (segs.some((s) => s.last_keyframe && !s.keyframe)) {
 					reasons.push('A trailing frame needs a leading frame on the same segment to have any effect');
 				}
@@ -1443,7 +1491,7 @@ export function validateDirector(
 				if (cap?.audio) {
 					if (value.chain.audio.some((a) => !a.media)) reasons.push('Audio track missing media');
 				} else if (value.chain.audio.length > 0) {
-					reasons.push('Audio is not supported in this mode');
+					reasons.push(caps.modelLabel ? `${caps.modelLabel} does not take an audio track.` : 'Audio is not supported in this mode');
 				}
 				if (
 					cap?.maxOverlapFrames != null &&

@@ -265,8 +265,10 @@ test.describe('cloud form on a phone', () => {
 			await trigger.click();
 			await page.locator('[role="listbox"][aria-label="Presets"]').getByText(PRESET_NAME, { exact: true }).click();
 			await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+			await expect(page.getByRole('button', { name: /Use this preset|Keep selected/ })).toHaveCount(0);
 		}
 		await page.keyboard.press('Escape');
+		await expect(sheet).toBeHidden({ timeout: 5000 });
 		await page.getByRole('button', { name: 'Settings', exact: true }).click();
 		await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible({ timeout: 5000 });
 		await page.waitForTimeout(1200);

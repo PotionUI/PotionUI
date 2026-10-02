@@ -9,13 +9,17 @@
 	import { badgeMeta, BADGE_TONE_CLASS } from './badgeMeta';
 	import ConsoleIcon from './ConsoleIcon.svelte';
 	import { isVideoExample } from '$lib/utils/presetMedia';
+	import { nsfwFilterStore, isHiddenByMode, shouldBlurFile } from '$lib/stores/nsfwFilter';
+	import { nsfwRevealStore } from '$lib/stores/nsfwReveal';
 
 	let {
 		shot,
 		checked,
 		onToggleChecked,
 		onActivate,
-		onRetry
+		onRetry,
+		retryLabel = 'Retry',
+		retryNote = null
 	}: {
 		shot: ConsoleShot;
 		checked: boolean;
@@ -23,12 +27,22 @@
 		onActivate: (shotId: string) => void;
 		/** Resubmits just this shot (W3) -- only ever rendered for a 'failed' run. */
 		onRetry?: (shotId: string) => void;
+		retryLabel?: string;
+		retryNote?: string | null;
 	} = $props();
 
+	nsfwFilterStore.init();
+	let outputThumb = $derived(shot.thumb.source === 'output' && !!shot.thumb.url);
+	let flaggedFile = $derived({ nsfw: shot.thumb.flagged === true });
+	let revealId = $derived(`shot:${shot.id}:${shot.thumb.url ?? ''}`);
+	let thumbHidden = $derived(outputThumb && isHiddenByMode(flaggedFile, $nsfwFilterStore.mode));
+	let thumbBlurred = $derived(outputThumb && shouldBlurFile(flaggedFile, $nsfwFilterStore.mode, $nsfwRevealStore.has(revealId)));
 	let meta = $derived(badgeMeta(shot.badge));
 	let thumbIsVideo = $derived(
 		!!shot.thumb.url && shot.thumb.source === 'output' && isVideoExample({ src: shot.thumb.url.split('?')[0] })
 	);
+
+	let plainThumb = $derived(!!shot.thumb.url && !thumbIsVideo && !thumbBlurred);
 
 	function runLabel(): string {
 		const run = shot.run;
@@ -42,7 +56,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class="relative flex cursor-pointer items-center gap-3.5 rounded-md border border-line bg-surface-1 px-3 py-2.5 hover:border-line-hover"
+	class="relative flex cursor-pointer flex-wrap items-center gap-x-3.5 gap-y-2 rounded-md border border-line bg-surface-1 px-3 py-2.5 hover:border-line-hover"
 	role="button"
 	tabindex="0"
 	aria-label="Expand {shot.title}"
@@ -70,30 +84,61 @@
 		{/if}
 	</button>
 
-	<div
-		class="h-[72px] w-32 flex-none overflow-hidden rounded-md shadow-raised {shot.thumb.url
-			? 'bg-cover bg-center'
-			: 'flex items-center justify-center border border-dashed border-line-strong bg-canvas'}"
-		style={shot.thumb.url && !thumbIsVideo ? `background-image:url(${JSON.stringify(shot.thumb.url)})` : ''}
-	>
-		{#if thumbIsVideo}
-			<video
-				src={shot.thumb.url}
-				class="h-full w-full object-cover"
-				muted
-				playsinline
-				preload="metadata"
-			>
-				<track kind="captions" />
-			</video>
-		{:else if !shot.thumb.url}
-			<ConsoleIcon name="image" class="h-[18px] w-[18px] text-fg-disabled" />
-		{/if}
-	</div>
+	{#if thumbHidden}
+		<div
+			class="row-thumb flex h-[72px] w-32 flex-none flex-col items-center justify-center gap-0.5 rounded-md border border-line-strong bg-surface-2 text-xs text-fg-subtle"
+			data-thumb-hidden
+		>
+			<ConsoleIcon name="image" class="h-[18px] w-[18px]" />
+			Hidden
+		</div>
+	{:else}
+		<div
+			class="row-thumb relative h-[72px] w-32 flex-none overflow-hidden rounded-md shadow-raised {plainThumb
+				? 'bg-cover bg-center'
+				: shot.thumb.url
+					? ''
+					: 'flex items-center justify-center border border-dashed border-line-strong bg-canvas'}"
+			style={plainThumb ? `background-image:url(${JSON.stringify(shot.thumb.url)})` : ''}
+			data-thumb-blurred={thumbBlurred ? '' : undefined}
+		>
+			{#if thumbIsVideo}
+				<video
+					src={shot.thumb.url}
+					class="h-full w-full object-cover {thumbBlurred ? 'scale-110 blur-2xl' : ''}"
+					muted
+					playsinline
+					preload={thumbBlurred ? 'none' : 'metadata'}
+				>
+					<track kind="captions" />
+				</video>
+			{:else if shot.thumb.url && thumbBlurred}
+				<div
+					class="h-full w-full scale-110 bg-cover bg-center blur-2xl"
+					style="background-image:url({JSON.stringify(shot.thumb.url)})"
+				></div>
+			{:else if !shot.thumb.url}
+				<ConsoleIcon name="image" class="h-[18px] w-[18px] text-fg-disabled" />
+			{/if}
+			{#if thumbBlurred}
+				<button
+					type="button"
+					class="absolute inset-0 flex flex-col items-center justify-center gap-0.5 bg-canvas/40 text-xs font-medium text-fg"
+					aria-label="Sensitive content, click to reveal"
+					onclick={(e) => {
+						e.stopPropagation();
+						nsfwRevealStore.reveal(revealId);
+					}}
+				>
+					Sensitive
+				</button>
+			{/if}
+		</div>
+	{/if}
 
 	<span class="flex-none font-mono text-[11px] text-fg-subtle">{shot.number}</span>
 
-	<div class="flex min-w-0 flex-1 flex-col items-start gap-1">
+	<div class="flex min-w-32 flex-1 flex-col items-start gap-1">
 		<span class="w-full truncate text-left text-[13.5px] font-medium text-fg">{shot.title}</span>
 		<span class="flex items-center gap-1.5 font-mono text-[11px] text-fg-subtle">
 			{shot.durationSeconds.toFixed(1)} s
@@ -112,6 +157,10 @@
 			{/if}
 			<span class="text-fg-disabled"> · at {shot.startSeconds.toFixed(1)} s</span>
 		</span>
+		{#if shot.run?.kind === 'failed' && shot.run.message}
+			<span class="w-full truncate text-left text-xs text-danger" data-run-message>{shot.run.message}</span>
+			{#if retryNote}<span class="w-full text-left text-xs text-fg-muted" data-retry-note>{retryNote}</span>{/if}
+		{/if}
 	</div>
 
 	<span class="inline-flex flex-none items-center gap-[5px] font-mono text-[10px] uppercase tracking-[0.04em] {BADGE_TONE_CLASS[meta.tone]}">
@@ -135,25 +184,26 @@
 
 	{#if shot.run}
 		<span
-			class="flex flex-none items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.04em] {shot.run.kind === 'queued'
+			class="flex flex-none items-center gap-2 font-mono text-xs tabular-nums {shot.run.kind === 'queued'
 				? 'text-fg-subtle'
 				: shot.run.kind === 'generating'
 					? 'text-signal'
 					: shot.run.kind === 'done'
 						? 'text-success'
 						: 'text-danger'}"
+			data-run-state={shot.run.kind}
 		>
 			{runLabel()}
 			{#if shot.run.kind === 'failed'}
 				<button
 					type="button"
-					class="cursor-pointer border-none bg-none p-0 font-mono text-[10px] normal-case text-fg-muted underline"
+					class="cursor-pointer rounded border border-line-strong bg-surface-2 px-2 py-0.5 font-sans text-xs font-medium text-fg hover:border-line-hover hover:bg-surface-3"
 					onclick={(e) => {
 						e.stopPropagation();
 						onRetry?.(shot.id);
 					}}
 				>
-					Retry
+					{retryLabel}
 				</button>
 			{/if}
 		</span>
@@ -169,3 +219,12 @@
 		</div>
 	{/if}
 </div>
+
+<style>
+	@container video-director (max-width: 30rem) {
+		.row-thumb {
+			width: 5rem;
+			height: 45px;
+		}
+	}
+</style>

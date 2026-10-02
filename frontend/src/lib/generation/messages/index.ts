@@ -10,3 +10,4 @@ import './complete';
 import './error';
 import './contentBlocked';
 import './queueUpdate';
+import './directorShot';

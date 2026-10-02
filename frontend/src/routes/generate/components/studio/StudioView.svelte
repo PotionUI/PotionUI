@@ -36,6 +36,7 @@
 	export let cancelGeneration: () => void;
 	export let canGenerate: boolean;
 	export let generateDisabledReason: string | undefined;
+	export let costNote: string | null = null;
 	export let promptRelayActive: boolean;
 	export let videoDirectorActive: boolean;
 	export let videoDirectorCaps: DirectorCapabilities | null;
@@ -92,6 +93,7 @@
 		{promptlessActive}
 		{canGenerate}
 		{generateDisabledReason}
+		{costNote}
 		onGenerate={startGeneration}
 		onCancel={cancelGeneration}
 		onOpenPrompt={() => (openSheet = 'prompt')}

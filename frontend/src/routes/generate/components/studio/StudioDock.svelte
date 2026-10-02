@@ -22,6 +22,7 @@
 	export let promptlessActive: boolean = false;
 	export let canGenerate: boolean;
 	export let generateDisabledReason: string | undefined;
+	export let costNote: string | null = null;
 	export let onGenerate: () => void;
 	export let onCancel: () => void;
 	export let onOpenPrompt: () => void;
@@ -291,6 +292,9 @@
 			</div>
 		</div>
 	{:else}
+		{#if costNote && canGenerate}
+			<div class="pointer-events-auto mb-2 text-center font-mono text-xs tabular-nums text-fg-muted" data-cost-note>{costNote}</div>
+		{/if}
 		<div class="pointer-events-auto flex items-center justify-between">
 			<button
 				type="button"

@@ -1,3 +1,4 @@
+import logging
 import shutil
 import tempfile
 from pathlib import Path
@@ -8,6 +9,7 @@ from PIL import Image
 from src.pipelines.cloud import (
     BlockingCloudRunner,
     CloudRunCancelled,
+    CloudRunError,
     CloudRunOutcome,
     CloudRunProgress,
     CloudRunRequest,
@@ -23,12 +25,18 @@ from src.pipelines.contracts import (
 )
 from src.pipelines.outputs import (
     CostGenerationOutput,
+    DirectorShotGenerationOutput,
+    GalleryGenerationOutput,
     GenerationExecutionError,
     Icon,
     ParamGenerationOutput,
     Progress,
     ProgressGenerationOutput,
+    VideoGenerationOutput,
 )
+from src.pipelines.pipes._shared.media.frame_extract import extract_frame
+from src.pipelines.pipes.cloud_generate.director import CloudShot, kept_text, plan_shots, stitch_wanted
+from src.pipelines.pipes.cloud_generate.stitch import StitchError, stitch_clips
 
 DEFAULT_ROLES = {
     "images": "reference",
@@ -38,6 +46,9 @@ DEFAULT_ROLES = {
     "audio": "source_audio",
 }
 RANDOM_SEED = -1
+SHOT_PARAM = "duration_s"
+
+logger = logging.getLogger(__name__)
 
 
 def _as_list(value: Any) -> List[Any]:
@@ -80,6 +91,7 @@ class CloudGeneratePipe(BasePipe):
             "options": {},
             "roles": {},
             "cloud": {},
+            "director": None,
         }
 
     @classmethod
@@ -94,6 +106,7 @@ class CloudGeneratePipe(BasePipe):
             PipeConfigSpec("options", dict, {}, "Provider options chosen on the form, merged under params"),
             PipeConfigSpec("roles", dict, {}, "Media role for each media input, keyed by input name"),
             PipeConfigSpec("cloud", dict, {}, "Backend identity, filled in by the cloud backend"),
+            PipeConfigSpec("director", dict, None, "Video Director document; when set, every shot is one request and the clips are joined"),
         ]
 
     @classmethod
@@ -125,6 +138,10 @@ class CloudGeneratePipe(BasePipe):
         model = str(self.config.get("model") or "")
         if not model:
             raise GenerationExecutionError("No cloud model was selected.")
+
+        director = self.config.get("director")
+        if isinstance(director, dict) and director.get("segments"):
+            return self._direct(runner, model, director, generation_outputs, is_cancelled)
 
         scratch = Path(tempfile.mkdtemp(prefix="potionui-cloud-in-"))
         try:
@@ -187,9 +204,7 @@ class CloudGeneratePipe(BasePipe):
         shared_negative = str(self.config.get("negative_prompt") or "")
         prompts = [_prompt_pair(entry, shared_negative) for entry in _as_list(self.config.get("prompts"))] or [("", shared_negative)]
         seeds = [int(seed) for seed in _as_list(pipe_input.input.get("seed")) if seed is not None]
-        options = self.config.get("options")
-        params = {**(options if isinstance(options, dict) else {}), **(self.config.get("params") or {})}
-        params = {name: value for name, value in params.items() if value is not None and value != ""}
+        params = self._params()
         task = str(self.config.get("task") or "txt2img")
 
         def build(prompt: Tuple[str, str], count: int, seed: Optional[int]) -> CloudRunRequest:
@@ -211,6 +226,206 @@ class CloudGeneratePipe(BasePipe):
             build(prompts[index % len(prompts)], 1, seeds[index] if index < len(seeds) else None)
             for index in range(quantity)
         ]
+
+    def _params(self) -> Dict[str, Any]:
+        options = self.config.get("options")
+        params = {**(options if isinstance(options, dict) else {}), **(self.config.get("params") or {})}
+        return {name: value for name, value in params.items() if value is not None and value != ""}
+
+    def _direct(
+        self,
+        runner: BlockingCloudRunner,
+        model: str,
+        document: Dict[str, Any],
+        generation_outputs: callable,
+        is_cancelled: Optional[callable],
+    ) -> PipeOutput:
+        try:
+            shots = plan_shots(document)
+        except ValueError as error:
+            raise GenerationExecutionError(str(error)) from None
+        base_params = self._params()
+        user_ref = str((self.config.get("cloud") or {}).get("user_ref") or "")
+        film = len(shots) > 1
+        generation_outputs(ParamGenerationOutput(name="model", values=[model] * len(shots)))
+
+        def shot_state(shot: CloudShot, status: str, **fields: Any) -> None:
+            if film:
+                generation_outputs(DirectorShotGenerationOutput(
+                    shot_id=shot.segment_id, status=status, shot_index=shot.index, shot_count=shot.count, **fields,
+                ))
+
+        def skip_after(shot: Optional[CloudShot]) -> None:
+            for later in shots[(shot.index + 1) if shot is not None else 0:]:
+                shot_state(later, "skipped")
+
+        for shot in shots:
+            shot_state(shot, "queued")
+
+        scratch = Path(tempfile.mkdtemp(prefix="potionui-cloud-shots-"))
+        clips: List[str] = []
+        seeds: List[int] = []
+        current: Optional[CloudShot] = None
+        try:
+            for shot in shots:
+                if is_cancelled is not None and is_cancelled():
+                    skip_after(current)
+                    return PipeOutput(output={"image": [], "video": [], "audio": [], "seed": []})
+                current = shot
+                self._announce(shot, generation_outputs)
+                shot_state(shot, "generating")
+                try:
+                    start = shot.start_image
+                    if shot.continues:
+                        start = self._last_frame(clips[-1], scratch / f"shot-{shot.index + 1}-start.png")
+                    request = self._shot_request(model, shot, start, base_params, user_ref)
+                    outcome = runner.run_blocking(
+                        request, on_progress=self._shot_reporter(shot, generation_outputs, shot_state), is_cancelled=is_cancelled,
+                    )
+                    generation_outputs(CostGenerationOutput(
+                        model=request.model,
+                        amount_usd=outcome.cost.amount_usd if outcome.cost else None,
+                        source=outcome.cost.source if outcome.cost else "provider",
+                        task=request.task,
+                        count=1,
+                        params=dict(request.params),
+                        outputs=len(outcome.artifacts),
+                    ))
+                    clip = self._shot_clip(outcome)
+                except CloudRunCancelled:
+                    shot_state(shot, "cancelled")
+                    skip_after(shot)
+                    return PipeOutput(output={"image": [], "video": [], "audio": [], "seed": []})
+                except CloudRunError as error:
+                    shot_state(shot, "failed", message=error.user_message)
+                    skip_after(shot)
+                    raise self._shot_failure(error, shot, len(clips)) from None
+                except BaseException:
+                    shot_state(shot, "failed", message="Something went wrong while making this shot.")
+                    skip_after(shot)
+                    raise
+                seed = outcome.seed_used if outcome.seed_used is not None else request.seed
+                clips.append(clip)
+                if seed is not None:
+                    seeds.append(seed)
+                if film:
+                    saved = VideoGenerationOutput(video_path=clip, temporary=False, seed=seed)
+                    generation_outputs(GalleryGenerationOutput(images=[], videos=[saved]))
+                    shot_state(shot, "done", progress=1.0, video=saved)
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+
+        videos = [] if film else list(clips)
+        if film and stitch_wanted(document):
+            joined = self._stitch(clips, generation_outputs)
+            if joined is not None:
+                videos.append(joined)
+        generation_outputs(ParamGenerationOutput(name="segment_seed", values=seeds))
+        return PipeOutput(output={"image": [], "video": videos, "audio": [], "seed": seeds[:1]})
+
+    @staticmethod
+    def _shot_request(
+        model: str, shot: CloudShot, start: Optional[Path], base_params: Dict[str, Any], user_ref: str,
+    ) -> CloudRunRequest:
+        params = dict(base_params)
+        if shot.duration_s is not None:
+            params[SHOT_PARAM] = shot.duration_s
+        inputs: Dict[str, List[Path]] = {}
+        if start is not None:
+            inputs["first_frame"] = [start]
+        if shot.end_image is not None:
+            inputs["last_frame"] = [shot.end_image]
+        return CloudRunRequest(
+            task=shot.task,
+            model=model,
+            prompt=shot.prompt,
+            negative_prompt=shot.negative_prompt or None,
+            seed=shot.seed,
+            count=1,
+            params=params,
+            inputs=inputs,
+            user_ref=user_ref,
+        )
+
+    @staticmethod
+    def _announce(shot: CloudShot, generation_outputs: callable) -> None:
+        if shot.count < 2:
+            return
+        detail = "starting from the previous shot's last frame" if shot.continues else "starting"
+        generation_outputs(ProgressGenerationOutput(
+            state=f"{shot.label}: {detail}",
+            icon=Icon("film", "pulse"),
+            progress=Progress(current=int(shot.index * 100 / shot.count), max=100),
+            segment_id=shot.segment_id,
+        ))
+
+    @staticmethod
+    def _shot_reporter(shot: CloudShot, generation_outputs: callable, shot_state: callable) -> callable:
+        def report(progress: CloudRunProgress) -> None:
+            text = _progress_text(progress)
+            fraction = progress.fraction
+            overall = (shot.index + fraction) / shot.count if fraction is not None else None
+            generation_outputs(ProgressGenerationOutput(
+                state=f"{shot.label}: {text}" if shot.count > 1 else text,
+                icon=Icon("play", "beat"),
+                progress=Progress(current=int(overall * 100), max=100) if overall is not None else None,
+                segment_id=shot.segment_id,
+            ))
+            shot_state(shot, "generating", progress=fraction)
+
+        return report
+
+    @staticmethod
+    def _last_frame(clip: str, dest: Path) -> Path:
+        try:
+            extract_frame(clip, -1).save(dest, format="PNG")
+        except Exception as error:
+            raise CloudRunError(
+                "failed",
+                "The previous shot's last frame could not be read.",
+                detail=f"{type(error).__name__}: {error}",
+            ) from None
+        return dest
+
+    @staticmethod
+    def _shot_failure(error: CloudRunError, shot: CloudShot, finished: int) -> CloudRunError:
+        if shot.count < 2:
+            return error
+        return CloudRunError(
+            error.kind,
+            error.user_message,
+            detail=error.detail,
+            retry_after_s=error.retry_after_s,
+            context=f"{shot.label} failed. {kept_text(finished)}",
+        )
+
+    @staticmethod
+    def _shot_clip(outcome: CloudRunOutcome) -> str:
+        videos = sorted((item for item in outcome.artifacts if item.modality == "video"), key=lambda item: item.index)
+        kept = videos[0] if videos else None
+        for artifact in outcome.artifacts:
+            if artifact is not kept:
+                artifact.path.unlink(missing_ok=True)
+        if kept is None:
+            raise CloudRunError("failed", "The provider returned no video.")
+        return str(kept.path)
+
+    @staticmethod
+    def _stitch(clips: List[str], generation_outputs: callable) -> Optional[str]:
+        generation_outputs(ProgressGenerationOutput(state="Joining the shots", icon=Icon("film", "pulse")))
+        with tempfile.NamedTemporaryFile(prefix="potionui-cloud-film-", suffix=".mp4", delete=False) as handle:
+            out_path = Path(handle.name)
+        try:
+            stitch_clips(clips, out_path)
+        except (StitchError, OSError) as error:
+            out_path.unlink(missing_ok=True)
+            logger.warning(f"[CLOUD_DIRECTOR] the shots could not be joined: {type(error).__name__}: {error}")
+            generation_outputs(ProgressGenerationOutput(
+                state="The shots could not be joined into one video, so each shot is kept on its own",
+                icon=Icon("alert-triangle", "beat"),
+            ))
+            return None
+        return str(out_path)
 
     @staticmethod
     def _discard(videos: List[str], audios: List[str]) -> None:

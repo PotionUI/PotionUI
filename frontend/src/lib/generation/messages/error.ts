@@ -92,7 +92,15 @@ const handler: GenerationMessageHandler = {
 			},
 			...(directorShotIds
 				? {
-						directorRuns: withDirectorRunTerminal(targetTab, directorShotIds, 'failed', null, Date.now(), ctx.generationId),
+						directorRuns: withDirectorRunTerminal(
+							targetTab,
+							directorShotIds,
+							'failed',
+							null,
+							Date.now(),
+							ctx.generationId,
+							message.type === 'generation_cancelled' ? 'Stopped before it finished.' : String(error)
+						),
 						directorRunLinks: withoutDirectorRunLink(targetTab, ctx.generationId)
 					}
 				: {})

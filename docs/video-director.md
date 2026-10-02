@@ -12,6 +12,9 @@ Where a detail depends on a source file, that file is named so you can double-ch
 composition pipes; a `comfyui` preset keeps its existing per-batch prompt relay (see
 [Prompt Expansion](prompts.md)) regardless of what this document describes.
 
+**Cloud presets** (`engine: cloud`) can opt in too: the document is the same, and the cloud
+engine turns it into one paid provider request per shot. See [Cloud presets](#cloud-presets).
+
 ## Composition modes
 
 A preset declares which of these it supports (`vars.video_director.modes`, below). The
@@ -724,6 +727,9 @@ vars:
   - `audio` (bool) — admits an `audio` list, in either style.
   - `ic_lora` (bool) — admits an `ic_lora` list, timeline style only.
   - `max_keyframes` (int, default `8`) — the keyframe count cap, wherever keyframes are legal.
+  - `continue_from_video` (bool) — chain style; admits a video-typed `first` entry (a previous
+    shot's saved clip), whose last frame becomes that segment's start picture. See [How a cloud
+    run works](#how-a-cloud-run-works).
   - `fps_locked` (bool) — frontend-only: this family always samples at `limits.default_fps`,
     with no fps field on its own form for the editor to bind to (MiniMax-H3's chain-style
     windows are a fixed 24fps). The console shows fps as a locked fact on the header/shot
@@ -740,7 +746,14 @@ vars:
     to enforce (e.g. "this preset needs both halves of a two-part LoRA loaded, or motion
     degrades silently").
 - `limits` — `default_duration`, `default_fps`, `max_duration`, `max_frames`, consumed
-  exactly as described under [`settings`](#settings) above.
+  exactly as described under [`settings`](#settings) above, plus `durations`: an optional
+  list of the only clip lengths (seconds) allowed. With it, a single-shot document's
+  `settings.duration` and every chain segment's `frames / settings.fps` (within half a frame)
+  must be one of the listed lengths, or the document is rejected with an error naming them.
+  Cloud models fill it in from their catalog entry (see [Cloud presets](#cloud-presets)).
+- `model_field` — optional, names the form field that holds a cloud model. When set, the
+  selected model's own Director overlay is merged on top of the effective block (see [Model
+  overlays](#model-overlays)).
 
 ### Preset mode overlays
 
@@ -816,6 +829,11 @@ Merge rules:
   this" checks key presence (`"continuation" in mode_caps`), not just `.get(...)`.
 - The merged result never carries `preset_mode_overrides` itself — every consumer only
   ever wants the effective set, never the raw override table.
+- **A composition mode set to `null` is removed.** `modes: { t2v: null }` in an override takes
+  `t2v` out of the effective set entirely, which is how one preset offers different shapes per
+  preset mode (the cloud video preset drops `t2v` and adds `i2v`/`flf` for its `img2video`
+  mode). A `null` *inside* a composition mode's entry (`director: { keyframes: null }`) is
+  still a real value, as described above.
 
 This is generic machinery, not specific to the `references` capability — any capability
 key can differ per preset mode this way.
@@ -908,6 +926,126 @@ vars:
 `ic_lora` stays unavailable to a chain-style preset regardless — declaring it there is a
 no-op that still rejects any submitted `ic_lora` list.
 
+## Cloud presets
+
+A cloud video preset declares the same `vars.video_director` block. The OpenRouter Video
+preset (`content/plugins/marketplace/openrouter-provider/presets/VideoGeneration/standard/`)
+is the reference:
+
+```yaml
+vars:
+  video_director:
+    family: "cloud"
+    model_field: "model"
+    preset_modes: ["txt2video", "img2video"]
+    segment_routing: true
+    modes:
+      t2v: {}
+      director:
+        keyframes: "first_only"
+        max_segments: 6
+        fps_locked: true
+        max_overlap_frames: 0
+        continue_from_video: true
+        continuation: { source: "last_frame", overlap_frames: 0, stitch: true }
+    limits: { default_duration: 5, default_fps: 24, max_duration: 10 }
+    preset_mode_overrides:
+      img2video:
+        modes: { t2v: null, i2v: {}, flf: {} }
+```
+
+The director is chain style: one shot per segment, each segment's length is its `frames`
+divided by `settings.fps`. Both preset modes pass the document to `cloud_generate` as its
+`director` config (`director: "{{ form.video_director if form.video_director is defined else none }}"`);
+the form keeps the model picker and the model-bound controls (aspect ratio, resolution,
+sound, provider options), and the document carries the prompts, the lengths, the seed and the
+start and end pictures. Every shot uses the same form controls.
+
+### Model overlays
+
+Cloud models differ in what they can do, so the effective capability set also depends on the
+model picked in `model_field`. After `preset_mode_overrides`, the orchestrator merges the
+model's overlay with the same rules, except that a model can only tune or remove a
+composition mode, never add one the preset mode lacks
+(`apply_model_overlay`, `src/features/video_director/normalize.py`). The overlay comes from
+`director_overlay(spec)` (`src/features/cloud/director.py`), derived from the catalog entry
+and then topped with whatever the provider declared on the model (`CloudModelSpec.director`,
+same shape as an override):
+
+| The model's catalog entry | The overlay |
+|---|---|
+| `duration_s` is an enum or a range | `limits.durations` (a range is listed step by step), `limits.default_duration` (the model's default when it is in the list, else the shortest), `limits.max_duration`, `limits.default_fps` (24 unless declared), `modes.director.max_frames_per_segment` |
+| no `first_frame` input for `img2video` | `i2v: null`, `flf: null`, `director.keyframes: null`, `director.continuation: null`, `director.continue_from_video: false`: no start or end pictures, every shot a hard cut |
+| a `first_frame` but no `last_frame` input | `flf: null` |
+| no `txt2video` task | `t2v: null` |
+| always | `model_label` (the catalog label) |
+
+The same overlay is served to the editor as `video_director` in
+`GET /api/cloud/models/{model_id}/capabilities` (`null` for a model that makes no video), and
+the normalizer enforces the merged result, so the server stays the only source of truth.
+
+### How a cloud run works
+
+`cloud_generate` with a `director` document (`src/pipelines/pipes/cloud_generate/main.py`,
+`director.py`, `stitch.py`):
+
+- **Single shot** (`t2v`/`i2v`/`flf`): one request with `duration_s = settings.duration`,
+  the `first` picture as the `first_frame` input and the `last` picture as `last_frame`. A
+  shot with any picture runs as `img2video`, otherwise `txt2video`.
+- **Director**: one request per segment, in order, never in parallel. A segment whose
+  resolved `sub_type` is `chain` starts from the previous shot's last frame, read from that
+  clip on this server and sent as its `first_frame`. Any other segment is a hard cut, with its
+  own start (and, on an `flf` segment, end) picture if it has one. Each shot's seed is its own
+  `seed`, else `settings.seed` plus its index.
+- Each finished shot of a film is saved to the generation as soon as it is done, so finished
+  (paid) shots survive a later failure, a cancel or a restart. At the end the shots are joined
+  into one video (unless `settings.continuation.stitch` is `false`): with `ffmpeg`, every shot
+  is scaled to the first one's size and frame rate and its sound kept (silence fills a shot
+  without any); without `ffmpeg`, the frames are joined without sound. If joining fails, the
+  run still completes with every shot and says the shots could not be joined. The generation's
+  files are every shot, then the joined film, the same order a native chain run uses. A single
+  shot is saved once, at the end, like any other generation.
+- `generation_status` progress carries the running shot's `segment_id` and reads "Shot 2 of 4:
+  Generating …". A film also sends one `director_shot_update` message per shot state change
+  (`DirectorShotGenerationOutput`, `src/features/generation/handlers/director_shot_handler.py`):
+
+  ```jsonc
+  {
+    "type": "director_shot_update",
+    "generation_id": "…", "pipe_id": 1,
+    "shot_id": "seg-2",            // the segment id
+    "shot_index": 1, "shot_count": 4,
+    "status": "queued" | "generating" | "done" | "failed" | "skipped" | "cancelled",
+    "progress": 0.4,               // 0..1 while generating when the provider reports it, else null
+    "message": "…",                // failed only: the provider's plain reason
+    "output_url": "/api/media/generations/<generation_id>/<file>",  // done only
+    "output_path": "generations/<date>/<generation_id>/<file>",     // done only, storage-relative
+    "nsfw": false
+  }
+  ```
+
+  Every shot is `queued` first; a shot goes `generating` (again with each progress report) and
+  then `done`. A failing shot is `failed` and every later shot `skipped`, then the generation
+  ends with `generation_error`. A cancel inside a shot marks it `cancelled` and the rest
+  `skipped`; a cancel between shots skips the rest. `output_url`/`output_path` are left out when
+  the clip was not saved (for example a content-safety block). Single-shot runs send none.
+- **A failed shot** stops the run: the shots that finished are kept, and the error message
+  starts with "Shot 3 of 4 failed. Shots 1-2 were kept." followed by the plain reason.
+- **Retrying from a shot.** A director mode that declares `continue_from_video: true` (the
+  cloud preset does) accepts a video-typed `first` media entry on a chain segment: the
+  previous shot's saved clip, referenced by the `output_path` of its `done` update
+  (`{"relative_path": "<output_path>", "type": "video"}`). The normalizer resolves it inside the
+  user's storage, extracts its last frame to a cached PNG (the same helper the timeline style
+  uses) and rewrites the entry as an image with `source_video` naming the clip, so the segment
+  resolves to `i2v`. Submitting `render: {scope: "shots", shot_ids: [k, …, N]}` with that start
+  on shot k reruns only the failed shot and the ones after it, and the retried film is joined
+  from those shots. Without the capability a video-typed `first` on a chain segment is still
+  rejected; a model without start pictures gets `continue_from_video: false` in its overlay.
+- **Cancelling** stops before the next shot: no further request is sent, and the finished
+  shots are kept. A shot that is already running is handled like any other cloud job.
+- Every shot records its own cost line. Before brewing, an admin can ask what a film would
+  cost with `POST /api/cloud/models/{model_id}/estimate` (see [Cloud Models](cloud-models.md#costs)).
+
 ## Per-family interpretation
 
 The normalizer knows nothing about model families — it validates and canonicalizes the
@@ -919,6 +1057,7 @@ contract, not internal function names, so it won't go stale as the implementatio
 |---|---|---|
 | **LTX** | Single generation; `first`/`last` media condition via keyframe tokens in the DiT, not a separate concat pass. | Timeline style. Segments condition the same single generation via per-range keyframe tokens; audio is either model-generated alongside the video or an existing user track muxed onto the output (`role: "mux"` — LTX's audio VAE only decodes, so a supplied track never re-enters the diffusion loop). IC-LoRA reference conditioning applies per `ic_lora` entry. |
 | **Wan** | `i2v`/`flf` condition via concat (image latents concatenated onto the noise input), not keyframe tokens. | Chain style. Sequential generations, one per segment, stitched with a tail-frame handoff (`settings.continuation`, default 4-frame overlap) into one final video. Each segment can carry its own `high`+`low` LoRA stack when `per_segment_loras` is declared. Segment length is bounded by whatever SVI guidance the checkpoint needs — in practice ≤81 frames per segment. |
+| **Cloud** | One provider request; `first`/`last` become the request's start and end frame. | Chain style. One provider request per segment, a `chain` segment starting from the previous clip's last frame; the clips are joined on this server. Lengths, pictures and shot count follow the model's overlay. |
 
 ## v1 limits
 
@@ -939,12 +1078,15 @@ These are current, not architectural — expect some to loosen as the pipes matu
   what it does NOT get is a free-floating `keyframe`-role entry placed anywhere along the
   timeline — that needs `"anywhere"` instead.
 - **Video media is images-only for `first`/`last`/`keyframe`** — a video-typed reference is
-  rejected; only `ic_lora.reference` accepts a clip.
+  rejected; only `ic_lora.reference` accepts a clip, plus a video-typed `first` in a timeline
+  shot or in a chain mode that declares `continue_from_video` (both use the clip's last frame).
 
 ## See also
 
 - [Preset Authoring Guide](presets.md) — `preset.yml`, `vars:`, forms, pipeline templating.
 - [Prompt Expansion](prompts.md) — the `${vars}`/`{a|b}` dynamicprompts grammar Video
   Director segments expand once per segment, and why ComfyUI presets are per-batch.
-- [Backends and Engines](backends.md) — Video Director targets the `native` engine; a
-  `comfyui` preset is untouched by any of this.
+- [Backends and Engines](backends.md) — Video Director targets the `native` and `cloud`
+  engines; a `comfyui` preset is untouched by any of this.
+- [Cloud Models](cloud-models.md) — the catalog entries a cloud model's Director overlay is
+  derived from, and the cost estimate.

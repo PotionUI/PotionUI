@@ -194,6 +194,17 @@ class TimerGenerationOutput(GenerationOutput):
 
 
 @dataclass
+class DirectorShotGenerationOutput(GenerationOutput):
+    shot_id: str
+    status: Literal["queued", "generating", "done", "failed", "skipped", "cancelled"]
+    shot_index: int = None
+    shot_count: int = None
+    progress: float = None
+    message: str = None
+    video: "VideoGenerationOutput" = None
+
+
+@dataclass
 class GalleryGenerationOutput(GenerationOutput):
     images: List[ImageGenerationOutput]
     videos: List[VideoGenerationOutput] = field(default_factory=list)

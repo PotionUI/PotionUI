@@ -52,6 +52,14 @@
 		resolveShotDurationMax
 	} from '../stage-rail/stageModel';
 	import { mintId, clamp } from '../timelineCore';
+	import {
+		followModelDefaultLengths,
+		hostedRetryKind,
+		hostedRetryNotice,
+		withDefaultLengthShot,
+		withoutDefaultLength
+	} from '$lib/utils/cloudDirector';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import GlobalPromptModal from './GlobalPromptModal.svelte';
 	import ShotRow from './ShotRow.svelte';
 	import ShotCard from './ShotCard.svelte';
@@ -147,9 +155,17 @@
 
 	$effect(() => {
 		if (lastEmitted && JSON.stringify(value) === JSON.stringify(lastEmitted)) return;
-		const next = project(value);
+		const next = untrack(() => project(value));
 		doc = next;
 		lastEmitted = next;
+	});
+
+	$effect(() => {
+		const caps = capabilities;
+		untrack(() => {
+			const next = toModelessDirectorValue(normalizeDirectorValue(doc, caps), caps);
+			if (JSON.stringify(next) !== JSON.stringify(doc)) doc = next;
+		});
 	});
 
 	$effect(() => {
@@ -161,6 +177,11 @@
 		if (JSON.stringify(doc) === JSON.stringify(lastEmitted)) return;
 		lastEmitted = doc;
 		untrack(() => onChange(doc));
+	});
+
+	$effect(() => {
+		const followed = followModelDefaultLengths(doc, capabilities);
+		if (followed !== doc) doc = followed;
 	});
 
 	$effect(() => {
@@ -400,15 +421,15 @@
 	}
 
 	function handleDuration(shotId: string, seconds: number) {
-		doc = withShotDuration(doc, capabilities, shotId, seconds);
+		doc = withoutDefaultLength(withShotDuration(doc, capabilities, shotId, seconds), shotId);
 	}
 
 	function handleFrames(shotId: string, frames: number) {
-		doc = withShotFrames(doc, capabilities, shotId, frames);
+		doc = withoutDefaultLength(withShotFrames(doc, capabilities, shotId, frames), shotId);
 	}
 
 	function handleSetMax(shotId: string) {
-		doc = withShotDurationToMax(doc, capabilities, shotId);
+		doc = withoutDefaultLength(withShotDurationToMax(doc, capabilities, shotId), shotId);
 	}
 
 	function handleRemove(shotId: string) {
@@ -417,12 +438,21 @@
 	}
 
 	function handleAddShot() {
-		doc = withAddedShot(doc, capabilities);
+		const added = withAddedShot(doc, capabilities);
+		const newest = added.chain.segments[added.chain.segments.length - 1];
+		doc = capabilities.segmentRouting && newest ? withDefaultLengthShot(added, capabilities, newest.id) : added;
 	}
 
 	// ─── Contextual generate actions (W3) ────────────────────────────────────
 	// Both delegate the actual submission to +page.svelte via `onGenerateShots`
 	// -- this component never talks to the generation API itself.
+	function retryLabelFor(shotId: string): string {
+		if (!capabilities.modelLabel) return 'Retry';
+		return hostedRetryKind(doc, capabilities, runs, shotId) === 'restart' ? 'Redo the film' : 'Retry from here';
+	}
+	function retryNoteFor(shotId: string): string | null {
+		return capabilities.modelLabel && hostedRetryKind(doc, capabilities, runs, shotId) === 'restart' ? hostedRetryNotice(capabilities) : null;
+	}
 	function handleRetry(shotId: string) {
 		onGenerateShots?.([shotId]);
 	}
@@ -479,6 +509,8 @@
 					onDuplicate={handleDuplicate}
 					onRemove={handleRemove}
 					onRetry={handleRetry}
+					retryLabel={retryLabelFor(shot.id)}
+					retryNote={retryNoteFor(shot.id)}
 					onDuration={handleDuration}
 					onFrames={handleFrames}
 					onSetMax={handleSetMax}
@@ -530,6 +562,8 @@
 					onToggleChecked={toggleChecked}
 					onActivate={activateShot}
 					onRetry={handleRetry}
+					retryLabel={retryLabelFor(shot.id)}
+					retryNote={retryNoteFor(shot.id)}
 				/>
 			{/if}
 			{#if i < model.shots.length - 1}
@@ -550,15 +584,11 @@
 			{/if}
 		{/each}
 
-		<button
-			type="button"
-			class="add-shot-row"
-			disabled={!model.canAddShot}
-			title={!model.canAddShot ? (model.addShotDisabledReason ?? undefined) : undefined}
-			onclick={handleAddShot}
-		>
-			+ Add shot
-		</button>
+		<Tooltip text={!model.canAddShot ? (model.addShotDisabledReason ?? '') : ''} position="top" wrapperClass="flex w-full flex-col">
+			<button type="button" class="add-shot-row" disabled={!model.canAddShot} onclick={handleAddShot}>
+				+ Add shot
+			</button>
+		</Tooltip>
 	</div>
 </div>
 

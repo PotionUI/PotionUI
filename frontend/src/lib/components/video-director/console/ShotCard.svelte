@@ -21,6 +21,8 @@
 		onFrames,
 		onSetMax,
 		onCollapse,
+		retryLabel = 'Retry',
+		retryNote = null,
 		children
 	}: {
 		shot: ConsoleShot;
@@ -36,6 +38,8 @@
 		onFrames: (shotId: string, frames: number) => void;
 		onCollapse: (shotId: string) => void;
 		onSetMax: (shotId: string) => void;
+		retryLabel?: string;
+		retryNote?: string | null;
 		children?: Snippet;
 	} = $props();
 
@@ -161,25 +165,26 @@
 
 		{#if shot.run}
 			<span
-				class="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.04em] {shot.run.kind === 'queued'
+				class="flex items-center gap-2 font-mono text-xs tabular-nums {shot.run.kind === 'queued'
 					? 'text-fg-subtle'
 					: shot.run.kind === 'generating'
 						? 'text-signal'
 						: shot.run.kind === 'done'
 							? 'text-success'
 							: 'text-danger'}"
+				data-run-state={shot.run.kind}
 			>
 				{runLabel()}
 				{#if shot.run.kind === 'failed'}
 					<button
 						type="button"
-						class="cursor-pointer border-none bg-none p-0 font-mono text-[10px] normal-case text-fg-muted underline"
+						class="cursor-pointer rounded border border-line-strong bg-surface-2 px-2 py-0.5 font-sans text-xs font-medium text-fg hover:border-line-hover hover:bg-surface-3"
 						onclick={(e) => {
 							e.stopPropagation();
 							onRetry?.(shot.id);
 						}}
 					>
-						Retry
+						{retryLabel}
 					</button>
 				{/if}
 			</span>
@@ -288,6 +293,13 @@
 			</div>
 		</div>
 	</div>
+
+	{#if shot.run?.kind === 'failed' && shot.run.message}
+		<div class="flex flex-col gap-0.5 border-b border-line px-3.5 py-2 text-xs">
+			<span class="text-danger" role="alert" data-run-message>{shot.run.message}</span>
+			{#if retryNote}<span class="text-fg-muted" data-retry-note>{retryNote}</span>{/if}
+		</div>
+	{/if}
 
 	<div class="flex flex-col rounded-b-md bg-canvas">
 		{@render children?.()}

@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -11,6 +11,16 @@ class ModelScopeRequest(BaseModel):
 
 class CatalogSelectionRequest(BaseModel):
     slugs: List[str] = Field(min_length=1, max_length=500)
+
+
+class ShotEstimate(BaseModel):
+    task: str = "txt2video"
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+
+class DirectorEstimateRequest(BaseModel):
+    shots: List[ShotEstimate] = Field(min_length=1, max_length=64)
+    driver: Optional[str] = None
 
 
 def admin_entry_dict(entry: CloudCatalogEntry) -> dict[str, Any]:

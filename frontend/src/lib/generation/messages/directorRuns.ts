@@ -33,15 +33,6 @@ export function directorShotIdsFor(
 	return ids && ids.length > 0 ? ids : null;
 }
 
-/** `generation_status` -- every message while a run is in flight flips its
- *  covered shot(s) to 'generating' with the message's progress fraction.
- *  Deliberately uniform across every shot a multi-shot chain/H3 film run
- *  covers (rather than singling out the `segment_id` the message names as
- *  "currently rendering"): the pipe only reports which segment PROGRESS
- *  currently belongs to, never that an earlier one in the span has actually
- *  finished, so there is no reliable per-shot 'done' signal until the whole
- *  generation completes -- the console's 'continuous render' badge already
- *  tells the user these rows are bundled together. */
 export function withDirectorRunGenerating(
 	tab: Pick<Tab, 'directorRuns'>,
 	shotIds: string[],
@@ -49,6 +40,8 @@ export function withDirectorRunGenerating(
 	generationId: string | undefined
 ): Record<string, DirectorRunState> {
 	const runs = { ...(tab.directorRuns || {}) };
+	const reportedByShot = shotIds.some((id) => runs[id]?.generationId === generationId && runs[id]?.reported);
+	if (reportedByShot) return runs;
 	for (const id of shotIds) {
 		const existing = runs[id];
 		if (!existing || existing.generationId !== generationId) continue;
@@ -68,19 +61,111 @@ export function withDirectorRunTerminal(
 	status: 'done' | 'failed',
 	posterUrl: string | null,
 	finishedAt: number,
-	generationId: string | undefined
+	generationId: string | undefined,
+	message: string | null = null
 ): Record<string, DirectorRunState> {
 	const runs = { ...(tab.directorRuns || {}) };
 	for (const id of shotIds) {
 		const existing = runs[id];
 		if (!existing || existing.generationId !== generationId) continue;
+		if (existing.reported && (existing.status === 'done' || existing.status === 'failed')) continue;
 		runs[id] = {
 			...existing,
 			status,
 			progress: status === 'done' ? 1 : existing.progress,
 			finishedAt,
-			posterUrl: status === 'done' ? (posterUrl ?? existing.posterUrl) : existing.posterUrl
+			posterUrl: status === 'done' ? (posterUrl ?? existing.posterUrl) : existing.posterUrl,
+			message: status === 'failed' ? (message ?? undefined) : undefined
 		};
+	}
+	return runs;
+}
+
+export type DirectorShotStatus = 'queued' | 'generating' | 'done' | 'failed' | 'skipped' | 'cancelled';
+
+export interface DirectorShotUpdate {
+	shotId: string;
+	status: DirectorShotStatus;
+	progress: number | null;
+	message: string | null;
+	outputUrl: string | null;
+	outputPath: string | null;
+	nsfw: boolean;
+}
+
+const SHOT_STATUSES: readonly string[] = ['queued', 'generating', 'done', 'failed', 'skipped', 'cancelled'];
+
+export function parseDirectorShotUpdate(message: Record<string, any>): DirectorShotUpdate | null {
+	const shotId = message.shot_id ?? message.data?.shot_id;
+	const status = message.status ?? message.data?.status;
+	if (typeof shotId !== 'string' || !shotId || typeof status !== 'string' || !SHOT_STATUSES.includes(status)) return null;
+	const progress = message.progress ?? message.data?.progress;
+	const reason = message.message ?? message.data?.message;
+	const output = message.output_url ?? message.data?.output_url;
+	const path = message.output_path ?? message.data?.output_path;
+	return {
+		shotId,
+		status: status as DirectorShotStatus,
+		progress: typeof progress === 'number' && Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : null,
+		message: typeof reason === 'string' && reason.trim() ? reason.trim() : null,
+		outputUrl: typeof output === 'string' && output ? output : null,
+		outputPath: typeof path === 'string' && path ? path : null,
+		nsfw: (message.nsfw ?? message.data?.nsfw) === true
+	};
+}
+
+const SKIPPED_TEXT = 'Not made because an earlier shot did not finish.';
+const CANCELLED_TEXT = 'Stopped before it finished.';
+
+export function withDirectorShotUpdate(
+	tab: Pick<Tab, 'directorRuns'>,
+	update: DirectorShotUpdate,
+	finishedAt: number,
+	generationId: string | undefined
+): Record<string, DirectorRunState> {
+	const runs = { ...(tab.directorRuns || {}) };
+	const existing = runs[update.shotId];
+	if (!existing || existing.generationId !== generationId) return runs;
+	if (existing.status === 'done' && existing.reported && update.status !== 'done') return runs;
+	switch (update.status) {
+		case 'queued':
+			runs[update.shotId] = { ...existing, status: 'queued', progress: null, reported: true, message: null };
+			break;
+		case 'generating':
+			runs[update.shotId] = { ...existing, status: 'generating', progress: update.progress, reported: true, message: null };
+			break;
+		case 'done':
+			runs[update.shotId] = {
+				...existing,
+				status: 'done',
+				progress: 1,
+				finishedAt,
+				posterUrl: update.outputUrl ?? existing.posterUrl,
+				flagged: update.nsfw || undefined,
+				outputPath: update.outputPath ?? existing.outputPath,
+				reported: true,
+				message: null
+			};
+			break;
+		case 'failed':
+			runs[update.shotId] = {
+				...existing,
+				status: 'failed',
+				finishedAt,
+				reported: true,
+				message: update.message ?? 'This shot could not be made.'
+			};
+			break;
+		case 'skipped':
+		case 'cancelled':
+			runs[update.shotId] = {
+				...existing,
+				status: 'failed',
+				finishedAt,
+				reported: true,
+				message: update.message ?? (update.status === 'skipped' ? SKIPPED_TEXT : CANCELLED_TEXT)
+			};
+			break;
 	}
 	return runs;
 }
@@ -99,7 +184,7 @@ export function withDirectorRunPoster(
 	const runs = { ...(tab.directorRuns || {}) };
 	for (const id of shotIds) {
 		const existing = runs[id];
-		if (!existing || existing.generationId !== generationId) continue;
+		if (!existing || existing.generationId !== generationId || existing.reported) continue;
 		runs[id] = { ...existing, posterUrl };
 	}
 	return runs;

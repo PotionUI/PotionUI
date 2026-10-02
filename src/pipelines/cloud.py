@@ -26,14 +26,16 @@ class CloudRunError(Exception):
         *,
         detail: str = "",
         retry_after_s: Optional[float] = None,
+        context: str = "",
     ) -> None:
         if kind not in CLOUD_ERROR_KINDS:
             raise ValueError(f"unknown cloud error kind {kind!r}")
-        super().__init__(user_message)
+        super().__init__(f"{context} {user_message}" if context else user_message)
         self.kind = kind
         self.user_message = user_message
         self.detail = detail
         self.retry_after_s = retry_after_s
+        self.context = context
 
 
 class CloudRunCancelled(Exception):

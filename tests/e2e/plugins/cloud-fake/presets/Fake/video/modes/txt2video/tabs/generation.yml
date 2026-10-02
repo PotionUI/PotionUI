@@ -1,0 +1,9 @@
+fields:
+  - type: "section"
+    label: "Video"
+    children: "{{ paths.preset }}/blocks/video_params.yml"
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths._shared }}/cloud/models/txt2video.yml"

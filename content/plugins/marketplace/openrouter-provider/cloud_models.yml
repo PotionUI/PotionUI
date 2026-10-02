@@ -2,3 +2,5 @@ suggested:
   - "google/gemini-2.5-flash-image"
   - "openai/gpt-image-1"
   - "black-forest-labs/flux.1-schnell"
+
+director: {}

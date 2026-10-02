@@ -21,6 +21,9 @@ SPEC_PREFIX = "cloud-fake-"
 
 PRESET_ID = "01M3SVA35XT0E7CG5JZTS9P21S"
 PRESET_NAME = "Fake Studio"
+VIDEO_PRESET_ID = "01M3XPKGJQPA3AJKW32ST4GEK1"
+VIDEO_PRESET_NAME = "Fake Video"
+PRESET_IDS = (PRESET_ID, VIDEO_PRESET_ID)
 BACKEND_NAME = "E2E Fake Cloud"
 
 FULL_MODEL = "fake/image-1"
@@ -29,6 +32,15 @@ FULL_SLUG = "fake~fake~image-1"
 LITE_SLUG = "fake~fake~lite-1"
 FULL_LABEL = "Fake Image"
 LITE_LABEL = "Fake Lite"
+DIRECTOR_MODEL = "fake/director-1"
+DIRECTOR_START_MODEL = "fake/director-start-1"
+DIRECTOR_TEXT_MODEL = "fake/director-text-1"
+DIRECTOR_SLUG = "fake~fake~director-1"
+DIRECTOR_START_SLUG = "fake~fake~director-start-1"
+DIRECTOR_TEXT_SLUG = "fake~fake~director-text-1"
+DIRECTOR_LABEL = "Fake Director"
+DIRECTOR_START_LABEL = "Fake Director Start"
+DIRECTOR_TEXT_LABEL = "Fake Director Text"
 
 DEFAULT_KNOBS: Dict[str, Any] = {
     "mode": "async",
@@ -87,20 +99,20 @@ def refresh_catalog(app: ThrowawayApp, backend_id: str) -> Dict[str, Any]:
     return result["data"]
 
 
-def install_preset(app: ThrowawayApp) -> None:
+def install_preset(app: ThrowawayApp, preset_id: str = PRESET_ID) -> None:
     client = app.client
     listing = raise_for_status(
         "cloud-fake", client.get("/api/presets", params={"include_uninstalled": "true"}), "Preset list"
     )
-    row = next((p for p in listing.get("data") or [] if p.get("id") == PRESET_ID), None)
+    row = next((p for p in listing.get("data") or [] if p.get("id") == preset_id), None)
     if row is None:
-        raise StageError("cloud-fake", f"Preset {PRESET_ID} is not listed after the plugin was enabled")
+        raise StageError("cloud-fake", f"Preset {preset_id} is not listed after the plugin was enabled")
     if not row.get("installed", True):
-        raise_for_status("cloud-fake", client.post(f"/api/presets/{PRESET_ID}/install"), "Preset install")
+        raise_for_status("cloud-fake", client.post(f"/api/presets/{preset_id}/install"), "Preset install")
     me = raise_for_status("cloud-fake", client.get("/api/auth/me"), "Who am I")
     raise_for_status(
         "cloud-fake",
-        client.post(f"/api/presets/{PRESET_ID}/assign", json={"user_ids": [me["data"]["id"]]}),
+        client.post(f"/api/presets/{preset_id}/assign", json={"user_ids": [me["data"]["id"]]}),
         "Preset assign",
     )
 
@@ -112,7 +124,8 @@ def prepare(app: ThrowawayApp, knobs: Optional[Dict[str, Any]] = None) -> str:
     drivers = [d.get("driver") for d in engines.get("data") or []]
     if DRIVER not in drivers:
         raise StageError("cloud-fake", f"Driver {DRIVER} is not registered after restart (drivers: {drivers})")
-    install_preset(app)
+    for preset_id in PRESET_IDS:
+        install_preset(app, preset_id)
     backend_id = create_backend(app, knobs)
     refresh_catalog(app, backend_id)
     stage_log("cloud-fake", f"Cloud backend {backend_id} created; catalog refreshed; nothing enabled")

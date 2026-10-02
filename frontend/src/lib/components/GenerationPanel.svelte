@@ -35,6 +35,7 @@
 	// Video Director validation reason). Only ever shown while the mark is
 	// actually `disabled` — never overrides the running/armed/ready text.
 	export let disabledReason: string | undefined = undefined;
+	export let costNote: string | null = null;
 	export let generatingTabName: string | undefined = undefined;
 	export let isActiveTabGenerating: boolean = false;
 	export let onSwitchToGeneratingTab: (() => void) | undefined = undefined;
@@ -499,6 +500,8 @@
 						Another tab currently owns the generation worker
 					{:else if generation.cancelNotice}
 						{generation.cancelNotice}
+					{:else if costNote && !(markState === 'disabled' && disabledReason)}
+						<span class="font-mono tabular-nums" data-cost-note>{costNote}</span>
 					{:else}
 						{markState === 'disabled' && disabledReason
 							? disabledReason

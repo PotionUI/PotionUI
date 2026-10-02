@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import copy
 import struct
 import zlib
 from typing import Any, Dict, List
@@ -123,6 +124,7 @@ class OpenRouterFixture:
         self.video_polls = 0
         self.video_bytes = VIDEO_BYTES
         self.videos_listed = True
+        self.video_models = copy.deepcopy(VIDEO_MODELS)
         self.videos_fail = 0
         self.moderation_metadata = {
             "reasons": ["violence"],
@@ -198,7 +200,7 @@ class OpenRouterFixture:
             return self.error(self.videos_fail, "trouble")
         if not self.videos_listed:
             return self.error(404, "no such route")
-        return web.json_response(VIDEO_MODELS)
+        return web.json_response(self.video_models)
 
     async def submit_video(self, request: web.Request) -> web.Response:
         body = await request.json()

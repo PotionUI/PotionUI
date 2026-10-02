@@ -160,6 +160,7 @@ class CloudModelSpec:
     max_seconds: Optional[int] = None
     deprecated_at: Optional[str] = None
     raw: Mapping[str, Any] = field(default_factory=dict)
+    director: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -354,6 +355,8 @@ def spec_problems(spec: CloudModelSpec) -> list[str]:
             problems.append(f"unknown media role {media.role!r}")
         if media.min_items < 0 or media.max_items < media.min_items:
             problems.append(f"media role {media.role!r} has invalid item bounds")
+    if not isinstance(spec.director, Mapping):
+        problems.append("director is not a mapping")
     for line in spec.pricing:
         if line.unit not in PRICE_UNITS:
             problems.append(f"unknown price unit {line.unit!r}")

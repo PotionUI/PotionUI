@@ -54,25 +54,35 @@ def apply_preset_mode_overlay(capabilities: Dict[str, Any], preset_mode: Optiona
     override = overrides.get(preset_mode) if isinstance(overrides, dict) and preset_mode is not None else None
     if not isinstance(override, dict):
         return merged
+    return merge_capability_overlay(merged, override)
 
+
+def merge_capability_overlay(
+    capabilities: Dict[str, Any], overlay: Optional[Dict[str, Any]], *, add_modes: bool = True,
+) -> Dict[str, Any]:
+    capabilities = capabilities or {}
+    merged = dict(capabilities)
     base_modes = dict(capabilities.get("modes") or {})
-    for key, value in override.items():
-        if key != "modes":
+    if not isinstance(overlay, dict):
+        merged["modes"] = base_modes
+        return merged
+
+    for key, value in overlay.items():
+        if key not in ("modes", "preset_mode_overrides"):
             merged[key] = value
 
-    override_modes = override.get("modes")
-    if isinstance(override_modes, dict):
-        merged_modes = dict(base_modes)
-        for comp_mode, comp_override in override_modes.items():
+    overlay_modes = overlay.get("modes")
+    merged_modes = dict(base_modes)
+    if isinstance(overlay_modes, dict):
+        for comp_mode, comp_overlay in overlay_modes.items():
             base_entry = base_modes.get(comp_mode)
-            if isinstance(comp_override, dict) and isinstance(base_entry, dict):
-                merged_modes[comp_mode] = {**base_entry, **comp_override}
-            else:
-                merged_modes[comp_mode] = comp_override
-        merged["modes"] = merged_modes
-    else:
-        merged["modes"] = base_modes
-
+            if comp_overlay is None:
+                merged_modes.pop(comp_mode, None)
+            elif isinstance(comp_overlay, dict) and isinstance(base_entry, dict):
+                merged_modes[comp_mode] = {**base_entry, **comp_overlay}
+            elif add_modes or comp_mode in base_modes:
+                merged_modes[comp_mode] = comp_overlay
+    merged["modes"] = merged_modes
     return merged
 
 

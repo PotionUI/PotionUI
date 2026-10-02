@@ -28,6 +28,7 @@ def spec_to_dict(spec: CloudModelSpec) -> dict[str, Any]:
         "max_seconds": spec.max_seconds,
         "deprecated_at": spec.deprecated_at,
         "raw": dict(spec.raw),
+        "director": dict(spec.director),
     }
 
 
@@ -51,6 +52,7 @@ def spec_from_dict(data: Mapping[str, Any]) -> CloudModelSpec:
         max_seconds=data.get("max_seconds"),
         deprecated_at=data.get("deprecated_at"),
         raw=dict(data.get("raw") or {}),
+        director=dict(data.get("director") or {}),
     )
 
 

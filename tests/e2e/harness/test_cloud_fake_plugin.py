@@ -98,9 +98,13 @@ def test_only_specs_named_for_the_fake_provider_get_the_seeded_backend(chunk, ex
 def test_the_fake_models_pass_the_platform_spec_checks_and_differ_in_what_they_offer():
     module = load_provider_module()
 
-    full, lite = module.e2e_specs()
+    full, lite, *director = module.e2e_specs()
 
     assert spec_problems(full) == [] and spec_problems(lite) == []
+    assert all(spec_problems(spec) == [] for spec in director)
+    assert [spec.provider_model_id for spec in director] == [
+        cloud_fake.DIRECTOR_MODEL, cloud_fake.DIRECTOR_START_MODEL, cloud_fake.DIRECTOR_TEXT_MODEL,
+    ]
     assert (full.provider_model_id, lite.provider_model_id) == (cloud_fake.FULL_MODEL, cloud_fake.LITE_MODEL)
     assert full.tasks == {"txt2img", "img_edit"} and lite.tasks == {"txt2img"}
     assert {p.name for p in full.params} == {"aspect_ratio", "quality", "background", "x.style"}
@@ -228,6 +232,79 @@ def test_the_preset_declares_the_fake_driver_and_the_documented_id():
     assert (manifest["engine"], manifest["driver"], manifest["modes"]) == ("cloud", cloud_fake.DRIVER, ["txt2img", "edit"])
 
 
+def test_the_video_preset_is_the_openrouter_director_preset_on_the_fake_driver():
+    import yaml
+
+    video = yaml.safe_load((PLUGIN_DIR / "presets" / "Fake" / "video" / "preset.yml").read_text(encoding="utf-8"))
+    shipped = Path("content/plugins/marketplace/openrouter-provider/presets/VideoGeneration/standard/preset.yml")
+    openrouter = yaml.safe_load(shipped.read_text(encoding="utf-8"))
+
+    assert video["id"] == cloud_fake.VIDEO_PRESET_ID and video["name"] == cloud_fake.VIDEO_PRESET_NAME
+    assert (video["engine"], video["driver"], video["modes"]) == ("cloud", cloud_fake.DRIVER, ["txt2video", "img2video"])
+    assert video["vars"]["video_director"] == openrouter["vars"]["video_director"]
+    for name in ("modes/txt2video/pipeline.yml", "modes/img2video/pipeline.yml", "blocks/video_params.yml"):
+        assert (PLUGIN_DIR / "presets" / "Fake" / "video" / name).read_text(encoding="utf-8") == (shipped.parent / name).read_text(encoding="utf-8")
+
+
+async def test_a_director_model_returns_a_real_short_video_that_starts_on_the_given_picture(tmp_path):
+    cv2 = pytest.importorskip("cv2", reason="the fake writes its videos with cv2", exc_type=ImportError)
+    from src.features.cloud.contracts import CloudRequest, LocalMedia
+    from src.features.cloud.http import CloudHttp
+
+    module = load_provider_module()
+    provider = module.E2eFakeProvider(module.E2eFakeConfig(id="b", name="B", mode="sync"), CloudHttp("https://fake.invalid"))
+    spec = next(spec for spec in await provider.discover() if spec.provider_model_id == cloud_fake.DIRECTOR_MODEL)
+    start = tmp_path / "start.png"
+    Image.new("RGB", (8, 8), (250, 0, 0)).save(start)
+    request = CloudRequest(
+        model=spec, task="img2video", prompt="a", params={"duration_s": 2},
+        inputs={"first_frame": [LocalMedia(path=start, media_type="image/png", size=start.stat().st_size)]},
+    )
+
+    job = await provider.submit(request)
+
+    (artifact,) = job.result.artifacts
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(artifact.data)
+    capture = cv2.VideoCapture(str(clip))
+    ok, frame = capture.read()
+    count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    capture.release()
+    assert artifact.media_type == "video/mp4" and ok and count == 16
+    assert frame[0, 0, 2] > 200 and frame[0, 0, 0] < 40
+
+
+async def test_a_director_model_refuses_a_length_or_picture_it_does_not_offer():
+    from src.features.cloud.contracts import CloudError, CloudRequest
+    from src.features.cloud.http import CloudHttp
+
+    module = load_provider_module()
+    provider = module.E2eFakeProvider(module.E2eFakeConfig(id="b", name="B", mode="sync"), CloudHttp("https://fake.invalid"))
+    text_only = next(spec for spec in await provider.discover() if spec.provider_model_id == cloud_fake.DIRECTOR_TEXT_MODEL)
+
+    with pytest.raises(CloudError) as raised:
+        await provider.submit(CloudRequest(model=text_only, task="txt2video", prompt="a", params={"duration_s": 4}))
+
+    assert raised.value.kind == "invalid_request" and "duration_s=4" in raised.value.detail
+
+
+async def test_the_fail_from_shot_knob_lets_earlier_requests_through():
+    from src.features.cloud.contracts import CloudError, CloudRequest
+    from src.features.cloud.http import CloudHttp
+
+    module = load_provider_module()
+    config = module.E2eFakeConfig(id="b", name="B", mode="sync", fail_from_shot=2, fail_kind="refused")
+    provider = module.E2eFakeProvider(config, CloudHttp("https://fake.invalid"))
+    spec = (await provider.discover())[0]
+    request = CloudRequest(model=spec, task="txt2img", prompt="a", count=1)
+
+    await provider.submit(request)
+    with pytest.raises(CloudError) as raised:
+        await provider.submit(request)
+
+    assert raised.value.kind == "refused"
+
+
 live = pytest.mark.skipif(
     os.environ.get("POTIONUI_E2E_BACKEND") != "1",
     reason="boots a real throwaway backend; set POTIONUI_E2E_BACKEND=1 to run",
@@ -286,8 +363,11 @@ class TestLiveFlow:
         engines = api_get(app, "/api/backends/engines")
         assert cloud_fake.DRIVER in [d["driver"] for d in engines]
         catalog = api_get(app, f"/api/cloud/backends/{app.backend_id}/catalog")
-        assert catalog["counts"] == {"total": 2, "enabled": 0, "missing": 0}
-        assert sorted(item["slug"] for item in catalog["items"]) == sorted([cloud_fake.FULL_SLUG, cloud_fake.LITE_SLUG])
+        assert catalog["counts"] == {"total": 5, "enabled": 0, "missing": 0}
+        assert sorted(item["slug"] for item in catalog["items"]) == sorted([
+            cloud_fake.FULL_SLUG, cloud_fake.LITE_SLUG,
+            cloud_fake.DIRECTOR_SLUG, cloud_fake.DIRECTOR_START_SLUG, cloud_fake.DIRECTOR_TEXT_SLUG,
+        ])
         assert model_listing(app)["models"] == []
 
     def test_the_preset_is_listed_for_the_admin(self, app):

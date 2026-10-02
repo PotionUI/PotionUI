@@ -126,11 +126,12 @@ import { shotReferenceOverview } from '$lib/utils/shotReferences';
 // ─── Public types (verbatim from W1-BRIEF.md's contract) ───────────────────
 
 export type ConsoleBadge = 'independent' | 'needs-previous' | 'input-ready' | 'stale' | 'continuous' | 'unverified';
-export type ConsoleRunState = null | { kind: 'queued' } | { kind: 'generating'; percent: number } | { kind: 'done'; time: string } | { kind: 'failed' };
+export type ConsoleRunState = null | { kind: 'queued' } | { kind: 'generating'; percent: number } | { kind: 'done'; time: string } | { kind: 'failed'; message?: string };
 
 export interface ConsoleThumb {
 	url: string | null;
 	source: 'keyframe' | 'start' | 'end' | 'output' | 'slate';
+	flagged?: boolean;
 }
 
 export interface ConsoleShot {
@@ -299,7 +300,7 @@ function consoleRunState(run: DirectorRunState | undefined | null): ConsoleShot[
 		case 'done':
 			return { kind: 'done', time: formatRunFinishedAt(run.finishedAt) };
 		case 'failed':
-			return { kind: 'failed' };
+			return run.message ? { kind: 'failed', message: run.message } : { kind: 'failed' };
 	}
 }
 
@@ -314,22 +315,13 @@ function formatRunFinishedAt(finishedAt: number | null): string {
 	return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-/** Whether `predecessorRun`'s finished output can be handed to its dependant
- * WITHOUT resubmitting the predecessor's own shot alongside it. Native chain
- * routing (Wan/MiniMax-H3) has no such mechanism today: every render replays
- * the FULL segment list through `compile_shot_plan`
- * (`src/features/video_director/compile.py`), which rejects a selected span
- * that starts on a `sub_type: "chain"` segment -- a 'done' predecessor run is
- * only UI state, never a persisted native handoff the backend can resume
- * from. Always false until such a handoff exists; flipping it alone (no
- * caller redesign) is the intended seam for that future work. LTX's own
- * `continue_from_previous` join is NOT this case -- it hands the
- * predecessor's actual rendered frame to `buildDirectorSubmission` via
- * `predecessorFrames` at submission time, a real (if not yet persisted)
- * handoff -- so its call site below passes `true`, unchanged from pre-fix
- * behaviour. */
-function hasReusableNativeHandoff(_predecessorRun: DirectorRunState | null | undefined): boolean {
-	return false;
+function hasReusableNativeHandoff(predecessorRun: DirectorRunState | null | undefined, caps: DirectorCapabilities): boolean {
+	return (
+		caps.modelLabel != null &&
+		caps.modes.director?.continuation?.source === 'last_frame' &&
+		predecessorRun?.status === 'done' &&
+		!!predecessorRun.outputPath
+	);
 }
 
 /** Dependency badge for a shot that DEPENDS on `predecessorId`'s output (a
@@ -399,7 +391,7 @@ function chainShotBadge(
 	if (incoming && incoming.kind === 'continue') {
 		const predecessorId = doc.chain.segments[index - 1].id;
 		const shotId = doc.chain.segments[index].id;
-		return dependentBadge(doc, predecessorId, shotId, runs, identityCtx, hasReusableNativeHandoff(runs?.[predecessorId]));
+		return dependentBadge(doc, predecessorId, shotId, runs, identityCtx, hasReusableNativeHandoff(runs?.[predecessorId], identityCtx.caps));
 	}
 	const continuous = outgoing && outgoing.kind === 'continue';
 	return continuous ? 'continuous' : 'independent';
@@ -434,7 +426,9 @@ function chainLandingShotIndex(rail: RailModel, atSeconds: number): number {
  * shot's output poster once done") -- a shot whose run is still queued/
  * generating/failed, or has none, keeps reading its own editor-side thumb. */
 function withRunPoster(thumb: ConsoleThumb, run: DirectorRunState | null | undefined): ConsoleThumb {
-	if (run?.status === 'done' && run.posterUrl) return { url: run.posterUrl, source: 'output' };
+	if (run?.status === 'done' && run.posterUrl) {
+		return run.flagged ? { url: run.posterUrl, source: 'output', flagged: true } : { url: run.posterUrl, source: 'output' };
+	}
 	return thumb;
 }
 
@@ -501,27 +495,18 @@ function buildChainShots(
 	});
 }
 
-/** Whether checking exactly `checked` already covers everything the seam
- * ending at `predecessorIndex` needs behind it -- i.e. whether every hop back
- * to the nearest fresh cut is either checked itself (so it gets
- * (re)generated in the same submission `compile_shot_plan` will accept) or
- * already has a reusable native handoff (`hasReusableNativeHandoff`, always
- * false today). A checked predecessor that ITSELF continues a further-back
- * shot only counts once its OWN predecessor hop is satisfied too -- this
- * walks one hop at a time rather than assuming a single checked predecessor
- * is enough, matching `compile_shot_plan`'s "span must start on a non-'chain'
- * segment" rule for an arbitrarily long broken continuation. */
 function chainSpanCoveredByChecked(
 	doc: VideoDirectorValue,
 	rail: RailModel,
 	predecessorIndex: number,
 	runs: Record<string, DirectorRunState> | null | undefined,
-	checked: Set<string>
+	checked: Set<string>,
+	caps: DirectorCapabilities
 ): boolean {
 	let index = predecessorIndex;
 	for (;;) {
 		const segmentId = doc.chain.segments[index].id;
-		if (hasReusableNativeHandoff(runs?.[segmentId])) return true;
+		if (hasReusableNativeHandoff(runs?.[segmentId], caps)) return true;
 		if (!checked.has(segmentId)) return false;
 		if (index === 0 || rail.seams[index - 1].kind !== 'continue') return true;
 		index -= 1;
@@ -565,7 +550,7 @@ function buildChainJoins(
 		// (chainSpanCoveredByChecked), all the way back to the nearest fresh
 		// cut for a multi-hop broken continuation.
 		const missing =
-			!isCut && checked != null && checked.has(toShot.id) && !chainSpanCoveredByChecked(doc, rail, seam.beforeShotIndex, runs, checked);
+			!isCut && checked != null && checked.has(toShot.id) && !chainSpanCoveredByChecked(doc, rail, seam.beforeShotIndex, runs, checked, caps);
 		if (missing) {
 			return {
 				afterShotId: fromShot.id,
@@ -578,10 +563,12 @@ function buildChainJoins(
 			};
 		}
 		const kind: ConsoleJoinKind = isCut ? 'cut' : 'native';
-		const label = isCut ? 'HARD CUT' : 'NATIVE CONTINUATION';
+		const label = isCut ? 'HARD CUT' : caps.modelLabel ? 'STARTS FROM LAST FRAME' : 'NATIVE CONTINUATION';
 		const sentence = isCut
 			? 'Starts fresh — nothing shared.'
-			: `Inherits Shot ${shotNumber(seam.beforeShotIndex)}'s last frame · ${seam.overlapFrames}f overlap.`;
+			: caps.modelLabel
+				? `Starts from the last frame of Shot ${shotNumber(seam.beforeShotIndex)}.`
+				: `Inherits Shot ${shotNumber(seam.beforeShotIndex)}'s last frame · ${seam.overlapFrames}f overlap.`;
 		const control: ConsoleJoin['control'] = continuationAvailable
 			? { kind: 'toggle', value: isCut ? 'cut' : 'continue' }
 			: { kind: 'chip', text: 'Independent' };

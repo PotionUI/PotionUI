@@ -16,7 +16,9 @@ from src.features.cloud.testing.fake import (
     FakeCloudProvider,
     FakeNoCancelProvider,
     build_fake_provider,
+    fake_director_specs,
     fake_specs,
+    fake_video_bytes,
 )
 
 __all__ = [
@@ -34,6 +36,8 @@ __all__ = [
     "applicable_checks",
     "build_fake_provider",
     "default_request",
+    "fake_director_specs",
     "fake_specs",
+    "fake_video_bytes",
     "run_contract",
 ]

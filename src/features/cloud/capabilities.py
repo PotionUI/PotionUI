@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from src.features.cloud.capability_rules import inputs_for_task, params_for_task
 from src.features.cloud.contracts import CLOUD_ENGINE, TASK_KINDS, CloudModelSpec, MediaInputSpec, ParamSpec
+from src.features.cloud.director import director_overlay, estimate_shots
 from src.features.cloud.records import CloudCatalogEntry
 from src.features.cloud.repository import CloudCatalogRepository
 from src.features.models.exceptions import ModelNotFoundException
@@ -115,4 +116,11 @@ class CloudCapabilities:
                 }
                 for task in tasks
             },
+            "video_director": director_overlay(spec),
         }
+
+    def estimate(self, model_id: str, shots: List[Dict[str, Any]], driver: Optional[str] = None) -> Dict[str, Any]:
+        resolved = self.resolve(model_id, driver)
+        if resolved is None:
+            raise ModelNotFoundException(f"Model '{model_id}' is not an enabled cloud model")
+        return {"model_id": model_id, "slug": resolved.slug, **estimate_shots(resolved.spec, shots)}

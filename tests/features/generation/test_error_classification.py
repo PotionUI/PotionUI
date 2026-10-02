@@ -182,3 +182,15 @@ def test_every_classification_is_free_of_paths_and_exception_names():
         assert "/" not in text.replace("models/output", "").replace("URL/port", "")
         assert "Error" not in text
         assert "Traceback" not in text
+
+
+def test_a_cloud_failure_with_context_leads_with_it():
+    from src.pipelines.cloud import CloudRunError
+
+    error = CloudRunError("credits", "Out of credits", context="Shot 3 of 4 failed. Shots 1-2 were kept.")
+
+    classification = classify_generation_error(error)
+
+    assert classification.category == "cloud_credits"
+    assert classification.summary == "Shot 3 of 4 failed. Shots 1-2 were kept. The cloud provider account is out of credits."
+    assert classify_generation_error(CloudRunError("credits", "x")).summary == "The cloud provider account is out of credits."

@@ -167,7 +167,11 @@ def classification_for_code(code: Optional[str]) -> ErrorClassification:
 
 def classify_generation_error(exc: BaseException) -> ErrorClassification:
     if isinstance(exc, CloudRunError):
-        return classification_for_code(f"cloud_{exc.kind}")
+        classification = classification_for_code(f"cloud_{exc.kind}")
+        context = getattr(exc, "context", "")
+        if context:
+            classification.summary = f"{context} {classification.summary}"
+        return classification
     for category, matches in _EXCEPTION_CHECKS:
         if matches(exc):
             return classification_for_code(category)

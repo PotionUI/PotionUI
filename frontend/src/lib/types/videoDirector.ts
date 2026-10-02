@@ -178,6 +178,7 @@ export interface VideoDirectorUiState {
 	 * data over live edits the modeless editor already made. Never read
 	 * outside that function. */
 	modeless?: boolean;
+	defaultLengths?: string[];
 	/** Which shot is expanded in the Shot Console. Null/absent means "the
 	 * first shot" (`ShotConsole.svelte`'s own fallback never persists a
 	 * dangling id). */
@@ -262,6 +263,7 @@ export interface DirectorModeCapability {
 	 * fact instead of an editable fps control. Mirrors the preset's
 	 * `video_director.fps_locked` block. Absent/false everywhere else. */
 	fpsLocked: boolean;
+	continueFromVideo?: boolean;
 }
 
 export interface DirectorCapabilities {
@@ -304,6 +306,8 @@ export interface DirectorCapabilities {
 	 * hasn't declared one -- `resolveDirectorTimingProfile` (videoDirector.ts)
 	 * treats that as "unknown", never a guessed default. */
 	timing?: { motionLatentCountField: string; motionLatentCountDefault: number } | null;
+	modelLabel?: string | null;
+	durations?: number[] | null;
 }
 
 // ─── Wire document (form_data.video_director sent to the backend) ─────────────

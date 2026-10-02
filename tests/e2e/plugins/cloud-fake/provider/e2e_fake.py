@@ -8,7 +8,7 @@ from PIL import Image
 from pydantic import Field
 
 from src.plugin_api.cloud import CloudArtifact, CloudCost, CloudModelSpec, CloudResult, MonotonicClock
-from src.plugin_api.cloud_testing import FakeBehaviour, FakeCloudConfig, FakeCloudProvider, fake_specs
+from src.plugin_api.cloud_testing import FakeBehaviour, FakeCloudConfig, FakeCloudProvider, fake_director_specs, fake_specs
 
 FAIL_KINDS = ["", "auth", "credits", "rate_limited", "refused", "invalid_request", "unavailable", "timeout", "failed", "expired"]
 IMAGE_SIZE = 128
@@ -22,6 +22,7 @@ class E2eFakeConfig(FakeCloudConfig):
     fail_kind: str = Field(default="", title="Fail with", description="Make every submit fail with this error kind", json_schema_extra={"options": FAIL_KINDS})
     cost_usd: float = Field(default=0.04, ge=0, title="Reported cost", description="Cost the provider reports for each job")
     supports_cancel: bool = Field(default=True, title="Can cancel jobs", description="Off makes the provider unable to cancel a job it already accepted")
+    fail_from_shot: int = Field(default=0, ge=0, title="Fail from request", description="When above 0, this request and every later one fails with the Fail with kind (failed when that is empty)")
 
 
 def image_bytes(seed: str, size: int = IMAGE_SIZE) -> bytes:
@@ -55,7 +56,7 @@ def e2e_specs() -> list[CloudModelSpec]:
         inputs=(),
         pricing=tuple(replace(line, usd=Decimal("0.01")) for line in full.pricing),
     )
-    return [full, lite]
+    return [full, lite, *fake_director_specs()]
 
 
 class E2eFakeProvider(FakeCloudProvider):
@@ -72,6 +73,9 @@ class E2eFakeProvider(FakeCloudProvider):
             poll_after_s=config.poll_seconds,
             fail_kind=config.fail_kind or None,
             cost_usd=Decimal(str(config.cost_usd)),
+            real_video=True,
+            strict_capabilities=True,
+            fail_from_submit=config.fail_from_shot or None,
         )
         super().__init__(config, http, clock=MonotonicClock(), behaviour=behaviour)
         self.supports_cancel = config.supports_cancel
@@ -81,6 +85,8 @@ class E2eFakeProvider(FakeCloudProvider):
         return e2e_specs()
 
     def _result(self, job_id: str, request_count: int, modality: str) -> CloudResult:
+        if modality == "video":
+            return super()._result(job_id, request_count, modality)
         artifacts = tuple(
             CloudArtifact(modality="image", index=index, data=image_bytes(f"{job_id}:{index}"), media_type="image/png")
             for index in range(max(1, request_count))

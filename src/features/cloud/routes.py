@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, Query
 from src.features.cloud.capabilities import CloudCapabilities
 from src.features.cloud.catalog import CloudCatalog
 from src.features.cloud.contracts import CloudError
-from src.features.cloud.dto import CatalogSelectionRequest, ModelScopeRequest
+from src.features.cloud.director import DirectorEstimateError
+from src.features.cloud.dto import CatalogSelectionRequest, DirectorEstimateRequest, ModelScopeRequest
 from src.features.cloud.errors import CloudCatalogError
 from src.features.cloud.scopes import CloudModelScopes
 from src.platform.http.base_controller import APIResponse, BaseController
@@ -72,6 +73,16 @@ class CloudCapabilitiesController(BaseController):
             self.error_response(error="model_not_found", message=f"Model '{model_id}' not found", status_code=404)
         return self.success_response(data=data)
 
+    async def estimate(self, model_id: str, request: DirectorEstimateRequest) -> APIResponse:
+        shots = [shot.model_dump() for shot in request.shots]
+        try:
+            data = self.capabilities.estimate(model_id, shots, request.driver)
+        except ModelNotFoundException:
+            self.error_response(error="model_not_found", message=f"Model '{model_id}' not found", status_code=404)
+        except DirectorEstimateError as error:
+            self.error_response(error="invalid_estimate", message=str(error), status_code=400)
+        return self.success_response(data=data)
+
 
 class CloudModelScopeController(BaseController):
     def __init__(self, scopes: CloudModelScopes):
@@ -110,6 +121,12 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user=Depends(get_current_active_user),
     ):
         return await capabilities_controller.get_capabilities(model_id, current_user, driver)
+
+    @router.post(
+        "/models/{model_id}/estimate", response_model=APIResponse, summary="Estimate what a run of cloud video shots costs"
+    )
+    async def estimate_model_cost(model_id: str, request: DirectorEstimateRequest, admin=Depends(get_current_admin_user)):
+        return await capabilities_controller.estimate(model_id, request)
 
     @router.get("/models/{model_id}/scope", response_model=APIResponse, summary="Get the presets a cloud model is limited to")
     async def get_model_scope(model_id: str, admin=Depends(get_current_admin_user)):

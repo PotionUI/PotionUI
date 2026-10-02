@@ -31,7 +31,11 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from src.pipelines.pipes._shared.media.frame_extract import extract_frame
 from src.features.video_director.shot_references import derive_shot_references, packed_reference_pool
 from src.platform.util.latents import generate_seed
-from src.platform.util.path_resolution import apply_preset_mode_overlay, resolve_media_ref as _resolve_media_ref
+from src.platform.util.path_resolution import (
+    apply_preset_mode_overlay,
+    merge_capability_overlay,
+    resolve_media_ref as _resolve_media_ref,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +258,8 @@ def normalize_video_director(
         reference_pool=reference_pool,
         prompt_resources=prompt_resources or [],
         continuation_disabled=chain_continuation_disabled,
+        fps=settings.get("fps"),
+        durations=allowed_durations(limits),
     )
     out["segments"] = segments
     segment_ids = {segment["id"] for segment in segments}
@@ -287,6 +293,48 @@ def normalize_video_director(
     out.update(derive_ltx_media_fields(out["media"], out["ic_lora"], out["settings"].get("fps"), storage_path))
 
     return out
+
+
+def apply_model_overlay(capabilities: Dict[str, Any], overlay: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(overlay, dict):
+        return dict(capabilities or {})
+    return merge_capability_overlay(capabilities, overlay, add_modes=False)
+
+
+def allowed_durations(limits: Mapping[str, Any]) -> List[float]:
+    raw = (limits or {}).get("durations")
+    if not isinstance(raw, (list, tuple)):
+        return []
+    return sorted({
+        float(value) for value in raw
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+    })
+
+
+def _matches_duration(seconds: float, durations: Sequence[float]) -> bool:
+    return any(abs(float(seconds) - allowed) < 1e-6 for allowed in durations)
+
+
+def _seconds_text(seconds: float) -> str:
+    return f"{float(seconds):g}s"
+
+
+def _durations_text(durations: Sequence[float]) -> str:
+    labels = [f"{value:g}" for value in durations]
+    if len(labels) == 1:
+        return f"{labels[0]} seconds"
+    return f"{', '.join(labels[:-1])} or {labels[-1]} seconds"
+
+
+def _segment_length_problem(frames: int, fps: Any, durations: Sequence[float]) -> Optional[str]:
+    if not durations or not isinstance(fps, (int, float)) or isinstance(fps, bool) or fps <= 0:
+        return None
+    if any(abs(frames - allowed * fps) <= 0.5 for allowed in durations):
+        return None
+    return (
+        f"{_seconds_text(round(frames / fps, 3))} ({frames} frames at {fps:g} fps) is not a length this model "
+        f"makes -- choose {_durations_text(durations)}"
+    )
 
 
 def round_half_up_common(value: float) -> int:
@@ -471,6 +519,13 @@ def _normalize_settings(
         elif max_duration is not None and duration > max_duration:
             duration = max_duration
 
+        durations = allowed_durations(limits)
+        if duration_valid and durations and not _matches_duration(duration, durations):
+            errors.append(
+                f"settings.duration: {_seconds_text(duration)} is not a length this model makes -- "
+                f"choose {_durations_text(durations)}"
+            )
+
         max_frames = limits.get("max_frames")
         if duration_valid and fps_valid and max_frames is not None:
             raw_frames = round_half_up_common(duration * fps)
@@ -569,6 +624,8 @@ def _normalize_segments(
     reference_pool: Optional[List[Tuple[str, Any]]] = None,
     prompt_resources: Sequence[Mapping[str, Any]] = (),
     continuation_disabled: bool = False,
+    fps: Any = None,
+    durations: Sequence[float] = (),
 ) -> List[Dict[str, Any]]:
     reference_pool = reference_pool or []
     if not segments:
@@ -639,8 +696,12 @@ def _normalize_segments(
             frames_cap = max_frames_per_segment if max_frames_per_segment is not None else _CHAIN_MAX_FRAMES_HARD_CAP
             if not isinstance(frames, int) or frames < 1:
                 errors.append(f"{context}: frames must be a positive int, got {frames!r}")
-            elif frames > frames_cap:
-                normalized["frames"] = frames_cap
+            else:
+                if frames > frames_cap:
+                    normalized["frames"] = frames_cap
+                problem = _segment_length_problem(normalized["frames"], fps, durations)
+                if problem:
+                    errors.append(f"{context}: {problem}")
 
             steps = segment.get("steps")
             if steps is not None and (not isinstance(steps, int) or not (_CHAIN_STEPS_RANGE[0] <= steps <= _CHAIN_STEPS_RANGE[1])):
@@ -824,7 +885,8 @@ def _normalize_media(
         # conditioning instead of dropping it. Outside timeline_style
         # (i2v/flf/chain) there is no predecessor-shot join, so a video-typed
         # 'first' there stays rejected same as before.
-        video_first_is_continuation = role == "first" and timeline_style
+        chain_video_first = role == "first" and chain_style and bool(mode_caps.get("continue_from_video"))
+        video_first_is_continuation = (role == "first" and timeline_style) or chain_video_first
         if (
             role in {"keyframe", "first", "last"}
             and media_ref is not None
@@ -835,6 +897,13 @@ def _normalize_media(
                 f"{context}: {role} media type {media_ref.get('type')!r} is not supported -- "
                 "only image media is supported today"
             )
+        elif chain_video_first and media_ref is not None and not _media_ref_is_image(media_ref):
+            try:
+                frame_path = _extract_last_video_frame_as_image(media_ref["path"], storage_path)
+            except VideoDirectorValidationError as exc:
+                errors.extend(f"{context}: {problem}" for problem in exc.errors)
+            else:
+                media_ref = {**media_ref, "type": "image", "path": frame_path, "source_video": media_ref["path"]}
 
         out.append({
             "id": item.get("id"),

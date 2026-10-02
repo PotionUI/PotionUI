@@ -82,7 +82,7 @@ async def test_a_text_only_model_offers_no_edit_and_fills_documented_defaults(pr
     params = {param.name: param for param in spec.params}
 
     assert spec.tasks == {"txt2img"} and spec.inputs == ()
-    assert "aspect_ratio" not in params
+    assert params["aspect_ratio"].kind == "enum" and "16:9" in params["aspect_ratio"].values
     assert params["output_format"].values == ("png", "jpeg", "webp")
     assert (params["x.output_compression"].minimum, params["x.output_compression"].maximum) == (0.0, 100.0)
     assert spec.deprecated_at == "2026-12-31"

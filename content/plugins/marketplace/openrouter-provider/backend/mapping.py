@@ -26,10 +26,15 @@ CANONICAL_WIRE = {
 }
 IGNORED_WIRE = frozenset({"n", "prompt", "model", "stream", "user", "provider", "input_references", "seed"})
 FALLBACK_ENUMS = {
+    "aspect_ratio": ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"),
     "resolution": ("512", "1K", "2K", "4K"),
     "output_format": ("png", "jpeg", "webp"),
 }
+IMPLIED_PARAMS = (
+    (("google/gemini-",), "-image", "aspect_ratio"),
+)
 FALLBACK_KINDS = {
+    "aspect_ratio": "enum",
     "background": "boolean",
     "size": "text",
     "output_compression": "range",
@@ -215,6 +220,9 @@ def model_spec(item: Any, endpoints: List[Any]) -> Optional[CloudModelSpec]:
             for passthrough in endpoint.get("allowed_passthrough_parameters") or []:
                 if isinstance(passthrough, str) and passthrough:
                     descriptors.append({"name": passthrough, "kind": "text", "values": []})
+    for prefixes, marker, implied in IMPLIED_PARAMS:
+        if model_id.startswith(prefixes) and marker in model_id:
+            descriptors.append({"name": implied, "values": []})
     merged = _merge(descriptors)
 
     params: List[ParamSpec] = []

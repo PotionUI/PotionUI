@@ -7,6 +7,7 @@
 	import { goto, afterNavigate } from '$app/navigation';
 	import { getRegistry } from '$lib/plugin-api/componentRegistry';
 	import { PageHeader, PageTitle } from '$lib/components/ui';
+	import { createPageHeaderControls } from '$lib/plugin-api/pageHeader';
 
 	let pageInfo: any = null;
 	let loading = true;
@@ -17,6 +18,12 @@
 	let unmountFn: ((instance: any) => void) | null = null;
 	let loadedPluginId: string | null = null;
 	let loadVersion = 0;
+	let titleHidden = false;
+	let headerHidden = false;
+	const headerControls = createPageHeaderControls((state) => {
+		titleHidden = state.titleHidden;
+		headerHidden = state.hidden;
+	});
 
 	function createPluginApi(pluginId: string) {
 		const baseUrl = api.getBaseURL();
@@ -100,6 +107,7 @@
 		const thisVersion = ++loadVersion;
 
 		cleanupPlugin();
+		headerControls.reset();
 
 		loading = true;
 		error = null;
@@ -147,7 +155,9 @@
 					user: $authStore.user,
 					navigate: (path: string) => goto(path),
 					hostComponents: getRegistry(),
-					headerActions: headerActionsEl
+					headerActions: headerActionsEl,
+					setHeaderTitleHidden: headerControls.setTitleHidden,
+					setHeaderHidden: headerControls.setHidden
 				});
 				unmountFn = mod.unmountPlugin || null;
 			} else if (containerEl) {
@@ -161,7 +171,9 @@
 						api: createPluginApi(id),
 						user: $authStore.user,
 						navigate: (path: string) => goto(path),
-						headerActions: headerActionsEl
+						headerActions: headerActionsEl,
+						setHeaderTitleHidden: headerControls.setTitleHidden,
+					setHeaderHidden: headerControls.setHidden
 					}
 				});
 			}
@@ -206,8 +218,10 @@
 		</div>
 	{:else}
 		<!-- Header -->
+		<div class:hidden={headerHidden}>
 		<PageHeader sticky={false}>
-			<div class="flex items-center gap-6 w-full">
+			<div class="flex items-center gap-6 w-full min-w-0">
+				{#if !titleHidden}
 				<PageTitle title={pageInfo?.label || 'Plugin'}>
 					{#snippet leading()}
 						{#if pageInfo?.icon_svg}
@@ -221,11 +235,13 @@
 						{/if}
 					{/snippet}
 				</PageTitle>
+				{/if}
 
 				<!-- Plugin-provided header actions -->
-				<div bind:this={headerActionsEl} class="flex items-center gap-3 flex-1"></div>
+				<div bind:this={headerActionsEl} class="flex items-center gap-3 flex-1 min-w-0"></div>
 			</div>
 		</PageHeader>
+		</div>
 
 		<!-- Plugin Content -->
 		<div bind:this={containerEl} class="plugin-container min-h-0 flex-1 overflow-auto"></div>

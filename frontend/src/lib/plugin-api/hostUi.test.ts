@@ -28,6 +28,7 @@ describe('host ui component registration', () => {
 			'DetailHeader',
 			'DetailBody',
 			'LibraryFilterBar',
+			'LibraryPage',
 			'LibraryShell',
 			'DynamicForm',
 			'GenerationDetailsModal',

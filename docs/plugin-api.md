@@ -57,7 +57,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Providers** — talking to a model marketplace | `.providers` | `MarketplaceProviderBase`, `ProviderCapability`, `ProviderMetadata`, `ProviderModelInfo`, `ProviderSearchResult`, `ProviderPromptItem`, `ProviderError`, `ProviderConnectionError`, `ProviderRateLimitError`, `ProviderNotFoundError`, `get_provider_registry`, `ModelInfo`, `aiohttp_connector`, `client_ssl_context` |
 | **Chat** — extending the assistant | `.chat` | `BaseTool`, `ToolContext`, `ToolResult`, `ToolSource`, `PreChatAction` |
 | **Backends** — contributing an engine | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate` |
-| **Cloud** — contributing a hosted-model provider | `.cloud`, `.cloud_testing` | `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS` |
+| **Cloud** — contributing a hosted-model provider | `.cloud`, `.cloud_testing` | `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS`, `fake_director_specs`, `fake_video_bytes` |
 | **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
 | **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks` |
 | **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem`, `lint_preset_dir`, `downscale_and_save_webp`, `describe_preset` (an installed preset's name, `vars` and modes, each with its default form and every form's fields as `type` + `required` + `multi`; `None` when not installed), `PresetDescription`, `ModeDescription`, `FieldDescription`, `bind_director_media(request, role, media, segment_id=None, promote=False)` (puts a resolved image, from `resolve_media_ref`, into a single-shot Video Director document as its `first` or `last` frame, keeping the rest of the document; with `promote=True` a first frame turns a text-only shot into a start-image shot and a last frame turns a start-image shot into a first-and-last shot; raises `DirectorBindingError` with a `code`) |
@@ -1549,6 +1549,24 @@ itself part of this same layering system: inside a `PluginModal`, or inside an e
 using `layers.overlayLayer` as described above. Mounting it into a plain, unlayered
 `<div>` risks its own picker rendering under whatever else happens to be open.
 
+## Using the page header from a plugin page
+
+A plugin page is mounted under the app's page header (the plugin's icon and label). The
+props passed to `mountPlugin` include three header hooks:
+
+- `headerActions` — an empty element inside the header row, to the right of the title. Move
+  or render your own controls into it; it takes the remaining width and may shrink
+  (`min-width: 0`), so your controls should size themselves and collapse their own overflow.
+- `setHeaderTitleHidden(hidden)` — hides the host title (icon and label) so `headerActions`
+  can own the whole row, for instance with a back button and an editable name while a record
+  is open. Call `setHeaderTitleHidden(false)` to bring the title back.
+- `setHeaderHidden(hidden)` — hides the whole host header row, for a page that renders its own
+  header (a library page with its own title, search and actions). The `headerActions` element
+  stays in the page, so showing the row again later is safe.
+
+Both setters reset whenever the page is loaded again, and are absent on hosts that predate
+them, so call them as `setHeaderTitleHidden?.(true)`.
+
 ## Using the app's UI components and Tailwind in a plugin frontend
 
 A plugin frontend is bundled on its own and cannot import `$lib`, but every shared UI
@@ -1563,7 +1581,7 @@ Registered names: every component of `$lib/components/ui/` (`Button`, `IconButto
 `Switch`, `Alert`, `UserPicker`, `AdminOnlyMark`), every component of `$lib/components/detail/`
 (`DetailLayout`, `DetailHeader`, `DetailBody`, `DetailSection`, `DetailFooter`, `DetailTabs`,
 `DetailField`, `KVGrid`, `KVItem`), every component of `$lib/components/library/`
-(`LibraryShell`, `LibraryFilterBar`, `LibraryEntryCard`, `LibraryDensityToggle`,
+(`LibraryPage`, `LibraryShell`, `LibraryFilterBar`, `LibraryEntryCard`, `LibraryDensityToggle`,
 `LibraryFilterChipRow`, `FilterPopoverFrame`), plus `Tooltip` and `Icon`. A new component
 dropped into one of those folders is registered automatically. `DynamicForm` renders a preset's
 form outside the Generate page: pass `presetId`, `mode`, `variant`, `initialData` and
@@ -1598,6 +1616,66 @@ local) and in `content/plugins/sdk/` are scanned by the app's Tailwind build, so
 token classes (`bg-surface-2`, `text-fg-muted`, `border-line`, ...) and arbitrary values work
 in plugin markup. Rebuild the app frontend after adding new classes; the plugin's own `dist/`
 carries no Tailwind CSS. Use the token classes only, as in the app.
+
+### A list page like History and Models
+
+`LibraryPage` is the app's list-page frame with props only, so a plugin page looks and behaves
+like the other list pages: the page title with its count, a left rail of sections with counts
+(use it for status filters), the search box, an optional sort select, a primary action button, and
+your content below. Pass the content as `children`.
+
+| Prop | Meaning |
+| --- | --- |
+| `title`, `titleLabel` | `title` heads the section rail; `titleLabel` is the page title (default: the active section's label). |
+| `persistKey` | Remembers whether the rail is collapsed. |
+| `sections`, `section`, `onSelectSection(id)`, `sectionCounts` | The rail: `[{id, label, icon}]`, the active id, a callback, and `{id: count}`. One section hides the rail. |
+| `count` | The count shown next to the page title. |
+| `q`, `onQueryChange(value)`, `searchPlaceholder`, `searchHint` | The search box; `/` focuses it. |
+| `sortBy`, `sortOptions`, `onSortChange(value)` | `sortOptions` is `[{value, label}]`; omit it to hide the select. |
+| `primaryLabel`, `primaryIcon`, `primaryLoading`, `primaryDisabled`, `onPrimary` | The primary action; no label, no button. |
+| `heightClass` | Defaults to `h-full`, so the page fills its container. |
+
+```svelte
+<HostUi
+  name="LibraryPage"
+  props={{
+    title: 'Elixirs',
+    titleLabel: 'Elixirs',
+    persistKey: 'my-plugin:list',
+    sections, section, onSelectSection, sectionCounts,
+    q, onQueryChange, searchPlaceholder: 'Search elixirs',
+    primaryLabel: 'New elixir', primaryIcon: 'plus', onPrimary: create
+  }}
+>
+  <MyCards />
+</HostUi>
+```
+
+`LibraryFilterBar` is also mountable on its own for a custom frame; it renders the search box,
+the Filters popover (pass `popover` as `{ slot }`) and the sort select without a wrapper.
+
+### Showing a generation in the details modal
+
+`GenerationDetailsModal` is the History details view. Mount it with `generationId` (plus
+`initialFileIndex`, and `isOpen`, `onClose`) to show any generation a plugin knows the id of.
+Two optional props let a plugin walk a list and add its own controls, both as plain data:
+
+| Prop | Meaning |
+| --- | --- |
+| `onNavigate(direction)`, `hasPrevious`, `hasNext`, `position: {index, total}` | Shows the previous/next generation controls and `Shift+Left/Right`. On navigation the plugin updates `generationId` and `initialFileIndex` through `update`. |
+| `onFileChange({generationId, fileIndex, fileId})` | Called when the file on screen changes, including the first time it is known (and when the user steps between a generation's files). |
+| `extraSections` | Sections added to the side panel under Information: `[{id, title, icon?, rows?: [{id, label, checked, disabled?, onToggle(checked)}], actions?: [{id, label, icon?, onClick}]}]`. Pass a new array through `update` to change them. |
+
+```js
+const modal = window.__potionui.components.GenerationDetailsModal;
+const handle = modal.mount(el, {
+  isOpen: true,
+  generationId,
+  initialFileIndex: 0,
+  onClose: () => modal.unmount(handle),
+  extraSections: [{ id: 'next', title: 'Send to', rows: [{ id: 'a', label: 'Upscale', checked: false, onToggle: (on) => pick('a', on) }] }]
+});
+```
 
 ### Media pickers with multi-select
 

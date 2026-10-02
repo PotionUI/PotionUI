@@ -25,7 +25,7 @@
 	import { nsfwFilterStore, visibleMediaFiles, shouldBlurFile, isUnratedFile } from '$lib/stores/nsfwFilter';
 	import { nsfwRevealStore, revealKey } from '$lib/stores/nsfwReveal';
 	import { pickActiveGeneration, needsDetailFetch } from '$lib/utils/generationDetail';
-	import { Badge, Spinner, CopyButton, IconButton } from '$lib/components/ui';
+	import { Badge, Button, Spinner, CopyButton, IconButton } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import PublishToInspirationsModal from './PublishToInspirationsModal.svelte';
 	import MediaEditors from '$lib/media/editors/MediaEditors.svelte';
@@ -34,6 +34,7 @@
 	import GenerationArtifacts from '$lib/components/generation/artifacts/GenerationArtifacts.svelte';
 	import { filesWithPreview, mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
 	import { showAlphaCheckerboard } from '$lib/utils/imageAlpha';
+	import type { DetailsExtraSection, DetailsFileChange } from './generationDetailsExtras';
 
 	// Support both ways of passing generation data
 	export let generation: GenerationHistoryItem | null = null;
@@ -49,6 +50,8 @@
 	export let hasNext: boolean = false;
 	export let position: { index: number; total: number } | null = null;
 	export let onClose: (() => void) | undefined = undefined;
+	export let extraSections: DetailsExtraSection[] = [];
+	export let onFileChange: ((change: DetailsFileChange) => void) | undefined = undefined;
 
 	const dispatch = createEventDispatcher();
 
@@ -230,6 +233,16 @@
 	}
 
 	$: currentFile = mediaFiles[currentFileIndex];
+	$: fileChangeKey = currentFile ? `${activeGenerationId}:${currentFileIndex}:${currentFile.id ?? ''}` : '';
+	let reportedFileKey = '';
+	$: if (fileChangeKey && fileChangeKey !== reportedFileKey) {
+		reportedFileKey = fileChangeKey;
+		onFileChange?.({
+			generationId: activeGenerationId,
+			fileIndex: currentFileIndex,
+			fileId: typeof currentFile?.id === 'number' ? currentFile.id : null
+		});
+	}
 	$: canGoPrev = currentFileIndex > 0;
 	$: canGoNext = currentFileIndex < mediaFiles.length - 1;
 	$: currentFileAlphaCheckerboard = currentFile ? showAlphaCheckerboard(currentFile) : false;
@@ -628,7 +641,7 @@
 					/>
 				</Tooltip>
 				{#if position}
-					<span class="font-mono tabular-nums text-xs text-fg-subtle">
+					<span class="font-mono tabular-nums text-xs text-fg-subtle" data-generation-position>
 						{position.index} / {position.total}
 					</span>
 				{/if}
@@ -655,7 +668,7 @@
 	{:else if activeGeneration}
 		<div class="flex flex-col md:flex-row h-full min-h-0">
 			<!-- Left Side - Media -->
-			<div class="flex-1 bg-black relative group min-h-0 overflow-hidden">
+			<div data-details-stage class="flex-1 bg-black relative group min-h-0 overflow-hidden">
 				{#if currentFile}
 					<!-- Navigation Arrows -->
 					{#if canGoPrev}
@@ -679,7 +692,7 @@
 					{/if}
 
 					<!-- Action buttons - top-right corner, shown on hover -->
-					<div class="absolute top-4 right-4 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex gap-2">
+					<div data-stage-toolbar class="absolute top-4 right-4 z-20 flex max-w-[calc(100%-2rem)] flex-wrap justify-end gap-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
 						<!-- Favorite toggle -->
 						<div
 							class="bg-black/50 hover:bg-black/70 p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors flex items-center"
@@ -800,7 +813,7 @@
 							<div class="flex items-center gap-2">
 								<!-- File counter -->
 								{#if mediaFiles.length > 1}
-									<div class="bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded text-sm font-medium shadow-lg">
+									<div data-file-counter class="bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded text-sm font-medium shadow-lg">
 										<span class="font-mono tabular-nums">
 											{currentFileIndex + 1} / {mediaFiles.length}
 										</span>
@@ -939,6 +952,42 @@
 							{/if}
 						</div>
 					</div>
+
+					{#each extraSections as section (section.id)}
+						<div class="bg-surface-2 rounded-lg overflow-hidden" data-extra-section={section.id}>
+							<div class="flex items-center gap-2 px-3 py-2.5 border-b border-line">
+								{#if section.icon}
+									<Icon name={section.icon} className="w-4 h-4 text-signal" />
+								{/if}
+								<h3 class="text-sm font-semibold text-fg">{section.title}</h3>
+							</div>
+							{#if section.rows?.length}
+								<ul class="divide-y divide-line">
+									{#each section.rows as row (row.id)}
+										<li>
+											<label class="flex min-h-[2.25rem] cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm text-fg {row.disabled ? 'opacity-60' : ''}">
+												<input
+													type="checkbox"
+													checked={row.checked}
+													disabled={row.disabled}
+													aria-label={row.label}
+													on:change={(event) => row.onToggle(event.currentTarget.checked)}
+												/>
+												<span class="min-w-0 flex-1 truncate">{row.label}</span>
+											</label>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+							{#if section.actions?.length}
+								<div class="flex flex-wrap items-center gap-2 px-3 py-2">
+									{#each section.actions as action (action.id)}
+										<Button variant="secondary" size="sm" icon={action.icon} onclick={action.onClick}>{action.label}</Button>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					{/each}
 
 					<!-- Segments Section -->
 					{#if segments.length > 0}

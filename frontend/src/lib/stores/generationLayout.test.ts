@@ -220,3 +220,40 @@ describe('toggleFormPane', () => {
 		expect(get(formFoldStates).t.unfolded).toBe(false);
 	});
 });
+
+describe('resolveThreePaneLayout freed form width', () => {
+	const workbenchWidth = (input: ThreePaneInput, promptWidth: number, folded: boolean) => {
+		const formOpen = Math.min(input.formWidth, input.viewportWidth * 0.45);
+		const formSpace = folded ? 12 : formOpen + 12;
+		return input.panelsWidth - formSpace - 4 - promptWidth;
+	};
+
+	it('gives the freed width to prompts at 1536 px and keeps the workbench width', () => {
+		const open = resolveThreePaneLayout({ ...base, formUnfoldedByUser: true });
+		const folded = resolveThreePaneLayout(base);
+		expect(folded.formFolded).toBe(true);
+		expect(folded.promptWidth).toBeGreaterThan(base.promptPanelWidth);
+		expect(folded.promptWidth).toBeGreaterThan(open.promptWidth);
+		const before = workbenchWidth(base, open.promptWidth, false);
+		const after = workbenchWidth(base, folded.promptWidth, true);
+		expect(Math.abs(after - before)).toBeLessThanOrEqual(2);
+	});
+
+	it('does the same at 1920 px with a user fold', () => {
+		const wide = { ...base, panelsWidth: 1864, viewportWidth: 1920, promptPanelWidth: 700 };
+		const open = resolveThreePaneLayout(wide);
+		const folded = resolveThreePaneLayout({ ...wide, leftPanelCollapsed: true });
+		expect(folded.promptWidth).toBeGreaterThan(open.promptWidth);
+		const before = workbenchWidth(wide, open.promptWidth, false);
+		const after = workbenchWidth(wide, folded.promptWidth, true);
+		expect(Math.abs(after - before)).toBeLessThanOrEqual(2);
+	});
+
+	it('restores the previous split when unfolded', () => {
+		const wide = { ...base, panelsWidth: 1864, viewportWidth: 1920, promptPanelWidth: 700 };
+		const folded = resolveThreePaneLayout({ ...wide, leftPanelCollapsed: true });
+		const unfolded = resolveThreePaneLayout({ ...wide, leftPanelCollapsed: false });
+		expect(folded.promptWidth).not.toBe(unfolded.promptWidth);
+		expect(unfolded.promptWidth).toBe(700);
+	});
+});

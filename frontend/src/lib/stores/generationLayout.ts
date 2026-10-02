@@ -134,8 +134,11 @@ export function resolveThreePaneLayout(input: ThreePaneInput): ThreePaneLayout {
 	const formFolded = input.leftPanelCollapsed || autoFolded;
 	const promptMinWidth = threePane ? PROMPT_PANE_READABLE_MIN_WIDTH : PROMPT_PANEL_MIN_WIDTH;
 
+	const openCeiling =
+		input.panelsWidth - formOpenWidth - FORM_RAIL_WIDTH - workbenchRail - WORKBENCH_FLOOR_WIDTH;
+	const openPromptWidth = Math.max(promptMinWidth, Math.min(input.promptPanelWidth, openCeiling));
 	const stored = formFolded
-		? (input.promptPanelWidthFolded ?? foldedPromptPanelWidth(input.panelsWidth))
+		? (input.promptPanelWidthFolded ?? openPromptWidth + formOpenWidth)
 		: input.promptPanelWidth;
 	const formSpace = formFolded ? FORM_RAIL_WIDTH : formOpenWidth + FORM_RAIL_WIDTH;
 	const ceiling = input.panelsWidth - formSpace - workbenchRail - WORKBENCH_FLOOR_WIDTH;

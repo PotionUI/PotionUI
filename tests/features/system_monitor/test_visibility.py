@@ -39,10 +39,14 @@ class FakeRepo:
 
 
 class FakeController:
+    def __init__(self):
+        self.still_allowed = None
+
     async def get_system_stats(self, user):
         return {"success": True, "data": {"gpu": {}}}
 
-    async def handle_websocket(self, websocket, client_id):
+    async def handle_websocket(self, websocket, client_id, still_allowed=None):
+        self.still_allowed = still_allowed
         await websocket.accept()
         await websocket.send_text("hello")
         await websocket.close()
@@ -57,11 +61,14 @@ def _client(repo, account_type, monkeypatch):
     monkeypatch.setattr(routes, "detect_gpu_profile", lambda: build_gpu_profile((8, 9), 24.04, "RTX"))
     monkeypatch.setattr(routes, "authenticate_websocket_token", lambda token: (user, None))
     container = SimpleNamespace(system_monitor_controller=FakeController(), plugin_repository=repo)
+    app_controller = container.system_monitor_controller
     app = FastAPI()
     app.include_router(routes.build_router(container))
     app.include_router(routes.build_ws_router(container))
     app.dependency_overrides[get_current_active_user] = lambda: user
-    return TestClient(app)
+    client = TestClient(app)
+    client.controller = app_controller
+    return client
 
 
 def _registry():
@@ -117,6 +124,17 @@ def test_websocket_refuses_regular_user_by_default(monkeypatch):
 def test_websocket_admin_and_everyone(monkeypatch):
     assert _ws_connects(_client(FakeRepo(), AccountType.ADMIN, monkeypatch))
     assert _ws_connects(_client(FakeRepo("everyone"), AccountType.USER, monkeypatch))
+
+
+def test_websocket_hands_the_hub_a_check_that_follows_the_setting(monkeypatch):
+    repo = FakeRepo("everyone")
+    client = _client(repo, AccountType.USER, monkeypatch)
+    assert _ws_connects(client)
+
+    still_allowed = client.controller.still_allowed
+    assert still_allowed() is True
+    repo.visible_to = "admins"
+    assert still_allowed() is False
 
 
 @pytest.mark.parametrize("visible_to", [None, "admins", "everyone"])

@@ -199,7 +199,8 @@ class SystemMonitorCoordinator:
         websocket: WebSocketProtocol,
         client_id: str,
         accept_callback=None,
-        receive_callback=None
+        receive_callback=None,
+        still_allowed=None
     ) -> None:
         """
         Handle a WebSocket connection for system monitoring.
@@ -209,12 +210,13 @@ class SystemMonitorCoordinator:
             client_id: Unique client identifier
             accept_callback: Optional callback to accept the connection
             receive_callback: Optional callback to receive messages
+            still_allowed: Optional check re-run before every broadcast
         """
         # Accept connection if callback provided
         if accept_callback:
             await accept_callback()
 
-        self.connection_hub.add_connection(websocket)
+        self.connection_hub.add_connection(websocket, still_allowed)
 
         try:
             # Send initial system stats

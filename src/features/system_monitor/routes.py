@@ -52,13 +52,14 @@ class SystemMonitorController(BaseController):
             self.logger.error(f"Error setting monitoring interval: {e}")
             return self.error_response(f"Failed to set monitoring interval: {str(e)}")
 
-    async def handle_websocket(self, websocket: WebSocket, client_id: str) -> None:
+    async def handle_websocket(self, websocket: WebSocket, client_id: str, still_allowed=None) -> None:
         """Handle system monitoring WebSocket connection."""
         await self.manager.handle_websocket_connection(
             websocket=websocket,
             client_id=client_id,
             accept_callback=websocket.accept,
-            receive_callback=websocket.receive_text
+            receive_callback=websocket.receive_text,
+            still_allowed=still_allowed
         )
 
 
@@ -123,7 +124,11 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
             return
 
         client_id = str(uuid.uuid4())
-        await controller.handle_websocket(websocket, client_id)
+        await controller.handle_websocket(
+            websocket,
+            client_id,
+            still_allowed=lambda: monitor_visible_to(container.plugin_repository, user),
+        )
 
     return ws_router
 

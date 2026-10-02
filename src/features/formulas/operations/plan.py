@@ -10,6 +10,7 @@ from src.features.formulas.signatures import (
     MODEL_TYPES,
     NUMERIC_TYPES,
     OPTION_TYPES,
+    companion_accepted,
     configuration,
     numeric_bounds,
     option_values,
@@ -38,6 +39,7 @@ REASONS = {
     "lora_filtered": "The LoRA is outside what this setting accepts.",
     "lora_strength_out_of_range": "The LoRA strength is outside the allowed range.",
     "lora_over_limit": "The list is full, so this LoRA was left out.",
+    "variant_changed": "This setting is not in the form variant you are using now.",
     "lora_none_available": "None of the saved LoRAs can be used here.",
 }
 
@@ -248,11 +250,13 @@ def plan_formula(
     collaborators: FormulaCollaborators, user: User, formula_id: str, request: PlanFormulaRequest
 ) -> Dict[str, Any]:
     formula = get_formula(collaborators, user.id, formula_id)
+    form_name = request.form_name or formula.variant
     try:
-        loaded = collaborators.forms.load(formula.preset_id, formula.mode, request.form_name)
+        loaded = collaborators.forms.load(formula.preset_id, formula.mode, form_name)
     except FormUnavailable as exc:
         raise FormulaError("form_unavailable", str(exc), 422) from exc
 
+    variant_differs = form_name != formula.variant
     live_groups = _live_group_index(loaded)
     stored_group_of = {name: group["id"] for group in formula.groups for name in group.get("fields", [])}
     current = request.current_values
@@ -291,7 +295,8 @@ def plan_formula(
         label = (spec or {}).get("title") or name
         live = live_groups.get(name)
         if spec is None:
-            skips.append(_skip_entry(name, label, stored_gid, _Skip("field_removed")))
+            code = "variant_changed" if variant_differs else "field_removed"
+            skips.append(_skip_entry(name, label, stored_gid, _Skip(code)))
             continue
         if live is None:
             skips.append(_skip_entry(name, label, stored_gid, _Skip("not_declared")))
@@ -320,6 +325,8 @@ def plan_formula(
         if owner is None:
             continue
         info = applied[owner]
+        if not companion_accepted(key, owner, info["spec"].get("type")):
+            continue
         record(
             key, info["spec"].get("title") or owner, info["live"].id, info["live"].label,
             info["spec"].get("audience") == "advanced", value, companion_of=owner,

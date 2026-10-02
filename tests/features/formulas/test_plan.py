@@ -466,3 +466,106 @@ def test_malformed_current_lora_rows_are_treated_as_an_empty_list(collaborators,
 
     assert [row["model"] for row in change["new"]] == ["model:l1"]
     assert [row["status"] for row in change["rows"]] == ["added"]
+
+
+def store_values(collaborators, formula, **values):
+    stored = collaborators.repository.get_for_owner("user-1", formula.id)
+    stored.values.update(values)
+    collaborators.repository.update(stored)
+
+
+def add_field(forms, group_id, spec):
+    form = forms.forms[("preset-a", "video")]
+    fields = {**form.fields, spec["name"]: spec}
+    groups = [*form.groups, DeclaredGroup(group_id, group_id.title(), [spec["name"]])]
+    set_form(forms, fields=fields, groups=groups)
+
+
+def test_cloud_options_must_be_a_mapping(collaborators, forms):
+    add_field(forms, "cloud", {"type": "cloud_options", "name": "cloud", "title": "Cloud"})
+    formula = save(collaborators, ["cloud"], {"cloud": {"quality": "hd"}})
+
+    assert plan(collaborators, formula)["changes"][0]["new"] == {"quality": "hd"}
+
+    store_values(collaborators, formula, cloud=["hd"])
+    result = plan(collaborators, formula)
+
+    assert result["changes"] == [] and skip_codes(result) == {("cloud", "invalid_value")}
+
+
+def test_tags_field_keeps_a_list_and_rejects_anything_else(collaborators, forms):
+    add_field(forms, "labels", {"type": "tags", "name": "labels", "title": "Labels"})
+    formula = save(collaborators, ["labels"], {"labels": ["x", "y"]})
+
+    assert plan(collaborators, formula)["changes"][0]["new"] == ["x", "y"]
+
+    store_values(collaborators, formula, labels="x")
+
+    assert skip_codes(plan(collaborators, formula)) == {("labels", "invalid_value")}
+
+
+def test_tags_field_with_options_drops_the_unoffered_ones(collaborators, forms):
+    spec = {"type": "tags", "name": "labels", "title": "Labels", "options": [{"value": "x"}]}
+    add_field(forms, "labels", spec)
+    formula = save(collaborators, ["labels"], {"labels": ["x", "y"]})
+
+    result = plan(collaborators, formula)
+
+    assert result["changes"][0]["new"] == ["x"]
+    assert skip_codes(result) == {("labels", "option_missing")}
+
+
+def test_plan_defaults_to_the_variant_the_formula_was_saved_for(collaborators, forms):
+    request = CreateFormulaRequest(
+        preset_id="preset-a", mode="video", name="V", variant="alt",
+        groups=[{"id": "speed"}], values={"steps": 4},
+    )
+    formula = operations.create_formula(collaborators, "user-1", request)
+
+    plan(collaborators, formula)
+
+    assert forms.requested[-1] == ("preset-a", "video", "alt")
+
+
+def test_a_field_missing_from_another_variant_is_skipped_as_a_variant_change(collaborators, forms):
+    request = CreateFormulaRequest(
+        preset_id="preset-a", mode="video", name="V", variant="alt",
+        groups=[{"id": "speed"}], values={"steps": 4, "speed_profile": "turbo"},
+    )
+    formula = operations.create_formula(collaborators, "user-1", request)
+    fields = {key: value for key, value in forms.forms[("preset-a", "video")].fields.items() if key != "steps"}
+    set_form(forms, fields=fields)
+
+    other = operations.plan_formula(
+        collaborators, make_user(), formula.id, PlanFormulaRequest(form_name="other", current_values={})
+    )
+    same = plan(collaborators, formula)
+
+    assert skip_codes(other) == {("steps", "variant_changed")}
+    assert skip_codes(same) == {("steps", "field_removed")}
+    assert change_names(other) == ["speed_profile"]
+
+
+@pytest.mark.parametrize(
+    "companion,accepted",
+    [
+        ("image_inpaint_mask", True),
+        ("image__origin", True),
+        ("image_tagFilters", False),
+        ("checkpoint_tagFilters", True),
+        ("checkpoint_inpaint_mask", False),
+        ("checkpoint__origin", False),
+        ("steps_tagFilters", False),
+        ("steps__anything", False),
+    ],
+)
+def test_a_companion_is_applied_only_for_owner_types_that_take_it(collaborators, models, forms, companion, accepted):
+    models.add("m1", model_type="checkpoint", tag_ids=["base-x"])
+    form = forms.forms[("preset-a", "video")]
+    fields = {**form.fields, "image": {"type": "image", "name": "image", "title": "Image"}}
+    set_form(forms, fields=fields, groups=[DeclaredGroup("all", "All", ["image", "checkpoint", "steps"])])
+    formula = save(collaborators, ["all"], {"image": "a.png", "checkpoint": "model:m1", "steps": 4, companion: "v"})
+
+    names = change_names(plan(collaborators, formula))
+
+    assert (companion in names) is accepted

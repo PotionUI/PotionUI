@@ -184,6 +184,79 @@ test.describe('Formulas drawer', () => {
 		await expect(drawer.getByText('The form already matches this formula.')).toBeVisible();
 	});
 
+	test('keeps Apply disabled from the form edit until the refreshed plan arrives', async ({ page }) => {
+		await openForm(page);
+		const button = page.getByTestId('formulas-button');
+		await pickResolution(page, 1);
+		await button.click();
+		const drawer = page.getByRole('dialog', { name: 'Formulas' });
+		await saveSizeFormula(page, 'Stale');
+		await drawer.getByRole('switch', { name: 'Keep open' }).click();
+		await page.keyboard.press('Escape');
+		await pickResolution(page, 3);
+		await button.click();
+		await drawer.getByText('Stale').click();
+		const apply = drawer.getByRole('button', { name: /^Apply/ });
+		await expect(apply).toBeEnabled();
+
+		let release: () => void = () => {};
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		await page.route(/\/api\/formulas\/[^/]+\/plan$/, async (route) => {
+			await gate;
+			await route.fallback();
+		});
+		await resolutionTrigger(page).click();
+		await page.getByRole('option').nth(1).click();
+		await expect(apply).toBeDisabled();
+		await page.waitForTimeout(600);
+		await expect(apply).toBeDisabled();
+
+		release();
+		await expect(drawer.getByTestId('formula-plan-chips')).toContainText('already match');
+	});
+
+	test('Escape while renaming cancels the rename and keeps the drawer open', async ({ page }) => {
+		await openForm(page);
+		await pickResolution(page, 1);
+		await page.getByTestId('formulas-button').click();
+		const drawer = page.getByRole('dialog', { name: 'Formulas' });
+		await saveSizeFormula(page, 'Original');
+		await drawer.getByRole('button', { name: 'More actions for Original' }).click();
+		await page.getByRole('menuitem', { name: 'Rename' }).click();
+		const input = drawer.getByLabel('Rename Original');
+		await input.fill('Half typed');
+		await input.press('Escape');
+		await expect(input).toHaveCount(0);
+		await expect(drawer).toBeVisible();
+		await expect(drawer.locator('[data-row-id]', { hasText: 'Original' })).toBeVisible();
+		await expect(drawer.locator('[data-row-id]', { hasText: 'Half typed' })).toHaveCount(0);
+	});
+
+	test('returns focus to the Formulas button when the drawer closes', async ({ page }) => {
+		await openForm(page);
+		const button = page.getByTestId('formulas-button');
+		await button.click();
+		const drawer = page.getByRole('dialog', { name: 'Formulas' });
+		await expect(drawer).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(drawer).toHaveCount(0);
+		await expect(button).toBeFocused();
+	});
+
+	test('cancelling the delete confirmation keeps the formula', async ({ page }) => {
+		await openForm(page);
+		await pickResolution(page, 1);
+		await page.getByTestId('formulas-button').click();
+		const drawer = page.getByRole('dialog', { name: 'Formulas' });
+		await saveSizeFormula(page, 'Keeper');
+		await drawer.getByRole('button', { name: 'More actions for Keeper' }).click();
+		await page.getByRole('menuitem', { name: 'Delete' }).click();
+		const confirm = page.getByRole('alertdialog');
+		await confirm.getByRole('button', { name: 'Cancel' }).click();
+		await expect(confirm).toHaveCount(0);
+		await expect(drawer.locator('[data-row-id]', { hasText: 'Keeper' })).toBeVisible();
+	});
+
 	test('opening sessions closes Formulas and the other way round', async ({ page }) => {
 		await openForm(page);
 		const button = page.getByTestId('formulas-button');

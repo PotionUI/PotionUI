@@ -291,3 +291,30 @@ def test_the_cap_holds_inside_the_insert_itself(collaborators):
         collaborators.repository.create(dataclasses.replace(first, name="sneaked in"), MAX_FORMULAS_PER_SCOPE)
 
     assert len(collaborators.repository.names_for_owner("user-1", "preset-a", "video")) == 100
+
+
+def test_names_differing_only_in_case_are_the_same_name(collaborators):
+    create(collaborators, name="Fast")
+    other = create(collaborators, name="Slow")
+
+    assert error_code(lambda: create(collaborators, name="fast")) == "formula_name_exists"
+    code = error_code(
+        lambda: operations.update_formula(collaborators, "user-1", other.id, UpdateFormulaRequest(name="FAST"))
+    )
+
+    assert code == "formula_name_exists"
+
+
+def test_update_with_an_undeclared_group_is_refused_and_leaves_the_row_alone(collaborators):
+    formula = create(collaborators)
+    content = {"groups": [{"id": "nope"}], "values": {"steps": 9}}
+
+    code = error_code(
+        lambda: operations.update_formula(
+            collaborators, "user-1", formula.id, UpdateFormulaRequest(name="Renamed", content=content)
+        )
+    )
+
+    stored = operations.get_formula(collaborators, "user-1", formula.id)
+    assert code == "unknown_group"
+    assert stored.name == "Turbo" and stored.values == formula.values and stored.groups == formula.groups

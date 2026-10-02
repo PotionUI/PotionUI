@@ -54,3 +54,19 @@ def owning_field(key: str, declared: Dict[str, Any]) -> Optional[str]:
         if key.startswith(f"{name}__") or any(key == f"{name}{suffix}" for suffix in COMPANION_SUFFIXES):
             return name
     return None
+
+
+MEDIA_TYPES = ("image", "video", "audio", "media")
+
+COMPANION_OWNER_TYPES = {
+    "_inpaint_mask": MEDIA_TYPES,
+    "__origin": MEDIA_TYPES,
+    "_tagFilters": ("model", "models", "lora_picker"),
+}
+
+
+def companion_accepted(key: str, owner: str, owner_type: Optional[str]) -> bool:
+    if key == owner:
+        return True
+    suffix = key[len(owner):]
+    return owner_type in COMPANION_OWNER_TYPES.get(suffix, ())

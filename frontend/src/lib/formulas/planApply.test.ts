@@ -113,6 +113,25 @@ describe('applyPlan and undo', () => {
 		expect(undoApplied(result.formData, result.snapshot)).toEqual({ model: 'a', model_tagFilters: ['x'] });
 	});
 
+	it('does not apply a companion whose owner the capability check skipped', () => {
+		const plan = planApply(
+			server([change('model', 'a', 'b'), change('model_tagFilters', ['x'], ['y'], { companionOf: 'model' })]),
+			{ capabilityInvalid: () => ({ model: [] }) }
+		);
+		const selected = new Set(plan.changes.filter((c) => !c.companionOf).map((c) => c.field));
+		const result = applyPlan({ model: 'a', model_tagFilters: ['x'] }, plan, selected);
+		expect(plan.skips.map((s) => s.field)).toEqual(['model']);
+		expect(result.formData).toEqual({ model: 'a', model_tagFilters: ['x'] });
+		expect(result.snapshot).toEqual({ values: {}, absent: [] });
+	});
+
+	it('undo after a second apply goes back one step, not to the original', () => {
+		const first = applyPlan(base, planApply(server([change('steps', 24, 4)])), new Set(['steps']));
+		const second = applyPlan(first.formData, planApply(server([change('steps', 4, 8)])), new Set(['steps']));
+		expect(undoApplied(second.formData, second.snapshot).steps).toBe(4);
+		expect(undoApplied(second.formData, first.snapshot).steps).toBe(24);
+	});
+
 	it('applying the same plan twice leaves the same form', () => {
 		const plan = planApply(server([change('steps', 24, 4)]));
 		const once = applyPlan(base, plan, new Set(['steps'])).formData;

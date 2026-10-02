@@ -26,7 +26,7 @@ def up():
         cursor.execute(_CREATE_FORMULAS)
         cursor.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_formulas_owner_name "
-            "ON formulas (owner_id, preset_id, mode, name)"
+            "ON formulas (owner_id, preset_id, mode, name COLLATE NOCASE)"
         )
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_formulas_owner_scope "

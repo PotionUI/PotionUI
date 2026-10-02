@@ -226,7 +226,10 @@
 			if (request !== planRequest) return;
 			planError = formulaErrorMessage(error, 'Could not check this formula.');
 		} finally {
-			if (request === planRequest) planLoading = false;
+			if (request === planRequest) {
+				planLoading = false;
+				planStale = false;
+			}
 		}
 	}
 
@@ -240,6 +243,7 @@
 	}
 
 	let planKey = '';
+	let planStale = $state(false);
 	let planTimer: ReturnType<typeof setTimeout> | undefined;
 
 	$effect(() => {
@@ -247,7 +251,12 @@
 		if (key === planKey) return;
 		const hadPlan = planKey !== '';
 		planKey = key;
-		if (!key || !hadPlan) return;
+		if (!key) {
+			planStale = false;
+			return;
+		}
+		if (!hadPlan) return;
+		planStale = true;
 		const formula = applying;
 		clearTimeout(planTimer);
 		planTimer = setTimeout(() => {
@@ -271,7 +280,7 @@
 	}
 
 	function runApply(keepOpen: boolean) {
-		if (!plan || !applying) return;
+		if (!plan || !applying || planStale) return;
 		const result = applyPlan(tab.formData ?? {}, plan, selected);
 		if (Object.keys(result.changed).length === 0) return;
 		tabsStore.updateTab(tab.id, { formData: result.formData });
@@ -379,7 +388,7 @@
 			<FormulaApplyView
 				formula={applying}
 				{plan}
-				loading={planLoading}
+				loading={planLoading || planStale}
 				error={planError}
 				{index}
 				{groupOrder}

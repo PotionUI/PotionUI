@@ -101,6 +101,8 @@ import type { DirectorRunState } from '$lib/types/tabs';
 import {
 	deriveRailModel,
 	deriveShotLabel,
+	referenceNameResolver,
+	type ReferenceNameResolver,
 	type RailModel,
 	type RailShotBlock,
 	type RailSeam
@@ -474,7 +476,7 @@ function buildChainShots(
 			id: segment.id,
 			index,
 			number: shotNumber(index),
-			title: deriveShotLabel(segment.prompt, index),
+			title: deriveShotLabel(segment.prompt, index, referenceNameResolver(caps, formData)),
 			durationSeconds: segment.duration,
 			startSeconds: block.startSeconds,
 			frames: block.totalFrames,
@@ -591,11 +593,16 @@ function buildChainJoins(
 // shot.id)` (per-shot, no cross-shot concatenation -- see that function's
 // doc comment) rather than a single document-wide `RailModel`.
 
-function timelineShotTitle(doc: VideoDirectorValue, shot: DirectorTimelineShot, index: number): string {
+function timelineShotTitle(
+	doc: VideoDirectorValue,
+	shot: DirectorTimelineShot,
+	index: number,
+	resolveName: ReferenceNameResolver
+): string {
 	if (shot.title) return shot.title;
 	const withText = shot.segments.find((s) => s.text.trim() !== '');
-	if (withText) return deriveShotLabel(withText.text, index);
-	if (doc.global_prompt.trim() !== '') return deriveShotLabel(doc.global_prompt, index);
+	if (withText) return deriveShotLabel(withText.text, index, resolveName);
+	if (doc.global_prompt.trim() !== '') return deriveShotLabel(doc.global_prompt, index, resolveName);
 	return deriveShotLabel('', index);
 }
 
@@ -642,7 +649,7 @@ function buildTimelineShots(
 			id: shot.id,
 			index,
 			number: shotNumber(index),
-			title: timelineShotTitle(doc, shot, index),
+			title: timelineShotTitle(doc, shot, index, referenceNameResolver(caps, formData)),
 			durationSeconds: rail.totalSeconds,
 			startSeconds: 0,
 			frames: rail.totalFrames,

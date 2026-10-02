@@ -43,7 +43,7 @@
 
 import type { VideoDirectorValue, DirectorCapabilities, DirectorMediaValue, DirectorTimelineShot } from '$lib/types/videoDirector';
 import type { MediaRef } from '$lib/types/tabs';
-import { deriveRailModel, deriveShotLabel, type RailModel } from '../stage-rail/railModel';
+import { deriveRailModel, deriveShotLabel, referenceNameResolver, type RailModel } from '../stage-rail/railModel';
 import {
 	resolveDirectorMediaDisplay,
 	chainEdgeKeyframeId,
@@ -222,7 +222,7 @@ function deriveChainShotRail(
 				id: segment.id,
 				startPercent: 0,
 				widthPercent: 100,
-				text: deriveShotLabel(segment.prompt, index),
+				text: deriveShotLabel(segment.prompt, index, referenceNameResolver(caps, formData)),
 				global: false
 			}
 		],

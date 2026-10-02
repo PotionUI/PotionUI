@@ -29,7 +29,8 @@ import {
 	DEFAULT_MAX_KEYFRAMES
 } from '$lib/utils/videoDirector';
 import { sortByStart, neighborBounds, trimSegmentLeft, trimSegmentRight, clamp } from '../timelineCore';
-import { resourceMarkerRegex } from '$lib/utils/promptResources';
+import { kindLabel, mediaFieldItems, mediaItemKey, resourceMarkerRegex } from '$lib/utils/promptResources';
+import { kindOfMediaItem } from '$lib/components/form-fields/mediaLoaderKind';
 
 // A `doc.timeline.shots` array is never empty in a normalized document (see
 // `normalizeDirectorValue`), but `deriveRailModel` is a pure function of
@@ -223,8 +224,48 @@ function markerLabel(itemKey: string): string {
 	return name.replace(/\.[A-Za-z0-9]{1,5}$/, '').replace(/[,.;\n]/g, ' ');
 }
 
-export function deriveShotLabel(prompt: string, index: number): string {
-	const text = prompt.replace(resourceMarkerRegex(), (_full, _field: string, itemKey: string) => markerLabel(itemKey)).trim();
+export type ReferenceNameResolver = (field: string, itemKey: string) => string | null;
+
+function looksLikeFileName(itemKey: string): boolean {
+	const name = itemKey.replace(/\\/g, '/').split('/').pop() ?? '';
+	return /\.[A-Za-z0-9]{1,5}$/.test(name);
+}
+
+function itemFileName(item: unknown): string | null {
+	if (!item || typeof item !== 'object') return null;
+	const record = item as Record<string, unknown>;
+	for (const field of ['name', 'original_name', 'original_filename', 'label'] as const) {
+		const value = record[field];
+		if (typeof value === 'string' && value.trim()) return value.trim();
+	}
+	return null;
+}
+
+export function referenceNameResolver(
+	caps: DirectorCapabilities,
+	formData: Record<string, unknown> | null | undefined
+): ReferenceNameResolver {
+	return (field, itemKey) => {
+		if (!caps.referenceFields.includes(field)) return null;
+		const items = mediaFieldItems(formData?.[field]);
+		const index = items.findIndex((item) => mediaItemKey(item) === itemKey);
+		if (index === -1) return null;
+		const name = itemFileName(items[index]);
+		if (name) return markerLabel(name);
+		const kind = kindOfMediaItem(items[index]) ?? 'image';
+		const rank = items.slice(0, index + 1).filter((item) => (kindOfMediaItem(item) ?? 'image') === kind).length;
+		return `${kindLabel(kind)} ${rank}`;
+	};
+}
+
+export function deriveShotLabel(prompt: string, index: number, resolveName?: ReferenceNameResolver): string {
+	const text = prompt
+		.replace(resourceMarkerRegex(), (_full, field: string, itemKey: string) => {
+			const resolved = resolveName?.(field, itemKey);
+			if (resolved) return resolved;
+			return looksLikeFileName(itemKey) ? markerLabel(itemKey) : 'reference';
+		})
+		.trim();
 	if (!text) return `Shot ${index + 1}`;
 	const firstClause = text.split(/[,.;\n]/, 1)[0]?.trim() ?? text;
 	const MAX = 40;

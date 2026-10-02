@@ -4,6 +4,7 @@ import {
 	resolveKeyframeDrag,
 	resizeTimelineBlockEdge,
 	deriveShotLabel,
+	referenceNameResolver,
 	isKeyframeLocked,
 	withChainKeyframeAt,
 	withTimelineKeyframeAt,
@@ -589,6 +590,27 @@ describe('deriveShotLabel', () => {
 
 	it('shows a resource marker as its item name', () => {
 		expect(deriveShotLabel('the potion from @[references:pool/0-edit.png] on a table', 0)).toBe('the potion from 0-edit on a table');
+	});
+
+	it('shows an uploaded item by its name instead of its id', () => {
+		const caps = { referenceFields: ['references'] } as unknown as DirectorCapabilities;
+		const formData = {
+			references: [{ path: '53a991e5-7c1d-4b2e-9f00-aaaaaaaaaaaa', name: 'potion.png' }]
+		};
+		const label = deriveShotLabel(
+			'the potion from @[references:53a991e5-7c1d-4b2e-9f00-aaaaaaaaaaaa] on a table',
+			0,
+			referenceNameResolver(caps, formData)
+		);
+		expect(label).toBe('the potion from potion on a table');
+	});
+
+	it('falls back to the kind label for an unnamed upload and never shows an id', () => {
+		const caps = { referenceFields: ['references'] } as unknown as DirectorCapabilities;
+		const formData = { references: [{ path: '53a991e5-7c1d', type: 'image' }] };
+		const label = deriveShotLabel('the potion from @[references:53a991e5-7c1d]', 0, referenceNameResolver(caps, formData));
+		expect(label).toBe('the potion from Picture 1');
+		expect(deriveShotLabel('the potion from @[references:53a991e5-7c1d]', 0)).not.toContain('53a991e5');
 	});
 });
 

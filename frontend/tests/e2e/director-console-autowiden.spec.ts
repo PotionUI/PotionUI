@@ -23,7 +23,7 @@ const JOURNEY = 'director-console-autowiden';
 // GenerationPanels bounds the prompts pane with `max-width: calc(100% - form - 328px)`
 // (workbench minimum 320 + 8px of handle/gutter), which is 4px tighter than the
 // drag clamp — the rendered maximum follows the CSS bound.
-const WORKBENCH_BOUND_WIDTH = 328;
+const WORKBENCH_BOUND_WIDTH = 336;
 const MAX_WIDTH_TOLERANCE_PX = 2;
 
 interface DiscoveredPreset {

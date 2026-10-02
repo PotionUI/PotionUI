@@ -30,13 +30,29 @@ the model depot's `detection_segm/` folder, the convention
 from typing import TYPE_CHECKING
 
 from src.platform.util.imaging import convert_image_to_base64
+from src.platform.util.video_transcode import (
+    FfmpegUnavailableError,
+    TranscodeSpec,
+    VideoProbe,
+    VideoTranscodeError,
+    find_ffmpeg,
+    probe_video,
+    transcode_video,
+)
 
 if TYPE_CHECKING:
     from src.platform.runtime.native.matting import BackgroundMattingModel
 
 __all__ = [
     "BackgroundMattingModel",
+    "FfmpegUnavailableError",
+    "TranscodeSpec",
+    "VideoProbe",
+    "VideoTranscodeError",
     "convert_image_to_base64",
+    "find_ffmpeg",
+    "probe_video",
+    "transcode_video",
 ]
 
 

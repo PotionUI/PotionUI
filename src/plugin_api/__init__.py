@@ -166,7 +166,16 @@ from src.plugin_api.automation import (
 )
 
 # Working with images.
-from src.plugin_api.media import convert_image_to_base64
+from src.plugin_api.media import (
+    FfmpegUnavailableError,
+    TranscodeSpec,
+    VideoProbe,
+    VideoTranscodeError,
+    convert_image_to_base64,
+    find_ffmpeg,
+    probe_video,
+    transcode_video,
+)
 
 # Contributing a prompt import source.
 from src.plugin_api.prompts import (
@@ -347,6 +356,13 @@ __all__ = [
     # Media
     "BackgroundMattingModel",
     "convert_image_to_base64",
+    "FfmpegUnavailableError",
+    "TranscodeSpec",
+    "VideoProbe",
+    "VideoTranscodeError",
+    "find_ffmpeg",
+    "probe_video",
+    "transcode_video",
     # Prompt import sources
     "PromptImporter",
     "PromptImportOutcome",

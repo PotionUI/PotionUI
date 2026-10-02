@@ -171,5 +171,4 @@ pipeline:
       - ["image", "controlnet_preprocessor", "image"]
     enabled: "{{ (form.guide | default('canny')) not in ('none', 'grayscale') and (form.guide_extract | default(true)) and ((form.guide_only | default(false)) or (form.guide_save | default(false))) }}"
     configuration:
-      derived: *not_guide_only
       label: "Guide: {{ {'canny': 'Canny', 'depth': 'Depth', 'openpose': 'Pose', 'lineart': 'Lineart', 'hed': 'HED', 'mlsd': 'MLSD', 'scribble': 'Scribble'}.get(form.guide | default('canny'), 'Guide') }}"

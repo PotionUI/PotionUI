@@ -397,7 +397,7 @@ def test_also_saving_the_guide_adds_a_labelled_derived_output(qwen_image21_templ
     assert _enabled(pipes, "guide_gallery")
     assert guide["input"][0]["provider"] == "controlnet_preprocessor"
     assert guide["config"]["label"] == "Guide: Pose"
-    assert guide["config"]["derived"] is True
+    assert not guide["config"].get("derived")
     assert all(_enabled(pipes, name) for name in _GENERATION_PIPES)
 
 
@@ -410,7 +410,7 @@ def test_only_extracting_skips_every_model_and_the_generation(qwen_image21_templ
     guide = _pipe(pipes, "guide_gallery")
     assert _enabled(pipes, "guide_gallery")
     assert guide["config"]["label"] == "Guide: Depth"
-    assert guide["config"]["derived"] is False
+    assert not guide["config"].get("derived")
 
 
 @pytest.mark.parametrize("form", [

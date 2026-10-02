@@ -25,7 +25,7 @@ Images, video and music on your own GPU · Free and open source · Linux & Windo
 
 Run Krea-2, Anima, SDXL, Flux, Wan, LTX, Qwen-Image, MiniMax and YuE2 on one box — then give your team, your household, or your agents their own logins, presets, and limits. No node graphs. No per-model setup. Pick a model, type, watch it render live.
 
-![The generate workspace: model tabs, a prompt built from colored segments, and the finished render](docs/media/potionui-generation-page.png)
+![The generate workspace: a tab per idea, a prompt built from colored segments with variable and phrasebook chips, and the finished render](docs/media/potionui-generate.png)
 
 <details>
 <summary>Watch the 60-second tour (video)</summary>
@@ -107,7 +107,7 @@ Floor: 8 GB VRAM + 16 GB RAM (SDXL). Full requirements below.
 
 ## Multi-user, with an admin panel
 
-![Admin preset management: the catalog of installed and available presets across engines, with a per-preset overview and access tab](docs/media/potionui_admin_preset_overview.png)
+![Admin preset management: presets grouped by category and engine, with one preset's overview showing its description, example media, metadata, and the recipe that installs it](docs/media/potionui-admin-presets.png)
 
 PotionUI is built for more than one person on the same box:
 
@@ -127,7 +127,7 @@ The full tour: [docs/user/admin.md](docs/user/admin.md).
 
 ## AI assistant
 
-![The generation assistant reads the active tab and proposes a segment rewrite you apply with one click](docs/media/potionui_phrasebook_assistant_active.png)
+![The generation assistant reads the active tab and proposes a rewrite for each prompt segment, each one applied with one click](docs/media/potionui-generation-assistant.png)
 
 - Configure a language model and get an assistant beside generation: it
   brainstorms and rewrites prompts, edits phrasebook values, adjusts form
@@ -146,6 +146,8 @@ frames, sampler), generation in progress with the live streaming preview
 and a step progress bar mid-run.
 -->
 
+![Applying a formula: a preview of the form values it will change, each shown from old to new, before they land in the current tab](docs/media/potionui-formulas.png)
+
 - Every tab is its own sandbox — preset, mode, prompts, and results — so you
   can run several ideas side by side without losing any of them.
 - Switch models and the form swaps to match; the same tab handles txt2img,
@@ -155,9 +157,11 @@ and a step progress bar mid-run.
 
 ## History, tags, and collections
 
-![History with collections, tags, keyword or semantic search, and date-grouped renders](docs/media/potionui_gallery_page.png)
+![History with collections, search, media-type and preset filters, and date-grouped image and video renders](docs/media/potionui-history.png)
 
-![Generation details: the render with its parameters, seed, segments, and the exact model files it used](docs/media/potionui_gallery_page-details.png)
+![Generation details: the render beside its parameters, seed, and the exact model files it used](docs/media/potionui-generation-details.png)
+
+![The image editor, opened from History: paint, selection, and crop tools, layers, and color adjustments, saved as a new upload so the original stays untouched](docs/media/potionui-image-editor.png)
 
 https://github.com/user-attachments/assets/f46cde26-0288-4e05-ac90-c3be31f0d2dd
 
@@ -166,14 +170,13 @@ https://github.com/user-attachments/assets/f46cde26-0288-4e05-ac90-c3be31f0d2dd
 - Tag generations to group and re-find them; bulk-delete by tag to clear out
   throwaway experiments.
 - Sort work into collections, and compare two results side by side.
+- Fix a picture without leaving the app: Tools → Edit image adjusts, crops,
+  paints, and layers it, then saves a new copy. The same editor opens from
+  any media field in a preset form.
 
 ## Video Director
 
-<!--
-SCREENSHOT SLOT — VIDEO DIRECTOR
-Video Director editor open on a Wan or LTX-2 preset, shot/section rail
-populated with 2-3 sections (e.g. global + two timed/chain sections).
--->
+![The Video Director on a cloud video model: three chained shots, each starting from the last frame of the one before, with the model's limits listed above them](docs/media/potionui-cloud-video-director.png)
 
 - Build a shot out of **global, timed, and chained sections** instead of
   hand-managing separate prompt fields per segment.
@@ -182,7 +185,7 @@ populated with 2-3 sections (e.g. global + two timed/chain sections).
 
 ## Prompt tooling
 
-![The phrasebook: reusable phrase categories with per-value preview images generated from a template prompt](docs/media/potionui_phrasebook_category_page.png)
+![The phrasebook: a shot-type category with a preview image for every value, generated from a template prompt on a chosen preset and session](docs/media/potionui-phrasebook.png)
 
 - **Segments** — save a prompt fragment once, drop it into any prompt; group
   related segments into templates.
@@ -192,8 +195,6 @@ populated with 2-3 sections (e.g. global + two timed/chain sections).
 - **LLM enhancement** — optional, layered on the same editor.
 
 ## Automations
-
-![The automation editor: a Backend Event trigger wired to a Clear VRAM action, with typed outputs and a run history](docs/media/potionui_admin_automations.png)
 
 - Wire **triggers** (schedule, manual, file watcher, GPU VRAM threshold, app
   events) through **conditions** to **actions** (tag, add to a collection,

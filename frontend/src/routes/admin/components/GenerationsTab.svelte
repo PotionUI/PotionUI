@@ -105,6 +105,7 @@
 	});
 
 	async function loadGenerations() {
+		if (section === 'running') return;
 		listLoading = true;
 		listError = null;
 		try {
@@ -124,7 +125,7 @@
 			if (response.success && response.data) {
 				generations = response.data.generations;
 				total = response.data.total;
-				if (section !== 'running' && !filters.q && !filters.category && !filters.userId && !filters.createdFrom && !filters.createdTo) {
+				if (!filters.q && !filters.category && !filters.userId && !filters.createdFrom && !filters.createdTo) {
 					sectionCountsCache = { ...sectionCountsCache, [section]: total };
 				}
 			} else {

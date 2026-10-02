@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import type { Writable } from 'svelte/store';
 
 vi.mock('$lib/services/admin-api', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/services/admin-api')>();
 	return {
 		...actual,
+		getAdminGenerationQueue: vi.fn(async () => ({ success: true, data: { running: [], pending: [] } })),
 		getUsers: vi.fn(async () => ({ success: true, data: [{ id: 'user-1', username: 'alice' }] })),
 		getAdminGenerations: vi.fn(async () => ({
 			success: true,
@@ -34,11 +36,15 @@ vi.mock('$lib/services/admin-api', async (importOriginal) => {
 
 const { default: GenerationsTab } = await import('../../src/routes/admin/components/GenerationsTab.svelte');
 const { mount, unmount, flushSync } = await import('svelte');
+const adminApi = await import('$lib/services/admin-api');
+const page = (await import('$app/stores')).page as unknown as Writable<{ url: URL }>;
 
 let target: HTMLDivElement | undefined;
 let component: ReturnType<typeof mount> | null = null;
 
 afterEach(() => {
+	page.set({ url: new URL('http://localhost/admin') });
+	vi.mocked(adminApi.getAdminGenerations).mockClear();
 	if (component) {
 		unmount(component);
 		component = null;
@@ -66,5 +72,24 @@ describe('GenerationsTab', () => {
 		expect(text).toContain('SDXL');
 		expect(text).toContain('alice');
 		expect(text).toContain('t2i');
+	});
+
+	it('fetches the paged list for a history section', async () => {
+		target = document.createElement('div');
+		document.body.appendChild(target);
+		component = mount(GenerationsTab, { target });
+		await settle();
+
+		expect(adminApi.getAdminGenerations).toHaveBeenCalledTimes(1);
+	});
+
+	it('does not fetch the paged list on the running section', async () => {
+		page.set({ url: new URL('http://localhost/admin?status=running') });
+		target = document.createElement('div');
+		document.body.appendChild(target);
+		component = mount(GenerationsTab, { target });
+		await settle();
+
+		expect(adminApi.getAdminGenerations).not.toHaveBeenCalled();
 	});
 });

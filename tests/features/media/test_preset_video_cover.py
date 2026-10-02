@@ -1,11 +1,8 @@
-import shutil
-import tempfile
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.testclient import TestClient
 
 from src.features.media.file_resolver import FilePathResolver
@@ -19,14 +16,13 @@ VIDEO_BYTES = bytes(range(256)) * 8
 
 
 @pytest.fixture
-def preset_dir():
-    root = Path(tempfile.mkdtemp())
-    (root / "public").mkdir()
+def preset_dir(tmp_path):
+    root = tmp_path / "preset"
+    (root / "public").mkdir(parents=True)
     (root / "public" / "cover.webm").write_bytes(VIDEO_BYTES)
     (root / "public" / "clip.mp4").write_bytes(VIDEO_BYTES)
     (root / "preset.yml").write_text("id: vid\n")
-    yield root
-    shutil.rmtree(root)
+    return root
 
 
 @pytest.fixture
@@ -50,7 +46,7 @@ def client(preset_dir):
     router = APIRouter(prefix="/api/media")
 
     @router.get("/presets/{preset_id}/{file_path:path}")
-    async def serve(preset_id: str, file_path: str, request: __import__("fastapi").Request, size: str = None):
+    async def serve(preset_id: str, file_path: str, request: Request, size: str = None):
         return await controller.serve_preset_file(preset_id, file_path, size, request)
 
     app = FastAPI()
@@ -91,13 +87,17 @@ class TestPresetVideoCoverServing:
         (preset_dir / "secret.webm").write_bytes(VIDEO_BYTES)
         assert client.get("/api/media/presets/vid/secret.webm").status_code == 404
 
-    def test_traversal_to_a_video_is_not_served(self, client, preset_dir):
+    def test_encoded_traversal_to_a_video_is_not_served(self, client, preset_dir):
         (preset_dir.parent / "outside.webm").write_bytes(VIDEO_BYTES)
-        try:
-            response = client.get("/api/media/presets/vid/public/../../outside.webm")
-            assert response.status_code == 404
-        finally:
-            (preset_dir.parent / "outside.webm").unlink()
+        response = client.get(f"/api/media/presets/vid/public/..%2f../outside.webm")
+        assert response.status_code == 404
+
+    def test_resolver_rejects_an_unnormalised_traversal(self, preset_dir):
+        settings = Mock(spec=Settings)
+        loader = SimpleNamespace(presets=[SimpleNamespace(id="vid", path=str(preset_dir))])
+        (preset_dir.parent / "outside.webm").write_bytes(VIDEO_BYTES)
+        with pytest.raises(ValueError):
+            FilePathResolver(settings, loader).resolve_preset_file("vid", "public/../../outside.webm")
 
     def test_non_media_extension_in_public_is_not_served(self, client, preset_dir):
         (preset_dir / "public" / "cover.yml").write_bytes(VIDEO_BYTES)

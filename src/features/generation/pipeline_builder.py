@@ -27,6 +27,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Union
 
+from src.features.generation.exceptions import PresetProcessingError
 from src.features.presets import PresetTemplateLoader, PresetProcessor
 from src.features.presets.templates import PresetTemplate
 from src.platform.util.ids import generate_ulid
@@ -190,15 +191,9 @@ class PipelineBuilder:
             self._drop_stale_cache_keys(processed_pipes, resolved_preset_id)
             logger.info(f"Pipeline built successfully with {len(processed_pipes)} pipes")
         except Exception as e:
-            # TemplateEvaluationError already carries preset_id/source_file/mode/
-            # form_name/pipe_id/config_path by the time it gets here
-            # (PresetProcessor.process fills in whatever the evaluator itself
-            # couldn't know) - str(e) renders all of it, so wrapping in
-            # ValueError here still fails the build loudly with full location,
-            # not a bare "None" swallowed downstream.
             error_msg = f"Failed to process preset: {str(e)}"
             logger.error(error_msg, exc_info=True)
-            raise ValueError(error_msg) from e
+            raise PresetProcessingError(error_msg) from e
 
         return BuiltPipeline(
             generation_id=generation_id,

@@ -242,7 +242,7 @@ class GenerationController(BaseController):
             logging.error(error_details)
             return self.error_response(
                 error="memory_preview_failed",
-                message=f"Failed to preview memory: {str(e)}"
+                message=f"Failed to preview memory: {start_failure_reason(e, GenerationPolicy.is_admin(current_user))}"
             )
 
     async def _resolve_generation_state(self, generation_id: str):

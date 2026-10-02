@@ -20,6 +20,10 @@ class IdempotencyKeyConflict(GenerationException):
     pass
 
 
+class PresetProcessingError(GenerationException):
+    pass
+
+
 class GenerationNotFoundException(GenerationException):
     """Generation not found in the database."""
     pass

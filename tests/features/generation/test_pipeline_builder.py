@@ -12,6 +12,7 @@ Tests cover:
 import pytest
 from unittest.mock import Mock, patch
 
+from src.features.generation.exceptions import PresetProcessingError
 from src.features.generation.pipeline_builder import PipelineBuilder, BuiltPipeline
 from src.features.presets import PresetTemplateLoader, PresetProcessor
 from src.features.presets.templates import PresetTemplate, GenerationMode
@@ -362,7 +363,7 @@ class TestErrorHandling:
         mock_preset_template_loader.load_preset_by_id.return_value = sample_preset_template
         mock_preset_processor.process.side_effect = Exception("Processing failed")
 
-        with pytest.raises(ValueError, match="Failed to process preset"):
+        with pytest.raises(PresetProcessingError, match="Failed to process preset"):
             pipeline_builder.build_pipeline(
                 preset_id='test_preset',
                 form_data={}

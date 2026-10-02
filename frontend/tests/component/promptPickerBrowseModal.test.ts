@@ -187,7 +187,7 @@ describe('PromptPickerBrowseModal — categories column for every trigger, brows
 
 		const rows = Array.from(document.querySelectorAll<HTMLElement>('.picker-gitem'));
 		expect(rows.length).toBe(1);
-		expect(rows[0]?.textContent).toContain('Picture 1');
+		expect(rows[0]?.textContent).toContain('a.png');
 	});
 
 	it('/ syntax: shows a single "Tokens" group alongside the flat list', async () => {

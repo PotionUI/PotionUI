@@ -82,8 +82,8 @@ describe('InlineChipEditor @ prompt-resource picker', () => {
 		clickRow('Pictures');
 
 		const text = document.querySelector('.resource-picker')!.textContent || '';
-		expect(text).toContain('Picture 1');
-		expect(text).toContain('Picture 2');
+		expect(text).toContain('a.png');
+		expect(text).toContain('b.png');
 	});
 
 	it('inserting an item is a single insert that closes the picker and renders a resolved chip', () => {
@@ -94,7 +94,7 @@ describe('InlineChipEditor @ prompt-resource picker', () => {
 		editor.insertResourceTrigger();
 		flushSync();
 		clickRow('Pictures');
-		clickRow('Picture 1');
+		clickRow('a.png');
 
 		expect(document.querySelector('.resource-picker')).toBeNull();
 		const container = target.querySelector<HTMLElement>('.resource-chip-container');
@@ -127,7 +127,7 @@ describe('InlineChipEditor @ prompt-resource picker', () => {
 		(component as unknown as EditorInstance).insertResourceTrigger();
 		flushSync();
 		clickRow('Pictures');
-		clickRow('Picture 1');
+		clickRow('a.png');
 
 		expect(onChange).toHaveBeenCalled();
 		const detail = onChange.mock.calls.at(-1)![0].detail;

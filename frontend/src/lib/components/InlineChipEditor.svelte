@@ -18,7 +18,6 @@
 		encodeResourceMarker,
 		deriveResourcesFromText,
 		resourceGroupLabel,
-		resourceHandleLabel,
 		resourceMarkerState,
 		kindLabel,
 		mediaFieldItems,
@@ -30,6 +29,7 @@
 		type PromptResourceSpec,
 		type ResourceRef
 	} from '$lib/utils/promptResources';
+	import { resourceMenuEntries } from '$lib/utils/resourceMenuEntries';
 	import { countChoiceGroups } from '$lib/utils/choiceGroups';
 	import {
 		detectVariableTrigger,
@@ -396,43 +396,22 @@
 		? findSpecByGroupKey(promptResources, effectiveResourceField) ?? null
 		: null;
 
-	function itemThumbUrl(item: unknown): string | undefined {
-		if (item && typeof item === 'object') {
-			const url = (item as Record<string, unknown>).url;
-			if (typeof url === 'string') return url;
-		}
-		return undefined;
-	}
-
-	function itemDisplayName(item: unknown, itemKey: string): string {
-		if (item && typeof item === 'object') {
-			const name = (item as Record<string, unknown>).name;
-			if (typeof name === 'string' && name) return name;
-		}
-		return itemKey.split('/').pop() || itemKey;
-	}
-
 	$: resourceItemSuggestions = activeResourceSpec
-		? (specItems(promptResources, activeResourceSpec, resourceFieldValues[activeResourceSpec.field])
-				.map((item, index) => {
-					const key = mediaItemKey(item);
-					if (!key) return null;
-					return {
-						id: key,
-						category_id: activeResourceSpec!.field,
-						label: resourceHandleLabel(
-							activeResourceSpec!,
-							$resourceNumbering?.positionIfAdded?.(activeResourceSpec!.field, key) ?? index + 1
-						),
-						value: itemDisplayName(item, key),
-						sort_order: index,
-						created_at: '',
-						updated_at: '',
-						preview_file_id: itemThumbUrl(item),
-						kind: activeResourceSpec!.kind
-					};
-				})
-				.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+		? (resourceMenuEntries(
+				specItems(promptResources, activeResourceSpec, resourceFieldValues[activeResourceSpec.field]),
+				activeResourceSpec.kind
+			)
+				.map((entry) => ({
+					id: entry.id,
+					category_id: activeResourceSpec!.field,
+					label: entry.label,
+					value: entry.value,
+					sort_order: entry.order,
+					created_at: '',
+					updated_at: '',
+					preview_file_id: entry.url,
+					kind: entry.kind
+				}))
 				.filter((entry) => {
 					const query = resourceQuery.trim().toLowerCase();
 					if (!query) return true;

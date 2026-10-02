@@ -68,7 +68,7 @@ describe('clicking an @ resource chip to change its value', () => {
 		const rows = Array.from(document.querySelectorAll<HTMLElement>('.picker-gitem'));
 		expect(rows.length).toBe(2);
 		const selected = rows.find((r) => r.className.includes('sel'));
-		expect(selected?.textContent).toContain('Picture 1');
+		expect(selected?.textContent).toContain('a.png');
 
 		expect(findButton('Save')).toBeTruthy();
 		expect(findButton('Insert')).toBeFalsy();
@@ -109,7 +109,7 @@ describe('clicking an @ resource chip to change its value', () => {
 		flushSync();
 
 		const rows = Array.from(document.querySelectorAll<HTMLElement>('.picker-gitem'));
-		const other = rows.find((r) => r.textContent?.includes('Picture 2'));
+		const other = rows.find((r) => r.textContent?.includes('b.png'));
 		other!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		flushSync();
 

@@ -58,10 +58,10 @@ describe('InlineChipEditor @ picker with late field values', () => {
 		expect(text).not.toContain('added yet');
 	});
 
-	it('labels menu items with the number the chip will take in this shot', () => {
+	it('labels menu items by file name so no two items show the same number', () => {
 		const numbering: ResourceNumbering = {
 			positionFor: () => null,
-			positionIfAdded: (_field, key) => (key === '0-edit.png' ? 1 : 2)
+			positionIfAdded: () => 1
 		};
 		const editor = mountEditor({ promptResources: specs, resourceFieldValues: { references: items } }, numbering);
 		editor.insertResourceTrigger();
@@ -69,8 +69,8 @@ describe('InlineChipEditor @ picker with late field values', () => {
 		clickRow('Pictures');
 
 		const rows = Array.from(document.querySelectorAll<HTMLElement>('.picker-row')).map((r) => r.textContent || '');
-		const edit = rows.find((r) => r.includes('0-edit.png'))!;
-		expect(edit).toContain('Picture 1');
-		expect(edit).not.toContain('Picture 2');
+		expect(rows.some((r) => r.includes('a.png'))).toBe(true);
+		expect(rows.some((r) => r.includes('0-edit.png'))).toBe(true);
+		expect(rows.some((r) => /Picture \d/.test(r))).toBe(false);
 	});
 });

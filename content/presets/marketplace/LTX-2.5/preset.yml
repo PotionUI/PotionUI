@@ -25,6 +25,7 @@ engine: "native"
 tags: ["ltx", "ltx-2.5", "video", "t2v", "flow-matching", "local"]
 
 media:
+  cover: "public/cover-q7jm3m50.webm"
   # No cover: the family's only shipped example is a clip, and `media.cover`
   # is an image slot (a missing cover file is a lint ERROR, an absent one is
   # not) -- same shape as presets/native/MiniMax-H3.

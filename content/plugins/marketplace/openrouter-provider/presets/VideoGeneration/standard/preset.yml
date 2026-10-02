@@ -8,8 +8,13 @@ driver: "cloud.openrouter"
 tags: ["cloud", "openrouter", "video"]
 
 media:
-  cover: "public/cover.png"
+  cover: "public/examples/1-mwjx8ew9.mp4"
 
+  gallery:
+    - src: "public/examples/1-mwjx8ew9.mp4"
+      prompt: "A tall slender glass potion bottle on a dark wooden table, the liquid inside moving like a miniature storm, a strip of glowing film frames spiralling out of the open neck and curling upward into a drifting band of soft blue light, each frame showing a blurred moment of motion, a running horse, a wave, falling leaves. Faint motion trails, gentle volumetric haze, single warm key light from the left and a cool blue fill from above, dark moody background, cinematic, shallow depth of field, high detail, 16:9, no text, no logos"
+      seed: 1743904755
+      mode: "txt2video"
 formulas:
   groups:
     size:     { label: "Size" }

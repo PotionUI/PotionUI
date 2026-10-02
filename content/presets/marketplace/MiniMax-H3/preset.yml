@@ -494,3 +494,6 @@ modes:
   - video
   - refs
   - upscale
+
+media:
+  cover: "public/cover-h35m40se.webm"

@@ -8,8 +8,13 @@ driver: "cloud.openrouter"
 tags: ["cloud", "openrouter", "image", "edit"]
 
 media:
-  cover: "public/cover.png"
+  cover: "public/examples/0-610gv9er.webp"
 
+  gallery:
+    - src: "public/examples/0-610gv9er.webp"
+      prompt: "A small round glass potion bottle with a cork stopper floating in a dark, softly lit void, the liquid inside a luminous swirl of tiny painted landscapes, portraits and abstract shapes, as if many images are dissolving into each other. Thin threads of pale blue light rise from the bottle's neck and fan out into a soft constellation of glowing rectangular frames drifting upward like little cloud-borne windows. Deep charcoal background with a subtle cool rim light, cinematic product photography, shallow depth of field, crisp glass reflections, high detail, 16:9, no text, no logos"
+      seed: 2082766373
+      mode: "txt2img"
 formulas:
   groups:
     size:     { label: "Size" }

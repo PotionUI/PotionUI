@@ -30,6 +30,7 @@ const { default: ChatAttachPopover } = await import(
 	'$lib/components/chat/ChatAttachPopover.svelte'
 );
 const { createClassComponent } = await import('svelte/legacy');
+const { tick } = await import('svelte');
 
 function formImage(key: string, name: string) {
 	return {
@@ -158,6 +159,47 @@ describe('ChatAttachPopover', () => {
 		menu.remove();
 		document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 		expect(onClose).toHaveBeenCalledTimes(1);
+
+		component.$destroy?.();
+	});
+
+	it('shows the regular media field as one dropzone with Browse, History and Library', async () => {
+		const { component } = mount({ onClose: vi.fn() });
+		await tick();
+
+		expect(document.body.querySelectorAll('[data-media-field]')).toHaveLength(1);
+		expect(document.body.querySelectorAll('[data-media-dropzone]')).toHaveLength(1);
+		expect(document.body.querySelector('.media-loader-field')).toBeNull();
+		const doors = Array.from(document.body.querySelectorAll('[data-media-dropzone] button')).map(
+			(b) => b.textContent?.trim()
+		);
+		for (const door of ['Browse', 'History', 'Library']) expect(doors).toContain(door);
+
+		component.$destroy?.();
+	});
+
+	it('shows a single thumbnail with replace and remove once an image is picked', async () => {
+		const { component } = mount({ onClose: vi.fn() });
+		component.$set({
+			selectedImageData: {
+				path: 'uploads/p.png',
+				relative_path: 'uploads/p.png',
+				url: '/api/media/uploads/p.png',
+				name: 'p.png',
+				type: 'image',
+				metadata: { width: 512, height: 512, size: 1000 }
+			}
+		});
+		await tick();
+		await tick();
+
+		expect(document.body.querySelectorAll('[data-media-inspector]')).toHaveLength(1);
+		expect(document.body.querySelector('[data-media-dropzone]')).toBeNull();
+		const inspector = document.body.querySelector('[data-media-inspector]')!;
+		expect(inspector.querySelectorAll('img')).toHaveLength(1);
+		const labels = Array.from(inspector.querySelectorAll('button')).map((b) => b.getAttribute('aria-label'));
+		expect(labels).toContain('Replace');
+		expect(labels).toContain('Remove');
 
 		component.$destroy?.();
 	});

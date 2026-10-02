@@ -133,16 +133,12 @@
 			</div>
 		{/if}
 
-		<div class="media-loader-field">
-			<MediaLoaderField
-				name="vision_image"
-				value={selectedImageData}
-				onChange={handleFieldChange}
-				config={{ title: 'Reference image', accept: 'image/*' }}
-				compact
-				compactFullWidth
-			/>
-		</div>
+		<MediaLoaderField
+			name="vision_image"
+			value={selectedImageData}
+			onChange={handleFieldChange}
+			config={{ title: 'Reference image', accept: 'image/*' }}
+		/>
 
 		{#if lastGeneratedImage}
 			<div class="last-image-row">

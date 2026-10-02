@@ -85,4 +85,35 @@ describe('AutocompleteDropdown segment-composer width and caret anchoring', () =
 		const left = parseFloat(picker!.style.left);
 		expect(left).toBeLessThan(overflowLeft);
 	});
+
+	it('renders outside the card that hosts the editor, above it, and inside the viewport', () => {
+		const card = document.createElement('div');
+		card.style.cssText = 'position: relative; z-index: 1; overflow: hidden; transform: translateZ(0);';
+		document.body.appendChild(card);
+		target = document.createElement('div');
+		card.appendChild(target);
+		parentRef = stubParent();
+		Object.defineProperty(window, 'innerHeight', { configurable: true, value: 500 });
+		vi.spyOn(window, 'getSelection').mockReturnValue(stubCaretSelection(500));
+		component = mount(AutocompleteDropdown as never, {
+			target,
+			props: {
+				categories: [],
+				suggestions: [],
+				selectedIndex: 0,
+				onSelectCategory: () => {},
+				onSelectValue: () => {},
+				currentPath: '',
+				contextLabel: 'References',
+				parentRef,
+				variant: 'segment-composer'
+			}
+		});
+		flushSync();
+
+		const picker = document.querySelector<HTMLElement>('.floating.picker')!;
+		expect(card.contains(picker)).toBe(false);
+		expect(Number(picker.style.zIndex)).toBeGreaterThanOrEqual(1000);
+		expect(picker.style.maxHeight).toBe('min(26rem, 252px)');
+	});
 });

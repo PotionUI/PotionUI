@@ -198,4 +198,16 @@ describe('computeSegmentPickerPlacement', () => {
 		const placement = computeSegmentPickerPlacement({ top: 100, bottom: 120, left: -240 }, VIEWPORT);
 		expect(placement.left).toBeGreaterThanOrEqual(0);
 	});
+
+	it('caps the list height to the room above when it opens upward', () => {
+		const placement = computeSegmentPickerPlacement({ top: 300, bottom: 320, left: 100 }, { width: 1440, height: 500 });
+		expect(placement.openAbove).toBe(true);
+		expect(placement.maxHeight).toBe(292);
+	});
+
+	it('caps the list height to the room below when it opens downward', () => {
+		const placement = computeSegmentPickerPlacement({ top: 100, bottom: 120, left: 100 }, VIEWPORT);
+		expect(placement.openAbove).toBe(false);
+		expect(placement.maxHeight).toBe(900 - 120 - 8);
+	});
 });

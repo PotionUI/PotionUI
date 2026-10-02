@@ -96,7 +96,7 @@
 		triggerChar === '#' ? compileTextMatcher(currentPath.split('.').pop() ?? '').matcher : null;
 	let pickerRef: HTMLElement | undefined;
 	let selectedItemRef: HTMLElement | null = null;
-	let dropdownPosition = { top: 0, bottom: 0, left: 0, width: 0, openAbove: false };
+	let dropdownPosition = { top: 0, bottom: 0, left: 0, width: 0, openAbove: false, maxHeight: 100000 };
 	let previewPlacement: { left: number; top: number; side: 'right' | 'left' | 'below' } | null = null;
 
 	$: selectedValueItem =
@@ -224,7 +224,7 @@
 						? 'syntax-picker'
 						: 'phrasebook-picker'}"
 			aria-label={contextLabel}
-			style="position: fixed; left: {dropdownPosition.left}px; right: auto; width: {dropdownPosition.width}px;
+			style="position: fixed; left: {dropdownPosition.left}px; right: auto; width: {dropdownPosition.width}px; max-height: min(26rem, {dropdownPosition.maxHeight}px);
 				{dropdownPosition.openAbove
 				? `bottom: ${dropdownPosition.bottom}px; top: auto;`
 				: `top: ${dropdownPosition.top}px; bottom: auto;`}"
@@ -407,7 +407,7 @@
 			? `bottom: ${dropdownPosition.bottom}px;`
 		: `top: ${dropdownPosition.top}px;`} left: {dropdownPosition.left}px; width: {dropdownPosition.width}px;"
 >
-	<div class="bg-surface-2 shadow-overlay border border-line-strong rounded-xl overflow-hidden flex flex-col max-h-[340px]">
+	<div class="bg-surface-2 shadow-overlay border border-line-strong rounded-xl overflow-hidden flex flex-col max-h-[340px]" style="max-height: min(340px, {dropdownPosition.maxHeight}px);">
 		{#if isLoading}
 			<div class="px-3 py-2 text-sm text-fg-subtle">
 				Loading suggestions...

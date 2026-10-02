@@ -24,6 +24,7 @@ export interface AnchorPlacement {
 	left: number;
 	width: number;
 	openAbove: boolean;
+	maxHeight: number;
 }
 
 /** The list is capped at max-h-[300px]; headers and hints add a little. Used
@@ -48,7 +49,7 @@ function resolveVerticalPlacement(
 	anchorBottom: number,
 	viewport: AnchorViewport,
 	estimatedHeight: number
-): { top: number; bottom: number; openAbove: boolean } {
+): { top: number; bottom: number; openAbove: boolean; maxHeight: number } {
 	const clampedTop = clamp(anchorTop, 0, viewport.height);
 	const clampedBottom = clamp(anchorBottom, 0, viewport.height);
 	const spaceBelow = viewport.height - clampedBottom;
@@ -65,7 +66,9 @@ function resolveVerticalPlacement(
 	// room below is unaffected.
 	const top = Math.min(clampedBottom, Math.max(EDGE_GUTTER, viewport.height - estimatedHeight - EDGE_GUTTER));
 
-	return { top, bottom: viewport.height - clampedTop, openAbove };
+	const maxHeight = Math.max(0, openAbove ? clampedTop - EDGE_GUTTER : viewport.height - top - EDGE_GUTTER);
+
+	return { top, bottom: viewport.height - clampedTop, openAbove, maxHeight };
 }
 
 export function computeAutocompletePlacement(
@@ -73,11 +76,11 @@ export function computeAutocompletePlacement(
 	viewport: AnchorViewport,
 	estimatedHeight: number = AUTOCOMPLETE_ESTIMATED_HEIGHT
 ): AnchorPlacement {
-	const { top, bottom, openAbove } = resolveVerticalPlacement(rect.top, rect.bottom, viewport, estimatedHeight);
+	const { top, bottom, openAbove, maxHeight } = resolveVerticalPlacement(rect.top, rect.bottom, viewport, estimatedHeight);
 	const width = Math.max(rect.width, AUTOCOMPLETE_MIN_WIDTH);
 	const left = clamp(rect.left, EDGE_GUTTER, Math.max(EDGE_GUTTER, viewport.width - width - EDGE_GUTTER));
 
-	return { top, bottom, left, width, openAbove };
+	return { top, bottom, left, width, openAbove, maxHeight };
 }
 
 export interface CaretPoint {
@@ -102,7 +105,7 @@ export function computeSegmentPickerPlacement(
 	viewport: AnchorViewport,
 	estimatedHeight: number = AUTOCOMPLETE_ESTIMATED_HEIGHT
 ): AnchorPlacement {
-	const { top, bottom, openAbove } = resolveVerticalPlacement(point.top, point.bottom, viewport, estimatedHeight);
+	const { top, bottom, openAbove, maxHeight } = resolveVerticalPlacement(point.top, point.bottom, viewport, estimatedHeight);
 	const available = Math.max(viewport.width - EDGE_GUTTER * 2, 0);
 	const width = Math.max(Math.min(AUTOCOMPLETE_SEGMENT_MIN_WIDTH, available), Math.min(AUTOCOMPLETE_SEGMENT_WIDTH, available));
 
@@ -112,7 +115,7 @@ export function computeSegmentPickerPlacement(
 	}
 	left = clamp(left, EDGE_GUTTER, Math.max(EDGE_GUTTER, viewport.width - width - EDGE_GUTTER));
 
-	return { top, bottom, left, width, openAbove };
+	return { top, bottom, left, width, openAbove, maxHeight };
 }
 
 export interface CaretRectSource {

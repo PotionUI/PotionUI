@@ -871,7 +871,15 @@ def _is_plain_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def usable_override_default(field: FieldTemplate, value: Any, preset_template: Any) -> Tuple[bool, Any]:
+def is_numeric_field_type(field_type: str) -> bool:
+    return field_type in _NUMERIC_FIELD_TYPES
+
+
+def validate_field_value(name: str, value: Any, field: FieldTemplate, errors: List[str]) -> None:
+    _validate_field(name, value, field, errors, {})
+
+
+def override_default_problem(field: FieldTemplate, value: Any, preset_template: Any) -> Tuple[Optional[str], Any]:
     if field.type in _NUMERIC_FIELD_TYPES and isinstance(value, str):
         marker = _TEMPLATE_MARKER.match(value)
         if marker is not None:
@@ -880,13 +888,18 @@ def usable_override_default(field: FieldTemplate, value: Any, preset_template: A
             if reference is not None:
                 candidate = (getattr(preset_template, "vars", None) or {}).get(reference.group(1))
             if not _is_plain_number(candidate):
-                return False, None
+                return "the default is a template that does not resolve to a number", None
             value = candidate
-    problems: List[str] = []
-    _validate_field("default", value, field, problems, {})
-    if problems:
-        return False, None
-    return True, value
+    field_errors: Dict[str, List[str]] = {}
+    _validate_field("default", value, field, [], field_errors)
+    if field_errors:
+        return field_errors["default"][0], None
+    return None, value
+
+
+def usable_override_default(field: FieldTemplate, value: Any, preset_template: Any) -> Tuple[bool, Any]:
+    problem, usable = override_default_problem(field, value, preset_template)
+    return problem is None, usable
 
 
 def _resolve_template_marker(

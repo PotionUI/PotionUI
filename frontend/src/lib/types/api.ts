@@ -360,6 +360,7 @@ export interface PresetFormOverrideField {
 	 *  editor the admin "default" override uses; unrecognized types fall back to text. */
 	type: string;
 	preset_default?: unknown;
+	default_ignored_reason?: string | null;
 	/** Present only when the inventory can enumerate choices (e.g. `select` fields). */
 	options?: PresetFormOverrideOption[];
 	override: PresetFormOverridePatch | null;

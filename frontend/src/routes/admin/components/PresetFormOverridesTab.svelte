@@ -12,6 +12,7 @@
 	import { registerBuiltinFieldComponents } from '$lib/fields/builtin';
 	import {
 		overrideEditorKind,
+		ignoredDefaultNotice,
 		pendingOverrideFrom,
 		effectiveEditable,
 		isOverrideEmpty,
@@ -352,6 +353,9 @@
 											{#if rawEditorHint(field.type)}
 												<p class="mt-1 max-w-[14rem] text-2xs text-fg-subtle">{rawEditorHint(field.type)}</p>
 											{/if}
+										{/if}
+										{#if ignoredDefaultNotice(field)}
+											<p class="mt-1 max-w-[16rem] text-2xs text-warning">{ignoredDefaultNotice(field)}</p>
 										{/if}
 									</td>
 									<td class="px-4 py-3 align-top">

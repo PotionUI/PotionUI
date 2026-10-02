@@ -160,6 +160,7 @@ class TestBuildInventoryEntries:
             "preset_default": 20,
             "tab": None,
             "override": {"default": 30, "editable": False},
+            "default_ignored_reason": None,
         }]
         assert tabs == []
 

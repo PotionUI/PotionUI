@@ -12,6 +12,7 @@ import {
 	toComponentValue,
 	fromComponentValue,
 	rawEditorHint,
+	ignoredDefaultNotice,
 	groupFieldsByTab,
 	type PendingOverride
 } from './presetFormOverrides';
@@ -453,5 +454,19 @@ describe('rawEditorHint', () => {
 		expect(rawEditorHint('string')).toBeUndefined();
 		expect(rawEditorHint('seed')).toBeUndefined();
 		expect(rawEditorHint('some_plugin_type')).toBeUndefined();
+	});
+});
+
+describe('ignoredDefaultNotice', () => {
+	it('says plainly that the stored default is ignored and why', () => {
+		const notice = ignoredDefaultNotice(
+			field({ override: { default: 999 }, default_ignored_reason: '999 exceeds the maximum 60' })
+		);
+		expect(notice).toBe("Ignored: 999 exceeds the maximum 60. Generations use the preset's own default.");
+	});
+
+	it('has nothing to say for a usable override or no override', () => {
+		expect(ignoredDefaultNotice(field({ override: { default: 30 }, default_ignored_reason: null }))).toBeNull();
+		expect(ignoredDefaultNotice(field())).toBeNull();
 	});
 });

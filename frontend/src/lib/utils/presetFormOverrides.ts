@@ -259,3 +259,8 @@ export function fromComponentValue(fieldType: string, componentValue: unknown): 
 	}
 	return componentValue;
 }
+
+export function ignoredDefaultNotice(field: Pick<PresetFormOverrideField, 'default_ignored_reason'>): string | null {
+	if (!field.default_ignored_reason) return null;
+	return `Ignored: ${field.default_ignored_reason}. Generations use the preset's own default.`;
+}

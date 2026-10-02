@@ -32,10 +32,11 @@ from typing import Any, Dict, List
 
 from src.features.forms.binding import (
     _expand_form_fields,
-    _NUMERIC_FIELD_TYPES,
     _flatten_fields,
-    _validate_field,
+    is_numeric_field_type,
+    override_default_problem,
     usable_override_default,
+    validate_field_value,
 )
 from src.features.presets.templates import FieldTemplate, PresetTemplate
 
@@ -204,7 +205,7 @@ def validate_form_overrides(
         if "default" in override:
             value = override["default"]
             if (
-                spec.type in _NUMERIC_FIELD_TYPES
+                is_numeric_field_type(spec.type)
                 and isinstance(value, str)
                 and "{{" in value
             ):
@@ -216,7 +217,7 @@ def validate_form_overrides(
                     )
                 continue
             value_errors: List[str] = []
-            _validate_field(name, value, spec, value_errors, {})
+            validate_field_value(name, value, spec, value_errors)
             errors.extend(value_errors)
 
     return errors
@@ -240,13 +241,18 @@ def build_inventory_entries(
     inventory, tab_of, tabs = mode_field_inventory_with_tabs(preset_template, mode)
     entries: List[Dict[str, Any]] = []
     for name, spec in inventory.items():
+        override = stored_overrides_for_mode.get(name) or None
+        ignored_reason = None
+        if override and "default" in override:
+            ignored_reason, _ = override_default_problem(spec, override["default"], preset_template)
         entries.append({
             "name": name,
             "label": spec.label or name.replace("_", " ").title(),
             "type": spec.type,
             "preset_default": spec.default,
             "tab": tab_of.get(name),
-            "override": stored_overrides_for_mode.get(name) or None,
+            "override": override,
+            "default_ignored_reason": ignored_reason,
         })
     return entries, tabs
 

@@ -56,6 +56,7 @@ if TYPE_CHECKING:
     from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
 
 from src.platform.util.ids import generate_ulid
+from src.platform.database.rows import dt_iso
 from src.features.media_index.indexer import PASS_TAGS
 from src.features.media_index.mesh_thumbnails import render_and_store_mesh_thumbnail
 from src.features.generation.pipeline_builder import PipelineBuilder
@@ -363,6 +364,12 @@ def _estimate_generation_vram_gb(form_data: Any) -> Optional[float]:
 _ORIGIN_SUFFIX = "__origin"
 
 
+def _fingerprint_value(value):
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return 'sha256:' + hashlib.sha256(value).hexdigest()
+    return str(value)
+
+
 def _submission_fingerprint(request) -> str:
     def plain(value):
         return value.model_dump() if hasattr(value, 'model_dump') else value
@@ -377,7 +384,7 @@ def _submission_fingerprint(request) -> str:
         'negative_prompt': getattr(request, 'negative_prompt', None),
         'prompts': [plain(p) for p in prompts] if prompts else None,
     }
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=_fingerprint_value).encode()).hexdigest()
 
 
 def _parse_generation_origins(form_data: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -946,8 +953,8 @@ class GenerationOrchestrator:
             preset_id=current.preset_id,
             progress=current.progress,
             message=current.error_message,
-            created_at=current.created_at.isoformat() if current.created_at else '',
-            completed_at=current.completed_at.isoformat() if current.completed_at else None,
+            created_at=dt_iso(current.created_at) or '',
+            completed_at=dt_iso(current.completed_at),
         )
         return {
             'generation_id': current.id,

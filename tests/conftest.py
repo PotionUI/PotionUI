@@ -19,6 +19,7 @@ if _test_threads != "0":
 import pytest
 import sqlite3
 import tempfile
+import threading
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
@@ -58,6 +59,7 @@ class TestDatabase:
     def __init__(self):
         self.db_path = ":memory:"
         self._connection = None
+        self._guard = threading.RLock()
         self._initialize_connection()
 
     def _initialize_connection(self):
@@ -86,7 +88,7 @@ class TestDatabase:
     @contextmanager
     def get_cursor(self) -> Generator[sqlite3.Cursor, None, None]:
         """Get a database cursor with automatic transaction management"""
-        with self.get_connection() as conn:
+        with self._guard, self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 yield cursor
@@ -109,6 +111,7 @@ class TestDatabase:
 
         instance = cls.__new__(cls)
         instance.db_path = ":memory:"
+        instance._guard = threading.RLock()
         instance._connection = load_template_into_connection()
         return instance
 

@@ -1373,7 +1373,7 @@ already used starts nothing and returns the original `{generation_id, status, qu
 resolved before the form is bound or any backend is chosen, and concurrent submits with one key produce
 exactly one generation. The key is stored with a fingerprint of the request (preset, mode, form name, form data and prompts); reusing a key for a different request raises `IdempotencyKeyConflict` (HTTP 409 on the route). If the original row exists but this process is no longer tracking it (for example
 the process stopped between recording and queueing it), the retry reports it as `failed` rather than
-leaving it pending; use a new key to run it again. A submit with no key behaves as it always did.
+leaving it pending; use a new key to run it again. Idempotency is settled inside one backend process: concurrent submits are serialised by an in-process lock, so it does not hold across several API processes sharing a database. A submit with no key behaves as it always did.
 
 Generations started this way stream progress to websocket subscribers and write a run report,
 exactly like ones started from the page.

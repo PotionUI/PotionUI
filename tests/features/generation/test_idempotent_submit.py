@@ -1,4 +1,7 @@
 import asyncio
+import hashlib
+import json
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -7,7 +10,7 @@ from pydantic import ValidationError
 
 from src.features.generation.dto import GenerationRequest
 from src.features.generation.exceptions import DuplicateIdempotencyKey, IdempotencyKeyConflict
-from src.features.generation.orchestrator import GenerationOrchestrator
+from src.features.generation.orchestrator import GenerationOrchestrator, _submission_fingerprint
 from src.features.generation.records import Generation
 from src.features.generation.repository import GenerationRepository
 from src.features.generation.status_tracker import GenerationStatusTracker
@@ -237,6 +240,37 @@ async def test_a_retry_of_a_finished_generation_leaves_it_as_it_ended(harness):
     assert result["generation_id"] == "done"
     assert result["status"]["status"] == "completed"
     assert harness.rows() == [{"id": "done", "status": "completed", "idempotency_key": "k1"}]
+
+
+@pytest.mark.asyncio
+async def test_a_retry_of_a_stored_generation_reports_utc_timestamps(harness):
+    stored = Generation(
+        id="done", preset_id="preset-1", form_data={}, user_id="u1", status="completed", idempotency_key="k1",
+        created_at=datetime(2026, 10, 2, 8, 30), completed_at=datetime(2026, 10, 2, 8, 31),
+    )
+
+    with patch("src.features.generation.orchestrator.generation_repo.get_by_id", return_value=stored):
+        status = harness.orchestrator._existing_submission(stored, None)["status"]
+
+    assert datetime.fromisoformat(status["created_at"]) == datetime(2026, 10, 2, 8, 30, tzinfo=timezone.utc)
+    assert datetime.fromisoformat(status["completed_at"]).utcoffset() == timedelta(0)
+
+
+def test_the_fingerprint_hashes_media_bytes_instead_of_their_repr():
+    def fingerprint(media):
+        return _submission_fingerprint(Mock(
+            preset_id="p", mode="m", form_name="f", form_data={"image": media},
+            prompt="x", negative_prompt="", prompts=None,
+        ))
+
+    expected = hashlib.sha256(json.dumps({
+        "preset_id": "p", "mode": "m", "form_name": "f",
+        "form_data": {"image": "sha256:" + hashlib.sha256(b"abc").hexdigest()},
+        "prompt": "x", "negative_prompt": "", "prompts": None,
+    }, sort_keys=True).encode()).hexdigest()
+
+    assert fingerprint(b"abc") == expected
+    assert fingerprint(b"abd") != expected
 
 
 @pytest.mark.asyncio

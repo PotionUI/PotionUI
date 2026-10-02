@@ -69,6 +69,7 @@
 	import { formValidationStore } from '$lib/stores/formValidation';
 	import { classifyGenerationStartError } from '$lib/utils/formValidationErrors';
 	import { getPresetPromptResources } from '$lib/utils/presetPromptResourcesCache';
+	import { tabMergedMarkerUpdates } from '$lib/utils/mergedFieldMarkers';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import { firstResourceIssue } from '$lib/utils/generationResourceReadiness';
 	import { resolveDefaultModeSelection } from '$lib/utils/modeAutoSelect';
@@ -503,6 +504,7 @@
 
 	let currentTabPromptResources: PromptResourceSpec[] = [];
 	let currentTabPromptResourcesKey: string | null = null;
+	let currentTabFieldAliases: Record<string, string> = {};
 	$: {
 		const preset = currentTab.selectedPreset;
 		const mode = currentTab.selectedMode;
@@ -510,10 +512,12 @@
 		const key = `${preset ?? ''}::${mode ?? ''}::${formName ?? ''}`;
 		if (key !== currentTabPromptResourcesKey) {
 			currentTabPromptResourcesKey = key;
+			currentTabFieldAliases = {};
 			if (preset && mode) {
 				getPresetPromptResources(preset, mode, formName).then((result) => {
 					if (currentTabPromptResourcesKey !== key) return;
 					currentTabPromptResources = result.specs;
+					currentTabFieldAliases = result.fieldAliases ?? {};
 				});
 			} else {
 				currentTabPromptResources = [];
@@ -568,6 +572,13 @@
 		sourcePlugin: m.source_plugin
 	}));
 	$: currentTab = $activeTab;
+	$: rewriteMergedFieldMarkers(currentTab, currentTabFieldAliases);
+
+	function rewriteMergedFieldMarkers(tab: typeof currentTab, aliases: Record<string, string>) {
+		if (!tab) return;
+		const updates = tabMergedMarkerUpdates(tab, aliases);
+		if (updates) tabsStore.updateTab(tab.id, updates);
+	}
 	// The generation bar's session cluster needs the same version-drift check
 	// PresetHeader/SessionPill get per-tab below.
 	$: currentTabPresetVersion = presets.find((p: any) => p.id === currentTab.selectedPreset)?.version;

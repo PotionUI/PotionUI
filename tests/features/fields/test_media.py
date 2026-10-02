@@ -103,7 +103,7 @@ class TestMediaField(unittest.TestCase):
                 'multi', 'max_items', 'accepted_types', 'max_resolution',
                 'max_video_duration_seconds', 'max_total_video_duration_seconds',
                 'max_audio_duration_seconds', 'max_total_audio_duration_seconds',
-                'formats', 'validation',
+                'formats', 'validation', 'max_items_by_kind',
             },
         )
 

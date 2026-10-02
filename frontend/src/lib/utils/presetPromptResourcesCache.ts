@@ -1,12 +1,14 @@
 import { api } from '$lib/services/api/index';
 import type { PromptResourceSpec } from './promptResources';
+import { schemaMergeFromAliases } from '$lib/form/mergeFrom';
 
 export interface PresetPromptResourcesResult {
 	specs: PromptResourceSpec[];
 	fieldLabels: Record<string, string>;
+	fieldAliases?: Record<string, string>;
 }
 
-const EMPTY: PresetPromptResourcesResult = { specs: [], fieldLabels: {} };
+const EMPTY: PresetPromptResourcesResult = { specs: [], fieldLabels: {}, fieldAliases: {} };
 
 const cache = new Map<string, Promise<PresetPromptResourcesResult>>();
 
@@ -42,7 +44,11 @@ export function getPresetPromptResources(
 			.then((response) => {
 				if (!response.success || !response.data) return EMPTY;
 				const specs = response.data.prompt_resources ?? [];
-				return { specs, fieldLabels: extractFieldLabels(response.data.form_schema, specs) };
+				return {
+					specs,
+					fieldLabels: extractFieldLabels(response.data.form_schema, specs),
+					fieldAliases: schemaMergeFromAliases(response.data.form_schema)
+				};
 			})
 			.catch((error) => {
 				if (cache.get(key) === entry) cache.delete(key);

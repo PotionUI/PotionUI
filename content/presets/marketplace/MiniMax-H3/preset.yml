@@ -235,7 +235,7 @@ vars:
         # picker fields (modes/refs/tabs/references.yml), never duplicated
         # into the Director document -- a segment SELECTS from it.
         references: "per_shot"
-        reference_fields: ["references", "reference_videos", "reference_audios"]
+        reference_fields: ["references"]
         modes:
           director:
             # ref2va's own reference pickers already condition the model on
@@ -321,8 +321,8 @@ llm:
     refs:
       guide: |
         Reference mode uses a SIX-SECTION prompt that REPLACES the three-field format.
-        Each reference picker numbers its own items by order: images are <Picture 1>,
-        <Picture 2>...; videos <Video 1>...; audio <Audio 1>.... Their labels name the
+        The References field numbers each kind on its own counter, by order: images are
+        <Picture 1>, <Picture 2>...; videos <Video 1>...; audio <Audio 1>.... Their labels name the
         subjects. A Director shot uses only the references its own prompt cites,
         renumbered within the shot. Write all sections in English, in this order:
 
@@ -385,11 +385,11 @@ prompt_resources:
       kind: "image"
       label: "Pictures"
       token: "<Picture @>"
-    - field: "reference_videos"
+    - field: "references"
       kind: "video"
       label: "Videos"
       token: "<Video @>"
-    - field: "reference_audios"
+    - field: "references"
       kind: "audio"
       label: "Audio"
       token: "<Audio @>"

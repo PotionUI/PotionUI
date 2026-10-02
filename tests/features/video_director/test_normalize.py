@@ -1723,3 +1723,56 @@ def test_continuation_absent_key_does_not_disable_chain_derivation(storage_dir):
     )
     out = normalize_video_director(doc, WAN_CAPS, str(storage_dir))
     assert [s["sub_type"] for s in out["segments"]] == ["t2v", "chain"]
+
+
+H3_MIXED_CAPS = {**H3_REFS_CAPS, "reference_fields": ["references"]}
+
+H3_MIXED_RESOURCES = [
+    {"field": "references", "kind": "image", "label": "Pictures", "token": "<Picture @>"},
+    {"field": "references", "kind": "video", "label": "Videos", "token": "<Video @>"},
+    {"field": "references", "kind": "audio", "label": "Audio", "token": "<Audio @>"},
+]
+
+H3_MIXED_POOL = {
+    "references": [
+        {"relative_path": "a.png", "type": "image"},
+        {"relative_path": "v1.mp4", "type": "video"},
+        {"relative_path": "b.png", "type": "image"},
+        {"relative_path": "t.wav", "type": "audio"},
+        {"relative_path": "v2.mp4", "type": "video"},
+    ],
+}
+
+
+def _mixed_refs_director(*prompts, storage_dir):
+    doc = _base_doc(
+        "director",
+        settings={"fps": 24, "duration": None, "resolution": "", "seed": 7},
+        segments=[{"id": f"seg-{i}", "prompt": prompt, "frames": 81} for i, prompt in enumerate(prompts)],
+    )
+    return normalize_video_director(doc, H3_MIXED_CAPS, str(storage_dir), H3_MIXED_POOL, H3_MIXED_RESOURCES)
+
+
+def test_mixed_field_indices_follow_the_packed_images_videos_audio_order(storage_dir):
+    out = _mixed_refs_director(
+        "@[references:t.wav] @[references:v2.mp4] @[references:b.png] @[references:v1.mp4]",
+        storage_dir=storage_dir,
+    )
+    segment = out["segments"][0]
+    assert segment["reference_indices"] == [1, 2, 3, 4]
+    assert segment["prompt"] == "<Audio 1> <Video 2> <Picture 1> <Video 1>"
+
+
+def test_mixed_field_numbers_each_shot_within_its_own_kind(storage_dir):
+    out = _mixed_refs_director(
+        "@[references:b.png] and @[references:v2.mp4]", "@[references:a.png] and @[references:v1.mp4]",
+        storage_dir=storage_dir,
+    )
+    assert [s["reference_indices"] for s in out["segments"]] == [[1, 3], [0, 2]]
+    assert [s["prompt"] for s in out["segments"]] == ["<Picture 1> and <Video 1>", "<Picture 1> and <Video 1>"]
+
+
+def test_mixed_field_audio_only_shot_is_an_error(storage_dir):
+    with pytest.raises(VideoDirectorValidationError) as excinfo:
+        _mixed_refs_director("a song @[references:t.wav]", storage_dir=storage_dir)
+    assert "only audio references" in str(excinfo.value)

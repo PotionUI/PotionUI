@@ -37,6 +37,12 @@ Strip a model picker value down to its path relative to the depot type directory
 - `{{ form.vae | strip_model_dir }}` → 'x.safetensors' for 'models/vae/x.safetensors'
 - `{{ item.model | strip_model_dir }}` → 'style/x.safetensors' for 'models/loras/style/x.safetensors'
 
+**`media_of_kind`** — `value | media_of_kind(kind: str) -> list`
+
+Keep the media items of one kind ('image', 'video' or 'audio') from a media field's value. An item's kind is its declared `type`, else the extension of its name/path/url. None/'' give an empty list and a single item is wrapped in a list. Use `| default([], true)` first when the field may be absent.
+
+- `{{ form.media_inputs | default([], true) | media_of_kind('video') }}` → Only the video items of the media_inputs field
+
 **`default`** — `value | default(fallback: Any, boolean: bool = False) -> Any`
 
 Jinja's builtin default filter - the ONLY way to tolerate a missing value. The environment uses StrictUndefined, so any reference to a field/key that wasn't provided RAISES a build error unless it is guarded by `| default(...)`. Use it on every optional form field.

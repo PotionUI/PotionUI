@@ -5,7 +5,7 @@ values) may use after the templating rework (see docs/presets.md and
 src/platform/templating/processor.py):
 
 - the one allowlisted global function, ``get_speed_profile``;
-- the custom filters (``active_loras``, ``strip_model_dir``) plus Jinja's
+- the custom filters (``active_loras``, ``strip_model_dir``, ``media_of_kind``) plus Jinja's
   builtin ``default`` (the ONLY suppression of a missing value under
   StrictUndefined);
 - the template context roots (``form``, ``request``, ``generation``,
@@ -100,6 +100,25 @@ class TemplateFunctionsDocumenter:
                     "examples": [
                         {"code": "{{ form.vae | strip_model_dir }}", "result": "'x.safetensors' for 'models/vae/x.safetensors'"},
                         {"code": "{{ item.model | strip_model_dir }}", "result": "'style/x.safetensors' for 'models/loras/style/x.safetensors'"},
+                    ],
+                },
+                {
+                    "name": "media_of_kind",
+                    "alias": None,
+                    "signature": "value | media_of_kind(kind: str) -> list",
+                    "description": (
+                        "Keep the media items of one kind ('image', 'video' or 'audio') from a media "
+                        "field's value. An item's kind is its declared `type`, else the extension of "
+                        "its name/path/url. None/'' give an empty list and a single item is wrapped "
+                        "in a list. Use `| default([], true)` first when the field may be absent."
+                    ),
+                    "parameters": [
+                        {"name": "value", "type": "list", "description": "A media field's value (pipe input)"},
+                        {"name": "kind", "type": "str", "description": "'image', 'video' or 'audio'"},
+                    ],
+                    "return_type": "list",
+                    "examples": [
+                        {"code": "{{ form.media_inputs | default([], true) | media_of_kind('video') }}", "result": "Only the video items of the media_inputs field"},
                     ],
                 },
                 {

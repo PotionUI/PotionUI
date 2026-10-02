@@ -305,6 +305,46 @@ class TestActiveLorasFilter:
         assert result == []
 
 
+class TestMediaOfKindFilter:
+
+    ITEMS = [
+        {"path": "a.png", "type": "image"},
+        {"path": "b.mp4", "type": "video"},
+        {"path": "c.mp3", "type": "audio"},
+        "d.webm",
+    ]
+
+    def test_filters_dict_items_and_bare_strings(self, processor):
+        result = processor.process_template(
+            "{{ form.refs | media_of_kind('video') }}", {"form": {"refs": self.ITEMS}}
+        )
+        assert result == [{"path": "b.mp4", "type": "video"}, "d.webm"]
+
+    def test_none_and_empty_string_give_empty_list(self, processor):
+        for value in (None, ""):
+            result = processor.process_template(
+                "{{ form.refs | media_of_kind('image') }}", {"form": {"refs": value}}
+            )
+            assert result == []
+
+    def test_scalar_is_wrapped(self, processor):
+        result = processor.process_template(
+            "{{ form.refs | media_of_kind('audio') }}",
+            {"form": {"refs": {"path": "c.mp3", "type": "audio"}}},
+        )
+        assert result == [{"path": "c.mp3", "type": "audio"}]
+
+    def test_undefined_field_with_default(self, processor):
+        result = processor.process_template(
+            "{{ form.refs | default([], true) | media_of_kind('image') }}", {"form": {}}
+        )
+        assert result == []
+
+    def test_undefined_field_without_default_raises(self, processor):
+        with pytest.raises(TemplateEvaluationError):
+            processor.process_template("{{ form.refs | media_of_kind('image') }}", {"form": {}})
+
+
 class TestStripModelDirFilter:
     """The `strip_model_dir` filter, as ComfyUI preset templates use it in
     place of the old `replace('models/loras/', '')` idiom (see docs/models.md)."""

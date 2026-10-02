@@ -303,7 +303,7 @@ const H3_REFS_PRESET_RAW = {
 	preset_mode_overrides: {
 		refs: {
 			references: 'per_shot',
-			reference_fields: ['references', 'reference_videos', 'reference_audios'],
+			reference_fields: ['references'],
 			modes: { director: { keyframes: null, audio: false, continuation: null, max_overlap_frames: null } }
 		}
 	}
@@ -3364,7 +3364,7 @@ const H3_RAW_CAPS = {
 	preset_mode_overrides: {
 		refs: {
 			references: 'per_shot',
-			reference_fields: ['references', 'reference_videos', 'reference_audios'],
+			reference_fields: ['references'],
 			modes: {
 				director: {
 					keyframes: null,
@@ -3445,7 +3445,7 @@ describe('resolveDirectorCapabilities', () => {
 	it('`references`/`reference_fields` are TOP-LEVEL capabilities, not per composition mode', () => {
 		const resolved = resolveDirectorCapabilities(H3_RAW_CAPS, 'refs')!;
 		expect(resolved.references).toBe('per_shot');
-		expect(resolved.referenceFields).toEqual(['references', 'reference_videos', 'reference_audios']);
+		expect(resolved.referenceFields).toEqual(['references']);
 		expect(parseDirectorCapabilities(H3_RAW_CAPS)!.references).toBeNull();
 	});
 

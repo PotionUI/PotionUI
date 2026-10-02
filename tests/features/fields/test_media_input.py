@@ -191,3 +191,49 @@ class TestTotalDurationAcrossAMixedField(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestMaxItemsByKind(unittest.TestCase):
+
+    LIMITS = {"image": 2, "video": 1, "audio": 1}
+
+    def _config(self, **extra):
+        return {"multi": True, "max_items_by_kind": dict(self.LIMITS), **extra}
+
+    def test_at_the_per_kind_limit_passes(self):
+        items = [
+            {"path": "a.png", "type": "image"},
+            {"path": "b.png", "type": "image"},
+            {"path": "c.mp4", "type": "video"},
+            {"path": "d.mp3", "type": "audio"},
+        ]
+        self.assertEqual(_input("refs", items, self._config()), items)
+
+    def test_one_over_fails_and_names_the_kind(self):
+        items = [{"path": "a.mp4", "type": "video"}, {"path": "b.mp4", "type": "video"}]
+        with self.assertRaises(ValueError) as cm:
+            _input("refs", items, self._config())
+        self.assertEqual(str(cm.exception), "Too many video items for 'refs': maximum is 1")
+
+    def test_each_offending_kind_gets_one_message(self):
+        items = ["a.mp4", "b.mp4", "c.mp3", "d.mp3", "e.png"]
+        with self.assertRaises(ValueError) as cm:
+            _input("refs", items, self._config())
+        self.assertEqual(
+            str(cm.exception),
+            "Too many video items for 'refs': maximum is 1; Too many audio items for 'refs': maximum is 1",
+        )
+
+    def test_unknown_kind_items_are_ignored(self):
+        items = [{"path": "a.bin"}, {"path": "b.bin"}, {"path": "c.bin"}]
+        self.assertEqual(_input("refs", items, self._config()), items)
+
+    def test_kind_without_a_cap_is_unlimited(self):
+        items = [{"path": f"{i}.png", "type": "image"} for i in range(5)]
+        self.assertEqual(_input("refs", items, {"multi": True, "max_items_by_kind": {"video": 1}}), items)
+
+    def test_total_max_items_still_enforced(self):
+        items = [{"path": "a.png", "type": "image"}, {"path": "b.mp4", "type": "video"}]
+        with self.assertRaises(ValueError) as cm:
+            _input("refs", items, self._config(max_items=1))
+        self.assertEqual(str(cm.exception), "Too many items for 'refs': maximum is 1")

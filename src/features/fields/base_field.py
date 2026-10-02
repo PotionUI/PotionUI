@@ -138,6 +138,7 @@ class BaseField(ABC):
                 'hidden_when_video_director': getattr(field, 'hidden_when_video_director', False),
                 'capability': self._capability_of(getattr(field, 'capability', None)),
                 'formula': self._formula_of(getattr(field, 'formula', None)),
+                'merge_from': self._merge_from_of(getattr(field, 'merge_from', None)),
             }
         else:
             return {
@@ -158,6 +159,7 @@ class BaseField(ABC):
                 'hidden_when_video_director': field.get('hidden_when_video_director', False),
                 'capability': self._capability_of(field.get('capability')),
                 'formula': self._formula_of(field.get('formula')),
+                'merge_from': self._merge_from_of(field.get('merge_from')),
             }
 
     @staticmethod
@@ -167,6 +169,10 @@ class BaseField(ABC):
     @staticmethod
     def _formula_of(value):
         return value if isinstance(value, str) or value is False else None
+
+    @staticmethod
+    def _merge_from_of(value):
+        return [key for key in value if isinstance(key, str)] if isinstance(value, (list, tuple)) else None
 
     def create_base_schema(self, field_info: Dict[str, Any]) -> Dict[str, Any]:
         """Create base schema structure for a field"""
@@ -224,6 +230,9 @@ class BaseField(ABC):
 
         if field_info.get('formula') is not None:
             schema['formula'] = field_info['formula']
+
+        if field_info.get('merge_from'):
+            schema['merge_from'] = list(field_info['merge_from'])
 
         return schema
     

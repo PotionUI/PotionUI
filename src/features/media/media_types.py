@@ -8,7 +8,7 @@ there is no usable extension to go on.
 
 from typing import Optional, Set
 
-from src.platform.filesystem import audio_formats
+from src.platform.filesystem import audio_formats, visual_formats
 from src.platform.filesystem.mesh_formats import mesh_format_registry
 
 
@@ -99,11 +99,9 @@ class MediaTypeResolver:
     # Image extensions that can be processed by PIL
     RESIZABLE_EXTENSIONS: Set[str] = {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}
 
-    # All image extensions
-    IMAGE_EXTENSIONS: Set[str] = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'}
+    IMAGE_EXTENSIONS: Set[str] = set(visual_formats.IMAGE_EXTENSIONS)
 
-    # Video extensions
-    VIDEO_EXTENSIONS: Set[str] = {'.mp4', '.webm', '.avi', '.mov', '.mkv'}
+    VIDEO_EXTENSIONS: Set[str] = set(visual_formats.VIDEO_EXTENSIONS)
 
     # Canonical audio extensions live in `audio_formats` (platform layer,
     # shared with `FileStore`); mirrored here as a plain class attribute

@@ -90,11 +90,11 @@ pipeline:
   ############
   - name: "media_loader"
     id: "references"
-    enabled: "{{ (form.references | default([], true) | length) > 0 }}"
+    enabled: "{{ (form.references | default([], true) | media_of_kind('image') | length) > 0 }}"
     configuration:
       media:
         "@loop":
-          items: "{{ form.references | default([], true) }}"
+          items: "{{ form.references | default([], true) | media_of_kind('image') }}"
           template:
             type: "image"
             path: "{{ item.path | default(item) }}"
@@ -105,11 +105,11 @@ pipeline:
   ############
   - name: "media_loader"
     id: "reference_videos"
-    enabled: "{{ (form.reference_videos | default([], true) | length) > 0 }}"
+    enabled: "{{ (form.references | default([], true) | media_of_kind('video') | length) > 0 }}"
     configuration:
       media:
         "@loop":
-          items: "{{ form.reference_videos | default([], true) }}"
+          items: "{{ form.references | default([], true) | media_of_kind('video') }}"
           template:
             type: "video"
             path: "{{ item.path | default(item) }}"
@@ -121,11 +121,11 @@ pipeline:
   ############
   - name: "media_loader"
     id: "reference_audios"
-    enabled: "{{ (form.reference_audios | default([], true) | length) > 0 }}"
+    enabled: "{{ (form.references | default([], true) | media_of_kind('audio') | length) > 0 }}"
     configuration:
       media:
         "@loop":
-          items: "{{ form.reference_audios | default([], true) }}"
+          items: "{{ form.references | default([], true) | media_of_kind('audio') }}"
           template:
             type: "audio"
             path: "{{ item.path | default(item) }}"
@@ -330,18 +330,9 @@ pipeline:
       # continuation or their own keyframe while references are active --
       # see the header comment.
       document: "{{ form.video_director if (form.video_director is defined and form.video_director.mode == 'director') else none }}"
-      # Each references form field's RAW value, alongside the loaded media on
-      # the three inputs above. An exact `{{ }}` scalar bypasses Jinja
-      # stringification, so the pipe reads real dicts (same idiom as the video
-      # mode's `document`).
-      #
-      # The pipe cross-validates each pair of counts in both directions and
-      # raises on a mismatch. That is the point: if a loader silently drops an
-      # unreadable file, every label after it would slide onto the wrong
-      # reference, and a shorter array is the only trace.
-      references: "{{ form.references | default([], true) }}"
-      reference_videos: "{{ form.reference_videos | default([], true) }}"
-      reference_audios: "{{ form.reference_audios | default([], true) }}"
+      references: "{{ form.references | default([], true) | media_of_kind('image') }}"
+      reference_videos: "{{ form.references | default([], true) | media_of_kind('video') }}"
+      reference_audios: "{{ form.references | default([], true) | media_of_kind('audio') }}"
       reference_mods:
         "@loop":
           items: "{{ form.reference_mods | default([], true) }}"

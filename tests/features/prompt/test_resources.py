@@ -168,16 +168,17 @@ def minimax_h3():
 class TestMiniMaxH3Resources:
     def test_refs_segment_resolves_to_the_guides_tokens(self, minimax_h3):
         resources = minimax_h3.prompt_resources["refs"]
-        form = {
-            "references": [_upload("storage/uploads/woman.png"), _upload("storage/uploads/cafe.png")],
-            "reference_videos": [_upload("storage/uploads/walk.mp4")],
-            "reference_audios": ["storage/uploads/voice.wav"],
-        }
+        form = {"references": [
+            "storage/uploads/voice.wav",
+            _upload("storage/uploads/woman.png"),
+            {**_upload("storage/uploads/walk.mp4"), "type": "video"},
+            _upload("storage/uploads/cafe.png"),
+        ]}
         pairs = [PromptPair(positive=(
             "subject_definitions: <Subject 1> is the young woman in @[references:storage/uploads/woman.png]. "
             "@[references:storage/uploads/cafe.png] is the first frame of [Shot 1]. "
-            "She walks like @[reference_videos:storage/uploads/walk.mp4] and speaks like "
-            "@[reference_audios:storage/uploads/voice.wav]."
+            "She walks like @[references:storage/uploads/walk.mp4] and speaks like "
+            "@[references:storage/uploads/voice.wav]."
         ))]
         resolve_prompt_pairs(pairs, resources, form)
         assert pairs[0].positive == (
@@ -243,3 +244,108 @@ def test_describe_caps_long_fields():
     assert "<Picture 12> 11.png" in item_line
     assert "<Picture 13>" not in item_line
     assert "…3 more" in item_line
+
+
+MIXED_RESOURCES = [
+    {"field": "references", "kind": "image", "label": "Pictures", "token": "<Picture @>"},
+    {"field": "references", "kind": "video", "label": "Videos", "token": "<Video @>"},
+    {"field": "references", "kind": "audio", "label": "Audio", "token": "<Audio @>"},
+]
+
+
+def _typed(path, kind):
+    return {"path": path, "relative_path": path, "type": kind, "name": path.rsplit("/", 1)[-1]}
+
+
+MIXED_FORM = {
+    "references": [
+        _typed("u/a.png", "image"),
+        _typed("u/walk.mp4", "video"),
+        _typed("u/b.png", "image"),
+        _typed("u/song.wav", "audio"),
+        _typed("u/run.mp4", "video"),
+    ],
+}
+
+
+class TestMixedFieldResources:
+    def test_positions_count_within_each_kind_in_list_order(self):
+        text, problems = resolve_prompt_resources(
+            "@[references:u/b.png] @[references:u/run.mp4] @[references:u/song.wav] "
+            "@[references:u/a.png] @[references:u/walk.mp4]",
+            MIXED_RESOURCES, MIXED_FORM,
+        )
+        assert problems == {}
+        assert text == "<Picture 2> <Video 2> <Audio 1> <Picture 1> <Video 1>"
+
+    def test_a_single_spec_field_still_numbers_the_whole_list(self):
+        text, _ = resolve_prompt_resources("@[references:u/b.png]", MIXED_RESOURCES[:1], MIXED_FORM)
+        assert text == "<Picture 3>"
+
+    def test_item_of_an_unmapped_kind_is_reported(self):
+        text, problems = resolve_prompt_resources(
+            "@[references:u/song.wav]", MIXED_RESOURCES[:2], MIXED_FORM,
+        )
+        assert text == "@[references:u/song.wav]"
+        assert "audio item" in problems["references"][0]
+        assert "cannot reference" in problems["references"][0]
+
+    def test_removed_item_is_reported(self):
+        text, problems = resolve_prompt_resources("@[references:u/gone.png]", MIXED_RESOURCES, MIXED_FORM)
+        assert text == "@[references:u/gone.png]"
+        assert "removed" in problems["references"][0]
+
+    def test_kind_falls_back_to_the_file_extension_for_bare_strings(self):
+        form = {"references": ["u/x.mp4", "u/y.png", "u/z.mp4"]}
+        text, _ = resolve_prompt_resources("@[references:u/z.mp4]", MIXED_RESOURCES, form)
+        assert text == "<Video 2>"
+
+
+class TestDescribeMixedField:
+    def test_each_entry_lists_only_its_kind_and_numbers_within_it(self):
+        text = "\n".join(describe_prompt_resources(MIXED_RESOURCES, MIXED_FORM))
+        assert "<Picture N> · Pictures (references), 2 items: <Picture 1> a.png · <Picture 2> b.png" in text
+        assert "<Video N> · Videos (references), 2 items: <Video 1> walk.mp4 · <Video 2> run.mp4" in text
+        assert "<Audio N> · Audio (references), 1 item: <Audio 1> song.wav" in text
+
+    def test_a_kind_with_no_items_is_flagged_empty(self):
+        form = {"references": [_typed("u/a.png", "image")]}
+        lines = describe_prompt_resources(MIXED_RESOURCES, form)
+        assert any("<Video N>" in line and "no items yet" in line for line in lines)
+        assert any("<Picture N>" in line and "1 item: <Picture 1> a.png" in line for line in lines)
+
+
+class TestMergedFieldMarkers:
+    @staticmethod
+    def _preset():
+        from src.features.presets.templates import FieldTemplate, FormTemplate, ModeTemplate, PresetTemplate
+
+        return PresetTemplate(
+            id="preset_merged_markers",
+            name="Merged Markers",
+            version="1.0.0",
+            path="/presets/preset_merged_markers",
+            modes={"mix": ModeTemplate(
+                forms=[FormTemplate(name="custom", default=True, order=0, fields=[
+                    FieldTemplate(type="media", name="media_inputs", merge_from=["old_clips", "old_tracks"]),
+                ])],
+                pipes=[],
+            )},
+            prompt_resources={"mix": [
+                {"field": "media_inputs", "kind": "image", "token": "<Picture @>"},
+                {"field": "media_inputs", "kind": "video", "token": "<Video @>"},
+            ]},
+        )
+
+    def test_saved_markers_of_a_merged_key_resolve_through_the_field(self):
+        pairs = [PromptPair(positive="@[old_clips:uploads/v.mp4] near @[media_inputs:uploads/a.png]")]
+        segments = [SegmentInput(text="@[old_clips:uploads/v.mp4]")]
+        form = {"media_inputs": [
+            {"path": "uploads/a.png", "type": "image"},
+            {"path": "uploads/v.mp4", "type": "video"},
+        ]}
+
+        resolve_generation_prompts(self._preset(), "mix", pairs, segments, form)
+
+        assert pairs[0].positive == "<Video 1> near <Picture 1>"
+        assert segments[0].text == "<Video 1>"

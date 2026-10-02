@@ -19,8 +19,8 @@ beforeEach(() => {
 
 describe('getPresetPromptResources', () => {
 	it('returns empty specs when presetId or mode is missing', async () => {
-		expect(await getPresetPromptResources(null, 'txt2img')).toEqual({ specs: [], fieldLabels: {} });
-		expect(await getPresetPromptResources('preset', null)).toEqual({ specs: [], fieldLabels: {} });
+		expect(await getPresetPromptResources(null, 'txt2img')).toEqual({ specs: [], fieldLabels: {}, fieldAliases: {} });
+		expect(await getPresetPromptResources('preset', null)).toEqual({ specs: [], fieldLabels: {}, fieldAliases: {} });
 		expect(getPresetFormSchema).not.toHaveBeenCalled();
 	});
 
@@ -37,6 +37,24 @@ describe('getPresetPromptResources', () => {
 		const result = await getPresetPromptResources('preset', 'refs');
 		expect(result.specs).toEqual([{ field: 'references', kind: 'image', token: '<Picture @>' }]);
 		expect(result.fieldLabels).toEqual({ references: 'References' });
+	});
+
+	it('maps each merge_from key to the field that absorbed it', async () => {
+		getPresetFormSchema.mockResolvedValue({
+			success: true,
+			data: {
+				preset_id: 'preset',
+				form_schema: {
+					properties: {
+						main: { children: [{ name: 'media_inputs', type: 'media', merge_from: ['old_clips', 'old_tracks'] }] }
+					}
+				},
+				prompt_resources: []
+			}
+		});
+
+		const result = await getPresetPromptResources('preset', 'mix');
+		expect(result.fieldAliases).toEqual({ old_clips: 'media_inputs', old_tracks: 'media_inputs' });
 	});
 
 	it('deduplicates in-flight requests by preset, mode, and form name', async () => {
@@ -58,7 +76,7 @@ describe('getPresetPromptResources', () => {
 			data: { form_schema: {}, prompt_resources: [{ field: 'a', kind: 'video', token: '<Video @>' }] }
 		});
 
-		await expect(getPresetPromptResources('preset', 'vid')).resolves.toEqual({ specs: [], fieldLabels: {} });
+		await expect(getPresetPromptResources('preset', 'vid')).resolves.toEqual({ specs: [], fieldLabels: {}, fieldAliases: {} });
 		const second = await getPresetPromptResources('preset', 'vid');
 		expect(second.specs).toEqual([{ field: 'a', kind: 'video', token: '<Video @>' }]);
 		expect(getPresetFormSchema).toHaveBeenCalledTimes(2);
@@ -66,6 +84,6 @@ describe('getPresetPromptResources', () => {
 
 	it('returns empty specs when the response is unsuccessful', async () => {
 		getPresetFormSchema.mockResolvedValue({ success: false });
-		expect(await getPresetPromptResources('preset', 'txt2img')).toEqual({ specs: [], fieldLabels: {} });
+		expect(await getPresetPromptResources('preset', 'txt2img')).toEqual({ specs: [], fieldLabels: {}, fieldAliases: {} });
 	});
 });

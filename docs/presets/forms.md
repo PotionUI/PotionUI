@@ -256,6 +256,30 @@ for its auth step - it has no `{provider, ref}` resolution of its own), then han
 the resolved URL + `provider_id` to the core download queue (`src/features/downloads/`) so the
 worker's provider-authenticated download still applies.
 
+Mixed media list (`type: "media"` — one multi-item field that accepts several kinds, from
+MiniMax-H3's `refs` mode):
+
+```yaml
+- name: "references"
+  type: "media"
+  label: "References"
+  merge_from: ["reference_videos", "reference_audios"]
+  configuration:
+    multi: true
+    accepted_types: ["image", "video", "audio"]
+    max_items_by_kind: { image: 9, video: 3, audio: 3 }
+```
+
+`accepted_types` lists the kinds an item may be. `max_items_by_kind` caps each kind on its own
+(a kind left out has no cap of its own); `max_items` stays the cap on the whole list. Each item is
+stored with its kind in `type` (`image`/`video`/`audio`); an item without one is classified by its
+file extension. The list keeps the order the user gave it. A pipeline that needs one kind reads a
+filtered view with the `media_of_kind` filter, for example
+`items: "{{ form.references | default([], true) | media_of_kind('video') }}"`, which also keeps
+that kind's numbering for prompt resources (see
+[Prompt resources](manifest.md#prompt-resources)). `merge_from` is how this field took over the
+two retired single-kind fields from saved sessions and generations.
+
 LoRA picker (`type: "lora_picker"` — a repeatable list of model + strength rows, replacing the old
 pattern of six hand-written `lora_N` / `lora_N_strength` field pairs):
 
@@ -536,7 +560,7 @@ Field keys understood by the schema (`FieldSpec`): `type` (required), `name`, `l
 `ai_hint`, `configuration`, `required`, `default`, `when`, `input`, `save_into`
 (`session`|`settings`), `interactive`, `container`, `visible`, `reactions`, `listeners`,
 `children` (a list of nested fields, or a `{{ paths.preset }}/...` or `{{ paths._shared }}/...` path string to an external file),
-`audience`, `width`, `full_width`, `hidden_when_video_director`, `capability`, `formula`. The schema is `extra="forbid"` — the
+`audience`, `width`, `full_width`, `hidden_when_video_director`, `capability`, `formula`, `merge_from`. The schema is `extra="forbid"` — the
 removed `value:` initializer key is a load error.
 
 | Key | Required | Type | Notes |
@@ -546,6 +570,7 @@ removed `value:` initializer key is a load error.
 | `width` | no | number \| `"a/b"` string | A field's fractional share of the row it sits in, read by the frontend as a CSS grid `fr` weight for a `type: "row"` container's child. Either a positive number used directly as the weight (`width: 2`) or a string fraction of positive numbers (`width: "3/5"`). Absent/`null` takes the default weight. Emitted to the frontend exactly as authored (a string stays a string) — the frontend does its own parsing. |
 | `full_width` | no | bool | Default `false`. Stretch the field to fill its column/track instead of hugging its content. Has no visible effect on field types that already fill their column (most of them) — today it only matters for controls that hug their content, such as `stepper`. Emitted to the frontend only when `true`. |
 | `hidden_when_video_director` | no | bool | Default `false`. Hides this field in the rendered form whenever the Video Director editor is active for the current preset mode (`vars.video_director.preset_modes`) — for a field whose value the director's own document overrides once attached, but that still needs to render for a mode usable outside the director too. Rendering-only, same contract as `audience`: the value/default stays in `formData` and still submits. Emitted to the frontend only when `true`. |
+| `merge_from` | no | list of strings | Retired field names this field absorbs from saved form data. When any listed key is present in a submission or a hydrated session, the field's value becomes its own list followed by each listed key's list, in the listed order, and the listed keys are dropped; the merged list then passes the field's normal validation. Untouched when none of the listed keys is present. Entries must be non-empty, unique and not the field's own name. Emitted to the frontend only when set. Prompt markers that name a listed key (`@[old_key:item]`, in form values, prompts, prompt segments and Video Director shot prompts) are rewritten to the field's own name, item key unchanged. |
 
 ### Formula groups
 

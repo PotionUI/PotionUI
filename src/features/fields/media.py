@@ -161,6 +161,15 @@ class Media(BaseField):
                 example=3
             ),
             FieldConfigSpec(
+                name="max_items_by_kind",
+                param_type=dict,
+                default=None,
+                description="Per-category item caps when `multi` is enabled, as a map of "
+                             "'image'/'video'/'audio' to a positive integer; a category left out has no "
+                             "cap of its own, and `max_items` still caps the total",
+                example={"image": 9, "video": 3, "audio": 3}
+            ),
+            FieldConfigSpec(
                 name="accepted_types",
                 param_type=list,
                 default=None,

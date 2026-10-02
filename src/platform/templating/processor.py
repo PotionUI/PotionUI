@@ -19,7 +19,7 @@ Rendering/evaluation failures raise ``TemplateEvaluationError`` - there is
 no catch-log-return-None left in this module.
 """
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from jinja2 import BaseLoader, StrictUndefined, Undefined
 from jinja2.sandbox import ImmutableSandboxedEnvironment
@@ -27,6 +27,7 @@ from jinja2.sandbox import ImmutableSandboxedEnvironment
 from src.platform.observability.logger import logger
 from src.platform.settings.settings import Settings
 from src.platform.templating.errors import TemplateEvaluationError
+from src.platform.filesystem.media_kinds import items_of_kind
 from src.platform.templating.hooks import TEMPLATE_HOOKS
 from src.platform.templating.dict_utils import (
     active_loras,
@@ -107,6 +108,7 @@ class TemplateProcessor:
         """Register custom filters in Jinja environment."""
         self.env.filters['active_loras'] = self.active_loras
         self.env.filters['strip_model_dir'] = self.strip_model_dir
+        self.env.filters['media_of_kind'] = self.media_of_kind
 
     def _get_plugin_registry(self):
         """Get plugin registry for hook execution (lazy load to avoid import cycles)."""
@@ -284,6 +286,9 @@ class TemplateProcessor:
             The value with its depot type directory removed, or unchanged.
         """
         return strip_model_dir(value)
+
+    def media_of_kind(self, value: Any, kind: str) -> List[Any]:
+        return items_of_kind(value, kind)
 
     def get_speed_profile(
         self,

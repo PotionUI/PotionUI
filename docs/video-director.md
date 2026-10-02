@@ -281,9 +281,9 @@ stored `references` key is ignored in every mode.
   own prompt**: the distinct pool items its `@[field:item]` resource markers cite, across
   `prompt` and `negative_prompt`. Only the text that reaches the wire counts, so a marker
   in a disabled prompt segment (which the editor leaves out of the compiled text) does not.
-  `reference_indices` lists them in the pool's PACKED order (every item of the first
-  `reference_fields` field, then the second, and so on — MiniMax-H3: images, then videos,
-  then audio), deduplicated. A shot that cites nothing gets `reference_indices: []` and
+  `reference_indices` lists them in the pool's PACKED order (every image across the
+  `reference_fields` fields, then every video, then every audio, each kind in field and list
+  order; MiniMax-H3 lists one field, `references`, that holds all three kinds), deduplicated. A shot that cites nothing gets `reference_indices: []` and
   runs without references. The normalizer then rewrites each marker to the preset mode's
   `prompt_resources` token numbered within that shot's own subset, per kind — the same
   numbering the text encoder gives the subset it receives, so `<Picture 2>` in a shot's
@@ -772,7 +772,7 @@ vars:
     preset_mode_overrides:
       refs:
         references: "per_shot"
-        reference_fields: ["references", "reference_videos", "reference_audios"]
+        reference_fields: ["references"]
         modes:
           director:
             keyframes: null

@@ -13,6 +13,8 @@ function.
 """
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from src.platform.filesystem.media_kinds import media_item_kind
+
 MAX_MEDIA_LABEL_LENGTH = 64
 
 # `configuration:` keys `_check_media_constraints` reads, shared verbatim
@@ -25,6 +27,7 @@ CONFIG_MAX_RESOLUTION = "max_resolution"
 CONFIG_MAX_VIDEO_DURATION = "max_video_duration_seconds"
 CONFIG_MAX_TOTAL_VIDEO_DURATION = "max_total_video_duration_seconds"
 CONFIG_MAX_AUDIO_DURATION = "max_audio_duration_seconds"
+CONFIG_MAX_ITEMS_BY_KIND = "max_items_by_kind"
 CONFIG_MAX_TOTAL_AUDIO_DURATION = "max_total_audio_duration_seconds"
 
 _CONSTRAINT_SCHEMA_KEYS = (
@@ -34,6 +37,7 @@ _CONSTRAINT_SCHEMA_KEYS = (
     CONFIG_MAX_TOTAL_VIDEO_DURATION,
     CONFIG_MAX_AUDIO_DURATION,
     CONFIG_MAX_TOTAL_AUDIO_DURATION,
+    CONFIG_MAX_ITEMS_BY_KIND,
 )
 
 
@@ -117,6 +121,7 @@ def process_media_input(
         max_items = config.get("max_items")
         if max_items is not None and len(value) > max_items:
             raise ValueError(f"Too many items for '{field_name}': maximum is {max_items}")
+        _check_max_items_by_kind(field_name, value, config.get(CONFIG_MAX_ITEMS_BY_KIND))
         results = [
             _process_item(field_name, idx, item, config, validate_legacy, process_legacy, allow_label=True)
             for idx, item in enumerate(value)
@@ -138,6 +143,23 @@ def process_media_input(
     result = _process_item(field_name, 0, value, config, validate_legacy, process_legacy, allow_label=False)
     _check_media_constraints(field_name, [value], config)
     return result
+
+
+def _check_max_items_by_kind(field_name: str, items: List[Any], limits: Any) -> None:
+    if not isinstance(limits, dict) or not limits:
+        return
+    counts: Dict[str, int] = {}
+    for item in items:
+        kind = media_item_kind(item)
+        if kind:
+            counts[kind] = counts.get(kind, 0) + 1
+    errors = [
+        f"Too many {kind} items for '{field_name}': maximum is {limit}"
+        for kind, limit in limits.items()
+        if isinstance(limit, int) and not isinstance(limit, bool) and counts.get(kind, 0) > limit
+    ]
+    if errors:
+        raise ValueError("; ".join(errors))
 
 
 def _process_item(

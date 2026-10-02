@@ -144,7 +144,8 @@ linked below, not this list — they're regenerated from the running code, so th
 
 A mode can let the prompt reference its media pickers: `prompt_resources:` in `preset.yml` maps a
 field to a token such as `"<Picture @>"`, and a segment's `@[field:item key]` marker becomes that
-token with `@` set to the item's current 1-based position in the field. A marker pointing at a
+token with `@` set to the item's current 1-based position in the field (or, for a `media` field
+mapped once per kind, its position among that kind's items). A marker pointing at a
 removed item or an unmapped field fails the submission with a field-level 422. Full contract:
 [preset.yml Reference → Prompt resources](presets/manifest.md#prompt-resources).
 

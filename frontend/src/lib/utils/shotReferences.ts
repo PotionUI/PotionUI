@@ -10,6 +10,7 @@ import {
 	type PromptResourceKind,
 	type PromptResourceSpec
 } from './promptResources';
+import { kindOfMediaItem } from '$lib/components/form-fields/mediaLoaderKind';
 import { countResourceReferences, resourceUseCount, type UsageSegment } from './promptResourceUsage';
 import { resolvePromptSegments } from './promptSegments';
 import type { ResourceNumbering } from './resourceNumbering';
@@ -30,10 +31,15 @@ export interface ShotReferenceOverview {
 	unused: ShotReferenceEntry[];
 }
 
-function itemKind(item: unknown, spec: PromptResourceSpec | undefined): PromptResourceKind {
-	if (spec) return spec.kind;
-	const type = item && typeof item === 'object' ? (item as Record<string, unknown>).type : undefined;
-	return type === 'video' || type === 'audio' ? type : 'image';
+function itemSpec(
+	specs: readonly PromptResourceSpec[],
+	field: string,
+	item: unknown
+): { kind: PromptResourceKind; spec: PromptResourceSpec | undefined } {
+	const fieldSpecs = specs.filter((spec) => spec.field === field);
+	if (fieldSpecs.length === 1) return { kind: fieldSpecs[0].kind, spec: fieldSpecs[0] };
+	const kind = kindOfMediaItem(item) ?? 'image';
+	return { kind, spec: findResourceSpec(specs, field, kind) };
 }
 
 function itemName(item: unknown, key: string): string {
@@ -86,7 +92,6 @@ export function shotResourcePositions(
 	const perKind: Partial<Record<PromptResourceKind, number>> = {};
 	const seen = new Set<string>();
 	for (const field of caps.referenceFields) {
-		const spec = findResourceSpec(specs, field);
 		for (const item of mediaFieldItems(formData?.[field])) {
 			const itemKey = mediaItemKey(item);
 			if (!itemKey) continue;
@@ -94,7 +99,7 @@ export function shotResourcePositions(
 			if (seen.has(identity)) continue;
 			seen.add(identity);
 			if (resourceUseCount(counts, field, itemKey) <= 0) continue;
-			const kind = itemKind(item, spec);
+			const { kind } = itemSpec(specs, field, item);
 			const position = (perKind[kind] ?? 0) + 1;
 			perKind[kind] = position;
 			positions.set(identity, position);
@@ -129,14 +134,13 @@ export function shotReferenceOverview(
 	const unused: ShotReferenceEntry[] = [];
 	const seen = new Set<string>();
 	for (const field of caps.referenceFields) {
-		const spec = findResourceSpec(specs, field);
 		for (const item of mediaFieldItems(formData?.[field])) {
 			const itemKey = mediaItemKey(item);
 			if (!itemKey) continue;
 			const identity = resourceIdentity(field, itemKey);
 			if (seen.has(identity)) continue;
 			seen.add(identity);
-			const kind = itemKind(item, spec);
+			const { kind, spec } = itemSpec(specs, field, item);
 			const count = resourceUseCount(counts, field, itemKey);
 			const position = positions.get(identity) ?? null;
 			const entry: ShotReferenceEntry = {

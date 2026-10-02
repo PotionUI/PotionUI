@@ -716,13 +716,14 @@ class PresetLinter:
                 issues.append(LintIssue("error", preset_str, f"{loc}: '{mode_name}' is not a mode of this preset"))
                 continue
             field_types: Dict[str, set] = {}
+            accepted_types: Dict[str, Optional[set]] = {}
             for _variant_name, form_dir in discover_form_variants(mode_dir):
                 try:
                     with open(form_dir / "form.yml", 'r', encoding='utf-8') as f:
                         form_data = yaml.safe_load(f) or {}
                 except Exception:
                     continue
-                self._collect_field_types(form_data.get("fields", []), preset_file.parent, field_types)
+                self._collect_field_types(form_data.get("fields", []), preset_file.parent, field_types, accepted_types)
             for entry in entries:
                 types = field_types.get(entry.field)
                 if not types:
@@ -745,12 +746,21 @@ class PresetLinter:
                         "error", preset_str,
                         f"{loc}: field '{entry.field}' is a {mismatched} field but is mapped as kind '{entry.kind}'",
                     ))
+                    continue
+                accepts = accepted_types.get(entry.field)
+                if accepts is not None and entry.kind not in accepts:
+                    issues.append(LintIssue(
+                        "error", preset_str,
+                        f"{loc}: field '{entry.field}' accepts {sorted(accepts)} but is mapped as kind '{entry.kind}'",
+                    ))
         return issues
 
-    def _collect_field_types(self, node, preset_root: Path, acc: Dict[str, set]) -> None:
+    def _collect_field_types(
+        self, node, preset_root: Path, acc: Dict[str, set], accepted: Optional[Dict[str, Optional[set]]] = None
+    ) -> None:
         if isinstance(node, list):
             for item in node:
-                self._collect_field_types(item, preset_root, acc)
+                self._collect_field_types(item, preset_root, acc, accepted)
             return
         if not isinstance(node, dict):
             return
@@ -760,12 +770,19 @@ class PresetLinter:
             count = cfg.get("count")
             if template is not None and isinstance(count, int) and not isinstance(count, bool):
                 for i in range(1, count + 1):
-                    self._collect_field_types(self._expand_loop_indices(template, i), preset_root, acc)
+                    self._collect_field_types(self._expand_loop_indices(template, i), preset_root, acc, accepted)
             return
         name = node.get("name")
         field_type = node.get("type")
         if isinstance(name, str) and "{{" not in name and isinstance(field_type, str):
             acc.setdefault(name, set()).add(field_type)
+            if accepted is not None and field_type == "media":
+                declared = (node.get("configuration") or {}).get("accepted_types")
+                current = {str(kind) for kind in declared} if isinstance(declared, list) and declared else None
+                if name in accepted:
+                    previous = accepted[name]
+                    current = None if previous is None or current is None else previous | current
+                accepted[name] = current
         children = node.get("children")
         if isinstance(children, str):
             try:
@@ -773,9 +790,9 @@ class PresetLinter:
                     frag_data = yaml.safe_load(f) or {}
             except Exception:
                 return
-            self._collect_field_types(frag_data.get("fields", []), preset_root, acc)
+            self._collect_field_types(frag_data.get("fields", []), preset_root, acc, accepted)
         elif isinstance(children, list):
-            self._collect_field_types(children, preset_root, acc)
+            self._collect_field_types(children, preset_root, acc, accepted)
 
     def _lint_segment_templates(self, preset_file: Path, manifest) -> List[LintIssue]:
         """Cross-checks `vars.prompt.segment_templates` and its per-mode override

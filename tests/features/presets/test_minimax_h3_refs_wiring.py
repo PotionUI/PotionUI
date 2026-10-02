@@ -36,6 +36,7 @@ _REFERENCE_VIDEOS = [
 _REFERENCE_AUDIOS = [
     {"path": "/media/ref-voice.wav", "name": "ref-voice.wav", "type": "audio", "label": "her voice"},
 ]
+_MIXED_REFERENCES = [_REFERENCE_AUDIOS[0], _REFERENCES[0], _REFERENCE_VIDEOS[0], _REFERENCES[1]]
 
 
 # Matched by id, not by a path substring: `MiniMax-H3-VDN` also contains
@@ -132,23 +133,39 @@ def test_every_reference_modality_has_a_multi_field_at_the_pipe_s_own_limit(h3_t
         _MAX_REFERENCE_VIDEOS,
     )
 
-    for name, field_type, limit in (
-        ("references", "image", _MAX_REFERENCE_IMAGES),
-        ("reference_videos", "video", _MAX_REFERENCE_VIDEOS),
-        ("reference_audios", "audio", _MAX_REFERENCE_AUDIOS),
-    ):
-        field = _named_field(h3_template, "references", name)
-        assert field["type"] == field_type
-        assert field["configuration"]["multi"] is True
-        assert field["configuration"]["max_items"] == limit
+    field = _named_field(h3_template, "references", "references")
+    assert field["type"] == "media"
+    assert field["configuration"]["multi"] is True
+    assert field["configuration"]["accepted_types"] == ["image", "video", "audio"]
+    assert field["configuration"]["max_items_by_kind"] == {
+        "image": _MAX_REFERENCE_IMAGES,
+        "video": _MAX_REFERENCE_VIDEOS,
+        "audio": _MAX_REFERENCE_AUDIOS,
+    }
+
+
+def test_one_mixed_field_replaces_the_three_pickers(h3_template):
+    names = {node.get("name") for field in _tab_fields(h3_template, "references") for node in _walk(field)}
+    assert "reference_videos" not in names
+    assert "reference_audios" not in names
+    assert _named_field(h3_template, "references", "references")["merge_from"] == [
+        "reference_videos", "reference_audios",
+    ]
+
+
+def test_a_kind_over_its_own_limit_is_refused_at_bind_time(h3_template):
+    from src.features.forms.binding import FormBindingError
+
+    too_many_videos = [{"path": f"/media/v{i}.mp4", "type": "video"} for i in range(4)]
+    with pytest.raises(FormBindingError, match="video"):
+        _process(h3_template, {"references": too_many_videos})
 
 
 def test_no_reference_field_is_individually_required(h3_template):
     """Any ONE of the three satisfies the request, which a per-field
     `required` cannot express -- the generator's `mode: references` guard is
     what refuses an empty set instead."""
-    for name in ("references", "reference_videos", "reference_audios"):
-        assert _named_field(h3_template, "references", name).get("required") is not True
+    assert _named_field(h3_template, "references", "references").get("required") is not True
     cfg = _pipe(_process(h3_template), "generator/video_minimax_h3")["config"]
     assert cfg["mode"] == "references"
 
@@ -156,10 +173,9 @@ def test_no_reference_field_is_individually_required(h3_template):
 def test_each_reference_field_ai_hint_states_its_own_label_numbering(h3_template):
     """The packed order is only usable by the assistant if each picker says
     which label its position maps to."""
-    for name, label in (
-        ("references", "<Picture 1>"), ("reference_videos", "<Video 1>"), ("reference_audios", "<Audio 1>"),
-    ):
-        assert label in _named_field(h3_template, "references", name)["ai_hint"]
+    hint = _named_field(h3_template, "references", "references")["ai_hint"]
+    for label in ("<Picture 1>", "<Video 1>", "<Audio 1>"):
+        assert label in hint
 
 
 def test_both_reference_consumers_read_the_same_loader(h3_template):
@@ -184,11 +200,7 @@ def test_every_modality_has_one_loader_that_both_consumers_read(h3_template):
     """The one-loader rule holds per KIND: two loaders over one field would
     let the encoder's order and the generator's drift with nothing downstream
     able to notice."""
-    pipes = _process(h3_template, {
-        "references": _REFERENCES,
-        "reference_videos": _REFERENCE_VIDEOS,
-        "reference_audios": _REFERENCE_AUDIOS,
-    })
+    pipes = _process(h3_template, {"references": _MIXED_REFERENCES})
     for loader_id, kind, encoder_input, generator_input, expected in (
         ("references", "image", "reference_image", "reference_images", _REFERENCES),
         ("reference_videos", "video", "reference_video", "reference_videos", _REFERENCE_VIDEOS),
@@ -206,21 +218,43 @@ def test_every_modality_has_one_loader_that_both_consumers_read(h3_template):
 
 
 def test_every_modality_s_raw_value_reaches_the_generator_for_the_count_check(h3_template):
-    cfg = _pipe(_process(h3_template, {
-        "references": _REFERENCES,
-        "reference_videos": _REFERENCE_VIDEOS,
-        "reference_audios": _REFERENCE_AUDIOS,
-    }), "generator/video_minimax_h3")["config"]
+    cfg = _pipe(_process(h3_template, {"references": _MIXED_REFERENCES}), "generator/video_minimax_h3")["config"]
     assert cfg["references"] == _REFERENCES
     assert cfg["reference_videos"] == _REFERENCE_VIDEOS
     assert cfg["reference_audios"] == _REFERENCE_AUDIOS
+
+
+def test_saved_data_with_the_three_old_keys_merges_into_the_one_field(h3_template):
+    pipes = _process(h3_template, {
+        "references": _REFERENCES,
+        "reference_videos": _REFERENCE_VIDEOS,
+        "reference_audios": _REFERENCE_AUDIOS,
+    })
+    for loader_id, kind, expected in (
+        ("references", "image", _REFERENCES),
+        ("reference_videos", "video", _REFERENCE_VIDEOS),
+        ("reference_audios", "audio", _REFERENCE_AUDIOS),
+    ):
+        assert _pipe(pipes, "media_loader", loader_id)["config"]["media"] == [
+            {"type": kind, "path": entry["path"]} for entry in expected
+        ]
+    cfg = _pipe(pipes, "generator/video_minimax_h3")["config"]
+    assert cfg["reference_videos"] == _REFERENCE_VIDEOS
+    assert cfg["reference_audios"] == _REFERENCE_AUDIOS
+
+
+def test_untyped_items_are_split_by_their_extension(h3_template):
+    pipes = _process(h3_template, {"references": ["/media/a.mp4", "/media/b.png", "/media/c.wav"]})
+    assert _pipe(pipes, "media_loader", "references")["config"]["media"] == [{"type": "image", "path": "/media/b.png"}]
+    assert _pipe(pipes, "media_loader", "reference_videos")["config"]["media"] == [{"type": "video", "path": "/media/a.mp4"}]
+    assert _pipe(pipes, "media_loader", "reference_audios")["config"]["media"] == [{"type": "audio", "path": "/media/c.wav"}]
 
 
 def test_a_video_only_request_renders_without_any_image_reference(h3_template):
     """The released contract allows a reference set with no images at all
     (only an audio-ONLY set is refused), so the preset has to be able to
     render one."""
-    pipes = _process(h3_template, {"references": [], "reference_videos": _REFERENCE_VIDEOS})
+    pipes = _process(h3_template, {"references": _REFERENCE_VIDEOS})
     assert _pipe(pipes, "media_loader", "references")["enabled"] is False
     assert _pipe(pipes, "media_loader", "reference_videos")["enabled"] is True
 
@@ -345,7 +379,7 @@ def test_the_video_director_is_wired_into_this_mode(h3_template):
     assert vd["preset_modes"] == ["video", "refs"]
     override = vd["preset_mode_overrides"]["refs"]
     assert override["references"] == "per_shot"
-    assert override["reference_fields"] == ["references", "reference_videos", "reference_audios"]
+    assert override["reference_fields"] == ["references"]
     director = override["modes"]["director"]
     assert "continuation" in director and director["continuation"] is None
 
@@ -409,6 +443,19 @@ def test_a_director_request_in_refs_mode_carries_per_shot_reference_selections(h
     assert encoder["config"]["reference_selections"] == [[0], [1], []]
     assert [pair["positive"] for pair in encoder["config"]["pairs"]] == [
         "<Picture 1> walks", "<Picture 1> at dusk", "an empty street",
+    ]
+
+
+def test_a_mixed_shot_cites_each_kind_at_its_packed_index(h3_template, refs_director_capabilities, tmp_path):
+    document = _director_document(refs_director_capabilities, str(tmp_path), [
+        {"id": "seg-0", "prompt": "@[references:/media/ref-walk.mp4] like @[references:/media/ref-cafe.png]", "frames": 124},
+        {"id": "seg-1", "prompt": "@[references:/media/ref-voice.wav] over @[references:/media/ref-woman.png]", "frames": 124},
+    ], {"references": _MIXED_REFERENCES}, h3_template.prompt_resources["refs"])
+    encoder = _pipe(_process(h3_template, {"references": _MIXED_REFERENCES, "video_director": document}),
+                    "prompt_encoder", "prompt_encoder_director")
+    assert encoder["config"]["reference_selections"] == [[1, 2], [0, 3]]
+    assert [pair["positive"] for pair in encoder["config"]["pairs"]] == [
+        "<Video 1> like <Picture 1>", "<Audio 1> over <Picture 1>",
     ]
 
 

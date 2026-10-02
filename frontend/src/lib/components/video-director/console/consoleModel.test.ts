@@ -205,7 +205,7 @@ const H3_REFS_PRESET_RAW = {
 	preset_mode_overrides: {
 		refs: {
 			references: 'per_shot',
-			reference_fields: ['references', 'reference_videos', 'reference_audios'],
+			reference_fields: ['references'],
 			modes: { director: { keyframes: null, audio: false, continuation: null, max_overlap_frames: null } }
 		}
 	}

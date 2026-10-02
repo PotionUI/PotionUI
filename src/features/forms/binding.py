@@ -67,6 +67,7 @@ from src.features.cloud.capability_rules import (
     coerce_param_value,
 )
 from src.features.forms.exceptions import FormNotFoundException
+from src.features.forms.merge_from import apply_merge_from
 from src.features.fields.lora_picker import LoraPicker
 from src.features.fields.resolution import Resolution
 from src.features.fields.image import Image
@@ -264,7 +265,7 @@ def bind_form(
     field_index: Dict[str, FieldTemplate] = {}
     _flatten_fields(resolved_fields, field_index)
 
-    raw = dict(raw_form_data or {})
+    raw = apply_merge_from(field_index.values(), raw_form_data or {})
     errors: List[str] = []
     field_errors: Dict[str, List[str]] = {}
     coercions: List[str] = []

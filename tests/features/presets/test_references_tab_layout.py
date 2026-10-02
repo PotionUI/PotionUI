@@ -56,7 +56,7 @@ CASES = [
     ("presets/marketplace/Krea2", "edit", {"source_image", "source_image_b"}),
     ("presets/marketplace/SDXL", "inpaint", {"source_image"}),
     ("presets/marketplace/TRELLIS2", "img2mesh", {"source_image"}),
-    ("presets/marketplace/MiniMax-H3", "refs", {"references", "reference_videos", "reference_audios"}),
+    ("presets/marketplace/MiniMax-H3", "refs", {"references"}),
     ("comfyui-backend/presets/FluxKlein9b", "img2img", {"input_image", "input_image_2"}),
     ("comfyui-backend/presets/LTX-2-3/official", "flf2v", {"first_frame", "last_frame"}),
     ("comfyui-backend/presets/LTX-2-3/official", "ia2v", {"source_image", "source_audio"}),

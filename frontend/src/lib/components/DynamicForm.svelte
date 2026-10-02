@@ -11,6 +11,7 @@
 	} from '$lib/form/reactions';
 	import { applyReactionValueChanges } from './dynamicFormReactionApply';
 	import { getSchemaDefaults } from '$lib/form/defaults';
+	import { applyMergeFrom } from '$lib/form/mergeFrom';
 	import { createLatestRequestGuard, getCachedSchema } from '$lib/form/schemaCache';
 	import { formAudienceStore } from '$lib/stores/formAudience';
 	import { applyAudienceVisibilityToSchema, resolveAudience, type FormAudience } from '$lib/utils/audienceFilter';
@@ -280,7 +281,7 @@
 
 			formSchema = schema;
 			const schemaDefaults = getSchemaDefaults(schema);
-			formData = mergeFormData(schemaDefaults, initialData);
+			formData = mergeFormData(schemaDefaults, applyMergeFrom(schema, initialData));
 			previousInitialDataKey = JSON.stringify(initialData);
 			initialLoadComplete = true;
 		} catch (error) {
@@ -389,8 +390,7 @@
 			// Get root schema for defaults
 			const schemaDefaults = getSchemaDefaults(schema);
 
-			// Merge initialData with schema defaults
-			const mergedData = mergeFormData(schemaDefaults, incoming);
+			const mergedData = mergeFormData(schemaDefaults, applyMergeFrom(schema, incoming));
 			formData = mergedData;
 		}
 	}

@@ -28,6 +28,10 @@ fields:
       multi: true
   - name: "anything"
     type: "media"
+  - name: "restricted"
+    type: "media"
+    configuration:
+      accepted_types: [image, video]
   - name: "steps"
     type: "slider"
 """
@@ -103,6 +107,15 @@ class TestPromptResourcesSchema:
         assert manifest is None
         assert any("mapped more than once" in error for error in errors)
 
+    def test_same_field_with_distinct_kinds_is_accepted(self):
+        manifest, errors = _manifest({"refs": [
+            {"field": "references", "kind": "image", "token": "<Picture @>"},
+            {"field": "references", "kind": "video", "token": "<Video @>"},
+            {"field": "references", "kind": "audio", "token": "<Audio @>"},
+        ]})
+        assert errors == []
+        assert [entry.kind for entry in manifest.prompt_resources["refs"]] == ["image", "video", "audio"]
+
     def test_unknown_entry_key_is_rejected(self):
         manifest, _ = _manifest({"refs": [
             {"field": "references", "kind": "image", "token": "<Picture @>", "index": 1},
@@ -124,6 +137,31 @@ class TestPromptResourcesLint:
       token: "<Audio @>"
 """)
         assert _resource_errors(tmp_path) == []
+
+    def test_several_kinds_on_one_media_field_pass(self, tmp_path):
+        _write_preset(tmp_path, """  refs:
+    - field: "anything"
+      kind: "image"
+      token: "<Picture @>"
+    - field: "anything"
+      kind: "video"
+      token: "<Video @>"
+""")
+        assert _resource_errors(tmp_path) == []
+
+    def test_kind_outside_the_field_accepted_types_is_error(self, tmp_path):
+        _write_preset(tmp_path, """  refs:
+    - field: "restricted"
+      kind: "image"
+      token: "<Picture @>"
+    - field: "restricted"
+      kind: "audio"
+      token: "<Audio @>"
+""")
+        errors = _resource_errors(tmp_path)
+        assert len(errors) == 1
+        assert "accepts ['image', 'video']" in errors[0]
+        assert "kind 'audio'" in errors[0]
 
     def test_unknown_field_is_error(self, tmp_path):
         _write_preset(tmp_path, """  refs:
@@ -190,8 +228,8 @@ class TestShippedPromptResources:
         preset = shipped_presets["MiniMax-H3"]
         assert preset.prompt_resources == {"refs": [
             {"field": "references", "kind": "image", "label": "Pictures", "token": "<Picture @>"},
-            {"field": "reference_videos", "kind": "video", "label": "Videos", "token": "<Video @>"},
-            {"field": "reference_audios", "kind": "audio", "label": "Audio", "token": "<Audio @>"},
+            {"field": "references", "kind": "video", "label": "Videos", "token": "<Video @>"},
+            {"field": "references", "kind": "audio", "label": "Audio", "token": "<Audio @>"},
         ]}
 
     def test_qwen_image21_edit_uses_the_encoder_image_label(self, shipped_presets):

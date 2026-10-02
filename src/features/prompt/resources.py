@@ -2,9 +2,11 @@ import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from src.features.forms.binding import FormBindingError
+from src.features.forms.merge_from import mode_merge_from_aliases, rewrite_merged_markers
 from src.features.presets.schema import PROMPT_RESOURCE_INDEX_PLACEHOLDER
+from src.features.prompt.markers import RESOURCE_MARKER_RE
+from src.platform.filesystem.media_kinds import items_of_kind, media_item_kind
 
-RESOURCE_MARKER_RE = re.compile(r"@\[([A-Za-z_][A-Za-z0-9_-]*):([^\]\r\n]+)\]")
 MEDIA_ITEM_KEY_FIELDS = ("relative_path", "path", "url")
 
 
@@ -27,11 +29,30 @@ def _field_items(value: Any) -> List[Any]:
     return [value]
 
 
-def _item_position(value: Any, item_key: str) -> Optional[int]:
-    for index, item in enumerate(_field_items(value), start=1):
+def _item_position(value: Any, item_key: str, kind: Optional[str] = None) -> Tuple[Optional[int], Any]:
+    position = 0
+    for item in _field_items(value):
+        if kind is not None and media_item_kind(item) != kind:
+            continue
+        position += 1
         if item_key in media_item_keys(item):
-            return index
-    return None
+            return position, item
+    return None, None
+
+
+def specs_by_field(resources: Iterable[Any]) -> Dict[str, List[Mapping[str, Any]]]:
+    grouped: Dict[str, List[Mapping[str, Any]]] = {}
+    for entry in resources or []:
+        if isinstance(entry, Mapping) and entry.get("field") and entry.get("token"):
+            grouped.setdefault(str(entry["field"]), []).append(entry)
+    return grouped
+
+
+def spec_for_item(specs: Sequence[Mapping[str, Any]], item: Any) -> Optional[Mapping[str, Any]]:
+    if len(specs) == 1:
+        return specs[0]
+    kind = media_item_kind(item)
+    return next((spec for spec in specs if spec.get("kind") == kind), None)
 
 
 def mode_prompt_resources(preset_template: Any, mode: Optional[str]) -> List[Dict[str, Any]]:
@@ -45,7 +66,7 @@ def resolve_prompt_resources(
 ) -> Tuple[str, Dict[str, List[str]]]:
     if not text or "@[" not in text:
         return text, {}
-    mapped = {entry["field"]: entry for entry in resources}
+    mapped = specs_by_field(resources)
     problems: Dict[str, List[str]] = {}
 
     def note(field: str, message: str) -> None:
@@ -55,14 +76,24 @@ def resolve_prompt_resources(
 
     def replace(match: "re.Match[str]") -> str:
         field, item_key = match.group(1), match.group(2)
-        spec = mapped.get(field)
-        if spec is None:
+        specs = mapped.get(field)
+        if not specs:
             note(field, f"the prompt references '{field}', which this mode's prompt cannot reference")
             return match.group(0)
-        position = _item_position(form_values.get(field), item_key)
+        position, item = _item_position(form_values.get(field), item_key)
         if position is None:
             note(field, f"the prompt references an item that was removed from this field ({item_key})")
             return match.group(0)
+        spec = spec_for_item(specs, item)
+        if spec is None:
+            note(
+                field,
+                f"the prompt references a {media_item_kind(item) or 'unrecognised'} item ({item_key}), "
+                "which this field's prompt cannot reference",
+            )
+            return match.group(0)
+        if len(specs) > 1:
+            position, _ = _item_position(form_values.get(field), item_key, spec.get("kind"))
         return spec["token"].replace(PROMPT_RESOURCE_INDEX_PLACEHOLDER, str(position))
 
     return RESOURCE_MARKER_RE.sub(replace, text), problems
@@ -108,6 +139,20 @@ def _has_marker(text: Any) -> bool:
     return isinstance(text, str) and RESOURCE_MARKER_RE.search(text) is not None
 
 
+def _rewrite_merged_fields(prompts: List[Any], segments: List[Any], aliases: Mapping[str, str]) -> None:
+    if not aliases:
+        return
+    for pair in prompts:
+        for channel in ("positive", "negative"):
+            text = getattr(pair, channel, None)
+            if isinstance(text, str):
+                setattr(pair, channel, rewrite_merged_markers(text, aliases))
+    for segment in segments:
+        text = getattr(segment, "text", None)
+        if isinstance(text, str):
+            segment.text = rewrite_merged_markers(text, aliases)
+
+
 def resolve_generation_prompts(
     preset_template: Any,
     mode: Optional[str],
@@ -121,6 +166,7 @@ def resolve_generation_prompts(
     texts.extend(getattr(segment, "text", None) for segment in segments)
     if not any(_has_marker(text) for text in texts):
         return
+    _rewrite_merged_fields(prompts, segments, mode_merge_from_aliases(preset_template, mode))
     resources = preset_template.prompt_resources.get(mode, [])
     resolve_prompt_pairs(prompts, resources, form_values)
     resolve_segment_texts(segments, resources, form_values)
@@ -149,6 +195,7 @@ def describe_prompt_resources(
     form_values: Mapping[str, Any],
 ) -> List[str]:
     entries = [entry for entry in resources or [] if isinstance(entry, Mapping) and entry.get("field") and entry.get("token")]
+    grouped = specs_by_field(entries)
     if not entries:
         return []
     lines = [
@@ -160,6 +207,8 @@ def describe_prompt_resources(
         token = str(entry["token"])
         label = entry.get("label") or field
         items = _field_items(form_values.get(field))
+        if len(grouped[field]) > 1:
+            items = items_of_kind(items, str(entry.get("kind")))
         pattern = token.replace(PROMPT_RESOURCE_INDEX_PLACEHOLDER, "N")
         if not items:
             lines.append(f"- {pattern} · {label} ({field}): no items yet, do not write this token")

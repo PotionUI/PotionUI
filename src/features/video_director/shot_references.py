@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from src.features.presets.schema import PROMPT_RESOURCE_INDEX_PLACEHOLDER
-from src.features.prompt.resources import RESOURCE_MARKER_RE, media_item_keys
+from src.features.prompt.resources import RESOURCE_MARKER_RE, media_item_keys, spec_for_item, specs_by_field
+from src.platform.filesystem.media_kinds import MEDIA_KINDS, media_item_kind
 
 
 @dataclass(frozen=True)
@@ -19,7 +20,11 @@ def packed_reference_pool(reference_fields: Sequence[str], form_data: Mapping[st
         raw = form_data.get(field)
         items = raw if isinstance(raw, list) else ([] if raw is None or raw == "" else [raw])
         pool.extend((field, item) for item in items if media_item_keys(item))
-    return pool
+    return sorted(pool, key=lambda entry: _kind_rank(media_item_kind(entry[1])))
+
+
+def _kind_rank(kind: Optional[str]) -> int:
+    return MEDIA_KINDS.index(kind) if kind in MEDIA_KINDS else len(MEDIA_KINDS)
 
 
 def _pool_index(pool: Sequence[Tuple[str, Any]], field: str, item_key: str) -> Optional[int]:
@@ -34,11 +39,7 @@ def derive_shot_references(
     pool: Sequence[Tuple[str, Any]],
     prompt_resources: Sequence[Mapping[str, Any]],
 ) -> ShotReferences:
-    specs: Dict[str, Mapping[str, Any]] = {
-        str(entry["field"]): entry
-        for entry in prompt_resources or []
-        if isinstance(entry, Mapping) and entry.get("field") and entry.get("token")
-    }
+    specs = specs_by_field(prompt_resources)
     problems: List[str] = []
     cited: set = set()
 
@@ -58,6 +59,12 @@ def derive_shot_references(
             if index is None:
                 note(f"the prompt references an item that was removed from this field ({item_key})")
                 continue
+            if spec_for_item(specs[field], pool[index][1]) is None:
+                note(
+                    f"the prompt references a {media_item_kind(pool[index][1]) or 'unrecognised'} item "
+                    f"({item_key}), which this field's prompt cannot reference"
+                )
+                continue
             cited.add(index)
 
     indices = sorted(cited)
@@ -65,17 +72,18 @@ def derive_shot_references(
     positions: Dict[int, int] = {}
     per_kind: Dict[str, int] = {}
     for index in indices:
-        kind = str(specs[pool[index][0]].get("kind") or pool[index][0])
+        spec = spec_for_item(specs[pool[index][0]], pool[index][1])
+        kind = str(spec.get("kind") or pool[index][0])
         per_kind[kind] = per_kind.get(kind, 0) + 1
         positions[index] = per_kind[kind]
         kinds.append(kind)
 
     def replace(match: Any) -> str:
         field, item_key = match.group(1), match.group(2)
-        spec = specs.get(field)
-        index = _pool_index(pool, field, item_key) if spec is not None else None
+        index = _pool_index(pool, field, item_key) if field in specs else None
         if index is None or index not in positions:
             return match.group(0)
+        spec = spec_for_item(specs[field], pool[index][1])
         return str(spec["token"]).replace(PROMPT_RESOURCE_INDEX_PLACEHOLDER, str(positions[index]))
 
     resolved = [

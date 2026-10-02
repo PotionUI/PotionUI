@@ -147,7 +147,8 @@ rather than failing preset validation.
 
 `prompt_resources:` lets the prompt reference items of a mode's media picker fields. The user
 types `@` in a segment, picks one uploaded item, and the model receives the token its own prompt
-convention uses for that item. Keys are mode names; each entry maps one field:
+convention uses for that item. Keys are mode names; each entry maps one field, or one kind of
+a field that holds several kinds:
 
 ```yaml
 prompt_resources:
@@ -156,10 +157,15 @@ prompt_resources:
       kind: "image"              # image | video | audio: the group in the @ picker
       label: "Pictures"          # optional group label
       token: "<Picture @>"       # @ becomes the item's 1-based position in the field
-    - field: "reference_videos"
+    - field: "references"        # the same field again, for its video items
       kind: "video"
       token: "<Video @>"
 ```
+
+A field mapped once numbers every item in it. A `media` field that accepts several kinds can be
+mapped once per kind (MiniMax-H3's `references` holds images, videos and audio): each entry then
+covers only that kind's items, and `@` is the item's position among the field's items of that
+kind. The marker carries no kind; it comes from the item's `type`, else its file extension.
 
 A segment stores a reference as the marker `@[<field>:<item key>]` in its `content`, plus an
 entry in its `resources` map (beside `chips`), keyed by the editor's marker id:
@@ -168,15 +174,16 @@ stored path: `relative_path`, else `path`, else `url` for an object item, or the
 
 At submit, before prompt expansion, every marker in the positive and negative prompts becomes
 the field's token with `@` replaced by the item's position in the field's **current** value, so
-reordering the pickers renumbers the prompt. Each field counts on its own (`<Picture 1>` and
-`<Video 1>` can both exist). Text that already says `<Picture 2>` is left alone.
+reordering the pickers renumbers the prompt. Each field, and each kind of a field mapped per kind,
+counts on its own (`<Picture 1>` and `<Video 1>` can both exist). Text that already says `<Picture 2>` is left alone.
 
 A marker whose field this mode does not map, or whose item is no longer in the field, stops the
 generation with the same 422 `form_validation_failed` response as any other form error, keyed by
 the field name. The form endpoint (`GET /api/presets/{id}/form?mode=...`) returns the mode's list
 as `prompt_resources` next to `form_schema`.
 
-`scripts/preset_lint.py` rejects a token without `@`, an unknown `kind`, a field mapped twice, a
+`scripts/preset_lint.py` rejects a token without `@`, an unknown `kind`, a field mapped twice for
+the same kind, a kind the field's `accepted_types` leaves out, a
 mode the preset does not declare, a field no form of that mode has, a non-media field, and a
 `kind` that contradicts an `image`/`video`/`audio` field's type. Only map a token the model was
 trained on (see its `llm:` guide or model notes); leave a field out rather than invent one.

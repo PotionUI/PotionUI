@@ -221,6 +221,20 @@ class FieldSpec(BaseModel):
     hidden_when_video_director: Optional[bool] = False
     capability: Optional[CapabilitySpec] = None
     formula: Optional[Union[StrictStr, Literal[False]]] = None
+    merge_from: Optional[List[str]] = None
+
+    @model_validator(mode="after")
+    def _validate_merge_from(self) -> "FieldSpec":
+        if self.merge_from is None:
+            return self
+        for key in self.merge_from:
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError(f"field '{self.name}' ({self.type}): `merge_from` entries must be non-empty strings")
+            if key == self.name:
+                raise ValueError(f"field '{self.name}' ({self.type}): `merge_from` cannot list the field itself")
+        if len(set(self.merge_from)) != len(self.merge_from):
+            raise ValueError(f"field '{self.name}' ({self.type}): `merge_from` lists a key more than once")
+        return self
 
     @model_validator(mode="after")
     def _validate_capability(self) -> "FieldSpec":
@@ -749,9 +763,13 @@ def _validate_prompt_resources(prompt_resources: Dict[str, List[PromptResourceSp
             continue
         seen = set()
         for entry in entries:
-            if entry.field in seen:
-                problems.append(f"prompt_resources.{mode}: field '{entry.field}' is mapped more than once")
-            seen.add(entry.field)
+            pair = (entry.field, entry.kind)
+            if pair in seen:
+                problems.append(
+                    f"prompt_resources.{mode}: field '{entry.field}' is mapped more than once as kind "
+                    f"'{entry.kind}'; a field can be mapped again only for a different kind"
+                )
+            seen.add(pair)
     return problems
 
 

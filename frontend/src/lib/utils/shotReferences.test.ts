@@ -167,3 +167,50 @@ describe('withMarkerAppendedToShot', () => {
 		expect(shotReferenceOverview(next, caps, 'shot-1', formData, specs).used.map((e) => e.itemKey)).toEqual(['/pool/a.png']);
 	});
 });
+
+describe('one field carrying several kinds', () => {
+	const mixedSpecs: PromptResourceSpec[] = [
+		{ field: 'references', kind: 'image', label: 'Pictures', token: '<Picture @>' },
+		{ field: 'references', kind: 'video', label: 'Videos', token: '<Video @>' },
+		{ field: 'references', kind: 'audio', label: 'Audio', token: '<Audio @>' }
+	];
+	const mixedForm = {
+		references: [
+			{ path: '/pool/t.wav', type: 'audio' },
+			{ path: '/pool/a.png', type: 'image' },
+			{ path: '/pool/v.mp4', type: 'video' },
+			{ path: '/pool/b.png' }
+		]
+	};
+	const mixedCaps = { ...chainCaps, referenceFields: ['references'] } as unknown as DirectorCapabilities;
+
+	it('numbers each cited item within its own kind', () => {
+		const doc = chainDoc([
+			segment('s1', [
+				{
+					id: 'p1',
+					content: '@[references:/pool/v.mp4] like @[references:/pool/b.png] over @[references:/pool/t.wav]'
+				}
+			])
+		]);
+		const { used, unused } = shotReferenceOverview(doc, mixedCaps, 's1', mixedForm, mixedSpecs);
+		expect(used.map((e) => [e.itemKey, e.kind, e.handle])).toEqual([
+			['/pool/t.wav', 'audio', 'Audio 1'],
+			['/pool/v.mp4', 'video', 'Video 1'],
+			['/pool/b.png', 'image', 'Picture 1']
+		]);
+		expect(unused.map((e) => [e.itemKey, e.kind])).toEqual([['/pool/a.png', 'image']]);
+		const numbering = shotResourceNumbering(doc, mixedCaps, 's1', mixedForm, mixedSpecs);
+		expect(numbering.positionFor('references', '/pool/b.png')).toBe(1);
+		expect(numbering.positionFor('references', '/pool/v.mp4')).toBe(1);
+	});
+
+	it('counts a second cited image after the first', () => {
+		const doc = chainDoc([
+			segment('s1', [{ id: 'p1', content: '@[references:/pool/b.png] and @[references:/pool/a.png]' }])
+		]);
+		const numbering = shotResourceNumbering(doc, mixedCaps, 's1', mixedForm, mixedSpecs);
+		expect(numbering.positionFor('references', '/pool/a.png')).toBe(1);
+		expect(numbering.positionFor('references', '/pool/b.png')).toBe(2);
+	});
+});

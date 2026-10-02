@@ -70,6 +70,7 @@ class FieldTemplate:
     hidden_when_video_director: bool = False
     capability: Optional[Dict[str, Any]] = None
     formula: Union[str, Literal[False], None] = None
+    merge_from: Optional[List[str]] = None
     # Synthetic, never authored in preset.yml (FieldSpec's `extra="forbid"`
     # rejects it there) - set by src/features/presets/form_overrides.py when
     # an admin per-field override locks this field (`editable: false`).

@@ -61,7 +61,7 @@ function blankChainSegment(id: string, duration: number, overrides: Partial<Chai
 	};
 }
 
-const H3_REFS_PRESET_RAW = {
+const MIXED_MEDIA_PRESET_RAW = {
 	preset_modes: ['video', 'refs'],
 	segment_routing: true,
 	modes: {
@@ -82,20 +82,20 @@ const H3_REFS_PRESET_RAW = {
 	preset_mode_overrides: {
 		refs: {
 			references: 'per_shot',
-			reference_fields: ['references', 'reference_videos', 'reference_audios'],
+			reference_fields: ['references'],
 			modes: { director: { keyframes: null, audio: false, continuation: null, max_overlap_frames: null } }
 		}
 	}
 };
 
-function h3RefsCaps(): DirectorCapabilities {
-	return resolveDirectorCapabilities(H3_REFS_PRESET_RAW, 'refs')!;
+function mixedMediaCaps(): DirectorCapabilities {
+	return resolveDirectorCapabilities(MIXED_MEDIA_PRESET_RAW, 'refs')!;
 }
 
-const H3_REFS_PROMPT_RESOURCES: PromptResourceSpec[] = [
+const MIXED_MEDIA_PROMPT_RESOURCES: PromptResourceSpec[] = [
 	{ field: 'references', kind: 'image', label: 'Pictures', token: '<Picture @>' },
-	{ field: 'reference_videos', kind: 'video', label: 'Videos', token: '<Video @>' },
-	{ field: 'reference_audios', kind: 'audio', label: 'Audio', token: '<Audio @>' }
+	{ field: 'references', kind: 'video', label: 'Videos', token: '<Video @>' },
+	{ field: 'references', kind: 'audio', label: 'Audio', token: '<Audio @>' }
 ];
 
 async function settle() {
@@ -128,8 +128,8 @@ afterEach(() => {
 });
 
 describe('VideoDirectorEditor: prompt-resource `@` picker reaches the shot prompt editor', () => {
-	it('lists the mode\'s mapped reference groups when @ is typed inside a shot beat', async () => {
-		const caps = h3RefsCaps();
+	it('lists one group per kind of a mixed media field when @ is typed inside a shot beat', async () => {
+		const caps = mixedMediaCaps();
 		const initial = baseDoc();
 		initial.chain = {
 			fps: 24,
@@ -139,9 +139,11 @@ describe('VideoDirectorEditor: prompt-resource `@` picker reaches the shot promp
 			audio: []
 		};
 		const formData = {
-			references: [{ relative_path: 'a.png' }, { relative_path: 'b.png' }],
-			reference_videos: [],
-			reference_audios: [{ relative_path: 'c.mp3' }]
+			references: [
+				{ relative_path: 'a.png', type: 'image' },
+				{ relative_path: 'b.png', type: 'image' },
+				{ relative_path: 'c.mp3', type: 'audio' }
+			]
 		};
 
 		const target = document.createElement('div');
@@ -155,7 +157,7 @@ describe('VideoDirectorEditor: prompt-resource `@` picker reaches the shot promp
 				capabilities: caps,
 				presetId: 'test-preset',
 				formData,
-				promptResources: H3_REFS_PROMPT_RESOURCES,
+				promptResources: MIXED_MEDIA_PROMPT_RESOURCES,
 				onChange: vi.fn()
 			}
 		});
@@ -179,5 +181,7 @@ describe('VideoDirectorEditor: prompt-resource `@` picker reaches the shot promp
 		expect(text).toContain('2 available');
 		expect(text).toContain('Audio');
 		expect(text).toContain('1 available');
+		expect(text).toContain('No videos added yet');
+		expect(text).not.toContain('3 available');
 	});
 });

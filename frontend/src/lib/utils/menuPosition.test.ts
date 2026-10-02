@@ -283,7 +283,7 @@ describe('computeFlippedMenuPosition with a bottom inset', () => {
 		const trigger = fakeTrigger({ top: 600, bottom: 640, left: 100, right: 200 });
 		const free = computeFlippedMenuPosition(trigger, { heightEstimate: 220, bottomInset: 0 });
 		const docked = computeFlippedMenuPosition(trigger, { heightEstimate: 220, bottomInset: 82 });
-		expect(free.top).toBeDefined();
-		expect(docked.bottom).toBeDefined();
+		expect(free).toEqual({ left: 100, top: 640 + MENU_GAP, maxHeight: 900 - 640 - MENU_GAP - MENU_EDGE_GUTTER });
+		expect(docked).toEqual({ left: 100, bottom: 900 - 600 + MENU_GAP, maxHeight: 600 - MENU_GAP - MENU_EDGE_GUTTER });
 	});
 });

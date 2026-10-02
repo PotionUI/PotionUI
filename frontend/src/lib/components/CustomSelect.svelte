@@ -1,3 +1,7 @@
+<script lang="ts" context="module">
+	let selectInstances = 0;
+</script>
+
 <script lang="ts">
 	import { createEventDispatcher, tick } from 'svelte';
 	import { computeSelectMenuPlacement, dockInsetFor } from '$lib/utils/menuPosition';
@@ -22,6 +26,8 @@
 	let inputRef: HTMLElement;
 	let dropdownPosition = { top: 0, bottom: 0, left: 0, width: 0, openUpward: false, maxHeight: 256 };
 	let activeIndex = 0;
+	const optionIdPrefix = `custom-select-${++selectInstances}-option-`;
+	$: activeOptionId = isDropdownOpen && filteredOptions[activeIndex] ? `${optionIdPrefix}${activeIndex}` : undefined;
 
 	$: selectedOption = options.find((opt) => opt.value === value);
 	$: displayValue = filterText || selectedOption?.label || '';
@@ -72,7 +78,7 @@
 	}
 
 	function scrollActiveIntoView() {
-		dropdownRef?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView?.({ block: 'nearest' });
+		dropdownRef?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
 	}
 
 	async function moveActive(next: number) {
@@ -173,6 +179,7 @@
 				{disabled}
 				aria-expanded={isDropdownOpen}
 				aria-haspopup="listbox"
+				aria-activedescendant={activeOptionId}
 				class="w-full {sizeClasses[
 					size
 				]} pr-8 bg-surface-2 border {isDropdownOpen
@@ -192,6 +199,7 @@
 					: 'border-line-hover'} rounded focus:outline-none focus:border-signal hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
 				aria-expanded={isDropdownOpen}
 				aria-haspopup="listbox"
+				aria-activedescendant={activeOptionId}
 			>
 				{#if selectedOption}
 					<span class="block truncate text-fg">{selectedOption.label}</span>
@@ -242,10 +250,12 @@
 			{#each filteredOptions as option, index}
 				<button
 					type="button"
-					class="w-full text-left px-4 py-2.5 transition-colors border-b border-line-strong last:border-b-0 {option.value ===
-					value
-						? 'bg-signal/10'
-						: 'hover:bg-surface-3'} {index === activeIndex ? 'bg-surface-3' : ''}"
+					id="{optionIdPrefix}{index}"
+					class="w-full text-left px-4 py-2.5 transition-colors border-b border-line-strong last:border-b-0 {index === activeIndex
+						? 'bg-surface-3'
+						: option.value === value
+							? 'bg-signal/10'
+							: 'hover:bg-surface-3'}"
 					on:click={() => handleOptionSelect(option.value)}
 					role="option"
 					data-active={index === activeIndex}

@@ -33,7 +33,8 @@ export default defineConfig({
 		setupFiles: [
 			'tests/component/setup/webAnimations.ts',
 			'tests/component/setup/resizeObserver.ts',
-			'tests/component/setup/matchMedia.ts'
+			'tests/component/setup/matchMedia.ts',
+			'tests/component/setup/scrollIntoView.ts'
 		]
 	}
 });

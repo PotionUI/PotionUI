@@ -383,7 +383,7 @@
 	$: queueText = queueDepth > 0 ? `${queueDepth} ${queueDepth === 1 ? 'job' : 'jobs'}` : 'empty';
 </script>
 
-<div class="generation-panel" data-state={dataState} aria-label="Generation controls">
+<div class="generation-panel" data-menu-dock data-state={dataState} aria-label="Generation controls">
 	<GenerationPanelIconSprite />
 
 	<!-- Backdrop for drawer -->

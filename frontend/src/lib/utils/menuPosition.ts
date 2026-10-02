@@ -34,7 +34,7 @@ export function computeAnchoredMenuPosition(
 export function dockInsetFor(trigger: HTMLElement): number {
 	if (typeof document === 'undefined' || typeof trigger.closest !== 'function') return 0;
 	if (trigger.closest('[role="dialog"]')) return 0;
-	const dock = document.querySelector('.generation-panel');
+	const dock = document.querySelector('[data-menu-dock]');
 	if (!dock) return 0;
 	const rect = dock.getBoundingClientRect();
 	if (rect.height <= 0) return 0;

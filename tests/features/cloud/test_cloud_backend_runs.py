@@ -121,6 +121,49 @@ async def test_a_third_run_waits_for_a_free_slot(run):
     await run.drained()
 
 
+async def test_cancelling_a_run_while_it_is_being_dispatched_never_starts_it(run):
+    await run.submit("gen-1")
+    await run.submit("gen-2")
+    await run.submit("gen-3")
+    while run.behaviour.calls.count("submit") < 2:
+        await asyncio.sleep(0)
+
+    tracker = run.orchestrator.status_tracker
+    reached = asyncio.Event()
+    gate = asyncio.Event()
+    real_transition = tracker.transition_async
+
+    async def gated(generation_id, state, *args, **kwargs):
+        if generation_id == "gen-3" and state == GenerationState.RUNNING:
+            reached.set()
+            await gate.wait()
+        return await real_transition(generation_id, state, *args, **kwargs)
+
+    tracker.transition_async = gated
+    try:
+        await run.orchestrator.cancel_generation("gen-1")
+        await asyncio.wait_for(reached.wait(), 10)
+        await run.orchestrator.cancel_generation("gen-3")
+    finally:
+        gate.set()
+        tracker.transition_async = real_transition
+
+    running = run.orchestrator.queue.running_generation_ids
+
+    async def slot_freed():
+        while "gen-3" in running(run.backend.backend_id):
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(slot_freed(), 10)
+
+    assert tracker.get("gen-3").state == GenerationState.CANCELLED
+    assert "gen-3" not in run.backend._runs
+    assert run.behaviour.calls.count("submit") == 2
+
+    await run.orchestrator.cancel_generation("gen-2")
+    await run.drained()
+
+
 @pytest.fixture
 def temp_root(tmp_path, monkeypatch):
     import tempfile

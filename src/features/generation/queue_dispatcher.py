@@ -20,6 +20,10 @@ from src.features.generation.status_tracker import (
 logger = logging.getLogger(__name__)
 
 
+class CancelledBeforeStart(Exception):
+    pass
+
+
 class QueueDispatcher:
     """Owns the generation queue and drives dispatch of queued work.
 
@@ -113,7 +117,10 @@ class QueueDispatcher:
         meaningful, so `duration_ms` measures execution and not queue wait.
         """
         payload = item.payload
-        await self.status_tracker.transition_async(item.generation_id, GenerationState.RUNNING)
+        record = await self.status_tracker.transition_async(item.generation_id, GenerationState.RUNNING)
+        if record is not None and record.state == GenerationState.CANCELLED:
+            await self.queue.release(item.backend_id, item.generation_id)
+            return
 
         if self._queue_listener is not None:
             try:
@@ -127,13 +134,16 @@ class QueueDispatcher:
             except Exception as e:
                 logger.error(f"Failed to publish queue start for {item.generation_id}: {e}")
 
-        await self._dispatch(
-            item.generation_id,
-            payload['request'],
-            payload['backend'],
-            payload['db_generation'],
-            payload['output_callback'],
-        )
+        try:
+            await self._dispatch(
+                item.generation_id,
+                payload['request'],
+                payload['backend'],
+                payload['db_generation'],
+                payload['output_callback'],
+            )
+        except CancelledBeforeStart:
+            await self.queue.release(item.backend_id, item.generation_id)
 
     def prune_finished(self) -> None:
         """Drop terminal-state records older than the default age from the

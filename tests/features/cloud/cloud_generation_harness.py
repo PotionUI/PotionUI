@@ -278,6 +278,9 @@ class CloudGeneration:
 
     generation_id = "gen-1"
 
-    async def drained(self) -> None:
-        while self.backend._runs:
-            await asyncio.sleep(0)
+    async def drained(self, timeout: float = 20.0) -> None:
+        async def empty() -> None:
+            while self.backend._runs:
+                await asyncio.sleep(0)
+
+        await asyncio.wait_for(empty(), timeout)

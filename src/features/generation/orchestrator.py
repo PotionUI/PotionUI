@@ -63,7 +63,7 @@ from src.features.generation.pipeline_builder import PipelineBuilder
 from src.features.generation.output_processor import OutputProcessor
 from src.features.generation.output_bridge import OutputBridge
 from src.features.generation.queue import QueuedGeneration
-from src.features.generation.queue_dispatcher import QueueDispatcher
+from src.features.generation.queue_dispatcher import CancelledBeforeStart, QueueDispatcher
 from src.features.generation.scheduling import SchedulingPolicy
 from src.features.generation.prompt_expansion import PromptExpander
 from src.features.generation.notifier import GenerationNotifier
@@ -1398,6 +1398,8 @@ class GenerationOrchestrator:
                 self._queue_dispatcher.prune_finished()
                 raise BannedPromptRefused(failure.message)
 
+        self._raise_if_cancelled_before_start(generation_id)
+
         mode = db_generation.mode
 
         logger.debug(f"Building pipeline: mode={mode}, prompts_count={len(prompts) if prompts else 0}")
@@ -1447,11 +1449,25 @@ class GenerationOrchestrator:
             payload = built_pipeline.to_backend_payload()
             if backend.engine == CLOUD_ENGINE and db_generation.user_id:
                 payload['user_ref'] = cloud_user_ref(backend.backend_id, db_generation.user_id)
+            self._raise_if_cancelled_before_start(generation_id)
             await backend.start_generation(payload, bridge.emit)
         except BaseException:
             self._run_backends.pop(generation_id, None)
             raise
+        if self._cancelled_before_start(generation_id):
+            await backend.cancel_generation(generation_id)
         logger.info(f"Generation {generation_id} started successfully on {backend.name}")
+
+    def _cancelled_before_start(self, generation_id: str) -> bool:
+        record = self.status_tracker.get(generation_id)
+        return generation_id in self._cancel_requested or (
+            record is not None and record.state == GenerationState.CANCELLED
+        )
+
+    def _raise_if_cancelled_before_start(self, generation_id: str) -> None:
+        if self._cancelled_before_start(generation_id):
+            self._cancel_requested.discard(generation_id)
+            raise CancelledBeforeStart(generation_id)
 
     async def _record_failure(self, generation_id: str, failure: GenerationFailure) -> None:
         before = self.status_tracker.get(generation_id)

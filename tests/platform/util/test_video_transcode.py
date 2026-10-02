@@ -1,9 +1,13 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from src.platform.util import video_transcode as vt
+
+
+DETECT = vt.ffmpeg_supports_fps_mode.__wrapped__
 
 
 def _probe_payload(codec="vp9", audio=False):
@@ -74,6 +78,11 @@ class TestCommand:
         assert vt.target_fps(25.0, 12) == 12.0
 
 
+@pytest.fixture(autouse=True)
+def modern_ffmpeg(monkeypatch):
+    monkeypatch.setattr(vt, "ffmpeg_supports_fps_mode", lambda ffmpeg: True)
+
+
 class TestTranscode:
     def test_missing_ffmpeg_raises_before_writing(self, tmp_path, monkeypatch):
         monkeypatch.setattr(vt, "find_ffmpeg", lambda: None)
@@ -138,3 +147,82 @@ class TestTranscode:
     def test_probe_without_ffprobe_is_none(self, tmp_path, monkeypatch):
         monkeypatch.setattr(vt, "find_ffprobe", lambda: None)
         assert vt.probe_video(tmp_path / "a.mp4") is None
+
+
+class TestFfmpegVersion:
+    @pytest.mark.parametrize("banner,expected", [
+        ("ffmpeg version 5.1.2 Copyright (c) 2000-2022", (5, 1)),
+        ("ffmpeg version n6.0 Copyright", (6, 0)),
+        ("ffmpeg version 4.4.2-0ubuntu0.22.04.1 Copyright", (4, 4)),
+        ("ffmpeg version N-109406-gdeadbeef Copyright", None),
+        ("", None),
+    ])
+    def test_reads_major_and_minor(self, banner, expected):
+        assert vt.parse_ffmpeg_version(banner) == expected
+
+    @pytest.mark.parametrize("banner,supported", [
+        ("ffmpeg version 4.4.2", False),
+        ("ffmpeg version 5.0.1", False),
+        ("ffmpeg version 5.1", True),
+        ("ffmpeg version 7.0", True),
+        ("ffmpeg version N-109406-gdeadbeef", True),
+    ])
+    def test_old_builds_do_not_get_fps_mode(self, monkeypatch, banner, supported):
+        monkeypatch.setattr(vt.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0, stdout=banner, stderr=""))
+        assert DETECT("ffmpeg-under-test") is supported
+
+    def test_an_unrunnable_ffmpeg_keeps_the_modern_flag(self, monkeypatch):
+        def broken(*a, **k):
+            raise OSError("no exec")
+
+        monkeypatch.setattr(vt.subprocess, "run", broken)
+        assert DETECT("ffmpeg-under-test") is True
+
+    def test_an_old_build_gets_vsync_instead(self, tmp_path):
+        cmd = vt.build_transcode_command("ffmpeg", tmp_path / "a.mp4", tmp_path / "o.tmp",
+                                         vt.TranscodeSpec(container="webm"), fps_mode=False)
+        assert cmd[cmd.index("-vsync") + 1] == "cfr"
+        assert "-fps_mode" not in cmd
+
+    def test_transcode_passes_the_detected_capability_on(self, tmp_path, monkeypatch):
+        seen = []
+        monkeypatch.setattr(vt, "find_ffmpeg", lambda: "ffmpeg")
+        monkeypatch.setattr(vt, "probe_video", lambda path: None)
+        monkeypatch.setattr(vt, "ffmpeg_supports_fps_mode", lambda ffmpeg: False)
+
+        def run(command, **_kwargs):
+            seen.append(command)
+            Path(command[-1]).write_bytes(b"x")
+            return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+        monkeypatch.setattr(vt.subprocess, "run", run)
+        vt.transcode_video(tmp_path / "a.mp4", tmp_path / "o.mp4", vt.TranscodeSpec(container="mp4"))
+        assert "-vsync" in seen[0] and "-fps_mode" not in seen[0]
+
+
+class TestFailureReporting:
+    def test_the_error_carries_the_end_of_ffmpegs_complaint(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(vt, "find_ffmpeg", lambda: "ffmpeg")
+        monkeypatch.setattr(vt, "probe_video", lambda path: None)
+        monkeypatch.setattr(
+            vt.subprocess, "run",
+            lambda command, **_k: SimpleNamespace(returncode=1, stderr="x" * 5000 + "Unrecognized option 'fps_mode'.\n", stdout=""),
+        )
+        with pytest.raises(vt.VideoTranscodeError) as raised:
+            vt.transcode_video(tmp_path / "a.mp4", tmp_path / "o.webm", vt.TranscodeSpec(container="webm"))
+        assert str(raised.value).endswith("Unrecognized option 'fps_mode'.")
+        assert len(str(raised.value)) < 400
+
+    def test_a_clip_that_vanishes_before_probing_is_not_an_error(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(vt, "find_ffprobe", lambda: "ffprobe")
+        monkeypatch.setattr(
+            vt.subprocess, "run",
+            lambda *a, **k: SimpleNamespace(returncode=0, stdout=json.dumps(_probe_payload()), stderr=""),
+        )
+        assert vt.probe_video(tmp_path / "gone.mp4") is None
+
+    def test_paths_that_start_with_a_dash_cannot_pass_for_options(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        cmd = vt.build_transcode_command("ffmpeg", Path("-evil.mp4"), Path("-out.tmp"), vt.TranscodeSpec(container="webm"))
+        assert cmd[cmd.index("-i") + 1] == str(tmp_path / "-evil.mp4")
+        assert cmd[-1] == str(tmp_path / "-out.tmp")

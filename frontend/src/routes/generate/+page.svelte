@@ -49,8 +49,9 @@
 	import { createRequestContextCache, resolveRequestContext } from '$lib/generation/requestContext';
 	import { createCapabilityTracker, sharedCapabilityCache } from '$lib/form/capabilityTracker';
 	import { fetchCloudCapabilities } from '$lib/services/cloudCapabilities';
+	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import { fetchCloudEstimate } from '$lib/services/cloudEstimate';
-	import { describeEstimate, directorOverlayFrom, estimateShotsFor, hostedRetryNotice, planHostedRetry, selectedCloudModelId, type DirectorModelOverlay } from '$lib/utils/cloudDirector';
+	import { confirmHostedRetry, describeEstimate, directorOverlayFrom, estimateShotsFor, planHostedRetry, selectedCloudModelId, type DirectorModelOverlay } from '$lib/utils/cloudDirector';
 	import {
 		directorShotInputIdentity,
 		directorPredecessorShotId,
@@ -450,6 +451,19 @@
 	 * resubmission that must not disturb other shots' already-displayed
 	 * posters or the rest of the tab's generation UI.
 	 */
+	let restartAsk: { title: string; message: string; settle: (ok: boolean) => void } | null = null;
+	function askRestart(confirmation: { title: string; message: string }): Promise<boolean> {
+		return new Promise((resolve) => {
+			restartAsk = {
+				...confirmation,
+				settle: (ok) => {
+					restartAsk = null;
+					resolve(ok);
+				}
+			};
+		});
+	}
+
 	async function submitVideoDirectorShots(tabId: string, shotIds: string[]): Promise<void> {
 		const tab = $tabsStore.tabs.find((t) => t.id === tabId);
 		if (!tab || !tab.selectedPreset || shotIds.length === 0) return;
@@ -460,7 +474,14 @@
 		const retry = planHostedRetry(baseDoc, caps, tab.directorRuns, shotIds);
 		const doc = retry.doc;
 		shotIds = retry.shotIds;
-		if (retry.kind === 'restart') toasts.info(hostedRetryNotice(caps));
+		const modelId = selectedCloudModelId(tab.formData);
+		const proceed = await confirmHostedRetry(
+			retry,
+			caps,
+			async () => (isAdmin && modelId ? fetchCloudEstimate(modelId, estimateShotsFor(doc, tab.formData, shotIds)) : null),
+			askRestart
+		);
+		if (!proceed) return;
 		// Gated to exactly the requested shots (Retry's one id, or a broken
 		// join's contiguous span) -- an unrelated shot's own problems must
 		// never block this targeted resubmission (directorPlanner.ts).
@@ -1975,6 +1996,17 @@
 	{/if}
 
 </div>
+
+{#if restartAsk}
+	<ConfirmModal
+		isOpen={true}
+		title={restartAsk.title}
+		message={restartAsk.message}
+		variant="warning"
+		on:confirm={() => restartAsk?.settle(true)}
+		on:cancel={() => restartAsk?.settle(false)}
+	/>
+{/if}
 
 <style>
 	/* Custom scrollbar for panels */

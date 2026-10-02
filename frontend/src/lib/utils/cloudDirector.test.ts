@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
 	applyModelOverlay,
 	describeEstimate,
@@ -10,6 +10,8 @@ import {
 	planHostedRetry,
 	hostedRetryKind,
 	hostedRetryNotice,
+	hostedRestartConfirmation,
+	confirmHostedRetry,
 	selectedCloudModelId,
 	snapShotLengths,
 	followModelDefaultLengths,
@@ -583,5 +585,98 @@ describe('model default lengths', () => {
 		const doc = blank(native, 5);
 		expect(followModelDefaultLengths(doc, native)).toBe(doc);
 		expect(withDefaultLengthShot(doc, native, 'a')).toBe(doc);
+	});
+});
+
+describe('a retry never pays for finished shots silently', () => {
+	const savedRuns = {
+		a: run({ status: 'done', posterUrl: '/clips/a.mp4', outputPath: 'generations/d/g/a.mp4' }),
+		b: run({ status: 'done', posterUrl: '/clips/b.mp4', outputPath: 'generations/d/g/b.mp4' }),
+		c: run({ status: 'failed' }),
+		d: run({ status: 'failed' })
+	};
+
+	it('hands over the previous saved clip for a model that starts from a picture, without the preset declaring the flag', () => {
+		const { continue_from_video: _declared, ...directorWithoutFlag } = presetBlock.modes.director;
+		const bare = parseDirectorCapabilities({
+			...presetBlock,
+			modes: { ...presetBlock.modes, director: directorWithoutFlag },
+			model_label: 'Fake Video'
+		});
+		expect(bare!.modes.director?.continueFromVideo).toBeUndefined();
+		const doc = film(bare!, [segment('a', 4), segment('b', 4), segment('c', 4), segment('d', 4)]);
+
+		const plan = planHostedRetry(doc, bare!, savedRuns, ['c']);
+
+		expect(plan.kind).toBe('handoff');
+		expect(plan.shotIds).toEqual(['c', 'd']);
+		expect(plan.handoffFrom).toBe('b');
+	});
+
+	it('never resubmits the shots that finished when the previous clip is saved', () => {
+		const caps = capsFor(fullOverlay);
+		const doc = film(caps, [segment('a', 4), segment('b', 4), segment('c', 4), segment('d', 4)]);
+
+		expect(planHostedRetry(doc, caps, savedRuns, ['d']).shotIds).toEqual(['c', 'd']);
+	});
+
+	it('treats a model that cannot start a shot from a picture as hard cuts, so only the retried shots are made', () => {
+		const cuts = capsFor({ label: 'Fake Text', raw: { modes: { i2v: null, flf: null, director: { keyframes: null, continue_from_video: false } } } });
+		const doc = film(cuts, [segment('a', 4), segment('b', 4), segment('c', 4), segment('d', 4)]);
+
+		const plan = planHostedRetry(doc, cuts, savedRuns, ['d']);
+
+		expect(plan.kind).not.toBe('restart');
+		expect(plan.shotIds).toEqual(['c', 'd']);
+	});
+
+	it('names the shots it would redo and what they cost before asking', () => {
+		const caps = capsFor({ label: 'Fake Text', raw: { modes: { director: { continue_from_video: false } } } });
+		const doc = film(caps, [segment('a', 4), segment('b', 4), segment('c', 4)]);
+		const plan = planHostedRetry(doc, caps, { a: run({ status: 'done', posterUrl: '/a.mp4' }), b: run({ status: 'failed' }) }, ['b']);
+
+		const ask = hostedRestartConfirmation(caps, plan, { shots: 3, total_usd: '0.60', known: true });
+
+		expect(ask.message).toContain('shots 1 to 3');
+		expect(ask.message).toContain('About $0.60 for 3 shots');
+		expect(hostedRestartConfirmation(caps, plan, null).message).toContain('Price unknown');
+		expect(hostedRestartConfirmation(caps, plan, { shots: 3, total_usd: null, known: false }).message).toContain('Price unknown for 3 shots');
+	});
+
+	describe('confirmHostedRetry', () => {
+		const caps = capsFor({ label: 'Fake Text', raw: { modes: { director: { continue_from_video: false } } } });
+		const doc = film(caps, [segment('a', 4), segment('b', 4), segment('c', 4)]);
+		const lostClip = { a: run({ status: 'done', posterUrl: '/a.mp4' }), b: run({ status: 'failed' }) };
+
+		it('asks before a whole film is redone and stops when declined', async () => {
+			const plan = planHostedRetry(doc, caps, lostClip, ['b']);
+			const ask = vi.fn().mockResolvedValue(false);
+
+			const go = await confirmHostedRetry(plan, caps, async () => ({ shots: 3, total_usd: '0.30', known: true }), ask);
+
+			expect(go).toBe(false);
+			expect(ask).toHaveBeenCalledTimes(1);
+			expect(ask.mock.calls[0][0].message).toContain('About $0.30 for 3 shots');
+		});
+
+		it('goes ahead only after a yes, and still asks when the price cannot be loaded', async () => {
+			const plan = planHostedRetry(doc, caps, lostClip, ['b']);
+			const ask = vi.fn().mockResolvedValue(true);
+
+			const go = await confirmHostedRetry(plan, caps, async () => { throw new Error('no price'); }, ask);
+
+			expect(go).toBe(true);
+			expect(ask.mock.calls[0][0].message).toContain('Price unknown');
+		});
+
+		it('does not ask when the retry only makes the shots asked for', async () => {
+			const fullCaps = capsFor(fullOverlay);
+			const full = film(fullCaps, [segment('a', 4), segment('b', 4), segment('c', 4)]);
+			const plan = planHostedRetry(full, fullCaps, { a: savedRuns.a, b: run({ status: 'failed' }) }, ['b']);
+			const ask = vi.fn().mockResolvedValue(false);
+
+			expect(await confirmHostedRetry(plan, fullCaps, async () => null, ask)).toBe(true);
+			expect(ask).not.toHaveBeenCalled();
+		});
 	});
 });

@@ -99,8 +99,10 @@ def director_overlay(spec: Optional[CloudModelSpec]) -> Optional[Dict[str, Any]]
         director["keyframes"] = None
         director["continuation"] = None
         director["continue_from_video"] = False
-    elif last_frame is None:
-        modes["flf"] = None
+    else:
+        director["continue_from_video"] = True
+        if last_frame is None:
+            modes["flf"] = None
     if isinstance(limits.get("max_duration"), (int, float)):
         fps = limits.get("default_fps") or DEFAULT_FPS
         director["max_frames_per_segment"] = int(math.ceil(float(limits["max_duration"]) * float(fps)))

@@ -1,5 +1,7 @@
 import logging
 import subprocess
+import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence, Union
@@ -12,10 +14,63 @@ PathLike = Union[str, Path]
 SAMPLE_RATE = 48000
 FFMPEG_TIMEOUT_SECONDS = 1800
 DEFAULT_FPS = 24.0
+POLL_SECONDS = 0.2
+TERMINATE_GRACE_SECONDS = 5.0
+NO_SOUND_NOTICE = "ffmpeg could not join the shots, so the joined video has no sound"
 
 
 class StitchError(RuntimeError):
     pass
+
+
+class StitchCancelled(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class FinishedProcess:
+    returncode: int
+    stderr: bytes
+
+
+def _stop(process: "subprocess.Popen") -> None:
+    process.terminate()
+    try:
+        process.wait(timeout=TERMINATE_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+def run_cancellable(
+    command: Sequence[str],
+    *,
+    timeout: float = FFMPEG_TIMEOUT_SECONDS,
+    is_cancelled: Optional[Callable[[], bool]] = None,
+    **_ignored,
+) -> FinishedProcess:
+    deadline = time.monotonic() + timeout
+    with tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(list(command), stdout=subprocess.DEVNULL, stderr=errors)
+        try:
+            while True:
+                try:
+                    process.wait(timeout=POLL_SECONDS)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+                if is_cancelled is not None and is_cancelled():
+                    _stop(process)
+                    raise StitchCancelled()
+                if time.monotonic() >= deadline:
+                    _stop(process)
+                    raise subprocess.TimeoutExpired(list(command), timeout)
+        except BaseException:
+            if process.poll() is None:
+                _stop(process)
+            raise
+        errors.seek(0)
+        return FinishedProcess(returncode=process.returncode, stderr=errors.read()[-400:])
 
 
 @dataclass(frozen=True)
@@ -83,7 +138,13 @@ def concat_command(
 
 
 def _ffmpeg_concat(
-    clips: Sequence[PathLike], out_path: Path, *, run: Callable, find: Callable[[], Optional[str]], probe: Callable,
+    clips: Sequence[PathLike],
+    out_path: Path,
+    *,
+    run: Callable,
+    find: Callable[[], Optional[str]],
+    probe: Callable,
+    is_cancelled: Optional[Callable[[], bool]],
 ) -> bool:
     ffmpeg = find()
     if ffmpeg is None:
@@ -92,7 +153,7 @@ def _ffmpeg_concat(
     if any(info is None for info in infos):
         return False
     try:
-        result = run(concat_command(ffmpeg, clips, infos, out_path), capture_output=True, timeout=FFMPEG_TIMEOUT_SECONDS)
+        result = run(concat_command(ffmpeg, clips, infos, out_path), capture_output=True, timeout=FFMPEG_TIMEOUT_SECONDS, is_cancelled=is_cancelled)
     except (OSError, subprocess.SubprocessError) as error:
         logger.warning(f"[CLOUD_STITCH] ffmpeg could not join the shots: {type(error).__name__}")
         return False
@@ -142,17 +203,21 @@ def stitch_clips(
     clips: Sequence[PathLike],
     out_path: PathLike,
     *,
-    run: Callable = subprocess.run,
+    run: Callable = run_cancellable,
     find: Callable[[], Optional[str]] = find_ffmpeg,
     probe: Optional[Callable[[PathLike], Optional[ClipInfo]]] = None,
+    is_cancelled: Optional[Callable[[], bool]] = None,
+    notify: Optional[Callable[[str], None]] = None,
 ) -> Path:
     if not clips:
         raise StitchError("there are no shots to join")
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    if _ffmpeg_concat(clips, out_path, run=run, find=find, probe=probe or probe_clip):
+    if _ffmpeg_concat(clips, out_path, run=run, find=find, probe=probe or probe_clip, is_cancelled=is_cancelled):
         logger.info(f"[CLOUD_STITCH] joined {len(clips)} shot(s) with ffmpeg")
         return out_path
     logger.warning("[CLOUD_STITCH] ffmpeg was not usable; joining the shots without their sound")
+    if notify is not None:
+        notify(NO_SOUND_NOTICE)
     _opencv_concat(clips, out_path)
     return out_path

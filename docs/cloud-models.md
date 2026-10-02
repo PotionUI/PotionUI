@@ -161,8 +161,10 @@ message, history entry, gallery item, session or model listing carries a price o
   `megapixel` using the `size` (`WxH`) or the resolution tier (`512`, `1K`, `2K`, `4K`), and `second`
   using `duration_s` or the model's default duration. `token` and `sku` lines cannot be estimated and
   are reported as skipped. A line with `applies_to` applies only when a parameter has that value.
-- A cancelled or failed request writes nothing. A request that was billed before a later one was
-  cancelled keeps its row.
+- A cancelled or failed request writes nothing. A provider error carries no amount, so a job the
+  provider accepted and billed but then failed (for example a Video Director shot that errors after
+  it started) leaves no cost row; check the provider's own dashboard to reconcile it. A request that
+  was billed before a later one was cancelled keeps its row.
 - Cost rows belong to no generation row, so they survive deleting history. If the full record cannot
   be written, a minimal `unknown` row with the reason is written instead; if even that fails the
   amount is logged at error level so it can be reconciled.

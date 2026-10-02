@@ -36,7 +36,7 @@ from src.pipelines.outputs import (
 )
 from src.pipelines.pipes._shared.media.frame_extract import extract_frame
 from src.pipelines.pipes.cloud_generate.director import CloudShot, kept_text, plan_shots, stitch_wanted
-from src.pipelines.pipes.cloud_generate.stitch import StitchError, stitch_clips
+from src.pipelines.pipes.cloud_generate.stitch import StitchCancelled, StitchError, stitch_clips
 
 DEFAULT_ROLES = {
     "images": "reference",
@@ -317,7 +317,7 @@ class CloudGeneratePipe(BasePipe):
 
         videos = [] if film else list(clips)
         if film and stitch_wanted(document):
-            joined = self._stitch(clips, generation_outputs)
+            joined = self._stitch(clips, generation_outputs, is_cancelled)
             if joined is not None:
                 videos.append(joined)
         generation_outputs(ParamGenerationOutput(name="segment_seed", values=seeds))
@@ -411,12 +411,18 @@ class CloudGeneratePipe(BasePipe):
         return str(kept.path)
 
     @staticmethod
-    def _stitch(clips: List[str], generation_outputs: callable) -> Optional[str]:
+    def _stitch(clips: List[str], generation_outputs: callable, is_cancelled: Optional[callable] = None) -> Optional[str]:
         generation_outputs(ProgressGenerationOutput(state="Joining the shots", icon=Icon("film", "pulse")))
         with tempfile.NamedTemporaryFile(prefix="potionui-cloud-film-", suffix=".mp4", delete=False) as handle:
             out_path = Path(handle.name)
         try:
-            stitch_clips(clips, out_path)
+            stitch_clips(
+                clips, out_path, is_cancelled=is_cancelled,
+                notify=lambda text: generation_outputs(ProgressGenerationOutput(state=text, icon=Icon("alert-triangle", "beat"))),
+            )
+        except StitchCancelled:
+            out_path.unlink(missing_ok=True)
+            return None
         except (StitchError, OSError) as error:
             out_path.unlink(missing_ok=True)
             logger.warning(f"[CLOUD_DIRECTOR] the shots could not be joined: {type(error).__name__}: {error}")

@@ -322,6 +322,33 @@ def test_a_joining_failure_keeps_every_shot_and_says_so(tmp_path, monkeypatch):
     assert any("could not be joined" in item.state for item in emitted if isinstance(item, ProgressGenerationOutput))
 
 
+def test_a_join_without_sound_says_so(tmp_path, monkeypatch):
+    real = pipe_module.stitch_clips
+
+    def without_ffmpeg(clips, out_path, **kwargs):
+        return real(clips, out_path, find=lambda: None, **kwargs)
+
+    monkeypatch.setattr(pipe_module, "stitch_clips", without_ffmpeg)
+
+    output, emitted = direct(ClipRunner(tmp_path), film(segment("a", 48, "t2v"), segment("b", 48, "t2v")))
+
+    assert len(output["video"]) == 1
+    assert any("no sound" in item.state for item in emitted if isinstance(item, ProgressGenerationOutput))
+
+
+def test_cancelling_while_the_shots_are_joined_keeps_the_shots_and_makes_no_film(tmp_path, monkeypatch):
+    from src.pipelines.pipes.cloud_generate.stitch import StitchCancelled
+
+    def cancelled(clips, out_path, **kwargs):
+        raise StitchCancelled()
+
+    monkeypatch.setattr(pipe_module, "stitch_clips", cancelled)
+
+    output, emitted = direct(ClipRunner(tmp_path), film(segment("a", 48, "t2v"), segment("b", 48, "t2v")))
+
+    assert output["video"] == [] and len(saved_shots(emitted)) == 2
+
+
 def test_the_plan_reads_lengths_from_frames_and_the_documents_fps():
     document = film(segment("a", 120, "t2v"), segment("b", 60, "chain"), fps=30)
 

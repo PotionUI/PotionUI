@@ -172,4 +172,35 @@ describe('prepareRequestFromSession picks the Director from preset vars', () => 
 		expect(result.ok).toBe(true);
 		expect(assemble).not.toHaveBeenCalled();
 	});
+
+	it('narrows the Video Director to the cloud model overlay it is given', () => {
+		assemble.mockReturnValue({ kind: 'video', ok: false, reason: 'stop here' });
+
+		prepareRequestFromSession({
+			presetId: 'preset-1',
+			mode: 'video',
+			session: { prompt: 'x', videoDirector: { mode: 't2v' } },
+			presetVars: { video_director: { preset_modes: ['video'], modes: { t2v: {}, i2v: {}, flf: {} } } },
+			directorOverlay: { label: 'Fake Lite', raw: { modes: { flf: null } } },
+			random: () => 0
+		});
+
+		const caps = assemble.mock.calls[0][0].videoDirectorCaps;
+		expect(caps.enabledModes).toEqual(['t2v', 'i2v']);
+		expect(caps.modelLabel).toBe('Fake Lite');
+	});
+
+	it('drops the Video Director for a mode the overlay rules out entirely', () => {
+		const result = prepareRequestFromSession({
+			presetId: 'preset-1',
+			mode: 'video',
+			session: { prompt: 'a harbour' },
+			presetVars: { video_director: { preset_modes: ['video'], modes: { t2v: {}, i2v: {} } } },
+			directorOverlay: { label: 'Stills', raw: { modes: { t2v: null, i2v: null } } },
+			random: () => 0
+		});
+
+		expect(result.ok).toBe(true);
+		expect(assemble).not.toHaveBeenCalled();
+	});
 });

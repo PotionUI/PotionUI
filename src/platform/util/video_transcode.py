@@ -1,5 +1,7 @@
+import functools
 import json
 import logging
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -10,6 +12,9 @@ logger = logging.getLogger(__name__)
 
 FFMPEG_TIMEOUT_SECONDS = 600
 FFPROBE_TIMEOUT_SECONDS = 30
+FFMPEG_VERSION_TIMEOUT_SECONDS = 10
+FPS_MODE_SINCE = (5, 1)
+STDERR_TAIL_CHARS = 300
 
 CONTAINERS = ("webm", "mp4")
 
@@ -70,6 +75,24 @@ def find_ffprobe() -> Optional[str]:
     return shutil.which("ffprobe")
 
 
+def parse_ffmpeg_version(banner: str) -> Optional[tuple]:
+    found = re.search(r"version\s+n?(\d+)\.(\d+)", banner or "")
+    return (int(found.group(1)), int(found.group(2))) if found else None
+
+
+@functools.lru_cache(maxsize=8)
+def ffmpeg_supports_fps_mode(ffmpeg: str) -> bool:
+    try:
+        result = subprocess.run(
+            [ffmpeg, "-version"], capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=FFMPEG_VERSION_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return True
+    version = parse_ffmpeg_version(result.stdout)
+    return version is None or version >= FPS_MODE_SINCE
+
+
 def _parse_rate(value: str) -> float:
     try:
         if "/" in value:
@@ -106,8 +129,9 @@ def probe_video(path: Path) -> Optional[VideoProbe]:
     ffprobe = find_ffprobe()
     if ffprobe is None:
         return None
-    command = [ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)]
+    command = [ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(Path(path).absolute())]
     try:
+        size = Path(path).stat().st_size
         result = subprocess.run(
             command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=FFPROBE_TIMEOUT_SECONDS
         )
@@ -119,7 +143,7 @@ def probe_video(path: Path) -> Optional[VideoProbe]:
         payload = json.loads(result.stdout or "{}")
     except json.JSONDecodeError:
         return None
-    return parse_probe(payload, Path(path).stat().st_size)
+    return parse_probe(payload, size)
 
 
 def _even(value: int) -> int:
@@ -139,7 +163,9 @@ def scale_filter(max_width: int, width_scale: float) -> str:
     return f"scale='min({width},iw)':-2:flags=lanczos"
 
 
-def build_transcode_command(ffmpeg: str, src: Path, dest: Path, spec: TranscodeSpec) -> List[str]:
+def build_transcode_command(
+    ffmpeg: str, src: Path, dest: Path, spec: TranscodeSpec, *, fps_mode: bool = True,
+) -> List[str]:
     if spec.container not in CONTAINERS:
         raise VideoTranscodeError(f"unsupported container: {spec.container}")
 
@@ -147,13 +173,13 @@ def build_transcode_command(ffmpeg: str, src: Path, dest: Path, spec: TranscodeS
     command: List[str] = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y"]
     if spec.start > 0:
         command += ["-ss", f"{spec.start:.3f}"]
-    command += ["-i", str(src)]
+    command += ["-i", str(Path(src).absolute())]
     if spec.length is not None:
         command += ["-t", f"{spec.length:.3f}"]
 
     fps = target_fps(0.0, spec.fps)
     filters = f"{scale_filter(spec.max_width, spec.width_scale)},fps={fps:g}"
-    command += ["-map", "0:v:0", "-vf", filters, "-fps_mode", "cfr", "-map_metadata", "-1"]
+    command += ["-map", "0:v:0", "-vf", filters, *(["-fps_mode", "cfr"] if fps_mode else ["-vsync", "cfr"]), "-map_metadata", "-1"]
 
     if spec.container == "webm":
         command += [
@@ -172,7 +198,7 @@ def build_transcode_command(ffmpeg: str, src: Path, dest: Path, spec: TranscodeS
     else:
         command += ["-an"]
 
-    command += ["-f", spec.container, str(dest)]
+    command += ["-f", spec.container, str(Path(dest).absolute())]
     return command
 
 
@@ -193,7 +219,8 @@ def _run(command: List[str], dest: Path) -> None:
     if result.returncode != 0:
         logger.error("ffmpeg exited %s: %s", result.returncode, (result.stderr or "")[-2000:])
         _discard(dest)
-        raise VideoTranscodeError("ffmpeg failed to encode the video")
+        tail = (result.stderr or "").strip()[-STDERR_TAIL_CHARS:]
+        raise VideoTranscodeError(f"ffmpeg failed to encode the video: {tail}" if tail else "ffmpeg failed to encode the video")
     if not dest.exists() or dest.stat().st_size == 0:
         _discard(dest)
         raise VideoTranscodeError("ffmpeg produced an empty file")
@@ -216,6 +243,7 @@ def transcode_video(
     if ffmpeg is None:
         raise FfmpegUnavailableError("ffmpeg is not available on this server")
 
+    fps_mode = ffmpeg_supports_fps_mode(ffmpeg)
     source_probe = probe_video(src)
     fps = target_fps(source_probe.fps if source_probe else 0.0, spec.fps)
 
@@ -237,7 +265,7 @@ def transcode_video(
             width_scale=scale,
             keep_audio=spec.keep_audio,
         )
-        _run(build_transcode_command(ffmpeg, src, dest, attempt), dest)
+        _run(build_transcode_command(ffmpeg, src, dest, attempt, fps_mode=fps_mode), dest)
         last_size = dest.stat().st_size
         if max_bytes is None or last_size <= max_bytes:
             return TranscodeResult(path=dest, bytes=last_size, crf=crf, width_scale=scale, probe=probe_video(dest))

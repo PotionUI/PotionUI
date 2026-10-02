@@ -11,6 +11,7 @@ import { assembleDirectorRequest } from '$lib/generation/requestAssembly';
 import { buildSegmentsPayload, buildVariablesPayload } from '$lib/utils/generationOrchestrator';
 import { resolvePromptSegments } from '$lib/utils/promptSegments';
 import { resolveRequestContext } from '$lib/generation/requestContext';
+import type { DirectorModelOverlay } from '$lib/utils/cloudDirector';
 
 export type RequestTab = Pick<
 	Tab,
@@ -263,6 +264,7 @@ export interface SessionRequestInput extends RandomSources {
 	overrides?: Record<string, unknown>;
 	presetVars?: Record<string, any>;
 	tabId?: string;
+	directorOverlay?: DirectorModelOverlay | null;
 }
 
 export function prepareRequestFromSession(input: SessionRequestInput): PreparedRequest {
@@ -284,7 +286,7 @@ export function prepareRequestFromSession(input: SessionRequestInput): PreparedR
 		prompt: (merged.prompt as string) ?? '',
 		negativePrompt: (merged.negativePrompt as string) ?? ''
 	} as RequestTab;
-	const context = resolveRequestContext(vars, input.mode);
+	const context = resolveRequestContext(vars, input.mode, input.directorOverlay ?? null);
 	return prepareRequest({
 		tab,
 		tabId: input.tabId ?? '',

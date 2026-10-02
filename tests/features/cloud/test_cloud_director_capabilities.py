@@ -44,7 +44,7 @@ def test_a_model_with_start_and_end_frames_keeps_every_shape_and_lists_its_lengt
     overlay = director_overlay(FULL)
 
     assert overlay["limits"] == {"durations": [2, 4, 6], "default_duration": 4, "max_duration": 6, "default_fps": 24}
-    assert overlay["modes"] == {"director": {"max_frames_per_segment": 144, "max_segments": 4}}
+    assert overlay["modes"] == {"director": {"continue_from_video": True, "max_frames_per_segment": 144, "max_segments": 4}}
     assert overlay["model_label"] == "Fake Director"
 
 
@@ -84,7 +84,7 @@ def test_a_model_that_names_no_lengths_leaves_the_presets_limits_alone():
     overlay = director_overlay(no_lengths)
 
     assert "limits" not in overlay
-    assert overlay["modes"] == {"director": {"max_segments": 4}}
+    assert overlay["modes"] == {"director": {"continue_from_video": True, "max_segments": 4}}
 
 
 def test_what_the_model_declares_wins_over_what_is_derived():
@@ -97,7 +97,7 @@ def test_what_the_model_declares_wins_over_what_is_derived():
     overlay = director_overlay(declared)
 
     assert overlay["limits"]["default_fps"] == 30 and overlay["limits"]["durations"] == [3, 5]
-    assert overlay["modes"]["director"] == {"max_frames_per_segment": 150, "continuation": None}
+    assert overlay["modes"]["director"] == {"continue_from_video": True, "max_frames_per_segment": 150, "continuation": None}
     assert overlay["modes"]["i2v"] is None and overlay["model_label"] == "Shown name"
 
 

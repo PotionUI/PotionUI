@@ -85,6 +85,9 @@ const director = (page: Page) => page.locator('section.video-director[aria-label
 const limits = (page: Page) => page.locator('[data-model-limits]');
 const generateButton = (page: Page) => page.getByRole('button', { name: 'Generate', exact: true });
 const cancelButton = (page: Page) => page.getByRole('button', { name: 'Cancel generation' });
+const isDirectorSubmit = (candidate: { method(): string; postData(): string | null }) =>
+	candidate.method() === 'POST' && (candidate.postData() ?? '').includes('"video_director"');
+const submittedFilm = (candidate: { postData(): string | null }) => JSON.parse(candidate.postData() ?? '{}').form_data.video_director;
 
 async function openFakeVideo(page: Page, mode: 'txt2video' | 'img2video' = 'txt2video') {
 	await page.addInitScript(() => localStorage.setItem('potionui-form-audience', 'advanced'));
@@ -342,7 +345,10 @@ test.describe('Video Director for a cloud video preset', () => {
 			await pickModel(page, DIRECTOR);
 			await buildFilm(page, ['a harbour at night', 'a boat leaves', 'the boat disappears'], 2);
 
+			const firstSubmit = page.waitForRequest(isDirectorSubmit);
 			await generateButton(page).click();
+			const shotIds: string[] = submittedFilm(await firstSubmit).segments.map((segment: { id: string }) => segment.id);
+			expect(shotIds).toHaveLength(3);
 			await expect.poll(async () => (await runStates(page)).join(','), { timeout: 180000 }).toBe('done,failed,failed');
 			await expect(generateButton(page)).toBeVisible({ timeout: 30000 });
 			const messages = director(page).locator('[data-run-message]');
@@ -353,9 +359,16 @@ test.describe('Video Director for a cloud video preset', () => {
 		await screenshot(page, JOURNEY, 'failed-shot-1440');
 
 			await setKnob(page, token, id, { fail_from_shot: 0 });
+			const retrySubmit = page.waitForRequest(isDirectorSubmit);
 			await director(page).getByRole('button', { name: 'Retry from here' }).first().click();
+			const retried = submittedFilm(await retrySubmit);
+			expect(retried.render).toMatchObject({ scope: 'shots', shot_ids: shotIds.slice(1) });
 			await expect.poll(async () => (await runStates(page)).join(','), { timeout: 180000 }).toBe('done,done,done');
 			await expect(director(page).locator('[data-run-message]')).toHaveCount(0);
+			await expect.poll(async () => (await latestGeneration(page, token)).status, { timeout: 60000 }).toBe('completed');
+			const retryRun = await latestGeneration(page, token);
+			const detail = await apiGet(page, `/api/admin/generations/${retryRun.id}`, token);
+			expect(detail.data.cost.items, 'only the retried shots were paid for').toHaveLength(2);
 			await screenshot(page, JOURNEY, 'retried-1440');
 		} finally {
 			await setKnob(page, token, id, { fail_from_shot: 0 });

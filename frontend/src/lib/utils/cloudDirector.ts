@@ -211,12 +211,43 @@ export function hostedRetryKind(
 	const index = retryStartIndex(doc, runs, found);
 	if (!continuesPrevious(doc, caps, index)) return 'plain';
 	const previous = runs?.[doc.chain.segments[index - 1].id];
-	return caps.modes.director?.continueFromVideo === true && previous?.status === 'done' && !!previous.outputPath ? 'handoff' : 'restart';
+	if (!edgeAllowed(caps).start) return 'plain';
+	const canStartFromClip = caps.modes.director?.continueFromVideo !== false;
+	return canStartFromClip && previous?.status === 'done' && !!previous.outputPath ? 'handoff' : 'restart';
 }
 
 export function hostedRetryNotice(caps: DirectorCapabilities): string {
 	const model = caps.modelLabel ?? 'This model';
 	return `${model} cannot carry on from a finished shot, so the whole film is made again from the first shot.`;
+}
+
+export function hostedRestartConfirmation(
+	caps: DirectorCapabilities,
+	plan: HostedRetryPlan,
+	estimate: CloudEstimate | null | undefined
+): { title: string; message: string } {
+	const price = describeEstimate(estimate) ?? 'Price unknown';
+	const range = plan.shotIds.length === 1 ? 'shot 1' : `shots 1 to ${plan.shotIds.length}`;
+	return {
+		title: 'Redo the whole film?',
+		message: `${hostedRetryNotice(caps)} This pays for ${range} again. ${price}.`
+	};
+}
+
+export async function confirmHostedRetry(
+	plan: HostedRetryPlan,
+	caps: DirectorCapabilities,
+	loadEstimate: () => Promise<CloudEstimate | null>,
+	ask: (confirmation: { title: string; message: string }) => Promise<boolean>
+): Promise<boolean> {
+	if (plan.kind !== 'restart') return true;
+	let estimate: CloudEstimate | null = null;
+	try {
+		estimate = await loadEstimate();
+	} catch {
+		estimate = null;
+	}
+	return ask(hostedRestartConfirmation(caps, plan, estimate));
 }
 
 export function planHostedRetry(

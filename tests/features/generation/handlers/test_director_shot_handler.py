@@ -1,20 +1,18 @@
-from pathlib import Path
-
 from src.features.generation.handlers.director_shot_handler import serialize_director_shot_output
 from src.features.generation.output_serializer import GenerationOutputSerializer
 from src.features.generation.output_types import SerializeContext, output_type_registry
 from src.pipelines.outputs import DirectorShotGenerationOutput, VideoGenerationOutput
 
 
-def saved_video(path="generations/2026-10-02/gen-1/2_01ABC.mp4"):
-    video = VideoGenerationOutput(video_path=Path("/tmp/shot.mp4"), temporary=False, seed=4)
+def saved_video(tmp_path, path="generations/2026-10-02/gen-1/2_01ABC.mp4"):
+    video = VideoGenerationOutput(video_path=tmp_path / "shot.mp4", temporary=False, seed=4)
     video._saved_path = path
     return video
 
 
-def test_a_finished_shot_is_sent_as_a_director_shot_update_with_its_saved_clip():
+def test_a_finished_shot_is_sent_as_a_director_shot_update_with_its_saved_clip(tmp_path):
     output = DirectorShotGenerationOutput(
-        shot_id="s1", status="done", shot_index=1, shot_count=3, progress=1.0, video=saved_video(), pipe_id=4,
+        shot_id="s1", status="done", shot_index=1, shot_count=3, progress=1.0, video=saved_video(tmp_path), pipe_id=4,
     )
 
     message = GenerationOutputSerializer(generation_id="gen-1").serialize_output(output)
@@ -36,11 +34,11 @@ def test_a_failed_shot_carries_its_plain_reason_and_no_clip():
     assert (data["status"], data["message"], data["output_url"], data["output_path"]) == ("failed", "Out of credits", None, None)
 
 
-def test_a_clip_that_was_not_saved_or_whose_preview_is_suppressed_gets_no_address():
-    unsaved = VideoGenerationOutput(video_path=Path("/tmp/shot.mp4"), temporary=False)
-    suppressed = saved_video()
+def test_a_clip_that_was_not_saved_or_whose_preview_is_suppressed_gets_no_address(tmp_path):
+    unsaved = VideoGenerationOutput(video_path=tmp_path / "shot.mp4", temporary=False)
+    suppressed = saved_video(tmp_path)
     suppressed._preview_suppressed = True
-    flagged = saved_video()
+    flagged = saved_video(tmp_path)
     flagged._content_nsfw = True
     ctx = SerializeContext(generation_id="gen-1")
 

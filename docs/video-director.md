@@ -1001,7 +1001,8 @@ the normalizer enforces the merged result, so the server stays the only source o
   (paid) shots survive a later failure, a cancel or a restart. At the end the shots are joined
   into one video (unless `settings.continuation.stitch` is `false`): with `ffmpeg`, every shot
   is scaled to the first one's size and frame rate and its sound kept (silence fills a shot
-  without any); without `ffmpeg`, the frames are joined without sound. If joining fails, the
+  without any); without `ffmpeg`, the frames are joined without sound and the run says so. A cancel while joining
+  stops `ffmpeg` and keeps the shots. If joining fails, the
   run still completes with every shot and says the shots could not be joined. The generation's
   files are every shot, then the joined film, the same order a native chain run uses. A single
   shot is saved once, at the end, like any other generation.
@@ -1040,7 +1041,11 @@ the normalizer enforces the merged result, so the server stays the only source o
   resolves to `i2v`. Submitting `render: {scope: "shots", shot_ids: [k, …, N]}` with that start
   on shot k reruns only the failed shot and the ones after it, and the retried film is joined
   from those shots. Without the capability a video-typed `first` on a chain segment is still
-  rejected; a model without start pictures gets `continue_from_video: false` in its overlay.
+  rejected; a model without start pictures gets `continue_from_video: false` in its overlay, and a
+  model that starts from a picture gets `continue_from_video: true` derived unless its own
+  declaration says otherwise. A retry therefore bills only the retried shots; only when the previous
+  clip was not saved (or the model opts out) does the page offer to redo shots 1 to N, and it asks
+  first, showing the admin estimate or that the price is unknown.
 - **Cancelling** stops before the next shot: no further request is sent, and the finished
   shots are kept. A shot that is already running is handled like any other cloud job.
 - Every shot records its own cost line. Before brewing, an admin can ask what a film would

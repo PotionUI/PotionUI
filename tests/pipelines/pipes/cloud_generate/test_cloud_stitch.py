@@ -1,8 +1,21 @@
 from types import SimpleNamespace
 
+import sys
+import time
+
 import pytest
 
-from src.pipelines.pipes.cloud_generate.stitch import ClipInfo, StitchError, concat_command, probe_clip, stitch_clips
+from src.pipelines.pipes.cloud_generate import stitch as stitch_module
+from src.pipelines.pipes.cloud_generate.stitch import (
+    NO_SOUND_NOTICE,
+    ClipInfo,
+    StitchCancelled,
+    StitchError,
+    concat_command,
+    probe_clip,
+    run_cancellable,
+    stitch_clips,
+)
 from src.platform.util.video_transcode import VideoProbe
 
 FFMPEG = "/opt/ffmpeg/bin/ffmpeg"
@@ -111,13 +124,55 @@ def test_a_failing_ffmpeg_falls_back_to_the_frame_join(tmp_path):
     clip = tmp_path / "only.mp4"
     clip.write_bytes(fake_video_bytes(1, start=(0, 0, 0), end=(9, 9, 9)))
 
+    notices = []
     out = stitch_clips(
         [clip, clip], tmp_path / "film.mp4",
         run=lambda command, **kwargs: finished(returncode=1, stderr=b"boom"),
         find=ffmpeg_found, probe=lambda path: ClipInfo(32, 24, 8.0, 1.0, False),
+        notify=notices.append,
     )
 
     assert out.stat().st_size > 0
+    assert notices == [NO_SOUND_NOTICE]
+
+
+def test_a_cancel_during_the_ffmpeg_join_stops_without_falling_back(tmp_path):
+    def run(command, **kwargs):
+        assert kwargs["is_cancelled"]() is True
+        raise StitchCancelled()
+
+    with pytest.raises(StitchCancelled):
+        stitch_clips(
+            ["a.mp4", "b.mp4"], tmp_path / "film.mp4", run=run, find=ffmpeg_found,
+            probe=lambda clip: ClipInfo(64, 48, 24.0, 2.0, True), is_cancelled=lambda: True,
+        )
+
+
+def test_a_running_process_is_terminated_when_the_cancel_flag_rises():
+    polls = []
+
+    def is_cancelled():
+        polls.append(1)
+        return len(polls) >= 2
+
+    started = time.monotonic()
+    with pytest.raises(StitchCancelled):
+        run_cancellable([sys.executable, "-c", "import time; time.sleep(120)"], timeout=60, is_cancelled=is_cancelled)
+
+    assert time.monotonic() - started < 30
+
+
+def test_a_process_that_outlives_the_timeout_is_killed_and_reported():
+    with pytest.raises(stitch_module.subprocess.TimeoutExpired):
+        run_cancellable([sys.executable, "-c", "import time; time.sleep(120)"], timeout=0.5)
+
+
+def test_a_finished_process_reports_its_status_and_the_end_of_its_complaint():
+    code = "import sys; sys.stderr.write('x' * 1000 + 'END'); sys.exit(3)"
+
+    result = run_cancellable([sys.executable, "-c", code], timeout=60)
+
+    assert result.returncode == 3 and result.stderr.endswith(b"END") and len(result.stderr) <= 400
 
 
 def test_nothing_to_join_is_an_error(tmp_path):

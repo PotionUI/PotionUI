@@ -178,6 +178,17 @@ def test_the_retried_span_compiles_from_the_shot_that_starts_on_the_clip(storage
     assert [entry["segment_id"] for entry in compiled["media"]] == ["s1"]
 
 
+def test_a_clip_is_accepted_as_a_start_wherever_the_model_starts_from_a_picture(storage):
+    block = preset_block()
+    block["modes"]["director"].pop("continue_from_video")
+    caps = apply_model_overlay(apply_preset_mode_overlay(block, "txt2video"), director_overlay(START))
+    document = film(72, 72, media=[clip_start("s1", previous_clip(storage))])
+
+    normalized = normalize_video_director(document, caps, str(storage))
+
+    assert normalized["media"][0]["media"]["type"] == "image"
+
+
 def test_a_clip_as_a_start_needs_the_capability(storage):
     relative = previous_clip(storage)
     caps = effective("txt2video", FULL)

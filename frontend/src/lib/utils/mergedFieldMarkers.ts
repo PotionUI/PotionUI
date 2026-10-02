@@ -1,7 +1,7 @@
 import type { Tab } from '$lib/types/tabs';
 import { rewriteMergedMarkers } from '$lib/form/mergeFrom';
 
-const PROMPT_STATE_KEYS = [
+export const PROMPT_STATE_KEYS = [
 	'prompt',
 	'negativePrompt',
 	'promptSegments',

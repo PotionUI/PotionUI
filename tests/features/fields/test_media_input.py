@@ -47,13 +47,23 @@ class TestAcceptedTypes(unittest.TestCase):
         item = {"path": "a.png", "type": "image"}
         self.assertEqual(_input("refs", item, {"accepted_types": ["image", "video"]}), item)
 
-    def test_missing_type_fails_open(self):
-        """An item with no discoverable category (bare path string, or a
-        dict with no `type` key) can't be checked - skip rather than
-        guess."""
+    def test_bare_path_string_is_not_checked(self):
         self.assertEqual(_input("refs", "uploads/a.bin", {"accepted_types": ["image"]}), "uploads/a.bin")
-        item = {"path": "a.bin"}
+
+    def test_untyped_item_with_an_unknown_extension_is_rejected_plainly(self):
+        with self.assertRaises(ValueError) as cm:
+            _input("refs", {"path": "a.bin"}, {"accepted_types": ["image"]})
+        message = str(cm.exception)
+        self.assertIn("could not tell", message)
+        self.assertIn("recognised extension", message)
+        self.assertIn("refs", message)
+
+    def test_untyped_item_takes_its_kind_from_the_extension(self):
+        item = {"path": "a.png"}
         self.assertEqual(_input("refs", item, {"accepted_types": ["image"]}), item)
+        with self.assertRaises(ValueError) as cm:
+            _input("refs", {"path": "a.mp3"}, {"accepted_types": ["image"]})
+        self.assertIn("type 'audio' is not accepted", str(cm.exception))
 
     def test_multi_field_reports_the_offending_item_number(self):
         items = [

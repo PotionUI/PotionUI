@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { Tab } from '$lib/types/tabs';
-import { tabMergedMarkerUpdates } from './mergedFieldMarkers';
+import { PROMPT_STATE_KEYS, tabMergedMarkerUpdates } from './mergedFieldMarkers';
 
 const aliases = { old_clips: 'media_inputs', old_tracks: 'media_inputs' };
 
@@ -52,5 +53,23 @@ describe('tabMergedMarkerUpdates', () => {
 
 		expect(tabMergedMarkerUpdates(tab, aliases)).toBeNull();
 		expect(tabMergedMarkerUpdates({ prompt: '@[old_clips:v.mp4]' } as unknown as Tab, {})).toBeNull();
+	});
+});
+
+describe('PROMPT_STATE_KEYS', () => {
+	const source = readFileSync(new URL('../types/tabs.ts', import.meta.url), 'utf8');
+	const body = source.slice(source.indexOf('export interface Tab {'));
+	const tabKeys = [...body.slice(0, body.indexOf('\n}')).matchAll(/^\t([A-Za-z]+)\??:/gm)].map((m) => m[1]);
+	const notPromptText = ['promptPanelWidth', 'promptPanelWidthBeforeDirector', 'promptPanelWidthFolded', 'activePromptTab', 'sourcePromptId', 'directorRuns', 'directorRunLinks'];
+
+	it('lists every prompt-bearing key of the tab type', () => {
+		const promptBearing = tabKeys.filter((key) => /prompt|director|relay/i.test(key) && !notPromptText.includes(key));
+
+		expect(tabKeys).toContain('promptRelay');
+		expect([...PROMPT_STATE_KEYS].sort()).toEqual([...promptBearing].sort());
+	});
+
+	it('names only keys the tab type has', () => {
+		for (const key of PROMPT_STATE_KEYS) expect(tabKeys).toContain(key);
 	});
 });

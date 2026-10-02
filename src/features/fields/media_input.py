@@ -305,11 +305,18 @@ def _check_media_constraints(field_name: str, items: List[Any], config: Dict[str
         category, width, height, duration = _media_item_metrics(item)
         label = f"item {idx + 1}"
 
-        if accepted_types is not None and category is not None and category not in accepted_types:
-            violations.append(
-                f"{label}: type '{category}' is not accepted for '{field_name}' "
-                f"(accepted: {', '.join(sorted(accepted_types))})"
-            )
+        if accepted_types is not None:
+            kind = category or media_item_kind(item)
+            if kind is None:
+                violations.append(
+                    f"{label}: could not tell whether this is {' or '.join(sorted(accepted_types))} "
+                    f"for '{field_name}'; use a file with a recognised extension"
+                )
+            elif kind not in accepted_types:
+                violations.append(
+                    f"{label}: type '{kind}' is not accepted for '{field_name}' "
+                    f"(accepted: {', '.join(sorted(accepted_types))})"
+                )
 
         if max_resolution is not None and category in ("image", "video"):
             if width is not None and width > max_resolution:

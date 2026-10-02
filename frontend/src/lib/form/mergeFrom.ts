@@ -87,7 +87,7 @@ export function applyMergeFrom(
 	if (!data) return data;
 	let next: Record<string, unknown> | null = null;
 	for (const [name, keys] of schemaMergeFrom(schema)) {
-		const present = keys.filter((key) => Object.prototype.hasOwnProperty.call(data, key));
+		const present = keys.filter((key) => Object.prototype.hasOwnProperty.call(next ?? data, key));
 		if (!present.length) continue;
 		next ??= { ...data };
 		next[name] = [...asItems(next[name]), ...keys.flatMap((key) => asItems(next![key]))];

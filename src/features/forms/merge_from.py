@@ -75,10 +75,9 @@ def apply_merge_from(fields: Iterable[Any], data: Mapping[str, Any]) -> Dict[str
         for key in sources:
             merged.pop(key, None)
         merged[name] = combined
-    aliases = {
-        key: field.name
-        for field in fields
-        if getattr(field, "name", None) and getattr(field, "merge_from", None)
-        for key in field.merge_from
-    }
+    aliases: Dict[str, str] = {}
+    for field in fields:
+        if getattr(field, "name", None) and getattr(field, "merge_from", None):
+            for key in field.merge_from:
+                aliases.setdefault(key, field.name)
     return rewrite_merged_markers(merged, aliases)

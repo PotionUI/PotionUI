@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -7,42 +9,27 @@ from src.features.forms.merge_from import apply_merge_from, mode_merge_from_alia
 from src.features.presets.templates import FieldTemplate, FormTemplate, ModeTemplate, PresetTemplate
 
 
+CASES = json.loads((Path(__file__).resolve().parents[2] / "fixtures" / "merge_from_cases.json").read_text())["cases"]
+
+
 def _spec(name="media_inputs", merge_from=("old_clips", "old_tracks")):
     return SimpleNamespace(name=name, merge_from=list(merge_from) if merge_from else None)
 
 
+class TestSharedCases:
+    @pytest.mark.parametrize("case", CASES, ids=[case["name"] for case in CASES])
+    def test_apply_merge_from_matches_the_shared_case(self, case):
+        fields = [SimpleNamespace(name=f.get("name"), merge_from=f.get("merge_from")) for f in case["fields"]]
+
+        assert apply_merge_from(fields, case["data"]) == case["expected"]
+
+
 class TestApplyMergeFrom:
-    def test_own_value_then_listed_keys_in_listed_order(self):
-        data = {"media_inputs": ["i1", "i2"], "old_tracks": ["a1"], "old_clips": ["v1", "v2"]}
-
-        result = apply_merge_from([_spec()], data)
-
-        assert result == {"media_inputs": ["i1", "i2", "v1", "v2", "a1"]}
-
-    def test_absent_listed_keys_leave_data_untouched(self):
-        data = {"media_inputs": "single.png", "other": 1}
-
-        result = apply_merge_from([_spec()], data)
-
-        assert result == data
-        assert result["media_inputs"] == "single.png"
-
     def test_listed_keys_are_removed(self):
         result = apply_merge_from([_spec()], {"old_clips": ["v1"], "keep": 1})
 
         assert "old_clips" not in result
         assert result == {"keep": 1, "media_inputs": ["v1"]}
-
-    def test_scalars_become_one_item_lists_and_empties_vanish(self):
-        data = {"media_inputs": "a.png", "old_clips": "b.mp4", "old_tracks": ""}
-
-        assert apply_merge_from([_spec()], data)["media_inputs"] == ["a.png", "b.mp4"]
-        assert apply_merge_from([_spec()], {"media_inputs": None, "old_clips": []})["media_inputs"] == []
-
-    def test_dict_scalar_counts_as_one_item(self):
-        item = {"path": "v.mp4", "type": "video"}
-
-        assert apply_merge_from([_spec()], {"old_clips": item})["media_inputs"] == [item]
 
     def test_input_is_not_mutated(self):
         own = ["i1"]
@@ -108,44 +95,17 @@ class TestBindFormMergeFrom:
 
         assert "Too many video items" in str(exc.value)
 
+    def test_untyped_item_with_an_unknown_extension_is_rejected_plainly(self, tmp_path):
+        config = {"multi": True, "accepted_types": ["image", "video", "audio"]}
+        form = {"old_clips": [{"path": "uploads/clip.xyz", "relative_path": "uploads/clip.xyz"}]}
+
+        with pytest.raises(FormBindingError) as exc:
+            bind_form(self._preset(config), "txt2img", None, form, "user_1", storage_dir=str(tmp_path))
+
+        assert "could not tell" in str(exc.value)
+
 
 class TestMarkerRewrite:
-    def test_markers_of_merged_keys_take_the_field_name_and_keep_the_item_key(self):
-        data = {"notes": "a @[old_clips:uploads/b.mp4] and @[old_tracks:uploads/c.mp3] by @[media_inputs:uploads/a.png]"}
-
-        result = apply_merge_from([_spec()], data)
-
-        assert result["notes"] == (
-            "a @[media_inputs:uploads/b.mp4] and @[media_inputs:uploads/c.mp3] by @[media_inputs:uploads/a.png]"
-        )
-
-    def test_markers_are_rewritten_even_without_old_values(self):
-        result = apply_merge_from([_spec()], {"media_inputs": [], "notes": "@[old_clips:x.mp4]"})
-
-        assert result["notes"] == "@[media_inputs:x.mp4]"
-
-    def test_nested_strings_and_resource_refs_are_rewritten(self):
-        data = {"doc": {
-            "segments": [{
-                "prompt": "walks like @[old_clips:v.mp4]",
-                "prompt_segments": [{
-                    "content": "@[old_clips:v.mp4]",
-                    "resources": {"m1": {"field": "old_clips", "item_key": "v.mp4"}},
-                }],
-            }],
-        }}
-
-        segment = apply_merge_from([_spec()], data)["doc"]["segments"][0]
-
-        assert segment["prompt"] == "walks like @[media_inputs:v.mp4]"
-        assert segment["prompt_segments"][0]["content"] == "@[media_inputs:v.mp4]"
-        assert segment["prompt_segments"][0]["resources"] == {"m1": {"field": "media_inputs", "item_key": "v.mp4"}}
-
-    def test_unrelated_markers_and_dicts_are_left_alone(self):
-        data = {"notes": "@[other:x.png] @[old_clipsy:y.mp4]", "ref": {"field": "old_clips"}}
-
-        assert apply_merge_from([_spec()], data) == data
-
     def test_input_is_not_mutated_by_the_rewrite(self):
         data = {"doc": {"text": "@[old_clips:v.mp4]"}}
 

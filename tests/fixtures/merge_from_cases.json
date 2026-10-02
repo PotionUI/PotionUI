@@ -1,0 +1,419 @@
+{
+  "cases": [
+    {
+      "name": "own value then listed keys in listed order, old keys dropped",
+      "fields": [
+        {
+          "name": "media_inputs",
+          "merge_from": [
+            "old_clips",
+            "old_tracks"
+          ]
+        },
+        {
+          "name": "prompt"
+        }
+      ],
+      "data": {
+        "media_inputs": [
+          {
+            "path": "uploads/a.png",
+            "type": "image"
+          }
+        ],
+        "old_tracks": [
+          {
+            "path": "uploads/t.wav",
+            "type": "audio"
+          }
+        ],
+        "old_clips": [
+          {
+            "path": "uploads/v.mp4",
+            "type": "video"
+          }
+        ],
+        "prompt": "x"
+      },
+      "expected": {
+        "media_inputs": [
+          {
+            "path": "uploads/a.png",
+            "type": "image"
+          },
+          {
+            "path": "uploads/v.mp4",
+            "type": "video"
+          },
+          {
+            "path": "uploads/t.wav",
+            "type": "audio"
+          }
+        ],
+        "prompt": "x"
+      }
+    },
+    {
+      "name": "data without old keys is unchanged",
+      "fields": [
+        {
+          "name": "media_inputs",
+          "merge_from": [
+            "old_clips",
+            "old_tracks"
+          ]
+        },
+        {
+          "name": "prompt"
+        }
+      ],
+      "data": {
+        "media_inputs": [
+          {
+            "path": "uploads/v.mp4",
+            "type": "video"
+          },
+          {
+            "path": "uploads/a.png",
+            "type": "image"
+          }
+        ],
+        "prompt": "x"
+      },
+      "expected": {
+        "media_inputs": [
+          {
+            "path": "uploads/v.mp4",
+            "type": "video"
+          },
+          {
+            "path": "uploads/a.png",
+            "type": "image"
+          }
+        ],
+        "prompt": "x"
+      }
+    },
+    {
+      "name": "bare string field value is kept when no old keys exist",
+      "fields": [
+        {
+          "name": "media_inputs",
+          "merge_from": [
+            "old_clips",
+            "old_tracks"
+          ]
+        },
+        {
+          "name": "prompt"
+        }
+      ],
+      "data": {
+        "media_inputs": "single.png",
+        "other": 1
+      },
+      "expected": {
+        "media_inputs": "single.png",
+        "other": 1
+      }
+    },
+    {
+      "name": "scalars become one item lists and empties vanish",
+      "fields": [
+        {
+          "name": "media_inputs",
+          "merge_from": [
+            "old_clips",
+            "old_tracks"
+          ]
+        },
+        {
+          "name": "prompt"
+        }
+      ],
+      "data": {
+        "media_inputs": "a.png",
+        "old_clips": "b.mp4",
+        "old_tracks": ""
+      },
+      "expected": {
+        "media_inputs": [
+          "a.png",
+          "b.mp4"
+        ]
+      }
+    },
+    {
+      "name": "null own value and empty old list give an empty list",
+      "fields": [
+        {
+          "name": "media_inputs",
+          "merge_from": [
+            "old_clips",
+            "old_tracks"
+          ]
+        },
+        {
+          "name": "prompt"
+        }
+      ],
+      "data": {
+        "media_inputs": null,
+        "old_clips": []
+      },
+      "expected": {
+        "media_inputs": []
+      }
+    },
+    {
+      "name": "a dict value counts as one item",
+      "fields": [
+        {
+          "name": "media_inputs",
+          "merge_from": [
+            "old_clips",
+            "old_tracks"
+          ]
+        },
+        {
+          "name": "prompt"
+        }
+      ],
+      "data": {
+        "old_clips": {
+          "path": "uploads/v.mp4",
+          "type": "video"
+        }
+      },
+      "expected": {
+        "media_inputs": [
+          {
+            "path": "uploads/v.mp4",
+            "type": "video"
+          }
+        ]
+      }
+    },
+    {
+      "name": "markers of merged keys point at the field and keep the item key",
+      "fields": [
+        {
+          "name": "media_inputs",
+          "merge_from": [
+            "old_clips",
+            "old_tracks"
+          ]
+        },
+        {
+          "name": "prompt"
+        }
+      ],
+      "data": {
+        "media_inputs": [
+          {
+            "path": "uploads/a.png",
+            "type": "image"
+          }
+        ],
+        "old_clips": [
+          {
+            "path": "uploads/v.mp4",
+            "type": "video"
+          }
+        ],
+        "notes": "like @[old_clips:uploads/v.mp4] @[old_tracks:uploads/t.wav] @[other:x] @[old_clipsy:y]"
+      },
+      "expected": {
+        "media_inputs": [
+          {
+            "path": "uploads/a.png",
+            "type": "image"
+          },
+          {
+            "path": "uploads/v.mp4",
+            "type": "video"
+          }
+        ],
+        "notes": "like @[media_inputs:uploads/v.mp4] @[media_inputs:uploads/t.wav] @[other:x] @[old_clipsy:y]"
+      }
+    },
+    {
+      "name": "markers are rewritten when no old values are present",
+      "fields": [
+        {
+          "name": "media_inputs",
+          "merge_from": [
+            "old_clips",
+            "old_tracks"
+          ]
+        },
+        {
+          "name": "prompt"
+        }
+      ],
+      "data": {
+        "notes": "@[old_tracks:uploads/t.wav]"
+      },
+      "expected": {
+        "notes": "@[media_inputs:uploads/t.wav]"
+      }
+    },
+    {
+      "name": "several markers in one string are all rewritten",
+      "fields": [
+        {
+          "name": "media_inputs",
+          "merge_from": [
+            "old_clips",
+            "old_tracks"
+          ]
+        },
+        {
+          "name": "prompt"
+        }
+      ],
+      "data": {
+        "notes": "@[old_clips:a.mp4] and @[old_clips:b.mp4]"
+      },
+      "expected": {
+        "notes": "@[media_inputs:a.mp4] and @[media_inputs:b.mp4]"
+      }
+    },
+    {
+      "name": "nested strings and resource refs are rewritten",
+      "fields": [
+        {
+          "name": "media_inputs",
+          "merge_from": [
+            "old_clips",
+            "old_tracks"
+          ]
+        },
+        {
+          "name": "prompt"
+        }
+      ],
+      "data": {
+        "doc": {
+          "segments": [
+            {
+              "prompt": "walks like @[old_clips:v.mp4]",
+              "prompt_segments": [
+                {
+                  "content": "@[old_clips:v.mp4]",
+                  "resources": {
+                    "m1": {
+                      "field": "old_clips",
+                      "item_key": "v.mp4"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expected": {
+        "doc": {
+          "segments": [
+            {
+              "prompt": "walks like @[media_inputs:v.mp4]",
+              "prompt_segments": [
+                {
+                  "content": "@[media_inputs:v.mp4]",
+                  "resources": {
+                    "m1": {
+                      "field": "media_inputs",
+                      "item_key": "v.mp4"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a field reference without an item key is left alone",
+      "fields": [
+        {
+          "name": "media_inputs",
+          "merge_from": [
+            "old_clips",
+            "old_tracks"
+          ]
+        },
+        {
+          "name": "prompt"
+        }
+      ],
+      "data": {
+        "ref": {
+          "field": "old_clips"
+        }
+      },
+      "expected": {
+        "ref": {
+          "field": "old_clips"
+        }
+      }
+    },
+    {
+      "name": "non-string scalars are left alone",
+      "fields": [
+        {
+          "name": "media_inputs",
+          "merge_from": [
+            "old_clips",
+            "old_tracks"
+          ]
+        },
+        {
+          "name": "prompt"
+        }
+      ],
+      "data": {
+        "count": 3,
+        "flag": true,
+        "nothing": null,
+        "notes": "@[old_clips:x.mp4]"
+      },
+      "expected": {
+        "count": 3,
+        "flag": true,
+        "nothing": null,
+        "notes": "@[media_inputs:x.mp4]"
+      }
+    },
+    {
+      "name": "a key listed by two fields goes to the first one",
+      "fields": [
+        {
+          "name": "first",
+          "merge_from": [
+            "old"
+          ]
+        },
+        {
+          "name": "second",
+          "merge_from": [
+            "old"
+          ]
+        }
+      ],
+      "data": {
+        "old": [
+          "v"
+        ],
+        "notes": "@[old:v]"
+      },
+      "expected": {
+        "first": [
+          "v"
+        ],
+        "notes": "@[first:v]"
+      }
+    }
+  ]
+}

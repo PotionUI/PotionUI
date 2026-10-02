@@ -1,3 +1,4 @@
+import { kindOfMediaItem } from '$lib/components/form-fields/mediaLoaderKind';
 import type { ResourceNumbering } from './resourceNumbering';
 
 export type PromptResourceKind = 'image' | 'video' | 'audio';
@@ -51,10 +52,17 @@ export function mediaFieldItems(value: unknown): unknown[] {
 	return Array.isArray(value) ? value : [value];
 }
 
-export function itemPosition(fieldValue: unknown, itemKey: string): number | null {
+export function itemPosition(
+	fieldValue: unknown,
+	itemKey: string,
+	kind: PromptResourceKind | null = null
+): number | null {
 	const items = mediaFieldItems(fieldValue);
-	for (let index = 0; index < items.length; index++) {
-		if (mediaItemKey(items[index]) === itemKey) return index + 1;
+	let position = 0;
+	for (const item of items) {
+		if (kind && kindOfMediaItem(item) !== kind) continue;
+		position += 1;
+		if (mediaItemKey(item) === itemKey) return position;
 	}
 	return null;
 }
@@ -62,6 +70,31 @@ export function itemPosition(fieldValue: unknown, itemKey: string): number | nul
 export function itemAtPosition(fieldValue: unknown, position: number): unknown {
 	const items = mediaFieldItems(fieldValue);
 	return items[position - 1];
+}
+
+export function fieldSharedByKinds(specs: readonly PromptResourceSpec[], field: string): boolean {
+	return specs.filter((spec) => spec.field === field).length > 1;
+}
+
+export function specItems(
+	specs: readonly PromptResourceSpec[],
+	spec: PromptResourceSpec,
+	fieldValue: unknown
+): unknown[] {
+	const items = mediaFieldItems(fieldValue);
+	if (!fieldSharedByKinds(specs, spec.field)) return items;
+	return items.filter((item) => kindOfMediaItem(item) === spec.kind);
+}
+
+export function resourceGroupKey(specs: readonly PromptResourceSpec[], spec: PromptResourceSpec): string {
+	return fieldSharedByKinds(specs, spec.field) ? `${spec.field}:${spec.kind}` : spec.field;
+}
+
+export function findSpecByGroupKey(
+	specs: readonly PromptResourceSpec[],
+	key: string
+): PromptResourceSpec | undefined {
+	return specs.find((spec) => resourceGroupKey(specs, spec) === key);
 }
 
 export function resourceGroupLabel(spec: PromptResourceSpec): string {
@@ -85,9 +118,26 @@ export function renderResourceToken(spec: PromptResourceSpec, position: number):
 
 export function findResourceSpec(
 	specs: readonly PromptResourceSpec[],
-	field: string
+	field: string,
+	kind: PromptResourceKind | null = null
 ): PromptResourceSpec | undefined {
-	return specs.find((spec) => spec.field === field);
+	const candidates = specs.filter((spec) => spec.field === field);
+	if (!kind) return candidates[0];
+	return candidates.find((spec) => spec.kind === kind) ?? (candidates.length === 1 ? candidates[0] : undefined);
+}
+
+function resolveMarkerSpec(
+	specs: readonly PromptResourceSpec[],
+	field: string,
+	itemKey: string,
+	fieldValue: unknown
+): { spec: PromptResourceSpec | undefined; countKind: PromptResourceKind | null } {
+	const candidates = specs.filter((spec) => spec.field === field);
+	if (candidates.length <= 1) return { spec: candidates[0], countKind: null };
+	const item = mediaFieldItems(fieldValue).find((entry) => mediaItemKey(entry) === itemKey);
+	const kind = item === undefined ? null : kindOfMediaItem(item);
+	const spec = candidates.find((candidate) => candidate.kind === kind) ?? candidates[0];
+	return { spec, countKind: kind ? spec.kind : null };
 }
 
 export interface ResourceMarkerState {
@@ -104,11 +154,14 @@ export function resourceMarkerState(
 	formValues: Record<string, unknown>,
 	numbering: ResourceNumbering | null = null
 ): ResourceMarkerState {
-	const spec = findResourceSpec(specs, ref.field) ?? null;
+	const { spec: found, countKind } = resolveMarkerSpec(specs, ref.field, ref.item_key, formValues[ref.field]);
+	const spec = found ?? null;
 	if (!spec) {
 		return { field: ref.field, itemKey: ref.item_key, spec: null, position: null, dangling: true };
 	}
-	const position = numbering ? numbering.positionFor(ref.field, ref.item_key) : itemPosition(formValues[ref.field], ref.item_key);
+	const position = numbering
+		? numbering.positionFor(ref.field, ref.item_key)
+		: itemPosition(formValues[ref.field], ref.item_key, countKind);
 	return { field: ref.field, itemKey: ref.item_key, spec, position, dangling: position === null };
 }
 
@@ -120,9 +173,11 @@ export function resolveResourceMarkers(
 ): string {
 	if (!text || !text.includes('@[')) return text;
 	return text.replace(resourceMarkerRegex(), (full, field: string, itemKey: string) => {
-		const spec = findResourceSpec(specs, field);
+		const { spec, countKind } = resolveMarkerSpec(specs, field, itemKey, formValues[field]);
 		if (!spec) return full;
-		const position = numbering ? numbering.positionFor(field, itemKey) : itemPosition(formValues[field], itemKey);
+		const position = numbering
+			? numbering.positionFor(field, itemKey)
+			: itemPosition(formValues[field], itemKey, countKind);
 		if (position === null) return full;
 		return renderResourceToken(spec, position);
 	});

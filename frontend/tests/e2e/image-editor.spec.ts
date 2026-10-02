@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsOwner, screenshot } from './helpers';
+import { pickFieldTool } from './mediaFieldHelpers';
 import {
 	SIZES,
 	openControlTab,
@@ -34,10 +35,10 @@ for (const size of SIZES) {
 			})
 		]);
 		expect(uploadResponse.ok()).toBeTruthy();
-		await expect(field.getByRole('button', { name: 'Edit image' })).toBeVisible();
+		await expect(field.locator('[data-media-inspector]')).toBeVisible();
 		await screenshot(page, JOURNEY, `field-${size.tag}`);
 
-		await field.getByRole('button', { name: 'Edit image' }).click();
+		await pickFieldTool(page, field, 'edit');
 		const dialog = page.getByRole('dialog', { name: 'Edit image' });
 		await expect(dialog).toBeVisible();
 		const canvas = dialog.getByLabel('Drawing canvas');
@@ -134,9 +135,9 @@ for (const size of SIZES) {
 			mimeType: 'image/png',
 			buffer: fixturePng(128)
 		});
-		await expect(field.getByRole('button', { name: 'Edit image' })).toBeVisible({ timeout: 15000 });
+		await expect(field.locator('[data-media-inspector]')).toBeVisible({ timeout: 15000 });
 
-		await field.getByRole('button', { name: 'Edit image' }).click();
+		await pickFieldTool(page, field, 'edit');
 		const dialog = page.getByRole('dialog', { name: 'Edit image' });
 		await expect(dialog).toBeVisible();
 		const canvas = dialog.getByLabel('Drawing canvas');
@@ -145,7 +146,7 @@ for (const size of SIZES) {
 		await dialog.getByRole('button', { name: 'Cancel' }).click();
 		await expect(dialog).toBeHidden();
 
-		await field.getByRole('button', { name: 'Edit image' }).click();
+		await pickFieldTool(page, field, 'edit');
 		await expect(dialog).toBeVisible();
 		await expect(visibleText(dialog, '128 × 128')).toBeVisible();
 		await strokeAcross(page, canvas, [0.2, 0.3], [0.8, 0.6]);

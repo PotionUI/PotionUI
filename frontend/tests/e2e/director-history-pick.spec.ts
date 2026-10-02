@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
 
 // Bug report: in the Video Director, picking an image from Generation
@@ -43,7 +43,27 @@ async function apiPost(page: Page, url: string, token: string, data?: unknown) {
 	return res.json();
 }
 
-test('director history pick — i2v compact media field renders the picked image', async ({ page }) => {
+async function checkSlotAtBothWidths(page: Page, field: Locator, state: string) {
+	for (const [tag, width, height] of [
+		['1440', 1440, 900],
+		['390', 390, 844]
+	] as const) {
+		await page.setViewportSize({ width, height });
+		await page.waitForTimeout(BEAT);
+		await field.scrollIntoViewIfNeeded();
+		const box = await field.boundingBox();
+		expect(box, `${state} slot at ${tag} has a box`).not.toBeNull();
+		expect(box!.width, `${state} slot at ${tag} is wide enough for the full block`).toBeGreaterThanOrEqual(240);
+		await expect(field.locator('[data-media-row-face]'), `${state} slot at ${tag} is not the compact row`).toHaveCount(0);
+		const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+		expect(overflow, `${state} slot at ${tag} scrolls the page sideways`).toBeLessThanOrEqual(0);
+		await screenshot(page, JOURNEY, `slot-${state}-${tag}`);
+	}
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.waitForTimeout(BEAT);
+}
+
+test('director history pick — i2v leading-frame media slot renders the picked image', async ({ page }) => {
 	await loginAsOwner(page);
 	const token = await ownerToken(page);
 
@@ -101,17 +121,17 @@ test('director history pick — i2v compact media field renders the picked image
 	// mode used.
 	await page.waitForTimeout(BEAT);
 
-	const compactDropHint = page.getByText(/Paste or drop image/i).first();
-	if ((await compactDropHint.count()) === 0 || !(await compactDropHint.isVisible().catch(() => false))) {
+	const slotDropzone = page.locator('[data-media-dropzone]').first();
+	if ((await slotDropzone.count()) === 0 || !(await slotDropzone.isVisible().catch(() => false))) {
 		test.skip(true, `No leading-frame media well reachable on ${videoPreset.id}'s default shot.`);
 		return;
 	}
-	await expect(compactDropHint).toBeVisible({ timeout: 20000 });
-	const compactDropzone = compactDropHint.locator('xpath=ancestor::*[contains(@class, "border-dashed")][1]');
-	await screenshot(page, JOURNEY, '01-i2v-compact-empty');
+	await expect(slotDropzone).toBeVisible({ timeout: 20000 });
+	const slotField = slotDropzone.locator('xpath=ancestor::*[@data-media-field][1]');
+	await screenshot(page, JOURNEY, '01-i2v-slot-empty');
+	await checkSlotAtBothWidths(page, slotField, 'empty');
 
-	// --- Open History from the compact field and pick the seeded generation.
-	await compactDropzone.getByTitle('History').click();
+	await slotDropzone.getByRole('button', { name: 'History' }).click();
 
 	const historyModal = page.getByText('Select Image from Generation History');
 	await expect(historyModal).toBeVisible({ timeout: 20000 });
@@ -124,15 +144,15 @@ test('director history pick — i2v compact media field renders the picked image
 	await expect(historyModal).not.toBeVisible({ timeout: 20000 });
 	await page.waitForTimeout(BEAT);
 
-	// --- Decisive assertion: the compact field's preview shows the picked
-	// image, not an empty dropzone and not a clobbered/blank field.
-	await expect(compactDropHint).not.toBeVisible();
+	await expect(slotField.locator('[data-media-dropzone]')).not.toBeVisible();
 	const previewImage = page.locator(`img[src*="${generationId}"]`).first();
-	await expect(previewImage, 'compact media field should render the picked image').toBeVisible({ timeout: 20000 });
+	await expect(previewImage, 'media slot should render the picked image').toBeVisible({ timeout: 20000 });
 
 	const previewCard = previewImage.locator('xpath=ancestor::*[contains(@class, "border-line-strong")][1]');
 	await previewCard.scrollIntoViewIfNeeded();
-	await previewCard.screenshot({ path: shotPath(JOURNEY, '02-i2v-compact-picked') });
+	await previewCard.screenshot({ path: shotPath(JOURNEY, '02-i2v-slot-picked') });
+	await expect(slotField.locator('[data-media-inspector]')).toBeVisible();
+	await checkSlotAtBothWidths(page, slotField, 'filled');
 
 	console.log(`[${JOURNEY}] history pick rendered for generation ${generationId} on ${videoPreset.id}`);
 });

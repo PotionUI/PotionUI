@@ -50,7 +50,7 @@ describe('metaChips', () => {
 	});
 
 	it('describes audio without a resolution or a frame rate', () => {
-		expect(metaChips(AUDIO, 'audio', 'vo_take_03_clean.wav').map((c) => c.key)).toEqual(['duration', 'size']);
+		expect(metaChips(AUDIO, 'audio', 'vo_take_03_clean.wav').map((c) => c.key)).toEqual(['duration', 'format', 'size']);
 	});
 
 	// A generation from before probing existed has no numbers at all; the row

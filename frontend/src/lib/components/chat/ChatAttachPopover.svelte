@@ -43,9 +43,12 @@
 		onMediaLoaderChange(value);
 	}
 
+	const FIELD_MENU_SELECTOR = '[data-source-menu], [data-tools-menu]';
+
 	function handleOutsidePointerDown(e: PointerEvent) {
 		const target = e.target as Node;
 		if (rootEl?.contains(target) || triggerEl?.contains(target)) return;
+		if (target instanceof Element && target.closest(FIELD_MENU_SELECTOR)) return;
 		// MediaLoaderField opens its own portaled modals (history/library/
 		// preview, all BaseModal.svelte) OUTSIDE this popover's DOM subtree even
 		// though they're mounted as Svelte descendants of it - a click inside one
@@ -61,6 +64,7 @@
 
 	function handleOutsideKeydown(e: KeyboardEvent) {
 		if (e.key !== 'Escape') return;
+		if (document.querySelector(FIELD_MENU_SELECTOR)) return;
 		// A nested BaseModal (history/library/preview) owns this Escape itself,
 		// via its own capture-phase window listener that runs first - by the
 		// time it bubbles here focus is still inside the modal's dialog, so

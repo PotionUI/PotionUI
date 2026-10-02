@@ -23,7 +23,9 @@
 		kindLabel,
 		mediaFieldItems,
 		mediaItemKey,
-		itemAtPosition,
+		specItems,
+		resourceGroupKey,
+		findSpecByGroupKey,
 		parseResourceMarker,
 		type PromptResourceSpec,
 		type ResourceRef
@@ -342,12 +344,12 @@
 	// ${name} variable usages) — see chipSegments.ts.
 	$: contentSegments = parseValueToSegments(value, chips, resources);
 
-	function resourceItemCount(field: string): number {
-		return mediaFieldItems(resourceFieldValues[field]).length;
+	function resourceItemCount(spec: PromptResourceSpec): number {
+		return specItems(promptResources, spec, resourceFieldValues[spec.field]).length;
 	}
 
 	function resourceGroupDescription(spec: PromptResourceSpec): string {
-		const count = resourceItemCount(spec.field);
+		const count = resourceItemCount(spec);
 		if (count === 0) return `No ${kindLabel(spec.kind).toLowerCase()}s added yet`;
 		return `${count} available`;
 	}
@@ -361,7 +363,7 @@
 					return resourceGroupLabel(spec).toLowerCase().includes(query) || spec.field.toLowerCase().includes(query);
 				})
 				.map((spec) => ({
-					id: spec.field,
+					id: resourceGroupKey(promptResources, spec),
 					name: resourceGroupLabel(spec),
 					path: resourceGroupLabel(spec),
 					description: resourceGroupDescription(spec),
@@ -376,18 +378,22 @@
 			return resourceGroupLabel(spec).toLowerCase().includes(query) || spec.field.toLowerCase().includes(query);
 		})
 		.map((spec) => ({
-			id: spec.field,
+			id: resourceGroupKey(promptResources, spec),
 			name: resourceGroupLabel(spec),
 			description: resourceGroupDescription(spec),
 			icon: spec.kind === 'image' ? 'image' : spec.kind === 'video' ? 'video' : 'audio',
-			count: resourceItemCount(spec.field)
+			count: resourceItemCount(spec)
 		}));
 
 	$: effectiveResourceField =
-		resourceGroupField ?? promptResources.find((s) => resourceItemCount(s.field) > 0)?.field ?? promptResources[0]?.field ?? null;
+		resourceGroupField ??
+		(() => {
+			const spec = promptResources.find((s) => resourceItemCount(s) > 0) ?? promptResources[0];
+			return spec ? resourceGroupKey(promptResources, spec) : null;
+		})();
 
 	$: activeResourceSpec = effectiveResourceField
-		? promptResources.find((spec) => spec.field === effectiveResourceField) ?? null
+		? findSpecByGroupKey(promptResources, effectiveResourceField) ?? null
 		: null;
 
 	function itemThumbUrl(item: unknown): string | undefined {
@@ -407,7 +413,7 @@
 	}
 
 	$: resourceItemSuggestions = activeResourceSpec
-		? (mediaFieldItems(resourceFieldValues[activeResourceSpec.field])
+		? (specItems(promptResources, activeResourceSpec, resourceFieldValues[activeResourceSpec.field])
 				.map((item, index) => {
 					const key = mediaItemKey(item);
 					if (!key) return null;
@@ -1242,7 +1248,8 @@
 	}
 
 	function handleSelectResourceGroup(field: string) {
-		if (resourceItemCount(field) === 0) return;
+		const group = findSpecByGroupKey(promptResources, field);
+		if (!group || resourceItemCount(group) === 0) return;
 		if (resourceSwitchContainer) {
 			resourceGroupField = field;
 			resourceQuery = '';
@@ -2112,7 +2119,9 @@
 
 			const state = resourceMarkerState(ref, promptResources, resourceFieldValues, $resourceNumbering);
 			const item =
-				state.spec && state.position !== null ? itemAtPosition(resourceFieldValues[ref.field], state.position) : undefined;
+				state.spec && state.position !== null
+					? specItems(promptResources, state.spec, resourceFieldValues[ref.field])[state.position - 1]
+					: undefined;
 
 			const component = mount(PromptResourceChip, {
 				target: container,
@@ -2125,7 +2134,7 @@
 					fieldLabel: resourceFieldLabels[ref.field],
 					disabled: isDisabled,
 					onRemove: () => handleResourceRemove(el),
-					onSwitch: () => openResourceSwitcher(el, ref.field),
+					onSwitch: () => openResourceSwitcher(el, state.spec ? resourceGroupKey(promptResources, state.spec) : ref.field),
 					variant
 				}
 			});

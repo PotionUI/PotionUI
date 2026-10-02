@@ -69,7 +69,6 @@
 							value={entry.ref_media}
 							{formData}
 							kind="image"
-							fill
 							onChange={(v) => setReference(entry.id, v)}
 							config={{ accept: 'image/*' }}
 						/>

@@ -1,11 +1,10 @@
 import {
 	RESOURCE_INDEX_PLACEHOLDER,
 	encodeResourceMarker,
-	itemAtPosition,
-	mediaFieldItems,
 	mediaItemKey,
 	resourceGroupLabel,
 	resourceHandleLabel,
+	specItems,
 	resourceMarkerRegex,
 	type PromptResourceSpec
 } from './promptResources';
@@ -73,7 +72,7 @@ export function findResourceTokens(
 			const end = start + match[0].length;
 			if (overlaps(taken, start, end)) continue;
 			const position = Number(match[1]);
-			const itemKey = position >= 1 ? mediaItemKey(itemAtPosition(formValues[spec.field], position)) : null;
+			const itemKey = position >= 1 ? mediaItemKey(specItems(specs, spec, formValues[spec.field])[position - 1]) : null;
 			taken.push([start, end]);
 			found.push({ start, end, text: match[0], spec, position, itemKey });
 		}
@@ -115,11 +114,12 @@ export function convertResourceTokens(
 
 export function unresolvedResourceTokenMessage(
 	match: ResourceTokenMatch,
+	specs: readonly PromptResourceSpec[],
 	formValues: Record<string, unknown>,
 	fieldLabels: Record<string, string> = {}
 ): string {
 	const label = fieldLabels[match.spec.field] ?? resourceGroupLabel(match.spec);
-	const count = mediaFieldItems(formValues[match.spec.field]).length;
+	const count = specItems(specs, match.spec, formValues[match.spec.field]).length;
 	const holds = count === 0 ? 'is empty' : `has ${count} ${count === 1 ? 'item' : 'items'}`;
 	return `${match.text} stays plain text: ${label} ${holds}`;
 }
@@ -128,7 +128,7 @@ export function resourceTokenWarnings(text: string, context: ResourceTokenContex
 	const messages: string[] = [];
 	for (const match of findResourceTokens(text, context.specs, context.formValues)) {
 		if (match.itemKey) continue;
-		const message = unresolvedResourceTokenMessage(match, context.formValues, context.fieldLabels);
+		const message = unresolvedResourceTokenMessage(match, context.specs, context.formValues, context.fieldLabels);
 		if (!messages.includes(message)) messages.push(message);
 	}
 	return messages;

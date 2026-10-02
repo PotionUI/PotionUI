@@ -138,7 +138,7 @@ export async function uploadSample(page: Page, field: Locator, size: number): Pr
 		})
 	]);
 	expect(response.ok()).toBeTruthy();
-	await expect(field.getByRole('button', { name: 'Edit image' })).toBeVisible({ timeout: 15000 });
+	await expect(field.locator('[data-media-inspector]')).toBeVisible({ timeout: 15000 });
 }
 
 export async function openEditField(page: Page, mobile: boolean, size: number) {

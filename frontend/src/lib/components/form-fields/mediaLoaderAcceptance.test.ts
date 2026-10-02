@@ -227,6 +227,37 @@ describe('evaluateCandidate', () => {
 	});
 });
 
+describe('per-kind item limits', () => {
+	const mixed = readMediaLoaderConfig({
+		multiple: true,
+		accepted_types: ['image', 'video', 'audio'],
+		max_items_by_kind: { image: 2, video: 1 }
+	});
+
+	it('refuses a kind that is at its own limit', () => {
+		const held = contents({ count: 1, countByKind: { video: 1 } });
+		expect(reasonsFor(candidate({ name: 'b.mp4', kind: 'video' }), mixed, held, 'refs')).toEqual([
+			"Too many video items for 'refs': maximum is 1"
+		]);
+	});
+
+	it('accepts another kind while one kind is full', () => {
+		const held = contents({ count: 2, countByKind: { video: 1, image: 1 } });
+		expect(evaluateCandidate(candidate(), mixed, held)).toEqual({ accepted: true });
+	});
+
+	it('does not cap a kind that has no limit', () => {
+		const held = contents({ count: 40, countByKind: { audio: 40 } });
+		expect(evaluateCandidate(candidate({ name: 'a.wav', kind: 'audio' }), mixed, held)).toEqual({ accepted: true });
+	});
+
+	it('counts every kind against a scalar max when no per-kind map exists', () => {
+		const scalar = readMediaLoaderConfig({ multiple: true, accepted_types: ['image', 'video'], max_items: 2 });
+		const held = contents({ count: 2, countByKind: { image: 1, video: 1 } });
+		expect(reasonsFor(candidate(), scalar, held)).toEqual(['Too many items: maximum is 2']);
+	});
+});
+
 describe('describeCandidate', () => {
 	it('identifies the file that was refused', () => {
 		expect(describeCandidate(candidate({ name: 'take_04.mov', mimeType: 'video/quicktime' }))).toBe(

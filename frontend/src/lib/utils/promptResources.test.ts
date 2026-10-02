@@ -4,6 +4,8 @@ import {
 	deriveResourcesFromText,
 	encodeResourceMarker,
 	findResourceProblems,
+	findResourceSpec,
+	findSpecByGroupKey,
 	itemAtPosition,
 	itemPosition,
 	kindLabel,
@@ -11,9 +13,11 @@ import {
 	mediaItemKey,
 	parseResourceMarker,
 	resolveResourceMarkers,
+	resourceGroupKey,
 	resourceGroupLabel,
 	resourceHandleLabel,
 	resourceMarkerState,
+	specItems,
 	textHasResourceMarkers,
 	type PromptResourceSpec
 } from './promptResources';
@@ -247,5 +251,78 @@ describe('deriveResourcesFromText', () => {
 		for (const ref of Object.values(result)) {
 			expect(ref).toEqual({ field: 'references', item_key: 'a.png' });
 		}
+	});
+});
+
+describe('a field that carries several kinds', () => {
+	const mixedSpecs: PromptResourceSpec[] = [
+		{ field: 'refs', kind: 'image', token: '<Picture @>' },
+		{ field: 'refs', kind: 'video', token: '<Video @>' },
+		{ field: 'refs', kind: 'audio', token: '<Audio @>' }
+	];
+	const refs = [
+		{ relative_path: 'a.png', type: 'image' },
+		{ relative_path: 'clip1.mp4', type: 'video' },
+		{ relative_path: 'b.png', type: 'image' },
+		{ relative_path: 'clip2.mp4', type: 'video' },
+		{ relative_path: 'voice.wav', type: 'audio' }
+	];
+	const formValues = { refs };
+
+	it('picks the spec by field and kind', () => {
+		expect(findResourceSpec(mixedSpecs, 'refs', 'video')).toBe(mixedSpecs[1]);
+		expect(findResourceSpec(mixedSpecs, 'refs', 'audio')).toBe(mixedSpecs[2]);
+		expect(findResourceSpec(mixedSpecs, 'refs')).toBe(mixedSpecs[0]);
+	});
+
+	it('finds no spec for a kind the field never declared when several are declared', () => {
+		expect(findResourceSpec(mixedSpecs.slice(0, 2), 'refs', 'audio')).toBeUndefined();
+	});
+
+	it('keeps the lone spec of a single-kind field whatever the item kind', () => {
+		expect(findResourceSpec([specs[0]], 'references', 'video')).toBe(specs[0]);
+	});
+
+	it('counts the position within the kind', () => {
+		expect(itemPosition(refs, 'b.png', 'image')).toBe(2);
+		expect(itemPosition(refs, 'clip2.mp4', 'video')).toBe(2);
+		expect(itemPosition(refs, 'voice.wav', 'audio')).toBe(1);
+		expect(itemPosition(refs, 'clip2.mp4')).toBe(4);
+	});
+
+	it('does not find an item under the wrong kind', () => {
+		expect(itemPosition(refs, 'a.png', 'video')).toBeNull();
+	});
+
+	it('resolves each marker to its own kind token and position', () => {
+		const text = '@[refs:b.png] meets @[refs:clip2.mp4] over @[refs:voice.wav]';
+		expect(resolveResourceMarkers(text, mixedSpecs, formValues)).toBe('<Picture 2> meets <Video 2> over <Audio 1>');
+	});
+
+	it('reports the position within the kind in the marker state', () => {
+		const state = resourceMarkerState({ field: 'refs', item_key: 'clip2.mp4' }, mixedSpecs, formValues);
+		expect(state).toMatchObject({ spec: mixedSpecs[1], position: 2, dangling: false });
+	});
+
+	it('is dangling when the item left the field', () => {
+		const state = resourceMarkerState({ field: 'refs', item_key: 'gone.mp4' }, mixedSpecs, formValues);
+		expect(state.dangling).toBe(true);
+	});
+
+	it('lists only the items of the spec kind, numbered inside the kind', () => {
+		expect(specItems(mixedSpecs, mixedSpecs[0], refs).map(mediaItemKey)).toEqual(['a.png', 'b.png']);
+		expect(specItems(mixedSpecs, mixedSpecs[1], refs).map(mediaItemKey)).toEqual(['clip1.mp4', 'clip2.mp4']);
+		expect(specItems(mixedSpecs, mixedSpecs[2], refs)).toHaveLength(1);
+	});
+
+	it('lists every item when the field has a single spec', () => {
+		expect(specItems([mixedSpecs[0]], mixedSpecs[0], refs)).toHaveLength(5);
+	});
+
+	it('keys a group by field and kind only when the field is shared', () => {
+		expect(resourceGroupKey(mixedSpecs, mixedSpecs[1])).toBe('refs:video');
+		expect(resourceGroupKey([mixedSpecs[0]], mixedSpecs[0])).toBe('refs');
+		expect(findSpecByGroupKey(mixedSpecs, 'refs:audio')).toBe(mixedSpecs[2]);
+		expect(findSpecByGroupKey(mixedSpecs, 'refs')).toBeUndefined();
 	});
 });

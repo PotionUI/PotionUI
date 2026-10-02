@@ -24,6 +24,7 @@ vi.mock('$lib/services/api/index', () => ({
 		listGenerationMedia: (...args: unknown[]) => listGenerationMedia(...args),
 		copyGenerationFileToLibrary: (...args: unknown[]) => copyGenerationFileToLibrary(...args),
 		getUploadInfo: vi.fn().mockResolvedValue({ success: false }),
+		getHistoryTools: vi.fn().mockResolvedValue({ success: true, data: [] }),
 		listUploads: (...args: unknown[]) => listUploads(...args),
 		editMediaItem: (...args: unknown[]) => editMediaItem(...args),
 		extractMediaFrame: vi.fn(),
@@ -53,10 +54,11 @@ function mount(props: Record<string, unknown>) {
 	return document.body;
 }
 
-function buttonByTitle(target: HTMLElement, title: string): HTMLButtonElement | undefined {
-	return Array.from(target.querySelectorAll('button')).find(
-		(button) => button.getAttribute('title') === title
-	);
+async function pickTool(target: HTMLElement, id: string) {
+	target.querySelector<HTMLButtonElement>('[data-tools-trigger]')!.click();
+	await tick();
+	await tick();
+	document.body.querySelector<HTMLButtonElement>(`[data-tools-menu] [data-tool="${id}"]`)!.click();
 }
 
 function buttonByText(target: HTMLElement, text: string): HTMLButtonElement | undefined {
@@ -130,7 +132,7 @@ describe('MediaLoaderField × the shared editors', () => {
 		});
 		await settle();
 
-		buttonByTitle(target, 'Trim in / out')!.click();
+		await pickTool(target, 'trim');
 		await settle();
 
 		const outHandle = Array.from(target.querySelectorAll('button')).find(
@@ -170,7 +172,7 @@ describe('MediaLoaderField × the shared editors', () => {
 		});
 		await settle();
 
-		buttonByTitle(target, 'Trim in / out')!.click();
+		await pickTool(target, 'trim');
 		await settle();
 		expect(buttonByText(target, 'Cancel')).toBeTruthy();
 
@@ -210,7 +212,7 @@ describe('MediaLoaderField × the shared editors', () => {
 		});
 		await settle();
 
-		buttonByTitle(target, 'Crop & frame')!.click();
+		await pickTool(target, 'crop');
 		await settle();
 
 		// The same media must not behave differently depending on which screen
@@ -270,7 +272,7 @@ describe('MediaLoaderField × the shared editors', () => {
 		});
 		await settle();
 
-		buttonByTitle(target, 'Crop & frame')!.click();
+		await pickTool(target, 'crop');
 		await settle();
 
 		expect(copyGenerationFileToLibrary).toHaveBeenCalledWith('file-3');

@@ -105,14 +105,11 @@ test('DynamicForm image field survives a History pick alongside onOriginChange',
 
 	// --- Open History from the source_image field and pick the seeded
 	// generation (non-compact rendering, unlike the chat/director journeys).
-	// 71a5d03a ("The media field fits where it is put...") replaced the single
-	// "Drop an image, or ..." line with a standalone `emptyHint` ("Drop an
-	// image here") plus a separate "or paste from clipboard" line below it.
 	// Scoped to the source_image field itself — the same text/hint renders
 	// (hidden) in every other media field on the page.
 	const dropHint = page
 		.locator('[data-field-name="source_image"]')
-		.getByText(/Drop an image here/i)
+		.getByText(/Drop an image or/i)
 		.first();
 	await expect(dropHint).toBeVisible({ timeout: 20000 });
 	const dropzone = dropHint.locator('xpath=ancestor::*[contains(@class, "border-dashed")][1]');

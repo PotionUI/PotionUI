@@ -65,3 +65,40 @@ export function buildUploadedMediaItem(
 		}
 	};
 }
+
+export function postUpload(
+	file: File,
+	token: string | null,
+	onProgress: (percent: number) => void
+): Promise<{ data: UploadResponseData }> {
+	return new Promise((resolve, reject) => {
+		const request = new XMLHttpRequest();
+		request.open('POST', '/api/media/upload');
+		request.withCredentials = true;
+		if (token) request.setRequestHeader('Authorization', `Bearer ${token}`);
+
+		request.upload.onprogress = (event) => {
+			if (event.lengthComputable && event.total > 0) {
+				onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+			}
+		};
+		request.onload = () => {
+			let parsed: { success?: boolean; data?: UploadResponseData; message?: string } | null = null;
+			try {
+				parsed = JSON.parse(request.responseText);
+			} catch {
+				parsed = null;
+			}
+			if (request.status >= 200 && request.status < 300 && parsed?.success && parsed?.data) {
+				resolve({ data: parsed.data });
+			} else {
+				reject(new Error(parsed?.message || 'Failed to upload file'));
+			}
+		};
+		request.onerror = () => reject(new Error('Failed to upload file'));
+
+		const formData = new FormData();
+		formData.append('file', file);
+		request.send(formData);
+	});
+}

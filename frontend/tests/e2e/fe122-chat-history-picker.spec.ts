@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { pickFromSourceMenu } from './mediaFieldHelpers';
 import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm';
 
 const JOURNEY = 'fe122-chat-history-picker';
@@ -83,16 +84,13 @@ test('chat vision picker - History pick lands the image in the field', async ({ 
 	await expect(attachImageButton).toBeVisible({ timeout: 15000 });
 	await attachImageButton.click();
 
-	const compactDropHint = page.getByText(/Paste or drop image/i).first();
+	const compactDropHint = page.locator('[data-media-row-add]').first();
 	await expect(compactDropHint).toBeVisible({ timeout: 15000 });
 	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, '01-panel-open-empty');
 
 	// --- Open History from the compact field and pick the seeded generation.
-	const compactDropzone = compactDropHint.locator(
-		'xpath=ancestor::*[contains(@class, "border-dashed")][1]'
-	);
-	await compactDropzone.getByTitle('History').click();
+	await pickFromSourceMenu(page, compactDropHint, 'history');
 
 	const historyModal = page.getByText('Select Image from Generation History');
 	await expect(historyModal).toBeVisible({ timeout: 20000 });
@@ -110,7 +108,7 @@ test('chat vision picker - History pick lands the image in the field', async ({ 
 
 	// --- Decisive assertion: the compact field's preview shows the picked
 	// image, not an empty dropzone.
-	await expect(compactDropHint).not.toBeVisible();
+	await expect(page.locator('[data-media-row-add]')).toHaveCount(0);
 	const previewImage = page.locator(`img[src*="${generationId}"]`).first();
 	await expect(previewImage, 'vision-image field should render the picked image').toBeVisible({
 		timeout: 20000

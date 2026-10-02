@@ -24,17 +24,11 @@ test('video-director-timeline', async ({ page }) => {
 	);
 	await beat(page, 800);
 
-	// Attach the seeded Wan potion.mp4 generation as this shot's reference
-	// frame, and PROVE it actually attached rather than silently skipping:
-	// MediaLoaderField's empty-state "Pick from generation history" button
-	// only renders for an empty slot (face === 'empty') - once a file lands,
-	// that whole branch is replaced by the face === 'image'/'video' preview,
-	// whose toolbar button is unambiguously `aria-label="View full size"`.
-	const historyPick = director.getByRole('button', { name: 'Pick from generation history' }).first();
-	await expect(historyPick, 'the shot reference-frame slot should offer a history picker').toBeVisible({
+	const referenceSlot = director.locator('[data-media-dropzone]').first();
+	await expect(referenceSlot, 'the shot reference-frame slot should offer a drop zone').toBeVisible({
 		timeout: 10000
 	});
-	await historyPick.click();
+	await referenceSlot.getByRole('button', { name: 'History' }).click();
 
 	const historyModal = page.getByText('Select Image from Generation History');
 	await expect(historyModal, 'the generation-history modal should open').toBeVisible({ timeout: 5000 });
@@ -51,7 +45,7 @@ test('video-director-timeline', async ({ page }) => {
 	const attachedPreview = director.getByRole('button', { name: 'View full size' }).first();
 	await expect(
 		attachedPreview,
-		'the reference frame must actually attach - the empty-state picker should be replaced by a loaded preview'
+		'the reference frame must actually attach - the empty add row should be replaced by a loaded row'
 	).toBeVisible({ timeout: 5000 });
 	await beat(page, 900);
 

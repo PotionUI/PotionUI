@@ -123,4 +123,42 @@ describe('ChatAttachPopover', () => {
 
 		component.$destroy?.();
 	});
+
+	it('keeps the popover open when a press lands in a menu the embedded field portals out', () => {
+		const onClose = vi.fn();
+		const { component } = mount({ onClose, formImageEntries: [], selectedDurablePath: null, onSelectFormImage: vi.fn() });
+		const menu = document.createElement('div');
+		menu.setAttribute('data-source-menu', '');
+		const item = document.createElement('button');
+		menu.appendChild(item);
+		document.body.appendChild(menu);
+
+		item.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+		expect(onClose).not.toHaveBeenCalled();
+
+		const outside = document.createElement('div');
+		document.body.appendChild(outside);
+		outside.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+		expect(onClose).toHaveBeenCalledTimes(1);
+
+		menu.remove();
+		outside.remove();
+		component.$destroy?.();
+	});
+	it('keeps the popover open on Escape while a field menu is open, and closes on Escape after it is gone', () => {
+		const onClose = vi.fn();
+		const { component } = mount({ onClose, formImageEntries: [], selectedDurablePath: null, onSelectFormImage: vi.fn() });
+		const menu = document.createElement('div');
+		menu.setAttribute('data-source-menu', '');
+		document.body.appendChild(menu);
+
+		document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		expect(onClose).not.toHaveBeenCalled();
+
+		menu.remove();
+		document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		expect(onClose).toHaveBeenCalledTimes(1);
+
+		component.$destroy?.();
+	});
 });

@@ -25,7 +25,7 @@ import {
 export type MediaKind = 'image' | 'video' | 'audio' | 'mesh';
 
 /** Which page's Tools menu a tool is offered on. */
-export type MediaToolScope = 'history' | 'library';
+export type MediaToolScope = 'history' | 'library' | 'field';
 
 /** One selected file, resolved to a stable url plus enough to key a
  * generation's per-file params by. `generationId`/`paramIndex` are present
@@ -92,6 +92,7 @@ export interface MediaTool {
 	label: string;
 	description?: string;
 	icon: string;
+	shortcut?: string;
 	category: string;
 	source: 'core' | 'plugin';
 	/** Pages this tool is offered on. */
@@ -225,6 +226,18 @@ export function buildLibraryToolContext(
 		items: toolItems,
 		kinds,
 		collectionId,
+		generations: [],
+		generationIds: [],
+		files: []
+	};
+}
+
+export function buildFieldToolContext(item: MediaToolItem | null): MediaToolContext {
+	return {
+		scope: 'field',
+		items: item ? [item] : [],
+		kinds: new Set<MediaKind>(item ? [item.kind] : []),
+		collectionId: null,
 		generations: [],
 		generationIds: [],
 		files: []

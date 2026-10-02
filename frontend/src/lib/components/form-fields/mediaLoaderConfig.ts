@@ -26,6 +26,7 @@ export interface MediaLoaderLimits {
 	accept: string;
 	multiple: boolean;
 	maxItems: number | null;
+	maxItemsByKind: Partial<Record<MediaKind, number>>;
 	/**
 	 * `max_resolution` — ONE number, the cap on each axis of an image or a
 	 * video, not a width×height pair (`media_input._check_media_constraints`
@@ -145,6 +146,24 @@ export function acceptAttribute(config: unknown, kinds: MediaKind[]): string {
 	return kinds.map((k) => `${k}/*`).join(',');
 }
 
+export function readMaxItemsByKind(config: unknown): Partial<Record<MediaKind, number>> {
+	const declared = pick(asRecord(config), 'max_items_by_kind', 'maxItemsByKind');
+	const limits: Partial<Record<MediaKind, number>> = {};
+	for (const [key, value] of Object.entries(asRecord(declared))) {
+		const kind = kindFromToken(key);
+		const limit = asPositiveNumber(value);
+		if (kind && limit !== null) limits[kind] = limit;
+	}
+	return limits;
+}
+
+export function itemLimitFor(
+	limits: Pick<MediaLoaderLimits, 'maxItems' | 'maxItemsByKind'>,
+	kind: MediaKind
+): number | null {
+	return limits.maxItemsByKind[kind] ?? limits.maxItems;
+}
+
 export function readMediaLoaderConfig(config: unknown): MediaLoaderLimits {
 	const raw = asRecord(config);
 	const kinds = readAcceptedKinds(raw);
@@ -154,6 +173,7 @@ export function readMediaLoaderConfig(config: unknown): MediaLoaderLimits {
 		accept: acceptAttribute(raw, kinds),
 		multiple: Boolean(pick(raw, 'multiple', 'multi')),
 		maxItems: asPositiveNumber(pick(raw, 'max_items', 'maxItems')),
+		maxItemsByKind: readMaxItemsByKind(raw),
 		maxResolution: asPositiveNumber(pick(raw, 'max_resolution')),
 		maxWidth: asPositiveNumber(pick(raw, 'max_width', 'maxWidth')),
 		maxHeight: asPositiveNumber(pick(raw, 'max_height', 'maxHeight')),

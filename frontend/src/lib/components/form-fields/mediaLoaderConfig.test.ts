@@ -4,6 +4,7 @@ import {
 	describeDropTarget,
 	describeFormats,
 	describeKinds,
+	itemLimitFor,
 	readAcceptedKinds,
 	readMediaLoaderConfig
 } from './mediaLoaderConfig';
@@ -138,5 +139,37 @@ describe('copy', () => {
 
 	it('lists formats per accepted kind', () => {
 		expect(describeFormats(['audio'])).toBe('WAV · MP3 · FLAC');
+	});
+});
+
+describe('per-kind item limits', () => {
+	const mixed = { multiple: true, accepted_types: ['image', 'video', 'audio'] };
+
+	it('reads a limit for each kind', () => {
+		const limits = readMediaLoaderConfig({ ...mixed, max_items_by_kind: { image: 9, video: 3, audio: 3 } });
+		expect(limits.maxItemsByKind).toEqual({ image: 9, video: 3, audio: 3 });
+	});
+
+	it('reads the map from the configuration depth and accepts plural kind names', () => {
+		const limits = readMediaLoaderConfig({ ...mixed, configuration: { max_items_by_kind: { images: 4, videos: 2 } } });
+		expect(limits.maxItemsByKind).toEqual({ image: 4, video: 2 });
+	});
+
+	it('drops entries that are not a positive number or name no kind', () => {
+		const limits = readMediaLoaderConfig({ ...mixed, max_items_by_kind: { image: 0, video: 'x', mesh: 3, audio: '2' } });
+		expect(limits.maxItemsByKind).toEqual({ audio: 2 });
+	});
+
+	it('leaves the map empty when a field declares only a scalar max', () => {
+		const limits = readMediaLoaderConfig({ multiple: true, max_items: 5 });
+		expect(limits.maxItemsByKind).toEqual({});
+		expect(limits.maxItems).toBe(5);
+	});
+
+	it('uses the kind limit when there is one and the scalar max otherwise', () => {
+		const limits = readMediaLoaderConfig({ ...mixed, max_items: 6, max_items_by_kind: { video: 2 } });
+		expect(itemLimitFor(limits, 'video')).toBe(2);
+		expect(itemLimitFor(limits, 'image')).toBe(6);
+		expect(itemLimitFor(readMediaLoaderConfig(mixed), 'audio')).toBeNull();
 	});
 });

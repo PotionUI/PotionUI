@@ -24,9 +24,7 @@ const { createClassComponent } = await import('svelte/legacy');
 const { tick } = await import('svelte');
 
 function pasteHint(container: HTMLElement): string | null {
-	const hint = Array.from(container.querySelectorAll('p')).find((el) =>
-		/Paste armed|paste from clipboard/.test(el.textContent ?? '')
-	);
+	const hint = container.querySelector('[data-media-dropzone] p');
 	return hint?.textContent?.trim() ?? null;
 }
 
@@ -62,7 +60,7 @@ describe('MediaLoaderField paste-mode deactivation', () => {
 		const { target, otherField, component } = mountInsideModal();
 		await tick();
 
-		const uploadArea = target.querySelector('[role="button"]') as HTMLElement;
+		const uploadArea = target.querySelector('[data-media-field]') as HTMLElement;
 		expect(uploadArea).toBeTruthy();
 		uploadArea.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		await tick();
@@ -70,7 +68,8 @@ describe('MediaLoaderField paste-mode deactivation', () => {
 
 		otherField.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
 		await tick();
-		expect(pasteHint(target)).toContain('or paste from clipboard');
+		expect(pasteHint(target)).not.toContain('Paste armed');
+		expect(pasteHint(target)).toContain('PNG');
 
 		component.$destroy();
 	});

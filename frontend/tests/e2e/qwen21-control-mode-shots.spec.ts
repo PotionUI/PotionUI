@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { deflateSync } from 'node:zlib';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { maskChip, pickFieldTool } from './mediaFieldHelpers';
 
 const JOURNEY = 'qwen21-control-mode-shots';
 const PRESET_ID = '01M31Y6WNM07EHAXXCDV1QVJVX';
@@ -158,12 +159,12 @@ for (const size of SIZES) {
 		await shoot(page, `01-default-${tag}`);
 
 		await upload(page, root.locator('input[type="file"]').first(), 'source.png', fixturePng(256, 40));
-		const maskButton = root.getByRole('button', { name: 'Create inpainting mask' }).first();
-		await expect(maskButton).toBeVisible({ timeout: 20000 });
+		const mediaField = root.locator('[data-field-name]:has(input[type="file"])').first();
+		await expect(mediaField.locator('[data-tools-trigger]')).toBeVisible({ timeout: 20000 });
 		await top(root);
 		await shoot(page, `02-image-uploaded-${tag}`);
 
-		await maskButton.click();
+		await pickFieldTool(page, mediaField, 'mask');
 		const canvas = page.locator('canvas.cursor-none').first();
 		await expect(canvas).toBeVisible({ timeout: 15000 });
 		await page.waitForTimeout(600);
@@ -186,7 +187,7 @@ for (const size of SIZES) {
 			save.click()
 		]);
 		void stored;
-		await expect(root.getByText('mask', { exact: true }).first()).toBeVisible({ timeout: 20000 });
+		await expect(maskChip(mediaField)).toBeVisible({ timeout: 20000 });
 		await top(root);
 		await shoot(page, `04-mask-applied-${tag}`);
 

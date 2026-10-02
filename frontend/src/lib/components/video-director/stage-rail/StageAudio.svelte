@@ -63,8 +63,8 @@
 	{/snippet}
 
 	<div class="flex flex-col gap-3.5">
-		<div class="flex items-start gap-5">
-			<div class="w-[190px] flex-shrink-0">
+		<div class="audio-split">
+			<div class="min-w-0">
 				<DirectorMediaSlot name="{model.id}-media" value={model.media} {formData} kind="audio" onChange={setMedia} config={{ accept: 'audio/*' }} />
 			</div>
 			<div class="min-w-0 flex-1 text-sm leading-6 text-fg">
@@ -113,3 +113,19 @@
 		</div>
 	</div>
 </StageCard>
+
+<style>
+	.audio-split {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 12px;
+	}
+
+	@container stage-card (min-width: 30rem) {
+		.audio-split {
+			grid-template-columns: 16rem minmax(0, 1fr);
+			gap: 20px;
+			align-items: start;
+		}
+	}
+</style>

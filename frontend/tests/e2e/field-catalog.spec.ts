@@ -148,7 +148,7 @@ test('field catalog restyle — visual capture on a native image preset', async 
 		await modeButtons.first().click();
 		await page.waitForTimeout(BEAT);
 
-		const dropHint = page.getByText(/Drop an (image|video|audio|file), or/i).first();
+		const dropHint = page.getByText(/Drop (an image|a video|an audio file|a file|media) or/i).first();
 		if ((await dropHint.count()) > 0 && (await dropHint.isVisible())) {
 			const dropzone = dropHint.locator('xpath=ancestor::*[contains(@class, "border-dashed")][1]');
 			if ((await dropzone.count()) > 0) {

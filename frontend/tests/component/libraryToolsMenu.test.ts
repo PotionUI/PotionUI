@@ -58,7 +58,7 @@ function mountToolbar() {
 		toolsButton: () =>
 			Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.includes('Tools')),
 		toolLabels: () =>
-			Array.from(target.querySelectorAll('[data-tool]')).map((el) => el.textContent?.trim()),
+			Array.from(document.querySelectorAll('[data-tool]')).map((el) => el.textContent?.trim()),
 		destroy: () => {
 			component.$destroy();
 			target.remove();

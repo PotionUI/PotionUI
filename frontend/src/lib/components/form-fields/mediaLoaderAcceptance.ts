@@ -23,7 +23,7 @@
  * limit here and a user who trips it on submit read the same sentence.
  */
 
-import type { MediaKind, MediaLoaderLimits } from './mediaLoaderConfig';
+import { itemLimitFor, type MediaKind, type MediaLoaderLimits } from './mediaLoaderConfig';
 
 export interface MediaCandidate {
 	name: string;
@@ -127,8 +127,14 @@ export function evaluateCandidate(
 		reasons.push(capitalize(`type '${kind}' is not accepted${forField(field)} (accepted: ${accepted})`));
 	}
 
-	if (limits.multiple && limits.maxItems != null && contents.count >= limits.maxItems) {
-		reasons.push(capitalize(`too many items${forField(field)}: maximum is ${limits.maxItems}`));
+	if (limits.multiple) {
+		const byKind = Object.keys(limits.maxItemsByKind).length > 0;
+		const limit = byKind ? itemLimitFor(limits, kind) : limits.maxItems;
+		const held = byKind ? (contents.countByKind[kind] ?? 0) : contents.count;
+		if (limit != null && held >= limit) {
+			const noun = byKind ? ` ${kind}` : '';
+			reasons.push(capitalize(`too many${noun} items${forField(field)}: maximum is ${limit}`));
+		}
 	}
 
 	if (limits.maxFileSizeBytes != null && (candidate.sizeBytes ?? 0) > limits.maxFileSizeBytes) {

@@ -520,7 +520,7 @@ class HistoryToolSpec(BaseModel):
     applies_to: HistoryToolAppliesTo = Field(default_factory=HistoryToolAppliesTo)
     # Which page's Tools menu offers this tool. Absent/omitted keeps every
     # tool shipped before scopes existed on the History page only.
-    scopes: List[Literal["history", "library"]] = Field(default_factory=lambda: ["history"])
+    scopes: List[Literal["history", "library", "field"]] = Field(default_factory=lambda: ["history"])
 
 
 class DocEntry(BaseModel):

@@ -1,5 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsOwner, screenshot } from './helpers';
+import { maskChip, pickFieldTool } from './mediaFieldHelpers';
 import {
 	SIZES,
 	fixturePng,
@@ -16,7 +17,7 @@ import {
 const JOURNEY = 'image-editor-tools';
 
 async function openEditor(page: Page, field: Locator) {
-	await field.getByRole('button', { name: 'Edit image' }).click();
+	await pickFieldTool(page, field, 'edit');
 	const dialog = page.getByRole('dialog', { name: 'Edit image' });
 	await expect(dialog).toBeVisible();
 	await expectEditorReady(dialog.getByLabel('Drawing canvas'));
@@ -28,7 +29,7 @@ async function reveal(dialog: Locator, mobile: boolean, name: 'Layers' | 'Canvas
 }
 
 async function paintMask(page: Page, field: Locator) {
-	await field.getByRole('button', { name: 'Create inpainting mask' }).click();
+	await pickFieldTool(page, field, 'mask');
 	const maskDialog = page.getByRole('dialog', { name: 'Create inpainting mask' });
 	await expect(maskDialog).toBeVisible();
 	const box = await maskDialog.locator('canvas').boundingBox();
@@ -39,7 +40,7 @@ async function paintMask(page: Page, field: Locator) {
 	await page.mouse.up();
 	await maskDialog.getByRole('button', { name: /Save mask/ }).click();
 	await expect(maskDialog).toBeHidden({ timeout: 15000 });
-	await expect(field.getByText('mask', { exact: true })).toBeVisible();
+	await expect(maskChip(field)).toBeVisible();
 }
 
 async function saveEdit(page: Page, dialog: Locator) {
@@ -74,7 +75,7 @@ for (const size of SIZES) {
 		const field = root.locator('[data-field-name]:has(input[type="file"])').first();
 		await field.scrollIntoViewIfNeeded();
 
-		await field.getByRole('button', { name: 'Draw a new image', exact: true }).click();
+		await field.getByRole('button', { name: 'Draw', exact: true }).click();
 		const newDrawing = page.getByRole('dialog', { name: 'New drawing' });
 		await expect(newDrawing).toBeVisible();
 		await screenshot(page, JOURNEY, `new-drawing-${size.tag}`);
@@ -175,7 +176,7 @@ for (const size of SIZES) {
 		await expect(popover.getByText(/Inpaint mask will be cleared/)).toBeVisible();
 		await screenshot(page, JOURNEY, `save-clears-mask-${size.tag}`);
 		await confirmSave(page, dialog, popover);
-		await expect(field.getByText('mask', { exact: true })).toHaveCount(0);
+		await expect(maskChip(field)).toHaveCount(0);
 	});
 
 	test(`keeps the inpaint mask when only pixels change at ${size.tag}`, async ({ page }) => {
@@ -192,7 +193,7 @@ for (const size of SIZES) {
 		await expect(popover.getByText(/Inpaint mask is kept/)).toBeVisible();
 		await confirmSave(page, dialog, popover);
 		await expect(field.getByText('sample-edit.png')).toBeVisible();
-		await expect(field.getByText('mask', { exact: true })).toBeVisible();
+		await expect(maskChip(field)).toBeVisible();
 	});
 
 	test(`keeps the inpaint mask after a crop is undone at ${size.tag}`, async ({ page }) => {
@@ -215,7 +216,7 @@ for (const size of SIZES) {
 		const popover = await saveEdit(page, dialog);
 		await expect(popover.getByText(/Inpaint mask is kept/)).toBeVisible();
 		await confirmSave(page, dialog, popover);
-		await expect(field.getByText('mask', { exact: true })).toBeVisible();
+		await expect(maskChip(field)).toBeVisible();
 	});
 
 	test(`adds an image as a layer, scales it and opens another at ${size.tag}`, async ({ page }) => {

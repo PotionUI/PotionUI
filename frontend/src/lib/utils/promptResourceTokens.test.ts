@@ -106,3 +106,28 @@ describe('splitResourceTokenPreview', () => {
 		]);
 	});
 });
+
+describe('tokens over a field that carries several kinds', () => {
+	const mixedSpecs: PromptResourceSpec[] = [
+		{ field: 'refs', kind: 'image', token: '<Picture @>' },
+		{ field: 'refs', kind: 'video', token: '<Video @>' }
+	];
+	const mixedValues = {
+		refs: [
+			{ relative_path: 'a.png', type: 'image' },
+			{ relative_path: 'clip.mp4', type: 'video' },
+			{ relative_path: 'b.png', type: 'image' }
+		]
+	};
+
+	it('numbers each token inside its own kind', () => {
+		const matches = findResourceTokens('<Picture 2> and <Video 1>', mixedSpecs, mixedValues);
+		expect(matches.map((m) => m.itemKey)).toEqual(['b.png', 'clip.mp4']);
+	});
+
+	it('leaves a position past the kind count unresolved', () => {
+		const matches = findResourceTokens('<Video 2>', mixedSpecs, mixedValues);
+		expect(matches[0].itemKey).toBeNull();
+		expect(resourceTokenWarnings('<Video 2>', { specs: mixedSpecs, formValues: mixedValues })[0]).toContain('has 1 item');
+	});
+});

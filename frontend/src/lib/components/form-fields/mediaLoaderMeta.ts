@@ -89,7 +89,7 @@ export function metaChips(
 	}
 
 	const container = formatContainer(fileName);
-	if (container && kind === 'image') {
+	if (container && kind !== 'video') {
 		chips.push({ key: 'format', text: container, title: 'Format', icon: 'doc', tone: 'default' });
 	}
 

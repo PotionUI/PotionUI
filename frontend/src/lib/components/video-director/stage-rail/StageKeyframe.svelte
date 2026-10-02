@@ -89,7 +89,7 @@
 			{/if}
 		{/snippet}
 		{#snippet media()}
-			<DirectorMediaSlot name="{model.id}-media" value={model.media} {formData} kind="image" fill onChange={setMedia} config={{ accept: 'image/*' }} />
+			<DirectorMediaSlot name="{model.id}-media" value={model.media} {formData} kind="image" onChange={setMedia} config={{ accept: 'image/*' }} />
 		{/snippet}
 
 		<div class="stage-kf-fields">

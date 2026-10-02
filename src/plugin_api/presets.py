@@ -46,7 +46,11 @@ from src.features.generation.dto import GenerationRequest, PromptPair
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets import operations as preset_operations
 from src.features.presets.file_repository import FilePresetRepository
-from src.features.presets.linter import PresetLinter
+from src.features.presets.linter import (
+    COVER_VIDEO_MAX_BYTES as PRESET_COVER_VIDEO_MAX_BYTES,
+    MEDIA_MAX_BYTES as PRESET_MEDIA_MAX_BYTES,
+    PresetLinter,
+)
 from src.features.presets.requirements.contracts import (
     RequirementAction,
     RequirementChecker,
@@ -67,6 +71,8 @@ __all__ = [
     "GenerationRequest",
     "ModeDescription",
     "PresetCollaborators",
+    "PRESET_COVER_VIDEO_MAX_BYTES",
+    "PRESET_MEDIA_MAX_BYTES",
     "PresetDescription",
     "PresetMedia",
     "RequirementAction",

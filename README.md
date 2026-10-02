@@ -46,7 +46,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
   write action needs your approval.
 - **Video Director** — compose shots in sections instead of one giant prompt.
 
-*Alpha 0.0.13 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
+*Alpha 0.0.14 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
 Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Reddit](https://www.reddit.com/r/PotionUI/) ·
 [Ko-fi](https://ko-fi.com/A3B325D031)*
@@ -234,7 +234,7 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.13 matrix. **Native
+> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.14 matrix. **Native
 > Windows is supported experimentally** as of 0.0.8: the installer, the CLI,
 > the backend test suite, the frontend checks and the E2E harness all run in
 > CI on `windows-latest` — see [Windows (native)](#windows-native) below.
@@ -278,7 +278,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 | Platform                    | Status                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.13                                                              |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.14                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
 | Windows native              | Experimental (0.0.8) — installer, CLI, backend suite, frontend checks and E2E harness run in CI on `windows-latest`; see [Windows (native)](#windows-native) |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
@@ -387,6 +387,56 @@ Start with the in-app documentation browser, or read the Markdown directly:
 The three most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
 
+### 0.0.14 — 2026-10-02
+
+- Cloud models: a new OpenRouter plugin lets presets run on hosted image and video models such
+  as Nano Banana and Veo 3.1 Lite, with results landing in the same History; admins refresh a
+  backend's model catalog, see prices, enable models and limit them to chosen presets; the form
+  shows only the controls the chosen model supports, with a Provider options field for its
+  extras; jobs report progress, can be cancelled with a notice when the provider may still finish
+  and bill, never bill twice on a retry, and record their cost for admins with spend per backend
+  and model; cloud backends run several jobs at once.
+- Video Director on cloud models: each hosted model brings its own limits, a film of several
+  shots makes one request per shot and can continue each shot from the last frame of the one
+  before, the shots are joined into one film, and retrying a failed shot redoes only that shot
+  (a full redo asks first and shows the price to admins).
+- Image editor: images can be edited and drawn in a built-in editor with layers, brush and
+  eraser, selections, crop, flip, rotate, resize and colour adjustments, opened from a media
+  field, History and Library (Tools → Edit image), the generation details view or the Library
+  item view; the result is saved as a new Library upload and the original stays untouched.
+- Formulas: the settings of a preset mode can be saved as a formula and applied in any session,
+  with a preview of every value that will change, a mark on what changed, and one click to undo;
+  every marketplace and ComfyUI preset declares which settings belong in a formula.
+- Media fields: a redesigned field with one large preview, a Tools menu and file details, a
+  numbered strip for several items, and one field that can hold images, videos and audio in their
+  own groups; type @ in a prompt to cite any of them; MiniMax-H3 references are now one such
+  field, and old sessions and saved prompts are converted when loaded; Crop, Trim and Frame only
+  add the edited result to the Library, never the unedited original.
+- Qwen-Image 2.1: a Control mode with Fun ControlNet Union guides (canny, depth, pose and more)
+  and inpainting from one image with an optional mask; the extracted guide can be saved next to
+  the result as a labelled image, or extracted on its own without a prompt or image models; the
+  workbench shows the guide with its label beside the result.
+- Generate: three-pane mode folds the form on narrow screens and gives its width to the prompts;
+  dropdowns open above the Generate bar and work with the arrow keys; preset forms show and hide
+  fields for the value just picked; video presets have animated covers, and every cover zooms
+  slightly on hover.
+- Chat: attaching an image uses the same picker as a preset form.
+- Admin: a panel from the System Monitor shows every backend's status, jobs and hardware; the
+  System Monitor is admins only unless an admin opens it to everyone; plugins are grouped by what
+  they add; preset overrides say when a stored default is ignored and why.
+- Plugins: plugins can run generations, read preset forms, prepare requests from saved sessions,
+  use every app UI component and the app's list page and details viewer, and probe or re-encode
+  short videos.
+- Fixes: Enter in the session name saves the session and no longer resets the workspace; painted
+  inpaint masks reach the model; previews survive a reload with Windows paths or storage under a
+  tmp folder; regular users see a plain reason when a generation fails to start or prepare,
+  never server paths or error text; OpenRouter image models keep their aspect ratio choice; the
+  ControlNet preprocessors are installed with the requirements.
+- Upgrading: plugin manifests must use one of the current categories, and a plugin with an old
+  category name no longer loads; the Docker setup no longer has an outputs volume, since all
+  generated work lives in the storage volume; cloud models need the OpenRouter plugin enabled and
+  its API key set in Admin → Plugins.
+
 ### 0.0.13 — 2026-09-30
 
 - Model folders: adding a folder detects which tool it belongs to (ComfyUI, A1111/Forge/SD.Next,
@@ -463,73 +513,6 @@ The three most recent releases; older history lives in the
   folders on first start and keep downloading to the external drive; the first scan
   reuses existing hashes, so nothing is re-hashed; plugins that read model paths use
   `src.plugin_api.models`, as the old models location API is removed.
-
-### 0.0.11 — 2026-09-25
-
-- Prompts: prompt segments are quieter cards with a pinnable action menu, join with a
-  single space instead of a comma, and no longer have BREAK segments; presets can declare
-  their own prompt syntax, colored as you type (tones or concrete colors) and inserted
-  from a `/` picker, with MiniMax-H3, Qwen-Image and YuE2 shipping their palettes;
-  typing `#`, `$`, `@` or `/` opens a raised picker anchored at the caret with preview
-  thumbnails and a larger preview of the selected image; Tab or Browse all opens a
-  browse modal showing where the value will land; clicking a chip opens the same modal
-  to change it, with its behavior, shuffle, exclude-from-shuffles and remove controls in
-  the footer; phrasebook values lead with the value text, show their preview images as a
-  grid with an in-modal carousel, highlight search matches and search by regular
-  expression; typing in long prompts is several times faster.
-- Prompt references: presets can map media fields to reference tokens, so `@` in a
-  segment points at a reference image, video or audio by name (`<Picture 2>`), keeps
-  pointing at the same item when you reorder them, blocks generation when the item is
-  gone, and shows on each form tile with its handle and how often the prompt uses it;
-  PotionAI's plain tokens become references when you apply its text.
-- Video Director: a global prompt panel shown read-only in every shot, a clean header,
-  FPS in the form, a single-body shot editor and shot tabs on one card layout
-  (keyframe, audio, IC-LoRA); in MiniMax-H3 reference mode each shot uses exactly the
-  references its prompt cites, numbered per shot; switching modes keeps each mode's
-  shots; finished shots show their video as the thumbnail.
-- MiniMax-H3: each LoRA row can leave the audio stream alone ("Affects audio"), which
-  keeps a video LoRA from degrading the soundtrack.
-- YuE2: the model's ABC transcription is shown as a text artifact you can copy or apply
-  back to the form to edit the score; the ABC field is monospaced and checks its header
-  lines; lyric section tags are highlighted.
-- Chat: `@` references reach a single LoRA row of the form or any model in your
-  library, with its trigger words, strength and description; memory has a session scope
-  that follows the chat's context tab; generations approved in chat stream into the tab's
-  Workbench; prompt variables resolve in chat generations like the Generate button.
-- Models: search takes `*` and `?` wildcards and regular expressions, type and tag
-  counts follow the other filters, admins can filter by index date and usage, see Uses
-  and Last used columns and tag a selection in bulk; model pickers suggest the download
-  variant that fits your GPU and model pages list the other variants, with uploader
-  attribution; recipe downloads let you pick a variant per model slot.
-- Recipes: each recipe shows whether its models and presets are really installed; starting a
-  recipe while another runs offers to open or cancel the running one; test generations report
-  the real error and feed each model field the right file; recipe steps show inline in the
-  run view with a runs table.
-- Admin: every tab shares one library, table and detail layout with bulk actions in a
-  floating selection bar; generations and chat sessions can be deleted in bulk; lists
-  show an error with Retry instead of looking empty when loading fails; presets and
-  recipes link to each other; LLM configurations pick the model from the provider's
-  live list (Ollama, OpenAI-compatible) with search; every confirm dialog takes Enter
-  and Esc.
-- Generation errors: users see a safe message, a hint and an error ID; admins get the
-  failed pipe, step and traceback, a category filter in Admin → Generations, a
-  Generation failed automation trigger and optional admin notifications.
-- Reliability: hashing a new model no longer freezes the server; CivitAI fetches retry
-  transient errors and report the real reason; finished generations get their system
-  tags without a manual run; logs no longer contain session tokens; reloading warns
-  before losing changes not saved to the session.
-- Fixes: phrasebook chips with a hyphen in their path render as chips; a chip placed
-  after a reference no longer corrupts it; raw preset ids no longer appear in titles and
-  cards; the History sidebar stays visible while scrolling; folding the left panel gives the prompt a proper width instead of stretching the Workbench; CivitAI's Fetch prompts
-  dialog enables and closes again; audio and video references show a proper thumbnail
-  instead of a broken image.
-- Upgrading: five database migrations run on first start (segment references,
-  generation failure detail, pinned segment actions, BREAK segment removal, admin
-  failure alerts); install the new `google-re2` dependency (`pip install -r
-  requirements.txt`); Docker images are also tagged with the v-prefixed version; log files written by earlier versions may contain session tokens,
-  so delete or rotate them; images generated before this version can be tagged once from
-  Admin → media index; the Spectral Progressive Diffusion option is gone from the Flux2 and
-  Z-Image presets (saved settings that still carry it keep working).
 
 ## Contributing
 

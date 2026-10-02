@@ -257,3 +257,52 @@ describe('resolveThreePaneLayout freed form width', () => {
 		expect(unfolded.promptWidth).toBe(700);
 	});
 });
+
+describe('resolveThreePaneLayout with a folded workbench', () => {
+	const fill = (panels: number, formSpace: number) => panels - formSpace - 32;
+
+	it('fills the rest with prompts when only the workbench is folded', () => {
+		const open = resolveThreePaneLayout({ ...base, panelsWidth: 1864, viewportWidth: 1920 });
+		const out = resolveThreePaneLayout({
+			...base,
+			panelsWidth: 1864,
+			viewportWidth: 1920,
+			workbenchCollapsed: true
+		});
+		expect(out.formFolded).toBe(false);
+		expect(out.promptWidth).toBe(fill(1864, 460 + 12));
+		expect(out.promptWidth).toBeGreaterThan(open.promptWidth);
+	});
+
+	it('keeps the auto-folded form folded when the workbench folds', () => {
+		const out = resolveThreePaneLayout({ ...base, workbenchCollapsed: true });
+		expect(out.formFolded).toBe(true);
+		expect(out.promptWidth).toBe(fill(1480, 12));
+	});
+
+	it('grows prompts past their folded-form width when the workbench folds', () => {
+		const formFolded = resolveThreePaneLayout(base);
+		const both = resolveThreePaneLayout({ ...base, workbenchCollapsed: true });
+		expect(both.promptWidth).toBeGreaterThan(formFolded.promptWidth);
+	});
+
+	it('fills everything when both panes are folded by the user', () => {
+		const out = resolveThreePaneLayout({
+			...base,
+			panelsWidth: 1864,
+			viewportWidth: 1920,
+			leftPanelCollapsed: true,
+			workbenchCollapsed: true
+		});
+		expect(out.promptWidth).toBe(fill(1864, 12));
+	});
+
+	it('ignores a stored folded width while the workbench is folded', () => {
+		const out = resolveThreePaneLayout({
+			...base,
+			promptPanelWidthFolded: 700,
+			workbenchCollapsed: true
+		});
+		expect(out.promptWidth).toBe(fill(1480, 12));
+	});
+});

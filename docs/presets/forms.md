@@ -694,10 +694,12 @@ Literal (non-Jinja) paths are checked for existence by the linter.
 
 ## Reactions (conditional field behavior)
 
-Reactions make fields respond to other fields' values (show/hide, set values, swap options). They are
-evaluated **only in the frontend** engine (`frontend/src/lib/form/reactions.ts`); the backend validates
-their shape at preset-load time via `ReactionSpec`/`ConditionSpec`/`ActionSpec` in schema.py (there is no
-runtime backend reaction engine). A field carries a list under `reactions:`:
+Reactions make fields respond to other fields' values (show/hide, set values, swap options). The form
+is drawn by the frontend engine (`frontend/src/lib/form/reactions.ts`); the backend validates their
+shape at preset-load time via `ReactionSpec`/`ConditionSpec`/`ActionSpec` in schema.py, and `bind_form`
+evaluates the same `when` conditions on a submission for the three actions that bind server-side:
+`set_value`, `update_validation` and `set_visibility` (see below). A field carries a list under
+`reactions:`:
 
 ```yaml
 reactions:
@@ -731,6 +733,30 @@ field's error) while the reaction's condition holds: `required: true` makes the 
 `mask_required: true` on an `allow_inpaint` image field requires its painted `<name>_inpaint_mask`.
 An optional `message` replaces the default error text. Both are checked by `bind_form`; the rest of
 the object only reaches the frontend.
+
+**A hidden field is never required.** A field the form hides - by its own static `visible: false`, by
+its own `set_visibility: false` reaction, or because a container it sits in (a `section`, `row`,
+`group`, `tab`) is hidden the same way - is not required: neither its static `required: true` nor an
+`update_validation` `required`/`mask_required` applies while it is hidden, on the server and in the
+browser alike (the browser never shows a hidden field, so it cannot be filled). Its other checks
+(ranges, options, media containment) still run, and its value is still submitted. Use this to make
+fields optional in a state where the run does not use them, keyed on the same condition the pipeline
+uses, rather than dropping `required: true`. The Qwen-Image-2.1 control mode hides its whole Models
+section while "Only extract the guide" is on, because that run never loads the image model:
+
+```yaml
+- type: "section"
+  label: "Models"
+  reactions:
+    - when:
+        logic: "AND"
+        conditions:
+          - { field: "guide_only", equals: true }
+          - { field: "guide_extract", equals: true }
+          - { field: "guide", not_in: ["none", "grayscale"] }
+      then: { set_visibility: false }
+  children: [...]   # diffusion_model, text_encoder, vae, control_model - all required: true
+```
 
 The **closed set of 12 operators** (source: `OPERATORS` in schema.py, mirrored in reactions.ts):
 `equals`, `not_equals`, `in`, `not_in`, `greater_than`, `less_than`, `greater_than_or_equals`,
@@ -812,7 +838,8 @@ Before any pipeline renders, the submitted `form_data` is bound against the mode
 2. **strips unknown keys** (logged, not an error) — only declared fields reach the pipeline;
 3. applies each field's `default:` server-side, **typed** — a slider default arrives as a number,
    a checkbox as a bool, so `{{ form.steps }}` is an `int` without any casting;
-4. **validates leaves**: `required`, numeric `min`/`max` ranges, select values against the
+4. **validates leaves**: `required` (skipped for a field the form hides - see "A hidden field is
+   never required" under Reactions), numeric `min`/`max` ranges, select values against the
    declared options, checkbox values must be bools, model/media values must have the right shape;
 5. coerces string numerics from older clients (`"8"` → `8`) — one deliberate leniency, logged;
 6. for a cloud preset, applies the chosen model's capabilities (see "Cloud model controls" above);

@@ -163,35 +163,67 @@ class TestUnsupportedShapes:
         assert bound.values["steps"] == 8
         assert any("unsupported" in r.message for r in caplog.records)
 
-    def test_logical_and_group_fails_open(self):
-        preset = _preset([
-            _field("a", default=1),
-            _field("b", default=2),
-            _field(
-                "target", type_="slider", default=0,
-                reactions=[
-                    {
-                        "when": {"logic": "AND", "conditions": [{"field": "a", "operator": "equals", "value": 1}]},
-                        "then": {"set_value": 42},
-                    },
-                ],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {}, "user_1")
-        assert bound.values["target"] == 0
 
-    def test_list_of_conditions_fails_open(self):
-        preset = _preset([
-            _field("a", default=1),
-            _field(
-                "target", type_="slider", default=0,
-                reactions=[
-                    {"when": [{"field": "a", "operator": "equals", "value": 1}], "then": {"set_value": 42}},
-                ],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {}, "user_1")
-        assert bound.values["target"] == 0
+class TestCompoundConditions:
+    def _target(self, when):
+        return _field("target", type_="slider", default=0, reactions=[{"when": when, "then": {"set_value": 42}}])
+
+    def _bind(self, when, data):
+        preset = _preset([_field("a", default=1), _field("b", default=2), self._target(when)])
+        return bind_form(preset, "txt2img", None, data, "user_1").values["target"]
+
+    def test_logical_and_group_matches_when_every_condition_holds(self):
+        when = {
+            "logic": "AND",
+            "conditions": [
+                {"field": "a", "operator": "equals", "value": 1},
+                {"field": "b", "operator": "equals", "value": 2},
+            ],
+        }
+        assert self._bind(when, {}) == 42
+        assert self._bind(when, {"b": 3}) == 0
+
+    def test_logical_or_group_matches_when_any_condition_holds(self):
+        when = {
+            "logic": "OR",
+            "conditions": [
+                {"field": "a", "operator": "equals", "value": 5},
+                {"field": "b", "operator": "equals", "value": 2},
+            ],
+        }
+        assert self._bind(when, {}) == 42
+        assert self._bind(when, {"b": 3}) == 0
+
+    def test_list_of_conditions_is_an_implicit_and(self):
+        when = [
+            {"field": "a", "operator": "equals", "value": 1},
+            {"field": "b", "operator": "equals", "value": 2},
+        ]
+        assert self._bind(when, {}) == 42
+        assert self._bind(when, {"a": 0}) == 0
+
+    def test_nested_group_is_evaluated(self):
+        when = {
+            "logic": "AND",
+            "conditions": [
+                {"field": "a", "operator": "equals", "value": 1},
+                {"logic": "OR", "conditions": [
+                    {"field": "b", "operator": "equals", "value": 9},
+                    {"field": "b", "operator": "equals", "value": 2},
+                ]},
+            ],
+        }
+        assert self._bind(when, {}) == 42
+        assert self._bind(when, {"b": 3}) == 0
+
+    def test_empty_group_matches(self):
+        assert self._bind({"logic": "OR", "conditions": []}, {}) == 42
+
+    def test_unknown_logic_does_not_match(self, caplog):
+        when = {"logic": "XOR", "conditions": [{"field": "a", "operator": "equals", "value": 1}]}
+        with caplog.at_level("WARNING"):
+            assert self._bind(when, {}) == 0
+        assert any("unsupported" in r.message for r in caplog.records)
 
 
 class TestSetVisibilityBinding:

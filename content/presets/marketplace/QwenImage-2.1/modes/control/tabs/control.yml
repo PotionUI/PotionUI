@@ -60,7 +60,7 @@ fields:
         formula: "control"
         label: "Only extract the guide"
         default: false
-        description: "Skip the image generation and keep just the extracted map, no prompt needed."
+        description: "Skip the image generation and keep just the extracted map, no prompt or image models needed."
         ai_hint: "Runs only the guide extraction and saves the map (for example a pose taken from a photo) to History, without loading the image model or generating."
         reactions:
           - when: { field: "guide", in: ["none", "grayscale"] }

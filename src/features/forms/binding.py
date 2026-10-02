@@ -316,6 +316,7 @@ def bind_form(
 
     plan = _plan_capabilities(field_index, values, preset_template, mode, cloud_capabilities)
     cloud_params: Dict[str, Any] = {}
+    hidden_fields = _hidden_field_names(resolved_fields, values, preset_id=preset_id, mode=mode)
 
     for name, spec in field_index.items():
         if name in plan.unsupported:
@@ -325,15 +326,21 @@ def bind_form(
         value = values[name]
         value = _resolve_template_marker(value, spec, name, preset_template, coercions)
         value = _coerce_leniently(value, spec, name, coercions)
+        hidden = name in hidden_fields
         validation = _reaction_validation(spec, values, preset_id=preset_id, mode=mode, field_name=name)
-        _validate_field(name, value, spec, errors, field_errors, validation)
-        if validation.get("mask_required") and _is_media_path_field(spec) and not raw.get(f"{name}_inpaint_mask"):
+        _validate_field(name, value, spec, errors, field_errors, validation, hidden=hidden)
+        if (
+            not hidden
+            and validation.get("mask_required")
+            and _is_media_path_field(spec)
+            and not raw.get(f"{name}_inpaint_mask")
+        ):
             message = validation.get("message") or "paint a mask on this image"
             errors.append(f"{name}: {message}")
             field_errors.setdefault(name, []).append(message)
         if name in plan.bindings:
             value = _bind_capability_value(name, value, plan, errors, field_errors, stripped, cloud_params)
-        if not _hidden_by_reactions(spec, values, preset_id=preset_id, mode=mode, field_name=name):
+        if not hidden:
             _check_pattern(name, value, spec, errors, field_errors)
         if spec.type == "tags" and not is_model_ref(value):
             value = _bind_tags_field(name, value, spec, preset_template, errors, field_errors, values)
@@ -755,17 +762,6 @@ def _reaction_stringify(value: Any) -> str:
 
 
 def _evaluate_reaction_condition(when: Any) -> Optional[Any]:
-    """Return a `(field, evaluator)` pair for a single-condition `when` dict,
-    or `None` if `when` isn't a shape this evaluator supports: a logical
-    AND/OR group (`{"logic", "conditions"}`), a list-of-conditions, or an
-    operator outside `_REACTION_OPERATORS`. Neither shape occurs in the
-    preset tree today; fail-open (the caller logs and treats the reaction as
-    not matching) rather than guessing. `_REACTION_OPERATORS` now covers the
-    full 12-operator set `ConditionSpec` accepts (see the parity test in
-    tests/features/forms/test_reaction_resolution.py), so an unrecognized
-    operator reaching here is a real drift, not an expected gap - the caller
-    logs it at WARNING, not DEBUG.
-    """
     if not isinstance(when, dict) or "field" not in when:
         return None
     fn = _REACTION_OPERATORS.get(when.get("operator"))
@@ -774,25 +770,45 @@ def _evaluate_reaction_condition(when: Any) -> Optional[Any]:
     return when["field"], when.get("value"), fn
 
 
-def _reaction_matches(
-    when: Any, values: Dict[str, Any], *, preset_id: str, mode: str, field_name: str
-) -> bool:
+def _is_logical_condition(when: Any) -> bool:
+    return isinstance(when, dict) and "logic" in when and "conditions" in when
+
+
+def _condition_matches(when: Any, values: Dict[str, Any], warn: Any) -> bool:
+    if isinstance(when, list):
+        return all(_condition_matches(condition, values, warn) for condition in when)
+    if _is_logical_condition(when):
+        conditions = when["conditions"] if isinstance(when["conditions"], list) else []
+        if not conditions:
+            return True
+        if when["logic"] == "AND":
+            return all(_condition_matches(condition, values, warn) for condition in conditions)
+        if when["logic"] == "OR":
+            return any(_condition_matches(condition, values, warn) for condition in conditions)
+        warn(f"unsupported 'when' logic {when['logic']!r}")
+        return False
     resolved = _evaluate_reaction_condition(when)
     if resolved is None:
-        logger.warning(
-            f"bind_form: skipping reaction on field '{field_name}' with an "
-            f"unsupported 'when' shape (preset '{preset_id}' mode '{mode}'): {when!r}"
-        )
+        warn(f"unsupported 'when' shape {when!r}")
         return False
     trigger_field, condition_value, fn = resolved
     try:
         return bool(fn(values.get(trigger_field), condition_value))
     except Exception as e:
-        logger.warning(
-            f"bind_form: reaction condition on field '{field_name}' raised "
-            f"(preset '{preset_id}' mode '{mode}'): {e!r}"
-        )
+        warn(f"condition raised {e!r}")
         return False
+
+
+def _reaction_matches(
+    when: Any, values: Dict[str, Any], *, preset_id: str, mode: str, field_name: str
+) -> bool:
+    def warn(problem: str) -> None:
+        logger.warning(
+            f"bind_form: skipping reaction condition on field '{field_name}' "
+            f"(preset '{preset_id}' mode '{mode}'): {problem}"
+        )
+
+    return _condition_matches(when, values, warn)
 
 
 def _apply_reactions(
@@ -957,6 +973,8 @@ def _validate_field(
     errors: List[str],
     field_errors: Dict[str, List[str]],
     validation: Optional[Dict[str, Any]] = None,
+    *,
+    hidden: bool = False,
 ) -> None:
     def _fail(message: str) -> None:
         errors.append(f"{name}: {message}")
@@ -966,7 +984,7 @@ def _validate_field(
         return  # resolved later, per-backend; not this boundary's concern
 
     validation = validation or {}
-    required = field.required or validation.get("required") is True
+    required = not hidden and (field.required or validation.get("required") is True)
     missing = validation.get("message") or "required field is missing"
 
     if field.type == "tags":
@@ -1025,15 +1043,35 @@ def _reaction_validation(
 def _hidden_by_reactions(
     field: FieldTemplate, values: Dict[str, Any], *, preset_id: str, mode: str, field_name: str
 ) -> bool:
-    hidden = False
+    hidden = field.visible is False
     for reaction in field.reactions or []:
         if not isinstance(reaction, dict):
             continue
         then = reaction.get("then") or {}
-        if "set_visibility" not in then:
+        if then.get("set_visibility") is None:
             continue
         if _reaction_matches(reaction.get("when"), values, preset_id=preset_id, mode=mode, field_name=field_name):
             hidden = then["set_visibility"] is False
+    return hidden
+
+
+def _hidden_field_names(
+    fields: Optional[List[FieldTemplate]], values: Dict[str, Any], *, preset_id: str, mode: str
+) -> set:
+    hidden: set = set()
+
+    def walk(nodes: Optional[List[FieldTemplate]], parent_hidden: bool) -> None:
+        for node in nodes or []:
+            label = node.name or node.label or node.type
+            node_hidden = parent_hidden or _hidden_by_reactions(
+                node, values, preset_id=preset_id, mode=mode, field_name=label
+            )
+            if node.name and node_hidden:
+                hidden.add(node.name)
+            if isinstance(node.children, list):
+                walk(node.children, node_hidden)
+
+    walk(fields, False)
     return hidden
 
 

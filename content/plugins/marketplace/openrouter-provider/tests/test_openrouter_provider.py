@@ -368,3 +368,48 @@ async def test_the_contract_kit_passes_against_the_recorded_fixtures(provider, o
 
     assert set(ran) == set(applicable_checks(case))
     assert {"discover_returns_valid_specs", "sync_submit_returns_result", "fetch_writes_artifacts", "errors_map_to_kinds"} <= set(ran)
+
+
+@pytest.mark.parametrize("address", [
+    "https://studio.example",
+    "http://localhost:8080/app",
+    "  https://studio.example  ",
+    "",
+])
+def test_a_web_address_is_accepted_as_the_app_address(address):
+    assert OpenRouterConfig(id="or-1", name="OpenRouter", api_key=KEY, app_url=address).app_url == address.strip()
+
+
+@pytest.mark.parametrize("address", [
+    "studio.example",
+    "ftp://studio.example",
+    "https://",
+    "https://studio.example/a b",
+    "https://stüdio.example",
+    "https://studio.example\r\nX-Evil: 1",
+])
+def test_an_app_address_that_is_not_a_plain_web_address_is_refused_at_save(address):
+    with pytest.raises(ValueError):
+        OpenRouterConfig(id="or-1", name="OpenRouter", api_key=KEY, app_url=address)
+
+
+async def test_pictures_are_read_off_the_event_loop_thread(provider, monkeypatch, tmp_path):
+    import threading
+
+    import backend.provider as provider_module
+
+    real = provider_module.build_body
+    threads = []
+
+    def spy(*args, **kwargs):
+        threads.append(threading.get_ident())
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(provider_module, "build_body", spy)
+    picture = tmp_path / "a.png"
+    picture.write_bytes(PNG)
+    request = await request_for(provider, task="img_edit", inputs={"reference": [LocalMedia(picture, "image/png", picture.stat().st_size)]})
+
+    await provider.submit(request)
+
+    assert threads and threads[0] != threading.get_ident()

@@ -1,6 +1,8 @@
 from typing import ClassVar, List, Optional
 
-from pydantic import Field, model_validator
+from urllib.parse import urlsplit
+
+from pydantic import Field, field_validator, model_validator
 
 from src.plugin_api.cloud import CloudBackendConfig
 
@@ -39,6 +41,17 @@ class OpenRouterConfig(CloudBackendConfig):
         title="Send an anonymous user id",
         description="Send an anonymous id per user so OpenRouter can tell users apart without knowing who they are. It cannot be traced back to a person without this server's secret key.",
     )
+
+    @field_validator("app_url")
+    @classmethod
+    def _app_url_is_a_web_address(cls, value: str) -> str:
+        text = value.strip()
+        if not text:
+            return ""
+        parts = urlsplit(text)
+        if not text.isascii() or not text.isprintable() or " " in text or parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError("Enter the app address as a web address such as https://example.com, or leave it empty.")
+        return text
 
     @model_validator(mode="before")
     @classmethod

@@ -154,6 +154,12 @@ and a step progress bar mid-run.
   img2img, inpainting, or a video/audio mode.
 - Like a setup? Save it as a **session** — preset, mode, prompts, and form
   values — and pull it back up any time.
+- Save the settings that worked as a **formula** and apply them in any
+  session, with a preview of exactly what changes.
+- One media field holds reference images, videos, and audio in their own
+  groups; type **@** in the prompt to use any of them.
+
+![One references field holding two images, a video clip, and an audio track in their own groups, each cited in the shot prompt with @ as a Picture, Video, or Audio chip](docs/media/potionui-media-references.png)
 
 ## History, tags, and collections
 

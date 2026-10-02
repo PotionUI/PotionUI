@@ -1,6 +1,6 @@
 import { kindFromDeclared, kindFromFilename, kindOfMediaItem } from './mediaLoaderKind';
 import type { MediaKind } from './mediaLoaderConfig';
-import { mediaPathPreviewUrl } from './mediaLoaderPreview';
+import { locateMediaPath, mediaPathPreviewUrl } from './mediaLoaderPreview';
 import type { MediaItemMetadata } from './mediaLoaderMeta';
 
 export interface SingleValue {
@@ -21,7 +21,7 @@ export function readSingleValue(value: unknown): SingleValue | null {
 		};
 	}
 	if (value && typeof value === 'string') {
-		const filename = value.split('/').pop() || '';
+		const filename = locateMediaPath(value)?.filename ?? '';
 		return {
 			previewUrl: mediaPathPreviewUrl(value),
 			fileName: filename,

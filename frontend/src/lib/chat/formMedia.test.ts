@@ -99,11 +99,20 @@ describe('collectFormImages', () => {
 		expect(urls).toContain('/api/media/uploads/bar.webp');
 	});
 
-	it('resolves a tmp-bucket path', () => {
-		const tab = baseTab({
-			formData: { a: { path: '/tmp/uploads/foo.png', type: 'image' } }
-		});
-		expect(collectFormImages(tab)[0].url).toBe('/api/media/tmp/foo.png');
+	it.each([
+		['/home/u/storage/tmp/foo.png', '/api/media/tmp/foo.png'],
+		['tmp/foo.png', '/api/media/tmp/foo.png'],
+		['C:\\x\\tmp\\a.png', '/api/media/tmp/a.png'],
+		['C:\\x\\storage\\uploads\\a.png', '/api/media/uploads/a.png'],
+		['C:\\x\\somewhere\\a.png', '/api/media/uploads/a.png'],
+		['D:\\storage\\generations\\GEN1\\0.png', '/api/media/generations/GEN1/0.png'],
+		['/tmp/potionui-e2e/storage/uploads/foo.png', '/api/media/uploads/foo.png'],
+		['/tmp/potionui-e2e/storage/generations/GEN1/0.png', '/api/media/generations/GEN1/0.png'],
+		['uploads/a #1 100%.png', '/api/media/uploads/a%20%231%20100%25.png'],
+		['generations/G#1/a b.png', '/api/media/generations/G%231/a%20b.png']
+	])('resolves %s to %s', (path, url) => {
+		const tab = baseTab({ formData: { a: { path, type: 'image' } } });
+		expect(collectFormImages(tab)[0].url).toBe(url);
 	});
 
 	it('resolves a generations-bucket path using the second-to-last segment', () => {

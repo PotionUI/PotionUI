@@ -30,6 +30,14 @@ describe('readSingleValue', () => {
 		});
 	});
 
+	it.each([
+		['C:\\x\\tmp\\a.png', 'a.png'],
+		['C:\\x\\storage\\uploads\\cat.png', 'cat.png'],
+		['/tmp/potionui/storage/uploads/clip.mp4', 'clip.mp4']
+	])('names the file of %s without its folders', (path, name) => {
+		expect(readSingleValue(path)?.fileName).toBe(name);
+	});
+
 	it('reads nothing from an empty value', () => {
 		expect(readSingleValue(null)).toBeNull();
 		expect(readSingleValue('')).toBeNull();

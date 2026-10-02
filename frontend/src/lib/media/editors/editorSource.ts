@@ -18,6 +18,7 @@
  *   generation and its files stay exactly as they were.
  */
 
+import { locateMediaPath } from '$lib/components/form-fields/mediaLoaderPreview';
 import { api } from '$lib/services/api/index';
 import { logger } from '$lib/utils/logger';
 import type { EditorMediaKind } from './types';
@@ -56,18 +57,9 @@ export function generationLocatorFromPath(
 	path: string | null | undefined
 ): { generationId: string; filename: string } | null {
 	if (!path || typeof path !== 'string') return null;
-	const normalized = path.replace(/\\/g, '/');
-	if (normalized.includes('/tmp/')) return null;
-
-	const segments = normalized.split('/').filter((segment) => segment.length > 0);
-	if (segments.length < 2) return null;
-
-	const filename = segments[segments.length - 1];
-	const generationId = segments[segments.length - 2];
-	if (!filename || !generationId) return null;
-	if (generationId === 'uploads' || generationId === 'tmp' || segments[0] === 'tmp') return null;
-
-	return { generationId, filename };
+	const location = locateMediaPath(path);
+	if (location?.kind !== 'generation') return null;
+	return { generationId: location.generationId, filename: location.filename };
 }
 
 /** The id of the listed upload stored under `filename`, or null. */

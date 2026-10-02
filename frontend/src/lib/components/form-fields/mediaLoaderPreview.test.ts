@@ -55,3 +55,13 @@ describe('mediaPathPreviewUrl with Windows paths', () => {
 		expect(locateMediaPath('C:\\somewhere\\else\\abc.png')).toEqual({ kind: 'upload', filename: 'abc.png' });
 	});
 });
+
+describe('mediaPathPreviewUrl with awkward file names', () => {
+	it.each([
+		['uploads/a #1 100%.png', '/api/media/uploads/a%20%231%20100%25.png'],
+		['storage/tmp/a?b.png', '/api/media/tmp/a%3Fb.png'],
+		['generations/G#1/a b.png', '/api/media/generations/G%231/a%20b.png']
+	])('encodes %s', (path, url) => {
+		expect(mediaPathPreviewUrl(path)).toBe(url);
+	});
+});

@@ -20,7 +20,8 @@ export function locateMediaPath(storedPath: string): MediaPathLocation | null {
 export function mediaPathPreviewUrl(rawPath: string): string | null {
 	const location = locateMediaPath(rawPath);
 	if (!location) return null;
-	if (location.kind === 'upload') return `/api/media/uploads/${location.filename}`;
-	if (location.kind === 'tmp') return `/api/media/tmp/${location.filename}`;
-	return `/api/media/generations/${location.generationId}/${location.filename}`;
+	const filename = encodeURIComponent(location.filename);
+	if (location.kind === 'upload') return `/api/media/uploads/${filename}`;
+	if (location.kind === 'tmp') return `/api/media/tmp/${filename}`;
+	return `/api/media/generations/${encodeURIComponent(location.generationId)}/${filename}`;
 }

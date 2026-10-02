@@ -1,5 +1,6 @@
 import type { MediaRef, Tab } from '$lib/types/tabs';
 import type { DirectorMediaValue, VideoDirectorValue } from '$lib/types/videoDirector';
+import { mediaPathPreviewUrl } from '$lib/components/form-fields/mediaLoaderPreview';
 import { resolveDirectorMediaDisplay } from '$lib/utils/videoDirector';
 
 export interface FormImageEntry {
@@ -52,32 +53,14 @@ function toMediaRef(media: MediaRef | string): MediaRef {
 	};
 }
 
-// Mirrors MediaLoaderField's own locator resolution (parseMediaLocator +
-// legacy string branch): `value.url` is trusted only when it is already a
-// durable `/api/...` URL — a `blob:` object URL is ephemeral and resolved
-// from the path instead.
 function resolveMediaUrl(media: MediaRef | string): string {
 	if (typeof media === 'object' && media.url && media.url.startsWith('/api/')) {
 		return media.url;
 	}
 
-	const raw = durablePath(media).replace(/\\/g, '/');
+	const raw = durablePath(media);
 	if (!raw) return '';
-
-	const filename = filenameOf(raw);
-	const segments = raw.split('/').filter((s) => s.length > 0);
-
-	if (raw.includes('/tmp/') || segments[0] === 'tmp') {
-		return `/api/media/tmp/${filename}`;
-	}
-	if (raw.startsWith('/') || /^[a-zA-Z]:\//.test(raw) || segments[0] === 'uploads') {
-		return `/api/media/uploads/${filename}`;
-	}
-	if (segments.length >= 2) {
-		const generationId = segments[segments.length - 2];
-		return `/api/media/generations/${generationId}/${filename}`;
-	}
-	return `/api/media/uploads/${filename}`;
+	return mediaPathPreviewUrl(raw) ?? `/api/media/uploads/${encodeURIComponent(filenameOf(raw))}`;
 }
 
 function humanizeKey(key: string): string {

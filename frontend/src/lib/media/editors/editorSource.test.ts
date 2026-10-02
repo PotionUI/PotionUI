@@ -55,6 +55,25 @@ describe('generationLocatorFromPath', () => {
 		expect(generationLocatorFromPath('/var/data/tmp/mask-1.png')).toBeNull();
 	});
 
+	it.each([
+		['generations\\2026-08-13\\01KABC\\0.png', { generationId: '01KABC', filename: '0.png' }],
+		['C:\\x\\storage\\generations\\01KABC\\0.png', { generationId: '01KABC', filename: '0.png' }],
+		['/tmp/potionui-e2e/storage/generations/01KABC/0.png', { generationId: '01KABC', filename: '0.png' }],
+		['generations/01KABC/a #1 100%.png', { generationId: '01KABC', filename: 'a #1 100%.png' }]
+	])('locates the generation of %s', (path, expected) => {
+		expect(generationLocatorFromPath(path)).toEqual(expected);
+	});
+
+	it.each([
+		'C:\\x\\tmp\\a.png',
+		'C:\\x\\storage\\uploads\\a.png',
+		'C:\\x\\somewhere\\a.png',
+		'/tmp/potionui-e2e/storage/uploads/a.png',
+		'/tmp/potionui-e2e/storage/tmp/a.png'
+	])('refuses %s, which is not generation media', (path) => {
+		expect(generationLocatorFromPath(path)).toBeNull();
+	});
+
 	it('answers null for the empty and missing cases', () => {
 		expect(generationLocatorFromPath('')).toBeNull();
 		expect(generationLocatorFromPath('0.png')).toBeNull();

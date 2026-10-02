@@ -110,6 +110,36 @@ def test_a_lock_left_by_a_dead_process_is_taken_over(tmp_path):
     assert any("stale" in m and f"pid {pid}" in m for m in messages)
 
 
+def test_a_takeover_never_deletes_a_lock_a_faster_waiter_created_meanwhile(tmp_path):
+    lock = tmp_path / ".run.lock"
+    pid = _dead_pid()
+    lock.write_text(json.dumps({"pid": pid, "started_at": "2026-10-01T08:00:00+00:00"}), encoding="utf-8")
+    rival = {"pid": os.getpid(), "process_created": None, "started_at": "rival"}
+
+    def say(message):
+        if "stale" in message:
+            lock.unlink()
+            lock.write_text(json.dumps(rival), encoding="utf-8")
+
+    clock = FakeClock()
+    with pytest.raises(run.RunLockTimeout):
+        run.acquire_run_lock(lock, timeout_seconds=5.0, poll_seconds=5.0, clock=clock.clock, sleep=clock.sleep, say=say)
+
+    assert json.loads(lock.read_text(encoding="utf-8")) == rival
+
+
+def test_a_takeover_guard_left_by_a_crashed_run_does_not_block_forever(tmp_path):
+    lock = tmp_path / ".run.lock"
+    guard = tmp_path / ".run.lock.takeover"
+    lock.write_text(json.dumps({"pid": _dead_pid()}), encoding="utf-8")
+    guard.write_text("", encoding="utf-8")
+    old = time.time() - run.UNREADABLE_LOCK_GRACE_SECONDS - 5
+    os.utime(guard, (old, old))
+
+    assert _acquire(lock)["pid"] == os.getpid()
+    assert not guard.exists()
+
+
 def test_a_reused_pid_with_a_different_start_time_is_stale(tmp_path):
     lock = tmp_path / ".run.lock"
     lock.write_text(json.dumps({"pid": os.getpid(), "process_created": 1.0}), encoding="utf-8")

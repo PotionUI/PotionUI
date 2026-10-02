@@ -83,3 +83,31 @@ def test_an_existing_kit_tsconfig_is_left_alone(monkeypatch, tmp_path):
     monkeypatch.setattr(run.subprocess, "run", fake_run)
     run.run_build(tmp_path / "out")
     assert all("sync" not in cmd for cmd in calls)
+
+
+def test_a_failing_kit_sync_stops_the_build_with_a_clear_stage_error(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(cmd, cwd=None, env=None):
+        calls.append(list(cmd))
+        return type("P", (), {"returncode": 3})()
+
+    monkeypatch.setattr(run, "FRONTEND_DIR", tmp_path)
+    monkeypatch.setattr(run.subprocess, "run", fake_run)
+    with pytest.raises(run.StageError, match="svelte-kit sync failed"):
+        run.run_build(tmp_path / "out")
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "relative, allowed",
+    [(".e2e-build", True), ("nested/out", True), (".", False), ("..", False), ("../elsewhere", False), ("../frontend-other", False)],
+)
+def test_build_dir_must_sit_inside_the_frontend_folder(relative, allowed):
+    assert run.build_dir_inside_frontend(run.FRONTEND_DIR / relative) is allowed
+
+
+def test_main_refuses_a_build_dir_outside_the_frontend_folder(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(run, "_run_locked", lambda *a, **k: pytest.fail("ran with a build dir outside frontend"))
+    assert run.main(["--build-dir", str(tmp_path / "out")]) == run.EXIT_ARGS_ERROR
+    assert "inside" in capsys.readouterr().err

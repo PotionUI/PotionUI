@@ -271,6 +271,28 @@ def _own_lock_record() -> dict:
     }
 
 
+def _take_over_stale_lock(path: Path, holder: dict) -> bool:
+    guard = path.with_name(path.name + ".takeover")
+    try:
+        fd = os.open(str(guard), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        try:
+            if time.time() - guard.stat().st_mtime > UNREADABLE_LOCK_GRACE_SECONDS:
+                guard.unlink()
+        except FileNotFoundError:
+            pass
+        return False
+    os.close(fd)
+    try:
+        if read_lock_holder(path) == holder:
+            with contextlib.suppress(FileNotFoundError):
+                path.unlink()
+        return True
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            guard.unlink()
+
+
 def acquire_run_lock(
     path: Path = RUN_LOCK_PATH,
     timeout_seconds: float = DEFAULT_LOCK_TIMEOUT_MINUTES * 60,
@@ -289,10 +311,9 @@ def acquire_run_lock(
             if holder is None:
                 continue
             if _lock_is_stale(path, holder):
-                if read_lock_holder(path) == holder:
-                    say(f"Taking over a stale run lock left by {describe_lock_holder(holder)}: that process is gone.")
-                    with contextlib.suppress(FileNotFoundError):
-                        path.unlink()
+                say(f"Taking over a stale run lock left by {describe_lock_holder(holder)}: that process is gone.")
+                if not _take_over_stale_lock(path, holder):
+                    sleep(min(poll_seconds, 1.0))
                 continue
             remaining = deadline - clock()
             if remaining <= 0:
@@ -350,6 +371,12 @@ def build_env(build_dir: Path) -> dict:
     return env
 
 
+def build_dir_inside_frontend(build_dir: Path) -> bool:
+    frontend = FRONTEND_DIR.resolve()
+    resolved = build_dir.resolve()
+    return resolved != frontend and frontend in resolved.parents
+
+
 def has_build_output(build_dir: Path) -> bool:
     return (build_dir / ".svelte-kit" / "output" / "client").is_dir()
 
@@ -358,7 +385,9 @@ def ensure_kit_tsconfig() -> None:
     if (FRONTEND_DIR / ".svelte-kit" / "tsconfig.json").is_file():
         return
     env = {key: value for key, value in os.environ.items() if key != "E2E_BUILD_DIR"}
-    subprocess.run([NPX, "svelte-kit", "sync"], cwd=str(FRONTEND_DIR), env=env)
+    proc = subprocess.run([NPX, "svelte-kit", "sync"], cwd=str(FRONTEND_DIR), env=env)
+    if proc.returncode != 0:
+        raise StageError("build", f"svelte-kit sync failed (exit {proc.returncode}); cannot generate .svelte-kit/tsconfig.json")
 
 
 def run_build(build_dir: Path) -> None:
@@ -687,6 +716,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
     args.build_dir = args.build_dir.resolve()
+    if not build_dir_inside_frontend(args.build_dir):
+        print(f"--build-dir must be a folder inside {FRONTEND_DIR} (got {args.build_dir}); the server bundle resolves node_modules from there.", file=sys.stderr)
+        return EXIT_ARGS_ERROR
 
     names = args.journeys or discover_specs()
     if not names:

@@ -103,7 +103,7 @@ test('folding the docked workbench pane persists, frees space for prompts, and c
 	// Reload: the fold is persisted per tab, so it survives.
 	await page.waitForTimeout(600); // let the debounced localStorage save flush
 	await page.reload();
-	await expect(tablist).toBeVisible({ timeout: 20000 });
+	await expect(page.getByRole('button', { name: 'More view options' })).toBeVisible({ timeout: 20000 });
 	await expect(workbenchPane).toBeVisible({ timeout: 10000 });
 	const reloadedBox = await workbenchPane.boundingBox();
 	expect(reloadedBox).not.toBeNull();

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Icon from '../Icon.svelte';
 	import Tooltip from '../Tooltip.svelte';
-	import { trackFraction, trackOffset } from './sliderGeometry';
+	import { resolveSliderValue, trackFraction, trackOffset } from './sliderGeometry';
 
 	export let name: string | null;
 	export let config: any = {};
@@ -29,7 +29,7 @@
 	// Initialize local value only when external value actually changes
 	$: {
 		if (value !== previousValue) {
-			localValue = typeof value === 'number' ? value : (min || 0);
+			localValue = resolveSliderValue(value, defaultValue, min);
 			previousValue = value;
 		}
 	}

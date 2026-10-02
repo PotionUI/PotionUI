@@ -1302,9 +1302,15 @@ export function withShotDuration(doc: VideoDirectorValue, caps: DirectorCapabili
 		if (shot) clamped = Math.max(clamped, timelineShotContentEnd(shot));
 	}
 	if (clamped <= 0) return doc;
-	return caps.segmentRouting
-		? applyDirectorOperations(doc, [{ op: 'upsert_segment', segment: { id: shotId, duration: clamped } }], caps)
-		: applyDirectorOperations(doc, [{ op: 'set_settings', settings: { duration: clamped }, shot_id: shotId }], caps);
+	if (caps.segmentRouting) {
+		return applyDirectorOperations(doc, [{ op: 'upsert_segment', segment: { id: shotId, duration: clamped } }], caps);
+	}
+	const next = applyDirectorOperations(doc, [{ op: 'set_settings', settings: { duration: clamped }, shot_id: shotId }], caps);
+	return mapTimelineShot(next, shotId, (shot) =>
+		shot.keyframes.some((k) => k.role === 'last' && k.start !== shot.duration)
+			? { ...shot, keyframes: shot.keyframes.map((k) => (k.role === 'last' ? { ...k, start: shot.duration } : k)) }
+			: shot
+	);
 }
 
 /** Frames ↔ duration are two views of one value -- writes `duration =

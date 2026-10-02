@@ -18,7 +18,7 @@ import {
 	type StageKeyframeModel
 } from './stageModel';
 import { deriveRailModel } from './railModel';
-import { chainEdgeKeyframeId, resolveDirectorCapabilities, resolveDirectorEdgeAllowances } from '$lib/utils/videoDirector';
+import { chainEdgeKeyframeId, parseDirectorCapabilities, resolveDirectorCapabilities, resolveDirectorEdgeAllowances, resolveFilmFps } from '$lib/utils/videoDirector';
 import type { VideoDirectorValue, DirectorCapabilities, DirectorModeCapability, ChainSegment, DirectorPromptSegment, ChainKeyframe, DirectorKeyframe } from '$lib/types/videoDirector';
 
 function baseModeCap(overrides: Partial<DirectorModeCapability> = {}): DirectorModeCapability {
@@ -872,6 +872,51 @@ describe('withShotDuration', () => {
 		expect(grown.timeline.shots[0].duration).toBe(8);
 		const rail = deriveRailModel(grown, caps, 'shot-1');
 		expect(rail.totalSeconds).toBe(8);
+	});
+
+	it('timeline routing: an empty keyframe slot does not pin the shot above its new length', () => {
+		const doc = baseDoc();
+		const empty: DirectorKeyframe = { id: 'kf-empty', start: 6.6, role: 'free', strength: 1, media: null };
+		doc.timeline = { fps: 24, shots: [{ ...doc.timeline.shots[0], duration: 6.6, keyframes: [empty] }] };
+
+		const shrunk = withShotDuration(doc, ltxCaps(), 'shot-1', 4);
+		expect(shrunk.timeline.shots[0].duration).toBe(4);
+		expect(deriveRailModel(shrunk, ltxCaps(), 'shot-1').totalSeconds).toBe(4);
+	});
+
+	it('timeline routing: a filled end keyframe follows the shot end instead of pinning it', () => {
+		const doc = baseDoc();
+		const media = { kind: 'image', source: 'upload', value: 'a.png' } as unknown as DirectorKeyframe['media'];
+		const last: DirectorKeyframe = { id: 'kf-last', start: 6.6, role: 'last', strength: 1, media };
+		doc.timeline = { fps: 24, shots: [{ ...doc.timeline.shots[0], duration: 6.6, keyframes: [last] }] };
+
+		const shrunk = withShotDuration(doc, ltxCaps(), 'shot-1', 4);
+		expect(shrunk.timeline.shots[0].duration).toBe(4);
+		expect(shrunk.timeline.shots[0].keyframes[0].start).toBe(4);
+	});
+
+	it('timeline routing: a filled free keyframe still floors the shot', () => {
+		const doc = baseDoc();
+		const media = { kind: 'image', source: 'upload', value: 'a.png' } as unknown as DirectorKeyframe['media'];
+		const free: DirectorKeyframe = { id: 'kf-free', start: 5, role: 'free', strength: 1, media };
+		doc.timeline = { fps: 24, shots: [{ ...doc.timeline.shots[0], duration: 6.6, keyframes: [free] }] };
+
+		expect(withShotDuration(doc, ltxCaps(), 'shot-1', 2).timeline.shots[0].duration).toBe(5);
+	});
+
+	it('a templated fps in the form resolves to the capability default: 4 s is 100 frames at 25 fps', () => {
+		const caps = parseDirectorCapabilities({
+			preset_modes: ['video'],
+			modes: { director: { max_keyframes: 8 } },
+			limits: { default_duration: 5, default_fps: 25, max_duration: 40, max_frames: 1001 }
+		})!;
+		const fps = resolveFilmFps(caps, { fps: '{{ preset.vars.default_fps }}' });
+		expect(fps).toBe(25);
+
+		const doc = withFilmFps(baseDoc(), caps, fps);
+		const next = withShotDuration(doc, caps, 'shot-1', 4);
+		expect(next.timeline.fps).toBe(25);
+		expect(Math.round(next.timeline.shots[0].duration * next.timeline.fps)).toBe(100);
 	});
 
 	it('chain routing has no content-end floor -- a chain shot may shrink freely', () => {

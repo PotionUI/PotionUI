@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { THUMB_PX, trackFraction, trackOffset } from './sliderGeometry';
+import { THUMB_PX, resolveSliderValue, trackFraction, trackOffset } from './sliderGeometry';
 
 describe('trackFraction', () => {
 	it('maps a value onto 0..1 across min..max', () => {
@@ -41,5 +41,23 @@ describe('trackOffset', () => {
 		expect(trackOffset(-1)).toBe(trackOffset(0));
 		expect(trackOffset(2)).toBe(trackOffset(1));
 		expect(trackOffset(NaN)).toBe(trackOffset(0));
+	});
+});
+
+describe('resolveSliderValue', () => {
+	it('keeps a numeric value', () => {
+		expect(resolveSliderValue(30, 25, 1)).toBe(30);
+		expect(resolveSliderValue(0, 25, 1)).toBe(0);
+	});
+
+	it('uses the declared default when the value is not a number', () => {
+		expect(resolveSliderValue('{{ preset.vars.default_fps }}', 25, 1)).toBe(25);
+		expect(resolveSliderValue(undefined, 25, 1)).toBe(25);
+		expect(resolveSliderValue(Number.NaN, 25, 1)).toBe(25);
+	});
+
+	it('uses the lower bound only when there is no numeric default either', () => {
+		expect(resolveSliderValue('x', '{{ y }}', 1)).toBe(1);
+		expect(resolveSliderValue('x', undefined, 0)).toBe(0);
 	});
 });

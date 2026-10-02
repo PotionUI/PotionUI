@@ -55,7 +55,7 @@ import math
 import re
 from dataclasses import dataclass, field as dc_field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from src.features.cloud.capability_rules import (
     CapabilityBinding,
@@ -289,7 +289,11 @@ def bind_form(
         override = (field_overrides or {}).get(name)
         locked = bool(override) and override.get("editable") is False
         hidden = bool(override) and override.get("visible") is False
-        override_default = override["default"] if override and "default" in override else spec.default
+        override_default = spec.default
+        if override and "default" in override:
+            has_default, usable = usable_override_default(spec, override["default"], preset_template)
+            if has_default:
+                override_default = usable
 
         if locked or hidden:
             if name in raw and raw[name] != override_default:
@@ -319,6 +323,7 @@ def bind_form(
             stripped.append(name)
             continue
         value = values[name]
+        value = _resolve_template_marker(value, spec, name, preset_template, coercions)
         value = _coerce_leniently(value, spec, name, coercions)
         validation = _reaction_validation(spec, values, preset_id=preset_id, mode=mode, field_name=name)
         _validate_field(name, value, spec, errors, field_errors, validation)
@@ -856,6 +861,54 @@ def _apply_reactions(
         f"bind_form: reaction resolution for preset '{preset_id}' mode '{mode}' "
         f"did not converge after {_MAX_REACTION_ITERATIONS} iterations"
     )
+
+
+_TEMPLATE_MARKER = re.compile(r"^\s*\{\{(.*)\}\}\s*$", re.DOTALL)
+_PRESET_VAR_REFERENCE = re.compile(r"^\s*preset\.vars\.([A-Za-z_]\w*)\s*$")
+
+
+def _is_plain_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def usable_override_default(field: FieldTemplate, value: Any, preset_template: Any) -> Tuple[bool, Any]:
+    if field.type in _NUMERIC_FIELD_TYPES and isinstance(value, str):
+        marker = _TEMPLATE_MARKER.match(value)
+        if marker is not None:
+            reference = _PRESET_VAR_REFERENCE.match(marker.group(1))
+            candidate = None
+            if reference is not None:
+                candidate = (getattr(preset_template, "vars", None) or {}).get(reference.group(1))
+            if not _is_plain_number(candidate):
+                return False, None
+            value = candidate
+    problems: List[str] = []
+    _validate_field("default", value, field, problems, {})
+    if problems:
+        return False, None
+    return True, value
+
+
+def _resolve_template_marker(
+    value: Any, field: FieldTemplate, path: str, preset_template: Any, coercions: List[str]
+) -> Any:
+    if field.type not in _NUMERIC_FIELD_TYPES or not isinstance(value, str):
+        return value
+    marker = _TEMPLATE_MARKER.match(value)
+    if marker is None:
+        return value
+
+    reference = _PRESET_VAR_REFERENCE.match(marker.group(1))
+    if reference is not None:
+        candidate = (getattr(preset_template, "vars", None) or {}).get(reference.group(1))
+        if _is_plain_number(candidate):
+            coercions.append(f"{path}: {value!r} -> {candidate!r} (preset var)")
+            return candidate
+
+    if _is_plain_number(field.default):
+        coercions.append(f"{path}: {value!r} -> {field.default!r} (unrendered template, field default)")
+        return field.default
+    return value
 
 
 def _coerce_leniently(

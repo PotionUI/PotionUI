@@ -25,3 +25,9 @@ export function trackOffset(fraction: number): string {
 	const clamped = Math.min(1, Math.max(0, Number.isFinite(fraction) ? fraction : 0));
 	return `calc(${THUMB_PX / 2}px + ${clamped} * (100% - ${THUMB_PX}px))`;
 }
+
+export function resolveSliderValue(value: unknown, declaredDefault: unknown, min: number): number {
+	if (typeof value === 'number' && Number.isFinite(value)) return value;
+	if (typeof declaredDefault === 'number' && Number.isFinite(declaredDefault)) return declaredDefault;
+	return min || 0;
+}

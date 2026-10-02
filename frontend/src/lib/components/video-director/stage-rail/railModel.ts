@@ -750,12 +750,8 @@ function deriveChainRail(
 	};
 }
 
-/** The latest point any of a timeline shot's beats/keyframes/audio reaches --
- * shared between `deriveTimelineRail`'s displayed total (below) and
- * `withShotDuration`'s floor (stageModel.ts): a shot can never be usefully
- * shorter than its own placed content. */
 export function timelineShotContentEnd(shot: DirectorTimelineShot): number {
-	return Math.max(0, ...shot.segments.map((s) => s.end), ...shot.keyframes.map((k) => k.start), ...shot.audio.map((a) => a.start + a.length));
+	return Math.max(0, ...shot.segments.map((s) => s.end), ...shot.keyframes.filter((k) => k.media != null && k.role !== 'last').map((k) => k.start), ...shot.audio.map((a) => a.start + a.length));
 }
 
 function deriveTimelineRail(

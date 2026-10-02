@@ -60,7 +60,7 @@ class PresetFormSerializer:
 
             if overrides:
                 from src.features.presets.form_overrides import apply_overrides_to_fields
-                fields = apply_overrides_to_fields(fields, overrides)
+                fields = apply_overrides_to_fields(fields, overrides, preset_template)
 
         # Create schema
         schema = {

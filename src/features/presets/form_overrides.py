@@ -30,7 +30,13 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, Dict, List
 
-from src.features.forms.binding import _expand_form_fields, _flatten_fields, _validate_field
+from src.features.forms.binding import (
+    _expand_form_fields,
+    _NUMERIC_FIELD_TYPES,
+    _flatten_fields,
+    _validate_field,
+    usable_override_default,
+)
 from src.features.presets.templates import FieldTemplate, PresetTemplate
 
 _OVERRIDE_KEYS = frozenset({"default", "editable", "visible"})
@@ -197,6 +203,18 @@ def validate_form_overrides(
 
         if "default" in override:
             value = override["default"]
+            if (
+                spec.type in _NUMERIC_FIELD_TYPES
+                and isinstance(value, str)
+                and "{{" in value
+            ):
+                usable, _ = usable_override_default(spec, value, preset_template)
+                if not usable:
+                    errors.append(
+                        f"{name}: the default '{value}' is a template that does not resolve to a valid number "
+                        f"for this field; enter a plain number"
+                    )
+                continue
             value_errors: List[str] = []
             _validate_field(name, value, spec, value_errors, {})
             errors.extend(value_errors)
@@ -236,6 +254,7 @@ def build_inventory_entries(
 def apply_overrides_to_fields(
     fields: List[FieldTemplate],
     overrides_for_mode: Dict[str, Any],
+    preset_template: Any = None,
 ) -> List[FieldTemplate]:
     """Apply `overrides_for_mode` ({field_name: {default?, editable?, visible?}})
     onto an already-resolved `FieldTemplate` tree and return the resulting list.
@@ -277,7 +296,7 @@ def apply_overrides_to_fields(
 
         new_children = f.children
         if isinstance(f.children, list):
-            new_children = apply_overrides_to_fields(f.children, overrides_for_mode)
+            new_children = apply_overrides_to_fields(f.children, overrides_for_mode, preset_template)
             if f.type in _LAYOUT_CONTAINER_TYPES and f.children and not new_children:
                 continue
 
@@ -286,7 +305,9 @@ def apply_overrides_to_fields(
             changes["children"] = new_children
         if override:
             if "default" in override:
-                changes["default"] = override["default"]
+                has_default, usable = usable_override_default(f, override["default"], preset_template)
+                if has_default:
+                    changes["default"] = usable
             if override.get("editable") is False:
                 changes["readonly"] = True
 

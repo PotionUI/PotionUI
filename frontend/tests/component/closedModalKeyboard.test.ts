@@ -11,8 +11,10 @@ const modals = {
 let instance: ReturnType<typeof mount> | null = null;
 
 function press(key: string) {
-	document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+	const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+	document.body.dispatchEvent(event);
 	flushSync();
+	return event;
 }
 
 afterEach(() => {
@@ -38,7 +40,16 @@ describe.each(Object.entries(modals))('%s keyboard', (_name, Component) => {
 
 	it('ignores Escape while closed', () => {
 		const { close, cancel } = mountModal(false);
-		press('Escape');
+		const event = press('Escape');
+		expect(event.defaultPrevented).toBe(false);
+		expect(close).not.toHaveBeenCalled();
+		expect(cancel).not.toHaveBeenCalled();
+	});
+
+	it('ignores Enter while closed', () => {
+		const { close, cancel } = mountModal(false);
+		const event = press('Enter');
+		expect(event.defaultPrevented).toBe(false);
 		expect(close).not.toHaveBeenCalled();
 		expect(cancel).not.toHaveBeenCalled();
 	});

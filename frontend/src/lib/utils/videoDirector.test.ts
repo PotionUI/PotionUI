@@ -2873,6 +2873,16 @@ describe('Stage B form media references', () => {
 			expect(images.map((o) => o.item.path)).toEqual(['uploads/hero.png', 'uploads/a.png', 'uploads/c.png']);
 		});
 
+		it('accepts a list of kinds, keeping images and videos and dropping audio', () => {
+			const formData = {
+				still: { path: 'uploads/a.png', type: 'image' },
+				clip: { path: 'uploads/b.mp4', type: 'video' },
+				song: { path: 'uploads/c.wav', type: 'audio' }
+			};
+			const options = collectFormMediaOptions(formData, ['image', 'video']);
+			expect(options.map((o) => o.field)).toEqual(['still', 'clip']);
+		});
+
 		it('returns [] for null/undefined form data', () => {
 			expect(collectFormMediaOptions(null)).toEqual([]);
 			expect(collectFormMediaOptions(undefined)).toEqual([]);

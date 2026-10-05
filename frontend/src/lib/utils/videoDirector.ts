@@ -191,14 +191,15 @@ function humanizeFieldName(name: string): string {
  */
 export function collectFormMediaOptions(
 	formData: Record<string, unknown> | null | undefined,
-	kind?: 'image' | 'video' | 'audio'
+	kind?: 'image' | 'video' | 'audio' | ReadonlyArray<'image' | 'video' | 'audio'>
 ): FormMediaOption[] {
+	const kinds = kind === undefined ? null : Array.isArray(kind) ? kind : [kind];
 	const options: FormMediaOption[] = [];
 	for (const [field, value] of Object.entries(formData ?? {})) {
 		const items = Array.isArray(value) ? value : [value];
 		for (const item of items) {
 			if (!isMediaRef(item)) continue;
-			if (kind && item.type && item.type !== kind) continue;
+			if (kinds && item.type && !kinds.includes(item.type as 'image' | 'video' | 'audio')) continue;
 			options.push({ field, fieldLabel: humanizeFieldName(field), item });
 		}
 	}

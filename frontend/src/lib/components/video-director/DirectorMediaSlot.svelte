@@ -21,7 +21,7 @@
 		onChange: (value: DirectorMediaValue | null) => void;
 		config?: Record<string, unknown>;
 		/** Narrows the "From form" list to items whose probed type matches. */
-		kind?: 'image' | 'video' | 'audio';
+		kind?: 'image' | 'video' | 'audio' | ReadonlyArray<'image' | 'video' | 'audio'>;
 	} = $props();
 
 	let display = $derived(resolveDirectorMediaDisplay(value, formData));

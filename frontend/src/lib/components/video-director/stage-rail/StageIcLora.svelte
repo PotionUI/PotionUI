@@ -11,6 +11,8 @@
 	import StageCard from './StageCard.svelte';
 	import StageField from './StageField.svelte';
 
+	const IC_LORA_REFERENCE_KINDS = ['image', 'video'] as const;
+
 	let {
 		doc,
 		timelineShotId,
@@ -68,9 +70,9 @@
 							name="{entry.id}-reference"
 							value={entry.ref_media}
 							{formData}
-							kind="image"
+							kind={IC_LORA_REFERENCE_KINDS}
 							onChange={(v) => setReference(entry.id, v)}
-							config={{ accept: 'image/*' }}
+							config={{ accept: 'image/*,video/*' }}
 						/>
 					{/snippet}
 

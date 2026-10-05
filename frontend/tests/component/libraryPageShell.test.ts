@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
+		getOrganizeProvenance: vi.fn(() => Promise.resolve({ success: true, data: [] })),
 		listLibraryItems: vi.fn(),
 		getLibraryFacets: vi.fn(),
 		listCollections: vi.fn(),

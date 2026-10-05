@@ -19,6 +19,7 @@ const listUploads = vi.fn();
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
+		getOrganizeProvenance: vi.fn(() => Promise.resolve({ success: true, data: [] })),
 		listLibraryItems: vi.fn().mockResolvedValue({ success: false }),
 		getLibraryFacets: vi.fn().mockResolvedValue({ success: false }),
 		getTags: vi.fn().mockResolvedValue({ success: false }),

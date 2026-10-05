@@ -10,6 +10,7 @@ const getGenerationParams = vi.fn();
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
+		getOrganizeProvenance: vi.fn(() => Promise.resolve({ success: true, data: [] })),
 		getClient: vi.fn(() => ({
 			get: vi.fn().mockRejectedValue(new Error('not mocked')),
 			post: vi.fn().mockRejectedValue(new Error('not mocked')),

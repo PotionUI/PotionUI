@@ -200,6 +200,7 @@ if TYPE_CHECKING:
     from src.features.provisioning.repository import ProvisionedComputeRepository
     from src.features.provisioning.routes import ProvisioningController
     from src.features.plugins.routes import PluginController
+    from src.features.plugins.setup import PluginSetup
     from src.features.llm.routes import LLMController
     from src.features.llm.tools.governance import ToolGovernanceEditor, ToolGovernanceRepository
     from src.features.llm.tools.governance_routes import ToolGovernanceController
@@ -300,6 +301,7 @@ class AppContainer:
     # Plugins
     plugin_repository: PluginRepository
     plugin_controller: "PluginController"
+    plugin_setup: "PluginSetup"
     llm_controller: "LLMController"
     tool_governance_repository: "ToolGovernanceRepository"
     tool_governance_editor: "ToolGovernanceEditor"
@@ -1533,6 +1535,17 @@ def build_container() -> AppContainer:
         gpu_monitor=gpu_monitor,
         backend_registry=backend_registry,
         requirements_cache=requirements_cache,
+    )
+    from src.features.plugins.setup import PluginSetup
+
+    plugin_setup = PluginSetup(
+        plugin_registry=plugin_registry,
+        plugin_repository=plugin_repository,
+        backend_registry=backend_registry,
+        catalog_repository=cloud_catalog_repository,
+        preset_loader=preset_template_loader,
+        preset_db_repo=database_preset_repository,
+        group_repo=_user_group_repo_for_presets,
     )
     from src.features.presets import operations as preset_operations
     preset_lookup = functools.partial(preset_operations.get_preset, preset_collaborators)

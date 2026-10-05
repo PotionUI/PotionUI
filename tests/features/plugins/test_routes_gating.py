@@ -25,7 +25,7 @@ def _user(account_type):
     )
 
 
-def _make_client(user, registry=None):
+def _make_client(user, registry=None, plugin_setup=None):
     repository = Mock()
     # Open-route return values now read straight from the repository (and, for
     # quick-actions/sidebar-widgets/frontend-extensions, through the
@@ -42,7 +42,8 @@ def _make_client(user, registry=None):
     container = SimpleNamespace(
         plugin_controller=PluginController(
             plugin_repository=repository, plugin_registry=registry
-        )
+        ),
+        plugin_setup=plugin_setup,
     )
 
     app = FastAPI()
@@ -65,6 +66,7 @@ GATED = [
     ("post", "/api/plugins/scan", None),
     ("get", "/api/plugins/p1/settings", None),
     ("put", "/api/plugins/p1/settings", {"settings": {"k": "v"}}),
+    ("get", "/api/plugins/setup", None),
 ]
 
 # Routes the normal UI needs for every authenticated user.
@@ -130,3 +132,21 @@ def test_history_tools_route_returns_the_tool_list_as_data():
 
     assert isinstance(data, list)
     assert [tool["id"] for tool in data] == ["p1:export"]
+
+
+def test_setup_route_returns_every_report_for_an_admin():
+    from src.features.plugins.setup import PluginSetupReport, SetupStep
+
+    report = PluginSetupReport(
+        plugin_id="p1", complete=False, remaining=1,
+        steps=[SetupStep(id="0-presets.installed", kind="presets.installed", label="Install", status="todo")],
+    )
+    plugin_setup = SimpleNamespace(reports=lambda: [report])
+    client, _ = _make_client(_user(AccountType.ADMIN), plugin_setup=plugin_setup)
+
+    response = client.get("/api/plugins/setup")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert [item["plugin_id"] for item in data] == ["p1"]
+    assert data[0]["steps"][0]["status"] == "todo"

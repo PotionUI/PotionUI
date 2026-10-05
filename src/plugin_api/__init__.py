@@ -217,6 +217,8 @@ from src.plugin_api.limits import (
     Usage,
 )
 
+from src.plugin_api.setup import SetupCheck, SetupCheckContext, SetupCheckResult
+
 # Contributing a phrasebook batch tool.
 from src.plugin_api.phrasebook import (
     BatchOperationError,
@@ -422,6 +424,9 @@ __all__ = [
     "model_write_dir",
     "resolve_model_file",
     "type_for_folder_name",
+    "SetupCheck",
+    "SetupCheckContext",
+    "SetupCheckResult",
     # Samplers and schedules
     "OptionSpec",
     "SamplerDefinition",

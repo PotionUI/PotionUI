@@ -653,6 +653,11 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Get sidebar widgets from enabled plugins."""
         return await controller.get_sidebar_widgets(current_user)
 
+    @router.get("/setup", response_model=APIResponse, summary="Get Plugin Setup Progress")
+    async def get_plugin_setup(current_user = Depends(get_current_admin_user)):
+        reports = container.plugin_setup.reports()
+        return controller.success_response(data=[report.model_dump() for report in reports])
+
     @router.get("/{plugin_id}", response_model=APIResponse, summary="Get Plugin Details")
     async def get_plugin(plugin_id: str, current_user = Depends(get_current_admin_user)):
         """Get details for a specific plugin (admin only - plugin management view)."""

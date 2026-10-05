@@ -22,3 +22,12 @@ docs:
   - path: "README.md"
     title: "OpenRouter"
     audience: "admin"
+
+setup:
+  - kind: "backend.added"
+    driver: "cloud.openrouter"
+    label: "Add an OpenRouter backend with your API key"
+  - kind: "cloud.models_enabled"
+    driver: "cloud.openrouter"
+  - kind: "presets.installed"
+  - kind: "presets.assigned"

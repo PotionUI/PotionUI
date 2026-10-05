@@ -410,6 +410,35 @@ class RequirementCheckerSpec(BaseModel):
     backend: str
 
 
+SETUP_STEP_KINDS = (
+    "plugin.settings",
+    "backend.added",
+    "cloud.models_enabled",
+    "presets.installed",
+    "presets.assigned",
+    "check",
+)
+DRIVER_SETUP_STEP_KINDS = ("backend.added", "cloud.models_enabled")
+
+
+class SetupStepSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal[SETUP_STEP_KINDS]
+    label: Optional[str] = None
+    description: Optional[str] = None
+    driver: Optional[str] = None
+    check: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _kind_parameters(self) -> "SetupStepSpec":
+        if self.kind in DRIVER_SETUP_STEP_KINDS and not self.driver:
+            raise ValueError(f"setup step '{self.kind}' needs a 'driver'")
+        if self.kind == "check" and not (self.check and self.label):
+            raise ValueError("setup step 'check' needs a 'check' reference and a 'label'")
+        return self
+
+
 class PromptImporterSpec(BaseModel):
     """A plugin-provided prompt import source: `prompt_importers[]`.
 
@@ -787,3 +816,5 @@ class PluginManifestSchema(BaseModel):
 
     # Preset requirement checkers (see docs/presets.md "Requirements")
     requirement_checkers: List[RequirementCheckerSpec] = Field(default_factory=list)
+
+    setup: List[SetupStepSpec] = Field(default_factory=list)

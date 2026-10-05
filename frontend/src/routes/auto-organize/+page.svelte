@@ -312,7 +312,7 @@
 	{:else if resolvingRule}
 		<div class="flex h-40 items-center justify-center"><Spinner size="lg" /></div>
 	{:else}
-		<div class="mx-auto max-w-4xl space-y-4 p-4 sm:p-6">
+		<div class="space-y-4 p-4 sm:p-5">
 			{#if summary?.paused_by_admin}
 				<Alert variant="warning" icon>
 					Auto-organize is paused by an administrator. Your rules are kept and start again when it is switched back on.

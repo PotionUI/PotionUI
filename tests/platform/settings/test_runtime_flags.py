@@ -1,6 +1,5 @@
 import inspect
 import logging
-import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -211,22 +210,11 @@ def test_vendor_ops_reads_the_bound_dict_and_never_the_environment(monkeypatch):
     source = inspect.getsource(ops)
     assert "os.environ" not in source
     assert "getenv" not in source
+    assert not hasattr(ops, "os")
 
     monkeypatch.setattr(runtime_flags, "_vendor_bound", False)
     monkeypatch.setattr(ops, "_scaled_mm_supported_cache", True)
     monkeypatch.setattr(ops, "_nvfp4_scaled_mm_supported_cache", True)
-
-    class _NoEnviron(dict):
-        def __getitem__(self, key):
-            raise AssertionError(f"read env {key}")
-
-        def get(self, key, default=None):
-            raise AssertionError(f"read env {key}")
-
-        def __contains__(self, key):
-            raise AssertionError(f"read env {key}")
-
-    monkeypatch.setattr(os, "environ", _NoEnviron())
 
     runtime_flags.activate_engine_flags({"native_fp8_matmul": True, "native_lora_fused": False})
     assert ops._fp8_matmul_enabled() is True

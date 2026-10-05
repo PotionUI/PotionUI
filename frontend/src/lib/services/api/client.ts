@@ -130,6 +130,14 @@ export class APIClient {
 		return data;
 	}
 
+	async endMediaSession(): Promise<void> {
+		try {
+			await this.client.post('/api/auth/logout');
+		} catch {
+			return;
+		}
+	}
+
 	async getCurrentUser(): Promise<{ success: boolean; data?: User; message?: string; error?: string }> {
 		const response = await this.client.get('/api/auth/me');
 		return response.data;

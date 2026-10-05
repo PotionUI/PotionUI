@@ -11,6 +11,7 @@ vi.mock('$lib/services/api/index', () => ({
 		setAuthHeader: vi.fn(),
 		setOnAuthExpired: vi.fn(),
 		clearAuth: vi.fn(),
+		endMediaSession: vi.fn(async () => undefined),
 		getToken: vi.fn(() => null),
 		login: vi.fn(),
 		register: vi.fn(),
@@ -116,5 +117,29 @@ describe('applyIdentityGuard', () => {
 			expect(spy).not.toHaveBeenCalled();
 		}
 		expect(localStorage.getItem(LAST_USER_ID_KEY)).toBe('user-a');
+	});
+});
+
+describe('authStore.logout', () => {
+	beforeEach(() => {
+		stubLocalStorage();
+		vi.doMock('$app/environment', () => ({ browser: true }));
+		vi.doMock('$app/navigation', () => ({ goto: vi.fn() }));
+	});
+
+	afterEach(() => {
+		vi.doUnmock('$app/environment');
+		vi.doUnmock('$app/navigation');
+	});
+
+	it('ends the server media session so media links stop loading in this browser', async () => {
+		vi.resetModules();
+		const { api } = await import('$lib/services/api/index');
+		const { authStore } = await import('./auth');
+		vi.mocked(api.endMediaSession).mockClear();
+
+		authStore.logout();
+
+		expect(api.endMediaSession).toHaveBeenCalledTimes(1);
 	});
 });

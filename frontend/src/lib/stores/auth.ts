@@ -106,6 +106,7 @@ function createAuthStore() {
 			if (!currentState.isAuthenticated) return currentState;
 			storage.remove('auth_token');
 			api.clearAuth();
+			void api.endMediaSession();
 			goto('/login?expired=1');
 			return {
 				...currentState,
@@ -256,6 +257,7 @@ function createAuthStore() {
 		logout() {
 			storage.remove('auth_token');
 			api.clearAuth();
+			void api.endMediaSession();
 			// Explicit logout drops the in-memory conversation; a same-user
 			// relogin restores it from the backend via the persisted session id.
 			chatSession.reset();

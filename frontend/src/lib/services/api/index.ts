@@ -83,6 +83,7 @@ export const api = {
 	login: apiClient.login.bind(apiClient),
 	register: apiClient.register.bind(apiClient),
 	getCurrentUser: apiClient.getCurrentUser.bind(apiClient),
+	endMediaSession: apiClient.endMediaSession.bind(apiClient),
 	changePassword: apiClient.changePassword.bind(apiClient),
 	uploadAvatar: apiClient.uploadAvatar.bind(apiClient),
 	deleteAvatar: apiClient.deleteAvatar.bind(apiClient),

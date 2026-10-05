@@ -41,6 +41,7 @@ export function toolbarFit(node: HTMLElement, initial: ToolbarFitParams) {
 	}
 
 	function compute() {
+		if (node.clientWidth === 0) return;
 		const style = getComputedStyle(node);
 		const gap = px(style.columnGap) || 8;
 		let fixed = 0;

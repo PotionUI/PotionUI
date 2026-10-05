@@ -1784,3 +1784,56 @@ class TestVideoLtxCtxReleaseGpu:
         assert vae.offloaded == 1
         assert audio_vae.offloaded == 1
         assert vocoder.offloaded == 1
+
+
+_ENCODE_LADDER = "src.pipelines.pipes._shared.vae.ltx_tiled_encode"
+
+
+class _NoEvict:
+    def offload_all(self, device, *, exclude=()):
+        return []
+
+
+def _bundle_recording_encodes():
+    calls = {"whole": 0, "tiled": 0}
+
+    def latent_for(pixels):
+        _, _, t, h, w = pixels.shape
+        return torch.zeros(1, 128, (t - 1) // 8 + 1, h // 32, w // 32)
+
+    def whole(pixels):
+        calls["whole"] += 1
+        return latent_for(pixels)
+
+    def tiled(pixels, tiling_config=None):
+        calls["tiled"] += 1
+        return latent_for(pixels)
+
+    bundle = _bundle()
+    bundle.vae.module = SimpleNamespace(encode=whole, tiled_encode=tiled)
+    return bundle, calls
+
+
+def test_video_reference_encode_goes_tiled_when_the_whole_clip_cannot_fit(tmp_path):
+    clip = _reference_clip(tmp_path, n_frames=9, size=64)
+    bundle, calls = _bundle_recording_encodes()
+    cfg = _pipe(resolution="64x64", frames=9, media_placements=[
+        {"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"},
+    ])
+    with patch(f"{_ENCODE_LADDER}.free_vram_gb", return_value=0.01), \
+            patch(f"{_ENCODE_LADDER}.get_residency_registry", return_value=_NoEvict()), \
+            patch(f"{_ENCODE_LADDER}.clear_gpu_memory"):
+        ctx = cfg.build_context(_pipe_input(videos=[str(clip)], bundle=bundle))
+    assert calls == {"whole": 0, "tiled": 1}
+    assert ctx.extra.prepared.n_extra == 2 * 2 * 2
+
+
+def test_video_reference_encode_stays_whole_when_it_fits(tmp_path):
+    clip = _reference_clip(tmp_path, n_frames=9, size=64)
+    bundle, calls = _bundle_recording_encodes()
+    cfg = _pipe(resolution="64x64", frames=9, media_placements=[
+        {"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"},
+    ])
+    with patch(f"{_ENCODE_LADDER}.free_vram_gb", return_value=24.0):
+        cfg.build_context(_pipe_input(videos=[str(clip)], bundle=bundle))
+    assert calls == {"whole": 1, "tiled": 0}

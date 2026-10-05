@@ -128,6 +128,7 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
     schedule_settings_overrides,
 )
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
+from src.pipelines.pipes._shared.vae.ltx_tiled_encode import encode_with_oom_retry
 from src.pipelines.pipes.generator.txt2vid_ltx.main import (
     _LATENT_CHANNELS,
     _SPATIAL_DOWNSCALE,
@@ -592,11 +593,12 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
 
         if conditions:
             bundle.vae.move_to(device)
-            vae_module = bundle.vae.module
 
             def vae_encode(pixels: Tensor) -> Tensor:
-                with torch.no_grad():
-                    return vae_module.encode(pixels.to(dtype=bundle.vae.compute_dtype))
+                return encode_with_oom_retry(
+                    bundle.vae, pixels, device,
+                    profiler_mark="video_ltx.condition_encode", log_prefix="generator/video_ltx",
+                )
 
             causal_fix = bool(getattr(bundle.spec, "causal_temporal_positioning", True)) \
                 if hasattr(bundle.spec, "causal_temporal_positioning") \

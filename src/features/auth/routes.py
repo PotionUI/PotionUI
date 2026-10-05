@@ -6,7 +6,7 @@ import os
 import time
 from typing import TYPE_CHECKING, Deque, Dict, Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from src.platform.http.base_controller import BaseController, APIResponse
@@ -21,7 +21,8 @@ from src.features.auth.dto import (
     UserResponse,
 )
 from src.platform.plugins.login_providers import login_provider_registry
-from src.platform.security.current_user import get_current_user
+from src.platform.security.current_user import get_current_user, oauth2_scheme
+from src.platform.security.media_session import clear_media_cookie, set_media_cookie
 from src.platform.security import Auth
 from src.platform.security.login_handoff import LoginHandoffStore
 from src.platform.security.user import User
@@ -244,18 +245,23 @@ def build_router(container: "AppContainer") -> APIRouter:
     router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
     @router.post("/register", response_model=APIResponse, summary="Register a new user account")
-    async def register(user_data: UserCreate, request: Request) -> APIResponse:
+    async def register(user_data: UserCreate, request: Request, response: Response) -> APIResponse:
         """Register a new user."""
-        return await controller.register(user_data, request)
+        result = await controller.register(user_data, request)
+        set_media_cookie(response, request, (result.data or {}).get("access_token"))
+        return result
 
     @router.post("/login", response_model=Token, summary="Log in and issue an access token")
     async def login(
         request: Request,
+        response: Response,
         form_data: OAuth2PasswordRequestForm = Depends(),
         remember_me: bool = Form(False)
     ) -> Token:
         """Login with username and password."""
-        return await controller.login(form_data, request, remember_me)
+        token = await controller.login(form_data, request, remember_me)
+        set_media_cookie(response, request, token.access_token)
+        return token
 
     @router.get(
         "/providers",
@@ -271,16 +277,29 @@ def build_router(container: "AppContainer") -> APIRouter:
         summary="Exchange a one-time external-login code for an access token",
     )
     async def exchange_external_login(
-        payload: ExternalLoginExchange, request: Request
+        payload: ExternalLoginExchange, request: Request, response: Response
     ) -> Token:
-        return await controller.exchange_external_code(payload, request)
+        token = await controller.exchange_external_code(payload, request)
+        set_media_cookie(response, request, token.access_token)
+        return token
+
+    @router.post("/logout", status_code=204, summary="End this browser's media session")
+    async def logout(request: Request) -> Response:
+        response = Response(status_code=204)
+        clear_media_cookie(response, request)
+        return response
 
     @router.get("/me", response_model=APIResponse, summary="Get the current authenticated user")
     async def get_current_user_info(
-        current_user: User = Depends(get_current_user)
+        request: Request,
+        response: Response,
+        current_user: User = Depends(get_current_user),
+        token: str = Depends(oauth2_scheme),
     ) -> APIResponse:
         """Get current user information."""
-        return await controller.get_me(current_user)
+        result = await controller.get_me(current_user)
+        set_media_cookie(response, request, token)
+        return result
 
     @router.post("/change-password", response_model=APIResponse, summary="Change your own password")
     async def change_password(

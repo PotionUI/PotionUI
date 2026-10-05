@@ -8,12 +8,13 @@ This module provides FastAPI dependencies for authentication:
 - authenticate_websocket_token: WebSocket authentication helper
 """
 import asyncio
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
 from src.platform.security import Auth
+from src.platform.security.media_session import media_cookie_token
 from src.platform.security.user import User, AccountType
 
 # OAuth2 scheme - tokenUrl should match the login endpoint
@@ -21,6 +22,8 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 # Global reference to the Auth coordinator (set during app startup)
 _auth: Optional[Auth] = None
+
+_media_bearer_fallback: Optional[Callable[[str], Optional[User]]] = None
 
 
 def set_auth(auth: Auth) -> None:
@@ -50,6 +53,49 @@ def get_auth() -> Auth:
     if _auth is None:
         raise RuntimeError("Auth not initialized. Call set_auth() during app startup.")
     return _auth
+
+
+def set_media_bearer_fallback(resolver: Optional[Callable[[str], Optional[User]]]) -> None:
+    global _media_bearer_fallback
+    _media_bearer_fallback = resolver
+
+
+def _bearer_token(request: Request) -> Optional[str]:
+    header = request.headers.get("authorization", "")
+    if not header.lower().startswith("bearer "):
+        return None
+    return header[len("bearer "):].strip() or None
+
+
+def _resolve_media_viewer(bearer: Optional[str], cookie: Optional[str]) -> Optional[User]:
+    if not bearer and not cookie:
+        return None
+    auth = get_auth()
+    if bearer:
+        user = auth.get_user_from_token(bearer)
+        if user is None and _media_bearer_fallback is not None:
+            user = _media_bearer_fallback(bearer)
+        if user is not None:
+            return user
+    if cookie:
+        return auth.get_user_from_token(cookie)
+    return None
+
+
+async def get_media_viewer(request: Request) -> Optional[User]:
+    return await asyncio.to_thread(
+        _resolve_media_viewer, _bearer_token(request), media_cookie_token(request)
+    )
+
+
+async def require_media_viewer(viewer: Optional[User] = Depends(get_media_viewer)) -> User:
+    if viewer is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return viewer
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:

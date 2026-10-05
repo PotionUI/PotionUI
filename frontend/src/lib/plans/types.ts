@@ -74,6 +74,7 @@ export interface UsageRow {
 	kind: string;
 	label: string;
 	format: string;
+	value_type?: LimitValueType;
 	window: LimitWindow;
 	used: number | null;
 	limit: number | null;

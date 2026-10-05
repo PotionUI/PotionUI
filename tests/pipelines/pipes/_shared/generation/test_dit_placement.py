@@ -291,7 +291,7 @@ def test_a_plain_delta_on_a_quantized_linear_costs_no_per_token_buffer_by_defaul
 
 def test_an_nvfp4_linear_costs_the_per_token_buffer_once_its_gate_is_on():
     dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=True)))
-    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
+    with patch(f"{_MOD}._lora_fused_enabled", return_value=False), patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
         profile = _dit_lora_profile(dit)
     assert profile.output_buffer_out_features == 28672
     assert profile.output_buffer_bytes_per_token == 2 * 28672 * 2
@@ -299,7 +299,7 @@ def test_an_nvfp4_linear_costs_the_per_token_buffer_once_its_gate_is_on():
 
 def test_an_fp8_scaled_linear_costs_the_per_token_buffer_once_its_gate_is_on():
     dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=False)))
-    with patch(f"{_MOD}._fp8_matmul_enabled", return_value=True):
+    with patch(f"{_MOD}._lora_fused_enabled", return_value=False), patch(f"{_MOD}._fp8_matmul_enabled", return_value=True):
         profile = _dit_lora_profile(dit)
     assert profile.output_buffer_out_features == 28672
 
@@ -328,7 +328,7 @@ def test_the_widest_fast_path_linear_sizes_the_per_token_buffer():
         _quantized_linear(5376, 28672, nvfp4=True),
         _quantized_linear(14336, 5376, nvfp4=True),
     ))
-    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
+    with patch(f"{_MOD}._lora_fused_enabled", return_value=False), patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
         assert _dit_lora_profile(dit).output_buffer_out_features == 28672
 
 
@@ -356,7 +356,7 @@ def test_a_mixed_stack_is_split_per_delta_the_way_the_forward_splits_it():
     linear._is_nvfp4 = True
     linear.lora_deltas = [_lokr_delta(5376, 28672), _plain_delta(5376, 28672)]
     dit = SimpleNamespace(module=nn.Sequential(linear))
-    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
+    with patch(f"{_MOD}._lora_fused_enabled", return_value=False), patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
         profile = _dit_lora_profile(dit)
     assert profile.output_buffer_out_features == 28672
     assert profile.weight_side_bytes == 2 * 28672 * 5376 * 2
@@ -1773,3 +1773,30 @@ def test_nvfp4_fast_path_forces_partial_residency_where_the_old_estimate_said_re
     assert on.mode == "partial"
     assert 0.0 < on.weight_budget_gb < 18.5
     assert on.activation_reserve_gb > off.activation_reserve_gb + 14.0
+
+
+def test_the_fused_lora_path_drops_the_per_token_output_buffer_term():
+    dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=True)))
+    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True), \
+            patch(f"{_MOD}._lora_fused_enabled", return_value=True):
+        profile = _dit_lora_profile(dit)
+    assert profile.output_buffer_out_features == 0
+    assert profile.active
+
+
+def test_the_unfused_lora_path_keeps_the_per_token_output_buffer_term():
+    dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=True)))
+    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True), \
+            patch(f"{_MOD}._lora_fused_enabled", return_value=False):
+        profile = _dit_lora_profile(dit)
+    assert profile.output_buffer_out_features == 28672
+
+
+def test_native_lora_fused_env_decides_the_term(monkeypatch):
+    dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=True)))
+    monkeypatch.setenv("NATIVE_LORA_FUSED", "off")
+    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
+        assert _dit_lora_profile(dit).output_buffer_out_features == 28672
+    monkeypatch.setenv("NATIVE_LORA_FUSED", "on")
+    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
+        assert _dit_lora_profile(dit).output_buffer_out_features == 0

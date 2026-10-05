@@ -102,6 +102,7 @@ from src.platform.runtime.native.memory.residency import (
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
 from vendor.gpl.comfyui.ops import (
     _fp8_matmul_enabled,
+    _lora_fused_enabled,
     _nvfp4_matmul_enabled,
     partition_output_branch_deltas,
 )
@@ -461,7 +462,7 @@ def _dit_lora_profile(dit: Any) -> DitLoraProfile:
         if not out_features:
             continue
         output_side, weight_side = partition_output_branch_deltas(deltas, out_features)
-        if output_side and _linear_takes_gemm_fast_path(m):
+        if output_side and not _lora_fused_enabled() and _linear_takes_gemm_fast_path(m):
             output_buffer_out_features = max(output_buffer_out_features, out_features)
         if (weight_side or any(getattr(d, "kron", False) for d in masked)) and in_features:
             weight_side_bytes = max(

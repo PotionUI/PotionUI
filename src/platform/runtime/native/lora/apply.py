@@ -264,6 +264,16 @@ def _needs_runtime_deltas(linear: nn.Module) -> bool:
     return weight.dtype not in _PATCHABLE_DTYPES
 
 
+def _require_cast_mode(linear: nn.Module, param_name: str) -> None:
+    if getattr(linear, "comfy_cast_weights", False):
+        return
+    if not hasattr(linear, "forward_comfy_cast_weights"):
+        raise ValueError(
+            f"LoRA target {param_name!r} cannot take runtime deltas: its layer type has no "
+            f"cast-mode forward, so a scoped LoRA would be silently ignored")
+    linear.comfy_cast_weights = True
+
+
 def _runtime_delta_device(linear: nn.Module) -> torch.device:
     """Where ``linear``'s forward will want this layer's deltas.
 
@@ -322,6 +332,7 @@ def apply_loras(
     module: nn.Module,
     loras: list[tuple[dict[str, torch.Tensor], float]],
     row_masked: "Optional[Sequence[bool]]" = None,
+    runtime_only: bool = False,
 ) -> tuple[int, list[str]]:
     """Apply a stack of LoRAs to ``module``.
 
@@ -335,7 +346,8 @@ def apply_loras(
     adapter apart from a working one in the same stack calls
     :func:`apply_loras_with_report` instead.
     """
-    patched, unmatched, _reports = apply_loras_with_report(module, loras, row_masked=row_masked)
+    patched, unmatched, _reports = apply_loras_with_report(
+        module, loras, row_masked=row_masked, runtime_only=runtime_only)
     return patched, unmatched
 
 
@@ -344,6 +356,7 @@ def apply_loras_with_report(
     loras: list[tuple[dict[str, torch.Tensor], float]],
     names: "Optional[Sequence[str]]" = None,
     row_masked: "Optional[Sequence[bool]]" = None,
+    runtime_only: bool = False,
 ) -> tuple[int, list[str], list[AdapterApplication]]:
     """Apply a stack of LoRAs to ``module``, like :func:`apply_loras`, plus a
     per-file :class:`AdapterApplication` report in the same order as ``loras``.
@@ -401,7 +414,9 @@ def apply_loras_with_report(
                 staged_device = str(device)
                 attach_masked_deltas(linear, scaled)
                 masked_targets += 1
-            elif _needs_runtime_deltas(linear):
+            elif runtime_only or _needs_runtime_deltas(linear):
+                if runtime_only:
+                    _require_cast_mode(linear, param_name)
                 device = _runtime_delta_device(linear)
                 scaled, nbytes = _stage_runtime_deltas(scaled, device)
                 staged_bytes += nbytes
@@ -658,6 +673,7 @@ def restore_lora_state(snapshot: LoraStateSnapshot) -> None:
 def temporarily_applied_loras(
     module: nn.Module,
     loras: List[Tuple[Dict[str, torch.Tensor], float]],
+    runtime_only: bool = False,
 ) -> Iterator[None]:
     """Apply ``loras`` onto ``module`` for the ``with`` block, restoring the
     exact prior per-``Linear`` state on exit -- including on an exception
@@ -686,7 +702,7 @@ def temporarily_applied_loras(
         yield
         return
     states = _snapshot_linear_states(module)
-    apply_loras(module, loras)
+    apply_loras(module, loras, runtime_only=runtime_only)
     try:
         yield
     finally:

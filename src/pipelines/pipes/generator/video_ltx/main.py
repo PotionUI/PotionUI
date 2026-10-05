@@ -833,7 +833,8 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         sample_forward = guard_sampling_oom(
             forward, dit=c.bundle.dit, device=c.device, decision=placement,
         )
-        with temporarily_applied_loras(c.bundle.dit.module, [*c.scoped_lora_stack, *c.stage2_lora_stack]):
+        with temporarily_applied_loras(
+                c.bundle.dit.module, [*c.scoped_lora_stack, *c.stage2_lora_stack], runtime_only=True):
             x = denoise_prenoised(
                 sample_forward, x, cond, uncond,
                 steps=c.steps, sampler_name=c.sampler,

@@ -1655,7 +1655,7 @@ def test_stage2_loras_wraps_only_the_sampling_call_on_a_refine_call(mock_load):
     calls = []
 
     @contextmanager
-    def fake_ctx(module, stack):
+    def fake_ctx(module, stack, runtime_only=False):
         calls.append(("enter", stack))
         yield
         calls.append(("exit", stack))
@@ -1686,7 +1686,7 @@ def test_stage2_loras_wraps_with_empty_stack_on_a_plain_generation(caplog):
     calls = []
 
     @contextmanager
-    def fake_ctx(module, stack):
+    def fake_ctx(module, stack, runtime_only=False):
         calls.append(stack)
         yield
 
@@ -1902,7 +1902,8 @@ def test_scoped_and_stage2_loras_apply_together_in_one_wrap_around_sampling(mock
     calls = []
 
     @contextmanager
-    def fake_ctx(module, stack):
+    def fake_ctx(module, stack, runtime_only=False):
+        assert runtime_only is True
         calls.append(("enter", list(stack)))
         yield
         calls.append(("exit", list(stack)))

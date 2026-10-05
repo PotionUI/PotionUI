@@ -149,6 +149,20 @@ class TestBuildBackendEnv:
         assert str(site_packages) in env["PYTHONPATH"].split(os.pathsep)
         assert str(tmp_path) in env["PYTHONPATH"].split(os.pathsep)
 
+    def test_logs_go_to_the_throwaway_instance_not_the_checkout(self, tmp_path, monkeypatch):
+        from src.platform.observability.logger import DEFAULT_LOG_DIR, log_directory
+
+        monkeypatch.delenv("PYTHONPATH", raising=False)
+        monkeypatch.setenv("POTIONUI_LOG_DIR", "/somewhere/else/logs")
+        instance = self._instance(tmp_path)
+        env = e2e_harness.build_backend_env(instance, None, tmp_path)
+
+        assert env["POTIONUI_LOG_DIR"] == str(tmp_path / "logs")
+        monkeypatch.setattr(os, "environ", env)
+        resolved = log_directory()
+        assert resolved == tmp_path / "logs"
+        assert resolved != Path(DEFAULT_LOG_DIR)
+
     def test_preserves_an_existing_pythonpath(self, tmp_path, monkeypatch):
         monkeypatch.setenv("PYTHONPATH", "/some/existing/path")
         instance = self._instance(tmp_path)

@@ -484,6 +484,7 @@ def build_backend_env(
     env["POTIONUI_STORAGE_PATH"] = str(instance.storage_dir)
     env["POTIONUI_MODELS_DIR"] = str(instance.models_dir)
     env["POTIONUI_RECIPES_DIR"] = str(instance.recipes_dir)
+    env["POTIONUI_LOG_DIR"] = str(instance.instance_dir / "logs")
     # Never let a real .env auth secret leak into this
     # throwaway instance's tokens, and never let its ALLOWED_ORIGINS narrow
     # this instance's loopback-only traffic. python-dotenv's load_dotenv()

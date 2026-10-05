@@ -37,6 +37,8 @@ button { cursor: pointer; }
 .composer-count { color: rgb(var(--fg-subtle)); font: 400 12px "IBM Plex Mono"; font-variant-numeric: tabular-nums; }
 
 .toolbar-spacer { flex: 1; }
+.toolbar-slot { display: inline-flex; flex: none; }
+.composer-toolbar { min-width: 0; }
 
 /* The lane (list + add row) is the canvas tone, so the gap between segments
    and around the add row reads as one dark channel. */

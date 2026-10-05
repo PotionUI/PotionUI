@@ -13,6 +13,7 @@
 	} from '$lib/types/segments';
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
 	import { mergeVariables } from '$lib/utils/variablesTransfer';
+	import { toolbarFit } from '$lib/utils/toolbarFit';
 	import { toasts } from '$lib/stores/toast';
 	import { hydrateSegments } from '$lib/utils/chipParser';
 	import {
@@ -46,6 +47,7 @@
 	type ApplyTarget = 'main' | 'negative';
 
 	type ToolbarAction = {
+		key: string;
 		icon: string;
 		label: string;
 		tip: string;
@@ -135,6 +137,16 @@
 		| null;
 	let savedSegmentFlow: SavedSegmentFlow = null;
 
+	const COLLAPSE_ORDER = ['templates', 'segments', 'prompts', 'styles', 'variables'];
+	const MENU_ICONS: Record<string, string> = {
+		styles: 'sparkles',
+		prompts: 'file',
+		segments: 'library',
+		templates: 'template',
+		variables: 'braces'
+	};
+	let mainHidden: string[] = [];
+	let negativeHidden: string[] = [];
 	let mainMoreOpen = false;
 	let mainMoreRoot: HTMLDivElement;
 	let negativeMoreOpen = false;
@@ -443,6 +455,27 @@
 		action();
 	}
 
+	$: mainOrder = [
+		...(onOpenStyles ? ['styles'] : []),
+		...(showLibraryActions ? ['prompts', 'segments', 'templates'] : []),
+		...(onOpenVariableManager ? ['variables'] : [])
+	];
+	$: negativeOrder = showLibraryActions ? ['prompts', 'segments', 'templates'] : [];
+
+	function collapsedItems(target: ApplyTarget, hidden: string[]) {
+		const actions: Record<string, { label: string; run: () => void }> = {
+			styles: { label: appliedStyleName ? `Style: ${appliedStyleName}` : 'Styles', run: () => onOpenStyles?.() },
+			prompts: { label: 'Prompts', run: () => openPromptApply(target) },
+			segments: { label: 'Segments', run: () => openLibraryInsert(target) },
+			templates: { label: 'Templates', run: () => openTemplateApply(target) },
+			variables: { label: variableCount > 0 ? `Variables (${variableCount})` : 'Variables', run: () => onOpenVariableManager?.() }
+		};
+		return hidden.filter((key) => actions[key]).map((key) => ({ key, icon: MENU_ICONS[key], ...actions[key] }));
+	}
+
+	$: mainCollapsed = collapsedItems('main', mainHidden);
+	$: negativeCollapsed = collapsedItems('negative', negativeHidden);
+
 	$: negativeCount = (negativeSegments || []).length;
 	$: previewSource = previewSegments ?? segments;
 	$: hasPreviewContent = (previewText ?? flattenRichSegments(previewSource)).length > 0;
@@ -499,56 +532,76 @@
 		</div>
 	{/snippet}
 
-	{#snippet toolbarAction(action: ToolbarAction)}
+	{#snippet toolbarAction(action: ToolbarAction, hidden: string[])}
 		{@const count = action.count ?? 0}
-		{#if compact}
-			<Tooltip text={count > 0 ? `${action.tip} · ${count}` : action.tip} position="top">
-				<IconButton
-					icon={action.icon}
-					label={count > 0 ? `${action.label} (${count})` : action.label}
-					size="xs"
-					variant="secondary"
-					active={action.active ?? false}
-					onclick={action.onclick}
-				/>
-			</Tooltip>
-		{:else}
-			<Tooltip text={action.tip} position="top">
-				<Button
-					size="xs"
-					variant="secondary"
-					icon={action.icon}
-					class={action.active ? 'text-sm styles-applied' : 'text-sm'}
-					onclick={action.onclick}
-				>
-					<span class="toolbar-label">{action.label}</span>
-					{#if count > 0}
-						<span class="font-mono tabular-nums text-sm text-signal">{count}</span>
-					{/if}
-				</Button>
-			</Tooltip>
+		{#if !hidden.includes(action.key)}
+			<span class="toolbar-slot" data-toolbar-action={action.key}>
+				{#if compact}
+					<Tooltip text={count > 0 ? `${action.tip} · ${count}` : action.tip} position="top">
+						<IconButton
+							icon={action.icon}
+							label={count > 0 ? `${action.label} (${count})` : action.label}
+							size="xs"
+							variant="secondary"
+							active={action.active ?? false}
+							onclick={action.onclick}
+						/>
+					</Tooltip>
+				{:else}
+					<Tooltip text={action.tip} position="top">
+						<Button
+							size="xs"
+							variant="secondary"
+							icon={action.icon}
+							class={action.active ? 'text-sm styles-applied' : 'text-sm'}
+							onclick={action.onclick}
+						>
+							<span class="toolbar-label">{action.label}</span>
+							{#if count > 0}
+								<span class="font-mono tabular-nums text-sm text-signal">{count}</span>
+							{/if}
+						</Button>
+					</Tooltip>
+				{/if}
+			</span>
 		{/if}
 	{/snippet}
 
-	{#snippet libraryActions(target: ApplyTarget)}
+	{#snippet libraryActions(target: ApplyTarget, hidden: string[])}
 		{@render toolbarAction({
+			key: 'prompts',
 			icon: 'document',
 			label: 'Prompts',
 			tip: 'Apply a saved prompt',
 			onclick: () => openPromptApply(target)
-		})}
+		}, hidden)}
 		{@render toolbarAction({
+			key: 'segments',
 			icon: 'list',
 			label: 'Segments',
 			tip: 'Insert a saved segment',
 			onclick: () => openLibraryInsert(target)
-		})}
+		}, hidden)}
 		{@render toolbarAction({
+			key: 'templates',
 			icon: 'layout-template',
 			label: 'Templates',
 			tip: 'Apply a segment template',
 			onclick: () => openTemplateApply(target)
-		})}
+		}, hidden)}
+	{/snippet}
+
+	{#snippet collapsedMenuItems(items: { key: string; icon: string; label: string; run: () => void }[], run: (action: () => void) => void)}
+		{#if items.length > 0}
+			<div class="menu-group">
+				{#each items as item (item.key)}
+					<button type="button" role="menuitem" class="menu-item" on:click={() => run(item.run)}>
+						<svg class="icon"><use href={`#i-${item.icon}`} /></svg>
+						<span>{item.label}</span>
+					</button>
+				{/each}
+			</div>
+		{/if}
 	{/snippet}
 
 	{#snippet moreTrigger(label: string, open: boolean, onclick: () => void)}
@@ -569,7 +622,10 @@
 		{@render mainRail()}
 	{:else}
 		<section class="composer edge-inline" class:compact class:plain>
-			<header class="composer-toolbar section-header">
+			<header
+				class="composer-toolbar section-header"
+				use:toolbarFit={{ order: mainOrder, collapseOrder: COLLAPSE_ORDER, onChange: (hidden) => (mainHidden = hidden) }}
+			>
 				<strong class="composer-title section-title">{headerWord}</strong>
 				<span class="composer-count section-count font-mono tabular-nums">{segmentCountLabel(segments.length)}</span>
 
@@ -581,33 +637,36 @@
 
 				{#if onOpenStyles}
 					{@render toolbarAction({
+						key: 'styles',
 						icon: 'sparkles',
 						label: appliedStyleName ? `Style: ${appliedStyleName}` : 'Styles',
 						tip: 'Apply a preset style',
 						onclick: onOpenStyles,
 						active: !!appliedStyleName
-					})}
+					}, mainHidden)}
 				{/if}
 
 				{#if showLibraryActions}
-					{@render libraryActions('main')}
+					{@render libraryActions('main', mainHidden)}
 				{/if}
 
 				{#if onOpenVariableManager}
 					{@render toolbarAction({
+						key: 'variables',
 						icon: 'braces',
 						label: 'Variables',
 						tip: 'Manage prompt variables',
 						onclick: onOpenVariableManager,
 						count: variableCount
-					})}
+					}, mainHidden)}
 				{/if}
 
-				{#if showLibraryActions || hasMainContent}
-					<div class="relative" bind:this={mainMoreRoot}>
+				{#if showLibraryActions || hasMainContent || mainCollapsed.length > 0}
+					<div class="relative" bind:this={mainMoreRoot} data-toolbar-more>
 						{@render moreTrigger('More prompt actions', mainMoreOpen, toggleMainMore)}
 						{#if mainMoreOpen}
 							<div class="floating segment-menu header-menu" role="menu" aria-label="More prompt actions">
+								{@render collapsedMenuItems(mainCollapsed, runMainMore)}
 								<div class="menu-group">
 									{#if showLibraryActions}
 										<button type="button" role="menuitem" class="menu-item" on:click={() => runMainMore(() => openSavePrompt('main'))}>
@@ -729,21 +788,25 @@
 			{@render negativeRail()}
 		{:else}
 			<section class="composer edge-inline negative-composer" class:compact class:plain>
-				<header class="composer-toolbar section-header negative-header">
+				<header
+				class="composer-toolbar section-header negative-header"
+				use:toolbarFit={{ order: negativeOrder, collapseOrder: COLLAPSE_ORDER, onChange: (hidden) => (negativeHidden = hidden) }}
+			>
 					<strong class="composer-title negative section-title negative">Negative</strong>
 					<span class="composer-count section-count font-mono tabular-nums">{segmentCountLabel(negativeCount)}</span>
 
 					<div class="toolbar-spacer"></div>
 
 					{#if showLibraryActions}
-						{@render libraryActions('negative')}
+						{@render libraryActions('negative', negativeHidden)}
 					{/if}
 
-					{#if showLibraryActions || hasNegativeContent}
-						<div class="relative" bind:this={negativeMoreRoot}>
+					{#if showLibraryActions || hasNegativeContent || negativeCollapsed.length > 0}
+						<div class="relative" bind:this={negativeMoreRoot} data-toolbar-more>
 							{@render moreTrigger('More negative prompt actions', negativeMoreOpen, toggleNegativeMore)}
 							{#if negativeMoreOpen}
 								<div class="floating segment-menu header-menu" role="menu" aria-label="More negative prompt actions">
+									{@render collapsedMenuItems(negativeCollapsed, runNegativeMore)}
 									<div class="menu-group">
 										{#if showLibraryActions}
 											<button type="button" role="menuitem" class="menu-item" on:click={() => runNegativeMore(() => openSavePrompt('negative'))}>

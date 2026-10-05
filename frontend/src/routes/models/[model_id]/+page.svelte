@@ -7,6 +7,8 @@
 	import { PageHeader, PageTitle, IconButton, Spinner, Button } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { listModelViewSections } from '$lib/registries/modelViewRegistry';
+	import { startRuleFrom } from '$lib/organize/handoff';
+	import { modelItemRule } from '$lib/organize/itemPrefill';
 	import ModelDetailsHeader from '$lib/components/modals/model-details/ModelDetailsHeader.svelte';
 	import ModelDetailsContent from '$lib/components/modals/model-details/ModelDetailsContent.svelte';
 	import { createLibraryModelDetailsController } from '$lib/components/modals/model-details/modelDetailsController';
@@ -80,6 +82,7 @@
 					isFavorite={$isFavorite}
 					{collections}
 					onAddToCollection={controller.addToCollection}
+				onAutoFile={() => startRuleFrom(modelItemRule($model))}
 					on:rename={handleRename}
 					on:toggleFavorite={controller.toggleFavorite}
 				/>

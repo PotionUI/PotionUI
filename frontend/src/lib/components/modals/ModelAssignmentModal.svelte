@@ -16,6 +16,7 @@
 	export let allowClear: boolean = false;
 	export let onSelect: ((model: any) => void) | undefined = undefined;
 	export let onClear: (() => void) | undefined = undefined;
+	export let initialType: string = 'all';
 	export let onClose: () => void;
 	/** Only mounted from inside a parent `{#if}` today; default keeps that call site unchanged. */
 	export let isOpen: boolean = true;
@@ -39,6 +40,7 @@
 			{selectionMode}
 			{selectedModelId}
 			{allowClear}
+			selectedType={initialType}
 			{onSelect}
 			{onClear}
 		/>

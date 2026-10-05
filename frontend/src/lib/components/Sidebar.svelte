@@ -10,6 +10,7 @@
 	import { iconPaths } from '$lib/utils/IconLibrary';
 	import { MENU_EDGE_GUTTER, MENU_GAP } from '$lib/utils/menuPosition';
 	import { partitionNavItems } from './sidebarOverflow';
+	import { pathMatchesNavItem } from '$lib/organize/navArea';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import Tooltip from './Tooltip.svelte';
@@ -114,10 +115,11 @@
 
 	// Reactive statement to track current path and force re-evaluation
 	$: currentPath = $page.url.pathname;
+	$: currentSearch = $page.url.search;
 
 	// Reactive function to check if a path is active
 	$: isActive = (itemPath: string): boolean => {
-		return currentPath === itemPath || currentPath.startsWith(itemPath + '/');
+		return pathMatchesNavItem(itemPath, currentPath, currentSearch);
 	};
 
 	/** Return the first path string for a given icon name from the centralized library. */

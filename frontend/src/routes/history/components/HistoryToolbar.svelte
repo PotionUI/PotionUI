@@ -17,6 +17,8 @@
 	import HistorySearchableFilter from './HistorySearchableFilter.svelte';
 	import type { HistorySearchMode, SortBy, SortDir } from '$lib/types/history';
 	import { computeAnchoredMenuPosition } from '$lib/utils/menuPosition';
+	import { hasConvertibleHistoryFilters, historyFilterRule } from '$lib/organize/filterPrefill';
+	import { startRuleFrom } from '$lib/organize/handoff';
 
 	// Self-contained: reads/writes historyStore directly. Modal-opening
 	// callbacks stay as props since modal state lives on the page.
@@ -311,6 +313,16 @@
 		if (event.key !== 'Escape') return;
 		if (isMoreMenuOpen) closeMoreMenu();
 		if (isFiltersOpen) closeFiltersPanel();
+	}
+
+	$: canMakeRule = hasConvertibleHistoryFilters(currentState.filters);
+
+	async function handleMakeRule() {
+		const names = (ids: string[]) =>
+			currentState.availableTags.filter((tag) => ids.includes(tag.id)).map((tag) => tag.name);
+		const rule = await historyFilterRule(currentState.filters, { tagNames: names });
+		closeFiltersPanel();
+		await startRuleFrom(rule);
 	}
 
 	$: hasActiveFilters =
@@ -614,6 +626,15 @@
 
 							<div class="mt-3 pt-2.5 border-t border-line-strong/70 flex items-center justify-between">
 								<span class="text-2xs text-fg-subtle">{advancedActiveCount} active</span>
+								{#if canMakeRule}
+									<button
+										class="text-xs text-fg-muted hover:text-fg transition-colors flex items-center gap-1"
+										on:click={handleMakeRule}
+									>
+										<Icon name="sparkles" className="w-3 h-3" />
+										Make a rule from this filter
+									</button>
+								{/if}
 								<button
 									class="text-xs text-fg-muted hover:text-fg transition-colors flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
 									disabled={!hasActiveFilters}
@@ -831,6 +852,15 @@
 					</button>
 				{/if}
 
+				{#if canMakeRule}
+					<button
+						class="inline-flex items-center gap-1 text-xs text-fg-muted hover:text-fg transition-colors ml-1 flex-shrink-0"
+						on:click={handleMakeRule}
+					>
+						<Icon name="sparkles" className="w-3 h-3" />
+						Make a rule from this filter
+					</button>
+				{/if}
 				<button
 					class="text-xs text-fg-muted hover:text-fg transition-colors ml-1 flex-shrink-0"
 					on:click={handleClearAllFilters}

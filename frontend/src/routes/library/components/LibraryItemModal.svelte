@@ -20,6 +20,9 @@
 	} from '$lib/media/editors';
 	import { toasts } from '$lib/stores/toast';
 	import type { LibraryItem } from '$lib/services/api/library';
+	import ProvenanceLine from '$lib/components/organize/ProvenanceLine.svelte';
+	import { startRuleFrom } from '$lib/organize/handoff';
+	import { uploadItemRule } from '$lib/organize/itemPrefill';
 
 	export let item: LibraryItem;
 	export let onClose: () => void;
@@ -161,6 +164,8 @@
 			</dl>
 		{/if}
 
+		<ProvenanceLine itemType="upload" itemId={item.id} />
+
 		<div class="flex flex-wrap items-center gap-2 pt-2 border-t border-line">
 			{#each editTools as tool (tool.key)}
 				<Button
@@ -176,6 +181,9 @@
 
 			<div class="flex-1"></div>
 
+			<Button variant="secondary" size="sm" icon="sparkles" onclick={() => startRuleFrom(uploadItemRule(item))}>
+				Auto-file items like this…
+			</Button>
 			<Button variant="danger" size="sm" icon="trash" onclick={() => onDeleteRequest(item)}>
 				Delete
 			</Button>

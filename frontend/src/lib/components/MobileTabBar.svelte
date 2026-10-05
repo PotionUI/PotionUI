@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { pathMatchesNavItem } from '$lib/organize/navArea';
 
 	$: currentPath = $page.url.pathname;
 
+	$: currentSearch = $page.url.search;
+
 	$: isActive = (itemPath: string): boolean => {
-		return currentPath === itemPath || currentPath.startsWith(itemPath + '/');
+		return pathMatchesNavItem(itemPath, currentPath, currentSearch);
 	};
 
 	const icons: Record<string, string> = {

@@ -79,6 +79,7 @@
 
 <CollectionLibrarySidebar
 	storageKey="history-expanded-collections"
+	rulesScope="history"
 	{collections}
 	{activeId}
 	{allView}

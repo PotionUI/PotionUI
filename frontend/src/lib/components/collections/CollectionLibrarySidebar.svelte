@@ -19,6 +19,8 @@
 	import type { CollectionLike, MutationResult, SmartView, TreeActions } from './types';
 	import { dropRedundantDescendants, blockedBulkMoveTargets } from './bulkMove';
 	import CollectionSelectionActionBar from './CollectionSelectionActionBar.svelte';
+	import CollectionRulesLink from './CollectionRulesLink.svelte';
+	import type { OrganizeCollectionScope } from '$lib/types/organize';
 
 	let {
 		storageKey,
@@ -34,7 +36,8 @@
 		onCreateRoot,
 		onCollapse,
 		label = 'Library',
-		embedded = false
+		embedded = false,
+		rulesScope
 	}: {
 		storageKey: string;
 		collections: T[];
@@ -50,6 +53,7 @@
 		onCollapse?: () => void;
 		label?: string;
 		embedded?: boolean;
+		rulesScope?: OrganizeCollectionScope;
 	} = $props();
 
 	const expansion = new ExpansionState(storageKey);
@@ -591,6 +595,9 @@
 											>
 												<Icon name="arrow-right" className="w-3.5 h-3.5" /> Move to…
 											</button>
+											{#if rulesScope}
+												<CollectionRulesLink scope={rulesScope} collectionId={item.id} />
+											{/if}
 											<div class="my-1 h-px bg-line"></div>
 											<button
 												class="w-full text-left px-2 py-1.5 text-xs text-danger hover:bg-danger/10 flex items-center gap-2"

@@ -4,6 +4,7 @@
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { copyText } from '$lib/utils/clipboard';
 	import type { AppNotification } from '$lib/services/api/notifications';
+	import { notificationLinkFor } from '$lib/organize/navArea';
 
 	let {
 		notification,
@@ -33,7 +34,7 @@
 	let link = $derived(
 		typeof notification.metadata?.link === 'string' && notification.metadata.link.startsWith('/')
 			? notification.metadata.link
-			: null
+			: notificationLinkFor(notification.type, notification.metadata)
 	);
 
 	let linkLabel = $derived(

@@ -16,6 +16,7 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
 	{ key: 'plugins', label: 'Plugins', icon: 'extension' },
 	{ key: 'downloads', label: 'Downloads', icon: 'download' },
 	{ key: 'automations', label: 'Automations', icon: 'bolt' },
+	{ key: 'auto-organize', label: 'Auto-organize', icon: 'wand' },
 	{ key: 'docs', label: 'Documentation', icon: 'document' },
 	{ key: 'stats', label: 'Stats', icon: 'gauge' }
 ];

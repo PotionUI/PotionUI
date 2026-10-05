@@ -69,6 +69,7 @@
 
 <CollectionLibrarySidebar
 	storageKey="models-expanded-collections"
+	rulesScope="models"
 	{collections}
 	activeId={activeCollectionId}
 	{allView}

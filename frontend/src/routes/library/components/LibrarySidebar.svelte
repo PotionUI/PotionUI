@@ -77,6 +77,7 @@
 
 <CollectionLibrarySidebar
 	storageKey="library-expanded-collections"
+	rulesScope="library"
 	{collections}
 	{activeId}
 	{allView}

@@ -11,6 +11,8 @@
 	import BaseModal from './BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Spinner } from '$lib/components/ui';
+	import { startRuleFrom } from '$lib/organize/handoff';
+	import { modelItemRule } from '$lib/organize/itemPrefill';
 	import ModelDetailsHeader from './model-details/ModelDetailsHeader.svelte';
 	import ModelDetailsContent from './model-details/ModelDetailsContent.svelte';
 	import { createLibraryModelDetailsController } from './model-details/modelDetailsController';
@@ -74,6 +76,7 @@
 				isFavorite={$isFavorite}
 				{collections}
 				onAddToCollection={controller.addToCollection}
+				onAutoFile={() => startRuleFrom(modelItemRule($model))}
 				on:rename={handleRename}
 				on:toggleFavorite={controller.toggleFavorite}
 			/>

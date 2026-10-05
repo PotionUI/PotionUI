@@ -4,6 +4,8 @@
 	import { historyTileSize, type HistoryTileSize } from '$lib/stores/historyTileSize';
 	import { PageHeader, PageTitle, IconButton, Button } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
+	import { hasConvertibleLibraryFilters, libraryFilterRule } from '$lib/organize/filterPrefill';
+	import { startRuleFrom } from '$lib/organize/handoff';
 
 	// Self-contained: reads/writes libraryStore directly. Modal-opening
 	// callbacks stay as props since modal state lives on the page.
@@ -15,6 +17,14 @@
 	$: counts = state.mediaTypeCounts;
 
 	let isMoreMenuOpen = false;
+
+	$: canMakeRule = hasConvertibleLibraryFilters(state.filters);
+
+	function handleMakeRule() {
+		const names = (ids: string[]) =>
+			state.availableTags.filter((tag) => ids.includes(tag.id)).map((tag) => tag.name);
+		return startRuleFrom(libraryFilterRule(state.filters, { tagNames: names }));
+	}
 
 	const mediaTypes: Array<{ value: 'all' | 'image' | 'video' | 'audio'; label: string; icon?: string }> = [
 		{ value: 'all', label: 'All' },
@@ -97,6 +107,17 @@
 				</button>
 			{/each}
 		</div>
+
+		{#if canMakeRule}
+			<button
+				type="button"
+				class="hidden md:flex flex-shrink-0 items-center gap-1 text-xs text-fg-muted hover:text-fg transition-colors"
+				on:click={handleMakeRule}
+			>
+				<Icon name="sparkles" className="w-3 h-3" />
+				Make a rule from this filter
+			</button>
+		{/if}
 
 		<div class="flex-1 hidden md:block"></div>
 

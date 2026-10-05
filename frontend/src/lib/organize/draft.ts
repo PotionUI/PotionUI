@@ -277,15 +277,3 @@ export function describeValue(spec: OrganizeFactSpec | undefined, value: unknown
 	if (kind === 'number') return `${value}${spec?.picker?.unit ? ` ${spec.picker.unit}` : ''}`;
 	return one(value);
 }
-
-export function describeConditions(
-	draft: Pick<RuleDraft, 'match' | 'conditions'>,
-	catalog: OrganizeCatalog | null,
-	labels: ValueLabels
-): string[] {
-	if (!catalog) return [];
-	return draft.conditions.map((cond) => {
-		const spec = catalog.facts.find((f) => f.key === cond.fact);
-		return `${spec?.label ?? cond.fact} ${operatorLabel(catalog, cond.operator)} ${describeValue(spec, cond.value, labels)}`.trim();
-	});
-}

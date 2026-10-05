@@ -28,6 +28,9 @@
 	import { Badge, Button, Spinner, CopyButton, IconButton, Switch } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import PublishToInspirationsModal from './PublishToInspirationsModal.svelte';
+	import ProvenanceLine from '$lib/components/organize/ProvenanceLine.svelte';
+	import { startRuleFrom } from '$lib/organize/handoff';
+	import { generationItemRule } from '$lib/organize/itemPrefill';
 	import MediaEditors from '$lib/media/editors/MediaEditors.svelte';
 	import type { MediaEditorRequest } from '$lib/media/editors/types';
 	import { PAINT_ICONS } from '$lib/components/imageEditor/icons';
@@ -950,6 +953,17 @@
 									<span class="font-mono text-xs tabular-nums text-fg">{formatDate(activeGeneration.completed_at)}</span>
 								</div>
 							{/if}
+						</div>
+						<div class="space-y-1.5 border-t border-line px-3 py-2">
+							<ProvenanceLine itemType="generation" itemId={activeGenerationId} />
+							<button
+								type="button"
+								class="flex items-center gap-1.5 text-xs text-fg-muted hover:text-fg"
+								on:click={() => startRuleFrom(generationItemRule(activeGeneration))}
+							>
+								<Icon name="sparkles" className="h-3 w-3" />
+								Auto-file items like this…
+							</button>
 						</div>
 					</div>
 

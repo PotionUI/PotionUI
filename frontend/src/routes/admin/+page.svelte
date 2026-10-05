@@ -106,7 +106,8 @@
 		{ id: 'llm', label: 'LLM / Assistant' },
 		{ id: 'plugins', label: 'Plugins' },
 		{ id: 'downloads', label: 'Downloads' },
-		{ id: 'automations', label: 'Automations' }
+		{ id: 'automations', label: 'Automations' },
+		{ id: 'auto-organize', label: 'Auto-organize' }
 	];
 
 	const tabLoaders: Record<string, () => Promise<{ default: any }>> = {
@@ -122,6 +123,7 @@
 		plugins: () => import('./components/PluginsTab.svelte'),
 		downloads: () => import('./components/DownloaderTab.svelte'),
 		automations: () => import('./components/AutomationsTab.svelte'),
+		'auto-organize': () => import('./components/AutoOrganizeTab.svelte'),
 		docs: () => import('./components/DocumentationTab.svelte')
 	};
 

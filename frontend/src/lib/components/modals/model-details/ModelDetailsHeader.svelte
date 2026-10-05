@@ -14,6 +14,7 @@
 	export let onAddToCollection: (collectionId: string) => Promise<void> = async () => {};
 	/** Favorite + add-to-collection are user-library actions; the admin modal opts out. */
 	export let showLibraryActions: boolean = true;
+	export let onAutoFile: (() => void) | undefined = undefined;
 
 	const dispatch = createEventDispatcher<{
 		rename: string;
@@ -105,6 +106,18 @@
 				class="max-h-48"
 				onSelect={(id) => id && addToCollection(id)}
 			/>
+			{#if onAutoFile}
+				<div class="my-1 h-px bg-line"></div>
+				<button
+					type="button"
+					role="menuitem"
+					class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-fg-muted hover:bg-surface-2 hover:text-fg"
+					on:click={onAutoFile}
+				>
+					<Icon name="sparkles" className="h-3.5 w-3.5" />
+					Auto-file items like this…
+				</button>
+			{/if}
 		</div>
 	{/if}
 </div>

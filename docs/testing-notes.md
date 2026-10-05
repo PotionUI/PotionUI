@@ -204,10 +204,12 @@ These are container/environment artefacts, not regressions caused by your change
   on this sm120 card the attention auto-selector picks sage2 for a REAL
   generation and there is no runtime fallback when the kernel fails to load —
   the generation dies mid-sampling (observed 2026-07-28). Until the libstdc++
-  issue is resolved, run headless/scripted generations with
-  `NATIVE_ATTENTION=sdpa`. **Scope: THIS DEV CONTAINER ONLY** — a
-  production runtime with a working sage2 install must not be switched to
-  `NATIVE_ATTENTION=sdpa`.
+  issue is resolved, pin the native backend's attention backend to `sdpa`
+  (Admin → Backends → *backend* → Optimizations, setting
+  `native_attention_backend`) before headless/scripted
+  generations; the old `NATIVE_ATTENTION` env var is no longer read.
+  **Scope: THIS DEV CONTAINER ONLY** — a production runtime with a working
+  sage2 install must not be pinned to `sdpa`.
 - `tests/platform/observability/profiling/test_profiler.py::test_census_group_dedups_views_of_one_storage`
   is a known **full-suite-only flake**: it snapshots every live `torch.Tensor`
   in the process via `gc.get_objects()`, so its exact counts can be perturbed by

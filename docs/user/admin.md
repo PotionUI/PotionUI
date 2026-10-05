@@ -11,7 +11,7 @@ Administration is organized into tabs:
 
 ## System Settings
 
-Global application settings for the server — the top-level configuration that applies to everyone, organized into sections in the left rail: Access, Content Safety, Media storage, Backups, Housekeeping, Search & Tagging, Generation, External Login, and Logs.
+Global application settings for the server — the top-level configuration that applies to everyone, organized into sections in the left rail: Access, Content Safety, Media storage, Backups, Housekeeping, Search & Tagging, Generation, Diagnostics, External Login, and Logs.
 
 ### Media storage
 
@@ -40,6 +40,13 @@ Where backups go, how many are kept, and what a backup takes. The destination is
 Three tiers, each a superset of the one before it: **config** is the database, the encryption key, `.env`, your local presets, plugins and automation, and the small storage trees, all as one zip; **media** adds a directory mirror of your uploads and generations; **all** adds a mirror of the models directory.
 
 **Backup now** takes one at the default tier, in the background, and lists it when it finishes. Below the list is a cron line for the same backup on a schedule, ready to copy. Restore is not here: the app has to be stopped for it, so it runs from the command line — see [Backup & Restore](backup-and-restore.md).
+
+### Diagnostics
+
+- **Record a performance profile for each generation** (`profiling_enabled`, off) — replaces the `POTIONUI_PROFILE` environment variable. Each generation writes `profiles/<generation id>/profile.jsonl` and `generation.log` under file storage: stage timings, RAM and VRAM over time, and model events. Admins open a profile from the workbench's **Resource profile** button, which shows the report and offers both files for download; `scripts/profile_report.py <profile.jsonl>` prints the same report as text.
+- **Include a memory census at the end of each run** (`profiling_census`, on) — adds a count of every live tensor, on the CPU and the GPU, to each profile. It runs in the background about a second after the generation reports complete, so it doesn't delay results. If another generation starts first, the census is skipped and the profile records a `census.skipped` event instead.
+
+Both take effect on the next generation without a restart. On the first start after updating, profiling is switched on once if `POTIONUI_PROFILE` was set; after that the variable is ignored.
 
 ## Models
 
@@ -82,6 +89,34 @@ Configure where generations actually run. An admin can add and enable multiple b
 - **RunPod** — a RunPod-hosted backend.
 
 Each backend can be enabled or disabled, and users can select an available backend when generating.
+
+### Optimizations (native backends)
+
+Every native backend, the local one and each remote native worker, has its own **Optimizations** tab with the engine switches that used to be environment variables. They belong to that backend's configuration, so two backends can be set differently. A remote worker receives its backend's values with every job, so the worker's own environment never decides them. Most apply to the next generation as soon as you save; each row says when it applies.
+
+**Speed**
+
+- **fp8 fast multiply** (`native_fp8_matmul`, off) — run fp8 checkpoints on fp8 tensor cores (RTX 40/50 and newer). Next generation.
+- **nvfp4 fast multiply** (`native_nvfp4_matmul`, off) — run nvfp4 checkpoints on fp4 tensor cores (RTX 50 and newer). Next generation.
+- **Fuse LoRAs into the model** (`native_lora_fused`, on) — apply a layer's LoRAs in one fused step; off is only for comparison. Next generation.
+- **Compile the model (torch.compile)** (`native_torch_compile`, off) — compile the model's repeated block when it is fully on the GPU. Next model load.
+- **Qwen3 text encoder in bf16** (`native_qwen3_te_bf16`, off) — run the Qwen3 text encoder in bf16 instead of fp32. Next generation.
+- **Sol-Attn implementation** (`native_sol_attn_backend`, Flex) — Flex or Kernel. Applies after a restart; for a remote worker, restart the worker.
+
+**Memory**
+
+- **Prefetch streamed layers** (`native_stream_prefetch`, off) — copy the next streamed layer to the GPU while the current one computes, when a model doesn't fit in VRAM. Next generation.
+- **Shrink bf16 models to fp8 at load** (`native_fp8_quantize`, Auto) — Auto converts only when that makes the model fit; Off never does; Always always does. Next model load.
+- **VRAM reserve for sampling** (`native_min_inference_memory_gb`, 1.0 GB) — VRAM kept free on top of the model weights for the sampling step. Next generation.
+- **LTX decode tile size** / **LTX decode tile length** (`native_ltx_decode_tile_px` / `native_ltx_decode_tile_frames`, 0) — a fixed tile for the LTX video decode, in pixels and frames; 0 sizes it from free VRAM. Next generation.
+
+**Debug logging**
+
+- **Log every Sol-Attn call** (`native_sol_attn_debug`, off) — log the shape and routing of each Sol-Attn call. Applies from the next call.
+
+The tab also keeps the **Attention backend** pin (`native_attention_backend`, auto), which forces one attention kernel instead of letting PotionUI pick the fastest available; for a remote backend it is a plain select. It applies to the next generation.
+
+These switches replace the environment variables `NATIVE_FP8_MATMUL`, `NATIVE_NVFP4_MATMUL`, `NATIVE_LORA_FUSED`, `NATIVE_TORCH_COMPILE`, `NATIVE_QWEN3_TE_BF16`, `NATIVE_SOL_ATTN_BACKEND`, `NATIVE_STREAM_PREFETCH`, `NATIVE_FP8_QUANTIZE`, `NATIVE_MIN_INFERENCE_MEMORY_GB`, `NATIVE_LTX_DIFFUSION_TILE_PX`, `NATIVE_LTX_DIFFUSION_TILE_FRAMES` and `NATIVE_SOL_ATTN_DEBUG`, and `NATIVE_ATTENTION` no longer overrides the attention pin. On the first start after updating, every existing native backend is filled in once from the variables you had set, so nothing changes; old on/off/auto values become plain on/off, with auto as on. Backends you add later start from the defaults. After that the variables are ignored, and each one still set logs a startup line saying where its setting now lives.
 
 ## Users
 

@@ -36,7 +36,6 @@ order, greedy prefix resident) so it is unit-testable without a GPU.
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass, field
 from typing import Iterator
 
@@ -45,6 +44,7 @@ import torch.nn as nn
 
 from vendor.gpl.comfyui.ops import CastWeightBiasOp
 from src.platform.observability.profiling import add_pinned_bytes, get_profiler
+from src.platform.settings.runtime_flags import runtime_flag
 
 from ..base import release_derived_caches
 
@@ -54,7 +54,6 @@ logger = logging.getLogger(__name__)
 # (a bad env value, or a persistent prefetch failure) doesn't change mid-process
 # - without them, a streamed generation would re-log the same message every
 # single run instead of once per process.
-_warned_bad_prefetch_env = False
 _warned_prefetch_setup_failed = False
 _warned_prefetch_failed = False
 
@@ -67,66 +66,8 @@ _BYTES_PER_GB = 1024 ** 3
 # so they are also not worth draining incrementally.
 _TEARDOWN_RELEASE_CHUNK_GB = 2.0
 
-# Streaming prefetch overlap policy: the admin-set ``native_stream_prefetch``
-# setting (held in memory via ``set_stream_prefetch_override``) wins; with no
-# explicit setting ``$NATIVE_STREAM_PREFETCH`` decides — same shape as
-# ``$NATIVE_FP8_MATMUL`` in vendor/gpl/comfyui/ops.py. ``off`` (the default) keeps
-# the on-demand per-forward H2D copy; ``on``/``auto`` stage the next streamed leaf's
-# weight on a side stream while the current leaf computes. Default OFF because this
-# is a CUDA-stream optimisation that can only be validated on a real GPU — flip it
-# to ``on`` after benchmarking partial-residency generation on the 5090.
-NATIVE_STREAM_PREFETCH_ENV = "NATIVE_STREAM_PREFETCH"
-
-# In-memory admin override (Admin -> Backends -> Optimizations). Seeded from the
-# `native_stream_prefetch` setting at app startup and updated live by the
-# engine-flags endpoint; never read from the DB inside the hot path.
-_prefetch_policy_override: bool | None = None
-
-
-def set_stream_prefetch_override(policy: str | None) -> None:
-    """Force stream prefetch on/off from outside a single call.
-
-    ``"on"`` forces on, ``"off"`` forces off; ``None``/``""``/``"auto"`` clear
-    the override so ``$NATIVE_STREAM_PREFETCH`` decides again.
-    """
-    global _prefetch_policy_override
-    if policy is None:
-        _prefetch_policy_override = None
-        return
-    normalized = policy.strip().lower()
-    if normalized == "on":
-        _prefetch_policy_override = True
-    elif normalized == "off":
-        _prefetch_policy_override = False
-    else:
-        _prefetch_policy_override = None
-
-
-def get_stream_prefetch_override() -> bool | None:
-    return _prefetch_policy_override
-
-
 def stream_prefetch_enabled() -> bool:
-    """Whether streaming prefetch overlap is enabled.
-
-    The admin override (seeded from the ``native_stream_prefetch`` setting)
-    wins; otherwise ``$NATIVE_STREAM_PREFETCH`` decides. ``auto`` currently
-    behaves like ``on`` (no extra heuristic yet); an unknown value is treated
-    as ``off``, mirroring the unknown-policy handling in
-    ``vendor/gpl/comfyui/ops.py``.
-    """
-    if _prefetch_policy_override is not None:
-        return _prefetch_policy_override
-    policy = os.environ.get(NATIVE_STREAM_PREFETCH_ENV, "off").strip().lower()
-    if policy == "off":
-        return False
-    if policy not in ("on", "auto"):
-        global _warned_bad_prefetch_env
-        if not _warned_bad_prefetch_env:
-            _warned_bad_prefetch_env = True
-            logger.warning("stream prefetch: unknown %s=%r; treating as 'off'", NATIVE_STREAM_PREFETCH_ENV, policy)
-        return False
-    return True
+    return bool(runtime_flag("native_stream_prefetch"))
 
 
 # CUDA-primitive seams. Indirected through module-level functions so the

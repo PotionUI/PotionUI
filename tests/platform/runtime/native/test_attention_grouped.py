@@ -19,7 +19,6 @@ import src.platform.runtime.native.attention as att
 
 @pytest.fixture(autouse=True)
 def _clean_backend_state(monkeypatch):
-    monkeypatch.delenv(att.ENV_VAR, raising=False)
     att.set_backend_override(None)
     att.reset_backend_cache()
     yield
@@ -173,7 +172,7 @@ def test_capability_is_asked_about_the_backend_actually_used(monkeypatch):
     monkeypatch.setattr(att, "supports_grouped_kv", lambda backend: asked.append(backend) or False)
     monkeypatch.setattr(att, "_get_availability",
                         lambda device_index=None: {att.SDPA: True, att.SAGE: True})
-    monkeypatch.setenv(att.ENV_VAR, att.SAGE)
+    att.set_backend_override(att.SAGE)
 
     q, k, v = _qkv(heads=8, kvheads=2)  # fp32 on CPU: sage can take neither
     att.grouped_attention(q, k, v)

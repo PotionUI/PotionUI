@@ -212,8 +212,8 @@ def _render_tensor_census(
         "=" * 100,
     ]
     if not census:
-        lines.append(f"(no census rows for {device_kind} -- profiling disabled, no big {device_kind} tensors "
-                     "found, or run predates this feature)")
+        lines.append(f"(no census rows for {device_kind} -- census turned off, skipped, still running, no big "
+                     f"{device_kind} tensors found, or run predates this feature)")
         return _section(lines)
 
     total_gb = sum(r.get("nbytes_gb", 0) or 0 for r in census)
@@ -266,8 +266,8 @@ def _render_tensor_census_groups(
         "=" * 100,
     ]
     if not groups:
-        lines.append(f"(no census_group rows for {device_kind} -- profiling disabled, no {device_kind} "
-                      "tensors found, or run predates this feature)")
+        lines.append(f"(no census_group rows for {device_kind} -- census turned off, skipped because the next "
+                      f"generation started, still running, no {device_kind} tensors found, or run predates this feature)")
         return _section(lines)
 
     total_gb = sum(r.get("nbytes_gb", 0) or 0 for r in groups)

@@ -6,12 +6,10 @@ from .profiler import (
     LOG_FILENAME,
     GenerationProfiler,
     add_pinned_bytes,
-    configure_settings,
     get_profiler,
     pinned_cum_gb,
     profiling_enabled,
     read_process_rss_gb,
-    reset_enabled_cache,
 )
 from .report import (
     load_rows,
@@ -23,7 +21,6 @@ __all__ = [
     "LOG_FILENAME",
     "GenerationProfiler",
     "add_pinned_bytes",
-    "configure_settings",
     "get_profiler",
     "load_rows",
     "pinned_cum_gb",
@@ -31,5 +28,4 @@ __all__ = [
     "read_process_rss_gb",
     "render_report",
     "render_report_from_file",
-    "reset_enabled_cache",
 ]

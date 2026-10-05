@@ -58,6 +58,16 @@ scaled down to what a worker actually needs.
 | `POTIONUI_BUILD_ID` | no | none | Fed into `compute_build_fingerprint`; absent degrades to a protocol-version-only fingerprint. |
 | `POTIONUI_WORKER_MODEL_DIR` | no | `/models` | Model depot root. Models are looked up at `<root>/<type directory>/<filename>` - the same one-folder-per-type layout as the host's models folder (`src/platform/filesystem/model_types.py`). Files placed there by hand are found as long as the filename matches; a `.digest` sidecar is written on first inventory. |
 
+Engine switches (fp8/nvfp4 fast multiply, LoRA fusing, `torch.compile`, stream
+prefetch, fp8 quantize-at-load, the attention pin, the LTX decode tiles, Sol-Attn
+and its debug logging) are not part of this table. They live in the remote native
+backend's own configuration on the host (Admin → Backends → *backend* →
+Optimizations), and every `ExecutionPackageV1` carries them in its
+`engine_flags` field, so the worker applies its backend's values for each job and
+its own environment never decides them. The old `NATIVE_*` variables are not read
+on a worker either. A change to `native_sol_attn_backend` applies after the worker
+restarts.
+
 ## Route table
 
 All routes below require `Authorization: Bearer <POTIONUI_WORKER_TOKEN>`.

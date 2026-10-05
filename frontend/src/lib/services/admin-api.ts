@@ -1033,11 +1033,7 @@ export interface OptimizationStatus {
 	requirements: OptimizationRequirement[];
 }
 
-/** Effective on/off state of the admin-toggleable native engine flags. */
-export interface EngineFlags {
-	torch_compile: boolean;
-	stream_prefetch: boolean;
-}
+export type EngineFlags = Record<string, boolean | string | number>;
 
 export interface BackendOptimizations {
 	system: SystemProbeReport;
@@ -1108,14 +1104,20 @@ export async function setAttentionBackend(
 	return response.data;
 }
 
-// Toggle native engine flags (torch.compile / stream prefetch); applied live, no restart
+export async function getBackendEngineFlags(
+	backendId: string
+): Promise<APIResponse<{ engine_flags: EngineFlags; is_local: boolean }>> {
+	const response = await api.getClient().get(`/api/backends/${backendId}/engine-flags`);
+	return response.data;
+}
+
 export async function setEngineFlags(
 	backendId: string,
-	flags: { torch_compile?: 'on' | 'off'; stream_prefetch?: 'on' | 'off' }
+	flags: EngineFlags
 ): Promise<APIResponse<{ engine_flags: EngineFlags }>> {
 	const response = await api
 		.getClient()
-		.put(`/api/backends/${backendId}/optimizations/engine-flags`, flags);
+		.put(`/api/backends/${backendId}/optimizations/engine-flags`, { flags });
 	return response.data;
 }
 

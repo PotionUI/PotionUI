@@ -15,6 +15,7 @@ import pytest
 import torch
 
 from src.platform.runtime.native import sol_attn as sol_attn_module
+from src.platform.settings import runtime_flags
 from src.platform.runtime.native.sol_attn import (
     SolAttnContext,
     build_sol_attn_context,
@@ -212,15 +213,29 @@ def test_reset_clears_the_disable_latch():
 # --- backend selection ------------------------------------------------------
 
 def test_unknown_backend_name_is_rejected(monkeypatch):
-    monkeypatch.setenv("NATIVE_SOL_ATTN_BACKEND", "nope")
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_sol_attn_backend", "nope")
     with pytest.raises(ValueError, match="flex"):
         sol_attn_module._load_backend()
 
 
 def test_default_backend_is_the_flex_one(monkeypatch):
-    monkeypatch.delenv("NATIVE_SOL_ATTN_BACKEND", raising=False)
+    from vendor.sol_attn import flex
+
+    calls = []
+    monkeypatch.setattr(flex, "sol_attn_flex", lambda *a, **k: calls.append(a) or "flex-out")
     backend = sol_attn_module._load_backend()
-    assert backend.__module__ == "vendor.sol_attn.flex"
+    assert backend(1, 2) == "flex-out"
+    assert calls == [(1, 2)]
+
+
+@pytest.mark.parametrize("debug", [True, False])
+def test_flex_backend_reads_the_debug_flag_on_every_call(monkeypatch, debug):
+    from vendor.sol_attn import flex
+
+    monkeypatch.setattr(flex, "_DEBUG", not debug)
+    monkeypatch.setattr(flex, "sol_attn_flex", lambda *a, **k: flex._DEBUG)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_sol_attn_debug", debug)
+    assert sol_attn_module._load_backend()() is debug
 
 
 # --- the preset-knob resolver ----------------------------------------------

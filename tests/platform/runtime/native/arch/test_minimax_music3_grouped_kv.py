@@ -92,7 +92,6 @@ def _run(lm: MiniMaxMusic3AudioLM, decode_steps: int) -> list[torch.Tensor]:
 
 @pytest.fixture(autouse=True)
 def _clean_backend_state(monkeypatch):
-    monkeypatch.delenv(att.ENV_VAR, raising=False)
     att.set_backend_override(None)
     att.reset_backend_cache()
     yield

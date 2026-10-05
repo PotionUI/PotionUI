@@ -485,7 +485,7 @@ class SpargeAttention(Optimization):
         "low-contribution attention blocks. Unlike SageAttention 2/3, this is APPROXIMATE — "
         "quality varies by content; benchmark and eyeball outputs on your own workload before "
         "adopting. Expect gains mainly on long-sequence video. Never auto-selected: pin it "
-        "explicitly (this panel, or $NATIVE_ATTENTION=sparge) once installed."
+        "explicitly in this panel once installed."
     )
     benefit = "Paper reports ~4-7x on long sequences; content-dependent — verify on your own workload."
     needs_restart = False

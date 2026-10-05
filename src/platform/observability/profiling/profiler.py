@@ -8,16 +8,6 @@ lifecycle/native engine), each carrying an RSS / available RAM / swap / CPU /
 per-device VRAM / pinned-memory snapshot. ``scripts/profile_report.py`` turns
 that into a stage table and a top-N RSS-jump report.
 
-Enable/disable
---------------
-Profiling is OFF by default and must be cheap when off: :func:`profiling_enabled`
-checks (in order) the ``POTIONUI_PROFILE`` env var, then the ``profiling.enabled``
-settings-table key (via whatever ``Settings`` was registered with
-:func:`configure_settings`, mirroring the ``get_global_*`` accessors in
-``src.platform.plugins.runtime_registries``). The decision is cached per-process after the first call
-so :func:`mark` never hits the DB; call :func:`reset_enabled_cache` (tests only)
-to force a re-read.
-
 Per-generation log
 -------------------
 While a generation is being profiled, :meth:`GenerationProfiler.start` also
@@ -44,9 +34,9 @@ frees.
 
 from __future__ import annotations
 
+import gc
 import json
 import logging
-import os
 import threading
 import time
 import warnings
@@ -56,6 +46,7 @@ from typing import Any, Optional
 import psutil
 
 from src.platform.runtime.system_memory import get_system_memory
+from src.platform.settings.runtime_flags import runtime_flag
 
 logger = logging.getLogger(__name__)
 
@@ -64,43 +55,9 @@ _BYTES_PER_GB = 1024 ** 3
 
 # -- enable/disable -----------------------------------------------------------
 
-_settings: Any = None
-_enabled_cache: Optional[bool] = None
-
-
-def configure_settings(settings: Any) -> None:
-    """Register the ``Settings`` used by the ``profiling.enabled``
-    fallback. Call once during app wiring (see ``build_container``)."""
-    global _settings
-    _settings = settings
-
-
-def reset_enabled_cache() -> None:
-    """Test hook: force :func:`profiling_enabled` to re-read its source."""
-    global _enabled_cache
-    _enabled_cache = None
-
 
 def profiling_enabled() -> bool:
-    """Whether profiling is on. Cached per-process after the first call."""
-    global _enabled_cache
-    if _enabled_cache is not None:
-        return _enabled_cache
-
-    env = os.environ.get("POTIONUI_PROFILE")
-    if env is not None:
-        _enabled_cache = env.strip().lower() in ("1", "true", "yes", "on")
-        return _enabled_cache
-
-    if _settings is not None:
-        try:
-            _enabled_cache = bool(_settings.get_setting("profiling.enabled", False))
-        except Exception:
-            logger.debug("profiling: could not read 'profiling.enabled' setting", exc_info=True)
-            _enabled_cache = False
-    else:
-        _enabled_cache = False
-    return _enabled_cache
+    return bool(runtime_flag("profiling_enabled"))
 
 
 # -- pinned-bytes gauge ---------------------------------------------------------
@@ -266,8 +223,13 @@ class GenerationProfiler:
         self._stop_event: Optional[threading.Event] = None
         self._last_flush = 0.0
         self._log_handler: Optional[logging.Handler] = None
+        self._census_lock = threading.Lock()
+        self._census_thread: Optional[threading.Thread] = None
+        self._census_cancel: Optional[threading.Event] = None
+        self._census_generation_id: Optional[str] = None
 
     def start(self, generation_id: str, out_dir: str | Path) -> None:
+        self._cancel_pending_census(generation_id)
         if not profiling_enabled():
             return
         try:
@@ -306,18 +268,96 @@ class GenerationProfiler:
         self.mark("generation.start")
 
     def stop(self, generation_id: str) -> None:
-        if not profiling_enabled():
-            return
+        handoff = None
         try:
             with self._lock:
-                if self._generation_id != generation_id:
+                if self._generation_id != generation_id or self._fh is None:
                     return
                 self.mark("generation.end")
-                self._write_tensor_census(device_kind="cpu")
-                self._write_tensor_census(device_kind="cuda")
+                if runtime_flag("profiling_census"):
+                    handoff = self._fh
+                    self._fh = None
                 self._stop_locked()
         except Exception:
             logger.debug("profiler: stop failed", exc_info=True)
+        if handoff is not None:
+            self._start_census(generation_id, handoff)
+
+    def wait_for_census(self, timeout: Optional[float] = None) -> bool:
+        with self._census_lock:
+            thread = self._census_thread
+        if thread is None:
+            return True
+        thread.join(timeout)
+        return not thread.is_alive()
+
+    def _start_census(self, generation_id: str, fh: Any) -> None:
+        cancel = threading.Event()
+        thread = threading.Thread(
+            target=self._run_census,
+            args=(generation_id, fh, cancel),
+            name=f"gen-profiler-census-{generation_id}",
+            daemon=True,
+        )
+        with self._census_lock:
+            self._census_thread = thread
+            self._census_cancel = cancel
+            self._census_generation_id = generation_id
+        try:
+            thread.start()
+        except Exception:
+            logger.debug("profiler: census thread failed to start", exc_info=True)
+            self._finish_census(thread, fh)
+
+    def _cancel_pending_census(self, next_generation_id: str) -> None:
+        with self._census_lock:
+            thread, cancel, census_id = self._census_thread, self._census_cancel, self._census_generation_id
+        if thread is None or cancel is None or not thread.is_alive():
+            return
+        cancel.set()
+        logger.info(
+            "profiler: skipping the memory census for %s because generation %s is starting",
+            census_id, next_generation_id,
+        )
+
+    def _run_census(self, generation_id: str, fh: Any, cancel: threading.Event) -> None:
+        try:
+            if cancel.wait(self._CENSUS_DELAY_S):
+                self._write_census_skipped(fh)
+                return
+            rows = self._collect_tensor_census(
+                ("cpu", "cuda"), budget_s=self._CENSUS_BACKGROUND_BUDGET_S, cancel=cancel,
+            )
+            if rows is None:
+                self._write_census_skipped(fh)
+                return
+            for row in rows:
+                fh.write(json.dumps(row) + "\n")
+        except Exception:
+            logger.debug("profiler: census for %s failed", generation_id, exc_info=True)
+        finally:
+            self._finish_census(threading.current_thread(), fh)
+
+    def _write_census_skipped(self, fh: Any) -> None:
+        try:
+            row = self._snapshot(include_cpu=False)
+            row["kind"] = "event"
+            row["event"] = "census.skipped"
+            fh.write(json.dumps(row) + "\n")
+        except Exception:
+            logger.debug("profiler: census.skipped row write failed", exc_info=True)
+
+    def _finish_census(self, thread: threading.Thread, fh: Any) -> None:
+        try:
+            fh.flush()
+            fh.close()
+        except Exception:
+            logger.debug("profiler: failed closing census writer", exc_info=True)
+        with self._census_lock:
+            if self._census_thread is thread:
+                self._census_thread = None
+                self._census_cancel = None
+                self._census_generation_id = None
 
     def census_now(self, tag: str) -> None:
         """Fire an ad-hoc grouped tensor census AT A COARSE POINT MID-GENERATION,
@@ -347,18 +387,20 @@ class GenerationProfiler:
         rare, meaningful phase boundary (an eviction, a placement decision),
         NEVER from a per-step/per-layer path.
         """
-        if not profiling_enabled():
+        if self._fh is None or not runtime_flag("profiling_census"):
             return
         try:
             with self._lock:
                 if self._fh is None:
                     return
-                self._write_tensor_census(
-                    device_kind="cpu", kind_group="census_group_now", kind_detail="census_now", tag=tag,
+                rows = self._collect_tensor_census(
+                    ("cpu", "cuda"), budget_s=self._CENSUS_TIME_BUDGET_S,
+                    kind_group="census_group_now", kind_detail="census_now", tag=tag,
                 )
-                self._write_tensor_census(
-                    device_kind="cuda", kind_group="census_group_now", kind_detail="census_now", tag=tag,
-                )
+                for row in rows or ():
+                    self._fh.write(json.dumps(row) + "\n")
+                if rows:
+                    self._fh.flush()
         except Exception:
             logger.debug("profiler: census_now(%s) failed", tag, exc_info=True)
 
@@ -416,7 +458,7 @@ class GenerationProfiler:
         filter; such keys are prefixed to ``component_kind`` and ``kind``/
         ``event`` are set LAST so they always win.
         """
-        if not profiling_enabled():
+        if self._fh is None:
             return
         try:
             with self._lock:
@@ -489,76 +531,49 @@ class GenerationProfiler:
 
     _CENSUS_MIN_BYTES = 64 * 1024 * 1024  # 64MB
     _CENSUS_TIME_BUDGET_S = 2.0
+    _CENSUS_BACKGROUND_BUDGET_S = 6.0
+    _CENSUS_DELAY_S = 1.0
     _CENSUS_MAX_OWNER_DEPTH = 3
     _CENSUS_MAX_REFERRERS = 20
     _CENSUS_MAX_GROUP_ROWS = 200
 
-    def _write_tensor_census(
-        self, *, device_kind: str,
+    def _collect_tensor_census(
+        self, device_kinds: tuple[str, ...], *, budget_s: float,
         kind_group: str = "census_group", kind_detail: str = "census",
-        tag: Optional[str] = None,
-    ) -> None:
-        """Shared walk behind the CPU and CUDA tensor census, selected via
-        `device_kind`. Best-effort end to end: any failure (including torch
-        not being importable) is swallowed so profiling never breaks the
-        generation it's observing.
-
-        Writes two sections, both derived from ONE ``gc.get_objects()`` walk
-        (a second walk over a live heap this size would double the cost for no
-        benefit): ``kind: <kind_group>`` rows aggregate EVERY live tensor for
-        ``device_kind`` (no size floor, deduped by storage) so the census can
-        actually see where a fully-resident multi-GB model's memory is; ``kind:
-        <kind_detail>`` rows are the original per-tensor detail for anything
-        >= ``_CENSUS_MIN_BYTES`` (kept verbatim -- not deduped -- for continuity
-        with anything already matching on that row shape). See the class-level
-        comment above :data:`_CENSUS_MIN_BYTES` for the full motivation.
-
-        ``kind_group``/``kind_detail``/``tag`` let :meth:`census_now` reuse this
-        exact walk for an ad-hoc mid-generation snapshot without colliding with
-        :meth:`stop`'s end-of-run rows (see that method's docstring) -- the
-        default ``kind_group="census_group"``/``kind_detail="census"``/
-        ``tag=None`` triple is byte-identical to this method's original,
-        untagged behaviour.
-        """
-        if self._fh is None:
-            return
+        tag: Optional[str] = None, cancel: Optional[threading.Event] = None,
+    ) -> Optional[list[dict]]:
         try:
-            import gc
-            try:
-                import torch as _torch
-            except Exception:
-                return
-
+            import torch as _torch
+        except Exception:
+            return []
+        try:
             start = time.monotonic()
             try:
                 objects = gc.get_objects()
             except Exception:
                 logger.debug("profiler: census gc.get_objects failed", exc_info=True)
-                return
+                return []
 
+            wanted = frozenset(device_kinds)
             detail_rows: list[dict] = []
-            # group_key -> {device, dtype, owner, is_pinned, count, nbytes}.
             groups: dict[tuple, dict] = {}
-            # storage_key -> owner string, memoised so N tensors/views sharing
-            # one storage pay ONE referrer walk (the expensive part), not N.
             owner_cache: dict[Any, str] = {}
             seen_storage: set = set()
 
-            # The gc walk's isinstance() check runs against every live object,
-            # including deprecated torch aliases (e.g. torch.distributed.reduce_op)
-            # whose mere __instancecheck__/__class__ access emits a FutureWarning --
-            # harmless here (we only ever match real torch.Tensor instances) but
-            # noisy on every profiled run, so it's suppressed for the whole walk
-            # rather than per-object.
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 for obj in objects:
-                    if time.monotonic() - start > self._CENSUS_TIME_BUDGET_S:
+                    if cancel is not None and cancel.is_set():
+                        return None
+                    if time.monotonic() - start > budget_s:
                         break
                     try:
                         if not isinstance(obj, _torch.Tensor):
                             continue
-                        if obj.is_meta or obj.device.type != device_kind:
+                        if obj.is_meta:
+                            continue
+                        device_kind = obj.device.type
+                        if device_kind not in wanted:
                             continue
                         nbytes = obj.numel() * obj.element_size()
                         if nbytes <= 0:
@@ -573,16 +588,15 @@ class GenerationProfiler:
                         except Exception:
                             is_pinned = None
 
-                    storage_key = _tensor_storage_key(obj)
+                    storage_key = (device_kind, _tensor_storage_key(obj))
                     first_sighting = storage_key not in seen_storage
                     if first_sighting:
                         seen_storage.add(storage_key)
 
-                    cached_owner = owner_cache.get(storage_key)
-                    if cached_owner is None:
-                        cached_owner = self._describe_owner(obj, start)
-                        owner_cache[storage_key] = cached_owner
-                    owner = cached_owner
+                    owner = owner_cache.get(storage_key)
+                    if owner is None:
+                        owner = self._describe_owner(obj, start, budget_s)
+                        owner_cache[storage_key] = owner
 
                     if first_sighting:
                         storage_bytes = _storage_nbytes(obj, nbytes)
@@ -607,12 +621,17 @@ class GenerationProfiler:
                             "is_pinned": is_pinned,
                             "owner": owner,
                         })
+            del objects
 
-            # Primary section: aggregate groups, largest first, bounded.
-            ranked_groups = sorted(groups.values(), key=lambda g: g["nbytes"], reverse=True)
-            for g in ranked_groups[: self._CENSUS_MAX_GROUP_ROWS]:
-                try:
-                    row = self._snapshot()
+            base = self._snapshot(include_cpu=False)
+            rows: list[dict] = []
+            for device_kind in device_kinds:
+                ranked = sorted(
+                    (g for g in groups.values() if g["device"] == device_kind),
+                    key=lambda g: g["nbytes"], reverse=True,
+                )
+                for g in ranked[: self._CENSUS_MAX_GROUP_ROWS]:
+                    row = dict(base)
                     row["kind"] = kind_group
                     if tag is not None:
                         row["tag"] = tag
@@ -622,28 +641,23 @@ class GenerationProfiler:
                     row["is_pinned"] = g["is_pinned"]
                     row["count"] = g["count"]
                     row["nbytes_gb"] = round(g["nbytes"] / _BYTES_PER_GB, 4)
-                    self._fh.write(json.dumps(row) + "\n")
-                except Exception:
-                    logger.debug("profiler: census group row write failed", exc_info=True)
-
-            # Secondary section: original per-tensor >=64MB detail, unchanged.
-            for r in detail_rows:
-                try:
-                    row = self._snapshot()
+                    rows.append(row)
+            for device_kind in device_kinds:
+                for r in detail_rows:
+                    if r["device"] != device_kind:
+                        continue
+                    row = dict(base)
                     row["kind"] = kind_detail
                     if tag is not None:
                         row["tag"] = tag
                     row.update(r)
-                    self._fh.write(json.dumps(row) + "\n")
-                except Exception:
-                    logger.debug("profiler: census row write failed", exc_info=True)
-
-            if groups or detail_rows:
-                self._fh.flush()
+                    rows.append(row)
+            return rows
         except Exception:
-            logger.debug(f"profiler: {device_kind} tensor census failed", exc_info=True)
+            logger.debug("profiler: tensor census failed", exc_info=True)
+            return []
 
-    def _describe_owner(self, tensor: Any, start_time: float) -> str:
+    def _describe_owner(self, tensor: Any, start_time: float, budget_s: Optional[float] = None) -> str:
         """Best-effort name for whatever is keeping ``tensor`` alive.
 
         Walks ``gc.get_referrers`` up a few levels looking for a dict/list/set
@@ -665,9 +679,10 @@ class GenerationProfiler:
         """
         try:
             import gc
+            budget = self._CENSUS_TIME_BUDGET_S if budget_s is None else budget_s
             current: Any = tensor
             for _ in range(self._CENSUS_MAX_OWNER_DEPTH):
-                if time.monotonic() - start_time > self._CENSUS_TIME_BUDGET_S:
+                if time.monotonic() - start_time > budget:
                     return "unknown (budget)"
                 try:
                     referrers = gc.get_referrers(current)
@@ -725,7 +740,7 @@ class GenerationProfiler:
         except Exception:
             return "unknown"
 
-    def _snapshot(self) -> dict:
+    def _snapshot(self, include_cpu: bool = True) -> dict:
         """One row's worth of stats.
 
         ``vram_alloc_gb``/``vram_reserved_gb`` are ``torch.cuda.memory_allocated``/
@@ -751,10 +766,12 @@ class GenerationProfiler:
             swap_gb = psutil.swap_memory().used / _BYTES_PER_GB
         except Exception:
             swap_gb = None
-        try:
-            cpu = self._proc.cpu_percent(interval=None)
-        except Exception:
-            cpu = None
+        cpu = None
+        if include_cpu:
+            try:
+                cpu = self._proc.cpu_percent(interval=None)
+            except Exception:
+                cpu = None
 
         vram_alloc: dict = {}
         vram_reserved: dict = {}

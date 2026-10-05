@@ -105,6 +105,7 @@ class ExecutionPackageV1(ProtocolModel):
     #: against - not the same as an empty manifest.
     input_assets: Optional[InputAssetManifestV1] = None
     limits: ExecutionLimitsV1 = ExecutionLimitsV1()
+    engine_flags: dict[Identifier, JsonValue] = {}
     #: Free-form, JSON-safe context core wants echoed back on artifacts.
     metadata: dict[str, JsonValue] = {}
 

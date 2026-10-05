@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { backendDetailTabsFor, isBackendDetailTab, backendDetailTabHasFooter } from './backendDetailTabs';
 
 describe('backendDetailTabsFor', () => {
-	it('gives native.remote an Infrastructure and Models tab', () => {
+	it('gives native.remote an Infrastructure, Models and Optimizations tab', () => {
 		expect(backendDetailTabsFor('native.remote').map((t) => t.id)).toEqual([
 			'overview',
 			'infrastructure',
 			'models',
+			'optimizations',
 			'stats'
 		]);
 	});
@@ -39,11 +40,12 @@ describe('isBackendDetailTab', () => {
 	it('is true for a tab that belongs to the driver', () => {
 		expect(isBackendDetailTab('native.remote', 'infrastructure')).toBe(true);
 		expect(isBackendDetailTab('native.local', 'optimizations')).toBe(true);
+		expect(isBackendDetailTab('native.remote', 'optimizations')).toBe(true);
 	});
 
 	it('is false for a tab that does not belong to the driver', () => {
 		expect(isBackendDetailTab('comfyui', 'infrastructure')).toBe(false);
-		expect(isBackendDetailTab('native.remote', 'optimizations')).toBe(false);
+		expect(isBackendDetailTab('native.local', 'infrastructure')).toBe(false);
 		expect(isBackendDetailTab('comfyui', 'optimizations')).toBe(false);
 	});
 

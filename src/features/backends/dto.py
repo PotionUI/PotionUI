@@ -9,7 +9,7 @@ The request models allow extra fields so each engine's own settings pass
 through to its registered config class, which is what validates them.
 """
 
-from typing import Optional
+from typing import Any, Dict, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -60,9 +60,4 @@ class AttentionBackendRequest(BaseModel):
 
 
 class EngineFlagsRequest(BaseModel):
-    """Body for toggling native engine flags (Optimizations panel). Omitted fields are left unchanged."""
-
-    torch_compile: Optional[str] = Field(None, description="'on' or 'off' for regional torch.compile")
-    stream_prefetch: Optional[str] = Field(None, description="'on' or 'off' for streaming layer prefetch under partial residency")
-
-
+    flags: Dict[str, Any] = Field(default_factory=dict)

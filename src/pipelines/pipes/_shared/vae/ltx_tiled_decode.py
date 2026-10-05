@@ -38,7 +38,6 @@ from __future__ import annotations
 
 import logging
 import math
-import os
 from typing import Any, Dict, Optional
 
 import torch
@@ -46,6 +45,7 @@ import torch
 from src.platform.observability.profiling import get_profiler
 from src.platform.runtime.device import clear_gpu_memory
 from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_registry
+from src.platform.settings.runtime_flags import runtime_flag
 
 logger = logging.getLogger(__name__)
 
@@ -202,8 +202,8 @@ def auto_decode_tile_sizes(
     ratio_t = vae_module.temporal_compression_ratio
     ratio_hw = vae_module.spatial_compression_ratio
 
-    override_px = _env_int("NATIVE_LTX_DIFFUSION_TILE_PX")
-    override_frames = _env_int("NATIVE_LTX_DIFFUSION_TILE_FRAMES")
+    override_px = int(runtime_flag("native_ltx_decode_tile_px")) or None
+    override_frames = int(runtime_flag("native_ltx_decode_tile_frames")) or None
 
     per_token = decode_bytes_per_context_token(vae_module)
     per_latent_cell = decode_bytes_per_latent_cell(vae_module)
@@ -232,23 +232,6 @@ def auto_decode_tile_sizes(
             int(tile_frames * _TEMPORAL_STRIDE_RATIO), ratio_t, ratio_t
         ),
     }
-
-
-def _env_int(name: str) -> Optional[int]:
-    """A positive ``NATIVE_*`` integer override, or ``None``. Same read-at-use
-    idiom as ``NATIVE_FP8_QUANTIZE`` / ``NATIVE_SOL_ATTN_BACKEND``."""
-    raw = os.environ.get(name)
-    if not raw:
-        return None
-    try:
-        value = int(raw.strip())
-    except ValueError:
-        logger.warning("%s=%r is not an integer -- ignoring", name, raw)
-        return None
-    if value <= 0:
-        logger.warning("%s=%d must be positive -- ignoring", name, value)
-        return None
-    return value
 
 
 def decode_with_oom_retry(

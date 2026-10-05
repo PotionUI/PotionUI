@@ -12,6 +12,7 @@ import pytest
 import torch
 
 from src.platform.runtime.native.memory import residency
+from src.platform.settings import runtime_flags
 from src.platform.runtime.native.memory.residency import (
     _BYTES_PER_GB,
     GpuResidencyRegistry,
@@ -327,18 +328,20 @@ def test_ensure_free_skips_and_prunes_dead_refs():
 
 
 def test_minimum_inference_memory_default(monkeypatch):
-    monkeypatch.delenv("NATIVE_MIN_INFERENCE_MEMORY_GB", raising=False)
+    default = runtime_flags.RUNTIME_FLAG_BY_KEY["native_min_inference_memory_gb"].default
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_min_inference_memory_gb", default)
     assert minimum_inference_memory_gb() == 1.0
 
 
-def test_minimum_inference_memory_env_override(monkeypatch):
-    monkeypatch.setenv("NATIVE_MIN_INFERENCE_MEMORY_GB", "4.5")
+def test_minimum_inference_memory_follows_the_runtime_flag(monkeypatch):
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_min_inference_memory_gb", 4.5)
     assert minimum_inference_memory_gb() == 4.5
 
 
-def test_minimum_inference_memory_ignores_garbage(monkeypatch):
-    monkeypatch.setenv("NATIVE_MIN_INFERENCE_MEMORY_GB", "not-a-number")
-    assert minimum_inference_memory_gb() == 1.0
+def test_minimum_inference_memory_is_a_float(monkeypatch):
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_min_inference_memory_gb", 3)
+    assert isinstance(minimum_inference_memory_gb(), float)
+    assert minimum_inference_memory_gb() == 3.0
 
 
 # --- effective_free_vram_gb (idle reserved pool) ---------------
@@ -810,7 +813,7 @@ def test_run_text_encode_mark_carries_the_free_and_needed_gb_that_drove_the_path
     just the outcome. Without them an unexpected `after-evict` (the DiT
     ping-pong the co-resident path exists to avoid) can't be explained from
     the profile alone."""
-    monkeypatch.delenv("NATIVE_MIN_INFERENCE_MEMORY_GB", raising=False)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_min_inference_memory_gb", 1.0)
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=5.0)  # co-resident: 30 >= 5+1
     mgr = residency.get_residency_registry()
     mgr.clear()
@@ -840,7 +843,7 @@ def test_run_text_encode_mark_carries_the_free_and_needed_gb_that_drove_the_path
 def test_run_text_encode_mark_free_and_needed_gb_on_the_after_evict_path(monkeypatch):
     """Same GAP 3 fields on the OTHER named path -- eviction fires because
     `free_gb` (read at the gate) was below `needed_gb`."""
-    monkeypatch.delenv("NATIVE_MIN_INFERENCE_MEMORY_GB", raising=False)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_min_inference_memory_gb", 1.0)
     _cuda_world(monkeypatch, free_gb=2.0, te_gb=5.0)  # 2 < 5+1 -> evict, then retry
     mgr = residency.get_residency_registry()
     mgr.clear()

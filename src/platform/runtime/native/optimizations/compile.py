@@ -39,74 +39,21 @@ attention backends* (its ``active`` state is ``probe.active_backend``), and
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass, field
 from typing import Any
 
 import torch
 import torch.nn as nn
 
+from src.platform.settings.runtime_flags import runtime_flag
 from vendor.gpl.comfyui.ops import CastWeightBiasOp, Fp8ScaledLinear
 
 logger = logging.getLogger(__name__)
 
-# Neither cause below changes mid-process (a bad env value stays bad; a
-# persistently failing compile keeps failing the same way), so each is warned
-# about once instead of on every model residency placement / compile attempt.
-_warned_bad_compile_env = False
 _warned_compile_failed = False
 
-NATIVE_TORCH_COMPILE_ENV = "NATIVE_TORCH_COMPILE"
-
-# In-memory admin override (Admin -> Backends -> Optimizations). Seeded from the
-# `native_torch_compile` setting at app startup and updated live by the
-# engine-flags endpoint; never read from the DB inside the hot path.
-_compile_override: bool | None = None
-
-
-def set_torch_compile_override(policy: str | None) -> None:
-    """Force torch.compile on/off from outside a single call.
-
-    ``"on"`` forces on, ``"off"`` forces off; ``None``/``""``/``"auto"`` clear
-    the override so ``$NATIVE_TORCH_COMPILE`` decides again.
-    """
-    global _compile_override
-    if policy is None:
-        _compile_override = None
-        return
-    normalized = policy.strip().lower()
-    if normalized == "on":
-        _compile_override = True
-    elif normalized == "off":
-        _compile_override = False
-    else:
-        _compile_override = None
-
-
-def get_torch_compile_override() -> bool | None:
-    return _compile_override
-
-
 def torch_compile_enabled() -> bool:
-    """Whether regional ``torch.compile`` is enabled.
-
-    The admin override (seeded from the ``native_torch_compile`` setting) wins;
-    otherwise ``$NATIVE_TORCH_COMPILE`` decides. ``auto`` behaves like ``on``
-    (no extra heuristic yet); an unknown value is treated as ``off``, mirroring
-    ``vendor.gpl.comfyui.ops._fp8_matmul_enabled``.
-    """
-    if _compile_override is not None:
-        return _compile_override
-    policy = os.environ.get(NATIVE_TORCH_COMPILE_ENV, "off").strip().lower()
-    if policy in ("off", "0", "false", "no"):
-        return False
-    if policy not in ("on", "auto", "1", "true", "yes"):
-        global _warned_bad_compile_env
-        if not _warned_bad_compile_env:
-            _warned_bad_compile_env = True
-            logger.warning("torch.compile: unknown %s=%r; treating as 'off'", NATIVE_TORCH_COMPILE_ENV, policy)
-        return False
-    return True
+    return bool(runtime_flag("native_torch_compile"))
 
 
 def is_compiled(module: nn.Module) -> bool:

@@ -12,20 +12,24 @@ import src.platform.observability.profiling.profiler as profiler_module
 from src.platform.observability.profiling.profiler import (
     GenerationProfiler,
     read_process_rss_gb,
-    reset_enabled_cache,
 )
+from src.platform.settings import runtime_flags
 
 
 @pytest.fixture(autouse=True)
 def _isolate_profiling_state(monkeypatch):
-    """Every test gets a clean enabled/settings-manager cache and pinned-bytes
-    counter, regardless of env vars set in the outer shell."""
-    monkeypatch.delenv("POTIONUI_PROFILE", raising=False)
-    profiler_module._settings = None
-    reset_enabled_cache()
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_enabled", False)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_census", True)
+    monkeypatch.setattr(GenerationProfiler, "_CENSUS_DELAY_S", 0.0)
     profiler_module._pinned_bytes_cum = 0
+    original_stop = GenerationProfiler.stop
+
+    def stop(self, generation_id):
+        original_stop(self, generation_id)
+        assert self.wait_for_census(30.0)
+
+    monkeypatch.setattr(GenerationProfiler, "stop", stop)
     yield
-    reset_enabled_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -53,8 +57,7 @@ def _sampler_parks_before_start_returns(monkeypatch):
 
 
 def _enable(monkeypatch):
-    monkeypatch.setenv("POTIONUI_PROFILE", "1")
-    reset_enabled_cache()
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_enabled", True)
 
 
 def test_disabled_start_creates_no_file_and_no_thread(tmp_path):
@@ -182,9 +185,9 @@ def test_start_replaces_active_generation(tmp_path, monkeypatch):
     assert (dir_b / "profile.jsonl").exists()
 
 
-def test_profiling_enabled_env_var(monkeypatch):
-    monkeypatch.setenv("POTIONUI_PROFILE", "true")
-    reset_enabled_cache()
+def test_profiling_enabled_follows_the_setting_live(monkeypatch):
+    assert profiler_module.profiling_enabled() is False
+    _enable(monkeypatch)
     assert profiler_module.profiling_enabled() is True
 
 
@@ -211,33 +214,6 @@ def test_read_process_rss_gb_fails_soft(monkeypatch):
     monkeypatch.setattr(profiler_module.psutil.Process, "memory_info", _boom)
     assert read_process_rss_gb() is None
 
-    monkeypatch.setenv("POTIONUI_PROFILE", "0")
-    reset_enabled_cache()
-    assert profiler_module.profiling_enabled() is False
-
-
-def test_profiling_enabled_settings_fallback(monkeypatch):
-    monkeypatch.delenv("POTIONUI_PROFILE", raising=False)
-
-    class FakeSettings:
-        def get_setting(self, key, default=None, user_id=None):
-            assert key == "profiling.enabled"
-            return True
-
-    profiler_module.configure_settings(FakeSettings())
-    reset_enabled_cache()
-    assert profiler_module.profiling_enabled() is True
-
-
-def test_profiling_enabled_cached_after_first_call(monkeypatch):
-    monkeypatch.setenv("POTIONUI_PROFILE", "1")
-    reset_enabled_cache()
-    assert profiler_module.profiling_enabled() is True
-
-    # Flip the env var without resetting the cache -- decision must stick.
-    monkeypatch.setenv("POTIONUI_PROFILE", "0")
-    assert profiler_module.profiling_enabled() is True
-
 
 def test_add_pinned_bytes_accumulates(monkeypatch):
     _enable(monkeypatch)
@@ -247,8 +223,6 @@ def test_add_pinned_bytes_accumulates(monkeypatch):
 
 
 def test_add_pinned_bytes_noop_when_disabled(monkeypatch):
-    monkeypatch.delenv("POTIONUI_PROFILE", raising=False)
-    reset_enabled_cache()
     profiler_module.add_pinned_bytes(1024 ** 3)
     assert profiler_module.pinned_cum_gb() == 0.0
 
@@ -448,14 +422,11 @@ def test_write_tensor_census_dispatches_on_device_kind(tmp_path, monkeypatch):
     holder = _TensorHolder(big)
 
     prof = GenerationProfiler()
-    prof.start("gen-census-dispatch", tmp_path)
-    prof._write_tensor_census(device_kind="cuda")
-    prof.stop("gen-census-dispatch")
+    cuda_rows = prof._collect_tensor_census(("cuda",), budget_s=2.0)
+    cpu_rows = prof._collect_tensor_census(("cpu",), budget_s=2.0)
 
-    rows = _read_rows(tmp_path)
-    # The CPU tensor must NEVER show up under a "cuda" scan.
-    assert not [r for r in rows if r["kind"] == "census" and r.get("device") == "cuda"]
-    assert any(r.get("device") == "cpu" for r in rows if r["kind"] == "census")
+    assert not [r for r in cuda_rows if r.get("device") != "cuda"]
+    assert any(r["kind"] == "census" and r["device"] == "cpu" for r in cpu_rows)
 
     del holder, big
 
@@ -795,7 +766,7 @@ def test_sample_rows_never_carry_the_anon_file_split(tmp_path, monkeypatch):
     )
 
     monkeypatch.setattr(GenerationProfiler, "_SAMPLE_INTERVAL_S", 0.02)
-    monkeypatch.setattr(GenerationProfiler, "_write_tensor_census", lambda self, **kw: None)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_census", False)
     prof = GenerationProfiler()
     prof.start("gen-anon-split-sample", tmp_path)
     time.sleep(prof._SAMPLE_INTERVAL_S * 5)

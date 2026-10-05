@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.settings.settings import Settings
+from src.platform.settings.runtime_flags import apply_saved_settings, validate_runtime_flag
 from src.features.backup.settings import validate_setting as validate_backup_setting
 from src.features.generation.thumbnail_profile import validate_setting as validate_thumbnail_setting
 from src.features.housekeeping.settings import validate_setting as validate_housekeeping_setting
@@ -123,6 +124,7 @@ class SettingsController(BaseController):
             errors = []
             system_updates = []  # (setting_id, str_value)
             user_updates = []    # (user_id, setting_id, str_value)
+            saved_system_values: Dict[str, Any] = {}
 
             # Validate the entire batch before writing anything.
             for key, value in settings.items():
@@ -143,6 +145,7 @@ class SettingsController(BaseController):
                     or validate_housekeeping_setting(key, value)
                     or validate_backup_setting(key, value)
                     or validate_content_safety_setting(key, value)
+                    or validate_runtime_flag(key, value)
                 )
                 if rejected:
                     errors.append(f"Invalid value for '{key}': {rejected}")
@@ -156,6 +159,7 @@ class SettingsController(BaseController):
 
                 if setting.type == SettingType.SYSTEM:
                     system_updates.append((setting.id, str_value))
+                    saved_system_values[key] = value
                 else:  # USER type
                     user_updates.append((user.id, setting.id, str_value))
 
@@ -168,6 +172,7 @@ class SettingsController(BaseController):
                 )
 
             self.setting_repository.apply_bulk_updates(system_updates, user_updates)
+            apply_saved_settings(saved_system_values)
 
             return self.success_response(
                 message=f"Successfully updated {len(system_updates) + len(user_updates)} settings"
@@ -297,6 +302,7 @@ class SettingsController(BaseController):
                     or validate_housekeeping_setting(key, update_data.value)
                     or validate_backup_setting(key, update_data.value)
                     or validate_content_safety_setting(key, update_data.value)
+                    or validate_runtime_flag(key, update_data.value)
                 )
                 if rejected:
                     return self.error_response(

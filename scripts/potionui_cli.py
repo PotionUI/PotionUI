@@ -1501,7 +1501,6 @@ def cmd_start(args) -> int:
     frontend_env["BACKEND_PORT"] = str(args.backend_port)
     frontend_env["FRONTEND_PORT"] = str(args.frontend_port)
     frontend_env["VITE_HOST"] = FRONTEND_BIND_HOST
-    frontend_env["POTIONUI_PROFILE"] = "1"
 
     npm_bin = probe.which("npm") or "npm"
     frontend_cmd = [npm_bin, "run", "dev"]

@@ -32,15 +32,12 @@ from typing import Any, Callable, Iterable
 import torch
 
 from src.platform.runtime.vram_cap import apply_vram_cap_bytes
+from src.platform.settings.runtime_flags import runtime_flag
 
 logger = logging.getLogger(__name__)
 
 _BYTES_PER_GB = 1024 ** 3
 
-# Set once a bad NATIVE_MIN_INFERENCE_MEMORY_GB value has been warned about -
-# the env var doesn't change mid-process, so re-parsing it on every call would
-# otherwise re-log the same warning every generation.
-_warned_bad_min_inference_memory_env = False
 
 
 def device_index(device: str | torch.device) -> int:
@@ -628,18 +625,7 @@ def minimum_inference_memory_gb() -> float:
     ``NATIVE_MIN_INFERENCE_MEMORY_GB`` because the production server sometimes
     shares ``cuda:0`` with a large already-resident model and needs a bigger
     reserve to leave headroom for its inference."""
-    import os
-
-    raw = os.environ.get("NATIVE_MIN_INFERENCE_MEMORY_GB")
-    if raw:
-        try:
-            return max(0.0, float(raw))
-        except ValueError:  # pragma: no cover - bad env value
-            global _warned_bad_min_inference_memory_env
-            if not _warned_bad_min_inference_memory_env:
-                _warned_bad_min_inference_memory_env = True
-                logger.warning("residency: ignoring non-numeric NATIVE_MIN_INFERENCE_MEMORY_GB=%r", raw)
-    return 1.0
+    return float(runtime_flag("native_min_inference_memory_gb"))
 
 
 def run_text_encode(

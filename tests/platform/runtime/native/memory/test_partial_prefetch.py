@@ -24,6 +24,7 @@ from src.platform.runtime.native.memory.partial import (
     iter_streamable_leaves,
     plan_residency_split,
 )
+from src.platform.settings import runtime_flags
 from vendor.gpl.comfyui.ops import disable_weight_init
 
 
@@ -278,20 +279,20 @@ def test_teardown_removes_hooks_and_drops_refs(monkeypatch):
 # --- ModuleStreamer wiring / env toggle (f) -----------------------------------
 
 
-def test_module_streamer_env_toggle_gates_prefetcher(monkeypatch):
+def test_module_streamer_flag_toggle_gates_prefetcher(monkeypatch):
     _install_fake_cuda(monkeypatch)
     # Skip the real device moves (no CUDA); we only test prefetcher construction.
     monkeypatch.setattr(partial, "_move_own_tensors", lambda *a, **k: None)
     m = _Tiny(n_linear=3, dim=8)
     plan = plan_residency_split(m, resident_budget_gb=0.0)  # stream everything
 
-    monkeypatch.delenv(partial.NATIVE_STREAM_PREFETCH_ENV, raising=False)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_stream_prefetch", False)
     s_off = ModuleStreamer(m)
     s_off.apply("cuda:0", plan)
     assert s_off.prefetcher is None                # default OFF: zero machinery
     s_off.teardown()
 
-    monkeypatch.setenv(partial.NATIVE_STREAM_PREFETCH_ENV, "on")
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_stream_prefetch", True)
     s_on = ModuleStreamer(m)
     s_on.apply("cuda:0", plan)
     assert s_on.prefetcher is not None             # env on -> constructed
@@ -299,10 +300,10 @@ def test_module_streamer_env_toggle_gates_prefetcher(monkeypatch):
     assert s_on.prefetcher is None                 # teardown drops it
 
 
-def test_module_streamer_explicit_override_beats_env(monkeypatch):
+def test_module_streamer_explicit_override_beats_flag(monkeypatch):
     _install_fake_cuda(monkeypatch)
     monkeypatch.setattr(partial, "_move_own_tensors", lambda *a, **k: None)
-    monkeypatch.setenv(partial.NATIVE_STREAM_PREFETCH_ENV, "on")
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_stream_prefetch", True)
     m = _Tiny(n_linear=3, dim=8)
     plan = plan_residency_split(m, resident_budget_gb=0.0)
 
@@ -316,7 +317,7 @@ def test_no_prefetcher_without_cuda(monkeypatch):
     # is_available False -> prefetcher never constructed even with the env on.
     monkeypatch.setattr(partial.torch.cuda, "is_available", lambda: False)
     monkeypatch.setattr(partial, "_move_own_tensors", lambda *a, **k: None)
-    monkeypatch.setenv(partial.NATIVE_STREAM_PREFETCH_ENV, "on")
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_stream_prefetch", True)
     m = _Tiny(n_linear=3, dim=8)
     plan = plan_residency_split(m, resident_budget_gb=0.0)
     s = ModuleStreamer(m, prefetch=True)
@@ -325,36 +326,11 @@ def test_no_prefetcher_without_cuda(monkeypatch):
     s.teardown()
 
 
-# --- env parsing --------------------------------------------------------------
-
-
-def test_stream_prefetch_env_parsing(monkeypatch):
-    monkeypatch.delenv(partial.NATIVE_STREAM_PREFETCH_ENV, raising=False)
-    assert partial.stream_prefetch_enabled() is False    # default off
-    monkeypatch.setenv(partial.NATIVE_STREAM_PREFETCH_ENV, "on")
+def test_stream_prefetch_follows_the_runtime_flag(monkeypatch):
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_stream_prefetch", False)
+    assert partial.stream_prefetch_enabled() is False
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_stream_prefetch", True)
     assert partial.stream_prefetch_enabled() is True
-    monkeypatch.setenv(partial.NATIVE_STREAM_PREFETCH_ENV, "auto")
-    assert partial.stream_prefetch_enabled() is True
-    monkeypatch.setenv(partial.NATIVE_STREAM_PREFETCH_ENV, "garbage")
-    assert partial.stream_prefetch_enabled() is False    # unknown -> off
-
-
-def test_stream_prefetch_admin_override(monkeypatch):
-    monkeypatch.delenv(partial.NATIVE_STREAM_PREFETCH_ENV, raising=False)
-    monkeypatch.setattr(partial, "_prefetch_policy_override", None)
-
-    partial.set_stream_prefetch_override("on")
-    assert partial.stream_prefetch_enabled() is True     # no env needed
-
-    partial.set_stream_prefetch_override("off")
-    monkeypatch.setenv(partial.NATIVE_STREAM_PREFETCH_ENV, "on")
-    assert partial.stream_prefetch_enabled() is False    # explicit off beats env
-
-    partial.set_stream_prefetch_override(None)
-    assert partial.stream_prefetch_enabled() is True     # cleared -> env fallback
-    partial.set_stream_prefetch_override("")
-    assert partial.stream_prefetch_enabled() is True     # empty setting -> env fallback
-    assert partial.get_stream_prefetch_override() is None
 
 
 # --- Codex E12-E14: prefetcher robustness -----------------------------------

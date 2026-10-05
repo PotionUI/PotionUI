@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import itertools
 import logging
-import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Literal, Sequence
@@ -52,6 +51,7 @@ from .memory.residency import (
 from .memory.partial import ModuleStreamer, plan_residency_split
 from src.platform.runtime.system_memory import get_system_memory
 from src.platform.observability.profiling import get_profiler, profiling_enabled, read_process_rss_gb
+from src.platform.settings.runtime_flags import runtime_flag
 from .memory.tiering import (
     PlacementPlan,
     activation_headroom_gb,
@@ -746,7 +746,7 @@ class NativeEngineLoader:
         # On-the-fly fp8 quantise-at-load policy: "auto" (quantise a bf16 DiT only
         # when it doesn't fit resident but would as fp8) | "off" | "force". Falls
         # back to the NATIVE_FP8_QUANTIZE env var, then "auto".
-        self.fp8_quantize = (fp8_quantize or os.environ.get("NATIVE_FP8_QUANTIZE") or "auto").lower()
+        self.fp8_quantize = (fp8_quantize or runtime_flag("native_fp8_quantize") or "auto").lower()
 
     # -- public ------------------------------------------------------------
 

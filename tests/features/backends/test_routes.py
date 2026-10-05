@@ -17,6 +17,7 @@ from src.features.backends.backend_config import (
 from src.features.backends.backend_registry import BackendRegistry
 from src.platform.runtime.native.optimizations.catalog import OptimizationStatus, Requirement
 from src.platform.runtime.native.optimizations.probe import SystemProbe
+from src.platform.settings.runtime_flags import runtime_flag
 from src.platform.settings.settings import Settings
 from src.platform.security.user import AccountType, User
 
@@ -1163,8 +1164,9 @@ class TestBackendOptimizations:
 
             response = await controller.set_attention_backend("native-1", "flash", user=admin_user)
 
-        controller.settings.set_setting.assert_called_once_with("native_attention_backend", "flash")
-        mock_attention.set_backend_override.assert_called_once_with("flash")
+        controller.backend_config_store.update_backend.assert_called_once_with("native-1", native_backend)
+        assert native_backend.engine_flags == {"native_attention_backend": "flash"}
+        assert runtime_flag("native_attention_backend") == "flash"
         assert response.data == {"pinned_backend": "flash", "active_backend": "flash"}
 
     @pytest.mark.asyncio
@@ -1178,8 +1180,8 @@ class TestBackendOptimizations:
 
             await controller.set_attention_backend("native-1", "auto", user=admin_user)
 
-        controller.settings.set_setting.assert_called_once_with("native_attention_backend", "")
-        mock_attention.set_backend_override.assert_called_once_with("")
+        assert native_backend.engine_flags == {"native_attention_backend": ""}
+        assert runtime_flag("native_attention_backend") == ""
 
     @pytest.mark.asyncio
     async def test_set_attention_backend_accepts_pin_only_backend_via_mocked_known_backends(
@@ -1198,8 +1200,7 @@ class TestBackendOptimizations:
 
             response = await controller.set_attention_backend("native-1", "sparge", user=admin_user)
 
-        controller.settings.set_setting.assert_called_once_with("native_attention_backend", "sparge")
-        mock_attention.set_backend_override.assert_called_once_with("sparge")
+        assert native_backend.engine_flags == {"native_attention_backend": "sparge"}
         assert response.data == {"pinned_backend": "sparge", "active_backend": "sparge"}
 
     @pytest.mark.asyncio
@@ -1214,7 +1215,8 @@ class TestBackendOptimizations:
         controller.backend_config_store.get_backend.return_value = native_backend
         response = await controller.set_attention_backend("native-1", "sparge", user=admin_user)
         assert response.success is True
-        controller.settings.set_setting.assert_called_once_with("native_attention_backend", "sparge")
+        assert native_backend.engine_flags == {"native_attention_backend": "sparge"}
+        assert response.data["pinned_backend"] == "sparge"
 
     @pytest.mark.asyncio
     async def test_set_attention_backend_still_rejects_unknown_name_with_real_dispatcher(

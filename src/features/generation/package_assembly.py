@@ -68,6 +68,7 @@ def assemble_execution_package(
     metadata: Optional[Mapping[str, Any]] = None,
     policy: Optional[RemoteExecutionPolicy] = None,
     storage_dir: Optional[Path] = None,
+    engine_flags: Optional[Mapping[str, Any]] = None,
 ) -> ExecutionPackageV1:
     """Turn a built pipeline into a validated execution package.
 
@@ -114,6 +115,7 @@ def assemble_execution_package(
         'input_assets': input_assets,
         'limits': limits if limits is not None else resolved_policy.default_limits(),
         'metadata': package_metadata,
+        'engine_flags': dict(engine_flags or {}),
     }
 
     draft = ExecutionPackageV1(request_digest=_DIGEST_PLACEHOLDER, **fields)

@@ -87,7 +87,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from contextlib import contextmanager
 
 import torch
@@ -105,6 +104,7 @@ _E4M3_MAX = 448.0
 
 # Native fp8 GEMM fast path (torch._scaled_mm) — see Fp8ScaledLinear.forward_comfy_cast_weights.
 NATIVE_FP8_MATMUL_ENV = "NATIVE_FP8_MATMUL"
+RUNTIME_FLAGS: dict = {}
 # torch._scaled_mm needs real fp8 tensor cores: Ada/Hopper/Blackwell (sm89+).
 _SCALED_MM_MIN_CAP = (8, 9)
 
@@ -145,11 +145,7 @@ def _fp8_matmul_enabled() -> bool:
     currently behaves like ``on``. An unknown value is treated as ``off`` (the
     safe default), mirroring the unknown-policy handling in ``fp8_quant.py``.
     """
-    policy = os.environ.get(NATIVE_FP8_MATMUL_ENV, "off").strip().lower()
-    if policy == "off":
-        return False
-    if policy not in ("on", "auto"):
-        logger.warning("fp8 matmul: unknown %s=%r; treating as 'off'", NATIVE_FP8_MATMUL_ENV, policy)
+    if not RUNTIME_FLAGS.get("native_fp8_matmul", False):
         return False
     return _scaled_mm_supported()
 
@@ -490,7 +486,7 @@ _lora_path_layers: "dict[str, set[int]]" = {}
 
 
 def _lora_fused_enabled() -> bool:
-    return os.environ.get(NATIVE_LORA_FUSED_ENV, "on").strip().lower() != "off"
+    return bool(RUNTIME_FLAGS.get("native_lora_fused", True))
 
 
 def _note_lora_path(layer, path: str) -> None:
@@ -1998,11 +1994,7 @@ def _nvfp4_matmul_enabled() -> bool:
     same "on until benchmarked" ``auto`` behavior. An unknown value is
     treated as ``off``.
     """
-    policy = os.environ.get(NATIVE_NVFP4_MATMUL_ENV, "off").strip().lower()
-    if policy == "off":
-        return False
-    if policy not in ("on", "auto"):
-        logger.warning("nvfp4 matmul: unknown %s=%r; treating as 'off'", NATIVE_NVFP4_MATMUL_ENV, policy)
+    if not RUNTIME_FLAGS.get("native_nvfp4_matmul", False):
         return False
     return _nvfp4_scaled_mm_supported()
 

@@ -75,7 +75,7 @@ Not surfaced on the preset:
 
 - **`sampler_options`** (e.g. stochastic-sampler `eta`) has no preset-level field of its own; a sampler that reads it runs at `denoise()`'s own defaults.
 - **`beta`/`exponential` schedule options** (`alpha`/`beta`, `sigma_min`) have no preset-level fields of their own — those two families always run at `build_sigmas`'s own defaults (0.6/0.6, 1e-3); only `linear_quadratic` got typed fields, since it needed one to be usable at all beyond its own defaults.
-- **Engine-level levers** — sage attention, `NATIVE_TORCH_COMPILE`, `NATIVE_STREAM_PREFETCH`, fp8 quantize-at-load, partial layer residency, NVFP4 — are global backend/env settings (the admin Optimizations panel), not preset-scoped, and apply to Wan runs regardless of this preset.
+- **Engine-level levers** — sage attention, torch.compile (`native_torch_compile`), streamed-layer prefetch (`native_stream_prefetch`), fp8 quantize-at-load (`native_fp8_quantize`), partial layer residency, NVFP4 — are per-backend settings (Admin → Backends → *backend* → Optimizations), not preset-scoped, and apply to Wan runs regardless of this preset.
 
 ## Limitations
 

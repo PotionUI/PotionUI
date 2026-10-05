@@ -5,6 +5,7 @@ from enum import Enum
 
 from src.features.backends.native_hardware import detect_native_hardware_defaults as _hardware_defaults
 from src.platform.security.secrets import get_secret_cipher
+from src.platform.settings.runtime_flags import sanitize_engine_flags
 
 
 # Engines are an OPEN set: `native` ships in core, plugins register their own
@@ -37,6 +38,8 @@ BASE_CONFIG_FIELDS = frozenset({
     "id", "name", "engine", "driver", "enabled", "priority", "timeout_seconds",
     "scheduling_policy", "scheduling_max_consecutive_same_model",
 })
+
+ENGINE_FLAGS_FIELD = "engine_flags"
 
 # Mirrors src.features.generation.scheduling.SCHEDULING_POLICIES. Duplicated
 # rather than imported: importing that module here would pull in the whole
@@ -146,7 +149,7 @@ class BaseBackendConfig(BaseModel):
 
         specs: List[Dict[str, Any]] = []
         for name, field in cls.model_fields.items():
-            if name in BASE_CONFIG_FIELDS:
+            if name in BASE_CONFIG_FIELDS or name == ENGINE_FLAGS_FIELD:
                 continue
 
             extra = field.json_schema_extra if isinstance(field.json_schema_extra, dict) else {}
@@ -229,7 +232,16 @@ def _field_type(annotation) -> str:
     return "string"
 
 
-class NativeBackendConfig(BaseBackendConfig):
+class NativeEngineFlagsMixin(BaseModel):
+    engine_flags: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("engine_flags", mode="before")
+    @classmethod
+    def _normalize_engine_flags(cls, v):
+        return sanitize_engine_flags(v if isinstance(v, dict) else {})
+
+
+class NativeBackendConfig(NativeEngineFlagsMixin, BaseBackendConfig):
     """
     Configuration for the built-in, in-process native backend.
 
@@ -351,7 +363,7 @@ class NativeBackendConfig(BaseBackendConfig):
         ]
 
 
-class NativeRemoteBackendConfig(BaseBackendConfig):
+class NativeRemoteBackendConfig(NativeEngineFlagsMixin, BaseBackendConfig):
     """
     Configuration for a `native.remote` backend - one headless Remote Native
     worker (src/features/remote_execution/worker/) this installation dispatches

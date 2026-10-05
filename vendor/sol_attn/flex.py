@@ -47,11 +47,7 @@ import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 
-# Diagnostic logging. NATIVE_SOL_ATTN_DEBUG=1 prints each call's sequence
-# length, free VRAM and sparse density. Off by default — one line per attention
-# call per block per step would flood the log.
-import os as _os
-_DEBUG = _os.environ.get("NATIVE_SOL_ATTN_DEBUG", "0") == "1"
+_DEBUG = False
 
 # flex_attention compiled-kernel block size. 128 is the minimum the kernel
 # accepts (BLOCK_M/BLOCK_N are 128).
@@ -225,7 +221,6 @@ def sol_attn_flex(
         return q.clone()
 
     device = q.device
-    # --- diagnostics (off unless NATIVE_SOL_ATTN_DEBUG=1) ---
     if _DEBUG:
         _free_mb = torch.cuda.mem_get_info(device)[0] / (1024 ** 2)
         logger.info(
@@ -252,7 +247,6 @@ def sol_attn_flex(
     )
     block_mask = _center_block_mask(kv_num_blocks, indices, T_pad, mask_mod)
 
-    # --- diagnostics (off unless NATIVE_SOL_ATTN_DEBUG=1) ---
     if _DEBUG:
         _density = kv_num_blocks.float().mean().item() / (T_pad // FLEX_BLOCK)
         logger.info(

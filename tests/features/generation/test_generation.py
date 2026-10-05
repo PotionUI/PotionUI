@@ -905,14 +905,13 @@ class TestGenerationEngine:
         profile: ``profiler.stop()`` runs in ``generate()``'s ``finally`` block
         (src/features/generation/generation.py), so a crash mid-pipe still
         flushes/closes the writer and the ``generation.end`` mark lands."""
-        from src.platform.observability.profiling.profiler import (
-            GenerationProfiler, reset_enabled_cache,
-        )
+        from src.platform.observability.profiling.profiler import GenerationProfiler
         from src.platform.observability.profiling import report as profile_report
         from src.features.generation import profile_paths
+        from src.platform.settings import runtime_flags
 
-        monkeypatch.setenv("POTIONUI_PROFILE", "1")
-        reset_enabled_cache()
+        monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_enabled", True)
+        monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_census", False)
 
         self.mock_settings.get_file_storage_directory.return_value = str(tmp_path)
         fresh_profiler = GenerationProfiler()
@@ -937,28 +936,89 @@ class TestGenerationEngine:
 
         generation_id = "gen-crash-1"
 
-        try:
-            with patch.object(self.manager, 'validate_pipeline'), \
-                 patch('src.features.generation.engine.validate_pipe_configuration', return_value={}), \
-                 patch('src.features.generation.engine.get_profiler', return_value=fresh_profiler):
-                with pytest.raises(RuntimeError, match="Pipe error"):
-                    self.manager.generate(pipes, Mock(), generation_id)
+        with patch.object(self.manager, 'validate_pipeline'), \
+             patch('src.features.generation.engine.validate_pipe_configuration', return_value={}), \
+             patch('src.features.generation.engine.get_profiler', return_value=fresh_profiler):
+            with pytest.raises(RuntimeError, match="Pipe error"):
+                self.manager.generate(pipes, Mock(), generation_id)
 
-            # stop() must have run: the writer is flushed and closed even
-            # though generate() propagated the exception.
-            assert fresh_profiler._fh is None
+        assert fresh_profiler._fh is None
 
-            jsonl_path = profile_paths.profile_jsonl_path(tmp_path, generation_id)
-            assert jsonl_path is not None and jsonl_path.is_file()
-            assert profile_paths.has_profile(tmp_path, generation_id) is True
+        jsonl_path = profile_paths.profile_jsonl_path(tmp_path, generation_id)
+        assert jsonl_path is not None and jsonl_path.is_file()
+        assert profile_paths.has_profile(tmp_path, generation_id) is True
 
-            rows = profile_report.load_rows(jsonl_path)
-            events = {r.get("event") for r in rows if r.get("kind") == "event"}
-            assert "generation.start" in events
-            assert "generation.end" in events
-        finally:
-            monkeypatch.delenv("POTIONUI_PROFILE", raising=False)
-            reset_enabled_cache()
+        rows = profile_report.load_rows(jsonl_path)
+        events = {r.get("event") for r in rows if r.get("kind") == "event"}
+        assert "generation.start" in events
+        assert "generation.end" in events
+
+    def _run_profiled_success(self, generation_id, profiler):
+        mock_pipe_instance = MockPipe()
+        mock_pipe_class = Mock(return_value=mock_pipe_instance)
+        mock_pipe_class.get_default_config.return_value = {"param1": "default"}
+        mock_pipe_class.inputs = MockPipe.inputs
+        mock_pipe_class.name = MockPipe.name.fget(mock_pipe_instance)
+        self.mock_pipe_catalog.get_pipe.return_value = mock_pipe_class
+        pipes = [{"name": "test_pipe", "enabled": True, "input": [], "cache": [], "config": {}}]
+        with patch.object(self.manager, 'validate_pipeline'), \
+             patch.object(self.manager, 'hijack_pipe_generation_output'), \
+             patch('src.features.generation.engine.validate_pipe_configuration', return_value={"param1": "x"}), \
+             patch('src.features.generation.engine.get_profiler', return_value=profiler):
+            self.manager.generate(pipes, Mock(), generation_id)
+
+    def test_generate_returns_before_the_end_of_run_census_finishes(self, tmp_path, monkeypatch):
+        import threading
+        from src.platform.observability.profiling.profiler import GenerationProfiler
+        from src.features.generation import profile_paths
+        from src.platform.observability.profiling import report as profile_report
+        from src.platform.settings import runtime_flags
+
+        monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_enabled", True)
+        monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_census", True)
+        monkeypatch.setattr(GenerationProfiler, "_CENSUS_DELAY_S", 0.0)
+        self.mock_settings.get_file_storage_directory.return_value = str(tmp_path)
+        release = threading.Event()
+        started = threading.Event()
+
+        def slow_census(device_kinds, *, budget_s, cancel=None, **kwargs):
+            started.set()
+            release.wait(10.0)
+            return [{"kind": "census_group", "device": "cpu", "owner": "slow", "nbytes_gb": 0.5}]
+
+        monkeypatch.setattr(GenerationProfiler, "_collect_tensor_census", staticmethod(slow_census))
+        profiler = GenerationProfiler()
+
+        self._run_profiled_success("gen-fast-return", profiler)
+
+        assert started.wait(5.0)
+        assert profiler.wait_for_census(0.05) is False
+        jsonl_path = profile_paths.profile_jsonl_path(tmp_path, "gen-fast-return")
+        rows = profile_report.load_rows(jsonl_path)
+        assert "generation.end" in {r.get("event") for r in rows}
+        assert not [r for r in rows if r.get("kind") == "census_group"]
+
+        release.set()
+        assert profiler.wait_for_census(5.0)
+        rows = profile_report.load_rows(jsonl_path)
+        assert [r["owner"] for r in rows if r.get("kind") == "census_group"] == ["slow"]
+
+    def test_profiling_setting_applies_to_the_next_generation_without_restart(self, tmp_path, monkeypatch):
+        from src.platform.observability.profiling.profiler import GenerationProfiler
+        from src.features.generation import profile_paths
+        from src.platform.settings import runtime_flags
+
+        monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_enabled", False)
+        monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_census", False)
+        self.mock_settings.get_file_storage_directory.return_value = str(tmp_path)
+        profiler = GenerationProfiler()
+
+        self._run_profiled_success("gen-off", profiler)
+        runtime_flags.apply_saved_setting("profiling_enabled", True)
+        self._run_profiled_success("gen-on", profiler)
+
+        assert profile_paths.has_profile(tmp_path, "gen-off") is False
+        assert profile_paths.has_profile(tmp_path, "gen-on") is True
 
     def test_generate_injects_models_service(self):
         # The old pipe-level `cache:` mechanism (GenerationEngine.cache) has

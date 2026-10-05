@@ -38,8 +38,12 @@ class Settings:
                 return False
             
             from src.platform.settings.records import Setting
+            from src.platform.settings.runtime_flags import apply_saved_setting
             str_value = Setting.serialize_value(value, setting.value_type)
-            return self.setting_repository.update_setting_value(setting.id, str_value)
+            saved = self.setting_repository.update_setting_value(setting.id, str_value)
+            if saved:
+                apply_saved_setting(key, value)
+            return saved
 
     def get_all_settings(self, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Get all effective settings for a user or system-wide"""

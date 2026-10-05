@@ -13,6 +13,7 @@ import torch
 from src.pipelines.outputs import GalleryGenerationOutput
 from vendor.gpl.comfyui.ops import disable_weight_init
 from src.platform.runtime.native.errors import DecodeNumericsError
+from src.platform.settings import runtime_flags
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D, LATENTS_MEAN, LATENTS_STD
 from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.contracts import IOType, PipeInput
@@ -1047,7 +1048,7 @@ class _CompilablePlaceDiT(_PlaceDiT):
 def _enable_compile(monkeypatch):
     from src.platform.runtime.native.optimizations import compile as tc
 
-    monkeypatch.setenv(tc.NATIVE_TORCH_COMPILE_ENV, "on")
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", True)
     return tc
 
 
@@ -1074,9 +1075,7 @@ def test_router_never_compiles_a_streamed_expert(monkeypatch):
 
 
 def test_router_compile_disabled_by_default_leaves_expert_untouched(monkeypatch):
-    from src.platform.runtime.native.optimizations import compile as tc
-
-    monkeypatch.delenv(tc.NATIVE_TORCH_COMPILE_ENV, raising=False)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", False)
     _patch_placement(monkeypatch, free_gb=60.0)
     high = _CompilablePlaceDiT("high", est_gb=14.0)
     router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0",

@@ -34,6 +34,7 @@ from src.platform.worker_protocol import (
     FingerprintMismatchV1,
     JobErrorV1,
 )
+from src.platform.settings.runtime_flags import activate_engine_flags
 from src.platform.worker_protocol.worker_info import FINGERPRINT_DOMAINS
 
 _DEFAULT_STAGING_TIMEOUT_SECONDS = 300
@@ -330,6 +331,7 @@ class WorkerCoordinator:
                 for artifact in worker_event.artifacts:
                     self._artifact_paths[artifact.artifact_id] = self._artifact_file(artifact)
 
+            activate_engine_flags(package.engine_flags)
             executor.run(pipeline, emit=emit, is_cancelled=cancel_event.is_set)
 
             if cancel_event.is_set():

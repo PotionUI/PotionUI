@@ -31,6 +31,7 @@ from src.pipelines.pipes.generator.seedvr2.main import (
 )
 from src.pipelines.contracts import PipeInput
 from src.platform.runtime.native.errors import SamplingCancelled
+from src.platform.settings import runtime_flags
 
 
 # Latent spatial-token counts for the two calibration anchors.
@@ -352,11 +353,10 @@ class _FakeVAE:
 def test_real_upscale_video_emits_marks_and_returns_decoded_clips(monkeypatch):
     # Profiling ON exercises the mark + _sync_if_profiling code paths; CUDA off
     # keeps it CPU (the sync is guarded on cuda availability).
-    monkeypatch.setenv("POTIONUI_PROFILE", "1")
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_enabled", True)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_census", False)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     monkeypatch.setattr(m, "free_vram_gb", lambda device: None)
-    from src.platform.observability.profiling import reset_enabled_cache
-    reset_enabled_cache()
 
     gen = m.SeedVR2NativeGenerator.__new__(m.SeedVR2NativeGenerator)
     gen.dit = SimpleNamespace(
@@ -377,7 +377,6 @@ def test_real_upscale_video_emits_marks_and_returns_decoded_clips(monkeypatch):
     clip = np.zeros((5, 64, 64, 3), dtype=np.uint8)
     out = list(gen.upscale_video([clip], torch.ones((10, 5120)), seed=0))
 
-    reset_enabled_cache()  # don't leak the enabled flag into other tests
     assert len(out) == 1
     # 5 input frames -> 2 latent frames -> 2 decoded frames; the fake VAE
     # round-trips 64px -> 8 latent px -> 64px (the "upscale" is the pre-encode

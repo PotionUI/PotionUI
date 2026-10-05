@@ -62,6 +62,7 @@ from src.pipelines.remote_fingerprint import (
     compute_remote_plugin_bundle_fingerprint,
 )
 from src.platform.observability.logger import logger
+from src.platform.settings.runtime_flags import engine_flag_values
 from src.platform.util.ids import generate_ulid
 from src.platform.worker_protocol import (
     FingerprintMismatchV1,
@@ -376,6 +377,7 @@ class RemoteNativeBackend(BaseBackend):
             required_fingerprints=self._fingerprints,
             policy=self._policy,
             storage_dir=storage_dir,
+            engine_flags=engine_flag_values(getattr(self.config, "engine_flags", {})),
         )
 
         row = self._repository.create(RemoteExecution(

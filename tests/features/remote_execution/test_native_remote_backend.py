@@ -326,7 +326,43 @@ class ParamsAndModelsPipe:
         return PipeOutput(output={})
 
 
+class FlagProbePipe:
+    name = "flag_probe/fake"
+    seen = []
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        from src.platform.settings.runtime_flags import runtime_flag
+        from vendor.gpl.comfyui import ops
+
+        FlagProbePipe.seen.append((
+            runtime_flag("native_fp8_matmul"),
+            ops.RUNTIME_FLAGS.get("native_fp8_matmul", False),
+            runtime_flag("native_min_inference_memory_gb"),
+        ))
+        return PipeOutput(output={})
+
+
 _CLASSES = {
+    "flag_probe/fake": FlagProbePipe,
     "image/fake": ImagePipe,
     "asset/fake": AssetAwarePipe,
     "model_aware/fake": ModelAwarePipe,
@@ -1226,3 +1262,55 @@ class TestModelListing(NativeRemoteBackendTestCase):
         self.assertEqual(model.ref, "checkpoints/manual.safetensors")
         self.assertEqual(model.size, len(content))
         self.assertIsNone(model.sha256)
+
+
+class TestEngineFlagsTravelWithTheJob(NativeRemoteBackendTestCase):
+    def _backend_with_flags(self, backend_id, flags):
+        config = NativeRemoteBackendConfig(
+            id=backend_id, name=backend_id, base_url="http://fake-worker", worker_token=TOKEN,
+            engine_flags=flags,
+        )
+        backend = RemoteNativeBackend(config, transport_override=httpx.ASGITransport(app=self.worker_app))
+        backend.bind_remote_context(pipe_catalog=FakeCatalog(), plugin_registry=FakePluginRegistry())
+        backend.bind_model_locator(locator=self.model_locator)
+        return backend
+
+    def test_each_remote_backend_runs_with_its_own_values_not_the_workers_env(self):
+        from src.platform.settings.runtime_flags import activate_engine_flags
+
+        FlagProbePipe.seen = []
+        activate_engine_flags({})
+        fast = self._backend_with_flags("remote-fast", {"native_fp8_matmul": True, "native_min_inference_memory_gb": 3})
+        plain = self._backend_with_flags("remote-plain", {})
+        pipes = [{"name": "flag_probe/fake", "id": "p1", "enabled": True, "config": {}, "input": []}]
+
+        with patch.dict("os.environ", {"NATIVE_FP8_MATMUL": "off", "NATIVE_MIN_INFERENCE_MEMORY_GB": "9"}):
+            _, fast_outputs = self._run_generation(fast, {"generation_id": "gen-fast", "pipes": pipes})
+            _, plain_outputs = self._run_generation(plain, {"generation_id": "gen-plain", "pipes": pipes})
+
+        self.assertFalse([o for o in fast_outputs + plain_outputs if isinstance(o, ErrorGenerationOutput)])
+        self.assertEqual(FlagProbePipe.seen, [(True, True, 3.0), (False, False, 1.0)])
+        self.assertEqual(self.repo.get_by_id("gen-fast").state, S.SUCCEEDED)
+
+    def test_the_package_carries_the_resolved_values_of_its_backend(self):
+        from src.features.generation.package_assembly import assemble_execution_package, build_processed_pipeline
+        from src.features.generation.pipeline_builder import BuiltPipeline
+        from src.features.remote_execution.model_bundle_builder import build_model_bundle
+        from src.platform.settings.runtime_flags import ENGINE_FLAG_KEYS, engine_flag_values
+
+        pipes = [{"name": "flag_probe/fake", "id": "p1", "enabled": True, "config": {}, "input": []}]
+        catalog = FakeCatalog()
+        processed = build_processed_pipeline(pipes, catalog)
+        package = assemble_execution_package(
+            BuiltPipeline(generation_id="gen-pkg", preset_id=None, preset_template=None, pipes=pipes),
+            pipe_catalog=catalog,
+            model_bundle=build_model_bundle(processed.pipes, model_locator=self.model_locator),
+            engine="native",
+            engine_flags=engine_flag_values({"native_lora_fused": False}),
+        )
+
+        self.assertEqual(set(package.engine_flags), ENGINE_FLAG_KEYS)
+        self.assertIs(package.engine_flags["native_lora_fused"], False)
+        self.assertIs(package.engine_flags["native_fp8_matmul"], False)
+        round_trip = type(package).model_validate(package.model_dump(mode="json"))
+        self.assertEqual(round_trip.engine_flags, package.engine_flags)

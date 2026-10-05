@@ -1083,12 +1083,12 @@
 								{/snippet}
 							</DetailLayout>
 						</DetailBody>
-					{:else if detailTab === 'optimizations' && activeBackend.driver === NATIVE_LOCAL_DRIVER}
+					{:else if detailTab === 'optimizations' && (activeBackend.driver === NATIVE_LOCAL_DRIVER || activeBackend.driver === NATIVE_REMOTE_DRIVER)}
 						<DetailBody>
 							<DetailLayout>
 								{#snippet main()}
 									{#key activeBackend.id}
-										<BackendOptimizations backendId={activeBackend.id} />
+										<BackendOptimizations backendId={activeBackend.id} local={activeBackend.driver === NATIVE_LOCAL_DRIVER} />
 									{/key}
 								{/snippet}
 							</DetailLayout>

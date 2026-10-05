@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { logger, getApiErrorMessage } from '$lib/utils/logger';
-	import { Button, Badge, Spinner, Switch } from '$lib/components/ui';
+	import { Button, Badge, Spinner } from '$lib/components/ui';
 	import { DetailSection, KVGrid, KVItem, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -12,40 +12,29 @@
 		getCurrentOptimizationJob,
 		cancelCurrentOptimizationJob,
 		setAttentionBackend,
-		setEngineFlags,
+		getBackendEngineFlags,
 		restartApp,
 		runOptimizationBenchmark
 	} from '$lib/services/admin-api';
 	import type {
 		BackendOptimizations,
+		EngineFlags,
 		OptimizationStatus,
 		AttentionBenchmark
 	} from '$lib/services/admin-api';
+	import EngineKnobSections from './EngineKnobSections.svelte';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 
 	export let backendId: string;
+	export let local = true;
 
 	let loading = false;
 	let error: string | null = null;
 	let data: BackendOptimizations | null = null;
 	let pinning = false;
-
-	type EngineFlagId = 'torch_compile' | 'stream_prefetch';
-	let savingFlag: EngineFlagId | null = null;
-	const engineFlagDefs: { id: EngineFlagId; name: string; description: string }[] = [
-		{
-			id: 'torch_compile',
-			name: 'Torch compile',
-			description:
-				'Regional per-block torch.compile — engages only on fully resident, non-quantized models; first use per model pays a short warmup'
-		},
-		{
-			id: 'stream_prefetch',
-			name: 'Stream prefetch',
-			description: 'Overlap layer uploads with compute under partial residency'
-		}
-	];
+	let engineFlags: EngineFlags | null = null;
+	let baselineFlags: EngineFlags = {};
 
 	// Install modal / job polling
 	let modalOpt: OptimizationStatus | null = null;
@@ -70,11 +59,23 @@
 		loading = true;
 		error = null;
 		try {
-			const response = await getBackendOptimizations(backendId);
-			if (response.success && response.data) {
-				data = response.data;
+			if (local) {
+				const response = await getBackendOptimizations(backendId);
+				if (response.success && response.data) {
+					data = response.data;
+					engineFlags = response.data.engine_flags;
+					baselineFlags = response.data.engine_flags;
+				} else {
+					error = response.message || 'Failed to load optimizations';
+				}
 			} else {
-				error = response.message || 'Failed to load optimizations';
+				const response = await getBackendEngineFlags(backendId);
+				if (response.success && response.data) {
+					engineFlags = response.data.engine_flags;
+					baselineFlags = response.data.engine_flags;
+				} else {
+					error = response.message || 'Failed to load engine settings';
+				}
 			}
 		} catch (e: unknown) {
 			error = getApiErrorMessage(e, 'Failed to load optimizations');
@@ -134,25 +135,6 @@
 			toasts.error(getApiErrorMessage(e, 'Failed to set attention backend'));
 		} finally {
 			pinning = false;
-		}
-	}
-
-	async function onFlagChange(flag: EngineFlagId, checked: boolean) {
-		if (!data) return;
-		savingFlag = flag;
-		try {
-			const response = await setEngineFlags(backendId, { [flag]: checked ? 'on' : 'off' });
-			if (response.success && response.data) {
-				data = { ...data, engine_flags: response.data.engine_flags };
-			} else {
-				toasts.error(response.message || 'Failed to update engine flags');
-				data = { ...data };
-			}
-		} catch (e: unknown) {
-			toasts.error(getApiErrorMessage(e, 'Failed to update engine flags'));
-			data = { ...data };
-		} finally {
-			savingFlag = null;
 		}
 	}
 
@@ -307,7 +289,7 @@
 	<DetailSection label="Optimizations">
 		<div class="flex items-center gap-2 py-3">
 			<Spinner size="sm" />
-			<span class="text-xs text-fg-muted">Probing system…</span>
+			<span class="text-xs text-fg-muted">{local ? 'Probing system…' : 'Loading…'}</span>
 		</div>
 	</DetailSection>
 {:else if error}
@@ -316,7 +298,18 @@
 			{error}
 		</div>
 	</DetailSection>
-{:else if data}
+{:else if !local && engineFlags}
+	<div class="space-y-4">
+		<EngineKnobSections
+			{backendId}
+			flags={engineFlags}
+			baseline={baselineFlags}
+			local={false}
+			onRestart={confirmRestart}
+			onFlagsChange={(next) => (engineFlags = next)}
+		/>
+	</div>
+{:else if data && engineFlags}
 	<div class="space-y-4">
 		<DetailSection label="System">
 			<KVGrid>
@@ -443,28 +436,15 @@
 			{/snippet}
 		</DetailSection>
 
-		<DetailSection label="Engine flags" padded={false}>
-			<div class="divide-y divide-line">
-				{#each engineFlagDefs as flag (flag.id)}
-					<div class="flex items-center justify-between gap-4 px-4 sm:px-5 py-3">
-						<div class="flex-1 min-w-0">
-							<label for="engine-flag-{flag.id}-{backendId}" class="text-sm font-medium text-fg">
-								{flag.name}
-							</label>
-							<p class="text-xs text-fg-muted mt-0.5 leading-relaxed">{flag.description}</p>
-						</div>
-						{#if savingFlag === flag.id}<Spinner size="sm" />{/if}
-						<Switch
-							id="engine-flag-{flag.id}-{backendId}"
-							checked={data.engine_flags[flag.id]}
-							disabled={savingFlag !== null}
-							label={flag.name}
-							onchange={(checked) => onFlagChange(flag.id, checked)}
-						/>
-					</div>
-				{/each}
-			</div>
-		</DetailSection>
+		<EngineKnobSections
+			{backendId}
+			flags={engineFlags}
+			baseline={baselineFlags}
+			local
+			{restarting}
+			onRestart={confirmRestart}
+			onFlagsChange={(next) => (engineFlags = next)}
+		/>
 
 		<DetailSection label="Optimizations" padded={false}>
 			<div class="divide-y divide-line">

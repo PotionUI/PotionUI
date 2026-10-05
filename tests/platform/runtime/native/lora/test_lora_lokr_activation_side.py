@@ -36,7 +36,7 @@ PATHS = {
 
 @pytest.fixture(autouse=True)
 def _fused_default(monkeypatch):
-    monkeypatch.delenv(ops.NATIVE_LORA_FUSED_ENV, raising=False)
+    monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", True)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     ops._lora_path_layers.clear()
     yield
@@ -271,7 +271,7 @@ def test_a_lokr_that_does_not_tile_the_output_stays_weight_side_for_that_delta_o
 
 
 def test_kill_switch_restores_the_weight_side_lokr(monkeypatch):
-    monkeypatch.setenv(ops.NATIVE_LORA_FUSED_ENV, "off")
+    monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", False)
     weight_side = _weight_side_spy(monkeypatch)
     builds = _spy(monkeypatch, "_build_lokr_branch")
     lin = _applied(_fp8_layer, [(_lokr_sd("lowrank_both", 4.0), 1.0), (_plain_kohya(4, 3), 1.0)])
@@ -329,9 +329,9 @@ def test_window_edges_invalidate_and_an_out_of_window_lokr_contributes_nothing(m
         with torch.no_grad():
             got = wq(x)
             if wq.lora_deltas:
-                monkeypatch.setenv(ops.NATIVE_LORA_FUSED_ENV, "off")
+                monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", False)
                 want = wq(x)
-                monkeypatch.delenv(ops.NATIVE_LORA_FUSED_ENV)
+                monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", True)
                 _close(got, want, torch.bfloat16)
         return got
 

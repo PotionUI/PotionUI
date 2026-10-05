@@ -20,15 +20,6 @@ from src.platform.security.user import AccountType, User
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
 
-# Setting key backing the attention-backend pin; seeded by migration 078.
-_ATTENTION_BACKEND_SETTING_KEY = "native_attention_backend"
-
-# Engine-flag setting keys, seeded by migration 105.
-_ENGINE_FLAG_SETTING_KEYS = {
-    "torch_compile": "native_torch_compile",
-    "stream_prefetch": "native_stream_prefetch",
-}
-
 # What a client may send back in a secret field to mean "leave the stored value
 # unchanged". A redacted read never emits the secret itself, so a well-behaved
 # client sends nothing; this sentinel is accepted defensively too.
@@ -126,6 +117,34 @@ class BackendController(BaseController):
                 status_code=400,
             )
         return backend_config
+
+    def _require_native_backend(self, backend_id: str):
+        from src.features.backends.backend_config import ENGINE_FLAGS_FIELD
+
+        backend_config = self.backend_config_store.get_backend(backend_id)
+        if not backend_config:
+            return self.error_response(
+                error="backend_not_found",
+                message=f"Backend '{backend_id}' not found",
+                status_code=404,
+            )
+        if ENGINE_FLAGS_FIELD not in type(backend_config).model_fields:
+            return self.error_response(
+                error="engine_flags_not_supported",
+                message=f"Backend '{backend_id}' has no native engine settings",
+                status_code=400,
+            )
+        return backend_config
+
+    def _save_engine_flags(self, backend_config, changes: Dict[str, Any]) -> Dict[str, Any]:
+        from src.platform.settings.runtime_flags import activate_engine_flags, engine_flag_values
+
+        merged = {**backend_config.engine_flags, **changes}
+        backend_config.engine_flags = merged
+        self.backend_config_store.update_backend(backend_config.id, backend_config)
+        if type(backend_config).is_local:
+            return activate_engine_flags(merged)
+        return engine_flag_values(merged)
 
     def _serialize(self, backend, default_ids: Dict[str, str] = None) -> Dict[str, Any]:
         """Serialize a backend config, adding the persisted per-engine default flag."""
@@ -812,15 +831,18 @@ class BackendController(BaseController):
             )
 
     @staticmethod
-    def _engine_flags() -> Dict[str, bool]:
-        """Effective on/off state of the admin-toggleable native engine flags."""
-        from src.platform.runtime.native.memory import partial
-        from src.platform.runtime.native.optimizations import compile as torch_compile
+    def _engine_flags(backend_config) -> Dict[str, Any]:
+        from src.platform.settings.runtime_flags import engine_flag_values
 
-        return {
-            "torch_compile": torch_compile.torch_compile_enabled(),
-            "stream_prefetch": partial.stream_prefetch_enabled(),
-        }
+        return engine_flag_values(getattr(backend_config, "engine_flags", {}))
+
+    async def get_engine_flags(self, backend_id: str, user: Optional[User] = None) -> APIResponse:
+        self._require_admin(user)
+        backend_config = self._require_native_backend(backend_id)
+        return self.success_response(data={
+            "engine_flags": self._engine_flags(backend_config),
+            "is_local": bool(type(backend_config).is_local),
+        })
 
     async def get_backend_optimizations(self, backend_id: str, user: Optional[User] = None) -> APIResponse:
         """System probe + catalog status for a native backend's Optimizations panel."""
@@ -829,7 +851,7 @@ class BackendController(BaseController):
 
         self._require_admin(user)
         try:
-            self._require_local_backend(backend_id)
+            backend_config = self._require_local_backend(backend_id)
 
             probe = probe_system()
             optimizations = [asdict(opt.status(probe)) for opt in CATALOG.values()]
@@ -837,7 +859,7 @@ class BackendController(BaseController):
                 "system": asdict(probe),
                 "optimizations": optimizations,
                 "pinned_backend": attention.get_backend_override(),
-                "engine_flags": self._engine_flags(),
+                "engine_flags": self._engine_flags(backend_config),
             })
         except HTTPException:
             raise
@@ -955,7 +977,7 @@ class BackendController(BaseController):
 
         self._require_admin(user)
         try:
-            self._require_local_backend(backend_id)
+            backend_config = self._require_local_backend(backend_id)
 
             requested = (backend or "").strip().lower()
             # attention.known_backends() is the dispatcher's own source of truth
@@ -972,8 +994,7 @@ class BackendController(BaseController):
                 )
 
             stored_value = "" if requested == "auto" else requested
-            self.settings.set_setting(_ATTENTION_BACKEND_SETTING_KEY, stored_value)
-            attention.set_backend_override(stored_value)
+            self._save_engine_flags(backend_config, {"native_attention_backend": stored_value})
 
             return self.success_response(data={
                 "pinned_backend": attention.get_backend_override(),
@@ -989,53 +1010,29 @@ class BackendController(BaseController):
             )
 
     async def set_engine_flags(
-        self,
-        backend_id: str,
-        torch_compile: Optional[str] = None,
-        stream_prefetch: Optional[str] = None,
-        user: Optional[User] = None,
+        self, backend_id: str, flags: Dict[str, Any], user: Optional[User] = None,
     ) -> APIResponse:
-        """Toggle native engine flags: persist each provided value and apply it live.
-
-        Same shape as the attention-backend pin: the setting is the durable
-        record, the module-level override is what the hot path reads, and both
-        are written here so the change takes effect without a restart. An
-        untouched setting stays empty and the env var keeps deciding.
-        """
-        from src.platform.runtime.native.memory import partial
-        from src.platform.runtime.native.optimizations import compile as torch_compile_mod
+        from src.platform.settings.runtime_flags import normalize_engine_flags
 
         self._require_admin(user)
+        backend_config = self._require_native_backend(backend_id)
         try:
-            self._require_local_backend(backend_id)
-
-            setters = {
-                "torch_compile": torch_compile_mod.set_torch_compile_override,
-                "stream_prefetch": partial.set_stream_prefetch_override,
-            }
-            requested = {"torch_compile": torch_compile, "stream_prefetch": stream_prefetch}
-            for flag, value in requested.items():
-                if value is None:
-                    continue
-                normalized = value.strip().lower()
-                if normalized not in ("on", "off"):
-                    return self.error_response(
-                        error="invalid_engine_flag_value",
-                        message=f"{flag} must be 'on' or 'off', got '{value}'",
-                        status_code=400,
-                    )
-                self.settings.set_setting(_ENGINE_FLAG_SETTING_KEYS[flag], normalized)
-                setters[flag](normalized)
-
-            return self.success_response(data={"engine_flags": self._engine_flags()})
-        except HTTPException:
-            raise
+            changes = normalize_engine_flags(flags or {})
+        except ValueError as exc:
+            return self.error_response(
+                error="invalid_engine_flag_value",
+                message=str(exc),
+                status_code=400,
+            )
+        try:
+            resolved = self._save_engine_flags(backend_config, changes)
         except Exception as e:
             self.logger.error(f"Failed to set engine flags for backend {backend_id}: {str(e)}")
             return self.error_response(
                 error="set_engine_flags_failed",
                 message=f"Failed to set engine flags: {str(e)}",
             )
+        return self.success_response(data={"engine_flags": resolved})
 
     async def benchmark_backend_optimizations(self, backend_id: str, user: Optional[User] = None) -> APIResponse:
         """Time every available attention backend on identical tensors, so a user
@@ -1231,13 +1228,11 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def set_engine_flags(
         backend_id: str, body: EngineFlagsRequest, current_user=Depends(get_current_active_user)
     ):
-        """Toggle torch.compile / stream prefetch on the native engine, applied live (admin only)."""
-        return await controller.set_engine_flags(
-            backend_id,
-            torch_compile=body.torch_compile,
-            stream_prefetch=body.stream_prefetch,
-            user=current_user,
-        )
+        return await controller.set_engine_flags(backend_id, body.flags, user=current_user)
+
+    @router.get("/{backend_id}/engine-flags", response_model=APIResponse, summary="Get Native Engine Settings")
+    async def get_engine_flags(backend_id: str, current_user=Depends(get_current_active_user)):
+        return await controller.get_engine_flags(backend_id, current_user)
 
     @router.post(
         "/{backend_id}/optimizations/benchmark",

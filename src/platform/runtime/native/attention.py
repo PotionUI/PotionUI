@@ -86,10 +86,11 @@ from __future__ import annotations
 
 import importlib.util
 import logging
-import os
 
 import torch
 import torch.nn.functional as F
+
+from src.platform.settings.runtime_flags import coerce_runtime_flag, runtime_flag, runtime_flag_values
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +130,6 @@ _SPARGE_CAPABILITY_MAJORS: frozenset[int] = frozenset({8, 9})
 _SPARGE_MIN_SEQ_LEN = 128
 _SPARGE_VALID_HEAD_DIMS: frozenset[int] = frozenset({64, 128})
 
-ENV_VAR = "NATIVE_ATTENTION"
 
 # Module-level probe cache, keyed by CUDA device INDEX (availability only;
 # selection re-reads env each call). Per-device because compute capability is
@@ -142,28 +142,13 @@ ENV_VAR = "NATIVE_ATTENTION"
 _availability: dict[int, dict[str, bool]] = {}
 _warned_unavailable: set[str] = set()
 
-# In-memory pin set via the admin UI (Admin -> Backends -> Optimizations). Seeded
-# from the `native_attention_backend` setting at app startup and updated live by
-# the pin endpoint; never read from the DB inside the hot dispatch path.
-_backend_override: str | None = None
-
 
 def set_backend_override(name: str | None) -> None:
-    """Pin (or clear) the attention backend from outside a single call.
-
-    Normalizes ``""``/``"auto"``/``None`` to ``None`` (= no pin, fall through to
-    ``$NATIVE_ATTENTION`` or the best available backend).
-    """
-    global _backend_override
-    if name is None:
-        _backend_override = None
-        return
-    normalized = name.strip().lower()
-    _backend_override = None if normalized in ("", "auto") else normalized
+    runtime_flag_values()["native_attention_backend"] = coerce_runtime_flag("native_attention_backend", name)
 
 
 def get_backend_override() -> str | None:
-    return _backend_override
+    return runtime_flag("native_attention_backend") or None
 
 
 def _has_module(name: str) -> bool:
@@ -375,7 +360,7 @@ def get_attention_backend(override: str | None = None, device_index: int | None 
     """
     full_avail = _get_availability(device_index)  # every probed backend, incl. pin-only
     auto_avail = available_backends(device_index)  # non-empty (sdpa floor); excludes pin-only
-    requested = override or os.environ.get(ENV_VAR) or _backend_override or None
+    requested = override or runtime_flag("native_attention_backend") or None
 
     if requested is None:
         return auto_avail[0]

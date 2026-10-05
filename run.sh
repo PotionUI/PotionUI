@@ -4,7 +4,6 @@ set -euo pipefail
 BACKEND_PORT="${BACKEND_PORT:-26730}"
 FRONTEND_PORT="${FRONTEND_PORT:-26731}"
 LAN_MODE=false
-POTIONUI_PROFILE=1
 
 positional=()
 for arg in "$@"; do
@@ -83,7 +82,6 @@ BACKEND_PID=$!
 export BACKEND_PORT
 export FRONTEND_PORT
 export VITE_HOST
-export POTIONUI_PROFILE
 
 cd frontend
 npm run dev &

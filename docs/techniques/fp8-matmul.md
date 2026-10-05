@@ -8,12 +8,12 @@ authors: []
 paper: null
 reference_impl: null
 knobs:
-  - key: NATIVE_FP8_MATMUL
-    surface: env
+  - key: native_fp8_matmul
+    surface: admin
     default: "off"
     effect: "Runs fp8-quantized linear layers as real fp8 GEMMs instead of dequantizing to bf16/fp16 first"
-  - key: NATIVE_LORA_FUSED
-    surface: env
+  - key: native_lora_fused
+    surface: admin
     default: "on"
     effect: "Adds a layer's runtime LoRA adapters in one fused in-place step with factors prepared once; off restores the old per-adapter path for A/B"
 related: [torch-compile]
@@ -52,15 +52,19 @@ no effect on bf16/fp16 checkpoints, since there's no fp8 weight for the fast pat
 
 ## How to enable it
 
-Set the environment variable before starting the API server:
+Turn on **fp8 fast multiply** in Admin → Backends → *your native backend* → Optimizations → Speed
+(setting `native_fp8_matmul`, off by default). It takes effect on the next generation, with no
+restart. The hardware/torch capability probe still has to pass; on hardware that fails it, the
+setting has no effect.
 
-```bash
-export NATIVE_FP8_MATMUL=on
-```
+The setting is part of each native backend's configuration, so a local backend and each remote
+native worker can differ; a remote worker receives its backend's value with every job, and the
+worker's own environment never decides it.
 
-`auto` currently behaves identically to `on` (both require the same hardware/torch capability probe
-to pass; there is no separate VRAM-based heuristic for this knob). Any other value is treated as
-`off` with a warning logged.
+The setting replaces the old `NATIVE_FP8_MATMUL` environment variable, which is no longer read. On
+the first boot after the update every existing native backend is seeded once from that variable if
+it was set (`auto` is seeded as on); backends created later start from the default, and a variable
+that is still set only logs a startup line saying it is ignored.
 
 ## LoRA on the fast path
 
@@ -77,36 +81,48 @@ zero-strength adapter is skipped, so neither costs anything per step. The joined
 adapters' own GPU memory when the LoRA file is already in the compute dtype (usually bf16). An
 fp16 or fp32 LoRA file is cast once instead of on every forward.
 
-Both the fp8 (`NATIVE_FP8_MATMUL`) and nvfp4 (`NATIVE_NVFP4_MATMUL`) fast paths use this, and so
-does the dequantize path. LoKr adapters have no output-side form: a layer that carries one stays
-on the dequantize path and pays a weight-sized delta per forward.
+Both the fp8 (**fp8 fast multiply**, `native_fp8_matmul`) and nvfp4 (**nvfp4 fast multiply**,
+`native_nvfp4_matmul`, in the same Speed section) fast paths use this, and so does the dequantize
+path.
+
+LoKr adapters run on the activation side too. A LoKr's delta is the Kronecker product of two small
+factors, so instead of building that weight-sized delta the layer contracts its input against both
+factors in turn, in whichever order costs less, keeping each factor's own low-rank split when the
+file has one. A layer that carries a LoKr therefore stays on the fp8, nvfp4 or dequantize path it
+would take anyway. Two cases still fall back to the weight-side Kronecker delta, paid per forward: a
+LoKr whose factors don't multiply out to the layer's output width or that targets only a slice of a
+fused weight, and every LoKr while **Fuse LoRAs into the model** is off.
 
 After each sampling run the log shows one INFO line with how many LoRA layers took each path:
 
 ```
-lora forward paths (layers): fused-fast 224
+lora forward paths (layers): fused-fast 196, fused-fast (+lokr) 28
 lora forward paths (layers): dequant (fp8 matmul off) 196, weight-side (lokr) 28
 ```
 
-To compare against the old per-adapter path, set this before starting the API server:
+`(+lokr)` marks layers whose LoKr ran activation-side on that path; `weight-side (lokr)` marks
+layers that fell back to the weight-side Kronecker delta.
 
-```bash
-export NATIVE_LORA_FUSED=off
-```
+To compare against the old per-adapter path, turn off **Fuse LoRAs into the model** in Admin →
+Backends → *your native backend* → Optimizations → Speed (setting `native_lora_fused`, on by
+default). It takes effect on the next generation.
 
-With it off, the fast paths add each adapter separately (`unfused-fast` in the log), and the
-dequantize path joins the factors again on every forward. Any other value, or leaving it unset,
-keeps the fused path on.
+With it off, the fast paths add each adapter separately (`unfused-fast` in the log), the
+dequantize path joins the factors again on every forward, and LoKr adapters go back to the
+weight-side Kronecker delta. The setting replaces the old
+`NATIVE_LORA_FUSED` environment variable, which is no longer read after the first boot seeds each
+existing native backend from it.
 
 ## Tradeoffs and limitations
 
 - Requires specific hardware: CUDA with compute capability `(8, 9)` or higher (Ada/Hopper/Blackwell)
-  and a `torch` build exposing `_scaled_mm`. On unsupported hardware the flag has no effect and the
+  and a `torch` build exposing `_scaled_mm`. On unsupported hardware the setting has no effect and the
   dequantize path is used regardless of the setting.
 - Only matters for fp8-quantized checkpoints — on any other checkpoint this knob is a no-op since no
   layer is stored as `float8_e4m3fn`.
-- No fast path when a runtime LoRA delta is patched onto the layer that can't be expressed as an
-  output-side low-rank branch (e.g. LoKr); those layers always use the dequantize path.
+- No fast path when a runtime LoRA delta is patched onto the layer that can't be expressed on the
+  activation side (e.g. a LoKr whose factors don't tile the layer's output, or any LoKr with LoRA
+  fusing off); those layers use the dequantize path.
 - On-demand weight staging adds one extra host-to-device copy per forward for a streamed leaf that
   isn't already resident/prefetched — the same copy the dequantize path would otherwise pay to
   bring the weight to the activation's device, just handed to the fp8 kernel instead of a dense
@@ -117,4 +133,4 @@ keeps the fused path on.
   the latter costs an extra reduction per forward pass.
 - Not yet benchmarked on real hardware: this has been unit-tested but not A/B validated for
   wall-clock speedup or output quality drift against the dequantize path on an actual GPU. Validate
-  with a same-seed/prompt comparison (flag off vs. on) on your hardware before relying on it.
+  with a same-seed/prompt comparison (setting off vs. on) on your hardware before relying on it.

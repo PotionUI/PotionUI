@@ -96,7 +96,9 @@ generator pipe routes its decode through `_shared/vae/ltx_tiled_decode.py`'s
 latent shape and the module's own widths, decodes whole-clip when that fits,
 and on a CUDA OOM evicts foreign GPU-resident components, retries once, then
 falls back to a tiled decode whose tile size is sized to the same VRAM budget
-(overridable with `NATIVE_LTX_DIFFUSION_TILE_PX` / `NATIVE_LTX_DIFFUSION_TILE_FRAMES`).
+(overridable per native backend with the `native_ltx_decode_tile_px` /
+`native_ltx_decode_tile_frames` settings, Admin → Backends → *backend* → Optimizations → Memory →
+"LTX decode tile size" / "LTX decode tile length"; 0, the default, keeps the automatic sizing).
 
 ## Presets & modes
 

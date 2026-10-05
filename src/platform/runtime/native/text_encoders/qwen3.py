@@ -20,12 +20,13 @@ exact buffer that, left as meta/garbage, killed the previous Qwen attempt.
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any
 
 import torch
 import torch.nn as nn
+
+from src.platform.settings.runtime_flags import runtime_flag
 
 from ..base import NativeArchModule
 from ..errors import NativeEngineUnsupportedError
@@ -66,18 +67,12 @@ logger = logging.getLogger(__name__)
 # numerics choice (nvfp4 activation quantisation is lossier than fp32), not a
 # capability gate, and needs its own A/B (wall-time AND output quality) before
 # any default changes. An unknown value is treated as `off`.
-NATIVE_QWEN3_TE_BF16_ENV = "NATIVE_QWEN3_TE_BF16"
 
 
 def _qwen3_te_bf16_enabled() -> bool:
     """Whether the Qwen3 TE stack should run its activations in bf16, per
     ``$NATIVE_QWEN3_TE_BF16`` (see the flag's module-level comment)."""
-    policy = os.environ.get(NATIVE_QWEN3_TE_BF16_ENV, "off").strip().lower()
-    if policy == "on":
-        return True
-    if policy != "off":
-        logger.warning("qwen3 te bf16: unknown %s=%r; treating as 'off'", NATIVE_QWEN3_TE_BF16_ENV, policy)
-    return False
+    return bool(runtime_flag("native_qwen3_te_bf16"))
 
 
 def _qwen3_te_activation_dtype() -> torch.dtype:

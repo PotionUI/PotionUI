@@ -546,8 +546,9 @@ def build_container() -> AppContainer:
         settings.get_file_storage_directory()
     )
 
-    from src.platform.observability.profiling import configure_settings as _configure_profiling_settings
-    _configure_profiling_settings(settings)
+    from src.platform.settings.runtime_flags import configure_runtime_flags, warn_ignored_env_vars
+    configure_runtime_flags(settings)
+    warn_ignored_env_vars()
 
     # Wire the chat LLM call-trace collector (admin session-debug viewer) —
     # provider clients call trace_collector.record() unconditionally; it is a

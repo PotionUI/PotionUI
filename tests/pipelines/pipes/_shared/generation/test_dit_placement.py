@@ -25,6 +25,8 @@ import pytest
 import torch
 import torch.nn as nn
 
+import vendor.gpl.comfyui.ops as comfy_ops
+from src.platform.settings import runtime_flags
 from vendor.gpl.comfyui.ops import _add_lora_output_branch, _lora_output_branch
 
 from src.pipelines.pipes._shared.generation.dit_placement import (
@@ -1541,7 +1543,7 @@ def _dit_compilable(estimated_vram_gb=23.3):
 def _enable_compile(monkeypatch):
     from src.platform.runtime.native.optimizations import compile as tc
 
-    monkeypatch.setenv(tc.NATIVE_TORCH_COMPILE_ENV, "on")
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", True)
     return tc
 
 
@@ -1567,9 +1569,7 @@ def test_partial_placement_never_compiles(monkeypatch):
 
 
 def test_compile_disabled_by_default_leaves_dit_untouched(monkeypatch):
-    from src.platform.runtime.native.optimizations import compile as tc
-
-    monkeypatch.delenv(tc.NATIVE_TORCH_COMPILE_ENV, raising=False)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", False)
     dit, _calls = _dit_compilable()
     patches, _manager = _patched(free_gb=32.0)
     with patches[0], patches[1], patches[2]:
@@ -1792,11 +1792,11 @@ def test_the_unfused_lora_path_keeps_the_per_token_output_buffer_term():
     assert profile.output_buffer_out_features == 28672
 
 
-def test_native_lora_fused_env_decides_the_term(monkeypatch):
+def test_native_lora_fused_flag_decides_the_term(monkeypatch):
     dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=True)))
-    monkeypatch.setenv("NATIVE_LORA_FUSED", "off")
+    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_lora_fused", False)
     with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
         assert _dit_lora_profile(dit).output_buffer_out_features == 28672
-    monkeypatch.setenv("NATIVE_LORA_FUSED", "on")
+    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_lora_fused", True)
     with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
         assert _dit_lora_profile(dit).output_buffer_out_features == 0

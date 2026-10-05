@@ -275,8 +275,9 @@ The automatic attention priority is:
 SageAttention 2 -> SageAttention -> FlashAttention -> PyTorch SDPA
 ```
 
-An explicit call override, `NATIVE_ATTENTION`, or the admin in-memory pin can request a backend;
-otherwise the fastest available implementation is selected. Accelerated kernels are eligible only
+An explicit call override or the backend's attention pin (setting `native_attention_backend`,
+Admin → Backends → *backend* → Optimizations) can request a backend; otherwise the fastest available implementation is selected.
+The old `NATIVE_ATTENTION` environment variable no longer overrides the pin and is not read. Accelerated kernels are eligible only
 for CUDA fp16/bf16 calls without a dense mask. CPU, fp32, and masked calls transparently fall back
 to SDPA. Therefore “installed” does not mean every attention operation uses that kernel.
 
@@ -287,13 +288,15 @@ backend.
 ### Precision and FP8
 
 Native-v2 can load existing scaled-FP8 checkpoints. For a compatible full-precision DiT,
-load-time quantization supports `auto`, `off`, and `force` through the loader policy (or
-`NATIVE_FP8_QUANTIZE`); the default is `auto`. Automatic conversion occurs only when the original
+load-time quantization supports `auto`, `off`, and `force` through the loader policy (or the
+backend's `native_fp8_quantize` setting, Admin → Backends → *backend* → Optimizations → Memory →
+"Shrink bf16 models to fp8 at load", applied on the next model load); the default is `auto`. Automatic conversion occurs only when the original
 precision would not fit resident but the estimated FP8 representation would. Large linear weights
 are quantized while precision-sensitive tensors remain at their original dtype.
 
-FP8 storage and FP8 matrix multiplication are distinct. `NATIVE_FP8_MATMUL` controls the optional
-matrix-multiply fast path and currently defaults to off; without it, scaled FP8 weights use the
+FP8 storage and FP8 matrix multiplication are distinct. The backend's `native_fp8_matmul` setting (Admin
+→ Backends → *backend* → Optimizations → Speed → "fp8 fast multiply") controls the optional
+matrix-multiply fast path and defaults to off; without it, scaled FP8 weights use the
 established dequantize-on-forward path.
 
 ### Other reuse and memory optimizations

@@ -244,6 +244,18 @@ grouped by engine. For each one you set:
 - **scheduling_policy** / **scheduling_max_consecutive_same_model** — FIFO or fair dispatch order
   among this backend's own queued work; see [Scheduling policy](#scheduling-policy) below.
 - connection fields, if the engine has any.
+- for a `native` backend (local or a remote native worker), the engine switches on its
+  **Optimizations** tab, in three sections: Speed (`native_fp8_matmul`, `native_nvfp4_matmul`,
+  `native_lora_fused`, `native_torch_compile`, `native_qwen3_te_bf16`, `native_sol_attn_backend`),
+  Memory (`native_stream_prefetch`, `native_fp8_quantize`, `native_min_inference_memory_gb`,
+  `native_ltx_decode_tile_px`, `native_ltx_decode_tile_frames`) and Debug logging
+  (`native_sol_attn_debug`), plus the existing attention pin (`native_attention_backend`). They are
+  stored in that backend's config, so each native backend has its own values, and they replace the
+  old `NATIVE_*` environment variables, which are no longer read. On the first boot after the update every
+  existing native backend is seeded once from whichever of those variables were set; backends created
+  later start from the defaults, and a variable that is still set only logs a startup line saying it
+  is ignored and where its setting now lives. What each switch does, which variable it replaces, and when a
+  change applies is listed in the admin guide (`docs/user/admin.md`, "Optimizations (native backends)").
 
 Two backends of the same engine are a normal setup: a ComfyUI Desktop instance for local work and a
 ComfyUI pod for heavy jobs, one of them flagged default. Two backends of *different* engines never

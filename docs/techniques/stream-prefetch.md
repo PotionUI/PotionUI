@@ -8,8 +8,8 @@ authors: []
 paper: null
 reference_impl: null
 knobs:
-  - key: NATIVE_STREAM_PREFETCH
-    surface: env
+  - key: native_stream_prefetch
+    surface: admin
     default: "off"
     effect: "Overlaps the next streamed layer's host-to-device weight copy with the current layer's compute"
 related: [torch-compile]
@@ -37,14 +37,17 @@ the model fits fully on the GPU.
 
 ## How to enable it
 
-Set the environment variable before starting the API server:
+Turn on **Prefetch streamed layers** in Admin → Backends → *your native backend* → Optimizations →
+Memory (setting `native_stream_prefetch`, off by default). It takes effect on the next generation,
+with no restart.
 
-```bash
-export NATIVE_STREAM_PREFETCH=on
-```
+The setting is part of each native backend's configuration, so a local backend and each remote
+native worker can differ; a remote worker receives its backend's value with every job, and the
+worker's own environment never decides it.
 
-`auto` currently behaves identically to `on` (no separate heuristic yet). Any other value is treated
-as `off` with a warning logged.
+The setting replaces the old `NATIVE_STREAM_PREFETCH` environment variable, which is no longer read.
+On the first boot after the update every existing native backend is seeded once from that variable
+if it was set (`auto` is seeded as on); after that the variable is ignored.
 
 ## Tradeoffs and limitations
 
@@ -55,5 +58,5 @@ as `off` with a warning logged.
   low-VRAM configuration this could increase peak VRAM slightly compared to the non-overlapped path.
 - Not yet benchmarked on real hardware: the CUDA stream/event choreography is unit-tested with fakes
   but the actual wall-clock improvement on a streamed generation has not been measured on a GPU as
-  of this writing. Validate by comparing wall-clock with the flag off vs. on on a real
+  of this writing. Validate by comparing wall-clock with the setting off vs. on on a real
   partial-residency generation before relying on it.

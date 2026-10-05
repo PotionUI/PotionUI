@@ -36,12 +36,13 @@ and one log line, never a crashed one.
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 import torch
 from torch import Tensor
+
+from src.platform.settings.runtime_flags import runtime_flag
 
 logger = logging.getLogger(__name__)
 
@@ -182,16 +183,20 @@ def _disable(reason: str) -> None:
 
 
 def _load_backend() -> Callable[..., Tensor]:
-    choice = os.environ.get("NATIVE_SOL_ATTN_BACKEND", _DEFAULT_BACKEND).strip().lower() or _DEFAULT_BACKEND
+    choice = str(runtime_flag("native_sol_attn_backend") or _DEFAULT_BACKEND).strip().lower()
     if choice == "flex":
-        from vendor.sol_attn.flex import sol_attn_flex
+        from vendor.sol_attn import flex
 
-        return sol_attn_flex
+        def _flex_with_debug_flag(*args: Any, **kwargs: Any) -> Tensor:
+            flex._DEBUG = bool(runtime_flag("native_sol_attn_debug"))
+            return flex.sol_attn_flex(*args, **kwargs)
+
+        return _flex_with_debug_flag
     if choice == "kernel":
         from vendor.sol_attn.interface import sol_attn
 
         return sol_attn
-    raise ValueError(f"NATIVE_SOL_ATTN_BACKEND must be 'flex' or 'kernel', got {choice!r}")
+    raise ValueError(f"native_sol_attn_backend must be 'flex' or 'kernel', got {choice!r}")
 
 
 def _unsupported(q: Tensor) -> Optional[str]:

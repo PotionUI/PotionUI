@@ -12,6 +12,7 @@ from src.platform.runtime.native.arch.minimax_music3.config import MiniMaxMusic3
 from src.platform.runtime.native.arch.minimax_music3.depth_decoder import DepthDecoderModule
 from vendor.gpl.comfyui.ops import disable_weight_init, Fp8ScaledLinear
 from src.platform.runtime.native.optimizations import compile as tc
+from src.platform.settings import runtime_flags
 
 
 # --- helpers ------------------------------------------------------------------
@@ -61,7 +62,7 @@ class _MockNM:
 
 
 def _enable(monkeypatch):
-    monkeypatch.setenv(tc.NATIVE_TORCH_COMPILE_ENV, "on")
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", True)
 
 
 def _record_compile_calls(monkeypatch):
@@ -75,42 +76,15 @@ def _record_compile_calls(monkeypatch):
     return calls
 
 
-# --- env toggle ---------------------------------------------------------------
-
-
-def test_env_toggle_parsing(monkeypatch):
-    monkeypatch.delenv(tc.NATIVE_TORCH_COMPILE_ENV, raising=False)
+def test_torch_compile_follows_the_runtime_flag(monkeypatch):
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", False)
     assert tc.torch_compile_enabled() is False
-    monkeypatch.setenv(tc.NATIVE_TORCH_COMPILE_ENV, "on")
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", True)
     assert tc.torch_compile_enabled() is True
-    monkeypatch.setenv(tc.NATIVE_TORCH_COMPILE_ENV, "auto")
-    assert tc.torch_compile_enabled() is True
-    for spelling in ("1", "true", "YES"):
-        monkeypatch.setenv(tc.NATIVE_TORCH_COMPILE_ENV, spelling)
-        assert tc.torch_compile_enabled() is True
-    for spelling in ("0", "false", "No"):
-        monkeypatch.setenv(tc.NATIVE_TORCH_COMPILE_ENV, spelling)
-        assert tc.torch_compile_enabled() is False
-    monkeypatch.setenv(tc.NATIVE_TORCH_COMPILE_ENV, "nonsense")
-    assert tc.torch_compile_enabled() is False
 
 
-def test_admin_override_beats_env(monkeypatch):
-    monkeypatch.delenv(tc.NATIVE_TORCH_COMPILE_ENV, raising=False)
-    monkeypatch.setattr(tc, "_compile_override", None)
-
-    tc.set_torch_compile_override("on")
-    assert tc.torch_compile_enabled() is True      # no env needed
-
-    tc.set_torch_compile_override("off")
-    monkeypatch.setenv(tc.NATIVE_TORCH_COMPILE_ENV, "on")
-    assert tc.torch_compile_enabled() is False     # explicit off beats env
-
-    tc.set_torch_compile_override(None)
-    assert tc.torch_compile_enabled() is True      # cleared -> env fallback
-    tc.set_torch_compile_override("")
-    assert tc.torch_compile_enabled() is True      # empty setting -> env fallback
-    assert tc.get_torch_compile_override() is None
+def test_torch_compile_is_off_by_default():
+    assert runtime_flags.RUNTIME_FLAG_BY_KEY["native_torch_compile"].default is False
 
 
 # --- block discovery on real Flux ---------------------------------------------
@@ -140,7 +114,7 @@ def test_find_block_lists_ignores_singletons_and_heterogeneous():
 
 
 def test_gate_disabled_by_default(monkeypatch):
-    monkeypatch.delenv(tc.NATIVE_TORCH_COMPILE_ENV, raising=False)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", False)
     ok, reason = tc.compile_gate(_MockNM(_Blocks()), resident=True, is_cuda=True)
     assert (ok, reason) == (False, "disabled")
 
@@ -406,7 +380,7 @@ class _MockNativeLM:
 
 
 def test_music3_gate_disabled_by_default(monkeypatch):
-    monkeypatch.delenv(tc.NATIVE_TORCH_COMPILE_ENV, raising=False)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", False)
     ok, reason = tc.music3_ar_compile_gate(_MockNativeLM(_tiny_depth_decoder()), resident=True, is_cuda=True)
     assert (ok, reason) == (False, "disabled")
 

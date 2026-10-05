@@ -46,7 +46,6 @@ def _build_attention(heads=4, kvheads=2, seed=0):
 
 @pytest.fixture(autouse=True)
 def _clean_backend_state(monkeypatch):
-    monkeypatch.delenv(att.ENV_VAR, raising=False)
     att.set_backend_override(None)
     att.reset_backend_cache()
     yield

@@ -8,8 +8,8 @@ authors: []
 paper: null
 reference_impl: null
 knobs:
-  - key: NATIVE_TORCH_COMPILE
-    surface: env
+  - key: native_torch_compile
+    surface: admin
     default: "off"
     effect: "Compiles the repeated transformer block of a fully GPU-resident DiT for faster steps after warm-up"
 related: [first-block-cache, fp8-matmul]
@@ -40,15 +40,18 @@ GPU-resident; it has no effect during low-VRAM streamed (partial-residency) gene
 
 ## How to enable it
 
-Set the environment variable before starting the API server:
+Turn on **Compile the model (torch.compile)** in Admin → Backends → *your native backend* →
+Optimizations → Speed (setting `native_torch_compile`, off by default). It takes effect on the next
+model load, with no restart; a model that is already loaded keeps running uncompiled until it is
+loaded again. There is no preset key for this.
 
-```bash
-export NATIVE_TORCH_COMPILE=on
-```
+The setting is part of each native backend's configuration, so a local backend and each remote
+native worker can differ; a remote worker receives its backend's value with every job, and the
+worker's own environment never decides it.
 
-`auto` currently behaves identically to `on` (there is no separate heuristic yet). Any other value
-is treated as `off` with a warning logged. There is no admin panel toggle or preset key for this —
-the environment variable is the only surface.
+The setting replaces the old `NATIVE_TORCH_COMPILE` environment variable, which is no longer read.
+On the first boot after the update every existing native backend is seeded once from that variable
+if it was set (`auto` is seeded as on); after that the variable is ignored.
 
 ## Tradeoffs and limitations
 

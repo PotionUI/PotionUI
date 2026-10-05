@@ -9,10 +9,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import vendor.gpl.comfyui.ops as comfy_ops
 from src.platform.runtime.native.ops.dtype import pick_dtypes
 from vendor.gpl.comfyui.ops import (
-    NATIVE_FP8_MATMUL_ENV,
-    NATIVE_NVFP4_MATMUL_ENV,
     QUANT_FP8_SCALED,
     _fp8_matmul_enabled,
     _nvfp4_fast_path_reject_reason,
@@ -230,38 +229,23 @@ def _reset_scaled_mm_probe():
 
 
 def test_fp8_matmul_disabled_by_default(monkeypatch):
-    monkeypatch.delenv(NATIVE_FP8_MATMUL_ENV, raising=False)
+    monkeypatch.setattr(comfy_ops, "RUNTIME_FLAGS", {})
     with patch("vendor.gpl.comfyui.ops._scaled_mm_supported", return_value=True):
         assert _fp8_matmul_enabled() is False
 
 
-def test_fp8_matmul_env_off_never_uses_fast_path_even_if_probe_true(monkeypatch):
-    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "off")
+def test_fp8_matmul_flag_off_never_uses_fast_path_even_if_probe_true(monkeypatch):
+    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", False)
     with patch("vendor.gpl.comfyui.ops._scaled_mm_supported", return_value=True):
         assert _fp8_matmul_enabled() is False
 
 
-def test_fp8_matmul_env_on_requires_probe(monkeypatch):
-    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+def test_fp8_matmul_flag_on_requires_probe(monkeypatch):
+    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
     with patch("vendor.gpl.comfyui.ops._scaled_mm_supported", return_value=False):
         assert _fp8_matmul_enabled() is False
     with patch("vendor.gpl.comfyui.ops._scaled_mm_supported", return_value=True):
         assert _fp8_matmul_enabled() is True
-
-
-def test_fp8_matmul_env_auto_requires_probe(monkeypatch):
-    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "auto")
-    with patch("vendor.gpl.comfyui.ops._scaled_mm_supported", return_value=False):
-        assert _fp8_matmul_enabled() is False
-    with patch("vendor.gpl.comfyui.ops._scaled_mm_supported", return_value=True):
-        assert _fp8_matmul_enabled() is True
-
-
-def test_fp8_matmul_unknown_policy_warns_and_disables(monkeypatch, caplog):
-    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "bogus")
-    with caplog.at_level("WARNING"):
-        assert _fp8_matmul_enabled() is False
-    assert "unknown" in caplog.text.lower()
 
 
 def test_scaled_mm_supported_probe_caches(monkeypatch):
@@ -504,7 +488,7 @@ def test_forward_comfy_cast_weights_falls_back_when_non_branchable_lora_deltas_p
     # see test_forward_scaled_mm_lora_output_branch_matches_dequant_parity.
     from src.platform.runtime.native.lora.key_mapping import LoraDelta
 
-    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
     with patch("vendor.gpl.comfyui.ops._scaled_mm_supported", return_value=True):
         lin = fp8_ops.Linear(16, 16, bias=False)
         real_w = torch.randn(16, 16) * 0.05
@@ -524,7 +508,7 @@ def test_forward_comfy_cast_weights_falls_back_on_cpu_even_when_gate_on(monkeypa
     # forward_comfy_cast_weights on a real (CPU) module never takes the fast
     # path regardless of the env gate, because input.is_cuda/weight.is_cuda are
     # False on this test box -- torch._scaled_mm is a CUDA-only kernel.
-    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
     with patch("vendor.gpl.comfyui.ops._scaled_mm_supported", return_value=True):
         lin = fp8_ops.Linear(16, 16, bias=False)
         real_w = torch.randn(16, 16) * 0.05
@@ -705,7 +689,7 @@ def test_forward_stages_streamed_cpu_weight_on_demand_and_reaches_kernel(monkeyp
 
     lin = _streamed_fp8_layer()
     resident_ids, stage_calls_for = _install_fake_cuda_residency(monkeypatch)
-    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
 
     x = torch.randn(1, 16, dtype=torch.bfloat16)
     resident_ids.add(id(x))  # the activation is on the (fake) GPU
@@ -735,7 +719,7 @@ def test_forward_reuses_already_resident_weight_without_extra_copy(monkeypatch):
 
     lin = _streamed_fp8_layer()
     resident_ids, stage_calls_for = _install_fake_cuda_residency(monkeypatch)
-    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
     resident_ids.add(id(lin.weight))  # already staged (e.g. LayerPrefetcher._consume)
 
     x = torch.randn(1, 16, dtype=torch.bfloat16)
@@ -759,7 +743,7 @@ def test_forward_restages_every_call_with_no_cross_call_retention(monkeypatch):
 
     lin = _streamed_fp8_layer()
     resident_ids, stage_calls_for = _install_fake_cuda_residency(monkeypatch)
-    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
 
     x = torch.randn(1, 16, dtype=torch.bfloat16)
     resident_ids.add(id(x))
@@ -786,7 +770,7 @@ def test_forward_falls_back_to_dequant_when_on_demand_staging_oom(monkeypatch):
     lin = _streamed_fp8_layer()
     real_cast_to = wo.cast_to  # the true function, captured before any fake replaces it
     resident_ids, _ = _install_fake_cuda_residency(monkeypatch)
-    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
 
     x = torch.randn(1, 16, dtype=torch.bfloat16)
     resident_ids.add(id(x))
@@ -817,7 +801,7 @@ def test_forward_on_cpu_gate_off_is_byte_identical_to_dequant(monkeypatch):
 
     lin = _streamed_fp8_layer()
     _install_fake_cuda_residency(monkeypatch)
-    monkeypatch.delenv(NATIVE_FP8_MATMUL_ENV, raising=False)
+    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", False)
 
     x = torch.randn(1, 16, dtype=torch.bfloat16)
     with patch("torch._scaled_mm", side_effect=AssertionError("must not run when gate is off")):
@@ -914,38 +898,23 @@ def _reset_nvfp4_scaled_mm_probe():
 
 
 def test_nvfp4_matmul_disabled_by_default(monkeypatch):
-    monkeypatch.delenv(NATIVE_NVFP4_MATMUL_ENV, raising=False)
+    monkeypatch.setattr(comfy_ops, "RUNTIME_FLAGS", {})
     with patch("vendor.gpl.comfyui.ops._nvfp4_scaled_mm_supported", return_value=True):
         assert _nvfp4_matmul_enabled() is False
 
 
-def test_nvfp4_matmul_env_off_never_uses_fast_path_even_if_probe_true(monkeypatch):
-    monkeypatch.setenv(NATIVE_NVFP4_MATMUL_ENV, "off")
+def test_nvfp4_matmul_flag_off_never_uses_fast_path_even_if_probe_true(monkeypatch):
+    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_nvfp4_matmul", False)
     with patch("vendor.gpl.comfyui.ops._nvfp4_scaled_mm_supported", return_value=True):
         assert _nvfp4_matmul_enabled() is False
 
 
-def test_nvfp4_matmul_env_on_requires_probe(monkeypatch):
-    monkeypatch.setenv(NATIVE_NVFP4_MATMUL_ENV, "on")
+def test_nvfp4_matmul_flag_on_requires_probe(monkeypatch):
+    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_nvfp4_matmul", True)
     with patch("vendor.gpl.comfyui.ops._nvfp4_scaled_mm_supported", return_value=False):
         assert _nvfp4_matmul_enabled() is False
     with patch("vendor.gpl.comfyui.ops._nvfp4_scaled_mm_supported", return_value=True):
         assert _nvfp4_matmul_enabled() is True
-
-
-def test_nvfp4_matmul_env_auto_requires_probe(monkeypatch):
-    monkeypatch.setenv(NATIVE_NVFP4_MATMUL_ENV, "auto")
-    with patch("vendor.gpl.comfyui.ops._nvfp4_scaled_mm_supported", return_value=False):
-        assert _nvfp4_matmul_enabled() is False
-    with patch("vendor.gpl.comfyui.ops._nvfp4_scaled_mm_supported", return_value=True):
-        assert _nvfp4_matmul_enabled() is True
-
-
-def test_nvfp4_matmul_unknown_policy_warns_and_disables(monkeypatch, caplog):
-    monkeypatch.setenv(NATIVE_NVFP4_MATMUL_ENV, "bogus")
-    with caplog.at_level("WARNING"):
-        assert _nvfp4_matmul_enabled() is False
-    assert "unknown" in caplog.text.lower()
 
 
 def test_nvfp4_scaled_mm_supported_probe_caches(monkeypatch):
@@ -1369,10 +1338,10 @@ def test_deltas_output_branch_ok_rejects_lokr_only_with_the_kill_switch(monkeypa
     from src.platform.runtime.native.lora.key_mapping import LoraDelta
 
     lokr = LoraDelta(down=torch.randn(4, 4), up=torch.randn(4, 4), alpha=4.0, scale=1.0, kron=True)
-    monkeypatch.delenv(wo.NATIVE_LORA_FUSED_ENV, raising=False)
+    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_lora_fused", True)
     assert wo._deltas_output_branch_ok([lokr], out_features=16) is True
     assert wo._deltas_output_branch_ok([lokr], out_features=32) is False
-    monkeypatch.setenv(wo.NATIVE_LORA_FUSED_ENV, "off")
+    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_lora_fused", False)
     assert wo._deltas_output_branch_ok([lokr], out_features=16) is False
 
 

@@ -75,7 +75,10 @@ back to the normal dense path:
 - Sequence length ≥ 256 tokens (`_MIN_TOKENS`) — below two full routing blocks there's nothing to
   route, so it's skipped rather than disabled.
 
-Two backends exist, selected by the `NATIVE_SOL_ATTN_BACKEND` env var (`flex` default, or `kernel`):
+Two backends exist, selected by **Sol-Attn implementation** in Admin → Backends → *your native
+backend* → Optimizations → Speed (setting `native_sol_attn_backend`: `flex` default, or `kernel`; a
+change applies after a restart, of the worker for a remote native backend; it replaces the old
+`NATIVE_SOL_ATTN_BACKEND` env var, which is no longer read):
 `flex` (`vendor/sol_attn/flex.py`) routes in plain torch through `torch.nn.attention.flex_attention`
 and is the only backend that honors `sink_tokens`; `kernel` (`vendor/sol_attn/interface.py`) is
 upstream's original CuTe DSL / Triton kernels — upstream itself measures the Triton reference as
@@ -90,6 +93,11 @@ logs ONE warning naming the reason and **latches off for the rest of the process
 (`sol_attn_disabled_reason()` reports why). Every later call in that process returns `None`
 immediately and the caller falls back to its normal dense attention; a generation on unsupported
 hardware just runs slower with one log line, never a crash.
+
+To log the shape, free VRAM and routing density (share of KV blocks skipped) of every `flex` call,
+turn on **Log every Sol-Attn call** in Admin → Backends → *your native backend* → Optimizations →
+Debug logging (setting `native_sol_attn_debug`, off by default; applies from the next call and
+replaces the old `NATIVE_SOL_ATTN_DEBUG` env var).
 
 ## VRAM accounting
 

@@ -31,10 +31,17 @@ from src.pipelines.pipes._shared.vae.ltx_tiled_decode import (
     supports_diffusion_tiled_decode,
 )
 from src.platform.runtime.native.vae.ltx_diffusion_video import LTXDiffusionVideoVAE
+from src.platform.settings import runtime_flags
 from tests.platform.runtime.native.vae.test_ltx_diffusion_video import _TINY_CONFIG, _randomize_weights
 from vendor.gpl.comfyui.ops import disable_weight_init
 
 _MOD = "src.pipelines.pipes._shared.vae.ltx_tiled_decode"
+
+
+def _tile_override(px, frames):
+    values = {"native_ltx_decode_tile_px": px, "native_ltx_decode_tile_frames": frames}
+    return patch.dict(runtime_flags.runtime_flag_values(), values)
+
 
 # Big enough that a tiled decode really does produce more than one tile at the
 # sizes these tests force, and that every neighborhood kernel is satisfied.
@@ -228,8 +235,7 @@ class TestLadder:
         tiled_spy = _CountingSpy(vae.module.tiled_decode)
         vae.module.tiled_decode = tiled_spy
 
-        with patch.dict("os.environ", {"NATIVE_LTX_DIFFUSION_TILE_PX": "128",
-                                       "NATIVE_LTX_DIFFUSION_TILE_FRAMES": "16"}):
+        with _tile_override(128, 16):
             pixels, manager, _ = _run(vae, latent, free_vram=1000.0)
 
         # decoder.forward is the whole-clip entry point only; the tiled path
@@ -250,8 +256,7 @@ class TestLadder:
         tiled_spy = _CountingSpy(vae.module.tiled_decode)
         vae.module.tiled_decode = tiled_spy
 
-        with patch.dict("os.environ", {"NATIVE_LTX_DIFFUSION_TILE_PX": "128",
-                                       "NATIVE_LTX_DIFFUSION_TILE_FRAMES": "16"}):
+        with _tile_override(128, 16):
             pixels, manager, mock_clear = _run(vae, latent, free_vram=0.001)
 
         assert spy.calls == 0                      # never even tried whole-clip
@@ -385,8 +390,7 @@ class TestSeededDecodeNoise:
             vae = _build_vae()
             torch.manual_seed(0)
             _randomize_weights(vae.module)
-            with patch.dict("os.environ", {"NATIVE_LTX_DIFFUSION_TILE_PX": "128",
-                                           "NATIVE_LTX_DIFFUSION_TILE_FRAMES": "16"}):
+            with _tile_override(128, 16):
                 pixels, _, _ = _run(vae, latent, free_vram=0.001, generator=self._generator(7))
             outputs.append(pixels)
         assert torch.equal(outputs[0], outputs[1])
@@ -403,12 +407,11 @@ class TestSeededDecodeNoise:
         rewind exists for.
         """
         latent = torch.randn(*_LATENT_SHAPE)
-        env = {"NATIVE_LTX_DIFFUSION_TILE_PX": "128", "NATIVE_LTX_DIFFUSION_TILE_FRAMES": "16"}
 
         straight_to_tiled = _build_vae()
         torch.manual_seed(0)
         _randomize_weights(straight_to_tiled.module)
-        with patch.dict("os.environ", env):
+        with _tile_override(128, 16):
             expected, _, _ = _run(straight_to_tiled, latent, free_vram=0.001,
                                   generator=self._generator(7))
 
@@ -419,7 +422,7 @@ class TestSeededDecodeNoise:
         # tiled path's own per-tile denoise calls come after and succeed.
         spy = _OomOnFirstCalls(via_oom.module.decoder.denoise, times=2)
         via_oom.module.decoder.denoise = spy
-        with patch.dict("os.environ", env):
+        with _tile_override(128, 16):
             after_oom, _, _ = _run(via_oom, latent, free_vram=1000.0, generator=self._generator(7))
 
         assert spy.calls > 2, "the tiled fallback must have run after the two failures"
@@ -510,8 +513,7 @@ class TestAutoTileSizes:
         frame_cell = upsample_stride[0]
         height_cell = upsample_stride[1] * vae.module.decoder.patch_size
 
-        with patch.dict("os.environ", {"NATIVE_LTX_DIFFUSION_TILE_PX": "300",
-                                       "NATIVE_LTX_DIFFUSION_TILE_FRAMES": "25"}):
+        with _tile_override(300, 25):
             sizes = auto_decode_tile_sizes(vae.module, torch.zeros(*_LATENT_SHAPE), 1000.0)
 
         assert sizes["tile_sample_min_height"] % height_cell == 0
@@ -526,9 +528,8 @@ class TestAutoTileSizes:
         assert sizes["tile_sample_stride_width"] < sizes["tile_sample_min_width"]
         assert sizes["tile_sample_stride_num_frames"] < sizes["tile_sample_min_num_frames"]
 
-    @pytest.mark.parametrize("bad", ["", "abc", "0", "-5"])
-    def test_malformed_env_override_is_ignored(self, bad):
+    def test_zero_override_means_auto(self):
         vae = _build_vae()
-        with patch.dict("os.environ", {"NATIVE_LTX_DIFFUSION_TILE_PX": bad}):
+        with _tile_override(0, 0):
             sizes = auto_decode_tile_sizes(vae.module, torch.zeros(*_LATENT_SHAPE), None)
         assert sizes["tile_sample_min_height"] == 768

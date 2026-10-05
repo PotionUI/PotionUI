@@ -221,13 +221,13 @@ class TestActivationSideIsEquivalentToTheWeightSide:
         output_side, weight_side = partition_output_branch_deltas(deltas, OUT)
         assert len(output_side) == 3 and weight_side == []
 
-        monkeypatch.setenv(_ops_module.NATIVE_LORA_FUSED_ENV, "off")
+        monkeypatch.setitem(_ops_module.RUNTIME_FLAGS, "native_lora_fused", False)
         output_side, weight_side = partition_output_branch_deltas(deltas, OUT)
         assert len(output_side) == 2
         assert len(weight_side) == 1 and weight_side[0].kron is True
 
     def test_a_lokr_only_stack_goes_through_the_weight_with_the_kill_switch(self, monkeypatch):
-        monkeypatch.setenv(_ops_module.NATIVE_LORA_FUSED_ENV, "off")
+        monkeypatch.setitem(_ops_module.RUNTIME_FLAGS, "native_lora_fused", False)
         x = _x()
         lin = _fp8_linear()
         lin.lora_deltas = _stage_runtime_deltas(_lokr_delta(torch.bfloat16), torch.device("cpu"))[0]

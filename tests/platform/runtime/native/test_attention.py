@@ -9,6 +9,7 @@ import pytest
 import torch
 
 import src.platform.runtime.native.attention as att
+from src.platform.settings import runtime_flags
 
 
 @pytest.fixture(autouse=True)
@@ -41,7 +42,6 @@ def _configure(monkeypatch, *, cuda, cap, modules, sage_v2=True,
     monkeypatch.setattr(att, "_cuda_runtime_version", lambda: cuda_runtime)
     monkeypatch.setattr(att, "_sageattention_is_v2", lambda: sage_v2)
     monkeypatch.setattr(att.torch.cuda, "is_available", lambda: cuda)
-    monkeypatch.delenv(att.ENV_VAR, raising=False)
     att.reset_backend_cache()
 
 
@@ -209,9 +209,9 @@ def test_sparge_explicit_pin_is_honored_over_auto_selection(monkeypatch):
     assert att.get_attention_backend() == "sparge"
 
 
-def test_sparge_via_env_var_is_honored(monkeypatch):
+def test_sparge_via_runtime_flag_is_honored(monkeypatch):
     _configure(monkeypatch, cuda=True, cap=9, modules={"spas_sage_attn"})
-    monkeypatch.setenv(att.ENV_VAR, "sparge")
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_attention_backend", "sparge")
     assert att.get_attention_backend() == "sparge"
 
 
@@ -281,15 +281,16 @@ def test_override_wins_when_available(monkeypatch):
     assert att.get_attention_backend("sdpa") == "sdpa"
 
 
-def test_env_var_selects_backend(monkeypatch):
+def test_runtime_flag_selects_backend(monkeypatch):
     _configure(monkeypatch, cuda=True, cap=8, modules={"flash_attn"})
-    monkeypatch.setenv(att.ENV_VAR, "flash")
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_attention_backend", "flash")
     assert att.get_attention_backend() == "flash"
+    assert att.get_backend_override() == "flash"
 
 
-def test_override_beats_env(monkeypatch):
+def test_override_arg_beats_runtime_flag(monkeypatch):
     _configure(monkeypatch, cuda=True, cap=8, modules={"flash_attn"})
-    monkeypatch.setenv(att.ENV_VAR, "sdpa")
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_attention_backend", "sdpa")
     assert att.get_attention_backend("flash") == "flash"
 
 
@@ -329,11 +330,11 @@ def test_backend_override_used_when_no_override_arg_or_env(monkeypatch):
     assert att.get_backend_override() == "flash"
 
 
-def test_env_var_beats_backend_override(monkeypatch):
+def test_native_attention_env_var_is_ignored(monkeypatch):
     _configure(monkeypatch, cuda=True, cap=8, modules={"flash_attn"})
     att.set_backend_override("flash")
-    monkeypatch.setenv(att.ENV_VAR, "sdpa")
-    assert att.get_attention_backend() == "sdpa"
+    monkeypatch.setenv("NATIVE_ATTENTION", "sdpa")
+    assert att.get_attention_backend() == "flash"
 
 
 def test_override_arg_beats_backend_override(monkeypatch):

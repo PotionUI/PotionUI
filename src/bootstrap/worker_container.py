@@ -38,6 +38,9 @@ class WorkerContainer:
 
 
 def build_worker_container(config: WorkerConfig) -> WorkerContainer:
+    from src.platform.settings.runtime_flags import warn_ignored_env_vars
+
+    warn_ignored_env_vars()
     pipe_catalog = PipeCatalog("src/pipelines/pipes", "pipes/custom")
     journal = WorkerJournal(config.work_dir)
     gpu_monitor = GpuMonitor()

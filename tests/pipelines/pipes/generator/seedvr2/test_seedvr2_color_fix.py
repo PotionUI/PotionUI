@@ -22,17 +22,15 @@ from src.pipelines.pipes.generator.seedvr2.color_fix import (
     color_correct_batch,
 )
 from src.platform.observability import profiling as profiling_module
+from src.platform.settings import runtime_flags
 
 
 @pytest.fixture(autouse=True)
 def _isolate_profiling_state(monkeypatch):
     """Every test gets a clean enabled/settings-manager cache, regardless of
     env vars set in the outer shell or a prior test's profiler state."""
-    monkeypatch.delenv("POTIONUI_PROFILE", raising=False)
-    profiling_module.profiler._settings = None
-    profiling_module.reset_enabled_cache()
-    yield
-    profiling_module.reset_enabled_cache()
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_enabled", False)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_census", False)
 
 
 def _frames(n: int, h: int = 24, w: int = 32, seed: int = 0):
@@ -109,8 +107,7 @@ def test_source_resized_to_target_when_shapes_differ():
 def test_profiling_emits_breakdown_without_changing_output(monkeypatch, tmp_path):
     """The stage/compute/unstage timing breakdown is opt-in (profiling-gated)
     and must never perturb the actual color-fix math."""
-    monkeypatch.setenv("POTIONUI_PROFILE", "1")
-    profiling_module.reset_enabled_cache()
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_enabled", True)
 
     targets = _frames(9, seed=11)
     sources = _frames(9, seed=12)

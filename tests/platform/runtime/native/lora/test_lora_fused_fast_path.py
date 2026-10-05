@@ -30,7 +30,7 @@ STACKS = {
 
 @pytest.fixture(autouse=True)
 def _fused_default(monkeypatch):
-    monkeypatch.delenv(ops.NATIVE_LORA_FUSED_ENV, raising=False)
+    monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", True)
     ops._lora_path_layers.clear()
     yield
     ops._lora_path_layers.clear()
@@ -125,9 +125,9 @@ def _dequant(lin, x):
 def _old_and_new(monkeypatch, make_layer, run, deltas, x):
     old = make_layer()
     old.lora_deltas = _clone(deltas)
-    monkeypatch.setenv(ops.NATIVE_LORA_FUSED_ENV, "off")
+    monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", False)
     want = run(old, x)
-    monkeypatch.delenv(ops.NATIVE_LORA_FUSED_ENV)
+    monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", True)
     bare = make_layer()
     base = run(bare, x)
     new = make_layer()
@@ -229,7 +229,7 @@ def test_fast_path_calls_the_shared_fused_helper(monkeypatch, make_layer, run):
 
 @pytest.mark.parametrize("make_layer,run", [(_fp8_layer, _fp8_fast), (_nvfp4_layer, _nvfp4_fast)])
 def test_kill_switch_restores_the_unfused_fast_path(monkeypatch, make_layer, run):
-    monkeypatch.setenv(ops.NATIVE_LORA_FUSED_ENV, "off")
+    monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", False)
     fused = _spy(monkeypatch, "_add_lora_output_branch")
     unfused = _spy(monkeypatch, "_lora_output_branch")
     builds = _spy(monkeypatch, "_build_lora_fused")
@@ -243,7 +243,7 @@ def test_kill_switch_restores_the_unfused_fast_path(monkeypatch, make_layer, run
 
 
 def test_kill_switch_restores_the_per_forward_fuse_on_the_dequant_path(monkeypatch):
-    monkeypatch.setenv(ops.NATIVE_LORA_FUSED_ENV, "off")
+    monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", False)
     per_forward = _spy(monkeypatch, "_fuse_output_branch_deltas")
     builds = _spy(monkeypatch, "_build_lora_fused")
     lin = _fp8_layer(False)
@@ -267,9 +267,9 @@ def test_fused_factors_are_built_once_across_forwards(monkeypatch):
 def _reference(lin_factory, deltas, x, monkeypatch, run):
     ref = lin_factory()
     ref.lora_deltas = _clone(deltas)
-    monkeypatch.setenv(ops.NATIVE_LORA_FUSED_ENV, "off")
+    monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", False)
     out = run(ref, x)
-    monkeypatch.delenv(ops.NATIVE_LORA_FUSED_ENV)
+    monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", True)
     return out
 
 
@@ -324,9 +324,9 @@ def test_window_edges_invalidate_and_out_of_window_adapter_contributes_nothing(m
         assert ops._LORA_FUSED_ATTR not in qkv.__dict__ or expect_len == len(qkv.__dict__[ops._LORA_FUSED_ATTR][1])
         with torch.no_grad():
             got = qkv(x)
-            monkeypatch.setenv(ops.NATIVE_LORA_FUSED_ENV, "off")
+            monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", False)
             want = qkv(x)
-            monkeypatch.delenv(ops.NATIVE_LORA_FUSED_ENV)
+            monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", True)
         _assert_close(got, want, torch.bfloat16)
         return got
 
@@ -375,7 +375,7 @@ def test_path_summary_is_logged_once_per_run(caplog):
 
 
 def test_path_summary_names_the_weight_side_lokr_under_the_kill_switch(monkeypatch, caplog):
-    monkeypatch.setenv(ops.NATIVE_LORA_FUSED_ENV, "off")
+    monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", False)
     lokr = _fp8_layer(False)
     lokr.lora_deltas = _stack("one", torch.bfloat16) + [_lokr(torch.bfloat16)]
     _dequant(lokr, _input(torch.bfloat16))

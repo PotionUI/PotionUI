@@ -13,6 +13,7 @@ export type SettingsGroupId =
 	| 'housekeeping'
 	| 'search_tagging'
 	| 'generation'
+	| 'diagnostics'
 	| 'external_login'
 	| 'logs';
 
@@ -30,6 +31,7 @@ export const SETTINGS_GROUPS: SettingsGroupDescriptor[] = [
 	{ id: 'housekeeping', label: 'Housekeeping', icon: 'trash' },
 	{ id: 'search_tagging', label: 'Search & Tagging', icon: 'search' },
 	{ id: 'generation', label: 'Generation', icon: 'image' },
+	{ id: 'diagnostics', label: 'Diagnostics', icon: 'flask' },
 	{ id: 'external_login', label: 'External Login', icon: 'globe' },
 	{ id: 'logs', label: 'Logs', icon: 'clipboard-list' }
 ];
@@ -101,6 +103,8 @@ export const SETTINGS_KEY_GROUP: Record<string, SettingsGroupId> = {
 	workbench_single_result_gallery: 'generation',
 	notify_admins_on_generation_failure: 'generation',
 	notify_admins_on_generation_failure_categories: 'generation',
+	profiling_enabled: 'diagnostics',
+	profiling_census: 'diagnostics',
 	external_login_auto_create: 'external_login',
 	external_login_link_by_email: 'external_login',
 	external_login_default_group: 'external_login'

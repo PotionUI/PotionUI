@@ -7,8 +7,9 @@ import torch
 
 from vendor.gpl.comfyui.ops import disable_weight_init as ops
 from vendor.gpl.comfyui.ops import manual_cast
+from src.platform.settings import runtime_flags
 from src.platform.runtime.native.text_encoders.clip_l import CLIPLModel
-from src.platform.runtime.native.text_encoders.qwen3 import NATIVE_QWEN3_TE_BF16_ENV, Qwen3Model
+from src.platform.runtime.native.text_encoders.qwen3 import Qwen3Model
 from src.platform.runtime.native.text_encoders.t5xxl import T5XXLModel
 
 
@@ -129,7 +130,7 @@ def _linear_input_dtypes(monkeypatch, model, ids):
 
 
 def test_qwen3_te_bf16_flag_off_by_default_keeps_fp32_at_linear_boundary(monkeypatch):
-    monkeypatch.delenv(NATIVE_QWEN3_TE_BF16_ENV, raising=False)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_qwen3_te_bf16", False)
     m = _build(Qwen3Model, QWEN_CFG, manual_cast)
     dtypes = _linear_input_dtypes(monkeypatch, m, torch.randint(0, 100, (1, 5)))
     assert dtypes
@@ -143,17 +144,8 @@ def test_qwen3_te_bf16_flag_on_holds_bf16_at_every_linear_boundary(monkeypatch):
     # is exactly the shape of bug this flag has been bitten by twice before
     # (H3's fp32 AdaLN, Krea-2's f32 residual: a stray fp32 tensor meeting a
     # bf16 one silently re-promotes the result to fp32).
-    monkeypatch.setenv(NATIVE_QWEN3_TE_BF16_ENV, "on")
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_qwen3_te_bf16", True)
     m = _build(Qwen3Model, QWEN_CFG, manual_cast)
     dtypes = _linear_input_dtypes(monkeypatch, m, torch.randint(0, 100, (1, 5)))
     assert dtypes
     assert all(dt == torch.bfloat16 for dt in dtypes)
-
-
-def test_qwen3_te_bf16_unknown_policy_warns_and_falls_back_to_fp32(monkeypatch, caplog):
-    monkeypatch.setenv(NATIVE_QWEN3_TE_BF16_ENV, "bogus")
-    m = _build(Qwen3Model, QWEN_CFG, manual_cast)
-    with caplog.at_level("WARNING"):
-        dtypes = _linear_input_dtypes(monkeypatch, m, torch.randint(0, 100, (1, 5)))
-    assert all(dt == torch.float32 for dt in dtypes)
-    assert "unknown" in caplog.text.lower()

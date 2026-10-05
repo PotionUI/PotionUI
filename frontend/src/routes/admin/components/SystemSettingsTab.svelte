@@ -18,6 +18,7 @@
 	import MediaTaggingPanel from './settings/MediaTaggingPanel.svelte';
 	import VisualSearchPanel from './settings/VisualSearchPanel.svelte';
 	import GenerationPanel from './settings/GenerationPanel.svelte';
+	import DiagnosticsPanel from './settings/DiagnosticsPanel.svelte';
 	import ExternalLoginPanel from './settings/ExternalLoginPanel.svelte';
 	import LogsPanel from './settings/LogsPanel.svelte';
 	import {
@@ -147,6 +148,8 @@
 							<VisualSearchPanel {settings} onSettingChange={handleSettingChange} />
 						{:else if activeGroup === 'generation'}
 							<GenerationPanel {settings} onSettingChange={handleSettingChange} />
+						{:else if activeGroup === 'diagnostics'}
+							<DiagnosticsPanel {settings} onSettingChange={handleSettingChange} />
 						{:else if activeGroup === 'external_login'}
 							<ExternalLoginPanel {settings} onSettingChange={handleSettingChange} />
 						{:else if activeGroup === 'logs'}

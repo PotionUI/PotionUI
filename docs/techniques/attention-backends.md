@@ -8,14 +8,10 @@ authors: []
 paper: null
 reference_impl: null
 knobs:
-  - key: NATIVE_ATTENTION
-    surface: env
-    default: unset (auto-select)
-    effect: "Pin a specific attention backend by name (sdpa, sage, sage2, sage3, flash, sparge)"
-  - key: admin_pin
+  - key: native_attention_backend
     surface: admin
-    default: unset (auto-select)
-    effect: "Pin a backend from Admin -> Backends -> Optimizations without setting an env var"
+    default: auto
+    effect: "Pin a specific attention backend by name (sdpa, sage, sage2, sage3, flash, sparge) per native backend, from Admin -> Backends -> <backend> -> Optimizations"
 related: [nan-watchdog]
 ---
 
@@ -60,15 +56,15 @@ supported hardware after checking its outputs.
 
 ## How to enable it
 
-No action is needed for automatic selection — this is on by default. To pin a backend explicitly:
+No action is needed for automatic selection — this is on by default. To pin a backend explicitly,
+use **Admin -> Backends -> *your native backend* -> Optimizations -> Attention backend** (the
+`native_attention_backend` setting in that backend's configuration, default `auto`). It accepts
+`sdpa`, `sage`, `sage2`, `sage3`, `flash` and `sparge`, including `sparge`, which auto-selection
+never picks on its own. On a remote native backend it is a plain select, and the worker receives the
+pin with every job. The pin takes effect on the next generation, with no restart.
 
-```bash
-export NATIVE_ATTENTION=sage2   # or sdpa, sage, sage3, flash, sparge
-```
-
-Or pin it from the admin panel: **Admin -> Backends -> Optimizations**, under the attention backend
-setting for the relevant backend instance. The panel accepts the same backend names, including
-`sparge`, which auto-selection never picks on its own.
+The old `NATIVE_ATTENTION` environment variable, which used to override the pin, is no longer read;
+the per-backend pin is the only way to choose an attention backend.
 
 ### Using `sparge` (SpargeAttention)
 
@@ -76,7 +72,7 @@ setting for the relevant backend instance. The panel accepts the same backend na
 low-contribution attention blocks. Unlike the other backends, it is approximate rather than
 numerically near-lossless — output quality depends on content and on its `topk` sparsity setting
 (defaults to `0.5`, the upstream tune-free default). Because of that, it is only ever used when you
-explicitly request it (`NATIVE_ATTENTION=sparge` or an admin pin) — auto-selection will never choose
+explicitly request it (an admin pin set to `sparge`) — auto-selection will never choose
 it for you, no matter how fast or well-supported it is on your hardware. It additionally requires a
 sequence length >= 128 and a head dimension of 64 or 128, and only compiles for Ampere/Ada/Hopper
 (compute capability major 8 or 9) — it does not currently support Blackwell. Calls outside those

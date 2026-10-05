@@ -39,6 +39,7 @@ export function backendDetailTabsFor(driver: string, engine: string = ''): Backe
 			{ id: 'overview', label: 'Overview', icon: 'info' },
 			{ id: 'infrastructure', label: 'Infrastructure', icon: 'server' },
 			{ id: 'models', label: 'Models', icon: 'cube' },
+			{ id: 'optimizations', label: 'Optimizations', icon: 'sliders' },
 			{ id: 'stats', label: 'Stats', icon: 'gauge' }
 		];
 	}

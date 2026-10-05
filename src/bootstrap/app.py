@@ -276,34 +276,18 @@ def _seed_runtime_from_container(container: AppContainer) -> None:
         container.user_repository,
     ))
 
-    # Seed the in-memory attention-backend pin from its persisted setting.
-    # get_attention_backend() never reads the DB (it's a per-forward hot path);
-    # this is the one place the setting is loaded into memory. Non-fatal if the
-    # setting or DB isn't ready yet - the dispatcher just falls back to "auto".
     try:
-        from src.platform.runtime.native import attention as native_attention
+        from src.features.backends.backend_config import NATIVE_LOCAL_DRIVER
+        from src.platform.settings.runtime_flags import activate_engine_flags
 
-        native_attention.set_backend_override(
-            container.settings.get_setting("native_attention_backend")
+        local = next(
+            (b for b in container.backend_registry.backend_config_store.get_backends()
+             if b.effective_driver == NATIVE_LOCAL_DRIVER),
+            None,
         )
+        activate_engine_flags(getattr(local, "engine_flags", {}))
     except Exception as e:
-        logging.warning(f"Could not seed native attention backend pin: {e}")
-
-    # Same pattern for the engine-flag toggles: the hot paths read module-level
-    # overrides, seeded once here from their persisted settings. An empty/missing
-    # setting leaves the override clear, so the env vars keep deciding.
-    try:
-        from src.platform.runtime.native.memory import partial as native_partial
-        from src.platform.runtime.native.optimizations import compile as native_compile
-
-        native_compile.set_torch_compile_override(
-            container.settings.get_setting("native_torch_compile")
-        )
-        native_partial.set_stream_prefetch_override(
-            container.settings.get_setting("native_stream_prefetch")
-        )
-    except Exception as e:
-        logging.warning(f"Could not seed native engine flags: {e}")
+        logging.warning(f"Could not load the native backend's engine settings: {e}")
 
     # Setup claim token lifecycle. While the instance has no owner, ensure a
     # one-time token exists on disk (0600) so a remote operator can claim it via

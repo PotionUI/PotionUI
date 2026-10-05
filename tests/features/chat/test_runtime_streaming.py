@@ -1157,6 +1157,7 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
                 session_id="session-123",
                 user_id="user-123",
                 content="hello",
+                is_admin=True,
             )
         )
 
@@ -1164,6 +1165,33 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
         assert len(error_events) == 1
         assert error_events[0]["data"]["error"] == "stream_error"
         assert "LLM connection failed" in error_events[0]["data"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_error_event_hides_exception_text_from_regular_users(self):
+        session = self._make_active_session()
+        self.mock_repo.get_session.return_value = session
+        self.mock_repo.get_conversation_history.return_value = []
+        self.mock_repo.add_message.return_value = make_message_response("msg-user", role="user")
+
+        async def failing_stream(**_kwargs):
+            raise RuntimeError("LLM connection failed at /srv/llm/socket")
+            yield
+
+        self.mock_llm.stream_with_history = Mock(return_value=failing_stream())
+
+        events = await collect_stream(
+            self.manager.send_message_stream(
+                session_id="session-123",
+                user_id="user-123",
+                content="hello",
+            )
+        )
+
+        error_events = [e for e in events if e["event"] == "error"]
+        assert len(error_events) == 1
+        assert error_events[0]["data"]["error"] == "stream_error"
+        assert "LLM connection failed" not in error_events[0]["data"]["message"]
+        assert "/srv/llm" not in error_events[0]["data"]["message"]
 
     @pytest.mark.asyncio
     async def test_error_event_emitted_on_tool_executor_exception(self):
@@ -1202,6 +1230,7 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
                 session_id="session-123",
                 user_id="user-123",
                 content="hello",
+                is_admin=True,
             )
         )
 

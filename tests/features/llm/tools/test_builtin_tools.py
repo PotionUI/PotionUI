@@ -268,7 +268,7 @@ class TestListSegmentCategoriesTool:
         ctx = make_context(segment_category_repository=repo)
         result = await self._tool().execute(ctx)
         assert result.success is False
-        assert "db error" in result.error
+        assert "db error" not in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +370,7 @@ class TestGetSegmentTemplatesTool:
         ctx = make_context(segment_template_repository=repo)
         result = await self._tool().execute(ctx)
         assert result.success is False
-        assert "db error" in result.error
+        assert "db error" not in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -843,7 +843,7 @@ class TestListPhrasebookCategoriesTool:
         ctx = make_context(phrasebook_category_repository=category_repo)
         result = await self._tool().execute(ctx)
         assert result.success is False
-        assert "timeout" in result.error
+        assert "timeout" not in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -963,7 +963,7 @@ class TestGetPhrasebookValuesTool:
         ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
         result = await self._tool().execute(ctx, category_id="restricted")
         assert result.success is False
-        assert "access denied" in result.error
+        assert "access denied" not in result.error
 
     @pytest.mark.asyncio
     async def test_default_limit_is_100_and_reports_has_more(self):
@@ -2254,7 +2254,7 @@ class TestEnhancePromptTool:
         ctx = make_context(prompt_enhancement_manager=manager, llm_id="llm-1")
         result = await self._tool().execute(ctx, brief="a cat")
         assert result.success is False
-        assert "boom" in result.error
+        assert "boom" not in result.error
 
     def test_available_without_form_state(self):
         assert self._tool().is_available(None) is True

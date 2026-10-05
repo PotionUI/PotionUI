@@ -47,6 +47,7 @@ from src.features.chat.exceptions import (
 from src.features.chat.turns import ChatTurn, ChatTurnRegistry, TurnAlreadyRunningError
 from src.features.llm import context_budget
 from src.features.llm_memory import operations as memory_operations
+from src.platform.security.failure_text import failure_detail
 from src.platform.security.user import AccountType, User
 
 if TYPE_CHECKING:
@@ -115,7 +116,7 @@ class ChatController(BaseController):
             logger.exception(f"Error creating session: {e}")
             return self.error_api_response(
                 error="session_creation_failed",
-                message=f"Failed to create session: {str(e)}"
+                message=f"Failed to create session: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
             )
 
     def get_sessions(
@@ -147,7 +148,7 @@ class ChatController(BaseController):
             logger.exception(f"Error getting sessions: {e}")
             return self.error_api_response(
                 error="get_sessions_failed",
-                message=f"Failed to get sessions: {str(e)}"
+                message=f"Failed to get sessions: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
             )
 
     def get_modes(self, user: User) -> APIResponse:
@@ -206,7 +207,7 @@ class ChatController(BaseController):
             logger.exception(f"Error getting session: {e}")
             return self.error_api_response(
                 error="get_session_failed",
-                message=f"Failed to get session: {str(e)}"
+                message=f"Failed to get session: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
             )
 
     def get_session_messages(
@@ -243,7 +244,7 @@ class ChatController(BaseController):
             logger.exception(f"Error getting session messages: {e}")
             return self.error_api_response(
                 error="get_session_messages_failed",
-                message=f"Failed to get session messages: {str(e)}"
+                message=f"Failed to get session messages: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
             )
 
     async def send_message(
@@ -314,7 +315,7 @@ class ChatController(BaseController):
             logger.exception(f"Error sending message: {e}")
             return self.error_api_response(
                 error="send_message_failed",
-                message=f"Failed to send message: {str(e)}"
+                message=f"Failed to send message: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
             )
 
     def _turn_stream_factory(self, session_id: str, request: SendMessageRequest, user: User):
@@ -353,7 +354,7 @@ class ChatController(BaseController):
                     yield {"event": "error", "data": {"error": "context_budget_exceeded", "message": str(e)}}
                 except Exception as e:
                     logger.exception(f"Error in streaming: {e}")
-                    yield {"event": "error", "data": {"error": "stream_error", "message": str(e)}}
+                    yield {"event": "error", "data": {"error": "stream_error", "message": failure_detail(e, user.account_type == AccountType.ADMIN)}}
             return gen()
         return factory
 
@@ -405,6 +406,7 @@ class ChatController(BaseController):
             turn = self.turn_registry.start(
                 session_id=session_id,
                 user_id=user.id,
+                is_admin=user.account_type == AccountType.ADMIN,
                 stream_factory=self._turn_stream_factory(session_id, request, user),
             )
         except TurnAlreadyRunningError:
@@ -483,7 +485,7 @@ class ChatController(BaseController):
             logger.exception(f"Error accepting session: {e}")
             return self.error_api_response(
                 error="accept_failed",
-                message=f"Failed to accept session: {str(e)}"
+                message=f"Failed to accept session: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
             )
 
     def reject_session(self, session_id: str, user: User) -> APIResponse:
@@ -507,7 +509,7 @@ class ChatController(BaseController):
             logger.exception(f"Error rejecting session: {e}")
             return self.error_api_response(
                 error="reject_failed",
-                message=f"Failed to reject session: {str(e)}"
+                message=f"Failed to reject session: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
             )
 
     def update_session(
@@ -547,7 +549,7 @@ class ChatController(BaseController):
             logger.exception(f"Error updating session: {e}")
             return self.error_api_response(
                 error="update_failed",
-                message=f"Failed to update session: {str(e)}"
+                message=f"Failed to update session: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
             )
 
     async def suggest_resources(
@@ -585,7 +587,7 @@ class ChatController(BaseController):
             logger.exception(f"Error suggesting resources: {e}")
             return self.error_api_response(
                 error="suggest_resources_failed",
-                message=f"Failed to suggest resources: {str(e)}"
+                message=f"Failed to suggest resources: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
             )
 
     def list_tools(self, mode: Optional[str] = None) -> APIResponse:
@@ -675,7 +677,7 @@ class ChatController(BaseController):
             logger.exception(f"Error approving tool execution: {e}")
             return self.error_api_response(
                 error="tool_approval_failed",
-                message=str(e),
+                message=failure_detail(e, user.account_type == AccountType.ADMIN),
             )
 
     async def prompt_feedback(
@@ -715,7 +717,7 @@ class ChatController(BaseController):
             logger.exception(f"Error recording prompt feedback: {e}")
             return self.error_api_response(
                 error="prompt_feedback_failed",
-                message=str(e),
+                message=failure_detail(e, user.account_type == AccountType.ADMIN),
             )
 
     def list_memory_notes(
@@ -754,7 +756,7 @@ class ChatController(BaseController):
             return self.error_api_response(error="invalid_memory_note", message=str(e))
         except Exception as e:
             logger.exception(f"Error writing memory note: {e}")
-            return self.error_api_response(error="memory_write_failed", message=str(e))
+            return self.error_api_response(error="memory_write_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     def update_memory_note(self, note_id: str, request: MemoryUpdateRequest, user: User) -> APIResponse:
         """Update an existing persistent LLM memory note's key/content."""
@@ -769,7 +771,7 @@ class ChatController(BaseController):
             return self.error_api_response(error="invalid_memory_note", message=str(e))
         except Exception as e:
             logger.exception(f"Error updating memory note: {e}")
-            return self.error_api_response(error="memory_update_failed", message=str(e))
+            return self.error_api_response(error="memory_update_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
         if note is None:
             return self.error_api_response(error="note_not_found", message=f"Memory note '{note_id}' not found")
         return self.success_response(data=note.to_dict())
@@ -804,7 +806,7 @@ class ChatController(BaseController):
             logger.exception(f"Error deleting session: {e}")
             return self.error_api_response(
                 error="delete_failed",
-                message=f"Failed to delete session: {str(e)}"
+                message=f"Failed to delete session: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
             )
 
     # --- Admin session-debug viewer ---

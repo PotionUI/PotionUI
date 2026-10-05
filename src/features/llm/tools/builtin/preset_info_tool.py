@@ -113,7 +113,7 @@ class ListPresetsTool(BaseTool):
             presets = preset_operations.list_presets(context.preset_collaborators, _stand_in_user(context))
         except Exception as e:
             logger.error("list_presets failed: %s", e)
-            return ToolResult(success=False, data="", error=unexpected("list_presets", "list", e))
+            return ToolResult(success=False, data="", error=unexpected("list_presets", "list", e, context.is_admin))
         matching = sorted(
             (p for p in presets if self._matches(p, query, engine)),
             key=lambda p: (str(p.get("name") or "").lower(), str(p.get("id"))),
@@ -302,4 +302,4 @@ class GetPresetInfoTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(summary))
         except Exception as e:
             logger.error(f"Error getting preset info: {e}")
-            return ToolResult(success=False, data="", error=unexpected("get_preset_info", "lookup", e))
+            return ToolResult(success=False, data="", error=unexpected("get_preset_info", "lookup", e, context.is_admin))

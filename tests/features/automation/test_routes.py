@@ -735,3 +735,32 @@ class TestAdminNodeGate:
 
         assert result.success is True
         mock_manager.set_enabled.assert_called_once()
+
+
+class TestAutomationFailureDisclosure:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("is_admin, detail_visible", [(False, False), (True, True)])
+    async def test_list_failure_message(self, is_admin, detail_visible):
+        manager = Mock()
+        manager.list.side_effect = RuntimeError("db at /srv/app/db.sqlite")
+        controller = AutomationController(manager, registry=NodeTypeRegistry())
+        user = Mock(spec=User)
+        user.account_type = AccountType.ADMIN if is_admin else AccountType.USER
+
+        result = await controller.list_automations(user)
+
+        assert result.success is False
+        assert ("db at" in result.message) is detail_visible
+        assert "/srv/app" not in result.message
+
+    @pytest.mark.asyncio
+    async def test_run_failure_message_is_plain_for_regular_users(self):
+        manager = Mock()
+        manager.repository.get_run.side_effect = RuntimeError("db at /srv/app/db.sqlite")
+        controller = AutomationController(manager, registry=NodeTypeRegistry())
+        user = Mock(spec=User)
+        user.account_type = AccountType.USER
+
+        result = await controller.get_run("a1", "r1", user)
+
+        assert "db at" not in result.message

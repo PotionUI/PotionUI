@@ -15,7 +15,8 @@ from src.platform.security.current_user import get_current_active_user
 from src.features.notifications.dto import CreateNotificationRequest, UpdateNotificationPreferencesRequest
 from src.features.notifications import NotificationCollaborators
 from src.features.notifications import operations
-from src.platform.security.user import User
+from src.platform.security.failure_text import failure_detail
+from src.platform.security.user import AccountType, User
 from src.platform.websocket.notification_connection_hub import notification_connection_hub
 
 if TYPE_CHECKING:
@@ -81,7 +82,7 @@ class NotificationController(BaseController):
             return self.error_api_response(error="create_notification_failed", message=str(e))
         except Exception as e:
             self.logger.error(f"Error creating notification: {e}")
-            return self.error_api_response(error="create_notification_failed", message=str(e))
+            return self.error_api_response(error="create_notification_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def mark_all_read(self, user: User) -> APIResponse:
         """Mark all of the current user's notifications as read."""
@@ -90,7 +91,7 @@ class NotificationController(BaseController):
             return self.success_response(data={"updated": updated})
         except Exception as e:
             self.logger.error(f"Error marking all notifications read: {e}")
-            return self.error_api_response(error="mark_all_read_failed", message=str(e))
+            return self.error_api_response(error="mark_all_read_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def mark_read(self, notification_id: str, user: User) -> APIResponse:
         """Mark a single notification as read."""
@@ -103,7 +104,7 @@ class NotificationController(BaseController):
             return self.success_response(data={"id": notification_id})
         except Exception as e:
             self.logger.error(f"Error marking notification read: {e}")
-            return self.error_api_response(error="mark_read_failed", message=str(e))
+            return self.error_api_response(error="mark_read_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def delete_notification(self, notification_id: str, user: User) -> APIResponse:
         """Delete a single notification."""
@@ -116,7 +117,7 @@ class NotificationController(BaseController):
             return self.success_response(data={"id": notification_id})
         except Exception as e:
             self.logger.error(f"Error deleting notification: {e}")
-            return self.error_api_response(error="delete_notification_failed", message=str(e))
+            return self.error_api_response(error="delete_notification_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def clear_notifications(self, user: User) -> APIResponse:
         """Delete all of the current user's notifications."""
@@ -125,7 +126,7 @@ class NotificationController(BaseController):
             return self.success_response(data={"deleted": deleted})
         except Exception as e:
             self.logger.error(f"Error clearing notifications: {e}")
-            return self.error_api_response(error="clear_notifications_failed", message=str(e))
+            return self.error_api_response(error="clear_notifications_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def get_notification_types(self, user: User) -> APIResponse:
         """List all registered notification types with the user-effective enabled state, plus the sound toggle."""
@@ -134,7 +135,7 @@ class NotificationController(BaseController):
             return self.success_response(data=preferences)
         except Exception as e:
             self.logger.error(f"Error getting notification types: {e}")
-            return self.error_api_response(error="get_notification_types_failed", message=str(e))
+            return self.error_api_response(error="get_notification_types_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def update_preferences(self, request: UpdateNotificationPreferencesRequest, user: User) -> APIResponse:
         """Partially update the current user's notification preferences (types and/or sound)."""
@@ -147,7 +148,7 @@ class NotificationController(BaseController):
             return self.error_api_response(error="update_preferences_failed", message=str(e))
         except Exception as e:
             self.logger.error(f"Error updating notification preferences: {e}")
-            return self.error_api_response(error="update_preferences_failed", message=str(e))
+            return self.error_api_response(error="update_preferences_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
 
 def build_router(container: "AppContainer") -> APIRouter:

@@ -286,9 +286,16 @@ class TestCallTool:
     @pytest.mark.asyncio
     async def test_a_raising_tool_comes_back_as_iserror_not_a_protocol_error(self, protocol):
         collaborators, _registry, _gov = protocol
-        result = await handle_method(collaborators, "tools/call", {"name": "boom"}, "user-1")
+        result = await handle_method(collaborators, "tools/call", {"name": "boom"}, "user-1", is_admin=True)
         assert result["isError"] is True
         assert "kaboom" in result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_a_raising_tool_hides_its_exception_text_from_a_regular_user(self, protocol):
+        collaborators, _registry, _gov = protocol
+        result = await handle_method(collaborators, "tools/call", {"name": "boom"}, "user-1")
+        assert result["isError"] is True
+        assert "kaboom" not in result["content"][0]["text"]
 
     @pytest.mark.asyncio
     async def test_approval_gated_tool_runs_execute_confirmed_directly(self, protocol):

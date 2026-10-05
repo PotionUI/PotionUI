@@ -41,12 +41,12 @@ class TestUnexpected:
     def test_keeps_the_exception_detail(self):
         """The exception message is real diagnostic value for a genuine
         backend failure - it must not be discarded, only framed."""
-        result = unexpected("write_memory", "save", RuntimeError("db error"))
+        result = unexpected("write_memory", "save", RuntimeError("db error"), True)
         assert "db error" in result
 
     def test_is_not_a_bare_stringified_exception(self):
         error = RuntimeError("db error")
-        result = unexpected("write_memory", "save", error)
+        result = unexpected("write_memory", "save", error, True)
         assert result != str(error)
         assert result != f"Failed: {error}"
 
@@ -64,3 +64,16 @@ class TestScrubPaths:
     def test_keeps_relative_paths_urls_and_repo_ids(self):
         text = "see https://hf.co/a/b, generations/2026/x.png and google/siglip-base-patch16-224"
         assert scrub_paths(text) == text
+
+
+class TestUnexpectedDisclosure:
+    def test_regular_users_get_no_exception_detail(self):
+        result = unexpected("write_memory", "save", RuntimeError("cannot open /srv/db.sqlite"))
+        assert "write_memory" in result
+        assert "db.sqlite" not in result
+        assert "cannot open" not in result
+
+    def test_admins_get_detail_with_paths_scrubbed(self):
+        result = unexpected("write_memory", "save", RuntimeError("cannot open /srv/app/db.sqlite"), True)
+        assert "cannot open" in result
+        assert "/srv/app" not in result

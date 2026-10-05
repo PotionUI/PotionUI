@@ -298,7 +298,7 @@ class AddPromptTool(BaseTool):
             }))
         except Exception as exc:
             logger.error("add_prompt failed: %s", exc)
-            return ToolResult(success=False, data="", error=unexpected("add_prompt", "save", exc))
+            return ToolResult(success=False, data="", error=unexpected("add_prompt", "save", exc, context.is_admin))
 
 
 class EditPromptTool(BaseTool):
@@ -408,7 +408,7 @@ class EditPromptTool(BaseTool):
             }), error=None if saved else "Prompt could not be updated")
         except Exception as exc:
             logger.error("edit_prompt failed: %s", exc)
-            return ToolResult(success=False, data="", error=unexpected("edit_prompt", "update", exc))
+            return ToolResult(success=False, data="", error=unexpected("edit_prompt", "update", exc, context.is_admin))
 
 
 class DeletePromptTool(BaseTool):

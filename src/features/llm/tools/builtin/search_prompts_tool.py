@@ -205,4 +205,4 @@ class SearchModelPromptsTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(payload), sources=sources)
         except Exception as e:
             logger.error(f"search_model_prompts failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("search_model_prompts", "search", e))
+            return ToolResult(success=False, data="", error=unexpected("search_model_prompts", "search", e, context.is_admin))

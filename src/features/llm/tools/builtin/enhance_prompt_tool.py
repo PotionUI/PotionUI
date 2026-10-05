@@ -126,7 +126,7 @@ class EnhancePromptTool(BaseTool):
             )
         except Exception as e:
             logger.error(f"enhance_prompt failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("enhance_prompt", "enhancement", e))
+            return ToolResult(success=False, data="", error=unexpected("enhance_prompt", "enhancement", e, context.is_admin))
 
         candidates = [c["text"] for c in result.get("candidates", []) if c.get("text")]
         if not candidates:

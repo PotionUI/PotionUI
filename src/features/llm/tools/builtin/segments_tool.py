@@ -75,7 +75,7 @@ class ListSegmentCategoriesTool(BaseTool):
             )
         except Exception as e:
             logger.error(f"Error listing segment categories: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
 
 class GetSavedSegmentsTool(BaseTool):
@@ -134,7 +134,7 @@ class GetSavedSegmentsTool(BaseTool):
             }))
         except Exception as e:
             logger.error("Error getting saved Segments: %s", e)
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
 
 class GetSegmentTemplatesTool(BaseTool):
@@ -186,7 +186,7 @@ class GetSegmentTemplatesTool(BaseTool):
             )
         except Exception as e:
             logger.error(f"Error getting segment templates: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
 
 def _truncate(text: str, limit: int = 90) -> str:
@@ -317,7 +317,7 @@ class _SegmentWriteTool(BaseTool):
             return _fail(str(exc))
         except Exception as exc:
             logger.error("%s preview failed: %s", self.name, exc)
-            return _fail(unexpected(self.name, "preview", exc))
+            return _fail(unexpected(self.name, "preview", exc, context.is_admin))
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         unavailable = self._available(context)
@@ -329,7 +329,7 @@ class _SegmentWriteTool(BaseTool):
             return _fail(str(exc))
         except Exception as exc:
             logger.error("%s failed: %s", self.name, exc)
-            return _fail(unexpected(self.name, "save", exc))
+            return _fail(unexpected(self.name, "save", exc, context.is_admin))
 
     def _proposal(self, preview: ToolApprovalPreview, payload: Dict[str, Any], message: str) -> ToolResult:
         return ToolResult(

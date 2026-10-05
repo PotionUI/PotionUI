@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any, Dict, List
 
+from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import (
     build_model_field_metadata,
@@ -127,4 +128,4 @@ class GetActiveModelsTool(BaseTool):
             )
         except Exception as e:
             logger.error(f"Error getting active models: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))

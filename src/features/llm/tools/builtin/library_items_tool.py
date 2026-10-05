@@ -108,7 +108,7 @@ class ListLibraryItemsTool(BaseTool):
             return ToolResult(success=False, data="", error=str(e))
         except Exception as e:
             logger.error("list_library_items failed: %s", e)
-            return ToolResult(success=False, data="", error=unexpected("list_library_items", "list", e))
+            return ToolResult(success=False, data="", error=unexpected("list_library_items", "list", e, context.is_admin))
 
         items = page.items
         collections = {}

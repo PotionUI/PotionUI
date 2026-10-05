@@ -774,3 +774,31 @@ class TestApprovalAcrossConnections:
         assert result.success is True
         manager.approve_tool_execution.assert_awaited_once()
         assert result.data["assistant_message"]["id"] == "a2"
+
+
+class TestTurnErrorDisclosure:
+    @staticmethod
+    async def _error_message(is_admin: bool) -> str:
+        registry = ChatTurnRegistry()
+
+        async def factory():
+            raise RuntimeError("boom in /srv/app/secret.py")
+            yield
+
+        turn = registry.start("s1", "u1", factory, is_admin=is_admin)
+        await asyncio.wait_for(turn.done.wait(), timeout=2)
+        errors = [e for e in turn.events if e["event"] == "error"]
+        assert errors[0]["data"]["error"] == "turn_error"
+        return errors[0]["data"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_regular_user_gets_a_plain_message(self):
+        message = await self._error_message(False)
+        assert "boom" not in message
+        assert "/srv/app" not in message
+
+    @pytest.mark.asyncio
+    async def test_admin_keeps_the_detail_without_server_paths(self):
+        message = await self._error_message(True)
+        assert "boom" in message
+        assert "/srv/app" not in message

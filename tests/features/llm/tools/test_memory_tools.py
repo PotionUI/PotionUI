@@ -282,7 +282,7 @@ class TestWriteMemoryTool:
         result = await self._tool().execute(ctx, key="k", content="c", scope="global")
 
         assert result.success is False
-        assert "db error" in result.error
+        assert "db error" not in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -400,7 +400,7 @@ class TestReadMemoryTool:
         result = await self._tool().execute(ctx, scope="global")
 
         assert result.success is False
-        assert "db error" in result.error
+        assert "db error" not in result.error
 
     @pytest.mark.asyncio
     async def test_execute_all_without_model_or_preset(self, mock_ops):
@@ -530,7 +530,7 @@ class TestDeleteMemoryTool:
         result = await self._tool().execute_confirmed(ctx, note_id="note-1")
 
         assert result.success is False
-        assert "db error" in result.error
+        assert "db error" not in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -704,7 +704,7 @@ class TestUpdateMemoryTool:
         result = await self._tool().execute(ctx, note_id="note-1", content="x")
 
         assert result.success is False
-        assert "db error" in result.error
+        assert "db error" not in result.error
 
     @pytest.mark.asyncio
     async def test_execute_confirmed_updates(self, mock_ops):
@@ -804,7 +804,7 @@ class TestUpdateMemoryTool:
         result = await self._tool().execute_confirmed(ctx, note_id="note-1", content="x")
 
         assert result.success is False
-        assert "db error" in result.error
+        assert "db error" not in result.error
 
     @pytest.mark.asyncio
     async def test_execute_confirmed_content_over_limit_raises_teaching_error(self, mock_ops):

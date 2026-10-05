@@ -278,4 +278,4 @@ class RunGenerationTool(BaseTool):
             )
         except Exception as e:
             logger.error(f"Failed to start generation: {e}")
-            return ToolResult(success=False, data="", error=unexpected("run_generation", "start the generation", start_failure_reason(e, context.is_admin)))
+            return ToolResult(success=False, data="", error=unexpected("run_generation", "start the generation", start_failure_reason(e, context.is_admin), True))

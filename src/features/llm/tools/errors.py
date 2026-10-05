@@ -9,14 +9,11 @@ module names that shape so a new call site reaches for it instead of
 reinventing a bare `f"Failed: {e}"`.
 """
 
-import re
 from typing import Optional, Union
 
-_ABSOLUTE_PATH = re.compile(r"(?<![\w.:/\\-])(?:/(?:[\w.\-]+/)+[\w.\-]*|[A-Za-z]:\\[^\s'\"]+)")
+from src.platform.security.failure_text import scrub_paths
 
-
-def scrub_paths(text: str) -> str:
-    return _ABSOLUTE_PATH.sub("<server path>", text)
+__all__ = ["scrub_paths", "teach", "unexpected"]
 
 
 def teach(problem: str, expected: str, next_step: Optional[str] = None) -> str:
@@ -32,17 +29,8 @@ def teach(problem: str, expected: str, next_step: Optional[str] = None) -> str:
     return ". ".join(sentences) + "."
 
 
-def unexpected(tool: str, operation: str, error: Union[Exception, str]) -> str:
-    """Error text for an unexpected-exception catch-all.
-
-    Names the tool and the operation that failed instead of returning a bare
-    `str(e)` / `f"Failed: {e}"` with no frame, so the model at least learns
-    which call broke and that retrying with the same or different arguments
-    will not fix it. The exception detail is kept - for a genuine backend
-    failure it can be the only useful diagnostic there is - but it is never
-    returned on its own. Callers should still log `error` for a human.
-    """
-    return (
-        f"{tool}'s {operation} failed unexpectedly: {str(error).rstrip('.')}. This is not "
-        "something you can fix by changing your call - tell the user, or try once more."
-    )
+def unexpected(tool: str, operation: str, error: Union[Exception, str], is_admin: bool = False) -> str:
+    advice = "This is not something you can fix by changing your call - tell the user, or try once more."
+    if is_admin:
+        return f"{tool}'s {operation} failed unexpectedly: {scrub_paths(str(error)).rstrip('.')}. {advice}"
+    return f"{tool}'s {operation} failed unexpectedly on the server. {advice}"

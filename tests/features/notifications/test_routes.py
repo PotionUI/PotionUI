@@ -8,7 +8,7 @@ from src.features.notifications.collaborators import NotificationCollaborators
 from src.features.notifications.routes import NotificationController
 from src.features.notifications.dto import CreateNotificationRequest, UpdateNotificationPreferencesRequest
 from src.features.notifications.records import Notification, NotificationLevel
-from src.platform.security.user import User
+from src.platform.security.user import AccountType, User
 
 
 class TestNotificationController:
@@ -308,3 +308,28 @@ class TestNotificationController:
         assert result.success is False
         assert result.error == "update_preferences_failed"
         assert "bogus" in result.message
+
+
+class TestFailureDisclosure:
+    @pytest.mark.asyncio
+    async def test_regular_user_gets_a_plain_message(self, monkeypatch):
+        sample_user = Mock(spec=User)
+        sample_user.account_type = AccountType.USER
+        monkeypatch.setattr(operations, "mark_all_read", Mock(side_effect=RuntimeError("db at /srv/app/db.sqlite")))
+
+        result = await NotificationController(Mock()).mark_all_read(sample_user)
+
+        assert result.success is False
+        assert "db at" not in result.message
+        assert "/srv/app" not in result.message
+
+    @pytest.mark.asyncio
+    async def test_admin_keeps_the_detail_without_server_paths(self, monkeypatch):
+        sample_user = Mock(spec=User)
+        sample_user.account_type = AccountType.ADMIN
+        monkeypatch.setattr(operations, "mark_all_read", Mock(side_effect=RuntimeError("db at /srv/app/db.sqlite")))
+
+        result = await NotificationController(Mock()).mark_all_read(sample_user)
+
+        assert "db at" in result.message
+        assert "/srv/app" not in result.message

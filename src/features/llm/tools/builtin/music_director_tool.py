@@ -26,6 +26,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import music_director_active
 from src.features.llm.tools.tool_call_rescue import decode_payload, demangle_quote_tokens
@@ -779,7 +780,7 @@ class GetMusicDirectorTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(result))
         except Exception as e:
             logger.error(f"Error reading music director from session metadata: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
 
 class UpdateMusicDirectorTool(BaseTool):

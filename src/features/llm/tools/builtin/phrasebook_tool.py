@@ -133,7 +133,7 @@ class ListPhrasebookCategoriesTool(BaseTool):
             )
         except Exception as e:
             logger.error(f"Error listing phrasebook categories: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
 
 class GetPhrasebookValuesTool(BaseTool):
@@ -288,7 +288,7 @@ class GetPhrasebookValuesTool(BaseTool):
             )
         except Exception as e:
             logger.error(f"Error getting phrasebook values: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
 
 class ListPhrasebookValuesTool(BaseTool):
@@ -414,7 +414,7 @@ class ListPhrasebookValuesTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(payload))
         except Exception as e:
             logger.error(f"Error listing phrasebook values: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
 
 class CreatePhrasebookCategoryTool(BaseTool):
@@ -536,7 +536,7 @@ class CreatePhrasebookCategoryTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(result), preview=preview)
         except Exception as e:
             logger.error(f"Error validating phrasebook category creation: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         if not context.phrasebook_category_repository:
@@ -569,7 +569,7 @@ class CreatePhrasebookCategoryTool(BaseTool):
             return ToolResult(success=False, data="", error=str(e))
         except Exception as e:
             logger.error(f"Error creating phrasebook category: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
 
 def _count_label(count: int, singular: str, plural: str) -> str:
@@ -700,7 +700,7 @@ class UpdatePhrasebookCategoryTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(result), preview=preview)
         except Exception as e:
             logger.error(f"Error validating phrasebook category update: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "validation", e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "validation", e, context.is_admin))
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         if not context.phrasebook_category_repository:
@@ -746,7 +746,7 @@ class UpdatePhrasebookCategoryTool(BaseTool):
             return ToolResult(success=False, data="", error=str(e))
         except Exception as e:
             logger.error(f"Error updating phrasebook category: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "update", e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "update", e, context.is_admin))
 
 
 class DeletePhrasebookCategoryTool(BaseTool):
@@ -841,7 +841,7 @@ class DeletePhrasebookCategoryTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(result), preview=preview)
         except Exception as e:
             logger.error(f"Error validating phrasebook category deletion: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "validation", e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "validation", e, context.is_admin))
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         if not context.phrasebook_category_repository:
@@ -868,7 +868,7 @@ class DeletePhrasebookCategoryTool(BaseTool):
             return ToolResult(success=False, data="", error=str(e))
         except Exception as e:
             logger.error(f"Error deleting phrasebook category: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "deletion", e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "deletion", e, context.is_admin))
 
 
 class RemovePhrasebookValuesTool(BaseTool):
@@ -1017,7 +1017,7 @@ class RemovePhrasebookValuesTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(result), preview=preview)
         except Exception as e:
             logger.error(f"Error validating phrasebook value removal: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
     def _scope_path(self, context: ToolContext, kwargs: Dict[str, Any]) -> Optional[str]:
         """Best-effort dot-path of the scope category for the approval preview."""
@@ -1069,7 +1069,7 @@ class RemovePhrasebookValuesTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(payload))
         except Exception as e:
             logger.error(f"Error removing phrasebook values: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
 
 def _describe_edit(edit: Dict[str, str]) -> str:
@@ -1268,7 +1268,7 @@ class UpdatePhrasebookValuesTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(result), preview=preview)
         except Exception as e:
             logger.error(f"Error validating phrasebook value update: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         if not context.phrasebook_category_repository:
@@ -1318,7 +1318,7 @@ class UpdatePhrasebookValuesTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(payload))
         except Exception as e:
             logger.error(f"Error updating phrasebook values: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
 
 class CreatePhrasebookValuesTool(BaseTool):
@@ -1480,7 +1480,7 @@ class CreatePhrasebookValuesTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(result), preview=preview)
         except Exception as e:
             logger.error(f"Error validating phrasebook value creation: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         if not context.phrasebook_category_repository:
@@ -1535,4 +1535,4 @@ class CreatePhrasebookValuesTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(payload))
         except Exception as e:
             logger.error(f"Error creating phrasebook values: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))

@@ -484,7 +484,8 @@ class TestRunGenerationToolExecuteConfirmed:
         )
         result = await RunGenerationTool().execute_confirmed(ctx)
         assert result.success is False
-        assert "/srv/models/private/unet.safetensors" in result.error
+        assert "No such file or directory" in result.error
+        assert "/srv/models/private" not in result.error
 
     @pytest.mark.asyncio
     async def test_confirmed_passes_tab_id_to_request(self):

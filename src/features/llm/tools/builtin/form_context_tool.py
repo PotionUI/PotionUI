@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
+from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import video_director_active
 from src.features.presets import operations
@@ -143,7 +144,7 @@ class GetCurrentSegmentsTool(BaseTool):
             )
         except Exception as e:
             logger.error(f"Error reading current segments from session metadata: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
 
 class GetFormStateTool(BaseTool):
@@ -300,4 +301,4 @@ class GetFormStateTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(result))
         except Exception as e:
             logger.error(f"Error reading form state from session metadata: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))

@@ -326,4 +326,4 @@ class OrganizeGalleryTool(BaseTool):
             return ToolResult(success=False, data="", error=str(e))
         except Exception as e:
             logger.error(f"organize_gallery failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("organize_gallery", operation, e))
+            return ToolResult(success=False, data="", error=unexpected("organize_gallery", operation, e, context.is_admin))

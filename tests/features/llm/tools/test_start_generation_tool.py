@@ -180,7 +180,8 @@ class TestExecuteConfirmed:
         ctx = ToolContext(user_id="admin-1", is_admin=True, generation_orchestrator=orchestrator)
         result = await StartGenerationTool().execute_confirmed(ctx, preset_id="sdxl/base")
         assert result.success is False
-        assert "/srv/models/private/unet.safetensors" in result.error
+        assert "No such file or directory" in result.error
+        assert "/srv/models/private" not in result.error
 
 
 class TestMediaOverrideValidation:

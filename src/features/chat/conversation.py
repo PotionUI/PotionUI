@@ -20,6 +20,7 @@ import time
 from contextlib import aclosing
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from src.platform.security.failure_text import failure_detail
 from src.features.chat.dto import SessionResponse, SendMessageResponse
 from src.features.chat.exceptions import (
     AdminOnlyModeException,
@@ -908,7 +909,7 @@ class ConversationRunner:
 
         except Exception as e:
             logger.exception(f"Error during streaming in session {session_id}: {e}")
-            yield {"event": "error", "data": {"error": "stream_error", "message": str(e)}}
+            yield {"event": "error", "data": {"error": "stream_error", "message": failure_detail(e, is_admin)}}
 
     def _start_title_task(self, session: SessionResponse, session_id: str) -> Optional[asyncio.Task]:
         """Start async title generation if the session needs one.

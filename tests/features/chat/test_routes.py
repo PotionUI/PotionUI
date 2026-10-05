@@ -177,7 +177,17 @@ class TestChatController:
         result = controller.create_session(sample_create_request, sample_user)
 
         assert result.success is False
-        assert "Database error" in result.message
+        assert "Database error" not in result.message
+
+    def test_create_session_exception_detail_is_kept_for_admins_without_paths(
+        self, controller, mock_chat_manager, sample_create_request
+    ):
+        mock_chat_manager.create_session.side_effect = Exception("cannot open /srv/app/storage/db.sqlite")
+
+        result = controller.create_session(sample_create_request, _user(AccountType.ADMIN))
+
+        assert "cannot open" in result.message
+        assert "/srv/app" not in result.message
 
     def test_create_session_admin_only_mode_rejected_for_non_admin(
         self, controller, mock_chat_manager, sample_user
@@ -975,7 +985,7 @@ class TestChatController:
         data_line = [l for l in full_output.split("\n") if l.startswith("data: ")][0]
         data = json.loads(data_line[len("data: "):])
         assert data["error"] == "stream_error"
-        assert "Invalid LLM parameter" in data["message"]
+        assert "Invalid LLM parameter" not in data["message"]
 
     @pytest.mark.asyncio
     async def test_send_message_stream_generic_exception_error_event(
@@ -1000,7 +1010,24 @@ class TestChatController:
         data_line = [l for l in full_output.split("\n") if l.startswith("data: ")][0]
         data = json.loads(data_line[len("data: "):])
         assert data["error"] == "stream_error"
+        assert "Unexpected failure" not in data["message"]
+
+    @pytest.mark.asyncio
+    async def test_send_message_stream_exception_detail_is_kept_for_admins(
+        self, controller, mock_chat_manager, sample_send_request
+    ):
+        async def mock_error_stream():
+            raise RuntimeError("Unexpected failure in /srv/app/x.py")
+            yield
+
+        mock_chat_manager.send_message_stream = Mock(return_value=mock_error_stream())
+
+        response = await controller.send_message_stream("session-123", sample_send_request, _user(AccountType.ADMIN))
+        output = "".join([chunk async for chunk in response.body_iterator])
+
+        data = json.loads([l for l in output.split("\n") if l.startswith("data: ")][0][len("data: "):])
         assert "Unexpected failure" in data["message"]
+        assert "/srv/app" not in data["message"]
 
     @pytest.mark.asyncio
     async def test_send_message_stream_empty_stream(

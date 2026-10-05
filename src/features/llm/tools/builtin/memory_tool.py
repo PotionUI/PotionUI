@@ -91,7 +91,7 @@ def _resolve_target_note(context: ToolContext, kwargs: Dict[str, Any]):
         try:
             note = memory_operations.get_note(context.llm_memory_repository, user_id=context.user_id, note_id=note_id)
         except Exception as e:
-            return None, unexpected("update_memory", "fetch note", e)
+            return None, unexpected("update_memory", "fetch note", e, context.is_admin)
         if note is None:
             return None, f"Memory note with id '{note_id}' not found"
         return note, None
@@ -111,7 +111,7 @@ def _resolve_target_note(context: ToolContext, kwargs: Dict[str, Any]):
     except ValueError as e:
         return None, str(e)
     except Exception as e:
-        return None, unexpected("update_memory", "fetch note", e)
+        return None, unexpected("update_memory", "fetch note", e, context.is_admin)
     if note is None:
         ref_desc = f" (scope_ref='{scope_ref}')" if scope_ref else ""
         return None, f"No memory note found with key '{key}' at scope '{scope}'{ref_desc}"
@@ -329,7 +329,7 @@ class WriteMemoryTool(BaseTool):
             return ToolResult(success=False, data="", error=str(e))
         except Exception as e:
             logger.error(f"write_memory failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("write_memory", "save", e))
+            return ToolResult(success=False, data="", error=unexpected("write_memory", "save", e, context.is_admin))
 
 
 class ReadMemoryTool(BaseTool):
@@ -475,7 +475,7 @@ class ReadMemoryTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(payload))
         except Exception as e:
             logger.error(f"read_memory failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("read_memory", "read", e))
+            return ToolResult(success=False, data="", error=unexpected("read_memory", "read", e, context.is_admin))
 
 
 class DeleteMemoryTool(BaseTool):
@@ -540,7 +540,7 @@ class DeleteMemoryTool(BaseTool):
             )
         except Exception as e:
             logger.error(f"delete_memory fetch failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("delete_memory", "fetch note", e))
+            return ToolResult(success=False, data="", error=unexpected("delete_memory", "fetch note", e, context.is_admin))
 
         if note is None:
             return ToolResult(
@@ -604,7 +604,7 @@ class DeleteMemoryTool(BaseTool):
             )
         except Exception as e:
             logger.error(f"delete_memory delete failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("delete_memory", "delete", e))
+            return ToolResult(success=False, data="", error=unexpected("delete_memory", "delete", e, context.is_admin))
 
 
 class UpdateMemoryTool(BaseTool):
@@ -778,4 +778,4 @@ class UpdateMemoryTool(BaseTool):
             return ToolResult(success=False, data="", error=str(e))
         except Exception as e:
             logger.error(f"update_memory update failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("update_memory", "update", e))
+            return ToolResult(success=False, data="", error=unexpected("update_memory", "update", e, context.is_admin))

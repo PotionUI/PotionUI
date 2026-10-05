@@ -225,7 +225,7 @@ class SearchGalleryTool(BaseTool):
                 results = await self._text_results(context, queries, limit)
             except Exception as e:
                 logger.error("search_gallery text search failed: %s", e)
-                return ToolResult(success=False, data="", error=unexpected("search_gallery", "text search", e))
+                return ToolResult(success=False, data="", error=unexpected("search_gallery", "text search", e, context.is_admin))
 
         payload: Dict[str, Any] = {"search_mode": "text" if note else "visual", "results": results}
         if note:

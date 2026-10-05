@@ -23,6 +23,7 @@ import logging
 import uuid
 from typing import Any, Dict, List, Optional, Sequence
 
+from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import video_director_active
 from src.features.video_director import apply_preset_mode_overlay
@@ -643,5 +644,5 @@ class GetVideoDirectorTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(result))
         except Exception as e:
             logger.error(f"Error reading video director from session metadata: {e}")
-            return ToolResult(success=False, data="", error=str(e))
+            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 

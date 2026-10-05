@@ -258,7 +258,7 @@ class ManageCollectionsTool(BaseTool):
             return ToolResult(success=False, data="", error=str(e))
         except Exception as e:
             logger.error(f"manage_collections preview failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("manage_collections", f"preview {operation}", e))
+            return ToolResult(success=False, data="", error=unexpected("manage_collections", f"preview {operation}", e, context.is_admin))
 
     @staticmethod
     def _list(repository, user_id: str, scope: str) -> ToolResult:
@@ -333,4 +333,4 @@ class ManageCollectionsTool(BaseTool):
             return ToolResult(success=False, data="", error=str(e))
         except Exception as e:
             logger.error(f"manage_collections failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("manage_collections", operation, e))
+            return ToolResult(success=False, data="", error=unexpected("manage_collections", operation, e, context.is_admin))

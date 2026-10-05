@@ -239,7 +239,7 @@ class TestExecuteConfirmedUnexpectedError:
         assert result.success is False
         assert "organize_gallery" in result.error
         assert "rate" in result.error
-        assert "db exploded" in result.error
+        assert "db exploded" not in result.error
         assert result.error != "Failed: db exploded"
 
 

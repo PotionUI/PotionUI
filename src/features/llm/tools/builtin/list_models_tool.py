@@ -153,7 +153,7 @@ class ListModelsTool(BaseTool):
             )
         except Exception as e:
             logger.error(f"Error listing models: {e}")
-            return ToolResult(success=False, data="", error=unexpected("list_models", "list", e))
+            return ToolResult(success=False, data="", error=unexpected("list_models", "list", e, context.is_admin))
 
 
 class SearchModelsTool(BaseTool):
@@ -245,4 +245,4 @@ class SearchModelsTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(payload))
         except Exception as e:
             logger.error("search_models failed: %s", e)
-            return ToolResult(success=False, data="", error=unexpected("search_models", "search", e))
+            return ToolResult(success=False, data="", error=unexpected("search_models", "search", e, context.is_admin))

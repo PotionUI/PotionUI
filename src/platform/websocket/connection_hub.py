@@ -72,7 +72,7 @@ class ConnectionHub:
                 simplified_message = {
                     'type': message.get('type', 'unknown'),
                     'data': {
-                        'error': f"Failed to serialize message: {str(e)}",
+                        'error': "Failed to serialize message",
                         'original_type': message.get('type', 'unknown')
                     }
                 }

@@ -487,7 +487,8 @@ class TestExecuteActions:
         assert len(results) == 1
         assert results[0].action_id == "exception_action"
         assert results[0].success is False
-        assert "Unexpected error in action" in results[0].error
+        assert "Unexpected error in action" not in results[0].error
+        assert results[0].error
         assert results[0].duration_ms >= 0
 
     @pytest.mark.asyncio
@@ -515,7 +516,7 @@ class TestExecuteActions:
             await manager.execute_actions("test_config")
 
         assert "blocking_exception_action" in str(exc_info.value)
-        assert "Critical exception" in str(exc_info.value)
+        assert "Critical exception" not in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_execute_actions_empty(self, manager, mock_llm_repository):

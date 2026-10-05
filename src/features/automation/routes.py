@@ -29,6 +29,7 @@ from src.features.automation.runtime import (
     GraphValidationError,
 )
 from src.platform.plugins.automation_nodes import NodeTypeRegistry, node_type_registry, resolved_config_schema
+from src.platform.security.failure_text import failure_detail
 from src.platform.security.user import AccountType, User
 from src.platform.websocket.automation_connection_hub import automation_connection_hub
 
@@ -157,7 +158,7 @@ class AutomationController(BaseController):
             return self.success_response(data=[a.to_dict() for a in automations])
         except Exception as e:
             self.logger.error(f"Error listing automations: {e}")
-            return self.error_api_response(error="list_automations_failed", message=str(e))
+            return self.error_api_response(error="list_automations_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def create_automation(self, request: CreateAutomationRequest, user: User) -> APIResponse:
         denial = self._admin_denial(request.graph, user)
@@ -176,7 +177,7 @@ class AutomationController(BaseController):
             return self.error_api_response(error="invalid_graph", message=str(e.issues))
         except Exception as e:
             self.logger.error(f"Error creating automation: {e}")
-            return self.error_api_response(error="create_automation_failed", message=str(e))
+            return self.error_api_response(error="create_automation_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def get_automation(self, automation_id: str, user: User) -> APIResponse:
         try:
@@ -186,7 +187,7 @@ class AutomationController(BaseController):
             return self.success_response(data=automation.to_dict())
         except Exception as e:
             self.logger.error(f"Error getting automation: {e}")
-            return self.error_api_response(error="get_automation_failed", message=str(e))
+            return self.error_api_response(error="get_automation_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     # -- portability ---------------------------------------------------------
 
@@ -195,7 +196,7 @@ class AutomationController(BaseController):
             return self.success_response(data=self.manager.list_templates())
         except Exception as e:
             self.logger.error(f"Error listing automation templates: {e}")
-            return self.error_api_response(error="list_templates_failed", message=str(e))
+            return self.error_api_response(error="list_templates_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def instantiate_template(
         self,
@@ -223,7 +224,7 @@ class AutomationController(BaseController):
             return self.error_api_response(error="invalid_template_graph", message=str(e.issues))
         except Exception as e:
             self.logger.error(f"Error instantiating automation template {template_key}: {e}")
-            return self.error_api_response(error="instantiate_template_failed", message=str(e))
+            return self.error_api_response(error="instantiate_template_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def export_automation(self, automation_id: str, user: User) -> APIResponse:
         try:
@@ -233,7 +234,7 @@ class AutomationController(BaseController):
             return self.success_response(data=envelope)
         except Exception as e:
             self.logger.error(f"Error exporting automation: {e}")
-            return self.error_api_response(error="export_automation_failed", message=str(e))
+            return self.error_api_response(error="export_automation_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def import_automation(self, request: ImportAutomationRequest, user: User) -> APIResponse:
         """Imported automations always land disabled; `warnings` lists what this machine can't satisfy yet."""
@@ -257,7 +258,7 @@ class AutomationController(BaseController):
             return self.error_api_response(error="invalid_graph", message=str(e.issues))
         except Exception as e:
             self.logger.error(f"Error importing automation: {e}")
-            return self.error_api_response(error="import_automation_failed", message=str(e))
+            return self.error_api_response(error="import_automation_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def update_automation(self, automation_id: str, request: UpdateAutomationRequest, user: User) -> APIResponse:
         # A partial update omits `graph`; only inspect one that's actually supplied.
@@ -280,7 +281,7 @@ class AutomationController(BaseController):
             return self.error_api_response(error="invalid_graph", message=str(e.issues))
         except Exception as e:
             self.logger.error(f"Error updating automation: {e}")
-            return self.error_api_response(error="update_automation_failed", message=str(e))
+            return self.error_api_response(error="update_automation_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def set_enabled(self, automation_id: str, enabled: bool, user: User) -> APIResponse:
         # Enabling arms triggers, which fire with no user - so a non-admin must
@@ -298,7 +299,7 @@ class AutomationController(BaseController):
             return self.success_response(data=automation.to_dict())
         except Exception as e:
             self.logger.error(f"Error setting automation enabled state: {e}")
-            return self.error_api_response(error="set_enabled_failed", message=str(e))
+            return self.error_api_response(error="set_enabled_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def delete_automation(self, automation_id: str, user: User) -> APIResponse:
         try:
@@ -308,7 +309,7 @@ class AutomationController(BaseController):
             return self.success_response(data={"id": automation_id})
         except Exception as e:
             self.logger.error(f"Error deleting automation: {e}")
-            return self.error_api_response(error="delete_automation_failed", message=str(e))
+            return self.error_api_response(error="delete_automation_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     # -- execution / validation ------------------------------------------------
 
@@ -330,7 +331,7 @@ class AutomationController(BaseController):
             return self.success_response(data={"run_id": run_id})
         except Exception as e:
             self.logger.error(f"Error running automation: {e}")
-            return self.error_api_response(error="run_failed", message=str(e))
+            return self.error_api_response(error="run_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def validate_graph(self, request: ValidateGraphRequest, user: User) -> APIResponse:
         try:
@@ -338,7 +339,7 @@ class AutomationController(BaseController):
             return self.success_response(data={"issues": issues})
         except Exception as e:
             self.logger.error(f"Error validating automation graph: {e}")
-            return self.error_api_response(error="validate_graph_failed", message=str(e))
+            return self.error_api_response(error="validate_graph_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def get_node_types(self, user: User) -> APIResponse:
         try:
@@ -346,7 +347,7 @@ class AutomationController(BaseController):
             return self.success_response(data=node_types)
         except Exception as e:
             self.logger.error(f"Error listing node types: {e}")
-            return self.error_api_response(error="list_node_types_failed", message=str(e))
+            return self.error_api_response(error="list_node_types_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     # -- run history -----------------------------------------------------------
 
@@ -356,7 +357,7 @@ class AutomationController(BaseController):
             return self.success_response(data=[r.to_dict() for r in runs])
         except Exception as e:
             self.logger.error(f"Error listing automation runs: {e}")
-            return self.error_api_response(error="list_runs_failed", message=str(e))
+            return self.error_api_response(error="list_runs_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
     async def get_run(self, automation_id: str, run_id: str, user: User) -> APIResponse:
         try:
@@ -369,7 +370,7 @@ class AutomationController(BaseController):
             return self.success_response(data=data)
         except Exception as e:
             self.logger.error(f"Error getting automation run: {e}")
-            return self.error_api_response(error="get_run_failed", message=str(e))
+            return self.error_api_response(error="get_run_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
 
 
 def build_router(container: "AppContainer") -> APIRouter:
@@ -538,7 +539,7 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
             return
 
         client_id = str(uuid.uuid4())
-        await automation_connection_hub.connect(websocket, client_id)
+        await automation_connection_hub.connect(websocket, client_id, is_admin=user.account_type == AccountType.ADMIN)
 
         try:
             await websocket.send_json({"type": "connection_established", "client_id": client_id})

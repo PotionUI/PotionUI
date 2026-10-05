@@ -140,7 +140,7 @@ class PreChatActionRegistry:
                     action_id=action.id,
                     success=False,
                     duration_ms=duration,
-                    error=str(e),
+                    error="it failed unexpectedly; the server log has the details",
                 )
 
         results = await asyncio.gather(*[_run_action(a) for a in actions])

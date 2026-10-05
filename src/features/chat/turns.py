@@ -76,6 +76,8 @@ import time
 import uuid
 from typing import AsyncGenerator, Awaitable, Callable, Dict, Optional
 
+from src.platform.security.failure_text import failure_detail
+
 logger = logging.getLogger(__name__)
 
 # Per-turn queue sentinel: pushed when the turn finishes so a subscriber's
@@ -159,6 +161,7 @@ class ChatTurn:
         self,
         session_id: str,
         user_id: str,
+        is_admin: bool = False,
         max_events: int = _DEFAULT_MAX_EVENTS_PER_TURN,
         max_replay_bytes: int = _DEFAULT_MAX_REPLAY_BYTES_PER_TURN,
         subscriber_queue_maxsize: int = _DEFAULT_SUBSCRIBER_QUEUE_MAXSIZE,
@@ -167,6 +170,7 @@ class ChatTurn:
         self.turn_id = uuid.uuid4().hex
         self.session_id = session_id
         self.user_id = user_id
+        self.is_admin = is_admin
         self.status = "running"  # running | completed | error | cancelled
         self.events: list = []
         self.finished_at: Optional[float] = None
@@ -585,7 +589,7 @@ class ChatTurnRegistry:
         """The session's most recent turn (running or finished), if retained."""
         return self._turns.get(session_id)
 
-    def start(self, session_id: str, user_id: str, stream_factory: StreamFactory) -> ChatTurn:
+    def start(self, session_id: str, user_id: str, stream_factory: StreamFactory, is_admin: bool = False) -> ChatTurn:
         """Begin a turn for the session and drive it in the background.
 
         Raises:
@@ -597,6 +601,7 @@ class ChatTurnRegistry:
         turn = ChatTurn(
             session_id=session_id,
             user_id=user_id,
+            is_admin=is_admin,
             max_events=self._max_events_per_turn,
             max_replay_bytes=self._max_replay_bytes_per_turn,
             subscriber_queue_maxsize=self._subscriber_queue_maxsize,
@@ -672,6 +677,6 @@ class ChatTurnRegistry:
             logger.exception("Chat turn %s failed: %s", turn.turn_id, e)
             turn._emit({
                 "event": "error",
-                "data": {"error": "turn_error", "message": str(e)},
+                "data": {"error": "turn_error", "message": failure_detail(e, turn.is_admin)},
             })
             turn._finish("error")

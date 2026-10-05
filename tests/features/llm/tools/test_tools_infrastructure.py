@@ -817,7 +817,7 @@ class TestToolExecutor:
             messages=[],
             llm_id="model-1",
             system_message="sys",
-            tool_context=make_context(),
+            tool_context=ToolContext(user_id="admin-1", is_admin=True),
         )
 
         assert len(executions) == 1
@@ -1532,7 +1532,7 @@ class TestToolExecutorApprovalNonStreaming:
         executor, _ = self._make_executor(BrokenConfirmTool())
         result = await executor.execute_tool_confirmed("broken_confirm", make_context(), {})
         assert result.success is False
-        assert "confirm boom" in result.error
+        assert "confirm boom" not in result.error
         assert "broken_confirm" in result.error
         assert result.error != "Confirmed execution failed: confirm boom"
 
@@ -2730,7 +2730,7 @@ class TestExecuteWithToolsStreamSuppression:
         assert stream_calls.call_count == 2
         second_call_messages = stream_calls.call_args_list[1].kwargs["messages"]
         assert any(
-            m.get("role") == "tool" and "intentional failure" in m.get("content", "")
+            m.get("role") == "tool" and "fail's run failed unexpectedly" in m.get("content", "")
             for m in second_call_messages
         )
 

@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from src.features.llm.tools.base import ToolContext, ToolResult
-from src.features.llm.tools.errors import scrub_paths
+from src.features.llm.tools.errors import scrub_paths, unexpected
 from src.features.llm.tools.governance import compute_allowed_tool_names
 from src.features.llm.tools.governance_repository import ToolGovernanceRepository
 from src.features.llm.tools.registry import ToolRegistry
@@ -234,7 +234,7 @@ async def call_tool(
             result = await tool.execute(context, **arguments)
     except Exception as exc:
         logger.error("MCP tool '%s' raised: %s", name, exc, exc_info=True)
-        result = ToolResult(success=False, data="", error=f"Tool execution failed: {exc}")
+        result = ToolResult(success=False, data="", error=unexpected(name, "run", exc, is_admin))
 
     text = result.data if result.success else f"Error: {scrub_paths(str(result.error or 'the tool failed'))}"
     return {

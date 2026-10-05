@@ -1073,7 +1073,7 @@ class ToolExecutor:
             return ToolResult(
                 success=False,
                 data="",
-                error=unexpected(tool_name, "run", e),
+                error=unexpected(tool_name, "run", e, context.is_admin),
             ), False
 
     async def _execute_tool_guarded(
@@ -1134,5 +1134,5 @@ class ToolExecutor:
             return ToolResult(
                 success=False,
                 data="",
-                error=unexpected(tool_name, "confirm", e),
+                error=unexpected(tool_name, "confirm", e, context.is_admin),
             )

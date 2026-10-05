@@ -200,6 +200,32 @@ class ModelCatalog:
 
         return result
 
+    def smart_counts(self, user: User, all_models: bool = False, restricted: bool = False) -> Dict[str, int]:
+        from src.features.content_safety.restrict import provider_flags_nsfw
+
+        allowed_model_ids = self.access_policy.get_allowed_model_ids(user, all_models)
+        include_undefined = user.account_type == AccountType.ADMIN and allowed_model_ids is None
+        scope = dict(
+            allowed_model_ids=allowed_model_ids,
+            library_user_id=user.id,
+            include_undefined=include_undefined,
+        )
+        buckets = {
+            "all": {},
+            "favorites": {"favorites_only": True},
+            "unsorted": {"unsorted": True},
+        }
+        counts: Dict[str, int] = {}
+        for name, extra in buckets.items():
+            if restricted:
+                models = self.model_repo.get_all(
+                    include_providers=True, include_tags=False, include_files=False, **scope, **extra
+                )
+                counts[name] = sum(1 for m in models if not provider_flags_nsfw(m.providers))
+            else:
+                counts[name] = self.model_repo.count_total(**scope, **extra)
+        return counts
+
     @staticmethod
     def _visible_search_filter(
         search_filter: Optional[ModelSearchFilter], is_admin: bool

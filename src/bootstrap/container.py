@@ -1256,7 +1256,13 @@ def build_container() -> AppContainer:
 
     model_collection_repository = ModelCollectionRepository()
     user_model_meta_repository = UserModelMetaRepository()
-    model_collection_controller = ModelCollectionController(model_collection_repository)
+
+    def model_smart_counts(user, all_models=False):
+        return model_index_manager.catalog.smart_counts(
+            user, all_models, restricted=content_safety.is_restricted(user.id)
+        )
+
+    model_collection_controller = ModelCollectionController(model_collection_repository, model_smart_counts)
 
     download_queue.local_model_indexer = model_index_manager.indexing.index_downloaded
 

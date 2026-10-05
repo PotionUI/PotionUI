@@ -30,7 +30,7 @@ def index():
         "unrelated": FieldTemplate(
             type="number",
             name="unrelated",
-            reactions=[{"when": when("cfg", 99), "then": {"set_value": -1}}],
+            reactions=[{"when": when("cfg", 5), "then": {"set_value": -1}}],
         ),
     }
 

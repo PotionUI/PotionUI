@@ -8,6 +8,7 @@
 	import type { OrganizeFactSpec, OrganizeOption, OrganizeSubject } from '$lib/types/organize';
 	import FactModelPicker from './FactModelPicker.svelte';
 	import TagNamesInput from './TagNamesInput.svelte';
+	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 
 	let {
 		spec,
@@ -103,7 +104,7 @@
 	}
 
 	function labelFor(optionValue: string): string {
-		return enumOptions.find((o) => o.value === optionValue)?.label ?? optionValue;
+		return enumOptions.find((o) => o.value === optionValue)?.label ?? (spec.key === 'mode' ? modeLabel(optionValue) : optionValue);
 	}
 </script>
 

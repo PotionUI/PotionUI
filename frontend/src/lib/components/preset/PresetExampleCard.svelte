@@ -5,6 +5,7 @@
 	import type { PresetGalleryItem } from '$lib/types/api';
 	import { exampleAltText, isVideoExample } from '$lib/utils/presetMedia';
 	import { copyText } from '$lib/utils/clipboard';
+	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 
 	export let presetId: string;
 	export let presetName: string;
@@ -71,7 +72,7 @@
 					<span class="text-2xs font-mono tabular-nums text-fg-subtle">seed {item.seed}</span>
 				{/if}
 				{#if item.mode}
-					<Badge variant="neutral" size="sm">{item.mode}</Badge>
+					<Badge variant="neutral" size="sm">{modeLabel(item.mode)}</Badge>
 				{/if}
 			</div>
 		{/if}

@@ -15,6 +15,7 @@
 	import StudioSettingsSheet from './StudioSettingsSheet.svelte';
 	import StudioPresetSessionSheet from './StudioPresetSessionSheet.svelte';
 	import StudioChatSheet from './StudioChatSheet.svelte';
+	import { modeLabel as resolveModeLabel } from '$lib/utils/modeLabel.svelte';
 
 	export let tab: Tab;
 	export let tabHandlers: {
@@ -65,10 +66,11 @@
 		label: m.label,
 		variants: m.variants,
 		sourcePlugin: m.source_plugin,
-		description: modeDescription(m)
+		description: modeDescription(m),
+		icon: m.icon
 	}));
 	$: presetName = presets.find((p: any) => p.id === tab.selectedPreset)?.name;
-	$: modeLabel = availableModes.find((m) => m.id === tab.selectedMode)?.label;
+	$: modeLabel = resolveModeLabel(tab.selectedMode, availableModes.find((m) => m.id === tab.selectedMode)?.label) || undefined;
 
 	$: dockPromptPreview =
 		tab.prompt ||

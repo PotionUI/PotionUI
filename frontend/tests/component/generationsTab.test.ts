@@ -25,7 +25,7 @@ vi.mock('$lib/services/admin-api', async (importOriginal) => {
 						user_id: 'user-1',
 						has_run_report: true,
 						preset_name: 'SDXL',
-						mode: 't2i'
+						mode: 'txt2img'
 					}
 				],
 				total: 1
@@ -35,6 +35,8 @@ vi.mock('$lib/services/admin-api', async (importOriginal) => {
 });
 
 const { default: GenerationsTab } = await import('../../src/routes/admin/components/GenerationsTab.svelte');
+const { setModeLabels } = await import('$lib/utils/modeLabel.svelte');
+setModeLabels({ txt2img: 'Text to Image' });
 const { mount, unmount, flushSync } = await import('svelte');
 const adminApi = await import('$lib/services/admin-api');
 const page = (await import('$app/stores')).page as unknown as Writable<{ url: URL }>;
@@ -71,7 +73,8 @@ describe('GenerationsTab', () => {
 		expect(text).toContain('Preset');
 		expect(text).toContain('SDXL');
 		expect(text).toContain('alice');
-		expect(text).toContain('t2i');
+		expect(text).toContain('Text to Image');
+		expect(text).not.toContain('txt2img');
 	});
 
 	it('fetches the paged list for a history section', async () => {

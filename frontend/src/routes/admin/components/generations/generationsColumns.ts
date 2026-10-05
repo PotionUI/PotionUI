@@ -1,5 +1,6 @@
 import type { AdminGenerationListItem } from '$lib/services/admin-api';
 import { parseServerDate } from '$lib/utils/relativeTime';
+import { modeLabel } from '$lib/utils/modeLabel.svelte';
 import { formatDurationMs } from '$lib/components/generation-panel/barState';
 import type { SortState } from '$lib/components/table';
 import type { GenerationSortBy } from '../generationsFilters';
@@ -23,7 +24,7 @@ export function durationFor(row: Pick<AdminGenerationListItem, 'completed_at' | 
 }
 
 export function presetTitleFor(row: Pick<AdminGenerationListItem, 'preset_name' | 'mode'>): string {
-	return row.preset_name || row.mode || 'Untitled generation';
+	return row.preset_name || modeLabel(row.mode) || 'Untitled generation';
 }
 
 const SORT_COLUMN_KEY = 'created';

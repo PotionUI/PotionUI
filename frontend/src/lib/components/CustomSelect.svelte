@@ -18,6 +18,7 @@
 	export let menuMinWidth: number = 0;
 	export let descriptionLines: 1 | 2 = 1;
 	export let triggerDescription: boolean = true;
+	export let triggerIcon: boolean = true;
 	export let fill: boolean = false;
 
 	const dispatch = createEventDispatcher<{
@@ -210,7 +211,7 @@
 			>
 				{#if selectedOption}
 					<span class="flex min-w-0 items-center gap-2 text-fg">
-						{#if selectedOption.icon}<Icon name={selectedOption.icon} className="w-3.5 h-3.5 flex-shrink-0 text-fg-muted" />{/if}
+						{#if triggerIcon && selectedOption.icon}<Icon name={selectedOption.icon} className="w-3.5 h-3.5 flex-shrink-0 text-fg-muted" />{/if}
 						<span class="truncate">{selectedOption.label}</span>
 						{#if selectedOption.marker}
 							<span class="-ml-1 flex-shrink-0 font-mono text-2xs text-fg-subtle" aria-hidden="true">{selectedOption.marker}</span>

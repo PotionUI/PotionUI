@@ -21,6 +21,14 @@ vi.mock('$lib/components/formulas/FormulasButton.svelte', async () => ({
 }));
 
 const { default: PresetControls } = await import('../../src/routes/generate/components/PresetControls.svelte');
+const { setModeLabels } = await import('../../src/lib/utils/modeLabel.svelte');
+const { iconPaths } = await import('../../src/lib/utils/IconLibrary');
+
+function hasGlyph(root: ParentNode, name: string) {
+	const d = iconPaths[name];
+	const first = Array.isArray(d) ? d[0] : d;
+	return Array.from(root.querySelectorAll('svg path')).some((p) => p.getAttribute('d') === first);
+}
 
 const PRESETS = [
 	{
@@ -35,7 +43,7 @@ const PRESETS = [
 ];
 
 const MODES = [
-	{ id: 'txt2img', label: 'Txt2Img', description: 'Generate an image from a text prompt.' },
+	{ id: 'txt2img', label: 'Text to Image', description: 'Generate an image from a text prompt.' },
 	{ id: 'enhance', label: 'Enhance', description: 'Refine an already-upscaled image with a short tail of the sampler schedule.' },
 	{ id: 'edit', label: 'Edit', sourcePlugin: 'krea2-edit', description: null },
 	{ id: 'bare', label: 'Bare' }
@@ -118,6 +126,41 @@ async function openMenu() {
 }
 
 describe('Generate header: one-line preset and mode select', () => {
+	it('shows mode icons on the closed trigger and in the menu options', async () => {
+		await render({
+			availableModes: [
+				{ id: 'txt2img', label: 'Text to Image', icon: 'image' },
+				{ id: 'img2video', label: 'Image to Video', icon: 'video' },
+				{ id: 'face_swap', label: 'Face Swap', icon: 'not-an-icon' },
+				{ id: 'bare', label: 'Bare' }
+			]
+		});
+		expect(hasGlyph(trigger(), 'image')).toBe(true);
+		expect(trigger().querySelector('svg.w-3\\.5.h-3\\.5.text-fg-muted')).not.toBeNull();
+		expect(trigger().textContent).toContain('Text to Image');
+		const [txt2img, img2video, faceSwap, bare] = await openMenu();
+		expect(hasGlyph(txt2img, 'image')).toBe(true);
+		expect(hasGlyph(img2video, 'video')).toBe(true);
+		expect(faceSwap.querySelector('svg')).toBeNull();
+		expect(faceSwap.textContent?.trim()).toBe('Face Swap');
+		expect(bare.querySelector('svg')).toBeNull();
+	});
+
+	it('never shows a raw mode key when a mode arrives without a served label', async () => {
+		setModeLabels({ txt2img: 'Text to Image', img2video: 'Image to Video' });
+		await render({
+			availableModes: [
+				{ id: 'txt2img', label: '' },
+				{ id: 'img2video', label: '' },
+				{ id: 'face_swap', label: '' }
+			]
+		});
+		expect(trigger().textContent).toContain('Text to Image');
+		const options = await openMenu();
+		expect(options.map((o) => o.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['Text to Image', 'Image to Video', 'Face Swap']);
+		expect(document.body.textContent).not.toMatch(/txt2img|img2video|face_swap/);
+	});
+
 	it('renders the preset picker, the mode select and the joined icon group in one row', async () => {
 		await render();
 		const row = target.querySelector('[data-testid="preset-header-row"]') as HTMLElement;
@@ -128,7 +171,7 @@ describe('Generate header: one-line preset and mode select', () => {
 		expect(group.querySelector('[data-testid="formulas-stub"]')).not.toBeNull();
 		expect(group.querySelectorAll('button').length).toBe(1);
 		expect(row.textContent).toContain('Krea-2');
-		expect(trigger().textContent).toContain('Txt2Img');
+		expect(trigger().textContent).toContain('Text to Image');
 	});
 
 	it('has no info or reload button in the header row', async () => {
@@ -167,7 +210,7 @@ describe('Generate header: one-line preset and mode select', () => {
 		await render();
 		const options = await openMenu();
 		expect(options.map((o) => o.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
-			'Txt2Img Generate an image from a text prompt.',
+			'Text to Image Generate an image from a text prompt.',
 			'Enhance Refine an already-upscaled image with a short tail of the sampler schedule.',
 			'Edit \u2022 contributed by krea2-edit',
 			'Bare'
@@ -271,8 +314,24 @@ describe('Generate header: one-line preset and mode select', () => {
 		await tick();
 		flushSync();
 		const mode = target.querySelector('[data-testid="preset-header-mode"]') as HTMLElement;
-		expect(mode.className).toContain('w-[110px]');
+		expect(mode.className).toContain('w-[148px]');
+		expect(mode.className).toContain('flex-shrink-0');
 		expect(trigger().textContent).not.toContain('Generate an image');
+	});
+
+	it('wide panel: the icon and the full mode name fit while the preset picker takes the rest and truncates', async () => {
+		panelWidth = 395;
+		await render({ availableModes: [{ ...MODES[0], icon: 'image' }, ...MODES.slice(1)] });
+		await tick();
+		flushSync();
+		const mode = target.querySelector('[data-testid="preset-header-mode"]') as HTMLElement;
+		const picker = target.querySelector('[data-testid="preset-header-picker"]') as HTMLElement;
+		expect(mode.className).not.toContain('basis-full');
+		expect(mode.className).toContain('w-[148px]');
+		expect(picker.className).toContain('flex-1');
+		expect(picker.className).toContain('min-w-0');
+		expect(hasGlyph(trigger(), 'image')).toBe(true);
+		expect(trigger().querySelector('span.truncate')?.textContent).toBe('Text to Image');
 	});
 
 	it('narrow panel: the mode select wraps to a full-width row with the description', async () => {
@@ -283,5 +342,14 @@ describe('Generate header: one-line preset and mode select', () => {
 		const mode = target.querySelector('[data-testid="preset-header-mode"]') as HTMLElement;
 		expect(mode.className).toContain('basis-full');
 		expect(trigger().textContent).toContain('Generate an image from a text prompt.');
+	});
+
+	it('narrow panel: the wrapped full-width trigger shows the mode icon too', async () => {
+		panelWidth = 320;
+		await render({ availableModes: [{ ...MODES[0], icon: 'image' }, ...MODES.slice(1)] });
+		await tick();
+		flushSync();
+		expect((target.querySelector('[data-testid="preset-header-mode"]') as HTMLElement).className).toContain('basis-full');
+		expect(hasGlyph(trigger(), 'image')).toBe(true);
 	});
 });

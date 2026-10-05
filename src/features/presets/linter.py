@@ -24,7 +24,8 @@ from src.platform.plugins.sampling import (
 )
 from .children_paths import DEFAULT_SHARED_PATH, resolve_children_path
 from .formula_groups import FORMULA_INPUT_TYPES, iter_formula_fields
-from .loader import discover_form_variants, plugin_preset_mode_contributions
+from .loader import discover_form_variants, plugin_preset_mode_contributions, read_mode_naming
+from .mode_labels import fallback_mode_label, is_known_mode, known_icon_names
 from .schema import (
     SPEED_PROFILE_KNOWN_KEYS,
     validate_manifest,
@@ -508,6 +509,8 @@ class PresetLinter:
         issues.extend(self._lint_speed_profiles(preset_file, manifest))
 
         issues.extend(self._lint_mode_descriptions(preset_file, manifest))
+
+        issues.extend(self._lint_mode_labels(preset_file, manifest))
 
         issues.extend(self._lint_formulas(preset_file, manifest))
 
@@ -2142,6 +2145,32 @@ class PresetLinter:
                         f"modes/{mode_name}: add a short_description so the mode menu can describe it",
                     )
                 )
+        return issues
+
+    def _lint_mode_labels(self, preset_file: Path, manifest) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        icons = known_icon_names()
+        for mode_name in manifest.modes:
+            naming = read_mode_naming(preset_file.parent / "modes" / mode_name)
+            icon = naming["mode_icon"]
+            if icon and icons is not None and icon not in icons:
+                issues.append(
+                    LintIssue(
+                        "warning",
+                        str(preset_file),
+                        f"modes/{mode_name}: mode_icon \"{icon}\" is not an icon in the app's Icon set",
+                    )
+                )
+            if is_known_mode(mode_name) or naming["mode_label"]:
+                continue
+            issues.append(
+                LintIssue(
+                    "info",
+                    str(preset_file),
+                    f"modes/{mode_name}: no plain name for this mode key, so it shows as "
+                    f"\"{fallback_mode_label(mode_name)}\"; add mode_label to its form.yml",
+                )
+            )
         return issues
 
     def _lint_form_variants(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:

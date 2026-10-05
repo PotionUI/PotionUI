@@ -388,6 +388,8 @@ class FormFile(BaseModel):
     label: Optional[str] = None
     description: Optional[str] = None  # markdown
     short_description: Optional[str] = None
+    mode_label: Optional[str] = None
+    mode_icon: Optional[str] = None
     examples: List[str] = Field(default_factory=list)  # paths, must live under public/
     default: bool = False
     order: int = 0

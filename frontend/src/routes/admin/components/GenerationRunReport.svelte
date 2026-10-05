@@ -30,6 +30,7 @@
 	import GenerationPromptPanel from './GenerationPromptPanel.svelte';
 	import GenerationStatusLog from './GenerationStatusLog.svelte';
 	import RunReportToc from './generations/RunReportToc.svelte';
+	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 
 	let {
 		generation,
@@ -108,7 +109,7 @@
 
 	let hasFailureSection = $derived(generation.status === 'failed' && isAdmin);
 
-	let title = $derived(generation.preset_name || generation.mode || 'Untitled generation');
+	let title = $derived(generation.preset_name || modeLabel(generation.mode) || 'Untitled generation');
 	let durationMs = $derived.by(() => {
 		if (!generation.completed_at) return null;
 		const completed = parseServerDate(generation.completed_at)?.getTime();
@@ -205,7 +206,7 @@
 				{generation.status}
 			</Badge>
 			{#if generation.mode && generation.preset_name}
-				<Badge variant="neutral" size="sm" class="font-mono">{generation.mode}</Badge>
+				<Badge variant="neutral" size="sm">{modeLabel(generation.mode)}</Badge>
 			{/if}
 		{/snippet}
 		{#snippet subtitle()}

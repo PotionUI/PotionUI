@@ -617,7 +617,8 @@
 		label: m.label,
 		variants: m.variants,
 		sourcePlugin: m.source_plugin,
-		description: modeDescription(m)
+		description: modeDescription(m),
+		icon: m.icon
 	}));
 	$: currentTab = $activeTab;
 	$: rewriteMergedFieldMarkers(currentTab, currentTabFieldAliases);
@@ -1881,7 +1882,7 @@
 								{readiness}
 								{isLoading}
 								isReloading={isReloadingPreset && tab.id === activeTabId}
-								availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m) }))}
+								availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon }))}
 								onPresetChange={(id) => tabHandlers.handlePresetChange(id)}
 								onModeChange={(mode) => tabHandlers.handleModeChange(mode)}
 								onVariantChange={(variant) => tabHandlers.handleVariantChange(variant)}
@@ -1918,7 +1919,7 @@
 						{readiness}
 						{isLoading}
 						isReloading={isReloadingPreset && tab.id === activeTabId}
-						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m) }))}
+						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon }))}
 						onFormDataChange={(data) => handleFormDataChange(tab.id, data)}
 						onWorkbenchPrevious={handleWorkbenchPrevious}
 						onWorkbenchNext={handleWorkbenchNext}

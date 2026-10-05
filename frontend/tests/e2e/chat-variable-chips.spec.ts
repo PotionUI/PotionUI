@@ -47,7 +47,7 @@ test('known ${var} renders as a chip in chat, unknown stays literal', async ({ p
 	try {
 		await variablesButton.waitFor({ state: 'visible', timeout: 10000 });
 	} catch {
-		const modeButton = page.getByRole('button', { name: /txt2img/i }).first();
+		const modeButton = page.getByRole('button', { name: /txt2img|text to image/i }).first();
 		if ((await modeButton.count()) > 0) {
 			await modeButton.click();
 		}

@@ -6,6 +6,8 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import PresetPicker from '$lib/components/preset/PresetPicker.svelte';
 	import { resolveVariant, sortVariants } from '$lib/utils/variants';
+	import { modeLabel } from '$lib/utils/modeLabel.svelte';
+	import { hasIcon } from '$lib/utils/IconLibrary';
 
 	export let presets: PresetInfo[] = [];
 	export let selectedPreset: string = '';
@@ -19,6 +21,7 @@
 		variants?: PresetModeVariant[];
 		sourcePlugin?: string | null;
 		description?: string | null;
+		icon?: string | null;
 	}> = [
 		{ id: 'txt2img', label: 'Text to Image' },
 		{ id: 'img2img', label: 'Image to Image' },
@@ -40,7 +43,8 @@
 	$: hasModeSelect = availableModes.length > 1;
 	$: modeOptions = availableModes.map((mode) => ({
 		value: mode.id,
-		label: mode.label,
+		label: modeLabel(mode.id, mode.label),
+		icon: mode.icon && hasIcon(mode.icon) ? mode.icon : undefined,
 		description: mode.description || undefined,
 		marker: mode.sourcePlugin ? '\u2022' : undefined,
 		markerLabel: mode.sourcePlugin ? `contributed by ${mode.sourcePlugin}` : undefined
@@ -89,7 +93,7 @@
 
 		{#if hasModeSelect}
 			<div
-				class="flex {narrow ? 'order-3 basis-full' : 'w-[110px] flex-shrink-0'}"
+				class="flex {narrow ? 'order-3 basis-full' : 'w-[148px] flex-shrink-0'}"
 				data-testid="preset-header-mode"
 			>
 				<CustomSelect

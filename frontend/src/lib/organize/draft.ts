@@ -9,6 +9,7 @@ import type {
 	OrganizeRuleInput,
 	OrganizeSubject
 } from '$lib/types/organize';
+import { modeLabel } from '$lib/utils/modeLabel.svelte';
 
 export interface DraftCondition {
 	uid: string;
@@ -267,7 +268,7 @@ export function describeValue(spec: OrganizeFactSpec | undefined, value: unknown
 		if (kind === 'model_ref') return labels.models[String(v)] ?? 'a model';
 		if (kind === 'enum') {
 			const fromStatic = spec?.options?.find((o) => o.value === v)?.label;
-			return fromStatic ?? labels.options[key]?.[String(v)] ?? String(v);
+			return fromStatic ?? labels.options[key]?.[String(v)] ?? (key === 'mode' ? modeLabel(String(v)) : String(v));
 		}
 		return String(v);
 	};

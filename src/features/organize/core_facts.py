@@ -2,18 +2,14 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from src.features.organize.evaluator import as_list
 from src.features.organize.item_repository import OrganizeItemRepository
+from src.features.presets.mode_labels import mode_display_name
 from src.platform.plugins.organize import OrganizeFactDefinition, OrganizeItem, OrganizeRegistry
 
 BASE_MODEL_TYPES = ("checkpoint", "diffusion_model", "unet")
 
-MODE_OPTIONS = (
-    {"value": "txt2img", "label": "Text to image"},
-    {"value": "img2img", "label": "Image to image"},
-    {"value": "inpaint", "label": "Inpaint"},
-    {"value": "edit", "label": "Edit"},
-    {"value": "txt2vid", "label": "Text to video"},
-    {"value": "img2vid", "label": "Image to video"},
-    {"value": "upscale", "label": "Upscale"},
+MODE_OPTIONS = tuple(
+    {"value": key, "label": mode_display_name(key)}
+    for key in ("txt2img", "img2img", "inpaint", "edit", "txt2vid", "img2vid", "upscale")
 )
 
 GENERATION_KINDS = (
@@ -295,9 +291,8 @@ def register_core_facts(registry: OrganizeRegistry, items: OrganizeItemRepositor
         ]
 
     def mode_options(user_id: str, subject: str, query: str) -> List[Dict[str, str]]:
-        labels = {o["value"]: o["label"] for o in MODE_OPTIONS}
         values = list(dict.fromkeys([o["value"] for o in MODE_OPTIONS] + items.used_modes(user_id)))
-        return _options(values, query, lambda v: labels.get(v, v))
+        return _options(values, query, mode_display_name)
 
     def model_type_options(user_id: str, subject: str, query: str) -> List[Dict[str, str]]:
         return _options(items.model_types(), query)

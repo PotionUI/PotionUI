@@ -4,6 +4,7 @@
 	import type { Tab } from '$lib/types/tabs';
 	import type { PresetInfo, PresetModeVariant } from '$lib/services/api/index';
 	import type { ReadinessReport } from '$lib/services/api/setup';
+	import { modeLabel as resolveModeLabel } from '$lib/utils/modeLabel.svelte';
 
 	export let tab: Tab;
 	export let presets: PresetInfo[] = [];
@@ -16,6 +17,7 @@
 		variants?: PresetModeVariant[];
 		sourcePlugin?: string | null;
 		description?: string | null;
+		icon?: string | null;
 	}> = [];
 	export let onPresetChange: (presetId: string) => void;
 	export let onModeChange: (mode: string) => void;
@@ -24,7 +26,7 @@
 	export let onFormulaApplied: (() => void) | undefined = undefined;
 
 	$: presetInfo = presets.find((p) => p.id === tab.selectedPreset);
-	$: modeLabel = availableModes.find((m) => m.id === tab.selectedMode)?.label ?? '';
+	$: modeLabel = resolveModeLabel(tab.selectedMode, availableModes.find((m) => m.id === tab.selectedMode)?.label);
 </script>
 
 <PresetHeader

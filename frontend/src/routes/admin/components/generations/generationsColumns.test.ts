@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { categoryLabel, durationFor, presetTitleFor, sortByFromSortState, sortStateFromSortBy } from './generationsColumns';
+import { setModeLabels } from '$lib/utils/modeLabel.svelte';
 
 describe('durationFor', () => {
 	it('formats the wall-clock gap between created and completed', () => {
@@ -30,7 +31,9 @@ describe('durationFor', () => {
 describe('presetTitleFor', () => {
 	it('prefers the preset name, then the mode, then a fallback', () => {
 		expect(presetTitleFor({ preset_name: 'SDXL', mode: 't2i' })).toBe('SDXL');
-		expect(presetTitleFor({ preset_name: undefined, mode: 't2i' })).toBe('t2i');
+		setModeLabels({ txt2img: 'Text to Image' });
+		expect(presetTitleFor({ preset_name: undefined, mode: 'txt2img' })).toBe('Text to Image');
+		expect(presetTitleFor({ preset_name: undefined, mode: 'face_swap' })).toBe('Face Swap');
 		expect(presetTitleFor({ preset_name: undefined, mode: undefined })).toBe('Untitled generation');
 	});
 });

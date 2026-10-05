@@ -12,6 +12,7 @@
 	import { initHostApi } from '$lib/plugin-api/host';
 	import { refreshPluginExtensions } from '$lib/plugin-api/extensionRefresh';
 	import { loadPresets } from '$lib/stores/presetsCatalog';
+	import { loadModeLabels } from '$lib/utils/modeLabel.svelte';
 	import { canInstall, initPwaInstall, promptInstall } from '$lib/stores/pwaInstall';
 	import ToastContainer from '$lib/components/ToastContainer.svelte';
 	import ConfirmHost from '$lib/components/modals/ConfirmHost.svelte';
@@ -118,6 +119,7 @@
 
 	$: if (mounted && $authStore.isAuthenticated) {
 		initializeAuthenticatedRuntime();
+		void loadModeLabels();
 	}
 
 	// Initialize keyboard system once when authenticated, and drop the loaded

@@ -24,6 +24,7 @@
 	import GenerationsFiltersPopover from './GenerationsFiltersPopover.svelte';
 	import { GENERATION_LIBRARY_SECTIONS, sectionFromStatus, statusFromSection, type GenerationSection } from './generations/generationsSections';
 	import { categoryLabel, durationFor, presetTitleFor, sortByFromSortState, sortStateFromSortBy } from './generations/generationsColumns';
+	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 	import {
 		GENERATION_SORT_OPTIONS,
 		clearAllGenerationsFilters,
@@ -369,7 +370,7 @@
 					{ key: 'status', label: 'Status', width: '110px', cell: statusCell },
 					{ key: 'category', label: 'Category', width: '150px', priority: 1, cell: categoryCell },
 					{ key: 'preset', label: 'Preset', width: 'minmax(160px,1.4fr)', accessor: presetTitleFor },
-					{ key: 'mode', label: 'Mode', width: '90px', priority: 1, mono: true, accessor: (r) => r.mode || '—' },
+					{ key: 'mode', label: 'Mode', width: '120px', priority: 1, accessor: (r) => modeLabel(r.mode) || '—' },
 					{ key: 'user', label: 'User', width: '140px', priority: 1, accessor: (r) => usernameFor(r.user_id) },
 					{ key: 'created', label: 'Created', width: '130px', sortable: true, mono: true, cell: createdCell },
 					{ key: 'duration', label: 'Duration', width: '90px', priority: 1, mono: true, accessor: durationFor },

@@ -13,6 +13,7 @@
 	import { DetailSection } from '$lib/components/detail';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import type { Segment } from '$lib/types/segments';
+	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 
 	// Owns the whole "Preview images" tab of the category detail panel: the
 	// selection-status header row, the generation form (Target/Prompt/Advanced),
@@ -26,7 +27,7 @@
 	let missingIds = $derived($valuesWithoutPreviewIds);
 	let withPreview = $derived($previewCount);
 	let selectedPresetName = $derived(gen.presets.find((p) => p.id === gen.selectedPresetId)?.name ?? '');
-	let selectedModeLabel = $derived(gen.modes.find((m) => m.name === gen.selectedMode)?.label ?? gen.selectedMode);
+	let selectedModeLabel = $derived(modeLabel(gen.selectedMode, gen.modes.find((m) => m.name === gen.selectedMode)?.label));
 	let valuesWithPreview = $derived(values.filter((v) => v.preview_file_id));
 
 	let advancedOpen = $state(false);
@@ -118,7 +119,7 @@
 							<option value="">No modes available</option>
 						{:else}
 							{#each gen.modes as mode}
-								<option value={mode.name}>{mode.label}</option>
+								<option value={mode.name}>{modeLabel(mode.name, mode.label)}</option>
 							{/each}
 						{/if}
 					</select>

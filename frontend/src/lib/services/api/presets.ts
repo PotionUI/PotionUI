@@ -26,6 +26,11 @@ export function createPresetsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
+		async getModeLabels(): Promise<APIResponse<{ labels: Record<string, string> }>> {
+			const response = await client.get('/api/presets/mode-labels');
+			return response.data;
+		},
+
 		async getPresetModes(
 			presetId: string
 		): Promise<

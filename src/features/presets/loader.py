@@ -129,6 +129,21 @@ def discover_form_variants(mode_dir: Path) -> List[Tuple[str, Path]]:
     return variants
 
 
+def read_mode_naming(mode_dir: Path) -> Dict[str, Optional[str]]:
+    try:
+        with open(mode_dir / 'form.yml', 'r', encoding='utf-8') as ff:
+            data = yaml.safe_load(ff) or {}
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    naming: Dict[str, Optional[str]] = {}
+    for key in ('mode_label', 'mode_icon'):
+        value = data.get(key)
+        naming[key] = (value.strip() or None) if isinstance(value, str) else None
+    return naming
+
+
 def _known_field_types() -> set:
     """The set of registered field-type names, for the loader's cross-check.
 
@@ -396,7 +411,7 @@ class PresetTemplateLoader:
         if errors:
             return None, errors
 
-        return ModeTemplate(forms=forms, pipes=pipes), []
+        return ModeTemplate(forms=forms, pipes=pipes, **read_mode_naming(mode_dir)), []
 
     def _load_forms_from_mode_dir(self, mode_dir: Path, mode_name: str) -> Tuple[List[FormTemplate], List[str]]:
         """Load and validate a mode's form variants (flattened layout).

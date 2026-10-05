@@ -103,6 +103,8 @@ class ModeTemplate:
     # `preset_modes:` contribution rather than declared by the
     # preset's own preset.yml `modes:` list. None for every core mode.
     source_plugin: Optional[str] = None
+    mode_label: Optional[str] = None
+    mode_icon: Optional[str] = None
 
 
 def sorted_forms(mode_data: 'ModeTemplate') -> List[FormTemplate]:

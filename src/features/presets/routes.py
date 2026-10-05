@@ -19,6 +19,7 @@ from src.features.backends.backend_registry import BackendRegistry
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets import operations
+from src.features.presets.mode_labels import MODE_LABELS
 from src.features.presets.exceptions import (
     PresetNotFoundException,
     ModeNotFoundException,
@@ -279,6 +280,9 @@ class PresetController(BaseController):
                 e, "preset_models_failed", "Failed to list models for preset"
             )
 
+    async def get_mode_labels(self) -> APIResponse:
+        return self.success_response(data={"labels": dict(MODE_LABELS)})
+
     async def get_available_modes(self, preset_id: str) -> APIResponse:
         """Get available modes for a specific preset."""
         try:
@@ -458,6 +462,10 @@ def build_router(container: "AppContainer") -> APIRouter:
             include_uninstalled = False
 
         return await controller.list_presets(current_user, include_uninstalled)
+
+    @router.get("/mode-labels", response_model=APIResponse, summary="Get Mode Display Names")
+    async def get_mode_labels(current_user=Depends(get_current_active_user)):
+        return await controller.get_mode_labels()
 
     @router.get("/{preset_id}", response_model=APIResponse, summary="Get Preset Details")
     async def get_preset(preset_id: str, current_user=Depends(get_current_active_user)):

@@ -6,6 +6,8 @@
  * pinned-mismatch) is unit-testable without mounting Svelte.
  */
 
+import { modeLabel } from '$lib/utils/modeLabel.svelte';
+
 export type ContextStripState = 'following' | 'pinned-active' | 'pinned-mismatch';
 
 export interface ContextStripTabInfo {
@@ -53,7 +55,7 @@ export function presetLabelFor(
 	selectedMode: string | null
 ): string | null {
 	if (!presetName) return null;
-	return selectedMode ? `${presetName} · ${selectedMode}` : presetName;
+	return selectedMode ? `${presetName} · ${modeLabel(selectedMode)}` : presetName;
 }
 
 function describeTab(

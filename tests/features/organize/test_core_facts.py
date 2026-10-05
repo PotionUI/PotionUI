@@ -173,6 +173,9 @@ def test_fact_options(seed, manager):
     seed.tag_generation("u1", seed.generation("u1"), "Sunset")
 
     assert manager.fact_options(user, "preset", "generation", "flux", 50) == [{"value": "flux-dev", "label": "Flux Dev"}]
-    assert {"value": "weird-mode", "label": "weird-mode"} in manager.fact_options(user, "mode", "generation", "", 50)
+    mode_options = manager.fact_options(user, "mode", "generation", "", 50)
+    assert {"value": "weird-mode", "label": "Weird Mode"} in mode_options
+    assert {"value": "txt2img", "label": "Text to Image"} in mode_options
+    assert manager.fact_options(user, "mode", "generation", "image to image", 50) == [{"value": "img2img", "label": "Image to Image"}]
     assert manager.fact_options(user, "tags", "generation", "sun", 50) == [{"value": "Sunset", "label": "Sunset"}]
     assert manager.fact_options(user, "aspect", "generation", "port", 50) == [{"value": "portrait", "label": "Portrait"}]

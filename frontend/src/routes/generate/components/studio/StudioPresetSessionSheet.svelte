@@ -11,7 +11,7 @@
 	export let readiness: ReadinessReport | null;
 	export let isLoading: boolean;
 	export let isReloading: boolean;
-	export let availableModes: Array<{ id: string; label: string; variants?: any[]; sourcePlugin?: string | null; description?: string | null }>;
+	export let availableModes: Array<{ id: string; label: string; variants?: any[]; sourcePlugin?: string | null; description?: string | null; icon?: string | null }>;
 	export let onPresetChange: (presetId: string) => void;
 	export let onModeChange: (mode: string) => void;
 	export let onVariantChange: (variant: string) => void;

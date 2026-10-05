@@ -36,7 +36,7 @@ async function openVariableManager(page: Page) {
 	try {
 		await variablesButton.waitFor({ state: 'visible', timeout: 10000 });
 	} catch {
-		const modeButton = page.getByRole('button', { name: /txt2img/i }).first();
+		const modeButton = page.getByRole('button', { name: /txt2img|text to image/i }).first();
 		if ((await modeButton.count()) > 0) await modeButton.click();
 		await variablesButton.waitFor({ state: 'visible', timeout: 10000 });
 	}

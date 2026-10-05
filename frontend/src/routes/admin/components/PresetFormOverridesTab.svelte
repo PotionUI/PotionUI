@@ -29,6 +29,7 @@
 	} from '$lib/utils/presetFormOverrides';
 	import type { FieldConfig } from '$lib/form/reactions';
 	import type { PresetFormOverrideField, PresetModeInfo } from '$lib/types/api';
+	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 
 	let {
 		presetId,
@@ -220,7 +221,7 @@
 	{#if mode}
 		<Alert variant="info" density="compact" icon>
 			Set a different default, lock a field so users can't change it, or hide it from the form entirely. Changes only
-			apply to the <span class="font-mono">{mode}</span> mode.
+			apply to the {modeLabel(mode, modes.find((m) => m.name === mode)?.label)} mode.
 		</Alert>
 	{/if}
 
@@ -238,7 +239,7 @@
 					disabled={modes.length === 0}
 				>
 					{#each modes as modeOption}
-						<option value={modeOption.name}>{modeOption.label || modeOption.name}</option>
+						<option value={modeOption.name}>{modeLabel(modeOption.name, modeOption.label)}</option>
 					{/each}
 				</select>
 			{/if}

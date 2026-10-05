@@ -5,6 +5,9 @@ import {
 	presetLabelFor,
 	type ContextStripTabInfo
 } from './contextStrip';
+import { setModeLabels } from '$lib/utils/modeLabel.svelte';
+
+setModeLabels({ txt2img: 'Text to Image' });
 
 function tab(overrides: Partial<ContextStripTabInfo> = {}): ContextStripTabInfo {
 	return {
@@ -21,7 +24,7 @@ const presetName = (id: string) => (id === 'preset-krea2' ? 'Krea-2 Turbo' : nul
 
 describe('presetLabelFor', () => {
 	it('joins preset name and mode', () => {
-		expect(presetLabelFor('Krea-2 Turbo', 'txt2img')).toBe('Krea-2 Turbo · txt2img');
+		expect(presetLabelFor('Krea-2 Turbo', 'txt2img')).toBe('Krea-2 Turbo · Text to Image');
 	});
 
 	it('falls back to preset name alone when no mode', () => {
@@ -44,7 +47,7 @@ describe('deriveContextStripModel', () => {
 		expect(model).toEqual({
 			state: 'following',
 			tabName: 'Portraits',
-			presetLabel: 'Krea-2 Turbo · txt2img',
+			presetLabel: 'Krea-2 Turbo · Text to Image',
 			dims: '1216×832',
 			steps: 28,
 			activeTabName: null
@@ -82,7 +85,7 @@ describe('deriveContextStripModel', () => {
 		expect(model).toEqual({
 			state: 'pinned-mismatch',
 			tabName: 'Krea-2 test',
-			presetLabel: 'Krea-2 Turbo · txt2img',
+			presetLabel: 'Krea-2 Turbo · Text to Image',
 			dims: '896×1152',
 			steps: 32,
 			activeTabName: 'Portraits'
@@ -169,7 +172,7 @@ describe('deriveTabSwitchDivider', () => {
 		});
 		expect(divider).toEqual({
 			tabName: 'Krea-2 test',
-			presetLabel: 'Krea-2 Turbo · txt2img',
+			presetLabel: 'Krea-2 Turbo · Text to Image',
 			dims: '1216×832'
 		});
 	});

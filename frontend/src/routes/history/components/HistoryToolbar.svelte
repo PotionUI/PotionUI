@@ -10,6 +10,7 @@
 	import { logger } from '$lib/utils/logger';
 	import { buildImportBundleTabData, buildReuseTabTitle, resolveReusePresetLabel } from '$lib/utils/historyReuse';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
+	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 	import { PageHeader, PageTitle, IconButton, Badge, ModelPickTrigger } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { api } from '$lib/services/api/index';
@@ -577,7 +578,7 @@
 										>
 											<option value="">All Modes</option>
 											{#each facets.modes as m}
-												<option value={m.value}>{m.value} ({m.count})</option>
+												<option value={m.value}>{modeLabel(m.value)} ({m.count})</option>
 											{/each}
 										</select>
 									</div>
@@ -801,7 +802,7 @@
 						title="Clear mode filter"
 						on:click={() => handleModeChange('')}
 					>
-						<span class="truncate max-w-[8rem]">{currentState.filters.mode}</span>
+						<span class="truncate max-w-[8rem]">{modeLabel(currentState.filters.mode)}</span>
 						<Icon name="close" className="w-3 h-3" />
 					</button>
 				{/if}

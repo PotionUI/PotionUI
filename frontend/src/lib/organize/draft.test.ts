@@ -95,6 +95,12 @@ describe('sentences', () => {
 		expect(describeValue(facts('resolution'), { width: 1344, height: 768 }, labels)).toBe('1344 x 768');
 	});
 
+	it('names mode values the catalog does not list with their plain mode name', () => {
+		const mode = { ...facts('media_kind'), key: 'mode', options: [{ value: 'txt2img', label: 'Text to Image' }] };
+		expect(describeValue(mode, ['txt2img', 'video_upscale'], labels)).toBe('Text to Image, Video Upscale');
+		expect(describeValue(facts('media_kind'), 'video_upscale', labels)).toBe('video_upscale');
+	});
+
 	it('builds the rule sentence', () => {
 		const rule = ruleFixture({
 			match: 'any',

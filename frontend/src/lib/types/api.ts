@@ -85,6 +85,7 @@ export interface PresetModeVariant {
 export interface PresetModeInfo {
 	name: string;
 	label: string;
+	icon?: string | null;
 	variants: PresetModeVariant[];
 	short_description?: string | null;
 	description?: string | null;

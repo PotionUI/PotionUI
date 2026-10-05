@@ -11,6 +11,7 @@ from src.features.forms.binding import bind_form
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets.formula_groups import resolve_formula_groups
+from src.features.presets.mode_labels import mode_display_icon, mode_display_name
 from src.features.presets.exceptions import (
     InvalidModeDataException,
     ModeNotFoundException,
@@ -161,7 +162,8 @@ def get_available_modes(collaborators: PresetCollaborators, preset_id: str) -> D
     available_modes = [
         {
             'name': mode_name,
-            'label': mode_name.replace('_', ' ').title(),
+            'label': mode_display_name(mode_name, mode_data.mode_label),
+            'icon': mode_display_icon(mode_name, mode_data.mode_icon),
             'short_description': _mode_short_description(mode_data),
             'variants': _build_variants(mode_data),
             'source_plugin': mode_data.source_plugin,

@@ -109,6 +109,24 @@ Rules the loader (`src/features/presets/loader.py`) and linter (`src/features/pr
   `GET /api/presets/<id>/modes` serves it as `modes[].short_description` (the default variant's
   value; each `variants[]` entry carries its own). Over 100 characters → **warning**; a preset with
   two or more modes where a mode has neither `short_description` nor `description` → **info**.
+- Users never see a raw mode key: everywhere the UI names a mode it shows a plain name, served as
+  `modes[].label` (`name` stays the key). The name comes from, in order:
+  1. `mode_label:` in the mode's own `modes/<mode>/form.yml` (not a variant's form; `label:` there
+     names the form variant, not the mode). Set it only when the shared name would be wrong for
+     your preset, e.g. MiniMax-H3's `refs` is "References to Video".
+  2. The shared map in `src/features/presets/mode_names.json`, read by `mode_labels.py`
+     (`txt2img` → "Text to Image", `img2video` → "Image to Video", `video_upscale` → "Video
+     Upscale", …). The labels are also served at `GET /api/presets/mode-labels` for surfaces that only
+     have a stored key (History, admin lists).
+  3. The key title-cased, with `_` and `-` turned into spaces (`face_swap` → "Face Swap"). A key that
+     falls through to this step with no `mode_label:` → **info**. Add it to the map if it is a
+     well-known name, or give the mode a `mode_label:`.
+- A mode can also carry an icon, served as `modes[].icon` and shown next to the name in the Generate
+  page's mode menu only (never on the closed select). It resolves the same way: `mode_icon:` in
+  `modes/<mode>/form.yml`, then the map's `icon` for the key (`txt2img` → `image`, `img2video` →
+  `video`, `inpaint` → `brush`, `upscale` → `expand`, …), then no icon. The name must be one of the
+  app's icons (`frontend/src/lib/utils/IconLibrary.ts`); an unknown `mode_icon:` → **warning**, and the
+  menu shows that mode without an icon.
 - `id` must be unique across the whole scanned tree (duplicate → error).
 - Literal (non-templated) option-file paths referenced from a form must exist on disk (missing → warning).
 

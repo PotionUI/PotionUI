@@ -1,0 +1,130 @@
+{
+  "txt2img": {
+    "label": "Text to Image",
+    "icon": "image"
+  },
+  "img2img": {
+    "label": "Image to Image",
+    "icon": "layers"
+  },
+  "txt2vid": {
+    "label": "Text to Video",
+    "icon": "video"
+  },
+  "txt2video": {
+    "label": "Text to Video",
+    "icon": "video"
+  },
+  "t2v": {
+    "label": "Text to Video",
+    "icon": "video"
+  },
+  "img2vid": {
+    "label": "Image to Video",
+    "icon": "video"
+  },
+  "img2video": {
+    "label": "Image to Video",
+    "icon": "video"
+  },
+  "i2v": {
+    "label": "Image to Video",
+    "icon": "video"
+  },
+  "vid2vid": {
+    "label": "Video to Video",
+    "icon": "film"
+  },
+  "video2video": {
+    "label": "Video to Video",
+    "icon": "film"
+  },
+  "txt2audio": {
+    "label": "Text to Audio",
+    "icon": "audio"
+  },
+  "txt2music": {
+    "label": "Text to Music",
+    "icon": "audio"
+  },
+  "txt2mesh": {
+    "label": "Text to 3D",
+    "icon": "cube"
+  },
+  "img2mesh": {
+    "label": "Image to 3D",
+    "icon": "cube"
+  },
+  "inpaint": {
+    "label": "Inpaint",
+    "icon": "brush"
+  },
+  "outpaint": {
+    "label": "Outpaint",
+    "icon": "paint-brush"
+  },
+  "upscale": {
+    "label": "Upscale",
+    "icon": "expand"
+  },
+  "video_upscale": {
+    "label": "Video Upscale",
+    "icon": "expand"
+  },
+  "edit": {
+    "label": "Edit",
+    "icon": "pencil"
+  },
+  "control": {
+    "label": "Control",
+    "icon": "sliders"
+  },
+  "enhance": {
+    "label": "Enhance",
+    "icon": "sparkles"
+  },
+  "video": {
+    "label": "Video",
+    "icon": "video"
+  },
+  "refs": {
+    "label": "References",
+    "icon": "photo"
+  },
+  "song": {
+    "label": "Song",
+    "icon": "audio"
+  },
+  "interpolate": {
+    "label": "Interpolate",
+    "icon": "film"
+  },
+  "trim": {
+    "label": "Trim",
+    "icon": "scissors"
+  },
+  "prepare": {
+    "label": "Prepare",
+    "icon": "crop"
+  },
+  "fit_canvas": {
+    "label": "Fit Canvas",
+    "icon": "layout-template"
+  },
+  "color_key": {
+    "label": "Color Key",
+    "icon": "palette"
+  },
+  "crop_subject": {
+    "label": "Crop Subject",
+    "icon": "crop"
+  },
+  "remove_background": {
+    "label": "Remove Background",
+    "icon": "wand"
+  },
+  "catalog": {
+    "label": "Catalog",
+    "icon": "list"
+  }
+}

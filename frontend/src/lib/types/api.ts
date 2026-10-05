@@ -265,6 +265,7 @@ export interface PresetInfo {
 	category?: string;
 	source?: string;
 	engine?: string;
+	driver?: string | null;
 	media?: PresetMedia;
 	requires?: PresetRequirements;
 	requirements_summary?: PresetRequirementsSummary | null;

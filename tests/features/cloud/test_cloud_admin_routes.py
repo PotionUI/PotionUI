@@ -88,6 +88,16 @@ async def test_the_admin_listing_applies_filters_from_the_query_string(refreshed
     assert [item["provider_model_id"] for item in items] == [VIDEO]
 
 
+async def test_the_admin_listing_filters_suggested_models(refreshed, container):
+    refreshed.repository.mark_suggested("cloud-1", [VIDEO])
+    async with as_admin(container) as client:
+        suggested = await client.get(BASE, params={"suggested": "true"})
+        others = await client.get(BASE, params={"suggested": "false"})
+
+    assert [item["provider_model_id"] for item in suggested.json()["data"]["items"]] == [VIDEO]
+    assert [item["provider_model_id"] for item in others.json()["data"]["items"]] == [IMAGE]
+
+
 async def test_an_unknown_filter_value_is_a_validation_error(refreshed, container):
     async with as_admin(container) as client:
         response = await client.get(BASE, params={"task": "juggling"})

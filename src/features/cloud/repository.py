@@ -153,6 +153,7 @@ class CloudCatalogRepository:
         output: Optional[str] = None,
         enabled: Optional[bool] = None,
         search: Optional[str] = None,
+        suggested: Optional[bool] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[CloudCatalogEntry], int]:
@@ -169,6 +170,9 @@ class CloudCatalogRepository:
         if enabled is not None:
             where.append("c.enabled = ?")
             params.append(1 if enabled else 0)
+        if suggested is not None:
+            where.append("c.suggested = ?")
+            params.append(1 if suggested else 0)
         if search and search.strip():
             needle = "%" + search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
             where.append(
@@ -181,7 +185,7 @@ class CloudCatalogRepository:
             cursor.execute(f"SELECT COUNT(*) AS n FROM cloud_catalog c WHERE {clause}", params)
             total = cursor.fetchone()["n"]
             cursor.execute(
-                f"{_ENTRY_SELECT} WHERE {clause} ORDER BY c.enabled DESC, LOWER(c.label), c.slug LIMIT ? OFFSET ?",
+                f"{_ENTRY_SELECT} WHERE {clause} ORDER BY c.enabled DESC, c.suggested DESC, LOWER(c.label), c.slug LIMIT ? OFFSET ?",
                 (CLOUD_MODEL_TYPE, *params, limit, offset),
             )
             return [CloudCatalogEntry.from_row(row) for row in cursor.fetchall()], total

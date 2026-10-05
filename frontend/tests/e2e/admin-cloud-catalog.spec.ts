@@ -228,6 +228,7 @@ async function mockCloud(page: Page, options: { entries?: Entry[]; refreshedAt?:
 						(!task || e.tasks.includes(task)) &&
 						(!output || e.outputs.includes(output)) &&
 						(params.get('enabled') !== 'true' || e.enabled) &&
+						(params.get('suggested') !== 'true' || e.suggested) &&
 						(!search || `${e.label} ${e.provider_model_id}`.toLowerCase().includes(search))
 				);
 				const limit = Number(params.get('limit') ?? 50);
@@ -455,6 +456,37 @@ for (const viewport of [
 			mocks.catalogFailure = false;
 			await page.getByRole('button', { name: 'Retry' }).click();
 			await expect(modelRow(page, 'Veo 3.1')).toBeVisible();
+		});
+
+		test('suggested models can be listed alone, enabled models open their model page, and the presets hint points to Presets', async ({ page }) => {
+			const mocks = await mockCloud(page);
+			await page.route(
+				(url) => url.pathname === '/api/presets',
+				(route) =>
+					json(route, {
+						success: true,
+						data: [
+							{ id: 'p-fake', name: 'Fake Studio', version: '1.0.0', tags: [], driver: 'cloud.fake', installed: false },
+							{ id: 'p-local', name: 'Local Preset', version: '1.0.0', tags: [], driver: null, installed: true, assignment_count: 1 }
+						]
+					})
+			);
+			await openCatalog(page);
+			await expect(page.getByTestId('catalog-presets-hint')).toContainText('1 preset uses this backend');
+			await expect(page.getByRole('button', { name: 'Open presets' })).toHaveAttribute('href', '/admin?tab=presets&id=p-fake');
+			await expect(modelRow(page, 'Veo 3.1').getByRole('link', { name: 'Veo 3.1' })).toHaveAttribute('href', '/admin?tab=models&id=m-veo');
+			await expect(modelRow(page, 'Seedream 4.5').getByRole('link')).toHaveCount(0);
+			await screenshot(page, JOURNEY, `presets-hint-${viewport.name}`);
+
+			await page.getByRole('button', { name: /Filters/ }).first().click();
+			const dialog = page.getByRole('dialog', { name: 'Catalog filters' });
+			await dialog.getByRole('button', { name: 'Suggested' }).click();
+			await dialog.getByRole('button', { name: 'Done' }).click();
+			await expect(page).toHaveURL(/suggested=1/);
+			await expect(modelRow(page, 'Seedream 4.5')).toBeVisible();
+			await expect(modelRow(page, 'Veo 3.1')).toHaveCount(0);
+			expect(mocks.catalogQueries[mocks.catalogQueries.length - 1].get('suggested')).toBe('true');
+			await screenshot(page, JOURNEY, `suggested-${viewport.name}`);
 		});
 
 		test('the Catalog tab exists only on the cloud backend', async ({ page }) => {

@@ -59,6 +59,7 @@ class CloudCatalog:
         output: Optional[str] = None,
         enabled: Optional[bool] = None,
         search: Optional[str] = None,
+        suggested: Optional[bool] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> Dict[str, Any]:
@@ -68,7 +69,14 @@ class CloudCatalog:
         if output and output not in MODALITIES:
             raise CloudCatalogFilterError(f"Unknown output '{output}'. Expected one of: {', '.join(MODALITIES)}")
         entries, total = self.repository.search(
-            backend_id, task=task, output=output, enabled=enabled, search=search, limit=limit, offset=offset
+            backend_id,
+            task=task,
+            output=output,
+            enabled=enabled,
+            search=search,
+            suggested=suggested,
+            limit=limit,
+            offset=offset,
         )
         provider_class = self._provider_class(config)
         return {

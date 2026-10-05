@@ -19,7 +19,12 @@ import {
 	outputLabel,
 	priceSummary,
 	taskLabel,
-	visibleTasks
+	visibleTasks,
+	catalogPresetsHint,
+	catalogShowOf,
+	modelPageHref,
+	suggestedTip,
+	withCatalogShow
 } from './cloudCatalog';
 
 function item(overrides: Partial<CloudCatalogItem> = {}): CloudCatalogItem {
@@ -238,5 +243,77 @@ describe('catalogSummaryLine', () => {
 	it('counts models and enabled models', () => {
 		expect(catalogSummaryLine({ total: 412, enabled: 6 })).toBe('412 models · 6 enabled');
 		expect(catalogSummaryLine({ total: 1, enabled: 0 })).toBe('1 model · 0 enabled');
+	});
+});
+
+describe('suggested models', () => {
+	it('can be the only models shown, apart from enabled only', () => {
+		const suggested = withCatalogShow({ ...DEFAULT_CATALOG_FILTERS, enabledOnly: true }, 'suggested');
+		expect(suggested.suggestedOnly).toBe(true);
+		expect(suggested.enabledOnly).toBe(false);
+		expect(catalogShowOf(suggested)).toBe('suggested');
+		expect(catalogShowOf(withCatalogShow(suggested, 'enabled'))).toBe('enabled');
+		expect(catalogShowOf(withCatalogShow(suggested, 'all'))).toBe('all');
+		expect(catalogQuery(suggested, 1, 50)).toEqual({ limit: 50, offset: 0, suggested: true });
+	});
+
+	it('round-trips through the URL and shows as a removable chip', () => {
+		const filters = { ...DEFAULT_CATALOG_FILTERS, suggestedOnly: true };
+		const params = catalogFiltersToSearchParams(filters);
+		expect(params.get('suggested')).toBeTruthy();
+		expect(catalogFiltersFromSearchParams(params).suggestedOnly).toBe(true);
+		expect(catalogFilterChips(filters).map((chip) => chip.label)).toContain('Suggested');
+		expect(clearCatalogFilterChip(filters, 'suggestedOnly').suggestedOnly).toBe(false);
+	});
+
+	it('credit the plugin that suggests them', () => {
+		expect(suggestedTip('OpenRouter')).toBe('Recommended by the OpenRouter plugin.');
+		expect(suggestedTip(null)).toBe('Recommended by the plugin that adds this backend.');
+		expect(suggestedTip('  ')).toBe('Recommended by the plugin that adds this backend.');
+	});
+});
+
+describe('modelPageHref', () => {
+	it('links an enabled model to its model page', () => {
+		expect(modelPageHref(item({ enabled: true, model_id: 'abc' }))).toBe('/admin?tab=models&id=abc');
+	});
+
+	it('has no link before the model is enabled', () => {
+		expect(modelPageHref(item({ enabled: false, model_id: 'abc' }))).toBeNull();
+		expect(modelPageHref(item({ enabled: true, model_id: null }))).toBeNull();
+	});
+});
+
+describe('catalogPresetsHint', () => {
+	const preset = (id: string, name: string, extra: Record<string, unknown> = {}) => ({ id, name, driver: 'cloud.fake', ...extra });
+
+	it('says nothing until a model is enabled', () => {
+		expect(catalogPresetsHint([preset('p1', 'Fake Image')], 'cloud.fake', 0)).toBeNull();
+		expect(catalogPresetsHint(null, 'cloud.fake', 2)).toBeNull();
+	});
+
+	it('points to the first preset of this backend when none is installed', () => {
+		const hint = catalogPresetsHint(
+			[preset('p2', 'Fake Video'), preset('p1', 'Fake Image'), { id: 'other', name: 'Another', driver: 'cloud.other' }],
+			'cloud.fake',
+			1
+		);
+		expect(hint?.href).toBe('/admin?tab=presets&id=p1');
+		expect(hint?.description).toContain('2 presets use this backend');
+	});
+
+	it('asks for an assignment once a preset is installed', () => {
+		const hint = catalogPresetsHint([preset('p1', 'Fake Image'), preset('p2', 'Fake Video', { installed: true })], 'cloud.fake', 1);
+		expect(hint?.href).toBe('/admin?tab=presets&id=p2');
+		expect(hint?.description).toBe('Assign Fake Video to users or groups so it shows on Generate.');
+	});
+
+	it('goes away once an installed preset is assigned to a user or a group', () => {
+		expect(catalogPresetsHint([preset('p1', 'Fake Image', { installed: true, assignment_count: 1 })], 'cloud.fake', 1)).toBeNull();
+		expect(catalogPresetsHint([preset('p1', 'Fake Image', { installed: true, group_count: 1 })], 'cloud.fake', 1)).toBeNull();
+	});
+
+	it('says nothing when no preset uses this backend', () => {
+		expect(catalogPresetsHint([{ id: 'o', name: 'Other', driver: 'cloud.other' }], 'cloud.fake', 1)).toBeNull();
 	});
 });

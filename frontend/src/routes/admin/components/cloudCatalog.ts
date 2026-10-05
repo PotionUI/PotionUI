@@ -1,12 +1,13 @@
 import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
 import type { FilterChip } from '$lib/components/library/librarySection';
 import type { CloudCatalogItem, CloudCatalogQuery, CloudPriceLine } from '$lib/services/admin-api';
+import type { PresetInfo } from '$lib/types/api';
 
 export const CATALOG_PAGE_SIZE = 50;
 export const CATALOG_PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
 export const MAX_VISIBLE_TASKS = 2;
 
-export const CATALOG_FILTER_PARAMS = ['q', 'task', 'output', 'enabled'] as const;
+export const CATALOG_FILTER_PARAMS = ['q', 'task', 'output', 'enabled', 'suggested'] as const;
 
 const TASK_LABELS: Record<string, string> = {
 	txt2img: 'Text to image',
@@ -49,12 +50,28 @@ export const CATALOG_OUTPUT_OPTIONS: ReadonlyArray<{ value: string; label: strin
 	...Object.entries(OUTPUT_LABELS).map(([value, label]) => ({ value, label }))
 ];
 
-export type CatalogShow = 'all' | 'enabled';
+export type CatalogShow = 'all' | 'enabled' | 'suggested';
 
 export const CATALOG_SHOW_OPTIONS: ReadonlyArray<{ value: CatalogShow; label: string }> = [
 	{ value: 'all', label: 'All models' },
-	{ value: 'enabled', label: 'Enabled only' }
+	{ value: 'enabled', label: 'Enabled only' },
+	{ value: 'suggested', label: 'Suggested' }
 ];
+
+export function catalogShowOf(filters: Pick<CatalogFilters, 'enabledOnly' | 'suggestedOnly'>): CatalogShow {
+	if (filters.enabledOnly) return 'enabled';
+	if (filters.suggestedOnly) return 'suggested';
+	return 'all';
+}
+
+export function withCatalogShow(filters: CatalogFilters, show: CatalogShow): CatalogFilters {
+	return { ...filters, enabledOnly: show === 'enabled', suggestedOnly: show === 'suggested' };
+}
+
+export function suggestedTip(providerLabel: string | null | undefined): string {
+	const name = providerLabel?.trim();
+	return name ? `Recommended by the ${name} plugin.` : 'Recommended by the plugin that adds this backend.';
+}
 
 export interface CatalogFilters {
 	q: string;
@@ -62,6 +79,7 @@ export interface CatalogFilters {
 	task: string;
 	output: string;
 	enabledOnly: boolean;
+	suggestedOnly: boolean;
 }
 
 export const DEFAULT_CATALOG_FILTERS: CatalogFilters = {
@@ -69,7 +87,8 @@ export const DEFAULT_CATALOG_FILTERS: CatalogFilters = {
 	sortBy: 'default',
 	task: '',
 	output: '',
-	enabledOnly: false
+	enabledOnly: false,
+	suggestedOnly: false
 };
 
 const FIELDS: readonly FilterFieldDescriptor<CatalogFilters>[] = [
@@ -91,7 +110,8 @@ const FIELDS: readonly FilterFieldDescriptor<CatalogFilters>[] = [
 		default: '',
 		chipLabel: outputLabel
 	},
-	{ kind: 'boolean', key: 'enabledOnly', param: 'enabled', label: 'Enabled only', chipLabel: 'Enabled only' }
+	{ kind: 'boolean', key: 'enabledOnly', param: 'enabled', label: 'Enabled only', chipLabel: 'Enabled only' },
+	{ kind: 'boolean', key: 'suggestedOnly', param: 'suggested', label: 'Suggested', chipLabel: 'Suggested' }
 ];
 
 const codec = createFilterCodec<CatalogFilters>({
@@ -136,6 +156,7 @@ export function catalogQuery(filters: CatalogFilters, pageIndex: number, pageSiz
 	if (filters.task) query.task = filters.task;
 	if (filters.output) query.output = filters.output;
 	if (filters.enabledOnly) query.enabled = true;
+	if (filters.suggestedOnly) query.suggested = true;
 	const search = filters.q.trim();
 	if (search) query.search = search;
 	return query;
@@ -215,4 +236,43 @@ export function bulkTargets(items: readonly CloudCatalogItem[], selected: Readon
 export function catalogSummaryLine(counts: { total: number; enabled: number }): string {
 	const models = `${counts.total} ${counts.total === 1 ? 'model' : 'models'}`;
 	return `${models} · ${counts.enabled} enabled`;
+}
+
+export function modelPageHref(item: Pick<CloudCatalogItem, 'enabled' | 'model_id'>): string | null {
+	if (!item.enabled || !item.model_id) return null;
+	return `/admin?${new URLSearchParams({ tab: 'models', id: item.model_id }).toString()}`;
+}
+
+export interface CatalogPresetsHint {
+	description: string;
+	href: string;
+}
+
+type HintPreset = Pick<PresetInfo, 'id' | 'name' | 'driver' | 'installed' | 'assignment_count' | 'group_count'>;
+
+function presetHref(id: string): string {
+	return `/admin?${new URLSearchParams({ tab: 'presets', id }).toString()}`;
+}
+
+export function catalogPresetsHint(
+	presets: readonly HintPreset[] | null,
+	driver: string | null | undefined,
+	enabledCount: number
+): CatalogPresetsHint | null {
+	if (!presets || !driver || enabledCount <= 0) return null;
+	const matching = presets.filter((preset) => preset.driver === driver).sort((a, b) => a.name.localeCompare(b.name));
+	if (matching.length === 0) return null;
+	const installed = matching.filter((preset) => preset.installed);
+	if (installed.some((preset) => (preset.assignment_count ?? 0) + (preset.group_count ?? 0) > 0)) return null;
+	if (installed.length > 0) {
+		return {
+			description: `Assign ${installed[0].name} to users or groups so it shows on Generate.`,
+			href: presetHref(installed[0].id)
+		};
+	}
+	const count = matching.length === 1 ? '1 preset uses' : `${matching.length} presets use`;
+	return {
+		description: `${count} this backend. Install one and assign it to users or groups so it shows on Generate.`,
+		href: presetHref(matching[0].id)
+	};
 }

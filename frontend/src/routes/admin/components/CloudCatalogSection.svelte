@@ -11,6 +11,8 @@
 	import SegmentedFilterGroup from '$lib/components/library/SegmentedFilterGroup.svelte';
 	import { DataTable, TablePager, pageCount, clearAll, type DataTableColumn } from '$lib/components/table';
 	import { getApiErrorMessage } from '$lib/utils/logger';
+	import { api } from '$lib/services/api/index';
+	import type { PresetInfo } from '$lib/types/api';
 	import { parseServerDate, timeAgo } from '$lib/utils/relativeTime';
 	import {
 		getCloudCatalog,
@@ -44,6 +46,11 @@
 		itemStatuses,
 		priceLines,
 		priceSummary,
+		suggestedTip,
+		modelPageHref,
+		catalogPresetsHint,
+		catalogShowOf,
+		withCatalogShow,
 		taskLabel,
 		visibleTasks,
 		type CatalogFilters,
@@ -67,6 +74,8 @@
 	let skippedOpen = $state(false);
 	let bulkBusy = $state<'enable' | 'disable' | null>(null);
 	let bulkError = $state<string | null>(null);
+	let presets = $state<PresetInfo[] | null>(null);
+	let presetsRequested = false;
 	let requestVersion = 0;
 	let lastFiltersKey = '';
 	let destroyed = false;
@@ -84,6 +93,23 @@
 	const catalogEmpty = $derived(!loading && !loadError && counts.total === 0 && !hasFilters);
 	const enableTargets = $derived(bulkTargets(items, selected, true));
 	const disableTargets = $derived(bulkTargets(items, selected, false));
+	const presetsHint = $derived(catalogPresetsHint(presets, data?.driver, counts.enabled));
+
+	$effect(() => {
+		if (counts.enabled > 0 && !presetsRequested) {
+			presetsRequested = true;
+			void loadPresets();
+		}
+	});
+
+	async function loadPresets() {
+		try {
+			const response = await api.listPresets(true);
+			if (!destroyed && response.success) presets = response.data ?? [];
+		} catch {
+			presets = null;
+		}
+	}
 
 	const columns: DataTableColumn<CloudCatalogItem>[] = [
 		{ key: 'model', label: 'Model', width: 'minmax(180px,1.6fr)', cell: modelCell },
@@ -162,7 +188,7 @@
 	}
 
 	function setShow(show: CatalogShow) {
-		applyFilters({ ...filters, enabledOnly: show === 'enabled' });
+		applyFilters(withCatalogShow(filters, show));
 	}
 
 	async function refreshCatalog() {
@@ -316,9 +342,14 @@
 </script>
 
 {#snippet modelCell(row: CloudCatalogItem)}
+	{@const modelHref = modelPageHref(row)}
 	<div class="w-full min-w-0 py-1.5">
-		<Tooltip text={row.label} wrapperClass="block min-w-0">
-			<span class="block truncate text-base font-medium text-fg">{row.label}</span>
+		<Tooltip text={modelHref ? `Open ${row.label}: access and allowed presets` : row.label} wrapperClass="block min-w-0">
+			{#if modelHref}
+				<a href={modelHref} class="block truncate text-base font-medium text-signal hover:underline">{row.label}</a>
+			{:else}
+				<span class="block truncate text-base font-medium text-fg">{row.label}</span>
+			{/if}
 		</Tooltip>
 		<Tooltip text={idLine(row)} wrapperClass="block min-w-0">
 			<span class="block truncate font-mono text-sm text-fg-subtle">{idLine(row)}</span>
@@ -371,7 +402,7 @@
 					<Badge variant="warning" class="!text-sm">Deprecated</Badge>
 				</Tooltip>
 			{:else}
-				<Tooltip text="Suggested by the provider's curated list.">
+				<Tooltip text={suggestedTip(data?.provider.label)}>
 					<Badge variant="signal" class="!text-sm">Suggested</Badge>
 				</Tooltip>
 			{/if}
@@ -400,9 +431,14 @@
 {#snippet cardBody(row: CloudCatalogItem)}
 	{@const lines = priceLines(row)}
 	{@const statuses = itemStatuses(row)}
+	{@const modelHref = modelPageHref(row)}
 	<div class="flex items-start justify-between gap-3">
 		<div class="min-w-0 flex-1">
-			<span class="block truncate text-base font-semibold text-fg">{row.label}</span>
+			{#if modelHref}
+				<a href={modelHref} class="block truncate text-base font-semibold text-signal hover:underline">{row.label}</a>
+			{:else}
+				<span class="block truncate text-base font-semibold text-fg">{row.label}</span>
+			{/if}
 			<span class="block truncate font-mono text-sm text-fg-subtle">{idLine(row)}</span>
 		</div>
 		{@render enabledCell(row)}
@@ -449,6 +485,15 @@
 		{#if notice}
 			<Alert variant="neutral" density="compact" icon="info" title={data?.provider.label ? `${data.provider.label} data notice` : 'Data notice'}>
 				<p class="text-fg-muted" data-testid="catalog-notice">{notice}</p>
+			</Alert>
+		{/if}
+
+		{#if presetsHint}
+			<Alert variant="info" density="compact" icon title="Make this provider's presets available">
+				<p data-testid="catalog-presets-hint">{presetsHint.description}</p>
+				{#snippet actions()}
+					<Button variant="secondary" size="xs" href={presetsHint.href}>Open presets</Button>
+				{/snippet}
 			</Alert>
 		{/if}
 
@@ -535,7 +580,7 @@
 							<SegmentedFilterGroup
 								label="Show"
 								options={CATALOG_SHOW_OPTIONS}
-								value={filters.enabledOnly ? 'enabled' : 'all'}
+								value={catalogShowOf(filters)}
 								onChange={setShow}
 							/>
 						</div>

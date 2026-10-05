@@ -31,10 +31,18 @@ class CloudCatalogController(BaseController):
         search: Optional[str],
         limit: int,
         offset: int,
+        suggested: Optional[bool] = None,
     ) -> APIResponse:
         try:
             data = self.catalog.list_entries(
-                backend_id, task=task, output=output, enabled=enabled, search=search, limit=limit, offset=offset
+                backend_id,
+                task=task,
+                output=output,
+                enabled=enabled,
+                search=search,
+                suggested=suggested,
+                limit=limit,
+                offset=offset,
             )
         except CloudCatalogError as error:
             self.error_response(error=error.code, message=str(error), status_code=error.status_code)
@@ -143,11 +151,12 @@ def build_router(container: "AppContainer") -> APIRouter:
         output: Optional[str] = None,
         enabled: Optional[bool] = None,
         search: Optional[str] = None,
+        suggested: Optional[bool] = None,
         limit: int = Query(50, ge=1, le=200),
         offset: int = Query(0, ge=0),
         admin=Depends(get_current_admin_user),
     ):
-        return await controller.list_entries(backend_id, task, output, enabled, search, limit, offset)
+        return await controller.list_entries(backend_id, task, output, enabled, search, limit, offset, suggested)
 
     @router.post(
         "/backends/{backend_id}/catalog/refresh", response_model=APIResponse, summary="Refresh a cloud backend's catalog"

@@ -38,3 +38,27 @@ async def test_suggested_models_are_not_enabled_by_the_mark(fake_backend):
     await fake_backend.catalog.refresh("cloud-1")
 
     assert fake_backend.repository.list_enabled("cloud-1") == []
+
+
+async def test_the_listing_can_show_only_the_suggested_models(fake_backend):
+    fake_backend.backend().provider.suggested_model_ids = lambda: (VIDEO,)
+    await fake_backend.catalog.refresh("cloud-1")
+
+    def ids(**filters):
+        return [item["provider_model_id"] for item in fake_backend.catalog.list_entries("cloud-1", **filters)["items"]]
+
+    assert ids(suggested=True) == [VIDEO]
+    assert ids(suggested=False) == [IMAGE]
+
+
+async def test_suggested_models_come_first_after_the_enabled_ones(fake_backend):
+    fake_backend.backend().provider.suggested_model_ids = lambda: (VIDEO,)
+    await fake_backend.catalog.refresh("cloud-1")
+
+    def ids():
+        return [item["provider_model_id"] for item in fake_backend.catalog.list_entries("cloud-1")["items"]]
+
+    assert ids() == [VIDEO, IMAGE]
+
+    await fake_backend.catalog.set_enabled("cloud-1", [fake_backend.slug_of(IMAGE)], True)
+    assert ids() == [IMAGE, VIDEO]

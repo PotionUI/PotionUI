@@ -1863,6 +1863,7 @@ export interface CloudCatalogQuery {
 	task?: string;
 	output?: string;
 	enabled?: boolean;
+	suggested?: boolean;
 	search?: string;
 	limit?: number;
 	offset?: number;
@@ -1898,6 +1899,7 @@ export async function getCloudCatalog(
 	if (query.task) params.task = query.task;
 	if (query.output) params.output = query.output;
 	if (query.enabled !== undefined) params.enabled = query.enabled;
+	if (query.suggested !== undefined) params.suggested = query.suggested;
 	if (query.search) params.search = query.search;
 	if (query.limit !== undefined) params.limit = query.limit;
 	if (query.offset !== undefined) params.offset = query.offset;

@@ -18,3 +18,4 @@ export { default as Switch } from './Switch.svelte';
 export { default as Alert } from './Alert.svelte';
 export { default as UserPicker } from './UserPicker.svelte';
 export { default as AdminOnlyMark } from './AdminOnlyMark.svelte';
+export { default as ModelPickTrigger } from './ModelPickTrigger.svelte';

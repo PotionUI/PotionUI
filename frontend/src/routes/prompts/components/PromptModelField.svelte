@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { api } from '$lib/services/api';
 	import ModelAssignmentModal from '$lib/components/modals/ModelAssignmentModal.svelte';
-	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Button, IconButton } from '$lib/components/ui';
+	import { ModelPickTrigger } from '$lib/components/ui';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 
 	export let modelId: string | null = null;
@@ -57,19 +56,14 @@
 	<span class="mb-1.5 block text-xs font-medium text-fg-muted">
 		Model <span class="font-normal text-fg-subtle">(optional)</span>
 	</span>
-	<div class="flex items-center gap-2">
-		<Tooltip text={label} position="top" wrapperClass="flex min-w-0 flex-1 items-center">
-			<div class="input flex min-w-0 flex-1 items-center py-1.5 text-sm {modelId ? 'text-fg' : 'text-fg-subtle'}">
-				<span class="truncate">{label}</span>
-			</div>
-		</Tooltip>
-		<Button variant="secondary" size="sm" {disabled} onclick={() => (pickerOpen = true)}>Change</Button>
-		{#if modelId}
-			<Tooltip text="Clear model" position="top">
-				<IconButton icon="close" label="Clear model" size="sm" {disabled} onclick={clear} />
-			</Tooltip>
-		{/if}
-	</div>
+	<ModelPickTrigger
+		class="py-1.5 text-sm"
+		value={modelId ? label : null}
+		placeholder="No model"
+		{disabled}
+		onopen={() => (pickerOpen = true)}
+		onclear={clear}
+	/>
 </div>
 
 {#if pickerOpen}

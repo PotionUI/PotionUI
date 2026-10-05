@@ -115,4 +115,17 @@ describe('History filters model picker', () => {
 		await settle();
 		expect(currentFilters().modelName).toBeUndefined();
 	});
+
+	it('the model filter control clears in one click without opening the modal', async () => {
+		historyStore.setFilter('modelName', 'old.safetensors');
+		byText('button', 'Filters')!.click();
+		await settle();
+		const clear = document.querySelector<HTMLElement>('#history-filter-model ~ [aria-label="Clear model"]')!;
+		expect(clear).not.toBeNull();
+		clear.click();
+		await settle();
+		expect(currentFilters().modelName).toBeUndefined();
+		expect(document.body.textContent).not.toContain('Filter history by model');
+		expect(document.querySelector('#history-filter-model ~ [aria-label="Clear model"]')).toBeNull();
+	});
 });

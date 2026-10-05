@@ -10,7 +10,7 @@
 	import { logger } from '$lib/utils/logger';
 	import { buildImportBundleTabData, buildReuseTabTitle, resolveReusePresetLabel } from '$lib/utils/historyReuse';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
-	import { PageHeader, PageTitle, IconButton, Badge } from '$lib/components/ui';
+	import { PageHeader, PageTitle, IconButton, Badge, ModelPickTrigger } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { api } from '$lib/services/api/index';
 	import ModelAssignmentModal from '$lib/components/modals/ModelAssignmentModal.svelte';
@@ -573,15 +573,14 @@
 
 								<div class={facets.modes.length > 0 ? '' : 'col-span-2'}>
 									<span class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1">Model</span>
-									<button
+									<ModelPickTrigger
 										id="history-filter-model"
-										type="button"
-										class="input text-xs py-1.5 px-2 bg-surface-3/50 w-full flex items-center gap-2 text-left"
-										on:click={openModelPicker}
-									>
-										<span class="min-w-0 flex-1 truncate">{currentState.filters.modelName || 'All Models'}</span>
-										<Icon name="chevron-down" className="w-3 h-3 text-fg-subtle shrink-0" />
-									</button>
+										class="text-xs py-1.5 px-2 bg-surface-3/50"
+										value={currentState.filters.modelName || null}
+										placeholder="All Models"
+										onopen={openModelPicker}
+										onclear={() => handleModelChange('')}
+									/>
 								</div>
 
 								<div>

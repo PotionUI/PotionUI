@@ -16,6 +16,7 @@
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import Icon from '$lib/components/Icon.svelte';
+	import { IconButton } from '$lib/components/ui';
 	import { refFor, matchesStoredValue, findModelForValue, MODEL_REF_PREFIX } from '$lib/utils/modelRef';
 	import { toggleModelFavoriteOptimistic } from '$lib/utils/modelFavorite';
 	import { buildModelSearchRequest } from '$lib/utils/modelSearchParams';
@@ -316,6 +317,11 @@
 		// Keep inputHasFocus as-is since user might still be focused on the input
 	}
 
+	function handleClearModel(event: MouseEvent) {
+		event.stopPropagation();
+		handleClearSearch();
+	}
+
 	function handleInput() {
 		userIsTyping = true; // User is manually typing
 	}
@@ -503,6 +509,10 @@
 			>
 				<Icon name="star" className="w-4 h-4" />
 			</button>
+
+			{#if !config.required}
+				<IconButton icon="close" label="Clear model" size="sm" onclick={handleClearModel} />
+			{/if}
 
 			<!-- Swap (clear selection to search again) -->
 			<button

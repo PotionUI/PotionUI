@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/services/api';
-	import Icon from '$lib/components/Icon.svelte';
-	import { Switch } from '$lib/components/ui';
+	import { ModelPickTrigger, Switch } from '$lib/components/ui';
 	import FilterPopoverFrame from '$lib/components/library/FilterPopoverFrame.svelte';
 	import SegmentedFilterGroup from '$lib/components/library/SegmentedFilterGroup.svelte';
 	import TagCloudFilter from '$lib/components/library/TagCloudFilter.svelte';
@@ -66,13 +65,16 @@
 </script>
 
 <FilterPopoverFrame width="w-[34rem]" onClearAll={() => onChange(clearAllPromptFilters(filters))} {onClose}>
-	<label class="flex flex-col gap-1.5">
+	<div class="flex flex-col gap-1.5">
 		<span class="text-xs font-medium text-fg-muted">Model</span>
-		<button type="button" class="input flex items-center gap-2 text-left text-xs" onclick={onOpenModelPicker}>
-			<span class="min-w-0 flex-1 truncate">{modelLabel}</span>
-			<Icon name="chevron-down" className="h-3 w-3 flex-shrink-0 text-fg-subtle" />
-		</button>
-	</label>
+		<ModelPickTrigger
+			class="text-xs"
+			value={filters.modelId ? modelLabel : null}
+			placeholder="Any"
+			onopen={onOpenModelPicker}
+			onclear={() => set({ modelId: '' })}
+		/>
+	</div>
 
 	<label class="flex flex-col gap-1.5">
 		<span class="text-xs font-medium text-fg-muted">Base model</span>

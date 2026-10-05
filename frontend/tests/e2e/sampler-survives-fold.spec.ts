@@ -37,18 +37,26 @@ async function openKrea2(page: Page) {
 test('a chosen sampler survives folding and reopening the form', async ({ page }) => {
 	await openKrea2(page);
 
-	const trigger = page.locator('[data-field-name="sampler"] button[aria-haspopup="listbox"]');
-	await trigger.scrollIntoViewIfNeeded();
-	await trigger.click();
+	const input = page.locator('[data-field-name="sampler"] input');
+	await input.scrollIntoViewIfNeeded();
+	await input.click();
 	await page.getByRole('option', { name: /Euler SDE/i }).first().click();
-	await expect(trigger).toContainText(/Euler SDE/i);
+	await expect(input).toHaveValue(/Euler SDE/i);
 
+	await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 	await page.keyboard.press('q');
-	await page.keyboard.press('q');
+	const overlay = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Close floating generation form' }) });
+	await expect(overlay).toBeVisible({ timeout: 10000 });
+	if (!(await overlay.locator('[data-field-name="sampler"]').isVisible())) {
+		await overlay.getByRole('tab', { name: 'Advanced', exact: true }).first().click();
+	}
+	await expect(overlay.locator('[data-field-name="sampler"] input')).toHaveValue(/Euler SDE/i, { timeout: 10000 });
 
-	if (!(await page.locator('[data-field-name="sampler"]').isVisible())) await openAdvancedTab(page);
+	await overlay.getByRole('button', { name: 'Close floating generation form' }).first().click();
+	await expect(overlay).toHaveCount(0, { timeout: 10000 });
 
-	const reopened = page.locator('[data-field-name="sampler"] button[aria-haspopup="listbox"]');
-	await expect(reopened).toBeVisible({ timeout: 10000 });
-	await expect(reopened).toContainText(/Euler SDE/i);
+	const docked = page.locator('[data-field-name="sampler"]');
+	if (!(await docked.first().isVisible())) await openAdvancedTab(page);
+	await expect(docked).toHaveCount(1);
+	await expect(docked.locator('input')).toHaveValue(/Euler SDE/i, { timeout: 10000 });
 });

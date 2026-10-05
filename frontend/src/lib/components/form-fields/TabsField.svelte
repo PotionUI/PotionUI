@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy, getContext } from 'svelte';
+	import { getContext } from 'svelte';
 	import { writable, type Writable } from 'svelte/store';
 	import FieldChildren from './FieldChildren.svelte';
 	import Icon from '../Icon.svelte';
@@ -102,6 +102,8 @@
 	} else if (!appliedState) {
 		lastAppliedRevision = 0;
 	}
+
+	$: showBar = visibleTabEntries.length > 1;
 
 	// Keep the active tab pointed at a visible one (e.g. right after the
 	// Simple/Advanced toggle hides whichever tab is currently open).
@@ -221,34 +223,22 @@
 		}
 	}
 
-	// Resize observer for dynamic overflow detection
-	let resizeObserver: ResizeObserver;
-
-	onMount(() => {
-		checkOverflow();
-
-		resizeObserver = new ResizeObserver(() => {
-			checkOverflow();
-		});
-
-		if (tabsContainer) {
-			resizeObserver.observe(tabsContainer);
-			tabsContainer.addEventListener('scroll', updateScrollButtons);
-		}
-	});
-
-	onDestroy(() => {
-		if (resizeObserver) {
-			resizeObserver.disconnect();
-		}
-		if (tabsContainer) {
-			tabsContainer.removeEventListener('scroll', updateScrollButtons);
-		}
-	});
+	function watchTabs(node: HTMLElement) {
+		const observer = new ResizeObserver(() => checkOverflow());
+		observer.observe(node);
+		node.addEventListener('scroll', updateScrollButtons);
+		queueMicrotask(checkOverflow);
+		return {
+			destroy() {
+				observer.disconnect();
+				node.removeEventListener('scroll', updateScrollButtons);
+			}
+		};
+	}
 </script>
 
 <div class="w-full">
-	<!-- Tab buttons wrapper -->
+	{#if showBar}
 	<div class="flex items-center border-b border-line px-2">
 		<!-- Left arrow -->
 		{#if hasOverflow && canScrollLeft}
@@ -267,6 +257,7 @@
 		<!-- Tab buttons container -->
 		<div
 			bind:this={tabsContainer}
+			use:watchTabs
 			on:mousedown={handleMouseDown}
 			on:mousemove={handleMouseMove}
 			on:mouseup={handleMouseUp}
@@ -344,13 +335,14 @@
 			</button>
 		{/if}
 	</div>
+	{/if}
 
 	<!-- Tab panels - ALL kept mounted, just hidden when not active -->
 	{#if config.children}
 		{#each visibleTabEntries as { tab, index } (index)}
 			{#if tab.children}
 				<div
-					class="pt-3 space-y-4 {activeTab === index ? '' : 'hidden'}"
+					class="{showBar ? 'pt-3' : ''} space-y-4 {activeTab === index ? '' : 'hidden'}"
 					style="animation: {activeTab === index ? 'tabFadeIn 0.2s ease-out' : 'none'};"
 					role="tabpanel"
 					aria-hidden={activeTab !== index}

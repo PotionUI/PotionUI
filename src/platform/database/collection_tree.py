@@ -1,5 +1,7 @@
 from typing import Dict, Optional
 
+MAX_TREE_DEPTH = 256
+
 _TREE_TABLES = frozenset({"collections", "model_collections", "inspiration_collections"})
 _MEMBER_TABLES = frozenset({
     "collection_generations",
@@ -25,11 +27,12 @@ def _member(table: str) -> str:
 def subtree_ids_sql(tree_table: str) -> str:
     tree = _tree(tree_table)
     return (
-        "(WITH RECURSIVE subtree(id, user_id) AS ("
-        f"SELECT id, user_id FROM {tree} WHERE id = ? "
+        "(WITH RECURSIVE subtree(id, user_id, depth) AS ("
+        f"SELECT id, user_id, 0 FROM {tree} WHERE id = ? "
         "UNION "
-        f"SELECT c.id, c.user_id FROM {tree} c "
-        "JOIN subtree s ON c.parent_id = s.id AND c.user_id = s.user_id"
+        f"SELECT c.id, c.user_id, s.depth + 1 FROM {tree} c "
+        "JOIN subtree s ON c.parent_id = s.id AND c.user_id = s.user_id "
+        f"WHERE s.depth < {MAX_TREE_DEPTH}"
         ") SELECT id FROM subtree)"
     )
 
@@ -90,18 +93,19 @@ def rolled_up_counts(
 
     if include_descendants:
         closure = (
-            "WITH RECURSIVE closure(ancestor, id) AS ("
-            f"SELECT id, id FROM {tree} WHERE user_id = ?{scope_sql} "
+            "WITH RECURSIVE closure(ancestor, id, depth) AS ("
+            f"SELECT id, id, 0 FROM {tree} WHERE user_id = ?{scope_sql} "
             "UNION "
-            "SELECT cl.ancestor, c.id FROM closure cl "
-            f"JOIN {tree} c ON c.parent_id = cl.id AND c.user_id = ?"
+            "SELECT cl.ancestor, c.id, cl.depth + 1 FROM closure cl "
+            f"JOIN {tree} c ON c.parent_id = cl.id AND c.user_id = ? "
+            f"WHERE cl.depth < {MAX_TREE_DEPTH}"
             ") "
         )
         params = [user_id, *scope_params, user_id]
     else:
         closure = (
-            "WITH closure(ancestor, id) AS ("
-            f"SELECT id, id FROM {tree} WHERE user_id = ?{scope_sql}"
+            "WITH closure(ancestor, id, depth) AS ("
+            f"SELECT id, id, 0 FROM {tree} WHERE user_id = ?{scope_sql}"
             ") "
         )
         params = [user_id, *scope_params]

@@ -42,7 +42,7 @@ import torch
 import torch.nn as nn
 
 from src.platform.observability.profiling import get_profiler
-from vendor.gpl.comfyui.ops import apply_lora_deltas
+from vendor.gpl.comfyui.ops import apply_lora_deltas, invalidate_lora_fused_cache
 from .key_mapping import LoraDelta, map_lora_keys
 from .row_mask import (
     attach_masked_deltas,
@@ -409,6 +409,7 @@ def apply_loras_with_report(
                 if linear.lora_deltas is None:
                     linear.lora_deltas = []
                 linear.lora_deltas.extend(scaled)
+                invalidate_lora_fused_cache(linear)
                 runtime_targets += 1
             else:
                 _apply_inplace(linear, scaled, pool)
@@ -547,6 +548,7 @@ def remove_loras(module: nn.Module) -> None:
     for _, sub in module.named_modules():
         if getattr(sub, "lora_deltas", None):
             sub.lora_deltas = None
+        invalidate_lora_fused_cache(sub)
         truncate_masked_deltas(sub, None)
 
         record = getattr(sub, _INPLACE_ATTR, None)
@@ -600,6 +602,7 @@ def _restore_linear_states(
         deltas = getattr(sub, "lora_deltas", None)
         if deltas is not None:
             sub.lora_deltas = deltas[:deltas_len] if deltas_len else None
+            invalidate_lora_fused_cache(sub)
         truncate_masked_deltas(sub, masked_len)
 
         record = getattr(sub, _INPLACE_ATTR, None)

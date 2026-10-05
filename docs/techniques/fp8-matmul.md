@@ -12,6 +12,10 @@ knobs:
     surface: env
     default: "off"
     effect: "Runs fp8-quantized linear layers as real fp8 GEMMs instead of dequantizing to bf16/fp16 first"
+  - key: NATIVE_LORA_FUSED
+    surface: env
+    default: "on"
+    effect: "Adds a layer's runtime LoRA adapters in one fused in-place step with factors prepared once; off restores the old per-adapter path for A/B"
 related: [torch-compile]
 ---
 
@@ -57,6 +61,42 @@ export NATIVE_FP8_MATMUL=on
 `auto` currently behaves identically to `on` (both require the same hardware/torch capability probe
 to pass; there is no separate VRAM-based heuristic for this knob). Any other value is treated as
 `off` with a warning logged.
+
+## LoRA on the fast path
+
+An fp8 or nvfp4 layer cannot have a LoRA baked into its weights without rounding most of the
+LoRA away, so PotionUI adds the LoRA on the layer's output instead: `x @ down.T @ up.T`, scaled by
+the adapter's strength. With several adapters on one layer, their factors are joined along the
+rank axis, so the layer runs two small matrix products and adds the result into its output in
+place, once, however many adapters it carries.
+
+The joined factors are prepared on the first forward after a LoRA stack is applied and then reused
+on every step. They are rebuilt when the stack changes: a different set of adapters, a changed
+strength, or a step-window edge. An adapter outside its step window is not attached at all, and a
+zero-strength adapter is skipped, so neither costs anything per step. The joined factors reuse the
+adapters' own GPU memory when the LoRA file is already in the compute dtype (usually bf16). An
+fp16 or fp32 LoRA file is cast once instead of on every forward.
+
+Both the fp8 (`NATIVE_FP8_MATMUL`) and nvfp4 (`NATIVE_NVFP4_MATMUL`) fast paths use this, and so
+does the dequantize path. LoKr adapters have no output-side form: a layer that carries one stays
+on the dequantize path and pays a weight-sized delta per forward.
+
+After each sampling run the log shows one INFO line with how many LoRA layers took each path:
+
+```
+lora forward paths (layers): fused-fast 224
+lora forward paths (layers): dequant (fp8 matmul off) 196, weight-side (lokr) 28
+```
+
+To compare against the old per-adapter path, set this before starting the API server:
+
+```bash
+export NATIVE_LORA_FUSED=off
+```
+
+With it off, the fast paths add each adapter separately (`unfused-fast` in the log), and the
+dequantize path joins the factors again on every forward. Any other value, or leaving it unset,
+keeps the fused path on.
 
 ## Tradeoffs and limitations
 

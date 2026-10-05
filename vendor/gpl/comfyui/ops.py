@@ -484,8 +484,99 @@ def _fuse_output_branch_deltas(
     return down_cat, up_cat, 1.0
 
 
+NATIVE_LORA_FUSED_ENV = "NATIVE_LORA_FUSED"
+_LORA_FUSED_ATTR = "_lora_fused_cache"
+_lora_path_layers: "dict[str, set[int]]" = {}
+
+
+def _lora_fused_enabled() -> bool:
+    return os.environ.get(NATIVE_LORA_FUSED_ENV, "on").strip().lower() != "off"
+
+
+def _note_lora_path(layer, path: str) -> None:
+    _lora_path_layers.setdefault(path, set()).add(id(layer))
+
+
+def log_lora_path_summary() -> None:
+    if not _lora_path_layers:
+        return
+    parts = ", ".join(f"{path} {len(layers)}" for path, layers in sorted(_lora_path_layers.items()))
+    _lora_path_layers.clear()
+    logger.info("lora forward paths (layers): %s", parts)
+
+
+def invalidate_lora_fused_cache(layer) -> None:
+    layer.__dict__.pop(_LORA_FUSED_ATTR, None)
+
+
+def _lora_dequant_path(weight_side: "list", reason: str) -> str:
+    if weight_side:
+        return "weight-side (lokr)" if any(getattr(d, "kron", False) for d in weight_side) else "weight-side"
+    return f"dequant ({reason})"
+
+
+def _lora_fused_key(deltas: "list", dtype: torch.dtype, device: "torch.device") -> tuple:
+    return (dtype, device, tuple(
+        (id(d), id(d.down), id(d.up), float(d.scale), float(d.alpha), d.target_slice) for d in deltas
+    ))
+
+
+def _build_lora_fused(deltas: "list", dtype: torch.dtype, device: "torch.device") -> list:
+    groups: "dict" = {}
+    for d in deltas:
+        coeff = float(d.scale) * float(d.alpha) / d.down.shape[0]
+        if coeff != 0.0:
+            groups.setdefault(d.target_slice, []).append((d, coeff))
+    fused = []
+    for target_slice, group in groups.items():
+        first = group[0][0]
+        if len(group) == 1 and first.down.dtype == dtype and first.up.dtype == dtype \
+                and first.down.device == device and first.up.device == device:
+            down_cat, up_cat_t = first.down, first.up.t()
+        else:
+            down_cat = torch.cat([d.down.to(device=device, dtype=dtype) for d, _c in group], 0)
+            up_cat_t = torch.cat([d.up.to(device=device, dtype=dtype).t() for d, _c in group], 0)
+            start = 0
+            for d, _c in group:
+                end = start + d.down.shape[0]
+                d.down = down_cat[start:end]
+                d.up = up_cat_t[start:end].t()
+                start = end
+        coeffs = [c for _d, c in group]
+        if all(c == coeffs[0] for c in coeffs):
+            alpha, scale = coeffs[0], None
+        else:
+            alpha = 1.0
+            scale = torch.cat([
+                torch.full((d.down.shape[0],), c, dtype=torch.float32, device=device) for d, c in group
+            ])
+        fused.append((target_slice, down_cat, up_cat_t, alpha, scale))
+    return fused
+
+
+def _cached_lora_fused(owner, deltas: "list", dtype: torch.dtype, device: "torch.device") -> list:
+    entry = owner.__dict__.get(_LORA_FUSED_ATTR)
+    if entry is not None and entry[0] == _lora_fused_key(deltas, dtype, device):
+        return entry[2]
+    fused = _build_lora_fused(deltas, dtype, device)
+    owner.__dict__[_LORA_FUSED_ATTR] = (_lora_fused_key(deltas, dtype, device), tuple(deltas), fused)
+    return fused
+
+
+def _add_fused_lora_branch(out2d: torch.Tensor, x2d: torch.Tensor, fused: list) -> None:
+    for target_slice, down_cat, up_cat_t, alpha, scale in fused:
+        hidden = x2d @ down_cat.t()
+        if scale is not None:
+            hidden.mul_(scale)
+        if target_slice is None:
+            out2d.addmm_(hidden, up_cat_t, alpha=alpha)
+        else:
+            _dim, col, length = target_slice
+            out2d[:, col:col + length].addmm_(hidden, up_cat_t, alpha=alpha)
+
+
 def _add_lora_output_branch(
-    out: torch.Tensor, x: torch.Tensor, deltas: "list", out_features: int,
+    out: torch.Tensor, x: torch.Tensor, deltas: "list", out_features: int, owner=None,
 ) -> torch.Tensor:
     """``out`` plus the output-side contribution of ``deltas`` against ``x``.
 
@@ -521,6 +612,9 @@ def _add_lora_output_branch(
 
     out2d = out.reshape(-1, out_features)
     x2d = x2d.to(out.dtype)
+    if owner is not None and _lora_fused_enabled():
+        _add_fused_lora_branch(out2d, x2d, _cached_lora_fused(owner, deltas, out.dtype, x2d.device))
+        return out
     groups: "dict" = {}
     for d in deltas:
         groups.setdefault(d.target_slice, []).append(d)
@@ -544,6 +638,7 @@ def linear_with_lora_deltas(
     bias: "torch.Tensor | None",
     deltas: "list | None",
     out_features: int,
+    owner=None,
 ) -> torch.Tensor:
     """``F.linear(input, weight, bias)`` with ``deltas`` applied, each on
     whichever side it can be.
@@ -558,7 +653,7 @@ def linear_with_lora_deltas(
     if weight_side:
         weight = apply_lora_deltas(weight, weight_side)
     out = F.linear(input, weight, bias)
-    return _add_lora_output_branch(out, input, output_side, out_features)
+    return _add_lora_output_branch(out, input, output_side, out_features, owner=owner)
 
 
 class disable_weight_init:
@@ -570,7 +665,9 @@ class disable_weight_init:
 
         def forward_comfy_cast_weights(self, input: torch.Tensor) -> torch.Tensor:
             weight, bias = cast_bias_weight(self, input)
-            return linear_with_lora_deltas(input, weight, bias, self.lora_deltas, self.out_features)
+            if self.lora_deltas:
+                _note_lora_path(self, "dequant (cast)")
+            return linear_with_lora_deltas(input, weight, bias, self.lora_deltas, self.out_features, owner=self)
 
         def forward(self, *args, **kwargs):
             if self.comfy_cast_weights:
@@ -1150,6 +1247,7 @@ class Fp8ScaledLinear(manual_cast.Linear):
                 self.pre_quant_scale, input.dtype, input.device, non_blocking=self.stream_non_blocking,
             )
         if self.weight_scale is not None:
+            dequant_reason = "fp8 matmul off"
             if _fp8_matmul_enabled():
                 reject_reason = _scaled_mm_fast_path_reject_reason(
                     weight_dtype=self.weight.dtype,
@@ -1170,6 +1268,7 @@ class Fp8ScaledLinear(manual_cast.Linear):
                     fast = self._forward_scaled_mm(input)
                     if fast is not None:
                         return fast
+                    dequant_reason = "kernel rejected"
                     # else: an operand didn't meet _scaled_mm's requirements (non-scalar
                     # or non-finite/zero scale, unsupported layout, mixed device, an
                     # on-demand weight staging failure, or a runtime kernel rejection)
@@ -1179,20 +1278,25 @@ class Fp8ScaledLinear(manual_cast.Linear):
                     # anywhere near the kernel -- this is the case that used to
                     # be completely silent (see _log_scaled_mm_fast_path_rejection).
                     _log_scaled_mm_fast_path_rejection(reject_reason)
+                    dequant_reason = reject_reason
             # Only the deltas that have no output-side form (LoKr) go into the
             # dequantised weight; the rest ride the activation, so this forward
             # never clones a weight or builds an (out, in) delta.
             output_side, weight_side = partition_output_branch_deltas(
                 self.lora_deltas, self.out_features)
+            if self.lora_deltas:
+                _note_lora_path(self, _lora_dequant_path(weight_side, dequant_reason))
             weight, bias, dt = self._prepare_dequant_operand(
                 input.dtype, input.device, deltas=weight_side)
             if input.dtype is not dt:
                 input = input.to(dt)
             out = F.linear(input, weight, bias)
-            return _add_lora_output_branch(out, input, output_side, self.out_features)
+            return _add_lora_output_branch(out, input, output_side, self.out_features, owner=self)
         # non-quantised layer inside a mixed fp8 checkpoint.
         weight, bias = cast_bias_weight(self, input)
-        return linear_with_lora_deltas(input, weight, bias, self.lora_deltas, self.out_features)
+        if self.lora_deltas:
+            _note_lora_path(self, "dequant (cast)")
+        return linear_with_lora_deltas(input, weight, bias, self.lora_deltas, self.out_features, owner=self)
 
     def _prepare_dequant_operand(
         self, dtype: torch.dtype, device: "torch.device | str",
@@ -1373,6 +1477,8 @@ class Fp8ScaledLinear(manual_cast.Linear):
 
         def _prepare_dequant_once() -> tuple[torch.Tensor, "torch.Tensor | None", torch.dtype]:
             if state["dequant_weight"] is None:
+                if self.lora_deltas:
+                    _note_lora_path(self, "weight-side (chunked)")
                 weight, bias, dt = self._prepare_dequant_operand(dtype, device)
                 state["dequant_weight"] = weight
                 state["dequant_bias"] = bias
@@ -1523,7 +1629,12 @@ class Fp8ScaledLinear(manual_cast.Linear):
             # output-side low-rank branch, full-width or a dim-0 target_slice.
             # Added to the post-GEMM output -- bias is already baked in via
             # _scaled_mm's own bias= kwarg above.
-            out = out + _lora_output_branch(x2d, self.lora_deltas, out.dtype, self.out_features)
+            if _lora_fused_enabled():
+                _note_lora_path(self, "fused-fast")
+                out = _add_lora_output_branch(out, x2d, self.lora_deltas, self.out_features, owner=self)
+            else:
+                _note_lora_path(self, "unfused-fast")
+                out = out + _lora_output_branch(x2d, self.lora_deltas, out.dtype, self.out_features)
         return out.reshape(*orig_shape[:-1], -1)
 
 
@@ -2124,6 +2235,7 @@ class Nvfp4Linear(Fp8ScaledLinear):
             input = input * cast_to(
                 self.pre_quant_scale, input.dtype, input.device, non_blocking=self.stream_non_blocking,
             )
+        dequant_reason = "nvfp4 matmul off"
         if _nvfp4_matmul_enabled():
             reject_reason = _nvfp4_fast_path_reject_reason(
                 lora_deltas=self.lora_deltas,
@@ -2137,6 +2249,7 @@ class Nvfp4Linear(Fp8ScaledLinear):
                 fast = self._forward_nvfp4_scaled_mm(input)
                 if fast is not None:
                     return fast
+                dequant_reason = "kernel rejected"
                 # else: the kernel itself rejected the operands (mixed
                 # devices, activation quant failure, runtime rejection) --
                 # already logged by _forward_nvfp4_scaled_mm at debug level;
@@ -2146,6 +2259,10 @@ class Nvfp4Linear(Fp8ScaledLinear):
                 # anywhere near the kernel -- this is the case that used to
                 # be completely silent (see _log_nvfp4_fast_path_rejection).
                 _log_nvfp4_fast_path_rejection(reject_reason)
+                dequant_reason = reject_reason
+        if self.lora_deltas:
+            _note_lora_path(self, _lora_dequant_path(
+                partition_output_branch_deltas(self.lora_deltas, self.out_features)[1], dequant_reason))
         # The scale is already unblocked (precomputed at load); the
         # hot path is just a LUT gather + one broadcasted multiply, never
         # _unblock_scale/_inv_blocked_index. nvfp4_scale is a buffer moved
@@ -2157,7 +2274,7 @@ class Nvfp4Linear(Fp8ScaledLinear):
         weight = _scale_values(values, self.nvfp4_scale, self.out_features, self.in_features, num_blocks)
         weight = weight.to(device=input.device, dtype=input.dtype)
         bias = None if self.bias is None else self.bias.to(input.dtype)
-        return linear_with_lora_deltas(input, weight, bias, self.lora_deltas, self.out_features)
+        return linear_with_lora_deltas(input, weight, bias, self.lora_deltas, self.out_features, owner=self)
 
     def _forward_nvfp4_scaled_mm(self, input: torch.Tensor) -> torch.Tensor | None:
         """Native nvfp4 GEMM via ``torch._scaled_mm_v2`` (``F.scaled_mm``) —
@@ -2231,7 +2348,12 @@ class Nvfp4Linear(Fp8ScaledLinear):
             # Added to the pre-bias GEMM output — this is the same term a
             # weight-side add (apply_lora_deltas) would contribute to
             # F.linear's matmul, before its own bias add.
-            out = out + _lora_output_branch(x2d, self.lora_deltas, out.dtype, self.out_features)
+            if _lora_fused_enabled():
+                _note_lora_path(self, "fused-fast")
+                out = _add_lora_output_branch(out, x2d, self.lora_deltas, self.out_features, owner=self)
+            else:
+                _note_lora_path(self, "unfused-fast")
+                out = out + _lora_output_branch(x2d, self.lora_deltas, out.dtype, self.out_features)
         if bias is not None:
             out = out + bias
         return out.reshape(*orig_shape[:-1], -1)

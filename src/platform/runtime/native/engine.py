@@ -66,6 +66,7 @@ from vendor.gpl.comfyui.ops import (
     detect_quant_format,
     disable_weight_init,
     fp8_ops,
+    log_lora_path_summary,
     manual_cast,
     pick_operations,
 )
@@ -1758,6 +1759,7 @@ class NativeGenerator:
             if cache is not None:
                 cache.clear()
             module.run_cache = None
+            log_lora_path_summary()
 
     def _release_dit_after_sampling(self) -> None:
         """Tear down the DiT's sampling placement at the end of a run.

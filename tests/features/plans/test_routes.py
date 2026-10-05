@@ -101,6 +101,8 @@ def test_my_limits_lists_limited_kinds_and_hides_cloud_dollars(client, plans, se
     assert rows["cloud_spend_usd_month"]["used"] is None
     assert rows["cloud_spend_usd_month"]["limit"] is None
     assert rows["cloud_spend_usd_month"]["percent"] == 50.0
+    assert rows["storage_bytes"]["kind_info"]["enforce_at"] == ["submit", "upload"]
+    assert rows["generations_per_day"]["kind_info"]["short_label"] == rows["generations_per_day"]["label"]
 
 
 def test_storage_breakdown(client, seed):

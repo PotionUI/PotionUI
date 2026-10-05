@@ -115,7 +115,10 @@ class PlansManager:
             **base,
             **self._header(person.resolution),
             "exempt": person.exempt,
-            "limits": [row for row in rows if row is not None],
+            "limits": [
+                {**row, "kind_info": describe(self.registry.get(row["kind"]), settings.day_timezone)}
+                for row in rows if row is not None
+            ],
         }
 
     def my_storage(self, user) -> Dict[str, Any]:

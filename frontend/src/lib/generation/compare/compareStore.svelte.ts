@@ -14,6 +14,7 @@ import type { LimitRow } from '$lib/plans/meApi';
 import { DEFAULT_CONTACT_LINE } from '$lib/plans/refusal';
 import { fetchGrid, fetchGridSettings, postGrid, postRetryFailed, removeGrid } from './compareApi';
 import { cellAxisValues, emptyCell, gridFromServer } from './serverGrid';
+import { quantityFieldsOf } from './compareSchema';
 import {
 	DEFAULT_GRID_SETTINGS,
 	PROMPT_AXIS_FIELD,
@@ -179,9 +180,18 @@ export function turnOffCompare(tabId: string): void {
 	if (drawerTabId === tabId) drawerTabId = null;
 }
 
-export function quantityNoteVisible(_revision: number, tabId: string): boolean {
+export function isQuantityField(tabId: string, field: string): boolean {
+	return quantityFieldsOf(getCompareSchema(tabId)).includes(field);
+}
+
+export function quantityNoteVisible(_revision: number, tabId: string, field: string): boolean {
 	const config = getCompare(tabId);
-	return config.armed && !blockers[tabId] && cellCount(config) > 0;
+	return isQuantityField(tabId, field) && config.armed && !blockers[tabId] && cellCount(config) > 0;
+}
+
+export function formQuantity(tabId: string, formData: Record<string, unknown>): number {
+	const values = quantityFieldsOf(getCompareSchema(tabId)).map((field) => Number(formData[field] ?? 1) || 1);
+	return values.length > 0 ? Math.max(...values) : 1;
 }
 
 export function readCompareState(_revision: number, tabId: string) {

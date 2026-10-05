@@ -60,7 +60,7 @@
 
 	const appliedTabId = getContext<string | undefined>(ACTIVE_TAB_ID_CONTEXT_KEY);
 	$: axisRole = appliedTabId && name ? axisRoleFor(appliedTabId, name, $compareRevision) : null;
-	$: quantityNote = appliedTabId && name === 'quantity' ? quantityNoteVisible($compareRevision, appliedTabId) : false;
+	$: quantityNote = appliedTabId && name ? quantityNoteVisible($compareRevision, appliedTabId, name) : false;
 	$: axisTitle = config.title || config.label || name || '';
 	$: appliedChange = appliedTabId && name ? $formulaApplied[appliedTabId]?.changed[name] : undefined;
 

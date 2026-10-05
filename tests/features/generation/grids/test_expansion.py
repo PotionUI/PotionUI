@@ -119,11 +119,27 @@ def test_quantity_is_forced_to_one_and_extra_prompts_are_dropped():
         prompts=[{"positive": "one", "negative": ""}, {"positive": "two", "negative": ""}],
     )
 
-    cells = expand(axis("sampler", ["euler", "heun"]), request=request)
+    cells = expand(axis("sampler", ["euler", "heun"]), request=request, quantity_fields=["quantity"])
 
     for cell in cells:
         assert cell.request.form_data["quantity"] == 1
         assert [pair.positive for pair in cell.request.prompts] == ["one"]
+
+
+def test_only_the_fields_the_pipeline_reads_as_quantity_are_forced_to_one():
+    index = field_index(sampler="select", seed="seed", count="stepper", quantity="number")
+    request = base_request(form_data={"sampler": "euler", "seed": 1, "count": 4, "quantity": 4})
+
+    cells = expand(axis("sampler", ["euler", "heun"]), request=request, index=index, quantity_fields=["count"])
+
+    assert [cell.request.form_data["count"] for cell in cells] == [1, 1]
+    assert [cell.request.form_data["quantity"] for cell in cells] == [4, 4]
+
+
+def test_a_declared_quantity_field_missing_from_the_form_is_not_invented():
+    cells = expand(axis("sampler", ["euler"]), quantity_fields=["batch"])
+
+    assert "batch" not in cells[0].request.form_data
 
 
 def test_the_base_request_is_not_mutated_by_expansion():

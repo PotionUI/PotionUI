@@ -14,6 +14,7 @@
 		clearAxes,
 		closeCompareDrawer,
 		effectiveLockSeed,
+		formQuantity,
 		getCandidates,
 		getCompare,
 		getCompareSummary,
@@ -52,7 +53,7 @@
 	let lockOn = $derived(effectiveLockSeed(config));
 	let seedIsAxis = $derived(seedAxisActive(config));
 	let seedValue = $derived(formData.seed);
-	let quantity = $derived(Number(formData.quantity ?? 1));
+	let quantity = $derived(formQuantity(tabId, formData));
 	let contactLine = $derived($limitsMeta?.contactLine ?? DEFAULT_CONTACT_LINE);
 	let generateBlockedReason = $derived(
 		summary.disabledReason ?? (!canGenerate ? (generateDisabledReason ?? 'Cannot generate yet') : null)

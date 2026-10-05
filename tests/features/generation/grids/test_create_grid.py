@@ -3,7 +3,7 @@ import pytest
 from src.features.generation.grids.dto import CreateGridRequest
 from src.features.generation.grids.service import GridError
 from src.features.plans.errors import LimitExceeded
-from tests.features.generation.grids.conftest import axis, base_request
+from tests.features.generation.grids.conftest import axis, base_request, field_index
 
 
 def body(x_values, y_values=None, lock_seed=True, **request_overrides):
@@ -51,6 +51,23 @@ async def test_each_cell_goes_through_the_shared_submit_with_its_own_resolved_fo
     assert forms[(0, 0)]["sampler"] == "a" and forms[(1, 0)]["sampler"] == "b"
     assert all(form["quantity"] == 1 and form["steps"] == 10 for form in forms.values())
     assert {s["user"] for s in harness.submitted} == {"u1"}
+
+
+@pytest.mark.asyncio
+async def test_a_preset_whose_pipeline_reads_quantity_from_count_gets_count_forced_to_one(harness, monkeypatch):
+    harness.preset_quantity = "{{ form.count or 1 }}"
+    harness.install(monkeypatch, field_index(sampler="select", steps="number", seed="seed", count="stepper"))
+    request = base_request(form_data={"sampler": "euler", "steps": 20, "seed": 111, "count": 4, "quantity": 4})
+
+    await harness.service.create(
+        harness.users["u1"],
+        CreateGridRequest(request=request, x_axis=axis("sampler", ["a", "b"]), y_axis=None, lock_seed=True),
+    )
+
+    forms = [s["request"].form_data for s in harness.submitted]
+    assert len(forms) == 2
+    assert all(form["count"] == 1 for form in forms)
+    assert all(form["quantity"] == 4 for form in forms)
 
 
 @pytest.mark.asyncio

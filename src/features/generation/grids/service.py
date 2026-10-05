@@ -23,6 +23,7 @@ from src.features.generation.grids.expansion import (
 )
 from src.features.generation.grids.repository import GridRecord, GridRepository
 from src.features.generation.records import Generation
+from src.features.presets.quantity import preset_quantity_fields
 from src.features.generation.repository import GenerationRepository
 from src.platform.plugins.limit_kinds import AdmissionRequest
 
@@ -131,6 +132,7 @@ class GridService:
             preset_id=request.preset_id,
             mode=mode,
             rng=self.rng,
+            quantity_fields=preset_quantity_fields(template, mode),
         )
         seeds = {cell_key(cell.x, cell.y): cell.seed for cell in cells if cell.seed is not None}
         grid = self.grids.create(
@@ -221,6 +223,7 @@ class GridService:
             rng=self.rng,
             stored_seeds=grid.seeds,
             only=wanted,
+            quantity_fields=preset_quantity_fields(template, mode),
         )
         for cell in queue_order(cells):
             ref = GridCellRef(grid.id, cell.x, cell.y, cell.axis_values)

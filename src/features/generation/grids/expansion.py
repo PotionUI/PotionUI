@@ -1,7 +1,7 @@
 import json
 import random
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from src.features.forms.binding import cascade_reactions
 from src.features.generation.dto import GenerationRequest
@@ -150,6 +150,7 @@ def expand_cells(
     rng: Optional[random.Random] = None,
     stored_seeds: Optional[Mapping[str, int]] = None,
     only: Optional[List[Tuple[int, int]]] = None,
+    quantity_fields: Iterable[str] = (),
 ) -> List[Cell]:
     rng = rng or random.Random()
     axes = axes_of(x_axis, y_axis)
@@ -174,8 +175,9 @@ def expand_cells(
         for name in seed_names:
             if name not in axis_fields:
                 form_data[name] = seed
-        if "quantity" in form_data or "quantity" in field_index:
-            form_data["quantity"] = 1
+        for name in quantity_fields:
+            if name in form_data or name in field_index:
+                form_data[name] = 1
         if request.prompts and len(request.prompts) > 1:
             request.prompts = request.prompts[:1]
         request.form_data = form_data

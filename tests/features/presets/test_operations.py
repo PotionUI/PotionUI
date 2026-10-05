@@ -20,7 +20,7 @@ from src.features.presets.exceptions import (
     PermissionDeniedException,
     InvalidModeDataException,
 )
-from src.features.presets.templates import ModeTemplate, GenerationMode
+from src.features.presets.templates import PipeTemplate, ModeTemplate, GenerationMode
 from src.platform.security.user import User, AccountType
 
 
@@ -431,6 +431,17 @@ class TestPresetOperationsQuery:
 
         assert operations.get_form_schema(collaborators, "test-preset", "img2img")["prompt_resources"] == [pictures]
         assert operations.get_form_schema(collaborators, "test-preset", "txt2img")["prompt_resources"] == []
+
+    def test_get_form_schema_names_the_fields_the_pipeline_reads_as_quantity(self, collaborators, mock_file_repo, mock_preset_template):
+        mock_preset_template.modes["txt2img"].pipes = [
+            PipeTemplate(name="seed_generator", configuration={"seed": "{{ form.seed }}", "quantity": "{{ form.count or 1 }}"}),
+        ]
+        mock_file_repo.find_preset_by_id.return_value = mock_preset_template
+        collaborators.form_serializer.process_form_fields.return_value = {"properties": {}}
+
+        result = operations.get_form_schema(collaborators, "test-preset", "txt2img")
+
+        assert result["form_schema"]["quantity_fields"] == ["count"]
 
     def test_get_form_schema_default_mode(self, collaborators, mock_file_repo, mock_preset_template):
         """Test getting form schema with default mode."""

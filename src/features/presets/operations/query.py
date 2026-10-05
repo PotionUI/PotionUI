@@ -12,6 +12,7 @@ from src.features.forms.exceptions import FormNotFoundException
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets.formula_groups import resolve_formula_groups
 from src.features.presets.mode_labels import mode_display_icon, mode_display_name
+from src.features.presets.quantity import mode_quantity_fields
 from src.features.presets.exceptions import (
     InvalidModeDataException,
     ModeNotFoundException,
@@ -261,6 +262,7 @@ def get_form_schema(
 
     # Process form fields
     form_schema = collaborators.form_serializer.process_form_fields(form_config, preset_id, overrides=stored_overrides)
+    form_schema['quantity_fields'] = mode_quantity_fields(mode_data)
 
     result = {
         'preset_id': preset_id,

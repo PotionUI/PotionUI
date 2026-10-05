@@ -41,6 +41,7 @@
 	import { fetchCloudCapabilities } from '$lib/services/cloudCapabilities';
 	import { clearFormulaDeclarations } from '$lib/stores/formulas';
 	import { publishCompareSchema } from '$lib/generation/compare/compareStore.svelte';
+	import { compareSchemaSignature, schemaForCompare } from '$lib/generation/compare/compareSchema';
 
 	const PUBLISHED_SNAPSHOT_LIMIT = 8;
 
@@ -158,6 +159,19 @@
 	}
 
 	$: capabilityModelFields = formSchema ? collectCapabilityModelFields(formSchema) : [];
+
+	let compareSchemaKey = '';
+	let publishedCompareSignature = '';
+
+	function publishSchemaForCompare(schema: any, data: Record<string, any>, revision: number) {
+		if (!tabId || !compareSchemaKey) return;
+		const signature = compareSchemaSignature(compareSchemaKey, schema, data, revision);
+		if (signature === publishedCompareSignature) return;
+		publishedCompareSignature = signature;
+		publishCompareSchema(tabId, compareSchemaKey, schemaForCompare(schema, data, (id) => sharedCapabilityCache.get(id)));
+	}
+
+	$: if (formSchema && formData) publishSchemaForCompare(formSchema, formData, capabilityRevision);
 	$: if (formData) {
 		for (const modelField of capabilityModelFields) {
 			capabilityTracker.select(modelField, cloudModelId(formData[modelField]));
@@ -355,10 +369,9 @@
 			// A slower request for the previous preset must never replace the active form.
 			if (!schemaRequest.isCurrent(requestId)) return;
 
+			compareSchemaKey = `${requestPresetId}-${requestMode}-${requestVariant ?? ''}`;
+			publishedCompareSignature = '';
 			formSchema = schema;
-			if (tabId) {
-				publishCompareSchema(tabId, `${requestPresetId}-${requestMode}-${requestVariant ?? ''}`, schema);
-			}
 			const schemaDefaults = getSchemaDefaults(schema);
 			resetReactionBaseline(initialData);
 			formData = mergeFormData(schemaDefaults, applyMergeFrom(schema, initialData));

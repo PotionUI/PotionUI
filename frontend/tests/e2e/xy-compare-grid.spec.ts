@@ -61,18 +61,22 @@ test.describe('X/Y compare grid view', () => {
 		await typePrompt(page, 'a lighthouse on a cliff at dusk');
 
 		const drawer = await openCompareDrawer(page);
-		await pickAxisField(page, 'X', 'seed');
-		await expect(drawer.getByTestId('axis-count-x')).toHaveText('3 values');
-		await pickAxisField(page, 'Y', 'background');
-		await expect(drawer.getByTestId('compare-summary')).toContainText('= 6 generations');
+		await pickAxisField(page, 'X', 'quality');
+		const xCard = drawer.getByTestId('axis-card-x');
+		await expect(xCard.getByTestId('chips-count')).toHaveText('4 of 10');
+		await xCard.locator('button[aria-pressed="true"]', { hasText: /^\s*4\s*$/ }).click();
+		await expect(xCard.getByTestId('chips-count')).toHaveText('3 of 10');
+		await pickAxisField(page, 'Y', 'aspect_ratio');
+		await expect(drawer.getByTestId('axis-card-y').getByTestId('chips-count')).toHaveText('2 of 2');
+		await expect(drawer.getByTestId('compare-summary')).toContainText('3 × 2 = 6 generations');
 		await closeCompareDrawer(page);
 		await expect(compareGenerate(page, 6)).toBeVisible({ timeout: 15000 });
 
 		const grid = page.getByTestId('compare-grid');
 		await expect(grid).toBeVisible();
 		await expect(cells(page)).toHaveCount(6);
-		await expect(grid.getByTestId('compare-x-label')).toHaveCount(3);
-		await expect(grid.getByTestId('compare-y-label')).toHaveText(['on', 'off']);
+		await expect(grid.getByTestId('compare-x-label')).toHaveText(['1', '2', '3']);
+		await expect(grid.getByTestId('compare-y-label')).toHaveText(['1:1', '16:9']);
 		await expect(page.locator('[data-cell-state="empty"]')).toHaveCount(6);
 		await screenshot(page, JOURNEY, 'workbench-preview-1440');
 

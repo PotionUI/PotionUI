@@ -11,7 +11,7 @@ from src.features.generation.grids.service import GridService
 from src.features.generation.records import Generation
 from src.features.generation.repository import GenerationRepository
 from src.features.generation.status_tracker import GenerationStatusTracker
-from src.features.presets.templates import FieldTemplate
+from src.features.presets.templates import FieldTemplate, ModeTemplate, PipeTemplate
 from src.platform.security.user import AccountType, User
 
 
@@ -29,6 +29,11 @@ def axis(field: str, values: List[Any], type: str = "select", labels: List[str] 
 
 def field_index(**types) -> Dict[str, FieldTemplate]:
     return {name: FieldTemplate(type=kind, name=name) for name, kind in types.items()}
+
+
+def preset(quantity_template: str = "{{ form.quantity }}", **attrs):
+    pipes = [PipeTemplate(name="seed_generator", configuration={"seed": "{{ form.seed }}", "quantity": quantity_template})]
+    return SimpleNamespace(modes={"txt2img": ModeTemplate(forms=[], pipes=pipes)}, **attrs)
 
 
 def base_request(**overrides) -> GenerationRequest:
@@ -101,11 +106,14 @@ class Harness:
         self.settings_store: Dict[str, Any] = {}
         self.index = field_index(sampler="select", steps="number", seed="seed", quantity="number")
         self.tracker = GenerationStatusTracker()
+        self.preset_quantity = "{{ form.quantity }}"
         self.service = GridService(
             self.grids,
             self.generations,
             self.history,
-            SimpleNamespace(load_preset_by_id=lambda preset_id: SimpleNamespace(id=preset_id, engine="native")),
+            SimpleNamespace(
+                load_preset_by_id=lambda preset_id: preset(self.preset_quantity, id=preset_id, engine="native")
+            ),
             SimpleNamespace(get_setting=lambda key, default=None: self.settings_store.get(key, default)),
             self.submit,
             self.cancel,

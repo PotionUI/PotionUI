@@ -120,6 +120,17 @@ describe('CompareDrawer', () => {
 		expect(document.querySelector('[data-testid="axis-count-y"]')?.textContent).toBe('3 of 5');
 	});
 
+	it('says quantity counts as 1 per cell when the field the preset reads as quantity is above 1', () => {
+		store.publishCompareSchema(tabId, 'krea2-txt2img', { ...schema, quantity_fields: ['count'] });
+		tabsStore.updateTab(tabId, { formData: { seed: 4211984, quantity: 5, count: 1, sampler: 'euler', scheduler: 'simple' } });
+		mountDrawer();
+		expect(document.body.textContent).not.toContain('Quantity counts as 1 per cell');
+
+		tabsStore.updateTab(tabId, { formData: { seed: 4211984, quantity: 1, count: 3, sampler: 'euler', scheduler: 'simple' } });
+		flushSync();
+		expect(document.body.textContent).toContain('Quantity counts as 1 per cell');
+	});
+
 	it('swaps the axes', () => {
 		mountDrawer();
 		buttonByText('Swap X and Y')!.click();

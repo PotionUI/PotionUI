@@ -107,6 +107,7 @@ describe('axis fields in the form', () => {
 	});
 
 	it('notes that quantity is 1 per cell only while Compare has cells', async () => {
+		store.publishCompareSchema(tabId, 'p-txt2img', { properties: {}, quantity_fields: ['quantity'] });
 		const quantity = { type: 'stepper', title: 'Quantity', minimum: 1, maximum: 10 };
 		mounted = mountField('quantity', quantity, 3);
 		await settle();
@@ -114,5 +115,17 @@ describe('axis fields in the form', () => {
 		store.setCompare(tabId, { armed: true, x: sampler });
 		await settle();
 		expect(mounted.target.querySelector('[data-compare-quantity-note]')?.textContent).toContain('1 per cell');
+	});
+
+	it('puts the quantity note on whichever field the preset reads as quantity', async () => {
+		store.publishCompareSchema(tabId, 'cloud-txt2img', { properties: {}, quantity_fields: ['count'] });
+		store.setCompare(tabId, { armed: true, x: sampler });
+		const stepper = { type: 'stepper', title: 'Quantity', minimum: 1, maximum: 8 };
+		mounted = mountField('count', stepper, 3);
+		const named = mountField('quantity', stepper, 3);
+		await settle();
+		expect(mounted.target.querySelector('[data-compare-quantity-note]')?.textContent).toContain('1 per cell');
+		expect(named.target.querySelector('[data-compare-quantity-note]')).toBeNull();
+		named.destroy();
 	});
 });

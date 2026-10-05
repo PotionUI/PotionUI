@@ -76,6 +76,8 @@ describe('UserPlanSection', () => {
 		expect(storage.textContent).toContain('18.6 GB');
 		expect(storage.textContent).toContain('20 GB');
 		expect(storage.querySelector('[data-usage-state="warn"]')).not.toBeNull();
+		expect(storage.textContent).toContain('80%+');
+		expect(root.querySelector('[data-effective-limit="generations_per_day"]')?.textContent).not.toContain('80%+');
 		const daily = root.querySelector('[data-effective-limit="generations_per_day"]')!;
 		expect(daily.querySelector('[data-usage-state="ok"]')).not.toBeNull();
 		expect(daily.textContent).toContain('37');

@@ -55,9 +55,7 @@ export function usersFiltersFromSearchParams(params: URLSearchParams): UsersFilt
 }
 
 export function usersFiltersToSearchParams(filters: UsersFilters): URLSearchParams {
-	const out = codec.toSearchParams(filters);
-	if (isUsageSort(filters.sortBy)) out.set('sort_by', filters.sortBy);
-	return out;
+	return codec.toSearchParams(filters);
 }
 
 export function usersFilterChips(filters: UsersFilters): FilterChip[] {

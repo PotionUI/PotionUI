@@ -151,6 +151,25 @@ pipeline:
 """
 
 
+_SHORT_DESCRIPTIONS = {
+    "txt2img": "Generate an image from a text prompt.",
+    "img2img": "Change an image, guided by a prompt.",
+    "edit": "Change an existing image by instruction.",
+    "inpaint": "Repaint a masked part of an image.",
+    "txt2video": "Generate a video from a text prompt.",
+    "txt2vid": "Generate a video from a text prompt.",
+    "img2video": "Animate an image into a video.",
+    "img2vid": "Animate an image into a video.",
+    "upscale": "Make an image larger and sharper.",
+}
+
+
+def _with_short_description(mode: str, form: str) -> str:
+    text = _SHORT_DESCRIPTIONS.get(mode, f"{mode.replace('_', ' ').capitalize()} with this preset.")
+    head, sep, rest = form.partition("\n")
+    return f'{head}{sep}short_description: "{text}"\n{rest}'
+
+
 def _form_yml(mode: str) -> str:
     return f'''name: "default"
 fields:
@@ -675,7 +694,7 @@ def scaffold(target: Path, preset_id: str, name: str, category: str,
             cloud_mode = CLOUD_MODES[mode]
             mode_dir = target / "modes" / mode
             write(mode_dir / "pipeline.yml", _cloud_pipeline_yml(mode, cloud_mode))
-            write(mode_dir / "form.yml", _cloud_form_yml(cloud_mode))
+            write(mode_dir / "form.yml", _with_short_description(mode, _cloud_form_yml(cloud_mode)))
         return written
 
     fp = _load_family_pipes(family) if (family and engine != "comfyui") else None
@@ -684,14 +703,14 @@ def scaffold(target: Path, preset_id: str, name: str, category: str,
         mode_dir = target / "modes" / mode
         if fp is not None:
             write(mode_dir / "pipeline.yml", _family_pipeline_yml(mode, fp))
-            write(mode_dir / "form.yml", _family_form_yml(mode, fp))
+            write(mode_dir / "form.yml", _with_short_description(mode, _family_form_yml(mode, fp)))
             write(mode_dir / "tabs" / "generation.yml", _family_generation_tab_yml(fp))
             if fp.has_loras:
                 write(mode_dir / "tabs" / "lora.yml", _family_lora_tab_yml())
             write(mode_dir / "tabs" / "advanced.yml", _family_advanced_tab_yml(fp))
         else:
             write(mode_dir / "pipeline.yml", _pipeline_yml(mode, engine))
-            write(mode_dir / "form.yml", _form_yml(mode))
+            write(mode_dir / "form.yml", _with_short_description(mode, _form_yml(mode)))
             write(mode_dir / "tabs" / "main.yml", _tab_yml())
 
     return written

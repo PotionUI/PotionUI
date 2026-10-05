@@ -178,3 +178,30 @@ class TestUploadDedup:
 
         stored = manager.upload_repo.get_by_filename(result.filename, user_id)
         assert stored.content_hash == hashlib.sha256(data).hexdigest()
+
+
+def _record_calls(manager):
+    return [
+        call.kwargs["initial_data"]
+        for call in manager.plugins.execute_hook.call_args_list
+        if call.args and call.args[0] == "media.after_record"
+    ]
+
+
+class TestUploadRecordHook:
+
+    @pytest.mark.asyncio
+    async def test_a_new_upload_announces_its_row(self, manager, user_id):
+        await manager.upload_media(b"fresh bytes", "a.bin", "application/octet-stream", user_id=user_id)
+
+        calls = _record_calls(manager)
+        stored = manager.upload_repo.find_by_hash(user_id, hashlib.sha256(b"fresh bytes").hexdigest(), "user_upload")
+        assert len(calls) == 1
+        assert (calls[0]["upload_id"], calls[0]["user_id"], calls[0]["purpose"]) == (stored.id, user_id, "user_upload")
+
+    @pytest.mark.asyncio
+    async def test_a_duplicate_upload_announces_nothing_new(self, manager, user_id):
+        await manager.upload_media(b"same", "a.bin", "application/octet-stream", user_id=user_id)
+        await manager.upload_media(b"same", "b.bin", "application/octet-stream", user_id=user_id)
+
+        assert len(_record_calls(manager)) == 1

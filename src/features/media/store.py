@@ -552,6 +552,17 @@ class MediaStore:
         if purpose == UPLOAD_PURPOSE_USER and created_upload and self.media_types.is_video(file_ext):
             self._schedule_upload_video_thumbnails(key, file_ext, created_upload.id, stem)
 
+        if created_upload:
+            execute_hook(self.plugins,
+                MEDIA_HOOKS.after_record,
+                {
+                    "upload_id": created_upload.id,
+                    "user_id": user_id,
+                    "media_type": created_upload.media_type,
+                    "purpose": purpose,
+                }
+            )
+
         return UploadResult(
             path=display_path,
             relative_path=relative_path,

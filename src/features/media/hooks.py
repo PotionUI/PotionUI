@@ -4,7 +4,7 @@ from src.platform.plugins.hooks import hooks_registry
 
 MEDIA_HOOKS = hooks_registry.declare(
     "media", "backend",
-    "before_upload", "after_upload",
+    "before_upload", "after_upload", "after_record",
     "before_delete", "after_delete",
     "before_serve",
     specs={
@@ -29,6 +29,16 @@ MEDIA_HOOKS = hooks_registry.declare(
                 "user_id": {"type": "Optional[str]", "description": "Uploading user, if authenticated"},
             },
             "use_when": ["Kick off post-processing on a standalone upload, e.g. virus scanning or thumbnailing"],
+        },
+        "after_record": {
+            "description": "Fired after a new upload's library row has been written, so the upload has an id.",
+            "payload": {
+                "upload_id": {"type": "str", "description": "Id of the new uploads row"},
+                "user_id": {"type": "Optional[str]", "description": "Owning user"},
+                "media_type": {"type": "str", "description": "'image', 'video' or 'audio'"},
+                "purpose": {"type": "str", "description": "'user_upload' for a Library file, 'derived_artifact' for a helper file such as a mask"},
+            },
+            "use_when": ["React to a file that now appears in the user's Library, e.g. filing it into a collection"],
         },
         "before_delete": {
             "description": "Fired before all media files for a generation are deleted; can block the deletion.",

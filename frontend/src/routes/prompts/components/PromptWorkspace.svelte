@@ -73,6 +73,9 @@
 
 	$: filters = promptFiltersFromSearchParams($page.url.searchParams);
 	$: collectionId = $page.url.searchParams.get('collection') || undefined;
+	$: favoritesOnly = $page.url.searchParams.get('favorites') === 'true';
+	$: unsorted = $page.url.searchParams.get('unsorted') === 'true';
+	$: directOnly = $page.url.searchParams.get('direct') === 'true';
 	$: viewId = $page.url.searchParams.get('id');
 	$: viewIsNew = $page.url.searchParams.get('new') === '1';
 	$: detailOpen = !!viewId || viewIsNew;
@@ -84,12 +87,20 @@
 			id?: string | null;
 			isNew?: boolean;
 			collection?: string | null;
+			favorites?: boolean;
+			unsorted?: boolean;
+			direct?: boolean;
 			filters?: import('$lib/prompts/promptFilters').PromptFilters;
 		} = {}
 	): string {
 		const params = withSection(promptFiltersToSearchParams(overrides.filters ?? filters), 'prompts');
 		const collection = overrides.collection !== undefined ? overrides.collection : collectionId;
 		if (collection) params.set('collection', collection);
+		if (overrides.favorites !== undefined ? overrides.favorites : favoritesOnly)
+			params.set('favorites', 'true');
+		if (overrides.unsorted !== undefined ? overrides.unsorted : unsorted)
+			params.set('unsorted', 'true');
+		if (overrides.direct !== undefined ? overrides.direct : directOnly) params.set('direct', 'true');
 		const id = overrides.id !== undefined ? overrides.id : viewId;
 		const isNew = overrides.isNew !== undefined ? overrides.isNew : viewIsNew;
 		if (id) params.set('id', id);
@@ -152,12 +163,19 @@
 		try {
 			const offset = reset ? 0 : prompts.length;
 			const query = filters.q.trim();
-			const result = await queryPromptLibrary(api, filters, { collectionId, limit: PAGE_SIZE, offset });
+			const result = await queryPromptLibrary(api, filters, {
+				collectionId,
+				unsorted,
+				directOnly,
+				favoritesOnly,
+				limit: PAGE_SIZE,
+				offset
+			});
 			if (requestId !== gridRequestId) return;
 			prompts = reset ? result.rows : [...prompts, ...result.rows];
 			total = result.total;
 			semanticHitCount = reset ? result.semanticHits : semanticHitCount;
-			if (!collectionId && !query && filterCount === 0) setLibraryCount('prompts', result.total);
+			if (!collectionId && !unsorted && !favoritesOnly && !query && filterCount === 0) setLibraryCount('prompts', result.total);
 		} catch {
 			if (requestId === gridRequestId) toasts.error('Failed to load prompts');
 		} finally {
@@ -221,7 +239,7 @@
 
 	let lastGridKey = '';
 	$: if (!viewId && !viewIsNew) {
-		const gridKey = JSON.stringify({ filters, collectionId });
+		const gridKey = JSON.stringify({ filters, collectionId, unsorted, favoritesOnly, directOnly });
 		if (gridKey !== lastGridKey) {
 			lastGridKey = gridKey;
 			void loadGrid(true);
@@ -689,7 +707,25 @@
 	}
 
 	export async function setCollectionFilter(id: string | undefined) {
-		await goto(buildUrl({ collection: id ?? null, id: null, isNew: false }));
+		await goto(
+			buildUrl({ collection: id ?? null, favorites: false, unsorted: false, id: null, isNew: false })
+		);
+	}
+
+	async function setFavoritesFilter() {
+		await goto(
+			buildUrl({ collection: null, favorites: true, unsorted: false, id: null, isNew: false })
+		);
+	}
+
+	async function setUnsortedFilter() {
+		await goto(
+			buildUrl({ collection: null, favorites: false, unsorted: true, id: null, isNew: false })
+		);
+	}
+
+	async function setDirectOnly(value: boolean) {
+		await goto(buildUrl({ direct: value, id: null, isNew: false }));
 	}
 
 	let importers: PromptImporter[] = [];
@@ -875,8 +911,14 @@
 	{#snippet sidebarTree()}
 		<PromptsSidebar
 			activeId={collectionId}
+			{favoritesOnly}
+			{unsorted}
+			{directOnly}
 			onSelectAll={() => setCollectionFilter(undefined)}
+			onSelectFavorites={setFavoritesFilter}
+			onSelectUnsorted={setUnsortedFilter}
 			onSelectFolder={(id) => setCollectionFilter(id)}
+			onDirectOnlyChange={setDirectOnly}
 		/>
 	{/snippet}
 

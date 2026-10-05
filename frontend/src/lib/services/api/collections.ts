@@ -1,6 +1,8 @@
 import type { AxiosInstance } from 'axios';
 import type { APIResponse } from '$lib/types/api';
 import type { Collection, CollectionScope } from '$lib/types/history';
+import type { SmartCounts } from '$lib/components/collections/types';
+import { collectionListParams } from '$lib/components/collections/selection';
 
 // Every call takes `scope` explicitly - the backend has no default and
 // rejects a request missing it, so a caller that forgets which tree
@@ -8,9 +10,14 @@ import type { Collection, CollectionScope } from '$lib/types/history';
 export function createCollectionsApi(client: AxiosInstance) {
 	return {
 		async listCollections(
-			scope: CollectionScope
-		): Promise<APIResponse<{ collections: Collection[]; total: number }>> {
-			const response = await client.get('/api/collections', { params: { scope } });
+			scope: CollectionScope,
+			directOnly = false
+		): Promise<
+			APIResponse<{ collections: Collection[]; total: number; smart_counts?: SmartCounts }>
+		> {
+			const response = await client.get('/api/collections', {
+				params: { scope, ...collectionListParams(directOnly) }
+			});
 			return response.data;
 		},
 

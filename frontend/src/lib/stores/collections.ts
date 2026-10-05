@@ -2,14 +2,17 @@ import { writable } from 'svelte/store';
 import { logger, getErrorMessage } from '$lib/utils/logger';
 import { api } from '$lib/services/api/index';
 import type { Collection, CollectionScope } from '$lib/types/history';
+import type { SmartCounts } from '$lib/components/collections/types';
 
 interface CollectionsState {
 	collections: Collection[];
+	smartCounts: SmartCounts | null;
 	loading: boolean;
 }
 
 const initialState: CollectionsState = {
 	collections: [],
+	smartCounts: null,
 	loading: false
 };
 
@@ -33,6 +36,7 @@ function createCollectionsStore(scope: CollectionScope) {
 	// once so a pending response can never repopulate a reset store.
 	let requestSeq = 0;
 	let lifetime = 0;
+	let directOnly = false;
 
 	// Named refresh so the mutations below never depend on `this` binding.
 	async function refresh() {
@@ -40,13 +44,14 @@ function createCollectionsStore(scope: CollectionScope) {
 		const requestLifetime = lifetime;
 		update((state) => ({ ...state, loading: true }));
 		try {
-			const response = await api.listCollections(scope);
+			const response = await api.listCollections(scope, directOnly);
 			if (requestLifetime !== lifetime || seq !== requestSeq) return;
 			if (response.success && response.data) {
 				const data = response.data;
 				update((state) => ({
 					...state,
 					collections: data.collections,
+					smartCounts: data.smart_counts ?? null,
 					loading: false
 				}));
 			} else {
@@ -64,6 +69,12 @@ function createCollectionsStore(scope: CollectionScope) {
 
 		// Load all collections for the current user, within this store's scope
 		load: refresh,
+
+		async setDirectOnly(value: boolean) {
+			if (directOnly === value) return;
+			directOnly = value;
+			await refresh();
+		},
 
 		// Create a new collection (optionally nested under parentId).
 		// The created row is inserted optimistically so it appears immediately,

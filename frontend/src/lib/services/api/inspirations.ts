@@ -1,4 +1,6 @@
 import type { AxiosInstance } from 'axios';
+import type { SmartCounts } from '$lib/components/collections/types';
+import { collectionListParams } from '$lib/components/collections/selection';
 import type { APIResponse } from '$lib/types/api';
 
 /** Mirrors the author summary embedded in every inspiration/comment dto. */
@@ -136,8 +138,12 @@ export function createInspirationsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async listInspirationCollections(): Promise<APIResponse<{ items: InspirationCollection[] }>> {
-			const response = await client.get('/api/inspirations/collections');
+		async listInspirationCollections(
+			directOnly = false
+		): Promise<APIResponse<{ items: InspirationCollection[]; smart_counts?: SmartCounts }>> {
+			const response = await client.get('/api/inspirations/collections', {
+				params: collectionListParams(directOnly)
+			});
 			return response.data;
 		},
 

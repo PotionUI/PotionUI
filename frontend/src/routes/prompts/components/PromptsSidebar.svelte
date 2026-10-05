@@ -4,10 +4,18 @@
 	import type { SmartView, TreeActions } from '$lib/components/collections/types';
 
 	export let activeId: string | undefined;
+	export let favoritesOnly = false;
+	export let unsorted = false;
+	export let directOnly = false;
 	export let onSelectAll: () => void | Promise<void>;
+	export let onSelectFavorites: () => void | Promise<void>;
+	export let onSelectUnsorted: () => void | Promise<void>;
 	export let onSelectFolder: (id: string) => void | Promise<void>;
+	export let onDirectOnlyChange: (directOnly: boolean) => void;
 
 	$: collections = $collectionsStore.collections;
+	$: smartCounts = $collectionsStore.smartCounts;
+	$: void collectionsStore.setDirectOnly(directOnly);
 
 	async function handleDelete(id: string, blockedIds: Set<string>) {
 		const response = await collectionsStore.remove(id);
@@ -17,15 +25,30 @@
 		return response;
 	}
 
-	$: smartViews = [
-		{
-			id: 'all',
-			icon: 'document',
-			label: 'All prompts',
-			active: !activeId,
-			onSelect: onSelectAll
-		}
-	] satisfies SmartView[];
+	$: allView = {
+		id: 'all',
+		icon: 'document',
+		label: 'All prompts',
+		active: !activeId && !favoritesOnly && !unsorted,
+		count: smartCounts?.all,
+		onSelect: onSelectAll
+	} satisfies SmartView;
+	$: favoritesView = {
+		id: 'favorites',
+		icon: 'heart',
+		label: 'Favorites',
+		active: favoritesOnly,
+		count: smartCounts?.favorites,
+		onSelect: onSelectFavorites
+	} satisfies SmartView;
+	$: unsortedView = {
+		id: 'unsorted',
+		icon: 'inbox',
+		label: 'Unsorted',
+		active: unsorted,
+		count: smartCounts?.unsorted,
+		onSelect: onSelectUnsorted
+	} satisfies SmartView;
 
 	const treeActions: TreeActions = {
 		onSelect: onSelectFolder,
@@ -43,7 +66,11 @@
 	embedded
 	{collections}
 	{activeId}
-	{smartViews}
+	{allView}
+	{favoritesView}
+	{unsortedView}
+	{directOnly}
+	{onDirectOnlyChange}
 	{treeActions}
 	onCreateRoot={(name) => collectionsStore.create(name, null)}
 />

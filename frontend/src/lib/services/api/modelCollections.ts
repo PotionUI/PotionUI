@@ -1,13 +1,19 @@
 import type { AxiosInstance } from 'axios';
 import type { APIResponse } from '$lib/types/api';
 import type { ModelCollection } from '$lib/types/models';
+import type { SmartCounts } from '$lib/components/collections/types';
+import { collectionListParams } from '$lib/components/collections/selection';
 
 export function createModelCollectionsApi(client: AxiosInstance) {
 	return {
-		async listModelCollections(): Promise<
-			APIResponse<{ collections: ModelCollection[]; total: number }>
+		async listModelCollections(
+			directOnly = false
+		): Promise<
+			APIResponse<{ collections: ModelCollection[]; total: number; smart_counts?: SmartCounts }>
 		> {
-			const response = await client.get('/api/models/collections');
+			const response = await client.get('/api/models/collections', {
+				params: collectionListParams(directOnly)
+			});
 			return response.data;
 		},
 

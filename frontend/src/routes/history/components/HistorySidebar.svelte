@@ -7,61 +7,68 @@
 	export let onCollapse: () => void;
 
 	$: collections = $collectionsStore.collections;
+	$: smartCounts = $collectionsStore.smartCounts;
 	$: activeId = $historyStore.filters.collectionId;
 	$: favoritesOnly = !!$historyStore.filters.favoritesOnly;
-	$: isAll = !activeId && !favoritesOnly;
+	$: unsorted = !!$historyStore.filters.unsorted;
+	$: directOnly = !!$historyStore.filters.directOnly;
+	$: isAll = !activeId && !favoritesOnly && !unsorted;
+	$: void collectionsStore.setDirectOnly(directOnly);
 
-	async function selectAll() {
-		historyStore.setFilter('collectionId', undefined);
-		historyStore.setFilter('favoritesOnly', false);
+	async function applySelection(patch: {
+		collectionId?: string;
+		favoritesOnly?: boolean;
+		unsorted?: boolean;
+	}) {
+		historyStore.setFilter('collectionId', patch.collectionId);
+		historyStore.setFilter('favoritesOnly', !!patch.favoritesOnly);
+		historyStore.setFilter('unsorted', !!patch.unsorted);
 		await historyStore.loadGenerations();
 	}
 
-	async function selectFavorites() {
-		historyStore.setFilter('favoritesOnly', true);
-		historyStore.setFilter('collectionId', undefined);
+	async function setDirectOnly(value: boolean) {
+		historyStore.setFilter('directOnly', value);
 		await historyStore.loadGenerations();
 	}
 
-	async function selectFolder(id: string) {
-		historyStore.setFilter('collectionId', id);
-		historyStore.setFilter('favoritesOnly', false);
-		await historyStore.loadGenerations();
-	}
-
-	// Post-delete fallback: if the deleted folder (or one of its now-gone
-	// descendants) was the active filter, fall back to "all generations".
 	async function handleDelete(id: string, blockedIds: Set<string>) {
 		const response = await collectionsStore.remove(id);
 		if (response.success) {
 			const state = $historyStore;
 			if (state.filters.collectionId && blockedIds.has(state.filters.collectionId)) {
-				historyStore.setFilter('collectionId', undefined);
-				await historyStore.loadGenerations();
+				await applySelection({});
 			}
 		}
 		return response;
 	}
 
-	$: smartViews = [
-		{
-			id: 'all',
-			icon: 'image',
-			label: 'All generations',
-			active: isAll,
-			onSelect: selectAll
-		},
-		{
-			id: 'favorites',
-			icon: 'heart',
-			label: 'Favorites',
-			active: favoritesOnly,
-			onSelect: selectFavorites
-		}
-	] satisfies SmartView[];
+	$: allView = {
+		id: 'all',
+		icon: 'image',
+		label: 'All generations',
+		active: isAll,
+		count: smartCounts?.all,
+		onSelect: () => applySelection({})
+	} satisfies SmartView;
+	$: favoritesView = {
+		id: 'favorites',
+		icon: 'heart',
+		label: 'Favorites',
+		active: favoritesOnly,
+		count: smartCounts?.favorites,
+		onSelect: () => applySelection({ favoritesOnly: true })
+	} satisfies SmartView;
+	$: unsortedView = {
+		id: 'unsorted',
+		icon: 'inbox',
+		label: 'Unsorted',
+		active: unsorted,
+		count: smartCounts?.unsorted,
+		onSelect: () => applySelection({ unsorted: true })
+	} satisfies SmartView;
 
 	const treeActions: TreeActions = {
-		onSelect: selectFolder,
+		onSelect: (id) => applySelection({ collectionId: id }),
 		onRename: (id, name) => collectionsStore.rename(id, name),
 		onCreate: (name, parentId) => collectionsStore.create(name, parentId),
 		onDelete: handleDelete,
@@ -74,7 +81,12 @@
 	storageKey="history-expanded-collections"
 	{collections}
 	{activeId}
-	{smartViews}
+	{allView}
+	{favoritesView}
+	{unsortedView}
+	{directOnly}
+	onDirectOnlyChange={setDirectOnly}
+	autoOrganizeSubject="generations"
 	{treeActions}
 	onCreateRoot={(name) => collectionsStore.create(name, null)}
 	{onCollapse}

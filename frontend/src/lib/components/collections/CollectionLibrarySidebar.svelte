@@ -1,7 +1,9 @@
 <script lang="ts" generics="T extends CollectionLike">
 	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import Icon from '$lib/components/Icon.svelte';
-	import { IconButton } from '$lib/components/ui';
+	import { IconButton, Switch } from '$lib/components/ui';
+	import { autoOrganizeCounts, autoOrganizeHref, type AutoOrganizeSubject } from '$lib/stores/autoOrganizeCounts';
+	import { onMount } from 'svelte';
 	import { toasts } from '$lib/stores/toast';
 	import {
 		Pane,
@@ -22,7 +24,12 @@
 		storageKey,
 		collections,
 		activeId,
-		smartViews,
+		allView,
+		favoritesView,
+		unsortedView,
+		directOnly = false,
+		onDirectOnlyChange,
+		autoOrganizeSubject,
 		treeActions,
 		onCreateRoot,
 		onCollapse,
@@ -32,7 +39,12 @@
 		storageKey: string;
 		collections: T[];
 		activeId: string | undefined;
-		smartViews: SmartView[];
+		allView: SmartView;
+		favoritesView?: SmartView;
+		unsortedView: SmartView;
+		directOnly?: boolean;
+		onDirectOnlyChange?: (directOnly: boolean) => void;
+		autoOrganizeSubject?: AutoOrganizeSubject;
 		treeActions: TreeActions;
 		onCreateRoot: (name: string) => Promise<MutationResult>;
 		onCollapse?: () => void;
@@ -41,6 +53,65 @@
 	} = $props();
 
 	const expansion = new ExpansionState(storageKey);
+
+	let rootExpanded = $state(true);
+
+	let autoCount = $derived(
+		autoOrganizeSubject ? ($autoOrganizeCounts[autoOrganizeSubject] ?? null) : null
+	);
+
+	onMount(() => {
+		if (autoOrganizeSubject) void autoOrganizeCounts.load();
+	});
+
+	let dragId = $state<string | null>(null);
+	let dropTargetId = $state<string | null>(null);
+
+	const ROOT_DROP = '__all__';
+
+	function canDrop(targetId: string | null): boolean {
+		if (!dragId) return false;
+		const dragged = collections.find((c) => c.id === dragId);
+		if (!dragged) return false;
+		if (targetId === null) return (dragged.parent_id ?? null) !== null;
+		if ((dragged.parent_id ?? null) === targetId) return false;
+		return !descendantIds(collections, dragId).has(targetId);
+	}
+
+	function handleDragStart(e: DragEvent, id: string) {
+		dragId = id;
+		if (e.dataTransfer) {
+			e.dataTransfer.effectAllowed = 'move';
+			e.dataTransfer.setData('text/plain', id);
+		}
+	}
+
+	function handleDragEnd() {
+		dragId = null;
+		dropTargetId = null;
+	}
+
+	function handleDragOver(e: DragEvent, targetId: string | null) {
+		if (!canDrop(targetId)) return;
+		e.preventDefault();
+		dropTargetId = targetId ?? ROOT_DROP;
+	}
+
+	async function handleDrop(e: DragEvent, targetId: string | null) {
+		e.preventDefault();
+		const id = dragId;
+		const allowed = canDrop(targetId);
+		handleDragEnd();
+		if (!id || !allowed) return;
+		try {
+			const result = await treeActions.onMove(id, targetId);
+			if (!result.success) toasts.error(result.message ?? result.error ?? 'Move failed.');
+			else if (targetId && !expansion.has(targetId)) expansion.expand(targetId);
+		} catch (err) {
+			logger.error('Drag move failed:', getErrorMessage(err));
+			toasts.error('Move failed.');
+		}
+	}
 
 	let tree = $derived(buildTree(collections));
 
@@ -76,6 +147,7 @@
 
 	async function handleBulkMove(targetId: string | null) {
 		const ids = effectiveSelectedIds;
+		if (!treeActions.onBulkMove) return;
 		const result = await treeActions.onBulkMove(ids, targetId);
 		if (!result.success) {
 			toasts.error(result.message ?? result.error ?? 'Failed to move folders.');
@@ -234,39 +306,105 @@
 
 <svelte:window onclick={() => menuOpenId !== null && closeMenu()} />
 
+{#snippet viewRow(view: SmartView, icon: string)}
+	<PaneRow
+		size="sm"
+		role="treeitem"
+		depth={1}
+		{icon}
+		title={view.label}
+		count={view.count}
+		selected={view.active}
+		onclick={view.onSelect}
+	/>
+{/snippet}
+
 {#snippet body()}
-	<div class="space-y-0.5">
-		{#each smartViews as view (view.id)}
-			<PaneRow
-				size="sm"
-				icon={view.icon}
-				title={view.label}
-				selected={view.active}
-				onclick={view.onSelect}
-			/>
-		{/each}
-	</div>
+	{#if autoOrganizeSubject}
+		<a
+			href={autoOrganizeHref(autoOrganizeSubject)}
+			data-testid="auto-organize-link"
+			class="mb-1 flex h-7 items-center gap-2 rounded px-2 text-xs text-fg-muted hover:bg-surface-3/40 hover:text-fg"
+		>
+			<Icon name="wand" className="w-3.5 h-3.5 flex-shrink-0 text-fg-subtle" />
+			<span class="flex-1 truncate">Auto-organize</span>
+			{#if autoCount}
+				{#if autoCount.needsAttention > 0}
+					<span
+						class="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-warning"
+						role="img"
+						aria-label="{autoCount.needsAttention} need attention"
+					></span>
+				{/if}
+				<span class="flex-shrink-0 font-mono text-2xs tabular-nums text-fg-subtle"
+					>{autoCount.active} active</span
+				>
+			{/if}
+		</a>
+	{/if}
 
 	<div class="my-2 mx-1 h-px bg-line"></div>
 
 	<PaneSectionLabel label="Collections">
 		{#snippet actions()}
 			<div class="flex items-center gap-1">
-				<IconButton
-					icon="list-checks"
-					label={selectionMode ? 'Exit selection' : 'Select folders'}
-					size="sm"
-					active={selectionMode}
-					onclick={toggleSelectionMode}
-				/>
+				{#if treeActions.onBulkMove}
+					<IconButton
+						icon="list-checks"
+						label={selectionMode ? 'Exit selection' : 'Select folders'}
+						size="sm"
+						active={selectionMode}
+						onclick={toggleSelectionMode}
+					/>
+				{/if}
 				<IconButton icon="plus" label="New folder" size="sm" onclick={startCreateRoot} />
 			</div>
 		{/snippet}
 	</PaneSectionLabel>
 
-	<div class="mt-1">
+	{#if activeId && onDirectOnlyChange}
+		<div class="flex items-center justify-between gap-2 px-2 pt-1 text-xs text-fg-muted">
+			<span>Direct only</span>
+			<Switch
+				size="sm"
+				label="Direct only"
+				checked={directOnly}
+				onchange={(value) => onDirectOnlyChange?.(value)}
+			/>
+		</div>
+	{/if}
+
+	<div class="mt-1" role="tree" aria-label={label}>
+		<div
+			role="none"
+			class="rounded {dropTargetId === ROOT_DROP ? 'bg-signal/10' : ''}"
+			ondragover={(e) => handleDragOver(e, null)}
+			ondragleave={() => dropTargetId === ROOT_DROP && (dropTargetId = null)}
+			ondrop={(e) => handleDrop(e, null)}
+		>
+			<PaneRow
+				size="sm"
+				role="treeitem"
+				icon="folder-open"
+				title={allView.label}
+				count={allView.count}
+				expandable
+				expanded={rootExpanded}
+				onToggle={() => (rootExpanded = !rootExpanded)}
+				selected={allView.active}
+				onclick={allView.onSelect}
+			/>
+		</div>
+
+		{#if rootExpanded}
+			<div role="group">
+				{#if favoritesView}
+					{@render viewRow(favoritesView, 'heart')}
+				{/if}
+				{@render viewRow(unsortedView, 'inbox')}
+
 		{#if creatingRoot}
-			<div class="flex items-center gap-1 py-1 pl-2">
+			<div class="flex items-center gap-1 py-1 pl-6">
 				<!-- svelte-ignore a11y_autofocus -->
 				<input
 					autofocus
@@ -287,8 +425,14 @@
 		{#if tree.length === 0 && !creatingRoot}
 			<p class="px-2 py-2 text-xs text-fg-subtle">No folders yet.</p>
 		{:else}
-			<PaneTree nodes={tree} expanded={expansion} onToggle={(id) => expansion.toggle(id)}>
-				{#snippet row({ item, depth, hasChildren, expanded, toggle }: RowContext<T>)}
+			<PaneTree
+				nodes={tree}
+				rootRole="group"
+				expanded={expansion}
+				onToggle={(id) => expansion.toggle(id)}
+			>
+				{#snippet row({ item, depth: treeDepth, hasChildren, expanded, toggle }: RowContext<T>)}
+					{@const depth = treeDepth + 1}
 					{#if renamingId === item.id}
 						<div class="flex items-center h-7" style="padding-left: {depth * 12 + 2}px">
 							<span class="flex-shrink-0 w-5 h-5" aria-hidden="true"></span>
@@ -308,6 +452,18 @@
 							/>
 						</div>
 					{:else}
+						<div
+							role="none"
+							draggable={!selectionMode}
+							class="rounded {dropTargetId === item.id ? 'bg-signal/10' : ''} {dragId === item.id
+								? 'opacity-50'
+								: ''}"
+							ondragstart={(e) => handleDragStart(e, item.id)}
+							ondragend={handleDragEnd}
+							ondragover={(e) => handleDragOver(e, item.id)}
+							ondragleave={() => dropTargetId === item.id && (dropTargetId = null)}
+							ondrop={(e) => handleDrop(e, item.id)}
+						>
 						<PaneRow
 							size="sm"
 							role="treeitem"
@@ -448,6 +604,7 @@
 								{/if}
 							{/snippet}
 						</PaneRow>
+						</div>
 					{/if}
 
 					{#if creatingChildId === item.id}
@@ -471,11 +628,13 @@
 				{/snippet}
 			</PaneTree>
 		{/if}
+			</div>
+		{/if}
 	</div>
 {/snippet}
 
 {#if embedded}
-	<div class="p-2" role="listbox" aria-label={label}>
+	<div class="p-2">
 		{@render body()}
 	</div>
 {:else}

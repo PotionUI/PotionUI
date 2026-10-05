@@ -8,12 +8,14 @@
 		expanded,
 		onToggle,
 		hasChildren,
+		rootRole = 'tree',
 		row
 	}: {
 		nodes: PaneTreeNode<T>[];
 		expanded: ReadonlySet<string> | ExpansionState;
 		onToggle: (id: string) => void;
 		hasChildren?: (node: PaneTreeNode<T>) => boolean;
+		rootRole?: 'tree' | 'group';
 		row: Snippet<[RowContext<T>]>;
 	} = $props();
 
@@ -44,6 +46,6 @@
 	{/each}
 {/snippet}
 
-<div role="tree">
+<div role={rootRole}>
 	{@render subtree(nodes)}
 </div>

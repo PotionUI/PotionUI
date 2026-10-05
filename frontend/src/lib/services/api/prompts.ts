@@ -12,6 +12,9 @@ export interface PromptListParams {
 	model_id?: string;
 	usage_hint?: 'positive' | 'negative';
 	collection_id?: string;
+	include_descendants?: boolean;
+	unsorted?: boolean;
+	favorites_only?: boolean;
 	tags?: string;
 	used?: 'any' | 'used' | 'never';
 	used_after?: string;

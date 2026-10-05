@@ -32,6 +32,7 @@ export interface SmartView {
 	icon: string;
 	label: string;
 	active: boolean;
+	count?: number;
 	onSelect: () => void | Promise<void>;
 }
 
@@ -45,5 +46,11 @@ export interface TreeActions {
 	onMove: (id: string, parentId: string | null) => Promise<MutationResult>;
 	// Reparent several collections in one call. Per-id failures (a cycle, an
 	// ownership mismatch) don't block the rest of the batch - see BulkMoveResult.
-	onBulkMove: (ids: string[], parentId: string | null) => Promise<BulkMoveResult>;
+	onBulkMove?: (ids: string[], parentId: string | null) => Promise<BulkMoveResult>;
+}
+
+export interface SmartCounts {
+	all?: number;
+	favorites?: number;
+	unsorted?: number;
 }

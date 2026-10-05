@@ -4,10 +4,14 @@
  * same request from the same rules - mirrors libraryQuery.ts.
  */
 
+import { collectionQueryParams } from '$lib/components/collections/selection';
+
 export interface InspirationsFilters {
 	search: string;
 	saved: boolean;
 	collectionId?: string;
+	unsorted?: boolean;
+	directOnly?: boolean;
 	authorId?: string;
 }
 
@@ -15,6 +19,8 @@ export interface InspirationsQuery {
 	query?: string;
 	saved?: true;
 	collection_id?: string;
+	include_descendants?: boolean;
+	unsorted?: boolean;
 	author_id?: string;
 	limit: number;
 	offset: number;
@@ -24,6 +30,8 @@ export const DEFAULT_INSPIRATIONS_FILTERS: InspirationsFilters = {
 	search: '',
 	saved: false,
 	collectionId: undefined,
+	unsorted: false,
+	directOnly: false,
 	authorId: undefined
 };
 
@@ -41,7 +49,7 @@ export function buildInspirationsQuery(
 	const search = filters.search.trim();
 	if (search) query.query = search;
 	if (filters.saved) query.saved = true;
-	if (filters.collectionId) query.collection_id = filters.collectionId;
+	Object.assign(query, collectionQueryParams(filters));
 	if (filters.authorId) query.author_id = filters.authorId;
 
 	return query;
@@ -52,6 +60,7 @@ export function hasActiveInspirationsFilters(filters: InspirationsFilters): bool
 		filters.search.trim() !== '' ||
 		filters.saved ||
 		!!filters.collectionId ||
+		!!filters.unsorted ||
 		!!filters.authorId
 	);
 }

@@ -2,14 +2,17 @@ import { writable } from 'svelte/store';
 import { logger, getErrorMessage } from '$lib/utils/logger';
 import { api } from '$lib/services/api/index';
 import type { InspirationCollection } from '$lib/services/api/inspirations';
+import type { SmartCounts } from '$lib/components/collections/types';
 
 interface InspirationsCollectionsState {
 	collections: InspirationCollection[];
+	smartCounts: SmartCounts | null;
 	loading: boolean;
 }
 
 const initialState: InspirationsCollectionsState = {
 	collections: [],
+	smartCounts: null,
 	loading: false
 };
 
@@ -21,12 +24,19 @@ const initialState: InspirationsCollectionsState = {
 function createInspirationsCollectionsStore() {
 	const { subscribe, update, set } = writable<InspirationsCollectionsState>(initialState);
 
+	let directOnly = false;
+
 	async function refresh() {
 		update((state) => ({ ...state, loading: true }));
 		try {
-			const response = await api.listInspirationCollections();
+			const response = await api.listInspirationCollections(directOnly);
 			if (response.success && response.data) {
-				update((state) => ({ ...state, collections: response.data!.items, loading: false }));
+				update((state) => ({
+					...state,
+					collections: response.data!.items,
+					smartCounts: response.data!.smart_counts ?? null,
+					loading: false
+				}));
 			} else {
 				update((state) => ({ ...state, loading: false }));
 			}
@@ -40,6 +50,12 @@ function createInspirationsCollectionsStore() {
 		subscribe,
 
 		load: refresh,
+
+		async setDirectOnly(value: boolean) {
+			if (directOnly === value) return;
+			directOnly = value;
+			await refresh();
+		},
 
 		async create(name: string, parentId?: string | null) {
 			const response = await api.createInspirationCollection(name, parentId);

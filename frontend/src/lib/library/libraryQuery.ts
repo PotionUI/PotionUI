@@ -6,12 +6,17 @@
  * the same request from the same rules.
  */
 
+import { collectionQueryParams } from '$lib/components/collections/selection';
+
 export type LibraryMediaTypeFilter = 'all' | 'image' | 'video' | 'audio';
 
 export interface LibraryFilters {
 	mediaType: LibraryMediaTypeFilter;
 	selectedTagIds: string[];
 	collectionId?: string;
+	unsorted?: boolean;
+	directOnly?: boolean;
+	favoritesOnly?: boolean;
 	search: string;
 }
 
@@ -20,6 +25,9 @@ export interface LibraryQuery {
 	media_type?: string;
 	tag_ids?: string;
 	collection_id?: string;
+	include_descendants?: boolean;
+	unsorted?: boolean;
+	favorites_only?: boolean;
 	search?: string;
 	limit: number;
 	offset: number;
@@ -29,6 +37,9 @@ export const DEFAULT_LIBRARY_FILTERS: LibraryFilters = {
 	mediaType: 'all',
 	selectedTagIds: [],
 	collectionId: undefined,
+	unsorted: false,
+	directOnly: false,
+	favoritesOnly: false,
 	search: ''
 };
 
@@ -54,7 +65,8 @@ export function buildLibraryQuery(
 	const tagIds = filters.selectedTagIds.filter((id) => !!id);
 	if (tagIds.length > 0) query.tag_ids = tagIds.join(',');
 
-	if (filters.collectionId) query.collection_id = filters.collectionId;
+	Object.assign(query, collectionQueryParams(filters));
+	if (filters.favoritesOnly) query.favorites_only = true;
 
 	const search = filters.search.trim();
 	if (search) query.search = search;
@@ -68,6 +80,8 @@ export function hasActiveLibraryFilters(filters: LibraryFilters): boolean {
 		filters.mediaType !== 'all' ||
 		filters.selectedTagIds.length > 0 ||
 		!!filters.collectionId ||
+		!!filters.unsorted ||
+		!!filters.favoritesOnly ||
 		filters.search.trim() !== ''
 	);
 }

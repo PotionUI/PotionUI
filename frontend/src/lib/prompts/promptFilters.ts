@@ -2,6 +2,8 @@ import type { PromptListParams } from '$lib/services/api/prompts';
 import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
 import type { FilterChip } from '$lib/components/library/librarySection';
 
+import { collectionQueryParams } from '$lib/components/collections/selection';
+
 export type PromptSourceFilter = 'any' | 'mine' | 'civitai';
 export type PromptUsedFilter = 'any' | 'used' | 'never';
 export type PromptLastUsedFilter = '' | '24h' | '7d' | '30d';
@@ -140,12 +142,21 @@ function lastUsedAfterIso(lastUsed: PromptLastUsedFilter, now: Date): string | u
 
 export function promptFiltersToListParams(
 	filters: PromptFilters,
-	extra: { collectionId?: string; limit?: number; offset?: number; now?: Date } = {}
+	extra: {
+		collectionId?: string;
+		unsorted?: boolean;
+		directOnly?: boolean;
+		favoritesOnly?: boolean;
+		limit?: number;
+		offset?: number;
+		now?: Date;
+	} = {}
 ): PromptListParams {
 	return {
 		limit: extra.limit,
 		offset: extra.offset,
-		collection_id: extra.collectionId,
+		...collectionQueryParams(extra),
+		favorites_only: extra.favoritesOnly || undefined,
 		model_id: filters.modelId || undefined,
 		base_model: filters.baseModel || undefined,
 		usage_hint: filters.usageHint || undefined,

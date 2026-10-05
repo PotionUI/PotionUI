@@ -1,4 +1,5 @@
 import type { AxiosInstance } from 'axios';
+import { collectionQueryStrings } from '$lib/components/collections/selection';
 import type {
 	APIResponse,
 	GenerationRequest,
@@ -96,6 +97,8 @@ export function createGenerationsApi(client: AxiosInstance) {
 			presetId?: string;
 			modelName?: string;
 			collectionId?: string;
+			unsorted?: boolean;
+			directOnly?: boolean;
 			usedPhrasebookValueId?: string;
 			systemTag?: string;
 			minRating?: number;
@@ -121,7 +124,8 @@ export function createGenerationsApi(client: AxiosInstance) {
 			if (params?.mode) searchParams.append('mode', params.mode);
 			if (params?.presetId) searchParams.append('preset_id', params.presetId);
 			if (params?.modelName) searchParams.append('model_name', params.modelName);
-			if (params?.collectionId) searchParams.append('collection_id', params.collectionId);
+			for (const [key, value] of Object.entries(collectionQueryStrings(params ?? {})))
+				searchParams.append(key, value);
 			if (params?.usedPhrasebookValueId)
 				searchParams.append('used_phrasebook_value_id', params.usedPhrasebookValueId);
 			if (params?.systemTag) searchParams.append('system_tag', params.systemTag);

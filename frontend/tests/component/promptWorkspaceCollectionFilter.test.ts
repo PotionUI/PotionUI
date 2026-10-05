@@ -88,7 +88,9 @@ describe('prompt workspace collection filter', () => {
 		mounted = mountWorkspace();
 		await settle();
 
-		expect(api.listPrompts).toHaveBeenCalledWith(expect.objectContaining({ collection_id: undefined }));
+		expect(api.listPrompts).toHaveBeenCalledWith(
+			expect.not.objectContaining({ collection_id: expect.anything() })
+		);
 	});
 
 	it('threads the selected folder id into the next listPrompts call', async () => {
@@ -112,7 +114,9 @@ describe('prompt workspace collection filter', () => {
 		await mounted.component.setCollectionFilter(undefined);
 		await settle();
 
-		expect(api.listPrompts).toHaveBeenCalledWith(expect.objectContaining({ collection_id: undefined }));
+		expect(api.listPrompts).toHaveBeenCalledWith(
+			expect.not.objectContaining({ collection_id: expect.anything() })
+		);
 	});
 
 	it('keeps the prompts section out of the URL when the folder changes', async () => {

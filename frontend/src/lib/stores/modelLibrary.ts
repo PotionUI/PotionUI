@@ -2,20 +2,24 @@ import { writable } from 'svelte/store';
 import { logger, getErrorMessage } from '$lib/utils/logger';
 import { api } from '$lib/services/api/index';
 import type { ModelCollection } from '$lib/types/models';
+import type { SmartCounts } from '$lib/components/collections/types';
 
 interface ModelLibraryState {
 	collections: ModelCollection[];
+	smartCounts: SmartCounts | null;
 	loading: boolean;
 }
 
 const initialState: ModelLibraryState = {
 	collections: [],
+	smartCounts: null,
 	loading: false
 };
 
 function createModelLibraryStore() {
 	const { subscribe, update, set } = writable<ModelLibraryState>(initialState);
 	let loaded = false;
+	let directOnly = false;
 	let inFlight: Promise<void> | null = null;
 	let forcedAfterFlight: Promise<void> | null = null;
 
@@ -23,12 +27,13 @@ function createModelLibraryStore() {
 	async function fetchCollections() {
 		update((state) => ({ ...state, loading: true }));
 		try {
-			const response = await api.listModelCollections();
+			const response = await api.listModelCollections(directOnly);
 			if (response.success && response.data) {
 				const data = response.data;
 				update((state) => ({
 					...state,
 					collections: data.collections,
+					smartCounts: data.smart_counts ?? null,
 					loading: false
 				}));
 				loaded = true;
@@ -64,6 +69,12 @@ function createModelLibraryStore() {
 
 		// Load all model collections for the current user
 		load: refresh,
+
+		async setDirectOnly(value: boolean) {
+			if (directOnly === value) return;
+			directOnly = value;
+			await refresh(true);
+		},
 
 		// Create a new collection (optionally nested under parentId).
 		// The created row is inserted optimistically so it appears immediately,

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import { onMount } from 'svelte';
+	import { collectionQueryParams } from '$lib/components/collections/selection';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
@@ -40,6 +41,8 @@
 	let sidebarOpen = true;
 	let favoritesOnly = false;
 	let collectionId: string | undefined = undefined;
+	let unsorted = false;
+	let directOnly = false;
 
 	// Multi-select mode: mirrors History's page-local selectionMode/selectedGenerationIds,
 	// but the models grid has no global store, so this stays local to the page.
@@ -82,7 +85,7 @@
 	$: installModels = resolveInstallModelsTarget($recipeCatalog, null, isAdmin);
 
 	// Update URL when filters change (after initialization)
-	$: if (browser && initialized && (selectedType || searchQuery !== undefined || searchMode || selectedTags || sortBy || sortOrder || currentPage || itemsPerPage || favoritesOnly || collectionId)) {
+	$: if (browser && initialized && (selectedType || searchQuery !== undefined || searchMode || selectedTags || sortBy || sortOrder || currentPage || itemsPerPage || favoritesOnly || collectionId || unsorted || directOnly)) {
 		updateUrlParams();
 	}
 
@@ -98,6 +101,8 @@
 		if (itemsPerPage !== 48) params.set('per_page', itemsPerPage.toString());
 		if (favoritesOnly) params.set('favorites', 'true');
 		if (collectionId) params.set('collection', collectionId);
+		if (unsorted) params.set('unsorted', 'true');
+		if (directOnly) params.set('direct', 'true');
 
 		const newUrl = params.toString() ? `?${params.toString()}` : '/models';
 		window.history.replaceState({}, '', newUrl);
@@ -116,17 +121,33 @@
 		itemsPerPage = parseInt(params.get('per_page') || '48', 10);
 		favoritesOnly = params.get('favorites') === 'true';
 		collectionId = params.get('collection') || undefined;
+		unsorted = params.get('unsorted') === 'true';
+		directOnly = params.get('direct') === 'true';
 	}
 
 	function selectAllModels() {
 		favoritesOnly = false;
+		unsorted = false;
 		collectionId = undefined;
 		currentPage = 1;
 	}
 
 	function selectFavorites() {
 		favoritesOnly = true;
+		unsorted = false;
 		collectionId = undefined;
+		currentPage = 1;
+	}
+
+	function selectUnsorted() {
+		favoritesOnly = false;
+		unsorted = true;
+		collectionId = undefined;
+		currentPage = 1;
+	}
+
+	function setDirectOnly(value: boolean) {
+		directOnly = value;
 		currentPage = 1;
 	}
 
@@ -134,6 +155,7 @@
 		// An empty id means "the active collection was deleted" - fall back to all.
 		collectionId = id || undefined;
 		favoritesOnly = false;
+		unsorted = false;
 		currentPage = 1;
 	}
 
@@ -157,6 +179,8 @@
 		itemsPerPage;
 		favoritesOnly;
 		collectionId;
+		unsorted;
+		directOnly;
 		if (!loading) {
 			loadModels();
 			loadModelTypes();
@@ -176,7 +200,7 @@
 				include_tags: true,
 				tag_ids: selectedTags.length > 0 ? selectedTags.join(',') : undefined,
 				favorites_only: favoritesOnly || undefined,
-				collection_id: collectionId
+				...collectionQueryParams({ collectionId, unsorted, directOnly })
 			});
 
 			if (response.success && response.data) {
@@ -207,7 +231,7 @@
 					q_mode: searchQuery && searchMode === 'regex' ? 'regex' : undefined,
 					tag_ids: selectedTags.length > 0 ? selectedTags.join(',') : undefined,
 					favorites_only: favoritesOnly || undefined,
-					collection_id: collectionId
+					...collectionQueryParams({ collectionId, unsorted, directOnly })
 				},
 				request.signal
 			);
@@ -288,6 +312,10 @@
 				<ModelLibrarySidebar
 					activeCollectionId={collectionId}
 					{favoritesOnly}
+					{unsorted}
+					{directOnly}
+					onDirectOnlyChange={setDirectOnly}
+					onSelectUnsorted={selectUnsorted}
 					onSelectAll={selectAllModels}
 					onSelectFavorites={selectFavorites}
 					onSelectCollection={selectCollection}

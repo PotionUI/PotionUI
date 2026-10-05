@@ -16,6 +16,9 @@ export interface PromptLibraryApi {
 
 export interface PromptLibraryQueryOptions {
 	collectionId?: string;
+	unsorted?: boolean;
+	directOnly?: boolean;
+	favoritesOnly?: boolean;
 	limit: number;
 	offset: number;
 }

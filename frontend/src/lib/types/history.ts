@@ -197,6 +197,8 @@ export interface GenerationHistoryFilters {
 	presetId?: string;
 	modelName?: string;
 	collectionId?: string;
+	unsorted?: boolean;
+	directOnly?: boolean;
 	// Segment phrasebook provenance filter
 	usedPhrasebookValueId?: string;
 	usedPhrasebookLabel?: string;

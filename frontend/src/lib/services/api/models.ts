@@ -339,6 +339,8 @@ export interface ModelFilterParams {
 	assigned_group_id?: string;
 	favorites_only?: boolean;
 	collection_id?: string;
+	include_descendants?: boolean;
+	unsorted?: boolean;
 	in_any_collection?: boolean;
 	q_mode?: 'substring' | 'regex';
 	indexed_from?: string;
@@ -358,6 +360,8 @@ export function appendModelFilterParams(searchParams: URLSearchParams, params?: 
 	if (params.assigned_group_id) searchParams.append('assigned_group_id', params.assigned_group_id);
 	if (params.favorites_only) searchParams.append('favorites_only', 'true');
 	if (params.collection_id) searchParams.append('collection_id', params.collection_id);
+	if (params.include_descendants === false) searchParams.append('include_descendants', 'false');
+	if (params.unsorted) searchParams.append('unsorted', 'true');
 	if (params.in_any_collection) searchParams.append('in_any_collection', 'true');
 	if (params.q_mode) searchParams.append('q_mode', params.q_mode);
 	if (params.indexed_from) searchParams.append('indexed_from', params.indexed_from);

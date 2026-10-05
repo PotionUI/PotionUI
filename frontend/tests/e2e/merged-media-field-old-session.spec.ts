@@ -1,4 +1,4 @@
-import { test, expect, type Locator, type Page } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { deflateSync } from 'node:zlib';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
 
@@ -267,15 +267,26 @@ async function openAsOldTab(page: Page, tab: unknown) {
 }
 
 async function openReferencesField(page: Page, mobile: boolean) {
-	let scope: Locator = page.locator('body');
 	if (mobile) {
 		await expect(page.locator('.studio-dock')).toBeVisible({ timeout: 20000 });
-		await page.getByRole('button', { name: 'Settings', exact: true }).click();
 		const sheet = page.getByRole('dialog', { name: 'Settings' });
-		await expect(sheet).toBeVisible({ timeout: 10000 });
-		scope = sheet;
+		const sheetTab = sheet.getByRole('tab', { name: 'References', exact: true }).first();
+		await expect(async () => {
+			if (!(await sheet.isVisible())) {
+				await page.getByRole('button', { name: 'Settings', exact: true }).click();
+				await expect(sheet).toBeVisible({ timeout: 5000 });
+			}
+			try {
+				await expect(sheetTab).toBeVisible({ timeout: 10000 });
+			} catch (error) {
+				await sheet.getByRole('button', { name: 'Done', exact: true }).click({ timeout: 2000 }).catch(() => {});
+				throw error;
+			}
+		}).toPass({ timeout: 60000 });
+		await sheetTab.click();
+		return page.locator('[data-field-name="references"]').first();
 	}
-	const tab = scope.getByRole('tab', { name: 'References', exact: true }).first();
+	const tab = page.getByRole('tab', { name: 'References', exact: true }).first();
 	await expect(tab).toBeVisible({ timeout: 30000 });
 	await tab.click();
 	return page.locator('[data-field-name="references"]').first();

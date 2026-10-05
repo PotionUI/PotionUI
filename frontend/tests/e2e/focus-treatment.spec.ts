@@ -102,9 +102,9 @@ test('bare and .input controls carry one signal ring on themselves', async ({ pa
 	for (const id of ['#fx-bare', '#fx-bare-area', '#fx-text', '#fx-area', '#fx-select']) {
 		const el = page.locator(id);
 		await tabTo(page, el);
-		await shoot(page.locator('#focus-fixture'), `fixture-${id.slice(4)}-focus`);
 		expect(await css(el, 'outlineStyle')).toBe('none');
 		await expectRing(el, signal);
+		await shoot(page.locator('#focus-fixture'), `fixture-${id.slice(4)}-focus`);
 	}
 });
 

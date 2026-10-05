@@ -88,7 +88,7 @@ test('workbench: hidden preview placeholder, then blocked notice tile', async ({
 		})
 	);
 
-	const send: { fn: ((message: unknown) => void) | null } = { fn: null };
+	const send: { fn: ((message: unknown) => void) | null; subscribed: boolean } = { fn: null, subscribed: false };
 	await page.routeWebSocket('**/ws/generation*', (ws) => {
 		send.fn = (message) => ws.send(JSON.stringify(message));
 		ws.send(JSON.stringify({ type: 'connection_established' }));
@@ -96,6 +96,7 @@ test('workbench: hidden preview placeholder, then blocked notice tile', async ({
 			const msg = JSON.parse(String(raw));
 			if (msg.type === 'subscribe_generation') {
 				ws.send(JSON.stringify({ type: 'subscribed', generation_id: msg.generation_id }));
+				if (msg.generation_id === GEN_ID) send.subscribed = true;
 			}
 			if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }));
 		});
@@ -116,8 +117,7 @@ test('workbench: hidden preview placeholder, then blocked notice tile', async ({
 	);
 	await page.reload();
 	await page.waitForURL(/\/generate/, { timeout: 15000 });
-	await expect.poll(() => send.fn !== null, { timeout: 20000 }).toBe(true);
-	await page.waitForTimeout(1500);
+	await expect.poll(() => send.fn !== null && send.subscribed, { timeout: 20000 }).toBe(true);
 
 	send.fn!({ type: 'workbench_update', generation_id: GEN_ID, pipe_id: 1, preview_suppressed: true, file_type: 'image' });
 	const preview = page.locator('[data-content-policy-tile="preview"]');

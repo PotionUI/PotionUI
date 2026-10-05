@@ -22,6 +22,21 @@ async function expectNothingCutOff(page: Page) {
 	expect(overflowing).toBe(false);
 }
 
+async function fullRowWidth(page: Page): Promise<number> {
+	const header = page.locator('header.composer-toolbar').first();
+	return header.evaluate((el) => {
+		const style = getComputedStyle(el);
+		const gap = parseFloat(style.columnGap) || 0;
+		const items = (Array.from(el.children) as HTMLElement[]).filter(
+			(child) => !child.classList.contains('toolbar-spacer')
+		);
+		const content = items.reduce((sum, child) => sum + child.offsetWidth, 0);
+		return Math.ceil(
+			content + gap * items.length + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+		);
+	});
+}
+
 async function reachable(page: Page, label: string): Promise<boolean> {
 	const header = page.locator('header.composer-toolbar').first();
 	if ((await header.locator('[data-toolbar-action]').filter({ hasText: label }).count()) > 0) return true;
@@ -59,12 +74,21 @@ test('prompt header actions collapse into the more menu as the prompts pane is d
 	await page.mouse.up();
 
 	await expect.poll(async () => (await header.boundingBox())!.width, { timeout: 5000 }).toBeLessThan(startWidth);
+	await expectNothingCutOff(page);
+
+	if ((await header.locator('[data-toolbar-action]').count()) === LABELS.length) {
+		const needed = await fullRowWidth(page);
+		await header.evaluate((el, width) => {
+			(el as HTMLElement).style.maxWidth = `${width}px`;
+		}, Math.round(needed * 0.75));
+	}
+
+	await expect
+		.poll(async () => header.locator('[data-toolbar-action]').count(), { timeout: 5000 })
+		.toBeLessThan(LABELS.length);
 	await expect(header.getByRole('button', { name: 'More prompt actions' })).toBeVisible();
 	await expectNothingCutOff(page);
 	await screenshot(page, JOURNEY, 'narrow');
-
-	const visibleCount = await header.locator('[data-toolbar-action]').count();
-	expect(visibleCount).toBeLessThan(LABELS.length);
 
 	for (const label of LABELS) {
 		expect(await reachable(page, label), `${label} is visible or in the more menu`).toBe(true);

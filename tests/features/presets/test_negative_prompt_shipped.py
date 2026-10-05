@@ -1,4 +1,5 @@
 import itertools
+from pathlib import Path
 
 import pytest
 
@@ -33,7 +34,7 @@ def shipped():
 
 def _declared_modes(presets):
     return {
-        (preset.path.rstrip("/").split("/")[-1], mode): (preset, mode)
+        (Path(preset.path).name, mode): (preset, mode)
         for preset in presets
         for mode in preset.modes
         if negative_applies_when(preset, mode) is not None

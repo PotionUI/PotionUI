@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
 
-const JOURNEY = 'plans-daily-limit';
+const JOURNEY = 'cloud-fake-plans-daily-limit';
 const BACKEND_NAME = 'E2E Fake Cloud';
 const PRESET_NAME = 'Fake Studio';
 const PLAN_NAME = 'E2E daily limit 1';

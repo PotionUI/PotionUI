@@ -18,6 +18,7 @@ instance idiom from `tests/pipelines/test_preview_execution_invariance.py`.
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -86,7 +87,7 @@ def wan_pipeline_builder():
     test stands in for the model index."""
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if p.path.rstrip("/").endswith("/Wan")), None)
+    template = next((p for p in loader.presets if Path(p.path).name == "Wan"), None)
     if template is None:
         pytest.skip("marketplace Wan preset not present")
 

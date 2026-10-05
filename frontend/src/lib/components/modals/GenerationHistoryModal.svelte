@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
-	import GenerationCard from '$lib/components/GenerationCard.svelte';
+	import MediaPickFileButton from './MediaPickFileButton.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaPickerFrame from './MediaPickerFrame.svelte';
 	import MediaPickerSelectionBar from './MediaPickerSelectionBar.svelte';
@@ -612,17 +612,18 @@
 				</div>
 			{:else}
 			<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-				{#each generationHistory as generation}
-					{@const filteredFiles = filterFilesByMediaType(generation.files, mediaType)}
-					{#if filteredFiles && filteredFiles.length > 0}
-						<GenerationCard
-							generation={{...generation, files: filteredFiles}}
-							thumbnailSize="medium"
-							selectable={true}
-							selected={false}
-							onSelect={(_gen, file) => handleSelectFromGeneration(generation, file)}
+				{#each generationHistory as generation (generation.id)}
+					{#each filterFilesByMediaType(generation.files, mediaType) as file (file.id)}
+						{@const picked = pickedFromHistoryFile(generation, file)}
+						<MediaPickFileButton
+							{file}
+							generationId={generation.id}
+							label={picked.filename ?? ''}
+							sublabel={generation.preset_name ?? ''}
+							mediaType={picked.mediaType ?? undefined}
+							onPick={() => handleSelectFromGeneration(generation, file)}
 						/>
-					{/if}
+					{/each}
 				{/each}
 			</div>
 			{/if}

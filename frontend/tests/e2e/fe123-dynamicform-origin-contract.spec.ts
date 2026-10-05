@@ -123,7 +123,7 @@ test('DynamicForm image field survives a History pick alongside onOriginChange',
 	await expect(thumbnail, 'seeded generation should appear in the history grid').toBeVisible({
 		timeout: 20000
 	});
-	await thumbnail.locator('xpath=ancestor::*[@role="button"][1]').click();
+	await thumbnail.locator('xpath=ancestor::button[1]').click();
 
 	await expect(historyModal).not.toBeVisible({ timeout: 20000 });
 	await page.waitForTimeout(BEAT);

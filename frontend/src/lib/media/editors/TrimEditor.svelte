@@ -319,32 +319,34 @@
 		<div
 			bind:this={railElement}
 			role="presentation"
-			class="relative h-14 rounded overflow-hidden bg-surface-2 ring-1 ring-inset ring-line-strong"
+			class="relative mx-1.5 h-14"
 			on:pointerdown={scrub}
 		>
-			<div class="absolute inset-0 flex pointer-events-none">
-				{#each Array(12) as _, tick (tick)}
-					<div class="flex-1 border-r border-line last:border-r-0"></div>
-				{/each}
+			<div class="absolute inset-0 overflow-hidden rounded bg-surface-2 ring-1 ring-inset ring-line-strong">
+				<div class="absolute inset-0 flex pointer-events-none">
+					{#each Array(12) as _, tick (tick)}
+						<div class="flex-1 border-r border-line last:border-r-0"></div>
+					{/each}
+				</div>
+
+				<div
+					class="absolute inset-y-0 left-0 bg-canvas/70 pointer-events-none"
+					style="width: {startFraction * 100}%;"
+				></div>
+				<div
+					class="absolute inset-y-0 right-0 bg-canvas/70 pointer-events-none"
+					style="width: {(1 - endFraction) * 100}%;"
+				></div>
+				<div
+					class="absolute inset-y-0 ring-2 ring-inset ring-signal pointer-events-none"
+					style="left: {startFraction * 100}%; right: {(1 - endFraction) * 100}%;"
+				></div>
+
+				<div
+					class="absolute inset-y-0 w-px bg-fg pointer-events-none"
+					style="left: {playheadFraction * 100}%;"
+				></div>
 			</div>
-
-			<div
-				class="absolute inset-y-0 left-0 bg-canvas/70 pointer-events-none"
-				style="width: {startFraction * 100}%;"
-			></div>
-			<div
-				class="absolute inset-y-0 right-0 bg-canvas/70 pointer-events-none"
-				style="width: {(1 - endFraction) * 100}%;"
-			></div>
-			<div
-				class="absolute inset-y-0 ring-2 ring-inset ring-signal pointer-events-none"
-				style="left: {startFraction * 100}%; right: {(1 - endFraction) * 100}%;"
-			></div>
-
-			<div
-				class="absolute inset-y-0 w-px bg-fg pointer-events-none"
-				style="left: {playheadFraction * 100}%;"
-			></div>
 
 			<button
 				type="button"

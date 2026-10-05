@@ -660,7 +660,7 @@ for (const size of SIZES) {
 			await single.getByRole('button', { name: 'History' }).click();
 			const modalTitle = page.getByText('Select Audio from Generation History');
 			await expect(modalTitle).toBeVisible();
-			const historyCards = page.getByRole('dialog').locator('.media-zoom[role="button"]');
+			const historyCards = page.getByRole('dialog').locator('[data-testid="history-file-tile"] button');
 			await expect(historyCards).toHaveCount(1);
 			expect(requested.at(-1)).toBe('audio');
 			await screenshot(page, JOURNEY, `audio-history-${size.tag}`);
@@ -678,7 +678,7 @@ for (const size of SIZES) {
 			await mixed.locator('[data-media-add="audio"]').click();
 			await page.locator('[data-source-menu] [data-source="history"]').click();
 			await expect(page.getByText('Select Audio from Generation History')).toBeVisible();
-			const mixedCards = page.getByRole('dialog').locator('.media-zoom[role="button"]');
+			const mixedCards = page.getByRole('dialog').locator('[data-testid="history-file-tile"] button');
 			await expect(mixedCards).toHaveCount(1);
 			await mixedCards.first().click();
 			await expect(mixed.locator('[data-media-group="audio"] [data-media-tile]')).toHaveCount(1);

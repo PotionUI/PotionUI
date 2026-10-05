@@ -243,20 +243,19 @@ describe('GenerationHistoryModal multi-select', () => {
 		expect(buttonByText('Cancel')).toBeDefined();
 	});
 
-	it('single-select calls onSelect with the generation and file on click and on Enter', async () => {
+	it('single-select calls onSelect with the generation and the clicked file', async () => {
 		const onSelect = vi.fn();
 		mountPicker(GenerationHistoryModal, { onClose: vi.fn(), onSelect });
 		await settle();
 
-		const cards = [...document.querySelectorAll<HTMLElement>('.media-zoom[role="button"]')];
-		expect(cards.length).toBe(2);
-		cards[0].click();
+		const tiles = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="history-file-tile"] button')];
+		expect(tiles.length).toBe(3);
+		tiles[1].click();
 		expect(onSelect).toHaveBeenCalledTimes(1);
 		expect(onSelect.mock.calls[0][0]).toMatchObject({ id: 'g1' });
-		expect(onSelect.mock.calls[0][1]).toMatchObject({ id: 1 });
+		expect(onSelect.mock.calls[0][1]).toMatchObject({ id: 2 });
 
-		cards[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-		expect(onSelect).toHaveBeenCalledTimes(2);
+		tiles[2].click();
 		expect(onSelect.mock.calls[1][0]).toMatchObject({ id: 'g2' });
 		expect(onSelect.mock.calls[1][1]).toMatchObject({ id: 3 });
 	});

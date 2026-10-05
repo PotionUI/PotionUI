@@ -188,7 +188,7 @@
 						{aspect}
 						{group}
 						ordinal={ordinals.get(index) ?? null}
-						seconds={cell.generationId ? (durations.get(cell.generationId) ?? null) : null}
+						seconds={cell.elapsedSeconds ?? (cell.generationId ? (durations.get(cell.generationId) ?? null) : null)}
 						selected={selectedIndex === index}
 						videoUrl={cell.generationId ? (videoUrls[cell.generationId] ?? null) : null}
 						onOpen={onOpenCell}

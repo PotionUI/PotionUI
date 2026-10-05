@@ -59,7 +59,7 @@ export function buildCompareStitch(
 			failed: cell.status === 'failed' || cell.status === 'deleted' || (cell.status === 'completed' && !usable),
 			axisValues: cell.axisValues,
 			seed: cell.seed,
-			seconds: cell.generationId ? (seconds.get(cell.generationId) ?? null) : null
+			seconds: cell.elapsedSeconds ?? (cell.generationId ? (seconds.get(cell.generationId) ?? null) : null)
 		};
 	});
 

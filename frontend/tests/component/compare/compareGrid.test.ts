@@ -218,6 +218,16 @@ describe('compare grid view', () => {
 		expect(qa(target, '[data-testid="compare-cell-ordinal"]').map((e) => e.textContent)).toEqual(['#1', '#2']);
 	});
 
+	it('shows the server elapsed time and only falls back to the measured one when it is null', () => {
+		const grid = makeGrid(new Array(6).fill('completed'), {
+			0: { thumbnailUrl: '/a.png', elapsedSeconds: 21.4 },
+			1: { thumbnailUrl: '/b.png', elapsedSeconds: null }
+		});
+		const { target } = mount(CompareGrid, { grid });
+		const times = qa(target, '[data-testid="compare-cell-time"]').map((e) => e.textContent?.trim());
+		expect(times).toEqual(['21 s']);
+	});
+
 	it('says All done when every cell finished', () => {
 		const all = makeGrid(new Array(6).fill('completed'));
 		const { target } = mount(CompareGrid, { grid: all });

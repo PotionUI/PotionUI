@@ -14,6 +14,7 @@ export interface ApiGridCell {
 	thumbnail_url: string | null;
 	media_type: string | null;
 	error: string | null;
+	elapsed_seconds?: number | null;
 }
 
 export interface ApiGrid {
@@ -41,6 +42,7 @@ export function emptyCell(x: number, y: number): GridCell {
 		thumbnailUrl: null,
 		mediaType: null,
 		error: null,
+		elapsedSeconds: null,
 		progress: null,
 		previewUrl: null
 	};
@@ -65,6 +67,7 @@ export function gridFromApi(source: ApiGrid): ActiveGrid {
 			thumbnailUrl: cell.thumbnail_url,
 			mediaType: cell.media_type,
 			error: cell.error,
+			elapsedSeconds: cell.elapsed_seconds ?? null,
 			progress: null,
 			previewUrl: null
 		};

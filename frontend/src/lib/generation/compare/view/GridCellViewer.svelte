@@ -46,6 +46,7 @@
 	let detail = $state<GenerationHistoryItem | null>(null);
 
 	let cell = $derived(grid.cells[index] as GridCell);
+	let shownSeconds = $derived(cell.elapsedSeconds ?? seconds);
 	let progress = $derived(gridProgress(grid));
 	let failed = $derived(retryableCount(grid));
 	let preview = $derived(cellFormPatch(grid, cell));
@@ -222,10 +223,10 @@
 							</span>
 						</div>
 					{/if}
-					{#if seconds !== null}
+					{#if shownSeconds !== null}
 						<div class="flex items-center justify-between px-3 py-2">
 							<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Time</span>
-							<span class="font-mono text-xs tabular-nums text-fg">{formatSeconds(seconds)}</span>
+							<span class="font-mono text-xs tabular-nums text-fg">{formatSeconds(shownSeconds)}</span>
 						</div>
 					{/if}
 				</div>

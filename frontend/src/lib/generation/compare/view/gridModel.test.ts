@@ -267,6 +267,13 @@ describe('gridFromApi', () => {
 		expect(g.config).toMatchObject({ armed: true, lockSeed: false });
 	});
 
+	it('maps the server elapsed time and leaves it null when absent', () => {
+		const withTime = gridFromApi({ ...source, cells: [{ ...source.cells[0], elapsed_seconds: 21.4 }] });
+		expect(withTime.cells[5].elapsedSeconds).toBe(21.4);
+		expect(gridFromApi(source).cells[5].elapsedSeconds).toBeNull();
+		expect(gridFromApi({ ...source, cells: [{ ...source.cells[0], elapsed_seconds: null }] }).cells[5].elapsedSeconds).toBeNull();
+	});
+
 	it('treats a missing y axis as one row', () => {
 		const g = gridFromApi({ ...source, y_axis: null, cells: [] });
 		expect(g.rows).toBe(1);

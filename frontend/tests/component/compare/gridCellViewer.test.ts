@@ -146,6 +146,15 @@ describe('grid cell viewer', () => {
 		expect(cells[5].getAttribute('aria-current')).toBe('true');
 	});
 
+	it('shows the server elapsed time in the cell card', async () => {
+		mounted = mountViewer({ grid: makeGrid({ 5: { elapsedSeconds: 22.2 } }), seconds: 99 });
+		await flush();
+		expect(mounted.text()).toContain('Time 22 s');
+		mounted.set({ grid: makeGrid({ 5: { elapsedSeconds: null } }) });
+		await flush();
+		expect(mounted.text()).toContain('Time 99 s');
+	});
+
 	it('shows failed cells in the mini map and counts them on Retry failed', async () => {
 		const grid = makeGrid({ 6: { status: 'failed', error: 'GPU ran out of memory.' } });
 		const onRetryFailed = vi.fn();

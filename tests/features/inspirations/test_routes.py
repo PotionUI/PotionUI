@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from src.features.inspirations import operations
 from src.features.inspirations.routes import InspirationController, build_router, build_media_router
-from src.platform.security.current_user import get_current_active_user
+from src.platform.security.current_user import get_current_active_user, require_media_viewer
 from src.platform.security.user import AccountType, User
 
 from tests.features.inspirations.test_operations import InspirationTestBase
@@ -45,6 +45,7 @@ class InspirationRoutesTestBase(InspirationTestBase):
             )
 
         app.dependency_overrides[get_current_active_user] = _current_user
+        app.dependency_overrides[require_media_viewer] = _current_user
         self.client = TestClient(app)
 
     def tearDown(self):
@@ -100,9 +101,6 @@ class TestPublishGetDeleteFlow(InspirationRoutesTestBase):
         self.assertEqual(data["preset_id"], "preset-1")
 
     def test_media_is_served_and_gated_by_filename(self):
-        """Mirrors `MediaController.serve_uploaded_media`'s posture: a miss is
-        a `success: false` body, not an HTTP error status - see
-        `src.features.media.routes`."""
         insp, source = self._publish()
 
         ok = self.client.get(f"/api/media/inspirations/{insp.id}/{source.name}")
@@ -110,9 +108,7 @@ class TestPublishGetDeleteFlow(InspirationRoutesTestBase):
 
         self.assertEqual(ok.status_code, 200)
         self.assertEqual(ok.content, b"generated-pixels")
-        self.assertEqual(wrong_name.status_code, 200)
-        self.assertFalse(wrong_name.json()["success"])
-        self.assertEqual(wrong_name.json()["error"], "not_found")
+        self.assertEqual(wrong_name.status_code, 404)
 
     def test_delete_by_owner(self):
         insp, source = self._publish()
@@ -217,3 +213,39 @@ class TestCollectionRoutes(InspirationRoutesTestBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestInspirationMediaAccess(InspirationRoutesTestBase):
+
+    def test_a_signed_out_request_is_refused(self):
+        insp, source = self._publish()
+        self.client.app.dependency_overrides.pop(require_media_viewer)
+
+        response = self.client.get(f"/api/media/inspirations/{insp.id}/{source.name}")
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_another_signed_in_user_sees_a_published_file(self):
+        insp, source = self._publish()
+        self._as_user_id = self.other_user_id
+
+        response = self.client.get(f"/api/media/inspirations/{insp.id}/{source.name}")
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_a_restricted_viewer_is_refused_an_inspiration_with_a_flagged_source(self):
+        import dataclasses
+        from unittest.mock import Mock
+
+        insp, source = self._publish()
+        safety = Mock()
+        safety.is_restricted.return_value = True
+        safety.viewable_generation_ids.return_value = set()
+        self.controller.collaborators = dataclasses.replace(self.collaborators, content_safety=safety)
+        self._as_user_id = self.other_user_id
+
+        response = self.client.get(f"/api/media/inspirations/{insp.id}/{source.name}")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn(b"generated-pixels", response.content)
+        safety.viewable_generation_ids.assert_called_once_with(self.other_user_id, [insp.source_generation_id])

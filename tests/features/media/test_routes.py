@@ -29,9 +29,21 @@ class TestMediaController:
         return manager
 
     @pytest.fixture
-    def controller(self, mock_media_manager):
-        """Create MediaController instance"""
-        return MediaController(mock_media_manager)
+    def mock_access(self):
+        access = Mock()
+        access.generation_allowed.return_value = True
+        access.temp_allowed.return_value = True
+        access.upload_allowed.return_value = True
+        access.file_allowed.return_value = True
+        return access
+
+    @pytest.fixture
+    def viewer(self):
+        return Mock(id="viewer-1")
+
+    @pytest.fixture
+    def controller(self, mock_media_manager, mock_access):
+        return MediaController(mock_media_manager, mock_access)
 
     @pytest.fixture
     def temp_dir(self):
@@ -233,7 +245,7 @@ class TestMediaController:
 
     # Test serve_generation_media method
     @pytest.mark.asyncio
-    async def test_serve_generation_media_success(self, controller, mock_media_manager, temp_dir, sample_image):
+    async def test_serve_generation_media_success(self, controller, mock_media_manager, temp_dir, sample_image, viewer):
         """Test serving generation media successfully"""
         generation_id = "gen123"
         filename = "output.png"
@@ -251,24 +263,21 @@ class TestMediaController:
             use_streaming=True
         )
 
-        result = await controller.serve_generation_media(generation_id, filename)
+        result = await controller.serve_generation_media(generation_id, filename, viewer)
 
         assert isinstance(result, StreamingResponse)
         assert result.media_type == 'image/png'
 
     @pytest.mark.asyncio
-    async def test_serve_generation_media_not_found(self, controller, mock_media_manager):
-        """Test serving generation media when not found"""
+    async def test_serve_generation_media_not_found(self, controller, mock_media_manager, viewer):
         mock_media_manager.get_generation_media.side_effect = ValueError("Generation not found")
 
-        result = await controller.serve_generation_media("nonexistent", "file.png")
-
-        # Should return APIResponse error
-        assert result.success is False
-        assert result.error == "not_found"
+        with pytest.raises(HTTPException) as exc:
+            await controller.serve_generation_media("nonexistent", "file.png", viewer)
+        assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_serve_generation_media_conditional_request(self, controller, mock_media_manager, temp_dir, sample_image):
+    async def test_serve_generation_media_conditional_request(self, controller, mock_media_manager, temp_dir, sample_image, viewer):
         """Test conditional request returns 304"""
         generation_id = "gen123"
         filename = "output.png"
@@ -291,7 +300,7 @@ class TestMediaController:
         mock_request.headers.get.return_value = etag
 
         result = await controller.serve_generation_media(
-            generation_id, filename, request=mock_request
+            generation_id, filename, viewer, request=mock_request
         )
 
         assert result.status_code == 304
@@ -445,7 +454,7 @@ class TestMediaController:
 
     # Test serve_file_by_id method
     @pytest.mark.asyncio
-    async def test_serve_file_by_id_success(self, controller, mock_media_manager, sample_image):
+    async def test_serve_file_by_id_success(self, controller, mock_media_manager, sample_image, viewer):
         """Test serving file by ID successfully"""
         mock_media_manager.get_file_by_id.return_value = MediaResult(
             content=sample_image,
@@ -454,21 +463,18 @@ class TestMediaController:
             use_streaming=False
         )
 
-        result = await controller.serve_file_by_id("file123")
+        result = await controller.serve_file_by_id("file123", viewer)
 
         assert isinstance(result, Response)
         assert result.media_type == 'image/png'
 
     @pytest.mark.asyncio
-    async def test_serve_file_by_id_not_found(self, controller, mock_media_manager):
-        """Test serving file by ID when not found"""
+    async def test_serve_file_by_id_not_found(self, controller, mock_media_manager, viewer):
         mock_media_manager.get_file_by_id.side_effect = ValueError("File not found")
 
-        result = await controller.serve_file_by_id("nonexistent")
-
-        # Should return APIResponse error
-        assert result.success is False
-        assert result.error == "not_found"
+        with pytest.raises(HTTPException) as exc:
+            await controller.serve_file_by_id("nonexistent", viewer)
+        assert exc.value.status_code == 404
 
 
 if __name__ == '__main__':

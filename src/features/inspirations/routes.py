@@ -13,12 +13,12 @@ import logging
 import mimetypes
 from typing import Optional, TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 
 from src.features.plans.errors import LimitExceeded
 from src.platform.http.base_controller import BaseController, APIResponse
-from src.platform.security.current_user import get_current_active_user
+from src.platform.security.current_user import get_current_active_user, require_media_viewer
 from src.platform.security.user import AccountType
 
 from src.features.inspirations.collaborators import InspirationCollaborators
@@ -308,15 +308,12 @@ class InspirationController(BaseController):
 
     # ========== Media serving ==========
 
-    async def serve_media(self, inspiration_id: str, filename: str):
-        """Serve one of an inspiration's copied media files.
-
-        Mirrors `MediaController.serve_uploaded_media`'s posture: no
-        authentication, a `ValueError` -> `error_api_response` on any miss.
-        """
+    async def serve_media(self, inspiration_id: str, filename: str, viewer):
         try:
             insp = self.collaborators.repository.get_by_id(inspiration_id)
             if not insp or not any(entry.get("filename") == filename for entry in insp.media):
+                raise ValueError("File not found")
+            if not self._viewable(viewer.id, [insp]):
                 raise ValueError("File not found")
 
             key = inspiration_media_key(inspiration_id, filename)
@@ -328,11 +325,11 @@ class InspirationController(BaseController):
             if local_path is not None:
                 return FileResponse(path=str(local_path), media_type=media_type, filename=filename)
             return Response(content=self.collaborators.storage_driver.get_bytes(key), media_type=media_type)
-        except ValueError as e:
-            return self.error_api_response(error="not_found", message=str(e))
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Media not found")
         except Exception as e:
             logger.error(f"Error serving inspiration media: {e}")
-            return self.error_api_response(error="server_error", message="Failed to serve media")
+            raise HTTPException(status_code=500, detail="Failed to serve media")
 
 
 def build_router(container: "AppContainer") -> APIRouter:
@@ -482,7 +479,7 @@ def build_media_router(container: "AppContainer") -> APIRouter:
     router = APIRouter(prefix="/api/media/inspirations", tags=["Inspirations"])
 
     @router.get("/{inspiration_id}/{filename}", summary="Serve Inspiration Media")
-    async def serve_media(inspiration_id: str, filename: str):
-        return await controller.serve_media(inspiration_id, filename)
+    async def serve_media(inspiration_id: str, filename: str, viewer=Depends(require_media_viewer)):
+        return await controller.serve_media(inspiration_id, filename, viewer)
 
     return router

@@ -3,6 +3,7 @@ Media Controller - Unified controller for serving all media types (images, video
 This replaces the image_controller endpoints with more appropriately named /api/media endpoints.
 """
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Optional
 
@@ -12,7 +13,11 @@ import aiofiles
 
 from src.features.plans.errors import LimitExceeded
 from src.platform.http.base_controller import BaseController, APIResponse
-from src.platform.security.current_user import get_current_active_user, get_current_admin_user
+from src.platform.security.current_user import (
+    get_current_active_user,
+    get_current_admin_user,
+    require_media_viewer,
+)
 from src.features.generation.thumbnail_profile import (
     PROFILES,
     estimate_bytes,
@@ -20,6 +25,7 @@ from src.features.generation.thumbnail_profile import (
     match_profile,
 )
 from src.features.media import MediaStore, UnsupportedSizeError
+from src.features.media.access import MediaAccess
 from src.features.media.thumbnail_regeneration import ThumbnailJobRunning, ThumbnailRegeneration
 from src.features.media.validators import UPLOAD_PURPOSE_USER
 
@@ -32,9 +38,18 @@ logger = logging.getLogger(__name__)
 class MediaController(BaseController):
     """Controller for handling all media storage and serving"""
 
-    def __init__(self, media_store: MediaStore):
+    def __init__(self, media_store: MediaStore, access: MediaAccess):
         super().__init__()
         self.manager = media_store
+        self.access = access
+
+    @staticmethod
+    def _not_found(detail: str = "Media not found") -> HTTPException:
+        return HTTPException(status_code=404, detail=detail)
+
+    async def _require(self, check, viewer, subject: str) -> None:
+        if not await asyncio.to_thread(check, viewer, subject):
+            raise self._not_found()
 
     async def _stream_file(self, file_path: str, chunk_size: int = 8192):
         """Stream file content asynchronously"""
@@ -50,11 +65,13 @@ class MediaController(BaseController):
         self,
         generation_id: str,
         filename: str,
+        viewer,
         request: Optional[Request] = None,
         size: Optional[str] = None,
         animated: Optional[bool] = False
     ):
         """Serve media file (image or video) from a generation."""
+        await self._require(self.access.generation_allowed, viewer, generation_id)
         try:
             result = self.manager.get_generation_media(
                 generation_id, filename, size=size, animated=animated
@@ -83,14 +100,14 @@ class MediaController(BaseController):
                     headers=result.headers
                 )
 
-        except ValueError as e:
-            return self.error_api_response(error="not_found", message=str(e))
+        except ValueError:
+            raise self._not_found()
         except Exception as e:
             logger.error(f"Error serving generation media: {str(e)}")
-            return self.error_api_response(error="server_error", message="Failed to serve media")
+            raise HTTPException(status_code=500, detail="Failed to serve media")
 
-    async def serve_temp_media(self, filename: str):
-        """Serve temporary media files (no authentication required)"""
+    async def serve_temp_media(self, filename: str, viewer):
+        await self._require(self.access.temp_allowed, viewer, filename)
         try:
             result = self.manager.get_temp_media(filename)
             return FileResponse(
@@ -98,14 +115,17 @@ class MediaController(BaseController):
                 media_type=result.media_type,
                 filename=filename
             )
-        except ValueError as e:
-            return self.error_api_response(error="not_found", message=str(e))
+        except ValueError:
+            raise self._not_found()
         except Exception as e:
             logger.error(f"Error serving temporary file: {str(e)}")
-            return self.error_api_response(error="server_error", message="Failed to serve temporary file")
+            raise HTTPException(status_code=500, detail="Failed to serve temporary file")
 
-    async def serve_uploaded_media(self, filename: str, size: Optional[str] = None, animated: Optional[bool] = False):
+    async def serve_uploaded_media(
+        self, filename: str, viewer, size: Optional[str] = None, animated: Optional[bool] = False
+    ):
         """Serve uploaded media files, or one of their thumbnails."""
+        await self._require(self.access.upload_allowed, viewer, filename)
         try:
             result = self.manager.get_uploaded_media(filename, size=size, animated=animated)
             if result.content is not None:
@@ -115,11 +135,11 @@ class MediaController(BaseController):
                 media_type=result.media_type,
                 filename=filename
             )
-        except ValueError as e:
-            return self.error_api_response(error="not_found", message=str(e))
+        except ValueError:
+            raise self._not_found()
         except Exception as e:
             logger.error(f"Error serving uploaded file: {str(e)}")
-            return self.error_api_response(error="server_error", message="Failed to serve uploaded file")
+            raise HTTPException(status_code=500, detail="Failed to serve uploaded file")
 
     async def get_upload_info(self, filename: str, current_user):
         """Get best-effort metadata (width/height/duration/fps/size) for an
@@ -236,11 +256,13 @@ class MediaController(BaseController):
     async def serve_file_by_id(
         self,
         file_id: str,
+        viewer,
         width: Optional[int] = None,
         height: Optional[int] = None,
         size: Optional[str] = None
     ):
         """Serve a file by its database ID with optional thumbnails"""
+        await self._require(self.access.file_allowed, viewer, file_id)
         try:
             result = self.manager.get_file_by_id(file_id, width, height, size)
             return Response(
@@ -248,11 +270,11 @@ class MediaController(BaseController):
                 media_type=result.media_type,
                 headers=result.headers
             )
-        except ValueError as e:
-            return self.error_api_response(error="not_found", message=str(e))
+        except ValueError:
+            raise self._not_found()
         except Exception as e:
             logger.error(f"Error serving file by ID: {str(e)}")
-            return self.error_api_response(error="server_error", message="Failed to serve file")
+            raise HTTPException(status_code=500, detail="Failed to serve file")
 
     async def get_file_blob(
         self,
@@ -262,6 +284,7 @@ class MediaController(BaseController):
         current_user=None
     ):
         """Get a file as blob data for frontend to create blob URLs"""
+        await self._require(self.access.file_allowed, current_user, file_id)
         try:
             user_id = current_user.id if current_user else None
             result = self.manager.get_file_blob(file_id, width, height, user_id)
@@ -270,11 +293,11 @@ class MediaController(BaseController):
                 media_type=result.media_type,
                 headers=result.headers
             )
-        except ValueError as e:
-            return self.error_api_response(error="not_found", message=str(e))
+        except ValueError:
+            raise self._not_found()
         except Exception as e:
             logger.error(f"Error getting file blob: {str(e)}")
-            return self.error_api_response(error="server_error", message="Failed to get file blob")
+            raise HTTPException(status_code=500, detail="Failed to get file blob")
 
     async def serve_preset_file(
         self,
@@ -356,34 +379,26 @@ def build_router(container: "AppContainer") -> APIRouter:
         filename: str,
         size: Optional[str] = None,
         animated: Optional[bool] = False,
-        request: Request = None
+        request: Request = None,
+        viewer=Depends(require_media_viewer),
     ):
         """Serve media file from a generation"""
         return await controller.serve_generation_media(
-            generation_id, filename, request, size, animated
+            generation_id, filename, viewer, request, size, animated
         )
 
     @router.get("/tmp/{filename}", summary="Serve Temporary Media")
-    async def serve_temp_media(filename: str):
-        """Serve temporary media files (no authentication required)"""
-        return await controller.serve_temp_media(filename)
+    async def serve_temp_media(filename: str, viewer=Depends(require_media_viewer)):
+        return await controller.serve_temp_media(filename, viewer)
 
     @router.get("/uploads/{filename}", summary="Serve Uploaded Media")
     async def serve_uploaded_media(
         filename: str,
         size: Optional[str] = None,
         animated: Optional[bool] = False,
+        viewer=Depends(require_media_viewer),
     ):
-        """Serve uploaded media files, or one of their thumbnails (no
-        authentication required).
-
-        Serving matches the generation and temporary media routes above: a
-        browser rendering `<img src="/api/media/uploads/...">` cannot attach the
-        bearer token the OAuth2 scheme expects, so a dependency here 401s every
-        thumbnail. Listing, uploading and deleting stay authenticated - those go
-        through the API client, which does send the header.
-        """
-        return await controller.serve_uploaded_media(filename, size, animated)
+        return await controller.serve_uploaded_media(filename, viewer, size, animated)
 
     @router.get("/uploads/{filename}/info", response_model=APIResponse, summary="Get Uploaded Media Info")
     async def get_upload_info(
@@ -441,10 +456,11 @@ def build_router(container: "AppContainer") -> APIRouter:
         file_id: str,
         width: Optional[int] = None,
         height: Optional[int] = None,
-        size: Optional[str] = None
+        size: Optional[str] = None,
+        viewer=Depends(require_media_viewer),
     ):
         """Serve a file by its database ID with optional resizing and thumbnails"""
-        return await controller.serve_file_by_id(file_id, width, height, size)
+        return await controller.serve_file_by_id(file_id, viewer, width, height, size)
 
     @router.get("/files/{file_id}/blob", summary="Get File as Blob")
     async def get_file_blob(

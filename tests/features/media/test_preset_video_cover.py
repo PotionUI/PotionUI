@@ -42,7 +42,7 @@ def client(preset_dir):
         plugin_registry=Mock(),
         upload_repository=Mock(),
     )
-    controller = MediaController(store)
+    controller = MediaController(store, Mock())
     router = APIRouter(prefix="/api/media")
 
     @router.get("/presets/{preset_id}/{file_path:path}")

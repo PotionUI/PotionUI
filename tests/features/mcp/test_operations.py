@@ -150,3 +150,35 @@ class TestRecordUse:
             cursor.execute("UPDATE mcp_tokens SET last_used_at = ? WHERE id = ?", (stale, token.id))
         operations.record_use(tokens, tokens.get_by_id(token.id))
         assert tokens.get_by_id(token.id).last_used_at != stale
+
+
+class TestResolveMediaUser:
+    def test_an_active_token_resolves_its_owner_when_mcp_is_on(self, manager, real_user):
+        tokens, settings, users = manager
+        settings.set_setting(MCP_ENABLED_KEY, True)
+        _token, plaintext = operations.mint_token(tokens, real_user.id, "laptop")
+
+        assert operations.resolve_media_user(tokens, settings, users, plaintext).id == real_user.id
+
+    def test_nothing_resolves_while_mcp_is_off(self, manager, real_user):
+        tokens, settings, users = manager
+        _token, plaintext = operations.mint_token(tokens, real_user.id, "laptop")
+
+        assert operations.resolve_media_user(tokens, settings, users, plaintext) is None
+
+    def test_a_user_with_mcp_disabled_resolves_nothing(self, manager, real_user):
+        tokens, settings, users = manager
+        settings.set_setting(MCP_ENABLED_KEY, True)
+        operations.set_user_enabled(settings, users, real_user.id, False)
+        _token, plaintext = operations.mint_token(tokens, real_user.id, "laptop")
+
+        assert operations.resolve_media_user(tokens, settings, users, plaintext) is None
+
+    def test_a_revoked_or_foreign_token_resolves_nothing(self, manager, real_user):
+        tokens, settings, users = manager
+        settings.set_setting(MCP_ENABLED_KEY, True)
+        token, plaintext = operations.mint_token(tokens, real_user.id, "laptop")
+        operations.revoke_token(tokens, real_user.id, token.id)
+
+        assert operations.resolve_media_user(tokens, settings, users, plaintext) is None
+        assert operations.resolve_media_user(tokens, settings, users, "a.jwt.token") is None

@@ -1004,6 +1004,12 @@ class ModelRepository:
             row = cursor.fetchone()
             return ModelFile.from_row(row) if row else None
 
+    def model_ids_for_file(self, file_id: str) -> List[str]:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute("SELECT DISTINCT model_id FROM model_files WHERE file_id = ?", (file_id,))
+            return [row['model_id'] for row in cursor.fetchall()]
+
     def get_model_files(self, model_id: str, file_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get all files for a model with file details"""
         from src.platform.database.database import db

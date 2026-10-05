@@ -1,3 +1,4 @@
+import asyncio
 import io
 import logging
 import traceback
@@ -13,7 +14,11 @@ from src.features.generation import profile_paths
 from src.platform.observability.profiling import render_report_from_file
 
 from src.platform.http.base_controller import BaseController, APIResponse
-from src.platform.security.current_user import get_current_active_user, get_current_admin_user
+from src.platform.security.current_user import (
+    get_current_active_user,
+    get_current_admin_user,
+    require_media_viewer,
+)
 from src.features.generation.dto import (
     ClearTabQueueRequest,
     GenerationRequest,
@@ -1292,7 +1297,7 @@ class GenerationController(BaseController):
         return Response(
             content=content,
             media_type=media_type,
-            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+            headers={"Cache-Control": "private, max-age=31536000, immutable"},
         )
 
     async def handle_websocket(self, websocket, client_id: str, user=None):
@@ -1358,13 +1363,10 @@ def build_router(container: "AppContainer") -> APIRouter:
         return await controller.get_run_report(generation_id, current_user)
 
     @router.get("/{generation_id}/run-report/artifacts/{name}", summary="Serve Run Report Artifact")
-    async def get_run_report_artifact(generation_id: str, name: str):
-        """Serve one binary payload a persisted run report references.
-
-        Auth-exempt for the same reason the media routes are: a browser
-        rendering `<img src="...">` cannot attach the bearer token, and a
-        dependency here 401s every comparison image in the report.
-        """
+    async def get_run_report_artifact(generation_id: str, name: str, viewer=Depends(require_media_viewer)):
+        allowed = await asyncio.to_thread(container.media_access.generation_allowed, viewer, generation_id)
+        if not allowed:
+            raise HTTPException(status_code=404, detail="Run report artifact not found")
         return await controller.get_run_report_artifact(generation_id, name)
 
     @router.post("/{generation_id}/cancel", response_model=APIResponse, summary="Cancel Generation")

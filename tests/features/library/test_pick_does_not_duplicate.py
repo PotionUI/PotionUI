@@ -27,10 +27,11 @@ from src.features.forms.binding import bind_form
 from src.features.library import operations
 from src.features.library.routes import LibraryController, build_router as build_library_router
 from src.features.media import ImageProcessor, MediaStore, MediaTypeResolver
+from src.features.media.access import MediaAccess
 from src.features.media.routes import MediaController, build_router as build_media_router
 from src.features.presets.templates import FieldTemplate, FormTemplate, ModeTemplate, PresetTemplate
 from src.platform.plugins.registry import PluginRegistry
-from src.platform.security.current_user import get_current_active_user
+from src.platform.security.current_user import get_current_active_user, require_media_viewer
 from src.platform.security.user import AccountType, User
 from src.platform.util.ids import generate_ulid
 
@@ -75,7 +76,12 @@ class LibraryOverHTTPTestBase(LibraryTestBase):
         )
 
         container = _Container(
-            media_controller=MediaController(media_store),
+            media_controller=MediaController(media_store, MediaAccess(
+                generation_repository=None,
+                file_repository=self.file_repo,
+                upload_repository=self.upload_repo,
+                model_repository=None,
+            )),
             library_controller=LibraryController(self.collaborators),
         )
 
@@ -90,6 +96,7 @@ class LibraryOverHTTPTestBase(LibraryTestBase):
             )
 
         app.dependency_overrides[get_current_active_user] = _current_user
+        app.dependency_overrides[require_media_viewer] = _current_user
         self.client = TestClient(app)
 
     def tearDown(self):

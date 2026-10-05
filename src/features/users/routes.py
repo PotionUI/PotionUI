@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 
 from src.platform.http.base_controller import BaseController, APIResponse
-from src.platform.security.current_user import get_current_user
+from src.platform.security.current_user import get_current_user, require_media_viewer
 from src.features.users.dto import UserCreate, UserUpdate, UserResponse
 from src.features.users import operations
 from src.features.users.repository import UserRepository
@@ -355,19 +355,11 @@ class UserController(BaseController):
             return self.handle_exception(e, "avatar_delete_failed", f"Failed to delete avatar for user {user_id}")
 
     async def get_avatar(self, filename: str):
-        """Serve an avatar file by name.
-
-        Unauthenticated, like `serve_preset_file`: this is reached through
-        plain `<img src>` tags, which never carry an Authorization header,
-        and an avatar isn't sensitive data. Real HTTP status codes (not the
-        APIResponse envelope) so the browser's `<img>` error handler fires on
-        a missing/invalid file instead of trying to decode JSON as pixels.
-        """
         try:
             avatar_path = operations.resolve_avatar_path(self.settings, filename)
             return FileResponse(
                 path=str(avatar_path),
-                headers={"Cache-Control": "public, max-age=31536000, immutable"}
+                headers={"Cache-Control": "private, max-age=31536000, immutable"}
             )
         except ValueError:
             raise HTTPException(status_code=404, detail="Avatar not found")
@@ -428,8 +420,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         return await controller.delete_avatar(user_id, current_user)
 
     @router.get("/avatars/{filename}", summary="Serve User Avatar")
-    async def get_avatar(filename: str):
-        """Serve an avatar file. Unauthenticated - see `UserController.get_avatar`."""
+    async def get_avatar(filename: str, viewer: User = Depends(require_media_viewer)):
         return await controller.get_avatar(filename)
 
     return router

@@ -10,6 +10,7 @@ them in order.
 """
 
 import asyncio
+import functools
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -26,7 +27,7 @@ from src.bootstrap.routers import register_routers
 from src.bootstrap.static_frontend import mount_frontend
 from src.platform.plugins.router_mounter import MOUNT_FAILURE_MESSAGE, MountResult
 
-from src.platform.security.current_user import set_auth
+from src.platform.security.current_user import set_auth, set_media_bearer_fallback
 from src.platform.version import POTIONUI_VERSION
 from src.platform.websocket.notification_connection_hub import notification_connection_hub
 from src.platform.websocket.automation_connection_hub import automation_connection_hub
@@ -266,6 +267,14 @@ def _seed_runtime_from_container(container: AppContainer) -> None:
     """Bind process-wide dependencies that live outside the router factories."""
     # Auth dependency (get_current_active_user) resolves through this Auth.
     set_auth(container.auth)
+    from src.features.mcp.operations import resolve_media_user
+
+    set_media_bearer_fallback(functools.partial(
+        resolve_media_user,
+        container.mcp_token_repository,
+        container.settings,
+        container.user_repository,
+    ))
 
     # Seed the in-memory attention-backend pin from its persisted setting.
     # get_attention_backend() never reads the DB (it's a per-forward hot path);

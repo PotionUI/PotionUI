@@ -96,7 +96,9 @@ def manager(s3_driver, tmp_path):
 
 @pytest.fixture
 def controller(manager):
-    return MediaController(manager)
+    access = Mock()
+    access.upload_allowed.return_value = True
+    return MediaController(manager, access)
 
 
 @pytest.mark.asyncio
@@ -116,7 +118,7 @@ async def test_upload_serve_delete_round_trip_through_s3_backend(manager, contro
     # directly - proves the controller's `.content` branch actually returns
     # the S3-backed bytes rather than trying to FileResponse a path that
     # does not exist locally.
-    response = await controller.serve_uploaded_media(upload_result.filename)
+    response = await controller.serve_uploaded_media(upload_result.filename, Mock(id="user123"))
     assert response.body == original_bytes
 
     await controller.delete_upload(upload_result.filename, Mock(id="user123"))

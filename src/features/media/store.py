@@ -237,7 +237,7 @@ class MediaStore:
         etag = f'"{generation_id}-{filename}{etag_suffix}"'
 
         headers = {
-            "Cache-Control": "public, max-age=3600",
+            "Cache-Control": "private, max-age=3600",
             "ETag": etag,
             "Accept-Ranges": "bytes",
             "Content-Length": str(file_size),
@@ -1010,7 +1010,7 @@ class MediaStore:
                 return MediaResult(
                     content=content,
                     media_type=media_type,
-                    headers={"Cache-Control": "public, max-age=3600"},
+                    headers={"Cache-Control": "private, max-age=3600"},
                     use_streaming=False
                 )
             except Exception as e:
@@ -1022,7 +1022,7 @@ class MediaStore:
         return MediaResult(
             content=content,
             media_type=media_type,
-            headers={"Cache-Control": "public, max-age=3600"},
+            headers={"Cache-Control": "private, max-age=3600"},
             use_streaming=False
         )
 

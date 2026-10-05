@@ -86,12 +86,6 @@ class UploadRepository:
 
     def get_by_filename_unscoped(self, filename: str) -> Optional[Upload]:
         """Look up one upload by filename with no owner check.
-
-        For `GET /api/media/uploads/{filename}` only - that route is already
-        unauthenticated (an `<img src>` cannot attach a bearer token), so the
-        on-disk uuid filename is already the whole access boundary; resolving
-        which thumbnail sizes exist for it adds nothing an unscoped read of
-        the bytes themselves doesn't already expose.
         """
         from src.platform.database.database import db
         with db.get_cursor() as cursor:

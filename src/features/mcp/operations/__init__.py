@@ -95,3 +95,20 @@ def record_use(token_repository: McpTokenRepository, token: McpToken) -> None:
         if last and datetime.now(timezone.utc) - last < _LAST_USED_THROTTLE:
             return
     token_repository.touch_last_used(token.id)
+
+
+def resolve_media_user(
+    token_repository: McpTokenRepository,
+    settings: Settings,
+    user_repository: UserRepository,
+    plaintext: str,
+):
+    if not plaintext.startswith(TOKEN_PREFIX):
+        return None
+    token = resolve_active_token(token_repository, plaintext)
+    if token is None or not is_globally_enabled(settings) or not is_user_enabled(settings, token.user_id):
+        return None
+    user = user_repository.get_by_id(token.user_id)
+    if user is not None:
+        record_use(token_repository, token)
+    return user

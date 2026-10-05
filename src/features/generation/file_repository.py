@@ -312,5 +312,14 @@ class FileRepository:
             row = cursor.fetchone()
             return GenerationFile.from_row(row) if row else None
 
+    def generation_ids_for_file(self, file_id: str) -> List[str]:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT DISTINCT generation_id FROM generation_files WHERE file_id = ?",
+                (file_id,)
+            )
+            return [row['generation_id'] for row in cursor.fetchall()]
+
 # Global repository instance
 file_repo = FileRepository()

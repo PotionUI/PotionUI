@@ -220,6 +220,7 @@ if TYPE_CHECKING:
     from src.features.collections.routes import CollectionController
     from src.features.automation.routes import AutomationController
     from src.features.media.routes import MediaController
+    from src.features.media.access import MediaAccess
     from src.features.media.editing.editor import MediaEditor
     from src.features.media.editing.routes import MediaEditController
     from src.features.library import LibraryCollaborators, LibraryRepository
@@ -416,6 +417,7 @@ class AppContainer:
     housekeeping_worker: "HousekeepingWorker"
     backup_runs: "BackupRuns"
     media_controller: "MediaController"
+    media_access: "MediaAccess"
     media_editor: "MediaEditor"
     media_edit_controller: "MediaEditController"
 
@@ -1421,7 +1423,16 @@ def build_container() -> AppContainer:
         storage_driver=storage_driver,
         limit_guard=limit_guard,
     )
-    media_controller = MediaController(media_store)
+    from src.features.media.access import MediaAccess
+
+    media_access = MediaAccess(
+        generation_repository=generation_repository,
+        file_repository=file_repo,
+        upload_repository=upload_repository,
+        model_repository=model_repository,
+        content_safety=content_safety,
+    )
+    media_controller = MediaController(media_store, media_access)
 
     from src.features.media.thumbnail_regeneration import ThumbnailRegeneration
 

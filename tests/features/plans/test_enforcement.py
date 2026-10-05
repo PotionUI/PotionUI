@@ -233,7 +233,7 @@ def test_the_upload_route_answers_403(plans):
     }], "upload", "")
     store = Mock()
     store.upload_media = AsyncMock(side_effect=error)
-    controller = MediaController(store)
+    controller = MediaController(store, Mock())
     app = FastAPI()
 
     @app.post("/upload")

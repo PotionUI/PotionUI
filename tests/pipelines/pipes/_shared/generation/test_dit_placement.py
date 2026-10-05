@@ -30,6 +30,7 @@ from vendor.gpl.comfyui.ops import _add_lora_output_branch, _lora_output_branch
 from src.pipelines.pipes._shared.generation.dit_placement import (
     _ACTIVATION_RESERVE_FLOOR_GB,
     _dit_lora_profile,
+    _dit_quant_activation_bytes_per_token,
     _ffn_transient_bytes_per_token,
     _LTX_INNER_DIM,
     DitLoraProfile,
@@ -1692,3 +1693,83 @@ def test_cold_placement_weight_budget_credits_the_idle_pool():
     assert decision.mode == "resident"
     assert calls["move_to"] == ["cuda"]
     assert calls["stream_to"] == []
+
+
+class _QuantLinear(nn.Module):
+    def __init__(self, in_features, *, nvfp4=False, fp8=False):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = 4096
+        self._is_nvfp4 = nvfp4
+        self.weight_scale = torch.ones(()) if fp8 else None
+
+
+def _dit_with(*linears, estimated_vram_gb=18.5, calls=None):
+    module = nn.Module()
+    for i, lin in enumerate(linears):
+        module.add_module(f"l{i}", lin)
+    calls = calls if calls is not None else []
+    return SimpleNamespace(
+        module=module, estimated_vram_gb=estimated_vram_gb, device="cpu",
+        move_to=lambda device: calls.append(("resident", device)),
+        stream_to=lambda device, budget: calls.append(("partial", device, budget)),
+    )
+
+
+def _fast_paths(monkeypatch, *, nvfp4, fp8):
+    monkeypatch.setattr(f"{_MOD}._nvfp4_matmul_enabled", lambda: nvfp4)
+    monkeypatch.setattr(f"{_MOD}._fp8_matmul_enabled", lambda: fp8)
+
+
+def test_nvfp4_fast_path_charges_seven_fp32_copies_of_the_widest_input(monkeypatch):
+    _fast_paths(monkeypatch, nvfp4=True, fp8=False)
+    dit = _dit_with(_QuantLinear(4096, nvfp4=True), _QuantLinear(16384, nvfp4=True), _QuantLinear(32768))
+    assert _dit_quant_activation_bytes_per_token(dit) == 7 * 4 * 16384
+
+
+def test_fp8_fast_path_charges_two_fp32_copies(monkeypatch):
+    _fast_paths(monkeypatch, nvfp4=False, fp8=True)
+    dit = _dit_with(_QuantLinear(4096, fp8=True), _QuantLinear(16384, fp8=True))
+    assert _dit_quant_activation_bytes_per_token(dit) == 2 * 4 * 16384
+
+
+def test_no_fast_path_means_no_activation_quant_term(monkeypatch):
+    _fast_paths(monkeypatch, nvfp4=False, fp8=False)
+    dit = _dit_with(_QuantLinear(16384, nvfp4=True), _QuantLinear(16384, fp8=True))
+    assert _dit_quant_activation_bytes_per_token(dit) == 0
+
+
+def test_a_bare_callable_dit_has_no_activation_quant_term():
+    assert _dit_quant_activation_bytes_per_token(SimpleNamespace()) == 0
+
+
+def test_reference_run_reserve_now_covers_the_nvfp4_activation_quant_peak():
+    tokens = 31_620
+    plain = estimate_activation_reserve_gb(tokens)
+    quant = estimate_activation_reserve_gb(tokens, quant_activation_bytes_per_token=7 * 4 * 16384)
+    assert plain == pytest.approx(3.05, abs=0.1)
+    assert quant - plain == pytest.approx(tokens * 7 * 4 * 16384 / 1024 ** 3 * 1.15, rel=1e-6)
+    assert quant > 14.0
+
+
+def test_nvfp4_fast_path_forces_partial_residency_where_the_old_estimate_said_resident(monkeypatch):
+    monkeypatch.setattr(f"{_MOD}.free_vram_gb", lambda device: 29.0)
+    monkeypatch.setattr(f"{_MOD}.effective_free_vram_gb", lambda device: 29.0)
+    monkeypatch.setattr(f"{_MOD}.minimum_inference_memory_gb", lambda: 0.0)
+    manager = SimpleNamespace(ensure_free=lambda *a, **k: False, offload_all=lambda *a, **k: False)
+    monkeypatch.setattr(f"{_MOD}.get_residency_registry", lambda: manager)
+    monkeypatch.setattr(f"{_MOD}.maybe_compile_dit", lambda *a, **k: None)
+
+    _fast_paths(monkeypatch, nvfp4=False, fp8=False)
+    off_calls = []
+    off = place_dit_for_sequence(
+        _dit_with(_QuantLinear(16384, nvfp4=True), calls=off_calls), "cuda", video_tokens=31_620)
+    assert off.mode == "resident"
+
+    _fast_paths(monkeypatch, nvfp4=True, fp8=False)
+    on_calls = []
+    on = place_dit_for_sequence(
+        _dit_with(_QuantLinear(16384, nvfp4=True), calls=on_calls), "cuda", video_tokens=31_620)
+    assert on.mode == "partial"
+    assert 0.0 < on.weight_budget_gb < 18.5
+    assert on.activation_reserve_gb > off.activation_reserve_gb + 14.0

@@ -377,6 +377,12 @@ that only muxes should say so in its `tips` rather than expecting a rejection he
 `reference` is an optional media reference (e.g. a source image or clip the IC-LoRA
 conditions on). `lora.strength` and the entry's own `strength` are both clamped to `[0, 1]`.
 
+On LTX-2.5 the IC-LoRA and its reference steer the first pass only. With Upscale on, the
+refine pass runs without the IC-LoRA weights and without the reference, as in Lightricks'
+own IC-LoRA pipeline; form LoRAs stay on for both passes. The Enhance tab's "Use IC-LoRA in
+the refine pass" keeps the IC-LoRA loaded for the refine and re-encodes the reference at the
+refine resolution, at the cost of more VRAM and time.
+
 ### `shot`
 
 Optional in every mode; in practice only ever sent for a timeline-style document, since a

@@ -339,6 +339,10 @@
           "type": "str",
           "value": "ltx_dynamic"
         },
+        "scoped_loras": {
+          "type": "list",
+          "value": []
+        },
         "step_cache_max_skips": {
           "type": "int",
           "value": 3

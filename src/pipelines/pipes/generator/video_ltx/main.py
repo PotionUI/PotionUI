@@ -252,6 +252,7 @@ class _VideoLtxCtx:
     # no stage2_loras configured, or configured without an `initial_latent`
     # (ignored with a warning; see build_context).
     stage2_lora_stack: list = field(default_factory=list)
+    scoped_lora_stack: list = field(default_factory=list)
     # True when `prepared` was built from real media conditions (not the
     # all-zero t2v fallback) -- decides whether an `initial_latent` refine
     # MERGES into the base slice (keyframes re-applied at this call's own
@@ -329,6 +330,8 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             "decode": True,
             "refine_sigmas": "",
             "stage2_loras": [],
+            "scoped_loras": [],
+            "refine_reference": False,
         }
 
     @classmethod
@@ -348,6 +351,15 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                            "distilled LoRA for a two-stage refine). Only meaningful when 'initial_latent' "
                            "is connected (a stage-2 refine call) -- ignored with a warning otherwise",
                            required=False),
+            PipeConfigSpec("scoped_loras", list, [],
+                           "LoRAs applied ONLY around this call's sampling, on every call (not just a "
+                           "refine), and removed again afterwards so the next stage sees the DiT without "
+                           "them. The Director's IC-LoRAs ride here so a stage-2 refine runs without "
+                           "them unless asked to keep them", required=False),
+            PipeConfigSpec("refine_reference", bool, False,
+                           "On a stage-2 refine call, keep IC-LoRA reference placements and re-encode "
+                           "them at this call's own resolution as reference tokens. Off (default) drops "
+                           "them: the refine is a plain pass over the upscaled latent", required=False),
             PipeConfigSpec("steps", int, 24, "Denoising steps", required=False, min_value=1, max_value=100),
             PipeConfigSpec("cfg", float, 4.0, "True CFG scale", required=False, min_value=1.0, max_value=20.0),
             PipeConfigSpec("sampler", str, "euler", "Sampler (conditioned runs support only single-step, "
@@ -482,14 +494,15 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
 
         placements = list(self.config.get("media_placements") or [])
         if initial_latents:
-            dropped = [p for p in placements if p.get("role") == "reference"]
+            keep_reference = bool(self.config.get("refine_reference", False))
+            dropped = [] if keep_reference else [p for p in placements if p.get("role") == "reference"]
             if dropped:
                 logger.info(
                     "[GENERATOR VIDEO-LTX] stage-2 refine: dropping %d IC-LoRA reference placement(s) -- "
                     "the reference only steers the first pass, the refine runs on the upscaled latent",
                     len(dropped))
                 placements = [p for p in placements if p.get("role") != "reference"]
-            if any(p.get("source") == "video" for p in placements):
+            if any(p.get("source") == "video" and p.get("role") != "reference" for p in placements):
                 raise ValueError(
                     "generator/video_ltx: 'initial_latent' (stage-2 refine) cannot be combined with "
                     "video-sourced keyframe conditioning -- use image-sourced keyframes for a "
@@ -631,6 +644,9 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             else:
                 stage2_lora_stack = _load_lora_stack(stage2_loras_cfg)
 
+        scoped_loras_cfg = _active_loras(self.config.get("scoped_loras"))
+        scoped_lora_stack = _load_lora_stack(scoped_loras_cfg) if scoped_loras_cfg else []
+
         spec = bundle.spec
         # APG: read straight out of sampling_settings by _make_guidance. No
         # SLG -- LTXAVModel.forward has no skip_layers kwarg (Wan-only).
@@ -666,7 +682,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                 audio_mode=audio_mode, audio_file=audio_file, audio_tokens=audio_tokens,
                 t_lat=t_lat, h_lat=h_lat, w_lat=w_lat,
                 initial_latents=initial_latents, has_conditions=bool(conditions),
-                stage2_lora_stack=stage2_lora_stack,
+                stage2_lora_stack=stage2_lora_stack, scoped_lora_stack=scoped_lora_stack,
             ),
         )
 
@@ -817,7 +833,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         sample_forward = guard_sampling_oom(
             forward, dit=c.bundle.dit, device=c.device, decision=placement,
         )
-        with temporarily_applied_loras(c.bundle.dit.module, c.stage2_lora_stack):
+        with temporarily_applied_loras(c.bundle.dit.module, [*c.scoped_lora_stack, *c.stage2_lora_stack]):
             x = denoise_prenoised(
                 sample_forward, x, cond, uncond,
                 steps=c.steps, sampler_name=c.sampler,

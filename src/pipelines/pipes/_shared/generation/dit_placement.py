@@ -325,6 +325,10 @@ class DitLoraProfile:
 
 _NO_LORA = DitLoraProfile()
 
+_NVFP4_ACTIVATION_QUANT_FP32_COPIES = 7
+_FP8_ACTIVATION_QUANT_FP32_COPIES = 2
+_FP32_BYTES = 4
+
 # Multiplicative safety margin over the raw per-token estimate -- covers
 # allocator fragmentation, cuBLAS/cuDNN workspace, and any minor uncounted
 # term. Multiplicative (not a flat add) so it scales with S instead of
@@ -339,6 +343,7 @@ _ACTIVATION_RESERVE_FLOOR_GB = 0.5
 def estimate_activation_reserve_gb(
     video_tokens: int, audio_tokens: int = 0, *, lora: DitLoraProfile = _NO_LORA,
     inner_dim: int = _LTX_INNER_DIM, ffn_dim: int | None = None,
+    quant_activation_bytes_per_token: int = 0,
 ) -> float:
     """Estimate the DiT-forward activation VRAM reserve for one sampling step.
 
@@ -370,6 +375,7 @@ def estimate_activation_reserve_gb(
     s = max(0, int(video_tokens)) + max(0, int(audio_tokens))
     bytes_per_token = _activation_reserve_bytes_per_token(inner_dim, ffn_dim)
     bytes_per_token += lora.output_buffer_bytes_per_token
+    bytes_per_token += max(0, int(quant_activation_bytes_per_token))
     raw_gb = (s * bytes_per_token + lora.weight_side_bytes) / _BYTES_PER_GB
     return max(_ACTIVATION_RESERVE_FLOOR_GB, raw_gb * _ACTIVATION_SAFETY_MARGIN)
 
@@ -393,6 +399,23 @@ def _linear_takes_gemm_fast_path(linear: Any) -> bool:
     if getattr(linear, "weight_scale", None) is not None:
         return _fp8_matmul_enabled()
     return False
+
+
+def _dit_quant_activation_bytes_per_token(dit: Any) -> int:
+    walk = getattr(getattr(dit, "module", None), "modules", None)
+    if not callable(walk):
+        return 0
+    widest = 0
+    for m in walk():
+        in_features = int(getattr(m, "in_features", 0) or 0)
+        if not in_features:
+            continue
+        if getattr(m, "_is_nvfp4", False):
+            if _nvfp4_matmul_enabled():
+                widest = max(widest, _NVFP4_ACTIVATION_QUANT_FP32_COPIES * _FP32_BYTES * in_features)
+        elif getattr(m, "weight_scale", None) is not None and _fp8_matmul_enabled():
+            widest = max(widest, _FP8_ACTIVATION_QUANT_FP32_COPIES * _FP32_BYTES * in_features)
+    return widest
 
 
 def _dit_lora_profile(dit: Any) -> DitLoraProfile:
@@ -576,6 +599,7 @@ def place_dit_for_sequence(
 
     activation_reserve = estimate_activation_reserve_gb(
         video_tokens, audio_tokens, lora=lora, inner_dim=inner_dim, ffn_dim=ffn_dim,
+        quant_activation_bytes_per_token=_dit_quant_activation_bytes_per_token(dit),
     )
     extra_reserve = max(0.0, float(reserve_gb))
     total_reserve = activation_reserve + extra_reserve

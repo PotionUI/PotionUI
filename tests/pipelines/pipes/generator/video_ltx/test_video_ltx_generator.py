@@ -1863,3 +1863,100 @@ def test_video_reference_encode_stays_whole_when_it_fits(tmp_path):
     with patch(f"{_ENCODE_LADDER}.free_vram_gb", return_value=24.0):
         cfg.build_context(_pipe_input(videos=[str(clip)], bundle=bundle))
     assert calls == {"whole": 1, "tiled": 0}
+
+
+_IC = [{"file_path": "/fake/ic-lora.safetensors", "weight": 1.0, "window": None}]
+
+
+def test_scoped_loras_default_empty_and_declared_in_configuration():
+    assert GeneratorLtxVideoPipe.get_default_config()["scoped_loras"] == []
+    assert GeneratorLtxVideoPipe.get_default_config()["refine_reference"] is False
+    names = {s.name for s in GeneratorLtxVideoPipe.configuration()}
+    assert {"scoped_loras", "refine_reference"} <= names
+
+
+@patch("src.pipelines.pipes.generator.video_ltx.main._load_lora_stack")
+def test_scoped_loras_load_on_a_plain_generation_and_on_a_refine(mock_load):
+    stack = [({"lora.weight": torch.zeros(1)}, 1.0)]
+    mock_load.return_value = stack
+    plain = _pipe(resolution="64x64", frames=17, scoped_loras=_IC).build_context(_pipe_input())
+    assert plain.extra.scoped_lora_stack is stack
+    refine_input = _pipe_input()
+    refine_input.input["initial_latent"] = [torch.zeros(1, 128, 3, 2, 2)]
+    refine = _pipe(resolution="64x64", frames=17, refine_sigmas="0.9, 0.0",
+                   scoped_loras=_IC).build_context(refine_input)
+    assert refine.extra.scoped_lora_stack is stack
+
+
+def test_no_scoped_loras_means_an_empty_stack():
+    ctx = _pipe(resolution="64x64", frames=17).build_context(_pipe_input())
+    assert ctx.extra.scoped_lora_stack == []
+
+
+@patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
+@patch("src.pipelines.pipes.generator.video_ltx.main._load_lora_stack")
+def test_scoped_and_stage2_loras_apply_together_in_one_wrap_around_sampling(mock_load):
+    scoped = [({"ic.weight": torch.zeros(1)}, 1.0)]
+    stage2 = [({"distilled.weight": torch.zeros(1)}, 0.5)]
+    mock_load.side_effect = lambda cfg: scoped if cfg == _IC else stage2
+    calls = []
+
+    @contextmanager
+    def fake_ctx(module, stack):
+        calls.append(("enter", list(stack)))
+        yield
+        calls.append(("exit", list(stack)))
+
+    def fake_denoise(fwd, x, cond, uncond, **kw):
+        calls.append(("denoise",))
+        return x
+
+    pipe_input = _pipe_input()
+    pipe_input.input["initial_latent"] = [torch.full((1, 128, 3, 2, 2), 0.5)]
+    with patch("src.pipelines.pipes.generator.video_ltx.main.temporarily_applied_loras", fake_ctx), \
+         patch("src.pipelines.pipes.generator.video_ltx.main.denoise_prenoised", fake_denoise):
+        _pipe(
+            resolution="64x64", frames=17, refine_sigmas="0.9, 0.0", scoped_loras=_IC,
+            stage2_loras=[{"file_path": "/fake/distilled.safetensors", "weight": 0.5, "window": None}],
+        ).process(pipe_input, lambda o: None)
+
+    assert calls == [("enter", scoped + stage2), ("denoise",), ("exit", scoped + stage2)]
+
+
+def _reference_refine_input(tmp_path, bundle):
+    clip = _reference_clip(tmp_path, n_frames=9, size=64)
+    pipe_input = _pipe_input(videos=[str(clip)], bundle=bundle)
+    pipe_input.input["initial_latent"] = [torch.zeros(1, 128, 3, 2, 2)]
+    return pipe_input
+
+
+_VIDEO_REFERENCE = [{"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}]
+
+
+def test_refine_reference_on_re_encodes_the_reference_at_the_refine_grid(tmp_path):
+    seen = []
+    bundle, _calls = _bundle_recording_encodes()
+    inner = bundle.vae.module.encode
+
+    def spy(pixels):
+        seen.append(tuple(pixels.shape))
+        return inner(pixels)
+
+    bundle.vae.module.encode = spy
+    ctx = _pipe(
+        resolution="64x64", frames=17, refine_sigmas="0.9, 0.0", refine_reference=True,
+        media_placements=_VIDEO_REFERENCE,
+    ).build_context(_reference_refine_input(tmp_path, bundle))
+    assert ctx.extra.has_conditions
+    assert ctx.extra.prepared.n_extra == 2 * 2 * 2
+    assert seen and seen[0][-2:] == (64, 64)
+
+
+def test_refine_reference_off_leaves_no_reference_and_never_encodes(tmp_path):
+    bundle, calls = _bundle_recording_encodes()
+    ctx = _pipe(
+        resolution="64x64", frames=17, refine_sigmas="0.9, 0.0", media_placements=_VIDEO_REFERENCE,
+    ).build_context(_reference_refine_input(tmp_path, bundle))
+    assert not ctx.extra.has_conditions
+    assert ctx.extra.prepared.n_extra == 0
+    assert calls == {"whole": 0, "tiled": 0}

@@ -39,6 +39,18 @@ fields:
       - when: { field: "upscale", not_equals: "off" }
         then: { set_visibility: true }
 
+  - name: "ic_lora_in_refine"
+    type: "checkbox"
+    formula: "enhance"
+    label: "Use IC-LoRA in the refine pass"
+    ai_hint: "Only matters when the Director has an IC-LoRA set. By default the IC-LoRA and its reference steer the first pass only and the Upscale refine is a plain pass over the upscaled latent, like Lightricks' own IC-LoRA pipeline. Turn this on to keep the IC-LoRA loaded for the refine too and re-encode its reference at the refine resolution; costs more VRAM and time."
+    default: false
+    reactions:
+      - when: { field: "upscale", equals: "off" }
+        then: { set_visibility: false }
+      - when: { field: "upscale", not_equals: "off" }
+        then: { set_visibility: true }
+
   - name: "upscale_model"
     type: "model"
     formula: "models"

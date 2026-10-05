@@ -109,7 +109,7 @@ The family ships **two** presets, split by checkpoint layout — pick the one th
 
 Pointing the 2.0/2.3 preset at a transformer-only 2.5 DiT is rejected up front by `_require_embedded_component` (that preset leaves `vae`/`audio_model` unset, so there is nothing to slice) rather than failing deep inside VAE construction. The reverse — an all-in-one file in the 2.5 preset — is not guarded, because its required `video_vae` picker satisfies the pre-flight check; it just loads a mismatched component set, so pick the preset that matches your files.
 
-Both presets carry the same two modes — a `video`/Director mode (first-frame/last-frame/arbitrary-keyframe conditioning, IC-LoRA reference videos, an optional jointly-generated or muxed-in audio track, and an in-flow two-stage latent upscale) and a standalone `upscale` mode that refines an existing clip. See [Video Director](../video-director.md) for the keyframe/IC-LoRA/audio composition contract. What genuinely differs between them, beyond the pickers, is the stage-1 sampler and schedule — see [Sampling](#sampling).
+Both presets carry the same two modes — a `video`/Director mode (first-frame/last-frame/arbitrary-keyframe conditioning, IC-LoRA reference videos, an optional jointly-generated or muxed-in audio track, and an in-flow two-stage latent upscale) and a standalone `upscale` mode that refines an existing clip. With Upscale on, a Director IC-LoRA and its reference apply to the first pass only unless "Use IC-LoRA in the refine pass" is on. See [Video Director](../video-director.md) for the keyframe/IC-LoRA/audio composition contract. What genuinely differs between them, beyond the pickers, is the stage-1 sampler and schedule — see [Sampling](#sampling).
 
 ### Latent upscalers: spatial and temporal
 

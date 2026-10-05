@@ -43,9 +43,13 @@
 # OWN (full) resolution and merges it into the upsampled latent at the
 # keyframe-anchored (mask=1) positions, so i2v/FLF/director keyframe identity is
 # reapplied at target resolution rather than only surviving through stage 1's
-# lower-res encode. IC-LoRA references (image or video) steer stage 1 only:
-# generator/video_ltx drops role=reference placements on a refine call, the
-# way Lightricks' IC-LoRA pipeline refines the upscaled latent without them.
+# lower-res encode. IC-LoRA (Director `ic_lora`) follows Lightricks' own
+# IC-LoRA pipeline: its weights and its reference steer stage 1 only. Both
+# stages carry the IC-LoRA as `scoped_loras` (applied around that stage's
+# sampling alone, then removed), and stage 2 gets it only when the Enhance
+# tab's "Use IC-LoRA in the refine pass" is on; in that case stage 2 also
+# re-encodes the reference at ITS resolution (`refine_reference`), through the
+# tiled encode ladder. Off (default) = a plain refine of the upscaled latent.
 #
 # Motion smoothing: 1 | 2 rounds -- an OPTIONAL extra phase after whichever of
 # the two paths above ran, orthogonal to Upscale (that doubles resolution, this
@@ -160,16 +164,10 @@ pipeline:
         name: "{{ form.temporal_upscale_model | default('') }}"
       loras:
         "@loop":
-          # Form loras + Director IC-LoRA references, merged into one stack
-          # (both are plain DiT LoRAs applied at load time -- the IC-LoRA
-          # reference VIDEO is a separate `video` input + placement, wired
-          # below; only its LoRA file goes through the loader).
-          # Native-list concat: raw form loras followed by Director IC-LoRA
-          # entries mapped to their `.lora` sub-object -- both shapes then
-          # expose `.model`/`.strength` uniformly, so `template:` needs no
-          # branching (@loop's native evaluator requires items to yield an
-          # actual list, not a string).
-          items: "{{ (form.loras) + (form.video_director.ic_lora | map(attribute='lora') | list) }}"
+          # Form LoRAs only. The Director's IC-LoRAs are NOT baked in here: they
+          # ride each generator stage's `scoped_loras` instead, so stage 2 can
+          # run without them (see this file's header and the stage configs).
+          items: "{{ form.loras }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -408,6 +406,12 @@ pipeline:
       # True (non-empty string), so a string-rendered "False" here would
       # silently defeat this gate and always decode.
       decode: "{{ (form.upscale) == 'off' and (form.dfr_rounds | int) == 0 }}"
+      scoped_loras:
+        "@loop":
+          items: "{{ form.video_director.ic_lora | map(attribute='lora') | list }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
 
   #############
   ## Latent-space spatial upscale (only when the upscale selection is not
@@ -532,6 +536,13 @@ pipeline:
       # `or`; absent that, the friendly Refine Strength select (Enhance tab)
       # picks which suffix of Lightricks' recipe to use.
       refine_sigmas: "{{ form.upscale_refine_sigmas or (preset.vars.stage2_sigma_recipe_balanced if (form.refine_strength) == 'balanced' else (preset.vars.stage2_sigma_recipe_light if (form.refine_strength) == 'light' else preset.vars.stage2_sigma_recipe)) }}"
+      refine_reference: "{{ form.ic_lora_in_refine | default(false) }}"
+      scoped_loras:
+        "@loop":
+          items: "{{ (form.video_director.ic_lora | map(attribute='lora') | list) if (form.ic_lora_in_refine | default(false)) else [] }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
       # Enhance tab's own LoRA picker (stage 2 only): ADDED on top of
       # model_loader/ltx's `loras` above, applied around this call's sampling
       # alone (generator/video_ltx's own stage2_loras config). Same

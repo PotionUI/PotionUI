@@ -179,6 +179,22 @@ def test_undo_removes_exactly_what_the_run_added(seed, manager, history):
     assert manager.get_rule(user, rule["id"])["filed_count"] == 0
 
 
+def test_undo_leaves_other_runs_alone(seed, manager, history):
+    user, wide, _ = history
+    first = seed.collection("u1", "First")
+    second = seed.collection("u1", "Second")
+    a = manager.create_rule(user, rule_body(name="a", conditions=LANDSCAPE, actions=[collection_action(first)]))
+    b = manager.create_rule(user, rule_body(name="b", conditions=LANDSCAPE, actions=[collection_action(second)]))
+    manager.start_backfill(user, a["id"])
+    manager.start_backfill(user, b["id"])
+    run_a = next(r for r in manager.activity(user, None, None, None, 50)["runs"] if r["rule_id"] == a["id"])
+
+    manager.undo_run(user, run_a["id"])
+
+    assert seed.members(first) == set()
+    assert seed.members(second) == set(wide)
+
+
 def test_undo_skips_what_the_user_already_removed_and_does_not_refile(seed, manager, history):
     user, wide, _ = history
     landscapes = seed.collection("u1")

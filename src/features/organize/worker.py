@@ -8,7 +8,7 @@ from src.platform.plugins.hooks import HookChain, HookContext
 
 logger = logging.getLogger(__name__)
 
-SUBSCRIBER_ID = "organize"
+SUBSCRIBER_ID = "organize_engine"
 QUEUE_SIZE = 10000
 PRUNE_EVERY_S = 6 * 3600
 

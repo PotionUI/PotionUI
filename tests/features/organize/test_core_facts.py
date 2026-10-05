@@ -57,6 +57,8 @@ CASES = [
      ["krea_wide", "nested"]),
     ("resolution at least", lambda l: [{"fact": "resolution", "operator": "at_least", "value": {"width": 1280, "height": 720}}],
      ["krea_wide", "nested", "video"]),
+    ("aspect landscape", lambda l: [{"fact": "aspect", "operator": "is", "value": "landscape"}],
+     ["krea_wide", "nested", "video"]),
     ("aspect portrait", lambda l: [{"fact": "aspect", "operator": "is", "value": "portrait"}], ["flux_tall"]),
     ("aspect square or landscape", lambda l: [{"fact": "aspect", "operator": "is_any_of", "value": ["square", "landscape"]}],
      ["krea_square", "krea_wide", "nested", "video"]),

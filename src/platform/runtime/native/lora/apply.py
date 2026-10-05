@@ -318,13 +318,19 @@ def _stage_runtime_deltas(
     for d in deltas:
         up = d.up.to(device=device).contiguous()
         down = d.down.to(device=device).contiguous()
-        for tensor in (up, down):
+        factors = getattr(d, "kron_factors", None)
+        if factors is not None:
+            factors = tuple(
+                None if side is None else tuple(t.to(device=device).contiguous() for t in side)
+                for side in factors
+            )
+        for tensor in (up, down, *(t for side in factors or () if side is not None for t in side)):
             key = tensor.untyped_storage().data_ptr()
             if key not in seen:
                 seen.add(key)
                 total_bytes += tensor.numel() * tensor.element_size()
         staged.append(LoraDelta(down=down, up=up, alpha=d.alpha, scale=d.scale,
-                                target_slice=d.target_slice, kron=d.kron))
+                                target_slice=d.target_slice, kron=d.kron, kron_factors=factors))
     return staged, total_bytes
 
 
@@ -398,7 +404,7 @@ def apply_loras_with_report(
             scaled = [
                 LoraDelta(down=d.down, up=d.up, alpha=d.alpha,
                           scale=d.scale * float(strength), target_slice=d.target_slice,
-                          kron=d.kron)
+                          kron=d.kron, kron_factors=d.kron_factors)
                 for d in deltas
             ]
             target = policy(param_name[: -len(".weight")]) if masked else None

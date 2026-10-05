@@ -67,6 +67,7 @@ class LoraDelta:
     # (dim, start, length) into the target weight; None = whole weight.
     target_slice: tuple[int, int, int] | None = None
     kron: bool = False
+    kron_factors: tuple | None = None
 
 
 # Native-param -> (dim, start_fn, length_fn) slice specs for the fused
@@ -520,6 +521,12 @@ def _combine_lokr_side(lora_sd, parts, direct_suf: str, a_suf: str, b_suf: str):
     return None, None
 
 
+def _lokr_side_factors(lora_sd, parts, direct_suf: str, a_suf: str, b_suf: str):
+    if direct_suf in parts or a_suf not in parts or b_suf not in parts:
+        return None
+    return lora_sd[parts[a_suf]], lora_sd[parts[b_suf]]
+
+
 def map_lora_keys(
     lora_sd: dict[str, torch.Tensor],
     module: nn.Module,
@@ -603,9 +610,12 @@ def map_lora_keys(
             alpha_scale = 1.0
         if alpha_key in lora_sd:
             consumed.add(alpha_key)
+        factors = (_lokr_side_factors(lora_sd, parts, ".lokr_w1", ".lokr_w1_a", ".lokr_w1_b"),
+                   _lokr_side_factors(lora_sd, parts, ".lokr_w2", ".lokr_w2_a", ".lokr_w2_b"))
         mapped.setdefault(param_name, []).append(
             LoraDelta(down=w2, up=w1, alpha=alpha_scale, scale=1.0,
-                      target_slice=None, kron=True)
+                      target_slice=None, kron=True,
+                      kron_factors=factors if any(f is not None for f in factors) else None)
         )
 
     # anything left (that looks like a lora tensor) is reported unmatched.

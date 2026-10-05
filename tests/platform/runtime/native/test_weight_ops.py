@@ -1364,11 +1364,15 @@ def test_deltas_output_branch_ok_accepts_full_width_and_dim0_slice():
     assert wo._deltas_output_branch_ok([full, sliced], out_features=16) is True
 
 
-def test_deltas_output_branch_ok_rejects_lokr():
+def test_deltas_output_branch_ok_rejects_lokr_only_with_the_kill_switch(monkeypatch):
     import vendor.gpl.comfyui.ops as wo
     from src.platform.runtime.native.lora.key_mapping import LoraDelta
 
     lokr = LoraDelta(down=torch.randn(4, 4), up=torch.randn(4, 4), alpha=4.0, scale=1.0, kron=True)
+    monkeypatch.delenv(wo.NATIVE_LORA_FUSED_ENV, raising=False)
+    assert wo._deltas_output_branch_ok([lokr], out_features=16) is True
+    assert wo._deltas_output_branch_ok([lokr], out_features=32) is False
+    monkeypatch.setenv(wo.NATIVE_LORA_FUSED_ENV, "off")
     assert wo._deltas_output_branch_ok([lokr], out_features=16) is False
 
 

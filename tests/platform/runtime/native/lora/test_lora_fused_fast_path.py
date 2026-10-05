@@ -357,8 +357,11 @@ def test_path_summary_is_logged_once_per_run(caplog):
     lokr.lora_deltas = _stack("one", torch.bfloat16) + [_lokr(torch.bfloat16)]
     plain = _fp8_layer(False)
     plain.lora_deltas = _stack("one", torch.bfloat16)
+    fast_lokr = _fp8_layer(False)
+    fast_lokr.lora_deltas = _stack("two", torch.bfloat16) + [_lokr(torch.bfloat16)]
     for _ in range(3):
         _fp8_fast(fast, _input(torch.bfloat16))
+        _fp8_fast(fast_lokr, _input(torch.bfloat16))
         _dequant(lokr, _input(torch.bfloat16))
         _dequant(plain, _input(torch.bfloat16))
 
@@ -367,7 +370,19 @@ def test_path_summary_is_logged_once_per_run(caplog):
     ops.log_lora_path_summary()
 
     lines = [r.getMessage() for r in caplog.records if "lora forward paths" in r.getMessage()]
-    assert lines == ["lora forward paths (layers): dequant (fp8 matmul off) 1, fused-fast 1, weight-side (lokr) 1"]
+    assert lines == ["lora forward paths (layers): dequant (fp8 matmul off) 1, "
+                     "dequant (fp8 matmul off) (+lokr) 1, fused-fast 1, fused-fast (+lokr) 1"]
+
+
+def test_path_summary_names_the_weight_side_lokr_under_the_kill_switch(monkeypatch, caplog):
+    monkeypatch.setenv(ops.NATIVE_LORA_FUSED_ENV, "off")
+    lokr = _fp8_layer(False)
+    lokr.lora_deltas = _stack("one", torch.bfloat16) + [_lokr(torch.bfloat16)]
+    _dequant(lokr, _input(torch.bfloat16))
+    caplog.set_level(logging.INFO, logger=ops.logger.name)
+    ops.log_lora_path_summary()
+    lines = [r.getMessage() for r in caplog.records if "lora forward paths" in r.getMessage()]
+    assert lines == ["lora forward paths (layers): weight-side (lokr) 1"]
 
 
 def test_sampling_run_scope_emits_the_path_summary(monkeypatch):

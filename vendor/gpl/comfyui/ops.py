@@ -509,21 +509,99 @@ def invalidate_lora_fused_cache(layer) -> None:
     layer.__dict__.pop(_LORA_FUSED_ATTR, None)
 
 
-def _lora_dequant_path(weight_side: "list", reason: str) -> str:
+def _with_lokr(path: str, deltas: "list") -> str:
+    return f"{path} (+lokr)" if any(getattr(d, "kron", False) for d in deltas) else path
+
+
+def _lora_dequant_path(weight_side: "list", reason: str, output_side: "list" = ()) -> str:
     if weight_side:
         return "weight-side (lokr)" if any(getattr(d, "kron", False) for d in weight_side) else "weight-side"
-    return f"dequant ({reason})"
+    return _with_lokr(f"dequant ({reason})", output_side)
+
+
+def _lokr_output_ok(d, out_features: int) -> bool:
+    up, down = d.up, d.down
+    return (_lora_fused_enabled() and d.target_slice is None and up.dim() == 2 and down.dim() == 2
+            and up.shape[0] * down.shape[0] == out_features)
+
+
+class _LokrBranch:
+    __slots__ = ("w1_first", "chain1", "chain2", "width")
+
+    def __init__(self, w1_first: bool, chain1: list, chain2: list, width: int) -> None:
+        self.w1_first = w1_first
+        self.chain1 = chain1
+        self.chain2 = chain2
+        self.width = width
+
+
+def _lokr_side_chain(full: torch.Tensor, factors: "tuple | None") -> list:
+    if factors is not None and sum(t.numel() for t in factors) < full.numel():
+        return list(factors)
+    return [full]
+
+
+def _build_lokr_branch(d, dtype: torch.dtype, device: "torch.device") -> "_LokrBranch | None":
+    coeff = float(d.scale) * float(d.alpha)
+    if coeff == 0.0:
+        return None
+    factors = getattr(d, "kron_factors", None) or (None, None)
+    chain1 = _lokr_side_chain(d.up, factors[0])
+    chain2 = _lokr_side_chain(d.down, factors[1])
+    chain1 = [(chain1[0].to(device=device, dtype=torch.float32) * coeff).to(dtype)] + [
+        m.to(device=device, dtype=dtype) for m in chain1[1:]]
+    chain2 = [m.to(device=device, dtype=dtype) for m in chain2]
+    o1, i1 = chain1[0].shape[0], chain1[-1].shape[1]
+    o2, i2 = chain2[0].shape[0], chain2[-1].shape[1]
+    c1 = sum(m.numel() for m in chain1)
+    c2 = sum(m.numel() for m in chain2)
+    w1_first = i2 * c1 + o1 * c2 <= i1 * c2 + o2 * c1
+    if w1_first:
+        widths = [m.shape[0] * i2 for m in chain1] + [o1 * m.shape[0] for m in chain2]
+    else:
+        widths = [i1 * m.shape[0] for m in chain2] + [m.shape[0] * o2 for m in chain1]
+    return _LokrBranch(w1_first, chain1, chain2, max(widths))
+
+
+def _add_lokr_branch(out2d: torch.Tensor, x2d: torch.Tensor, branch: _LokrBranch) -> None:
+    chain1, chain2 = branch.chain1, branch.chain2
+    o1, i1 = chain1[0].shape[0], chain1[-1].shape[1]
+    o2, i2 = chain2[0].shape[0], chain2[-1].shape[1]
+    step = max(1, _NVFP4_LORA_BRANCH_CHUNK_BYTES // max(1, branch.width * out2d.element_size()))
+    for start in range(0, x2d.shape[0], step):
+        xc = x2d[start:start + step]
+        oc = out2d[start:start + step]
+        n = xc.shape[0]
+        if branch.w1_first:
+            t = xc.reshape(n, i1, i2)
+            for m in reversed(chain1):
+                t = torch.matmul(m, t)
+            t = t.reshape(n * o1, i2)
+            for m in reversed(chain2[1:]):
+                t = t @ m.t()
+            oc.view(n * o1, o2).addmm_(t, chain2[0].t())
+        else:
+            t = xc.reshape(n * i1, i2)
+            for m in reversed(chain2):
+                t = t @ m.t()
+            t = t.reshape(n, i1, o2)
+            for m in reversed(chain1[1:]):
+                t = torch.matmul(m, t)
+            oc.view(n, o1, o2).baddbmm_(chain1[0].expand(n, -1, -1), t)
 
 
 def _lora_fused_key(deltas: "list", dtype: torch.dtype, device: "torch.device") -> tuple:
     return (dtype, device, tuple(
-        (id(d), id(d.down), id(d.up), float(d.scale), float(d.alpha), d.target_slice) for d in deltas
+        (id(d), id(d.down), id(d.up), float(d.scale), float(d.alpha), d.target_slice,
+         id(getattr(d, "kron_factors", None))) for d in deltas
     ))
 
 
 def _build_lora_fused(deltas: "list", dtype: torch.dtype, device: "torch.device") -> list:
     groups: "dict" = {}
     for d in deltas:
+        if getattr(d, "kron", False):
+            continue
         coeff = float(d.scale) * float(d.alpha) / d.down.shape[0]
         if coeff != 0.0:
             groups.setdefault(d.target_slice, []).append((d, coeff))
@@ -551,6 +629,11 @@ def _build_lora_fused(deltas: "list", dtype: torch.dtype, device: "torch.device"
                 torch.full((d.down.shape[0],), c, dtype=torch.float32, device=device) for d, c in group
             ])
         fused.append((target_slice, down_cat, up_cat_t, alpha, scale))
+    for d in deltas:
+        if getattr(d, "kron", False):
+            branch = _build_lokr_branch(d, dtype, device)
+            if branch is not None:
+                fused.append(branch)
     return fused
 
 
@@ -564,7 +647,11 @@ def _cached_lora_fused(owner, deltas: "list", dtype: torch.dtype, device: "torch
 
 
 def _add_fused_lora_branch(out2d: torch.Tensor, x2d: torch.Tensor, fused: list) -> None:
-    for target_slice, down_cat, up_cat_t, alpha, scale in fused:
+    for entry in fused:
+        if isinstance(entry, _LokrBranch):
+            _add_lokr_branch(out2d, x2d, entry)
+            continue
+        target_slice, down_cat, up_cat_t, alpha, scale = entry
         hidden = x2d @ down_cat.t()
         if scale is not None:
             hidden.mul_(scale)
@@ -617,6 +704,11 @@ def _add_lora_output_branch(
         return out
     groups: "dict" = {}
     for d in deltas:
+        if getattr(d, "kron", False):
+            branch = _build_lokr_branch(d, out.dtype, x2d.device)
+            if branch is not None:
+                _add_lokr_branch(out2d, x2d, branch)
+            continue
         groups.setdefault(d.target_slice, []).append(d)
     for target_slice, group in groups.items():
         down_cat, up_cat, alpha = _fuse_output_branch_deltas(group, out.dtype, x2d.device)
@@ -1285,7 +1377,7 @@ class Fp8ScaledLinear(manual_cast.Linear):
             output_side, weight_side = partition_output_branch_deltas(
                 self.lora_deltas, self.out_features)
             if self.lora_deltas:
-                _note_lora_path(self, _lora_dequant_path(weight_side, dequant_reason))
+                _note_lora_path(self, _lora_dequant_path(weight_side, dequant_reason, output_side))
             weight, bias, dt = self._prepare_dequant_operand(
                 input.dtype, input.device, deltas=weight_side)
             if input.dtype is not dt:
@@ -1630,7 +1722,7 @@ class Fp8ScaledLinear(manual_cast.Linear):
             # Added to the post-GEMM output -- bias is already baked in via
             # _scaled_mm's own bias= kwarg above.
             if _lora_fused_enabled():
-                _note_lora_path(self, "fused-fast")
+                _note_lora_path(self, _with_lokr("fused-fast", self.lora_deltas))
                 out = _add_lora_output_branch(out, x2d, self.lora_deltas, self.out_features, owner=self)
             else:
                 _note_lora_path(self, "unfused-fast")
@@ -1931,8 +2023,10 @@ def _deltas_output_branch_ok(deltas: "list | None", out_features: int) -> bool:
 
     Excluded, conservatively:
 
-      * LoKr (``d.kron``) — the branch math above only covers the plain
-        ``up @ down`` rank expansion, not ``torch.kron``.
+      * LoKr (``d.kron``) whose factors don't tile ``out_features`` or that
+        targets a slice, and every LoKr when ``NATIVE_LORA_FUSED=off``;
+        accepted ones run as the activation-side Kronecker contraction
+        (:func:`_add_lokr_branch`).
       * anything that doesn't duck-type as a plain ``LoraDelta`` (missing
         attrs, non-tensor ``up``/``down``, a rank mismatch between them, or a
         ``target_slice`` that isn't a dim-0 slice within ``out_features``).
@@ -1944,13 +2038,16 @@ def _deltas_output_branch_ok(deltas: "list | None", out_features: int) -> bool:
         return True
     for d in deltas:
         try:
-            if d.kron:
-                return False
+            kron = d.kron
             down, up, target_slice = d.down, d.up, d.target_slice
         except AttributeError:
             return False
         if not isinstance(down, torch.Tensor) or not isinstance(up, torch.Tensor):
             return False
+        if kron:
+            if not _lokr_output_ok(d, out_features):
+                return False
+            continue
         if down.dim() != 2 or up.dim() != 2 or down.shape[0] != up.shape[1]:
             return False
         if target_slice is not None:
@@ -2002,6 +2099,8 @@ def _lora_output_branch(
     activation-sized intermediate in one shot.
     """
     m, _k = x2d.shape
+    lokr = [b for b in (_build_lokr_branch(d, out_dtype, x2d.device)
+                        for d in deltas if getattr(d, "kron", False)) if b is not None]
     prepared = [
         (
             d.down.to(device=x2d.device, dtype=out_dtype),
@@ -2009,7 +2108,7 @@ def _lora_output_branch(
             float(d.scale) * float(d.alpha) / d.down.shape[0],
             d.target_slice,
         )
-        for d in deltas
+        for d in deltas if not getattr(d, "kron", False)
     ]
     total = x2d.new_zeros((m, out_features), dtype=out_dtype)
     itemsize = total.element_size()
@@ -2025,6 +2124,8 @@ def _lora_output_branch(
                 total[start:end, s:s + length] += term
             else:
                 total[start:end] += term
+        for branch in lokr:
+            _add_lokr_branch(total[start:end], xc, branch)
     return total
 
 
@@ -2261,8 +2362,8 @@ class Nvfp4Linear(Fp8ScaledLinear):
                 _log_nvfp4_fast_path_rejection(reject_reason)
                 dequant_reason = reject_reason
         if self.lora_deltas:
-            _note_lora_path(self, _lora_dequant_path(
-                partition_output_branch_deltas(self.lora_deltas, self.out_features)[1], dequant_reason))
+            output_side, weight_side = partition_output_branch_deltas(self.lora_deltas, self.out_features)
+            _note_lora_path(self, _lora_dequant_path(weight_side, dequant_reason, output_side))
         # The scale is already unblocked (precomputed at load); the
         # hot path is just a LUT gather + one broadcasted multiply, never
         # _unblock_scale/_inv_blocked_index. nvfp4_scale is a buffer moved
@@ -2349,7 +2450,7 @@ class Nvfp4Linear(Fp8ScaledLinear):
             # weight-side add (apply_lora_deltas) would contribute to
             # F.linear's matmul, before its own bias add.
             if _lora_fused_enabled():
-                _note_lora_path(self, "fused-fast")
+                _note_lora_path(self, _with_lokr("fused-fast", self.lora_deltas))
                 out = _add_lora_output_branch(out, x2d, self.lora_deltas, self.out_features, owner=self)
             else:
                 _note_lora_path(self, "unfused-fast")

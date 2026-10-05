@@ -214,16 +214,20 @@ class TestActivationSideIsEquivalentToTheWeightSide:
         want = self._weight_side_forward(lin, x)
         assert (got - want).norm() / want.norm() < 5e-3
 
-    def test_a_mixed_stack_splits_by_delta_rather_than_all_or_nothing(self):
+    def test_a_mixed_stack_splits_by_delta_rather_than_all_or_nothing(self, monkeypatch):
         """One LoKr adapter alongside two plain ones must not force the plain
         ones back onto the weight."""
         deltas = _qkv_slice_deltas(torch.bfloat16)[:2] + _lokr_delta(torch.bfloat16)
         output_side, weight_side = partition_output_branch_deltas(deltas, OUT)
+        assert len(output_side) == 3 and weight_side == []
 
+        monkeypatch.setenv(_ops_module.NATIVE_LORA_FUSED_ENV, "off")
+        output_side, weight_side = partition_output_branch_deltas(deltas, OUT)
         assert len(output_side) == 2
         assert len(weight_side) == 1 and weight_side[0].kron is True
 
-    def test_a_lokr_only_stack_still_goes_through_the_weight(self):
+    def test_a_lokr_only_stack_goes_through_the_weight_with_the_kill_switch(self, monkeypatch):
+        monkeypatch.setenv(_ops_module.NATIVE_LORA_FUSED_ENV, "off")
         x = _x()
         lin = _fp8_linear()
         lin.lora_deltas = _stage_runtime_deltas(_lokr_delta(torch.bfloat16), torch.device("cpu"))[0]

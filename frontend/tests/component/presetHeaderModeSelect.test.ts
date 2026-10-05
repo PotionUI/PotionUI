@@ -144,6 +144,19 @@ describe('Generate header: one-line preset and mode select', () => {
 		expect(picker.textContent).not.toContain('native');
 	});
 
+	it('highlights the picker until a preset is chosen', async () => {
+		await render({ tab: { id: 't1', selectedPreset: null, selectedMode: null, selectedVariant: null } });
+		const trigger = target.querySelector('[data-testid="preset-picker-trigger"]') as HTMLElement;
+		expect(trigger.textContent).toContain('Choose a preset');
+		expect(trigger.classList.contains('preset-picker-cta')).toBe(true);
+	});
+
+	it('drops the highlight once a preset is chosen', async () => {
+		await render();
+		const trigger = target.querySelector('[data-testid="preset-picker-trigger"]') as HTMLElement;
+		expect(trigger.classList.contains('preset-picker-cta')).toBe(false);
+	});
+
 	it('does not render the old segmented control', async () => {
 		await render();
 		expect(target.querySelectorAll('button[title]').length).toBe(0);

@@ -157,6 +157,8 @@
 	on:click={openPicker}
 	disabled={disabled || loading}
 	aria-haspopup="dialog"
+	class:preset-picker-cta={!currentPreset && !loading}
+	data-testid="preset-picker-trigger"
 >
 	{#if loading}
 		<Spinner size="sm" />
@@ -398,3 +400,63 @@
 		</div>
 	</div>
 </BaseModal>
+
+<style>
+	@property --preset-cta-angle {
+		syntax: '<angle>';
+		inherits: false;
+		initial-value: 0deg;
+	}
+
+	.preset-picker-cta {
+		border-color: transparent;
+		background:
+			linear-gradient(rgb(var(--surface-1)), rgb(var(--surface-1))) padding-box,
+			conic-gradient(
+					from var(--preset-cta-angle),
+					rgb(var(--accent) / 0.35) 0deg,
+					rgb(var(--accent)) 70deg,
+					rgb(var(--accent) / 0.35) 140deg,
+					rgb(var(--accent) / 0.35) 180deg,
+					rgb(var(--accent)) 250deg,
+					rgb(var(--accent) / 0.35) 320deg,
+					rgb(var(--accent) / 0.35) 360deg
+				)
+				border-box;
+		animation:
+			preset-cta-sweep 2.4s linear infinite,
+			preset-cta-glow 2.4s ease-in-out infinite;
+	}
+
+	.preset-picker-cta:hover {
+		background:
+			linear-gradient(rgb(var(--surface-2)), rgb(var(--surface-2))) padding-box,
+			linear-gradient(rgb(var(--accent)), rgb(var(--accent))) border-box;
+		animation: none;
+	}
+
+	@keyframes preset-cta-sweep {
+		to {
+			--preset-cta-angle: 360deg;
+		}
+	}
+
+	@keyframes preset-cta-glow {
+		0%,
+		100% {
+			box-shadow: 0 0 0 0 rgb(var(--accent) / 0);
+		}
+		50% {
+			box-shadow: 0 0 0 4px rgb(var(--accent) / 0.12);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.preset-picker-cta {
+			animation: none;
+			background:
+				linear-gradient(rgb(var(--surface-1)), rgb(var(--surface-1))) padding-box,
+				linear-gradient(rgb(var(--accent) / 0.7), rgb(var(--accent) / 0.7)) border-box;
+		}
+	}
+</style>

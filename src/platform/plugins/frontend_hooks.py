@@ -121,6 +121,7 @@ EXTENSION_SLOT_HOOKS = hooks_registry.declare(
                 "label": {"type": "string | undefined", "description": "Tab label"},
                 "order": {"type": "number", "description": "Sort order among all admin.tabs contributions"},
                 "require_role": {"type": "string | undefined", "description": "'ADMIN' to restrict visibility - filtered client-side against authStore's account_type"},
+                "frame": {"type": "'shell' | 'bare'", "description": "'shell' (default) wraps the tab in the page header; 'bare' mounts the component with the full tab area so it can draw its own page with a left menu (mount the host's LibraryShell)"},
             },
             "use_when": ["Adding a plugin-specific settings/management tab to the admin page"],
         },

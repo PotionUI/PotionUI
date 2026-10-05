@@ -1165,6 +1165,25 @@ fileType}` for the currently displayed file through its `context` prop - full pa
 `GET /api/plugins/hooks/catalog`. Give the contribution a `label`: the host wraps your
 component in the app's tooltip with that text, so your button must not set a native `title`.
 
+## Contributing an Admin tab with its own left menu
+
+An `admin.tabs` contribution adds a tab to the admin top navigation. By default the host wraps the
+component in the page header (title only), which suits a single view. A tab that has several tools
+can set `frame: "bare"` so the host mounts the component with the full tab area and draws nothing
+around it; the component then renders its own page with a left menu by mounting the host's
+`LibraryShell` (see "A list page like History and Models"):
+
+```yaml
+contributions:
+  - slot: "admin.tabs"
+    component: "MyAdminPage.svelte"
+    label: "My tools"
+    frame: "bare"      # "shell" (default) or "bare"
+```
+
+Keep the selected tool in the URL by editing the query string with `history.replaceState`, so the
+admin page's own `tab` parameter stays untouched.
+
 ## Contributing modes to an existing preset
 
 An enabled plugin can add one or more generation MODES to a preset it doesn't own — e.g. an

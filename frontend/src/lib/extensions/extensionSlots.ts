@@ -11,6 +11,7 @@ export interface SlotContribution {
 	route?: string | null;
 	order: number;
 	require_role?: string | null;
+	frame?: 'shell' | 'bare';
 }
 
 const allContributions = writable<SlotContribution[]>([]);

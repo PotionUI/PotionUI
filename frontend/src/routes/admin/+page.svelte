@@ -266,7 +266,15 @@
 				{/key}
 			{:else if pluginTabs.some((t) => t.id === activeTab)}
 				{@const activePluginTab = pluginTabs.find((t) => t.id === activeTab)}
-				{#if activePluginTab}
+				{#if activePluginTab?.contribution.frame === 'bare'}
+					{#await resolvePluginComponent(activePluginTab.contribution.plugin_id, activePluginTab.contribution.component) then Component}
+						{#if Component}
+							<div class="h-full bg-canvas">
+								<svelte:component this={Component} />
+							</div>
+						{/if}
+					{/await}
+				{:else if activePluginTab}
 					{@const pluginTabSections = [
 						{ id: 'all', label: activePluginTab.label, icon: activePluginTab.icon }
 					] as LibrarySectionMeta<'all'>[]}

@@ -539,6 +539,7 @@ class ContributionSpec(BaseModel):
     route: Optional[str] = None
     order: int = 100
     require_role: Optional[str] = None
+    frame: Literal["shell", "bare"] = "shell"
 
 
 class ChatModeSpec(BaseModel):

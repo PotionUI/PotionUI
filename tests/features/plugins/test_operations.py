@@ -541,6 +541,26 @@ def test_get_frontend_extensions_from_enabled_plugin(mock_plugin_repo, mock_plug
     assert contribution["plugin_id"] == "test-plugin-1"
     assert contribution["slot"] == "admin.tabs"
     assert contribution["order"] == 50
+    assert contribution["frame"] == "shell"
+
+
+def test_get_frontend_extensions_passes_contribution_frame(mock_plugin_repo, mock_plugin_registry, sample_plugin):
+    """A contribution that asks for a bare frame is served with it."""
+    mock_plugin_repo.get_enabled_plugins.return_value = [sample_plugin]
+    manifest = PluginManifest(
+        id="test-plugin-1",
+        name="Test Plugin",
+        version="1.0.0",
+        description="A test plugin",
+        author="Test Author",
+        plugin_type="full-stack",
+        contributions=[{"slot": "admin.tabs", "component": "AdminTab.svelte", "frame": "bare"}],
+    )
+    mock_plugin_registry.get_plugin.return_value = manifest
+
+    result = operations.get_frontend_extensions(mock_plugin_repo, mock_plugin_registry)
+
+    assert result["contributions"][0]["frame"] == "bare"
 
 
 def test_get_frontend_extensions_excludes_disabled_plugins(mock_plugin_repo, mock_plugin_registry):

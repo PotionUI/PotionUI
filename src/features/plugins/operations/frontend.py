@@ -218,6 +218,7 @@ def get_frontend_extensions(repo: PluginRepository, registry: PluginRegistry) ->
                 "route": contribution_def.get("route"),
                 "order": contribution_def.get("order", 100),
                 "require_role": contribution_def.get("require_role"),
+                "frame": contribution_def.get("frame", "shell"),
             })
 
     contributions.sort(key=lambda c: c["order"])

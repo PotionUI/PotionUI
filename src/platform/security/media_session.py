@@ -16,7 +16,7 @@ def media_cookie_name() -> str:
         secret = get_auth().tokens._config.secret_key
     except Exception:
         return MEDIA_COOKIE
-    if not secret:
+    if not isinstance(secret, str) or not secret:
         return MEDIA_COOKIE
     return f"{MEDIA_COOKIE}_{hashlib.sha256(secret.encode()).hexdigest()[:12]}"
 

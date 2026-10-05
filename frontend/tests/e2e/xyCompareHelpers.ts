@@ -28,6 +28,56 @@ export const ASPECT: Axis = {
 	values: ['1:1', '16:9'].map((value) => ({ value, label: value }))
 };
 
+export const compareToggle = (page: Page) => page.locator('[data-compare-toggle]:visible').first();
+export const compareDrawer = (page: Page) => page.getByRole('dialog', { name: 'Compare', exact: true });
+export const compareGenerate = (page: Page, count: number) =>
+	page.getByRole('button', { name: new RegExp(`^Generate ${count}\\b`) }).first();
+
+export async function openCompareDrawer(page: Page) {
+	const drawer = compareDrawer(page);
+	if (!(await drawer.isVisible())) {
+		const toggle = compareToggle(page);
+		await expect(toggle).toBeEnabled({ timeout: 20000 });
+		await toggle.click();
+	}
+	await expect(drawer).toBeVisible({ timeout: 10000 });
+	return drawer;
+}
+
+export async function closeCompareDrawer(page: Page) {
+	const drawer = compareDrawer(page);
+	await drawer.getByRole('button', { name: 'Close compare' }).click();
+	await expect(drawer).toHaveCount(0, { timeout: 10000 });
+}
+
+export async function pickAxisField(page: Page, slot: 'X' | 'Y', target: string | RegExp) {
+	const drawer = compareDrawer(page);
+	const trigger =
+		slot === 'X'
+			? drawer.getByRole('button', { name: 'X axis field', exact: true })
+			: drawer.getByRole('button', { name: /^(Y axis field|Add a second field)/ });
+	await trigger.click();
+	const picker = page.getByRole('dialog', { name: 'Pick a field' });
+	await expect(picker).toBeVisible({ timeout: 10000 });
+	const option =
+		typeof target === 'string'
+			? picker.locator(`[role="option"][data-field="${target}"]`)
+			: picker.getByRole('option', { name: target }).first();
+	await expect(option).toBeEnabled();
+	await option.click();
+	await expect(picker).toHaveCount(0);
+}
+
+export async function turnOffCompare(page: Page) {
+	const toggle = compareToggle(page);
+	await expect(toggle).toBeVisible({ timeout: 20000 });
+	if ((await toggle.getAttribute('aria-pressed')) !== 'true') return;
+	const drawer = await openCompareDrawer(page);
+	await drawer.getByRole('button', { name: 'Turn off' }).click();
+	await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+	if (await drawer.isVisible()) await closeCompareDrawer(page);
+}
+
 export async function apiGet(page: Page, url: string, token: string) {
 	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
 	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
@@ -76,6 +126,7 @@ export async function openFakeStudio(page: Page) {
 		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
 	}
 	await expect(field(page, 'model')).toBeVisible({ timeout: 20000 });
+	await turnOffCompare(page);
 }
 
 export async function pickModel(page: Page, label: string) {

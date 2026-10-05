@@ -86,12 +86,15 @@ def test_the_plugin_env_points_the_backend_at_the_plugin_folder():
     [
         (["cloud-fake-generate"], True),
         (["chat", "cloud-fake-cancel"], True),
+        (["xy-compare-grid"], True),
+        (["models", "xy-compare-configure"], True),
+        (["xy-compare"], False),
         (["admin-cloud-catalog"], False),
         (["models"], False),
         ([], False),
     ],
 )
-def test_only_specs_named_for_the_fake_provider_get_the_seeded_backend(chunk, expected):
+def test_only_specs_named_for_the_fake_provider_or_compare_get_the_seeded_backend(chunk, expected):
     assert cloud_fake.wants_cloud_fake(chunk) is expected
 
 

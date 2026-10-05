@@ -22,7 +22,7 @@ vi.mock('$lib/services/api/index', () => ({
 const { default: GridCellViewer } = await import('$lib/generation/compare/view/GridCellViewer.svelte');
 const { default: GridDetailsCard } = await import('$lib/generation/compare/view/GridDetailsCard.svelte');
 const { createClassComponent } = await import('svelte/legacy');
-const { emptyCell } = await import('$lib/generation/compare/view/gridModel');
+const { emptyCell } = await import('$lib/generation/compare/serverGrid');
 
 type Cell = ReturnType<typeof emptyCell>;
 

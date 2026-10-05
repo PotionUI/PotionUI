@@ -15,8 +15,10 @@ import { buildSessionRestoreTabPatch } from '$lib/utils/sessionRestore';
 import { collectTabSessionData } from '$lib/utils/sessionTabState';
 import { toasts } from '$lib/stores/toast';
 import * as api from './compareApi';
+import { api as serviceApi } from '$lib/services/api/index';
 import {
 	axisRoleFor,
+	cancelGrid,
 	cellCount,
 	clearAxes,
 	effectiveLockSeed,
@@ -24,12 +26,16 @@ import {
 	getCompare,
 	isCompareActive,
 	isGridRunning,
+	loadGrid,
 	observeGenerationMessage,
 	publishCompareSchema,
+	readWorkbenchGrid,
 	resetCompareStoreForTests,
+	retryFailed,
 	setAxis,
 	setCompare,
 	setCompareBlocked,
+	setGridRunHandlers,
 	submitGrid,
 	swapAxes
 } from './compareStore.svelte';
@@ -274,6 +280,58 @@ describe('live grid and message mapping', () => {
 		const result = await submitGrid(tabId, {} as never);
 		expect(result).toMatchObject({ ok: false, reason: 'refused', shortfall: { needed: 12, remaining: 5 } });
 		expect(get(tabsStore).tabs.find((t) => t.id === tabId)!.generation.queue).toHaveLength(0);
+	});
+});
+
+describe('run handlers and the workbench grid', () => {
+	it('hands submitted cells to the enrolled handler and confirmed cancels to the cancelled one', async () => {
+		const enrolled = vi.fn();
+		const cancelled = vi.fn();
+		setGridRunHandlers({ enrolled, cancelled });
+		await startGrid();
+		expect(enrolled).toHaveBeenCalledTimes(1);
+		expect(enrolled.mock.calls[0][0]).toBe(tabId);
+		expect(enrolled.mock.calls[0][1]).toHaveLength(12);
+
+		const clear = vi
+			.spyOn(serviceApi, 'clearGenerationQueue')
+			.mockResolvedValue({ success: true, data: { cancelled: ['gen-1', 'gen-2'] } } as never);
+		const cancel = vi.spyOn(serviceApi, 'cancelGeneration').mockResolvedValue({ success: true } as never);
+		try {
+			await cancelGrid(tabId);
+		} finally {
+			clear.mockRestore();
+			cancel.mockRestore();
+		}
+		expect(cancelled).toHaveBeenCalledTimes(1);
+		expect([...cancelled.mock.calls[0][1]].sort()).toEqual(['gen-0', 'gen-1', 'gen-2']);
+	});
+
+	it('hands retried cells to the same enrolled handler', async () => {
+		await startGrid();
+		const enrolled = vi.fn();
+		setGridRunHandlers({ enrolled, cancelled: vi.fn() });
+		const retried = serverGrid();
+		retried.cells[11] = { ...retried.cells[11], generation_id: 'gen-retry', status: 'queued' };
+		vi.mocked(api.postRetryFailed).mockResolvedValueOnce(retried);
+		expect(await retryFailed(tabId)).toEqual(['gen-retry']);
+		expect(enrolled).toHaveBeenCalledWith(tabId, ['gen-retry']);
+	});
+
+	it('keeps a finished grid on the workbench only while Compare is armed, and a running one regardless', async () => {
+		await startGrid();
+		setCompare(tabId, { armed: false });
+		expect(readWorkbenchGrid(0, tabId)?.id).toBe('grid-1');
+
+		const done = serverGrid();
+		done.cells = done.cells.map((cell) => ({ ...cell, status: 'completed', elapsed_seconds: 3.5 }));
+		vi.mocked(api.fetchGrid).mockResolvedValueOnce(done);
+		await loadGrid(tabId, 'grid-1');
+		expect(getActiveGrid(tabId)?.cells[0].elapsedSeconds).toBe(3.5);
+		expect(readWorkbenchGrid(0, tabId)).toBeNull();
+
+		setCompare(tabId, { armed: true });
+		expect(readWorkbenchGrid(0, tabId)?.id).toBe('grid-1');
 	});
 });
 

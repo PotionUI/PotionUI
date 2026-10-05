@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken } from './helpers';
+import { closeCompareDrawer, compareGenerate, compareToggle, openCompareDrawer, pickAxisField } from './xyCompareHelpers';
 
 async function openAdvancedTab(page: Page) {
 	const tab = page.getByRole('tab', { name: 'Advanced', exact: true }).first();
@@ -34,25 +35,16 @@ async function openKrea2(page: Page) {
 	await openAdvancedTab(page);
 }
 
-async function pickField(page: Page, slot: 'X' | 'Y', label: RegExp) {
-	await page.getByRole('button', { name: `${slot} axis field` }).click();
-	const picker = page.getByRole('dialog', { name: 'Pick a field' });
-	await picker.getByRole('option', { name: label }).first().click();
-}
-
 test('Compare arms next to Continuous, takes sampler by scheduler and locks the axis fields', async ({ page }) => {
 	await openKrea2(page);
 
-	const toggle = page.locator('[data-compare-toggle]');
+	const toggle = compareToggle(page);
 	await expect(toggle).toBeVisible();
 	await expect(toggle).toBeEnabled();
-	await toggle.click();
+	const drawer = await openCompareDrawer(page);
 
-	const drawer = page.getByRole('dialog', { name: 'Compare' });
-	await expect(drawer).toBeVisible({ timeout: 10000 });
-
-	await pickField(page, 'X', /^Sampler/);
-	await pickField(page, 'Y', /^Schedule/);
+	await pickAxisField(page, 'X', /^Sampler/);
+	await pickAxisField(page, 'Y', /^Schedule/);
 
 	const summary = drawer.getByTestId('compare-summary');
 	await expect(summary).toHaveText(/\d+\s*×\s*\d+\s*=\s*\d+ generations/);
@@ -60,11 +52,10 @@ test('Compare arms next to Continuous, takes sampler by scheduler and locks the 
 	const total = Number(/=\s*(\d+)/.exec(text)?.[1]);
 	expect(total).toBeGreaterThan(1);
 
-	await expect(page.getByRole('button', { name: new RegExp(`Generate ${total}`) })).toBeVisible();
+	await expect(compareGenerate(page, total)).toBeVisible();
 	await expect(page.locator('[data-compare-status]')).toContainText(`${total} CELLS`.toLowerCase(), { ignoreCase: true });
 
-	await page.keyboard.press('Escape');
-	await expect(drawer).toHaveCount(0, { timeout: 10000 });
+	await closeCompareDrawer(page);
 
 	const samplerField = page.locator('[data-field-name="sampler"]');
 	await expect(samplerField.locator('[data-axis-locked="x"]')).toContainText(/x axis/i);
@@ -77,5 +68,5 @@ test('Compare arms next to Continuous, takes sampler by scheduler and locks the 
 
 	await drawer.getByRole('button', { name: 'Turn off' }).click();
 	await expect(page.locator('[data-axis-locked]')).toHaveCount(0);
-	await expect(page.locator('[data-compare-toggle]')).toHaveAttribute('aria-pressed', 'false');
+	await expect(toggle).toHaveAttribute('aria-pressed', 'false');
 });

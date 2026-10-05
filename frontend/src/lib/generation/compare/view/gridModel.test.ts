@@ -10,18 +10,17 @@ import {
 	cellFormPatch,
 	computeCellSize,
 	createCellTimer,
-	emptyCell,
 	gridDimensions,
-	gridFromApi,
 	gridProgress,
 	gridTemplateColumns,
 	gridTitle,
 	moveCell,
 	queueOrdinals,
 	retryableCount,
-	stepCell,
-	type ApiGrid
+	stepCell
 } from './gridModel';
+import { emptyCell, gridFromServer } from '../serverGrid';
+import type { ServerGrid } from '../types';
 
 const sampler: CompareAxis = {
 	field: 'sampler',
@@ -232,8 +231,8 @@ describe('cell form patch', () => {
 	});
 });
 
-describe('gridFromApi', () => {
-	const source: ApiGrid = {
+describe('gridFromServer', () => {
+	const source: ServerGrid = {
 		id: 'g',
 		preset_id: 'p',
 		tab_id: 't',
@@ -258,7 +257,7 @@ describe('gridFromApi', () => {
 	};
 
 	it('lays cells out row-major and fills the gaps with empty cells', () => {
-		const g = gridFromApi(source);
+		const g = gridFromServer(source);
 		expect(g.cols).toBe(4);
 		expect(g.rows).toBe(3);
 		expect(g.cells).toHaveLength(12);
@@ -268,20 +267,20 @@ describe('gridFromApi', () => {
 	});
 
 	it('maps the server elapsed time and leaves it null when absent', () => {
-		const withTime = gridFromApi({ ...source, cells: [{ ...source.cells[0], elapsed_seconds: 21.4 }] });
+		const withTime = gridFromServer({ ...source, cells: [{ ...source.cells[0], elapsed_seconds: 21.4 }] });
 		expect(withTime.cells[5].elapsedSeconds).toBe(21.4);
-		expect(gridFromApi(source).cells[5].elapsedSeconds).toBeNull();
-		expect(gridFromApi({ ...source, cells: [{ ...source.cells[0], elapsed_seconds: null }] }).cells[5].elapsedSeconds).toBeNull();
+		expect(gridFromServer(source).cells[5].elapsedSeconds).toBeNull();
+		expect(gridFromServer({ ...source, cells: [{ ...source.cells[0], elapsed_seconds: null }] }).cells[5].elapsedSeconds).toBeNull();
 	});
 
 	it('treats a missing y axis as one row', () => {
-		const g = gridFromApi({ ...source, y_axis: null, cells: [] });
+		const g = gridFromServer({ ...source, y_axis: null, cells: [] });
 		expect(g.rows).toBe(1);
 		expect(g.cells).toHaveLength(4);
 	});
 
 	it('ignores cells outside the axes', () => {
-		const g = gridFromApi({ ...source, cells: [{ ...source.cells[0], x: 9 }] });
+		const g = gridFromServer({ ...source, cells: [{ ...source.cells[0], x: 9 }] });
 		expect(g.cells.every((c) => c.status === 'empty')).toBe(true);
 	});
 });

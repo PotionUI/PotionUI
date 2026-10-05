@@ -4,7 +4,7 @@
 	import CancelNotice from '$lib/components/generation/CancelNotice.svelte';
 	import LiveTextArtifacts from '$lib/components/generation/LiveTextArtifacts.svelte';
 	import GridWorkbench from '$lib/generation/compare/view/GridWorkbench.svelte';
-	import { getActiveGrid } from '$lib/generation/compare/compareStore.svelte';
+	import { compareRevision, readWorkbenchGrid } from '$lib/generation/compare/compareStore.svelte';
 	import type { Tab } from '$lib/types/tabs';
 
 	// The workbench, wired the same way at every mount site (mobile Panel 2,
@@ -20,7 +20,7 @@
 
 <CancelNotice {tab} />
 
-{#if getActiveGrid(tab.id)}
+{#if readWorkbenchGrid($compareRevision, tab.id)}
 	<GridWorkbench tabId={tab.id} />
 {:else}
 <Workbench

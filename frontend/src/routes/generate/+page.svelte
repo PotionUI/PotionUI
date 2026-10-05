@@ -16,6 +16,7 @@
 		isCompareActive,
 		isGridRunning,
 		restoreGrids,
+		setGridRunHandlers,
 		setCompareBlocked,
 		submitGrid
 	} from '$lib/generation/compare/compareStore.svelte';
@@ -857,6 +858,7 @@
 		// keybinding, sharing no caller-supplied `deps`) -- registered once
 		// here instead, cleared in onDestroy below.
 		setGenerationUnsubscribeHandler(unsubscribeGeneration);
+		setGridRunHandlers({ enrolled: subscribeGridCells, cancelled: retireGridCells });
 		ws.onConnectionChange((connected) => {
 			isConnected = connected;
 			if (connected && !restoreInFlight) {
@@ -1083,6 +1085,7 @@
 		unregisterChatRunGeneration?.();
 		unregisterChatRunGeneration = null;
 		setGenerationUnsubscribeHandler(null);
+		setGridRunHandlers(null);
 		if (ws) {
 			clearSubscriptionOwner(ws);
 			ws.disconnect();
@@ -1606,7 +1609,10 @@
 			return;
 		}
 		closeCompareDrawer();
-		for (const id of result.generationIds) {
+	}
+
+	function subscribeGridCells(_tabId: string, generationIds: string[]) {
+		for (const id of generationIds) {
 			if (!ws) break;
 			ensureSubscribed(ws, id, () => {
 				ws?.subscribe(id, (message: WebSocketMessage) => handleGenerationMessage(message));
@@ -1614,15 +1620,14 @@
 		}
 	}
 
-	async function cancelComparison(targetTabId: string) {
-		const cancelledIds = await cancelGrid(targetTabId);
+	function retireGridCells(targetTabId: string, cancelledIds: string[]) {
 		applyConfirmedCancellations(tabsStore, targetTabId, cancelledIds);
 		retireConfirmedCancellations(cancelledIds, { tabsStore, unsubscribe: unsubscribeGeneration });
 	}
 
 	async function cancelGeneration() {
 		if (isGridRunning(activeTabId)) {
-			await cancelComparison(activeTabId);
+			await cancelGrid(activeTabId);
 			return;
 		}
 		const currentGen = generation.currentGeneration;

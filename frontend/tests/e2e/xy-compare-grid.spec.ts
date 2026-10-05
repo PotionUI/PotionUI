@@ -5,13 +5,18 @@ import {
 	QUALITY,
 	backendId,
 	captureStartRequest,
+	closeCompareDrawer,
+	compareGenerate,
 	createGrid,
 	enableFakeModels,
 	field,
 	openFakeStudio,
+	openCompareDrawer,
 	openGridFromHistory,
+	pickAxisField,
 	pickModel,
 	setKnob,
+	turnOffCompare,
 	typePrompt,
 	waitGridSettled
 } from './xyCompareHelpers';
@@ -55,18 +60,23 @@ test.describe('X/Y compare grid view', () => {
 		await pickModel(page, 'Fake Image');
 		await typePrompt(page, 'a lighthouse on a cliff at dusk');
 
-		await page.getByRole('button', { name: /^Compare/ }).first().click();
-		await page.getByRole('button', { name: 'Generate 6' }).first().waitFor({ state: 'visible', timeout: 15000 });
+		const drawer = await openCompareDrawer(page);
+		await pickAxisField(page, 'X', 'seed');
+		await expect(drawer.getByTestId('axis-count-x')).toHaveText('3 values');
+		await pickAxisField(page, 'Y', 'background');
+		await expect(drawer.getByTestId('compare-summary')).toContainText('= 6 generations');
+		await closeCompareDrawer(page);
+		await expect(compareGenerate(page, 6)).toBeVisible({ timeout: 15000 });
 
 		const grid = page.getByTestId('compare-grid');
 		await expect(grid).toBeVisible();
 		await expect(cells(page)).toHaveCount(6);
 		await expect(grid.getByTestId('compare-x-label')).toHaveCount(3);
-		await expect(grid.getByTestId('compare-y-label')).toHaveCount(2);
+		await expect(grid.getByTestId('compare-y-label')).toHaveText(['on', 'off']);
 		await expect(page.locator('[data-cell-state="empty"]')).toHaveCount(6);
 		await screenshot(page, JOURNEY, 'workbench-preview-1440');
 
-		await page.getByRole('button', { name: 'Generate 6' }).first().click();
+		await compareGenerate(page, 6).click();
 		await expect(page.locator('[data-cell-state="queued"], [data-cell-state="running"]').first()).toBeVisible({
 			timeout: 15000
 		});
@@ -79,6 +89,9 @@ test.describe('X/Y compare grid view', () => {
 		await expect(page.getByText('All done')).toBeVisible();
 		await expect(page.getByTestId('compare-grid').locator('img').first()).toBeVisible();
 		await screenshot(page, JOURNEY, 'workbench-done-1440');
+
+		await turnOffCompare(page);
+		await expect(page.getByTestId('compare-grid')).toHaveCount(0);
 	});
 
 	test('a finished grid opens a cell with 2D arrows, a map and Use these settings', async ({ page }) => {

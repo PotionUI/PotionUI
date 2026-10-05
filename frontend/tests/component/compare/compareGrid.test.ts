@@ -11,7 +11,7 @@ vi.mock('$lib/services/api/index', () => ({
 const { default: CompareGrid } = await import('$lib/generation/compare/view/CompareGrid.svelte');
 const { default: CompareCell } = await import('$lib/generation/compare/view/CompareCell.svelte');
 const { createClassComponent } = await import('svelte/legacy');
-const { emptyCell } = await import('$lib/generation/compare/view/gridModel');
+const { emptyCell } = await import('$lib/generation/compare/serverGrid');
 
 type Cell = ReturnType<typeof emptyCell>;
 type Status = Cell['status'];

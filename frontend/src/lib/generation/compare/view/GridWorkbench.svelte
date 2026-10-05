@@ -2,8 +2,7 @@
 	import { get } from 'svelte/store';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { toasts } from '$lib/stores/toast';
-	import { logger, getErrorMessage } from '$lib/utils/logger';
-	import { cancelGrid, getActiveGrid, retryFailed, setCompare } from '../compareStore.svelte';
+	import { cancelGrid, getActiveGrid, retryFailed, turnOffCompare } from '../compareStore.svelte';
 	import CompareGrid from './CompareGrid.svelte';
 	import GridCellViewer from './GridCellViewer.svelte';
 	import GridExport from './GridExport.svelte';
@@ -18,22 +17,13 @@
 
 	let viewing = $derived(grid && viewIndex !== null && viewIndex < grid.cells.length ? viewIndex : null);
 
-	async function run(action: () => Promise<void>) {
-		try {
-			await action();
-		} catch (error) {
-			logger.error('Compare grid action failed', getErrorMessage(error));
-			toasts.error(getErrorMessage(error));
-		}
-	}
-
 	function useSettings(index: number) {
 		if (!grid) return;
 		const { patch, skipped } = cellFormPatch(grid, grid.cells[index]);
 		const tab = get(tabsStore).tabs.find((candidate) => candidate.id === tabId);
 		if (!tab) return;
 		tabsStore.updateTab(tabId, { formData: { ...(tab.formData ?? {}), ...patch } });
-		setCompare(tabId, { armed: false });
+		turnOffCompare(tabId);
 		viewIndex = null;
 		if (skipped.length > 0) toasts.info(`${skipped.join(', ')} can't be copied into the form`);
 		else toasts.success('Cell settings are in the form');
@@ -46,8 +36,8 @@
 		bind:durations
 		selectedIndex={viewing}
 		onOpenCell={(index) => (viewIndex = index)}
-		onCancelAll={() => run(() => cancelGrid(tabId))}
-		onRetryFailed={() => run(() => retryFailed(tabId))}
+		onCancelAll={() => void cancelGrid(tabId)}
+		onRetryFailed={() => void retryFailed(tabId)}
 	/>
 
 	{#if viewing !== null}
@@ -59,7 +49,7 @@
 			onClose={() => (viewIndex = null)}
 			onUse={useSettings}
 			onExport={() => (exporting = true)}
-			onRetryFailed={() => run(() => retryFailed(tabId))}
+			onRetryFailed={() => void retryFailed(tabId)}
 		/>
 	{/if}
 

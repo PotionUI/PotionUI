@@ -13,6 +13,7 @@ import { deriveCompareSummary, type CompareSummary } from './compareSummary';
 import type { LimitRow } from '$lib/plans/meApi';
 import { DEFAULT_CONTACT_LINE } from '$lib/plans/refusal';
 import { fetchGrid, fetchGridSettings, postGrid, postRetryFailed, removeGrid } from './compareApi';
+import { cellAxisValues, emptyCell, gridFromServer } from './serverGrid';
 import {
 	DEFAULT_GRID_SETTINGS,
 	PROMPT_AXIS_FIELD,
@@ -58,6 +59,17 @@ const generationIndex = new Map<string, { tabId: string; index: number }>();
 const runStarted = new Map<string, number>();
 const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let settingsLoaded = false;
+
+export type GridRunHandlers = {
+	enrolled: (tabId: string, generationIds: string[]) => void;
+	cancelled: (tabId: string, generationIds: string[]) => void;
+};
+
+let runHandlers: GridRunHandlers | null = null;
+
+export function setGridRunHandlers(handlers: GridRunHandlers | null): void {
+	runHandlers = handlers;
+}
 
 function loadCellMs(): Record<string, number> {
 	try {
@@ -335,14 +347,6 @@ export function getCellEstimateMs(tabId: string): number | null {
 	return last && last > 0 ? last : null;
 }
 
-function cellAxisValues(config: CompareConfig, x: number, y: number): Record<string, string> {
-	const { cols, rows } = effectiveAxes(config);
-	const out: Record<string, string> = {};
-	if (cols) out[cols.field] = cols.values[x]?.label ?? '';
-	if (rows) out[rows.field] = rows.values[y]?.label ?? '';
-	return out;
-}
-
 function previewGrid(config: CompareConfig): ActiveGrid | null {
 	const { cols, rows } = effectiveAxes(config);
 	if (!cols) return null;
@@ -357,28 +361,18 @@ function previewGrid(config: CompareConfig): ActiveGrid | null {
 	return { id: null, config, cells, cols: colCount, rows: rowCount };
 }
 
-function emptyCell(x: number, y: number, axisValues: Record<string, string> = {}): GridCell {
-	return {
-		x,
-		y,
-		generationId: null,
-		status: 'empty',
-		axisValues,
-		seed: null,
-		thumbnailUrl: null,
-		mediaType: null,
-		error: null,
-		progress: null,
-		previewUrl: null
-	};
-}
-
 export function getActiveGrid(tabId: string): ActiveGrid | null {
 	const live = liveGrids[tabId];
 	if (live) return live;
 	const config = getCompare(tabId);
 	if (!config.armed || blockers[tabId]) return null;
 	return previewGrid(config);
+}
+
+export function readWorkbenchGrid(_revision: number, tabId: string): ActiveGrid | null {
+	const grid = getActiveGrid(tabId);
+	if (!grid?.id) return grid;
+	return getCompare(tabId).armed || isGridRunning(tabId) ? grid : null;
 }
 
 export function isGridRunning(tabId: string): boolean {
@@ -388,45 +382,6 @@ export function isGridRunning(tabId: string): boolean {
 
 export function failedCellCount(tabId: string): number {
 	return liveGrids[tabId]?.cells.filter((cell) => cell.status === 'failed').length ?? 0;
-}
-
-function toActiveGrid(server: ServerGrid, previous: ActiveGrid | null | undefined): ActiveGrid {
-	const config: CompareConfig = {
-		armed: true,
-		x: server.x_axis,
-		y: server.y_axis,
-		lockSeed: server.lock_seed
-	};
-	const cols = server.x_axis.values.length;
-	const rows = server.y_axis ? server.y_axis.values.length : 1;
-	const byPosition = new Map(server.cells.map((cell) => [`${cell.x}:${cell.y}`, cell]));
-	const carried = new Map((previous?.cells ?? []).filter((c) => c.generationId).map((c) => [c.generationId, c]));
-	const cells: GridCell[] = [];
-	for (let y = 0; y < rows; y++) {
-		for (let x = 0; x < cols; x++) {
-			const row = byPosition.get(`${x}:${y}`);
-			if (!row) {
-				cells.push(emptyCell(x, y, cellAxisValues(config, x, y)));
-				continue;
-			}
-			const before = row.generation_id ? carried.get(row.generation_id) : undefined;
-			const live = row.status === 'queued' || row.status === 'running';
-			cells.push({
-				x,
-				y,
-				generationId: row.generation_id,
-				status: row.status,
-				axisValues: row.axis_values ?? {},
-				seed: row.seed ?? null,
-				thumbnailUrl: row.thumbnail_url ?? before?.thumbnailUrl ?? null,
-				mediaType: row.media_type ?? before?.mediaType ?? null,
-				error: row.error ?? null,
-				progress: live ? (before?.progress ?? null) : null,
-				previewUrl: live ? (before?.previewUrl ?? null) : null
-			});
-		}
-	}
-	return { id: server.id, config, cells, cols, rows };
 }
 
 function reindex(tabId: string): void {
@@ -441,7 +396,7 @@ function reindex(tabId: string): void {
 }
 
 function setLiveGrid(tabId: string, server: ServerGrid): ActiveGrid {
-	const next = toActiveGrid(server, liveGrids[tabId]);
+	const next = gridFromServer(server, liveGrids[tabId]);
 	liveGrids[tabId] = next;
 	reindex(tabId);
 	touch();
@@ -520,6 +475,7 @@ export async function submitGrid(tabId: string, request: GenerationRequest): Pro
 		});
 		const grid = setLiveGrid(tabId, server);
 		const generationIds = enrollCells(tabId, server, true);
+		runHandlers?.enrolled(tabId, generationIds);
 		return { ok: true, grid, generationIds };
 	} catch (error) {
 		const shortfall = shortfallFromError(error);
@@ -571,7 +527,9 @@ export async function retryFailed(tabId: string): Promise<string[]> {
 	try {
 		const server = await postRetryFailed(grid.id);
 		setLiveGrid(tabId, server);
-		return enrollCells(tabId, server, false);
+		const generationIds = enrollCells(tabId, server, false);
+		runHandlers?.enrolled(tabId, generationIds);
+		return generationIds;
 	} catch (error) {
 		const shortfall = shortfallFromError(error);
 		if (shortfall) refusals[tabId] = shortfall;
@@ -608,7 +566,9 @@ export async function cancelGrid(tabId: string): Promise<string[]> {
 		}
 	}
 	touch();
-	return [...cancelled];
+	const ids = [...cancelled];
+	runHandlers?.cancelled(tabId, ids);
+	return ids;
 }
 
 export async function deleteGrid(gridId: string): Promise<void> {
@@ -709,6 +669,7 @@ export function resetCompareStoreForTests(): void {
 	for (const key of Object.keys(refusals)) delete refusals[key];
 	for (const key of Object.keys(submitting)) delete submitting[key];
 	drawerTabId = null;
+	runHandlers = null;
 	schemas = {};
 	cellMs = {};
 	settingsLoaded = false;

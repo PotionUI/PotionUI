@@ -68,3 +68,11 @@ def test_any_other_chunk_boots_the_plain_backend_without_the_plugin(chunk_env):
 
     assert [name for name, _ in chunk_env] == ["app", "preview"]
     assert chunk_env[0][1] is None
+
+
+def test_a_compare_spec_chunk_gets_the_seeded_fake_backend_too(chunk_env):
+    code = run.run_chunk(chunk_names=["xy-compare-grid"], chunk_index=1, total_chunks=1, args=args())
+
+    assert code == 0
+    assert [name for name, _ in chunk_env] == ["app", "prepare", "preview"]
+    assert chunk_env[0][1] == run.cloud_fake.plugin_env()

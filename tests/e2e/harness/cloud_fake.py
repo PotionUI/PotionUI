@@ -17,7 +17,7 @@ PLUGINS_ROOT = REPO_ROOT / "tests" / "e2e" / "plugins"
 PLUGIN_ID = "e2e-cloud-fake"
 DRIVER = "cloud.fake"
 EXTRA_PLUGIN_DIRS_ENV = "POTIONUI_EXTRA_PLUGIN_DIRS"
-SPEC_PREFIX = "cloud-fake-"
+SPEC_PREFIXES = ("cloud-fake-", "xy-compare-")
 
 PRESET_ID = "01M3SVA35XT0E7CG5JZTS9P21S"
 PRESET_NAME = "Fake Studio"
@@ -57,7 +57,7 @@ def plugin_env() -> Dict[str, str]:
 
 
 def wants_cloud_fake(chunk_names) -> bool:
-    return any(Path(name).name.startswith(SPEC_PREFIX) for name in chunk_names)
+    return any(Path(name).name.startswith(SPEC_PREFIXES) for name in chunk_names)
 
 
 def restart_backend(app: ThrowawayApp) -> None:

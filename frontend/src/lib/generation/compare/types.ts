@@ -33,6 +33,7 @@ export type GridCell = {
 	thumbnailUrl: string | null;
 	mediaType: string | null;
 	error: string | null;
+	elapsedSeconds: number | null;
 	progress: { step: number; total: number } | null;
 	previewUrl: string | null;
 };
@@ -55,6 +56,7 @@ export type ServerGridCell = {
 	thumbnail_url: string | null;
 	media_type: string | null;
 	error: string | null;
+	elapsed_seconds?: number | null;
 };
 
 export type ServerGrid = {

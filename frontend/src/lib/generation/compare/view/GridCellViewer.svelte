@@ -8,6 +8,7 @@
 	import GridDetailsCard from './GridDetailsCard.svelte';
 	import GridMiniMap from './GridMiniMap.svelte';
 	import {
+		axisFieldName,
 		axisTag,
 		cellFormPatch,
 		cellStatusLabel,
@@ -146,6 +147,7 @@
 	title={plain ? 'Generation Details' : 'Compare grid'}
 	headerIconName={plain ? 'image' : 'grid'}
 	{axisTags}
+	axisValues={cell.axisValues}
 	onNavigate={(direction) => navigate(direction)}
 	hasPrevious={index > 0}
 	hasNext={index < grid.cells.length - 1}
@@ -246,7 +248,7 @@
 				{#if usable}
 					<p class="text-xs text-fg-muted" data-testid="use-settings-note">
 						Puts {Object.entries(preview.patch)
-							.map(([field, value]) => `${field.replace(/_/g, ' ')} = ${typeof value === 'object' ? cell.axisValues[field] : value}`)
+							.map(([field, value]) => `${axisFieldName(field)} = ${typeof value === 'object' ? cell.axisValues[field] : value}`)
 							.join(' and ')} into the form.
 					</p>
 				{/if}

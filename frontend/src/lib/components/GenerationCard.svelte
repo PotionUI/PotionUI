@@ -200,7 +200,7 @@
 			selectable || !!(event && (event.shiftKey || event.ctrlKey || event.metaKey));
 		if (wantsSelection && onSelect) {
 			onSelect(generation, currentMediaFile ?? null, event);
-		} else if (mediaFiles.length > 0) {
+		} else if (mediaFiles.length > 0 || stackEntry) {
 			dispatch('imageClick', { files: generation.files, generationId: generation.id });
 		}
 	}

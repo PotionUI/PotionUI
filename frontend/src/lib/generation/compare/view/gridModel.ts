@@ -99,9 +99,23 @@ export function axisTag(field: string, config: Pick<ActiveGrid['config'], 'x' | 
 	return null;
 }
 
+export function axisFieldName(field: string): string {
+	return field.replace(/_/g, ' ');
+}
+
+export function withAxisParams(
+	params: Record<string, unknown>,
+	tags: Record<string, string>,
+	values: Record<string, string>
+): Record<string, unknown> {
+	const missing = Object.keys(tags).filter((field) => !(field in params) && values[field] !== undefined);
+	if (missing.length === 0) return params;
+	return { ...params, ...Object.fromEntries(missing.map((field) => [field, values[field]])) };
+}
+
 export function cellAxisSummary(axisValues: Record<string, string>): string {
 	return Object.entries(axisValues)
-		.map(([field, value]) => `${field} = ${value}`)
+		.map(([field, value]) => `${axisFieldName(field)} = ${value}`)
 		.join(', ');
 }
 

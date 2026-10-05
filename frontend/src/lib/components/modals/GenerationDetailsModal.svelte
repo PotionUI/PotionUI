@@ -38,6 +38,7 @@
 	import { filesWithPreview, mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
 	import { showAlphaCheckerboard } from '$lib/utils/imageAlpha';
 	import type { DetailsExtraSection, DetailsFileChange } from './generationDetailsExtras';
+	import { withAxisParams } from '$lib/generation/compare/view/gridModel';
 
 	// Support both ways of passing generation data
 	export let generation: GenerationHistoryItem | null = null;
@@ -61,6 +62,7 @@
 		| ((key: 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown', shift: boolean) => boolean)
 		| undefined = undefined;
 	export let axisTags: Record<string, string> = {};
+	export let axisValues: Record<string, string> = {};
 
 	const dispatch = createEventDispatcher();
 
@@ -145,6 +147,7 @@
 
 	// Parameters and models for current image
 	let currentParams: Record<string, any> = {};
+	$: shownParams = withAxisParams(currentParams, axisTags, axisValues);
 	let currentModels: any[] = [];
 	let paramsLoading = false;
 	let loadedParamsKey = '';
@@ -1246,9 +1249,9 @@
 							<div class="flex items-center justify-center py-4">
 								<Spinner size="sm" />
 							</div>
-						{:else if Object.keys(currentParams).length > 0}
+						{:else if Object.keys(shownParams).length > 0}
 							<div class="grid grid-cols-2 gap-px bg-line">
-								{#each Object.entries(currentParams) as [key, value]}
+								{#each Object.entries(shownParams) as [key, value]}
 									<div class="bg-surface-2 hover:bg-surface-3 p-2.5 transition-colors group">
 										<div class="flex items-center justify-between mb-1">
 											<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">

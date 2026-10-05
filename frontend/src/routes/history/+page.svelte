@@ -359,6 +359,7 @@
 		hasNext={$hasNextGeneration}
 		position={$selectedPosition}
 		axisTags={detailAxisTags}
+		axisValues={currentState.selectedGeneration?.axis_values ?? {}}
 		on:close={handleModalClose}
 		on:delete={(e) => handleDeleteRequest(e.detail)}
 		on:reuse={(e) => handleReuseRequest(e.detail)}

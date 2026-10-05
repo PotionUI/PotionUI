@@ -5,8 +5,10 @@ import {
 	LABEL_COLUMN,
 	MAX_CELL,
 	MIN_CELL,
+	axisFieldName,
 	axisTag,
 	axisValueLabel,
+	cellAxisSummary,
 	cellFormPatch,
 	computeCellSize,
 	createCellTimer,
@@ -17,7 +19,8 @@ import {
 	moveCell,
 	queueOrdinals,
 	retryableCount,
-	stepCell
+	stepCell,
+	withAxisParams
 } from './gridModel';
 import { emptyCell, gridFromServer } from '../serverGrid';
 import type { ServerGrid } from '../types';
@@ -308,5 +311,21 @@ describe('cell timer', () => {
 		timer.observe([cell(0, 0, 'completed', { generationId: 'a' })]);
 		now = 90_000;
 		expect(timer.observe([cell(0, 0, 'completed', { generationId: 'a' })]).get('a')).toBe(4);
+	});
+});
+
+describe('axis naming and details parameters', () => {
+	it('names axis fields the same way everywhere', () => {
+		expect(axisFieldName('aspect_ratio')).toBe('aspect ratio');
+		expect(cellAxisSummary({ quality: '5', aspect_ratio: '16:9' })).toBe('quality = 5, aspect ratio = 16:9');
+	});
+
+	it('adds an axis value the parameters lack so its tag has a row, and keeps recorded ones', () => {
+		const tags = { quality: 'X', aspect_ratio: 'Y' };
+		const values = { quality: '5', aspect_ratio: '16:9' };
+		expect(withAxisParams({ seed: 7, quality: 5 }, tags, values)).toEqual({ seed: 7, quality: 5, aspect_ratio: '16:9' });
+		const recorded = { quality: 5, aspect_ratio: '16:9' };
+		expect(withAxisParams(recorded, tags, values)).toBe(recorded);
+		expect(withAxisParams({}, {}, values)).toEqual({});
 	});
 });

@@ -104,6 +104,16 @@ describe('grid cell viewer', () => {
 		expect(mounted.text().toLowerCase()).toContain('completed');
 	});
 
+	it('tags the axis fields in Parameters even when the run did not record them as parameters', async () => {
+		mounted = mountViewer({});
+		for (let i = 0; i < 5; i += 1) await flush();
+		const tags = [...document.body.querySelectorAll('[data-testid="axis-tag"]')];
+		expect(tags.map((tag) => tag.textContent?.trim())).toEqual(['X', 'Y']);
+		const rows = tags.map((tag) => tag.parentElement?.parentElement?.textContent?.replace(/\s+/g, ' ').trim());
+		expect(rows[0]).toContain('er_sde');
+		expect(rows[1]).toContain('beta');
+	});
+
 	it('walks the grid in 2D with the arrow keys', async () => {
 		const onIndex = vi.fn();
 		mounted = mountViewer({ onIndex });

@@ -96,6 +96,25 @@ describe('history stack card', () => {
 		expect(q('[data-testid="grid-stack-layers"]')).toBeNull();
 	});
 
+	it('opens a stack whose cells have no media yet, like an all-failed grid', () => {
+		const target = document.createElement('div');
+		document.body.appendChild(target);
+		const component = createClassComponent({
+			component: GenerationCard as never,
+			target,
+			props: { generation: item({ ...stack, status: 'failed' }) as never, tile: { width: 320, height: 240 } }
+		});
+		const clicks: unknown[] = [];
+		component.$on('imageClick', (event: CustomEvent) => clicks.push(event.detail));
+		try {
+			target.querySelector<HTMLElement>('.media-zoom')!.click();
+			expect(clicks).toEqual([{ files: [], generationId: 'gen-1' }]);
+		} finally {
+			component.$destroy();
+			target.remove();
+		}
+	});
+
 	it('moves the chip clear of the selection checkbox', () => {
 		mounted = mountCard(item(stack), { showCheckbox: true });
 		expect(q('[data-testid="grid-stack-chip"]')?.className).toContain('left-9');

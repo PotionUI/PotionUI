@@ -68,7 +68,7 @@ test.describe('X/Y compare in History', () => {
 		await expect(card).toBeVisible();
 		await expect(page.getByTestId('grid-details-summary')).toContainText('Part of X/Y grid');
 		await expect(page.getByTestId('grid-details-summary')).toContainText('quality = 5');
-		await expect(page.getByTestId('grid-details-summary')).toContainText('aspect_ratio = 16:9');
+		await expect(page.getByTestId('grid-details-summary')).toContainText('aspect ratio = 16:9');
 		await expect(card).toContainText('cell 5 of 6');
 		await expect(card.getByTestId('grid-minimap-cell')).toHaveCount(6);
 		await expect(page.getByRole('heading', { name: 'Parameters' })).toBeVisible();

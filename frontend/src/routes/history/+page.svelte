@@ -170,6 +170,7 @@
 
 	onMount(() => {
 		historyStore.restoreItemsPerPage();
+		if (new URLSearchParams(location.search).get('sort') === 'largest') historyStore.setSort('file_size', 'desc');
 		historyStore.loadGenerations().then(() => historyStore.loadTags());
 		historyStore.loadFacets();
 		collectionsStore.load();

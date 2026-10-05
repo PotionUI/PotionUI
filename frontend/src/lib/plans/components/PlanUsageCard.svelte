@@ -64,7 +64,7 @@
 					{/each}
 				</ul>
 				<div class="mt-3 flex items-center gap-3">
-					<Button variant="secondary" size="sm" onclick={() => goto('/history')}>Review largest generations</Button>
+					<Button variant="secondary" size="sm" onclick={() => goto('/history?sort=largest')}>Review largest generations</Button>
 					<p class="text-xs text-fg-subtle">Thumbnails are not counted. Nothing is deleted for you.</p>
 				</div>
 			{/if}

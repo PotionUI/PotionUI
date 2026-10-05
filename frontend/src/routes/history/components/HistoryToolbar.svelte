@@ -91,7 +91,7 @@
 		{ value: 'created_at:asc', label: 'Oldest' },
 		{ value: 'rating:desc', label: 'Highest rated' },
 		{ value: 'rating:asc', label: 'Lowest rated' },
-		{ value: 'file_size:desc', label: 'Largest' }
+		{ value: 'file_size:desc', label: 'Largest first' }
 	];
 
 	const minRatingOptions: Array<{ value: number; label: string }> = [

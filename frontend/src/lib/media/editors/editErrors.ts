@@ -8,6 +8,8 @@
  * tells the user nothing about the crop they drew.
  */
 
+import { refusalMessage } from '$lib/plans/refusal';
+
 function stringField(value: unknown, key: string): string | null {
 	if (!value || typeof value !== 'object') return null;
 	const field = (value as Record<string, unknown>)[key];
@@ -28,6 +30,7 @@ export function describeEditFailure(
 	const detail = nested(data, 'detail');
 
 	return (
+		refusalMessage(error) ??
 		stringField(detail, 'message') ??
 		(typeof detail === 'string' && detail.trim() ? detail : null) ??
 		stringField(data, 'message') ??

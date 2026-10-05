@@ -8,8 +8,9 @@ so a caller never needs a second round trip to render a feed card.
 
 import json
 import logging
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
+from src.platform.database.collection_tree import rolled_up_counts, subtree_ids_sql
 from src.platform.util.ids import generate_ulid
 
 from src.features.inspirations.records import (
@@ -66,6 +67,8 @@ class InspirationRepository:
         collection_id: Optional[str] = None,
         author_id: Optional[str] = None,
         saved: Optional[bool] = None,
+        include_descendants: bool = True,
+        unsorted: bool = False,
     ) -> Tuple[List[Inspiration], int]:
         """One filtered, newest-first page of the public feed, plus its total."""
         where = []
@@ -81,16 +84,23 @@ class InspirationRepository:
             params.append(author_id)
 
         if collection_id:
-            # Scoped to the viewer's own collection - a foreign or unknown
-            # collection_id yields an empty page rather than an error.
-            where.append("""
+            target = f"IN {subtree_ids_sql('inspiration_collections')}" if include_descendants else "= ?"
+            where.append(f"""
                 i.id IN (
                     SELECT ci.inspiration_id FROM inspiration_collection_items ci
                     JOIN inspiration_collections ic ON ic.id = ci.collection_id
-                    WHERE ci.collection_id = ? AND ic.user_id = ?
+                    WHERE ci.collection_id {target} AND ic.user_id = ?
                 )
             """)
             params.extend([collection_id, viewer_id or ""])
+
+        if unsorted:
+            where.append("""NOT EXISTS (
+                SELECT 1 FROM inspiration_collection_items um
+                JOIN inspiration_collections uc ON uc.id = um.collection_id
+                WHERE um.inspiration_id = i.id AND uc.user_id = ?
+            )""")
+            params.append(viewer_id or "")
 
         if saved:
             where.append("i.id IN (SELECT inspiration_id FROM inspiration_saves WHERE user_id = ?)")
@@ -253,18 +263,48 @@ class InspirationRepository:
             row = cursor.fetchone()
             return InspirationCollection.from_row(row) if row else None
 
-    def list_collections(self, user_id: str) -> List[InspirationCollection]:
+    def list_collections(self, user_id: str, include_descendants: bool = True) -> List[InspirationCollection]:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
-                SELECT ic.*,
-                       (SELECT COUNT(*) FROM inspiration_collection_items ci
-                        WHERE ci.collection_id = ic.id) AS item_count
+                SELECT ic.*, 0 AS item_count
                 FROM inspiration_collections ic
                 WHERE ic.user_id = ?
                 ORDER BY ic.name ASC
             """, (user_id,))
-            return [InspirationCollection.from_row(row) for row in cursor.fetchall()]
+            collections = [InspirationCollection.from_row(row) for row in cursor.fetchall()]
+            counts = rolled_up_counts(
+                cursor,
+                tree_table="inspiration_collections",
+                member_table="inspiration_collection_items",
+                item_column="inspiration_id",
+                user_id=user_id,
+                include_descendants=include_descendants,
+            )
+        for collection in collections:
+            collection.item_count = counts.get(collection.id, 0)
+        return collections
+
+    def smart_counts(self, user_id: str) -> Dict[str, int]:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) AS n FROM inspirations")
+            total = cursor.fetchone()["n"]
+            cursor.execute(
+                "SELECT COUNT(*) AS n FROM inspirations i "
+                "WHERE i.id IN (SELECT inspiration_id FROM inspiration_saves WHERE user_id = ?)",
+                (user_id,),
+            )
+            favorites = cursor.fetchone()["n"]
+            cursor.execute(
+                "SELECT COUNT(*) AS n FROM inspirations i WHERE NOT EXISTS ("
+                "SELECT 1 FROM inspiration_collection_items um "
+                "JOIN inspiration_collections uc ON uc.id = um.collection_id "
+                "WHERE um.inspiration_id = i.id AND uc.user_id = ?)",
+                (user_id,),
+            )
+            unsorted = cursor.fetchone()["n"]
+        return {"all": total, "favorites": favorites, "unsorted": unsorted}
 
     def rename_collection(self, collection_id: str, user_id: str, name: str) -> bool:
         from src.platform.database.database import db

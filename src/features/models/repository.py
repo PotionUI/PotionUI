@@ -16,6 +16,7 @@ from src.features.models.search_filter import (
     search_filter_clauses,
 )
 import json
+from src.platform.database.collection_tree import subtree_ids_sql
 import logging
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,21 @@ def _type_clause(model_type: str, include_extractable_checkpoints: bool):
         )
         return clause, [model_type, CHECKPOINT_MODEL_TYPE, *families]
     return "m.model_type = ?", [model_type]
+
+_UNSORTED_SQL = (
+    "NOT EXISTS (SELECT 1 FROM model_collection_members um "
+    "JOIN model_collections uc ON uc.id = um.collection_id "
+    "WHERE um.model_id = m.id AND uc.user_id = ?)"
+)
+
+
+def _collection_join(include_descendants: bool) -> str:
+    if include_descendants:
+        target = f"IN {subtree_ids_sql('model_collections')}"
+    else:
+        target = "= ?"
+    return f" INNER JOIN model_collection_members mcm ON mcm.model_id = m.id AND mcm.collection_id {target}"
+
 
 class ModelRepository:
     def create(self, model: Model) -> Model:
@@ -202,6 +218,8 @@ class ModelRepository:
                 favorites_only: bool = False,
                 collection_id: Optional[str] = None,
                 in_any_collection: bool = False,
+                include_descendants: bool = True,
+                unsorted: bool = False,
                 search_filter: Optional[ModelSearchFilter] = None,
                 include_usage: bool = False,
                 include_undefined: bool = False,
@@ -236,7 +254,7 @@ class ModelRepository:
         collection_join = ""
         collection_params: List = []
         if collection_id:
-            collection_join = " INNER JOIN model_collection_members mcm ON mcm.model_id = m.id AND mcm.collection_id = ?"
+            collection_join = _collection_join(include_descendants)
             collection_params = [collection_id]
 
         # Only usable once umm is actually joined (library_user_id set) - otherwise
@@ -293,6 +311,9 @@ class ModelRepository:
             if use_in_any_collection:
                 additional_clauses.append(in_any_collection_sql)
                 params.append(library_user_id)
+            if unsorted and library_user_id:
+                additional_clauses.append(_UNSORTED_SQL)
+                params.append(library_user_id)
             if allowed_model_ids is not None:
                 if len(allowed_model_ids) == 0:
                     return []
@@ -342,6 +363,9 @@ class ModelRepository:
                 params.append(f"%{search}%")
             if use_in_any_collection:
                 where_clauses.append(in_any_collection_sql)
+                params.append(library_user_id)
+            if unsorted and library_user_id:
+                where_clauses.append(_UNSORTED_SQL)
                 params.append(library_user_id)
             if allowed_model_ids is not None:
                 if len(allowed_model_ids) == 0:
@@ -853,6 +877,8 @@ class ModelRepository:
                     assigned_group_id: Optional[str] = None, library_user_id: Optional[str] = None,
                     favorites_only: bool = False, collection_id: Optional[str] = None,
                     in_any_collection: bool = False,
+                include_descendants: bool = True,
+                unsorted: bool = False,
                     search_filter: Optional[ModelSearchFilter] = None,
                     include_undefined: bool = False) -> int:
         """Count total models with optional tag, search, type, and access filtering"""
@@ -863,6 +889,7 @@ class ModelRepository:
             assigned_group_id=assigned_group_id, library_user_id=library_user_id,
             favorites_only=favorites_only, collection_id=collection_id,
             in_any_collection=in_any_collection, search_filter=search_filter,
+            include_descendants=include_descendants, unsorted=unsorted,
             include_undefined=include_undefined,
         )
         return rows[0]['count'] if rows else 0
@@ -889,6 +916,8 @@ class ModelRepository:
                             assigned_group_id: Optional[str] = None, library_user_id: Optional[str] = None,
                             favorites_only: bool = False, collection_id: Optional[str] = None,
                             in_any_collection: bool = False,
+                include_descendants: bool = True,
+                unsorted: bool = False,
                             search_filter: Optional[ModelSearchFilter] = None,
                             include_undefined: bool = False) -> List[Any]:
         if allowed_model_ids is not None and len(allowed_model_ids) == 0:
@@ -900,7 +929,7 @@ class ModelRepository:
             joins += " LEFT JOIN user_model_meta umm ON umm.model_id = m.id AND umm.user_id = ?"
             params.append(library_user_id)
         if collection_id:
-            joins += " INNER JOIN model_collection_members mcm ON mcm.model_id = m.id AND mcm.collection_id = ?"
+            joins += _collection_join(include_descendants)
             params.append(collection_id)
         if search_filter and search_filter.needs_usage:
             joins += USAGE_JOIN
@@ -928,6 +957,9 @@ class ModelRepository:
                 "m.id IN (SELECT mcm2.model_id FROM model_collection_members mcm2 "
                 "JOIN model_collections mc ON mc.id = mcm2.collection_id WHERE mc.user_id = ?)"
             )
+            params.append(library_user_id)
+        if unsorted and library_user_id:
+            where_clauses.append(_UNSORTED_SQL)
             params.append(library_user_id)
         if model_type:
             where_clauses.append("m.model_type = ?")

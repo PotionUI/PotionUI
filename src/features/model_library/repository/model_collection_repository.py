@@ -7,7 +7,9 @@ CollectionRepository (generation collections) with `model_collections` /
 `model_collection_members` / `model_id` in place of `collections` /
 `collection_generations` / `generation_id`.
 """
-from typing import List, Optional
+from typing import Dict, List, Optional
+from src.platform.database.collection_tree import rolled_up_counts
+from src.platform.filesystem.model_types import UNDEFINED_MODEL_TYPE
 from src.features.model_library.records.model_collection import ModelCollection
 from src.platform.database.rows import now_utc
 from src.platform.util.ids import generate_ulid
@@ -63,20 +65,49 @@ class ModelCollectionRepository:
             row = cursor.fetchone()
             return ModelCollection.from_row(row) if row else None
 
-    def list(self, user_id: str) -> List[ModelCollection]:
-        """List all model collections owned by the user, each with a model count."""
+    def list(self, user_id: str, include_descendants: bool = True) -> List[ModelCollection]:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
-                SELECT c.id, c.name, c.user_id, c.parent_id, c.created_at,
-                       COUNT(mcm.model_id) as item_count
-                FROM model_collections c
-                LEFT JOIN model_collection_members mcm ON c.id = mcm.collection_id
-                WHERE c.user_id = ?
-                GROUP BY c.id
-                ORDER BY c.name ASC
+                SELECT id, name, user_id, parent_id, created_at, 0 AS item_count
+                FROM model_collections
+                WHERE user_id = ?
+                ORDER BY name ASC
             """, (user_id,))
-            return [ModelCollection.from_row(row) for row in cursor.fetchall()]
+            collections = [ModelCollection.from_row(row) for row in cursor.fetchall()]
+            counts = rolled_up_counts(
+                cursor,
+                tree_table="model_collections",
+                member_table="model_collection_members",
+                item_column="model_id",
+                user_id=user_id,
+                include_descendants=include_descendants,
+            )
+        for collection in collections:
+            collection.item_count = counts.get(collection.id, 0)
+        return collections
+
+    def smart_counts(self, user_id: str) -> Dict[str, int]:
+        from src.platform.database.database import db
+        base = "FROM models m WHERE m.model_type != ?"
+        with db.get_cursor() as cursor:
+            cursor.execute(f"SELECT COUNT(*) AS n {base}", (UNDEFINED_MODEL_TYPE,))
+            total = cursor.fetchone()["n"]
+            cursor.execute(
+                f"SELECT COUNT(*) AS n {base} AND m.id IN ("
+                "SELECT model_id FROM user_model_meta WHERE user_id = ? AND is_favorite = 1)",
+                (UNDEFINED_MODEL_TYPE, user_id),
+            )
+            favorites = cursor.fetchone()["n"]
+            cursor.execute(
+                f"SELECT COUNT(*) AS n {base} AND NOT EXISTS ("
+                "SELECT 1 FROM model_collection_members um "
+                "JOIN model_collections uc ON uc.id = um.collection_id "
+                "WHERE um.model_id = m.id AND uc.user_id = ?)",
+                (UNDEFINED_MODEL_TYPE, user_id),
+            )
+            unsorted = cursor.fetchone()["n"]
+        return {"all": total, "favorites": favorites, "unsorted": unsorted}
 
     def rename(self, collection_id: str, name: str, user_id: str) -> bool:
         """Rename a model collection owned by the user."""

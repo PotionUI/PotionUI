@@ -75,7 +75,8 @@ class TestModelCollectionController:
         assert result.success is True
         assert result.data["total"] == 1
         assert result.data["collections"][0]["id"] == "col-123"
-        mock_repository.list.assert_called_once_with("user-a")
+        mock_repository.list.assert_called_once_with("user-a", True)
+        mock_repository.smart_counts.assert_called_once_with("user-a")
 
     @pytest.mark.asyncio
     async def test_list_collections_empty(self, controller, mock_repository, user_a):

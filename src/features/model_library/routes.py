@@ -10,7 +10,7 @@ Registered on its own router/prefix (/api/models/collections) so it does not
 collide with the `/api/models/{model_id}` catch-all route in model_controller.
 """
 from typing import TYPE_CHECKING
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
@@ -44,13 +44,14 @@ class ModelCollectionController(BaseController):
 
     # ========== List Methods ==========
 
-    async def list_collections(self, user: User) -> APIResponse:
+    async def list_collections(self, user: User, include_descendants: bool = True) -> APIResponse:
         """List all model collections owned by the user with model counts. Pure DB read."""
         try:
-            collections = self.repository.list(user.id)
+            collections = self.repository.list(user.id, include_descendants)
             return self.success_response(data={
                 "collections": [c.to_dict() for c in collections],
-                "total": len(collections)
+                "total": len(collections),
+                "smart_counts": self.repository.smart_counts(user.id),
             })
         except ValueError as e:
             return self.error_api_response(error="list_collections_failed", message=str(e))
@@ -185,10 +186,11 @@ def build_router(container: "AppContainer") -> APIRouter:
 
     @router.get("", response_model=APIResponse, summary="List Model Collections")
     async def list_collections(
+        include_descendants: bool = Query(True, description="Roll sub-collection items up into each count"),
         current_user: User = Depends(get_current_active_user)
     ) -> APIResponse:
         """List all model collections owned by the current user with model counts."""
-        return await controller.list_collections(current_user)
+        return await controller.list_collections(current_user, include_descendants)
 
     @router.post("", response_model=APIResponse, summary="Create Model Collection")
     async def create_collection(

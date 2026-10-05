@@ -46,6 +46,8 @@ class ListModelsParams:
     favorites_only: bool = False
     collection_id: Optional[str] = None
     in_any_collection: bool = False
+    include_descendants: bool = True
+    unsorted: bool = False
     search_filter: Optional[ModelSearchFilter] = None
 
 
@@ -113,6 +115,8 @@ class ModelCatalog:
             favorites_only=params.favorites_only,
             collection_id=params.collection_id,
             in_any_collection=params.in_any_collection,
+            include_descendants=params.include_descendants,
+            unsorted=params.unsorted,
             search_filter=search_filter,
             include_usage=is_admin,
             include_undefined=include_undefined,
@@ -131,6 +135,8 @@ class ModelCatalog:
             favorites_only=params.favorites_only,
             collection_id=params.collection_id,
             in_any_collection=params.in_any_collection,
+            include_descendants=params.include_descendants,
+            unsorted=params.unsorted,
             search_filter=search_filter,
             include_undefined=include_undefined,
         )
@@ -312,6 +318,8 @@ class ModelCatalog:
                 "favorites_only": facets.favorites_only,
                 "collection_id": facets.collection_id,
                 "in_any_collection": facets.in_any_collection,
+                "include_descendants": facets.include_descendants,
+                "unsorted": facets.unsorted,
                 "search_filter": self._visible_search_filter(
                     facets.search_filter, user.account_type == AccountType.ADMIN
                 ),

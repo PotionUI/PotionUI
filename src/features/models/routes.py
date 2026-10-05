@@ -124,6 +124,8 @@ class ModelController(BaseController):
         favorites_only: bool = False,
         collection_id: Optional[str] = None,
         in_any_collection: bool = False,
+        include_descendants: bool = True,
+        unsorted: bool = False,
         q_mode: Optional[str] = None,
         indexed_from: Optional[str] = None,
         indexed_to: Optional[str] = None,
@@ -168,6 +170,8 @@ class ModelController(BaseController):
                 favorites_only=favorites_only,
                 collection_id=collection_id,
                 in_any_collection=in_any_collection,
+                include_descendants=include_descendants,
+                unsorted=unsorted,
                 search_filter=search_filter,
             )
 
@@ -232,6 +236,8 @@ class ModelController(BaseController):
         favorites_only: bool = False,
         collection_id: Optional[str] = None,
         in_any_collection: bool = False,
+        include_descendants: bool = True,
+        unsorted: bool = False,
         q_mode: Optional[str] = None,
         indexed_from: Optional[str] = None,
         indexed_to: Optional[str] = None,
@@ -258,7 +264,7 @@ class ModelController(BaseController):
         parsed_tag_ids = [tid.strip() for tid in tag_ids.split(',') if tid.strip()] if tag_ids else None
         faceted = bool(
             parsed_tag_ids or search or not search_filter.is_empty or assignment_filter
-            or favorites_only or collection_id or in_any_collection or model_type
+            or favorites_only or collection_id or in_any_collection or unsorted or model_type
         )
         facets = ListModelsParams(
             model_type=model_type,
@@ -270,6 +276,8 @@ class ModelController(BaseController):
             favorites_only=favorites_only,
             collection_id=collection_id,
             in_any_collection=in_any_collection,
+            include_descendants=include_descendants,
+            unsorted=unsorted,
             search_filter=search_filter,
         ) if faceted else None
         try:
@@ -1128,6 +1136,8 @@ def build_router(container: "AppContainer") -> APIRouter:
         favorites_only: bool = Query(False, description="Only return models favorited by the current user"),
         collection_id: Optional[str] = Query(None, description="Only return models in this model collection"),
         in_any_collection: bool = Query(False, description="Only return models that belong to any of the current user's collections"),
+        include_descendants: bool = Query(True, description="With collection_id: also include items of its sub-collections"),
+        unsorted: bool = Query(False, description="Only models in none of the current user's collections"),
         q_mode: Optional[str] = Query(None, description="How `search` matches: 'substring' (default) or 'regex'"),
         indexed_from: Optional[str] = Query(None, description="Indexed on or after this day (YYYY-MM-DD, UTC)"),
         indexed_to: Optional[str] = Query(None, description="Indexed on or before this day (YYYY-MM-DD, UTC)"),
@@ -1155,6 +1165,8 @@ def build_router(container: "AppContainer") -> APIRouter:
             favorites_only=favorites_only,
             collection_id=collection_id,
             in_any_collection=in_any_collection,
+            include_descendants=include_descendants,
+            unsorted=unsorted,
             q_mode=q_mode,
             indexed_from=indexed_from,
             indexed_to=indexed_to,
@@ -1184,6 +1196,8 @@ def build_router(container: "AppContainer") -> APIRouter:
         favorites_only: bool = Query(False, description="Only count models favorited by the current user"),
         collection_id: Optional[str] = Query(None, description="Only count models in this model collection"),
         in_any_collection: bool = Query(False, description="Only count models in any of the current user's collections"),
+        include_descendants: bool = Query(True, description="With collection_id: also include items of its sub-collections"),
+        unsorted: bool = Query(False, description="Only models in none of the current user's collections"),
         q_mode: Optional[str] = Query(None, description="How `search` matches: 'substring' (default) or 'regex'"),
         indexed_from: Optional[str] = Query(None, description="Indexed on or after this day (YYYY-MM-DD, UTC)"),
         indexed_to: Optional[str] = Query(None, description="Indexed on or before this day (YYYY-MM-DD, UTC)"),
@@ -1208,6 +1222,8 @@ def build_router(container: "AppContainer") -> APIRouter:
             favorites_only=favorites_only,
             collection_id=collection_id,
             in_any_collection=in_any_collection,
+            include_descendants=include_descendants,
+            unsorted=unsorted,
             q_mode=q_mode,
             indexed_from=indexed_from,
             indexed_to=indexed_to,

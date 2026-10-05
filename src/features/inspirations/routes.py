@@ -71,6 +71,8 @@ class InspirationController(BaseController):
         collection_id: Optional[str],
         author_id: Optional[str],
         saved: Optional[bool],
+        include_descendants: bool = True,
+        unsorted: bool = False,
     ) -> APIResponse:
         try:
             limit = max(1, min(limit, 100))
@@ -83,6 +85,8 @@ class InspirationController(BaseController):
                 collection_id=collection_id,
                 author_id=author_id,
                 saved=saved,
+                include_descendants=include_descendants,
+                unsorted=unsorted,
             )
             visible = self._viewable(current_user.id, items)
             return self.success_response(data={
@@ -221,10 +225,14 @@ class InspirationController(BaseController):
 
     # ========== Collections ==========
 
-    async def list_collections(self, current_user) -> APIResponse:
+    async def list_collections(self, current_user, include_descendants: bool = True) -> APIResponse:
         try:
-            collections = self.collaborators.repository.list_collections(current_user.id)
-            return self.success_response(data={"items": [collection_to_dto(c) for c in collections]})
+            repository = self.collaborators.repository
+            collections = repository.list_collections(current_user.id, include_descendants)
+            return self.success_response(data={
+                "items": [collection_to_dto(c) for c in collections],
+                "smart_counts": repository.smart_counts(current_user.id),
+            })
         except Exception as e:
             self.logger.error(f"Failed to list inspiration collections: {e}")
             return self.error_response(error="list_collections_failed", message="Failed to list collections")
@@ -336,10 +344,13 @@ def build_router(container: "AppContainer") -> APIRouter:
         collection_id: Optional[str] = Query(None),
         author_id: Optional[str] = Query(None),
         saved: Optional[bool] = Query(None),
+        include_descendants: bool = Query(True),
+        unsorted: bool = Query(False),
         current_user=Depends(get_current_active_user),
     ) -> APIResponse:
         return await controller.list_feed(
-            current_user, query, limit, offset, collection_id, author_id, saved
+            current_user, query, limit, offset, collection_id, author_id, saved,
+            include_descendants, unsorted,
         )
 
     @router.post("", response_model=APIResponse, summary="Publish Inspiration")
@@ -350,8 +361,11 @@ def build_router(container: "AppContainer") -> APIRouter:
         return await controller.publish(request, current_user)
 
     @router.get("/collections", response_model=APIResponse, summary="List My Inspiration Collections")
-    async def list_collections(current_user=Depends(get_current_active_user)) -> APIResponse:
-        return await controller.list_collections(current_user)
+    async def list_collections(
+        include_descendants: bool = Query(True),
+        current_user=Depends(get_current_active_user),
+    ) -> APIResponse:
+        return await controller.list_collections(current_user, include_descendants)
 
     @router.post("/collections", response_model=APIResponse, summary="Create Inspiration Collection")
     async def create_collection(

@@ -17,6 +17,7 @@
 	import FailureNotice from '$lib/components/FailureNotice.svelte';
 	import { isContentPolicyCode, policyShowsErrorId, firstHintLine } from '$lib/generation/failurePolicy';
 	import { leadIndex } from '$lib/generation/leadFile';
+	import { isStackEntry, isLooseCell, stackBadge, stackInfo, cellChip } from '$lib/generation/compare/view/historyGrid';
 	import { api } from '$lib/services/api/index';
 	import { getIconPath } from '$lib/utils/IconLibrary';
 	import {
@@ -175,6 +176,9 @@
 				? formatSeconds(currentMediaFile.duration_seconds)
 				: '';
 	$: ratingStarPath = getIconPath('star') as string;
+	$: stackEntry = isStackEntry(generation);
+	$: stackText = stackInfo(generation);
+	$: looseCell = isLooseCell(generation);
 
 	function handlePrevImage(e: Event) {
 		e.stopPropagation();
@@ -269,7 +273,18 @@
 	}
 </script>
 
-<div class="group" style={tile ? `width: ${tile.width}px` : undefined}>
+<div class="group relative" style={tile ? `width: ${tile.width}px` : undefined}>
+	{#if stackEntry}
+		<div
+			aria-hidden="true"
+			data-testid="grid-stack-layers"
+			class="pointer-events-none absolute -top-1 left-1.5 right-1.5 h-2 rounded-t-lg border border-b-0 border-line bg-surface-2"
+		></div>
+		<div
+			aria-hidden="true"
+			class="pointer-events-none absolute -top-2 left-3 right-3 h-2 rounded-t-lg border border-b-0 border-line bg-surface-1"
+		></div>
+	{/if}
 	<div
 		class="tile-frame relative cursor-pointer rounded-lg overflow-hidden transition-colors duration-100 ease-out border {tile
 			? 'bg-black'
@@ -504,6 +519,18 @@
 				</div>
 			{/if}
 
+			{#if stackEntry || looseCell}
+				<div
+					data-testid={stackEntry ? 'grid-stack-chip' : 'grid-cell-chip'}
+					class="absolute top-2 z-30 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-2xs tabular-nums tracking-[0.07em] text-fg backdrop-blur-sm {showCheckbox
+						? 'left-9'
+						: 'left-2'}"
+				>
+					<Icon name="grid" className="h-2.5 w-2.5" />
+					<span>{stackEntry ? stackBadge(generation) : cellChip(generation)}</span>
+				</div>
+			{/if}
+
 			<!-- Media type only; the carousel already communicates the file count as 1/N
 			     (fixed-aspect card only - the justified tile shows this as a bottom-left chip). -->
 			{#if !tile && (mediaFiles.length > 1 || videoFiles.length > 0 || audioFiles.length > 0 || meshFiles.length > 0) && density.showMediaType}
@@ -638,6 +665,14 @@
 				class="flex items-center justify-between gap-2 px-2 bg-surface-1 border-t border-line overflow-hidden"
 				style="height: {chromeBucket.barHeight}px"
 			>
+				{#if stackText}
+					<span data-testid="grid-stack-title" class="min-w-0 truncate font-mono text-2xs tracking-[0.07em] text-fg-muted">
+						{stackText.title}
+					</span>
+					<span data-testid="grid-stack-count" class="ml-auto shrink-0 font-mono tabular-nums text-2xs tracking-[0.07em] text-fg-subtle">
+						{stackText.count}
+					</span>
+				{:else}
 				<div class="flex items-center gap-1 min-w-0 overflow-hidden">
 					{#if generation.status === 'completed'}
 						{#if chromeBucket.showStars}
@@ -681,6 +716,7 @@
 						<span class="text-fg-subtle whitespace-nowrap">{timeAgo(generation.created_at)}</span>
 					{/if}
 				</div>
+				{/if}
 			</div>
 		{/if}
 

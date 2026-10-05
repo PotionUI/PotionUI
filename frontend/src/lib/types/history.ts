@@ -137,6 +137,19 @@ export interface GenerationHistoryItem {
 	/** The router's decision trace for this generation, or `null`/absent
 	 *  when none was captured. */
 	routing?: RoutingDecision | null;
+	grid?: HistoryGridSummary | null;
+	grid_id?: string | null;
+	grid_x?: number | null;
+	grid_y?: number | null;
+	grid_cols?: number | null;
+	axis_values?: Record<string, string> | null;
+}
+
+export interface HistoryGridSummary {
+	id: string;
+	cols: number;
+	rows: number;
+	cell_count: number;
 }
 
 /** The reusable-settings slice of an imported generation bundle — same shape

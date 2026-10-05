@@ -3,6 +3,8 @@
 	import PluginOutputs from '$lib/components/generation/PluginOutputs.svelte';
 	import CancelNotice from '$lib/components/generation/CancelNotice.svelte';
 	import LiveTextArtifacts from '$lib/components/generation/LiveTextArtifacts.svelte';
+	import GridWorkbench from '$lib/generation/compare/view/GridWorkbench.svelte';
+	import { getActiveGrid } from '$lib/generation/compare/compareStore.svelte';
 	import type { Tab } from '$lib/types/tabs';
 
 	// The workbench, wired the same way at every mount site (mobile Panel 2,
@@ -18,6 +20,9 @@
 
 <CancelNotice {tab} />
 
+{#if getActiveGrid(tab.id)}
+	<GridWorkbench tabId={tab.id} />
+{:else}
 <Workbench
 	currentGeneration={tab.generation.currentGeneration}
 	isGenerating={tab.generation.isGenerating}
@@ -33,6 +38,7 @@
 	on:heightChange={onWorkbenchHeightChange}
 	on:moveToWorkbench={onMoveToWorkbench}
 />
+{/if}
 
 <LiveTextArtifacts {tab} />
 

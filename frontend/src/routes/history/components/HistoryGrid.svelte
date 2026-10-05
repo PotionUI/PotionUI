@@ -19,6 +19,7 @@
 	import { historyTileSize, TILE_SIZE_MULTIPLIER } from '$lib/stores/historyTileSize';
 	import { nsfwFilterStore, selectableMediaFiles, isGenerationHiddenByNsfw } from '$lib/stores/nsfwFilter';
 	import { leadIndex } from '$lib/generation/leadFile';
+	import { openGridId } from '$lib/generation/compare/view/gridApi';
 	import {
 		classifyCardSelectEvent,
 		marqueeSelection,
@@ -134,12 +135,20 @@
 
 	function handleViewGeneration(event: CustomEvent<GenerationHistoryItem>) {
 		if (currentState.selectionMode) return;
+		if (event.detail.grid) {
+			openGridId.set(event.detail.grid.id);
+			return;
+		}
 		historyStore.setSelectedGeneration(event.detail, 0);
 	}
 
 	function handleImageClick(event: CustomEvent) {
 		if (currentState.selectionMode) return;
 		const generation = generations.find((g) => g.id === event.detail.generationId);
+		if (generation?.grid) {
+			openGridId.set(generation.grid.id);
+			return;
+		}
 		if (generation) {
 			historyStore.setSelectedGeneration(generation, 0);
 		}

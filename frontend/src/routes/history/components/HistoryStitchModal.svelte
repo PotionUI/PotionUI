@@ -14,11 +14,15 @@
 	import { toasts } from '$lib/stores/toast';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import type { MediaToolItem, MediaToolModalProps } from '$lib/tools/tools';
+	import type { StitchCompareSource } from '$lib/generation/compare/view/stitchCompareSource';
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import {
 		DEFAULT_STITCH_OPTIONS,
+		DEFAULT_COMPARE_OPTIONS,
 		collectParamKeys,
 		computeLayout,
+		computeCompareLayout,
+		drawCompareStitch,
 		defaultParamKeys,
 		drawStitch,
 		paramLinesFor,
@@ -35,6 +39,9 @@
 		type ParamKeyOption,
 		type ParamLine,
 		type StitchBackground,
+		type StitchCompareCaption,
+		type StitchCompareInput,
+		type StitchCompareOptions,
 		type StitchItem,
 		type StitchLayoutMode,
 		type StitchOptions,
@@ -43,7 +50,8 @@
 
 	// No `onDone`: stitching reads the selection and writes nothing, so a
 	// finished download closes without asking the page to reload or clear.
-	let { context, onClose }: MediaToolModalProps = $props();
+	let { context, onClose, compare = null }: MediaToolModalProps & { compare?: StitchCompareSource | null } =
+		$props();
 
 	interface LoadedImage {
 		item: StitchItem;
@@ -74,7 +82,16 @@
 	let loading = $state(true);
 	let loaded = $state<LoadedImage[]>([]);
 	let availableKeys = $state<ParamKeyOption[]>([]);
-	let options = $state<StitchOptions>({ ...DEFAULT_STITCH_OPTIONS });
+	let options = $state<StitchOptions>({
+		...DEFAULT_STITCH_OPTIONS,
+		layout: untrack(() => compare) ? 'grid' : DEFAULT_STITCH_OPTIONS.layout
+	});
+	let compareOptions = $state<StitchCompareOptions>({ ...DEFAULT_COMPARE_OPTIONS });
+	const COMPARE_CAPTIONS: Array<{ id: StitchCompareCaption; label: string }> = [
+		{ id: 'axis', label: 'axis values' },
+		{ id: 'seed', label: 'seed' },
+		{ id: 'time', label: 'time' }
+	];
 	let saving = $state(false);
 	let savingToLibrary = $state(false);
 	let previewCanvas = $state<HTMLCanvasElement | null>(null);
@@ -105,10 +122,45 @@
 		)
 	);
 	let columnsDisplay = $derived(String(options.columns));
-	let fit = $derived(fitScale({ width: layout.width, height: layout.height }, paneSize));
-	let preview = $derived(
-		previewScaleFor(fit, zoom, { width: layout.width, height: layout.height })
+	let compareActive = $derived(compare !== null && options.layout === 'grid');
+	let compareInput = $derived<StitchCompareInput>({
+		cols: compare?.cols ?? 1,
+		rows: compare?.rows ?? 1,
+		xLabels: compare?.xLabels ?? [],
+		yLabels: compare?.yLabels ?? [],
+		cells: (compare?.cells ?? []).map((cell) => {
+			const entry = cell.itemId ? loaded.find((candidate) => candidate.item.id === cell.itemId) : undefined;
+			return {
+				width: entry?.item.width ?? 0,
+				height: entry?.item.height ?? 0,
+				failed: cell.failed || (!entry && !loading),
+				axisValues: cell.axisValues,
+				seed: cell.seed,
+				seconds: cell.seconds
+			};
+		})
+	});
+	let effectiveCompare = $derived<StitchCompareOptions>({
+		...compareOptions,
+		tileMaxSide: options.tileMaxSide,
+		gap: options.gap,
+		background: options.background
+	});
+	let compareLayout = $derived(computeCompareLayout(compareInput, effectiveCompare));
+	let compareBitmaps = $derived(
+		(compare?.cells ?? []).map(
+			(cell) => (cell.itemId ? loaded.find((candidate) => candidate.item.id === cell.itemId)?.bitmap : null) ?? null
+		)
 	);
+	let canvasSize = $derived(
+		compareActive
+			? { width: compareLayout.width, height: compareLayout.height }
+			: { width: layout.width, height: layout.height }
+	);
+	let tileClamped = $derived(compareActive ? compareLayout.clamped : layout.clamped);
+	let tileClampedSide = $derived(compareActive ? compareLayout.tileMaxSide : layout.tileMaxSide);
+	let fit = $derived(fitScale(canvasSize, paneSize));
+	let preview = $derived(previewScaleFor(fit, zoom, canvasSize));
 	let zoomPercent = $derived(Math.round(zoom * 100));
 	let canPan = $derived(
 		preview.displayWidth > paneSize.width || preview.displayHeight > paneSize.height
@@ -201,6 +253,10 @@
 		if (!ctx) return;
 		ctx.setTransform(preview.renderScale, 0, 0, preview.renderScale, 0, 0);
 		ctx.imageSmoothingQuality = 'high';
+		if (compareActive) {
+			drawCompareStitch(ctx, compareBitmaps, compareLayout, effectiveCompare);
+			return;
+		}
 		drawStitch(
 			ctx,
 			loaded.map((entry) => entry.bitmap),
@@ -212,7 +268,17 @@
 
 	$effect(() => {
 		// Touched so the redraw follows every option, every load and every zoom.
-		void [previewCanvas, layout, lines, preview, options.background, options.showParams];
+		void [
+			previewCanvas,
+			layout,
+			lines,
+			preview,
+			options.background,
+			options.showParams,
+			compareActive,
+			compareLayout,
+			effectiveCompare
+		];
 		if (previewTimer) clearTimeout(previewTimer);
 		previewTimer = setTimeout(() => untrack(renderPreview), PREVIEW_DEBOUNCE_MS);
 	});
@@ -355,6 +421,13 @@
 		options = { ...options, gap: Math.min(Math.max(parsed, 0), 256) };
 	}
 
+	function toggleCaption(id: StitchCompareCaption) {
+		const next = compareOptions.captions.includes(id)
+			? compareOptions.captions.filter((candidate) => candidate !== id)
+			: [...compareOptions.captions, id];
+		compareOptions = { ...compareOptions, captions: next };
+	}
+
 	function toggleKey(key: string) {
 		const next = options.paramKeys.includes(key)
 			? options.paramKeys.filter((candidate) => candidate !== key)
@@ -365,18 +438,22 @@
 	/** The same full-size composition Download and Save to Library both encode. */
 	async function buildStitchBlob(): Promise<Blob> {
 		const canvas = document.createElement('canvas');
-		canvas.width = layout.width;
-		canvas.height = layout.height;
+		canvas.width = canvasSize.width;
+		canvas.height = canvasSize.height;
 		const ctx = canvas.getContext('2d');
 		if (!ctx) throw new Error('Could not get a 2D canvas context');
 		ctx.imageSmoothingQuality = 'high';
-		drawStitch(
-			ctx,
-			loaded.map((entry) => entry.bitmap),
-			layout,
-			lines,
-			options
-		);
+		if (compareActive) {
+			drawCompareStitch(ctx, compareBitmaps, compareLayout, effectiveCompare);
+		} else {
+			drawStitch(
+				ctx,
+				loaded.map((entry) => entry.bitmap),
+				layout,
+				lines,
+				options
+			);
+		}
 
 		const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
 		if (!blob) throw new Error('Could not encode the stitched image');
@@ -536,7 +613,7 @@
 
 		<div class="min-w-0 space-y-4">
 			<p class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle tabular-nums">
-				{loaded.length} image{loaded.length === 1 ? '' : 's'}
+				{compareActive ? compare?.cells.length : loaded.length} image{(compareActive ? compare?.cells.length : loaded.length) === 1 ? '' : 's'}
 			</p>
 
 			<div>
@@ -557,7 +634,24 @@
 				</div>
 			</div>
 
-			{#if options.layout === 'grid'}
+			{#if compareActive}
+				<div class="flex items-center justify-between gap-3">
+					<span class="text-sm font-medium text-fg">Axis labels</span>
+					<Switch
+						label="Axis labels"
+						checked={compareOptions.axisLabels}
+						onchange={(checked) => (compareOptions = { ...compareOptions, axisLabels: checked })}
+					/>
+				</div>
+				<div class="flex items-center justify-between gap-3">
+					<span class="text-sm font-medium text-fg">Skip failed cells</span>
+					<Switch
+						label="Skip failed cells"
+						checked={compareOptions.skipFailed}
+						onchange={(checked) => (compareOptions = { ...compareOptions, skipFailed: checked })}
+					/>
+				</div>
+			{:else if options.layout === 'grid'}
 				<div>
 					<label class="mb-1.5 block text-sm font-medium text-fg" for="stitch-columns">Columns</label>
 					<Input
@@ -622,6 +716,25 @@
 				</div>
 			</div>
 
+			{#if compareActive}
+				<div class="border-t border-line pt-4">
+					<span class="mb-1.5 block font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Under each cell</span>
+					<div class="flex flex-wrap items-center gap-1">
+						{#each COMPARE_CAPTIONS as option (option.id)}
+							<button
+								type="button"
+								class="rounded border px-2.5 py-1 font-mono text-xs transition-colors {compareOptions.captions.includes(option.id)
+									? 'border-signal/40 bg-signal/10 text-signal'
+									: 'border-line text-fg-muted hover:bg-surface-2 hover:text-fg'}"
+								aria-pressed={compareOptions.captions.includes(option.id)}
+								onclick={() => toggleCaption(option.id)}
+							>
+								{option.label}
+							</button>
+						{/each}
+					</div>
+				</div>
+			{:else}
 			<div class="border-t border-line pt-4">
 				<Switch
 					label="Show parameters"
@@ -654,14 +767,15 @@
 					{/if}
 				{/if}
 			</div>
+			{/if}
 
 			{#if !loading && loaded.length > 0}
 				<p class="font-mono text-2xs text-fg-subtle tabular-nums">
-					{layout.width} × {layout.height}
+					{canvasSize.width} × {canvasSize.height}
 				</p>
-				{#if layout.clamped}
+				{#if tileClamped}
 					<p class="text-xs text-warning">
-						Too large for one canvas — tiles were reduced to {layout.tileMaxSide} px.
+						Too large for one canvas — tiles were reduced to {tileClampedSide} px.
 					</p>
 				{/if}
 			{/if}

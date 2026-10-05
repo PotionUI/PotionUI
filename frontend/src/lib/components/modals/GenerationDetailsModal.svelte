@@ -55,6 +55,12 @@
 	export let onClose: (() => void) | undefined = undefined;
 	export let extraSections: DetailsExtraSection[] = [];
 	export let onFileChange: ((change: DetailsFileChange) => void) | undefined = undefined;
+	export let title: string = 'Generation Details';
+	export let headerIconName: string = 'image';
+	export let onArrowKey:
+		| ((key: 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown', shift: boolean) => boolean)
+		| undefined = undefined;
+	export let axisTags: Record<string, string> = {};
 
 	const dispatch = createEventDispatcher();
 
@@ -449,6 +455,20 @@
 	// Arrows walk files and roll over into the neighbouring generation; Shift jumps. Escape: BaseModal.
 	function handleKeyDown(event: KeyboardEvent) {
 		if (!isOpen) return;
+		if (
+			onArrowKey &&
+			['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) &&
+			!isTextEntryTarget(event.target)
+		) {
+			const claimed = onArrowKey(
+				event.key as 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown',
+				event.shiftKey
+			);
+			if (claimed) {
+				event.preventDefault();
+				return;
+			}
+		}
 		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
 		if (isTextEntryTarget(event.target)) return;
 
@@ -596,14 +616,14 @@
 <div use:portal>
 <BaseModal
 	{isOpen}
-	title="Generation Details"
+	{title}
 	sizeClass="md:w-[85vw] md:h-[85vh]"
 	closeable={editorRequest === null}
 	on:close={handleClose}
 >
 	<svelte:fragment slot="headerIcon">
 		<div class="w-[30px] h-[30px] rounded bg-surface-2 border border-line flex items-center justify-center flex-shrink-0">
-			<Icon name="image" className="w-4 h-4 text-fg-muted" />
+			<Icon name={headerIconName} className="w-4 h-4 text-fg-muted" />
 		</div>
 	</svelte:fragment>
 	<svelte:fragment slot="header">
@@ -898,6 +918,8 @@
 							<span class="text-xs text-fg-muted">Click to reveal</span>
 						</button>
 					{/if}
+				{:else}
+					<slot name="stageEmpty" />
 				{/if}
 			</div>
 
@@ -966,6 +988,8 @@
 							</button>
 						</div>
 					</div>
+
+					<slot name="afterInformation" />
 
 					{#each extraSections as section (section.id)}
 						<div class="bg-surface-2 rounded-lg overflow-hidden" data-extra-section={section.id}>
@@ -1230,6 +1254,14 @@
 											<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">
 												{key.replace(/_/g, ' ')}
 											</span>
+											{#if axisTags[key]}
+												<span
+													data-testid="axis-tag"
+													class="mr-auto ml-1.5 rounded border border-signal/40 bg-signal/10 px-1 font-mono text-2xs text-signal"
+												>
+													{axisTags[key]}
+												</span>
+											{/if}
 											<CopyButton
 												text={String(value)}
 												ariaLabel="Copy {key}"

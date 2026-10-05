@@ -319,7 +319,7 @@ function layoutAt(
 	};
 }
 
-function fitsCanvas(layout: StitchLayout): boolean {
+function fitsCanvas(layout: { width: number; height: number }): boolean {
 	if (layout.width > MAX_CANVAS_SIDE || layout.height > MAX_CANVAS_SIDE) return false;
 	return layout.width * layout.height <= MAX_CANVAS_PIXELS;
 }
@@ -389,6 +389,281 @@ export function drawStitch(
 			ctx.fillText(`${line.label} ${line.value}`, tile.label.x + tile.padding, y, maxWidth);
 			y += tile.lineHeight;
 		}
+	});
+}
+
+export type StitchCompareCaption = 'axis' | 'seed' | 'time';
+
+export interface StitchCompareOptions {
+	axisLabels: boolean;
+	skipFailed: boolean;
+	captions: StitchCompareCaption[];
+	tileMaxSide: StitchTileMaxSide;
+	gap: number;
+	background: StitchBackground;
+}
+
+export const DEFAULT_COMPARE_OPTIONS: StitchCompareOptions = {
+	axisLabels: true,
+	skipFailed: false,
+	captions: ['axis'],
+	tileMaxSide: 1024,
+	gap: 16,
+	background: 'dark'
+};
+
+export interface StitchCompareCell {
+	width: number;
+	height: number;
+	failed: boolean;
+	axisValues: Record<string, string>;
+	seed: number | null;
+	seconds: number | null;
+}
+
+export interface StitchCompareInput {
+	cols: number;
+	rows: number;
+	xLabels: string[];
+	yLabels: string[];
+	cells: StitchCompareCell[];
+}
+
+export interface StitchCompareCellLayout {
+	column: number;
+	row: number;
+	image: StitchRect;
+	caption: StitchRect;
+	lines: string[];
+	failed: boolean;
+	hidden: boolean;
+}
+
+export interface StitchCompareLayout {
+	width: number;
+	height: number;
+	cols: number;
+	rows: number;
+	fontSize: number;
+	lineHeight: number;
+	padding: number;
+	xLabels: Array<{ text: string; rect: StitchRect }>;
+	yLabels: Array<{ text: string; rect: StitchRect }>;
+	cells: StitchCompareCellLayout[];
+	tileMaxSide: StitchTileMaxSide;
+	clamped: boolean;
+}
+
+const COMPARE_LABEL_CHAR_RATIO = 0.62;
+
+export function compareCaptionLines(
+	cell: Pick<StitchCompareCell, 'axisValues' | 'seed' | 'seconds'>,
+	captions: StitchCompareCaption[]
+): string[] {
+	const lines: string[] = [];
+	if (captions.includes('axis')) {
+		for (const [field, value] of Object.entries(cell.axisValues)) lines.push(`${paramLabel(field)} ${value}`);
+	}
+	if (captions.includes('seed') && cell.seed !== null) lines.push(`seed ${cell.seed}`);
+	if (captions.includes('time') && cell.seconds !== null) lines.push(`${Math.round(cell.seconds)} s`);
+	return lines;
+}
+
+function compareLayoutAt(
+	input: StitchCompareInput,
+	options: StitchCompareOptions,
+	maxSide: StitchTileMaxSide
+): StitchCompareLayout {
+	const gap = Math.max(0, Math.round(options.gap));
+	const cols = Math.max(1, input.cols);
+	const rows = Math.max(1, input.rows);
+
+	let cellWidth = 1;
+	let cellHeight = 1;
+	for (const cell of input.cells) {
+		if (cell.width <= 0 || cell.height <= 0) continue;
+		const scaled = scaleTile(cell, maxSide);
+		cellWidth = Math.max(cellWidth, scaled.width);
+		cellHeight = Math.max(cellHeight, scaled.height);
+	}
+	if (input.cells.every((cell) => cell.width <= 0 || cell.height <= 0)) {
+		cellWidth = 512;
+		cellHeight = 512;
+	}
+
+	const fontSize = Math.max(14, Math.round(cellWidth * 0.034));
+	const lineHeight = Math.round(fontSize * LINE_HEIGHT_RATIO);
+	const padding = Math.round(fontSize * LABEL_PADDING_RATIO);
+
+	const cellLines = input.cells.map((cell) => compareCaptionLines(cell, options.captions));
+	const captionLineCount = Math.max(0, ...cellLines.map((lines) => lines.length));
+	const captionHeight = captionLineCount > 0 ? padding * 2 + captionLineCount * lineHeight : 0;
+
+	const longestYLabel = Math.max(0, ...input.yLabels.map((label) => label.length));
+	const labelColumn = options.axisLabels
+		? Math.min(Math.ceil(longestYLabel * fontSize * COMPARE_LABEL_CHAR_RATIO) + padding * 2, cellWidth)
+		: 0;
+	const headerRow = options.axisLabels ? lineHeight + padding * 2 : 0;
+
+	const originX = gap + labelColumn + (labelColumn > 0 ? gap : 0);
+	const originY = gap + headerRow;
+	const rowHeight = cellHeight + captionHeight;
+
+	const xLabels = options.axisLabels
+		? input.xLabels.slice(0, cols).map((text, column) => ({
+				text,
+				rect: {
+					x: originX + column * (cellWidth + gap),
+					y: gap,
+					width: cellWidth,
+					height: headerRow
+				}
+			}))
+		: [];
+	const yLabels = options.axisLabels
+		? input.yLabels.slice(0, rows).map((text, row) => ({
+				text,
+				rect: {
+					x: gap,
+					y: originY + row * (rowHeight + gap),
+					width: labelColumn,
+					height: cellHeight
+				}
+			}))
+		: [];
+
+	const cells: StitchCompareCellLayout[] = input.cells.map((cell, index) => {
+		const column = index % cols;
+		const row = Math.floor(index / cols);
+		const x = originX + column * (cellWidth + gap);
+		const y = originY + row * (rowHeight + gap);
+		const scaled = cell.width > 0 && cell.height > 0 ? scaleTile(cell, maxSide) : { width: cellWidth, height: cellHeight };
+		const hidden = cell.failed && options.skipFailed;
+		return {
+			column,
+			row,
+			image: {
+				x: x + Math.round((cellWidth - scaled.width) / 2),
+				y: y + Math.round((cellHeight - scaled.height) / 2),
+				width: scaled.width,
+				height: scaled.height
+			},
+			caption: { x, y: y + cellHeight, width: cellWidth, height: hidden ? 0 : captionHeight },
+			lines: hidden ? [] : cellLines[index],
+			failed: cell.failed,
+			hidden
+		};
+	});
+
+	return {
+		width: originX + cols * (cellWidth + gap),
+		height: originY + rows * (rowHeight + gap),
+		cols,
+		rows,
+		fontSize,
+		lineHeight,
+		padding,
+		xLabels,
+		yLabels,
+		cells,
+		tileMaxSide: maxSide,
+		clamped: false
+	};
+}
+
+export function computeCompareLayout(
+	input: StitchCompareInput,
+	options: StitchCompareOptions
+): StitchCompareLayout {
+	const start = Math.max(0, TILE_SIDE_LADDER.indexOf(options.tileMaxSide));
+	let last = compareLayoutAt(input, options, TILE_SIDE_LADDER[start]);
+	if (fitsCanvas(last)) return last;
+	for (let step = start + 1; step < TILE_SIDE_LADDER.length; step += 1) {
+		last = compareLayoutAt(input, options, TILE_SIDE_LADDER[step]);
+		if (fitsCanvas(last)) return { ...last, clamped: true };
+	}
+	return { ...last, clamped: true };
+}
+
+export interface StitchCompareDrawTarget extends StitchDrawTarget {
+	textAlign: CanvasTextAlign;
+	strokeStyle: string | CanvasGradient | CanvasPattern;
+	strokeRect(x: number, y: number, width: number, height: number): void;
+}
+
+const FAILED_TINT = 'rgba(220, 70, 70, 0.14)';
+const FAILED_EDGE = 'rgba(220, 70, 70, 0.6)';
+
+export function drawCompareStitch(
+	ctx: StitchCompareDrawTarget,
+	images: ReadonlyArray<CanvasImageSource | null>,
+	layout: StitchCompareLayout,
+	options: StitchCompareOptions
+): void {
+	const palette = STITCH_PALETTES[options.background];
+
+	if (options.background === 'transparent') {
+		ctx.clearRect(0, 0, layout.width, layout.height);
+	} else {
+		ctx.fillStyle = palette.background;
+		ctx.fillRect(0, 0, layout.width, layout.height);
+	}
+
+	ctx.font = `${layout.fontSize}px ${STITCH_FONT_STACK}`;
+	ctx.textBaseline = 'middle';
+	ctx.fillStyle = palette.text;
+
+	ctx.textAlign = 'center';
+	for (const label of layout.xLabels) {
+		ctx.fillText(
+			label.text.toUpperCase(),
+			label.rect.x + label.rect.width / 2,
+			label.rect.y + label.rect.height / 2,
+			label.rect.width
+		);
+	}
+	ctx.textAlign = 'right';
+	for (const label of layout.yLabels) {
+		ctx.fillText(
+			label.text.toUpperCase(),
+			label.rect.x + label.rect.width - layout.padding,
+			label.rect.y + label.rect.height / 2,
+			Math.max(1, label.rect.width - layout.padding)
+		);
+	}
+
+	layout.cells.forEach((cell, index) => {
+		if (cell.hidden) return;
+		const image = images[index];
+		if (cell.failed || !image) {
+			ctx.fillStyle = FAILED_TINT;
+			ctx.fillRect(cell.image.x, cell.image.y, cell.image.width, cell.image.height);
+			ctx.strokeStyle = FAILED_EDGE;
+			ctx.strokeRect(cell.image.x, cell.image.y, cell.image.width, cell.image.height);
+			ctx.fillStyle = FAILED_EDGE;
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText(
+				'FAILED',
+				cell.image.x + cell.image.width / 2,
+				cell.image.y + cell.image.height / 2,
+				cell.image.width
+			);
+			ctx.fillStyle = palette.text;
+		} else {
+			ctx.drawImage(image, cell.image.x, cell.image.y, cell.image.width, cell.image.height);
+		}
+
+		if (cell.lines.length === 0) return;
+		ctx.fillStyle = palette.text;
+		ctx.textAlign = 'left';
+		ctx.textBaseline = 'top';
+		let y = cell.caption.y + layout.padding;
+		for (const line of cell.lines) {
+			ctx.fillText(line, cell.caption.x + layout.padding, y, Math.max(1, cell.caption.width - layout.padding * 2));
+			y += layout.lineHeight;
+		}
+		ctx.textBaseline = 'middle';
 	});
 }
 

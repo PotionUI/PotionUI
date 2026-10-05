@@ -28,6 +28,11 @@
 	import HistoryUsageCard from '$lib/plans/components/HistoryUsageCard.svelte';
 	import HistorySelectionToolbar from './components/HistorySelectionToolbar.svelte';
 	import HistoryGrid from './components/HistoryGrid.svelte';
+	import HistoryGridView from './components/HistoryGridView.svelte';
+	import GridDetailsCard from '$lib/generation/compare/view/GridDetailsCard.svelte';
+	import { fetchGrid, openGridId } from '$lib/generation/compare/view/gridApi';
+	import { axisTag } from '$lib/generation/compare/view/gridModel';
+	import type { ActiveGrid } from '$lib/generation/compare/compareStore.svelte';
 	import HistoryDeleteModal from './components/HistoryDeleteModal.svelte';
 	import HistoryAddTagModal from './components/HistoryAddTagModal.svelte';
 	import HistoryBulkDeleteModal from './components/HistoryBulkDeleteModal.svelte';
@@ -69,6 +74,44 @@
 
 	$: currentState = $historyStore;
 	$: availableTags = currentState.availableTags;
+
+	let detailGrid: ActiveGrid | null = null;
+	let detailGridFor: string | null = null;
+
+	async function loadDetailGrid(gridId: string | null) {
+		if (gridId === detailGridFor) return;
+		detailGridFor = gridId;
+		detailGrid = null;
+		if (!gridId) return;
+		try {
+			const loaded = await fetchGrid(gridId);
+			if (detailGridFor === gridId) detailGrid = loaded;
+		} catch (error) {
+			logger.error('Failed to load the grid for this generation:', error);
+		}
+	}
+
+	$: void loadDetailGrid(currentState.selectedGeneration?.grid_id ?? null);
+	$: detailCellIndex =
+		detailGrid && currentState.selectedGeneration
+			? detailGrid.cells.findIndex((cell) => cell.generationId === currentState.selectedGeneration?.id)
+			: -1;
+	$: detailAxisTags = (() => {
+		const tags: Record<string, string> = {};
+		if (!detailGrid || !currentState.selectedGeneration) return tags;
+		for (const field of Object.keys(currentState.selectedGeneration.axis_values ?? {})) {
+			const tag = axisTag(field, detailGrid.config);
+			if (tag) tags[field] = tag;
+		}
+		return tags;
+	})();
+
+	function openDetailGrid() {
+		if (!detailGrid?.id) return;
+		const id = detailGrid.id;
+		handleModalClose();
+		openGridId.set(id);
+	}
 
 	function handleToolSelect(tool: MediaTool, context: MediaToolContext) {
 		activeTool = tool;
@@ -315,10 +358,21 @@
 		hasPrevious={$hasPreviousGeneration}
 		hasNext={$hasNextGeneration}
 		position={$selectedPosition}
+		axisTags={detailAxisTags}
 		on:close={handleModalClose}
 		on:delete={(e) => handleDeleteRequest(e.detail)}
 		on:reuse={(e) => handleReuseRequest(e.detail)}
-	/>
+	>
+		<svelte:fragment slot="afterInformation">
+			{#if detailGrid && detailCellIndex >= 0}
+				<GridDetailsCard grid={detailGrid} index={detailCellIndex} onOpenGrid={openDetailGrid} />
+			{/if}
+		</svelte:fragment>
+	</GenerationDetailsModal>
+{/if}
+
+{#if $openGridId}
+	<HistoryGridView gridId={$openGridId} onClose={() => openGridId.set(null)} />
 {/if}
 
 <!-- Delete Confirmation Modal -->

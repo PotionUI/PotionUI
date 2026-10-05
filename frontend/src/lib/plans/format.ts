@@ -45,6 +45,19 @@ export function formatLimitChip(kind: LimitKindDescriptor, value: number): strin
 	return `${shortLabel(kind)} ${formatLimitValue(kind, value)}${suffix ? ` ${suffix}` : ''}`;
 }
 
+export function kindIcon(kind: Pick<LimitKindDescriptor, 'icon' | 'value_type' | 'plugin'>): string {
+	if (kind.icon) return kind.icon;
+	if (kind.plugin) return 'extension';
+	if (kind.value_type === 'bytes') return 'database';
+	if (kind.value_type === 'usd') return 'calendar';
+	return 'bolt';
+}
+
+export function kindUnitLabel(kind: Pick<LimitKindDescriptor, 'value_type' | 'unit' | 'window'>): string {
+	if (kind.value_type === 'bytes') return '';
+	return kind.unit;
+}
+
 export function percent(used: number, limit: number | null): number | null {
 	if (limit === null) return null;
 	if (limit <= 0) return 100;

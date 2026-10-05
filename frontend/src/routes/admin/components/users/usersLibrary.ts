@@ -2,12 +2,17 @@ import type { LibrarySectionMeta } from '$lib/components/library/librarySection'
 import type { User } from '$lib/stores/auth';
 import type { UserGroup } from '$lib/services/admin-api';
 
-export type UsersSubView = 'users' | 'groups';
+export type UsersSubView = 'users' | 'groups' | 'plans';
 
 export const USERS_LIBRARY_SECTIONS: readonly LibrarySectionMeta<UsersSubView>[] = [
 	{ id: 'users', label: 'All users', icon: 'user' },
-	{ id: 'groups', label: 'Groups', icon: 'group' }
+	{ id: 'groups', label: 'Groups', icon: 'group' },
+	{ id: 'plans', label: 'Plans', icon: 'layers' }
 ];
+
+export function usersSubViewFromParam(value: string | null): UsersSubView {
+	return value === 'groups' || value === 'plans' ? value : 'users';
+}
 
 export interface AccountTypeCounts {
 	ADMIN: number;

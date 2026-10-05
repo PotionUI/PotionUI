@@ -2,9 +2,10 @@ import type { User } from '$lib/stores/auth';
 import { parseServerDate } from '$lib/utils/relativeTime';
 import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
 import type { FilterChip, SortOption } from '$lib/components/library/librarySection';
+import { isUsageSort } from '$lib/plans/usage';
 
 export type UserAccountTypeFilter = 'all' | 'USER' | 'ADMIN';
-export type UserSortBy = 'username' | 'created';
+export type UserSortBy = 'username' | 'created' | (string & {});
 
 export interface UsersFilters {
 	q: string;
@@ -48,11 +49,15 @@ const codec = createFilterCodec<UsersFilters>({
 });
 
 export function usersFiltersFromSearchParams(params: URLSearchParams): UsersFilters {
-	return codec.fromSearchParams(params);
+	const filters = codec.fromSearchParams(params);
+	const rawSort = params.get('sort_by');
+	return rawSort && isUsageSort(rawSort) ? { ...filters, sortBy: rawSort } : filters;
 }
 
 export function usersFiltersToSearchParams(filters: UsersFilters): URLSearchParams {
-	return codec.toSearchParams(filters);
+	const out = codec.toSearchParams(filters);
+	if (isUsageSort(filters.sortBy)) out.set('sort_by', filters.sortBy);
+	return out;
 }
 
 export function usersFilterChips(filters: UsersFilters): FilterChip[] {

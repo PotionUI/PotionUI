@@ -95,3 +95,16 @@ describe('users filter chips', () => {
 		expect(clearAllUsersFilters(filters)).toEqual({ q: 'keep me', accountType: 'all', sortBy: 'created' });
 	});
 });
+
+describe('usage sort in the url', () => {
+	it('keeps the most-used and per-kind sort values', () => {
+		const filters = usersFiltersFromSearchParams(new URLSearchParams('sort_by=most_used'));
+		expect(filters.sortBy).toBe('most_used');
+		expect(usersFiltersToSearchParams(filters).get('sort_by')).toBe('most_used');
+		expect(usersFiltersFromSearchParams(new URLSearchParams('sort_by=kind:storage_bytes')).sortBy).toBe('kind:storage_bytes');
+	});
+
+	it('still ignores unknown sort values', () => {
+		expect(usersFiltersFromSearchParams(new URLSearchParams('sort_by=bogus')).sortBy).toBe('username');
+	});
+});

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { accountTypeCounts, deletableGroupIds, deletableUserIds } from './usersLibrary';
+import { USERS_LIBRARY_SECTIONS, accountTypeCounts, deletableGroupIds, deletableUserIds, usersSubViewFromParam } from './usersLibrary';
 import type { User } from '$lib/stores/auth';
 import type { UserGroup } from '$lib/services/admin-api';
 
@@ -68,5 +68,18 @@ describe('deletableUserIds', () => {
 		const result = deletableUserIds(new Set(['1', '3']), '2');
 		expect(result.deletableIds.sort()).toEqual(['1', '3']);
 		expect(result.skippedCount).toBe(0);
+	});
+});
+
+describe('users sub views', () => {
+	it('lists Plans as the third section', () => {
+		expect(USERS_LIBRARY_SECTIONS.map((s) => s.id)).toEqual(['users', 'groups', 'plans']);
+	});
+
+	it('reads the view param and falls back to users', () => {
+		expect(usersSubViewFromParam('plans')).toBe('plans');
+		expect(usersSubViewFromParam('groups')).toBe('groups');
+		expect(usersSubViewFromParam('nope')).toBe('users');
+		expect(usersSubViewFromParam(null)).toBe('users');
 	});
 });

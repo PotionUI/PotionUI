@@ -19,10 +19,10 @@ const GB = 1024 ** 3;
 const TB = 1024 ** 4;
 
 const kinds: LimitKindDescriptor[] = [
-	{ key: 'storage_bytes', label: 'Storage space', description: '', value_type: 'bytes', unit: 'bytes', window: 'none' },
-	{ key: 'generations_per_day', label: 'Generations per day', description: '', value_type: 'count', unit: 'count', window: 'day' },
-	{ key: 'cloud_spend_usd_month', label: 'Cloud spend per month', description: '', value_type: 'usd', unit: 'usd', window: 'month' },
-	{ key: 'credits', label: 'Credits', description: '', value_type: 'count', unit: 'count', window: 'none', plugin: 'image-gen' }
+	{ key: 'storage_bytes', label: 'Storage space', description: '', value_type: 'bytes', unit: 'GB', input_scale: 1073741824, window: 'none' },
+	{ key: 'generations_per_day', label: 'Generations per day', description: '', value_type: 'count', unit: 'per day', input_scale: 1, window: 'day' },
+	{ key: 'cloud_spend_usd_month', label: 'Cloud spend per month', description: '', value_type: 'usd', unit: 'USD / month', input_scale: 1, window: 'month' },
+	{ key: 'credits', label: 'Credits', description: '', value_type: 'count', unit: 'credits', input_scale: 1, window: 'none', plugin: true }
 ];
 
 describe('value conversion', () => {
@@ -59,9 +59,25 @@ describe('draft editing', () => {
 		expect(availableKinds(kinds, draft).map((k) => k.key)).toEqual(['generations_per_day', 'cloud_spend_usd_month', 'credits']);
 	});
 
-	it('skips inactive plugin kinds in the picker', () => {
-		const withInactive = [...kinds, { ...kinds[3], key: 'old', active: false }];
-		expect(availableKinds(withInactive, emptyDraft()).some((k) => k.key === 'old')).toBe(false);
+	it('keeps a limit of an inactive kind untouched and sends it back unchanged', () => {
+		const plan: Plan = {
+			id: 'p',
+			name: 'Old',
+			description: '',
+			is_system: false,
+			limits: [
+				{ kind: 'storage_bytes', value: 5 * GB },
+				{ kind: 'gone.credits', value: 500, active: false }
+			]
+		};
+		const draft = draftFromPlan(plan, kinds);
+		expect(draft.limits[1].inactiveValue).toBe(500);
+		expect(draftToBody(draft, kinds)?.limits).toEqual(plan.limits.map((l) => ({ kind: l.kind, value: l.value })));
+	});
+
+	it('converts a scaled count kind with input_scale', () => {
+		const thousands = { ...kinds[1], input_scale: 1000 };
+		expect(displayToValue(thousands, '2', 'GB')).toBe(2000);
 	});
 
 	it('removes a limit and makes the kind available again', () => {

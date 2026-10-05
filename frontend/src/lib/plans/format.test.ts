@@ -3,9 +3,9 @@ import { formatBytes, formatLimitChip, formatLimitValue, formatResetText, format
 import type { LimitKindDescriptor } from './types';
 
 const GB = 1024 ** 3;
-const storage: LimitKindDescriptor = { key: 's', label: 'Storage space', description: '', value_type: 'bytes', unit: 'bytes', window: 'none' };
-const daily: LimitKindDescriptor = { key: 'd', label: 'Generations per day', description: '', value_type: 'count', unit: 'count', window: 'day' };
-const cloud: LimitKindDescriptor = { key: 'c', label: 'Cloud spend per month', description: '', value_type: 'usd', unit: 'usd', window: 'month' };
+const storage: LimitKindDescriptor = { key: 's', label: 'Storage space', description: '', value_type: 'bytes', unit: 'GB', input_scale: 1073741824, window: 'none' };
+const daily: LimitKindDescriptor = { key: 'd', label: 'Generations per day', description: '', value_type: 'count', unit: 'per day', input_scale: 1, window: 'day' };
+const cloud: LimitKindDescriptor = { key: 'c', label: 'Cloud spend per month', description: '', value_type: 'usd', unit: 'USD / month', input_scale: 1, window: 'month' };
 
 describe('format', () => {
 	it('formats bytes, currency and no limit', () => {

@@ -9,10 +9,13 @@ export const BYTE_UNIT_OPTIONS: ReadonlyArray<{ value: ByteUnit; label: string }
 
 const BYTE_FACTORS: Record<ByteUnit, number> = { GB: 1024 ** 3, TB: 1024 ** 4 };
 
+type ScaleKind = Pick<LimitKindDescriptor, 'value_type' | 'input_scale'>;
+
 export interface DraftLimit {
 	kind: string;
 	text: string;
 	unit: ByteUnit;
+	inactiveValue?: number;
 }
 
 export interface PlanDraft {
@@ -23,21 +26,21 @@ export interface PlanDraft {
 
 export function bytesToDisplay(bytes: number): { text: string; unit: ByteUnit } {
 	const unit: ByteUnit = bytes >= BYTE_FACTORS.TB && bytes % BYTE_FACTORS.TB === 0 ? 'TB' : 'GB';
-	const value = bytes / BYTE_FACTORS[unit];
-	return { text: String(Number(value.toFixed(3))), unit };
+	return { text: String(Number((bytes / BYTE_FACTORS[unit]).toFixed(3))), unit };
 }
 
-export function displayToValue(kind: Pick<LimitKindDescriptor, 'value_type'>, text: string, unit: ByteUnit): number | null {
+export function displayToValue(kind: ScaleKind, text: string, unit: ByteUnit): number | null {
 	const parsed = Number(text.trim());
 	if (text.trim() === '' || !Number.isFinite(parsed) || parsed < 0) return null;
 	if (kind.value_type === 'bytes') return Math.round(parsed * BYTE_FACTORS[unit]);
-	if (kind.value_type === 'count') return Number.isInteger(parsed) ? parsed : null;
-	return Math.round(parsed * 100) / 100;
+	const scaled = parsed * (kind.input_scale || 1);
+	if (kind.value_type === 'count') return Number.isInteger(scaled) ? scaled : null;
+	return Math.round(scaled * 100) / 100;
 }
 
-export function valueToDisplay(kind: Pick<LimitKindDescriptor, 'value_type'>, value: number): { text: string; unit: ByteUnit } {
+export function valueToDisplay(kind: ScaleKind, value: number): { text: string; unit: ByteUnit } {
 	if (kind.value_type === 'bytes') return bytesToDisplay(value);
-	return { text: String(value), unit: 'GB' };
+	return { text: String(Number((value / (kind.input_scale || 1)).toFixed(2))), unit: 'GB' };
 }
 
 export function emptyDraft(): PlanDraft {
@@ -50,15 +53,17 @@ export function draftFromPlan(plan: Plan, kinds: readonly LimitKindDescriptor[])
 		description: plan.description ?? '',
 		limits: plan.limits.map((limit) => {
 			const kind = kinds.find((k) => k.key === limit.kind);
-			const { text, unit } = kind ? valueToDisplay(kind, limit.value) : { text: String(limit.value), unit: 'GB' as ByteUnit };
-			return { kind: limit.kind, text, unit };
+			if (!kind || limit.active === false) {
+				return { kind: limit.kind, text: String(limit.value), unit: 'GB' as ByteUnit, inactiveValue: limit.value };
+			}
+			return { kind: limit.kind, ...valueToDisplay(kind, limit.value) };
 		})
 	};
 }
 
 export function availableKinds(kinds: readonly LimitKindDescriptor[], draft: PlanDraft): LimitKindDescriptor[] {
 	const used = new Set(draft.limits.map((limit) => limit.kind));
-	return kinds.filter((kind) => kind.active !== false && !used.has(kind.key));
+	return kinds.filter((kind) => !used.has(kind.key));
 }
 
 export function addLimit(draft: PlanDraft, kind: LimitKindDescriptor): PlanDraft {
@@ -79,8 +84,12 @@ export function setLimitUnit(draft: PlanDraft, kindKey: string, unit: ByteUnit):
 }
 
 export function draftToBody(draft: PlanDraft, kinds: readonly LimitKindDescriptor[]): PlanBody | null {
-	const limits = [];
+	const limits: PlanBody['limits'] = [];
 	for (const limit of draft.limits) {
+		if (limit.inactiveValue !== undefined) {
+			limits.push({ kind: limit.kind, value: limit.inactiveValue });
+			continue;
+		}
 		const kind = kinds.find((k) => k.key === limit.kind);
 		if (!kind) return null;
 		const value = displayToValue(kind, limit.text, limit.unit);

@@ -39,8 +39,33 @@
 		accountTypeCounts,
 		deletableGroupIds,
 		deletableUserIds,
+		usersSubViewFromParam,
 		type UsersSubView
 	} from './users/usersLibrary';
+	import * as plansApi from '$lib/plans/api';
+	import type {
+		GroupImpact,
+		LimitKindDescriptor,
+		Plan,
+		PlanBody,
+		PlanDetail,
+		PlansSettings,
+		UserPlanDetail,
+		UserUsageRow
+	} from '$lib/plans/types';
+	import { isUsageSort, sortByUsage, sourceLabel, usageSortOptions } from '$lib/plans/usage';
+	import PlansList from './plans/PlansList.svelte';
+	import PlanEditor from './plans/PlanEditor.svelte';
+	import GroupPlanSection from './plans/GroupPlanSection.svelte';
+	import UserPlanSection from './plans/UserPlanSection.svelte';
+	import UserResolutionCard from './plans/UserResolutionCard.svelte';
+	import { usageColumnCell } from './plans/usageColumnCell';
+	import {
+		applyPlansFilters,
+		plansFiltersFromSearchParams,
+		plansFiltersToSearchParams,
+		type PlansFilters
+	} from './plansFilters';
 	import {
 		USER_ACCOUNT_TYPE_OPTIONS,
 		USERS_SORT_OPTIONS,
@@ -73,18 +98,19 @@
 	type UserDetailTab = 'overview' | 'groups' | 'presets' | 'llms' | 'models';
 	type GroupDetailTab = 'overview' | 'users' | 'presets' | 'llms' | 'models';
 
-	const subView = $derived((($page.url.searchParams.get('view') as SubView) || 'users') === 'groups' ? 'groups' : 'users');
+	const subView = $derived(usersSubViewFromParam($page.url.searchParams.get('view')));
 	const viewId = $derived($page.url.searchParams.get('id'));
 	const detailOpen = $derived(!!viewId);
 
 	const usersFilters = $derived(usersFiltersFromSearchParams($page.url.searchParams));
 	const groupsFilters = $derived(groupsFiltersFromSearchParams($page.url.searchParams));
+	const plansFilters = $derived(plansFiltersFromSearchParams($page.url.searchParams));
 
 	function buildUrl(overrides: { view?: SubView; id?: string | null } = {}): string {
 		const url = new URL($page.url);
 		url.searchParams.set('tab', 'users');
 		const nextView = overrides.view ?? subView;
-		if (nextView === 'groups') url.searchParams.set('view', 'groups');
+		if (nextView !== 'users') url.searchParams.set('view', nextView);
 		else url.searchParams.delete('view');
 		const id = overrides.id !== undefined ? overrides.id : viewId;
 		if (id) url.searchParams.set('id', id);
@@ -129,6 +155,33 @@
 		}, 250);
 	}
 
+	let plansFiltersDebounce: ReturnType<typeof setTimeout> | undefined;
+	function updatePlansFilters(next: PlansFilters) {
+		clearTimeout(plansFiltersDebounce);
+		plansFiltersDebounce = setTimeout(() => {
+			const url = new URL($page.url);
+			url.searchParams.delete('plan_q');
+			for (const [key, value] of plansFiltersToSearchParams(next)) url.searchParams.set(key, value);
+			void goto(`${url.pathname}?${url.searchParams.toString()}`, { replaceState: true, keepFocus: true, noScroll: true });
+		}, 250);
+	}
+
+	const NEW_PLAN_ID = 'new';
+	const EMPTY_PLANS_SETTINGS: PlansSettings = { default_plan_id: null, exempt_admins: true, day_timezone: 'UTC', contact_line: '' };
+	let plans = $state<Plan[]>([]);
+	let planKinds = $state<LimitKindDescriptor[]>([]);
+	let plansSettings = $state<PlansSettings>(EMPTY_PLANS_SETTINGS);
+	let usageByUser = $state<Map<string, UserUsageRow>>(new Map());
+	let loadingPlans = $state(true);
+	let plansError = $state<string | null>(null);
+	let savingPlan = $state(false);
+	let groupImpact = $state<GroupImpact | null>(null);
+	let loadingGroupImpact = $state(false);
+	let userPlanDetail = $state<UserPlanDetail | null>(null);
+	let planDetail = $state<PlanDetail | null>(null);
+	let planKindsInUse = $state<LimitKindDescriptor[]>([]);
+	let groupPlanById = $state<Record<string, string | null>>({});
+
 	let users = $state<User[]>([]);
 	let loadingUsers = $state(true);
 	let usersError = $state<string | null>(null);
@@ -148,7 +201,9 @@
 	let editUserFormData = $state<UserEditFormData>(emptyUserFormData());
 	let editUserSnapshot = $state(JSON.stringify(emptyUserFormData()));
 	let editUserSaving = $state(false);
-	const editUserDirty = $derived(JSON.stringify(editUserFormData) !== editUserSnapshot);
+	let userPlanDraft = $state<string | null>(null);
+	let userPlanSaved = $state<string | null>(null);
+	const editUserDirty = $derived(JSON.stringify(editUserFormData) !== editUserSnapshot || userPlanDraft !== userPlanSaved);
 
 	let groups = $state<adminApi.UserGroup[]>([]);
 	let loadingGroups = $state(true);
@@ -168,7 +223,9 @@
 	let editGroupFormData = $state<GroupEditFormData>(emptyGroupEditForm());
 	let editGroupSnapshot = $state(JSON.stringify(emptyGroupEditForm()));
 	let editGroupSaving = $state(false);
-	const editGroupDirty = $derived(JSON.stringify(editGroupFormData) !== editGroupSnapshot);
+	let groupPlanDraft = $state<string | null>(null);
+	let groupPlanSaved = $state<string | null>(null);
+	const editGroupDirty = $derived(JSON.stringify(editGroupFormData) !== editGroupSnapshot || groupPlanDraft !== groupPlanSaved);
 
 	let membersByGroup = $state<Record<string, adminApi.UserGroupMember[]>>({});
 	let loadingMemberships = $state(true);
@@ -242,9 +299,150 @@
 	let bulkDeletingGroups = $state(false);
 
 	async function bootstrap() {
-		await Promise.all([loadUsers(), loadGroups()]);
+		await Promise.all([loadUsers(), loadGroups(), loadPlans()]);
 		await loadMemberships();
 		await Promise.all([loadLLMConfigs(), loadPresets()]);
+	}
+
+	async function loadPlans() {
+		loadingPlans = true;
+		try {
+			const [overview, usage, groupRows] = await Promise.all([
+				plansApi.getPlansOverview(),
+				plansApi.listUsersUsage(),
+				plansApi.listGroupPlans()
+			]);
+			planKinds = overview.kinds;
+			plans = overview.plans;
+			plansSettings = overview.settings;
+			planKindsInUse = usage.kinds;
+			usageByUser = new Map(usage.users.map((row) => [row.user_id, row]));
+			groupPlanById = Object.fromEntries(groupRows.map((row) => [row.id, row.plan?.id ?? null]));
+			plansError = null;
+		} catch (error) {
+			logger.error('Failed to load plans:', error);
+			plansError = getApiErrorMessage(error, 'Failed to load plans');
+		} finally {
+			loadingPlans = false;
+		}
+	}
+
+	async function savePlansSettings(patch: Partial<PlansSettings>) {
+		const previous = plansSettings;
+		plansSettings = { ...plansSettings, ...patch };
+		try {
+			plansSettings = await plansApi.updatePlansSettings(patch);
+			if ('default_plan_id' in patch) await loadPlans();
+		} catch (error) {
+			plansSettings = previous;
+			logger.error('Failed to save plan settings:', error);
+			toasts.error(getApiErrorMessage(error, 'Failed to save plan settings.'));
+		}
+	}
+
+	async function loadUserEffective(userId: string) {
+		try {
+			const detail = await plansApi.getUserPlanDetail(userId);
+			if (selectedUserId !== userId) return;
+			userPlanDetail = detail;
+			userPlanSaved = detail.override_plan?.id ?? null;
+			userPlanDraft = userPlanSaved;
+		} catch (error) {
+			logger.error('Failed to load user plan:', error);
+		}
+	}
+
+	async function loadPlanDetail(planId: string) {
+		try {
+			const detail = await plansApi.getPlanDetail(planId);
+			if (planDetailId === planId) planDetail = detail;
+		} catch (error) {
+			logger.error('Failed to load plan detail:', error);
+		}
+	}
+
+	async function loadGroupImpact(groupId: string, planId: string | null) {
+		loadingGroupImpact = true;
+		try {
+			const impact = await plansApi.getGroupPlanImpact(groupId, planId);
+			if (selectedGroupId === groupId && groupPlanDraft === planId) groupImpact = impact;
+		} catch (error) {
+			logger.error('Failed to load plan impact:', error);
+			groupImpact = null;
+		} finally {
+			loadingGroupImpact = false;
+		}
+	}
+
+	function changeGroupPlan(planId: string | null) {
+		groupPlanDraft = planId;
+	}
+
+	const planDetailId = $derived(subView === 'plans' ? viewId : null);
+	const activePlan = $derived(planDetailId && planDetailId !== NEW_PLAN_ID ? (plans.find((p) => p.id === planDetailId) ?? null) : null);
+	const defaultPlanName = $derived(plans.find((p) => p.id === plansSettings.default_plan_id)?.name ?? null);
+
+	async function savePlan(body: PlanBody) {
+		savingPlan = true;
+		try {
+			if (activePlan) {
+				await plansApi.updatePlan(activePlan.id, body);
+				toasts.success(`${body.name} updated`);
+				await Promise.all([loadPlans(), loadPlanDetail(activePlan.id)]);
+			} else {
+				const created = await plansApi.createPlan(body);
+				toasts.success(`${body.name} created`);
+				await loadPlans();
+				navigate({ view: 'plans', id: created.id });
+			}
+		} catch (error) {
+			logger.error('Failed to save plan:', error);
+			toasts.error(getApiErrorMessage(error, 'Failed to save plan.'));
+		} finally {
+			savingPlan = false;
+		}
+	}
+
+	async function handleDeletePlan(plan: Plan) {
+		if (
+			!(await confirmDialog({
+				title: `Delete plan "${plan.name}"?`,
+				message: 'A plan that is assigned to a group or a user cannot be deleted. This action cannot be undone.',
+				variant: 'danger'
+			}))
+		)
+			return;
+		try {
+			await plansApi.deletePlan(plan.id);
+			await loadPlans();
+			navigate({ id: null });
+		} catch (error: any) {
+			const detail = error?.response?.data?.detail;
+			if (detail?.error === 'plan_in_use') {
+				const groupNames = (detail.assigned_to?.groups ?? []).map((g: { name: string }) => g.name);
+				const userNames = (detail.assigned_to?.users ?? []).map((u: { username: string }) => u.username);
+				const assigned = [...groupNames.map((n: string) => `group ${n}`), ...userNames.map((n: string) => `user ${n}`)].join(', ');
+				if (
+					await confirmDialog({
+						title: `"${plan.name}" is still assigned`,
+						message: `It is assigned to ${assigned}. Delete it anyway and clear those assignments? Groups go back to inheriting the default and personal overrides are removed.`,
+						variant: 'danger'
+					})
+				) {
+					try {
+						await plansApi.deletePlan(plan.id, 'none');
+						await loadPlans();
+						navigate({ id: null });
+					} catch (retryError) {
+						logger.error('Failed to delete plan:', retryError);
+						toasts.error(getApiErrorMessage(retryError, 'Failed to delete plan.'));
+					}
+				}
+				return;
+			}
+			logger.error('Failed to delete plan:', error);
+			toasts.error(getApiErrorMessage(error, 'Failed to delete plan.'));
+		}
 	}
 
 	onMount(() => {
@@ -348,6 +546,7 @@
 
 	function discardUserEdit() {
 		loadUserEditForm(activeUser);
+		userPlanDraft = userPlanSaved;
 	}
 
 	async function saveUserEdit() {
@@ -361,6 +560,10 @@
 			if (editUserFormData.account_type) updateData.account_type = editUserFormData.account_type;
 			const response: any = await adminApi.updateUser(activeUser.id, updateData);
 			if (response.success !== false) {
+				if (userPlanDraft !== userPlanSaved) {
+					await plansApi.setUserPlan(activeUser.id, userPlanDraft);
+					await Promise.all([loadUserEffective(activeUser.id), loadPlans()]);
+				}
 				toasts.success(`${editUserFormData.username || activeUser.username} updated`);
 				await loadUsers();
 				loadUserEditForm(users.find((u) => u.id === activeUser!.id) ?? null);
@@ -533,6 +736,7 @@
 
 	function discardGroupEdit() {
 		loadGroupEditForm(activeGroupEntity);
+		groupPlanDraft = groupPlanSaved;
 	}
 
 	async function saveGroupEdit() {
@@ -547,6 +751,11 @@
 			}
 			const response: any = await adminApi.updateUserGroup(activeGroupEntity.id, updateData);
 			if (response.success !== false) {
+				if (groupPlanDraft !== groupPlanSaved) {
+					await plansApi.setGroupPlan(activeGroupEntity.id, groupPlanDraft);
+					groupPlanSaved = groupPlanDraft;
+					await loadPlans();
+				}
 				toasts.success(`${editGroupFormData.name || activeGroupEntity.name} updated`);
 				await loadGroups();
 				loadGroupEditForm(groups.find((g) => g.id === activeGroupEntity!.id) ?? null);
@@ -1050,7 +1259,35 @@
 			: []
 	);
 
-	const filteredUsers = $derived(applyUsersFilters(users, usersFilters));
+	const usageKinds = $derived(planKindsInUse);
+	const usersSortOptions = $derived([...USERS_SORT_OPTIONS, ...(usageKinds.length ? usageSortOptions(usageKinds) : [])]);
+	const filteredUsers = $derived.by(() => {
+		const rows = applyUsersFilters(users, usersFilters);
+		return isUsageSort(usersFilters.sortBy) ? sortByUsage(rows, usageByUser, usersFilters.sortBy) : rows;
+	});
+	const userColumns = $derived<DataTableColumn<User>[]>([
+		{ key: 'username', label: 'Username', width: 'minmax(180px,1.4fr)', priority: 0 as const, accessor: (u: User) => u.username },
+		{ key: 'account_type', label: 'Account type', width: '130px', priority: 0 as const, cell: userAccountTypeCell },
+		{ key: 'email', label: 'Email', width: 'minmax(160px,1.6fr)', priority: 1 as const, mono: true, accessor: (u: User) => u.email },
+		...(usageKinds.length
+			? [
+					{ key: 'plan', label: 'Plan', width: '120px', priority: 1 as const, accessor: (u: User) => usageByUser.get(u.id)?.plan?.name ?? '—' },
+					{ key: 'plan_source', label: 'Source', width: '90px', priority: 2 as const, accessor: (u: User) => sourceLabel(usageByUser.get(u.id)?.source ?? 'none', usageByUser.get(u.id)?.exempt) },
+					...usageKinds.map((kind) => ({
+						key: `usage:${kind.key}`,
+						label: kind.short_label ?? kind.label,
+						width: 'minmax(190px,1.2fr)',
+						priority: 1 as const,
+						cell: usageColumnCell<User>(kind, () => usageByUser)
+					}))
+				]
+			: []),
+		{ key: 'groups', label: 'Groups', width: '90px', priority: 2 as const, align: 'right', mono: true, accessor: (u: User) => (userGroupIds[u.id] || []).length },
+		{ key: 'created', label: 'Created', width: '140px', priority: 2 as const, mono: true, accessor: (u: User) => (u.created_at ? timeAgo(u.created_at) : '—') },
+		{ key: 'last_login', label: 'Last login', width: '140px', priority: 2 as const, mono: true, accessor: (u: User) => (u.last_login ? timeAgo(u.last_login) : '—') }
+	]);
+
+	const filteredPlans = $derived(applyPlansFilters(plans, plansFilters));
 	const userFilterChips = $derived(usersFilterChips(usersFilters));
 	const activeUserFilterCount = $derived(usersFilterActiveCount(usersFilters));
 	function clearUserFilters() {
@@ -1107,7 +1344,43 @@
 		const id = activeGroupEntity?.id ?? null;
 		if (id === editGroupLoadedFor) return;
 		editGroupLoadedFor = id;
-		untrack(() => loadGroupEditForm(activeGroupEntity));
+		untrack(() => {
+			loadGroupEditForm(activeGroupEntity);
+			groupPlanSaved = groupPlanById[activeGroupEntity?.id ?? ''] ?? null;
+			groupPlanDraft = groupPlanSaved;
+			groupImpact = null;
+		});
+	});
+
+	$effect(() => {
+		const id = selectedGroupId;
+		const planId = groupPlanDraft;
+		if (!id || groupDetailTab !== 'overview') return;
+		untrack(() => void loadGroupImpact(id, planId));
+	});
+
+	let planDetailLoadedFor: string | null = null;
+	$effect(() => {
+		const id = planDetailId && planDetailId !== NEW_PLAN_ID ? planDetailId : null;
+		if (id === planDetailLoadedFor) return;
+		planDetailLoadedFor = id;
+		untrack(() => {
+			planDetail = null;
+			if (id) void loadPlanDetail(id);
+		});
+	});
+
+	let userEffectiveLoadedFor: string | null = null;
+	$effect(() => {
+		const id = selectedUserId;
+		if (id === userEffectiveLoadedFor) return;
+		userEffectiveLoadedFor = id;
+		untrack(() => {
+			userPlanDetail = null;
+			userPlanSaved = null;
+			userPlanDraft = null;
+			if (id) void loadUserEffective(id);
+		});
 	});
 
 	$effect(() => {
@@ -1205,14 +1478,14 @@
 	sections={USERS_LIBRARY_SECTIONS}
 	section={subView}
 	onSelectSection={setSubView}
-	sectionCounts={{ users: users.length, groups: groups.length }}
-	count={subView === 'users' ? filteredUsers.length : filteredGroups.length}
+	sectionCounts={{ users: users.length, groups: groups.length, plans: plans.length }}
+	count={subView === 'users' ? filteredUsers.length : subView === 'groups' ? filteredGroups.length : filteredPlans.length}
 	{detailOpen}
-	filterChips={subView === 'users' ? userFilterChips : groupFilterChips}
+	filterChips={subView === 'users' ? userFilterChips : subView === 'groups' ? groupFilterChips : []}
 	onRemoveChip={(key) => (subView === 'users' ? removeUserFilterChip(key) : removeGroupFilterChip(key))}
 	onClearFilters={() => (subView === 'users' ? clearUserFilters() : clearGroupFilters())}
-	loadedCount={subView === 'users' ? filteredUsers.length : filteredGroups.length}
-	total={subView === 'users' ? users.length : groups.length}
+	loadedCount={subView === 'users' ? filteredUsers.length : subView === 'groups' ? filteredGroups.length : filteredPlans.length}
+	total={subView === 'users' ? users.length : subView === 'groups' ? groups.length : plans.length}
 >
 	{#snippet sidebarTree()}
 		{#if subView === 'users'}
@@ -1243,7 +1516,7 @@
 				onQueryChange={(value) => updateUsersFilters({ ...usersFilters, q: value })}
 				searchPlaceholder="Search by name or email…"
 				sortBy={usersFilters.sortBy}
-				sortOptions={USERS_SORT_OPTIONS}
+				sortOptions={usersSortOptions}
 				onSortChange={(value) => updateUsersFilters({ ...usersFilters, sortBy: value as UserSortBy })}
 				filterCount={activeUserFilterCount}
 			>
@@ -1258,6 +1531,12 @@
 					</FilterPopoverFrame>
 				{/snippet}
 			</LibraryFilterBar>
+		{:else if subView === 'plans'}
+			<LibraryFilterBar
+				q={plansFilters.q}
+				onQueryChange={(value) => updatePlansFilters({ ...plansFilters, q: value })}
+				searchPlaceholder="Search plans…"
+			/>
 		{:else}
 			<LibraryFilterBar
 				q={groupsFilters.q}
@@ -1273,6 +1552,8 @@
 	{#snippet primary()}
 		{#if subView === 'users'}
 			<Button variant="primary" size="sm" icon="plus" onclick={openCreateUserModal}>Add user</Button>
+		{:else if subView === 'plans'}
+			<Button variant="primary" size="sm" icon="plus" onclick={() => navigate({ view: 'plans', id: NEW_PLAN_ID })}>New plan</Button>
 		{:else}
 			<Button variant="primary" size="sm" icon="plus" onclick={openCreateGroupModal}>Add group</Button>
 		{/if}
@@ -1340,9 +1621,17 @@
 											</DetailField>
 										</div>
 									</DetailSection>
+									<UserPlanSection
+										plans={plans}
+										kinds={planKinds}
+										detail={userPlanDetail}
+										overrideId={userPlanDraft}
+										onChange={(planId) => (userPlanDraft = planId)}
+									/>
 								{/snippet}
 
 								{#snippet aside()}
+									{#if userPlanDetail}<UserResolutionCard detail={userPlanDetail} />{/if}
 									<DetailSection label="MCP Access">
 										<div class="flex items-start justify-between gap-6">
 											<div>
@@ -1477,6 +1766,30 @@
 					{/if}
 				</div>
 			{/if}
+		{:else if subView === 'plans'}
+			{#if planDetailId !== NEW_PLAN_ID && !activePlan}
+				<div class="flex h-full items-center justify-center">
+					{#if loadingPlans}
+						<Spinner size="lg" />
+					{:else}
+						<EmptyState title="Plan not found" description="This plan may have been removed." icon="layers" compact>
+							{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => navigate({ id: null })}>Back to plans</Button>{/snippet}
+						</EmptyState>
+					{/if}
+				</div>
+			{:else}
+				{#key planDetailId}
+					<PlanEditor
+						plan={activePlan}
+						kinds={planKinds}
+						detail={planDetail}
+						saving={savingPlan}
+						onSave={savePlan}
+						onDelete={activePlan ? () => handleDeletePlan(activePlan) : undefined}
+						onBack={() => navigate({ id: null })}
+					/>
+				{/key}
+			{/if}
 		{:else if !activeGroupEntity}
 			<div class="flex h-full items-center justify-center">
 				{#if loadingGroups}
@@ -1547,6 +1860,15 @@
 										</div>
 									{/if}
 								</DetailSection>
+								<GroupPlanSection
+									plans={plans}
+									kinds={planKinds}
+									planId={groupPlanDraft}
+									{defaultPlanName}
+									impact={groupImpact}
+									loadingImpact={loadingGroupImpact}
+									onChange={changeGroupPlan}
+								/>
 							{/snippet}
 						</DetailLayout>
 					</DetailBody>
@@ -1664,6 +1986,23 @@
 				{/if}
 			</div>
 		{/if}
+	{:else if subView === 'plans'}
+		{#if loadingPlans}
+			<div class="flex h-full flex-col items-center justify-center">
+				<Spinner size="lg" />
+				<p class="text-sm text-fg-muted mt-4">Loading plans…</p>
+			</div>
+		{:else if plansError && plans.length === 0}
+			<LoadErrorState message={plansError} onRetry={loadPlans} retrying={loadingPlans} />
+		{:else}
+			<PlansList
+				plans={filteredPlans}
+				kinds={planKinds}
+				settings={plansSettings}
+				onOpen={(plan) => navigate({ view: 'plans', id: plan.id })}
+				onSettings={savePlansSettings}
+			/>
+		{/if}
 	{:else if subView === 'users'}
 		{#if loadingUsers || loadingMemberships}
 			<div class="flex h-full flex-col items-center justify-center">
@@ -1675,14 +2014,7 @@
 		{:else}
 			<div class="flex flex-col gap-3 p-4">
 				<DataTable
-					columns={[
-						{ key: 'username', label: 'Username', width: 'minmax(180px,1.4fr)', priority: 0, accessor: (u: User) => u.username },
-						{ key: 'account_type', label: 'Account type', width: '130px', priority: 0, cell: userAccountTypeCell },
-						{ key: 'email', label: 'Email', width: 'minmax(160px,1.6fr)', priority: 1, mono: true, accessor: (u: User) => u.email },
-						{ key: 'groups', label: 'Groups', width: '90px', priority: 2, align: 'right', mono: true, accessor: (u: User) => (userGroupIds[u.id] || []).length },
-						{ key: 'created', label: 'Created', width: '140px', priority: 2, mono: true, accessor: (u: User) => (u.created_at ? timeAgo(u.created_at) : '—') },
-						{ key: 'last_login', label: 'Last login', width: '140px', priority: 2, mono: true, accessor: (u: User) => (u.last_login ? timeAgo(u.last_login) : '—') }
-					] as DataTableColumn<User>[]}
+					columns={userColumns}
 					rows={pagedUsers}
 					getRowId={(u) => u.id}
 					selected={selectedUserIds}
@@ -1789,7 +2121,7 @@
 			{@render userBulkActions()}
 		</svelte:fragment>
 	</SelectionActionBar>
-{:else}
+{:else if subView === 'groups'}
 	<SelectionActionBar
 		active={selectedGroupIds.size > 0}
 		selectedCount={selectedGroupIds.size}

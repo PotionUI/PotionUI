@@ -490,3 +490,38 @@ class TestMain:
         code = psr.main(["does-not-exist"])
 
         assert code == 1
+
+
+class TestSharedHelpers:
+    def test_model_form_data_or_errors_returns_messages_instead_of_printing(self, tmp_path, capsys):
+        preset_dir = tmp_path / "preset"
+        preset_dir.mkdir()
+        _write_tests_yml(preset_dir, {"diffusion_model": "a" * 64})
+        preset = _preset(preset_dir, [_style()])
+
+        resolved, errors = psr.model_form_data_or_errors(preset, FakeResolver())
+
+        assert resolved is None
+        assert len(errors) == 1 and errors[0].startswith("model 'diffusion_model': ")
+        assert capsys.readouterr().out == ""
+
+    def test_model_form_data_or_errors_resolves_paths(self, tmp_path):
+        preset_dir = tmp_path / "preset"
+        preset_dir.mkdir()
+        _write_tests_yml(preset_dir, {"diffusion_model": "a" * 64})
+        preset = _preset(preset_dir, [_style()])
+
+        resolved, errors = psr.model_form_data_or_errors(preset, FakeResolver({"a" * 64: "/m/dit.safetensors"}))
+
+        assert (resolved, errors) == ({"diffusion_model": "/m/dit.safetensors"}, [])
+
+    def test_build_form_data_applies_options_only_where_fields_exist(self, tmp_path):
+        preset = _preset(tmp_path, [_style()], extra_fields=["steps"])
+
+        form_data, steps, resolution = psr.build_form_data(
+            preset, "txt2img", 3, {"m": "/x"}, steps=20, resolution="512x512"
+        )
+
+        assert form_data == {"seed": 3, "m": "/x", "steps": 20}
+        assert steps == 20
+        assert "ignored" in resolution

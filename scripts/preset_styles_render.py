@@ -26,7 +26,7 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -74,22 +74,22 @@ def _resolve_preset(preset_loader, ref: str):
     return None
 
 
-def resolve_model_form_data(preset, resolver, overrides: Optional[Dict[str, str]] = None) -> Optional[Dict[str, str]]:
+def model_form_data_or_errors(
+    preset, resolver, overrides: Optional[Dict[str, str]] = None
+) -> Tuple[Optional[Dict[str, str]], List[str]]:
     tests = load_tests_yml(Path(preset.path))
     if tests is None or not tests.cases:
-        print(
-            f"error: preset '{preset.id}' has no tests.yml (or it declares no cases) - "
+        return None, [
+            f"preset '{preset.id}' has no tests.yml (or it declares no cases) - "
             "style rendering resolves its model fields from the first case's models: map"
-        )
-        return None
+        ]
 
     models = tests.cases[0].models
     if not models:
-        print(
-            f"error: preset '{preset.id}' tests.yml's first case declares no models: - "
+        return None, [
+            f"preset '{preset.id}' tests.yml's first case declares no models: - "
             "style rendering needs it to know which weights to use"
-        )
-        return None
+        ]
 
     if overrides:
         models = dict(models)
@@ -97,16 +97,53 @@ def resolve_model_form_data(preset, resolver, overrides: Optional[Dict[str, str]
             models[field_name] = ModelRef(sha256=sha256)
 
     resolved: Dict[str, str] = {}
-    ok = True
+    errors: List[str] = []
     for field_name, ref in models.items():
         result = resolver.resolve(ref, model_type=_model_type_hint(field_name))
         if not result.resolved:
-            print(f"error: model '{field_name}': {result.reason}")
-            ok = False
+            errors.append(f"model '{field_name}': {result.reason}")
             continue
         resolved[field_name] = result.file_path
 
-    return resolved if ok else None
+    return (None, errors) if errors else (resolved, [])
+
+
+def resolve_model_form_data(preset, resolver, overrides: Optional[Dict[str, str]] = None) -> Optional[Dict[str, str]]:
+    resolved, errors = model_form_data_or_errors(preset, resolver, overrides)
+    for error in errors:
+        print(f"error: {error}")
+    return resolved
+
+
+def build_form_data(
+    preset,
+    mode: str,
+    seed: int,
+    model_form_data: Dict[str, str],
+    steps: Optional[int] = None,
+    resolution: Optional[str] = None,
+) -> Tuple[Dict[str, Any], Any, Any]:
+    form_data: Dict[str, Any] = {"seed": seed, **model_form_data}
+    if form_has_field(preset, mode, STYLE_PREVIEW_QUANTITY_FIELD):
+        form_data[STYLE_PREVIEW_QUANTITY_FIELD] = 1
+
+    effective_steps: Any = "preset default"
+    if steps is not None:
+        if form_has_field(preset, mode, "steps"):
+            form_data["steps"] = steps
+            effective_steps = steps
+        else:
+            effective_steps = "preset default (--steps ignored, no 'steps' field)"
+
+    effective_resolution: Any = "preset default"
+    if resolution is not None:
+        if form_has_field(preset, mode, "resolution"):
+            form_data["resolution"] = resolution
+            effective_resolution = resolution
+        else:
+            effective_resolution = "preset default (--resolution ignored, no 'resolution' field)"
+
+    return form_data, effective_steps, effective_resolution
 
 
 def render_styles(
@@ -135,25 +172,9 @@ def render_styles(
     preset_dir = Path(preset.path)
     styles_yml = preset_dir / "styles.yml"
 
-    form_data: Dict[str, Any] = {"seed": seed, **model_form_data}
-    if form_has_field(preset, mode, STYLE_PREVIEW_QUANTITY_FIELD):
-        form_data[STYLE_PREVIEW_QUANTITY_FIELD] = 1
-
-    effective_steps: Any = "preset default"
-    if steps is not None:
-        if form_has_field(preset, mode, "steps"):
-            form_data["steps"] = steps
-            effective_steps = steps
-        else:
-            effective_steps = "preset default (--steps ignored, no 'steps' field)"
-
-    effective_resolution: Any = "preset default"
-    if resolution is not None:
-        if form_has_field(preset, mode, "resolution"):
-            form_data["resolution"] = resolution
-            effective_resolution = resolution
-        else:
-            effective_resolution = "preset default (--resolution ignored, no 'resolution' field)"
+    form_data, effective_steps, effective_resolution = build_form_data(
+        preset, mode, seed, model_form_data, steps=steps, resolution=resolution
+    )
 
     print(f"steps: {effective_steps}; resolution: {effective_resolution}")
 

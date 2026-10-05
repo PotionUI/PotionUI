@@ -130,7 +130,7 @@ describe('Tab bar with a single visible tab', () => {
 		expect(m.target.querySelector('[role="tablist"]')).toBeNull();
 		expect(m.input('prompt')).toBeTruthy();
 		expect(m.panelOf('prompt').classList.contains('hidden')).toBe(false);
-		expect(m.panelOf('prompt').className).not.toContain('pt-3');
+		expect(m.panelOf('prompt').className).toContain('pt-3');
 	});
 
 	it('renders the bar when two tabs are visible', async () => {

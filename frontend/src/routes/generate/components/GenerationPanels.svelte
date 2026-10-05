@@ -309,7 +309,7 @@
 					{onReload}
 				/>
 			</div>
-			<div class="p-4">
+			<div class="px-3 pb-4 pt-1">
 				<GenerationFormPane
 					bind:formRef={dynamicFormRefs[tab.id]}
 					{tab}

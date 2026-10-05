@@ -278,7 +278,7 @@
 					{@const errorCount = errorCountByIndex.get(index) ?? 0}
 					{@const changeCount = changeCountByIndex.get(index) ?? 0}
 
-					{@const buttonClass = `px-3 py-2.5 text-sm font-medium transition-colors whitespace-nowrap border-b-2 flex items-center justify-center gap-1.5 ${activeTab === index
+					{@const buttonClass = `px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap border-b-2 flex items-center justify-center gap-1.5 focus:outline-none focus-visible:outline-none focus-visible:bg-surface-2 focus-visible:text-fg ${activeTab === index
 						? 'border-signal text-signal'
 						: 'border-transparent text-fg-muted hover:text-fg hover:border-line-hover'}`}
 
@@ -342,7 +342,7 @@
 		{#each visibleTabEntries as { tab, index } (index)}
 			{#if tab.children}
 				<div
-					class="{showBar ? 'pt-3' : ''} space-y-4 {activeTab === index ? '' : 'hidden'}"
+					class="pt-3 space-y-4 {activeTab === index ? '' : 'hidden'}"
 					style="animation: {activeTab === index ? 'tabFadeIn 0.2s ease-out' : 'none'};"
 					role="tabpanel"
 					aria-hidden={activeTab !== index}

@@ -43,13 +43,14 @@ class CollectionController(BaseController):
 
     # ========== List Methods ==========
 
-    async def list_collections(self, scope: CollectionScope, user: User) -> APIResponse:
+    async def list_collections(self, scope: CollectionScope, user: User, include_descendants: bool = True) -> APIResponse:
         """List all of the user's collections within scope, with generation counts. Pure DB read."""
         try:
-            collections = self.repository.list(user.id, scope)
+            collections = self.repository.list(user.id, scope, include_descendants=include_descendants)
             return self.success_response(data={
                 "collections": [c.to_dict() for c in collections],
-                "total": len(collections)
+                "total": len(collections),
+                "smart_counts": self.repository.smart_counts(user.id, scope),
             })
         except ValueError as e:
             return self.error_api_response(error="list_collections_failed", message=str(e))
@@ -269,10 +270,11 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("", response_model=APIResponse, summary="List Collections")
     async def list_collections(
         scope: CollectionScope = Query(..., description="Which folder tree to list: 'history', 'library', or 'prompts'"),
+        include_descendants: bool = Query(True, description="Roll sub-collection items up into each parent's item_count"),
         current_user: User = Depends(get_current_active_user)
     ) -> APIResponse:
         """List all of the current user's collections within scope, with generation counts."""
-        return await controller.list_collections(scope, current_user)
+        return await controller.list_collections(scope, current_user, include_descendants)
 
     @router.post("", response_model=APIResponse, summary="Create Collection")
     async def create_collection(

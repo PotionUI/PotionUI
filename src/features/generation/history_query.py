@@ -214,7 +214,9 @@ class GenerationHistoryQuery:
         sort_by: Optional[str] = None,
         sort_dir: Optional[str] = None,
         system_tag: Optional[str] = None,
-        semantic_query: Optional[str] = None
+        semantic_query: Optional[str] = None,
+        include_descendants: bool = True,
+        unsorted: bool = False
     ) -> Dict[str, Any]:
         """Get generation history with optional filtering.
 
@@ -266,6 +268,8 @@ class GenerationHistoryQuery:
             min_rating=min_rating,
             favorites_only=favorites_only,
             collection_id=collection_id,
+            include_descendants=include_descendants,
+            unsorted=unsorted,
             used_phrasebook_value_id=used_phrasebook_value_id,
             system_tag=system_tag,
         )

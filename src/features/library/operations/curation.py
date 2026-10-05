@@ -20,3 +20,9 @@ def set_tags(
 
     collaborators.tag_repository.set_upload_tags(item_id, tag_ids)
     return [tag.model_dump() for tag in collaborators.tag_repository.get_upload_tags(item_id)]
+
+
+def set_favorite(collaborators: LibraryCollaborators, item_id: str, is_favorite: bool, user_id: str) -> bool:
+    get_owned_or_raise(collaborators, item_id, user_id)
+    collaborators.repository.set_favorite(item_id, user_id, is_favorite)
+    return is_favorite

@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
 from src.features.media.records import Upload
+from src.platform.database.collection_tree import membership_clause, unsorted_clause
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,9 @@ class LibraryRepository:
         tag_ids: Optional[List[str]] = None,
         collection_id: Optional[str] = None,
         search: Optional[str] = None,
+        include_descendants: bool = True,
+        unsorted: bool = False,
+        favorites_only: bool = False,
     ) -> Tuple[str, list]:
         """Build the shared WHERE clause so list and count can never disagree."""
         # Excludes derived artifacts (e.g. inpainting masks, migration 120) -
@@ -55,10 +59,22 @@ class LibraryRepository:
             params.append(f"%{search}%")
 
         if collection_id:
-            clauses.append(
-                "u.id IN (SELECT upload_id FROM collection_uploads WHERE collection_id = ?)"
-            )
+            clauses.append(membership_clause(
+                tree_table="collections", member_table="collection_uploads",
+                item_column="upload_id", item_ref="u.id",
+                include_descendants=include_descendants,
+            ))
             params.append(collection_id)
+
+        if unsorted:
+            clauses.append(unsorted_clause(
+                tree_table="collections", member_table="collection_uploads",
+                item_column="upload_id", item_ref="u.id", scope_column="scope",
+            ))
+            params.extend([user_id, "library"])
+
+        if favorites_only:
+            clauses.append("u.is_favorite = 1")
 
         if tag_ids:
             # ALL of the given tags must be present, matching the history
@@ -86,9 +102,15 @@ class LibraryRepository:
         search: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        include_descendants: bool = True,
+        unsorted: bool = False,
+        favorites_only: bool = False,
     ) -> List[Upload]:
         """One page of the user's library, newest first."""
-        where, params = self._filters(user_id, media_type, tag_ids, collection_id, search)
+        where, params = self._filters(
+            user_id, media_type, tag_ids, collection_id, search,
+            include_descendants, unsorted, favorites_only,
+        )
 
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
@@ -100,6 +122,15 @@ class LibraryRepository:
             """, (*params, limit, offset))
             return [Upload.from_row(row) for row in cursor.fetchall()]
 
+    def set_favorite(self, item_id: str, user_id: str, is_favorite: bool) -> bool:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE uploads SET is_favorite = ? WHERE id = ? AND user_id = ?",
+                (1 if is_favorite else 0, item_id, user_id),
+            )
+            return cursor.rowcount > 0
+
     def count_items(
         self,
         user_id: str,
@@ -107,9 +138,15 @@ class LibraryRepository:
         tag_ids: Optional[List[str]] = None,
         collection_id: Optional[str] = None,
         search: Optional[str] = None,
+        include_descendants: bool = True,
+        unsorted: bool = False,
+        favorites_only: bool = False,
     ) -> int:
         """Total rows matching the same filters `list_items` applies."""
-        where, params = self._filters(user_id, media_type, tag_ids, collection_id, search)
+        where, params = self._filters(
+            user_id, media_type, tag_ids, collection_id, search,
+            include_descendants, unsorted, favorites_only,
+        )
 
         from src.platform.database.database import db
         with db.get_cursor() as cursor:

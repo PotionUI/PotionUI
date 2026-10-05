@@ -24,6 +24,7 @@ from src.platform.security.current_user import get_current_active_user
 from src.features.library.collaborators import LibraryCollaborators
 from src.features.library.criteria_delete import delete_items, owner_criteria, preview_items
 from src.features.library.dto import (
+    SetLibraryFavoriteRequest,
     BulkDeleteLibraryByCriteriaRequest,
     CopyFromGenerationRequest,
     LibraryExportRequest,
@@ -53,6 +54,9 @@ class LibraryController(BaseController):
         search: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        include_descendants: bool = True,
+        unsorted: bool = False,
+        favorites_only: bool = False,
     ) -> APIResponse:
         """List the current user's library, newest first."""
         try:
@@ -67,6 +71,9 @@ class LibraryController(BaseController):
                 search=search,
                 limit=limit,
                 offset=offset,
+                include_descendants=include_descendants,
+                unsorted=unsorted,
+                favorites_only=favorites_only,
             )
             return self.success_response(data=result.model_dump())
         except ValueError as e:
@@ -132,6 +139,18 @@ class LibraryController(BaseController):
         except Exception as e:
             self.logger.error(f"Failed to set library item tags: {e}")
             return self.error_response(error="set_tags_failed", message="Failed to set tags")
+
+    async def set_favorite(self, item_id: str, request: SetLibraryFavoriteRequest, current_user) -> APIResponse:
+        try:
+            value = await asyncio.to_thread(
+                operations.set_favorite, self.collaborators, item_id, request.is_favorite, current_user.id
+            )
+            return self.success_response(data={"id": item_id, "is_favorite": value})
+        except ValueError as e:
+            return self.error_response(error="not_found", message=str(e), status_code=404)
+        except Exception as e:
+            self.logger.error(f"Failed to set library item favorite: {e}")
+            return self.error_response(error="set_favorite_failed", message="Failed to set favorite")
 
     async def copy_from_generation(
         self,
@@ -236,13 +255,17 @@ def build_router(container: "AppContainer") -> APIRouter:
         tag_ids: Optional[str] = Query(None, description="Comma-separated tag ids; an item must have ALL of them"),
         collection_id: Optional[str] = Query(None, description="Only items in this collection"),
         search: Optional[str] = Query(None, description="Substring match on the item's original filename"),
+        include_descendants: bool = Query(True, description="With collection_id: include sub-collections' items"),
+        unsorted: bool = Query(False, description="Only items in no collection"),
+        favorites_only: bool = Query(False, description="Only favorite items"),
         limit: int = 50,
         offset: int = 0,
         current_user=Depends(get_current_active_user)
     ) -> APIResponse:
         """List the current user's library items, newest first."""
         return await controller.list_items(
-            current_user, media_type, tag_ids, collection_id, search, limit, offset
+            current_user, media_type, tag_ids, collection_id, search, limit, offset,
+            include_descendants, unsorted, favorites_only,
         )
 
     @router.get("/facets", response_model=APIResponse, summary="Library Facets")
@@ -319,5 +342,13 @@ def build_router(container: "AppContainer") -> APIRouter:
     ) -> APIResponse:
         """Replace a library item's tags."""
         return await controller.set_tags(item_id, request, current_user)
+
+    @router.put("/items/{item_id}/favorite", response_model=APIResponse, summary="Set Library Item Favorite")
+    async def set_favorite(
+        item_id: str,
+        request: SetLibraryFavoriteRequest,
+        current_user=Depends(get_current_active_user)
+    ) -> APIResponse:
+        return await controller.set_favorite(item_id, request, current_user)
 
     return router

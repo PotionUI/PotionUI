@@ -18,6 +18,7 @@ from src.features.collections.records import Collection
 from src.platform.database.rows import now_utc
 from src.platform.util.ids import generate_ulid
 import logging
+from src.platform.database.collection_tree import rolled_up_counts, unsorted_clause
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,13 @@ _ITEM_COUNT_JOINS = """
 _ITEM_COUNT_EXPR = (
     "COUNT(DISTINCT cg.generation_id) + COUNT(DISTINCT cu.upload_id) + COUNT(DISTINCT cp.prompt_id)"
 )
+
+
+_SCOPE_ITEMS = {
+    "history": ("collection_generations", "generation_id", "generations", "1 = 1"),
+    "library": ("collection_uploads", "upload_id", "uploads", "t.purpose = 'user_upload'"),
+    "prompts": ("collection_prompts", "prompt_id", "prompts", "1 = 1"),
+}
 
 
 class CollectionRepository:
@@ -87,10 +95,12 @@ class CollectionRepository:
             row = cursor.fetchone()
             return Collection.from_row(row) if row else None
 
-    def list(self, user_id: str, scope: str) -> List[Collection]:
+    def list(self, user_id: str, scope: str, include_descendants: bool = False) -> List[Collection]:
         """List all of the user's collections within a scope, each with its item count."""
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
+            if include_descendants and scope in _SCOPE_ITEMS:
+                return self._list_rolled_up(cursor, user_id, scope)
             cursor.execute(f"""
                 SELECT c.id, c.name, c.user_id, c.parent_id, c.created_at, c.scope,
                        {_ITEM_COUNT_EXPR} as item_count
@@ -101,6 +111,54 @@ class CollectionRepository:
                 ORDER BY c.name ASC
             """, (user_id, scope))
             return [Collection.from_row(row) for row in cursor.fetchall()]
+
+    def _list_rolled_up(self, cursor, user_id: str, scope: str) -> List[Collection]:
+        member_table, item_column, item_table, _base = _SCOPE_ITEMS[scope]
+        counts = rolled_up_counts(
+            cursor,
+            tree_table="collections",
+            member_table=member_table,
+            item_column=item_column,
+            user_id=user_id,
+            scope=scope,
+            owned_item_table=item_table,
+        )
+        cursor.execute(
+            """
+            SELECT id, name, user_id, parent_id, created_at, scope
+            FROM collections WHERE user_id = ? AND scope = ?
+            ORDER BY name ASC
+            """,
+            (user_id, scope),
+        )
+        collections = [Collection.from_row(row) for row in cursor.fetchall()]
+        for collection in collections:
+            collection.item_count = counts.get(collection.id, 0)
+        return collections
+
+    def smart_counts(self, user_id: str, scope: str) -> Dict[str, int]:
+        member_table, item_column, item_table, base = _SCOPE_ITEMS[scope]
+        unsorted = unsorted_clause(
+            tree_table="collections",
+            member_table=member_table,
+            item_column=item_column,
+            item_ref="t.id",
+            scope_column="scope",
+        )
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT COUNT(*) AS total,
+                       COALESCE(SUM(CASE WHEN t.is_favorite = 1 THEN 1 ELSE 0 END), 0) AS favorites,
+                       COALESCE(SUM(CASE WHEN {unsorted} THEN 1 ELSE 0 END), 0) AS unsorted
+                FROM {item_table} t
+                WHERE t.user_id = ? AND {base}
+                """,
+                (user_id, scope, user_id),
+            )
+            row = cursor.fetchone()
+        return {"all": row["total"], "favorites": row["favorites"], "unsorted": row["unsorted"]}
 
     def rename(self, collection_id: str, name: str, user_id: str, scope: str) -> bool:
         """Rename a collection owned by the user, within its scope."""

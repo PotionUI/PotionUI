@@ -30,6 +30,7 @@ class LibraryItem(BaseModel):
     size: Optional[int] = None
     created_at: Optional[str] = None
     tags: List[Dict[str, Any]] = []
+    is_favorite: bool = False
 
 
 class LibraryListResult(BaseModel):
@@ -51,6 +52,10 @@ class CopyFromGenerationRequest(BaseModel):
     """Request model for copying a generated file into the library."""
 
     file_id: str
+
+
+class SetLibraryFavoriteRequest(BaseModel):
+    is_favorite: bool
 
 
 class SetLibraryTagsRequest(BaseModel):

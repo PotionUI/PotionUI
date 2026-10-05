@@ -20,7 +20,7 @@ from src.features.library.operations.reads import (
     get_tags,
     list_items,
 )
-from src.features.library.operations.curation import set_tags
+from src.features.library.operations.curation import set_tags, set_favorite
 from src.features.library.operations.mutations import (
     copy_generation_file,
     delete_item,
@@ -33,6 +33,7 @@ __all__ = [
     "get_item",
     "get_tags",
     "set_tags",
+    "set_favorite",
     "delete_item",
     "copy_generation_file",
     "export_zip",

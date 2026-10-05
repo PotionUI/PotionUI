@@ -47,6 +47,7 @@ class Upload:
     # two separate files, each independently deduped against their own past
     # uploads.
     content_hash: Optional[str] = None
+    is_favorite: bool = False
 
     @classmethod
     def from_row(cls, row) -> 'Upload':
@@ -70,4 +71,5 @@ class Upload:
             thumbnail_large=row_get(row, 'thumbnail_large'),
             thumbnail_profile=row_get(row, 'thumbnail_profile'),
             content_hash=row_get(row, 'content_hash'),
+            is_favorite=bool(row_get(row, 'is_favorite')),
         )

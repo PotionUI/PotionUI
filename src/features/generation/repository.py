@@ -11,6 +11,7 @@ from src.features.generation.history_revision_repository import (
 )
 from .file_repository import file_repo
 from src.platform.util.ids import generate_ulid
+from src.platform.database.collection_tree import membership_clause, unsorted_clause
 
 # The format SQLite's CURRENT_TIMESTAMP uses for created_at/updated_at. Timestamps written
 # from Python must match it so that the lexicographic date filters in `_date_cond` (which
@@ -139,6 +140,8 @@ class GenerationRepository:
         generation_ids: Optional[List[str]] = None,
         tag_ids: Optional[List[str]] = None,
         collection_id: Optional[str] = None,
+        include_descendants: bool = True,
+        unsorted: bool = False,
     ) -> Tuple[List[str], List[Any]]:
         """Build WHERE conditions + params shared by get_all and count_by_status.
 
@@ -230,12 +233,19 @@ class GenerationRepository:
             params.append(len(tag_ids))
 
         if collection_id:
-            conditions.append(f"""EXISTS (
-                SELECT 1 FROM collection_generations cg
-                WHERE cg.generation_id = {a}id
-                AND cg.collection_id = ?
-            )""")
+            conditions.append(membership_clause(
+                tree_table="collections", member_table="collection_generations",
+                item_column="generation_id", item_ref=f"{a}id",
+                include_descendants=include_descendants,
+            ))
             params.append(collection_id)
+
+        if unsorted:
+            conditions.append(unsorted_clause(
+                tree_table="collections", member_table="collection_generations",
+                item_column="generation_id", item_ref=f"{a}id", scope_column="scope",
+            ))
+            params.extend([user_id or "", "history"])
 
         if system_tag:
             conditions.append(f"""EXISTS (
@@ -320,6 +330,7 @@ class GenerationRepository:
                 preset_id: Optional[str] = None, model_name: Optional[str] = None,
                 min_rating: Optional[int] = None, favorites_only: bool = False,
                 collection_id: Optional[str] = None,
+                include_descendants: bool = True, unsorted: bool = False,
                 used_phrasebook_value_id: Optional[str] = None,
                 system_tag: Optional[str] = None,
                 generation_ids: Optional[List[str]] = None,
@@ -335,6 +346,7 @@ class GenerationRepository:
             used_phrasebook_value_id=used_phrasebook_value_id,
             system_tag=system_tag, generation_ids=generation_ids,
             tag_ids=tag_ids, collection_id=collection_id,
+            include_descendants=include_descendants, unsorted=unsorted,
         )
 
         query = "SELECT g.* FROM generations g"
@@ -377,6 +389,7 @@ class GenerationRepository:
                         preset_id: Optional[str] = None, model_name: Optional[str] = None,
                         min_rating: Optional[int] = None, favorites_only: bool = False,
                         collection_id: Optional[str] = None,
+                        include_descendants: bool = True, unsorted: bool = False,
                         used_phrasebook_value_id: Optional[str] = None,
                         system_tag: Optional[str] = None) -> int:
         """Count generations matching the same filters as get_all (for pagination total)."""
@@ -390,6 +403,7 @@ class GenerationRepository:
             used_phrasebook_value_id=used_phrasebook_value_id,
             system_tag=system_tag,
             tag_ids=tag_ids, collection_id=collection_id,
+            include_descendants=include_descendants, unsorted=unsorted,
         )
 
         query = "SELECT COUNT(*) FROM generations g"

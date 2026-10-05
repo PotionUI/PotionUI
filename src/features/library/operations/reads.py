@@ -30,6 +30,9 @@ def list_items(
     search: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    include_descendants: bool = True,
+    unsorted: bool = False,
+    favorites_only: bool = False,
 ) -> LibraryListResult:
     """One filtered page of the user's library.
 
@@ -54,6 +57,9 @@ def list_items(
         media_type=media_type,
         tag_ids=tag_ids or None,
         collection_id=collection_id,
+        include_descendants=include_descendants,
+        unsorted=unsorted,
+        favorites_only=favorites_only,
         search=(search or "").strip() or None,
     )
 

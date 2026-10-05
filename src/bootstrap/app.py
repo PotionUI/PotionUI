@@ -452,11 +452,15 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         container.content_safety.start_backfill_if_needed()
 
+        container.organize_worker.start()
+
         yield
 
         # Shutdown
         logging.info("Shutting down PotionUI API server...")
         await container.housekeeping_worker.stop()
+        container.organize_worker.stop()
+        container.organize_manager.shutdown()
         await container.content_safety.stop()
         await container.compute_status_monitor.stop()
         await container.download_queue.stop()

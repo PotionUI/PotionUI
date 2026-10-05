@@ -90,6 +90,10 @@ from src.platform.plugins.recipe_steps import (
     RecipeStepKindRegistry,
     recipe_step_kind_registry as _shared_recipe_step_kind_registry,
 )
+from src.platform.plugins.organize import (
+    OrganizeRegistry,
+    organize_registry as _shared_organize_registry,
+)
 from src.features.fields.builtin import register_builtin_fields
 from src.features.presets.requirements.builtin import register_builtin_requirement_checkers
 from src.features.presets.requirements.evaluator import RequirementsCache
@@ -220,6 +224,9 @@ if TYPE_CHECKING:
     from src.features.stats.routes import StatsController
     from src.features.sessions.routes import SessionController
     from src.features.formulas.routes import FormulaController
+    from src.features.organize.manager import OrganizeManager
+    from src.features.organize.routes import OrganizeController
+    from src.features.organize.worker import OrganizeWorker
     from src.features.workspaces.routes import WorkspaceController
     from src.features.user_groups.routes import UserGroupController
 
@@ -448,6 +455,10 @@ class AppContainer:
     session_version_repository: "SessionVersionRepository"
     session_controller: "SessionController"
     formula_controller: "FormulaController"
+    organize_registry: OrganizeRegistry
+    organize_manager: "OrganizeManager"
+    organize_controller: "OrganizeController"
+    organize_worker: "OrganizeWorker"
 
     # Workspaces
     workspace_repository: "WorkspaceRepository"
@@ -645,6 +656,8 @@ def build_container() -> AppContainer:
     # plugins add, and both the executor registry and the recipe catalog
     # (for lint) read from it.
     recipe_step_kind_registry = _shared_recipe_step_kind_registry
+
+    organize_registry = _shared_organize_registry
 
     plugin_router_mounter = PluginRouterMounter()
     plugin_registry = PluginRegistry(
@@ -1725,6 +1738,21 @@ def build_container() -> AppContainer:
             models=ModelRepositoryRefChecker(model_repository),
         )
     )
+
+    from src.features.notifications.types import notification_type_registry as _organize_notification_types
+    from src.features.organize.components import build_organize
+
+    organize = build_organize(
+        organize_registry,
+        content_safety,
+        notification_manager,
+        lambda: [(p["id"], p["name"]) for p in file_preset_repository.list_all_presets()],
+        notification_types=_organize_notification_types,
+    )
+    organize_manager = organize.manager
+    organize_controller = organize.controller
+    organize_worker = organize.worker
+    organize_worker.subscribe(plugin_registry.hook_chain)
 
     # Workspace components
     from src.features.workspaces.repository import WorkspaceRepository

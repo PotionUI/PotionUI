@@ -63,6 +63,7 @@ EXCLUDED_TOOL_NAMES = frozenset({
     "get_music_director",
     "update_music_director",
     "set_prompt_relay_timeline",
+    "list_models",
 })
 
 
@@ -122,6 +123,7 @@ class McpToolCollaborators:
     plugin_registry: Any = None
     generation_history_facade: Any = None
     content_safety: Any = None
+    library_collaborators: Any = None
 
 
 # --- tool exposure ---
@@ -178,6 +180,7 @@ def _build_tool_context(collaborators: McpToolCollaborators, user_id: str, is_ad
         plugin_registry=collaborators.plugin_registry,
         generation_history_facade=collaborators.generation_history_facade,
         content_safety=collaborators.content_safety,
+        library_collaborators=collaborators.library_collaborators,
         chat_session=False,
         llm_id=default_config.id if default_config else None,
     )

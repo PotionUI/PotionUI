@@ -41,6 +41,7 @@ from src.features.llm.tools.builtin.manage_prompts_tool import (
 )
 from src.features.llm.tools.builtin.run_generation_tool import RunGenerationTool
 from src.features.llm.tools.builtin.list_models_tool import ListModelsTool, SearchModelsTool
+from src.features.llm.tools.builtin.library_items_tool import ListLibraryItemsTool
 from src.features.llm.tools.builtin.memory_tool import (
     WriteMemoryTool,
     ReadMemoryTool,
@@ -109,6 +110,7 @@ def register_builtin_tools(registry) -> None:
         GetMusicDirectorTool(),
         UpdateMusicDirectorTool(),
         ManageCollectionsTool(),
+        ListLibraryItemsTool(),
         OrganizeGalleryTool(),
         StartGenerationTool(),
     ]

@@ -127,6 +127,7 @@ class ToolCallDispatcher:
                 plugin_registry=self._m.plugins,
                 generation_history_facade=self._m.generation_history_facade,
                 content_safety=self._m.content_safety,
+                library_collaborators=self._m.library_collaborators,
                 llm_id=session.llm_config_id,
             )
             resumed_tool_context = context

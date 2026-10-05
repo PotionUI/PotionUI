@@ -123,6 +123,7 @@ class ToolContext:
     plugin_registry: Any = None
     generation_history_facade: Any = None
     content_safety: Any = None
+    library_collaborators: Any = None
     chat_session: bool = True
 
     def storage_dir(self) -> Optional[str]:

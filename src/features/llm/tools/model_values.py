@@ -90,7 +90,7 @@ def validate_model_value(
     if info.get("description") == "Model not found in index":
         return [
             f"'{field_name}': no installed model matches {value!r}. Call get_preset_info or "
-            f"list_models to see the models actually installed, and use the exact filename or "
+            f"search_models to see the models actually installed, and use the exact filename or "
             f"`model:<id>` reference they return."
         ]
     return []

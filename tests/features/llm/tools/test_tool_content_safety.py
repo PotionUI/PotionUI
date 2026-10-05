@@ -15,6 +15,7 @@ from src.features.llm.tools.builtin.search_prompts_tool import SearchModelPrompt
 from src.features.prompt_database.records import Prompt
 from src.features.prompt_database.repository import PromptRepository
 from src.features.segments.dto import RichSegment
+from src.features.tags.repository import TagRepository
 from tests.conftest import TestDatabase
 from tests.features.generation.test_history_query_content_safety import ContentHistoryBase
 
@@ -25,6 +26,11 @@ class _Safety:
 
     def is_restricted(self, user_id):
         return self.restricted
+
+
+class _Hooks:
+    def execute_hook(self, hook, initial_data=None):
+        return SimpleNamespace(data=dict(initial_data or {})), None
 
 
 class _NoEmbeddings:
@@ -100,6 +106,22 @@ async def test_edit_and_delete_cannot_reach_an_nsfw_prompt_for_a_restricted_view
 class _HistoryFacade:
     def __init__(self, query):
         self.query = query
+        self.writes = []
+
+    def get_tags(self, generation_id, user_id):
+        return []
+
+    def set_rating(self, generation_id, rating, user_id):
+        self.writes.append(("rate", generation_id))
+        return rating
+
+    def update_tags(self, generation_id, tag_ids, user_id):
+        self.writes.append(("tag", generation_id))
+        return []
+
+    def remove_tag(self, generation_id, tag_id, user_id):
+        self.writes.append(("untag", generation_id))
+        return True
 
     def get_history(self, **filters):
         return self.query.get_history(**filters)
@@ -120,6 +142,7 @@ class TestGenerationToolsForARestrictedViewer(ContentHistoryBase):
             cursor.execute("UPDATE generations SET status = 'completed'")
         return ToolContext(
             user_id=self.user_id, generation_history_facade=_HistoryFacade(query), chat_session=False,
+            tag_repository=TagRepository(), plugin_registry=_Hooks(),
         )
 
     def test_search_gallery_text_search_never_returns_a_flagged_generation(self):
@@ -141,6 +164,32 @@ class TestGenerationToolsForARestrictedViewer(ContentHistoryBase):
         assert opened.success is False
         assert "flagged-file" not in (opened.data or "") + (opened.error or "")
 
+
+    def test_organize_gallery_cannot_tag_untag_or_rate_a_flagged_generation(self):
+        context = self._seed()
+        tool = OrganizeGalleryTool()
+
+        results = [
+            asyncio.run(tool.execute_confirmed(context, operation="rate", generation_id="flagged-gen", rating=5)),
+            asyncio.run(tool.execute_confirmed(context, operation="tag", generation_id="flagged-gen", tags=["x"])),
+            asyncio.run(tool.execute_confirmed(context, operation="untag", generation_id="flagged-gen", tags=["x"])),
+            asyncio.run(tool.execute(context, operation="rate", generation_id="flagged-gen", rating=5)),
+        ]
+        allowed = asyncio.run(tool.execute_confirmed(context, operation="rate", generation_id="safe-gen", rating=4))
+
+        assert all(result.success is False for result in results)
+        assert "list_recent" in results[0].error
+        assert allowed.success
+        assert context.generation_history_facade.writes == [("rate", "safe-gen")]
+
+    def test_organize_gallery_lists_the_users_generation_tags(self):
+        context = self._seed()
+        tool = OrganizeGalleryTool()
+        asyncio.run(tool.execute_confirmed(context, operation="tag", generation_id="safe-gen", tags=["portrait"]))
+
+        listed = asyncio.run(tool.execute(context, operation="list_tags"))
+
+        assert [t["name"] for t in json.loads(listed.data)["tags"]] == ["portrait"]
 
 class TestVisualGallerySearchForARestrictedViewer:
     def test_only_safe_files_come_back_from_the_visual_index(self):
@@ -172,3 +221,4 @@ class TestVisualGallerySearchForARestrictedViewer:
         payload = json.loads(result.data)
         assert payload["search_mode"] == "visual"
         assert [m["file_id"] for m in payload["results"][0]["matches"]] == ["f1"]
+

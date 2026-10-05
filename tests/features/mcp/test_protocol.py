@@ -391,30 +391,30 @@ class TestModelVisibilityOverMcp:
         return collaborators, model, model_repo
 
     @pytest.mark.asyncio
-    async def test_list_models_hides_an_unassigned_model_from_a_normal_user(self, model_protocol):
+    async def test_search_models_hides_an_unassigned_model_from_a_normal_user(self, model_protocol):
         collaborators, _model, _repo = model_protocol
         result = await handle_method(
-            collaborators, "tools/call", {"name": "list_models", "arguments": {}}, "user-1",
+            collaborators, "tools/call", {"name": "search_models", "arguments": {}}, "user-1",
         )
         payload = json.loads(result["content"][0]["text"])
         assert payload["models"] == []
 
     @pytest.mark.asyncio
-    async def test_list_models_shows_the_model_once_assigned(self, model_protocol):
+    async def test_search_models_shows_the_model_once_assigned(self, model_protocol):
         collaborators, model, repo = model_protocol
         repo.assign_model_to_user(model.id, "user-1")
 
         result = await handle_method(
-            collaborators, "tools/call", {"name": "list_models", "arguments": {}}, "user-1",
+            collaborators, "tools/call", {"name": "search_models", "arguments": {}}, "user-1",
         )
         payload = json.loads(result["content"][0]["text"])
         assert [m["id"] for m in payload["models"]] == [model.id]
 
     @pytest.mark.asyncio
-    async def test_list_models_shows_admin_everything_regardless_of_assignment(self, model_protocol):
+    async def test_search_models_shows_admin_everything_regardless_of_assignment(self, model_protocol):
         collaborators, model, _repo = model_protocol
         result = await handle_method(
-            collaborators, "tools/call", {"name": "list_models", "arguments": {}}, "admin-1",
+            collaborators, "tools/call", {"name": "search_models", "arguments": {}}, "admin-1",
             is_admin=True,
         )
         payload = json.loads(result["content"][0]["text"])

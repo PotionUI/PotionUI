@@ -107,6 +107,7 @@ class TestRegisterBuiltinTools:
             "update_phrasebook_category",
             "delete_phrasebook_category",
             "search_models",
+            "list_library_items",
             "list_phrasebook_categories",
             "get_phrasebook_values",
             "list_phrasebook_values",

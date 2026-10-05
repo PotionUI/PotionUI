@@ -398,6 +398,24 @@ class CollectionRepository:
                 by_prompt.setdefault(row["prompt_id"], []).append(Collection.from_row(row))
         return by_prompt
 
+    def get_for_uploads(self, upload_ids: List[str], user_id: str) -> Dict[str, List[Collection]]:
+        if not upload_ids:
+            return {}
+        from src.platform.database.database import db
+        placeholders = ','.join('?' * len(upload_ids))
+        by_upload: Dict[str, List[Collection]] = {}
+        with db.get_cursor() as cursor:
+            cursor.execute(f"""
+                SELECT cu.upload_id, c.id, c.name, c.user_id, c.parent_id, c.created_at, c.scope
+                FROM collections c
+                JOIN collection_uploads cu ON c.id = cu.collection_id
+                WHERE cu.upload_id IN ({placeholders}) AND c.user_id = ?
+                ORDER BY c.name ASC
+            """, (*upload_ids, user_id))
+            for row in cursor.fetchall():
+                by_upload.setdefault(row["upload_id"], []).append(Collection.from_row(row))
+        return by_upload
+
     def get_for_upload(self, upload_id: str) -> List[Collection]:
         """List collections that contain the given library upload (always 'library' scope)."""
         from src.platform.database.database import db

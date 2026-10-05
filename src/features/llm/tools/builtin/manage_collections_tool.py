@@ -72,7 +72,7 @@ class ManageCollectionsTool(BaseTool):
             "cascades its memberships; 'add_items'/'remove_items' need `collection_id` and exactly one "
             "of `generation_ids` (only valid with scope='history', e.g. ids from organize_gallery's "
             "list_recent), `upload_ids` (only valid with scope='library', distinct from generation "
-            "ids), or `prompt_ids` (only valid with scope='prompts') - never more than one kind in the "
+            "ids; get them from list_library_items), or `prompt_ids` (only valid with scope='prompts') - never more than one kind in the "
             "same call. Example: "
             '{"operation": "add_items", "scope": "history", "collection_id": "col_123", '
             '"generation_ids": ["gen_abc"]}'

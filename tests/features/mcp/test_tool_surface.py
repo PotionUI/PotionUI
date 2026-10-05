@@ -5,6 +5,10 @@ from unittest.mock import Mock
 import pytest
 
 from src.features.collections.repository import CollectionRepository
+from src.features.library.repository import LibraryRepository
+from src.features.media.records import Upload
+from src.features.media.upload_repository import UploadRepository
+from src.features.tags.repository import TagRepository
 from src.features.llm.tools.base import BaseTool, ToolResult
 from src.features.llm.tools.builtin import register_builtin_tools
 from src.features.llm.tools.governance_repository import ToolGovernanceRepository
@@ -38,7 +42,7 @@ EXPECTED_TOOLS = {
     "create_phrasebook_values", "remove_phrasebook_values", "update_phrasebook_values",
     "enhance_prompt", "search_model_prompts", "search_gallery",
     "get_prompt", "list_prompts", "add_prompt", "edit_prompt", "delete_prompt",
-    "list_models", "search_models",
+    "search_models", "list_library_items",
     "write_memory", "read_memory", "update_memory", "delete_memory",
     "manage_collections", "organize_gallery", "start_generation",
 }
@@ -177,6 +181,10 @@ def world(mcp_db):
     ):
         memory.upsert(LLMMemoryNote(user_id="user-1", key=key, content=f"{key} content", scope=scope, scope_ref=scope_ref))
 
+    upload = UploadRepository().create(Upload(
+        user_id="user-1", filename="u1.png", original_filename="fox.png", media_type="image",
+    ))
+
     prompts = PromptRepository()
     prompt = prompts.create(Prompt(user_id="user-1", name="Study", segments=[RichSegment(content="a red fox")]))
 
@@ -216,13 +224,15 @@ def world(mcp_db):
         llm_memory_repository=memory,
         media_indexer=indexer,
         collection_repository=CollectionRepository(),
+        tag_repository=TagRepository(),
+        library_collaborators=SimpleNamespace(repository=LibraryRepository(), tag_repository=TagRepository()),
         generation_history_facade=history,
         plugin_registry=_Registry(),
     )
     return SimpleNamespace(
         collaborators=collaborators, registry=registry, segment=segment, category=category,
         prompt=prompt, model=model, history=history, indexer=indexer,
-        segments=segments, phrase_categories=phrase_categories, memory=memory,
+        segments=segments, phrase_categories=phrase_categories, memory=memory, upload=upload,
     )
 
 
@@ -259,7 +269,7 @@ READ_CALLS = [
     ("get_segment_templates", {}),
     ("list_presets", {}),
     ("get_preset_info", {"preset_id": "preset-a"}),
-    ("list_models", {}),
+    ("list_library_items", {}),
     ("search_models", {"query": "m"}),
     ("list_phrasebook_categories", {}),
     ("get_phrasebook_values", {"category_id": "pb-1"}),
@@ -270,12 +280,13 @@ READ_CALLS = [
     ("read_memory", {"scope": "all"}),
     ("manage_collections", {"operation": "list", "scope": "history"}),
     ("organize_gallery", {"operation": "list_recent"}),
+    ("organize_gallery", {"operation": "list_tags"}),
 ]
 
 
 class TestReadToolsWithoutSessionContext:
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("name,arguments", READ_CALLS, ids=[c[0] for c in READ_CALLS])
+    @pytest.mark.parametrize("name,arguments", READ_CALLS, ids=[f"{c[0]}-{c[1].get('operation', '')}" for c in READ_CALLS])
     async def test_read_tool_succeeds(self, world, name, arguments):
         result = await _call(world, name, arguments)
 
@@ -301,12 +312,16 @@ class TestReadToolsWithoutSessionContext:
         presets = _payload(await _call(world, "list_presets", {}))
         searched = _payload(await _call(world, "search_model_prompts", {"queries": ["fox"]}))
         recent = _payload(await _call(world, "organize_gallery", {"operation": "list_recent"}))
+        library = _payload(await _call(world, "list_library_items", {}))
+        foreign_library = _payload(await _call(world, "list_library_items", {}, user_id="user-2"))
 
         assert [s["id"] for s in segments["segments"]] == [world.segment.id]
         assert [v["id"] for v in phrase_values["values"]] == ["pbv-1"]
         assert [p["id"] for p in presets["presets"]] == ["preset-a"]
         assert [p["name"] for p in searched["results"][0]["prompts"]] == ["Study"]
         assert [g["id"] for g in recent["generations"]] == ["gen-text"]
+        assert [i["id"] for i in library["items"]] == [world.upload.id]
+        assert foreign_library["items"] == []
 
 
 class TestReadMemory:

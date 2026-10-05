@@ -84,6 +84,7 @@ class ChatDeps:
     collection_repository: Any
     tag_repository: Any
     content_safety: Any = None
+    library_collaborators: Any = None
 
 
 @dataclass(frozen=True)
@@ -158,6 +159,7 @@ def build_chat(deps: ChatDeps) -> ChatComponents:
         collection_repository=deps.collection_repository,
         tag_repository=deps.tag_repository,
         content_safety=deps.content_safety,
+        library_collaborators=deps.library_collaborators,
         generation_history_facade=deps.generation_history_facade,
         tool_governance_repository=deps.tool_governance_repository,
         generation_repository=deps.generation_repository,

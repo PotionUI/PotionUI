@@ -1643,6 +1643,7 @@ def build_container() -> AppContainer:
         plugin_registry=plugin_registry,
         generation_history_facade=generation_history_facade,
         content_safety=content_safety,
+        library_collaborators=library_collaborators,
     )
 
     from src.features.developer.mcp_tools_documenter import McpToolsDocumenter
@@ -1689,6 +1690,7 @@ def build_container() -> AppContainer:
             collection_repository=collection_repository,
             tag_repository=tag_repository,
             content_safety=content_safety,
+            library_collaborators=library_collaborators,
         )
     )
     chat.pre_chat_action_registry.discover_actions()

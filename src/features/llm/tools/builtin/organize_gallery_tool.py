@@ -15,7 +15,7 @@ from src.features.tags.dto import CreateTagRequest, TagType
 
 logger = logging.getLogger(__name__)
 
-_OPERATIONS = ("tag", "untag", "rate", "list_recent", "get")
+_OPERATIONS = ("tag", "untag", "rate", "list_recent", "get", "list_tags")
 
 # list_recent truncates the error summary so one bad row doesn't blow the
 # tool-result budget; `get` returns it untruncated for real diagnosis.
@@ -72,7 +72,9 @@ class OrganizeGalleryTool(BaseTool):
             "use this to find generations matching what the user described, or to get real generation "
             "ids/paths to act on instead of guessing them; 'get' needs `generation_id` and returns full "
             "detail for one generation (status, untruncated error, prompt, preset, created_at, paths, "
-            "tags, rating) - use this to diagnose why a generation failed. Example: "
+            "tags, rating) - use this to diagnose why a generation failed; 'list_tags' returns the "
+            "user's existing generation tags with usage counts, so 'tag' can reuse a name instead of "
+            "creating a near-duplicate. Example: "
             '{"operation": "tag", "generation_id": "01ARZ...", "tags": ["favorite", "portrait"]}'
         )
 
@@ -142,6 +144,28 @@ class OrganizeGalleryTool(BaseTool):
         return ToolResult(success=True, data=json.dumps({"generations": generations, "total": history.get("total", len(generations))}))
 
     @staticmethod
+    def _list_tags(context: ToolContext) -> ToolResult:
+        if context.tag_repository is None:
+            return ToolResult(success=False, data="", error=_TAGS_UNAVAILABLE)
+        tags = context.tag_repository.get_tags_with_counts(type=TagType.GENERATION.value, user_id=context.user_id)
+        return ToolResult(success=True, data=json.dumps({
+            "tags": [{"id": tag.id, "name": tag.name, "usage_count": tag.usage_count} for tag in tags],
+            "count": len(tags),
+        }))
+
+    @staticmethod
+    def _viewable(history_facade, generation_id: str, user_id: str) -> bool:
+        query = getattr(history_facade, "query", None)
+        return query is None or bool(query.is_viewable(generation_id, user_id))
+
+    @staticmethod
+    def _not_found(generation_id: str) -> ToolResult:
+        return ToolResult(
+            success=False, data="",
+            error=f"Generation '{generation_id}' not found or access denied. Get ids from list_recent.",
+        )
+
+    @staticmethod
     def _get(history_facade, generation_id: str, user_id: str) -> ToolResult:
         gen = history_facade.get_by_id(generation_id, user_id)
         form_data = gen.get("form_data") or {}
@@ -179,12 +203,18 @@ class OrganizeGalleryTool(BaseTool):
                 limit = min(max(1, int(kwargs.get("limit") or 20)), 100)
                 return self._list_recent(history_facade, context.user_id, limit, kwargs)
 
+            if operation == "list_tags":
+                return self._list_tags(context)
+
             generation_id = kwargs.get("generation_id")
             if not generation_id:
                 return self._missing("generation_id")
 
             if operation == "get":
                 return self._get(history_facade, generation_id, context.user_id)
+
+            if not self._viewable(history_facade, generation_id, context.user_id):
+                return self._not_found(generation_id)
 
             current_tags = history_facade.get_tags(generation_id, context.user_id)
 
@@ -216,7 +246,7 @@ class OrganizeGalleryTool(BaseTool):
             return ToolResult(success=False, data="", error=str(e))
         except Exception as e:
             logger.error(f"organize_gallery preview failed: {e}")
-            return ToolResult(success=False, data="", error=f"Generation '{kwargs.get('generation_id')}' not found or access denied")
+            return self._not_found(kwargs.get("generation_id"))
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         history_facade = context.generation_history_facade
@@ -232,12 +262,18 @@ class OrganizeGalleryTool(BaseTool):
                 limit = min(max(1, int(kwargs.get("limit") or 20)), 100)
                 return self._list_recent(history_facade, context.user_id, limit, kwargs)
 
+            if operation == "list_tags":
+                return self._list_tags(context)
+
             generation_id = kwargs.get("generation_id")
             if not generation_id:
                 return self._missing("generation_id")
 
             if operation == "get":
                 return self._get(history_facade, generation_id, context.user_id)
+
+            if not self._viewable(history_facade, generation_id, context.user_id):
+                return self._not_found(generation_id)
 
             if operation == "tag":
                 tags: List[str] = kwargs.get("tags") or []

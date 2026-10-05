@@ -70,6 +70,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Limits** — contributing a plan limit kind | `.limits` | `LimitKind`, `Usage`, `Refusal`, `MeasureContext`, `RefusalContext`, `AdmissionRequest`, `LimitEvents` (`record(user_id, kind, units=1, ref_id=None)`, `refund(ref_id)`), `LimitEventsView`, `LimitExceeded` |
 | **Phrasebook** — contributing a batch tool to Find & replace | `.phrasebook` | `PhrasebookBatchOperation`, `PhrasebookBatchContext`, `BatchOutcome`, `BatchPreview`, `BatchOperationError` |
 | **Sampling** — contributing a step algorithm or a sigma schedule | `.sampling` | `SamplerDefinition`, `ScheduleDefinition`, `ScheduleContext`, `OptionSpec`, `GuidanceStrategy`, `SamplingCancelled`, `run_hooks`, `sample_euler`, `sampler_registry`, `schedule_registry` |
+| **Setup** — telling admins what to do after enabling the plugin | `.setup` | `SetupCheck`, `SetupCheckContext`, `SetupCheckResult` |
 
 Each module's docstring explains what its exports are for; this table is the index.
 
@@ -466,6 +467,70 @@ plugin ships its own presets through the manifest `presets:` root, assembled fro
 listed in `CLOUD_BLOCKS`. `cloud_testing` provides a scripted `FakeCloudProvider` and a contract
 kit (`ContractCase`, `run_contract`) to run against recorded fixtures. The full contract, the test
 kit and a step-by-step example are in [Cloud Models](cloud-models.md#writing-a-provider-plugin).
+
+## Showing admins the next setup step
+
+A plugin that needs more than the enable switch (a backend with an API key, models turned on,
+presets installed and assigned) lists those steps under `setup:` in `manifest.yml`. Once the plugin
+is enabled, Admin → Plugins shows a **Setup needed** badge on its card, and its Overview tab opens
+with a **Setup** section: the next step and its button first, then every step with its state. Each
+step is checked against the instance as it is now, so the list updates as the admin works through it.
+
+```yaml
+setup:
+  - kind: "backend.added"
+    driver: "cloud.acme"
+    label: "Add an Acme backend with your API key"
+  - kind: "cloud.models_enabled"
+    driver: "cloud.acme"
+  - kind: "presets.installed"
+  - kind: "presets.assigned"
+```
+
+| `kind` | Done when | The button opens |
+|---|---|---|
+| `plugin.settings` | every `settings:` entry marked `required: true` has a value | the plugin's Settings tab |
+| `backend.added` (needs `driver`) | an enabled backend uses `driver` | Add backend with that driver picked, or the backend that is turned off |
+| `cloud.models_enabled` (needs `driver`) | one of those backends has at least one catalog model turned on | that backend's Catalog tab |
+| `presets.installed` | at least one preset from the plugin's own `presets:` roots is installed | the first preset |
+| `presets.assigned` | an installed preset of the plugin is assigned to a user or a group | the first installed preset |
+| `check` (needs `check` and `label`) | your `SetupCheck` says so | the `action_href` you return |
+
+`label` and `description` are optional on the built-in kinds and replace the default wording; the
+description shows only while the step is not done. A step that depends on an earlier one (models
+before any backend exists, assignments before anything is installed) reads *waiting* and has no
+button. When a step names a `driver` that is not loaded yet, which is the case right after enabling
+a plugin that registers a backend, a **Restart PotionUI** step with a restart button comes first.
+When the manifest has `docs:`, the section also links to the first page.
+
+A plugin-specific check is a class implementing `SetupCheck`:
+
+```python
+from src.plugin_api import SetupCheck, SetupCheckContext, SetupCheckResult
+
+class AccountLinked(SetupCheck):
+    def evaluate(self, context: SetupCheckContext) -> SetupCheckResult:
+        if context.settings.get("account_id"):
+            return SetupCheckResult(done=True, description="Account linked.")
+        return SetupCheckResult(
+            done=False,
+            description="Link the account this plugin bills to.",
+            action_label="Open settings",
+            action_href="/admin?tab=plugins&id=acme",
+        )
+```
+
+```yaml
+setup:
+  - kind: "check"
+    check: "setup_checks:AccountLinked"
+    label: "Link your Acme account"
+```
+
+`context.settings` holds the plugin's saved global settings. `evaluate` runs on every visit to
+Admin → Plugins, so keep it to local reads: no network calls. A check that cannot be loaded or
+raises shows as a step still to do. The report is served admin-only at `GET /api/plugins/setup`
+and never carries prices or costs.
 
 ## Contributing a chat mode
 

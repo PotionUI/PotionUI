@@ -232,6 +232,7 @@ class GenerationProfiler:
         self._cancel_pending_census(generation_id)
         if not profiling_enabled():
             return
+        replaced = None
         try:
             with self._lock:
                 if self._thread is not None:
@@ -239,7 +240,7 @@ class GenerationProfiler:
                         "profiler: start(%s) while %s is active; replacing",
                         generation_id, self._generation_id,
                     )
-                    self._stop_locked()
+                    replaced = self._stop_locked()
 
                 out_dir = Path(out_dir)
                 out_dir.mkdir(parents=True, exist_ok=True)
@@ -264,11 +265,14 @@ class GenerationProfiler:
                 self._thread.start()
         except Exception:
             logger.debug("profiler: start failed", exc_info=True)
+            self._join_sampler(replaced)
             return
+        self._join_sampler(replaced)
         self.mark("generation.start")
 
     def stop(self, generation_id: str) -> None:
         handoff = None
+        sampler = None
         try:
             with self._lock:
                 if self._generation_id != generation_id or self._fh is None:
@@ -277,9 +281,10 @@ class GenerationProfiler:
                 if runtime_flag("profiling_census"):
                     handoff = self._fh
                     self._fh = None
-                self._stop_locked()
+                sampler = self._stop_locked()
         except Exception:
             logger.debug("profiler: stop failed", exc_info=True)
+        self._join_sampler(sampler)
         if handoff is not None:
             self._start_census(generation_id, handoff)
 
@@ -404,12 +409,10 @@ class GenerationProfiler:
         except Exception:
             logger.debug("profiler: census_now(%s) failed", tag, exc_info=True)
 
-    def _stop_locked(self) -> None:
+    def _stop_locked(self) -> Optional[threading.Thread]:
         if self._stop_event is not None:
             self._stop_event.set()
         thread, self._thread = self._thread, None
-        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
-            thread.join(timeout=1.0)
         if self._fh is not None:
             try:
                 self._fh.flush()
@@ -420,6 +423,12 @@ class GenerationProfiler:
         self._generation_id = None
         self._stop_event = None
         self._detach_log_handler()
+        return thread
+
+    @staticmethod
+    def _join_sampler(thread: Optional[threading.Thread]) -> None:
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=1.0)
 
     def _attach_log_handler(self, out_dir: Path) -> None:
         try:
@@ -496,6 +505,8 @@ class GenerationProfiler:
         while not stop_event.is_set():
             try:
                 with self._lock:
+                    if stop_event.is_set():
+                        break
                     if self._fh is not None:
                         row = self._snapshot()
                         row["kind"] = "sample"

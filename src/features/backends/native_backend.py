@@ -149,7 +149,7 @@ class NativeBackend(InProcessBackend):
         answer "how should this engine instance be driven?". `setdefault` semantics
         mean a preset that sets one of these explicitly on a pipe still wins.
         """
-        activate_engine_flags(self.config.engine_flags)
+        activate_engine_flags(getattr(self.config, "engine_flags", None))
         injected = {
             "device": self.config.device,
             "dtype": self.config.dtype,

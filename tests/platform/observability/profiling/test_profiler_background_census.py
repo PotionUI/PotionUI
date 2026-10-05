@@ -2,7 +2,6 @@ import gc
 import json
 import logging
 import threading
-import time
 
 import pytest
 
@@ -22,6 +21,16 @@ def _profiling_on(monkeypatch):
 
 def _rows(path):
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _returns_while_census_is_blocked(call, slow):
+    done = threading.Event()
+    worker = threading.Thread(target=lambda: (call(), done.set()), daemon=True)
+    worker.start()
+    returned = done.wait(10.0)
+    blocked = not slow.release.is_set()
+    worker.join(10.0)
+    return returned and blocked
 
 
 class _SlowCensus:
@@ -45,11 +54,7 @@ def test_stop_returns_before_the_census_finishes_and_the_rows_land_afterwards(tm
     prof = GenerationProfiler()
     prof.start("gen-a", tmp_path)
 
-    began = time.monotonic()
-    prof.stop("gen-a")
-    elapsed = time.monotonic() - began
-
-    assert elapsed < 1.0
+    assert _returns_while_census_is_blocked(lambda: prof.stop("gen-a"), slow)
     assert slow.started.wait(5.0)
     assert prof.wait_for_census(0.05) is False
     events = [r.get("event") for r in _rows(tmp_path / "profile.jsonl")]
@@ -91,11 +96,7 @@ def test_a_new_generation_cancels_the_pending_census_without_waiting(tmp_path, m
     assert slow.started.wait(5.0)
 
     with caplog.at_level(logging.INFO, logger=profiler_module.logger.name):
-        began = time.monotonic()
-        prof.start("gen-b", dir_b)
-        elapsed = time.monotonic() - began
-
-    assert elapsed < 1.0
+        assert _returns_while_census_is_blocked(lambda: prof.start("gen-b", dir_b), slow)
     assert prof.wait_for_census(5.0) is True
     rows_a = _rows(dir_a / "profile.jsonl")
     assert [r.get("event") for r in rows_a if r["kind"] == "event"][-1] == "census.skipped"

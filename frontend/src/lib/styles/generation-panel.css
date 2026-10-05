@@ -189,6 +189,8 @@ button.readout:hover { background: rgb(var(--surface-3)); }
 
 .mode-button.is-continuous { border-color: color-mix(in srgb, rgb(var(--signal)) 48%, rgb(var(--line))); background: color-mix(in srgb, rgb(var(--signal)) 10%, rgb(var(--surface-2))); }
 
+.mode-button .compare-count { position: absolute; top: -8px; right: 4px; min-width: 18px; height: 16px; padding: 0 4px; border: 1px solid color-mix(in srgb, rgb(var(--signal)) 48%, rgb(var(--line))); border-radius: 4px; background: rgb(var(--surface-1)); color: rgb(var(--signal)); font: 600 10px/14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; text-align: center; }
+
 .mode-button.is-stopping { color: rgb(var(--fg-muted)); cursor: wait; }
 
 .mode-button .icon { width: 16px; height: 16px; }
@@ -231,6 +233,8 @@ button.readout:hover { background: rgb(var(--surface-3)); }
 .generate-button.is-continuous-armed .mark-orbit { animation: mark-orbit 14s linear infinite; }
 
 .generate-button .shortcut { margin-left: 5px; padding: 2px 5px; border-radius: 5px; background: color-mix(in srgb, rgb(var(--accent-contrast)) 10%, transparent); font: 700 9px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; opacity: .68; }
+
+.generate-button .generate-count { font: 600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; opacity: .72; }
 
 .generate-button.is-cancel { border-color: color-mix(in srgb, rgb(var(--danger)) 48%, rgb(var(--line))); background: color-mix(in srgb, rgb(var(--danger)) 10%, rgb(var(--surface-1))); color: rgb(var(--danger)); }
 

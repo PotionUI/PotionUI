@@ -5,6 +5,12 @@
 	import { ACTIVE_TAB_ID_CONTEXT_KEY } from '$lib/form/activeTabContext';
 	import { formulaApplied } from '$lib/stores/formulaApplied';
 	import { formatValue } from '$lib/formulas/format';
+	import {
+		axisRoleFor,
+		compareRevision,
+		openCompareDrawer,
+		quantityNoteVisible
+	} from '$lib/generation/compare/compareStore.svelte';
 	import { FORM_FIELD_ERRORS_CONTEXT_KEY } from '$lib/form/fieldErrorsContext';
 	import {
 		FORM_FIELD_ERROR_ACTIONS_CONTEXT_KEY,
@@ -53,6 +59,9 @@
 	$: fieldErrorMessages = name && !fieldOwnsErrors(fieldType) ? ($fieldErrorsStore[name] ?? []) : [];
 
 	const appliedTabId = getContext<string | undefined>(ACTIVE_TAB_ID_CONTEXT_KEY);
+	$: axisRole = appliedTabId && name ? axisRoleFor(appliedTabId, name, $compareRevision) : null;
+	$: quantityNote = appliedTabId && name === 'quantity' ? quantityNoteVisible($compareRevision, appliedTabId) : false;
+	$: axisTitle = config.title || config.label || name || '';
 	$: appliedChange = appliedTabId && name ? $formulaApplied[appliedTabId]?.changed[name] : undefined;
 
 	// Quick-fixes need a form to write into; absent the actions context (field
@@ -74,15 +83,39 @@
 				was <s>{formatValue(config, appliedChange.old)}</s>
 			</div>
 		{/if}
-		{#await componentPromise then Component}
-			{#if Component}
-				<svelte:component this={Component} {name} {config} {value} {onChange} {onOriginChange} {onMaskChange} {host} {fieldPath} />
-			{:else}
-				<div class="p-2 bg-danger/10 rounded-md text-xs text-danger">
-					Unsupported field type: {fieldType}
-				</div>
+		{#if axisRole && appliedTabId}
+			<button
+				type="button"
+				class="axis-locked block w-full rounded-lg border border-line bg-surface-1 p-3 text-left transition-colors hover:border-line-hover focus:outline-none focus-visible:ring-1 focus-visible:ring-signal"
+				data-axis-locked={axisRole.role}
+				aria-label="{axisTitle} is the {axisRole.role.toUpperCase()} axis of the comparison with {axisRole.count} values. Open compare settings."
+				on:click={() => openCompareDrawer(appliedTabId)}
+			>
+				<span class="mb-1.5 flex items-center justify-between gap-2">
+					<span class="label !mb-0 truncate">{axisTitle}</span>
+					<span class="shrink-0 rounded border border-signal/40 bg-signal/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-signal">
+						{axisRole.role} axis
+					</span>
+				</span>
+				<span class="flex items-center justify-between gap-3 rounded border border-dashed border-line-strong bg-surface-2/40 px-3 py-2">
+					<span class="text-sm text-fg-muted">{axisRole.count} values</span>
+					<span class="min-w-0 truncate font-mono text-xs tabular-nums text-fg-subtle">{formatValue(config, value)}</span>
+				</span>
+			</button>
+		{:else}
+			{#await componentPromise then Component}
+				{#if Component}
+					<svelte:component this={Component} {name} {config} {value} {onChange} {onOriginChange} {onMaskChange} {host} {fieldPath} />
+				{:else}
+					<div class="p-2 bg-danger/10 rounded-md text-xs text-danger">
+						Unsupported field type: {fieldType}
+					</div>
+				{/if}
+			{/await}
+			{#if quantityNote}
+				<p class="mt-1 text-xs text-fg-muted" data-compare-quantity-note>Quantity is 1 per cell while Compare is on.</p>
 			{/if}
-		{/await}
+		{/if}
 		{#if fieldErrorMessages.length > 0}
 			<div class="mt-1 space-y-1.5">
 				<div class="space-y-0.5" role="alert">

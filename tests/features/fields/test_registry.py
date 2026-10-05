@@ -84,6 +84,7 @@ class TestFieldTypeRegistry(unittest.TestCase):
             'has_options': True,
             'container': False,
             'source': 'core',
+            'axis_editor': '',
             'configuration_schema': [],
         })
         self.assertEqual(by_type['tabs'], {
@@ -92,8 +93,21 @@ class TestFieldTypeRegistry(unittest.TestCase):
             'has_options': False,
             'container': True,
             'source': 'core',
+            'axis_editor': '',
             'configuration_schema': [],
         })
+
+    def test_frontend_manifest_carries_a_plugin_axis_editor(self):
+        self.registry.register(FieldTypeDefinition(
+            type_name='palette',
+            frontend_component='plugin:colors:PaletteField',
+            source='colors',
+            axis_editor='plugin:colors:PaletteAxis',
+        ))
+
+        entry = next(e for e in self.registry.frontend_manifest() if e['type'] == 'palette')
+
+        self.assertEqual(entry['axis_editor'], 'plugin:colors:PaletteAxis')
 
     def test_frontend_manifest_configuration_schema_self_describes_a_real_field_type(self):
         """A registered type with a real `schema_cls` (not the bare

@@ -101,6 +101,7 @@ export const SETTINGS_KEY_GROUP: Record<string, SettingsGroupId> = {
 	media_vision_auto_download: 'search_tagging',
 	mcp_enabled: 'access',
 	workbench_single_result_gallery: 'generation',
+	compare_confirm_above: 'generation',
 	notify_admins_on_generation_failure: 'generation',
 	notify_admins_on_generation_failure_categories: 'generation',
 	profiling_enabled: 'diagnostics',

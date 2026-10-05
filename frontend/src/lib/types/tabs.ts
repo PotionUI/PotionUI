@@ -4,6 +4,7 @@ import type { VideoDirectorValue } from '$lib/types/videoDirector';
 import type { MusicDirectorValue } from '$lib/types/musicDirector';
 import type { VariablesMap, VariableRoll } from '$lib/utils/variableDefs';
 import type { DirectorPredecessorRef } from '$lib/utils/directorInputIdentity';
+import type { CompareConfig } from '$lib/generation/compare/types';
 
 // LocalStorage key for tab persistence
 export const TABS_STORAGE_KEY = 'potionui_tabs_state';
@@ -50,6 +51,8 @@ export interface PersistedTab {
 	/** Per-section fold state for `type: section` form fields; see the
 	 *  matching field on `SessionData`/`Tab`. */
 	sectionCollapsed?: Record<string, boolean>;
+	compare?: CompareConfig;
+	compareGridId?: string | null;
 	workbenchMaxHeight?: string;
 	/** Width of the floating workbench window, set from the inline
 	 *  pane's measured width the first time it opens and from then on by the
@@ -483,6 +486,8 @@ export interface Tab {
 	negativeSegmentsCollapsed?: boolean;
 	/** See the matching field on `PersistedTab` above. */
 	sectionCollapsed?: Record<string, boolean>;
+	compare?: CompareConfig;
+	compareGridId?: string | null;
 	autoTagIds?: string[];
 	autoCollectionIds?: string[];
 	/** See the matching field on `PersistedTab` above. */

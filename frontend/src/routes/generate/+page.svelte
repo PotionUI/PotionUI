@@ -5,7 +5,21 @@
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
 	import type { PromptTabData, DirectorRunState, Tab } from '$lib/types/tabs';
 	import { authStore } from '$lib/stores/auth';
-	import { generateGate } from '$lib/plans/store';
+	import { generateGate, limits, limitsMeta } from '$lib/plans/store';
+	import { get } from 'svelte/store';
+	import { confirmDialog } from '$lib/stores/confirm';
+	import {
+		cancelGrid,
+		closeCompareDrawer,
+		getCompare,
+		getCompareSummary,
+		isCompareActive,
+		isGridRunning,
+		restoreGrids,
+		setCompareBlocked,
+		submitGrid
+	} from '$lib/generation/compare/compareStore.svelte';
+	import { largeGridConfirmCopy } from '$lib/generation/compare/compareConfirm';
 	import { refusalFromError } from '$lib/plans/refusal';
 	import LimitNotice from '$lib/plans/components/LimitNotice.svelte';
 	import { api, type GenerationRequest, type PresetStyle } from '$lib/services/api';
@@ -702,6 +716,13 @@
 	$: videoDirectorCaps = requestContext.videoDirectorCaps;
 	$: videoDirectorActive = requestContext.videoDirectorActive;
 
+	$: compareBlockReason = videoDirectorActive
+		? "Compare isn't available while the Video Director is on."
+		: musicDirectorActive
+			? "Compare isn't available while the Music Director is on."
+			: null;
+	$: if (currentTab?.id) setCompareBlocked(currentTab.id, compareBlockReason);
+
 	let costNote: string | null = null;
 	let estimateTimer: ReturnType<typeof setTimeout> | undefined;
 	let estimateKey = '';
@@ -842,6 +863,7 @@
 				restoreInFlight = true;
 				restoreGenerations().finally(() => {
 					restoreInFlight = false;
+					void restoreGrids();
 				});
 			}
 		});
@@ -1426,6 +1448,11 @@
 				);
 			}
 
+			if (isCompareActive(activeTabId)) {
+				await startComparison(activeTabId, request);
+				return;
+			}
+
 			const response = await api.startGeneration(request);
 
 			if (response.success && response.data) {
@@ -1554,7 +1581,50 @@
 		}
 	}
 
+	async function startComparison(targetTabId: string, request: Parameters<typeof submitGrid>[1]) {
+		const summary = getCompareSummary(targetTabId, get(limits), get(limitsMeta)?.contactLine ?? undefined);
+		const resetRunning = () => {
+			const tab = get(tabsStore).tabs.find((t) => t.id === targetTabId);
+			if (tab && !isGridRunning(targetTabId) && (tab.generation.queue ?? []).length === 0) {
+				tabsStore.updateTab(targetTabId, { generation: { ...tab.generation, isGenerating: false } });
+			}
+		};
+		if (summary.disabledReason) {
+			toasts.error(summary.disabledReason);
+			resetRunning();
+			return;
+		}
+		if (summary.needsConfirm) {
+			const copy = largeGridConfirmCopy(getCompare(targetTabId), summary.count, summary.estimate, get(limits));
+			const confirmed = await confirmDialog({ ...copy, variant: 'info' });
+			if (!confirmed) return;
+		}
+		const result = await submitGrid(targetTabId, request);
+		if (!result.ok) {
+			if (result.reason !== 'refused') toasts.error(result.message);
+			resetRunning();
+			return;
+		}
+		closeCompareDrawer();
+		for (const id of result.generationIds) {
+			if (!ws) break;
+			ensureSubscribed(ws, id, () => {
+				ws?.subscribe(id, (message: WebSocketMessage) => handleGenerationMessage(message));
+			});
+		}
+	}
+
+	async function cancelComparison(targetTabId: string) {
+		const cancelledIds = await cancelGrid(targetTabId);
+		applyConfirmedCancellations(tabsStore, targetTabId, cancelledIds);
+		retireConfirmedCancellations(cancelledIds, { tabsStore, unsubscribe: unsubscribeGeneration });
+	}
+
 	async function cancelGeneration() {
+		if (isGridRunning(activeTabId)) {
+			await cancelComparison(activeTabId);
+			return;
+		}
 		const currentGen = generation.currentGeneration;
 		if (!currentGen || !currentGen.id) return;
 		// Captured BEFORE the await -- a tab switch, close, or a newer

@@ -566,6 +566,8 @@ class PluginRegistry:
 
             component = field_type.get('component')
             frontend_component = f"plugin:{plugin_id}:{component}" if component else ""
+            axis_editor = field_type.get('axis_editor')
+            axis_editor_ref = f"plugin:{plugin_id}:{axis_editor}" if axis_editor else ""
 
             try:
                 self.field_registry.register(FieldTypeDefinition(
@@ -576,6 +578,7 @@ class PluginRegistry:
                     container=False,
                     source=plugin_id,
                     shareable=bool(field_type.get('shareable', False)),
+                    axis_editor=axis_editor_ref,
                 ))
             except DuplicateFieldTypeError as e:
                 return str(e)

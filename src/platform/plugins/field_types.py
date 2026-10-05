@@ -39,6 +39,7 @@ class FieldTypeDefinition:
     # identifiers (model/LoRA refs) opt in; anything carrying a file path,
     # upload, or other user-storage reference must stay False.
     shareable: bool = False
+    axis_editor: str = ""
 
 
 class FieldTypeRegistry:
@@ -89,6 +90,7 @@ class FieldTypeRegistry:
                 "has_options": defn.options_provider is not None,
                 "container": defn.container,
                 "source": defn.source,
+                "axis_editor": defn.axis_editor,
                 "configuration_schema": self._configuration_schema(defn.schema_cls),
             }
             for defn in self.all()

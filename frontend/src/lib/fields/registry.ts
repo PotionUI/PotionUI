@@ -58,3 +58,31 @@ export function hasFieldComponent(type: string): boolean {
 export function listFieldTypes(): string[] {
 	return registry.keys();
 }
+
+const axisEditorRegistry = createRegistry<FieldComponentEntry>('field-axis-editor');
+const axisEditorCache = new Map<string, any | null>();
+
+export function registerFieldAxisEditor(
+	type: string,
+	entry: { component: any } | { pluginId: string; asset: string }
+): void {
+	if ('component' in entry) {
+		axisEditorRegistry.register(type, { kind: 'static', component: entry.component }, CORE_OWNER);
+	} else {
+		axisEditorRegistry.register(type, { kind: 'lazy', pluginId: entry.pluginId, asset: entry.asset }, pluginOwner(entry.pluginId));
+		axisEditorCache.delete(type);
+	}
+}
+
+export function unregisterFieldAxisEditor(type: string, owner?: string): void {
+	axisEditorRegistry.unregister(type, owner);
+	axisEditorCache.delete(type);
+}
+
+export function hasAxisEditor(type: string): boolean {
+	return axisEditorRegistry.has(type);
+}
+
+export function resolveAxisEditor(type: string): Promise<any | null> {
+	return resolveLazyEntry(axisEditorRegistry, axisEditorCache, type);
+}

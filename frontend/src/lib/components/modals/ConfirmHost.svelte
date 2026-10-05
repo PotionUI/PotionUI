@@ -16,6 +16,7 @@
 			title={request.title ?? 'Confirm'}
 			message={request.message}
 			variant={request.variant ?? 'warning'}
+			confirmLabel={request.confirmLabel ?? 'Confirm'}
 			on:confirm={() => settleConfirm(requestId, true)}
 			on:cancel={() => settleConfirm(requestId, false)}
 		/>

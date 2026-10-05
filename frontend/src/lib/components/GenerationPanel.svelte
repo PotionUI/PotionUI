@@ -15,6 +15,15 @@
 	import { deriveMarkState, deriveModeChromeGlyph, formatDurationMs, formatDurationSeconds } from './generation-panel/barState';
 	import { shortcutLabels } from '$lib/stores/keybindings';
 	import { createGenerationModeController } from './generationModeController';
+	import {
+		armCompare,
+		compareRevision,
+		readCompareState,
+		readCompareSummary,
+		toggleCompareDrawer
+	} from '$lib/generation/compare/compareStore.svelte';
+	import { limits, limitsMeta } from '$lib/plans/store';
+	import CompareDrawer from './compare/CompareDrawer.svelte';
 
 	const dispatch = createEventDispatcher();
 
@@ -137,7 +146,7 @@
 	// The mark's visual state, and the mode chrome slot's glyph, are pure
 	// derivations (see generation-panel/barState.ts) — kept out of components
 	// so they're unit-testable without mounting Svelte.
-	$: markState = deriveMarkState({ isGenerating, canGenerate: mounted && canGenerate, mode: $generationMode });
+	$: markState = deriveMarkState({ isGenerating, canGenerate: mounted && markCanGenerate, mode: $generationMode });
 	$: modeChromeGlyph = deriveModeChromeGlyph({
 		isGenerating,
 		mode: $generationMode,
@@ -145,9 +154,30 @@
 	});
 	$: modeChromeIcon = modeChromeGlyph === 'pause' ? 'pause' : modeChromeGlyph === 'stopping' ? 'hourglass' : 'refresh';
 	$: modeChromeActive = modeChromeGlyph === 'idle' && $generationMode === 'forever';
-	$: modeChromeDisabled = modeChromeGlyph === 'stopping' || (modeChromeGlyph === 'idle' && !(mounted && canGenerate));
+	$: compareState = readCompareState($compareRevision, tabId);
+	$: compareArmed = compareState.config.armed && !compareState.blocked;
+	$: compareSummary = readCompareSummary($compareRevision, tabId, $limits, $limitsMeta?.contactLine ?? undefined);
+	$: compareResolved = compareState.cells.filter((cell) => cell.status === 'completed' || cell.status === 'failed' || cell.status === 'cancelled').length;
+	$: compareGridActive = compareState.gridRunning;
+	$: compareConflict = $generationMode === 'forever';
+	$: compareButtonDisabled = !!compareState.blocked || (compareConflict && !compareArmed) || workbenchFloating || !tabId;
+	$: compareTooltip = compareState.blocked
+		? compareState.blocked
+		: compareConflict && !compareArmed
+			? "Compare can't run while Continuous is on. Turn Continuous off first."
+			: compareArmed
+				? compareState.drawerOpen
+					? 'Close the compare settings'
+					: 'Edit the compared fields'
+				: 'Compare two fields side by side';
+	$: markCanGenerate = compareArmed ? canGenerate && !compareSummary.disabledReason : canGenerate;
+	$: modeChromeDisabled =
+		modeChromeGlyph === 'stopping' ||
+		(modeChromeGlyph === 'idle' && (compareArmed || !(mounted && canGenerate)));
 	$: modeChromeTooltip =
-		modeChromeGlyph === 'stopping'
+		compareArmed && modeChromeGlyph === 'idle'
+			? "Continuous can't run while Compare is on. Turn Compare off first."
+			: modeChromeGlyph === 'stopping'
 			? 'Finishing this generation, then stopping continuous mode'
 			: modeChromeGlyph === 'pause'
 				? 'Stop after current generation'
@@ -190,6 +220,16 @@
 				? 'min(1000px, calc(100vw - 36px))'
 				: undefined;
 
+	function handleCompareClick() {
+		if (compareButtonDisabled) return;
+		if (!compareArmed) {
+			modeController.setMode('once');
+			armCompare(tabId);
+			return;
+		}
+		toggleCompareDrawer(tabId);
+	}
+
 	function handleModeChromeClick() {
 		if (modeChromeGlyph === 'stopping') return;
 		if (modeChromeGlyph === 'pause') {
@@ -207,11 +247,16 @@
 		}
 	}
 
+	$: effectiveDisabledReason = compareArmed ? (compareSummary.disabledReason ?? disabledReason) : disabledReason;
 	$: markLabel =
 		markState === 'running'
-			? 'Cancel generation'
-			: markState === 'disabled' && disabledReason
-				? disabledReason
+			? compareGridActive
+				? 'Cancel all comparison cells'
+				: 'Cancel generation'
+			: markState === 'disabled' && effectiveDisabledReason
+				? effectiveDisabledReason
+				: compareArmed
+					? `Generate ${compareSummary.count} comparison cells`
 				: $generationMode === 'forever'
 					? 'Start continuous generation'
 					: 'Generate';
@@ -476,6 +521,8 @@
 						<span class="status-title">Running</span>
 					{:else if generatingTabName && !isActiveTabGenerating}
 						<span class="status-title">Generating in {generatingTabName}</span>
+					{:else if compareArmed}
+						<span class="status-title">{markState === 'disabled' && effectiveDisabledReason ? "Can't compare yet" : 'Ready to compare'}</span>
 					{:else}
 						<span class="status-title">{markState === 'disabled' && disabledReason ? "Can't generate yet" : 'Ready to generate'}</span>
 					{/if}
@@ -489,6 +536,7 @@
 				<span class="status-meta">
 					{#if isGenerating}
 						{[
+							compareGridActive ? `${compareResolved}/${compareState.cells.length} cells` : null,
 							progressMessage,
 							currentPipeName,
 							...progressMeta.map((marker) => marker.value),
@@ -500,6 +548,12 @@
 						Another tab currently owns the generation worker
 					{:else if generation.cancelNotice}
 						{generation.cancelNotice}
+					{:else if compareArmed}
+						<span class="font-mono tabular-nums uppercase" data-compare-status>
+							{markState === 'disabled' && effectiveDisabledReason
+								? effectiveDisabledReason
+								: `${compareSummary.count} ${compareSummary.count === 1 ? 'cell' : 'cells'} · ${compareSummary.estimate}`}
+						</span>
 					{:else if costNote && !(markState === 'disabled' && disabledReason)}
 						<span class="font-mono tabular-nums" data-cost-note>{costNote}</span>
 					{:else}
@@ -612,18 +666,45 @@
 						<svg class="icon"><use href="#{modeChromeSpriteId}" /></svg>
 					</button>
 				</Tooltip>
+				<Tooltip text={compareTooltip} position="top" delay={150}>
+					<button
+						type="button"
+						class="mode-button {compareArmed ? 'is-continuous' : ''}"
+						aria-label={compareTooltip}
+						aria-pressed={compareArmed}
+						aria-expanded={compareArmed ? compareState.drawerOpen : undefined}
+						data-compare-toggle
+						disabled={compareButtonDisabled}
+						on:click={handleCompareClick}
+					>
+						<svg class="icon" viewBox="0 0 24 24"><path d="M4 4h6.5v6.5H4ZM13.5 4H20v6.5h-6.5ZM4 13.5h6.5V20H4ZM13.5 13.5H20V20h-6.5Z" /></svg>
+						{#if compareArmed && compareSummary.count > 0}<span class="compare-count">{compareSummary.count}</span>{/if}
+					</button>
+				</Tooltip>
 				<Tooltip text={markLabel} kbd={markState !== 'running' ? $shortcutLabels['start_generation'] : undefined} position="top" delay={150}>
 					<GenerateMark
 						state={markState}
 						disabled={markState === 'disabled'}
 						label={markLabel}
 						shortcut={markState !== 'running' ? $shortcutLabels['start_generation'] : undefined}
+						count={compareArmed && compareSummary.count > 0 ? compareSummary.count : null}
+						cancelText={compareGridActive ? 'Cancel all' : 'Cancel'}
 						onclick={handleMarkClick}
 					/>
 				</Tooltip>
 			</div>
 		</section>
 	</div>
+
+	{#if tabId}
+		<CompareDrawer
+			{tabId}
+			canGenerate={markCanGenerate}
+			generateDisabledReason={effectiveDisabledReason}
+			{isGenerating}
+			onGenerate={handleMarkClick}
+		/>
+	{/if}
 
 	{#if showQueuePopover}
 		<!-- role="dialog" per the mock's #queuePopover (a <div>, not a

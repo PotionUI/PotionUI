@@ -366,6 +366,7 @@ class FieldTypeSpec(BaseModel):
     schema_class: Optional[str] = None
     options_handler: Optional[str] = None
     component: Optional[str] = None
+    axis_editor: Optional[str] = None
     # Opts this type's values into the Inspirations allowlist snapshot
     # (default-deny: see FieldTypeDefinition.shareable). A plugin field type
     # carrying a file path/upload/user-storage reference must leave this False.

@@ -51,6 +51,8 @@ export function toPersistedTab(t: Tab): PersistedTab {
 		positiveSegmentsCollapsed: t.positiveSegmentsCollapsed,
 		negativeSegmentsCollapsed: t.negativeSegmentsCollapsed,
 		sectionCollapsed: t.sectionCollapsed,
+		compare: t.compare ? (sanitizeForPersistence(t.compare) as Tab['compare']) : undefined,
+		compareGridId: t.compareGridId ?? null,
 		workbenchMaxHeight: t.workbenchMaxHeight,
 		workbenchFloatingWidth: t.workbenchFloatingWidth,
 		leftPanelWidth: t.leftPanelWidth,

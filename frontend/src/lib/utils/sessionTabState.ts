@@ -2,6 +2,7 @@ import type { ModeBasedSessionData } from '$lib/services/api';
 import type { Tab } from '$lib/types/tabs';
 import { DEFAULT_PROMPT_PANEL_WIDTH } from '$lib/stores/generationLayout';
 import { mergeCachedModesIntoSessionData } from '$lib/utils/modeState';
+import { compareHasContent } from '$lib/generation/compare/axisValues';
 
 /**
  * Build the exact multi-mode payload a generation tab would save. Keeping this
@@ -51,6 +52,7 @@ export function collectTabSessionData(
 			...(tab.sectionCollapsed && Object.keys(tab.sectionCollapsed).length > 0
 				? { sectionCollapsed: tab.sectionCollapsed }
 				: {}),
+			...(tab.compare && compareHasContent(tab.compare) ? { compare: tab.compare } : {}),
 			...(tab.formData !== undefined ? { formData: tab.formData } : {})
 		}
 	};

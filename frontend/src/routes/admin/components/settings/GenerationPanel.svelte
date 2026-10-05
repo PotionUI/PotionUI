@@ -31,6 +31,30 @@
 				onchange={(checked) => onSettingChange('workbench_single_result_gallery', checked)}
 			/>
 		</div>
+		<div class="py-4 flex items-start justify-between gap-6">
+			<div>
+				<label for="compare-confirm-above" class="block text-sm font-medium text-fg mb-1">
+					Confirm X/Y grids above (cells)
+				</label>
+				<p class="text-sm text-fg-muted">
+					A comparison with more cells than this asks the user to confirm before it runs. The
+					hard cap is 100 cells.
+				</p>
+			</div>
+			<input
+				id="compare-confirm-above"
+				type="number"
+				min="1"
+				max="100"
+				step="1"
+				class="input w-24 font-mono tabular-nums"
+				value={settings.compare_confirm_above ?? 24}
+				onchange={(event) => {
+					const next = Math.round(Number(event.currentTarget.value));
+					if (Number.isFinite(next) && next >= 1) onSettingChange('compare_confirm_above', Math.min(next, 100));
+				}}
+			/>
+		</div>
 		<div class="py-4 space-y-4">
 			<div class="flex items-start justify-between gap-6">
 				<div>

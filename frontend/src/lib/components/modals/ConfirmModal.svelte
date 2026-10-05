@@ -8,6 +8,7 @@
 	export let isOpen: boolean = false;
 	export let title: string = 'Confirm';
 	export let message: string = '';
+	export let confirmLabel: string = 'Confirm';
 	/** "danger" red, "warning" amber, "info" blue, "success" green. */
 	export let variant: 'danger' | 'warning' | 'info' | 'success' = 'warning';
 	/** Disables both actions and shows a spinner on Confirm while an async confirm handler is in flight. */
@@ -99,7 +100,7 @@
 	</div>
 	<svelte:fragment slot="footer">
 		<ConfirmFooter
-			confirmLabel="Confirm"
+			{confirmLabel}
 			confirmVariant={style.confirmVariant}
 			{busy}
 			onCancel={handleCancel}

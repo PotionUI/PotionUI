@@ -5,6 +5,7 @@ import type { MusicDirectorValue } from './musicDirector';
 import type { Segment } from './segments';
 import type { VariablesMap } from '$lib/utils/variableDefs';
 import type { NegativePromptDeclarations } from '$lib/generation/negativeApplied';
+import type { CompareConfig } from '$lib/generation/compare/types';
 
 export interface APIResponse<T = unknown> {
 	success: boolean;
@@ -461,6 +462,7 @@ export interface SessionData {
 	 *  `${preset}/${mode}/${fieldPath}` (see sectionState.ts). Absent until
 	 *  the user folds/unfolds a section that has `children:`. */
 	sectionCollapsed?: Record<string, boolean>;
+	compare?: CompareConfig;
 	// Workbench preview pane height (px, as a string) and left panel width (px).
 	workbenchMaxHeight?: string;
 	leftPanelWidth?: number;

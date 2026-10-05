@@ -71,6 +71,7 @@ export function buildSessionRestoreTabPatch(
 		// Omitted (not defaulted) when the saved session has none yet — leaves
 		// the tab's own persisted sectionCollapsed map (if any) untouched rather
 		// than stomping it with `{}`.
-		...(modeData.sectionCollapsed ? { sectionCollapsed: modeData.sectionCollapsed } : {})
+		...(modeData.sectionCollapsed ? { sectionCollapsed: modeData.sectionCollapsed } : {}),
+		...(modeData.compare ? { compare: modeData.compare } : {})
 	};
 }

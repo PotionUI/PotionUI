@@ -56,7 +56,12 @@ import {
 	registerPluginOutputHandler,
 	unregisterPluginOutputHandler
 } from '$lib/generation/messages/pluginOutput';
-import { registerFieldComponent, unregisterFieldComponent } from '$lib/fields/registry';
+import {
+	registerFieldAxisEditor,
+	registerFieldComponent,
+	unregisterFieldAxisEditor,
+	unregisterFieldComponent
+} from '$lib/fields/registry';
 import { pluginOwner } from '$lib/registries/registry';
 import { setContributions, type SlotContribution } from '$lib/extensions/extensionSlots';
 import { setPluginRevisions } from '$lib/plugin-api/componentResolver';
@@ -84,6 +89,7 @@ interface FieldTypeManifestEntry {
 	type: string;
 	component: string;
 	source: string;
+	axis_editor?: string;
 }
 
 interface ExtensionSnapshot {
@@ -210,10 +216,17 @@ function describeFieldType(
 	if (!ref) return null;
 
 	const owner = pluginOwner(ref.pluginId);
+	const axisRef = entry.axis_editor ? parseComponentRef(entry.axis_editor) : null;
 	return {
-		id: `field|${owner}|${entry.type}|${ref.asset}|${revisionOf(ref.pluginId)}`,
-		register: () => registerFieldComponent(entry.type, { pluginId: ref.pluginId, asset: ref.asset }),
-		dispose: () => unregisterFieldComponent(entry.type, owner)
+		id: `field|${owner}|${entry.type}|${ref.asset}|${axisRef?.asset ?? ''}|${revisionOf(ref.pluginId)}`,
+		register: () => {
+			registerFieldComponent(entry.type, { pluginId: ref.pluginId, asset: ref.asset });
+			if (axisRef) registerFieldAxisEditor(entry.type, { pluginId: axisRef.pluginId, asset: axisRef.asset });
+		},
+		dispose: () => {
+			unregisterFieldComponent(entry.type, owner);
+			if (axisRef) unregisterFieldAxisEditor(entry.type, pluginOwner(axisRef.pluginId));
+		}
 	};
 }
 

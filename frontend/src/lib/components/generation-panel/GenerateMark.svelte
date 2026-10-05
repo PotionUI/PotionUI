@@ -26,6 +26,8 @@
 	// keybinding) gets wired in here instead of being invented separately.
 	export let shortcut: string | undefined = undefined;
 	export let onclick: (() => void) | undefined = undefined;
+	export let count: number | null = null;
+	export let cancelText = 'Cancel';
 
 	$: isRunning = state === 'running';
 </script>
@@ -67,6 +69,7 @@
 			</g>
 		</svg>
 	</span>
-	<span>{isRunning ? 'Cancel' : 'Generate'}</span>
+	<span>{isRunning ? cancelText : 'Generate'}</span>
+	{#if count !== null && !isRunning}<span class="generate-count">{count}</span>{/if}
 	{#if shortcut}<span class="shortcut">{shortcut}</span>{/if}
 </button>

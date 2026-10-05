@@ -16,6 +16,15 @@
 	import { findAttachedMediaThumb } from './studioDockMedia';
 	import TagSelector from '$lib/components/TagSelector.svelte';
 	import GenerationDetailsModal from '$lib/components/modals/GenerationDetailsModal.svelte';
+	import CompareDrawer from '$lib/components/compare/CompareDrawer.svelte';
+	import {
+		armCompare,
+		compareRevision,
+		readCompareState,
+		readCompareSummary,
+		toggleCompareDrawer
+	} from '$lib/generation/compare/compareStore.svelte';
+	import { limits, limitsMeta } from '$lib/plans/store';
 
 	export let tab: Tab;
 	export let promptPreviewText: string;
@@ -146,6 +155,19 @@
 	}
 
 	let paramsOpen = false;
+
+	$: compareState = readCompareState($compareRevision, tab.id);
+	$: compareArmed = compareState.config.armed && !compareState.blocked;
+	$: compareSummary = readCompareSummary($compareRevision, tab.id, $limits, $limitsMeta?.contactLine ?? undefined);
+	$: compareResolved = compareState.cells.filter((cell) => cell.status === 'completed' || cell.status === 'failed' || cell.status === 'cancelled').length;
+	$: dockCanGenerate = compareArmed ? canGenerate && !compareSummary.disabledReason : canGenerate;
+	$: dockDisabledReason = compareArmed ? (compareSummary.disabledReason ?? generateDisabledReason) : generateDisabledReason;
+
+	function handleCompareToggle() {
+		if (compareState.blocked) return;
+		if (!compareArmed) armCompare(tab.id);
+		else toggleCompareDrawer(tab.id);
+	}
 </script>
 
 <div
@@ -282,12 +304,14 @@
 					type="button"
 					class="absolute inset-2 flex flex-col items-center justify-center gap-0.5 rounded-full bg-surface-1/95"
 					on:click={onCancel}
-					aria-label="Cancel generation"
+					aria-label={compareState.gridRunning ? 'Cancel all comparison cells' : 'Cancel generation'}
 				>
 					<svg class="h-3.5 w-3.5 text-danger" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
 						<rect x="7" y="7" width="10" height="10" rx="1.5" />
 					</svg>
-					<span class="font-mono text-2xs tabular-nums text-fg-muted">{ringPercent !== null ? `${ringPercent}%` : ''}</span>
+					<span class="font-mono text-2xs tabular-nums text-fg-muted">
+						{compareState.gridRunning ? `${compareResolved}/${compareState.cells.length}` : ringPercent !== null ? `${ringPercent}%` : ''}
+					</span>
 				</button>
 			</div>
 		</div>
@@ -310,16 +334,35 @@
 			<button
 				type="button"
 				class="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full border-4 border-accent/25 bg-accent text-accent-contrast disabled:cursor-not-allowed disabled:opacity-40"
-				disabled={!canGenerate}
+				disabled={!dockCanGenerate}
 				on:click={onGenerate}
-				aria-label="Generate"
-				title={!canGenerate && generateDisabledReason ? generateDisabledReason : undefined}
+				aria-label={compareArmed ? `Generate ${compareSummary.count}` : 'Generate'}
+				title={!dockCanGenerate && dockDisabledReason ? dockDisabledReason : undefined}
 			>
 				<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
 				</svg>
 			</button>
 
+			<div class="flex items-center gap-2">
+			<button
+				type="button"
+				class="relative flex h-[34px] w-[34px] items-center justify-center rounded border {compareArmed
+					? 'border-signal/50 bg-signal/10 text-signal'
+					: 'border-line-strong bg-surface-1/90 text-fg-muted'} disabled:cursor-not-allowed disabled:opacity-40"
+				aria-label={compareState.blocked ?? (compareArmed ? 'Edit the compared fields' : 'Compare two fields side by side')}
+				aria-pressed={compareArmed}
+				data-compare-toggle
+				disabled={!!compareState.blocked}
+				on:click={handleCompareToggle}
+			>
+				<svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M4 4h6.5v6.5H4ZM13.5 4H20v6.5h-6.5ZM4 13.5h6.5V20H4ZM13.5 13.5H20V20h-6.5Z" />
+				</svg>
+				{#if compareArmed && compareSummary.count > 0}
+					<span class="absolute -right-1 -top-2 min-w-[18px] rounded border border-signal/50 bg-surface-1 px-1 text-center font-mono text-2xs font-semibold tabular-nums text-signal">{compareSummary.count}</span>
+				{/if}
+			</button>
 			{#if aspectLabel}
 				<button
 					type="button"
@@ -335,9 +378,18 @@
 				<!-- No `type: resolution` field on this preset — nothing to read or open, so no dead pill. -->
 				<div class="h-[34px] w-[34px]"></div>
 			{/if}
+			</div>
 		</div>
 	{/if}
 </div>
+
+<CompareDrawer
+	tabId={tab.id}
+	canGenerate={dockCanGenerate}
+	generateDisabledReason={dockDisabledReason}
+	{isGenerating}
+	onGenerate={onGenerate}
+/>
 
 <GenerationDetailsModal
 	isOpen={paramsOpen}

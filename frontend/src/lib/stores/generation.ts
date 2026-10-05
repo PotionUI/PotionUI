@@ -3,6 +3,7 @@ import type { WebSocketMessage } from '$lib/services/websocket';
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
 import { retireGeneration } from '$lib/generation/messages/generationOutputs';
 import { MessageCoalescer } from '$lib/generation/messageCoalescer';
+import { observeGenerationMessage } from '$lib/generation/compare/compareStore.svelte';
 import '$lib/generation/messages';
 
 const TERMINAL_MESSAGE_TYPES = new Set(['generation_complete', 'generation_error', 'generation_cancelled']);
@@ -54,6 +55,12 @@ export function dispatchGenerationMessage(message: WebSocketMessage, deps: Dispa
 		message.type === 'generation_cancelled'
 	) {
 		generationId = (message as any).data?.id || (message as any).data?.generation_id || message.generation_id;
+	}
+
+	try {
+		observeGenerationMessage(message as { type: string; [key: string]: unknown });
+	} catch (error) {
+		console.error('[Compare] Failed to apply a generation message to the grid:', error);
 	}
 
 	const targetTabId = findTabByGenerationId(generationId);

@@ -40,6 +40,7 @@
 	import { createCapabilityTracker, sharedCapabilityCache } from '$lib/form/capabilityTracker';
 	import { fetchCloudCapabilities } from '$lib/services/cloudCapabilities';
 	import { clearFormulaDeclarations } from '$lib/stores/formulas';
+	import { publishCompareSchema } from '$lib/generation/compare/compareStore.svelte';
 
 	const PUBLISHED_SNAPSHOT_LIMIT = 8;
 
@@ -355,6 +356,9 @@
 			if (!schemaRequest.isCurrent(requestId)) return;
 
 			formSchema = schema;
+			if (tabId) {
+				publishCompareSchema(tabId, `${requestPresetId}-${requestMode}-${requestVariant ?? ''}`, schema);
+			}
 			const schemaDefaults = getSchemaDefaults(schema);
 			resetReactionBaseline(initialData);
 			formData = mergeFormData(schemaDefaults, applyMergeFrom(schema, initialData));

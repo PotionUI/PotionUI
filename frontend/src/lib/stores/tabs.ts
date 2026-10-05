@@ -145,6 +145,8 @@ function createTabsStore() {
 					positiveSegmentsCollapsed: p.positiveSegmentsCollapsed,
 					negativeSegmentsCollapsed: p.negativeSegmentsCollapsed,
 					sectionCollapsed: p.sectionCollapsed,
+					compare: p.compare,
+					compareGridId: p.compareGridId ?? null,
 					workbenchMaxHeight: p.workbenchMaxHeight || '600',
 					workbenchFloatingWidth: p.workbenchFloatingWidth,
 					leftPanelWidth: p.leftPanelWidth || 380,

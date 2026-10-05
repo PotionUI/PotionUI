@@ -259,6 +259,7 @@ typing-inspection==0.4.2
 typing_extensions==4.16.0
 ultralytics==8.4.90
 ultralytics-thop==2.0.20
+tzdata==2025.2
 urllib3==2.7.0
 uvicorn==0.51.0
 uvloop==0.22.1; sys_platform != "win32"

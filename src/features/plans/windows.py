@@ -1,22 +1,41 @@
-from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
+import logging
+from datetime import datetime, timedelta, timezone, tzinfo
+from typing import Optional, Set, Tuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from src.features.plans.constants import DEFAULT_TIMEZONE
+
+logger = logging.getLogger(__name__)
+
+_warned: Set[str] = set()
+
+
+def _load(name: str) -> Optional[tzinfo]:
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return timezone.utc if name.strip().upper() == DEFAULT_TIMEZONE else None
 
 
 def valid_timezone(name: str) -> bool:
     if not isinstance(name, str) or not name.strip():
         return False
-    try:
-        ZoneInfo(name)
-    except (ZoneInfoNotFoundError, ValueError):
-        return False
-    return True
+    return _load(name) is not None
 
 
-def zone(name: Optional[str]) -> ZoneInfo:
-    return ZoneInfo(name) if name and valid_timezone(name) else ZoneInfo(DEFAULT_TIMEZONE)
+def zone(name: Optional[str]) -> tzinfo:
+    if isinstance(name, str) and name.strip():
+        tz = _load(name)
+        if tz is not None:
+            return tz
+        if name not in _warned:
+            _warned.add(name)
+            logger.warning("Time zone %r is not available here; plan windows use UTC instead", name)
+    return _load(DEFAULT_TIMEZONE) or timezone.utc
+
+
+def zone_key(name: Optional[str]) -> str:
+    return getattr(zone(name), "key", DEFAULT_TIMEZONE)
 
 
 def window_bounds(window: str, tz_name: Optional[str], now: datetime) -> Tuple[Optional[datetime], Optional[datetime]]:
@@ -36,7 +55,7 @@ def window_bounds(window: str, tz_name: Optional[str], now: datetime) -> Tuple[O
 
 
 def reset_label(window: str, tz_name: Optional[str]) -> str:
-    name = zone(tz_name).key
+    name = zone_key(tz_name)
     if window == "day":
         return f"Resets at 00:00 {name}"
     if window == "month":

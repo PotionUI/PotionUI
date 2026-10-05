@@ -23,7 +23,7 @@ from src.features.plans.kinds import refusal_message
 from src.features.plans.records import Plan, PlanSubject
 from src.features.plans.repository import LimitEventRepository, PlanRepository, UsageRepository
 from src.features.plans.resolver import EffectiveLimit, PlanResolver, Resolution
-from src.features.plans.windows import local_day_text, until_text, valid_timezone, window_bounds, zone
+from src.features.plans.windows import local_day_text, until_text, window_bounds, zone_key
 from src.platform.database.rows import now_utc
 from src.platform.plugins.limit_kinds import (
     AdmissionRequest,
@@ -56,7 +56,7 @@ class PlanSettingsStore:
         contact = self.settings.get_setting(SETTING_CONTACT_LINE, DEFAULT_CONTACT_LINE)
         return PlanSettings(
             exempt_admins=exempt if isinstance(exempt, bool) else str(exempt).lower() == "true",
-            day_timezone=tz_name if valid_timezone(tz_name) else DEFAULT_TIMEZONE,
+            day_timezone=zone_key(tz_name),
             contact_line=DEFAULT_CONTACT_LINE if contact is None else str(contact),
         )
 
@@ -197,7 +197,7 @@ class LimitGuard:
         if resets_at is None:
             return ""
         if kind.window == "day":
-            return f"{until_text(now, resets_at)} (at 00:00 {zone(tz_name).key})"
+            return f"{until_text(now, resets_at)} (at 00:00 {zone_key(tz_name)})"
         return local_day_text(resets_at, tz_name)
 
     def _refusal(self, kind: LimitKind, limit: float, measured: Measured, settings: PlanSettings,

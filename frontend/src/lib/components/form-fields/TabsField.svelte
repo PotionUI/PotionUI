@@ -278,7 +278,7 @@
 					{@const errorCount = errorCountByIndex.get(index) ?? 0}
 					{@const changeCount = changeCountByIndex.get(index) ?? 0}
 
-					{@const buttonClass = `px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap border-b-2 flex items-center justify-center gap-1.5 focus:outline-none focus-visible:outline-none focus-visible:bg-surface-2 focus-visible:text-fg ${activeTab === index
+					{@const buttonClass = `px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap border-b-2 flex items-center justify-center gap-1.5 focus:outline-none focus-visible:outline-none focus-visible:bg-surface-2 focus-visible:text-fg ${activeTab === index
 						? 'border-signal text-signal'
 						: 'border-transparent text-fg-muted hover:text-fg hover:border-line-hover'}`}
 

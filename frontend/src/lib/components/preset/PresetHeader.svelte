@@ -35,7 +35,7 @@
 
 	let panelWidth = 0;
 
-	const NARROW_PANEL_PX = 420;
+	const NARROW_PANEL_PX = 340;
 	$: narrow = panelWidth > 0 && panelWidth < NARROW_PANEL_PX;
 	$: hasModeSelect = availableModes.length > 1;
 	$: modeOptions = availableModes.map((mode) => ({

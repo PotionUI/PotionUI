@@ -253,7 +253,7 @@ describe('Generate header: one-line preset and mode select', () => {
 	});
 
 	it('wide panel: trigger shows the label only', async () => {
-		panelWidth = 600;
+		panelWidth = 395;
 		await render();
 		await tick();
 		flushSync();
@@ -263,7 +263,7 @@ describe('Generate header: one-line preset and mode select', () => {
 	});
 
 	it('narrow panel: the mode select wraps to a full-width row with the description', async () => {
-		panelWidth = 360;
+		panelWidth = 320;
 		await render();
 		await tick();
 		flushSync();

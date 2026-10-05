@@ -539,7 +539,9 @@ class TestGenerationController:
             sort_by=None,
             sort_dir=None,
             system_tag=None,
-            semantic_query=None
+            semantic_query=None,
+            group_grids=True,
+            grid_id=None
         )
 
     @pytest.mark.asyncio

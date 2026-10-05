@@ -216,7 +216,9 @@ class GenerationHistoryQuery:
         system_tag: Optional[str] = None,
         semantic_query: Optional[str] = None,
         include_descendants: bool = True,
-        unsorted: bool = False
+        unsorted: bool = False,
+        group_grids: bool = False,
+        grid_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Get generation history with optional filtering.
 
@@ -272,6 +274,7 @@ class GenerationHistoryQuery:
             unsorted=unsorted,
             used_phrasebook_value_id=used_phrasebook_value_id,
             system_tag=system_tag,
+            grid_id=grid_id,
         )
 
         if semantic_query and semantic_query.strip():
@@ -291,13 +294,16 @@ class GenerationHistoryQuery:
             include_tags=include_tags,
             sort_by=sort_by,
             sort_dir=sort_dir,
+            group_grids=group_grids,
             **filter_kwargs,
         )
 
         history_data = self.serialize_generations(generations, include_tags, viewer_id=user_id)
+        if group_grids and not grid_id:
+            self._attach_grid_summaries(history_data)
 
         # Get total count with tag filtering
-        total_count = self.generation_repo.count_by_status(**filter_kwargs)
+        total_count = self.generation_repo.count_by_status(group_grids=group_grids, **filter_kwargs)
 
         return {
             'generations': history_data,
@@ -313,6 +319,18 @@ class GenerationHistoryQuery:
                 'completed_to': completed_to
             }
         }
+
+    def _attach_grid_summaries(self, gen_dicts: List[Dict[str, Any]]) -> None:
+        from src.features.generation.grids.repository import grid_repo
+        grid_ids = sorted({item['grid_id'] for item in gen_dicts if item.get('grid_id')})
+        if not grid_ids:
+            return
+        grids = grid_repo.get_many(grid_ids)
+        representatives = grid_repo.representative_ids(grid_ids)
+        for item in gen_dicts:
+            grid = grids.get(item.get('grid_id'))
+            if grid is not None and representatives.get(grid.id) == item['id']:
+                item['grid'] = grid.summary()
 
     def serialize_generations(
         self, generations: List[Generation], include_tags: bool, *, viewer_id: Optional[str]

@@ -5,7 +5,7 @@ import json
 import base64
 from copy import deepcopy
 
-from src.platform.database.rows import dt_column, dt_iso, row_get
+from src.platform.database.rows import dt_column, dt_iso, json_column, row_get
 
 @dataclass
 class File:
@@ -143,6 +143,10 @@ class Generation:
     source_prompt_id: Optional[str] = None
     idempotency_key: Optional[str] = None
     idempotency_fingerprint: Optional[str] = None
+    grid_id: Optional[str] = None
+    grid_x: Optional[int] = None
+    grid_y: Optional[int] = None
+    axis_values: Optional[Dict[str, Any]] = None
     # The router's `RoutingDecision.to_trace_dict()` (plus a `reason` on
     # `chosen`), captured at creation. `None` for a generation started with no
     # router wired, or one that predates migration 009. Never surfaced by
@@ -187,6 +191,10 @@ class Generation:
             source_prompt_id=row_get(row, 'source_prompt_id'),
             idempotency_key=row_get(row, 'idempotency_key'),
             idempotency_fingerprint=row_get(row, 'idempotency_fingerprint'),
+            grid_id=row_get(row, 'grid_id'),
+            grid_x=row_get(row, 'grid_x'),
+            grid_y=row_get(row, 'grid_y'),
+            axis_values=json_column(row_get(row, 'axis_values')),
             routing_decision=(
                 json.loads(row_get(row, 'routing_decision'))
                 if row_get(row, 'routing_decision') else None
@@ -223,6 +231,10 @@ class Generation:
             'prompt_state': self.prompt_state,
             'form_name': self.form_name,
             'source_prompt_id': self.source_prompt_id,
+            'grid_id': self.grid_id,
+            'grid_x': self.grid_x,
+            'grid_y': self.grid_y,
+            'axis_values': self.axis_values,
             # The submitted seed, exactly as bound. A -1 (randomize) submission
             # has its concrete roll resolved later in-memory and never written
             # back, so -1 here means "was randomized", not "unknown".

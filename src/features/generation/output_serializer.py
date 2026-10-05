@@ -33,7 +33,7 @@ _MEDIA_OUTPUTS = (
 ALLOWED_SUPPRESSED_KEYS = frozenset({
     'type', 'generation_id', 'pipe_id', 'pipe_name', 'output_type', 'index',
     'temporary', 'is_final', 'file_type', 'artifact_type', 'artifact_data',
-    'nsfw', 'content_flagged', 'preview_suppressed',
+    'nsfw', 'content_flagged', 'preview_suppressed', 'grid_id',
 })
 
 
@@ -57,7 +57,7 @@ def _reduce_to_allowlist(message: Dict[str, Any]) -> Dict[str, Any]:
 class GenerationOutputSerializer:
     """Centralized serializer for generation outputs to WebSocket messages."""
 
-    def __init__(self, generation_id: str = None, preset_id: str = None):
+    def __init__(self, generation_id: str = None, preset_id: str = None, grid_id: str = None):
         """
         Initialize the serializer.
 
@@ -67,6 +67,7 @@ class GenerationOutputSerializer:
         """
         self.generation_id = generation_id or generate_ulid()
         self.preset_id = preset_id
+        self.grid_id = grid_id
 
     def serialize_output(self, output: GenerationOutput) -> Dict[str, Any]:
         """Serialize a generation output to a WebSocket-compatible dictionary."""
@@ -82,6 +83,8 @@ class GenerationOutputSerializer:
                 'pipe_name': getattr(output, 'pipe_name', None),
                 'output_type': spec.key if spec else 'unknown',
             }
+            if self.grid_id:
+                base_message['grid_id'] = self.grid_id
 
             # Add index field for artifact outputs if present
             if hasattr(output, 'index') and getattr(output, 'index', None) is not None:

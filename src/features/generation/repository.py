@@ -66,8 +66,9 @@ class GenerationRepository:
             cursor.execute("""
                 INSERT INTO generations (
                     id, preset_id, preset_version, form_data, user_id, status, progress,
-                    mode, prompt_state, backend_id, tab_id, form_name, source_prompt_id, idempotency_key, idempotency_fingerprint
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    mode, prompt_state, backend_id, tab_id, form_name, source_prompt_id, idempotency_key, idempotency_fingerprint,
+                    grid_id, grid_x, grid_y, axis_values
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 generation.id,
                 generation.preset_id,
@@ -83,7 +84,11 @@ class GenerationRepository:
                 generation.form_name,
                 generation.source_prompt_id,
                 generation.idempotency_key,
-                generation.idempotency_fingerprint
+                generation.idempotency_fingerprint,
+                generation.grid_id,
+                generation.grid_x,
+                generation.grid_y,
+                json.dumps(generation.axis_values) if generation.axis_values is not None else None
             ))
             bump_history_revision(cursor, generation.user_id)
 
@@ -120,6 +125,31 @@ class GenerationRepository:
     # --- Shared filter building -------------------------------------------------
 
     def _build_filters(
+        self, alias: str = 'g', *,
+        group_grids: bool = False,
+        grid_id: Optional[str] = None,
+        **filters: Any,
+    ) -> Tuple[List[str], List[Any]]:
+        conditions, params = self._build_base_filters(alias, **filters)
+        a = f"{alias}." if alias else ""
+        if grid_id:
+            conditions.append(f"{a}grid_id = ?")
+            params.append(grid_id)
+        elif group_grids:
+            representative = (
+                f"(SELECT r0.id FROM generations r0 WHERE r0.grid_id = {a}grid_id "
+                f"ORDER BY r0.grid_y, r0.grid_x LIMIT 1)"
+            )
+            rep_conditions, rep_params = self._build_base_filters('r', **filters)
+            rep_where = " AND ".join(rep_conditions) if rep_conditions else "1 = 1"
+            conditions.append(
+                f"({a}grid_id IS NULL OR {a}id = {representative} OR NOT EXISTS ("
+                f"SELECT 1 FROM generations r WHERE r.id = {representative} AND {rep_where}))"
+            )
+            params.extend(rep_params)
+        return conditions, params
+
+    def _build_base_filters(
         self, alias: str = 'g', *,
         user_id: Optional[str] = None,
         status: Optional[str] = None,
@@ -334,6 +364,7 @@ class GenerationRepository:
                 used_phrasebook_value_id: Optional[str] = None,
                 system_tag: Optional[str] = None,
                 generation_ids: Optional[List[str]] = None,
+                group_grids: bool = False, grid_id: Optional[str] = None,
                 sort_by: Optional[str] = None, sort_dir: Optional[str] = None) -> List[Generation]:
         """Get all generations with optional filtering, searching and sorting."""
 
@@ -347,6 +378,7 @@ class GenerationRepository:
             system_tag=system_tag, generation_ids=generation_ids,
             tag_ids=tag_ids, collection_id=collection_id,
             include_descendants=include_descendants, unsorted=unsorted,
+            group_grids=group_grids, grid_id=grid_id,
         )
 
         query = "SELECT g.* FROM generations g"
@@ -391,7 +423,8 @@ class GenerationRepository:
                         collection_id: Optional[str] = None,
                         include_descendants: bool = True, unsorted: bool = False,
                         used_phrasebook_value_id: Optional[str] = None,
-                        system_tag: Optional[str] = None) -> int:
+                        system_tag: Optional[str] = None,
+                        group_grids: bool = False, grid_id: Optional[str] = None) -> int:
         """Count generations matching the same filters as get_all (for pagination total)."""
 
         conditions, params = self._build_filters(
@@ -404,6 +437,7 @@ class GenerationRepository:
             system_tag=system_tag,
             tag_ids=tag_ids, collection_id=collection_id,
             include_descendants=include_descendants, unsorted=unsorted,
+            group_grids=group_grids, grid_id=grid_id,
         )
 
         query = "SELECT COUNT(*) FROM generations g"

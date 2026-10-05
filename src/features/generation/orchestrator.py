@@ -55,6 +55,7 @@ if TYPE_CHECKING:
     from src.features.cloud.policy import CloudGenerationPolicy
     from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
     from src.features.plans.guard import LimitGuard
+    from src.features.generation.grids.dto import GridCellRef
 
 from src.platform.util.ids import generate_ulid
 from src.platform.database.rows import dt_iso
@@ -884,11 +885,12 @@ class GenerationOrchestrator:
         self,
         request,
         user_id: str,
-        output_callback: Optional[Callable[[str, GenerationOutput], Any]] = None
+        output_callback: Optional[Callable[[str, GenerationOutput], Any]] = None,
+        grid_cell: Optional['GridCellRef'] = None
     ) -> Dict[str, Any]:
         key = getattr(request, 'idempotency_key', None)
         if not isinstance(key, str) or not key:
-            return await self._submit_generation(request, user_id, output_callback)
+            return await self._submit_generation(request, user_id, output_callback, grid_cell=grid_cell)
 
         fingerprint = _submission_fingerprint(request)
         async with self._idempotency_lock(user_id, key):
@@ -896,7 +898,9 @@ class GenerationOrchestrator:
             if existing is not None:
                 return self._existing_submission(existing, fingerprint)
             try:
-                return await self._submit_generation(request, user_id, output_callback, key, fingerprint)
+                return await self._submit_generation(
+                    request, user_id, output_callback, key, fingerprint, grid_cell=grid_cell
+                )
             except DuplicateIdempotencyKey:
                 return self._existing_submission(
                     generation_repo.get_by_idempotency_key(user_id, key), fingerprint
@@ -974,6 +978,7 @@ class GenerationOrchestrator:
         output_callback: Optional[Callable[[str, GenerationOutput], Any]] = None,
         idempotency_key: Optional[str] = None,
         idempotency_fingerprint: Optional[str] = None,
+        grid_cell: Optional['GridCellRef'] = None,
     ) -> Dict[str, Any]:
         """
         Start a new generation with the given request.
@@ -1231,7 +1236,11 @@ class GenerationOrchestrator:
                 form_name=bound.form_name,
                 source_prompt_id=getattr(request, 'source_prompt_id', None),
                 idempotency_key=idempotency_key,
-                idempotency_fingerprint=idempotency_fingerprint
+                idempotency_fingerprint=idempotency_fingerprint,
+                grid_id=grid_cell.grid_id if grid_cell else None,
+                grid_x=grid_cell.x if grid_cell else None,
+                grid_y=grid_cell.y if grid_cell else None,
+                axis_values=grid_cell.axis_values if grid_cell else None,
             )
             generation_repo.create(db_generation)
             logger.debug(f"Created database record for generation {generation_id}")
@@ -1314,6 +1323,7 @@ class GenerationOrchestrator:
                 backend_id=backend.backend_id,
                 user_id=user_id,
                 tab_id=getattr(request, 'tab_id', None),
+                grid_id=grid_cell.grid_id if grid_cell else None,
             )
             logger.debug(f"Created status tracking for {generation_id}")
 

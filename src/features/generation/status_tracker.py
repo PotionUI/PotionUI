@@ -42,6 +42,7 @@ class GenerationRecord:
     backend_id: Optional[str] = None
     user_id: Optional[str] = None
     tab_id: Optional[str] = None
+    grid_id: Optional[str] = None
     state: GenerationState = GenerationState.PENDING
     progress: Optional[float] = None
     current_step: Optional[str] = None
@@ -86,6 +87,7 @@ class GenerationRecord:
             'segment_id': self.segment_id,
             'created_at': str(self.created_at),
             'completed_at': str(self.completed_at) if self.completed_at is not None else None,
+            **({'grid_id': self.grid_id} if self.grid_id else {}),
         }
 
 
@@ -113,6 +115,7 @@ class GenerationStatusTracker:
         backend_id: Optional[str] = None,
         user_id: Optional[str] = None,
         tab_id: Optional[str] = None,
+        grid_id: Optional[str] = None,
     ) -> GenerationRecord:
         record = GenerationRecord(
             id=id,
@@ -120,6 +123,7 @@ class GenerationStatusTracker:
             backend_id=backend_id,
             user_id=user_id,
             tab_id=tab_id,
+            grid_id=grid_id,
         )
         with self._lock:
             self._records[id] = record

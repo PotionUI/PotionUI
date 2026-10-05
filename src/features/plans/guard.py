@@ -228,7 +228,7 @@ class LimitGuard:
         }
 
     def _evaluate(self, request: AdmissionRequest, subject: PlanSubject, settings: PlanSettings,
-                  now: datetime, items_only: bool = False) -> List[Dict[str, Any]]:
+                  now: datetime, items_only: bool = False, batch: Optional[int] = None) -> List[Dict[str, Any]]:
         if self.is_exempt(subject, settings):
             return []
         resolution = self.resolve(subject)
@@ -240,6 +240,8 @@ class LimitGuard:
             incoming = kind.incoming_for(request)
             if kind.per_item and incoming is None:
                 continue
+            if batch is not None and incoming is not None and not kind.per_item and kind.ledger and request.point == "submit":
+                incoming = incoming * batch
             try:
                 measured = self.measure(kind, subject.user_id, settings.day_timezone, now)
             except Exception:
@@ -248,7 +250,11 @@ class LimitGuard:
                 logger.exception("Limit kind %s failed to measure; not enforcing it", kind.key)
                 continue
             if exceeded(limit.value, measured.used, incoming):
-                refusals.append(self._refusal(kind, limit.value, measured, settings, request.point, now, incoming))
+                refusal = self._refusal(kind, limit.value, measured, settings, request.point, now, incoming)
+                if batch is not None and not kind.hides_values:
+                    refusal["needed"] = _number(incoming)
+                    refusal["remaining"] = _number(max(0.0, limit.value - measured.used))
+                refusals.append(refusal)
         never = sorted(
             (r for r in refusals if r["resets_at"] is None),
             key=lambda r: not self.registry.get(r["kind"]).per_item,
@@ -276,6 +282,15 @@ class LimitGuard:
             return
         settings = self.settings.read()
         refusals = self._evaluate(request, subject, settings, self.clock())
+        if refusals:
+            self._refuse(request, refusals, settings)
+
+    def check_batch(self, request: AdmissionRequest, count: int) -> None:
+        subject = self.plans.subject(request.user_id)
+        if subject is None:
+            return
+        settings = self.settings.read()
+        refusals = self._evaluate(request, subject, settings, self.clock(), batch=max(1, count))
         if refusals:
             self._refuse(request, refusals, settings)
 

@@ -75,6 +75,7 @@ class GenerationOutputBroadcaster:
             serializer = GenerationOutputSerializer(
                 generation_id=generation_id,
                 preset_id=status.preset_id,
+                grid_id=getattr(status, 'grid_id', None),
             )
 
             message = serializer.serialize_output(output)

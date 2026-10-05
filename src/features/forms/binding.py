@@ -886,6 +886,63 @@ def _apply_reactions(
     )
 
 
+def form_field_index(
+    preset_template: PresetTemplate, mode: str, form_name: Optional[str] = None
+) -> Dict[str, FieldTemplate]:
+    mode_data: Optional[ModeTemplate] = (preset_template.modes or {}).get(mode)
+    if mode_data is None:
+        raise FormNotFoundException(preset_template.id, mode, form_name)
+    form = _resolve_form(mode_data, preset_template.id, mode, form_name)
+    index: Dict[str, FieldTemplate] = {}
+    _flatten_fields(_expand_form_fields(form.fields, preset_template), index)
+    return index
+
+
+def _condition_fields(when: Any) -> set:
+    if isinstance(when, list):
+        return set().union(*(_condition_fields(item) for item in when)) if when else set()
+    if _is_logical_condition(when):
+        conditions = when["conditions"] if isinstance(when["conditions"], list) else []
+        return _condition_fields(conditions)
+    if isinstance(when, dict) and isinstance(when.get("field"), str):
+        return {when["field"]}
+    return set()
+
+
+def cascade_reactions(
+    field_index: Dict[str, FieldTemplate],
+    values: Dict[str, Any],
+    changed: set,
+    *,
+    preset_id: str,
+    mode: str,
+) -> None:
+    pinned = set(changed)
+    changed = set(changed)
+    for _ in range(_MAX_REACTION_ITERATIONS):
+        snapshot = dict(values)
+        updates: Dict[str, Any] = {}
+        for name, spec in field_index.items():
+            if name in pinned or not spec.reactions:
+                continue
+            resolved = snapshot.get(name)
+            for reaction in spec.reactions:
+                if not isinstance(reaction, dict):
+                    continue
+                when = reaction.get("when")
+                then = reaction.get("then") or {}
+                if then.get("set_value") is None or not (_condition_fields(when) & changed):
+                    continue
+                if _reaction_matches(when, snapshot, preset_id=preset_id, mode=mode, field_name=name):
+                    resolved = then["set_value"]
+            if resolved != snapshot.get(name):
+                updates[name] = resolved
+        if not updates:
+            return
+        values.update(updates)
+        changed |= set(updates)
+
+
 _TEMPLATE_MARKER = re.compile(r"^\s*\{\{(.*)\}\}\s*$", re.DOTALL)
 _PRESET_VAR_REFERENCE = re.compile(r"^\s*preset\.vars\.([A-Za-z_]\w*)\s*$")
 

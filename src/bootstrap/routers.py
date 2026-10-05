@@ -31,6 +31,7 @@ from src.features.downloads.routes import (
     build_router as build_downloads_router,
     build_ws_router as build_downloads_ws_router,
 )
+from src.features.generation.grids.routes import build_router as build_generation_grids_router
 from src.features.generation.routes import (
     build_router as build_generation_router,
     build_ws_router as build_generation_ws_router,
@@ -116,6 +117,7 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_docs_router(container))  # Documentation feature endpoints
     app.include_router(build_downloads_router(container))  # Download queue endpoints
     app.include_router(build_downloads_ws_router(container))  # Download WebSocket
+    app.include_router(build_generation_grids_router(container))
     app.include_router(build_generation_router(container))
     app.include_router(build_generation_ws_router(container))  # WebSocket routes
     app.include_router(build_generation_admin_router(container))  # /api/admin/generations (global, run reports)

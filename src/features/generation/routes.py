@@ -145,14 +145,16 @@ class GenerationController(BaseController):
         """Push a `queue_update` to the clients subscribed to this generation."""
         await self.connection_hub.broadcast_to_generation(generation_id, message)
 
-    async def start_generation(self, request: GenerationRequest, current_user) -> APIResponse:
+    async def start_generation(self, request: GenerationRequest, current_user, grid_cell=None) -> APIResponse:
         """Start a new generation using the generation orchestrator"""
         try:
             # Delegate to generation orchestrator
+            extra = {'grid_cell': grid_cell} if grid_cell is not None else {}
             result = await self.generation_orchestrator.start_generation(
                 request,
                 current_user.id,
-                output_callback=self.output_broadcaster.handle_output
+                output_callback=self.output_broadcaster.handle_output,
+                **extra
             )
             if isinstance(result, dict) and isinstance(result.get('status'), dict):
                 result = {**result, 'status': scope_status(result['status'], GenerationPolicy.is_admin(current_user))}
@@ -507,7 +509,8 @@ class GenerationController(BaseController):
         sort_by: Optional[str] = None,
         sort_dir: Optional[str] = None,
         system_tag: Optional[str] = None,
-        semantic_query: Optional[str] = None
+        semantic_query: Optional[str] = None,
+        grid_id: Optional[str] = None
     ) -> APIResponse:
         """Get generation history from database with optional filtering"""
         try:
@@ -541,7 +544,9 @@ class GenerationController(BaseController):
                 sort_by=sort_by,
                 sort_dir=sort_dir,
                 system_tag=system_tag,
-                semantic_query=semantic_query
+                semantic_query=semantic_query,
+                group_grids=True,
+                grid_id=grid_id
             )
             is_admin = GenerationPolicy.is_admin(current_user)
             result = {**result, 'generations': [scope_generation(item, is_admin) for item in result.get('generations') or []]}
@@ -1435,6 +1440,7 @@ def build_router(container: "AppContainer") -> APIRouter:
                                    sort_by: str = None, sort_dir: str = None,
                                    system_tag: str = None,
                                    semantic_query: str = None,
+                                   grid_id: str = None,
                                    current_user = Depends(get_current_active_user)):
         """Get paginated generation history with optional filtering, search and sorting."""
         return await controller.get_generation_history(
@@ -1462,7 +1468,8 @@ def build_router(container: "AppContainer") -> APIRouter:
             sort_by=sort_by,
             sort_dir=sort_dir,
             system_tag=system_tag,
-            semantic_query=semantic_query
+            semantic_query=semantic_query,
+            grid_id=grid_id
         )
 
     @router.get("/history/facets", response_model=APIResponse, summary="Get History Filter Facets")

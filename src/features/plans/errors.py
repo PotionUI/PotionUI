@@ -47,6 +47,8 @@ class LimitExceeded(Exception):
             "used": primary["used"],
             "limit": primary["limit"],
             "incoming": primary.get("incoming"),
+            "needed": primary.get("needed"),
+            "remaining": primary.get("remaining"),
             "percent": primary["percent"],
             "resets_at": primary["resets_at"],
             "contact_line": self.contact_line,

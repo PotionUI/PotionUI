@@ -74,6 +74,7 @@ import { createMcpApi } from './mcp';
 import { createInspirationsApi } from './inspirations';
 import { createPluginsApi } from './plugins';
 import { createFormulasApi } from './formulas';
+import { createOrganizeApi } from './organize';
 
 const apiClient = new APIClient();
 
@@ -123,7 +124,8 @@ export const api = {
 	...createMcpApi(apiClient.getClient()),
 	...createInspirationsApi(apiClient.getClient()),
 	...createPluginsApi(apiClient.getClient()),
-	...createFormulasApi(apiClient.getClient())
+	...createFormulasApi(apiClient.getClient()),
+	...createOrganizeApi(apiClient.getClient())
 };
 
 export type { APIClient };

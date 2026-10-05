@@ -1,6 +1,9 @@
 import type {
 	OrganizeAction,
 	OrganizeActionSpec,
+	OrganizeAttributeOption,
+	OrganizeAttributeType,
+	OrganizeAttributeValue,
 	OrganizeCatalog,
 	OrganizeCondition,
 	OrganizeFactSpec,
@@ -35,7 +38,9 @@ export interface RuleDraft {
 	stop_after: boolean;
 }
 
-export const KNOWN_KINDS = ['model_ref', 'enum', 'size', 'number', 'text', 'tag_list', 'bool'] as const;
+export const KNOWN_KINDS = ['model_ref', 'enum', 'size', 'number', 'text', 'tag_list', 'bool', 'attribute'] as const;
+
+export const ATTRIBUTE_TYPES: readonly OrganizeAttributeType[] = ['number', 'text', 'bool', 'enum'];
 
 let uidCounter = 0;
 export function nextUid(): string {
@@ -67,12 +72,96 @@ export function defaultValue(kind: string, operator: string, spec?: OrganizeFact
 			return [];
 		case 'bool':
 			return true;
+		case 'attribute':
+			return { key: '', type: '', label: '', value: null } satisfies OrganizeAttributeValue;
 		default:
 			return '';
 	}
 }
 
+export function isAttributeValue(value: unknown): value is OrganizeAttributeValue {
+	return !!value && typeof value === 'object' && !Array.isArray(value) && typeof (value as { key?: unknown }).key === 'string';
+}
+
+export function attributeValueSpec(spec: OrganizeFactSpec, option: OrganizeAttributeOption | undefined, type: string): OrganizeFactSpec {
+	const meta = option?.meta;
+	const picker: OrganizeFactSpec['picker'] = {};
+	if (typeof meta?.min === 'number') picker.min = meta.min;
+	if (typeof meta?.max === 'number') picker.max = meta.max;
+	if (typeof meta?.step === 'number') picker.step = meta.step;
+	if (type === 'enum') picker.multi = true;
+	return {
+		...spec,
+		key: `${spec.key}.${option?.value ?? ''}`,
+		label: option?.label ?? spec.label,
+		kind: (ATTRIBUTE_TYPES as readonly string[]).includes(type) ? type : 'text',
+		operators: operatorsForType(spec, type),
+		picker,
+		options: type === 'enum' ? (meta?.choices ?? []) : null,
+		has_options_endpoint: false
+	};
+}
+
+export function operatorsForType(spec: OrganizeFactSpec | undefined, type: string): string[] {
+	const byType = spec?.picker?.operators_by_type as Partial<Record<string, string[]>> | undefined;
+	const allowed = byType?.[type];
+	return allowed && allowed.length > 0 ? allowed : (spec?.operators ?? []);
+}
+
+export function operatorsFor(spec: OrganizeFactSpec | undefined, condition: Pick<OrganizeCondition, 'value'>): string[] {
+	if (effectiveKind(spec) !== 'attribute') return spec?.operators ?? [];
+	const type = isAttributeValue(condition.value) ? condition.value.type : '';
+	return type ? operatorsForType(spec, type) : (spec?.operators ?? []);
+}
+
+export function attributeInnerDefault(type: string, operator: string, option?: OrganizeAttributeOption): unknown {
+	if (type === 'number') {
+		const min = option?.meta?.min;
+		const max = option?.meta?.max;
+		if (typeof min === 'number' && min > 0) return min;
+		if (typeof max === 'number' && max < 0) return max;
+		return 0;
+	}
+	if (type === 'bool') return true;
+	if (type === 'enum') return isListOperator(operator) ? [] : '';
+	return '';
+}
+
+export function pickAttribute(spec: OrganizeFactSpec, option: OrganizeAttributeOption): { operator: string; value: OrganizeAttributeValue } {
+	const type = option.meta?.type ?? 'text';
+	const operator = operatorsForType(spec, type)[0] ?? 'is';
+	return {
+		operator,
+		value: { key: option.value, type, label: option.label, value: attributeInnerDefault(type, operator, option) }
+	};
+}
+
+export function attributesForDraft(
+	options: OrganizeAttributeOption[],
+	conditions: Pick<OrganizeCondition, 'fact' | 'operator' | 'value'>[],
+	keep: string = ''
+): OrganizeAttributeOption[] {
+	const types = new Set<string>();
+	for (const cond of conditions) {
+		if (cond.fact !== 'model_type' || (cond.operator !== 'is' && cond.operator !== 'is_any_of')) continue;
+		for (const v of Array.isArray(cond.value) ? cond.value : [cond.value]) {
+			if (typeof v === 'string' && v) types.add(v);
+		}
+	}
+	if (types.size === 0) return options;
+	return options.filter((o) => {
+		if (o.value === keep) return true;
+		const declared = o.meta?.model_types ?? [];
+		return declared.length === 0 || declared.some((t) => types.has(t));
+	});
+}
+
 export function coerceValue(kind: string, nextOperator: string, value: unknown, spec?: OrganizeFactSpec): unknown {
+	if (kind === 'attribute') {
+		if (!isAttributeValue(value)) return defaultValue(kind, nextOperator, spec);
+		if (!value.type) return value;
+		return { ...value, value: coerceValue(value.type, nextOperator, value.value ?? attributeInnerDefault(value.type, nextOperator)) };
+	}
 	if (kind === 'model_ref' || kind === 'enum') {
 		if (isListOperator(nextOperator)) {
 			if (Array.isArray(value)) return value;
@@ -200,6 +289,13 @@ export function conditionValueFilled(kind: string, value: unknown): boolean {
 			return Array.isArray(value) && value.length > 0;
 		case 'bool':
 			return typeof value === 'boolean';
+		case 'attribute':
+			return (
+				isAttributeValue(value) &&
+				value.key !== '' &&
+				(ATTRIBUTE_TYPES as readonly string[]).includes(value.type) &&
+				conditionValueFilled(value.type, value.value)
+			);
 		default:
 			return typeof value === 'string' && value.trim() !== '';
 	}
@@ -261,8 +357,20 @@ export interface ValueLabels {
 	options: Record<string, Record<string, string>>;
 }
 
+export function attributeLabel(value: unknown): string {
+	if (!isAttributeValue(value)) return 'an attribute';
+	return value.label || value.key || 'an attribute';
+}
+
 export function describeValue(spec: OrganizeFactSpec | undefined, value: unknown, labels: ValueLabels): string {
 	const kind = effectiveKind(spec);
+	if (kind === 'attribute') {
+		if (!isAttributeValue(value)) return '';
+		const inner = value.value;
+		if (value.type === 'bool') return inner ? 'yes' : 'no';
+		if (Array.isArray(inner)) return inner.map(String).join(', ');
+		return inner === null || inner === undefined ? '' : String(inner);
+	}
 	const key = spec?.key ?? '';
 	const one = (v: unknown): string => {
 		if (kind === 'model_ref') return labels.models[String(v)] ?? 'a model';

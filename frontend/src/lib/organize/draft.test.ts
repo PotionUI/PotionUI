@@ -1,7 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { catalogFixture, ruleFixture } from '../../../tests/component/organizeFixtures';
+import { attributeOptionsFixture, catalogFixture, modelCatalogFixture, ruleFixture } from '../../../tests/component/organizeFixtures';
 import {
+	attributesForDraft,
 	coerceValue,
+	conditionValueFilled,
+	operatorsFor,
+	pickAttribute,
 	defaultValue,
 	draftFromRule,
 	draftProblems,
@@ -175,5 +179,85 @@ describe('jobs and activity', () => {
 		} as never;
 		expect(runSummary(run)).toEqual(['Added 1 item to Landscapes', 'Detect: 3 items']);
 		expect(undoMessage(run)).toContain('the collection stays');
+	});
+});
+
+describe('attribute conditions', () => {
+	const attr = modelCatalogFixture.facts.find((f) => f.key === 'attribute')!;
+	const strength = attributeOptionsFixture[0];
+	const style = attributeOptionsFixture[2];
+	const labels = { models: {}, options: {} };
+
+	it('starts empty and is only finished once the key and a typed value are set', () => {
+		expect(effectiveKind(attr)).toBe('attribute');
+		expect(newCondition(attr)).toMatchObject({ fact: 'attribute', operator: 'is', value: { key: '', type: '', label: '', value: null } });
+		expect(conditionValueFilled('attribute', { key: '', type: '', label: '', value: null })).toBe(false);
+		expect(conditionValueFilled('attribute', { key: 'strength', type: 'number', label: 'S', value: null })).toBe(false);
+		expect(conditionValueFilled('attribute', { key: 'strength', type: 'number', label: 'S', value: 0.8 })).toBe(true);
+		expect(conditionValueFilled('attribute', { key: 'triggers', type: 'text', label: 'T', value: '  ' })).toBe(false);
+		expect(conditionValueFilled('attribute', { key: 'shareable', type: 'bool', label: 'B', value: false })).toBe(true);
+		expect(conditionValueFilled('attribute', { key: 'style', type: 'enum', label: 'E', value: [] })).toBe(false);
+		expect(conditionValueFilled('attribute', { key: 'style', type: 'enum', label: 'E', value: ['anime'] })).toBe(true);
+		expect(conditionValueFilled('attribute', { key: 'x', type: 'weird', label: 'X', value: 'a' })).toBe(false);
+	});
+
+	it('offers the operators of the picked attribute type', () => {
+		expect(operatorsFor(attr, { value: { key: 'strength', type: 'number', label: '', value: 1 } })).toEqual(['is', 'at_least', 'at_most']);
+		expect(operatorsFor(attr, { value: { key: 'shareable', type: 'bool', label: '', value: true } })).toEqual(['is']);
+		expect(operatorsFor(attr, { value: { key: '', type: '', label: '', value: null } })).toEqual(attr.operators);
+		expect(operatorsFor(facts('prompt'), { value: 'cat' })).toEqual(['contains', 'not_contains']);
+	});
+
+	it('picks an attribute with its first operator and a typed default', () => {
+		expect(pickAttribute(attr, strength)).toEqual({
+			operator: 'is',
+			value: { key: 'strength', type: 'number', label: 'Recommended strength', value: 0 }
+		});
+		expect(pickAttribute(attr, style).value.value).toBe('');
+		expect(coerceValue('attribute', 'is_any_of', { key: 'style', type: 'enum', label: 'Style', value: 'anime' })).toEqual({
+			key: 'style',
+			type: 'enum',
+			label: 'Style',
+			value: ['anime']
+		});
+	});
+
+	it('narrows attributes to the model types the rule checks', () => {
+		const all = attributeOptionsFixture;
+		expect(attributesForDraft(all, []).map((a) => a.value)).toEqual(['strength', 'triggers', 'style', 'shareable']);
+		expect(attributesForDraft(all, [{ fact: 'model_type', operator: 'is', value: 'lora' }]).map((a) => a.value)).toEqual(['strength', 'triggers']);
+		expect(attributesForDraft(all, [{ fact: 'model_type', operator: 'is_not', value: 'lora' }])).toHaveLength(4);
+		expect(attributesForDraft(all, [{ fact: 'model_type', operator: 'is_any_of', value: ['lora'] }], 'style').map((a) => a.value)).toEqual([
+			'strength',
+			'triggers',
+			'style'
+		]);
+	});
+
+	it('reads as a plain sentence', () => {
+		const conditions = [
+			{ fact: 'attribute', operator: 'at_least', value: { key: 'strength', type: 'number', label: 'Recommended strength', value: 0.8 } },
+			{ fact: 'attribute', operator: 'is', value: { key: 'shareable', type: 'bool', label: 'Safe to share', value: false } },
+			{ fact: 'attribute', operator: 'is_any_of', value: { key: 'style', type: 'enum', label: '', value: ['anime', 'photo'] } },
+			{ fact: 'name', operator: 'starts_with', value: 'pony' }
+		];
+		expect(conditionPhrases(conditions, modelCatalogFixture, labels)).toEqual([
+			'Attribute Recommended strength is at least 0.8',
+			'Attribute Safe to share is no',
+			'Attribute style is any of anime, photo',
+			'Name starts with pony'
+		]);
+		expect(describeValue(attr, { key: 'x', type: 'text', label: 'X', value: 'cat' }, labels)).toBe('cat');
+	});
+
+	it('flags an unfinished attribute condition', () => {
+		const draft = emptyDraft('model');
+		draft.name = 'Strong LoRAs';
+		draft.actions.push(newAction(modelCatalogFixture.actions[0]));
+		draft.actions[0].config.collection_name = 'Strong';
+		draft.conditions.push(newCondition(attr));
+		expect(draftProblems(draft, modelCatalogFixture)).toEqual(['Finish every condition.']);
+		draft.conditions[0].value = { key: 'strength', type: 'number', label: 'Recommended strength', value: 0.8 };
+		expect(draftProblems(draft, modelCatalogFixture)).toEqual([]);
 	});
 });

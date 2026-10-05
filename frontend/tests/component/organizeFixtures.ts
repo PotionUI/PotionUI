@@ -1,4 +1,4 @@
-import type { OrganizeCatalog, OrganizeRule } from '../../src/lib/types/organize';
+import type { OrganizeAttributeOption, OrganizeCatalog, OrganizeRule } from '../../src/lib/types/organize';
 
 export const catalogFixture: OrganizeCatalog = {
 	subjects: [
@@ -64,3 +64,50 @@ export function ruleFixture(over: Partial<OrganizeRule> = {}): OrganizeRule {
 		...over
 	};
 }
+
+const TEXT_OPERATORS = ['contains', 'not_contains', 'starts_with', 'ends_with', 'is', 'is_not'];
+const ATTRIBUTE_OPERATORS = ['is', 'is_any_of', 'is_not', 'at_least', 'at_most', 'contains', 'not_contains', 'starts_with', 'ends_with'];
+
+export const modelCatalogFixture: OrganizeCatalog = {
+	...catalogFixture,
+	kinds: {
+		...catalogFixture.kinds,
+		text: { operators: TEXT_OPERATORS },
+		attribute: { operators: ATTRIBUTE_OPERATORS }
+	},
+	operators: { ...catalogFixture.operators, starts_with: 'starts with', ends_with: 'ends with' },
+	facts: [
+		{ key: 'model_type', label: 'Model type', subjects: ['model'], kind: 'enum', operators: ['is', 'is_any_of', 'is_not'], picker: { multi: true }, options: null, has_options_endpoint: true, description: '', source: 'core', component: null, previewable: true },
+		{ key: 'name', label: 'Name', subjects: ['model'], kind: 'text', operators: TEXT_OPERATORS, picker: { placeholder: 'part of the name' }, options: null, has_options_endpoint: false, description: '', source: 'core', component: null, previewable: true },
+		{ key: 'file_size', label: 'File size', subjects: ['model'], kind: 'number', operators: ['at_least', 'at_most'], picker: { min: 0, step: 1, unit: 'MB' }, options: null, has_options_endpoint: false, description: '', source: 'core', component: null, previewable: true },
+		{
+			key: 'attribute',
+			label: 'Attribute',
+			subjects: ['model'],
+			kind: 'attribute',
+			operators: ATTRIBUTE_OPERATORS,
+			picker: {
+				operators_by_type: {
+					number: ['is', 'at_least', 'at_most'],
+					text: TEXT_OPERATORS,
+					bool: ['is'],
+					enum: ['is', 'is_any_of', 'is_not']
+				}
+			},
+			options: null,
+			has_options_endpoint: true,
+			description: '',
+			source: 'core',
+			component: null,
+			previewable: true
+		},
+		...catalogFixture.facts
+	]
+};
+
+export const attributeOptionsFixture: OrganizeAttributeOption[] = [
+	{ value: 'strength', label: 'Recommended strength', meta: { type: 'number', type_label: 'Number range', field_type: 'range', model_types: ['lora'], min: -2, max: 2, step: 0.05 } },
+	{ value: 'triggers', label: 'Trigger words', meta: { type: 'text', type_label: 'Tags', field_type: 'tags', model_types: [] } },
+	{ value: 'style', label: 'Style', meta: { type: 'enum', type_label: 'Choice', field_type: 'select', model_types: ['checkpoint'], choices: [{ value: 'anime', label: 'Anime' }, { value: 'photo', label: 'Photo' }] } },
+	{ value: 'shareable', label: 'Safe to share', meta: { type: 'bool', type_label: 'Yes or no', field_type: 'checkbox', model_types: ['checkpoint'] } }
+];

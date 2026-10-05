@@ -13,6 +13,7 @@
 	} from '$lib/organize/draft';
 	import type { OrganizeCatalog } from '$lib/types/organize';
 	import ConditionValueControl from './ConditionValueControl.svelte';
+	import AttributeConditionControl from './AttributeConditionControl.svelte';
 
 	let {
 		draft = $bindable(),
@@ -48,6 +49,10 @@
 
 	function changeValue(index: number, value: unknown) {
 		draft.conditions[index] = { ...draft.conditions[index], value };
+	}
+
+	function changeAttribute(index: number, next: { operator: string; value: unknown }) {
+		draft.conditions[index] = { ...draft.conditions[index], operator: next.operator, value: next.value };
 	}
 
 	function addCondition() {
@@ -94,7 +99,17 @@
 					on:change={(event) => changeFact(index, event.detail)}
 				/>
 			</div>
-			{#if spec}
+			{#if spec && effectiveKind(spec) === 'attribute'}
+				<AttributeConditionControl
+					{spec}
+					{catalog}
+					operator={cond.operator}
+					value={cond.value}
+					subject={draft.subject}
+					conditions={draft.conditions}
+					onchange={(next) => changeAttribute(index, next)}
+				/>
+			{:else if spec}
 				<div class="w-40 flex-shrink-0">
 					<CustomSelect
 						value={cond.operator}

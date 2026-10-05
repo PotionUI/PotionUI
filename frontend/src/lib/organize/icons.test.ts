@@ -15,7 +15,7 @@ const sources = [
 describe('organize icons', () => {
 	it('every mapped icon exists in the Icon set', () => {
 		const names = [
-			...['model', 'lora', 'preset', 'mode', 'media_kind', 'resolution', 'aspect', 'duration', 'prompt', 'filename', 'tags', 'model_type', 'base_model', 'plugin_fact'].map(factIcon),
+			...['model', 'lora', 'preset', 'mode', 'media_kind', 'resolution', 'aspect', 'duration', 'prompt', 'filename', 'tags', 'model_type', 'base_model', 'name', 'description', 'trigger_words', 'source', 'file_size', 'attribute', 'plugin_fact'].map(factIcon),
 			...['add_to_collection', 'add_tags', 'plugin_action'].map(actionIcon),
 			...(['generation', 'upload', 'model'] as const).map(subjectIcon),
 			...['image', 'video', 'audio', 'mesh'].map((k) => mediaKindIcon(k) as string)

@@ -13,7 +13,13 @@ const FACT_ICONS: Record<string, string> = {
 	filename: 'document',
 	tags: 'tag',
 	model_type: 'box',
-	base_model: 'boxes'
+	base_model: 'boxes',
+	name: 'text-cursor-input',
+	description: 'book-open',
+	trigger_words: 'zap',
+	source: 'cloud-download',
+	file_size: 'database',
+	attribute: 'sliders-horizontal'
 };
 
 const ACTION_ICONS: Record<string, string> = {

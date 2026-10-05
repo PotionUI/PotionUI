@@ -225,6 +225,8 @@
 			loadOptions={spec.has_options_endpoint ? loadTagOptions : undefined}
 			onchange={(next) => onchange(next)}
 		/>
+	{:else if kind === 'attribute'}
+		<span class="sr-only">{spec.label}</span>
 	{:else if kind === 'bool'}
 		<Switch label={spec.label} checked={value === true} onchange={(next) => onchange(next)} />
 	{:else}

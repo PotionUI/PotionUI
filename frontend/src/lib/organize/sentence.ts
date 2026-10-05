@@ -1,5 +1,5 @@
 import type { OrganizeAction, OrganizeCatalog, OrganizeCondition, OrganizeMatch, OrganizeSubject } from '$lib/types/organize';
-import { describeValue, operatorLabel, type ValueLabels } from './draft';
+import { attributeLabel, describeValue, effectiveKind, operatorLabel, type ValueLabels } from './draft';
 
 export function subjectNoun(subject: OrganizeSubject): { singular: string; plural: string } {
 	if (subject === 'upload') return { singular: 'upload', plural: 'uploads' };
@@ -22,6 +22,9 @@ export function conditionPhrases(
 	return conditions.map((cond) => {
 		const spec = catalog?.facts.find((f) => f.key === cond.fact);
 		const value = describeValue(spec, cond.value, labels);
+		if (effectiveKind(spec) === 'attribute') {
+			return `${spec?.label ?? cond.fact} ${attributeLabel(cond.value)} ${operatorLabel(catalog, cond.operator)} ${value}`.trim();
+		}
 		return `${spec?.label ?? cond.fact} ${operatorLabel(catalog, cond.operator)} ${value}`.trim();
 	});
 }

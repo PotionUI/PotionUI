@@ -21,6 +21,31 @@ export interface OrganizeSubjectInfo {
 export interface OrganizeOption {
 	value: string;
 	label: string;
+	meta?: Record<string, unknown>;
+}
+
+export type OrganizeAttributeType = 'number' | 'text' | 'bool' | 'enum';
+
+export interface OrganizeAttributeMeta {
+	type: OrganizeAttributeType;
+	type_label?: string;
+	field_type?: string;
+	model_types?: string[];
+	choices?: OrganizeOption[];
+	min?: number;
+	max?: number;
+	step?: number;
+}
+
+export interface OrganizeAttributeOption extends OrganizeOption {
+	meta: OrganizeAttributeMeta & Record<string, unknown>;
+}
+
+export interface OrganizeAttributeValue {
+	key: string;
+	type: OrganizeAttributeType | '';
+	label: string;
+	value: unknown;
 }
 
 export interface OrganizeSizePreset {
@@ -39,6 +64,7 @@ export interface OrganizePicker {
 	unit?: string;
 	placeholder?: string;
 	tag_type?: 'GENERATION' | 'UPLOAD' | 'MODEL';
+	operators_by_type?: Partial<Record<OrganizeAttributeType, string[]>>;
 	[key: string]: unknown;
 }
 

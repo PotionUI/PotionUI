@@ -7,7 +7,8 @@
 	import {
 		type FieldConfig,
 		extractAllFields,
-		processSchemaWithReactions
+		processSchemaWithReactions,
+		type ValueGate
 	} from '$lib/form/reactions';
 	import { applyReactionValueChanges, valuesEqual } from './dynamicFormReactionApply';
 	import { getSchemaDefaults } from '$lib/form/defaults';
@@ -170,16 +171,16 @@
 	// Reactive: Process schema with reactions when formData changes
 	// This computes the processed schema and immediately applies value changes if needed
 	$: if (formSchema && formData && forceVisibleFieldNames) {
-		let data = formData;
-		let pass = reprocessSchema(formSchema, data, capabilityModelFields, capabilityRevision);
-		let unsettled = false;
-		for (let round = 0; round < MAX_REACTION_ROUNDS && initialLoadComplete; round++) {
-			const applied = applyReactionValueChanges(data, pass.valueChanges);
-			unsettled = applied.changed;
-			if (!applied.changed) break;
-			data = applied.data;
-			pass = reprocessSchema(formSchema, data, capabilityModelFields, capabilityRevision);
-		}
+		const settled = settleReactions(
+			formData,
+			formSchema,
+			capabilityModelFields,
+			capabilityRevision,
+			initialLoadComplete
+		);
+		let data = settled.data;
+		let pass = settled.pass;
+		let unsettled = settled.unsettled;
 		if (unsettled && !reactionNonConvergenceWarned) {
 			const stillChanging = Object.keys(pass.valueChanges).filter((name) => !valuesEqual(data[name], pass.valueChanges[name]));
 			if (stillChanging.length) {
@@ -202,8 +203,47 @@
 		}
 	}
 
-	function reprocessSchema(schema: any, data: Record<string, any>, modelFields: string[], revision: number) {
-		const result = processSchemaWithReactions(schema, data);
+	let reactionBaseline: Record<string, any> | null = null;
+	let reactionPinned: Set<string> = new Set();
+
+	function resetReactionBaseline(incoming: Record<string, any> | null | undefined) {
+		reactionBaseline = null;
+		reactionPinned = new Set(Object.keys(incoming ?? {}));
+	}
+
+	function settleReactions(
+		start: Record<string, any>,
+		schema: any,
+		modelFields: string[],
+		revision: number,
+		loaded: boolean
+	) {
+		let data = start;
+		let gate: ValueGate | undefined = loaded
+			? { previous: reactionBaseline, pinned: reactionPinned }
+			: undefined;
+		let pass = reprocessSchema(schema, data, modelFields, revision, gate);
+		let unsettled = false;
+		for (let round = 0; round < MAX_REACTION_ROUNDS && loaded; round++) {
+			const applied = applyReactionValueChanges(data, pass.valueChanges);
+			unsettled = applied.changed;
+			if (!applied.changed) break;
+			gate = { previous: data };
+			data = applied.data;
+			pass = reprocessSchema(schema, data, modelFields, revision, gate);
+		}
+		if (loaded) reactionBaseline = data;
+		return { data, pass, unsettled };
+	}
+
+	function reprocessSchema(
+		schema: any,
+		data: Record<string, any>,
+		modelFields: string[],
+		revision: number,
+		gate?: ValueGate
+	) {
+		const result = processSchemaWithReactions(schema, data, gate);
 		applyReadonlyToSchema(result.processedSchema);
 		const capabilities = resolveCapabilities(
 			modelFields,
@@ -311,6 +351,7 @@
 
 			formSchema = schema;
 			const schemaDefaults = getSchemaDefaults(schema);
+			resetReactionBaseline(initialData);
 			formData = mergeFormData(schemaDefaults, applyMergeFrom(schema, initialData));
 			previousInitialDataKey = JSON.stringify(initialData);
 			initialLoadComplete = true;
@@ -424,6 +465,7 @@
 			const schemaDefaults = getSchemaDefaults(schema);
 
 			const mergedData = mergeFormData(schemaDefaults, applyMergeFrom(schema, incoming));
+			resetReactionBaseline(incoming);
 			formData = mergedData;
 		}
 	}

@@ -226,6 +226,47 @@ export function evaluateCondition(
 // Actions
 // ====================
 
+export interface ValueGate {
+	previous: Record<string, any> | null;
+	pinned?: ReadonlySet<string>;
+}
+
+function conditionFields(when: any, out: Set<string>) {
+	if (Array.isArray(when)) {
+		when.forEach((c) => conditionFields(c, out));
+	} else if (when && when.logic && when.conditions) {
+		when.conditions.forEach((c: any) => conditionFields(c, out));
+	} else if (when && when.field) {
+		out.add(when.field);
+	}
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+	if (a === b) return true;
+	if (a && b && typeof a === 'object' && typeof b === 'object') {
+		return JSON.stringify(a) === JSON.stringify(b);
+	}
+	return false;
+}
+
+function mayApplyValue(
+	reaction: Reaction,
+	targetName: string | undefined,
+	formData: Record<string, any>,
+	gate: ValueGate | undefined
+): boolean {
+	if (!gate) return true;
+	if (gate.previous === null) {
+		return !(targetName && gate.pinned?.has(targetName));
+	}
+	const fields = new Set<string>();
+	conditionFields(reaction.when, fields);
+	for (const field of fields) {
+		if (!sameValue(gate.previous[field], formData[field])) return true;
+	}
+	return false;
+}
+
 /**
  * Applies an action to a field configuration
  */
@@ -287,7 +328,8 @@ export function applyAction(
 export function processFieldReactions(
 	fieldConfig: FieldConfig,
 	formData: Record<string, any>,
-	valueChanges?: Record<string, any>
+	valueChanges?: Record<string, any>,
+	gate?: ValueGate
 ): FieldConfig {
 	if (!fieldConfig.reactions || fieldConfig.reactions.length === 0) {
 		return fieldConfig;
@@ -298,7 +340,12 @@ export function processFieldReactions(
 	for (const reaction of fieldConfig.reactions) {
 		try {
 			if (evaluateCondition(reaction.when, formData)) {
-				updatedConfig = applyAction(updatedConfig, reaction.then, valueChanges);
+				const action =
+					reaction.then.set_value != null &&
+					!mayApplyValue(reaction, fieldConfig.name, formData, gate)
+						? { ...reaction.then, set_value: undefined }
+						: reaction.then;
+				updatedConfig = applyAction(updatedConfig, action, valueChanges);
 			}
 		} catch (error) {
 			logger.warn('Error processing reaction:', reaction, error);
@@ -314,17 +361,19 @@ export function processFieldReactions(
 export function processAllFieldReactions(
 	fields: FieldConfig[],
 	formData: Record<string, any>,
-	valueChanges?: Record<string, any>
+	valueChanges?: Record<string, any>,
+	gate?: ValueGate
 ): FieldConfig[] {
 	return fields.map((field) => {
-		const updatedField = processFieldReactions(field, formData, valueChanges);
+		const updatedField = processFieldReactions(field, formData, valueChanges, gate);
 
 		// Recursively process children if they exist
 		if (updatedField.children) {
 			updatedField.children = processAllFieldReactions(
 				updatedField.children,
 				formData,
-				valueChanges
+				valueChanges,
+				gate
 			);
 		}
 
@@ -427,7 +476,8 @@ export function getFieldsThatTriggerReactions(
  */
 export function processSchemaWithReactions(
 	schema: any,
-	formData: Record<string, any>
+	formData: Record<string, any>,
+	gate?: ValueGate
 ): { processedSchema: any; valueChanges: Record<string, any> } {
 	if (!schema) return { processedSchema: null, valueChanges: {} };
 
@@ -441,7 +491,7 @@ export function processSchemaWithReactions(
 	Object.keys(updatedSchema.properties).forEach((key) => {
 		const rootProperty = updatedSchema.properties[key];
 		if (rootProperty.children) {
-			rootProperty.children = processAllFieldReactions(rootProperty.children, formData, changes);
+			rootProperty.children = processAllFieldReactions(rootProperty.children, formData, changes, gate);
 		}
 	});
 

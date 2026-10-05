@@ -501,3 +501,47 @@ describe('processSchemaWithReactions', () => {
 		expect(valueChanges.face_detector_model).toBeUndefined();
 	});
 });
+
+describe('processSchemaWithReactions value gate', () => {
+	const schema = {
+		properties: {
+			root: {
+				children: [
+					{
+						type: 'select',
+						name: 'target',
+						reactions: [
+							{ when: { field: 'trigger', equals: 'a' }, then: { set_value: 'forced', set_disabled: false } }
+						]
+					}
+				]
+			}
+		}
+	};
+
+	it('skips set_value when the trigger did not change but keeps other actions', () => {
+		const data = { trigger: 'a', target: 'mine' };
+		const { valueChanges, processedSchema } = processSchemaWithReactions(schema, data, { previous: { ...data } });
+		expect(valueChanges).toEqual({});
+		expect(processedSchema.properties.root.children[0].disabled).toBe(false);
+	});
+
+	it('applies set_value when the trigger changed', () => {
+		const { valueChanges } = processSchemaWithReactions(
+			schema,
+			{ trigger: 'a', target: 'mine' },
+			{ previous: { trigger: 'b', target: 'mine' } }
+		);
+		expect(valueChanges).toEqual({ target: 'forced' });
+	});
+
+	it('on the seed pass applies only to fields the incoming data does not carry', () => {
+		const data = { trigger: 'a', target: 'mine' };
+		expect(
+			processSchemaWithReactions(schema, data, { previous: null, pinned: new Set(['target']) }).valueChanges
+		).toEqual({});
+		expect(
+			processSchemaWithReactions(schema, data, { previous: null, pinned: new Set() }).valueChanges
+		).toEqual({ target: 'forced' });
+	});
+});

@@ -56,6 +56,7 @@
 	import { isUsageSort, sortByUsage, sourceLabel, usageSortOptions } from '$lib/plans/usage';
 	import PlansList from './plans/PlansList.svelte';
 	import PlanEditor from './plans/PlanEditor.svelte';
+	import DeletePlanDialog, { type PlanAssignments } from './plans/DeletePlanDialog.svelte';
 	import GroupPlanSection from './plans/GroupPlanSection.svelte';
 	import UserPlanSection from './plans/UserPlanSection.svelte';
 	import UserResolutionCard from './plans/UserResolutionCard.svelte';
@@ -403,6 +404,27 @@
 		}
 	}
 
+	let deletingPlan = $state<Plan | null>(null);
+	let deleteAssigned = $state<PlanAssignments>({ groups: [], users: [] });
+	let deleteBusy = $state(false);
+
+	async function confirmReassignDelete(reassignTo: string) {
+		const plan = deletingPlan;
+		if (!plan) return;
+		deleteBusy = true;
+		try {
+			await plansApi.deletePlan(plan.id, reassignTo);
+			deletingPlan = null;
+			await loadPlans();
+			navigate({ id: null });
+		} catch (error) {
+			logger.error('Failed to delete plan:', error);
+			toasts.error(getApiErrorMessage(error, 'Failed to delete plan.'));
+		} finally {
+			deleteBusy = false;
+		}
+	}
+
 	async function handleDeletePlan(plan: Plan) {
 		if (
 			!(await confirmDialog({
@@ -419,25 +441,8 @@
 		} catch (error: any) {
 			const detail = error?.response?.data?.detail;
 			if (detail?.error === 'plan_in_use') {
-				const groupNames = (detail.assigned_to?.groups ?? []).map((g: { name: string }) => g.name);
-				const userNames = (detail.assigned_to?.users ?? []).map((u: { username: string }) => u.username);
-				const assigned = [...groupNames.map((n: string) => `group ${n}`), ...userNames.map((n: string) => `user ${n}`)].join(', ');
-				if (
-					await confirmDialog({
-						title: `"${plan.name}" is still assigned`,
-						message: `It is assigned to ${assigned}. Delete it anyway and clear those assignments? Groups go back to inheriting the default and personal overrides are removed.`,
-						variant: 'danger'
-					})
-				) {
-					try {
-						await plansApi.deletePlan(plan.id, 'none');
-						await loadPlans();
-						navigate({ id: null });
-					} catch (retryError) {
-						logger.error('Failed to delete plan:', retryError);
-						toasts.error(getApiErrorMessage(retryError, 'Failed to delete plan.'));
-					}
-				}
+				deletingPlan = plan;
+				deleteAssigned = { groups: detail.assigned_to?.groups ?? [], users: detail.assigned_to?.users ?? [] };
 				return;
 			}
 			logger.error('Failed to delete plan:', error);
@@ -2173,6 +2178,15 @@
 		<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{preset.id}</p>
 	{/snippet}
 </BulkPickerModal>
+
+<DeletePlanDialog
+	plan={deletingPlan}
+	assigned={deleteAssigned}
+	plans={plans}
+	busy={deleteBusy}
+	onConfirm={confirmReassignDelete}
+	onClose={() => (deletingPlan = null)}
+/>
 
 <svelte:window on:keydown|capture={handleCreateModalsKeydown} />
 

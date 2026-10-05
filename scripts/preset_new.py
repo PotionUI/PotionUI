@@ -261,7 +261,6 @@ fields:
         children: "{{{{ paths._shared }}}}/cloud/tabs/{mode.tab_block}.yml"
 {references}      - type: "tab"
         label: "Provider options"
-        audience: "advanced"
         configuration: {{icon: "settings", icon_display: "icon_only"}}
         children: "{{{{ paths._shared }}}}/cloud/tabs/provider_options.yml"
 '''

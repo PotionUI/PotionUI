@@ -10,11 +10,15 @@
 	import overlayLayer from '$lib/actions/overlayLayer';
 
 	export let value: any = '';
-	export let options: Array<{ value: any; label: string; description?: string; icon?: string }> = [];
+	export let options: Array<{ value: any; label: string; description?: string; icon?: string; marker?: string; markerLabel?: string }> = [];
 	export let placeholder: string = 'Select an option...';
 	export let disabled: boolean = false;
 	export let searchable: boolean = false;
 	export let size: 'sm' | 'md' | 'lg' = 'md';
+	export let menuMinWidth: number = 0;
+	export let descriptionLines: 1 | 2 = 1;
+	export let triggerDescription: boolean = true;
+	export let fill: boolean = false;
 
 	const dispatch = createEventDispatcher<{
 		change: any;
@@ -59,11 +63,13 @@
 			maxMenuHeight: MAX_MENU_HEIGHT,
 			gap
 		});
+		const menuWidth = Math.max(rect.width, Math.min(menuMinWidth, window.innerWidth - 16));
+		const menuLeft = menuWidth > rect.width ? Math.max(8, rect.right - menuWidth) : rect.left;
 		dropdownPosition = {
 			top: rect.bottom + gap,
 			bottom: window.innerHeight - rect.top + gap,
-			left: rect.left,
-			width: rect.width,
+			left: menuLeft,
+			width: menuWidth,
 			openUpward: placement.openUpward,
 			maxHeight: placement.maxHeight
 		};
@@ -167,8 +173,8 @@
 
 <svelte:window on:click={handleWindowClick} />
 
-<div class="relative w-full" bind:this={containerRef}>
-	<div class="relative" bind:this={inputRef}>
+<div class="relative w-full {fill ? 'h-full' : ''}" bind:this={containerRef}>
+	<div class="relative {fill ? 'h-full' : ''}" bind:this={inputRef}>
 		{#if searchable}
 			<input
 				type="text"
@@ -193,7 +199,7 @@
 				on:click={handleInputClick}
 				on:keydown={handleKeyDown}
 				{disabled}
-				class="w-full {sizeClasses[
+				class="w-full {fill ? 'h-full' : ''} {sizeClasses[
 					size
 				]} pr-8 flex flex-col justify-center text-left bg-surface-2 border {isDropdownOpen
 					? 'border-signal'
@@ -203,11 +209,14 @@
 				aria-activedescendant={activeOptionId}
 			>
 				{#if selectedOption}
-					<span class="flex items-center gap-2 truncate text-fg">
+					<span class="flex min-w-0 items-center gap-2 text-fg">
 						{#if selectedOption.icon}<Icon name={selectedOption.icon} className="w-3.5 h-3.5 flex-shrink-0 text-fg-muted" />{/if}
 						<span class="truncate">{selectedOption.label}</span>
+						{#if selectedOption.marker}
+							<span class="-ml-1 flex-shrink-0 font-mono text-2xs text-fg-subtle" aria-hidden="true">{selectedOption.marker}</span>
+						{/if}
 					</span>
-					{#if selectedOption.description}
+					{#if selectedOption.description && triggerDescription}
 						<span class="block truncate text-xs text-fg-subtle mt-0.5">{selectedOption.description}</span>
 					{/if}
 				{:else}
@@ -274,6 +283,12 @@
 							>
 								{#if option.icon}<Icon name={option.icon} className="w-3.5 h-3.5 flex-shrink-0" />{/if}
 								<span class="truncate">{option.label}</span>
+								{#if option.marker}
+									<span class="-ml-1 font-mono text-2xs text-fg-subtle" aria-hidden="true">{option.marker}</span>
+								{/if}
+								{#if option.markerLabel}
+									<span class="sr-only">{option.markerLabel}</span>
+								{/if}
 							</span>
 							{#if option.value === value}
 								<svg
@@ -292,7 +307,7 @@
 							{/if}
 						</div>
 						{#if option.description}
-							<span class="block truncate text-xs text-fg-subtle">{option.description}</span>
+							<span class="block text-xs text-fg-subtle {descriptionLines === 2 ? 'line-clamp-2' : 'truncate'}">{option.description}</span>
 						{/if}
 					</div>
 				</button>

@@ -5,9 +5,6 @@
 	import type { PresetInfo, PresetModeVariant } from '$lib/services/api/index';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 
-	// The preset/mode/variant selector, wired the same way at every mount site
-	// (mobile Panel 0, the desktop no-selection placeholder, and the desktop
-	// GenerationPanels left pane).
 	export let tab: Tab;
 	export let presets: PresetInfo[] = [];
 	export let readiness: ReadinessReport | null = null;
@@ -18,6 +15,7 @@
 		label: string;
 		variants?: PresetModeVariant[];
 		sourcePlugin?: string | null;
+		description?: string | null;
 	}> = [];
 	export let onPresetChange: (presetId: string) => void;
 	export let onModeChange: (mode: string) => void;
@@ -45,6 +43,7 @@
 >
 	<svelte:fragment slot="mode-actions">
 		<FormulasButton
+			grouped
 			{tab}
 			presetName={presetInfo?.name ?? ''}
 			presetVersion={presetInfo?.version ?? ''}

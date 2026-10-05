@@ -84,11 +84,9 @@ test('mode row — Krea-2 with krea2-edit enabled (plugin-contributed mode)', as
 		await presetHeaderRegion.first().screenshot({ path: shotPath(JOURNEY, '02-preset-header') });
 	}
 
-	// The mode row specifically - modes.map gives us the exact button labels
-	// to find it without hardcoding "Txt2Img/Enhance/Edit" as literal text.
-	const modeButtons = page.getByRole('button', { name: modeRows[0]?.label ?? 'Txt2Img' });
-	if ((await modeButtons.count()) > 0) {
-		const row = modeButtons.first().locator('xpath=ancestor::div[1]');
-		await row.screenshot({ path: shotPath(JOURNEY, '03-mode-row') });
-	}
+	const modeSelect = page.getByTestId('preset-header-mode');
+	await expect(modeSelect).toBeVisible();
+	await modeSelect.getByRole('button').first().click();
+	await expect(page.getByRole('option', { name: new RegExp(editMode!.label) })).toBeVisible();
+	await page.getByTestId('preset-header-row').screenshot({ path: shotPath(JOURNEY, '03-mode-row') });
 });

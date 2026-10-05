@@ -86,6 +86,8 @@ export interface PresetModeInfo {
 	name: string;
 	label: string;
 	variants: PresetModeVariant[];
+	short_description?: string | null;
+	description?: string | null;
 	/** The contributing plugin's id when this mode came from a plugin's
 	 *  `preset_modes:` instead of the preset's own preset.yml. */
 	source_plugin?: string | null;

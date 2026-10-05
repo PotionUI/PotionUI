@@ -13,13 +13,15 @@
 		presetName,
 		presetVersion,
 		modeLabel,
-		onApplied
+		onApplied,
+		grouped = false
 	}: {
 		tab: Tab;
 		presetName: string;
 		presetVersion: string;
 		modeLabel: string;
 		onApplied?: () => void;
+		grouped?: boolean;
 	} = $props();
 
 	let loaded = $state.raw<{ key: string; value: FormulaDeclaration | null } | null>(null);
@@ -75,10 +77,10 @@
 </script>
 
 {#if declaration}
-	<Tooltip text="Formulas" position="bottom" delay={150}>
+	<Tooltip text="Formulas" position="bottom" delay={150} wrapperClass={grouped ? 'flex h-full' : undefined}>
 		<button
 			type="button"
-			class="relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-line-strong bg-surface-2 text-fg-muted transition-colors hover:border-line-hover hover:bg-surface-3 hover:text-fg"
+			class="relative flex flex-shrink-0 items-center justify-center text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg {grouped ? 'h-full w-7' : 'h-9 w-9 rounded border border-line-strong bg-surface-2 hover:border-line-hover'}"
 			aria-label="Formulas"
 			aria-haspopup="dialog"
 			aria-expanded={open}
@@ -87,7 +89,7 @@
 		>
 			<Icon name="book" className="h-4 w-4" />
 			{#if count > 0}
-				<span class="absolute -right-1 -top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full border border-line-strong bg-surface-3 px-1 font-mono text-xs tabular-nums text-fg">{count}</span>
+				<span class="absolute {grouped ? 'right-0 top-0' : '-right-1 -top-1'} inline-flex h-4 min-w-[16px] items-center justify-center rounded border border-line-strong bg-surface-3 px-1 font-mono text-2xs tabular-nums text-fg">{count}</span>
 			{/if}
 		</button>
 	</Tooltip>

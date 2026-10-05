@@ -16,10 +16,15 @@
 	import { api } from '$lib/services/api/index';
 	import { formatVramBadge, formatRamBadge, vramShortfall, fetchDetectedVramGb } from '$lib/utils/presetHardware';
 	import { fallbackIconForCategory } from '$lib/utils/presetMedia';
+	import PresetExampleCard from './PresetExampleCard.svelte';
+	import { processMarkdown } from '$lib/utils/markdown';
+	import { logger } from '$lib/utils/logger';
+	import type { PresetGalleryItem } from '$lib/types/api';
 
 	export let presets: PresetInfo[] = [];
 	export let selectedPreset: string = '';
 	export let loading = false;
+	export let isReloading = false;
 	export let disabled = false;
 	// Only meaningful when `presets` is empty - explains *why* (no backend, no
 	// assignment, …) instead of the generic "no filter matches" message, which
@@ -27,7 +32,7 @@
 	// parent page on empty-list detection, not polled.
 	export let readiness: ReadinessReport | null = null;
 
-	const dispatch = createEventDispatcher<{ select: string }>();
+	const dispatch = createEventDispatcher<{ select: string; reload: void }>();
 
 	let open = false;
 	let query = '';
@@ -113,6 +118,32 @@
 		open = false;
 	}
 
+	let gallery: PresetGalleryItem[] = [];
+	let isLoadingGallery = false;
+	let galleryFor: string | null = null;
+
+	$: if (open && previewPreset && galleryFor !== previewPreset.id) {
+		loadGallery(previewPreset.id);
+	}
+
+	async function loadGallery(presetId: string) {
+		galleryFor = presetId;
+		isLoadingGallery = true;
+		gallery = [];
+		try {
+			const response = await api.getPreset(presetId);
+			if (galleryFor === presetId && response.success && response.data) {
+				gallery = response.data.media?.gallery ?? [];
+			}
+		} catch (err) {
+			logger.error('Failed to load preset gallery:', err);
+		} finally {
+			if (galleryFor === presetId) isLoadingGallery = false;
+		}
+	}
+
+	$: previewDescriptionHtml = previewPreset?.description ? processMarkdown(previewPreset.description) : '';
+
 	function choosePreset() {
 		if (!previewPreset) return;
 		dispatch('select', previewPreset.id);
@@ -148,7 +179,7 @@
 		<span class="block text-sm font-semibold text-fg truncate">{currentPreset?.name || 'Choose a preset'}</span>
 		{#if currentPreset}
 			<span class="block font-mono text-2xs text-fg-muted truncate">
-				{[currentPreset.engine, currentPreset.category, `v${currentPreset.version}`].filter(Boolean).join(' · ')}
+				{[currentPreset.engine, `v${currentPreset.version}`].filter(Boolean).join(' · ')}
 			</span>
 		{/if}
 	</span>
@@ -329,16 +360,43 @@
 								</div>
 							</div>
 
-							<p class="text-sm leading-relaxed text-fg-muted mt-5 whitespace-pre-line">
-								{previewPreset.description || 'No description has been provided for this preset.'}
-							</p>
+							{#if previewDescriptionHtml}
+								<div class="text-sm leading-relaxed text-fg-muted mt-5">{@html previewDescriptionHtml}</div>
+							{:else}
+								<p class="text-sm leading-relaxed text-fg-muted mt-5">No description has been provided for this preset.</p>
+							{/if}
 							{#if previewPreset.tags?.length}
 								<div class="flex flex-wrap gap-1.5 mt-4">
 									{#each previewPreset.tags as tag}<Badge variant="neutral" size="sm">{tag}</Badge>{/each}
 								</div>
 							{/if}
 
-							<div class="mt-auto pt-6 flex justify-end">
+							<div class="mt-6" data-testid="preset-examples">
+								<h4 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted mb-3">Examples</h4>
+								{#if isLoadingGallery}
+									<div class="flex items-center justify-center py-6"><Spinner size="md" /></div>
+								{:else if gallery.length === 0}
+									<p class="text-sm text-fg-subtle italic">No examples yet.</p>
+								{:else}
+									<div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+										{#each gallery as item}
+											<PresetExampleCard presetId={previewPreset.id} presetName={previewPreset.name} {item} />
+										{/each}
+									</div>
+								{/if}
+							</div>
+
+							<div class="mt-auto pt-6 flex items-center justify-end gap-2">
+								{#if isAdmin && previewPreset.id === selectedPreset}
+									<Button
+										variant="secondary"
+										icon="refresh"
+										disabled={isReloading}
+										onclick={() => dispatch('reload')}
+									>
+										{isReloading ? 'Reloading preset' : 'Reload preset from disk'}
+									</Button>
+								{/if}
 								<Button variant="primary" icon="check" onclick={choosePreset}>
 									{previewPreset.id === selectedPreset ? 'Keep selected' : 'Use this preset'}
 								</Button>

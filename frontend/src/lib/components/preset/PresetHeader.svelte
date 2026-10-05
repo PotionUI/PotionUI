@@ -5,28 +5,20 @@
 	import CustomSelect from '$lib/components/CustomSelect.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import PresetPicker from '$lib/components/preset/PresetPicker.svelte';
-	import PresetMediaModal from '$lib/components/preset/PresetMediaModal.svelte';
-	import { hasPresetMedia } from '$lib/utils/presetMedia';
 	import { resolveVariant, sortVariants } from '$lib/utils/variants';
 
-	// The preset card + mode/variant selectors, extracted from the old
-	// PresetSessionBar so they can mount at the top of the settings pane
-	// (above DynamicForm) instead of a full-width bar above the tabs. Session
-	// state lives in SessionPill now; this component only knows about presets.
 	export let presets: PresetInfo[] = [];
 	export let selectedPreset: string = '';
 	export let isLoading: boolean = false;
 	export let isReloading: boolean = false;
-	// Forwarded straight through to PresetPicker - see its own doc comment.
 	export let readiness: ReadinessReport | null = null;
 	export let selectedMode: string = '';
 	export let availableModes: Array<{
 		id: string;
 		label: string;
 		variants?: PresetModeVariant[];
-		/** The contributing plugin's id when this mode came from a plugin's
-		 *  `preset_modes:` - a small provenance hint, not a state. */
 		sourcePlugin?: string | null;
+		description?: string | null;
 	}> = [
 		{ id: 'txt2img', label: 'Text to Image' },
 		{ id: 'img2img', label: 'Image to Image' },
@@ -41,10 +33,19 @@
 		reload: void;
 	}>();
 
-	let isDescriptionModalOpen = false;
+	let panelWidth = 0;
 
-	$: safePresets = Array.isArray(presets) ? presets : [];
-	$: selectedPresetObj = safePresets.find((p) => p.id === selectedPreset);
+	const NARROW_PANEL_PX = 420;
+	$: narrow = panelWidth > 0 && panelWidth < NARROW_PANEL_PX;
+	$: hasModeSelect = availableModes.length > 1;
+	$: modeOptions = availableModes.map((mode) => ({
+		value: mode.id,
+		label: mode.label,
+		description: mode.description || undefined,
+		marker: mode.sourcePlugin ? '\u2022' : undefined,
+		markerLabel: mode.sourcePlugin ? `contributed by ${mode.sourcePlugin}` : undefined
+	}));
+
 	$: currentModeVariants = sortVariants(
 		availableModes.find((mode) => mode.id === selectedMode)?.variants
 	);
@@ -53,7 +54,6 @@
 		label: v.label,
 		description: v.description
 	}));
-	$: showCardActions = selectedPreset || (selectedPresetObj && (hasPresetMedia(selectedPresetObj) || selectedPresetObj.description));
 
 	function handlePresetSelect(presetId: string) {
 		dispatch('presetChange', presetId);
@@ -71,127 +71,50 @@
 	function handleReload() {
 		dispatch('reload');
 	}
-
-	function openDescriptionModal() {
-		isDescriptionModalOpen = true;
-	}
-
-	function closeDescriptionModal() {
-		isDescriptionModalOpen = false;
-	}
 </script>
 
-<div class="flex flex-col gap-2">
-	<div class="flex items-stretch gap-1.5">
-		<div class="min-w-0 flex-1">
+<div class="flex flex-col gap-2" bind:clientWidth={panelWidth}>
+	<div class="flex flex-wrap items-stretch gap-1.5" data-testid="preset-header-row">
+		<div class="min-w-0 flex-1" data-testid="preset-header-picker">
 			<PresetPicker
 				{presets}
 				{selectedPreset}
 				{readiness}
 				loading={isLoading}
+				{isReloading}
+				on:reload={handleReload}
 				on:select={(event) => handlePresetSelect(event.detail)}
 			/>
 		</div>
 
-		{#if showCardActions}
-			<div class="flex flex-shrink-0 flex-col gap-1">
-				{#if selectedPresetObj && (hasPresetMedia(selectedPresetObj) || selectedPresetObj.description)}
-					<Tooltip text="View preset description and examples" position="left" delay={150}>
-						<button
-							type="button"
-							class="flex h-[26px] w-[26px] items-center justify-center rounded border border-line-strong bg-surface-2 text-fg-muted transition-colors hover:border-line-hover hover:bg-surface-3 hover:text-fg"
-							on:click={openDescriptionModal}
-							aria-label="View preset description and examples"
-						>
-							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									stroke-width="2"
-									d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-								/>
-							</svg>
-						</button>
-					</Tooltip>
-				{/if}
-
-				{#if selectedPreset}
-					<Tooltip text={isReloading ? 'Reloading preset' : 'Reload preset from disk'} position="left" delay={150}>
-						<button
-							type="button"
-							class="flex h-[26px] w-[26px] items-center justify-center rounded border border-line-strong bg-surface-2 text-fg-muted transition-colors hover:border-line-hover hover:bg-surface-3 hover:text-fg disabled:opacity-50"
-							on:click={handleReload}
-							disabled={isReloading}
-							aria-label="Reload preset from disk"
-						>
-							<svg
-								class="w-3 h-3 {isReloading ? 'animate-spin' : ''}"
-								fill="none"
-								stroke="currentColor"
-								viewBox="0 0 24 24"
-							>
-								<path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									stroke-width="2"
-									d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-								/>
-							</svg>
-						</button>
-					</Tooltip>
-				{/if}
+		{#if hasModeSelect}
+			<div
+				class="flex {narrow ? 'order-3 basis-full' : 'w-[110px] flex-shrink-0'}"
+				data-testid="preset-header-mode"
+			>
+				<CustomSelect
+					value={selectedMode}
+					options={modeOptions}
+					size="sm"
+					fill
+					menuMinWidth={276}
+					descriptionLines={2}
+					triggerDescription={narrow}
+					placeholder="Mode"
+					on:change={(e) => handleModeChange(e.detail)}
+				/>
 			</div>
 		{/if}
-	</div>
 
-	{#if availableModes.length > 0}
-		<div class="flex items-stretch gap-1.5">
 		<div
-			class="grid min-w-0 flex-1 gap-0.5 rounded-lg bg-surface-2 p-0.5"
-			style="grid-template-columns: repeat({availableModes.length}, minmax(0, 1fr));"
+			class="flex flex-shrink-0 divide-x divide-line-strong overflow-hidden empty:hidden rounded border border-line-strong bg-surface-2"
+			role="group"
+			aria-label="Preset actions"
+			data-testid="preset-header-actions"
 		>
-			{#each availableModes as mode}
-				{#if mode.sourcePlugin}
-					<!-- wrapperClass="flex w-full" on BOTH of Tooltip's nested wrapper divs:
-						the outer one is the grid item (stretches to its column on its own),
-						but the inner one is a flex CHILD of that outer div and defaults to
-						content-width - without an explicit w-full here it never actually
-						fills the column, leaving this segment visibly narrower than its
-						siblings (the bug this replaces). -->
-					<Tooltip
-						text={`${mode.label} — contributed by ${mode.sourcePlugin}`}
-						position="bottom"
-						delay={150}
-						wrapperClass="flex w-full"
-					>
-						<button
-							type="button"
-							class="flex w-full min-w-0 items-center justify-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all {selectedMode === mode.id
-								? 'bg-signal/10 text-signal shadow-sm'
-								: 'text-fg-muted hover:text-fg hover:bg-surface-3/50'}"
-							on:click={() => handleModeChange(mode.id)}
-						>
-							<span class="min-w-0 truncate">{mode.label}</span>
-							<span class="flex-shrink-0 font-mono text-2xs text-fg-subtle" aria-hidden="true">&bull;</span>
-						</button>
-					</Tooltip>
-				{:else}
-					<button
-						type="button"
-						class="w-full min-w-0 rounded-md px-3 py-1.5 text-xs font-medium transition-all {selectedMode === mode.id
-							? 'bg-signal/10 text-signal shadow-sm'
-							: 'text-fg-muted hover:text-fg hover:bg-surface-3/50'}"
-						title={mode.label}
-						on:click={() => handleModeChange(mode.id)}
-					>
-						<span class="block truncate">{mode.label}</span>
-					</button>
-				{/if}
-			{/each}
+			<slot name="mode-actions" />
 		</div>
-		<slot name="mode-actions" />
-		</div>
-	{/if}
+	</div>
 
 	{#if variantOptions.length > 1}
 		{#if variantOptions.length <= 3}
@@ -237,9 +160,3 @@
 		{/if}
 	{/if}
 </div>
-
-<PresetMediaModal
-	isOpen={isDescriptionModalOpen}
-	preset={selectedPresetObj ?? null}
-	on:close={closeDescriptionModal}
-/>

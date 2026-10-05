@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { modeDescription } from '$lib/utils/modeDescription';
 	import type { Tab } from '$lib/types/tabs';
 	import type DynamicForm from '$lib/components/DynamicForm.svelte';
 	import type { ReadinessReport } from '$lib/services/api/setup';
@@ -63,7 +64,8 @@
 		id: m.name,
 		label: m.label,
 		variants: m.variants,
-		sourcePlugin: m.source_plugin
+		sourcePlugin: m.source_plugin,
+		description: modeDescription(m)
 	}));
 	$: presetName = presets.find((p: any) => p.id === tab.selectedPreset)?.name;
 	$: modeLabel = availableModes.find((m) => m.id === tab.selectedMode)?.label;

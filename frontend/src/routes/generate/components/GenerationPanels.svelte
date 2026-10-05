@@ -87,6 +87,7 @@
 		label: string;
 		variants?: PresetModeVariant[];
 		sourcePlugin?: string | null;
+		description?: string | null;
 	}> = [];
 	export let onPresetChange: (presetId: string) => void;
 	export let onModeChange: (mode: string) => void;

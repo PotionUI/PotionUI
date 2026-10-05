@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { modeDescription } from '$lib/utils/modeDescription';
 	import { onMount, onDestroy } from 'svelte';
 	import { tabsStore, activeTab, generatingTab, isActiveTabGenerating } from '$lib/stores/tabs';
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
@@ -615,7 +616,8 @@
 		id: m.name,
 		label: m.label,
 		variants: m.variants,
-		sourcePlugin: m.source_plugin
+		sourcePlugin: m.source_plugin,
+		description: modeDescription(m)
 	}));
 	$: currentTab = $activeTab;
 	$: rewriteMergedFieldMarkers(currentTab, currentTabFieldAliases);
@@ -1879,7 +1881,7 @@
 								{readiness}
 								{isLoading}
 								isReloading={isReloadingPreset && tab.id === activeTabId}
-								availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin }))}
+								availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m) }))}
 								onPresetChange={(id) => tabHandlers.handlePresetChange(id)}
 								onModeChange={(mode) => tabHandlers.handleModeChange(mode)}
 								onVariantChange={(variant) => tabHandlers.handleVariantChange(variant)}
@@ -1916,7 +1918,7 @@
 						{readiness}
 						{isLoading}
 						isReloading={isReloadingPreset && tab.id === activeTabId}
-						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin }))}
+						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m) }))}
 						onFormDataChange={(data) => handleFormDataChange(tab.id, data)}
 						onWorkbenchPrevious={handleWorkbenchPrevious}
 						onWorkbenchNext={handleWorkbenchNext}

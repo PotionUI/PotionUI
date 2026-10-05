@@ -1111,27 +1111,53 @@ def test_initial_latent_with_image_input_no_longer_raises():
     assert ctx.extra.prepared.mask.any()
 
 
-def test_initial_latent_with_reference_role_conditioning_raises():
-    """role='reference' (IC-LoRA) semantics are tied to the distilled
-    first-pass pipeline -- out of scope for a stage-2 refine."""
+def test_initial_latent_drops_image_reference_instead_of_raising():
     pipe_input = _pipe_input(images=[_pil_image()])
     pipe_input.input["initial_latent"] = [torch.zeros(1, 128, 3, 2, 2)]
     cfg = _pipe(resolution="64x64", frames=17, media_placements=[
         {"source": "image", "index": 0, "role": "reference"},
     ])
-    with pytest.raises(ValueError, match="role='reference'"):
-        cfg.build_context(pipe_input)
+    ctx = cfg.build_context(pipe_input)
+    assert not ctx.extra.has_conditions
+    assert ctx.extra.prepared.n_extra == 0
+    assert not ctx.extra.prepared.mask.any()
 
 
-def test_initial_latent_with_video_sourced_conditioning_raises():
-    """Video-sourced conditioning (keyframe clips / IC-LoRA references)
-    combined with a stage-2 refine is unvalidated -- rejected outright
-    rather than silently mis-applied at a refined resolution."""
+def test_initial_latent_drops_video_reference_without_reading_the_clip():
     pipe_input = _pipe_input()
     pipe_input.input["video"] = ["/fake/reference.mp4"]
     pipe_input.input["initial_latent"] = [torch.zeros(1, 128, 3, 2, 2)]
+    cfg = _pipe(resolution="64x64", frames=17, media_placements=[
+        {"source": "video", "index": 0, "role": "reference"},
+    ])
+    ctx = cfg.build_context(pipe_input)
+    assert not ctx.extra.has_conditions
+    assert ctx.extra.prepared.n_extra == 0
+
+
+def test_initial_latent_keeps_keyframes_when_a_reference_is_dropped():
+    pipe_input = _pipe_input(images=[_pil_image()])
+    pipe_input.input["video"] = ["/fake/reference.mp4"]
+    pipe_input.input["initial_latent"] = [torch.zeros(1, 128, 3, 2, 2)]
+    cfg = _pipe(resolution="64x64", frames=17, media_placements=[
+        {"source": "image", "index": 0, "frame": "first", "strength": 1.0, "role": "keyframe"},
+        {"source": "video", "index": 0, "role": "reference"},
+    ])
+    ctx = cfg.build_context(pipe_input)
+    assert ctx.extra.has_conditions
+    assert ctx.extra.prepared.n_extra == 0
+    assert ctx.extra.prepared.mask.any()
+
+
+def test_initial_latent_with_video_sourced_keyframe_still_raises():
+    pipe_input = _pipe_input()
+    pipe_input.input["video"] = ["/fake/reference.mp4"]
+    pipe_input.input["initial_latent"] = [torch.zeros(1, 128, 3, 2, 2)]
+    cfg = _pipe(resolution="64x64", frames=17, media_placements=[
+        {"source": "video", "index": 0, "frame": "first", "role": "keyframe"},
+    ])
     with pytest.raises(ValueError, match="video-sourced"):
-        _pipe(resolution="64x64", frames=17).build_context(pipe_input)
+        cfg.build_context(pipe_input)
 
 
 @patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)

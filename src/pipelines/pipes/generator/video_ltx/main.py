@@ -481,13 +481,22 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             initial_latents = [raw_initial]
 
         placements = list(self.config.get("media_placements") or [])
-        if initial_latents and videos:
-            raise ValueError(
-                "generator/video_ltx: 'initial_latent' (stage-2 refine) cannot be combined with "
-                "video-sourced media conditioning -- reapplying video keyframe/IC-LoRA-reference "
-                "conditioning at a refined resolution is unvalidated here; use image-sourced "
-                "keyframes for a stage-2 refine instead"
-            )
+        if initial_latents:
+            dropped = [p for p in placements if p.get("role") == "reference"]
+            if dropped:
+                logger.info(
+                    "[GENERATOR VIDEO-LTX] stage-2 refine: dropping %d IC-LoRA reference placement(s) -- "
+                    "the reference only steers the first pass, the refine runs on the upscaled latent",
+                    len(dropped))
+                placements = [p for p in placements if p.get("role") != "reference"]
+            if any(p.get("source") == "video" for p in placements):
+                raise ValueError(
+                    "generator/video_ltx: 'initial_latent' (stage-2 refine) cannot be combined with "
+                    "video-sourced keyframe conditioning -- use image-sourced keyframes for a "
+                    "stage-2 refine instead"
+                )
+            if dropped and not placements:
+                images = []
 
         if bundle.spec.family != "ltx":
             raise ValueError(
@@ -574,13 +583,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                 )
 
         conditions = self._build_conditions(placements, images, videos, frames)
-
-        if initial_latents and any(c.role == "reference" for c in conditions):
-            raise ValueError(
-                "generator/video_ltx: 'initial_latent' (stage-2 refine) cannot be combined with "
-                "role='reference' (IC-LoRA) conditioning -- IC-LoRA reference semantics are tied "
-                "to the distilled first-pass pipeline and are not validated for a stage-2 refine"
-            )
 
         # `frames` was already reconciled to the latent above (when present),
         # so this recompute would land on the same value by construction --

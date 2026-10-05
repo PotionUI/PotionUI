@@ -43,10 +43,9 @@
 # OWN (full) resolution and merges it into the upsampled latent at the
 # keyframe-anchored (mask=1) positions, so i2v/FLF/director keyframe identity is
 # reapplied at target resolution rather than only surviving through stage 1's
-# lower-res encode. Video-sourced conditioning (this mode's IC-LoRA references)
-# and `initial_latent` stay mutually exclusive -- generator/video_ltx raises a
-# clear error rather than silently mis-apply reference tokens at a refined
-# resolution.
+# lower-res encode. IC-LoRA references (image or video) steer stage 1 only:
+# generator/video_ltx drops role=reference placements on a refine call, the
+# way Lightricks' IC-LoRA pipeline refines the upscaled latent without them.
 #
 # Motion smoothing: 1 | 2 rounds -- an OPTIONAL extra phase after whichever of
 # the two paths above ran, orthogonal to Upscale (that doubles resolution, this

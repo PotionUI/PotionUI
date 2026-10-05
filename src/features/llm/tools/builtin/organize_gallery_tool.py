@@ -8,6 +8,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from src.features.generation.failure import scope_generation
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.errors import teach, unexpected
 from src.features.tags import operations as tag_operations
@@ -116,7 +117,7 @@ class OrganizeGalleryTool(BaseTool):
         return "..." + error_message[-_LIST_ERROR_MAX_LEN:]
 
     @staticmethod
-    def _list_recent(history_facade, user_id: str, limit: int, kwargs: Dict[str, Any]) -> ToolResult:
+    def _list_recent(history_facade, user_id: str, limit: int, kwargs: Dict[str, Any], is_admin: bool = False) -> ToolResult:
         history = history_facade.get_history(
             user_id=user_id, limit=limit, offset=0, sort_by="created_at", sort_dir="desc",
             search=kwargs.get("text") or None,
@@ -128,6 +129,7 @@ class OrganizeGalleryTool(BaseTool):
         )
         generations = []
         for gen in history.get("generations", []):
+            gen = scope_generation(gen, is_admin)
             form_data = gen.get("form_data") or {}
             generations.append({
                 "id": gen.get("id"),
@@ -166,8 +168,8 @@ class OrganizeGalleryTool(BaseTool):
         )
 
     @staticmethod
-    def _get(history_facade, generation_id: str, user_id: str) -> ToolResult:
-        gen = history_facade.get_by_id(generation_id, user_id)
+    def _get(history_facade, generation_id: str, user_id: str, is_admin: bool = False) -> ToolResult:
+        gen = scope_generation(history_facade.get_by_id(generation_id, user_id), is_admin)
         form_data = gen.get("form_data") or {}
         detail = {
             "id": gen.get("id"),
@@ -201,7 +203,7 @@ class OrganizeGalleryTool(BaseTool):
         try:
             if operation == "list_recent":
                 limit = min(max(1, int(kwargs.get("limit") or 20)), 100)
-                return self._list_recent(history_facade, context.user_id, limit, kwargs)
+                return self._list_recent(history_facade, context.user_id, limit, kwargs, context.is_admin)
 
             if operation == "list_tags":
                 return self._list_tags(context)
@@ -211,7 +213,7 @@ class OrganizeGalleryTool(BaseTool):
                 return self._missing("generation_id")
 
             if operation == "get":
-                return self._get(history_facade, generation_id, context.user_id)
+                return self._get(history_facade, generation_id, context.user_id, context.is_admin)
 
             if not self._viewable(history_facade, generation_id, context.user_id):
                 return self._not_found(generation_id)
@@ -260,7 +262,7 @@ class OrganizeGalleryTool(BaseTool):
         try:
             if operation == "list_recent":
                 limit = min(max(1, int(kwargs.get("limit") or 20)), 100)
-                return self._list_recent(history_facade, context.user_id, limit, kwargs)
+                return self._list_recent(history_facade, context.user_id, limit, kwargs, context.is_admin)
 
             if operation == "list_tags":
                 return self._list_tags(context)
@@ -270,7 +272,7 @@ class OrganizeGalleryTool(BaseTool):
                 return self._missing("generation_id")
 
             if operation == "get":
-                return self._get(history_facade, generation_id, context.user_id)
+                return self._get(history_facade, generation_id, context.user_id, context.is_admin)
 
             if not self._viewable(history_facade, generation_id, context.user_id):
                 return self._not_found(generation_id)

@@ -6,12 +6,14 @@
 		message,
 		hint = '',
 		errorId = null,
-		centered = false
+		centered = false,
+		contactAdmin = true
 	}: {
 		message: string;
 		hint?: string;
 		errorId?: string | null;
 		centered?: boolean;
+		contactAdmin?: boolean;
 	} = $props();
 </script>
 
@@ -34,6 +36,8 @@
 			<span class="truncate font-mono text-sm tabular-nums text-fg">{errorId}</span>
 			<CopyButton text={errorId} ariaLabel="Copy error ID" size="xs" />
 		</div>
-		<p class="text-sm text-fg-subtle {centered ? 'text-center' : ''}">Give this to your admin</p>
+		{#if contactAdmin}
+			<p class="text-sm text-fg-subtle {centered ? 'text-center' : ''}">Give this to your admin</p>
+		{/if}
 	{/if}
 </div>

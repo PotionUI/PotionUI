@@ -21,10 +21,10 @@ def make_tag_repository():
     return MagicMock()
 
 
-def make_context(history_facade=None, tag_repository=None, user_id="user-1"):
+def make_context(history_facade=None, tag_repository=None, user_id="user-1", is_admin=False):
     return ToolContext(
         user_id=user_id, generation_history_facade=history_facade,
-        tag_repository=tag_repository, plugin_registry=Mock(),
+        tag_repository=tag_repository, plugin_registry=Mock(), is_admin=is_admin,
     )
 
 
@@ -255,7 +255,7 @@ class TestListRecentError:
             }],
             "total": 1,
         })
-        result = await OrganizeGalleryTool().execute(make_context(history_facade), operation="list_recent")
+        result = await OrganizeGalleryTool().execute(make_context(history_facade, is_admin=True), operation="list_recent")
         payload = json.loads(result.data)
         error = payload["generations"][0]["error"]
         assert error is not None
@@ -289,7 +289,7 @@ class TestGetOperation:
             "rating": 0, "is_favorite": False, "tags": [], "files": [],
         }
         result = await OrganizeGalleryTool().execute(
-            make_context(history_facade), operation="get", generation_id="gen-1",
+            make_context(history_facade, is_admin=True), operation="get", generation_id="gen-1",
         )
         assert result.success is True
         payload = json.loads(result.data)
@@ -368,7 +368,7 @@ class TestFailedGenerationExposure:
         payload = json.loads(result.data)
         assert payload["error_code"] == "missing_model_file"
         assert payload["error_id"] == "gen-1"
-        assert payload["error"].startswith("A model file this preset needs is missing.")
+        assert payload["error"].startswith("A model this needs isn't available on the server.")
         for marker in ("/srv/", "Traceback", "Errno", "FileNotFoundError"):
             assert marker not in result.data
 
@@ -379,6 +379,6 @@ class TestFailedGenerationExposure:
         result = await OrganizeGalleryTool().execute(make_context(history_facade), operation="list_recent")
 
         payload = json.loads(result.data)
-        assert payload["generations"][0]["error"] == "A model file this preset needs is missing."
+        assert payload["generations"][0]["error"] == "A model this needs isn't available on the server."
         for marker in ("/srv/", "Traceback", "Errno", "FileNotFoundError"):
             assert marker not in result.data

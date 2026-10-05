@@ -692,6 +692,7 @@
 						message={generation.error_message || generation.error_user_message || ''}
 						hint={firstHintLine(generation.error_user_message, generation.error_message)}
 						errorId={policyShowsErrorId(generation.error_code) ? generation.error_id : null}
+						contactAdmin={!!generation.error_contact_admin}
 					/>
 				{:else}
 					<div class="p-1.5 bg-danger/10 border border-danger/25 rounded text-sm text-danger whitespace-pre-line">
@@ -703,7 +704,9 @@
 							<span class="font-mono text-sm tabular-nums text-fg truncate">{generation.error_id}</span>
 							<CopyButton text={generation.error_id} ariaLabel="Copy error ID" size="xs" />
 						</div>
-						<p class="text-sm text-fg-subtle">Give this to your admin</p>
+						{#if generation.error_contact_admin}
+							<p class="text-sm text-fg-subtle">Give this to your admin</p>
+						{/if}
 					{/if}
 				{/if}
 			</div>

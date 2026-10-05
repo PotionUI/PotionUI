@@ -47,7 +47,15 @@ from src.features.generation.exceptions import IdempotencyKeyConflict
 from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
 from src.features.generation.run_report_recorder import RunReportRecorder
 from src.features.cloud.cost_repository import GenerationCostRepository
-from src.features.generation.failure import failure_report, start_failure_reason
+from src.features.generation.failure import (
+    failure_report,
+    is_video_request,
+    scope_generation,
+    scope_generation_state,
+    scope_run_report,
+    scope_status,
+    start_failure_reason,
+)
 from src.features.generation import (
     GenerationHistoryFacade,
     GenerationNotFoundException,
@@ -146,6 +154,8 @@ class GenerationController(BaseController):
                 current_user.id,
                 output_callback=self.output_broadcaster.handle_output
             )
+            if isinstance(result, dict) and isinstance(result.get('status'), dict):
+                result = {**result, 'status': scope_status(result['status'], GenerationPolicy.is_admin(current_user))}
 
             return self.success_response(data=result)
 
@@ -270,7 +280,7 @@ class GenerationController(BaseController):
                 status_code=404
             )
 
-        return self.success_response(data=state.payload)
+        return self.success_response(data=scope_generation_state(state.payload, GenerationPolicy.is_admin(current_user)))
 
     async def get_generation_profile(
         self, generation_id: str, current_user, file: Optional[str] = None,
@@ -533,6 +543,8 @@ class GenerationController(BaseController):
                 system_tag=system_tag,
                 semantic_query=semantic_query
             )
+            is_admin = GenerationPolicy.is_admin(current_user)
+            result = {**result, 'generations': [scope_generation(item, is_admin) for item in result.get('generations') or []]}
 
             return self.success_response(data=result)
 
@@ -564,7 +576,7 @@ class GenerationController(BaseController):
                 user_id=current_user.id,
                 include_files=include_files
             )
-            return self.success_response(data=result)
+            return self.success_response(data=scope_generation(result, GenerationPolicy.is_admin(current_user)))
 
         except GenerationNotFoundException:
             return self.error_response(
@@ -1277,6 +1289,12 @@ class GenerationController(BaseController):
             safety = self.history_query.content_safety
             if safety is not None and safety.is_restricted(current_user.id):
                 report = {**report, 'artifacts': [], 'plugin_outputs': {}}
+            report = scope_run_report(
+                report,
+                GenerationPolicy.is_admin(current_user),
+                getattr(generation, 'error_code', None),
+                is_video_request(getattr(generation, 'form_data', None), getattr(generation, 'mode', None)),
+            )
 
         return self.success_response(data={'run_report': report})
 

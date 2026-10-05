@@ -122,12 +122,12 @@ class TestNotifyFailure:
         assert kwargs["title"] == "Generation failed"
         assert kwargs["type"] == "generation.failed"
         assert kwargs["user_id"] == "user-1"
-        assert kwargs["message"] == "The disk is full."
+        assert kwargs["message"] == "The server has run out of storage space."
         metadata = kwargs["metadata"]
         assert metadata["generation_id"] == "gen-1"
         assert metadata["error_id"] == "gen-1"
         assert metadata["error_code"] == "disk_full"
-        assert metadata["hint"] == "- Free up space"
+        assert metadata["hint"] == "- Send the error ID to your administrator"
         assert "detail" not in metadata
         assert "failed_pipe_id" not in metadata
         rendered = str(kwargs)

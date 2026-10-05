@@ -1341,6 +1341,7 @@
 							message={currentGeneration?.message || 'Blocked by content policy.'}
 							hint={currentGeneration?.hint ? firstHintLine(currentGeneration.hint, '') : ''}
 							errorId={policyShowsErrorId(currentGeneration?.errorCode) ? currentGeneration?.errorId : null}
+							contactAdmin={!isAdmin}
 						/>
 					</div>
 				{:else}
@@ -1365,7 +1366,9 @@
 								<span class="font-mono text-sm tabular-nums text-fg">{currentGeneration.errorId}</span>
 								<CopyButton text={currentGeneration.errorId} ariaLabel="Copy error ID" size="sm" />
 							</div>
-							<p class="text-sm text-fg-subtle">Give this to your admin</p>
+							{#if !isAdmin}
+								<p class="text-sm text-fg-subtle">Give this to your admin</p>
+							{/if}
 						</div>
 					{/if}
 

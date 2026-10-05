@@ -15,7 +15,7 @@ export function generationFailureToastMessage(notification: FailureNotification)
 	return [
 		notification.message || null,
 		typeof hint === 'string' && hint.trim() ? hint : null,
-		errorId ? 'Give this to your admin.' : null
+		errorId && notification.metadata?.contact_admin === true ? 'Give this to your admin.' : null
 	]
 		.filter((part): part is string => Boolean(part))
 		.join('\n\n');

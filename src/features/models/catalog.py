@@ -494,6 +494,7 @@ class ModelCatalog:
         # Verify access (throws if denied)
         self.access_policy.verify_model_access(model_id, user)
 
+        from src.features.generation.failure import scope_generation
         from src.features.generation.model_repository import generation_model_repo
         generations, total = generation_model_repo.get_generations_by_model(
             model_id=model_id,
@@ -510,7 +511,11 @@ class ModelCatalog:
 
         return {
             "generations": [
-                g.to_dict(include_files=True, include_tags=True) for g in generations
+                scope_generation(
+                    g.to_dict(include_files=True, include_tags=True),
+                    user.account_type == AccountType.ADMIN,
+                )
+                for g in generations
             ],
             "total": total,
             "pagination": {

@@ -151,6 +151,98 @@ _CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
 
 ERROR_CATEGORIES: Tuple[str, ...] = tuple(_CATEGORIES)
 
+_ASK_ADMIN = "Send the error ID to your administrator"
+
+_USER_CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
+    "cuda_oom": (
+        "This was too much for the server's GPU right now.",
+        ("Try a lower resolution", "Try again in a moment"),
+    ),
+    "host_ram_oom": (
+        "This was too much for the server's memory right now.",
+        ("Try again in a moment", "If it keeps happening, send the error ID to your administrator"),
+    ),
+    "missing_model_file": (
+        "A model this needs isn't available on the server.",
+        ("Try a different model", _ASK_ADMIN),
+    ),
+    "disk_full": (
+        "The server has run out of storage space.",
+        (_ASK_ADMIN,),
+    ),
+    "corrupt_weights": (
+        "A model this needs is damaged on the server.",
+        ("Try a different model", _ASK_ADMIN),
+    ),
+    "auth_required": (
+        "The server couldn't get access to a model this needs.",
+        (_ASK_ADMIN,),
+    ),
+    "backend_unreachable": (
+        "The server that runs generations couldn't be reached.",
+        ("Try again in a moment",),
+    ),
+    "banned_prompt": (
+        "This prompt was refused by this server's content policy.",
+        ("Rephrase the prompt and try again",),
+    ),
+    "content_blocked": (
+        "Blocked by content policy.",
+        (
+            "Try a different prompt or seed",
+            "Ask your administrator about the content policy",
+        ),
+    ),
+    "content_check_unavailable": (
+        "Content check unavailable.",
+        (_ASK_ADMIN,),
+    ),
+    "cloud_auth": (
+        "The online generation service isn't available on this server right now.",
+        (_ASK_ADMIN,),
+    ),
+    "cloud_credits": (
+        "The online generation service has run out of credits.",
+        (_ASK_ADMIN,),
+    ),
+    "cloud_refused": (
+        "The online generation service refused this request.",
+        ("Try a different prompt or input",),
+    ),
+    "cloud_rate_limited": (
+        "The online generation service is busy right now.",
+        ("Wait a little and try again",),
+    ),
+    "cloud_invalid_request": (
+        "The online generation service couldn't use these settings.",
+        ("Change the settings or the input files and try again",),
+    ),
+    "cloud_unavailable": (
+        "The online generation service is temporarily unavailable.",
+        ("Try again in a few minutes",),
+    ),
+    "cloud_timeout": (
+        "The online generation service took too long.",
+        ("Try again",),
+    ),
+    "cloud_failed": (
+        "The online generation service couldn't finish this request.",
+        ("Try again", "Try a different model"),
+    ),
+    "cloud_expired": (
+        "The result expired before it could be saved.",
+        ("Try again",),
+    ),
+    UNCLASSIFIED: (
+        "Something went wrong while generating.",
+        ("Try again", "If it keeps happening, send the error ID to your administrator"),
+    ),
+}
+
+_VIDEO_USER_HINTS: Dict[str, Tuple[str, ...]] = {
+    "cuda_oom": ("Try a lower resolution", "Try fewer frames"),
+}
+
 
 @dataclass
 class ErrorClassification:
@@ -162,6 +254,14 @@ class ErrorClassification:
 def classification_for_code(code: Optional[str]) -> ErrorClassification:
     category = code if code in _CATEGORIES else UNCLASSIFIED
     summary, suggestions = _CATEGORIES[category]
+    return ErrorClassification(category=category, summary=summary, suggestions=list(suggestions))
+
+
+def user_classification_for_code(code: Optional[str], video: bool = False) -> ErrorClassification:
+    category = code if code in _USER_CATEGORIES else UNCLASSIFIED
+    summary, suggestions = _USER_CATEGORIES[category]
+    if video:
+        suggestions = _VIDEO_USER_HINTS.get(category, suggestions)
     return ErrorClassification(category=category, summary=summary, suggestions=list(suggestions))
 
 

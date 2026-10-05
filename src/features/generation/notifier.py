@@ -36,13 +36,15 @@ class GenerationNotifier:
         user_id: Optional[str],
         failure: GenerationFailure,
         include_detail: bool = False,
+        video: bool = False,
     ) -> None:
         try:
             from src.platform.plugins.runtime_registries import get_global_notification_manager
 
             metadata = {
                 "generation_id": generation_id,
-                **failure.public_payload(generation_id),
+                **failure.viewer_payload(generation_id, include_detail, video),
+                "contact_admin": not include_detail,
             }
             if include_detail:
                 metadata.update(failure.admin_payload())
@@ -50,7 +52,7 @@ class GenerationNotifier:
             get_global_notification_manager()(
                 level="error",
                 title="Generation failed",
-                message=failure.message,
+                message=failure.viewer_message(include_detail),
                 category="generation",
                 type="generation.failed",
                 user_id=user_id,

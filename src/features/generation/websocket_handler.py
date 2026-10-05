@@ -4,6 +4,7 @@ import json
 from fastapi import WebSocket, WebSocketDisconnect
 
 from src.platform.websocket.connection_hub import ConnectionHub
+from src.features.generation.failure import scope_status
 from src.features.generation.policy import GenerationPolicy
 
 class WebSocketHandler:
@@ -119,7 +120,7 @@ class WebSocketHandler:
                                 # doesn't miss updates that happened before subscription
                                 await websocket.send_text(json.dumps({
                                     'type': 'status_update',
-                                    'data': status.model_dump()
+                                    'data': scope_status(status.model_dump(), GenerationPolicy.is_admin(user))
                                 }))
                             else:
                                 # Send error message to client

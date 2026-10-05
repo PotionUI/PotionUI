@@ -120,6 +120,7 @@ export interface GenerationHistoryItem {
 	error_message?: string;
 	error_code?: string | null;
 	error_user_message?: string | null;
+	error_contact_admin?: boolean;
 	error_id?: string | null;
 	files: GenerationFile[];
 	tags?: Tag[];

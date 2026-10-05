@@ -646,7 +646,7 @@ class TestOutputHandling:
         kwargs = mock_manager.call_args.kwargs
         assert kwargs['level'] == 'error'
         assert kwargs['type'] == 'generation.failed'
-        assert kwargs['message'] == 'Ran out of GPU memory (VRAM) during generation.'
+        assert kwargs['message'] == "This was too much for the server's GPU right now."
         assert kwargs['show_toast'] is True
         assert kwargs['user_id'] == user_id
         metadata = kwargs['metadata']

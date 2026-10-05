@@ -5,7 +5,7 @@ function notification(overrides: Partial<{ type: string; message: string; metada
 	return {
 		type: 'generation.failed',
 		message: 'The GPU ran out of memory.',
-		metadata: { error_id: 'gen-1', hint: '- Try a smaller resolution', error_code: 'cuda_oom' },
+		metadata: { error_id: 'gen-1', hint: '- Try a smaller resolution', error_code: 'cuda_oom', contact_admin: true },
 		...overrides
 	};
 }
@@ -32,6 +32,14 @@ describe('generationFailureToastMessage', () => {
 		);
 	});
 
+	it('leaves the hand-to-admin line out when the server says the viewer is an admin', () => {
+		expect(
+			generationFailureToastMessage(
+				notification({ metadata: { error_id: 'gen-1', hint: '- Try a smaller resolution', contact_admin: false } })
+			)
+		).toBe('The GPU ran out of memory.\n\n- Try a smaller resolution');
+	});
+
 	it('never mentions handing anything to an admin when there is no error id', () => {
 		expect(generationFailureToastMessage(notification({ metadata: { hint: '- Try again' } }))).toBe(
 			'The GPU ran out of memory.\n\n- Try again'
@@ -39,7 +47,7 @@ describe('generationFailureToastMessage', () => {
 	});
 
 	it('drops the hint line when metadata carries none', () => {
-		expect(generationFailureToastMessage(notification({ metadata: { error_id: 'gen-2' } }))).toBe(
+		expect(generationFailureToastMessage(notification({ metadata: { error_id: 'gen-2', contact_admin: true } }))).toBe(
 			'The GPU ran out of memory.\n\nGive this to your admin.'
 		);
 	});

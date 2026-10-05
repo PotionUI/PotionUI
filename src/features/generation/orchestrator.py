@@ -75,6 +75,7 @@ from src.features.generation.failure import (
     failure_for_code,
     failure_from_exception,
     failure_from_output,
+    is_video_request,
 )
 from src.features.generation.content_blocked_output import ContentBlockedGenerationOutput
 from src.features.content_safety.constants import ERROR_BANNED_PROMPT, ERROR_CONTENT_BLOCKED, ERROR_CHECK_UNAVAILABLE
@@ -1506,6 +1507,7 @@ class GenerationOrchestrator:
             user_id,
             failure,
             include_detail=self._is_admin_user(user_id),
+            video=is_video_request(generation.form_data, generation.mode) if generation else False,
         )
         return generation
 

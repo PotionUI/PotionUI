@@ -14,6 +14,7 @@ function card(over: Record<string, unknown>) {
 		rating: 0,
 		is_favorite: false,
 		error_id: '01M3QERRORID',
+		error_contact_admin: true,
 		...over
 	};
 	return render(GenerationCard, { props: { generation } as any }).body;

@@ -173,7 +173,7 @@ class TestWebSocketPerRecipient:
 
         assert user_message["type"] == "generation_error"
         assert user_message["error_code"] == "missing_model_file"
-        assert user_message["message"] == "A model file this preset needs is missing."
+        assert user_message["message"] == "A model this needs isn't available on the server."
         assert user_message["hint"]
         assert user_message["error_id"] == "gen-1"
         assert user_message["generation_id"] == "gen-1"
@@ -183,7 +183,7 @@ class TestWebSocketPerRecipient:
         _assert_no_leak(user_socket.sent[-1])
 
         assert admin_message["error_code"] == "missing_model_file"
-        assert admin_message["message"] == user_message["message"]
+        assert admin_message["message"] == "A model file this preset needs is missing."
         assert RAW_ERROR in admin_message["detail"]
         assert TRACEBACK in admin_message["detail"]
         assert admin_message["failed_pipe_id"] == "loader"
@@ -301,8 +301,8 @@ class TestFailureRest(PersistenceTestBase):
         assert data["status"] == "failed"
         assert data["error_code"] == "missing_model_file"
         assert data["error_id"] == self.failed.id
-        assert data["error_message"] == "A model file this preset needs is missing."
-        assert data["error_user_message"].startswith("A model file this preset needs is missing.")
+        assert data["error_message"] == "A model this needs isn't available on the server."
+        assert data["error_user_message"].startswith("A model this needs isn't available on the server.")
         _assert_no_leak(data)
 
     def test_history_detail_of_a_failed_generation_is_safe_for_its_owner(self):

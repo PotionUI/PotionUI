@@ -13,6 +13,7 @@ from src.features.prompt_database import operations
 from src.features.prompt_database.collaborators import PromptDatabaseCollaborators
 from src.features.prompt_database.dto import (
     PromptBulkDeleteRequest,
+    PromptFavoriteRequest,
     PromptRequest,
 )
 from src.features.prompt_database.embedding import LocalEmbeddingProvider
@@ -162,12 +163,14 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def export_prompts_route(
         format: str = Query("styles-csv"),
         collection_id: Optional[str] = Query(None, description="Only prompts in this 'prompts'-scope collection"),
+        include_descendants: bool = Query(True, description="With collection_id, include sub-collections"),
         current_user: User = Depends(get_current_active_user),
     ):
         if format != "styles-csv":
             return controller.error_response("unsupported_format", f"Unknown export format: {format}", 400)
         csv_text = operations.export_styles_csv(
             controller.collaborators, _user_id(current_user), collection_id=collection_id,
+            include_descendants=include_descendants,
         )
         return PlainTextResponse(
             content=csv_text,
@@ -283,6 +286,9 @@ def build_router(container: "AppContainer") -> APIRouter:
         source_provider: Optional[str] = None, base_model: Optional[str] = None,
         model_id: Optional[str] = None, usage_hint: Optional[str] = None,
         collection_id: Optional[str] = Query(None, description="Only prompts in this 'prompts'-scope collection"),
+        include_descendants: bool = Query(True, description="With collection_id, include sub-collections"),
+        unsorted: bool = Query(False, description="Only prompts in none of the user's collections"),
+        favorites_only: bool = Query(False, description="Only favorite prompts"),
         q: Optional[str] = None,
         tags: Optional[str] = Query(None, description="Comma-separated, any-of exact tag match"),
         used: Literal["any", "used", "never"] = "any",
@@ -305,11 +311,13 @@ def build_router(container: "AppContainer") -> APIRouter:
             q=q, tags=tag_list, used=used, used_after=used_after,
             has_variables=has_variables, nsfw=nsfw,
             sort_by=sort_by, sort_order=sort_order,
+            include_descendants=include_descendants, unsorted=unsorted, favorites_only=favorites_only,
         )
         total = repository.count(
             user_id, source_provider, model_id, base_model, usage_hint, collection_id,
             q=q, tags=tag_list, used=used, used_after=used_after,
             has_variables=has_variables, nsfw=nsfw,
+            include_descendants=include_descendants, unsorted=unsorted, favorites_only=favorites_only,
         )
         data = {
             "items": [item.to_dict() for item in items], "total": total,
@@ -380,6 +388,18 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user: User = Depends(get_current_active_user),
     ):
         return await controller.replace(prompt_id, request, current_user)
+
+    @router.put("/{prompt_id}/favorite", response_model=APIResponse, summary="Set a prompt's favorite flag")
+    async def set_prompt_favorite(
+        prompt_id: str, request: PromptFavoriteRequest,
+        current_user: User = Depends(get_current_active_user),
+    ):
+        value = controller.collaborators.repository.set_favorite(
+            prompt_id, _user_id(current_user), request.is_favorite,
+        )
+        if value is None:
+            return controller.error_response("not_found", "Prompt not found", 404)
+        return APIResponse(success=True, data={"id": prompt_id, "is_favorite": value})
 
     @router.delete("/{prompt_id}", response_model=APIResponse, summary="Delete a prompt")
     async def delete_prompt(prompt_id: str, current_user: User = Depends(get_current_active_user)):

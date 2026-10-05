@@ -36,6 +36,10 @@ class PromptMetadata(BaseModel):
     variables: Optional[Dict[str, Any]] = None
 
 
+class PromptFavoriteRequest(BaseModel):
+    is_favorite: bool
+
+
 class PromptRequest(PromptMetadata):
     name: Optional[str] = None
     usage_hint: Optional[Literal["positive", "negative"]] = None

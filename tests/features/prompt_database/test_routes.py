@@ -255,11 +255,15 @@ def test_list_delegates_browse_filters_without_generation_configuration(client, 
         nsfw="exclude",
         sort_by="created_at",
         sort_order="desc",
+        include_descendants=True,
+        unsorted=False,
+        favorites_only=False,
     )
     collaborators.repository.count.assert_called_once_with(
         "user-1", "civitai", None, None, "negative", None,
         q=None, tags=None, used="any", used_after=None,
         has_variables=None, nsfw="exclude",
+        include_descendants=True, unsorted=False, favorites_only=False,
     )
 
 
@@ -331,6 +335,9 @@ def test_list_forwards_new_filters_and_sort_keys(client, collaborators):
         nsfw="include",
         sort_by="usage_count",
         sort_order="asc",
+        include_descendants=True,
+        unsorted=False,
+        favorites_only=False,
     )
 
 
@@ -877,10 +884,48 @@ def test_export_streams_csv_with_attachment_headers(client, collaborators, mock_
     assert response.headers["content-type"].startswith("text/csv")
     assert response.headers["content-disposition"] == 'attachment; filename="styles.csv"'
     assert response.text == "name,prompt,negative_prompt\r\nA,x,y\r\n"
-    mock_operations.export_styles_csv.assert_called_once_with(collaborators, "user-1", collection_id=None)
+    mock_operations.export_styles_csv.assert_called_once_with(collaborators, "user-1", collection_id=None, include_descendants=True)
 
 
 def test_export_rejects_an_unknown_format(client):
     response = client.get("/api/prompts/export", params={"format": "not-a-real-format"})
 
     assert response.status_code == 400
+
+
+def test_list_forwards_descendant_unsorted_and_favorite_params(client, collaborators):
+    collaborators.repository.get_all.return_value = []
+    collaborators.repository.count.return_value = 0
+
+    response = client.get(
+        "/api/prompts?collection_id=c1&include_descendants=false&unsorted=true&favorites_only=true"
+    )
+
+    assert response.status_code == 200
+    kwargs = collaborators.repository.get_all.call_args.kwargs
+    assert kwargs["collection_id"] == "c1"
+    assert kwargs["include_descendants"] is False
+    assert kwargs["unsorted"] is True
+    assert kwargs["favorites_only"] is True
+    count_kwargs = collaborators.repository.count.call_args.kwargs
+    assert count_kwargs["include_descendants"] is False
+    assert count_kwargs["unsorted"] is True
+    assert count_kwargs["favorites_only"] is True
+
+
+def test_favorite_route_sets_flag_for_current_user(client, collaborators):
+    collaborators.repository.set_favorite.return_value = True
+
+    response = client.put("/api/prompts/p1/favorite", json={"is_favorite": True})
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {"id": "p1", "is_favorite": True}
+    collaborators.repository.set_favorite.assert_called_once_with("p1", "user-1", True)
+
+
+def test_favorite_route_returns_not_found_for_foreign_prompt(client, collaborators):
+    collaborators.repository.set_favorite.return_value = None
+
+    response = client.put("/api/prompts/p1/favorite", json={"is_favorite": True})
+
+    assert response.status_code == 404

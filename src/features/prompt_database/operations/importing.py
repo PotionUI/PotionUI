@@ -124,11 +124,15 @@ async def import_prompts(
     return outcome
 
 
-def _iter_all_prompts(collaborators: PromptDatabaseCollaborators, user_id: str, collection_id: Optional[str]):
+def _iter_all_prompts(
+    collaborators: PromptDatabaseCollaborators, user_id: str, collection_id: Optional[str],
+    include_descendants: bool = True,
+):
     offset = 0
     while True:
         page = collaborators.repository.get_all(
             user_id=user_id, limit=EXPORT_PAGE_SIZE, offset=offset, collection_id=collection_id,
+            include_descendants=include_descendants,
         )
         if not page:
             return
@@ -140,13 +144,14 @@ def _iter_all_prompts(collaborators: PromptDatabaseCollaborators, user_id: str, 
 
 def export_styles_csv(
     collaborators: PromptDatabaseCollaborators, user_id: str, *, collection_id: Optional[str] = None,
+    include_descendants: bool = True,
 ) -> str:
     import csv
     import io
 
     grouped: Dict[str, Dict[str, Prompt]] = {}
     ungrouped: List[Prompt] = []
-    for prompt in _iter_all_prompts(collaborators, user_id, collection_id):
+    for prompt in _iter_all_prompts(collaborators, user_id, collection_id, include_descendants):
         if prompt.source_group_id:
             grouped.setdefault(prompt.source_group_id, {})[prompt.usage_hint or "positive"] = prompt
         else:

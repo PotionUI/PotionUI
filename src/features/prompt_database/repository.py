@@ -7,6 +7,7 @@ import re
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.features.segments.dto import RichSegment
+from src.platform.database.collection_tree import membership_clause, unsorted_clause
 from src.platform.database.rows import dt_column
 from src.features.prompt_database.records import Prompt
 from src.platform.util.ids import generate_ulid
@@ -104,7 +105,7 @@ class PromptRepository:
             comment_count=row["comment_count"] or 0, tags=json.loads(row["tags"] or "[]"),
             nsfw=bool(row["nsfw"]), metadata=json.loads(row["metadata"] or "{}"),
             variables=json.loads(row["variables"]) if row["variables"] else None,
-            embedded=bool(row["embedded"]), created_at=dt_column(row["created_at"]),
+            embedded=bool(row["embedded"]), is_favorite=bool(row["is_favorite"]), created_at=dt_column(row["created_at"]),
             updated_at=dt_column(row["updated_at"]), segments=segments,
         )
 
@@ -241,6 +242,7 @@ class PromptRepository:
         model_id: Optional[str], usage_hint: Optional[str], collection_id: Optional[str],
         q: Optional[str], tags: Optional[Sequence[str]], used: str,
         used_after: Optional[str], has_variables: Optional[bool], nsfw: str,
+        include_descendants: bool = True, unsorted: bool = False, favorites_only: bool = False,
     ) -> Tuple[List[str], List[Any], bool]:
         clauses, params = ["prompts.user_id = ?"], [user_id]
         for column, value in (
@@ -251,10 +253,20 @@ class PromptRepository:
                 clauses.append(f"prompts.{column} = ?")
                 params.append(value)
         if collection_id:
-            clauses.append(
-                "prompts.id IN (SELECT prompt_id FROM collection_prompts WHERE collection_id = ?)"
-            )
+            clauses.append(membership_clause(
+                tree_table="collections", member_table="collection_prompts",
+                item_column="prompt_id", item_ref="prompts.id",
+                include_descendants=include_descendants,
+            ))
             params.append(collection_id)
+        if unsorted:
+            clauses.append(unsorted_clause(
+                tree_table="collections", member_table="collection_prompts",
+                item_column="prompt_id", item_ref="prompts.id", scope_column="scope",
+            ))
+            params.extend([user_id, "prompts"])
+        if favorites_only:
+            clauses.append("prompts.is_favorite = 1")
         if q:
             clauses.append("(prompts.name LIKE ? OR prompts.flattened_text LIKE ?)")
             like = f"%{q}%"
@@ -290,10 +302,12 @@ class PromptRepository:
         used: str = "any", used_after: Optional[str] = None,
         has_variables: Optional[bool] = None, nsfw: str = "exclude",
         sort_by: str = "created_at", sort_order: str = "desc",
+        include_descendants: bool = True, unsorted: bool = False, favorites_only: bool = False,
     ) -> List[Prompt]:
         clauses, params, needs_usage_join = self._list_filters(
             user_id, source_provider, base_model, model_id, usage_hint, collection_id,
             q, tags, used, used_after, has_variables, nsfw,
+            include_descendants, unsorted, favorites_only,
         )
         sort_columns = {
             "created_at": "prompts.created_at", "updated_at": "prompts.updated_at",
@@ -374,10 +388,12 @@ class PromptRepository:
         q: Optional[str] = None, tags: Optional[Sequence[str]] = None,
         used: str = "any", used_after: Optional[str] = None,
         has_variables: Optional[bool] = None, nsfw: str = "exclude",
+        include_descendants: bool = True, unsorted: bool = False, favorites_only: bool = False,
     ) -> int:
         clauses, params, needs_usage_join = self._list_filters(
             user_id, source_provider, base_model, model_id, usage_hint, collection_id,
             q, tags, used, used_after, has_variables, nsfw,
+            include_descendants, unsorted, favorites_only,
         )
         join_sql = self._USAGE_JOIN_SQL if needs_usage_join else ""
         join_params = [user_id] if needs_usage_join else []
@@ -386,6 +402,15 @@ class PromptRepository:
         with db.get_cursor() as cursor:
             cursor.execute(query, (*join_params, *params))
             return int(cursor.fetchone()[0])
+
+    def set_favorite(self, prompt_id: str, user_id: str, is_favorite: bool) -> Optional[bool]:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE prompts SET is_favorite = ? WHERE id = ? AND user_id = ?",
+                (int(is_favorite), prompt_id, user_id),
+            )
+            return is_favorite if cursor.rowcount else None
 
     def get_source_ids(
         self, user_id: str, source_provider: str, model_id: Optional[str] = None,

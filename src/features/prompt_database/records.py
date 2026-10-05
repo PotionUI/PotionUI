@@ -38,6 +38,7 @@ class Prompt:
     metadata: Dict[str, Any] = field(default_factory=dict)
     variables: Optional[Dict[str, Any]] = None
     embedded: bool = False
+    is_favorite: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -88,6 +89,7 @@ class Prompt:
             "metadata": self.metadata,
             "variables": self.variables,
             "embedded": self.embedded,
+            "is_favorite": self.is_favorite,
             "created_at": dt_iso(self.created_at),
             "updated_at": dt_iso(self.updated_at),
         }

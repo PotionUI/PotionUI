@@ -67,20 +67,13 @@ describe('the negative region', () => {
 		).toContain('2 segments');
 	});
 
-	it('warns that it is inert only when guidance actually makes it inert', () => {
+	it('hides the whole negative section while guidance makes it inert', () => {
 		const inert = mount({ negativeSegments: [segment('n1', 'blurry')], negativeInert: true });
-		expect(inert.text()).toContain('Not applied at current guidance');
+		expect(inert.lists()).not.toContain('Negative segments');
+		expect(inert.target.querySelector('.negative-composer')).toBeNull();
 
 		const live = mount({ negativeSegments: [segment('n1', 'blurry')] });
-		expect(live.text()).not.toContain('Not applied at current guidance');
-	});
-
-	it('puts the inert note on its own line under the header instead of inside it', () => {
-		const inert = mount({ negativeSegments: [segment('n1', 'blurry')], negativeInert: true });
-		const note = inert.target.querySelector('[data-testid="negative-note"]');
-		expect(note).not.toBeNull();
-		expect(note?.closest('header')).toBeNull();
-		expect(note?.previousElementSibling?.tagName).toBe('HEADER');
+		expect(live.lists()).toContain('Negative segments');
 	});
 
 	it('is absent entirely when the call site pairs no negative list', () => {

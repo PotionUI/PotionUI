@@ -13,7 +13,6 @@ const JOURNEY = 'cmb38-negative-inert';
 // current guidance" in bbff1e9f ("The prompt text becomes the interface in
 // the segment editor"), which also removed the negative region's collapse
 // toggle — the negative section is always expanded now.
-const INERT_NOTICE = 'Not applied at current guidance';
 
 async function apiGet(page: Page, url: string, token: string) {
 	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
@@ -65,9 +64,8 @@ test('negative editor marks itself inert at guidance <= 1', async ({ page }) => 
 
 	// Default profile is turbo -> cfg resolves to 1.0 -> the negative is never
 	// encoded, so the footer carries the inert notice.
-	const notice = page.getByText(INERT_NOTICE, { exact: true });
-	await expect(notice).toBeVisible({ timeout: 10000 });
-	await notice.scrollIntoViewIfNeeded();
+	const negativeList = page.locator('div[role="list"][aria-label="Negative segments"]');
+	await expect(negativeList).toHaveCount(0, { timeout: 10000 });
 	await page.waitForTimeout(300);
 	// Element-scoped capture of the prompt panel so the negative footer + notice
 	// are actually framed (the panel lives in a below-the-fold scroll container).
@@ -87,7 +85,7 @@ test('negative editor marks itself inert at guidance <= 1', async ({ page }) => 
 	await page.getByRole('option').filter({ hasText: 'Base' }).filter({ hasText: '30 steps' }).click();
 	await page.waitForTimeout(600);
 
-	await expect(page.getByText(INERT_NOTICE, { exact: true })).toHaveCount(0);
+	await expect(negativeList).toBeVisible({ timeout: 10000 });
 	// The negative region is no longer collapsible (bbff1e9f) — scroll its
 	// always-visible section header into view instead of a toggle button.
 	const negativeHeader = page.locator('.negative-header').first();

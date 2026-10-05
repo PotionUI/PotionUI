@@ -786,7 +786,7 @@
 
 		{#if embedded}
 			{@render negativeRail()}
-		{:else}
+		{:else if !negativeInert}
 			<section class="composer edge-inline negative-composer" class:compact class:plain>
 				<header
 				class="composer-toolbar section-header negative-header"
@@ -835,8 +835,6 @@
 
 				{#if negativePromptUnavailable}
 					<p class="negative-note inline-warning" data-testid="negative-note">Not used by this preset</p>
-				{:else if negativeInert}
-					<p class="negative-note inline-warning" data-testid="negative-note">Not applied at current guidance</p>
 				{/if}
 
 				{@render negativeRail()}

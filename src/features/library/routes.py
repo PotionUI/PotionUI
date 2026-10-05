@@ -18,6 +18,7 @@ from typing import Optional, TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, Query
 
+from src.features.plans.errors import LimitExceeded
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.spooled_zip import stream_spooled_zip
 from src.platform.security.current_user import get_current_active_user
@@ -163,6 +164,8 @@ class LibraryController(BaseController):
                 operations.copy_generation_file, self.collaborators, request.file_id, current_user.id
             )
             return self.success_response(data={"item": item.model_dump()})
+        except LimitExceeded as e:
+            raise e.http()
         except ValueError as e:
             return self.error_response(error="not_found", message=str(e), status_code=404)
         except Exception as e:

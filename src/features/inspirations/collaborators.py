@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from src.platform.filesystem import FileStore
     from src.platform.filesystem.storage_driver import FileStorageDriver
     from src.platform.plugins.field_types import FieldTypeRegistry
+    from src.features.plans.guard import LimitGuard
 
 
 @dataclass(frozen=True)
@@ -45,3 +46,4 @@ class InspirationCollaborators:
     # collaborators)`, see `src.bootstrap.container`), not a class instance.
     notification_manager: Callable[..., Any]
     content_safety: Optional["ContentSafetyManager"] = None
+    limit_guard: Optional["LimitGuard"] = None

@@ -7,8 +7,16 @@ from src.features.inspirations.collaborators import InspirationCollaborators
 from src.features.inspirations.storage import inspiration_media_key
 from src.features.media.records import Upload
 from src.platform.filesystem.storage_driver import uploads_key
+from src.platform.plugins.limit_kinds import AdmissionRequest
 
 logger = logging.getLogger(__name__)
+
+
+def _entry_size(collaborators: InspirationCollaborators, inspiration_id: str, entry) -> int:
+    if entry.get("file_size"):
+        return int(entry["file_size"])
+    source = Path(collaborators.file_store.get_full_path(inspiration_media_key(inspiration_id, entry["filename"])))
+    return source.stat().st_size if source.is_file() else 0
 
 
 def save_to_library(collaborators: InspirationCollaborators, inspiration_id: str, user_id: str) -> int:
@@ -27,6 +35,9 @@ def save_to_library(collaborators: InspirationCollaborators, inspiration_id: str
         raise ValueError("Inspiration not found")
 
     storage_root = Path(collaborators.file_store.base_storage_dir)
+    if collaborators.limit_guard is not None:
+        incoming = sum(_entry_size(collaborators, inspiration_id, entry) for entry in insp.media)
+        collaborators.limit_guard.admit(AdmissionRequest(point="upload", user_id=user_id, incoming_bytes=incoming))
     copied = 0
     for entry in insp.media:
         source = Path(collaborators.file_store.get_full_path(inspiration_media_key(inspiration_id, entry["filename"])))

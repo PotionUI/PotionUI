@@ -94,6 +94,10 @@ from src.platform.plugins.organize import (
     OrganizeRegistry,
     organize_registry as _shared_organize_registry,
 )
+from src.platform.plugins.limit_kinds import (
+    LimitKindRegistry,
+    limit_kind_registry as _shared_limit_kind_registry,
+)
 from src.features.fields.builtin import register_builtin_fields
 from src.features.presets.requirements.builtin import register_builtin_requirement_checkers
 from src.features.presets.requirements.evaluator import RequirementsCache
@@ -227,6 +231,9 @@ if TYPE_CHECKING:
     from src.features.organize.manager import OrganizeManager
     from src.features.organize.routes import OrganizeController
     from src.features.organize.worker import OrganizeWorker
+    from src.features.plans.components import PlansComponents
+    from src.features.plans.guard import LimitGuard
+    from src.features.plans.routes import PlansController
     from src.features.workspaces.routes import WorkspaceController
     from src.features.user_groups.routes import UserGroupController
 
@@ -459,6 +466,10 @@ class AppContainer:
     organize_manager: "OrganizeManager"
     organize_controller: "OrganizeController"
     organize_worker: "OrganizeWorker"
+    limit_kind_registry: LimitKindRegistry
+    plans: "PlansComponents"
+    limit_guard: "LimitGuard"
+    plans_controller: "PlansController"
 
     # Workspaces
     workspace_repository: "WorkspaceRepository"
@@ -658,6 +669,7 @@ def build_container() -> AppContainer:
     recipe_step_kind_registry = _shared_recipe_step_kind_registry
 
     organize_registry = _shared_organize_registry
+    limit_kind_registry = _shared_limit_kind_registry
 
     plugin_router_mounter = PluginRouterMounter()
     plugin_registry = PluginRegistry(
@@ -675,6 +687,7 @@ def build_container() -> AppContainer:
         phrasebook_operation_registry=phrasebook_operation_registry,
         requirement_checker_registry=requirement_checker_registry,
         recipe_step_kind_registry=recipe_step_kind_registry,
+        limit_kind_registry=limit_kind_registry,
     )
     _rr._global_plugin_registry = plugin_registry  # Set the global reference
 
@@ -697,6 +710,12 @@ def build_container() -> AppContainer:
     # one fails plugin enable rather than crashing builtin registration.
     plugin_repository = PluginRepository()
     _sync_enabled_plugins(plugin_registry, plugin_repository)
+
+    from src.features.plans.components import build_plans
+
+    plans = build_plans(limit_kind_registry, settings, plugin_registry)
+    limit_guard = plans.guard
+    plans_controller = plans.controller
 
     # A manifest hook/page added since the plugin's last DB scan (e.g. a
     # marketplace update) must take effect on restart, not wait for an admin
@@ -1039,6 +1058,7 @@ def build_container() -> AppContainer:
 
     connection_hub = ConnectionHub()
     generation_status_tracker = GenerationStatusTracker()
+    generation_status_tracker.add_terminal_listener(limit_guard.on_generation_terminal)
 
     # Stateless DB-wrapper repositories/policy the orchestrator needs for admin
     # form overrides + model-access enforcement - instantiated here (ahead of the
@@ -1187,6 +1207,7 @@ def build_container() -> AppContainer:
         cloud_capabilities=cloud_capabilities,
         cloud_policy=cloud_policy,
         output_broadcaster=output_broadcaster,
+        limit_guard=limit_guard,
     )
 
     # Initialize generation history manager
@@ -1395,6 +1416,7 @@ def build_container() -> AppContainer:
         plugin_registry=plugin_registry,
         upload_repository=upload_repository,
         storage_driver=storage_driver,
+        limit_guard=limit_guard,
     )
     media_controller = MediaController(media_store)
 
@@ -1442,6 +1464,7 @@ def build_container() -> AppContainer:
         upload_repository=upload_repository,
         media_type_resolver=media_type_resolver,
         storage_driver=storage_driver,
+        limit_guard=limit_guard,
     )
     media_edit_controller = MediaEditController(media_editor)
 
@@ -1458,6 +1481,7 @@ def build_container() -> AppContainer:
         file_resolver=file_resolver,
         file_store=file_service,
         storage_driver=storage_driver,
+        limit_guard=limit_guard,
     )
     library_controller = LibraryController(library_collaborators)
 
@@ -1479,6 +1503,7 @@ def build_container() -> AppContainer:
         upload_repository=upload_repository,
         notification_manager=notification_manager,
         content_safety=content_safety,
+        limit_guard=limit_guard,
     )
     inspiration_controller = InspirationController(inspiration_collaborators)
 

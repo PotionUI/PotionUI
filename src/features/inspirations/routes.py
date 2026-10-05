@@ -16,6 +16,7 @@ from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse, Response
 
+from src.features.plans.errors import LimitExceeded
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType
@@ -167,6 +168,8 @@ class InspirationController(BaseController):
         try:
             save_count = operations.save_to_library(self.collaborators, inspiration_id, current_user.id)
             return self.success_response(data={"saved": True, "save_count": save_count})
+        except LimitExceeded as e:
+            raise e.http()
         except ValueError as e:
             return self.error_response(
                 error="save_failed", message=str(e), status_code=self._not_found_status(str(e))

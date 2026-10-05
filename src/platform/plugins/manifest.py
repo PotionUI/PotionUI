@@ -669,6 +669,29 @@ class OrganizeActionSpec(BaseModel):
     component: Optional[str] = None
 
 
+class LimitKindSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*\.[a-z0-9][a-z0-9_.-]*$")
+    label: str = Field(min_length=1)
+    short_label: str = ""
+    description: str = ""
+    value_type: Literal["bytes", "count", "usd"]
+    unit: Optional[str] = None
+    format: Optional[Literal["bytes", "count", "percent"]] = None
+    window: Literal["none", "day", "month"] = "none"
+    enforce_at: List[Literal["submit", "upload"]] = Field(min_length=1)
+    ledger: bool = False
+    measure_handler: Optional[str] = None
+    applies_handler: Optional[str] = None
+    incoming_handler: Optional[str] = None
+    refusal_message: str = ""
+    refusal_code: Optional[str] = Field(default=None, pattern=r"^[a-z0-9_.-]+$")
+    admin_only_values: Optional[bool] = None
+    warn_at: float = Field(default=0.8, gt=0, le=1)
+    icon: str = ""
+
+
 class PluginManifestSchema(BaseModel):
     """
     Canonical plugin manifest schema.
@@ -751,6 +774,7 @@ class PluginManifestSchema(BaseModel):
     automation_templates: List[AutomationTemplateSpec] = Field(default_factory=list)
     organize_facts: List[OrganizeFactSpec] = Field(default_factory=list)
     organize_actions: List[OrganizeActionSpec] = Field(default_factory=list)
+    limit_kinds: List[LimitKindSpec] = Field(default_factory=list)
 
     # Prompt library import sources
     prompt_importers: List[PromptImporterSpec] = Field(default_factory=list)

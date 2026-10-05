@@ -35,6 +35,13 @@ from src.platform.plugins.organize import (
     OrganizeRegistry,
     organize_registry as _shared_organize_registry,
 )
+from src.platform.plugins.limit_kinds import (
+    DuplicateLimitKindError,
+    InvalidLimitKindError,
+    LimitKind,
+    LimitKindRegistry,
+    limit_kind_registry as _shared_limit_kind_registry,
+)
 from src.platform.plugins.sampling import (
     ANY_FAMILY,
     DuplicateSamplingEntryError,
@@ -115,6 +122,7 @@ class PluginRegistry:
         requirement_checker_registry: Optional[RequirementCheckerRegistry] = None,
         recipe_step_kind_registry: Optional[RecipeStepKindRegistry] = None,
         organize_registry: Optional[OrganizeRegistry] = None,
+        limit_kind_registry: Optional[LimitKindRegistry] = None,
     ):
         self.loader = PluginLoader(marketplace_dir, local_dir)
         self.hook_chain = HookChain()
@@ -162,6 +170,9 @@ class PluginRegistry:
         # Recipe step kinds a plugin contributes (manifest `recipe_steps:`).
         self.recipe_step_kind_registry = recipe_step_kind_registry
         self.organize_registry = organize_registry if organize_registry is not None else _shared_organize_registry
+        self.limit_kind_registry = (
+            limit_kind_registry if limit_kind_registry is not None else _shared_limit_kind_registry
+        )
 
         # Plugin storage
         self._plugins: Dict[str, PluginManifest] = {}
@@ -448,6 +459,7 @@ class PluginRegistry:
             self._register_plugin_model_classifiers,
             self._register_plugin_organize_facts,
             self._register_plugin_organize_actions,
+            self._register_plugin_limit_kinds,
         ):
             error_msg = register_step(manifest)
             if error_msg:
@@ -975,6 +987,40 @@ class PluginRegistry:
                 return str(e)
         return None
 
+    def _register_plugin_limit_kinds(self, manifest: PluginManifest) -> Optional[str]:
+        for entry in manifest.limit_kinds:
+            handlers = {}
+            for name in ('measure_handler', 'applies_handler', 'incoming_handler'):
+                handler, error = self._load_optional_handler(manifest, entry.get(name), f"limit kind {name}")
+                if error:
+                    return error
+                handlers[name] = handler
+            try:
+                self.limit_kind_registry.register(LimitKind(
+                    key=entry['key'],
+                    label=entry['label'],
+                    short_label=entry.get('short_label', ''),
+                    description=entry.get('description', ''),
+                    value_type=entry['value_type'],
+                    unit=entry.get('unit'),
+                    format=entry.get('format'),
+                    window=entry.get('window', 'none'),
+                    enforce_at=tuple(entry['enforce_at']),
+                    ledger=bool(entry.get('ledger', False)),
+                    measure=handlers['measure_handler'],
+                    applies=handlers['applies_handler'],
+                    incoming=handlers['incoming_handler'],
+                    refusal_message=entry.get('refusal_message', ''),
+                    refusal_code=entry.get('refusal_code') or '',
+                    admin_only_values=entry.get('admin_only_values'),
+                    warn_at=entry.get('warn_at', 0.8),
+                    icon=entry.get('icon', ''),
+                    source=manifest.id,
+                ))
+            except (DuplicateLimitKindError, InvalidLimitKindError) as e:
+                return str(e)
+        return None
+
     def _rollback_partial_enable(self, plugin_id: str) -> None:
         """Tear down everything the plugin registered: hooks, field types,
         model attributes, LLM chat extensions (tools/modes/resources),
@@ -1012,6 +1058,7 @@ class PluginRegistry:
         model_classifier_registry.unregister_source(plugin_id)
         login_provider_registry.unregister_source(plugin_id)
         self.organize_registry.unregister_source(plugin_id)
+        self.limit_kind_registry.unregister_source(plugin_id)
         if self.router_mounter is not None:
             self.router_mounter.unmount(plugin_id)
         # Drop this plugin's imported modules so a retry re-imports fresh code;

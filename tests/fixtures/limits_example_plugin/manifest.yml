@@ -1,0 +1,27 @@
+id: "limits-example"
+name: "Limits example"
+version: "1.0.0"
+description: "Reference plan limit kinds: a ledger-counted monthly credit and a measured level"
+author: "PotionUI Team"
+type: "backend-only"
+category: "tools"
+
+limit_kinds:
+  - key: "example.credits"
+    label: "Credits per month"
+    short_label: "Credits"
+    description: "Each submit spends one credit"
+    value_type: "count"
+    unit: "per month"
+    window: "month"
+    enforce_at: ["submit"]
+    ledger: true
+    refusal_code: "credits_exhausted"
+
+  - key: "example.projects"
+    label: "Projects"
+    value_type: "count"
+    enforce_at: ["upload"]
+    measure_handler: "limits.projects"
+    applies_handler: "limits.only_big_uploads"
+    refusal_message: "You have {used} of {limit} projects. {contact}"

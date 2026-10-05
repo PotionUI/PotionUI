@@ -14,9 +14,12 @@ import threading
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Any
 
 from PIL import Image
+
+if TYPE_CHECKING:
+    from src.features.plans.guard import LimitGuard
 
 from src.features.media.file_resolver import FilePathResolver
 from src.features.media.image_processor import ImageProcessor
@@ -24,6 +27,7 @@ from src.features.media.media_types import MediaTypeResolver
 from src.platform.database.rows import dt_iso
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.limit_kinds import AdmissionRequest
 from src.features.media.hooks import MEDIA_HOOKS
 from src.platform.settings.settings import Settings
 from src.features.generation.file_repository import FileRepository
@@ -111,6 +115,7 @@ class MediaStore:
         plugin_registry: PluginRegistry,
         upload_repository: Optional[UploadRepository] = None,
         storage_driver: Optional[FileStorageDriver] = None,
+        limit_guard: Optional["LimitGuard"] = None,
     ):
         """Initialize MediaStore.
 
@@ -139,6 +144,7 @@ class MediaStore:
         self.file_service = file_service
         self.plugins = plugin_registry
         self.upload_repo = upload_repository or UploadRepository()
+        self.limit_guard = limit_guard
         self.storage_driver = storage_driver or LocalFileStorageDriver(
             settings.get_file_storage_directory()
         )
@@ -494,6 +500,9 @@ class MediaStore:
             existing = self.upload_repo.find_by_hash(user_id, content_hash, purpose)
             if existing and self.storage_driver.exists(self._upload_key(existing.filename)):
                 return self._upload_result_from_existing(existing)
+
+        if self.limit_guard is not None and user_id and purpose == UPLOAD_PURPOSE_USER:
+            self.limit_guard.admit(AdmissionRequest(point="upload", user_id=user_id, incoming_bytes=len(file_data)))
 
         # Generate unique filename and store it through the configured
         # backend (local disk by default, optionally S3 - see

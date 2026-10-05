@@ -12,7 +12,7 @@ Import from the package itself - every name below is available directly:
 
 The capability modules (`src.plugin_api.providers`, `.chat`, `.backends`,
 `.compute`, `.pipes`, `.native`, `.hooks`, `.storage`, `.presets`, `.forms`,
-`.identity`, `.media`, `.organize`, `.phrasebook`, `.recipes`, `.sampling`) are the same
+`.identity`, `.limits`, `.media`, `.organize`, `.phrasebook`, `.recipes`, `.sampling`) are the same
 names, grouped, and each one's docstring explains what it is for. Import from
 whichever reads better.
 
@@ -209,6 +209,14 @@ from src.plugin_api.organize import (
     OrganizeItem,
 )
 
+from src.plugin_api.limits import (
+    LimitEvents,
+    LimitExceeded,
+    LimitKind,
+    MeasureContext,
+    Usage,
+)
+
 # Contributing a phrasebook batch tool.
 from src.plugin_api.phrasebook import (
     BatchOperationError,
@@ -244,6 +252,11 @@ __all__ = [
     "OrganizeActionBlocked",
     "OrganizeChange",
     "OrganizeItem",
+    "LimitEvents",
+    "LimitExceeded",
+    "LimitKind",
+    "MeasureContext",
+    "Usage",
     # Identity
     "AccountType",
     "ExternalLoginError",

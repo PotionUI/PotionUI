@@ -67,6 +67,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel`, `probe_video` (a `VideoProbe` from ffprobe, or `None`), `transcode_video(src, dest, TranscodeSpec(...), max_bytes=None)` (ffmpeg re-encode to webm VP9 or mp4 H.264: constant frame rate, even dimensions, no audio unless `keep_audio`; steps down a quality ladder to fit `max_bytes`; raises `VideoTranscodeError`, or `FfmpegUnavailableError` before writing anything when ffmpeg is missing), `find_ffmpeg`, `TranscodeSpec`, `VideoProbe` |
 | **Models** — model metadata fields, provider links, and resolving a model's file/folder across roots | `.models` | `WellKnownModelMetadataField`, `get_model_provider_info`, `model_type_dirs`, `model_write_dir`, `resolve_model_file`, `model_for_path`, `MODEL_DIRECTORY_ALIASES`, `type_for_folder_name`, `MODEL_TYPES`, `HeaderView`, `TensorInfo`, `FamilyMatch`, `model_classifier_registry` (read-only) |
 | **Auto-organize** — contributing rule conditions and actions | `.organize` | `OrganizeItem`, `OrganizeChange`, `OrganizeActionBlocked`, `compare`, `FACT_KINDS`, `OPERATOR_LABELS`, `CONFIG_FIELD_KINDS`, `FACT_TRIGGERS`, `SQL_ALIASES`, `SUBJECTS` |
+| **Limits** — contributing a plan limit kind | `.limits` | `LimitKind`, `Usage`, `Refusal`, `MeasureContext`, `RefusalContext`, `AdmissionRequest`, `LimitEvents` (`record(user_id, kind, units=1, ref_id=None)`, `refund(ref_id)`), `LimitEventsView`, `LimitExceeded` |
 | **Phrasebook** — contributing a batch tool to Find & replace | `.phrasebook` | `PhrasebookBatchOperation`, `PhrasebookBatchContext`, `BatchOutcome`, `BatchPreview`, `BatchOperationError` |
 | **Sampling** — contributing a step algorithm or a sigma schedule | `.sampling` | `SamplerDefinition`, `ScheduleDefinition`, `ScheduleContext`, `OptionSpec`, `GuidanceStrategy`, `SamplingCancelled`, `run_hooks`, `sample_euler`, `sampler_registry`, `schedule_registry` |
 
@@ -654,6 +655,62 @@ are evaluated again on the item's tag changes, for items the rule has not filed 
   "needs attention", and run again when the plugin is back.
 - A rule files each item at most once, and a live rule that files more than the hourly
   limit (200 by default) is paused with a notice.
+
+## Contributing a plan limit kind
+
+A plan is a named list of limits, and each limit is one *kind*: storage space,
+generations per day and cloud spend per month ship with core. A plugin adds kinds of its
+own with a `limit_kinds:` section; the plan editor's "Add limit" picker, the users list
+columns, the user's usage view and the refusal all render from the kind, so a kind needs
+no frontend code.
+
+```yaml
+limit_kinds:
+  - key: credits.monthly          # must be namespaced: <plugin>.<name>
+    label: Credits per month
+    short_label: Credits          # optional, for usage rows and columns
+    description: Each submit spends one credit
+    value_type: count             # bytes | count | usd
+    unit: per month               # optional editor suffix
+    window: month                 # none (a level) | day | month
+    enforce_at: [submit]          # submit and/or upload
+    ledger: true                  # count one event per accepted submit
+    measure_handler: limits.measure     # optional when ledger: true
+    applies_handler: limits.applies     # optional, narrow where the kind is asked
+    incoming_handler: limits.incoming   # optional, what one request adds
+    refusal_code: credits_exhausted     # optional, default <key>_exceeded
+    refusal_message: "You have used {used} of {limit} credits. {contact}"
+    admin_only_values: false      # optional; usd kinds hide numbers from users by default
+    warn_at: 0.8
+```
+
+- **`measure_handler(context: MeasureContext) -> Usage | number`** returns the user's usage
+  for `context.user_id` only. `context.window_start` and `context.window_end` bound the
+  current day or month (midnight in the instance timezone, an admin setting, UTC by
+  default); `context.events` reads and writes this kind's ledger for the user
+  (`total()`, `record(units, ref_id)`, `refund(ref_id)`). Keep it fast: it runs on every
+  submit or upload the kind applies to.
+- **`ledger: true`** makes core record one event per accepted submit (`incoming_handler`
+  can change the units) and refund it when the run is cancelled before it started or fails
+  with no output. Without a `measure_handler` the usage is the ledger total in the window.
+  A ledger kind needs a `day` or `month` window; events are kept 40 days. To count
+  something else, call `LimitEvents.record(user_id, kind, units, ref_id)` yourself.
+- **`applies_handler(request: AdmissionRequest) -> bool`** sees `point`, `user_id`,
+  `incoming_bytes` (uploads), `engine`, `backend_id` and `preset_id` (submits).
+- **`incoming_handler(request) -> number | None`**: `None` means unknown, and the kind
+  refuses when `used >= limit`; a number refuses when `used + incoming > limit`.
+- `refusal_message` may use `{label}`, `{used}`, `{limit}`, `{resets}` and `{contact}`
+  (the admin's contact line).
+
+### What the host guarantees
+
+- A refusal is one HTTP 403 `limit_exceeded` carrying the kind, its code, usage, limit
+  and reset time. Running work is never stopped and nothing is ever deleted for the user.
+- Admins are exempt while "Admins are exempt" is on (the default); their usage is still
+  measured.
+- Disabling the plugin removes its kinds. Plans keep the limits, shown as inactive and
+  never enforced, and they apply again when the plugin is back.
+- A kind whose measure raises is skipped for that request (logged), never enforced as zero.
 
 ## Contributing a recipe (and recipe step kinds)
 

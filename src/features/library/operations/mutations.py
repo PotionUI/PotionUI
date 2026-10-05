@@ -10,6 +10,7 @@ from src.features.library.dto import LibraryItem
 from src.features.library.mappers import upload_key, upload_to_item
 from src.features.library.operations.guards import get_owned_or_raise
 from src.features.media.records import Upload
+from src.platform.plugins.limit_kinds import AdmissionRequest
 
 if TYPE_CHECKING:
     from src.features.generation.records import File
@@ -76,6 +77,11 @@ def copy_generation_file(collaborators: LibraryCollaborators, file_id: str, user
 
     # Same uuid-name convention as `MediaStore.upload_media`, so nothing
     # downstream can tell a copied item from an uploaded one by its name.
+    if collaborators.limit_guard is not None:
+        collaborators.limit_guard.admit(AdmissionRequest(
+            point="upload", user_id=user_id, incoming_bytes=file_record.file_size or source.stat().st_size,
+        ))
+
     filename = f"{uuid.uuid4()}{source.suffix}"
     key = upload_key(filename)
     written = collaborators.storage_driver.put_file(key, source)

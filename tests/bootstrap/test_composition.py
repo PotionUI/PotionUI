@@ -92,6 +92,16 @@ report = {
         "history_executor": hasattr(c.generation_history_facade.executor, "shutdown"),
         "trace_recorder": hasattr(c.chat_call_trace_recorder, "shutdown"),
     },
+    "limit_wiring": {
+        "orchestrator": c.generation_orchestrator.limit_guard is c.limit_guard,
+        "uploads": c.media_controller.manager.limit_guard is c.limit_guard,
+        "editor": c.media_edit_controller.manager.limit_guard is c.limit_guard,
+        "library": c.library_collaborators.limit_guard is c.limit_guard,
+        "inspirations": c.inspiration_collaborators.limit_guard is c.limit_guard,
+        "refunds": c.limit_guard.on_generation_terminal in c.generation_status_tracker._terminal_listeners,
+        "plugin_kinds": c.plugin_registry.limit_kind_registry is c.limit_kind_registry,
+        "core_kinds": sorted(k.key for k in c.limit_kind_registry.all() if k.source == "core"),
+    },
     "failure_alerts_wired": any(
         pid == "core.admin_failure_alerts"
         for pid, _ in c.plugin_registry.hook_chain._handlers.get("generation.failed", [])
@@ -152,6 +162,12 @@ def test_the_cloud_policy_enforces_the_same_scopes_the_admin_edits(report):
 def test_shutdown_dependent_components_are_present(report):
     """The lifespan's shutdown sequence has something to drain."""
     assert [k for k, v in report["shutdownable"].items() if not v] == []
+
+
+def test_every_submit_and_upload_path_shares_the_one_limit_guard(report):
+    wiring = dict(report["limit_wiring"])
+    assert wiring.pop("core_kinds") == ["cloud_spend_usd_month", "generations_per_day", "storage_bytes"]
+    assert [k for k, v in wiring.items() if not v] == []
 
 
 def test_admin_failure_alerts_listen_to_generation_failed(report):

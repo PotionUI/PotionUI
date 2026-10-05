@@ -19,6 +19,8 @@ from src.features.sessions.routes import build_router as build_session_router
 from src.features.formulas.routes import build_router as build_formula_router
 from src.features.organize.routes import build_admin_router as build_organize_admin_router
 from src.features.organize.routes import build_router as build_organize_router
+from src.features.plans.routes import build_admin_router as build_plans_admin_router
+from src.features.plans.routes import build_router as build_plans_router
 from src.features.workspaces.routes import build_router as build_workspace_router
 from src.features.presets.routes import build_router as build_preset_router
 from src.features.forms.routes import build_router as build_form_router
@@ -104,6 +106,8 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_formula_router(container))
     app.include_router(build_organize_router(container))
     app.include_router(build_organize_admin_router(container))
+    app.include_router(build_plans_router(container))
+    app.include_router(build_plans_admin_router(container))
     app.include_router(build_workspace_router(container))  # Workspace management routes
     app.include_router(build_preset_router(container))
     app.include_router(build_form_router(container))

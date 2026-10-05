@@ -10,7 +10,7 @@ matching `PromptDatabaseCollaborators` (the reference shape for a
 wide-collaborator dissolution).
 """
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from src.features.library.repository import LibraryRepository
 from src.features.media.upload_repository import UploadRepository
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from src.features.tags.repository import TagRepository
     from src.platform.filesystem import FileStore
     from src.platform.filesystem.storage_driver import FileStorageDriver
+    from src.features.plans.guard import LimitGuard
 
 
 @dataclass(frozen=True)
@@ -32,3 +33,4 @@ class LibraryCollaborators:
     file_resolver: "FilePathResolver"
     file_store: "FileStore"
     storage_driver: "FileStorageDriver"
+    limit_guard: Optional["LimitGuard"] = None

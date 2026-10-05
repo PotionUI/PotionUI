@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from src.features.cloud.capabilities import CloudCapabilities
     from src.features.cloud.policy import CloudGenerationPolicy
     from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
+    from src.features.plans.guard import LimitGuard
 
 from src.platform.util.ids import generate_ulid
 from src.platform.database.rows import dt_iso
@@ -100,6 +101,7 @@ from src.features.generation.temp_source_tracker import temp_source_tracker
 from src.platform.websocket.connection_hub import ConnectionHub
 from src.platform.settings.settings import Settings
 from src.platform.plugins.hooks import HookContext, await_hook_blocking_waits
+from src.platform.plugins.limit_kinds import AdmissionRequest
 from src.features.generation.hooks import GENERATION_HOOKS
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.templates import PresetTemplate
@@ -510,6 +512,7 @@ class GenerationOrchestrator:
         cloud_capabilities: Optional['CloudCapabilities'] = None,
         cloud_policy: Optional['CloudGenerationPolicy'] = None,
         output_broadcaster: Optional['GenerationOutputBroadcaster'] = None,
+        limit_guard: Optional['LimitGuard'] = None,
     ):
         """
         Initialize the generation orchestrator.
@@ -585,6 +588,7 @@ class GenerationOrchestrator:
         self.cloud_policy = cloud_policy
         self.user_repository = user_repository
         self.gpu_monitor = gpu_monitor
+        self.limit_guard = limit_guard
 
         self.status_tracker = status_tracker or GenerationStatusTracker()
 
@@ -1003,6 +1007,7 @@ class GenerationOrchestrator:
         if output_callback is None and self.output_broadcaster is not None:
             output_callback = self.output_broadcaster.handle_output
 
+        admitted_ref: Optional[str] = None
         try:
             logger.info(f"Starting generation for user={user_id}, preset={request.preset_id}")
 
@@ -1192,6 +1197,17 @@ class GenerationOrchestrator:
                 request.form_data or {}, backend, self.model_locator
             )
 
+            if getattr(self, "limit_guard", None) is not None:
+                self.limit_guard.admit(AdmissionRequest(
+                    point="submit",
+                    user_id=user_id,
+                    engine=engine,
+                    backend_id=backend.backend_id,
+                    preset_id=request.preset_id,
+                    ref_id=generation_id,
+                ))
+                admitted_ref = generation_id
+
             # Create database record (`mode` was already resolved above, for bind_form)
             prompt_state = getattr(request, 'prompt_state', None)
 
@@ -1317,6 +1333,7 @@ class GenerationOrchestrator:
                     'output_callback': output_callback,
                 },
             ))
+            admitted_ref = None
 
             await self._queue_dispatcher.publish_positions()
 
@@ -1333,8 +1350,11 @@ class GenerationOrchestrator:
                 'queue_position': queue_position,
             }
 
-        except Exception as e:
-            logger.error(f"Failed to start generation: {str(e)}", exc_info=True)
+        except BaseException as e:
+            if admitted_ref is not None:
+                self.limit_guard.refund(admitted_ref)
+            if isinstance(e, Exception):
+                logger.error(f"Failed to start generation: {str(e)}", exc_info=True)
             raise
 
     def set_queue_listener(self, listener: Callable[[str, Dict[str, Any]], Any]) -> None:

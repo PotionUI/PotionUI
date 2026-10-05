@@ -6,6 +6,7 @@ from fastapi import APIRouter, WebSocket, Depends, Query, UploadFile, File as Fa
 from fastapi.responses import StreamingResponse, FileResponse, PlainTextResponse, Response
 
 # Import services - needed for injector
+from src.features.plans.errors import LimitExceeded
 from src.platform.filesystem import FileStore
 from src.features.generation.orchestrator import GenerationOrchestrator
 from src.features.generation import profile_paths
@@ -143,6 +144,8 @@ class GenerationController(BaseController):
 
             return self.success_response(data=result)
 
+        except LimitExceeded as e:
+            raise e.http()
         except FormNotFoundException as e:
             return self.error_response(
                 error="form_not_found",

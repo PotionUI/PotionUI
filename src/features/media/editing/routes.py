@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends
 
+from src.features.plans.errors import LimitExceeded
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.features.media.editing.dto import (
@@ -58,6 +59,8 @@ class MediaEditController(BaseController):
                 item_id, current_user.id, request.operations, request.mode
             )
             return self.success_response(data=result.model_dump())
+        except LimitExceeded as e:
+            raise e.http()
         except InvalidEditError as e:
             return self.error_response(error="invalid_edit", message=str(e))
         except ValueError as e:
@@ -81,6 +84,8 @@ class MediaEditController(BaseController):
                 item_id, current_user.id, request.time_seconds
             )
             return self.success_response(data=result.model_dump())
+        except LimitExceeded as e:
+            raise e.http()
         except InvalidEditError as e:
             return self.error_response(error="invalid_edit", message=str(e))
         except ValueError as e:
@@ -104,6 +109,8 @@ class MediaEditController(BaseController):
                 item_id, current_user.id, request.part_seconds
             )
             return self.success_response(data=SplitMediaResult(items=items).model_dump())
+        except LimitExceeded as e:
+            raise e.http()
         except InvalidEditError as e:
             return self.error_response(error="invalid_edit", message=str(e))
         except ValueError as e:

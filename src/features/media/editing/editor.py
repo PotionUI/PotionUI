@@ -41,11 +41,13 @@ from src.features.media.editing.operations import (
 from src.features.media.records import Upload
 from src.platform.database.rows import dt_iso
 from src.platform.filesystem.storage_driver import StorageKeyError, local_copy, uploads_key
+from src.platform.plugins.limit_kinds import AdmissionRequest
 
 if TYPE_CHECKING:
     from src.features.media.media_types import MediaTypeResolver
     from src.features.media.upload_repository import UploadRepository
     from src.platform.filesystem.storage_driver import FileStorageDriver
+    from src.features.plans.guard import LimitGuard
 
 logger = logging.getLogger(__name__)
 
@@ -62,10 +64,12 @@ class MediaEditor:
         upload_repository: "UploadRepository",
         media_type_resolver: "MediaTypeResolver",
         storage_driver: "FileStorageDriver",
+        limit_guard: Optional["LimitGuard"] = None,
     ):
         self.upload_repo = upload_repository
         self.media_types = media_type_resolver
         self.storage_driver = storage_driver
+        self.limit_guard = limit_guard
 
     async def edit_item(
         self,
@@ -105,9 +109,14 @@ class MediaEditor:
             "audio": apply_audio_operations,
         }[upload.media_type]
 
+        if mode != "replace":
+            self._precheck(user_id)
         dest_key, metadata = await self._transform_and_publish(
             source_key, suffix, transform, list(operations)
         )
+        replaced_bytes = (upload.file_size or 0) if mode == "replace" else 0
+        grown = (self.storage_driver.size(dest_key) or 0) - replaced_bytes
+        self._admit(user_id, grown, cleanup_key=dest_key)
 
         if mode == "replace":
             return EditMediaResult(
@@ -143,9 +152,11 @@ class MediaEditor:
                 f"Only a video has frames to extract, not {upload.media_type}"
             )
 
+        self._precheck(user_id)
         dest_key, metadata = await self._transform_and_publish(
             source_key, _FRAME_SUFFIX, extract_video_frame, time_seconds
         )
+        self._admit(user_id, self.storage_driver.size(dest_key) or 0, cleanup_key=dest_key)
 
         stem = Path(upload.original_filename or upload.filename).stem
         return EditMediaResult(
@@ -187,8 +198,10 @@ class MediaEditor:
 
         with local_copy(self.storage_driver, source_key, suffix) as source_path, \
                 self._scratch_dir() as dest_dir:
+            self._precheck(user_id)
             parts = await asyncio.to_thread(split_audio, source_path, dest_dir, suffix, part_seconds)
             total = len(parts)
+            self._admit(user_id, sum(Path(part_path).stat().st_size for part_path, _ in parts))
 
             items: List[EditedMediaItem] = []
             published_keys: List[str] = []
@@ -212,6 +225,20 @@ class MediaEditor:
         return items
 
     # ========== Internals ==========
+
+    def _precheck(self, user_id: str) -> None:
+        if self.limit_guard is not None:
+            self.limit_guard.check(AdmissionRequest(point="upload", user_id=user_id))
+
+    def _admit(self, user_id: str, incoming: Optional[int], cleanup_key: Optional[str] = None) -> None:
+        if self.limit_guard is None:
+            return
+        try:
+            self.limit_guard.admit(AdmissionRequest(point="upload", user_id=user_id, incoming_bytes=incoming))
+        except Exception:
+            if cleanup_key is not None:
+                self._remove(cleanup_key)
+            raise
 
     def _resolve_owned_source(self, item_id: str, user_id: str):
         """The caller's resource and its storage key, or the uniform not-found error."""

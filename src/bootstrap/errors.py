@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from src.features.plans.errors import LimitExceeded
 from src.platform.security.redaction import is_secret_key, redact_text
 
 
@@ -108,7 +109,12 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
+async def limit_exceeded_handler(request: Request, exc: LimitExceeded):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.payload()})
+
+
 def register_error_handlers(app: FastAPI) -> None:
     """Attach the sanitizing exception handlers to `app`."""
     app.add_exception_handler(Exception, global_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(LimitExceeded, limit_exceeded_handler)

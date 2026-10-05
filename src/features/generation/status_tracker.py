@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from threading import RLock
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.pipelines.outputs import GenerationOutput
 from src.features.generation.failure import GenerationFailure
@@ -101,6 +101,10 @@ class GenerationStatusTracker:
     def __init__(self):
         self._lock = RLock()
         self._records: Dict[str, GenerationRecord] = {}
+        self._terminal_listeners: List[Callable[[GenerationRecord], None]] = []
+
+    def add_terminal_listener(self, listener: Callable[[GenerationRecord], None]) -> None:
+        self._terminal_listeners.append(listener)
 
     def create(
         self,
@@ -162,6 +166,7 @@ class GenerationStatusTracker:
                     f"[STATUS_TRACKER] Refusing {record.state.value} -> {state.value} for {id}: terminal state is final"
                 )
                 return record
+            became_terminal = state.value in TERMINAL_STATES and record.state != state
             record.state = state
             if failure is not None:
                 record.error = failure.message
@@ -176,6 +181,13 @@ class GenerationStatusTracker:
             generation_repo.update_status(id, state.value, failure=failure.columns() if failure else None)
         except Exception as e:
             logger.error(f"[STATUS_TRACKER] Failed to persist status for {id}: {e}")
+
+        if became_terminal:
+            for listener in list(self._terminal_listeners):
+                try:
+                    listener(record)
+                except Exception:
+                    logger.exception(f"[STATUS_TRACKER] Terminal listener failed for {id}")
 
         return record
 

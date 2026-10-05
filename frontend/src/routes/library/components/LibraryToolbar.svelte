@@ -93,6 +93,7 @@
 						? 'bg-signal/10 text-signal'
 						: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
 					title={type.label}
+					aria-label={type.label}
 					aria-pressed={state.filters.mediaType === type.value}
 					on:click={() => handleMediaTypeChange(type.value)}
 				>

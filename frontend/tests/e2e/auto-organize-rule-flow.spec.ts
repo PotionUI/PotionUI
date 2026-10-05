@@ -24,7 +24,7 @@ test('a rule made from a library filter previews, files existing uploads, shows 
 	await uploadSamples(page, token, 2);
 
 	await page.goto('/library');
-	await page.getByRole('button', { name: /^Image/ }).first().click();
+	await page.getByRole('button', { name: 'Images', exact: true }).click();
 	const makeRule = page.getByRole('button', { name: 'Make a rule from this filter' });
 	await expect(makeRule).toBeVisible({ timeout: 15000 });
 	await screenshot(page, JOURNEY, '1-filter');

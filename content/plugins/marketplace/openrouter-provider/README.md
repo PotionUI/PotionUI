@@ -31,13 +31,13 @@ covers costs and the usual problems.
 
 1. Go to **Administration → Plugins** and open **OpenRouter**.
 2. Turn on the switch at the top of the plugin's page (**Enable plugin**).
-3. **Restart PotionUI.** The OpenRouter backend type is only picked up when PotionUI starts, so until
-   you restart, OpenRouter is missing from the list in the next step.
-   - If you started PotionUI with `./potionui start`, run `./potionui stop` and then
+3. The plugin's page now shows a **Setup** section with the next step first, and the plugin's card
+   says **Setup needed** until every step is done. Each step has a button that takes you there.
+4. **Restart PotionUI.** The OpenRouter backend type is only picked up when PotionUI starts, so until
+   you restart, OpenRouter is missing from the list in the next step. Choose **Restart now** in the
+   Setup section. Generations that are running get interrupted.
+   - If you started PotionUI with `./potionui start`, you can also run `./potionui stop` and then
      `./potionui start`.
-   - Or restart from inside PotionUI: go to **Administration → Backends**, open the built-in
-     **Local Generation** backend (engine Native), go to its **Optimizations** tab and choose
-     **Restart app**. Generations that are running get interrupted.
 
 The two presets and this guide appear as soon as the plugin is enabled; only the backend needs the
 restart.
@@ -46,11 +46,12 @@ restart.
 
 This is where all of the OpenRouter settings live.
 
-1. Go to **Administration → Backends** and choose **Add backend**.
-2. Under **Engine**, choose **OpenRouter** first. Changing the engine clears the form, so fill in the
-   rest afterwards.
-3. Give it a **Name** (for example "OpenRouter").
-4. Fill in the fields below, then choose **Create Backend**.
+1. Choose **Add backend** in the plugin's Setup section; the form opens with **OpenRouter** picked
+   as the engine. (Or go to **Administration → Backends**, choose **Add backend** and pick
+   **OpenRouter** under **Engine**. Changing the engine keeps the name, priority, enabled and
+   scheduling settings and resets the rest.)
+2. Give it a **Name** (for example "OpenRouter").
+3. Fill in the fields below, then choose **Create Backend**.
 
 | Field | What to put there |
 |---|---|
@@ -77,8 +78,12 @@ Leave **Priority**, **Enabled** and the **Scheduling** settings as they are.
 Things that help you choose:
 
 - **Search and filters.** Search by name, or open the filters to narrow the list by **Task** (for
-  example text to video), **Output** (image or video) or **Show** (all models, or enabled only).
-- **Suggested** marks a few models that are a good place to start.
+  example text to video), **Output** (image or video) or **Show** (all models, enabled only, or
+  suggested).
+- **Suggested** marks a few models the OpenRouter plugin recommends as a good place to start. They are
+  listed right after the enabled models.
+- Once a model is enabled, its name links to its model page, where **Access** and **Allowed in
+  presets** live (see Step 5).
 - **Price** shows what OpenRouter lists for each model, for example per image or per second of video.
   Prices are OpenRouter's and can change. Only admins see prices; nobody else does, anywhere in
   PotionUI.
@@ -91,7 +96,8 @@ Refresh again from time to time to pick up new models. A refresh never enables a
 ### Step 4: Make the presets available
 
 Presets have to be installed and given to people, and that includes you: the Generate page only lists
-presets assigned to your account.
+presets assigned to your account. Once a model is enabled, the Catalog tab reminds you with **Make this
+provider's presets available** until one of the OpenRouter presets is installed and assigned.
 
 1. Go to **Administration → Presets** and open **OpenRouter Images**.
 2. Choose **Install preset**.
@@ -120,8 +126,7 @@ presets assigned to your account.
 4. The form only shows the settings the chosen model supports. Pick another model and the controls
    change with it.
 5. Some models have extra settings of their own. They are on the **Provider options** tab, which
-   only shows when field visibility is set to Advanced: open the three-dot **More view options** menu
-   next to the tabs and choose **Advanced** under **Field visibility**.
+   appears whenever the chosen model has any, in both the Simple and the Advanced field view.
 6. Write your prompt, add pictures if the mode needs them, and generate.
 
 **Pictures** come back from a single request, usually quickly.
@@ -198,7 +203,7 @@ OpenRouter account is the final word on what you were billed.
 | The Director offers no start or end picture, or every shot is a cut. | The chosen model takes no start picture (or no end picture). Pick a model that does, or refresh the catalog if OpenRouter added it. |
 | A film failed part way. | Open it in History: the finished shots are there. The message names the shot that failed and the reason. Generate again to retry. |
 | The joined film has no sound although the shots do. | The server has no `ffmpeg`. Without it, shots are joined without sound. Install `ffmpeg` on the server. |
-| A model setting you expected is missing. | It may be on the **Provider options** tab, which needs field visibility set to Advanced. If not, the model does not offer it. |
+| A model setting you expected is missing. | It may be on the **Provider options** tab, which appears when the chosen model has extra settings. If there is no such tab, the model does not offer it. |
 
 ## For testing and troubleshooting: technical notes
 

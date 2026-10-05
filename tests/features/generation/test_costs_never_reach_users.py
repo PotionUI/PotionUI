@@ -130,6 +130,7 @@ def test_no_source_file_outside_the_admin_and_recording_paths_touches_the_cost_t
         "features/generation/handlers/cost_handler.py",
         "features/generation/routes.py",
         "features/stats/routes.py",
+        "features/plans/repository.py",
         "bootstrap/container.py",
     }
     needles = ("generation_costs", "GenerationCostRepository", "generation_cost_repository")

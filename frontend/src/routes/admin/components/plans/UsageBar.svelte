@@ -27,8 +27,13 @@
 			<div class="h-full rounded {fill}" style="width: {pct ?? 0}%"></div>
 		</div>
 	{/if}
-	<span class="font-mono text-xs tabular-nums text-fg">
-		{formatLimitValue(kind, used)}{#if limit !== null}<span class="text-fg-subtle"> / {formatLimitValue(kind, limit)}</span>{:else}<span class="text-fg-subtle"> no limit</span>{/if}
+	<span class="flex items-baseline gap-1 font-mono text-xs tabular-nums text-fg">
+		<span>{formatLimitValue(kind, used)}</span>
+		{#if limit !== null}
+			<span class="text-fg-subtle">/ {formatLimitValue(kind, limit)}</span>
+		{:else if !compact}
+			<span class="font-sans text-fg-subtle">no limit</span>
+		{/if}
 	</span>
 	{#if state === 'full'}
 		<Badge size="sm" variant="danger" class="font-mono">full</Badge>

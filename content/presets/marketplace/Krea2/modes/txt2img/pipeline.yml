@@ -90,7 +90,7 @@ pipeline:
       # lockstep with generator/krea2's `guidance` below (and param_emitter's
       # "cfg") -- same expression, same value, every mode.
       guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
-      nag_scale: "{{ form.nag_scale }}"
+      nag_scale: "{{ form.nag_scale if form.nag_enabled else 1.0 }}"
 
   - name: "seed_generator"
     enabled: true
@@ -194,7 +194,7 @@ pipeline:
       schedule: "{{ form.schedule }}"
       resolution: "{{ form.resolution }}"
       quantity: "{{ form.quantity }}"
-      nag_scale: "{{ form.nag_scale }}"
+      nag_scale: "{{ form.nag_scale if form.nag_enabled else 1.0 }}"
       nag_tau: "{{ form.nag_tau }}"
       nag_alpha: "{{ form.nag_alpha }}"
       # Step cache (FBCache, Advanced tab): assembled here into the nested
@@ -245,7 +245,7 @@ pipeline:
       # enhance mode's own pipeline.yml.
       img2img_scale: "{{ 1.5 if (form.upscale_by) == '1_5x' else (4.0 if (form.upscale_by) == '4x' else 2.0) }}"
       quantity: "{{ form.quantity }}"
-      nag_scale: "{{ form.nag_scale }}"
+      nag_scale: "{{ form.nag_scale if form.nag_enabled else 1.0 }}"
       nag_tau: "{{ form.nag_tau }}"
       nag_alpha: "{{ form.nag_alpha }}"
 

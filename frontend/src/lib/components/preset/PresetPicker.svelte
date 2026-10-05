@@ -153,11 +153,10 @@
 
 <button
 	type="button"
-	class="w-full min-w-0 flex items-center gap-3 px-3 py-2.5 text-left bg-surface-1 border border-line-strong rounded-lg hover:bg-surface-2 hover:border-line-hover focus:ring-1 focus:ring-accent/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+	class="w-full h-full min-w-0 flex items-center gap-2 px-3 py-2 text-left bg-surface-1 border border-line-strong rounded hover:bg-surface-2 hover:border-line-hover focus:ring-1 focus:ring-accent/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
 	on:click={openPicker}
 	disabled={disabled || loading}
 	aria-haspopup="dialog"
-	data-cover-host
 >
 	{#if loading}
 		<Spinner size="sm" />
@@ -167,22 +166,11 @@
 			presetName={currentPreset.name}
 			cover={currentPreset.media?.cover}
 			category={currentPreset.category}
-			size="w-9 h-9"
+			size="w-6 h-6"
 			zoom={false}
 		/>
-	{:else}
-		<span class="w-9 h-9 flex items-center justify-center rounded-md bg-surface-3 text-fg-subtle">
-			<Icon name="cube" className="w-4 h-4" />
-		</span>
 	{/if}
-	<span class="min-w-0 flex-1">
-		<span class="block text-sm font-semibold text-fg truncate">{currentPreset?.name || 'Choose a preset'}</span>
-		{#if currentPreset}
-			<span class="block font-mono text-2xs text-fg-muted truncate">
-				{[currentPreset.engine, `v${currentPreset.version}`].filter(Boolean).join(' · ')}
-			</span>
-		{/if}
-	</span>
+	<span class="min-w-0 flex-1 truncate text-sm font-semibold text-fg">{currentPreset?.name || 'Choose a preset'}</span>
 	<Icon name="chevron-down" className="w-4 h-4 text-fg-subtle flex-shrink-0" />
 </button>
 

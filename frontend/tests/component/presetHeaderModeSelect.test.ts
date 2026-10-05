@@ -137,11 +137,11 @@ describe('Generate header: one-line preset and mode select', () => {
 		expect(target.querySelector('[aria-label="Reload preset from disk"]')).toBeNull();
 	});
 
-	it('drops the category from the preset subtitle', async () => {
+	it('shows the preset name on the picker with no engine or version line', async () => {
 		await render();
 		const picker = target.querySelector('[data-testid="preset-header-picker"]') as HTMLElement;
-		expect(picker.textContent).toContain('native · v1.1.0');
-		expect(picker.textContent).not.toContain('image');
+		expect(picker.textContent?.trim()).toBe('Krea-2');
+		expect(picker.textContent).not.toContain('native');
 	});
 
 	it('does not render the old segmented control', async () => {

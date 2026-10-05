@@ -3,6 +3,8 @@
 	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/auth';
 	import { nsfwFilterStore, type NsfwFilterMode } from '$lib/stores/nsfwFilter';
+	import { autoOrganizeCounts, autoOrganizeHref } from '$lib/stores/autoOrganizeCounts';
+	import { readLastSubject } from '$lib/organize/lastSubject';
 	import Icon from './Icon.svelte';
 
 	let open = false;
@@ -23,8 +25,13 @@
 		{ value: 'hide', label: 'Hide' }
 	];
 
+	$: counts = Object.values($autoOrganizeCounts).filter((c) => c !== null);
+	$: autoActive = counts.reduce((sum, c) => sum + c.active, 0);
+	$: autoAttention = counts.some((c) => c.needsAttention > 0);
+
 	function toggle() {
 		open = !open;
+		if (open && counts.length === 0) void autoOrganizeCounts.load();
 	}
 
 	function close() {
@@ -34,6 +41,11 @@
 	function openSettings() {
 		close();
 		goto('/settings');
+	}
+
+	function openAutoOrganize() {
+		close();
+		goto(autoOrganizeHref(readLastSubject()));
 	}
 
 	function handleLogout() {
@@ -129,6 +141,30 @@
 					>
 						<Icon name="settings" className="w-4 h-4 shrink-0" strokeWidth={1.5} />
 						<span>Settings</span>
+					</button>
+					<button
+						type="button"
+						role="menuitem"
+						data-testid="user-menu-auto-organize"
+						on:click={openAutoOrganize}
+						class="{itemClass} text-fg-muted hover:text-fg hover:bg-surface-3"
+					>
+						<Icon name="wand" className="w-4 h-4 shrink-0" strokeWidth={1.5} />
+						<span class="flex-1">Auto-organize</span>
+						{#if counts.length > 0}
+							{#if autoAttention}
+								<span
+									class="h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
+									role="img"
+									aria-label="Needs attention"
+									data-testid="user-menu-auto-organize-attention"
+								></span>
+							{/if}
+							<span
+								class="shrink-0 font-mono text-2xs tabular-nums text-fg-subtle"
+								data-testid="user-menu-auto-organize-count">{autoActive}</span
+							>
+						{/if}
 					</button>
 				</div>
 

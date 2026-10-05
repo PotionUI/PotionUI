@@ -19,6 +19,7 @@
 	import { attentionCount } from '$lib/organize/status';
 	import { ORGANIZE_SUBJECTS, organizeHref, slugFromSubject, subjectFromSlug, type OrganizeSlug } from '$lib/organize/subjects';
 	import { templatesFor } from '$lib/organize/templates';
+	import { writeLastSubject } from '$lib/organize/lastSubject';
 	import { subjectNoun } from '$lib/organize/sentence';
 	import type { OrganizeCatalog, OrganizeRule, OrganizeSubject, OrganizeSummary } from '$lib/types/organize';
 
@@ -47,6 +48,10 @@
 	const view = $derived($page.url.searchParams.get('view') === 'activity' ? 'activity' : 'rules');
 	const ruleParam = $derived($page.url.searchParams.get('rule'));
 	const noun = $derived(subjectNoun(subject));
+
+	$effect(() => {
+		writeLastSubject(slug);
+	});
 
 	const visibleRules = $derived.by(() => {
 		const q = query.trim().toLowerCase();

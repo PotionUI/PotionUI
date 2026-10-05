@@ -149,6 +149,20 @@ describe('RuleEditor preview and backfill', () => {
 		expect(target.textContent).toContain('Added 198 items to Videos');
 	});
 
+	it('renders the apply-existing option as the host switch, not a bare checkbox', async () => {
+		render(startDraft());
+		await wait(700);
+		const control = target.querySelector('[data-testid="apply-existing"]') as HTMLInputElement;
+		expect(control.getAttribute('role')).toBe('switch');
+		expect(control.getAttribute('aria-label')).toMatch(/^Also add the \d+ existing/);
+		expect(control.nextElementSibling?.getAttribute('aria-hidden')).toBe('true');
+		expect(target.textContent).toContain('Rules only add. You can undo any run from Activity.');
+		expect(control.checked).toBe(false);
+		control.click();
+		flushSync();
+		expect(control.checked).toBe(true);
+	});
+
 	it('does not start a backfill when the box is left unchecked', async () => {
 		api.createOrganizeRule.mockResolvedValue({ success: true, data: ruleFixture() });
 		render(startDraft());

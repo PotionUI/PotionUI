@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import CustomSelect from '$lib/components/CustomSelect.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 	import { Button, IconButton, Input, Switch } from '$lib/components/ui';
 	import { api } from '$lib/services/api';
 	import { actionsForSubject, newAction, supportsTags, type RuleDraft, type DraftAction } from '$lib/organize/draft';
+	import { actionIcon } from '$lib/organize/icons';
 	import { collectionOptions, loadCollections, type PlainCollection } from '$lib/organize/collections';
 	import { scopeFromSubject } from '$lib/organize/subjects';
 	import type { OrganizeActionSpec, OrganizeCatalog, OrganizeOption } from '$lib/types/organize';
@@ -104,7 +106,10 @@
 					{#if !spec}
 						<p class="pt-1.5 text-sm text-warning">This action is no longer available.</p>
 					{:else if action.action === 'add_to_collection'}
-						<p class="pt-1.5 text-sm font-medium text-fg">{spec.label}</p>
+						<p class="flex items-center gap-2 pt-1.5 text-sm font-medium text-fg">
+							<Icon name={actionIcon(action.action)} className="w-3.5 h-3.5 text-fg-muted" />
+							{spec.label}
+						</p>
 						<CustomSelect
 							value={isCreating(action) ? NEW : ((action.config.collection_id as string) ?? '')}
 							searchable
@@ -138,7 +143,10 @@
 							<span class="text-xs text-fg-muted">Create it again if it goes missing</span>
 						</div>
 					{:else}
-						<p class="pt-1.5 text-sm font-medium text-fg">{spec.label}</p>
+						<p class="flex items-center gap-2 pt-1.5 text-sm font-medium text-fg">
+							<Icon name={actionIcon(action.action)} className="w-3.5 h-3.5 text-fg-muted" />
+							{spec.label}
+						</p>
 						{#each spec.config_schema as field (field.key)}
 							<div class="space-y-1">
 								{#if field.kind !== 'bool'}
@@ -203,7 +211,7 @@
 
 	<div class="flex flex-wrap items-center gap-2">
 		{#each specs as spec (spec.key)}
-			<Button size="sm" variant="ghost" icon="plus" onclick={() => addAction(spec.key)}>{spec.label}</Button>
+			<Button size="sm" variant="ghost" icon={actionIcon(spec.key)} onclick={() => addAction(spec.key)}>{spec.label}</Button>
 		{/each}
 	</div>
 </div>

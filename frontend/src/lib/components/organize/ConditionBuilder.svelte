@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CustomSelect from '$lib/components/CustomSelect.svelte';
+	import { factIcon } from '$lib/organize/icons';
 	import { Button, IconButton, SegmentedControl } from '$lib/components/ui';
 	import {
 		coerceValue,
@@ -89,7 +90,7 @@
 			<div class="w-44 flex-shrink-0">
 				<CustomSelect
 					value={cond.fact}
-					options={facts.map((f) => ({ value: f.key, label: f.label }))}
+					options={facts.map((f) => ({ value: f.key, label: f.label, icon: factIcon(f.key) }))}
 					on:change={(event) => changeFact(index, event.detail)}
 				/>
 			</div>

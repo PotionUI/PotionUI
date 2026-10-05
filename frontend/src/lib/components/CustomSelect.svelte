@@ -5,11 +5,12 @@
 <script lang="ts">
 	import { createEventDispatcher, tick } from 'svelte';
 	import { computeSelectMenuPlacement, dockInsetFor } from '$lib/utils/menuPosition';
+	import Icon from '$lib/components/Icon.svelte';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 
 	export let value: any = '';
-	export let options: Array<{ value: any; label: string; description?: string }> = [];
+	export let options: Array<{ value: any; label: string; description?: string; icon?: string }> = [];
 	export let placeholder: string = 'Select an option...';
 	export let disabled: boolean = false;
 	export let searchable: boolean = false;
@@ -202,7 +203,10 @@
 				aria-activedescendant={activeOptionId}
 			>
 				{#if selectedOption}
-					<span class="block truncate text-fg">{selectedOption.label}</span>
+					<span class="flex items-center gap-2 truncate text-fg">
+						{#if selectedOption.icon}<Icon name={selectedOption.icon} className="w-3.5 h-3.5 flex-shrink-0 text-fg-muted" />{/if}
+						<span class="truncate">{selectedOption.label}</span>
+					</span>
 					{#if selectedOption.description}
 						<span class="block truncate text-xs text-fg-subtle mt-0.5">{selectedOption.description}</span>
 					{/if}
@@ -264,11 +268,12 @@
 					<div class="flex flex-col gap-1">
 						<div class="flex items-center justify-between gap-2">
 							<span
-								class="min-w-0 flex-1 truncate text-sm font-medium {option.value === value
+								class="flex min-w-0 flex-1 items-center gap-2 truncate text-sm font-medium {option.value === value
 									? 'text-signal'
 									: 'text-fg-muted'}"
 							>
-								{option.label}
+								{#if option.icon}<Icon name={option.icon} className="w-3.5 h-3.5 flex-shrink-0" />{/if}
+								<span class="truncate">{option.label}</span>
 							</span>
 							{#if option.value === value}
 								<svg

@@ -10,6 +10,7 @@
 		size = 'md',
 		label,
 		id,
+		testid,
 		class: className = ''
 	}: {
 		checked?: boolean;
@@ -20,6 +21,7 @@
 		size?: Size;
 		label: string;
 		id?: string;
+		testid?: string;
 		class?: string;
 	} = $props();
 
@@ -66,6 +68,7 @@
 		type="checkbox"
 		role="switch"
 		{id}
+		data-testid={testid}
 		{checked}
 		disabled={isDisabled}
 		onchange={handleChange}

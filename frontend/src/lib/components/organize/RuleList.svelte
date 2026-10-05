@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import { Alert, Badge, IconButton, Switch } from '$lib/components/ui';
+	import { actionIcon, subjectIcon } from '$lib/organize/icons';
 	import { moveItem } from '$lib/organize/reorder';
 	import { ruleSentence } from '$lib/organize/sentence';
 	import { ruleStatusInfo } from '$lib/organize/status';
@@ -114,15 +115,21 @@
 							<Badge size="sm" variant="neutral">Stops after</Badge>
 						{/if}
 					</span>
-					<span class="mt-1 block text-xs text-fg-muted">
-						{#if parts.conditions.length > 0}
-							<span class="text-fg-subtle">If</span>
-							{parts.conditions.join(` ${parts.join} `)}
-						{:else}
-							<span class="text-fg-subtle">Every new item</span>
-						{/if}
-						<span class="text-fg-subtle">then</span>
-						{parts.actions.join(' and ')}
+					<span class="mt-1 flex items-start gap-1.5 text-xs text-fg-muted">
+						<Icon name={subjectIcon(rule.subject)} className="mt-0.5 w-3.5 h-3.5 flex-shrink-0 text-fg-subtle" />
+						<span class="min-w-0">
+							{#if parts.conditions.length > 0}
+								<span class="text-fg-subtle">If</span>
+								{parts.conditions.join(` ${parts.join} `)}
+							{:else}
+								<span class="text-fg-subtle">Every new item</span>
+							{/if}
+							<span class="text-fg-subtle">then</span>
+							{#if rule.actions[0]}
+								<Icon name={actionIcon(rule.actions[0].action)} className="inline w-3.5 h-3.5 align-text-bottom text-fg-subtle" />
+							{/if}
+							{parts.actions.join(' and ')}
+						</span>
 					</span>
 					<span class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-2xs tabular-nums text-fg-subtle">
 						<span>Filed {rule.filed_count} {rule.filed_count === 1 ? 'item' : 'items'}</span>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { DetailHeader, DetailBody, DetailFooter, DetailLayout, DetailSection } from '$lib/components/detail';
+	import Icon from '$lib/components/Icon.svelte';
 	import { Alert, Input, Switch } from '$lib/components/ui';
 	import { api } from '$lib/services/api';
 	import { confirmDialog } from '$lib/stores/confirm';
@@ -11,6 +12,7 @@
 		draftToInput,
 		type RuleDraft
 	} from '$lib/organize/draft';
+	import { subjectIcon } from '$lib/organize/icons';
 	import { parseOrganizeError, problemMessage } from '$lib/organize/errors';
 	import { triggerSentence } from '$lib/organize/sentence';
 	import type { OrganizeCatalog, OrganizeJob, OrganizePreview, OrganizeRule } from '$lib/types/organize';
@@ -132,7 +134,7 @@
 	<DetailBody>
 		<DetailLayout>
 			{#snippet main()}
-				<DetailSection label="Name">
+				<DetailSection label="Name" icon="pencil">
 					<Input
 						value={draft.name}
 						placeholder="For example: Krea landscapes"
@@ -142,19 +144,25 @@
 					/>
 				</DetailSection>
 
-				<DetailSection label="When">
-					<p class="text-sm text-fg">{triggerSentence(draft.subject, catalog)}</p>
+				<DetailSection label="When" icon="bolt">
+					<span
+						class="inline-flex h-7 items-center gap-2 rounded border border-line-strong bg-surface-2 px-2.5 text-sm text-fg"
+						data-testid="rule-trigger"
+					>
+						<Icon name={subjectIcon(draft.subject)} className="w-3.5 h-3.5 text-fg-muted" />
+						{triggerSentence(draft.subject, catalog)}
+					</span>
 				</DetailSection>
 
-				<DetailSection label="If">
+				<DetailSection label="If" icon="filter">
 					<ConditionBuilder bind:draft {catalog} />
 				</DetailSection>
 
-				<DetailSection label="Then">
+				<DetailSection label="Then" icon="arrow-right">
 					<ActionBuilder bind:draft {catalog} />
 				</DetailSection>
 
-				<DetailSection label="Options">
+				<DetailSection label="Options" icon="sliders">
 					<div class="flex items-center gap-2">
 						<Switch
 							label="Stop after this rule"
@@ -174,7 +182,7 @@
 			{/snippet}
 
 			{#snippet aside()}
-				<DetailSection label="Preview">
+				<DetailSection label="Preview" icon="eyes">
 					<RulePreview {draft} {catalog} bind:applyExisting onpreview={(next) => (preview = next)} />
 					{#if !isNew && !dirty && !job && (preview?.would_change ?? 0) > 0}
 						<button
@@ -187,7 +195,7 @@
 					{/if}
 				</DetailSection>
 				{#if job}
-					<DetailSection label="Existing items">
+					<DetailSection label="Existing items" icon="folder-plus">
 						<JobProgress {job} onviewactivity={onViewActivity} />
 					</DetailSection>
 				{/if}

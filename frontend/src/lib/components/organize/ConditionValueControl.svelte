@@ -1,8 +1,10 @@
 <script lang="ts">
 	import CustomSelect from '$lib/components/CustomSelect.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 	import { Input, Switch, IconButton } from '$lib/components/ui';
 	import { api } from '$lib/services/api';
 	import { effectiveKind, isListOperator } from '$lib/organize/draft';
+	import { mediaKindIcon } from '$lib/organize/icons';
 	import type { OrganizeFactSpec, OrganizeOption, OrganizeSubject } from '$lib/types/organize';
 	import FactModelPicker from './FactModelPicker.svelte';
 	import TagNamesInput from './TagNamesInput.svelte';
@@ -115,16 +117,19 @@
 		/>
 	{:else if kind === 'enum'}
 		{#if enumOptions.length > 0 && enumOptions.length <= 6}
-			<div class="flex flex-wrap gap-1.5" role="group" aria-label={spec.label}>
+			<div class="flex w-full flex-wrap gap-1.5" role="group" aria-label={spec.label}>
 				{#each enumOptions as option (option.value)}
 					<button
 						type="button"
 						aria-pressed={chipOn(option.value)}
-						class="h-7 rounded border px-2.5 text-xs transition-colors {chipOn(option.value)
+						class="inline-flex h-7 flex-shrink-0 items-center gap-1.5 rounded border px-2 text-xs transition-colors {chipOn(option.value)
 							? 'border-signal/30 bg-signal/10 text-signal'
 							: 'border-line-strong bg-surface-2 text-fg-muted hover:text-fg'}"
 						onclick={() => toggleChip(option.value)}
 					>
+						{#if spec.key === 'media_kind' && mediaKindIcon(option.value)}
+							<Icon name={mediaKindIcon(option.value) ?? ''} className="w-3.5 h-3.5" />
+						{/if}
 						{option.label}
 					</button>
 				{/each}

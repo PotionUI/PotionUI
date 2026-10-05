@@ -191,7 +191,7 @@ async def test_the_upload_route_refuses_by_the_streamed_size_before_reading_the_
     file = Mock(filename="a.png", content_type="image/png", size=3277, read=AsyncMock(return_value=b"x" * 3277))
 
     with pytest.raises(HTTPException) as raised:
-        await MediaController(store).upload_media(file, Mock(id="u1"))
+        await MediaController(store, Mock()).upload_media(file, Mock(id="u1"))
 
     assert raised.value.status_code == 403
     assert raised.value.detail["kind"] == "upload_file_size"

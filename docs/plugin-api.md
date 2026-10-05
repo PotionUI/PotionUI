@@ -66,6 +66,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `Settings`, `SettingRepository`, `PluginRepository` |
 | **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel`, `probe_video` (a `VideoProbe` from ffprobe, or `None`), `transcode_video(src, dest, TranscodeSpec(...), max_bytes=None)` (ffmpeg re-encode to webm VP9 or mp4 H.264: constant frame rate, even dimensions, no audio unless `keep_audio`; steps down a quality ladder to fit `max_bytes`; raises `VideoTranscodeError`, or `FfmpegUnavailableError` before writing anything when ffmpeg is missing), `find_ffmpeg`, `TranscodeSpec`, `VideoProbe` |
 | **Models** — model metadata fields, provider links, and resolving a model's file/folder across roots | `.models` | `WellKnownModelMetadataField`, `get_model_provider_info`, `model_type_dirs`, `model_write_dir`, `resolve_model_file`, `model_for_path`, `MODEL_DIRECTORY_ALIASES`, `type_for_folder_name`, `MODEL_TYPES`, `HeaderView`, `TensorInfo`, `FamilyMatch`, `model_classifier_registry` (read-only) |
+| **Auto-organize** — contributing rule conditions and actions | `.organize` | `OrganizeItem`, `OrganizeChange`, `OrganizeActionBlocked`, `compare`, `FACT_KINDS`, `OPERATOR_LABELS`, `CONFIG_FIELD_KINDS`, `FACT_TRIGGERS`, `SQL_ALIASES`, `SUBJECTS` |
 | **Phrasebook** — contributing a batch tool to Find & replace | `.phrasebook` | `PhrasebookBatchOperation`, `PhrasebookBatchContext`, `BatchOutcome`, `BatchPreview`, `BatchOperationError` |
 | **Sampling** — contributing a step algorithm or a sigma schedule | `.sampling` | `SamplerDefinition`, `ScheduleDefinition`, `ScheduleContext`, `OptionSpec`, `GuidanceStrategy`, `SamplingCancelled`, `run_hooks`, `sample_euler`, `sampler_registry`, `schedule_registry` |
 
@@ -559,6 +560,100 @@ user-owned, disabled automation through the normal import validation path. If it
 types are unavailable, the catalog explains which requirements are missing and prevents
 instantiation. Disabling the plugin removes its templates from the catalog; automations
 users already created from them remain theirs.
+
+## Contributing Auto-organize facts and actions
+
+Auto-organize lets each user write rules that file their own generations, Library
+uploads and models: "when a new image is made with Krea-2 at 1344 x 768, add it to
+Landscapes". A rule has one subject, a list of conditions (a *fact*, an operator and a
+value) matched with all or any, and a list of actions. A plugin adds facts and actions
+of its own; they appear in the rule builder with no frontend work, because the builder
+picks its control from the fact's `kind`.
+
+```yaml
+organize_facts:
+  - key: tagger.labels            # must be namespaced: <plugin>.<name>
+    label: Image contains
+    subjects: [generation, upload]
+    kind: tag_list                # model_ref | enum | size | number | text | tag_list | bool
+    operators: [has, has_not]     # optional, a subset of the kind's operators
+    handler: organize.labels      # module.function, like hook handlers
+    sql_handler: organize.labels_sql          # optional, makes previews exact and fast
+    options_handler: organize.label_options   # optional, feeds the picker's autocomplete
+    options: []                   # optional static choices: [{value, label}]
+    picker: {}                    # optional hints for the control (see below)
+    triggers: [item_created, tags_changed]
+
+organize_actions:
+  - key: tagger.notify
+    label: Tell my webhook
+    subjects: [generation]
+    requires_admin: true          # anything that reaches outside the app
+    handler: organize.notify
+    undo_handler: organize.undo_notify       # optional
+    config_schema:
+      - {key: channel, kind: text, label: Channel, required: true}
+```
+
+Import only from `src.plugin_api.organize`. The reference implementation used by the
+tests lives at `tests/fixtures/organize_example_plugin/`.
+
+### Kinds, operators and values
+
+| kind | operators | value the rule stores | control the builder shows | `picker` keys |
+|---|---|---|---|---|
+| `model_ref` | `is`, `is_any_of`, `is_not` | a model id, or a list for `is_any_of` | the model picker | `model_types` |
+| `enum` | `is`, `is_any_of`, `is_not` | a string, or a list for `is_any_of` | chips or a select; autocomplete when there is an `options_handler` | `multi` |
+| `size` | `is`, `at_least`, `at_most` | `{"width": 1344, "height": 768}` | resolution presets + custom | `presets` |
+| `number` | `is`, `at_least`, `at_most` | a number | stepper | `min`, `max`, `step`, `unit` |
+| `text` | `contains`, `not_contains` | a string, matched case-insensitively | text input | `placeholder` |
+| `tag_list` | `has` (every listed value), `has_not` (none of them) | a list of strings | tag autocomplete | - |
+| `bool` | `is` | `true` / `false` | toggle | - |
+
+`compare(kind, operator, actual, expected)` is the exact function the evaluator uses, so
+a plugin can test its handler against it. When a fact returns a list (one value per
+output of a multi-file generation), a condition matches when **any** value matches.
+
+### The handlers
+
+- **Fact `handler(item) -> value`** receives an `OrganizeItem` (`subject`, `item_id`,
+  `user_id`, read-only `data`) and returns the value for its kind. It must be pure and
+  fast: no network, no writes. `item.data` holds, for generations: `preset_id`, `mode`,
+  `backend_id`, `form_data`, `model_ids`, `files` (`file_type`, `width`, `height`,
+  `duration_seconds`, `mime_type`, `is_final`) and `tags`; for uploads: `media_type`,
+  `mime_type`, `width`, `height`, `duration_seconds`, `original_filename` and `tags`; for
+  models: `filename`, `model_type`, `family`, `sha256` and `tags`. Reading your own
+  plugin tables with `from src.plugin_api import db` inside the handler is fine.
+- **Fact `sql_handler(operator, value, alias) -> (clause, params) | None`** returns a SQL
+  predicate over the subject's table, aliased per `SQL_ALIASES` (`g` = `generations`,
+  `u` = `uploads`, `m` = `models`). It turns the preview count into one query. Without
+  it, previews evaluate items one by one and say "about" past 5,000 items.
+- **Fact `options_handler(user_id, subject, query) -> list`** returns strings or
+  `{value, label}` dicts. It is called with a 2 second budget.
+- **Action `handler(item, config, user_id) -> list[OrganizeChange]`** does the work for
+  one matching item and returns what it changed (`target_type`, `target_id`,
+  `target_name`, `data`). Return only what is new, and make it idempotent: the same item
+  can be offered again after a restart. The list is recorded so the Activity tab can
+  show it and undo it. Raise `OrganizeActionBlocked(code, message)` to stop the rule and
+  pause it with a notice.
+- **Action `undo_handler(item, change, user_id) -> bool`** reverses one recorded change.
+  Without it, undoing a run leaves that plugin's changes in place and counts them as
+  skipped.
+
+`triggers` says when the fact's value can first be known: `item_created`, or also
+`tags_changed` for a value that arrives later (an auto-tagger). Rules using such a fact
+are evaluated again on the item's tag changes, for items the rule has not filed yet.
+
+### What the host guarantees
+
+- A rule only ever reads its owner's items and writes to its owner's collections and
+  tags. Plugin actions receive the owner's `user_id` and must hold to the same rule.
+- An action with `requires_admin: true` is hidden from non-admins and refused when a
+  non-admin saves a rule with it.
+- Disabling the plugin removes its facts and actions. Rules that use them stay, marked
+  "needs attention", and run again when the plugin is back.
+- A rule files each item at most once, and a live rule that files more than the hourly
+  limit (200 by default) is paused with a notice.
 
 ## Contributing a recipe (and recipe step kinds)
 

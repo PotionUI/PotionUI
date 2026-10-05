@@ -1,0 +1,30 @@
+id: "organize-example"
+name: "Organize example"
+version: "1.0.0"
+description: "Reference Auto-organize plugin: an 'Image contains' fact and a side-effect action"
+author: "PotionUI Team"
+type: "backend-only"
+category: "tools"
+
+organize_facts:
+  - key: "example.labels"
+    label: "Image contains"
+    subjects: ["generation", "upload"]
+    kind: "tag_list"
+    operators: ["has", "has_not"]
+    handler: "organize.labels"
+    options_handler: "organize.label_options"
+    triggers: ["item_created", "tags_changed"]
+
+organize_actions:
+  - key: "example.notify_webhook"
+    label: "Tell my webhook"
+    subjects: ["generation"]
+    requires_admin: true
+    handler: "organize.notify_webhook"
+    undo_handler: "organize.undo_webhook"
+    config_schema:
+      - key: "channel"
+        kind: "text"
+        label: "Channel"
+        required: true

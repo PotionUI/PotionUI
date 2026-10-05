@@ -124,6 +124,8 @@ class PluginManifest:
     # Automation module node types (A3)
     automation_nodes: List[Dict[str, Any]] = field(default_factory=list)
     automation_templates: List[Dict[str, Any]] = field(default_factory=list)
+    organize_facts: List[Dict[str, Any]] = field(default_factory=list)
+    organize_actions: List[Dict[str, Any]] = field(default_factory=list)
 
     # Prompt library import sources: [{id, label, component, backend}]
     prompt_importers: List[Dict[str, Any]] = field(default_factory=list)
@@ -481,6 +483,8 @@ class PluginLoader:
             resources=[r.model_dump() for r in schema.resources],
             automation_nodes=[n.model_dump() for n in schema.automation_nodes],
             automation_templates=[t.model_dump() for t in schema.automation_templates],
+            organize_facts=[f.model_dump() for f in schema.organize_facts],
+            organize_actions=[a.model_dump() for a in schema.organize_actions],
             prompt_importers=[p.model_dump() for p in schema.prompt_importers],
             phrasebook_ops=[o.model_dump() for o in schema.phrasebook_ops],
             history_tools=[h.model_dump() for h in schema.history_tools],

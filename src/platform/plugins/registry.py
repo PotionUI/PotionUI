@@ -27,6 +27,14 @@ from src.platform.plugins.phrasebook_ops import PhrasebookOperationRegistry
 from src.platform.plugins.recipe_steps import RecipeStepKindRegistry
 from src.platform.plugins.requirement_checkers import RequirementCheckerRegistry
 from src.platform.runtime.model_headers import ModelClassifierDefinition, model_classifier_registry
+from src.platform.plugins.organize import (
+    DuplicateOrganizeEntryError,
+    InvalidOrganizeEntryError,
+    OrganizeActionDefinition,
+    OrganizeFactDefinition,
+    OrganizeRegistry,
+    organize_registry as _shared_organize_registry,
+)
 from src.platform.plugins.sampling import (
     ANY_FAMILY,
     DuplicateSamplingEntryError,
@@ -106,6 +114,7 @@ class PluginRegistry:
         phrasebook_operation_registry: Optional[PhrasebookOperationRegistry] = None,
         requirement_checker_registry: Optional[RequirementCheckerRegistry] = None,
         recipe_step_kind_registry: Optional[RecipeStepKindRegistry] = None,
+        organize_registry: Optional[OrganizeRegistry] = None,
     ):
         self.loader = PluginLoader(marketplace_dir, local_dir)
         self.hook_chain = HookChain()
@@ -152,6 +161,7 @@ class PluginRegistry:
         self.requirement_checker_registry = requirement_checker_registry
         # Recipe step kinds a plugin contributes (manifest `recipe_steps:`).
         self.recipe_step_kind_registry = recipe_step_kind_registry
+        self.organize_registry = organize_registry if organize_registry is not None else _shared_organize_registry
 
         # Plugin storage
         self._plugins: Dict[str, PluginManifest] = {}
@@ -436,6 +446,8 @@ class PluginRegistry:
             self._register_plugin_samplers,
             self._register_plugin_schedules,
             self._register_plugin_model_classifiers,
+            self._register_plugin_organize_facts,
+            self._register_plugin_organize_actions,
         ):
             error_msg = register_step(manifest)
             if error_msg:
@@ -892,6 +904,77 @@ class PluginRegistry:
                 return str(e)
         return None
 
+    def _load_optional_handler(self, manifest: PluginManifest, ref: Optional[str], label: str):
+        if not ref:
+            return None, None
+        handler = self.loader.load_hook_handler(manifest, ref)
+        if handler is None:
+            return None, f"Failed to load {label}: {ref}"
+        return handler, None
+
+    def _register_plugin_organize_facts(self, manifest: PluginManifest) -> Optional[str]:
+        for entry in manifest.organize_facts:
+            handler, error = self._load_optional_handler(manifest, entry['handler'], "organize fact handler")
+            if error:
+                return error
+            sql_handler, error = self._load_optional_handler(manifest, entry.get('sql_handler'), "organize fact sql_handler")
+            if error:
+                return error
+            options_handler, error = self._load_optional_handler(
+                manifest, entry.get('options_handler'), "organize fact options_handler"
+            )
+            if error:
+                return error
+            component = entry.get('component')
+            try:
+                self.organize_registry.register_fact(OrganizeFactDefinition(
+                    key=entry['key'],
+                    label=entry['label'],
+                    subjects=tuple(entry['subjects']),
+                    kind=entry['kind'],
+                    extract=handler,
+                    operators=tuple(entry.get('operators') or ()),
+                    sql=sql_handler,
+                    options=tuple(entry.get('options') or ()),
+                    options_handler=options_handler,
+                    picker=dict(entry.get('picker') or {}),
+                    description=entry.get('description', ''),
+                    triggers=tuple(entry.get('triggers') or ("item_created",)),
+                    component=f"plugin:{manifest.id}:{component}" if component else None,
+                    source=manifest.id,
+                ))
+            except (DuplicateOrganizeEntryError, InvalidOrganizeEntryError) as e:
+                return str(e)
+        return None
+
+    def _register_plugin_organize_actions(self, manifest: PluginManifest) -> Optional[str]:
+        for entry in manifest.organize_actions:
+            handler, error = self._load_optional_handler(manifest, entry['handler'], "organize action handler")
+            if error:
+                return error
+            undo_handler, error = self._load_optional_handler(
+                manifest, entry.get('undo_handler'), "organize action undo_handler"
+            )
+            if error:
+                return error
+            component = entry.get('component')
+            try:
+                self.organize_registry.register_action(OrganizeActionDefinition(
+                    key=entry['key'],
+                    label=entry['label'],
+                    subjects=tuple(entry['subjects']),
+                    apply=handler,
+                    config_schema=tuple(entry.get('config_schema') or ()),
+                    undo=undo_handler,
+                    requires_admin=bool(entry.get('requires_admin', False)),
+                    description=entry.get('description', ''),
+                    component=f"plugin:{manifest.id}:{component}" if component else None,
+                    source=manifest.id,
+                ))
+            except (DuplicateOrganizeEntryError, InvalidOrganizeEntryError) as e:
+                return str(e)
+        return None
+
     def _rollback_partial_enable(self, plugin_id: str) -> None:
         """Tear down everything the plugin registered: hooks, field types,
         model attributes, LLM chat extensions (tools/modes/resources),
@@ -928,6 +1011,7 @@ class PluginRegistry:
         self._unregister_sampling_entries(plugin_id)
         model_classifier_registry.unregister_source(plugin_id)
         login_provider_registry.unregister_source(plugin_id)
+        self.organize_registry.unregister_source(plugin_id)
         if self.router_mounter is not None:
             self.router_mounter.unmount(plugin_id)
         # Drop this plugin's imported modules so a retry re-imports fresh code;

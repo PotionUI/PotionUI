@@ -637,6 +637,38 @@ class AutomationTemplateSpec(BaseModel):
     tags: List[str] = Field(default_factory=list)
 
 
+class OrganizeFactSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*\.[a-z0-9][a-z0-9_.-]*$")
+    label: str = Field(min_length=1)
+    subjects: List[Literal["generation", "upload", "model"]] = Field(min_length=1)
+    kind: Literal["model_ref", "enum", "size", "number", "text", "tag_list", "bool"]
+    operators: List[str] = Field(default_factory=list)
+    handler: str = Field(min_length=1)
+    sql_handler: Optional[str] = None
+    options_handler: Optional[str] = None
+    options: List[Dict[str, Any]] = Field(default_factory=list)
+    picker: Dict[str, Any] = Field(default_factory=dict)
+    description: str = ""
+    triggers: List[Literal["item_created", "tags_changed"]] = Field(default_factory=lambda: ["item_created"])
+    component: Optional[str] = None
+
+
+class OrganizeActionSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*\.[a-z0-9][a-z0-9_.-]*$")
+    label: str = Field(min_length=1)
+    subjects: List[Literal["generation", "upload", "model"]] = Field(min_length=1)
+    handler: str = Field(min_length=1)
+    undo_handler: Optional[str] = None
+    config_schema: List[Dict[str, Any]] = Field(default_factory=list)
+    requires_admin: bool = False
+    description: str = ""
+    component: Optional[str] = None
+
+
 class PluginManifestSchema(BaseModel):
     """
     Canonical plugin manifest schema.
@@ -717,6 +749,8 @@ class PluginManifestSchema(BaseModel):
     # Automation module node types
     automation_nodes: List[AutomationNodeSpec] = Field(default_factory=list)
     automation_templates: List[AutomationTemplateSpec] = Field(default_factory=list)
+    organize_facts: List[OrganizeFactSpec] = Field(default_factory=list)
+    organize_actions: List[OrganizeActionSpec] = Field(default_factory=list)
 
     # Prompt library import sources
     prompt_importers: List[PromptImporterSpec] = Field(default_factory=list)

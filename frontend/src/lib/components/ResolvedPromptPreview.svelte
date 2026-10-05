@@ -7,6 +7,8 @@
 	import { toasts } from '$lib/stores/toast';
 	import { resolveResourceMarkers, type PromptResourceSpec } from '$lib/utils/promptResources';
 	import { EMPTY_RESOURCE_NUMBERING, RESOURCE_NUMBERING_CONTEXT_KEY, type ResourceNumbering } from '$lib/utils/resourceNumbering';
+	import { resolvePreviewVariables, substituteVariables } from '$lib/utils/resolvedVariables';
+	import type { VariablesMap } from '$lib/utils/variableDefs';
 	import { buildSyntaxSegments, syntaxColorStyle, syntaxToneClasses, type PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 
 	export let prompt = '';
@@ -14,6 +16,7 @@
 	export let promptResources: PromptResourceSpec[] = [];
 	export let resourceFieldValues: Record<string, unknown> = {};
 	export let promptSyntax: PromptSyntaxSpec[] = [];
+	export let variables: VariablesMap | undefined = undefined;
 
 	const resourceNumbering =
 		getContext<Readable<ResourceNumbering | null> | undefined>(RESOURCE_NUMBERING_CONTEXT_KEY) ?? EMPTY_RESOURCE_NUMBERING;
@@ -22,8 +25,18 @@
 	let active: 'prompt' | 'negative' = 'prompt';
 	let copied = false;
 
-	$: resolvedPrompt = resolveResourceMarkers(prompt, promptResources, resourceFieldValues, $resourceNumbering);
-	$: resolvedNegativePrompt = resolveResourceMarkers(negativePrompt, promptResources, resourceFieldValues, $resourceNumbering);
+	$: previewVariables = resolvePreviewVariables(variables);
+	$: resolvedPrompt = substituteVariables(
+		resolveResourceMarkers(prompt, promptResources, resourceFieldValues, $resourceNumbering),
+		previewVariables.replacements
+	);
+	$: resolvedNegativePrompt = substituteVariables(
+		resolveResourceMarkers(negativePrompt, promptResources, resourceFieldValues, $resourceNumbering),
+		previewVariables.replacements
+	);
+	$: varyingNotes = previewVariables.notes.filter((note) =>
+		(active === 'prompt' ? prompt : negativePrompt).includes('${' + note.name + '}')
+	);
 	$: activeText = active === 'prompt' ? resolvedPrompt : resolvedNegativePrompt;
 	$: wordCount = activeText.trim() ? activeText.trim().split(/\s+/).length : 0;
 	$: activeSegments = buildSyntaxSegments(activeText, promptSyntax);
@@ -97,6 +110,13 @@
 					No {active === 'negative' ? 'negative ' : ''}prompt content
 				{/if}
 			</div>
+			{#if varyingNotes.length > 0}
+				<ul class="mt-2 space-y-0.5 text-2xs text-fg-subtle" aria-label="Variables that vary">
+					{#each varyingNotes as note (note.name)}
+						<li><span class="font-mono text-fg-muted">{note.name}</span> {note.phrase}</li>
+					{/each}
+				</ul>
+			{/if}
 			<p class="mt-2 font-mono text-2xs tabular-nums text-fg-subtle">{wordCount} words · {activeText.length} characters</p>
 		</div>
 	{/if}

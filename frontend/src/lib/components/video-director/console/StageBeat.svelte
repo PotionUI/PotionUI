@@ -138,6 +138,7 @@
 		{promptResources}
 		resourceFieldValues={resourceFieldValues || {}}
 		{promptSyntax}
+		{variables}
 	/>
 </div>
 

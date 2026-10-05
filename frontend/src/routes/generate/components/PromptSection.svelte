@@ -289,6 +289,7 @@
 					promptResources={promptResourceSpecs}
 					{resourceFieldValues}
 					promptSyntax={promptSyntaxSpecs}
+					{variables}
 				/>
 			</div>
 		</div>

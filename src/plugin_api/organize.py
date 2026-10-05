@@ -1,5 +1,6 @@
 from src.features.organize.evaluator import compare
 from src.platform.plugins.organize import (
+    ATTRIBUTE_VALUE_OPERATORS,
     CONFIG_FIELD_KINDS,
     FACT_KINDS,
     FACT_TRIGGERS,
@@ -12,6 +13,7 @@ from src.platform.plugins.organize import (
 )
 
 __all__ = [
+    "ATTRIBUTE_VALUE_OPERATORS",
     "CONFIG_FIELD_KINDS",
     "FACT_KINDS",
     "FACT_TRIGGERS",

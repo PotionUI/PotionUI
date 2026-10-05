@@ -87,6 +87,16 @@ class ModelMetadataEditor:
         else:
             raise ModelIndexingException("Failed to delete model from index")
 
+    def notify_metadata_changed(self, model_id: str, fields: List[str], user_id: Optional[str] = None) -> None:
+        try:
+            execute_hook(
+                self.plugins,
+                MODEL_INDEX_HOOKS.after_update_metadata,
+                {"model_id": model_id, "user_id": user_id, "fields": list(fields)},
+            )
+        except Exception:
+            logger.warning("after_update_metadata hook failed for model %s", model_id, exc_info=True)
+
     def update_model_tags(self, model_id: str, tag_ids: List[str]) -> Dict[str, Any]:
         """Set a model's tags, verifying each is a MODEL-type tag.
 
@@ -138,6 +148,7 @@ class ModelMetadataEditor:
         success = self.model_repo.update_description(model_id, description)
 
         if success:
+            self.notify_metadata_changed(model_id, ["description"])
             updated_model = self.model_repo.get_by_id(model_id, include_providers=False, include_tags=True)
             return {
                 "message": "Model description updated successfully",
@@ -192,6 +203,7 @@ class ModelMetadataEditor:
         success = self.model_repo.update_model_metadata(model_id, coerced)
         if not success:
             raise ModelNotFoundException("Failed to update model metadata")
+        self.notify_metadata_changed(model_id, ["attributes"])
 
         updated_model = self.model_repo.get_by_id(model_id, include_providers=False, include_tags=True)
         return {

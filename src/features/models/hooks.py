@@ -10,6 +10,7 @@ MODEL_INDEX_HOOKS = hooks_registry.declare(
     "before_assign", "after_assign",
     "before_unassign", "after_unassign",
     "before_update_tags", "after_update_tags",
+    "after_update_metadata",
     "before_fetch_info", "after_fetch_info",
     specs={
         "before_index": {
@@ -116,6 +117,15 @@ MODEL_INDEX_HOOKS = hooks_registry.declare(
                 "tag_ids": {"type": "List[str]", "description": "Tag IDs now applied"},
             },
             "use_when": ["Sync tag changes to an external search index"],
+        },
+        "after_update_metadata": {
+            "description": "Fired after a model's descriptive metadata changed: its description, attribute values, provider info, or one user's name or attribute overlay.",
+            "payload": {
+                "model_id": {"type": "str", "description": "Model whose metadata changed"},
+                "user_id": {"type": "Optional[str]", "description": "Set when only one user's own name or attribute values changed; None for shared metadata"},
+                "fields": {"type": "List[str]", "description": "What changed: any of 'description', 'attributes', 'provider_info', 'name'"},
+            },
+            "use_when": ["Re-run rules or sync search indexes when a model's name, description or attributes change"],
         },
         "before_fetch_info": {
             "description": "Fired before a background job fetches provider metadata (e.g. CivitAI info) for models; can block it.",

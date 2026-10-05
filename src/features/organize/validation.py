@@ -1,7 +1,7 @@
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
-from src.platform.plugins.organize import SUBJECTS, OrganizeRegistry
+from src.platform.plugins.organize import ATTRIBUTE_VALUE_OPERATORS, SUBJECTS, OrganizeFactDefinition, OrganizeRegistry
 
 MAX_CONDITIONS = 20
 MAX_ACTIONS = 10
@@ -83,7 +83,31 @@ def normalize_value(kind: str, operator: str, value: Any, allowed: Optional[List
     return None, "Unknown field kind"
 
 
-def validate_conditions(registry: OrganizeRegistry, subject: str, conditions: Any) -> Tuple[List[Dict[str, Any]], List[Problem]]:
+AttributeSpecs = Callable[[OrganizeFactDefinition, str], Mapping[str, Mapping[str, Any]]]
+
+
+def normalize_attribute(operator: str, value: Any,
+                        specs: Mapping[str, Mapping[str, Any]]) -> Tuple[Any, Optional[Tuple[str, str, str]]]:
+    if not isinstance(value, dict) or not isinstance(value.get("key"), str) or not value["key"]:
+        return None, ("value", "bad_value", "Pick an attribute")
+    spec = specs.get(value["key"])
+    if spec is None:
+        return None, ("value", "bad_value", "That attribute is not available")
+    value_type = spec.get("type")
+    label = str(spec.get("label") or value["key"])
+    if operator not in ATTRIBUTE_VALUE_OPERATORS.get(value_type, ()):
+        return None, ("operator", "unknown_operator", f"{label} cannot be compared that way")
+    allowed = None
+    if value_type == "enum" and spec.get("choices"):
+        allowed = [str(c.get("value")) for c in spec["choices"]]
+    inner, error = normalize_value(value_type, operator, value.get("value"), allowed)
+    if error:
+        return None, ("value", "bad_value", error)
+    return {"key": value["key"], "type": value_type, "label": label, "value": inner}, None
+
+
+def validate_conditions(registry: OrganizeRegistry, subject: str, conditions: Any,
+                        attribute_specs: Optional[AttributeSpecs] = None) -> Tuple[List[Dict[str, Any]], List[Problem]]:
     problems: List[Problem] = []
     if not isinstance(conditions, list):
         return [], [problem("conditions", "bad_value", "Conditions must be a list")]
@@ -105,6 +129,15 @@ def validate_conditions(registry: OrganizeRegistry, subject: str, conditions: An
         operator = condition.get("operator")
         if operator not in fact.allowed_operators():
             problems.append(problem(f"{path}.operator", "unknown_operator", f"{fact.label} cannot be compared that way"))
+            continue
+        if fact.kind == "attribute":
+            specs = attribute_specs(fact, subject) if attribute_specs is not None else {}
+            value, failure = normalize_attribute(operator, condition.get("value"), specs)
+            if failure:
+                where, code, message = failure
+                problems.append(problem(f"{path}.{where}", code, message))
+                continue
+            cleaned.append({"fact": fact.key, "operator": operator, "value": value})
             continue
         allowed = None
         if fact.options and fact.options_handler is None:
@@ -185,13 +218,16 @@ def validate_actions(registry: OrganizeRegistry, subject: str, actions: Any,
 
 
 def validate_rule_shape(registry: OrganizeRegistry, subject: Any, match: Any, conditions: Any, actions: Any,
-                        is_admin: bool, require_actions: bool = True) -> Tuple[Dict[str, Any], List[Problem]]:
+                        is_admin: bool, require_actions: bool = True,
+                        attribute_specs: Optional[AttributeSpecs] = None) -> Tuple[Dict[str, Any], List[Problem]]:
     problems: List[Problem] = []
     if subject not in SUBJECTS:
         return {}, [problem("subject", "bad_value", "Pick generations, library uploads or models")]
     if match not in ("all", "any"):
         problems.append(problem("match", "bad_value", "Match must be all or any"))
-    cleaned_conditions, condition_problems = validate_conditions(registry, subject, conditions if conditions is not None else [])
+    cleaned_conditions, condition_problems = validate_conditions(
+        registry, subject, conditions if conditions is not None else [], attribute_specs
+    )
     problems.extend(condition_problems)
     cleaned_actions: List[Dict[str, Any]] = []
     if require_actions or actions:

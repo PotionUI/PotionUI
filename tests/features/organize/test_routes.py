@@ -96,7 +96,12 @@ def test_catalog_summary_templates_and_options(client):
     options = client.get("/api/organize/facts/media_kind/options", params={"q": "vid"}).json()["data"]
     missing = client.get("/api/organize/facts/nope/options")
 
-    assert {f["key"] for f in catalog["facts"]} == {"model_type", "base_model", "tags"}
+    assert {f["key"] for f in catalog["facts"]} == {
+        "model_type", "base_model", "tags", "filename", "name", "description", "trigger_words", "source",
+        "file_size", "attribute",
+    }
+    assert catalog["kinds"]["attribute"]["operators"]
+    assert catalog["operators"]["starts_with"] == "starts with"
     assert summary["subjects"]["generation"]["total"] == 0
     assert templates and all(t["subject"] == "upload" for t in templates)
     assert options == [{"value": "video", "label": "Video"}]

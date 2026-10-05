@@ -672,7 +672,7 @@ class OrganizeFactSpec(BaseModel):
     key: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*\.[a-z0-9][a-z0-9_.-]*$")
     label: str = Field(min_length=1)
     subjects: List[Literal["generation", "upload", "model"]] = Field(min_length=1)
-    kind: Literal["model_ref", "enum", "size", "number", "text", "tag_list", "bool"]
+    kind: Literal["model_ref", "enum", "size", "number", "text", "tag_list", "bool", "attribute"]
     operators: List[str] = Field(default_factory=list)
     handler: str = Field(min_length=1)
     sql_handler: Optional[str] = None
@@ -680,7 +680,7 @@ class OrganizeFactSpec(BaseModel):
     options: List[Dict[str, Any]] = Field(default_factory=list)
     picker: Dict[str, Any] = Field(default_factory=dict)
     description: str = ""
-    triggers: List[Literal["item_created", "tags_changed"]] = Field(default_factory=lambda: ["item_created"])
+    triggers: List[Literal["item_created", "tags_changed", "metadata_changed"]] = Field(default_factory=lambda: ["item_created"])
     component: Optional[str] = None
 
 

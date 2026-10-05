@@ -20,6 +20,7 @@ HOOK_EVENTS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "model_index.after_download": ("model_added", ("model_id",)),
     "model_index.after_assign": ("model_added", ("model_id", "user_id")),
     "model_index.after_update_tags": ("model_tags_changed", ("model_id",)),
+    "model_index.after_update_metadata": ("model_metadata_changed", ("model_id", "user_id")),
 }
 
 _STOP = object()

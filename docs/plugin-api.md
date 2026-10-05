@@ -641,7 +641,7 @@ organize_facts:
   - key: tagger.labels            # must be namespaced: <plugin>.<name>
     label: Image contains
     subjects: [generation, upload]
-    kind: tag_list                # model_ref | enum | size | number | text | tag_list | bool
+    kind: tag_list                # model_ref | enum | size | number | text | tag_list | bool | attribute
     operators: [has, has_not]     # optional, a subset of the kind's operators
     handler: organize.labels      # module.function, like hook handlers
     sql_handler: organize.labels_sql          # optional, makes previews exact and fast
@@ -672,13 +672,43 @@ tests lives at `tests/fixtures/organize_example_plugin/`.
 | `enum` | `is`, `is_any_of`, `is_not` | a string, or a list for `is_any_of` | chips or a select; autocomplete when there is an `options_handler` | `multi` |
 | `size` | `is`, `at_least`, `at_most` | `{"width": 1344, "height": 768}` | resolution presets + custom | `presets` |
 | `number` | `is`, `at_least`, `at_most` | a number | stepper | `min`, `max`, `step`, `unit` |
-| `text` | `contains`, `not_contains` | a string, matched case-insensitively | text input | `placeholder` |
+| `text` | `contains`, `not_contains`, `starts_with`, `ends_with`, `is`, `is_not` | a string, matched case-insensitively | text input | `placeholder` |
 | `tag_list` | `has` (every listed value), `has_not` (none of them) | a list of strings | tag autocomplete | - |
 | `bool` | `is` | `true` / `false` | toggle | - |
+| `attribute` | per attribute type, see below | `{"key", "type", "label", "value"}` | attribute picker, then the type's operators and control | `operators_by_type` |
 
 `compare(kind, operator, actual, expected)` is the exact function the evaluator uses, so
 a plugin can test its handler against it. When a fact returns a list (one value per
 output of a multi-file generation), a condition matches when **any** value matches.
+`not_contains` and `is_not` match when **no** value matches, so an item without the
+value matches them.
+
+### The `attribute` kind
+
+An `attribute` fact is a set of named, typed values on each item, such as the custom
+attributes admins define for models. The user picks one attribute, then compares its
+value with the operators of the attribute's type:
+
+| type | operators | value | matching |
+|---|---|---|---|
+| `number` | `is`, `at_least`, `at_most` | a number | a `[low, high]` range counts as an interval: `is` means inside it, `at_least` compares `high`, `at_most` compares `low` |
+| `text` | the `text` operators | a string | a list of strings (tags) matches like a multi-value text fact |
+| `bool` | `is` | `true` / `false` | a missing value counts as `false` |
+| `enum` | `is`, `is_any_of`, `is_not` | a string, or a list for `is_any_of` | case-insensitive |
+
+`ATTRIBUTE_VALUE_OPERATORS` in `src.plugin_api.organize` holds this table. An
+`attribute` fact must have an `options_handler`, and it lists the attributes rather than
+values: each entry is `{"value": key, "label": label, "meta": {...}}`, where `meta` has
+`type` (one of the four above), `type_label` (shown next to the name in the picker),
+`model_types` (the model types it applies to, empty for every type), `choices`
+(`[{value, label}]`, for `enum`) and optional `min`, `max`, `step` (for `number`). The
+host calls it when a rule is saved or previewed: the condition's key must be listed,
+and the stored `type` and `label` come from the listing, not from the client. The
+handler gets the caller's `user_id`, so leave out attributes the caller may not see.
+
+The fact `handler` returns a dict of attribute key to that item's value. The
+`sql_handler` receives the whole `{"key", "type", "label", "value"}` dict as `value`.
+Set `picker: {operators_by_type: {...}}` only to narrow the operators per type.
 
 ### The handlers
 
@@ -688,14 +718,20 @@ output of a multi-file generation), a condition matches when **any** value match
   `backend_id`, `form_data`, `model_ids`, `files` (`file_type`, `width`, `height`,
   `duration_seconds`, `mime_type`, `is_final`) and `tags`; for uploads: `media_type`,
   `mime_type`, `width`, `height`, `duration_seconds`, `original_filename` and `tags`; for
-  models: `filename`, `model_type`, `family`, `sha256` and `tags`. Reading your own
-  plugin tables with `from src.plugin_api import db` inside the handler is fine.
+  models: `filename`, `model_type`, `family`, `sha256`, `tags`, `file_size` (bytes),
+  `description`, `custom_name` (the rule owner's own name for it), `provider_names`,
+  `provider_descriptions`, `sources` (`local`, `cloud` or provider ids such as
+  `civitai`) and `attributes` (each attribute's value for the rule owner: their own
+  value for a per-user attribute, else the shared value, else the default). Reading
+  your own plugin tables with `from src.plugin_api import db` inside the handler is fine.
 - **Fact `sql_handler(operator, value, alias) -> (clause, params) | None`** returns a SQL
   predicate over the subject's table, aliased per `SQL_ALIASES` (`g` = `generations`,
-  `u` = `uploads`, `m` = `models`). It turns the preview count into one query. Without
-  it, previews evaluate items one by one and say "about" past 5,000 items.
+  `u` = `uploads`, `m` = `models`). `viewer.user_id` is the rule owner's id, for
+  per-user data. It turns the preview count into one query. Without it, previews
+  evaluate items one by one and say "about" past 5,000 items.
 - **Fact `options_handler(user_id, subject, query) -> list`** returns strings or
-  `{value, label}` dicts. It is called with a 2 second budget.
+  `{value, label}` dicts, plus an optional `meta` dict that reaches the client as is.
+  It is called with a 2 second budget.
 - **Action `handler(item, config, user_id) -> list[OrganizeChange]`** does the work for
   one matching item and returns what it changed (`target_type`, `target_id`,
   `target_name`, `data`). Return only what is new, and make it idempotent: the same item
@@ -707,8 +743,10 @@ output of a multi-file generation), a condition matches when **any** value match
   skipped.
 
 `triggers` says when the fact's value can first be known: `item_created`, or also
-`tags_changed` for a value that arrives later (an auto-tagger). Rules using such a fact
-are evaluated again on the item's tag changes, for items the rule has not filed yet.
+`tags_changed` for a value that arrives later (an auto-tagger), or `metadata_changed`
+for a model value that changes when its description, attributes, provider info or a
+user's own name for it is edited (`model_index.after_update_metadata`). Rules using
+such a fact are evaluated again on those changes, for items the rule has not filed yet.
 
 ### What the host guarantees
 

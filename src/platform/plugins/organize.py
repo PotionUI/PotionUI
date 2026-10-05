@@ -7,14 +7,24 @@ SUBJECTS = ("generation", "upload", "model")
 
 SQL_ALIASES: Mapping[str, str] = MappingProxyType({"generation": "g", "upload": "u", "model": "m"})
 
+TEXT_OPERATORS = ("contains", "not_contains", "starts_with", "ends_with", "is", "is_not")
+
+ATTRIBUTE_VALUE_OPERATORS: Mapping[str, Tuple[str, ...]] = MappingProxyType({
+    "number": ("is", "at_least", "at_most"),
+    "text": TEXT_OPERATORS,
+    "bool": ("is",),
+    "enum": ("is", "is_any_of", "is_not"),
+})
+
 FACT_KINDS: Mapping[str, Tuple[str, ...]] = MappingProxyType({
     "model_ref": ("is", "is_any_of", "is_not"),
     "enum": ("is", "is_any_of", "is_not"),
     "size": ("is", "at_least", "at_most"),
     "number": ("is", "at_least", "at_most"),
-    "text": ("contains", "not_contains"),
+    "text": TEXT_OPERATORS,
     "tag_list": ("has", "has_not"),
     "bool": ("is",),
+    "attribute": ("is", "is_any_of", "is_not", "at_least", "at_most", "contains", "not_contains", "starts_with", "ends_with"),
 })
 
 OPERATOR_LABELS: Mapping[str, str] = MappingProxyType({
@@ -25,13 +35,15 @@ OPERATOR_LABELS: Mapping[str, str] = MappingProxyType({
     "at_most": "is at most",
     "contains": "contains",
     "not_contains": "does not contain",
+    "starts_with": "starts with",
+    "ends_with": "ends with",
     "has": "has",
     "has_not": "does not have",
 })
 
 CONFIG_FIELD_KINDS = ("collection", "tag_list", "text", "bool", "enum", "number")
 
-FACT_TRIGGERS = ("item_created", "tags_changed")
+FACT_TRIGGERS = ("item_created", "tags_changed", "metadata_changed")
 
 
 class DuplicateOrganizeEntryError(ValueError):
@@ -123,6 +135,10 @@ def validate_fact(definition: OrganizeFactDefinition) -> None:
     if bad:
         raise InvalidOrganizeEntryError(
             f"Auto-organize fact '{definition.key}' uses operators {bad} that kind '{definition.kind}' does not support"
+        )
+    if definition.kind == "attribute" and definition.options_handler is None:
+        raise InvalidOrganizeEntryError(
+            f"Auto-organize fact '{definition.key}' of kind 'attribute' needs an options_handler listing its attributes"
         )
     unknown_triggers = [t for t in definition.triggers if t not in FACT_TRIGGERS]
     if unknown_triggers:

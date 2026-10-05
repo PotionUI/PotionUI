@@ -615,6 +615,7 @@ class ModelController(BaseController):
         """Update the caller's per-user attribute value overlay for a model."""
         try:
             values = self.attributes_manager.update_user_values(model_id, user.id, request.values)
+            self.collaborators.metadata.notify_metadata_changed(model_id, ["attributes"], user.id)
             return self.success_response(data={"values": values})
         except InvalidModelMetadataException as e:
             return self.error_api_response(
@@ -826,6 +827,7 @@ class ModelController(BaseController):
             # Empty/whitespace name normalizes to a cleared custom name.
             name = request.name.strip() or None if request.name is not None else None
             meta = self.user_model_meta_repository.set_custom_name(user.id, model_id, name)
+            self.collaborators.metadata.notify_metadata_changed(model_id, ["name"], user.id)
             return self.success_response(data={
                 "message": "Model library name updated successfully",
                 "meta": meta.to_dict()

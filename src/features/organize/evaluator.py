@@ -1,7 +1,7 @@
 import json
 import logging
 import math
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from src.platform.plugins.organize import SQL_ALIASES, OrganizeFactDefinition, OrganizeItem, OrganizeRegistry
 
@@ -51,6 +51,64 @@ def _fold(value: Any) -> str:
     return str(value).casefold()
 
 
+TEXT_TESTS = {
+    "contains": lambda text, needle: needle in text,
+    "starts_with": lambda text, needle: text.startswith(needle),
+    "ends_with": lambda text, needle: text.endswith(needle),
+    "is": lambda text, needle: text == needle,
+}
+
+NEGATED_TEXT = {"not_contains": "contains", "is_not": "is"}
+
+
+def _compare_text(operator: str, actual: Any, expected: Any) -> bool:
+    needle = _fold(expected or "")
+    test = TEXT_TESTS.get(NEGATED_TEXT.get(operator, operator))
+    if not needle or test is None:
+        return False
+    found = any(test(_fold(v), needle) for v in as_list(actual) if isinstance(v, str))
+    return not found if operator in NEGATED_TEXT else found
+
+
+def _strict_numbers(value: Any) -> List[float]:
+    return [
+        float(v) for v in as_list(value)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+    ]
+
+
+def _compare_interval(operator: str, actual: Any, expected: Any) -> bool:
+    values = _strict_numbers(actual)
+    targets = _numbers(expected)
+    if not values or not targets:
+        return False
+    low, high, target = min(values), max(values), targets[0]
+    if operator == "is":
+        return low - 1e-9 <= target <= high + 1e-9
+    if operator == "at_least":
+        return high >= target
+    if operator == "at_most":
+        return low <= target
+    return False
+
+
+def _compare_attribute(operator: str, actual: Any, expected: Any) -> bool:
+    if not isinstance(expected, Mapping):
+        return False
+    present = actual.get(expected.get("key")) if isinstance(actual, Mapping) else None
+    value_type = expected.get("type")
+    target = expected.get("value")
+    if value_type == "number":
+        return _compare_interval(operator, present, target)
+    if value_type == "text":
+        return _compare_text(operator, present, target)
+    if value_type == "enum":
+        return compare("enum", operator, present, target)
+    if value_type == "bool":
+        return operator == "is" and isinstance(target, bool) and (present is True) == target
+    return False
+
+
 def compare(kind: str, operator: str, actual: Any, expected: Any) -> bool:
     if kind in ("model_ref", "enum"):
         normalize = str if kind == "model_ref" else _fold
@@ -88,15 +146,9 @@ def compare(kind: str, operator: str, actual: Any, expected: Any) -> bool:
             return any(v <= target for v in values)
         return False
     if kind == "text":
-        needle = _fold(expected or "")
-        if not needle:
-            return False
-        found = any(needle in _fold(v) for v in as_list(actual) if isinstance(v, str))
-        if operator == "contains":
-            return found
-        if operator == "not_contains":
-            return not found
-        return False
+        return _compare_text(operator, actual, expected)
+    if kind == "attribute":
+        return _compare_attribute(operator, actual, expected)
     if kind == "tag_list":
         present = {_fold(v) for v in as_list(actual)}
         wanted = [_fold(v) for v in as_list(expected)]

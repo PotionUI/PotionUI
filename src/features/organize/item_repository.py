@@ -1,7 +1,10 @@
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from src.features.models.attributes.records import ModelAttributeDefinition
+from src.features.models.attributes.repository import AttributeDefinitionRepository
 from src.features.models.form_refs import collect_model_ids
 from src.platform.database.rows import dt_iso, json_column
+from src.platform.filesystem.model_types import VIRTUAL_MODEL_TYPES
 
 SUBJECT_TABLES = {
     "generation": ("generations", "g"),
@@ -20,6 +23,38 @@ def _db():
 def _chunks(values: Sequence[str]):
     for start in range(0, len(values), _CHUNK):
         yield values[start:start + _CHUNK]
+
+
+def model_stem(filename: Optional[str], model_type: Optional[str]) -> str:
+    if not filename:
+        return ""
+    if model_type in VIRTUAL_MODEL_TYPES:
+        return filename
+    stem, _, _ = filename.rpartition(".")
+    return stem or filename
+
+
+def model_sources(model_type: Optional[str], providers: Iterable[str]) -> List[str]:
+    found = sorted({str(p).lower() for p in providers if p})
+    if model_type in VIRTUAL_MODEL_TYPES:
+        return ["cloud", *[p for p in found if p != "cloud"]]
+    return found or ["local"]
+
+
+def effective_attributes(definitions: Sequence[ModelAttributeDefinition], model_type: Optional[str],
+                         shared: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
+    values: Dict[str, Any] = {}
+    for definition in definitions:
+        if not definition.applies_to(model_type or ""):
+            continue
+        value = overlay.get(definition.key) if definition.per_user else None
+        if value is None:
+            value = shared.get(definition.key)
+        if value is None:
+            value = definition.default_value
+        if value is not None:
+            values[definition.key] = value
+    return values
 
 
 def _visible_models_clause(user_id: str, is_admin: bool, restricted: bool) -> Tuple[str, List[Any]]:
@@ -56,8 +91,9 @@ class OrganizeItemRepository:
         limit_sql = " LIMIT ?" if limit else ""
         with _db().get_cursor() as cursor:
             cursor.execute(
-                f"SELECT {alias}.id AS id FROM {table} {alias} WHERE {sql_where} ORDER BY {order}{limit_sql}",
-                (*base_params, *params, *([limit] if limit else [])),
+                f"SELECT {alias}.id AS id FROM {table} {alias} CROSS JOIN (SELECT ? AS user_id) viewer "
+                f"WHERE {sql_where} ORDER BY {order}{limit_sql}",
+                (user_id, *base_params, *params, *([limit] if limit else [])),
             )
             return [row["id"] for row in cursor.fetchall()]
 
@@ -165,14 +201,18 @@ class OrganizeItemRepository:
         ids = list(dict.fromkeys(model_ids))
         rows: Dict[str, Dict[str, Any]] = {}
         visible, visible_params = _visible_models_clause(user_id, is_admin, restricted)
+        definitions = self.attribute_definitions()
+        per_user_keys = {d.key for d in definitions if d.per_user}
         with _db().get_cursor() as cursor:
             for chunk in _chunks(ids):
                 placeholders = ",".join("?" * len(chunk))
                 cursor.execute(
-                    f"SELECT m.id, m.filename, m.model_type, m.sha256, m.created_at, v.family "
+                    f"SELECT m.id, m.filename, m.model_type, m.sha256, m.file_size, m.description, m.model_metadata, "
+                    f"m.created_at, v.family, umm.custom_name "
                     f"FROM models m LEFT JOIN model_header_verdicts v ON v.sha256 = m.sha256 "
+                    f"LEFT JOIN user_model_meta umm ON umm.model_id = m.id AND umm.user_id = ? "
                     f"WHERE {visible} AND m.id IN ({placeholders})",
-                    (*visible_params, *chunk),
+                    (user_id, *visible_params, *chunk),
                 )
                 for row in cursor.fetchall():
                     rows[row["id"]] = {
@@ -182,6 +222,14 @@ class OrganizeItemRepository:
                         "model_type": row["model_type"],
                         "family": (row["family"] or "").lower() or None,
                         "sha256": row["sha256"],
+                        "file_size": row["file_size"],
+                        "custom_name": row["custom_name"],
+                        "stem": model_stem(row["filename"], row["model_type"]),
+                        "description": row["description"],
+                        "model_metadata": json_column(row["model_metadata"], {}),
+                        "provider_names": [],
+                        "provider_descriptions": [],
+                        "providers": [],
                         "tags": [],
                         "created_at": dt_iso(row["created_at"]),
                     }
@@ -196,7 +244,55 @@ class OrganizeItemRepository:
                 )
                 for row in cursor.fetchall():
                     rows[row["model_id"]]["tags"].append(row["name"])
+                cursor.execute(
+                    f"SELECT model_id, provider, name, description FROM providers WHERE model_id IN ({placeholders}) "
+                    f"ORDER BY created_at, id",
+                    found,
+                )
+                for row in cursor.fetchall():
+                    entry = rows[row["model_id"]]
+                    entry["providers"].append(row["provider"])
+                    if row["name"]:
+                        entry["provider_names"].append(row["name"])
+                    if row["description"]:
+                        entry["provider_descriptions"].append(row["description"])
+                overlays: Dict[str, Dict[str, Any]] = {}
+                if per_user_keys:
+                    cursor.execute(
+                        f"SELECT model_id, key, value FROM user_model_attributes "
+                        f"WHERE user_id = ? AND model_id IN ({placeholders})",
+                        (user_id, *found),
+                    )
+                    for row in cursor.fetchall():
+                        overlays.setdefault(row["model_id"], {})[row["key"]] = json_column(row["value"], None)
+                for model_id in found:
+                    entry = rows[model_id]
+                    entry["sources"] = model_sources(entry["model_type"], entry["providers"])
+                    shared = entry["model_metadata"] if isinstance(entry["model_metadata"], dict) else {}
+                    entry["attributes"] = effective_attributes(
+                        definitions, entry["model_type"], shared, overlays.get(model_id, {})
+                    )
         return [rows[mid] for mid in ids if mid in rows]
+
+    def attribute_definitions(self) -> List[ModelAttributeDefinition]:
+        return AttributeDefinitionRepository().list_all()
+
+    def attribute_definition(self, key: str) -> Optional[ModelAttributeDefinition]:
+        return AttributeDefinitionRepository().get_by_key(key)
+
+    def provider_ids(self) -> List[str]:
+        with _db().get_cursor() as cursor:
+            cursor.execute(
+                "SELECT DISTINCT LOWER(provider) AS provider FROM providers WHERE provider IS NOT NULL AND provider != '' "
+                "ORDER BY provider"
+            )
+            return [row["provider"] for row in cursor.fetchall()]
+
+    def is_admin(self, user_id: str) -> bool:
+        with _db().get_cursor() as cursor:
+            cursor.execute("SELECT account_type FROM users WHERE id = ?", (user_id,))
+            row = cursor.fetchone()
+        return bool(row) and str(row["account_type"] or "").upper() == "ADMIN"
 
     def generation_owner(self, generation_id: str) -> Optional[str]:
         with _db().get_cursor() as cursor:

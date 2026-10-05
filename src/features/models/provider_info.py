@@ -179,6 +179,8 @@ class ProviderInfoFetcher:
                         successful += 1
                         if model_info.description and not model.description:
                             self.model_repo.update_description(model.id, model_info.description)
+                        if self.metadata_editor is not None:
+                            self.metadata_editor.notify_metadata_changed(model.id, ["provider_info"])
                         if model_info.trigger_words:
                             self._fill_trigger_words(model, model_info.trigger_words)
                         if model_info.media_urls:

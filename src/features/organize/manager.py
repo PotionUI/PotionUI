@@ -179,26 +179,43 @@ class OrganizeManager:
                 for o in fact.options
                 if needle in str(o.get("label", "")).casefold() or needle in str(o.get("value", "")).casefold()
             ][:limit]
+        return self._handler_options(fact, user.id, subject, query)[:limit]
+
+    def _handler_options(self, fact: Any, user_id: str, subject: str, query: str) -> List[Dict[str, Any]]:
         try:
             if fact.source == "core":
-                raw = fact.options_handler(user.id, subject, query or "")
+                raw = fact.options_handler(user_id, subject, query or "")
             else:
-                raw = self._options_pool.submit(fact.options_handler, user.id, subject, query or "").result(
+                raw = self._options_pool.submit(fact.options_handler, user_id, subject, query or "").result(
                     timeout=OPTIONS_TIMEOUT_S
                 )
         except FutureTimeout:
-            logger.warning("Auto-organize options for '%s' timed out", key)
+            logger.warning("Auto-organize options for '%s' timed out", fact.key)
             return []
         except Exception:
-            logger.warning("Auto-organize options for '%s' failed", key, exc_info=True)
+            logger.warning("Auto-organize options for '%s' failed", fact.key, exc_info=True)
             return []
-        options = []
+        options: List[Dict[str, Any]] = []
         for entry in raw or []:
             if isinstance(entry, dict) and entry.get("value") is not None:
-                options.append({"value": str(entry["value"]), "label": str(entry.get("label", entry["value"]))})
+                option: Dict[str, Any] = {"value": str(entry["value"]), "label": str(entry.get("label", entry["value"]))}
+                if isinstance(entry.get("meta"), dict):
+                    option["meta"] = dict(entry["meta"])
+                options.append(option)
             elif isinstance(entry, str):
                 options.append({"value": entry, "label": entry})
-        return options[:limit]
+        return options
+
+    def _attribute_specs_for(self, viewer: Viewer) -> Callable[[Any, str], Dict[str, Dict[str, Any]]]:
+        def specs(fact: Any, subject: str) -> Dict[str, Dict[str, Any]]:
+            if fact.options_handler is None:
+                return {}
+            return {
+                option["value"]: {**option.get("meta", {}), "label": option["label"]}
+                for option in self._handler_options(fact, viewer.id, subject, "")
+            }
+
+        return specs
 
     def templates(self, subject: Optional[str]) -> List[Dict[str, Any]]:
         return copy.deepcopy(list_templates(subject))
@@ -347,7 +364,7 @@ class OrganizeManager:
         name, problems = validate_name(payload.get("name"))
         shape, shape_problems = validate_rule_shape(
             self.c.registry, subject, payload.get("match") or "all", payload.get("conditions") or [],
-            payload.get("actions"), viewer.is_admin,
+            payload.get("actions"), viewer.is_admin, attribute_specs=self._attribute_specs_for(viewer),
         )
         problems.extend(shape_problems)
         if not problems:
@@ -624,7 +641,7 @@ class OrganizeManager:
         if self.is_paused_for(user_id):
             return 0
         rules = [r for r in self.c.rules.live_rules(user_id, subject) if not r.paused_reason]
-        if not rules or (trigger == "tags_changed" and not any(self._listens_to(r, trigger) for r in rules)):
+        if not rules or (trigger != "item_created" and not any(self._listens_to(r, trigger) for r in rules)):
             return 0
         is_admin = self.c.rules.is_admin(user_id)
         restricted = self.c.visibility.is_restricted(user_id)
@@ -641,7 +658,7 @@ class OrganizeManager:
                 if rule.stop_after:
                     break
                 continue
-            if trigger == "tags_changed" and not self._listens_to(rule, trigger):
+            if trigger != "item_created" and not self._listens_to(rule, trigger):
                 continue
             reason = self._blocking_reason(rule, user_id, is_admin, restricted)
             if reason:
@@ -715,6 +732,13 @@ class OrganizeManager:
                 return
             for user_id in self.c.rules.users_with_live_rules("model"):
                 self.process_item("model", user_id, model_id, "tags_changed")
+        elif kind == "model_metadata_changed":
+            model_id = payload.get("model_id")
+            if not model_id:
+                return
+            users = [payload["user_id"]] if payload.get("user_id") else self.c.rules.users_with_live_rules("model")
+            for user_id in users:
+                self.process_item("model", user_id, model_id, "metadata_changed")
 
     def _matching_ids(self, viewer: Viewer, subject: str, match: str, conditions: List[Dict[str, Any]],
                       cap: Optional[int]) -> Tuple[List[str], bool]:
@@ -745,6 +769,7 @@ class OrganizeManager:
         shape, problems = validate_rule_shape(
             self.c.registry, subject, payload.get("match") or "all", payload.get("conditions") or [],
             payload.get("actions"), viewer.is_admin, require_actions=False,
+            attribute_specs=self._attribute_specs_for(viewer),
         )
         if problems:
             raise errors.invalid_rule(problems)

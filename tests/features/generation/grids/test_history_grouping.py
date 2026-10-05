@@ -107,6 +107,7 @@ def test_a_filter_that_matches_the_first_cell_keeps_the_grid_as_one_entry(histor
     assert history.ids(result) == ["g1-00"]
     assert result["total"] == 1
     assert result["generations"][0]["grid"]["id"] == "g1"
+    assert "grid_cols" not in result["generations"][0]
 
 
 def test_a_filter_that_matches_cells_but_not_the_grid_lists_the_cells_individually(history):
@@ -119,6 +120,7 @@ def test_a_filter_that_matches_cells_but_not_the_grid_lists_the_cells_individual
     for item in result["generations"]:
         assert "grid" not in item
         assert item["grid_id"] == "g1"
+        assert item["grid_cols"] == 3
     cell = next(item for item in result["generations"] if item["id"] == "g1-20")
     assert (cell["grid_x"], cell["grid_y"]) == (2, 0)
 

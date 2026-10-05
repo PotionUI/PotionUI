@@ -51,7 +51,7 @@ def test_post_returns_the_grid_in_the_standard_envelope(client):
     assert set(grid) == {"id", "preset_id", "tab_id", "x_axis", "y_axis", "lock_seed", "status", "created_at", "cells"}
     assert grid["created_at"].endswith("+00:00")
     assert set(grid["cells"][0]) == {
-        "x", "y", "generation_id", "status", "axis_values", "seed", "thumbnail_url", "media_type", "error",
+        "x", "y", "generation_id", "status", "axis_values", "seed", "thumbnail_url", "media_type", "error", "elapsed_seconds",
     }
 
 

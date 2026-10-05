@@ -203,3 +203,16 @@ def test_confirm_above_defaults_to_24_and_reads_the_stored_setting(harness):
 
     harness.settings_store["compare_confirm_above"] = "junk"
     assert harness.service.read_settings()["confirm_above"] == 24
+
+
+@pytest.mark.asyncio
+async def test_cells_report_elapsed_seconds_from_duration_or_timestamps(harness):
+    grid = await harness.service.create(harness.users["u1"], body(["a", "b", "c"]))
+    harness.set_status("gen-000", "completed", duration_ms=18000)
+    harness.set_status(
+        "gen-001", "completed", started_at="2026-10-05 10:00:00", completed_at="2026-10-05 10:00:07"
+    )
+
+    cells = (await harness.service.get(grid["id"], harness.users["u1"]))["cells"]
+
+    assert [c["elapsed_seconds"] for c in cells] == [18.0, 7.0, None]

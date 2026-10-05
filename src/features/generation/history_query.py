@@ -329,8 +329,12 @@ class GenerationHistoryQuery:
         representatives = grid_repo.representative_ids(grid_ids)
         for item in gen_dicts:
             grid = grids.get(item.get('grid_id'))
-            if grid is not None and representatives.get(grid.id) == item['id']:
+            if grid is None:
+                continue
+            if representatives.get(grid.id) == item['id']:
                 item['grid'] = grid.summary()
+            else:
+                item['grid_cols'] = grid.cols
 
     def serialize_generations(
         self, generations: List[Generation], include_tags: bool, *, viewer_id: Optional[str]

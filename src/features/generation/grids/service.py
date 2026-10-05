@@ -261,6 +261,14 @@ class GridService:
             return "cancelled"
         return "partial"
 
+    @staticmethod
+    def _elapsed_seconds(row: Generation) -> Optional[float]:
+        if row.duration_ms is not None:
+            return row.duration_ms / 1000.0
+        if row.started_at is not None and row.completed_at is not None:
+            return max(0.0, (row.completed_at - row.started_at).total_seconds())
+        return None
+
     def _thumbnail(self, item: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
         files = [f for f in item.get("files") or [] if f.get("id")]
         if not files:
@@ -284,6 +292,7 @@ class GridService:
                     "x": x, "y": y, "generation_id": None, "status": "deleted",
                     "axis_values": expected, "seed": grid.seeds.get(cell_key(x, y)),
                     "thumbnail_url": None, "media_type": None, "error": None,
+                    "elapsed_seconds": None,
                 })
                 continue
             item = by_id.get(row.id)
@@ -303,6 +312,7 @@ class GridService:
                 "thumbnail_url": thumb,
                 "media_type": media,
                 "error": error,
+                "elapsed_seconds": self._elapsed_seconds(row),
             })
         return {
             "id": grid.id,

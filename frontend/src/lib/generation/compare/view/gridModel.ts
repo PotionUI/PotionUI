@@ -1,6 +1,6 @@
 import type { ActiveGrid, CompareAxis, GridCell } from '../compareStore.svelte';
 
-export const GRIDS_BASE = '/api/generation/grids';
+export const GRIDS_BASE = '/api/generations/grids';
 
 export const PROMPT_AXIS_FIELD = '__prompt__';
 

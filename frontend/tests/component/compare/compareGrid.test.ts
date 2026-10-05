@@ -231,8 +231,8 @@ describe('compare grid view', () => {
 	});
 
 	it('draws a single-axis grid as one unlabelled row', () => {
-		const single = { ...makeGrid(['completed', 'completed', 'completed']), rows: 1 };
-		single.config = { ...single.config, y: null };
+		const single = { ...makeGrid(['completed', 'completed', 'completed']), rows: 1 } as Record<string, unknown>;
+		single.config = { armed: true, x: sampler, y: null, lockSeed: true };
 		const { target } = mount(CompareGrid, { grid: single });
 		expect(qa(target, '[data-testid="compare-y-label"]')).toHaveLength(1);
 		expect(qa(target, '[data-testid="compare-y-label"]')[0].textContent?.trim()).toBe('');

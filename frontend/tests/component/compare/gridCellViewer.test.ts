@@ -185,7 +185,7 @@ describe('grid cell viewer', () => {
 	});
 
 	it('cannot use a cell whose axes the form cannot take', async () => {
-		const grid = makeGrid();
+		const grid = makeGrid() as Record<string, any>;
 		grid.config = {
 			...grid.config,
 			x: { ...sampler, field: '__prompt__', type: 'prompt' },

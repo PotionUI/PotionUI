@@ -94,7 +94,8 @@ test('DynamicForm image field survives a History pick alongside onOriginChange',
 	await page.waitForTimeout(BEAT);
 
 	const modeLabel = img2img.label || img2img.name;
-	await page.getByRole('button', { name: modeLabel, exact: true }).click();
+	await page.getByTestId('preset-header-mode').getByRole('button').first().click();
+	await page.getByRole('option', { name: new RegExp(`^${modeLabel}`) }).first().click();
 	await page.waitForTimeout(BEAT);
 
 	// 04f53dc7 ("Reference media gets its own tab, out of the generation tab")

@@ -100,7 +100,8 @@ async function openFakeVideo(page: Page, mode: 'txt2video' | 'img2video' = 'txt2
 		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
 	}
 	if (mode === 'img2video') {
-		await page.getByRole('button', { name: /img2video|image.?to.?video/i }).first().click();
+		await page.getByTestId('preset-header-mode').getByRole('button').first().click();
+		await page.getByRole('option', { name: /img2video|image.?to.?video/i }).first().click();
 	}
 	await expect(director(page)).toBeVisible({ timeout: 20000 });
 	await expect(field(page, 'model')).toBeVisible({ timeout: 20000 });
@@ -237,7 +238,8 @@ test.describe('Video Director for a cloud video preset', () => {
 		await expect(limits(page)).toContainText('Shots of 3, 5 s');
 		await expect(director(page).locator('.kf-anchor')).toHaveCount(1);
 
-		await page.getByRole('button', { name: /img2video|image.?to.?video/i }).first().click();
+		await page.getByTestId('preset-header-mode').getByRole('button').first().click();
+		await page.getByRole('option', { name: /img2video|image.?to.?video/i }).first().click();
 		await expect(director(page)).toBeVisible();
 		await pickModel(page, DIRECTOR);
 		await expect(limits(page)).toContainText('Ends on a picture');

@@ -151,7 +151,7 @@ test('preset form frames and the prompt segment editor', async ({ page }) => {
 	await expectNoRing(inner);
 	await expectRing(frame, signal);
 
-	const button = frame.locator('button').first();
+	const button = frame.locator('button:not([disabled])').first();
 	await page.keyboard.press('Tab');
 	await keyboardFocus(page, button);
 	await expectNoRing(button);

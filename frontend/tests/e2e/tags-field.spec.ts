@@ -42,7 +42,6 @@ test('tags field: pick, type, remove, and the joined string reaches the form', a
 	await presetList.getByText(yue2!.name, { exact: true }).click();
 	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
 
-	await expect(page.locator('[role="tablist"]').first()).toBeVisible({ timeout: 20000 });
 
 	const styleField = page.locator('.field-card', { hasText: 'Style tags' });
 	await expect(styleField).toBeVisible({ timeout: 20000 });

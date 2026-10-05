@@ -81,7 +81,8 @@ export async function openControlTab(page: Page, mobile: boolean, name: string):
 		await sheet.locator('button[aria-haspopup="dialog"]').first().click();
 		await page.getByText(name, { exact: true }).first().click();
 		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-		await sheet.getByRole('button', { name: 'Control', exact: true }).first().click();
+		await sheet.getByTestId('preset-header-mode').getByRole('button').first().click();
+		await page.getByRole('option', { name: /^Control/ }).first().click();
 		await page.keyboard.press('Escape');
 		await expect(sheet).toBeHidden();
 		const settings = page.getByRole('dialog', { name: 'Settings' });
@@ -93,7 +94,8 @@ export async function openControlTab(page: Page, mobile: boolean, name: string):
 		await page.getByRole('button', { name: 'Choose a preset' }).click();
 		await page.getByText(name, { exact: true }).first().click();
 		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-		await page.getByRole('button', { name: 'Control', exact: true }).first().click();
+		await page.getByTestId('preset-header-mode').getByRole('button').first().click();
+		await page.getByRole('option', { name: /^Control/ }).first().click();
 	}
 	const root = mobile ? page.getByRole('dialog', { name: 'Settings' }) : page.locator('body');
 	const tab = page.getByRole('tab', { name: 'Control', exact: true }).first();

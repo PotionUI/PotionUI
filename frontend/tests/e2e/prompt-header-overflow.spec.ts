@@ -40,7 +40,9 @@ test('prompt header actions collapse into the more menu as the prompts pane is d
 	await page.setViewportSize({ width: 1600, height: 900 });
 	await page.goto('/generate');
 	await installAndSelectImagePreset(page);
-	await page.goto('/generate');
+
+	await page.getByRole('button', { name: 'More view options' }).click();
+	await page.getByRole('option', { name: /Three panes/ }).click();
 
 	const handle = page.getByTestId('prompts-workbench-handle');
 	await expect(handle).toBeVisible({ timeout: 20000 });

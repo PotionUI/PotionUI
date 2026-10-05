@@ -533,6 +533,8 @@ class TestGenerationController:
             min_rating=None,
             favorites_only=False,
             collection_id=None,
+            include_descendants=True,
+            unsorted=False,
             used_phrasebook_value_id=None,
             sort_by=None,
             sort_dir=None,

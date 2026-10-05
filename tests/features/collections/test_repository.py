@@ -217,6 +217,21 @@ class TestCollectionRepository(PersistenceTestBase):
         self.assertEqual(added, 0)
         self.assertEqual(self.repo.get_by_id(created.id, HISTORY).item_count, 0)
 
+    def test_add_members_skips_another_users_generation(self):
+        created = self.repo.create("Album", self.test_user_id, HISTORY)
+        other_user = self.create_test_user("other_user", "otheruser", "other@example.com")
+        foreign = Generation(
+            id=generate_ulid(), preset_id="test_preset", form_data={"prompt": "theirs"},
+            user_id=other_user, status="completed", preset_version="1.0",
+        )
+        self.gen_repo.create(foreign)
+        mine = self._make_generation()
+
+        added = self.repo.add_members(created.id, [foreign.id, mine], self.test_user_id, HISTORY)
+
+        self.assertEqual(added, 1)
+        self.assertEqual(self.repo.get_by_id(created.id, HISTORY).item_count, 1)
+
     def test_add_members_rejects_wrong_scope(self):
         created = self.repo.create("Album", self.test_user_id, HISTORY)
         gen = self._make_generation()

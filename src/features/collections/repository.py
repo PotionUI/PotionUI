@@ -246,15 +246,18 @@ class CollectionRepository:
             if not self._owns(cursor, collection_id, user_id, scope):
                 return 0
 
+            inserted = []
             for generation_id in generation_ids:
                 cursor.execute("""
                     INSERT OR IGNORE INTO collection_generations (collection_id, generation_id, created_at)
-                    VALUES (?, ?, CURRENT_TIMESTAMP)
-                """, (collection_id, generation_id))
-                added += cursor.rowcount
+                    SELECT ?, g.id, CURRENT_TIMESTAMP FROM generations g WHERE g.id = ? AND g.user_id = ?
+                """, (collection_id, generation_id, user_id))
+                if cursor.rowcount > 0:
+                    added += cursor.rowcount
+                    inserted.append(generation_id)
 
-            if added:
-                bump_history_revision_for_generations(cursor, generation_ids)
+            if inserted:
+                bump_history_revision_for_generations(cursor, inserted)
 
         return added
 

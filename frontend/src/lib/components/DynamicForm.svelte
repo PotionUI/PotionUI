@@ -109,6 +109,24 @@
 	let schemaError = '';
 	let initialLoadComplete = false;
 	const schemaRequest = createLatestRequestGuard();
+	const SCHEMA_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000];
+	let schemaRetryCount = 0;
+	let schemaRetryTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function cancelSchemaRetry() {
+		clearTimeout(schemaRetryTimer);
+		schemaRetryTimer = undefined;
+	}
+
+	function scheduleSchemaRetry() {
+		cancelSchemaRetry();
+		if (schemaRetryCount >= SCHEMA_RETRY_DELAYS_MS.length) return;
+		const delay = SCHEMA_RETRY_DELAYS_MS[schemaRetryCount++];
+		schemaRetryTimer = setTimeout(() => {
+			schemaRetryTimer = undefined;
+			if (!formSchema) void loadFormSchema();
+		}, delay);
+	}
 	let capabilityRevision = 0;
 	let capabilityHiddenNames: Set<string> = new Set();
 	const capabilityTracker = createCapabilityTracker({
@@ -264,6 +282,8 @@
 		const requestPresetId = presetId;
 		const requestMode = mode;
 		const requestVariant = variant;
+		cancelSchemaRetry();
+		if (force) schemaRetryCount = 0;
 		try {
 			capabilityTracker.reset();
 			publishedSnapshots = [];
@@ -294,11 +314,13 @@
 			formData = mergeFormData(schemaDefaults, applyMergeFrom(schema, initialData));
 			previousInitialDataKey = JSON.stringify(initialData);
 			initialLoadComplete = true;
+			schemaRetryCount = 0;
 		} catch (error) {
 			if (!schemaRequest.isCurrent(requestId)) return;
 			logger.error('Failed to load form schema:', error);
 			formSchema = null;
 			schemaError = error instanceof Error ? error.message : 'Could not load the form schema.';
+			scheduleSchemaRetry();
 		} finally {
 			if (schemaRequest.isCurrent(requestId)) schemaLoading = false;
 		}
@@ -338,6 +360,7 @@
 		const currentKey = `${presetId}-${mode}-${variant ?? ''}`;
 		if (currentKey !== previousKey && presetId) {
 			previousKey = currentKey;
+			schemaRetryCount = 0;
 			// The first normalized payload for a new schema must publish even if
 			// it serializes the same as the previous schema's payload.
 			lastPublishedFormDataKey = null;
@@ -452,6 +475,7 @@
 
 	onDestroy(() => {
 		capabilityTracker.destroy();
+		cancelSchemaRetry();
 		schemaRequest.invalidate();
 	});
 </script>

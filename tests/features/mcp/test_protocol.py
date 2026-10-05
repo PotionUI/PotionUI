@@ -440,3 +440,46 @@ class TestModelVisibilityOverMcp:
         assert result["isError"] is False
         payload = json.loads(result["content"][0]["text"])
         assert payload["id"] == model.id
+
+
+class TestPromptReadTools:
+    @pytest.mark.asyncio
+    async def test_tools_list_includes_both_and_get_prompt_is_callable(self, mcp_db):
+        from src.features.llm.tools.builtin.manage_prompts_tool import GetPromptTool, ListPromptsTool
+        from src.features.prompt_database.records import Prompt
+        from src.features.prompt_database.repository import PromptRepository
+        from src.features.segments.dto import RichSegment
+
+        registry = ToolRegistry()
+        registry.register(GetPromptTool())
+        registry.register(ListPromptsTool())
+        with mcp_db.get_cursor() as cursor:
+            for user_id in ("user-1", "user-2"):
+                cursor.execute(
+                    "INSERT INTO users (id, username, email, password_hash) VALUES (?, ?, ?, ?)",
+                    (user_id, user_id, f"{user_id}@example.com", "x"),
+                )
+        repository = PromptRepository()
+        saved = repository.create(Prompt(user_id="user-1", name="Study", segments=[RichSegment(content="a fox")]))
+        collaborators = McpToolCollaborators(
+            tool_registry=registry,
+            tool_governance_repository=ToolGovernanceRepository(),
+            llm_repository=_no_default_config(),
+            prompt_database=SimpleNamespace(repository=repository),
+        )
+
+        listed = await handle_method(collaborators, "tools/list", {}, "user-1")
+        called = await handle_method(
+            collaborators, "tools/call",
+            {"name": "get_prompt", "arguments": {"prompt_id": saved.id}}, "user-1",
+        )
+        foreign = await handle_method(
+            collaborators, "tools/call",
+            {"name": "get_prompt", "arguments": {"prompt_id": saved.id}}, "user-2",
+        )
+
+        assert {"get_prompt", "list_prompts"} <= {t["name"] for t in listed["tools"]}
+        payload = json.loads(called["content"][0]["text"])
+        assert payload["prompt_id"] == saved.id
+        assert payload["segments"][0]["content"] == "a fox"
+        assert foreign.get("isError") is True

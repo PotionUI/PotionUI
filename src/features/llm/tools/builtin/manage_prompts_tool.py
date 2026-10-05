@@ -93,6 +93,121 @@ def _prompt_request(existing=None, **kwargs) -> PromptRequest:
     return PromptRequest(**values)
 
 
+class GetPromptTool(BaseTool):
+    modes = ["generation", "prompts"]
+    icon = "book-open"
+
+    @property
+    def name(self): return "get_prompt"
+
+    @property
+    def group(self): return "Saved prompts"
+
+    @property
+    def user_description(self): return "Reads one prompt from your library in full."
+
+    @property
+    def hint(self): return "When the user wants to read a saved Prompt, or before editing one"
+
+    @property
+    def description(self):
+        return (
+            "Read one saved Prompt in full: name, usage_hint, every segment with its chips, "
+            "and its ${name} variables. The result has the same shape edit_prompt accepts, "
+            "so read it first, change what is needed, and send it back."
+        )
+
+    @property
+    def requires_approval(self): return False
+
+    @property
+    def parameters(self):
+        return {"type": "object", "properties": {"prompt_id": {"type": "string"}}, "required": ["prompt_id"]}
+
+    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+        prompt_id = kwargs.get("prompt_id")
+        existing = (
+            context.prompt_database.repository.get_by_id(prompt_id, context.user_id)
+            if context.prompt_database and prompt_id else None
+        )
+        if existing is None:
+            return ToolResult(success=False, data="", error=f"Prompt '{prompt_id}' not found")
+        payload = {
+            "prompt_id": existing.id,
+            "name": existing.name,
+            "usage_hint": existing.usage_hint,
+            "segments": [segment.model_dump(mode="json", exclude_none=True) for segment in existing.segments],
+            "variables": existing.variables or {},
+            "is_favorite": existing.is_favorite,
+        }
+        return ToolResult(success=True, data=json.dumps(payload))
+
+
+class ListPromptsTool(BaseTool):
+    modes = ["generation", "prompts"]
+    icon = "book-open"
+
+    @property
+    def name(self): return "list_prompts"
+
+    @property
+    def group(self): return "Saved prompts"
+
+    @property
+    def user_description(self): return "Lists the prompts in your library."
+
+    @property
+    def hint(self): return "When the user wants to browse or find saved Prompts"
+
+    @property
+    def description(self):
+        return (
+            "List the user's saved Prompts, newest first, with id, name, usage_hint, a short "
+            "text preview and updated_at. Use get_prompt for the full content."
+        )
+
+    @property
+    def requires_approval(self): return False
+
+    @property
+    def parameters(self):
+        return {
+            "type": "object",
+            "properties": {
+                "search": {"type": "string", "description": "Match against name and text."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+                "offset": {"type": "integer", "minimum": 0, "default": 0},
+            },
+        }
+
+    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+        if not context.prompt_database:
+            return ToolResult(success=False, data="", error="Prompt library not available")
+        try:
+            limit = min(max(int(kwargs.get("limit") or 20), 1), 100)
+            offset = max(int(kwargs.get("offset") or 0), 0)
+        except (TypeError, ValueError):
+            return ToolResult(success=False, data="", error="limit and offset must be integers")
+        prompts = context.prompt_database.repository.get_all(
+            context.user_id, limit=limit, offset=offset,
+            q=(kwargs.get("search") or "").strip() or None, sort_by="updated_at",
+        )
+        return ToolResult(success=True, data=json.dumps({
+            "prompts": [
+                {
+                    "id": prompt.id,
+                    "name": prompt.display_name,
+                    "usage_hint": prompt.usage_hint,
+                    "preview": _truncate(" ".join((prompt.flattened_text or "").split()), 120),
+                    "updated_at": prompt.updated_at.isoformat() if prompt.updated_at else None,
+                }
+                for prompt in prompts
+            ],
+            "limit": limit,
+            "offset": offset,
+        }))
+
+
 class AddPromptTool(BaseTool):
     modes = ["generation", "prompts"]
     icon = "book-plus"

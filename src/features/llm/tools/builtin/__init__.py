@@ -25,7 +25,9 @@ from src.features.llm.tools.builtin.update_form_settings_tool import UpdateFormS
 from src.features.llm.tools.builtin.prompt_variables_tool import ManagePromptVariablesTool
 from src.features.llm.tools.builtin.search_prompts_tool import SearchModelPromptsTool
 from src.features.llm.tools.builtin.search_gallery_tool import SearchGalleryTool
-from src.features.llm.tools.builtin.manage_prompts_tool import AddPromptTool, EditPromptTool, DeletePromptTool
+from src.features.llm.tools.builtin.manage_prompts_tool import (
+    AddPromptTool, DeletePromptTool, EditPromptTool, GetPromptTool, ListPromptsTool,
+)
 from src.features.llm.tools.builtin.run_generation_tool import RunGenerationTool
 from src.features.llm.tools.builtin.list_models_tool import ListModelsTool
 from src.features.llm.tools.builtin.memory_tool import (
@@ -67,6 +69,8 @@ def register_builtin_tools(registry) -> None:
         ManagePromptVariablesTool(),
         SearchModelPromptsTool(),
         SearchGalleryTool(),
+        GetPromptTool(),
+        ListPromptsTool(),
         AddPromptTool(),
         EditPromptTool(),
         DeletePromptTool(),

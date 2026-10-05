@@ -109,6 +109,8 @@ class TestRegisterBuiltinTools:
             "manage_prompt_variables",
             "search_model_prompts",
             "search_gallery",
+            "get_prompt",
+            "list_prompts",
             "add_prompt",
             "edit_prompt",
             "delete_prompt",

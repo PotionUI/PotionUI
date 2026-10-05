@@ -10,7 +10,8 @@ tests assert against it exactly like the previous manager mock. Reads
 
 import json
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, Mock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -21,7 +22,12 @@ from src.features.llm.tools.builtin.manage_prompts_tool import (
     AddPromptTool,
     DeletePromptTool,
     EditPromptTool,
+    GetPromptTool,
+    ListPromptsTool,
 )
+from src.features.prompt_database.dto import PromptRequest
+from src.features.prompt_database.repository import PromptRepository
+from tests.conftest import TestDatabase
 from src.features.prompt_database.records import Prompt
 
 
@@ -341,3 +347,110 @@ async def test_delete_preview_is_legacy_action_target_and_summary(mock_operation
     assert result.preview.summary == "a fox a hound"
     assert result.preview.kind is None
     assert result.preview.fields is None
+
+
+@pytest.fixture
+def library():
+    test_database = TestDatabase.from_template()
+    with test_database.get_cursor() as cursor:
+        for user_id in ("user-1", "user-2"):
+            cursor.execute(
+                "INSERT INTO users (id, username, email, password_hash) VALUES (?, ?, ?, ?)",
+                (user_id, user_id, f"{user_id}@example.com", "x"),
+            )
+    with patch("src.platform.database.database.db", test_database):
+        yield SimpleNamespace(repository=PromptRepository())
+    test_database.close()
+
+
+def save(library, user_id, name, text, **extra):
+    return library.repository.create(Prompt(
+        user_id=user_id, name=name, segments=[RichSegment(content=text)], **extra,
+    ))
+
+
+@pytest.mark.asyncio
+async def test_get_prompt_output_round_trips_into_edit_arguments(library):
+    variables = {
+        "mood": {
+            "type": "choice", "mode": "pin", "pinnedIndex": 1,
+            "options": ["calm", {"text": "stormy", "when": {"var": "sky", "values": ["dark"]}}],
+        },
+        "sky": {"type": "choice", "mode": "shuffle", "options": ["dark", "clear"]},
+    }
+    saved = library.repository.create(Prompt(
+        user_id="user-1", name="Study", usage_hint="negative", variables=variables,
+        segments=[RichSegment(content="a fox", name="Subject", color="#d97706", enabled=False)],
+    ))
+    context = make_context(SimpleNamespace(repository=library.repository))
+
+    result = await GetPromptTool().execute(context, prompt_id=saved.id)
+
+    assert result.success is True
+    payload = json.loads(result.data)
+    assert payload["prompt_id"] == saved.id
+    assert payload["usage_hint"] == "negative"
+    assert payload["variables"] == variables
+    assert payload["segments"][0]["enabled"] is False
+    edit_arguments = {key: payload[key] for key in ("prompt_id", "name", "usage_hint", "segments", "variables")}
+    PromptRequest(**{key: value for key, value in edit_arguments.items() if key != "prompt_id"})
+    edit = await EditPromptTool().execute(context, **edit_arguments)
+    assert edit.success is True
+    assert json.loads(edit.data)["proposal"]["new"]["variables"] == variables
+
+
+def test_read_tools_need_no_approval():
+    assert GetPromptTool().requires_approval is False
+    assert ListPromptsTool().requires_approval is False
+
+
+@pytest.mark.asyncio
+async def test_get_prompt_hides_another_users_prompt(library):
+    saved = save(library, "user-2", "Theirs", "secret")
+    context = make_context(SimpleNamespace(repository=library.repository), user_id="user-1")
+
+    result = await GetPromptTool().execute(context, prompt_id=saved.id)
+
+    assert result.success is False
+    assert "not found" in result.error
+
+
+@pytest.mark.asyncio
+async def test_get_prompt_unknown_id_is_not_found(library):
+    context = make_context(SimpleNamespace(repository=library.repository))
+
+    result = await GetPromptTool().execute(context, prompt_id="missing")
+
+    assert result.success is False
+    assert "not found" in result.error
+
+
+@pytest.mark.asyncio
+async def test_list_prompts_returns_only_own_prompts_with_preview(library):
+    mine = save(library, "user-1", "Mine", "a fox " * 40)
+    save(library, "user-2", "Theirs", "a hound")
+    context = make_context(SimpleNamespace(repository=library.repository))
+
+    result = await ListPromptsTool().execute(context)
+
+    items = json.loads(result.data)["prompts"]
+    assert [item["id"] for item in items] == [mine.id]
+    assert items[0]["name"] == "Mine"
+    assert len(items[0]["preview"]) <= 123
+    assert items[0]["updated_at"]
+
+
+@pytest.mark.asyncio
+async def test_list_prompts_searches_and_pages(library):
+    for index in range(5):
+        save(library, "user-1", f"Fox {index}", "a fox")
+    save(library, "user-1", "Hound", "a hound")
+    context = make_context(SimpleNamespace(repository=library.repository))
+
+    found = json.loads((await ListPromptsTool().execute(context, search="fox")).data)["prompts"]
+    first = json.loads((await ListPromptsTool().execute(context, search="fox", limit=2)).data)["prompts"]
+    second = json.loads((await ListPromptsTool().execute(context, search="fox", limit=2, offset=2)).data)["prompts"]
+
+    assert len(found) == 5
+    assert len(first) == 2 and len(second) == 2
+    assert not {item["id"] for item in first} & {item["id"] for item in second}

@@ -2,11 +2,13 @@ import { generationMessageRegistry } from '$lib/registries/generationMessageRegi
 import { playGenerationCompleteSound } from '$lib/utils/generationSounds';
 import { directorShotIdsFor, withDirectorRunTerminal, withoutDirectorRunLink } from './directorRuns';
 import { isTabsCurrentGeneration, withoutQueueEntry, nextQueueCandidate, beginGenerationOwnership } from './ownership';
+import { refreshLimitsSoon } from '$lib/plans/store';
 import { peekGenerationOutputs, retireGeneration, leadOutputPatch } from './generationOutputs';
 
 generationMessageRegistry.register('generation_complete', {
 	type: 'generation_complete',
 	handle(message: any, ctx) {
+		refreshLimitsSoon();
 		const targetTabId = ctx.tabId;
 		const targetTab = ctx.tab;
 		const isOwner = isTabsCurrentGeneration(targetTab, ctx.generationId);

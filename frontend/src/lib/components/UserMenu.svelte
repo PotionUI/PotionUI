@@ -6,6 +6,8 @@
 	import { autoOrganizeCounts, autoOrganizeHref } from '$lib/stores/autoOrganizeCounts';
 	import { readLastSubject } from '$lib/organize/lastSubject';
 	import Icon from './Icon.svelte';
+	import MenuUsage from '$lib/plans/components/MenuUsage.svelte';
+	import { limits } from '$lib/plans/store';
 
 	let open = false;
 	let menuEl: HTMLDivElement;
@@ -46,6 +48,11 @@
 	function openAutoOrganize() {
 		close();
 		goto(autoOrganizeHref(readLastSubject()));
+	}
+
+	function openPlan() {
+		close();
+		goto('/settings#plan');
 	}
 
 	function handleLogout() {
@@ -167,6 +174,12 @@
 						{/if}
 					</button>
 				</div>
+
+				{#if $limits.length > 0}
+					<div class="px-2.5 pb-2.5 pt-1">
+						<MenuUsage rows={$limits} onOpen={openPlan} />
+					</div>
+				{/if}
 
 				{#if !$nsfwFilterStore.restricted}
 				<div class="px-2.5 py-2 border-t border-line">

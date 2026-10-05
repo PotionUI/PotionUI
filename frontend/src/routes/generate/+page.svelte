@@ -4,6 +4,9 @@
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
 	import type { PromptTabData, DirectorRunState, Tab } from '$lib/types/tabs';
 	import { authStore } from '$lib/stores/auth';
+	import { generateGate } from '$lib/plans/store';
+	import { refusalFromError } from '$lib/plans/refusal';
+	import LimitNotice from '$lib/plans/components/LimitNotice.svelte';
 	import { api, type GenerationRequest, type PresetStyle } from '$lib/services/api';
 	import type { GenerationQueueSnapshot } from '$lib/types/api';
 	import { buildVariablesPayload } from '$lib/utils/generationOrchestrator';
@@ -1532,7 +1535,7 @@
 			const failure = classifyGenerationStartError(error);
 			if (failure.kind === 'field_validation') {
 				formValidationStore.setErrors(activeTabId, failure.fieldErrors);
-			} else {
+			} else if (!refusalFromError(error)) {
 				toasts.error(failure.message);
 			}
 
@@ -1688,12 +1691,13 @@
 						);
 		}
 
-		canGenerate = !!currentTab.selectedPreset && hasPrompt && !resourceIssue;
+		const limitGate = $generateGate;
+		canGenerate = !!currentTab.selectedPreset && hasPrompt && !resourceIssue && !limitGate;
 		generateDisabledReason = canGenerate
 			? undefined
 			: !currentTab.selectedPreset
 				? 'Select a preset to generate'
-				: resourceIssue || noPromptReason;
+				: resourceIssue || (!hasPrompt ? noPromptReason : limitGate?.reason);
 	}
 
 	// Workbench event handlers
@@ -1946,6 +1950,8 @@
 			{/if}
 		</div>
 	{/each}
+
+	<LimitNotice />
 
 	<!-- Generation Panel - Desktop only. `.generation-panel` (maintainer ruling)
 		keeps the pre-port docked-bar container: fixed, full-width, flush to the

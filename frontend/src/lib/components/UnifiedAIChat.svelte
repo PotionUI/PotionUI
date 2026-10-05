@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { refusalMessage } from '$lib/plans/refusal';
 	import { logger } from '$lib/utils/logger';
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { onDestroy, tick } from 'svelte';
@@ -1534,7 +1535,7 @@
 			handleMediaLoaderChange('vision_image', mediaItem);
 		} catch (error) {
 			logger.error('Failed to upload pasted image:', error);
-			chatSession.patch({ error: 'Failed to attach the pasted image.' });
+			chatSession.patch({ error: refusalMessage(error) ?? 'Failed to attach the pasted image.' });
 		}
 	}
 

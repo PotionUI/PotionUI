@@ -4,6 +4,7 @@
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
 	import { authStore } from '$lib/stores/auth';
+	import { installLimitsWatcher, refreshLimits, resetLimitsState } from '$lib/plans/store';
 	import { keybindingsStore } from '$lib/stores/keybindings';
 	import { chatPanelStore } from '$lib/stores/chatPanel';
 	import { init as initKeyboard, destroy as destroyKeyboard } from '$lib/services/keyboard';
@@ -141,11 +142,14 @@
 		notificationsInitialized = true;
 		notifications.load();
 		notificationsWebSocket.connect();
+		installLimitsWatcher();
+		refreshLimits();
 	}
 	$: if (mounted && !$authStore.isAuthenticated && notificationsInitialized) {
 		notificationsInitialized = false;
 		notificationsWebSocket.disconnect();
 		notifications.reset();
+		resetLimitsState();
 	}
 
 	function registerCoreHandlers() {

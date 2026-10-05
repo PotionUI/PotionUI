@@ -2,6 +2,7 @@ import { generationMessageRegistry, type GenerationMessageHandler } from '$lib/r
 import { playGenerationErrorSound } from '$lib/utils/generationSounds';
 import { directorShotIdsFor, withDirectorRunTerminal, withoutDirectorRunLink } from './directorRuns';
 import { isTabsCurrentGeneration, withoutQueueEntry, nextQueueCandidate, beginGenerationOwnership } from './ownership';
+import { refreshLimitsSoon } from '$lib/plans/store';
 import { peekGenerationOutputs, retireGeneration } from './generationOutputs';
 
 // Handles both 'generation_error' and 'generation_cancelled' - moved verbatim
@@ -9,6 +10,7 @@ import { peekGenerationOutputs, retireGeneration } from './generationOutputs';
 const handler: GenerationMessageHandler = {
 	type: 'generation_error',
 	handle(message: any, ctx) {
+		refreshLimitsSoon();
 		const targetTabId = ctx.tabId;
 		const targetTab = ctx.tab;
 		const isOwner = isTabsCurrentGeneration(targetTab, ctx.generationId);

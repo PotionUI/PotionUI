@@ -14,6 +14,7 @@ import {
 import { collectCopyableFileIds, type CopyableGeneration } from '$lib/library/copyToLibrary';
 import { isSameLibraryRow, mergeEditedLibraryItem } from '$lib/library/libraryItemEdit';
 import type { EditedMediaItem } from '$lib/services/api/media';
+import { refusalMessage } from '$lib/plans/refusal';
 
 export const LIBRARY_ITEMS_PER_PAGE_OPTIONS = [12, 24, 48, 96] as const;
 
@@ -362,10 +363,11 @@ function createLibraryStore() {
 		},
 
 		/** Uploads files into the library, one request each, then reloads page 1. */
-		async upload(files: File[]): Promise<{ uploaded: number; failed: number }> {
+		async upload(files: File[]): Promise<{ uploaded: number; failed: number; refusal: string | null }> {
 			update((state) => ({ ...state, uploading: true }));
 			let uploaded = 0;
 			let failed = 0;
+			let refusal: string | null = null;
 
 			for (const file of files) {
 				try {
@@ -375,6 +377,8 @@ function createLibraryStore() {
 				} catch (error) {
 					logger.error('Failed to upload library file:', getErrorMessage(error));
 					failed += 1;
+					refusal = refusalMessage(error);
+					if (refusal) break;
 				}
 			}
 
@@ -383,7 +387,7 @@ function createLibraryStore() {
 				await load();
 				await this.loadFacets();
 			}
-			return { uploaded, failed };
+			return { uploaded, failed, refusal };
 		},
 
 		/**

@@ -9,6 +9,7 @@
 	import type { NotificationTypePref } from '$lib/services/api/notifications';
 	import { Badge, Button, Card, Input, PageContainer, PageHeader, Spinner, Switch, Alert } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
+	import PlanUsageCard from '$lib/plans/components/PlanUsageCard.svelte';
 	import MediaLoaderField from '$lib/components/form-fields/MediaLoaderField.svelte';
 	import { resolveAvatarFileFromMediaItem } from './avatarMediaPick';
 	import { validatePasswordChange, type PasswordChangeErrors } from '$lib/utils/passwordValidation';
@@ -492,6 +493,8 @@
 				{/if}
 			</Card>
 		{/if}
+
+		<PlanUsageCard />
 
 		<!-- Appearance -->
 		<Card>

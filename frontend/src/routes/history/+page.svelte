@@ -25,6 +25,7 @@
 	import HistoryToolbar from './components/HistoryToolbar.svelte';
 	import HistoryTagsBar from './components/HistoryTagsBar.svelte';
 	import HistorySidebar from './components/HistorySidebar.svelte';
+	import HistoryUsageCard from '$lib/plans/components/HistoryUsageCard.svelte';
 	import HistorySelectionToolbar from './components/HistorySelectionToolbar.svelte';
 	import HistoryGrid from './components/HistoryGrid.svelte';
 	import HistoryDeleteModal from './components/HistoryDeleteModal.svelte';
@@ -263,7 +264,10 @@
 <div class="flex h-[100dvh] bg-canvas">
 	{#if sidebarOpen}
 		<aside class="hidden md:flex w-60 flex-shrink-0 flex-col border-r border-line bg-surface-1 z-20">
-			<HistorySidebar onCollapse={() => (sidebarOpen = false)} />
+			<div class="flex-1 min-h-0">
+				<HistorySidebar onCollapse={() => (sidebarOpen = false)} />
+			</div>
+			<HistoryUsageCard />
 		</aside>
 	{:else}
 		<aside class="hidden md:flex w-8 flex-shrink-0 flex-col border-r border-line bg-surface-1 z-20">

@@ -84,11 +84,13 @@
 		input.value = '';
 		if (files.length === 0) return;
 
-		const { uploaded, failed } = await libraryStore.upload(files);
+		const { uploaded, failed, refusal } = await libraryStore.upload(files);
 		if (uploaded > 0) {
 			toasts.success(`Added ${uploaded} file${uploaded === 1 ? '' : 's'} to your library`);
 		}
-		if (failed > 0) {
+		if (refusal) {
+			toasts.error(refusal);
+		} else if (failed > 0) {
 			toasts.error(`${failed} file${failed === 1 ? '' : 's'} could not be uploaded`);
 		}
 	}

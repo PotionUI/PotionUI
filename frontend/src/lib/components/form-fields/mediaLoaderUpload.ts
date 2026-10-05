@@ -1,3 +1,5 @@
+import { limitRefusalError, parseLimitRefusal, refusalMessage } from '$lib/plans/refusal';
+import { reportLimitRefusal } from '$lib/plans/store';
 /**
  * Turns a completed `/api/media/upload` response into the media item shape
  * this field persists.
@@ -92,7 +94,13 @@ export function postUpload(
 			if (request.status >= 200 && request.status < 300 && parsed?.success && parsed?.data) {
 				resolve({ data: parsed.data });
 			} else {
-				reject(new Error(parsed?.message || 'Failed to upload file'));
+				const refusal = parseLimitRefusal(parsed);
+				if (refusal) {
+					reportLimitRefusal(refusal);
+					reject(limitRefusalError(refusal, refusalMessage({ limitRefusal: refusal }) ?? 'Failed to upload file'));
+				} else {
+					reject(new Error(parsed?.message || 'Failed to upload file'));
+				}
 			}
 		};
 		request.onerror = () => reject(new Error('Failed to upload file'));

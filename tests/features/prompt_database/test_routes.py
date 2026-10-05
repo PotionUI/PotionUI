@@ -929,3 +929,69 @@ def test_favorite_route_returns_not_found_for_foreign_prompt(client, collaborato
     response = client.put("/api/prompts/p1/favorite", json={"is_favorite": True})
 
     assert response.status_code == 404
+
+
+def _nsfw_prompt():
+    prompt = make_prompt("spicy-1", "explicit fox")
+    prompt.nsfw = True
+    return prompt
+
+
+@pytest.mark.parametrize("method,path,body", [
+    ("get", "/api/prompts/spicy-1", None),
+    ("get", "/api/prompts/spicy-1/generations", None),
+    ("put", "/api/prompts/spicy-1", {"segments": [{"content": "changed"}]}),
+    ("put", "/api/prompts/spicy-1/favorite", {"is_favorite": True}),
+    ("delete", "/api/prompts/spicy-1", None),
+])
+def test_a_restricted_viewer_gets_404_for_an_nsfw_prompt_on_every_single_item_route(
+    client, collaborators, mock_operations, generation_repo_mock, restricted_flag, method, path, body,
+):
+    restricted_flag["value"] = True
+    collaborators.repository.get_by_id.return_value = _nsfw_prompt()
+    mock_operations.replace_prompt = AsyncMock(return_value=_nsfw_prompt())
+
+    response = getattr(client, method)(path, **({"json": body} if body is not None else {}))
+
+    assert response.status_code == 404
+    assert "explicit" not in response.text
+    mock_operations.replace_prompt.assert_not_awaited()
+    mock_operations.delete_prompt.assert_not_called()
+    collaborators.repository.set_favorite.assert_not_called()
+    generation_repo_mock.get_by_source_prompt.assert_not_called()
+
+
+def test_an_unrestricted_viewer_still_reads_an_nsfw_prompt(client, collaborators, restricted_flag):
+    collaborators.repository.get_by_id.return_value = _nsfw_prompt()
+
+    response = client.get("/api/prompts/spicy-1")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["id"] == "spicy-1"
+
+
+def test_a_restricted_viewer_cannot_bulk_delete_nsfw_prompts(client, collaborators, mock_operations, restricted_flag):
+    restricted_flag["value"] = True
+    collaborators.repository.get_by_id.side_effect = lambda prompt_id, user_id: (
+        _nsfw_prompt() if prompt_id == "spicy-1" else make_prompt(prompt_id)
+    )
+    mock_operations.bulk_delete_prompts.return_value = 1
+
+    client.post("/api/prompts/bulk-delete", json={"prompt_ids": ["spicy-1", "prompt-2"]})
+
+    mock_operations.bulk_delete_prompts.assert_called_once_with(collaborators, "user-1", ["prompt-2"])
+
+
+def test_a_restricted_viewer_never_sees_nsfw_prompts_in_duplicate_groups(client, mock_operations, restricted_flag):
+    restricted_flag["value"] = True
+    mock_operations.find_duplicates = AsyncMock(return_value={
+        "groups": [
+            {"similarity": 0.99, "prompts": [{"id": "a", "nsfw": False}, {"id": "b", "nsfw": True}]},
+            {"similarity": 0.98, "prompts": [{"id": "c", "nsfw": False}, {"id": "d", "nsfw": False}, {"id": "e", "nsfw": True}]},
+        ],
+        "scanned": 5, "total": 5, "partial": False,
+    })
+
+    data = client.post("/api/prompts/find-duplicates").json()["data"]
+
+    assert [[p["id"] for p in g["prompts"]] for g in data["groups"]] == [["c", "d"]]

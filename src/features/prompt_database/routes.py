@@ -82,6 +82,15 @@ def build_router(container: "AppContainer") -> APIRouter:
             for prompt_id in prompt_ids
         }
 
+    def hidden_from(prompt_id: str, user_id: str) -> bool:
+        if not content_safety.is_restricted(user_id):
+            return False
+        prompt = controller.collaborators.repository.get_by_id(prompt_id, user_id)
+        return prompt is not None and bool(prompt.nsfw)
+
+    def not_found() -> APIResponse:
+        return controller.error_response("not_found", "Prompt not found", 404)
+
     router = APIRouter(prefix="/api/prompts", tags=["Prompts"])
 
     @router.get(
@@ -236,6 +245,12 @@ def build_router(container: "AppContainer") -> APIRouter:
             controller.collaborators, _user_id(current_user), threshold, model_id,
         )
         groups = result["groups"]
+        if content_safety.is_restricted(_user_id(current_user)):
+            groups = [
+                {**group, "prompts": [p for p in group["prompts"] if not p.get("nsfw")]}
+                for group in groups
+            ]
+            groups = [group for group in groups if len(group["prompts"]) >= 2]
         return APIResponse(
             success=True,
             data={
@@ -252,9 +267,9 @@ def build_router(container: "AppContainer") -> APIRouter:
         request: PromptBulkDeleteRequest,
         current_user: User = Depends(get_current_active_user),
     ):
-        count = operations.bulk_delete_prompts(
-            controller.collaborators, _user_id(current_user), request.prompt_ids,
-        )
+        user_id = _user_id(current_user)
+        prompt_ids = [prompt_id for prompt_id in request.prompt_ids if not hidden_from(prompt_id, user_id)]
+        count = operations.bulk_delete_prompts(controller.collaborators, user_id, prompt_ids)
         return APIResponse(success=True, data={"deleted": count})
 
     @router.delete("/purge-model/{model_id}", response_model=APIResponse, summary="Delete all prompts for a model")
@@ -343,8 +358,8 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_prompt(prompt_id: str, current_user: User = Depends(get_current_active_user)):
         user_id = _user_id(current_user)
         prompt = controller.collaborators.repository.get_by_id(prompt_id, user_id)
-        if prompt is None:
-            return controller.error_response("not_found", "Prompt not found", 404)
+        if prompt is None or (prompt.nsfw and content_safety.is_restricted(user_id)):
+            return not_found()
         data = prompt.to_dict()
         usage = generation_repo.usage_stats_by_source_prompt([prompt_id], user_id)
         cover = generation_repo.cover_stats_by_source_prompt([prompt_id], user_id)
@@ -375,6 +390,8 @@ def build_router(container: "AppContainer") -> APIRouter:
         this prompt's id.
         """
         user_id = _user_id(current_user)
+        if hidden_from(prompt_id, user_id):
+            return not_found()
         generations = generation_repo.get_by_source_prompt(prompt_id, user_id, limit=limit, offset=offset)
         total = generation_repo.count_by_source_prompt(prompt_id, user_id)
         items = container.generation_history_facade.query.serialize_generations(
@@ -387,6 +404,8 @@ def build_router(container: "AppContainer") -> APIRouter:
         prompt_id: str, request: PromptRequest,
         current_user: User = Depends(get_current_active_user),
     ):
+        if hidden_from(prompt_id, _user_id(current_user)):
+            return not_found()
         return await controller.replace(prompt_id, request, current_user)
 
     @router.put("/{prompt_id}/favorite", response_model=APIResponse, summary="Set a prompt's favorite flag")
@@ -394,6 +413,8 @@ def build_router(container: "AppContainer") -> APIRouter:
         prompt_id: str, request: PromptFavoriteRequest,
         current_user: User = Depends(get_current_active_user),
     ):
+        if hidden_from(prompt_id, _user_id(current_user)):
+            return not_found()
         value = controller.collaborators.repository.set_favorite(
             prompt_id, _user_id(current_user), request.is_favorite,
         )
@@ -403,6 +424,8 @@ def build_router(container: "AppContainer") -> APIRouter:
 
     @router.delete("/{prompt_id}", response_model=APIResponse, summary="Delete a prompt")
     async def delete_prompt(prompt_id: str, current_user: User = Depends(get_current_active_user)):
+        if hidden_from(prompt_id, _user_id(current_user)):
+            return not_found()
         if not operations.delete_prompt(controller.collaborators, _user_id(current_user), prompt_id):
             return controller.error_response("not_found", "Prompt not found", 404)
         return APIResponse(success=True, message="Prompt deleted")

@@ -101,6 +101,8 @@ SKIP_DIRS = {
     ".idea",
     ".codex",
     ".codex-test-shims",
+    "worktrees",
+    "design-proposals",
 }
 
 # Extensions worth scanning as text. Deliberately excludes binaries/media

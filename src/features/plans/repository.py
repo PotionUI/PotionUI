@@ -219,11 +219,17 @@ def _decimal(value: Any) -> Decimal:
         return Decimal(0)
 
 
+_GENERATION_FILE = "EXISTS (SELECT 1 FROM generation_files gf WHERE gf.file_id = files.id)"
+
+
 class UsageRepository:
 
     def storage_bytes(self, user_id: str) -> int:
         with _db().get_cursor() as cursor:
-            cursor.execute("SELECT COALESCE(SUM(file_size), 0) AS total FROM files WHERE user_id = ?", (user_id,))
+            cursor.execute(
+                f"SELECT COALESCE(SUM(file_size), 0) AS total FROM files WHERE user_id = ? AND {_GENERATION_FILE}",
+                (user_id,),
+            )
             files = cursor.fetchone()["total"] or 0
             cursor.execute(
                 "SELECT COALESCE(SUM(file_size), 0) AS total FROM uploads "
@@ -238,7 +244,7 @@ class UsageRepository:
         with _db().get_cursor() as cursor:
             cursor.execute(
                 "SELECT LOWER(file_type) AS kind, COUNT(*) AS files, COALESCE(SUM(file_size), 0) AS bytes "
-                "FROM files WHERE user_id = ? GROUP BY LOWER(file_type)",
+                f"FROM files WHERE user_id = ? AND {_GENERATION_FILE} GROUP BY LOWER(file_type)",
                 (user_id,),
             )
             for row in cursor.fetchall():

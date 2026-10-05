@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -262,3 +263,44 @@ def test_group_limit_storage_is_still_enforced_with_more_generous_default(seed, 
 
     with pytest.raises(LimitExceeded):
         guard.admit(upload(1))
+
+
+def preview_editor(storage_dir):
+    from src.features.models.metadata_editor import ModelMetadataEditor
+
+    settings = SimpleNamespace(get_file_storage_directory=lambda user_id: str(storage_dir))
+    return ModelMetadataEditor(Mock(), Mock(), Mock(), settings)
+
+
+def on_disk(storage_dir, relative_path, size):
+    path = storage_dir / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x" * size)
+    return relative_path
+
+
+def test_a_model_preview_of_a_generation_output_adds_nothing_to_storage(seed, plans, guard, tmp_path):
+    seed.user("u1")
+    generation_id = seed.generation("u1", sizes=(10,))
+    output = seed.rows(
+        "SELECT f.file_path FROM files f JOIN generation_files gf ON gf.file_id = f.id WHERE gf.generation_id = ?",
+        (generation_id,),
+    )[0]["file_path"]
+    on_disk(tmp_path, output, 10)
+
+    preview_editor(tmp_path)._create_preview_file_row({"source_path": output, "type": "video"}, "u1")
+
+    assert len(seed.rows("SELECT id FROM files WHERE user_id = 'u1'")) == 2
+    assert storage_used(guard) == 10
+    assert plans.manager.my_storage(SimpleNamespace(id="u1"))["total_bytes"] == 10
+
+
+def test_a_model_preview_of_a_new_upload_counts_once(seed, plans, guard, tmp_path):
+    seed.user("u1")
+    upload_id = seed.upload("u1", 7)
+    source = on_disk(tmp_path, f"uploads/{upload_id}.png", 7)
+
+    preview_editor(tmp_path)._create_preview_file_row({"source_path": source, "type": "video"}, "u1")
+
+    assert storage_used(guard) == 7
+    assert plans.manager.my_storage(SimpleNamespace(id="u1"))["total_bytes"] == 7

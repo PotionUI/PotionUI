@@ -40,6 +40,7 @@
 		type ResourceOrigin
 	} from './editorSource';
 	import { describeEditFailure } from './editErrors';
+	import { blockedUploadMessage } from '$lib/plans/uploadLimit';
 	import { dataUrlToFile } from './maskFile';
 	import {
 		editsTheResource,
@@ -177,6 +178,8 @@
 		}
 
 		if (commitRequest.via === 'paint') {
+			const blocked = blockedUploadMessage([commitRequest.file]);
+			if (blocked) throw new Error(blocked);
 			const stored = await api.uploadMedia(commitRequest.file, 'user_upload');
 			if (!stored.success || !stored.data) {
 				throw new Error(stored.message || 'The image could not be saved');

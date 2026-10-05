@@ -10,7 +10,7 @@
 		limit,
 		compact = false
 	}: {
-		kind: Pick<LimitKindDescriptor, 'value_type'>;
+		kind: Pick<LimitKindDescriptor, 'value_type' | 'per_item'>;
 		used: number;
 		limit: number | null;
 		compact?: boolean;
@@ -21,6 +21,18 @@
 	const fill = $derived(state === 'full' ? 'bg-danger' : state === 'warn' ? 'bg-warning' : 'bg-signal');
 </script>
 
+{#if kind.per_item}
+	<div class="flex items-center gap-2.5" data-usage-bar data-per-item>
+		<span class="flex items-baseline gap-1 font-mono text-xs tabular-nums text-fg">
+			{#if limit !== null}
+				<span>{formatLimitValue(kind, limit)}</span>
+				{#if !compact}<span class="font-sans text-fg-subtle">per file</span>{/if}
+			{:else}
+				<span class="font-sans text-fg-subtle">{compact ? '—' : 'no limit'}</span>
+			{/if}
+		</span>
+	</div>
+{:else}
 <div class="flex items-center gap-2.5" data-usage-bar data-usage-state={state}>
 	{#if limit !== null}
 		<div class="h-1.5 {compact ? 'w-16' : 'min-w-24 flex-1'} overflow-hidden rounded bg-surface-3" role="presentation">
@@ -41,3 +53,4 @@
 		<Badge size="sm" variant="warning" class="font-mono">80%+</Badge>
 	{/if}
 </div>
+{/if}

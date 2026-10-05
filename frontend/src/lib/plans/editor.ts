@@ -1,15 +1,18 @@
 import type { LimitKindDescriptor, Plan, PlanBody } from './types';
 
-export type ByteUnit = 'GB' | 'TB';
+export type ByteUnit = 'MB' | 'GB' | 'TB';
 
-export const BYTE_UNIT_OPTIONS: ReadonlyArray<{ value: ByteUnit; label: string }> = [
-	{ value: 'GB', label: 'GB' },
-	{ value: 'TB', label: 'TB' }
-];
+const BYTE_FACTORS: Record<ByteUnit, number> = { MB: 1024 ** 2, GB: 1024 ** 3, TB: 1024 ** 4 };
 
-const BYTE_FACTORS: Record<ByteUnit, number> = { GB: 1024 ** 3, TB: 1024 ** 4 };
+type ScaleKind = Pick<LimitKindDescriptor, 'value_type' | 'input_scale'> & { unit?: string };
 
-type ScaleKind = Pick<LimitKindDescriptor, 'value_type' | 'input_scale'>;
+export function byteUnitsFor(kind: { unit?: string } | undefined): readonly [ByteUnit, ByteUnit] {
+	return kind?.unit === 'MB' ? ['MB', 'GB'] : ['GB', 'TB'];
+}
+
+export function byteUnitOptions(kind: { unit?: string } | undefined): { value: ByteUnit; label: string }[] {
+	return byteUnitsFor(kind).map((unit) => ({ value: unit, label: unit }));
+}
 
 export interface DraftLimit {
 	kind: string;
@@ -24,8 +27,12 @@ export interface PlanDraft {
 	limits: DraftLimit[];
 }
 
-export function bytesToDisplay(bytes: number): { text: string; unit: ByteUnit } {
-	const unit: ByteUnit = bytes >= BYTE_FACTORS.TB && bytes % BYTE_FACTORS.TB === 0 ? 'TB' : 'GB';
+export function bytesToDisplay(
+	bytes: number,
+	units: readonly [ByteUnit, ByteUnit] = ['GB', 'TB']
+): { text: string; unit: ByteUnit } {
+	const [small, large] = units;
+	const unit: ByteUnit = bytes >= BYTE_FACTORS[large] && bytes % BYTE_FACTORS[large] === 0 ? large : small;
 	return { text: String(Number((bytes / BYTE_FACTORS[unit]).toFixed(3))), unit };
 }
 
@@ -39,7 +46,7 @@ export function displayToValue(kind: ScaleKind, text: string, unit: ByteUnit): n
 }
 
 export function valueToDisplay(kind: ScaleKind, value: number): { text: string; unit: ByteUnit } {
-	if (kind.value_type === 'bytes') return bytesToDisplay(value);
+	if (kind.value_type === 'bytes') return bytesToDisplay(value, byteUnitsFor(kind));
 	return { text: String(Number((value / (kind.input_scale || 1)).toFixed(2))), unit: 'GB' };
 }
 
@@ -68,7 +75,7 @@ export function availableKinds(kinds: readonly LimitKindDescriptor[], draft: Pla
 
 export function addLimit(draft: PlanDraft, kind: LimitKindDescriptor): PlanDraft {
 	if (draft.limits.some((limit) => limit.kind === kind.key)) return draft;
-	return { ...draft, limits: [...draft.limits, { kind: kind.key, text: '', unit: 'GB' }] };
+	return { ...draft, limits: [...draft.limits, { kind: kind.key, text: '', unit: byteUnitsFor(kind)[0] }] };
 }
 
 export function removeLimit(draft: PlanDraft, kindKey: string): PlanDraft {

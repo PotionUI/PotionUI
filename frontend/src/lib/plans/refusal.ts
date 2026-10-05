@@ -1,5 +1,23 @@
 import type { LimitFormat, LimitRefusal, LimitRow } from './meApi';
 import { formatCountdown, msUntil } from './countdown';
+import { formatSize } from './format';
+
+export const UPLOAD_FILE_SIZE_KIND = 'upload_file_size';
+export const UPLOAD_FILE_SIZE_CODE = 'upload_file_size_exceeded';
+
+export function isPerItemRefusal(refusal: Pick<LimitRefusal, 'kind' | 'code'>): boolean {
+	return refusal.code === UPLOAD_FILE_SIZE_CODE || refusal.kind === UPLOAD_FILE_SIZE_KIND;
+}
+
+export function isPerItemError(error: unknown): boolean {
+	const refusal = refusalFromError(error);
+	return refusal !== null && isPerItemRefusal(refusal);
+}
+
+export function uploadSizeMessage(fileBytes: number, limitBytes: number, contactLine?: string | null): string {
+	const base = `This file is ${formatSize(fileBytes)}; your plan allows files up to ${formatSize(limitBytes)}.`;
+	return contactLine ? `${base} ${contactLine}` : base;
+}
 
 export const DEFAULT_CONTACT_LINE = 'Ask your admin for more.';
 
@@ -102,6 +120,13 @@ export function blocksSubmit(row: LimitRow): boolean {
 export function refusalMessage(error: unknown, now: number = Date.now()): string | null {
 	const refusal = refusalFromError(error);
 	if (!refusal) return null;
+	if (isPerItemRefusal(refusal)) {
+		if (refusal.message) return refusal.message;
+		const size = refusal.incoming ?? refusal.used;
+		return typeof size === 'number' && typeof refusal.limit === 'number'
+			? uploadSizeMessage(size, refusal.limit, refusal.contact_line)
+			: 'This file is larger than your plan allows.';
+	}
 	const gate = gateFromRefusal(refusal, now);
 	if (!gate) return refusal.message ?? 'A limit on your account was reached.';
 	return gate.canFreeUp ? `${gate.title}. Free up space in History or Library, then try again.` : gate.reason;

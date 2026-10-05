@@ -22,7 +22,7 @@ import tempfile
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable, List, Optional, Sequence, TYPE_CHECKING
+from typing import Callable, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from src.features.media.editing.dto import (
     EditedMediaItem,
@@ -114,9 +114,10 @@ class MediaEditor:
         dest_key, metadata = await self._transform_and_publish(
             source_key, suffix, transform, list(operations)
         )
+        written = self.storage_driver.size(dest_key) or 0
         replaced_bytes = (upload.file_size or 0) if mode == "replace" else 0
-        grown = (self.storage_driver.size(dest_key) or 0) - replaced_bytes
-        self._admit(user_id, grown, cleanup_key=dest_key)
+        items = () if mode == "replace" else (written,)
+        self._admit(user_id, written - replaced_bytes, cleanup_key=dest_key, items=items)
 
         if mode == "replace":
             return EditMediaResult(
@@ -201,7 +202,8 @@ class MediaEditor:
             self._precheck(user_id)
             parts = await asyncio.to_thread(split_audio, source_path, dest_dir, suffix, part_seconds)
             total = len(parts)
-            self._admit(user_id, sum(Path(part_path).stat().st_size for part_path, _ in parts))
+            sizes = tuple(Path(part_path).stat().st_size for part_path, _ in parts)
+            self._admit(user_id, sum(sizes), items=sizes)
 
             items: List[EditedMediaItem] = []
             published_keys: List[str] = []
@@ -230,11 +232,14 @@ class MediaEditor:
         if self.limit_guard is not None:
             self.limit_guard.check(AdmissionRequest(point="upload", user_id=user_id))
 
-    def _admit(self, user_id: str, incoming: Optional[int], cleanup_key: Optional[str] = None) -> None:
+    def _admit(self, user_id: str, incoming: Optional[int], cleanup_key: Optional[str] = None,
+               items: Optional[Tuple[int, ...]] = None) -> None:
         if self.limit_guard is None:
             return
         try:
-            self.limit_guard.admit(AdmissionRequest(point="upload", user_id=user_id, incoming_bytes=incoming))
+            self.limit_guard.admit(AdmissionRequest(
+                point="upload", user_id=user_id, incoming_bytes=incoming, item_bytes=items,
+            ))
         except Exception:
             if cleanup_key is not None:
                 self._remove(cleanup_key)

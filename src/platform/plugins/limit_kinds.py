@@ -47,6 +47,7 @@ class AdmissionRequest:
     backend_id: Optional[str] = None
     preset_id: Optional[str] = None
     ref_id: Optional[str] = None
+    item_bytes: Optional[Tuple[int, ...]] = None
 
 
 class LimitEventsView(Protocol):
@@ -75,6 +76,7 @@ class RefusalContext:
     resets_label: str
     contact_line: str
     point: str
+    incoming: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -99,6 +101,8 @@ class LimitKind:
     warn_at: float = 0.8
     icon: str = ""
     source: str = "core"
+    per_item: bool = False
+    scale: Optional[int] = None
 
     @property
     def user_format(self) -> str:
@@ -118,6 +122,8 @@ class LimitKind:
 
     @property
     def input_scale(self) -> int:
+        if self.scale is not None:
+            return self.scale
         return BYTES_INPUT_SCALE if self.value_type == "bytes" else 1
 
     @property
@@ -140,6 +146,10 @@ class LimitKind:
     def incoming_for(self, request: AdmissionRequest) -> Optional[float]:
         if self.incoming is not None:
             return self.incoming(request)
+        if self.per_item:
+            if request.item_bytes is not None:
+                return max(request.item_bytes) if request.item_bytes else None
+            return request.incoming_bytes
         if self.ledger and request.point == "submit":
             return 1
         if self.value_type == "bytes" and request.point == "upload":
@@ -167,7 +177,11 @@ def validate_kind(kind: LimitKind) -> None:
         raise InvalidLimitKindError(f"Limit kind '{kind.key}' has unknown format '{kind.format}'")
     if not kind.enforce_at or any(point not in POINTS for point in kind.enforce_at):
         raise InvalidLimitKindError(f"Limit kind '{kind.key}' must be enforced at submit and/or upload")
-    if kind.measure is None and not kind.ledger:
+    if kind.per_item and (kind.ledger or kind.window != "none" or kind.value_type != "bytes"):
+        raise InvalidLimitKindError(f"Limit kind '{kind.key}' caps single items, so it needs bytes, no window and no ledger")
+    if kind.scale is not None and kind.scale <= 0:
+        raise InvalidLimitKindError(f"Limit kind '{kind.key}' scale must be above 0")
+    if kind.measure is None and not kind.ledger and not kind.per_item:
         raise InvalidLimitKindError(f"Limit kind '{kind.key}' needs a measure or ledger: true")
     if kind.ledger and kind.window == "none":
         raise InvalidLimitKindError(f"Limit kind '{kind.key}' keeps a ledger, so it needs a day or month window")

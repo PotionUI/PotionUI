@@ -4,6 +4,7 @@ import { getMyLimits, type LimitRefusal, type LimitRow, type MyPlanMeta } from '
 import { msUntil } from './countdown';
 import {
 	blocksSubmit,
+	isPerItemRefusal,
 	gateFromRefusal,
 	gateFromRow,
 	parseLimitRefusal,
@@ -14,6 +15,7 @@ import { closestLimit } from './limitView';
 export const limits = writable<LimitRow[]>([]);
 export const limitsLoaded = writable(false);
 export const limitsMeta = writable<MyPlanMeta | null>(null);
+export const storageUsed = writable<number | null>(null);
 export const serverRefusal = writable<LimitRefusal | null>(null);
 export const refusalDismissed = writable(false);
 
@@ -69,6 +71,7 @@ export async function refreshLimits(): Promise<void> {
 		const mine = await getMyLimits();
 		const rows = mine.rows.filter((row) => row.enforced);
 		limitsMeta.set(mine.meta);
+		storageUsed.set(mine.storageBytes ?? null);
 		limits.set(rows);
 		limitsLoaded.set(true);
 		const refusal = get(serverRefusal);
@@ -91,6 +94,7 @@ export function refreshLimitsSoon(delayMs = 400): void {
 }
 
 export function reportLimitRefusal(refusal: LimitRefusal): void {
+	if (isPerItemRefusal(refusal)) return;
 	serverRefusal.set(refusal);
 	refusalDismissed.set(false);
 	armResetTimer();
@@ -102,6 +106,7 @@ export function resetLimitsState(): void {
 	if (refreshTimer) clearTimeout(refreshTimer);
 	limits.set([]);
 	limitsMeta.set(null);
+	storageUsed.set(null);
 	limitsLoaded.set(false);
 	serverRefusal.set(null);
 	refusalDismissed.set(false);
@@ -116,14 +121,14 @@ export function installLimitsWatcher(): void {
 		(response) => {
 			const method = (response.config?.method ?? '').toLowerCase();
 			const url = response.config?.url ?? '';
-			if (method === 'delete' || (method === 'post' && /\/api\/media\/upload/.test(url))) {
+			if (method === 'delete' || (method === 'post' && /\/api\/(media|generations)\/upload/.test(url))) {
 				refreshLimitsSoon();
 			}
 			return response;
 		},
 		(error) => {
 			const refusal = parseLimitRefusal(error?.response?.data);
-			if (refusal) reportLimitRefusal(refusal);
+			if (refusal && !isPerItemRefusal(refusal)) reportLimitRefusal(refusal);
 			return Promise.reject(error);
 		}
 	);

@@ -166,7 +166,7 @@ def test_shutdown_dependent_components_are_present(report):
 
 def test_every_submit_and_upload_path_shares_the_one_limit_guard(report):
     wiring = dict(report["limit_wiring"])
-    assert wiring.pop("core_kinds") == ["cloud_spend_usd_month", "generations_per_day", "storage_bytes"]
+    assert wiring.pop("core_kinds") == ["cloud_spend_usd_month", "generations_per_day", "storage_bytes", "upload_file_size"]
     assert [k for k, v in wiring.items() if not v] == []
 
 

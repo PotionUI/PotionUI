@@ -46,6 +46,7 @@ class LimitExceeded(Exception):
             "point": self.point,
             "used": primary["used"],
             "limit": primary["limit"],
+            "incoming": primary.get("incoming"),
             "percent": primary["percent"],
             "resets_at": primary["resets_at"],
             "contact_line": self.contact_line,

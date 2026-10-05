@@ -14,6 +14,7 @@ export interface LimitRow {
 	percent: number | null;
 	enforced: boolean;
 	enforce_at?: string[];
+	perItem?: boolean;
 }
 
 export interface MyPlanMeta {
@@ -28,6 +29,7 @@ export interface MyPlanMeta {
 export interface MyLimits {
 	rows: LimitRow[];
 	meta: MyPlanMeta;
+	storageBytes?: number | null;
 }
 
 export interface StorageGroup {
@@ -41,6 +43,9 @@ export interface LimitRefusal {
 	error: 'limit_exceeded';
 	kind: string;
 	message?: string;
+	code?: string;
+	point?: string;
+	incoming?: number | null;
 	label?: string;
 	used?: number | null;
 	limit?: number | null;
@@ -80,6 +85,7 @@ function toRow(raw: unknown): LimitRow | null {
 					: r.kind,
 		percent,
 		enforced: r.enforced !== false,
+		perItem: info.per_item === true,
 		used,
 		limit,
 		format,
@@ -119,9 +125,17 @@ export function normalizeMeta(payload: unknown): MyPlanMeta {
 	};
 }
 
+export function normalizeStorageBytes(payload: unknown): number | null {
+	const usage = unwrapData(payload).usage;
+	const bytes = usage && typeof usage === 'object' ? (usage as Record<string, unknown>).storage_bytes : null;
+	return typeof bytes === 'number' && Number.isFinite(bytes) ? bytes : null;
+}
+
 export async function getMyLimits(): Promise<MyLimits> {
 	const response = await api.getClient().get('/api/me/limits');
-	return { rows: normalizeLimits(response.data), meta: normalizeMeta(response.data) };
+	return { rows: normalizeLimits(response.data), meta: normalizeMeta(response.data),
+		storageBytes: normalizeStorageBytes(response.data)
+	};
 }
 
 export async function getMyStorageBreakdown(): Promise<StorageGroup[]> {

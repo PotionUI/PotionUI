@@ -138,8 +138,9 @@ class MediaController(BaseController):
     async def upload_media(self, file: UploadFile, current_user, purpose: Optional[str] = None):
         """Upload a media file"""
         try:
-            content = await file.read()
             user_id = current_user.id if current_user else None
+            self.manager.check_upload_size(user_id, getattr(file, "size", None), purpose or UPLOAD_PURPOSE_USER)
+            content = await file.read()
 
             result = await self.manager.upload_media(
                 file_data=content,

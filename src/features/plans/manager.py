@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from src.features.plans.constants import (
+    KIND_STORAGE,
     MAX_CONTACT_LINE,
     MAX_PLAN_DESCRIPTION,
     MAX_PLAN_NAME,
@@ -108,7 +109,7 @@ class PlansManager:
             "payments": False, "limits": [],
         }
         if subject is None:
-            return base
+            return {**base, "usage": {"storage_bytes": self._storage_used(user.id, None, settings)}}
         person = self._people([subject], self.guard.plans_by_id(), settings)[0]
         rows = [self._row(person, limit, settings, admin_view=False) for limit in person.resolution.limited()]
         return {
@@ -119,7 +120,18 @@ class PlansManager:
                 {**row, "kind_info": describe(self.registry.get(row["kind"]), settings.day_timezone)}
                 for row in rows if row is not None
             ],
+            "usage": {"storage_bytes": self._storage_used(user.id, person, settings)},
         }
+
+    def _storage_used(self, user_id: str, person: Optional[Person], settings: PlanSettings) -> int:
+        if person is not None and self.registry.get(KIND_STORAGE) is not None:
+            measured = self._measure(person, KIND_STORAGE, settings)
+            return int(measured.used) if measured else 0
+        try:
+            return int(self.usage.storage_bytes(user_id))
+        except Exception:
+            logger.exception("Could not measure storage for a usage view")
+            return 0
 
     def my_storage(self, user) -> Dict[str, Any]:
         groups = self.usage.storage_breakdown(user.id)
@@ -206,7 +218,7 @@ class PlansManager:
             warned = full = False
             for limit in plan.limits:
                 kind = self.registry.get(limit.kind)
-                if kind is None:
+                if kind is None or kind.per_item:
                     continue
                 measured = self._measure(person, limit.kind, settings)
                 ratio = 1.0 if limit.value <= 0 else measured.used / limit.value
@@ -215,7 +227,8 @@ class PlansManager:
             above_warn += int(warned)
             at_limit += int(full)
         for limit in plan.limits:
-            if self.registry.get(limit.kind) is None:
+            kind = self.registry.get(limit.kind)
+            if kind is None or kind.per_item:
                 continue
             used = sum(self._measure(person, limit.kind, settings).used for person in members)
             kinds.append({
@@ -413,7 +426,11 @@ class PlansManager:
                 change = self._change(before_value, after_value)
                 measured = self._measure(person, key, settings)
                 used = measured.used if measured else 0.0
-                over_after = after_value is not None and used >= after_value and not person.exempt
+                kind = self.registry.get(key)
+                over_after = (
+                    after_value is not None and used >= after_value and not person.exempt
+                    and not (kind and kind.per_item)
+                )
                 changed = changed or change != "unchanged"
                 over = over or over_after
                 rows.append({

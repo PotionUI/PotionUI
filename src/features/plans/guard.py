@@ -152,6 +152,8 @@ class LimitGuard:
 
     def measure(self, kind: LimitKind, user_id: str, tz_name: Optional[str] = None,
                 now: Optional[datetime] = None) -> Measured:
+        if kind.per_item:
+            return Measured(used=0.0, window_start=None, resets_at=None)
         now = now or self.clock()
         tz_name = tz_name or self.settings.read().day_timezone
         start, end = window_bounds(kind.window, tz_name, now)
@@ -172,17 +174,18 @@ class LimitGuard:
         hide = kind.hides_values and not admin_view
         remaining = None if limit.value is None else max(0.0, limit.value - measured.used)
         candidate = limit.candidate
+        level = not kind.per_item
         return {
             "kind": kind.key,
             "label": kind.short_label or kind.label,
             "format": kind.user_format,
             "value_type": kind.value_type,
             "window": kind.window,
-            "used": None if hide else _number(measured.used),
+            "used": None if hide or not level else _number(measured.used),
             "limit": None if hide or limit.value is None else _number(limit.value),
-            "remaining": None if hide or remaining is None else _number(remaining),
-            "percent": _percent(measured.used, limit.value),
-            "state": _state(kind, measured.used, limit.value),
+            "remaining": None if hide or remaining is None or not level else _number(remaining),
+            "percent": _percent(measured.used, limit.value) if level else None,
+            "state": _state(kind, measured.used, limit.value) if level else STATE_OK,
             "resets_at": measured.resets_at.isoformat() if measured.resets_at else None,
             "enforced": enforced,
             "plan": candidate.plan.ref() if candidate else None,
@@ -198,15 +201,17 @@ class LimitGuard:
         return local_day_text(resets_at, tz_name)
 
     def _refusal(self, kind: LimitKind, limit: float, measured: Measured, settings: PlanSettings,
-                 point: str, now: datetime) -> Dict[str, Any]:
+                 point: str, now: datetime, incoming: Optional[float] = None) -> Dict[str, Any]:
+        used = incoming if kind.per_item and incoming is not None else measured.used
         context = RefusalContext(
             kind=kind,
-            used=measured.used,
+            used=used,
             limit=limit,
             resets_at=measured.resets_at,
             resets_label=self._resets_label(kind, measured.resets_at, settings.day_timezone, now),
             contact_line=settings.contact_line,
             point=point,
+            incoming=incoming,
         )
         hide = kind.hides_values
         return {
@@ -214,22 +219,26 @@ class LimitGuard:
             "code": kind.code,
             "label": kind.label,
             "format": kind.user_format,
-            "used": None if hide else _number(measured.used),
+            "used": None if hide else _number(used),
             "limit": None if hide else _number(limit),
-            "percent": _percent(measured.used, limit),
+            "incoming": None if hide or incoming is None else _number(incoming),
+            "percent": _percent(used, limit),
             "resets_at": measured.resets_at.isoformat() if measured.resets_at else None,
             "message": refusal_message(context),
         }
 
     def _evaluate(self, request: AdmissionRequest, subject: PlanSubject, settings: PlanSettings,
-                  now: datetime) -> List[Dict[str, Any]]:
+                  now: datetime, items_only: bool = False) -> List[Dict[str, Any]]:
         if self.is_exempt(subject, settings):
             return []
         resolution = self.resolve(subject)
         refusals = []
         for limit in resolution.limited():
             kind = self.registry.get(limit.kind)
-            if kind is None or not kind.applies_to(request):
+            if kind is None or not kind.applies_to(request) or (items_only and not kind.per_item):
+                continue
+            incoming = kind.incoming_for(request)
+            if kind.per_item and incoming is None:
                 continue
             try:
                 measured = self.measure(kind, subject.user_id, settings.day_timezone, now)
@@ -238,9 +247,12 @@ class LimitGuard:
                     raise
                 logger.exception("Limit kind %s failed to measure; not enforcing it", kind.key)
                 continue
-            if exceeded(limit.value, measured.used, kind.incoming_for(request)):
-                refusals.append(self._refusal(kind, limit.value, measured, settings, request.point, now))
-        never = [r for r in refusals if r["resets_at"] is None]
+            if exceeded(limit.value, measured.used, incoming):
+                refusals.append(self._refusal(kind, limit.value, measured, settings, request.point, now, incoming))
+        never = sorted(
+            (r for r in refusals if r["resets_at"] is None),
+            key=lambda r: not self.registry.get(r["kind"]).per_item,
+        )
         later = sorted((r for r in refusals if r["resets_at"] is not None), key=lambda r: r["resets_at"], reverse=True)
         return never + later
 
@@ -264,6 +276,15 @@ class LimitGuard:
             return
         settings = self.settings.read()
         refusals = self._evaluate(request, subject, settings, self.clock())
+        if refusals:
+            self._refuse(request, refusals, settings)
+
+    def check_items(self, request: AdmissionRequest) -> None:
+        subject = self.plans.subject(request.user_id)
+        if subject is None:
+            return
+        settings = self.settings.read()
+        refusals = self._evaluate(request, subject, settings, self.clock(), items_only=True)
         if refusals:
             self._refuse(request, refusals, settings)
 

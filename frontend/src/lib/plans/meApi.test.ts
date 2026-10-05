@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeLimits, normalizeMeta } from './meApi';
+import { normalizeLimits, normalizeMeta, normalizeStorageBytes } from './meApi';
 
 const envelope = {
 	success: true,
@@ -65,5 +65,38 @@ describe('normalizeMeta', () => {
 		expect(meta.planName).toBe('Tier 1');
 		expect(meta.groupName).toBe('premium-tier-1');
 		expect(meta.contactLine).toBe('Ask your admin for more.');
+	});
+});
+
+describe('per-item rows and storage usage', () => {
+	const payload = {
+		data: {
+			usage: { storage_bytes: 1234 },
+			limits: [
+				{
+					kind: 'upload_file_size',
+					used: null,
+					limit: 52428800,
+					percent: null,
+					state: 'ok',
+					format: 'bytes',
+					enforced: true,
+					kind_info: { short_label: 'Largest upload', per_item: true }
+				}
+			]
+		}
+	};
+
+	it('marks per-item rows and keeps their limit', () => {
+		const row = normalizeLimits(payload)[0];
+		expect(row.perItem).toBe(true);
+		expect(row.limit).toBe(52428800);
+		expect(row.label).toBe('Largest upload');
+	});
+
+	it('reads storage usage and treats a missing usage as unknown', () => {
+		expect(normalizeStorageBytes(payload)).toBe(1234);
+		expect(normalizeStorageBytes({ data: { limits: [] } })).toBeNull();
+		expect(normalizeStorageBytes(null)).toBeNull();
 	});
 });

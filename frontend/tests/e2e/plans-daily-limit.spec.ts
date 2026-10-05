@@ -143,9 +143,11 @@ test.describe('a daily generation limit', () => {
 		const section = page.locator('#plan');
 		await expect(section).toContainText('Generations today', { timeout: 15000 });
 		await expect(section).toContainText(/Generations today\s*(\d+) \/ \1/);
+		await expect(section.locator('[data-limit-row="storage_bytes"]')).toContainText('no limit');
 		await screenshot(page, JOURNEY, 'settings-usage-1440');
 
 		await page.getByRole('button', { name: 'Account menu' }).click();
 		await expect(page.locator('[data-menu-usage]')).toContainText(/(\d+) \/ \1/);
+		await expect(page.locator('[data-menu-storage]')).toContainText('no limit');
 	});
 });

@@ -3,6 +3,7 @@ UNLIMITED_PLAN_ID = "unlimited"
 KIND_STORAGE = "storage_bytes"
 KIND_DAILY_GENERATIONS = "generations_per_day"
 KIND_CLOUD_SPEND = "cloud_spend_usd_month"
+KIND_UPLOAD_FILE_SIZE = "upload_file_size"
 
 SETTING_EXEMPT_ADMINS = "plans_exempt_admins"
 SETTING_DAY_TIMEZONE = "plans_day_timezone"

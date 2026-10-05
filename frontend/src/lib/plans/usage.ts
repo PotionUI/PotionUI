@@ -40,7 +40,7 @@ export const KIND_SORT_PREFIX = 'kind:';
 export function usageSortOptions(kinds: readonly LimitKindDescriptor[]): Array<{ value: string; label: string }> {
 	return [
 		{ value: MOST_USED_SORT, label: 'Most-used limit' },
-		...kinds.map((kind) => ({ value: `${KIND_SORT_PREFIX}${kind.key}`, label: `${kind.short_label ?? kind.label} used` }))
+		...kinds.filter((kind) => !kind.per_item).map((kind) => ({ value: `${KIND_SORT_PREFIX}${kind.key}`, label: `${kind.short_label ?? kind.label} used` }))
 	];
 }
 

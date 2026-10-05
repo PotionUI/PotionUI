@@ -1,7 +1,12 @@
 from typing import Any, Dict, Optional
 
 from src.features.cloud.contracts import CLOUD_ENGINE
-from src.features.plans.constants import KIND_CLOUD_SPEND, KIND_DAILY_GENERATIONS, KIND_STORAGE
+from src.features.plans.constants import (
+    KIND_CLOUD_SPEND,
+    KIND_DAILY_GENERATIONS,
+    KIND_STORAGE,
+    KIND_UPLOAD_FILE_SIZE,
+)
 from src.features.plans.repository import UsageRepository
 from src.features.plans.windows import reset_label
 from src.platform.plugins.limit_kinds import (
@@ -23,7 +28,17 @@ def gigabytes(value: float) -> str:
     return _trim(value / BYTES_INPUT_SCALE)
 
 
+def human_bytes(value: float) -> str:
+    units = ("B", "KB", "MB", "GB", "TB")
+    index = 0
+    while index < len(units) - 1 and value >= 1024 ** (index + 1):
+        index += 1
+    return f"{_trim(value / 1024 ** index)} {units[index]}"
+
+
 def format_amount(kind: LimitKind, value: float) -> str:
+    if kind.per_item:
+        return human_bytes(value)
     if kind.value_type == "bytes":
         return f"{gigabytes(value)} GB"
     if kind.value_type == "usd":
@@ -43,6 +58,14 @@ def _storage_message(context: RefusalContext) -> str:
         f"Your storage is full. You have used {used} of {limit} GB, so {paused}. "
         "Delete some generations or uploads to make room, then try again. "
         f"Nothing has been deleted for you.{_ending(context)}"
+    )
+
+
+def _upload_size_message(context: RefusalContext) -> str:
+    size = context.incoming if context.incoming is not None else context.used
+    return (
+        f"This file is {human_bytes(size)}; your plan allows files up to {human_bytes(context.limit)}."
+        f"{_ending(context)}"
     )
 
 
@@ -144,6 +167,21 @@ def register_core_kinds(registry: LimitKindRegistry, usage: UsageRepository) -> 
             admin_only_values=True,
             icon="calendar",
         ),
+        LimitKind(
+            key=KIND_UPLOAD_FILE_SIZE,
+            label="Largest upload",
+            short_label="Largest upload",
+            description="The largest single file a user can upload",
+            value_type="bytes",
+            unit="MB",
+            scale=1024 ** 2,
+            window="none",
+            enforce_at=("upload",),
+            per_item=True,
+            refusal=_upload_size_message,
+            refusal_code="upload_file_size_exceeded",
+            icon="upload",
+        ),
     )
     for kind in kinds:
         if registry.get(kind.key) is None:
@@ -171,4 +209,5 @@ def describe(kind: LimitKind, tz_name: Optional[str]) -> Dict[str, Any]:
         "icon": kind.display_icon,
         "source": kind.source,
         "plugin": kind.source != "core",
+        "per_item": kind.per_item,
     }

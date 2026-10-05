@@ -9,6 +9,8 @@
 	import ConfirmFooter from './ConfirmFooter.svelte';
 	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './confirmKeyboard';
 	import Icon from '$lib/components/Icon.svelte';
+	import { refusalMessage } from '$lib/plans/refusal';
+	import { blockedUploadMessage } from '$lib/plans/uploadLimit';
 
 	export let isOpen = false;
 	export let availableTags: Tag[] = [];
@@ -60,6 +62,12 @@
 			return;
 		}
 
+		const blocked = blockedUploadMessage(Array.from(files));
+		if (blocked) {
+			toasts.error(blocked);
+			return;
+		}
+
 		uploading = true;
 		try {
 			const response = await api.uploadGenerations(Array.from(files), selectedTagIds);
@@ -75,7 +83,7 @@
 			}
 		} catch (error) {
 			logger.error('Upload error:', error);
-			toasts.error('Upload failed. Please try again.');
+			toasts.error(refusalMessage(error) ?? 'Upload failed. Please try again.');
 		} finally {
 			uploading = false;
 		}

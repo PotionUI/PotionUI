@@ -14,7 +14,8 @@ import {
 import { collectCopyableFileIds, type CopyableGeneration } from '$lib/library/copyToLibrary';
 import { isSameLibraryRow, mergeEditedLibraryItem } from '$lib/library/libraryItemEdit';
 import type { EditedMediaItem } from '$lib/services/api/media';
-import { refusalMessage } from '$lib/plans/refusal';
+import { isPerItemError, refusalMessage } from '$lib/plans/refusal';
+import { blockedUploadMessage } from '$lib/plans/uploadLimit';
 
 export const LIBRARY_ITEMS_PER_PAGE_OPTIONS = [12, 24, 48, 96] as const;
 
@@ -370,6 +371,12 @@ function createLibraryStore() {
 			let refusal: string | null = null;
 
 			for (const file of files) {
+				const blocked = blockedUploadMessage([file]);
+				if (blocked) {
+					failed += 1;
+					refusal = refusal ?? blocked;
+					continue;
+				}
 				try {
 					const response = await api.uploadLibraryMedia(file);
 					if (response.success) uploaded += 1;
@@ -377,8 +384,11 @@ function createLibraryStore() {
 				} catch (error) {
 					logger.error('Failed to upload library file:', getErrorMessage(error));
 					failed += 1;
-					refusal = refusalMessage(error);
-					if (refusal) break;
+					const message = refusalMessage(error);
+					if (message) {
+						refusal = refusal ?? message;
+						if (!isPerItemError(error)) break;
+					}
 				}
 			}
 

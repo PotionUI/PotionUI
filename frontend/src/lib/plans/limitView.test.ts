@@ -54,3 +54,12 @@ describe('limitView', () => {
 		expect(leftNote(row({ format: 'count' }))).toBeNull();
 	});
 });
+
+describe('closestLimit with per-file limits', () => {
+	it('never picks a per-file limit, whose used count is zero against a limit', () => {
+		const perFile = row({ kind: 'upload_file_size', perItem: true, used: 0, limit: 0, percent: 100 });
+		const other = row({ kind: 'a', used: 1, limit: 100 });
+		expect(closestLimit([perFile, other])?.kind).toBe('a');
+		expect(closestLimit([perFile])).toBeNull();
+	});
+});

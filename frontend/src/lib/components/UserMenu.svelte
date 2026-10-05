@@ -7,7 +7,7 @@
 	import { readLastSubject } from '$lib/organize/lastSubject';
 	import Icon from './Icon.svelte';
 	import MenuUsage from '$lib/plans/components/MenuUsage.svelte';
-	import { limits } from '$lib/plans/store';
+	import { limits, storageUsed } from '$lib/plans/store';
 
 	let open = false;
 	let menuEl: HTMLDivElement;
@@ -175,9 +175,9 @@
 					</button>
 				</div>
 
-				{#if $limits.length > 0}
+				{#if $limits.length > 0 || $storageUsed !== null}
 					<div class="px-2.5 pb-2.5 pt-1">
-						<MenuUsage rows={$limits} onOpen={openPlan} />
+						<MenuUsage rows={$limits} storageBytes={$storageUsed} onOpen={openPlan} />
 					</div>
 				{/if}
 

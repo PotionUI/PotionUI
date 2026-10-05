@@ -659,7 +659,7 @@ are evaluated again on the item's tag changes, for items the rule has not filed 
 ## Contributing a plan limit kind
 
 A plan is a named list of limits, and each limit is one *kind*: storage space,
-generations per day and cloud spend per month ship with core. A plugin adds kinds of its
+generations per day, cloud spend per month and the largest single upload ship with core. A plugin adds kinds of its
 own with a `limit_kinds:` section; the plan editor's "Add limit" picker, the users list
 columns, the user's usage view and the refusal all render from the kind, so a kind needs
 no frontend code.
@@ -696,7 +696,9 @@ limit_kinds:
   A ledger kind needs a `day` or `month` window; events are kept 40 days. To count
   something else, call `LimitEvents.record(user_id, kind, units, ref_id)` yourself.
 - **`applies_handler(request: AdmissionRequest) -> bool`** sees `point`, `user_id`,
-  `incoming_bytes` (uploads), `engine`, `backend_id` and `preset_id` (submits).
+  `incoming_bytes` (uploads; the total of every file in the request), `item_bytes` (uploads; the size
+  of each file, or `None` when the caller passed only a total), `engine`, `backend_id` and
+  `preset_id` (submits).
 - **`incoming_handler(request) -> number | None`**: `None` means unknown, and the kind
   refuses when `used >= limit`; a number refuses when `used + incoming > limit`.
 - `refusal_message` may use `{label}`, `{used}`, `{limit}`, `{resets}` and `{contact}`

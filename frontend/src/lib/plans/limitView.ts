@@ -43,6 +43,7 @@ export function leftNote(row: LimitRow): string | null {
 export function closestLimit(rows: LimitRow[]): LimitRow | null {
 	let best: LimitRow | null = null;
 	for (const row of rows) {
+		if (row.perItem) continue;
 		if (!best || ratioOf(row) > ratioOf(best)) best = row;
 	}
 	return best;

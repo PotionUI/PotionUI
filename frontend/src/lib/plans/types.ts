@@ -19,6 +19,7 @@ export interface LimitKindDescriptor {
 	icon?: string;
 	source?: string;
 	plugin?: boolean;
+	per_item?: boolean;
 }
 
 export interface PlanLimit {

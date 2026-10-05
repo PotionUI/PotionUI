@@ -25,8 +25,22 @@ export function formatValue(valueType: LimitValueType, value: number): string {
 	return String(Math.round(value));
 }
 
-export function formatLimitValue(kind: Pick<LimitKindDescriptor, 'value_type'>, value: number | null): string {
+const SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
+
+export function formatSize(bytes: number): string {
+	let index = 0;
+	while (index < SIZE_UNITS.length - 1 && bytes >= 1024 ** (index + 1)) index += 1;
+	if (index === 0) return `${Math.round(bytes)} B`;
+	const scaled = Math.round((bytes / 1024 ** index) * 10) / 10;
+	return `${scaled.toFixed(1).replace(/\.0$/, '')} ${SIZE_UNITS[index]}`;
+}
+
+export function formatLimitValue(
+	kind: Pick<LimitKindDescriptor, 'value_type'> & { per_item?: boolean },
+	value: number | null
+): string {
 	if (value === null) return 'no limit';
+	if (kind.per_item && kind.value_type === 'bytes') return formatSize(value);
 	return formatValue(kind.value_type, value);
 }
 

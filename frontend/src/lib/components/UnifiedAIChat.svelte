@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { refusalMessage } from '$lib/plans/refusal';
+	import { blockedUploadMessage } from '$lib/plans/uploadLimit';
 	import { logger } from '$lib/utils/logger';
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { onDestroy, tick } from 'svelte';
@@ -1522,6 +1523,12 @@
 		// either: an accidental image paste in a text-only mode should be a
 		// silent no-op, not an error.
 		if (!supportsVision) return;
+
+		const blocked = blockedUploadMessage([file]);
+		if (blocked) {
+			chatSession.patch({ error: blocked });
+			return;
+		}
 
 		try {
 			const response = await api.uploadMedia(file);

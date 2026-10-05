@@ -4,7 +4,7 @@
 	import { Button, Card, Spinner } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { getMyStorageBreakdown, type StorageGroup } from '../meApi';
-	import { limits, limitsLoaded, limitsMeta, nowTick, refreshLimits } from '../store';
+	import { limits, limitsLoaded, limitsMeta, nowTick, refreshLimits, storageUsed } from '../store';
 	import { formatBytesPlain } from '../limitView';
 	import UsageRows from './UsageRows.svelte';
 
@@ -27,7 +27,7 @@
 		if (location.hash === '#plan') document.getElementById('plan')?.scrollIntoView();
 	});
 
-	let hasStorage = $derived($limits.some((row) => row.format === 'bytes'));
+	let hasStorage = $derived($limits.some((row) => row.format === 'bytes' && !row.perItem));
 	let source = $derived(
 		$limitsMeta?.source === 'group' && $limitsMeta.groupName ? `from the group ${$limitsMeta.groupName}` : null
 	);
@@ -50,7 +50,7 @@
 					{/if}
 				</div>
 			{/if}
-			<UsageRows rows={$limits} now={$nowTick} />
+			<UsageRows rows={$limits} now={$nowTick} storageBytes={$storageUsed} />
 			{#if hasStorage && groups.length > 0}
 				<h3 class="label mt-5 mb-2">What is using storage</h3>
 				<ul class="divide-y divide-line" data-storage-breakdown>

@@ -36,8 +36,10 @@ def save_to_library(collaborators: InspirationCollaborators, inspiration_id: str
 
     storage_root = Path(collaborators.file_store.base_storage_dir)
     if collaborators.limit_guard is not None:
-        incoming = sum(_entry_size(collaborators, inspiration_id, entry) for entry in insp.media)
-        collaborators.limit_guard.admit(AdmissionRequest(point="upload", user_id=user_id, incoming_bytes=incoming))
+        sizes = tuple(_entry_size(collaborators, inspiration_id, entry) for entry in insp.media)
+        collaborators.limit_guard.admit(AdmissionRequest(
+            point="upload", user_id=user_id, incoming_bytes=sum(sizes), item_bytes=sizes,
+        ))
     copied = 0
     for entry in insp.media:
         source = Path(collaborators.file_store.get_full_path(inspiration_media_key(inspiration_id, entry["filename"])))

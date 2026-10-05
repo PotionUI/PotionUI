@@ -1,5 +1,6 @@
 import { limitRefusalError, parseLimitRefusal, refusalMessage } from '$lib/plans/refusal';
 import { reportLimitRefusal } from '$lib/plans/store';
+import { blockedUploadMessage } from '$lib/plans/uploadLimit';
 /**
  * Turns a completed `/api/media/upload` response into the media item shape
  * this field persists.
@@ -73,6 +74,8 @@ export function postUpload(
 	token: string | null,
 	onProgress: (percent: number) => void
 ): Promise<{ data: UploadResponseData }> {
+	const blocked = blockedUploadMessage([file]);
+	if (blocked) return Promise.reject(new Error(blocked));
 	return new Promise((resolve, reject) => {
 		const request = new XMLHttpRequest();
 		request.open('POST', '/api/media/upload');

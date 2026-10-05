@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatBytes, formatLimitChip, formatLimitValue, formatResetText, formatUsd, percent } from './format';
+import { formatBytes, formatSize, formatLimitChip, formatLimitValue, formatResetText, formatUsd, percent } from './format';
 import type { LimitKindDescriptor } from './types';
 
 const GB = 1024 ** 3;
@@ -29,5 +29,23 @@ describe('format', () => {
 		const now = new Date('2026-10-05T20:00:00Z');
 		expect(formatResetText('2026-10-06T00:12:00Z', now)).toBe('resets in 4 h 12 min');
 		expect(formatResetText('2026-10-05T20:30:00Z', now)).toBe('resets in 30 min');
+	});
+});
+
+describe('formatSize', () => {
+	it('matches the server wording', () => {
+		expect(formatSize(500)).toBe('500 B');
+		expect(formatSize(1024)).toBe('1 KB');
+		expect(formatSize(3277)).toBe('3.2 KB');
+		expect(formatSize(125829120)).toBe('120 MB');
+		expect(formatSize(52428800)).toBe('50 MB');
+		expect(formatSize(1024 ** 3)).toBe('1 GB');
+	});
+
+	it('is used for per-item bytes limits only', () => {
+		const upload = { ...storage, per_item: true };
+		expect(formatLimitValue(upload, 52428800)).toBe('50 MB');
+		expect(formatLimitValue(upload, 536870912)).toBe('512 MB');
+		expect(formatLimitValue(storage, 536870912)).toBe('0.5 GB');
 	});
 });

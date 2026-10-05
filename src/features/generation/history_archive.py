@@ -1143,8 +1143,9 @@ class GenerationHistoryArchive:
             raise UploadFailedException(reason)
 
         if self.limit_guard is not None:
+            sizes = await self._incoming_sizes(files)
             self.limit_guard.admit(AdmissionRequest(
-                point="upload", user_id=user_id, incoming_bytes=await self._incoming_bytes(files),
+                point="upload", user_id=user_id, incoming_bytes=sum(sizes), item_bytes=sizes,
             ))
 
         # Generate unique generation ID
@@ -1227,9 +1228,9 @@ class GenerationHistoryArchive:
             "files": uploaded_files
         }
 
-    async def _incoming_bytes(self, files: List) -> int:
+    async def _incoming_sizes(self, files: List) -> Tuple[int, ...]:
         media_resolver = MediaTypeResolver()
-        total = 0
+        sizes = []
         for upload_file in files:
             if not upload_file.content_type or not media_resolver.is_valid_media_type(upload_file.content_type):
                 continue
@@ -1237,8 +1238,8 @@ class GenerationHistoryArchive:
             if not isinstance(size, int):
                 size = len(await upload_file.read())
                 await upload_file.seek(0)
-            total += size
-        return total
+            sizes.append(size)
+        return tuple(sizes)
 
     def update_tags(
         self,

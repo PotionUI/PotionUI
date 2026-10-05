@@ -1,12 +1,24 @@
 <script lang="ts">
 	import type { LimitRow } from '../meApi';
+	import { formatBytes } from '../format';
 	import { closestLimit, formatAmount, percentOf } from '../limitView';
 	import LimitBar from './LimitBar.svelte';
 
-	let { rows, onOpen }: { rows: LimitRow[]; onOpen: () => void } = $props();
+	let {
+		rows,
+		storageBytes = null,
+		onOpen
+	}: { rows: LimitRow[]; storageBytes?: number | null; onOpen: () => void } = $props();
 
-	let row = $derived(closestLimit(rows));
-	let others = $derived(rows.length - 1);
+	let counted = $derived(rows.filter((candidate) => !candidate.perItem));
+	let row = $derived(closestLimit(counted));
+	let others = $derived(counted.length - 1);
+	let storageRow = $derived(counted.find((candidate) => candidate.kind === 'storage_bytes'));
+	let storageLine = $derived.by(() => {
+		if (row && row.kind === 'storage_bytes') return null;
+		if (storageRow) return formatAmount(storageRow);
+		return storageBytes === null ? null : `${formatBytes(storageBytes)} · no limit`;
+	});
 	const surface = {
 		ok: 'border-line',
 		warn: 'border-warning/40',
@@ -31,5 +43,17 @@
 			<span class="font-mono tabular-nums">{others > 0 ? `+${others} ${others === 1 ? 'limit' : 'limits'}` : ''}</span>
 			<span class="text-signal">Plan</span>
 		</span>
+	</button>
+{/if}
+{#if storageLine}
+	<button
+		type="button"
+		role="menuitem"
+		onclick={onOpen}
+		class="flex w-full items-baseline justify-between gap-2 rounded px-2.5 py-2 text-left hover:bg-surface-3 transition-colors {row ? 'mt-1' : ''}"
+		data-menu-storage
+	>
+		<span class="text-2xs font-medium uppercase tracking-wide text-fg-subtle">Storage</span>
+		<span class="font-mono tabular-nums text-xs text-fg-muted">{storageLine}</span>
 	</button>
 {/if}

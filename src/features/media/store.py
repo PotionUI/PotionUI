@@ -447,6 +447,11 @@ class MediaStore:
 
     # ========== Upload ==========
 
+    def check_upload_size(self, user_id: Optional[str], size: Optional[int], purpose: str = UPLOAD_PURPOSE_USER) -> None:
+        if self.limit_guard is None or not user_id or purpose != UPLOAD_PURPOSE_USER or not isinstance(size, int):
+            return
+        self.limit_guard.check_items(AdmissionRequest(point="upload", user_id=user_id, incoming_bytes=size))
+
     async def upload_media(
         self,
         file_data: bytes,
@@ -474,6 +479,7 @@ class MediaStore:
             ValueError: If upload fails, is blocked, or `purpose` is unknown
         """
         purpose = validate_upload_purpose_policy(purpose)
+        self.check_upload_size(user_id, len(file_data), purpose)
 
         # Validate content type
         if not self.media_types.is_valid_media_type(content_type):

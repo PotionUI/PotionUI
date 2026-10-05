@@ -79,7 +79,61 @@ def test_my_limits_is_empty_with_nothing_assigned(client):
     assert data == {
         "plan": None, "source": "none", "group": None, "exempt": False, "timezone": "UTC",
         "contact_line": "Ask your admin for more.", "payments": False, "limits": [],
+        "usage": {"storage_bytes": 0},
     }
+
+
+def test_my_limits_always_reports_storage_used(client, plans, seed):
+    seed.generation("u1", sizes=(10, 20))
+    seed.upload("u1", 7)
+    seed.upload("admin", 5)
+
+    assert client.get("/api/me/limits", headers=USER).json()["data"]["usage"] == {"storage_bytes": 37}
+
+    daily = make_plan(plans, "Daily", generations_per_day=5)
+    plans.guard.plans.set_group_plan(ALL_USERS_GROUP_ID, daily.id)
+    data = client.get("/api/me/limits", headers=USER).json()["data"]
+    assert [row["kind"] for row in data["limits"]] == ["generations_per_day"]
+    assert data["usage"] == {"storage_bytes": 37}
+
+    admin = client.get("/api/me/limits", headers=ADMIN).json()["data"]
+    assert admin["exempt"] is True
+    assert admin["usage"] == {"storage_bytes": 5}
+
+    sized = make_plan(plans, "Sized", storage_bytes=100)
+    plans.guard.plans.set_group_plan(ALL_USERS_GROUP_ID, sized.id)
+    data = client.get("/api/me/limits", headers=USER).json()["data"]
+    assert data["limits"][0]["used"] == data["usage"]["storage_bytes"] == 37
+
+
+def test_the_file_limit_is_an_info_row_without_usage(client, plans, seed):
+    files = make_plan(plans, "Files", upload_file_size=50 * 1024 ** 2, storage_bytes=100)
+    plans.guard.plans.set_group_plan(ALL_USERS_GROUP_ID, files.id)
+    seed.upload("u1", 90)
+
+    rows = {row["kind"]: row for row in client.get("/api/me/limits", headers=USER).json()["data"]["limits"]}
+    row = rows["upload_file_size"]
+    assert (row["limit"], row["used"], row["remaining"], row["percent"], row["state"]) == (
+        50 * 1024 ** 2, None, None, None, "ok",
+    )
+    assert row["kind_info"]["per_item"] is True
+    assert rows["storage_bytes"]["kind_info"]["per_item"] is False
+
+    users = {u["username"]: u for u in client.get("/api/admin/plans/users", headers=ADMIN).json()["data"]["users"]}
+    assert users["u1"]["max_percent"] == 90.0
+    detail = client.get("/api/admin/plans/users/u1", headers=ADMIN).json()["data"]
+    assert {r["kind"]: r["detail"] for r in detail["limits"]}["upload_file_size"] == "Files (default plan)"
+    bigger = make_plan(plans, "Bigger", upload_file_size=120 * 1024 ** 2)
+    client.put("/api/admin/plans/users/u1", json={"plan_id": bigger.id}, headers=ADMIN)
+    detail = client.get("/api/admin/plans/users/u1", headers=ADMIN).json()["data"]
+    assert {r["kind"]: r["detail"] for r in detail["limits"]}["upload_file_size"] == (
+        "Bigger (personal override): 120 MB; All users says 50 MB, smaller"
+    )
+    client.put("/api/admin/plans/users/u1", json={"plan_id": None}, headers=ADMIN)
+
+    listing = client.get("/api/admin/plans", headers=ADMIN).json()["data"]
+    usage = {p["name"]: p["usage"] for p in listing["plans"]}["Files"]
+    assert [k["kind"] for k in usage["kinds"]] == ["storage_bytes"]
 
 
 def test_my_limits_lists_limited_kinds_and_hides_cloud_dollars(client, plans, seed):

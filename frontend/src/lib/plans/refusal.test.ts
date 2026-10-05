@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import type { LimitRow } from './meApi';
-import { blocksSubmit, gateFromRefusal, parseLimitRefusal, refusalFromError, refusalMessage } from './refusal';
+import {
+	blocksSubmit,
+	gateFromRefusal,
+	isPerItemError,
+	parseLimitRefusal,
+	refusalFromError,
+	refusalMessage,
+	uploadSizeMessage
+} from './refusal';
 
 const NOW = Date.parse('2026-10-05T19:48:00Z');
 const daily = {
@@ -82,5 +90,37 @@ describe('blocksSubmit', () => {
 
 	it('does not block an exempt account', () => {
 		expect(blocksSubmit({ ...base, enforced: false })).toBe(false);
+	});
+});
+
+describe('upload file size refusal', () => {
+	const detail = {
+		error: 'limit_exceeded',
+		kind: 'upload_file_size',
+		code: 'upload_file_size_exceeded',
+		point: 'upload',
+		used: 125829120,
+		limit: 52428800,
+		incoming: 125829120,
+		message: 'This file is 120 MB; your plan allows files up to 50 MB. Ask your admin for more.'
+	};
+	const error = { response: { status: 403, data: { detail } } };
+
+	it('surfaces the server message instead of a gate title', () => {
+		expect(refusalMessage(error)).toBe(detail.message);
+		expect(isPerItemError(error)).toBe(true);
+		expect(isPerItemError({ response: { data: daily } })).toBe(false);
+	});
+
+	it('builds the same wording itself when the message is missing', () => {
+		const bare = { response: { data: { detail: { ...detail, message: undefined } } } };
+		expect(refusalMessage(bare)).toBe('This file is 120 MB; your plan allows files up to 50 MB.');
+	});
+
+	it('appends the contact line only when there is one', () => {
+		expect(uploadSizeMessage(125829120, 52428800, '')).toBe('This file is 120 MB; your plan allows files up to 50 MB.');
+		expect(uploadSizeMessage(125829120, 52428800, 'Ask your admin.')).toBe(
+			'This file is 120 MB; your plan allows files up to 50 MB. Ask your admin.'
+		);
 	});
 });

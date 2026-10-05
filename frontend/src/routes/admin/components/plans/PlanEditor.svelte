@@ -6,7 +6,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { DetailHeader, DetailBody, DetailLayout, DetailSection, DetailFooter, DetailField } from '$lib/components/detail';
 	import {
-		BYTE_UNIT_OPTIONS,
+		byteUnitOptions,
 		addLimit,
 		availableKinds,
 		draftFromPlan,
@@ -149,7 +149,7 @@
 											<CustomSelect
 												size="sm"
 												value={entry.limit.unit}
-												options={BYTE_UNIT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+												options={byteUnitOptions(kind)}
 												on:change={(e) => (draft = setLimitUnit(draft, entry.limit.kind, e.detail as ByteUnit))}
 											/>
 										</div>

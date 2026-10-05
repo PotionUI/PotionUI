@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
 	addLimit,
+	byteUnitOptions,
+	valueToDisplay,
 	availableKinds,
 	bytesToDisplay,
 	displayToValue,
@@ -141,5 +143,37 @@ describe('round trip', () => {
 		const snapshot = draftFromPlan(plan, kinds);
 		expect(isDraftDirty(snapshot, snapshot)).toBe(false);
 		expect(isDraftDirty(removeLimit(snapshot, 'storage_bytes'), snapshot)).toBe(true);
+	});
+});
+
+describe('per-file upload size kind', () => {
+	const MB = 1024 ** 2;
+	const upload: LimitKindDescriptor = {
+		key: 'upload_file_size',
+		label: 'Largest upload',
+		description: '',
+		value_type: 'bytes',
+		unit: 'MB',
+		input_scale: MB,
+		window: 'none',
+		per_item: true
+	};
+
+	it('offers MB and GB for it and GB and TB for storage', () => {
+		expect(byteUnitOptions(upload).map((o) => o.value)).toEqual(['MB', 'GB']);
+		expect(byteUnitOptions(kinds[0]).map((o) => o.value)).toEqual(['GB', 'TB']);
+	});
+
+	it('round-trips 50 MB and 1 GB', () => {
+		expect(valueToDisplay(upload, 52428800)).toEqual({ text: '50', unit: 'MB' });
+		expect(valueToDisplay(upload, GB)).toEqual({ text: '1', unit: 'GB' });
+		expect(displayToValue(upload, '50', 'MB')).toBe(52428800);
+		expect(displayToValue(upload, '1', 'GB')).toBe(GB);
+	});
+
+	it('starts a new limit in MB and saves the typed value', () => {
+		const draft = setLimitText(addLimit(emptyDraft(), upload), 'upload_file_size', '50');
+		expect(draft.limits[0].unit).toBe('MB');
+		expect(draftToBody({ ...draft, name: 'Free' }, [upload])?.limits).toEqual([{ kind: 'upload_file_size', value: 52428800 }]);
 	});
 });

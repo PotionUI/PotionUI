@@ -1,4 +1,4 @@
-type OptionSource = { options?: Array<{ label: string; value: unknown }>; type?: string } | undefined;
+type OptionSource = { options?: Array<{ label?: string; value: unknown }>; type?: string } | undefined;
 
 export function loraKey(row: unknown): string {
 	if (!row || typeof row !== 'object') return String(row);
@@ -43,12 +43,20 @@ export function formatValue(field: OptionSource, value: unknown): string {
 		return value.map((item) => formatValue(undefined, item)).join(', ');
 	}
 	if (typeof value === 'object') {
+		const size = value as { width?: unknown; height?: unknown };
+		if (field?.type === 'resolution' && typeof size.width === 'number' && typeof size.height === 'number') {
+			return `${size.width} × ${size.height}`;
+		}
 		return Object.entries(value as Record<string, unknown>)
 			.map(([key, item]) => `${key} ${formatValue(undefined, item)}`)
 			.join(' · ');
 	}
 	const text = String(value);
 	const option = field?.options?.find((candidate) => String(candidate.value) === text);
-	if (option) return option.label;
+	if (option && typeof option.label === 'string' && option.label) return option.label;
+	if (field?.type === 'resolution') {
+		const dims = /^(\d+)\s*[x×]\s*(\d+)$/i.exec(text);
+		if (dims) return `${dims[1]} × ${dims[2]}`;
+	}
 	return text.startsWith('model:') ? text.slice(6) : text;
 }

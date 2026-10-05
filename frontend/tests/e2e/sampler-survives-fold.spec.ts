@@ -1,7 +1,15 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken } from './helpers';
 
+async function openAdvancedTab(page: Page) {
+	const tab = page.getByRole('tab', { name: 'Advanced', exact: true }).first();
+	await expect(tab).toBeVisible({ timeout: 20000 });
+	await tab.click();
+	await expect(page.locator('[data-field-name="sampler"]')).toBeVisible({ timeout: 20000 });
+}
+
 async function openKrea2(page: Page) {
+	await page.addInitScript(() => localStorage.setItem('potionui-form-audience', 'advanced'));
 	await loginAsOwner(page);
 	const token = await ownerToken(page);
 	const headers = { Authorization: `Bearer ${token}` };
@@ -23,7 +31,7 @@ async function openKrea2(page: Page) {
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
 	await page.getByText(preset!.name, { exact: true }).first().click();
 	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-	await expect(page.locator('[data-field-name="sampler"]')).toBeVisible({ timeout: 20000 });
+	await openAdvancedTab(page);
 }
 
 test('a chosen sampler survives folding and reopening the form', async ({ page }) => {
@@ -37,6 +45,8 @@ test('a chosen sampler survives folding and reopening the form', async ({ page }
 
 	await page.keyboard.press('q');
 	await page.keyboard.press('q');
+
+	if (!(await page.locator('[data-field-name="sampler"]').isVisible())) await openAdvancedTab(page);
 
 	const reopened = page.locator('[data-field-name="sampler"] button[aria-haspopup="listbox"]');
 	await expect(reopened).toBeVisible({ timeout: 10000 });

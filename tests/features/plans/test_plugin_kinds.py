@@ -87,3 +87,12 @@ def test_a_plan_keeps_an_inactive_kind_on_save_but_cannot_add_an_unknown_one(see
     assert kept["limits"][0]["active"] is False
     with pytest.raises(PlanError):
         manager.create_plan(PlanBody(name="New", limits=[{"kind": "example.credits", "value": 5}]))
+
+
+def test_a_plugin_kind_whose_measure_breaks_is_skipped_not_enforced_as_zero(seed, plans, plugin):
+    seed.user("u1")
+    assign(plans, **{"example.projects": 0})
+    _, usage = plugin
+    usage["u1"] = "broken"
+
+    plans.guard.admit(AdmissionRequest(point="upload", user_id="u1", incoming_bytes=500))

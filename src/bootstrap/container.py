@@ -1224,6 +1224,7 @@ def build_container() -> AppContainer:
         media_indexer=media_indexer,
         preset_name_resolver=PresetNameResolver(preset_template_loader),
         content_safety=content_safety,
+        limit_guard=limit_guard,
     )
 
     # Phrasebook controller (needs generation_orchestrator)

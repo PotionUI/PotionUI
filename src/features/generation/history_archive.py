@@ -15,7 +15,7 @@ import zipfile
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 
 from PIL import Image
 
@@ -43,6 +43,10 @@ from src.features.generation.history_query import GenerationHistoryQuery
 from src.features.generation.run_report_artifacts import iter_ref_paths
 from src.features.generation.run_report_repository import GenerationRunReportRepository
 from src.platform.util.ids import generate_ulid
+from src.platform.plugins.limit_kinds import AdmissionRequest
+
+if TYPE_CHECKING:
+    from src.features.plans.guard import LimitGuard
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +101,7 @@ class GenerationHistoryArchive:
         query: GenerationHistoryQuery,
         run_report_repository: GenerationRunReportRepository,
         settings=None,
+        limit_guard: Optional["LimitGuard"] = None,
     ):
         """Initialize GenerationHistoryArchive.
 
@@ -115,6 +120,7 @@ class GenerationHistoryArchive:
         self._query = query
         self.run_report_repository = run_report_repository
         self.settings = settings
+        self.limit_guard = limit_guard
 
     def _delete_generation_files(self, generation_id: str, user_id: str) -> Tuple[int, int]:
         """Delete generation files through `self.file_service`.
@@ -1136,6 +1142,11 @@ class GenerationHistoryArchive:
             logger.warning(f"Generation upload blocked: {reason}")
             raise UploadFailedException(reason)
 
+        if self.limit_guard is not None:
+            self.limit_guard.admit(AdmissionRequest(
+                point="upload", user_id=user_id, incoming_bytes=await self._incoming_bytes(files),
+            ))
+
         # Generate unique generation ID
         generation_id = generate_ulid()
 
@@ -1215,6 +1226,19 @@ class GenerationHistoryArchive:
             "generation_id": generation_id,
             "files": uploaded_files
         }
+
+    async def _incoming_bytes(self, files: List) -> int:
+        media_resolver = MediaTypeResolver()
+        total = 0
+        for upload_file in files:
+            if not upload_file.content_type or not media_resolver.is_valid_media_type(upload_file.content_type):
+                continue
+            size = getattr(upload_file, "size", None)
+            if not isinstance(size, int):
+                size = len(await upload_file.read())
+                await upload_file.seek(0)
+            total += size
+        return total
 
     def update_tags(
         self,

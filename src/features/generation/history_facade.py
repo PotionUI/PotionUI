@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from src.features.media_index.indexer import MediaIndexer
     from src.features.media_index.repository import MediaIndexRepository
     from src.features.presets.name_resolver import PresetNameResolver
+    from src.features.plans.guard import LimitGuard
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ class GenerationHistoryFacade:
         media_indexer: Optional['MediaIndexer'] = None,
         preset_name_resolver: Optional['PresetNameResolver'] = None,
         content_safety: Optional['ContentSafetyManager'] = None,
+        limit_guard: Optional['LimitGuard'] = None,
     ):
         """Initialize GenerationHistoryFacade.
 
@@ -86,7 +88,7 @@ class GenerationHistoryFacade:
         )
         self._archive = GenerationHistoryArchive(
             generation_repo, file_service, plugin_registry, self._query, run_report_repository,
-            settings
+            settings, limit_guard
         )
         self.executor = HistoryExecutor()
 

@@ -8,6 +8,7 @@ from src.features.generation.error_classification import (
     classify_error_text,
     classify_generation_error,
 )
+from src.features.plans.errors import LimitExceeded
 from src.pipelines.outputs import ErrorGenerationOutput
 from src.platform.database.rows import dt_iso
 
@@ -123,7 +124,7 @@ def failure_from_exception(exc: BaseException, detail: Optional[str] = None) -> 
 
 
 def start_failure_reason(exc: BaseException, privileged: bool) -> str:
-    if privileged:
+    if privileged or isinstance(exc, LimitExceeded):
         return str(exc)
     return classify_generation_error(exc).summary
 

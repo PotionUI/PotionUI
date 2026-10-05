@@ -1006,6 +1006,8 @@ class GenerationController(BaseController):
                 data=result
             )
 
+        except LimitExceeded as e:
+            raise e.http()
         except UploadFailedException as e:
             return self.error_response(
                 error="upload_failed",

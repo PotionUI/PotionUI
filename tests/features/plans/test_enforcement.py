@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -8,12 +9,22 @@ from fastapi.testclient import TestClient
 from src.bootstrap.errors import register_error_handlers
 from src.features.generation import GenerationHistoryFacade
 from src.features.generation.dto import GenerationRequest
+from src.features.generation.failure import start_failure_reason
+from src.features.generation.history_archive import GenerationHistoryArchive
 from src.features.generation.orchestrator import GenerationOrchestrator
 from src.features.generation.pipeline_builder import BuiltPipeline
 from src.features.generation.routes import GenerationController
 from src.features.generation.run_report_recorder import RunReportRecorder
-from src.features.media.editing.dto import CropOperation
+from src.features.media.editing.dto import (
+    CropOperation,
+    EditMediaRequest,
+    ExtractFrameRequest,
+    SplitMediaRequest,
+    TrimOperation,
+)
 from src.features.media.editing.editor import MediaEditor
+from src.features.media.editing.operations import EditedMediaMetadata
+from src.features.media.editing.routes import MediaEditController
 from src.features.media.media_types import MediaTypeResolver
 from src.features.media.records import Upload
 from src.features.media.routes import MediaController
@@ -285,13 +296,15 @@ async def test_an_editor_save_that_does_not_fit_is_refused_and_leaves_no_file(ed
 
 
 @pytest.mark.asyncio
-async def test_a_full_account_cannot_extract_a_frame_or_save_a_copy(editor, plans):
+async def test_a_full_account_is_refused_before_the_editor_encodes_anything(editor, plans):
     manager, upload, driver, size = editor
     limit_storage(plans, size)
+    manager._transform_and_publish = AsyncMock(side_effect=AssertionError("encoded while full"))
 
     with pytest.raises(LimitExceeded):
         await manager.edit_item(upload.id, "u1", [CropOperation(type="crop", x=0, y=0, width=5, height=5)], mode="new")
 
+    manager._transform_and_publish.assert_not_awaited()
     assert stored_uploads(driver) == ["source.png"]
 
 
@@ -326,3 +339,242 @@ def test_library_copy_and_inspiration_save_are_refused_when_full(seed, plans, tm
         save_to_library(inspirations, "i1", "u1")
 
     driver.put_file.assert_not_called()
+
+
+def stored_media(driver, uploads, name, media_type, data=b"0123456789"):
+    scratch = driver.base_dir.parent / f"scratch-{name}"
+    scratch.write_bytes(data)
+    size = driver.put_file(f"uploads/{name}", scratch)
+    return uploads.create(Upload(user_id="u1", filename=name, original_filename=name, media_type=media_type,
+                                 mime_type=f"{media_type}/x", file_size=size))
+
+
+def writes(size):
+    def transform(source, dest, *_):
+        Path(dest).write_bytes(b"x" * size)
+        return EditedMediaMetadata()
+    return transform
+
+
+def upload_rows(seed):
+    return seed.rows("SELECT filename FROM uploads WHERE user_id = 'u1' ORDER BY filename")
+
+
+@pytest.mark.asyncio
+async def test_a_frame_grab_that_does_not_fit_is_refused_and_leaves_no_file(editor, plans, seed):
+    manager, image, driver, size = editor
+    video = stored_media(driver, manager.upload_repo, "clip.mp4", "video")
+    limit_storage(plans, size + 10 + 50)
+
+    with patch("src.features.media.editing.editor.extract_video_frame", writes(51)):
+        with pytest.raises(LimitExceeded) as refused:
+            await manager.extract_frame(video.id, "u1", 1.0)
+
+    assert refused.value.payload()["code"] == "storage_quota_exceeded"
+    assert stored_uploads(driver) == ["clip.mp4", "source.png"]
+    assert len(upload_rows(seed)) == 2
+
+    with patch("src.features.media.editing.editor.extract_video_frame", writes(50)):
+        await manager.extract_frame(video.id, "u1", 1.0)
+    assert len(stored_uploads(driver)) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_full_account_cannot_grab_a_frame_and_nothing_is_encoded(editor, plans):
+    manager, image, driver, size = editor
+    video = stored_media(driver, manager.upload_repo, "clip.mp4", "video")
+    limit_storage(plans, size + 10)
+    encode = Mock(side_effect=writes(1))
+
+    with patch("src.features.media.editing.editor.extract_video_frame", encode):
+        with pytest.raises(LimitExceeded):
+            await manager.extract_frame(video.id, "u1", 1.0)
+
+    encode.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_video_trim_saved_as_new_that_does_not_fit_is_refused_and_leaves_no_file(editor, plans, seed):
+    manager, image, driver, size = editor
+    video = stored_media(driver, manager.upload_repo, "clip.mp4", "video")
+    limit_storage(plans, size + 10 + 8)
+    trim = [TrimOperation(type="trim", start_seconds=0, end_seconds=1)]
+
+    with patch("src.features.media.editing.editor.apply_video_operations", writes(9)):
+        with pytest.raises(LimitExceeded):
+            await manager.edit_item(video.id, "u1", trim, mode="new")
+
+    assert stored_uploads(driver) == ["clip.mp4", "source.png"]
+    assert len(upload_rows(seed)) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_replace_that_grows_past_the_limit_is_refused_and_keeps_the_original(editor, plans, seed):
+    manager, image, driver, size = editor
+    video = stored_media(driver, manager.upload_repo, "clip.mp4", "video")
+    limit_storage(plans, size + 10 + 5)
+    trim = [TrimOperation(type="trim", start_seconds=0, end_seconds=1)]
+
+    with patch("src.features.media.editing.editor.apply_video_operations", writes(16)):
+        with pytest.raises(LimitExceeded):
+            await manager.edit_item(video.id, "u1", trim, mode="replace")
+
+    assert stored_uploads(driver) == ["clip.mp4", "source.png"]
+    assert [row["filename"] for row in upload_rows(seed)] == ["clip.mp4", "source.png"]
+
+    with patch("src.features.media.editing.editor.apply_video_operations", writes(15)):
+        result = await manager.edit_item(video.id, "u1", trim, mode="replace")
+    assert result.replaced is True
+
+
+def splits_into(*sizes):
+    def split(source, dest_dir, suffix, part_seconds):
+        parts = []
+        for index, part_size in enumerate(sizes):
+            part = Path(dest_dir) / f"part{index}{suffix}"
+            part.write_bytes(b"x" * part_size)
+            parts.append((part, EditedMediaMetadata()))
+        return parts
+    return split
+
+
+@pytest.mark.asyncio
+async def test_an_audio_split_that_does_not_fit_is_refused_and_publishes_no_part(editor, plans, seed):
+    manager, image, driver, size = editor
+    audio = stored_media(driver, manager.upload_repo, "song.mp3", "audio")
+    limit_storage(plans, size + 10 + 20)
+
+    with patch("src.features.media.editing.editor.split_audio", splits_into(10, 11)):
+        with pytest.raises(LimitExceeded):
+            await manager.split_item(audio.id, "u1", 5)
+
+    assert stored_uploads(driver) == ["song.mp3", "source.png"]
+    assert len(upload_rows(seed)) == 2
+
+    with patch("src.features.media.editing.editor.split_audio", splits_into(10, 10)):
+        parts = await manager.split_item(audio.id, "u1", 5)
+    assert len(parts) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_full_account_cannot_split_audio_and_nothing_is_encoded(editor, plans):
+    manager, image, driver, size = editor
+    audio = stored_media(driver, manager.upload_repo, "song.mp3", "audio")
+    limit_storage(plans, size + 10)
+    split = Mock(side_effect=splits_into(1))
+
+    with patch("src.features.media.editing.editor.split_audio", split):
+        with pytest.raises(LimitExceeded):
+            await manager.split_item(audio.id, "u1", 5)
+
+    split.assert_not_called()
+
+
+STORAGE_REFUSAL = {
+    "kind": "storage_bytes", "code": "storage_quota_exceeded", "label": "Storage space", "format": "bytes",
+    "used": 10, "limit": 10, "percent": 100.0, "resets_at": None, "message": "Your storage is full.",
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,request_body", [
+    ("edit_item", EditMediaRequest(operations=[CropOperation(type="crop", x=0, y=0, width=1, height=1)])),
+    ("extract_frame", ExtractFrameRequest(time_seconds=1)),
+    ("split_item", SplitMediaRequest(part_seconds=5)),
+])
+async def test_every_editor_route_answers_403_with_the_refusal(method, request_body):
+    manager = Mock(spec=MediaEditor)
+    setattr(manager, method, AsyncMock(side_effect=LimitExceeded([STORAGE_REFUSAL], "upload", "")))
+    controller = MediaEditController(manager)
+
+    with pytest.raises(HTTPException) as raised:
+        await getattr(controller, method)("item", request_body, Mock(id="u1"))
+
+    assert raised.value.status_code == 403
+    assert raised.value.detail["code"] == "storage_quota_exceeded"
+
+
+def history_archive(guard):
+    generation_repo = Mock()
+    generation_repo.add_file = Mock(side_effect=lambda generation_id, record: Mock(to_dict=Mock(return_value={})))
+    file_service = Mock()
+    plugins = Mock()
+    plugins.execute_hook = Mock(side_effect=lambda hook, initial_data: (SimpleNamespace(data=initial_data), True))
+    archive = GenerationHistoryArchive(generation_repo, file_service, plugins, Mock(), Mock(), limit_guard=guard)
+    return archive, generation_repo, file_service.storage_driver
+
+
+def history_file(data, content_type="audio/mpeg", size=None):
+    upload = Mock()
+    upload.filename = "take.mp3"
+    upload.content_type = content_type
+    upload.size = size
+    upload.read = AsyncMock(return_value=data)
+    upload.seek = AsyncMock()
+    return upload
+
+
+@pytest.mark.asyncio
+async def test_uploading_files_into_history_that_do_not_fit_is_refused_before_anything_is_written(seed, plans):
+    seed.user("u1")
+    limit_storage(plans, 10)
+    seed.upload("u1", 4)
+    archive, generation_repo, driver = history_archive(plans.guard)
+    files = [history_file(b"abc"), history_file(b"abcd"), history_file(b"x" * 99, content_type="text/plain")]
+
+    with pytest.raises(LimitExceeded) as refused:
+        await archive.upload_generations(files, [], "u1")
+
+    assert refused.value.payload()["point"] == "upload"
+    generation_repo.create.assert_not_called()
+    driver.put_bytes.assert_not_called()
+
+    files = [history_file(b"abc"), history_file(b"", size=3), history_file(b"x" * 99, content_type="text/plain")]
+    result = await archive.upload_generations(files, [], "u1")
+    assert len(result["files"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_the_history_upload_route_answers_403_with_the_refusal():
+    facade = Mock(spec=GenerationHistoryFacade)
+    facade.upload_generations = AsyncMock(side_effect=LimitExceeded([STORAGE_REFUSAL], "upload", ""))
+    orchestrator = Mock(spec=GenerationOrchestrator)
+    orchestrator.status_tracker = Mock()
+    controller = GenerationController(orchestrator, facade, Mock(spec=FileStore), Mock(spec=RunReportRecorder))
+
+    with pytest.raises(HTTPException) as raised:
+        await controller.upload_generations([Mock()], [], Mock(id="u1"))
+
+    assert raised.value.status_code == 403
+    assert raised.value.detail["code"] == "storage_quota_exceeded"
+
+
+def cloud_orchestrator(backend, guard, engine):
+    backend.engine = engine
+    orchestrator = orchestrator_for(backend, guard)
+    orchestrator.preset_template_loader.load_preset_by_id = Mock(return_value=Mock(engine=engine))
+    return orchestrator
+
+
+@pytest.mark.asyncio
+async def test_a_cloud_submit_over_the_monthly_budget_is_refused_and_a_local_one_is_not(seed, plans, repo, backend):
+    seed.user("u1")
+    plan = make_plan(plans, "Budget", cloud_spend_usd_month=10)
+    plans.guard.plans.set_group_plan(ALL_USERS_GROUP_ID, plan.id)
+    seed.cost("u1", 10, plans.guard.clock())
+
+    with pytest.raises(LimitExceeded) as refused:
+        await cloud_orchestrator(backend, plans.guard, "cloud").start_generation(make_request(), "u1")
+
+    assert refused.value.payload()["code"] == "cloud_budget_exceeded"
+    assert refused.value.payload()["used"] is None
+    repo.create.assert_not_called()
+
+    await cloud_orchestrator(backend, plans.guard, "native").start_generation(make_request(), "u1")
+    repo.create.assert_called_once()
+
+
+def test_chat_and_mcp_callers_get_the_plain_refusal_not_a_generic_failure():
+    error = LimitExceeded([STORAGE_REFUSAL], "submit", "")
+
+    assert start_failure_reason(error, privileged=False) == "Your storage is full."

@@ -96,7 +96,9 @@
 
 	.input:focus,
 	.input:has(:is(input, textarea, select):focus),
-	.field-frame:has(:is(input, textarea, select):focus) {
+	.input:has(button:focus-visible),
+	.field-frame:has(:is(input, textarea, select):focus),
+	.field-frame:has(button:focus-visible) {
 		outline: none;
 		@apply ring-2 ring-signal border-transparent;
 	}
@@ -221,7 +223,7 @@
 }
 
 :is(.input, .field-frame) button:focus-visible {
-	outline-offset: -2px;
+	outline: none;
 }
 
 /* Remove outline for mouse/touch */

@@ -153,8 +153,9 @@ test('preset form frames and the prompt segment editor', async ({ page }) => {
 
 	const button = frame.locator('button').first();
 	await page.keyboard.press('Tab');
-	await button.focus();
-	expect(await css(frame, 'boxShadow')).toBe('none');
+	await keyboardFocus(page, button);
+	await expectNoRing(button);
+	await expectRing(frame, signal);
 
 	const editor = page.locator('.inline-chip-editor[role="textbox"]').first();
 	await expect(editor).toBeVisible({ timeout: 15000 });

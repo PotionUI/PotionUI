@@ -71,6 +71,7 @@
 	import CloudCatalogSection from './CloudCatalogSection.svelte';
 	import { backendDetailTabsFor, backendDetailTabHasFooter, isBackendDetailTab, type BackendDetailTabId } from './backendDetailTabs';
 	import { readAddBackendDriver, readBackendsUrlState, writeBackendsUrlState } from './backendsUrlState';
+	import { carrySharedBackendFields } from './backendFormDraft';
 	import { BACKENDS_LIBRARY_SECTIONS, type BackendLibrarySection } from './backends/backendsLibrarySections';
 
 	type DetailTab = BackendDetailTabId;
@@ -376,7 +377,7 @@
 	}
 
 	function onDriverChange(driver: string) {
-		formData = emptyFormData(driver);
+		formData = carrySharedBackendFields(formData, emptyFormData(driver));
 	}
 
 	function closeModal() {

@@ -383,6 +383,20 @@ own IC-LoRA pipeline; form LoRAs stay on for both passes. The Enhance tab's "Use
 the refine pass" keeps the IC-LoRA loaded for the refine and re-encodes the reference at the
 refine resolution, at the cost of more VRAM and time.
 
+The reference enters the sequence as clean appended tokens on the target's own position grid;
+the generated frames still start from noise, and only they are decoded. An IC-LoRA trained on
+smaller or sparser references records that in its safetensors metadata
+(`reference_downscale_factor`, `reference_temporal_scale_factor`), and the generator reads it
+from the IC-LoRA file: the reference is resized or subsampled to match, and its positions are
+scaled back onto the target grid, as in Lightricks' `VideoConditionByReferenceLatent`. With a
+spatial factor above 1, the stage's latent grid must divide by it, so width and height must be
+multiples of 32 times the factor.
+
+The reference sets layout and motion, not the look. A style-transfer IC-LoRA such as
+Layout-To-Render needs a `first` keyframe that already shows the finished look (the layout's
+first frame run through an image model), plus a prompt describing the finished shot. Without
+that keyframe the output keeps the reference's own look.
+
 ### `shot`
 
 Optional in every mode; in practice only ever sent for a timeline-style document, since a

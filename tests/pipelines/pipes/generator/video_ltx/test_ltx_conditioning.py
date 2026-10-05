@@ -11,6 +11,7 @@ import torch
 
 from src.pipelines.pipes.generator.video_ltx.conditioning import (
     LTXMediaCondition,
+    _temporal_subsample,
     _trim_condition_frames,
     mix_initial_noise,
     prepare_ltx_conditions,
@@ -183,3 +184,83 @@ def test_mix_initial_noise_partial_strength_blends():
 def test_unknown_role_raises():
     with pytest.raises(ValueError, match="role"):
         _prepare([LTXMediaCondition(frames=_frames(1), role="banana")])
+
+
+def _recording_encode(fill, seen):
+    def enc(pixels):
+        seen.append(tuple(pixels.shape))
+        _, _, t, h, w = pixels.shape
+        return torch.full((1, C, (t - 1) // 8 + 1, h // 32, w // 32), float(fill))
+
+    return enc
+
+
+def _prepare_at(conditions, encode, *, frames=FRAMES, height=128, width=128):
+    return prepare_ltx_conditions(
+        conditions, encode, frames=frames, height=height, width=width,
+        device="cpu", dtype=torch.float32, latent_channels=C,
+    )
+
+
+def test_reference_target_tokens_start_from_noise_and_reference_tokens_start_clean():
+    p = _prepare([LTXMediaCondition(frames=_frames(9), role="reference", strength=1.0)], fill=4.0)
+    assert torch.all(p.tokens[:, :S_BASE] == 0.0) and torch.all(p.mask[:, :S_BASE] == 0.0)
+    noise = torch.randn(1, S_BASE + p.n_extra, C)
+    x = mix_initial_noise(p, noise, sigma0=1.0)
+    assert torch.equal(x[:, :S_BASE], noise[:, :S_BASE])
+    assert torch.all(x[:, S_BASE:] == 4.0)
+    assert torch.equal(p.clean[:, S_BASE:], p.tokens[:, S_BASE:])
+
+
+def test_reference_downscale_factor_encodes_a_smaller_reference_and_scales_coords_onto_target():
+    seen = []
+    p = _prepare_at([LTXMediaCondition(frames=_frames(9, 96, 96), role="reference", downscale_factor=2)],
+                    _recording_encode(6.0, seen))
+    assert seen == [(1, 3, 9, 64, 64)]
+    assert p.base_tokens == T_LAT * 4 * 4
+    assert p.n_extra == 2 * 2 * 2
+    assert torch.all(p.tokens[:, p.base_tokens:] == 6.0)
+    h_start, h_end = p.extra_coords[0, 1, :, 0], p.extra_coords[0, 1, :, 1]
+    w_start, w_end = p.extra_coords[0, 2, :, 0], p.extra_coords[0, 2, :, 1]
+    assert set(h_start.tolist()) == {0.0, 64.0} and set(h_end.tolist()) == {64.0, 128.0}
+    assert set(w_start.tolist()) == {0.0, 64.0} and set(w_end.tolist()) == {64.0, 128.0}
+    assert set(p.extra_coords[0, 0, :, 0].tolist()) == {0.0, 1.0}
+
+
+def test_reference_without_downscale_keeps_target_size_and_unscaled_coords():
+    seen = []
+    p = _prepare_at([LTXMediaCondition(frames=_frames(9, 96, 96), role="reference")],
+                    _recording_encode(6.0, seen))
+    assert seen == [(1, 3, 9, 128, 128)]
+    assert p.n_extra == 2 * 4 * 4
+    assert p.extra_coords[0, 1, :, 1].max().item() == 128.0
+
+
+def test_reference_temporal_scale_factor_subsamples_and_stretches_coords_over_the_target():
+    seen = []
+    p = prepare_ltx_conditions(
+        [LTXMediaCondition(frames=_frames(17), role="reference", temporal_scale_factor=2)],
+        _recording_encode(1.0, seen), frames=17, height=64, width=64,
+        device="cpu", dtype=torch.float32, latent_channels=C)
+    assert seen == [(1, 3, 9, 64, 64)]
+    assert p.n_extra == 2 * H_LAT * W_LAT
+    t_start, t_end = p.extra_coords[0, 0, :, 0], p.extra_coords[0, 0, :, 1]
+    assert set(t_start.tolist()) == {0.0, 1.0}
+    assert set(t_end.tolist()) == {1.0, 17.0}
+
+
+def test_temporal_subsample_keeps_frame_zero_then_every_nth():
+    frames = torch.arange(17, dtype=torch.float32).view(17, 1, 1, 1)
+    kept = _temporal_subsample(frames, 2)
+    assert kept.flatten().tolist() == [0.0, 1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0]
+
+
+def test_reference_downscale_factor_rejects_a_grid_it_does_not_divide():
+    with pytest.raises(ValueError, match="multiples of 64"):
+        _prepare_at([LTXMediaCondition(frames=_frames(9), role="reference", downscale_factor=2)],
+                    _fake_encode(1.0), height=96, width=128)
+
+
+def test_reference_scale_factors_rejected_on_keyframes():
+    with pytest.raises(ValueError, match="role='reference'"):
+        LTXMediaCondition(frames=_frames(1), latent_index=1, downscale_factor=2)

@@ -1961,3 +1961,67 @@ def test_refine_reference_off_leaves_no_reference_and_never_encodes(tmp_path):
     assert not ctx.extra.has_conditions
     assert ctx.extra.prepared.n_extra == 0
     assert calls == {"whole": 0, "tiled": 0}
+
+
+def _ic_lora_file(tmp_path, metadata):
+    from safetensors.torch import save_file
+
+    path = tmp_path / "ic_lora.safetensors"
+    save_file({"diffusion_model.blocks.0.attn.to_q.lora_A.weight": torch.zeros(1, 2)}, str(path), metadata=metadata)
+    return str(path)
+
+
+_IMAGE_REFERENCE = [{"source": "image", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}]
+
+
+def test_scoped_ic_lora_downscale_metadata_shrinks_the_reference(tmp_path):
+    lora = _ic_lora_file(tmp_path, {"reference_downscale_factor": "2"})
+    ctx = _pipe(resolution="128x128", frames=17, media_placements=_IMAGE_REFERENCE,
+                scoped_loras=[{"file_path": lora, "weight": 1.0}]).build_context(_pipe_input(images=[_pil_image()]))
+    p = ctx.extra.prepared
+    assert p.base_tokens == 3 * 4 * 4
+    assert p.n_extra == 1 * 2 * 2
+    assert p.extra_coords[0, 1, :, 1].max().item() == 128.0
+    assert p.extra_coords[0, 2, :, 1].max().item() == 128.0
+
+
+def test_scoped_ic_lora_without_metadata_keeps_the_reference_at_target_size(tmp_path):
+    lora = _ic_lora_file(tmp_path, None)
+    ctx = _pipe(resolution="128x128", frames=17, media_placements=_IMAGE_REFERENCE,
+                scoped_loras=[{"file_path": lora, "weight": 1.0}]).build_context(_pipe_input(images=[_pil_image()]))
+    assert ctx.extra.prepared.n_extra == 1 * 4 * 4
+
+
+@patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
+@patch("src.pipelines.pipes.generator.video_ltx.main._decode_video")
+@patch("src.pipelines.pipes.generator.video_ltx.main.denoise_prenoised")
+def test_reference_tokens_start_clean_target_starts_from_noise_and_only_base_is_decoded(mock_denoise, mock_decode):
+    captured = {}
+
+    def fake_denoise(fwd, x, cond, uncond, **kw):
+        captured["x"] = x.clone()
+        captured["sigma0"] = float(kw["sigmas"][0])
+        out = torch.full_like(x, 9.0)
+        out[:, : fwd.s_base] = 0.25
+        return out
+
+    def fake_decode(shim, latent, seed):
+        captured["decoded"] = latent.clone()
+        return np.zeros((1, 64, 64, 3), dtype=np.uint8)
+
+    mock_denoise.side_effect = fake_denoise
+    mock_decode.side_effect = fake_decode
+    bundle = _bundle_with_encode_fill(7.0)
+    _pipe(resolution="64x64", frames=17, media_placements=_IMAGE_REFERENCE).process(
+        _pipe_input(images=[_pil_image()], bundle=bundle), lambda o: None)
+
+    s_base, n_ref = 3 * 2 * 2, 1 * 2 * 2
+    x = captured["x"]
+    assert x.shape == (1, s_base + n_ref, 128)
+    noise = torch.randn((1, s_base + n_ref, 128), generator=torch.Generator(device="cpu").manual_seed(7))
+    assert torch.allclose(x[:, :s_base], noise[:, :s_base] * captured["sigma0"])
+    assert not torch.any(x[:, :s_base] == 7.0)
+    assert torch.all(x[:, s_base:] == 7.0)
+    decoded = captured["decoded"]
+    assert decoded.shape == (1, 128, 3, 2, 2)
+    assert torch.all(decoded == 0.25)

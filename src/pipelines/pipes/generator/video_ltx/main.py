@@ -146,6 +146,7 @@ from src.pipelines.pipes.generator.txt2vid_wan22.main import (
     _to_device,
 )
 from src.pipelines.pipes.generator.video_ltx.audio import audio_token_count, decode_generated_audio
+from src.pipelines.pipes.generator.video_ltx.ic_lora import resolve_reference_scales
 from src.pipelines.pipes.generator.video_ltx.conditioning import (
     LTXMediaCondition,
     PreparedConditioning,
@@ -445,7 +446,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
     # -- context -----------------------------------------------------------
 
     def _build_conditions(self, placements: List[dict], images: List[Any], videos: List[Any],
-                          frames: int) -> List[LTXMediaCondition]:
+                          frames: int, reference_scales: Tuple[int, int] = (1, 1)) -> List[LTXMediaCondition]:
         if not placements:
             # Convenience defaults: image[0] -> first frame (i2v), image[1] -> last (FLF).
             placements = []
@@ -470,7 +471,12 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                 media_frames = _load_video_frames(videos[idx], frames)
             else:
                 raise ValueError(f"unknown media placement source {source!r}")
-            latent_index = 0 if role == "reference" else _resolve_latent_index(p.get("frame", "first"), frames)
+            if role == "reference":
+                conditions.append(LTXMediaCondition(
+                    frames=media_frames, latent_index=0, strength=strength, role=role,
+                    downscale_factor=reference_scales[0], temporal_scale_factor=reference_scales[1]))
+                continue
+            latent_index = _resolve_latent_index(p.get("frame", "first"), frames)
             conditions.append(LTXMediaCondition(
                 frames=media_frames, latent_index=latent_index, strength=strength, role=role))
         return conditions
@@ -595,7 +601,13 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                     "config 'audio: true') so it loads the checkpoint's audio components."
                 )
 
-        conditions = self._build_conditions(placements, images, videos, frames)
+        stage2_loras_cfg = _active_loras(self.config.get("stage2_loras"))
+        scoped_loras_cfg = _active_loras(self.config.get("scoped_loras"))
+        reference_scales = (1, 1)
+        if any(p.get("role") == "reference" for p in placements):
+            reference_scales = resolve_reference_scales(
+                [lora["file_path"] for lora in (*scoped_loras_cfg, *stage2_loras_cfg)])
+        conditions = self._build_conditions(placements, images, videos, frames, reference_scales)
 
         # `frames` was already reconciled to the latent above (when present),
         # so this recompute would land on the same value by construction --
@@ -633,7 +645,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
 
         audio_tokens = audio_token_count(frames, fps) if audio_mode == "generate" else 0
 
-        stage2_loras_cfg = _active_loras(self.config.get("stage2_loras"))
         stage2_lora_stack: List[Tuple[Dict[str, Any], float]] = []
         if stage2_loras_cfg:
             if not initial_latents:
@@ -644,7 +655,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             else:
                 stage2_lora_stack = _load_lora_stack(stage2_loras_cfg)
 
-        scoped_loras_cfg = _active_loras(self.config.get("scoped_loras"))
         scoped_lora_stack = _load_lora_stack(scoped_loras_cfg) if scoped_loras_cfg else []
 
         spec = bundle.spec
@@ -658,9 +668,9 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
 
         logger.info(
             "[GENERATOR VIDEO-LTX] %s: %d frame(s) @ %dx%d, %d steps, cfg %.1f, "
-            "%d condition(s) (%d appended tokens), audio=%s",
+            "%d condition(s) (%d appended tokens), reference scale spatial 1/%d temporal 1/%d, audio=%s",
             spec.variant, frames, width, height, steps, cfg,
-            len(conditions), prepared.n_extra, audio_mode,
+            len(conditions), prepared.n_extra, reference_scales[0], reference_scales[1], audio_mode,
         )
 
         # Stashed for emit_results() below: process() doesn't thread ctx through

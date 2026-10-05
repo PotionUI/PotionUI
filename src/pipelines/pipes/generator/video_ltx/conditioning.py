@@ -14,7 +14,11 @@ coords). Three conditioning shapes, one packed contract:
   frame conditions clamped to a ``[idx, idx + 1)`` temporal extent.
 * ``role="reference"`` (IC-LoRA) — appended with coords built exactly like the
   base grid at the reference's latent dims (WITH the causal fix, temporal
-  origin 0), overlapping the base coordinate space.
+  origin 0), overlapping the base coordinate space. A reference trained at a
+  reduced size (the LoRA's ``reference_downscale_factor`` /
+  ``reference_temporal_scale_factor`` metadata) is resized/subsampled to that
+  size and its coords are scaled back onto the target grid, as in Lightricks'
+  ``VideoConditionByReferenceLatent``.
 
 Two orthogonal addressing/entry options on top of those three shapes, both used
 by ``generator/dfr_video_ltx``'s carried anchors: ``pixel_frame_index`` puts the
@@ -82,8 +86,16 @@ class LTXMediaCondition:
     role: str = "keyframe"
     pixel_frame_index: Optional[int] = None
     latent: Optional[Tensor] = None
+    downscale_factor: int = 1
+    temporal_scale_factor: int = 1
 
     def __post_init__(self) -> None:
+        if self.downscale_factor < 1 or self.temporal_scale_factor < 1:
+            raise ValueError(
+                f"reference scale factors must be >= 1, got downscale_factor={self.downscale_factor} "
+                f"temporal_scale_factor={self.temporal_scale_factor}")
+        if self.role != "reference" and (self.downscale_factor != 1 or self.temporal_scale_factor != 1):
+            raise ValueError("reference scale factors only apply to role='reference' conditions")
         if (self.frames is None) == (self.latent is None):
             raise ValueError(
                 "LTXMediaCondition needs exactly one of 'frames' (pixel domain) or "
@@ -148,6 +160,24 @@ def _pack(latent: Tensor) -> Tensor:
 def _grid_coords(f: int, h: int, w: int, device) -> Tensor:
     """Start/end latent coords ``[1, 3, f*h*w, 2]`` (SymmetricPatchifier layout)."""
     return SymmetricPatchifier(1, start_end=True).get_latent_coords(f, h, w, 1, device).to(torch.float32)
+
+
+def _temporal_subsample(frames: Tensor, factor: int) -> Tensor:
+    if factor == 1:
+        return frames
+    kept = frames[[0, *range(1, int(frames.shape[0]), factor)]]
+    n = (int(kept.shape[0]) - 1) // LTX_TEMPORAL * LTX_TEMPORAL + 1
+    return kept[:n]
+
+
+def reference_coords(f: int, h: int, w: int, device, *, causal_fix: bool,
+                     downscale_factor: int = 1, temporal_scale_factor: int = 1) -> Tensor:
+    coords = latent_to_pixel_coords(_grid_coords(f, h, w, device), _SCALE_FACTORS, causal_fix)
+    if temporal_scale_factor != 1:
+        coords[:, 0] = (coords[:, 0] * temporal_scale_factor - (temporal_scale_factor - 1)).clamp(min=0)
+    if downscale_factor != 1:
+        coords[:, 1:] = coords[:, 1:] * downscale_factor
+    return coords
 
 
 def prepare_ltx_conditions(
@@ -225,15 +255,22 @@ def prepare_ltx_conditions(
         n_in = int(cond.frames.shape[0])
 
         if cond.role == "reference":
-            # IC-LoRA reference: trim to the generation length, coords = base grid
-            # at the reference's latent dims (causal fix, temporal origin 0).
+            scale = int(cond.downscale_factor)
+            if h_lat % scale or w_lat % scale:
+                raise ValueError(
+                    f"IC-LoRA reference_downscale_factor {scale} needs a resolution whose latent grid "
+                    f"({w_lat}x{h_lat}) divides by it: pick a width and height that are multiples of "
+                    f"{LTX_SPATIAL * scale}")
             n = min(n_in, frames)
             n = (n - 1) // LTX_TEMPORAL * LTX_TEMPORAL + 1
-            pixels = _resize_cover_center_crop(cond.frames[:n], height, width).to(device=device, dtype=dtype)
+            clip = _temporal_subsample(cond.frames[:n], int(cond.temporal_scale_factor))
+            pixels = _resize_cover_center_crop(clip, height // scale, width // scale).to(device=device, dtype=dtype)
             lat = vae_encode(pixels)
             _, _, f, h, w = lat.shape
             packed = _pack(lat).to(device=device, dtype=dtype)
-            coords = latent_to_pixel_coords(_grid_coords(f, h, w, device), _SCALE_FACTORS, causal_fix)
+            coords = reference_coords(
+                f, h, w, device, causal_fix=causal_fix, downscale_factor=scale,
+                temporal_scale_factor=int(cond.temporal_scale_factor))
             extra_tokens.append(packed)
             extra_masks.append(torch.full((1, packed.shape[1]), float(cond.strength), device=device, dtype=dtype))
             extra_coords.append(coords)

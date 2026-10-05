@@ -8,6 +8,7 @@
 		type FieldConfig,
 		extractAllFields,
 		processSchemaWithReactions,
+		staleOptionFields,
 		type ValueGate
 	} from '$lib/form/reactions';
 	import { applyReactionValueChanges, valuesEqual } from './dynamicFormReactionApply';
@@ -220,7 +221,11 @@
 	) {
 		let data = start;
 		let gate: ValueGate | undefined = loaded
-			? { previous: reactionBaseline, pinned: reactionPinned }
+			? {
+					previous: reactionBaseline,
+					pinned: reactionPinned,
+					stale: reactionBaseline === null ? staleOptionFields(schema, data) : undefined
+				}
 			: undefined;
 		let pass = reprocessSchema(schema, data, modelFields, revision, gate);
 		let unsettled = false;

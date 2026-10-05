@@ -229,6 +229,33 @@ export function evaluateCondition(
 export interface ValueGate {
 	previous: Record<string, any> | null;
 	pinned?: ReadonlySet<string>;
+	stale?: ReadonlySet<string>;
+}
+
+function optionValues(node: any): unknown[] | null {
+	const options = Array.isArray(node.options) ? node.options : node.configuration?.options;
+	if (!Array.isArray(options) || options.length === 0) return null;
+	return options.map((option: any) => (option && typeof option === 'object' ? option.value : option));
+}
+
+export function staleOptionFields(schema: any, data: Record<string, any>): Set<string> {
+	const stale = new Set<string>();
+	const visit = (node: any) => {
+		if (Array.isArray(node)) {
+			node.forEach(visit);
+			return;
+		}
+		if (!node || typeof node !== 'object') return;
+		if (typeof node.name === 'string' && data[node.name] != null && typeof data[node.name] !== 'object') {
+			const values = optionValues(node);
+			if (values && !values.some((value) => sameValue(value, data[node.name]))) stale.add(node.name);
+		}
+		Object.values(node).forEach((child) => {
+			if (child && typeof child === 'object') visit(child);
+		});
+	};
+	visit(schema);
+	return stale;
 }
 
 function conditionFields(when: any, out: Set<string>) {
@@ -256,11 +283,12 @@ function mayApplyValue(
 	gate: ValueGate | undefined
 ): boolean {
 	if (!gate) return true;
-	if (gate.previous === null) {
-		return !(targetName && gate.pinned?.has(targetName));
-	}
 	const fields = new Set<string>();
 	conditionFields(reaction.when, fields);
+	if (gate.previous === null) {
+		for (const field of fields) if (gate.stale?.has(field)) return true;
+		return !(targetName && gate.pinned?.has(targetName));
+	}
 	for (const field of fields) {
 		if (!sameValue(gate.previous[field], formData[field])) return true;
 	}

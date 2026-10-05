@@ -120,6 +120,13 @@ describe('A guide switched between extracting and using the image as it is', () 
 		expect(box().checked).toBe(false);
 	});
 
+	it('migrates a saved "use as is" session that still carries extraction on', async () => {
+		mounted = mountForm({ guide: 'as_is', guide_extract: true });
+		await settle();
+		expect(guideLabel()).toContain('Canny');
+		expect(box().checked).toBe(false);
+	});
+
 	it('hides the switch for None and Grayscale and shows it for a detector', async () => {
 		mounted = mountForm();
 		await settle();

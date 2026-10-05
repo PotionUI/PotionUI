@@ -127,18 +127,18 @@ button { cursor: pointer; }
    font-size/
    line-height still have to be repeated onto `.inline-chip-editor` below,
    since that's the element that actually renders the text. */
-.segment-content { font-size: 13px; line-height: 1.85; color: rgb(var(--fg)); text-wrap: pretty; }
+.segment-content { font-size: 13px; line-height: 2; color: rgb(var(--fg)); text-wrap: pretty; }
 
-.segment-content .inline-chip-editor { font-size: 13px; line-height: 1.85; }
+.segment-content .inline-chip-editor { font-size: 13px; line-height: 2; }
 
 
 .segment.off .segment-content { color: rgb(var(--fg-disabled)); opacity: .48; text-decoration-color: rgb(var(--fg-disabled)); }
 
 .segment.off .segment-head { opacity: 1; }
 
-.composer.compact .segment-content { font-size: 12px; line-height: 1.65; }
+.composer.compact .segment-content { font-size: 12px; line-height: 2; }
 
-.composer.compact .segment-content .inline-chip-editor { font-size: 12px; line-height: 1.65; }
+.composer.compact .segment-content .inline-chip-editor { font-size: 12px; line-height: 2; }
 
 .composer.compact .segment-head { min-height: 35px; }
 
@@ -893,11 +893,11 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 .prompt-editor.compact .segment-content {
 	min-height: 54px;
 	font-size: 12px;
-	line-height: 1.65;
+	line-height: 2;
 }
 .prompt-editor.compact .segment-content .inline-chip-editor {
 	font-size: 12px;
-	line-height: 1.65;
+	line-height: 2;
 }
 .prompt-editor.compact .segment-head {
 	min-height: 35px;
@@ -982,3 +982,31 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 .card.segment:hover .segment-identity, .card.segment:focus-within .segment-identity, .card.segment.menu-open .segment-identity, .card.segment.dragging .segment-identity { opacity: 1; }
 
 @media (hover: none), (pointer: coarse) { .card.segment .reveal, .card.segment .segment-identity { opacity: 1; } }
+
+.segment-content .inline-chip-editor .chip {
+	min-height: 22px;
+	max-height: 24px;
+	margin: 0 2px;
+	padding: 0 7px 0 5px;
+	vertical-align: middle;
+	transform: none;
+}
+.segment-content .inline-chip-editor .chip-main {
+	min-height: 20px;
+	padding: 0 7px 0 5px;
+}
+.segment-content .inline-chip-editor .chip-config {
+	min-height: 20px;
+	width: 24px;
+}
+.segment-content .inline-chip-editor .chip-mark {
+	width: 16px;
+	height: 16px;
+	font-size: 10px;
+}
+.segment-content .inline-chip-editor .chip-label {
+	font-size: 12px;
+}
+.segment-content .inline-chip-editor .chip-context {
+	font-size: 11px;
+}

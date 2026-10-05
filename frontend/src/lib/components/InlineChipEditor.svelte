@@ -2702,7 +2702,7 @@
 	.inline-chip-editor {
 		font-family: inherit;
 		font-size: 0.875rem;
-		line-height: 1.625;
+		line-height: 2;
 		position: relative;
 	}
 
@@ -2718,7 +2718,8 @@
 
 	.inline-chip-editor :global(.inline-chip) {
 		display: inline-flex;
-		vertical-align: baseline;
+		vertical-align: middle;
+		max-height: 1.75rem;
 		white-space: nowrap;
 	}
 
@@ -2730,7 +2731,8 @@
 
 	.inline-chip-editor :global(.choice-group-chip) {
 		display: inline-flex;
-		vertical-align: baseline;
+		vertical-align: middle;
+		max-height: 1.75rem;
 		white-space: nowrap;
 	}
 
@@ -2742,7 +2744,8 @@
 
 	.inline-chip-editor :global(.variable-usage-chip) {
 		display: inline-flex;
-		vertical-align: baseline;
+		vertical-align: middle;
+		max-height: 1.75rem;
 		white-space: nowrap;
 	}
 

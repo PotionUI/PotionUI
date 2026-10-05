@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Button, Card, EmptyState, Input, LoadErrorState, Spinner, Switch } from '$lib/components/ui';
+	import { Button, EmptyState, Input, LoadErrorState, Spinner, Switch } from '$lib/components/ui';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
-	import { DetailSection } from '$lib/components/detail';
+	import { StatTile } from '$lib/components/charts';
+	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import { DetailHeader, DetailBody, DetailLayout, DetailSection, DetailField, DetailFooter } from '$lib/components/detail';
 	import { DataTable, type DataTableColumn } from '$lib/components/table';
 	import { api } from '$lib/services/api';
 	import { toasts } from '$lib/stores/toast';
@@ -14,16 +16,22 @@
 		controlsDirty,
 		controlsDraftFrom,
 		controlsPayload,
+		filterPeople,
 		isForbidden,
 		parseUserCap,
 		replaceUser,
 		userCapText,
 		validateControls,
-		type ControlsDraft
+		AUTO_ORGANIZE_SECTIONS,
+		PEOPLE_SORT_OPTIONS,
+		type AutoOrganizeSection,
+		type ControlsDraft,
+		type PeopleSortBy
 	} from './autoOrganizeAdmin';
 
-	const SECTIONS = [{ id: 'overview', label: 'Auto-organize', icon: 'wand' }] as const;
-
+	let section = $state<AutoOrganizeSection>('overview');
+	let peopleQuery = $state('');
+	let peopleSort = $state<PeopleSortBy>('username');
 	let overview = $state<OrganizeAdminOverview | null>(null);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
@@ -37,6 +45,9 @@
 	const errors = $derived(validateControls(draft));
 	const hasErrors = $derived(Object.keys(errors).length > 0);
 	const dirty = $derived(overview ? controlsDirty(overview, draft) : false);
+	const dirtyCount = $derived(overview ? Object.keys(controlsPayload(overview, draft)).length : 0);
+	const people = $derived(overview ? filterPeople(overview.users, peopleQuery, peopleSort) : []);
+	const sectionLabel = $derived(AUTO_ORGANIZE_SECTIONS.find((entry) => entry.id === section)?.label ?? '');
 
 	function adopt(next: OrganizeAdminOverview) {
 		overview = next;
@@ -204,96 +215,129 @@
 	title="Auto-organize"
 	persistKey="admin-auto-organize"
 	heightClass="h-full"
-	sections={SECTIONS}
-	section="overview"
-	onSelectSection={() => {}}
-	count={overview?.users.length ?? null}
+	sections={AUTO_ORGANIZE_SECTIONS}
+	{section}
+	onSelectSection={(id) => (section = id)}
+	sectionCounts={{ people: overview?.users.length }}
+	count={section === 'people' ? people.length : null}
+	detailOpen={section !== 'people'}
 >
+	{#snippet sectionTrailing(id)}
+		{#if id === 'limits' && dirty}
+			<span class="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-warning-solid" aria-hidden="true"></span>
+		{/if}
+	{/snippet}
+
+	{#snippet toolbar()}
+		<LibraryFilterBar
+			q={peopleQuery}
+			onQueryChange={(value) => (peopleQuery = value)}
+			searchPlaceholder="Search by name…"
+			sortBy={peopleSort}
+			sortOptions={PEOPLE_SORT_OPTIONS}
+			onSortChange={(value) => (peopleSort = value as PeopleSortBy)}
+		/>
+	{/snippet}
+
 	{#if loading && !overview}
-		<div class="flex h-40 items-center justify-center">
+		<div class="flex h-full flex-col items-center justify-center">
 			<Spinner size="lg" />
+			<p class="mt-4 text-sm text-fg-muted">Loading Auto-organize…</p>
 		</div>
 	{:else if loadError || !overview}
 		<LoadErrorState message={loadError ?? 'Auto-organize settings could not be loaded.'} onRetry={load} retrying={loading} />
+	{:else if section === 'people'}
+		<div class="flex flex-col gap-3 p-4">
+			<DataTable {columns} rows={people} getRowId={(user) => user.user_id} isFiltered={!!peopleQuery.trim()}>
+				{#snippet emptyState()}
+					<EmptyState icon="group" title="Nobody has rules yet" description="People show up here once they make their first rule." compact />
+				{/snippet}
+				{#snippet filteredEmptyState()}
+					<EmptyState icon="search" title="No people match your search" description="Try a different name." compact>
+						{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => (peopleQuery = '')}>Clear search</Button>{/snippet}
+					</EmptyState>
+				{/snippet}
+			</DataTable>
+		</div>
 	{:else}
-		<div class="mx-auto flex max-w-5xl flex-col gap-4 p-4 sm:p-6">
-			<p class="text-sm text-fg-muted">
-				Rules file people's own items into their own collections and tags. You only see totals here, never what a rule says.
-			</p>
+		<div class="flex h-full min-h-0 flex-col">
+			<DetailHeader title={sectionLabel} />
 
-			<div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
-				{#each [{ label: 'People with rules', value: overview.totals.users_with_rules }, { label: 'Rules', value: overview.totals.rules }, { label: 'Switched on', value: overview.totals.enabled_rules }, { label: 'Paused', value: overview.totals.paused_rules }, { label: 'Filed in 24h', value: overview.totals.items_filed_24h }] as tile (tile.label)}
-					<Card padding="sm">
-						<div class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">{tile.label}</div>
-						<div class="mt-1 font-mono text-xl font-semibold tabular-nums text-fg">{tile.value}</div>
-					</Card>
-				{/each}
-			</div>
+			<DetailBody>
+				<DetailLayout>
+					{#snippet main()}
+						{#if overview && section === 'overview'}
+							<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+								<StatTile mono label="People with rules" value={String(overview.totals.users_with_rules)} />
+								<StatTile mono label="Rules" value={String(overview.totals.rules)} hint="{overview.totals.enabled_rules} switched on" />
+								<StatTile mono label="Rules paused" value={String(overview.totals.paused_rules)} warning={overview.totals.paused_rules > 0} />
+								<StatTile mono label="Filed in 24h" value={String(overview.totals.items_filed_24h)} hint="{overview.totals.items_filed_total} in total" />
+								<StatTile mono label="Backfills running" value={String(overview.totals.running_jobs)} />
+							</div>
+							<p class="text-sm text-fg-muted">
+								Rules file people's own items into their own collections and tags. You only see totals here, never what a rule says.
+							</p>
 
-			<div class="flex flex-wrap gap-x-6 gap-y-1 font-mono text-xs tabular-nums text-fg-subtle">
-				<span>Filed in total {overview.totals.items_filed_total}</span>
-				<span>Backfills running {overview.totals.running_jobs}</span>
-			</div>
-
-			<DetailSection label="Pause everything">
-				<div class="flex items-center justify-between gap-4">
-					<div class="min-w-0">
-						<p class="text-sm font-medium text-fg">Pause Auto-organize for everyone</p>
-						<p class="text-xs text-fg-muted">
-							Nothing is filed while this is on. Rules are kept and start working again when you turn it off.
-						</p>
-					</div>
-					<Switch
-						label={overview.paused_all ? 'Resume Auto-organize for everyone' : 'Pause Auto-organize for everyone'}
-						checked={overview.paused_all}
-						busy={pausingAll}
-						onchange={toggleAll}
-					/>
-				</div>
-			</DetailSection>
-
-			<DetailSection label="Limits">
-				<div class="grid gap-4 sm:grid-cols-2">
-					<label class="flex flex-col gap-1">
-						<span class="text-xs font-medium text-fg">Rules per person</span>
-						<Input
-							class="font-mono tabular-nums"
-							inputmode="numeric"
-							bind:value={draft.defaultRuleCap}
-							invalid={!!errors.defaultRuleCap}
-						/>
-						<span class="text-xs {errors.defaultRuleCap ? 'text-danger' : 'text-fg-subtle'}">
-							{errors.defaultRuleCap ?? 'The default for everyone. You can set a different limit for one person below.'}
-						</span>
-					</label>
-					<label class="flex flex-col gap-1">
-						<span class="text-xs font-medium text-fg">Items one rule may file per hour</span>
-						<Input
-							class="font-mono tabular-nums"
-							inputmode="numeric"
-							bind:value={draft.hourlyLimit}
-							invalid={!!errors.hourlyLimit}
-						/>
-						<span class="text-xs {errors.hourlyLimit ? 'text-danger' : 'text-fg-subtle'}">
-							{errors.hourlyLimit ?? 'A rule that goes past this is paused so a mistake cannot file everything.'}
-						</span>
-					</label>
-				</div>
-				<div class="mt-4 flex items-center justify-end gap-2">
-					<Button variant="ghost" size="sm" disabled={!dirty || saving} onclick={discardControls}>Discard</Button>
-					<Button variant="primary" size="sm" loading={saving} disabled={!dirty || hasErrors} onclick={saveControls}>
-						Save limits
-					</Button>
-				</div>
-			</DetailSection>
-
-			<DetailSection label="People" padded={false}>
-				<DataTable {columns} rows={overview.users} getRowId={(user) => user.user_id} loading={false}>
-					{#snippet emptyState()}
-						<EmptyState icon="group" title="Nobody has rules yet" description="People show up here once they make their first rule." compact />
+							<DetailSection label="Pause everything" padded={false}>
+								<div class="flex items-start justify-between gap-6 px-4 py-4 sm:px-5">
+									<div>
+										<label for="auto-organize-pause-all" class="mb-1 block text-sm font-medium text-fg">
+											Pause Auto-organize for everyone
+										</label>
+										<p class="text-sm text-fg-muted">
+											Nothing is filed while this is on. Rules are kept and start working again when you turn it off.
+										</p>
+									</div>
+									<Switch
+										id="auto-organize-pause-all"
+										label={overview.paused_all ? 'Resume Auto-organize for everyone' : 'Pause Auto-organize for everyone'}
+										checked={overview.paused_all}
+										busy={pausingAll}
+										onchange={toggleAll}
+									/>
+								</div>
+							</DetailSection>
+						{:else if section === 'limits'}
+							<DetailSection label="Limits">
+								<div class="space-y-4">
+									<DetailField
+										label="Rules per person"
+										id="auto-organize-rule-cap"
+										error={errors.defaultRuleCap}
+										help="The default for everyone. You can set a different limit for one person under People."
+									>
+										<Input
+											id="auto-organize-rule-cap"
+											class="font-mono tabular-nums"
+											inputmode="numeric"
+											bind:value={draft.defaultRuleCap}
+											invalid={!!errors.defaultRuleCap}
+										/>
+									</DetailField>
+									<DetailField
+										label="Items one rule may file per hour"
+										id="auto-organize-hourly-limit"
+										error={errors.hourlyLimit}
+										help="A rule that goes past this is paused so a mistake cannot file everything."
+									>
+										<Input
+											id="auto-organize-hourly-limit"
+											class="font-mono tabular-nums"
+											inputmode="numeric"
+											bind:value={draft.hourlyLimit}
+											invalid={!!errors.hourlyLimit}
+										/>
+									</DetailField>
+								</div>
+							</DetailSection>
+						{/if}
 					{/snippet}
-				</DataTable>
-			</DetailSection>
+				</DetailLayout>
+			</DetailBody>
+
+			{#if section === 'limits'}
+				<DetailFooter {dirtyCount} {saving} canSave={dirty && !hasErrors} onSave={saveControls} onDiscard={discardControls} />
+			{/if}
 		</div>
 	{/if}
 </LibraryShell>

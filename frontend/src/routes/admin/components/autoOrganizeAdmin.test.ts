@@ -3,6 +3,7 @@ import {
 	controlsDirty,
 	controlsDraftFrom,
 	controlsPayload,
+	filterPeople,
 	isForbidden,
 	parseUserCap,
 	replaceUser,
@@ -93,5 +94,25 @@ describe('replaceUser and isForbidden', () => {
 		expect(isForbidden({ response: { status: 403 } })).toBe(true);
 		expect(isForbidden({ response: { status: 500 } })).toBe(false);
 		expect(isForbidden(null)).toBe(false);
+	});
+});
+
+describe('filterPeople', () => {
+	const users = [
+		user({ user_id: 'a', username: 'zed', items_filed_24h: 5 }),
+		user({ user_id: 'b', username: 'amy', items_filed_24h: 50 }),
+		user({ user_id: 'c', username: 'Bob', items_filed_24h: 5 })
+	];
+
+	it('sorts by username', () => {
+		expect(filterPeople(users, '', 'username').map((u) => u.user_id)).toEqual(['b', 'c', 'a']);
+	});
+
+	it('sorts by activity then name', () => {
+		expect(filterPeople(users, '', 'activity').map((u) => u.user_id)).toEqual(['b', 'c', 'a']);
+	});
+
+	it('matches names case-insensitively', () => {
+		expect(filterPeople(users, ' BO ', 'username').map((u) => u.user_id)).toEqual(['c']);
 	});
 });

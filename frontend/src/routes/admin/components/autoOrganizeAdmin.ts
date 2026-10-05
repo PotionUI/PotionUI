@@ -1,4 +1,30 @@
 import type { OrganizeAdminOverview, OrganizeAdminUser } from '$lib/types/organize';
+import type { LibrarySectionMeta, SortOption } from '$lib/components/library/librarySection';
+
+export type AutoOrganizeSection = 'overview' | 'limits' | 'people';
+
+export const AUTO_ORGANIZE_SECTIONS: readonly LibrarySectionMeta<AutoOrganizeSection>[] = [
+	{ id: 'overview', label: 'Overview', icon: 'gauge' },
+	{ id: 'limits', label: 'Limits', icon: 'settings' },
+	{ id: 'people', label: 'People', icon: 'group' }
+];
+
+export type PeopleSortBy = 'username' | 'activity';
+
+export const PEOPLE_SORT_OPTIONS: readonly SortOption<PeopleSortBy>[] = [
+	{ value: 'username', label: 'Username' },
+	{ value: 'activity', label: 'Most filed in 24h' }
+];
+
+export function filterPeople(users: readonly OrganizeAdminUser[], q: string, sortBy: PeopleSortBy): OrganizeAdminUser[] {
+	const needle = q.trim().toLowerCase();
+	const matched = needle ? users.filter((user) => user.username.toLowerCase().includes(needle)) : [...users];
+	return matched.sort((a, b) =>
+		sortBy === 'activity'
+			? b.items_filed_24h - a.items_filed_24h || a.username.localeCompare(b.username)
+			: a.username.localeCompare(b.username)
+	);
+}
 
 export const RULE_CAP_MAX = 1000;
 export const HOURLY_LIMIT_MAX = 100000;

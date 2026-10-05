@@ -81,6 +81,13 @@ function switchByLabel(root: HTMLElement, label: string): HTMLElement {
 	return el as HTMLElement;
 }
 
+async function goTo(root: HTMLElement, label: string) {
+	const row = Array.from(root.querySelectorAll('[role="listbox"] > *')).find((b) => b.textContent?.includes(label));
+	if (!row) throw new Error(`no section ${label}`);
+	(row as HTMLElement).click();
+	await settle();
+}
+
 let mounted: ReturnType<typeof mount> | undefined;
 
 afterEach(() => {
@@ -94,10 +101,10 @@ describe('AutoOrganizeTab', () => {
 		vi.mocked(api.getOrganizeAdminOverview).mockResolvedValue({ success: true, data: overview() });
 		mounted = mount();
 		await settle();
-		const text = mounted.target.textContent ?? '';
-		expect(text).toContain('412');
-		expect(text).toContain('jan');
-		expect(text).toContain('Pause Auto-organize for everyone');
+		expect(mounted.target.textContent).toContain('412');
+		expect(mounted.target.textContent).toContain('Pause Auto-organize for everyone');
+		await goTo(mounted.target, 'People');
+		expect(mounted.target.textContent).toContain('jan');
 	});
 
 	it('asks before pausing everyone and sends the switch', async () => {
@@ -130,6 +137,7 @@ describe('AutoOrganizeTab', () => {
 		});
 		mounted = mount();
 		await settle();
+		await goTo(mounted.target, 'People');
 		switchByLabel(mounted.target, 'Pause filing for jan').click();
 		await settle();
 		expect(api.updateOrganizeAdminUser).toHaveBeenCalledWith('u1', { paused: true });
@@ -143,12 +151,13 @@ describe('AutoOrganizeTab', () => {
 		});
 		mounted = mount();
 		await settle();
+		await goTo(mounted.target, 'Limits');
 		const inputs = Array.from(mounted.target.querySelectorAll('input')).filter((i) => i.value === '200');
 		expect(inputs).toHaveLength(1);
 		inputs[0].value = '300';
 		inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
-		const save = Array.from(mounted.target.querySelectorAll('button')).find((b) => b.textContent?.includes('Save limits'));
+		const save = Array.from(mounted.target.querySelectorAll('button')).find((b) => b.textContent?.includes('Save'));
 		save?.click();
 		await settle();
 		expect(api.updateOrganizeAdminControls).toHaveBeenCalledWith({ hourly_limit: 300 });
@@ -159,5 +168,22 @@ describe('AutoOrganizeTab', () => {
 		mounted = mount();
 		await settle();
 		expect(mounted.target.textContent).toContain('Only administrators');
+	});
+});
+
+describe('AutoOrganizeTab people list', () => {
+	it('filters people by name', async () => {
+		const data = overview();
+		data.users.push({ ...data.users[0], user_id: 'u2', username: 'marta' });
+		vi.mocked(api.getOrganizeAdminOverview).mockResolvedValue({ success: true, data });
+		mounted = mount();
+		await settle();
+		await goTo(mounted.target, 'People');
+		const search = mounted.target.querySelector('input[placeholder="Search by name…"]') as HTMLInputElement;
+		search.value = 'mar';
+		search.dispatchEvent(new Event('input', { bubbles: true }));
+		await settle();
+		expect(mounted.target.textContent).toContain('marta');
+		expect(mounted.target.textContent).not.toContain('jan');
 	});
 });

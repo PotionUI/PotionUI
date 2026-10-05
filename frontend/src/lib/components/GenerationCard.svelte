@@ -17,7 +17,7 @@
 	import FailureNotice from '$lib/components/FailureNotice.svelte';
 	import { isContentPolicyCode, policyShowsErrorId, firstHintLine } from '$lib/generation/failurePolicy';
 	import { leadIndex } from '$lib/generation/leadFile';
-	import { isStackEntry, isLooseCell, stackBadge, stackInfo, cellChip } from '$lib/generation/compare/view/historyGrid';
+	import { isStackEntry, isLooseCell, stackBadge, stackInfo, cellChip, gridIdOf } from '$lib/generation/compare/view/historyGrid';
 	import { api } from '$lib/services/api/index';
 	import { getIconPath } from '$lib/utils/IconLibrary';
 	import {
@@ -522,6 +522,7 @@
 			{#if stackEntry || looseCell}
 				<div
 					data-testid={stackEntry ? 'grid-stack-chip' : 'grid-cell-chip'}
+					data-grid-id={gridIdOf(generation)}
 					class="absolute top-2 z-30 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-2xs tabular-nums tracking-[0.07em] text-fg backdrop-blur-sm {showCheckbox
 						? 'left-9'
 						: 'left-2'}"

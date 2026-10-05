@@ -15,6 +15,10 @@ export function isLooseCell(item: GridFields): boolean {
 	return !!item.grid_id && !item.grid;
 }
 
+export function gridIdOf(item: GridFields): string | null {
+	return item.grid?.id ?? item.grid_id ?? null;
+}
+
 export function stackBadge(item: GridFields): string {
 	return item.grid ? `${item.grid.cols} × ${item.grid.rows}` : '';
 }

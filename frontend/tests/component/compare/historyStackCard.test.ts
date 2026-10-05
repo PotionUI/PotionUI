@@ -66,6 +66,7 @@ describe('history stack card', () => {
 	it('badges a grid entry with columns × rows', () => {
 		mounted = mountCard(item(stack));
 		expect(q('[data-testid="grid-stack-chip"]')?.textContent?.trim()).toBe('4 × 3');
+		expect(q('[data-testid="grid-stack-chip"]')?.getAttribute('data-grid-id')).toBe('g1');
 	});
 
 	it('names the axes and counts the cells in the info bar', () => {
@@ -82,6 +83,7 @@ describe('history stack card', () => {
 	it('chips a cell listed on its own and draws no stack', () => {
 		mounted = mountCard(item({ grid_id: 'g1', grid_x: 2, grid_y: 1, grid_cols: 4, axis_values: { sampler: 'dpmpp_2m' } }));
 		expect(q('[data-testid="grid-cell-chip"]')?.textContent?.trim()).toBe('cell 7');
+		expect(q('[data-testid="grid-cell-chip"]')?.getAttribute('data-grid-id')).toBe('g1');
 		expect(q('[data-testid="grid-stack-chip"]')).toBeNull();
 		expect(q('[data-testid="grid-stack-layers"]')).toBeNull();
 		expect(q('[data-testid="grid-stack-count"]')).toBeNull();

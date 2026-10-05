@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
 import {
 	ASPECT,
@@ -6,14 +6,13 @@ import {
 	captureStartRequest,
 	createGrid,
 	enableFakeModels,
+	gridCellChips,
+	gridStackCard,
 	openGridFromHistory,
 	waitGridSettled
 } from './xyCompareHelpers';
 
 const JOURNEY = 'xy-compare-history';
-
-const stackCard = (page: Page) =>
-	page.locator('[data-history-card]').filter({ has: page.getByTestId('grid-stack-chip') }).first();
 
 test.describe.configure({ mode: 'serial' });
 
@@ -37,32 +36,31 @@ test.describe('X/Y compare in History', () => {
 	test('one stack card stands for the whole grid', async ({ page }) => {
 		await loginAsOwner(page);
 		await page.goto('/history');
-		const card = stackCard(page);
-		await expect(card).toBeVisible({ timeout: 20000 });
+		const card = gridStackCard(page, gridId);
+		await expect(card).toHaveCount(1, { timeout: 20000 });
 		await expect(card.getByTestId('grid-stack-chip')).toHaveText('3 × 2');
 		await expect(card.getByTestId('grid-stack-title')).toHaveText('Quality × Aspect ratio');
 		await expect(card.getByTestId('grid-stack-count')).toHaveText('6 cells');
 		await expect(card.getByTestId('grid-stack-layers')).toBeAttached();
-		await expect(page.locator('[data-history-card]').filter({ has: page.getByTestId('grid-stack-chip') })).toHaveCount(1);
-		await expect(page.getByTestId('grid-cell-chip')).toHaveCount(0);
+		await expect(gridCellChips(page, gridId)).toHaveCount(0);
 		await screenshot(page, JOURNEY, 'stack-card-1440');
 	});
 
 	test('opening the stack shows the grid viewer in overview with every cell', async ({ page }) => {
 		await loginAsOwner(page);
-		await openGridFromHistory(page);
+		await openGridFromHistory(page, gridId);
 		await expect(page.getByTestId('history-grid-dims')).toContainText('Quality × Aspect ratio');
 		await expect(page.getByTestId('history-grid-dims')).toContainText('3 × 2');
-		await expect(page.getByTestId('compare-cell')).toHaveCount(6);
+		await expect(page.getByTestId('compare-grid').getByTestId('compare-cell')).toHaveCount(6);
 		await expect(page.getByTestId('compare-count')).toHaveText('6/6');
-		await expect(page.locator('[data-cell-state="completed"]')).toHaveCount(6);
+		await expect(page.getByTestId('compare-grid').locator('[data-cell-state="completed"]')).toHaveCount(6);
 		await expect(page.getByRole('button', { name: /Cancel all/ })).toHaveCount(0);
 		await screenshot(page, JOURNEY, 'grid-overview-1440');
 	});
 
 	test('a cell\'s details carry the Part of X/Y grid card and X and Y tags', async ({ page }) => {
 		await loginAsOwner(page);
-		await openGridFromHistory(page);
+		await openGridFromHistory(page, gridId);
 		await page.getByTestId('compare-cell').nth(4).click();
 		await page.getByRole('button', { name: 'Open generation details' }).click();
 
@@ -86,7 +84,7 @@ test.describe('X/Y compare in History', () => {
 
 		test('the grid scrolls in two directions with pinned labels and the viewer fills the screen', async ({ page }) => {
 			await loginAsOwner(page);
-			await openGridFromHistory(page);
+			await openGridFromHistory(page, gridId);
 
 			const scroller = page.getByTestId('compare-scroller');
 			await expect(scroller).toHaveAttribute('data-scrolls', 'true');

@@ -32,6 +32,7 @@ export const compareToggle = (page: Page) => page.locator('[data-compare-toggle]
 export const compareDrawer = (page: Page) => page.getByRole('dialog', { name: 'Compare', exact: true });
 export const compareGenerate = (page: Page, count: number) =>
 	page.getByRole('button', { name: new RegExp(`^Generate ${count}\\b`) }).first();
+export const generateMarkCount = (page: Page) => page.locator('.generate-button:visible .generate-count').first();
 
 export async function openCompareDrawer(page: Page) {
 	const drawer = compareDrawer(page);
@@ -189,13 +190,18 @@ export async function waitGridSettled(page: Page, token: string, gridId: string,
 	return (await apiGet(page, `${GRIDS}/${gridId}`, token)).data;
 }
 
-export async function openGridFromHistory(page: Page) {
-	await page.goto('/history');
-	const stack = page
+export const gridStackCard = (page: Page, gridId: string) =>
+	page
 		.locator('[data-history-card]')
-		.filter({ has: page.getByTestId('grid-stack-chip') })
-		.first();
-	await expect(stack).toBeVisible({ timeout: 20000 });
+		.filter({ has: page.locator(`[data-testid="grid-stack-chip"][data-grid-id="${gridId}"]`) });
+
+export const gridCellChips = (page: Page, gridId: string) =>
+	page.locator(`[data-testid="grid-cell-chip"][data-grid-id="${gridId}"]`);
+
+export async function openGridFromHistory(page: Page, gridId: string) {
+	await page.goto('/history');
+	const stack = gridStackCard(page, gridId);
+	await expect(stack).toHaveCount(1, { timeout: 20000 });
 	await stack.locator('.media-zoom').click();
 	await expect(page.getByTestId('history-grid-view')).toBeVisible({ timeout: 15000 });
 }

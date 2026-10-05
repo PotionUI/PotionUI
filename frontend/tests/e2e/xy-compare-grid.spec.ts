@@ -23,7 +23,7 @@ import {
 
 const JOURNEY = 'xy-compare-grid';
 
-const cells = (page: Page) => page.getByTestId('compare-cell');
+const cells = (page: Page) => page.getByTestId('compare-grid').getByTestId('compare-cell');
 const position = (page: Page) => page.locator('[data-generation-position]');
 
 async function pressInViewer(page: Page, key: string) {
@@ -77,11 +77,11 @@ test.describe('X/Y compare grid view', () => {
 		await expect(cells(page)).toHaveCount(6);
 		await expect(grid.getByTestId('compare-x-label')).toHaveText(['1', '2', '3']);
 		await expect(grid.getByTestId('compare-y-label')).toHaveText(['1:1', '16:9']);
-		await expect(page.locator('[data-cell-state="empty"]')).toHaveCount(6);
+		await expect(page.getByTestId('compare-grid').locator('[data-cell-state="empty"]')).toHaveCount(6);
 		await screenshot(page, JOURNEY, 'workbench-preview-1440');
 
 		await compareGenerate(page, 6).click();
-		await expect(page.locator('[data-cell-state="queued"], [data-cell-state="running"]').first()).toBeVisible({
+		await expect(page.getByTestId('compare-grid').locator('[data-cell-state="queued"], [data-cell-state="running"]').first()).toBeVisible({
 			timeout: 15000
 		});
 		await expect(page.getByTestId('compare-progress')).toBeVisible();
@@ -89,7 +89,7 @@ test.describe('X/Y compare grid view', () => {
 		await screenshot(page, JOURNEY, 'workbench-running-1440');
 
 		await expect(page.getByTestId('compare-count')).toHaveText('6/6', { timeout: 150000 });
-		await expect(page.locator('[data-cell-state="completed"]')).toHaveCount(6);
+		await expect(page.getByTestId('compare-grid').locator('[data-cell-state="completed"]')).toHaveCount(6);
 		await expect(page.getByText('All done')).toBeVisible();
 		await expect(page.getByTestId('compare-grid').locator('img').first()).toBeVisible();
 		await screenshot(page, JOURNEY, 'workbench-done-1440');
@@ -104,7 +104,7 @@ test.describe('X/Y compare grid view', () => {
 		token = await ownerToken(page);
 		const gridId = await createGrid(page, token, request, QUALITY, ASPECT);
 		await waitGridSettled(page, token, gridId);
-		await openGridFromHistory(page);
+		await openGridFromHistory(page, gridId);
 
 		await expect(page.getByTestId('compare-count')).toHaveText('6/6', { timeout: 30000 });
 		await expect(page.getByTestId('compare-x-label')).toHaveText(['3', '5', '7']);
@@ -131,7 +131,7 @@ test.describe('X/Y compare grid view', () => {
 		await page.getByTestId('grid-minimap-cell').nth(5).click();
 		expect(await positionText(page)).toBe('6 / 6');
 		await expect(page.getByTestId('use-settings-note')).toContainText('quality = 7');
-		await expect(page.getByTestId('use-settings-note')).toContainText('aspect_ratio = 16:9');
+		await expect(page.getByTestId('use-settings-note')).toContainText('aspect ratio = 16:9');
 
 		await page.getByRole('button', { name: 'Use these settings' }).click();
 		await page.waitForURL(/\/generate/, { timeout: 15000 });
@@ -154,9 +154,9 @@ test.describe('X/Y compare grid view', () => {
 			await setKnob(page, token, id, { fail_kind: '' });
 		}
 
-		await openGridFromHistory(page);
+		await openGridFromHistory(page, gridId);
 		await expect(page.getByTestId('compare-failed')).toContainText('2 failed');
-		const failed = page.locator('[data-cell-state="failed"]');
+		const failed = page.getByTestId('compare-grid').locator('[data-cell-state="failed"]');
 		await expect(failed).toHaveCount(2);
 		await expect(failed.first().getByTestId('compare-cell-error')).not.toBeEmpty();
 		await expect(failed.first().getByRole('button', { name: 'Retry' })).toBeVisible();
@@ -169,7 +169,7 @@ test.describe('X/Y compare grid view', () => {
 
 		await page.getByRole('button', { name: 'Retry failed' }).first().click();
 		await expect(page.getByTestId('compare-count')).toHaveText('2/2', { timeout: 120000 });
-		await expect(page.locator('[data-cell-state="failed"]')).toHaveCount(0);
+		await expect(page.getByTestId('compare-grid').locator('[data-cell-state="failed"]')).toHaveCount(0);
 		await expect(page.getByTestId('compare-failed')).toHaveCount(0);
 	});
 
@@ -179,7 +179,7 @@ test.describe('X/Y compare grid view', () => {
 		token = await ownerToken(page);
 		const gridId = await createGrid(page, token, request, QUALITY, ASPECT);
 		await waitGridSettled(page, token, gridId);
-		await openGridFromHistory(page);
+		await openGridFromHistory(page, gridId);
 		await expect(page.getByTestId('compare-count')).toHaveText('6/6', { timeout: 30000 });
 
 		await cells(page).first().click();

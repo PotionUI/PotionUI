@@ -11,7 +11,7 @@ from jose import jwt
 from src.features.auth.routes import build_router
 from src.platform.security import Auth, LoginHandoffStore
 from src.platform.security import current_user
-from src.platform.security.media_session import MEDIA_COOKIE, token_lifetime_seconds
+from src.platform.security.media_session import media_cookie_name, token_lifetime_seconds
 from src.platform.security.user import AccountType, User
 
 SECRET = "media-session-test-secret"
@@ -26,8 +26,8 @@ def _media_cookie(response):
     for header in response.headers.get_list("set-cookie"):
         parsed = SimpleCookie()
         parsed.load(header)
-        if MEDIA_COOKIE in parsed:
-            return parsed[MEDIA_COOKIE], header
+        if media_cookie_name() in parsed:
+            return parsed[media_cookie_name()], header
     return None, None
 
 

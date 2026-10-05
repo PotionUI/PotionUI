@@ -25,7 +25,7 @@ from src.features.models.repository import ModelRepository
 from src.features.users.routes import build_router as build_users_router
 from src.platform.filesystem.file_store import FileStore
 from src.platform.security import current_user
-from src.platform.security.media_session import MEDIA_COOKIE
+from src.platform.security.media_session import media_cookie_name
 from src.platform.security.user import AccountType, User
 from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
@@ -234,7 +234,7 @@ def _get(client, url, token=None, via="cookie"):
     client.cookies.clear()
     headers = {}
     if token and via == "cookie":
-        client.cookies.set(MEDIA_COOKIE, token)
+        client.cookies.set(media_cookie_name(), token)
     elif token:
         headers["Authorization"] = f"Bearer {token}"
     return client.get(url, headers=headers)

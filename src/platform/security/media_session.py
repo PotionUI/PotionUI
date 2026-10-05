@@ -1,3 +1,4 @@
+import hashlib
 import time
 from typing import Optional
 
@@ -6,6 +7,18 @@ from jose import JWTError, jwt
 
 MEDIA_COOKIE = "potionui_media"
 MEDIA_COOKIE_PATH = "/api"
+
+
+def media_cookie_name() -> str:
+    from src.platform.security.current_user import get_auth
+
+    try:
+        secret = get_auth().tokens._config.secret_key
+    except Exception:
+        return MEDIA_COOKIE
+    if not secret:
+        return MEDIA_COOKIE
+    return f"{MEDIA_COOKIE}_{hashlib.sha256(secret.encode()).hexdigest()[:12]}"
 
 
 def _is_secure(request: Request) -> bool:
@@ -29,7 +42,7 @@ def set_media_cookie(response: Response, request: Request, token: Optional[str])
         clear_media_cookie(response, request)
         return
     response.set_cookie(
-        MEDIA_COOKIE,
+        media_cookie_name(),
         token,
         max_age=lifetime,
         path=MEDIA_COOKIE_PATH,
@@ -41,7 +54,7 @@ def set_media_cookie(response: Response, request: Request, token: Optional[str])
 
 def clear_media_cookie(response: Response, request: Request) -> None:
     response.delete_cookie(
-        MEDIA_COOKIE,
+        media_cookie_name(),
         path=MEDIA_COOKIE_PATH,
         httponly=True,
         samesite="lax",
@@ -50,4 +63,4 @@ def clear_media_cookie(response: Response, request: Request) -> None:
 
 
 def media_cookie_token(request: Request) -> Optional[str]:
-    return request.cookies.get(MEDIA_COOKIE) or None
+    return request.cookies.get(media_cookie_name()) or None

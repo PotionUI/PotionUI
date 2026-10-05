@@ -65,6 +65,7 @@ _KNOWN_SAMPLING_FAMILIES = frozenset({
 })
 
 _KNOWN_LORA_ROW_OPTION_KEYS = frozenset({"step_start", "step_end", "audio"})
+SHORT_DESCRIPTION_MAX = 100
 
 # Runtime documents the orchestrator injects into the `form` context that are
 # not declared form fields (Video Director timeline, Music Director document,
@@ -505,6 +506,8 @@ class PresetLinter:
         issues.extend(self._lint_driver_registered(preset_file, manifest))
 
         issues.extend(self._lint_speed_profiles(preset_file, manifest))
+
+        issues.extend(self._lint_mode_descriptions(preset_file, manifest))
 
         issues.extend(self._lint_formulas(preset_file, manifest))
 
@@ -2118,6 +2121,29 @@ class PresetLinter:
                     missing.append(name)
         return missing
 
+    def _lint_mode_descriptions(self, preset_file: Path, manifest) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        if len(manifest.modes) < 2:
+            return issues
+        for mode_name in manifest.modes:
+            form_file = preset_file.parent / "modes" / mode_name / "form.yml"
+            if not form_file.exists():
+                continue
+            try:
+                with open(form_file, 'r', encoding='utf-8') as f:
+                    form_data = yaml.load(f, Loader=yaml.FullLoader) or {}
+            except Exception:
+                continue
+            if not (form_data.get("short_description") or form_data.get("description")):
+                issues.append(
+                    LintIssue(
+                        "info",
+                        str(preset_file),
+                        f"modes/{mode_name}: add a short_description so the mode menu can describe it",
+                    )
+                )
+        return issues
+
     def _lint_form_variants(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
         """Cross-checks for form "variant" metadata (`label`/`description`/
         `examples`/`default`/`order` on a mode's `form.yml` /
@@ -2158,6 +2184,16 @@ class PresetLinter:
 
             if form.default:
                 default_forms.append(variant_name)
+
+            if form.short_description and len(form.short_description) > SHORT_DESCRIPTION_MAX:
+                issues.append(
+                    LintIssue(
+                        "warning",
+                        preset_str,
+                        f"{loc}: short_description is {len(form.short_description)} characters; "
+                        f"keep it under {SHORT_DESCRIPTION_MAX}",
+                    )
+                )
 
             for example in form.examples:
                 candidate = preset_file.parent / example

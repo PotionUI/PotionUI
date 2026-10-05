@@ -104,6 +104,11 @@ Rules the loader (`src/features/presets/loader.py`) and linter (`src/features/pr
 - Every mode name in `preset.yml` `modes:` **must** have a matching `modes/<mode>/` directory
   (missing directory → lint **error**). A `modes/<mode>/` directory not listed in `modes:` is a
   **warning** (orphan).
+- A mode's `form.yml` may set `short_description:`, one plain sentence (about 80 characters) saying what
+  the mode does. The Generate page's mode menu shows it under the mode name and
+  `GET /api/presets/<id>/modes` serves it as `modes[].short_description` (the default variant's
+  value; each `variants[]` entry carries its own). Over 100 characters → **warning**; a preset with
+  two or more modes where a mode has neither `short_description` nor `description` → **info**.
 - `id` must be unique across the whole scanned tree (duplicate → error).
 - Literal (non-templated) option-file paths referenced from a form must exist on disk (missing → warning).
 

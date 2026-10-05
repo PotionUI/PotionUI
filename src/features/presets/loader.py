@@ -453,6 +453,7 @@ class PresetTemplateLoader:
                 fields=fields,
                 label=form_data.get('label'),
                 description=form_data.get('description'),
+                short_description=form_data.get('short_description'),
                 examples=form_data.get('examples') or [],
                 default=form_data.get('default', False),
                 order=form_data.get('order', 0),

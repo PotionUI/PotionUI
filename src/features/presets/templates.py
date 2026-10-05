@@ -89,6 +89,7 @@ class FormTemplate:
     # name - see PresetTemplateLoader._load_forms_from_directory).
     label: Optional[str] = None
     description: Optional[str] = None  # markdown
+    short_description: Optional[str] = None
     examples: List[str] = field(default_factory=list)  # paths under public/
     default: bool = False
     order: int = 0

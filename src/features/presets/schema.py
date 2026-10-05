@@ -387,6 +387,7 @@ class FormFile(BaseModel):
     # operations.get_available_modes()'s `variants` list, see docs/presets.md.
     label: Optional[str] = None
     description: Optional[str] = None  # markdown
+    short_description: Optional[str] = None
     examples: List[str] = Field(default_factory=list)  # paths, must live under public/
     default: bool = False
     order: int = 0

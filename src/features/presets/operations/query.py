@@ -162,6 +162,7 @@ def get_available_modes(collaborators: PresetCollaborators, preset_id: str) -> D
         {
             'name': mode_name,
             'label': mode_name.replace('_', ' ').title(),
+            'short_description': _mode_short_description(mode_data),
             'variants': _build_variants(mode_data),
             'source_plugin': mode_data.source_plugin,
         }
@@ -175,6 +176,14 @@ def get_available_modes(collaborators: PresetCollaborators, preset_id: str) -> D
     }
 
 
+def _mode_short_description(mode_data: ModeTemplate) -> Optional[str]:
+    default_name = default_form_name(mode_data)
+    for form in mode_data.forms:
+        if form.name == default_name:
+            return form.short_description
+    return None
+
+
 def _build_variants(mode_data: ModeTemplate) -> List[Dict[str, Any]]:
     """Project a mode's forms into the `variants` contract: sorted by
     (order, name), with exactly one flagged `default: true` (the
@@ -186,6 +195,7 @@ def _build_variants(mode_data: ModeTemplate) -> List[Dict[str, Any]]:
             'name': form.name,
             'label': form.label or form.name.replace('_', ' ').title(),
             'description': form.description,
+            'short_description': form.short_description,
             'examples': form.examples or [],
             'default': form.name == default_name,
             'order': form.order,

@@ -1,5 +1,11 @@
 name: "custom"
 short_description: "Generate a video from a prompt or a starting image."
+negative_prompt:
+  applies_when:
+    logic: "OR"
+    conditions:
+      - { field: "cfg", greater_than: 1 }
+      - { field: "nag_scale", greater_than: 1 }
 fields:
   - type: "tabs"
     children:

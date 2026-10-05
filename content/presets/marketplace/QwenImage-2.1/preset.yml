@@ -126,6 +126,9 @@ formulas:
     control: { label: "Control" }
     models: { label: "Models", preselect: false }
 
+negative_prompt:
+  applies_when: { field: "cfg", greater_than: 1 }
+
 modes:
   - txt2img
   - edit

@@ -497,6 +497,28 @@ class TestNegativeAppliedMarker:
         assert params["negative_applied"] == [True]
         assert diffs["Negative Prompt"].negative_applied is True
 
+    def test_declared_inert_overrides_encoder_guess_for_the_record_only(self):
+        clip = _FakeClip()
+        outputs = []
+        from src.pipelines.outputs import ParamGenerationOutput, DiffTextGenerationOutput
+        PromptEncoderPipe(config=_config(guidance_scale=5.0, nag_scale=1.0, negative_applied=False)).process(
+            PipeInput(input={"text_encoder": clip}), outputs.append
+        )
+        params = {o.name: o.values for o in outputs if isinstance(o, ParamGenerationOutput)}
+        diffs = {o.name: o for o in outputs if isinstance(o, DiffTextGenerationOutput)}
+        assert params["negative_applied"] == [False]
+        assert diffs["Negative Prompt"].negative_applied is False
+        assert clip.requests[0]["do_classifier_free_guidance"] is True
+
+    def test_declared_applied_overrides_encoder_guess(self):
+        params, diffs = self._collect(_config(guidance_scale=1.0, nag_scale=1.0, negative_applied=True))
+        assert params["negative_applied"] == [True]
+        assert diffs["Negative Prompt"].negative_applied is True
+
+    def test_undeclared_marker_falls_back_to_encoder_guess(self):
+        params, _ = self._collect(_config(guidance_scale=1.0, nag_scale=1.0, negative_applied=None))
+        assert params["negative_applied"] == [False]
+
     def test_marker_is_emitted_per_image(self):
         params, _ = self._collect(_config(guidance_scale=1.0, nag_scale=1.0, quantity=3))
         assert params["negative_applied"] == [False, False, False]

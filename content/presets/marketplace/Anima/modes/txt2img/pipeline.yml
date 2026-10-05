@@ -48,6 +48,7 @@ pipeline:
       quantity: "{{ form.quantity }}"
       # Anima uses true CFG -> encode the negative pass (guidance_scale > 1).
       guidance_scale: "{{ form.cfg | default(preset.vars.default_cfg) }}"
+      negative_applied: "{{ generation.negative_applied }}"
 
   #############
   ## Seed generator

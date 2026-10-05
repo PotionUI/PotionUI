@@ -93,6 +93,7 @@ class FormTemplate:
     examples: List[str] = field(default_factory=list)  # paths under public/
     default: bool = False
     order: int = 0
+    negative_prompt: Optional[Dict[str, Any]] = None
 
 @dataclass
 class ModeTemplate:
@@ -178,6 +179,7 @@ class PresetTemplate:
     prompt_resources: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     prompt_syntax: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     formulas: Optional[Dict[str, Any]] = None
+    negative_prompt: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):
         # Default to the built-in native engine if not specified

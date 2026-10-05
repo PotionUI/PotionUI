@@ -27,6 +27,7 @@ from src.platform.settings.settings import Settings
 from src.platform.templating import TemplateProcessor
 from src.platform.templating.errors import TemplateEvaluationError
 from src.features.presets.templates import PresetTemplate, default_form_name
+from src.features.presets.negative_prompt import negative_prompt_applies
 
 from .loader import PresetTemplateLoader
 
@@ -393,6 +394,7 @@ class PresetProcessor:
                 # `generation.quantity` were a dead alias for the same form
                 # fields (zero uses across every shipped preset).
                 'profile': self._resolve_generation_profile(preset_template, form),
+                'negative_applied': negative_prompt_applies(preset_template, mode, form_name, form),
             },
             'preset': {
                 'id': preset_template.id,

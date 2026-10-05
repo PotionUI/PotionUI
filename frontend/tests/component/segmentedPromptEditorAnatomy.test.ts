@@ -16,6 +16,8 @@ const { default: SegmentedPromptEditor } = await import(
 	'../../src/lib/components/SegmentedPromptEditor.svelte'
 );
 const { createClassComponent } = await import('svelte/legacy');
+const { tick } = await import('svelte');
+const { isNegativeInert } = await import('../../src/lib/generation/negativeApplied');
 
 function segment(id: string, content: string, partial: Record<string, unknown> = {}) {
 	return { id, content, type: 'content', chips: {}, enabled: true, ...partial };
@@ -74,6 +76,48 @@ describe('the negative region', () => {
 
 		const live = mount({ negativeSegments: [segment('n1', 'blurry')] });
 		expect(live.lists()).toContain('Negative segments');
+	});
+
+	it("hides and shows per the preset's applies_when declaration", async () => {
+		const declarations = {
+			modes: {
+				txt2img: {
+					default: {
+						logic: 'OR' as const,
+						conditions: [
+							{ field: 'cfg', greater_than: 1 },
+							{ field: 'nag_enabled', equals: true }
+						]
+					}
+				}
+			}
+		};
+		const inertFor = (formData: Record<string, unknown>, decl: unknown = declarations) =>
+			isNegativeInert(decl as never, 'txt2img', null, formData);
+
+		const editor = mount({
+			negativeSegments: [segment('n1', 'blurry')],
+			negativeInert: inertFor({ cfg: 1, nag_enabled: false })
+		});
+		expect(editor.lists()).not.toContain('Negative segments');
+		const setInert = (negativeInert: boolean) =>
+			(editor.component as unknown as { $set(props: Record<string, unknown>): void }).$set({ negativeInert });
+
+		setInert(inertFor({ cfg: 4, nag_enabled: false }));
+		await tick();
+		expect(editor.lists()).toContain('Negative segments');
+
+		setInert(inertFor({ cfg: 1, nag_enabled: false }));
+		await tick();
+		expect(editor.lists()).not.toContain('Negative segments');
+
+		setInert(inertFor({ cfg: 1, nag_enabled: true }));
+		await tick();
+		expect(editor.lists()).toContain('Negative segments');
+
+		setInert(inertFor({ cfg: 1 }, null));
+		await tick();
+		expect(editor.lists()).toContain('Negative segments');
 	});
 
 	it('is absent entirely when the call site pairs no negative list', () => {

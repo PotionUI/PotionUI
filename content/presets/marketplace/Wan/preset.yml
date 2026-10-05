@@ -173,5 +173,12 @@ formulas:
     cache:      { label: "Step cache" }
     models:     { label: "Models", preselect: false }
 
+negative_prompt:
+  applies_when:
+    logic: "OR"
+    conditions:
+      - { field: "cfg", greater_than: 1 }
+      - { field: "nag_scale", greater_than: 1 }
+
 modes:
   - video

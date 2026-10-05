@@ -4,6 +4,7 @@ import type { VideoDirectorValue } from './videoDirector';
 import type { MusicDirectorValue } from './musicDirector';
 import type { Segment } from './segments';
 import type { VariablesMap } from '$lib/utils/variableDefs';
+import type { NegativePromptDeclarations } from '$lib/generation/negativeApplied';
 
 export interface APIResponse<T = unknown> {
 	success: boolean;
@@ -271,6 +272,7 @@ export interface PresetInfo {
 	requirements_summary?: PresetRequirementsSummary | null;
 	/** Present on the detail endpoint only — see `PresetStyle`. */
 	styles?: PresetStyle[];
+	negative_prompt?: NegativePromptDeclarations | null;
 	// Admin-only fields (present when `listPresets(includeUninstalled = true)` is called).
 	installed?: boolean;
 	/** Database relationship ID for the installed preset (admin list only). */

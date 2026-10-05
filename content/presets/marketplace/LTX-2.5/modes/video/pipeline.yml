@@ -209,6 +209,7 @@ pipeline:
       # 1.0, n_embeds comes back {}, and _attach_nag's `uncond is None` guard
       # silently drops NAG -- the exact distilled case NAG exists for.
       nag_scale: "{{ form.nag_scale }}"
+      negative_applied: "{{ generation.negative_applied }}"
 
   - name: "seed_generator"
     enabled: true

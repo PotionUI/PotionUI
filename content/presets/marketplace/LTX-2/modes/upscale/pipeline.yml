@@ -80,6 +80,7 @@ pipeline:
       # here means the negative branch is never encoded (do_cfg check in
       # prompt_encoder), matching that recipe exactly.
       guidance_scale: 1.0
+      negative_applied: "{{ generation.negative_applied }}"
 
   - name: "seed_generator"
     enabled: true

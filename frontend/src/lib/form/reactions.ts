@@ -51,7 +51,7 @@ export interface Condition {
 
 export interface LogicalCondition {
 	logic: 'AND' | 'OR';
-	conditions: Condition[];
+	conditions: Array<Condition | LogicalCondition>;
 }
 
 export interface Action {

@@ -67,6 +67,9 @@ formulas:
     cache:  { label: "Step cache" }
     models: { label: "Models", preselect: false }
 
+negative_prompt:
+  applies_when: false
+
 modes:
   - txt2img
   - img2img

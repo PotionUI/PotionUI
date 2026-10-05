@@ -62,6 +62,7 @@ pipeline:
       # Flux uses embedded (distilled) guidance, not CFG: guidance_scale <= 1
       # tells the encoder not to encode a negative pass.
       guidance_scale: 1.0
+      negative_applied: "{{ generation.negative_applied }}"
 
   #############
   ## Seed generator

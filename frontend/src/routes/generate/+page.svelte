@@ -30,7 +30,7 @@
 	import PresetControls from './components/PresetControls.svelte';
 	import StudioView from './components/studio/StudioView.svelte';
 	import { isPromptlessMode } from '$lib/utils/promptlessMode';
-	import { resolveNegativeApplicability } from '$lib/generation/negativeApplied';
+	import { isNegativeInert, type NegativePromptDeclarations } from '$lib/generation/negativeApplied';
 	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
 	import { attachChatStartedGeneration } from '$lib/generation/restore/chatGeneration';
 	import { onToolApplied } from '$lib/chat/pageContext';
@@ -601,6 +601,7 @@
 	// Preset-curated Styles, populated alongside presetVars from the same
 	// getPreset(id) response (see loadPresetVars) — the styles picker's data.
 	let presetStylesById: Record<string, PresetStyle[]> = {};
+	let presetNegativeById: Record<string, NegativePromptDeclarations | null> = {};
 	const presetVarsInFlight = new Map<string, Promise<void>>();
 	// Toast once per preset id on load failure, not on every retry — a preset
 	// that keeps failing would otherwise re-toast on every reactive tick (see
@@ -662,19 +663,18 @@
 		currentPresetVars.supports_negative_prompt !== false &&
 		currentPresetVars.negative_prompt_supported !== false;
 
-	// The negative editor goes visibly inert when the resolved guidance
-	// can't reach the model (guidance <= 1 with NAG off). Derived from the same
-	// reaction-resolved form values the backend binds, so a turbo/no-CFG profile
-	// shows the notice without a round trip. Only meaningful for the standard
-	// prompt editor — relay/director/promptless modes don't have a plain negative.
 	$: negativeInert =
 		negativePromptSupported &&
 		!promptRelayActive &&
 		!videoDirectorActive &&
 		!musicDirectorActive &&
 		!promptlessActive &&
-		resolveNegativeApplicability(currentTab.formData, currentPresetVars.negative_applied_fields) ===
-			'inert';
+		isNegativeInert(
+			presetNegativeById[currentTab.selectedPreset || ''],
+			currentTab.selectedMode,
+			currentTab.selectedVariant,
+			currentTab.formData
+		);
 
 	// Prompt Relay: modes (per current preset) whose prompt section uses the
 	// timeline-based Prompt Relay editor instead of the standard prompt editors.
@@ -801,6 +801,8 @@
 					presetVars = { ...presetVars };
 					presetStylesById[presetId] = response.data.styles || [];
 					presetStylesById = { ...presetStylesById };
+					presetNegativeById[presetId] = response.data.negative_prompt ?? null;
+					presetNegativeById = { ...presetNegativeById };
 				}
 			} catch (error) {
 				console.error('Failed to load preset vars:', error);

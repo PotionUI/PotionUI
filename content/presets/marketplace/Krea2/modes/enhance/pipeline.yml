@@ -69,6 +69,7 @@ pipeline:
       # (today's single-forward behavior) rather than through a profile lookup.
       guidance_scale: "{{ form.cfg }}"
       nag_scale: "{{ form.nag_scale if form.nag_enabled else 1.0 }}"
+      negative_applied: "{{ generation.negative_applied }}"
 
   - name: "seed_generator"
     enabled: true

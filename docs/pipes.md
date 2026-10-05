@@ -2282,6 +2282,7 @@ Encodes prompts using CLIP text encoders for SDXL
 | `guidance_scale` | `float` | `7.5` | no | — | 1.0 | 30.0 | Guidance scale for CFG |
 | `nag_scale` | `float` | `1.0` | no | — | 1.0 | 20.0 | Normalized Attention Guidance scale, mirrored from the generator's own nag_scale config. NAG needs the negative prompt encoded even at guidance_scale=1.0 (true CFG off), so >1.0 here forces the negative pass on regardless of guidance_scale |
 | `clip_skip` | `int` | — | no | — | 1 | 12 | Number of CLIP layers to skip |
+| `negative_applied` | `bool` | — | no | — | — | — | Whether the generation record marks the negative prompt as applied. Wire it to `generation.negative_applied`, the preset's `negative_prompt.applies_when` evaluated against the form; unset falls back to whether the negative pass is encoded. Never changes what is encoded |
 | `pairs` | `list` | `[]` | no | — | — | — | Per-image expanded prompt pairs (from the prompt expander) |
 | `positive_embeddings` | `list` | `[]` | no | — | — | — | Positive text embeddings configuration |
 | `negative_embeddings` | `list` | `[]` | no | — | — | — | Negative text embeddings configuration |

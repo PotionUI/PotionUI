@@ -2,6 +2,7 @@ from pathlib import PurePath
 from typing import Dict, Any, Optional, List
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.dto import PresetInfo, PresetStyle
+from src.features.presets.negative_prompt import negative_prompt_declarations
 
 class FilePresetRepository:
     """
@@ -85,6 +86,7 @@ class FilePresetRepository:
             vars=preset_template.vars or {},
             llm=preset_template.llm or {},
             requires=preset_template.requires,
+            negative_prompt=negative_prompt_declarations(preset_template),
         )
 
     def list_all_presets(self) -> List[Dict[str, Any]]:

@@ -91,6 +91,7 @@ pipeline:
       # "cfg") -- same expression, same value, every mode.
       guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
       nag_scale: "{{ form.nag_scale if form.nag_enabled else 1.0 }}"
+      negative_applied: "{{ generation.negative_applied }}"
 
   - name: "seed_generator"
     enabled: true

@@ -53,6 +53,7 @@ class PresetInfo(BaseModel):
     # least once for this preset+backend - never computed by the list/detail
     # endpoints themselves. See docs/presets.md "Requirements".
     requirements_summary: Optional[dict] = None
+    negative_prompt: Optional[Dict[str, Any]] = None
 
 
 class PresetFormSchema(BaseModel):

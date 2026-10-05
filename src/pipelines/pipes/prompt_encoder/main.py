@@ -139,6 +139,11 @@ class PromptEncoderPipe(BasePipe):
                           "of guidance_scale", required=False, min_value=1.0, max_value=20.0),
             PipeConfigSpec("clip_skip", int, None, "Number of CLIP layers to skip", required=False,
                           min_value=1, max_value=12),
+            PipeConfigSpec("negative_applied", bool, None, "Whether the generation record marks the negative "
+                          "prompt as applied. Wire it to `generation.negative_applied`, the preset's "
+                          "`negative_prompt.applies_when` evaluated against the form; unset falls back to "
+                          "whether the negative pass is encoded. Never changes what is encoded",
+                          required=False),
             PipeConfigSpec("pairs", list, [], "Per-image expanded prompt pairs (from the prompt expander)",
                           required=False),
             PipeConfigSpec("positive_embeddings", list, [], "Positive text embeddings configuration", required=False),
@@ -222,9 +227,10 @@ class PromptEncoderPipe(BasePipe):
         # when False the negative prompt is authored but never encoded, and the
         # generation record must say so rather than imply it applied.
         do_cfg = self._do_cfg()
+        negative_applied = self._negative_applied(do_cfg)
         generation_outputs(ParamGenerationOutput(
             name="negative_applied",
-            values=[do_cfg] * quantity,
+            values=[negative_applied] * quantity,
         ))
 
         generation_outputs(ProgressGenerationOutput(state="Encoding prompts"))
@@ -262,6 +268,7 @@ class PromptEncoderPipe(BasePipe):
             return self._encode_conditionings(
                 clip, p_prompt_input, p_prompt_output, n_prompt_input, n_prompt_output,
                 quantity, pairs, generation_outputs, images, do_cfg, references, vae,
+                negative_applied=negative_applied,
             )
 
         if models is not None:
@@ -480,6 +487,10 @@ class PromptEncoderPipe(BasePipe):
             or self.config.get("nag_scale", 1.0) > 1.0
         )
 
+    def _negative_applied(self, do_cfg: bool) -> bool:
+        declared = self.config.get("negative_applied")
+        return declared if isinstance(declared, bool) else do_cfg
+
     @staticmethod
     def _resolve_reference_media(kind: str, media: Any, *, vae: Any) -> Any:
         """A packed reference's own media, unchanged -- UNLESS `media` is a
@@ -502,6 +513,7 @@ class PromptEncoderPipe(BasePipe):
     def _encode_conditionings(
         self, clip, p_prompt_input, p_prompt_output, n_prompt_input, n_prompt_output,
         quantity, pairs, generation_outputs, images=None, do_cfg=True, references=None, vae=None,
+        negative_applied=None,
     ) -> List[ConditioningModel]:
         # Build every image's request FIRST, then encode the whole batch in ONE
         # clip.encode_prompts() call: a per-image encode loop turns an N-image
@@ -523,7 +535,8 @@ class PromptEncoderPipe(BasePipe):
 
             generation_outputs(DiffTextGenerationOutput(index=_, name="Positive Prompt", diff=diff_p_prompt))
             generation_outputs(DiffTextGenerationOutput(
-                index=_, name="Negative Prompt", diff=diff_n_prompt, negative_applied=do_cfg
+                index=_, name="Negative Prompt", diff=diff_n_prompt,
+                negative_applied=do_cfg if negative_applied is None else negative_applied,
             ))
 
             embeddings = {}

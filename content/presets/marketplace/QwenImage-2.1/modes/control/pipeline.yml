@@ -80,6 +80,7 @@ pipeline:
       pairs: "{{ generation.prompts.pairs }}"
       quantity: "{{ form.quantity }}"
       guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
+      negative_applied: "{{ generation.negative_applied }}"
 
   - name: "seed_generator"
     enabled: *not_guide_only

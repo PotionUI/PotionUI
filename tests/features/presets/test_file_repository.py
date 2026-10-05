@@ -2,7 +2,7 @@
 PresetInfo conversion."""
 
 from src.features.presets.file_repository import FilePresetRepository
-from src.features.presets.templates import PresetTemplate, GenerationMode
+from src.features.presets.templates import GenerationMode, ModeTemplate, PresetTemplate
 
 
 def _preset(vars=None, llm=None, styles=None, styles_preview=None):
@@ -14,7 +14,7 @@ def _preset(vars=None, llm=None, styles=None, styles_preview=None):
         name="Test Preset",
         version="1.0.0",
         path="/presets/test",
-        modes={GenerationMode.TXT2IMG: []},
+        modes={GenerationMode.TXT2IMG: ModeTemplate(forms=[], pipes=[])},
         vars=vars,
         llm=llm,
         styles=styles or [],

@@ -1,64 +1,94 @@
 import { describe, it, expect } from 'vitest';
-import { resolveNegativeApplicability } from './negativeApplied';
+import {
+	isNegativeInert,
+	resolveNegativeAppliesWhen,
+	type NegativePromptDeclarations
+} from './negativeApplied';
 
-describe('resolveNegativeApplicability', () => {
-	it('is unknown when there is no form data', () => {
-		expect(resolveNegativeApplicability(undefined)).toBe('unknown');
-		expect(resolveNegativeApplicability(null)).toBe('unknown');
+const krea: NegativePromptDeclarations = {
+	applies_when: null,
+	modes: {
+		txt2img: {
+			default: {
+				logic: 'OR',
+				conditions: [
+					{ field: 'cfg', greater_than: 1 },
+					{
+						logic: 'AND',
+						conditions: [
+							{ field: 'nag_enabled', equals: true },
+							{ field: 'nag_scale', greater_than: 1 }
+						]
+					}
+				]
+			},
+			variants: {}
+		}
+	}
+};
+
+describe('isNegativeInert', () => {
+	it('never hides the negative without a declaration', () => {
+		expect(isNegativeInert(null, 'txt2img', null, { cfg: 1 })).toBe(false);
+		expect(isNegativeInert(undefined, 'txt2img', null, { cfg: 1 })).toBe(false);
+		expect(isNegativeInert({ applies_when: null, modes: {} }, 'txt2img', null, { cfg: 1 })).toBe(false);
 	});
 
-	it('is unknown when no guidance field is present (no guidance concept)', () => {
-		expect(resolveNegativeApplicability({ steps: 8 })).toBe('unknown');
+	it('never hides the negative without form data', () => {
+		expect(isNegativeInert(krea, 'txt2img', null, null)).toBe(false);
 	});
 
-	it('marks inert when the resolved cfg is <= 1 (Z-Image turbo)', () => {
-		expect(resolveNegativeApplicability({ cfg: 1.0 })).toBe('inert');
-		expect(resolveNegativeApplicability({ cfg: 0 })).toBe('inert');
+	it('reads greater_than against the resolved form values', () => {
+		expect(isNegativeInert(krea, 'txt2img', null, { cfg: 1, nag_enabled: false, nag_scale: 1 })).toBe(true);
+		expect(isNegativeInert(krea, 'txt2img', null, { cfg: 4, nag_enabled: false, nag_scale: 1 })).toBe(false);
 	});
 
-	it('marks applied when the resolved cfg is > 1', () => {
-		expect(resolveNegativeApplicability({ cfg: 4.0 })).toBe('applied');
+	it('applies when any branch of an OR holds and all of an AND hold', () => {
+		expect(isNegativeInert(krea, 'txt2img', null, { cfg: 1, nag_enabled: true, nag_scale: 1.5 })).toBe(false);
+		expect(isNegativeInert(krea, 'txt2img', null, { cfg: 1, nag_enabled: true, nag_scale: 1 })).toBe(true);
+		expect(isNegativeInert(krea, 'txt2img', null, { cfg: 1, nag_enabled: false, nag_scale: 1.5 })).toBe(true);
 	});
 
-	it('honors the alternate cfg_scale field name', () => {
-		expect(resolveNegativeApplicability({ cfg_scale: 1.0 })).toBe('inert');
-		expect(resolveNegativeApplicability({ cfg_scale: 7.5 })).toBe('applied');
+	it('treats a list as AND', () => {
+		const decl: NegativePromptDeclarations = {
+			applies_when: [
+				{ field: 'cfg', greater_than: 1 },
+				{ field: 'sampler', not_equals: 'lcm' }
+			]
+		};
+		expect(isNegativeInert(decl, 'any', null, { cfg: 3, sampler: 'euler' })).toBe(false);
+		expect(isNegativeInert(decl, 'any', null, { cfg: 3, sampler: 'lcm' })).toBe(true);
 	});
 
-	it("ignores Flux's distilled `guidance` field (not true CFG)", () => {
-		// Flux hardcodes guidance_scale = 1.0; its `guidance` form field is the
-		// distilled guidance embedding and must not be read as CFG. No cfg field
-		// -> unknown -> no notice (the backend still records it honestly).
-		expect(resolveNegativeApplicability({ guidance: 3.5 })).toBe('unknown');
-	});
-
-	it('stays applied when NAG forces the negative at guidance 1', () => {
-		expect(resolveNegativeApplicability({ cfg: 1.0, nag_scale: 1.5 })).toBe('applied');
-	});
-
-	it('is inert when NAG is present but off at guidance 1', () => {
-		expect(resolveNegativeApplicability({ cfg: 1.0, nag_scale: 1.0 })).toBe('inert');
-	});
-
-	it('coerces numeric strings from the form', () => {
-		expect(resolveNegativeApplicability({ cfg: '1' })).toBe('inert');
-		expect(resolveNegativeApplicability({ cfg: '4' })).toBe('applied');
-	});
-
-	it('is unknown when the guidance value is not a number', () => {
-		expect(resolveNegativeApplicability({ cfg: '' })).toBe('unknown');
-		expect(resolveNegativeApplicability({ cfg: 'auto' })).toBe('unknown');
-	});
-
-	it('respects a preset-declared descriptor over the conventions', () => {
+	it('reads a literal false as never applied and true as always applied', () => {
+		expect(isNegativeInert({ applies_when: false }, 'upscale', null, null)).toBe(true);
+		expect(isNegativeInert({ applies_when: false }, 'upscale', null, { cfg: 7 })).toBe(true);
+		expect(isNegativeInert({ applies_when: true }, 'upscale', null, { cfg: 1 })).toBe(false);
 		expect(
-			resolveNegativeApplicability(
-				{ my_guidance: 1.0, my_nag: 2.0 },
-				{ guidance_field: 'my_guidance', nag_field: 'my_nag' }
-			)
-		).toBe('applied');
-		expect(
-			resolveNegativeApplicability({ my_guidance: 1.0 }, { guidance_field: 'my_guidance' })
-		).toBe('inert');
+			isNegativeInert({ modes: { upscale: { default: false, variants: {} } } }, 'upscale', null, {})
+		).toBe(true);
+	});
+
+	it('reads equals strictly', () => {
+		const decl: NegativePromptDeclarations = { applies_when: { field: 'nag_enabled', equals: true } };
+		expect(isNegativeInert(decl, 'm', null, { nag_enabled: true })).toBe(false);
+		expect(isNegativeInert(decl, 'm', null, { nag_enabled: 'true' })).toBe(true);
+	});
+});
+
+describe('resolveNegativeAppliesWhen', () => {
+	const preset = { field: 'cfg', greater_than: 1 };
+	const own = { field: 'nag_scale', greater_than: 1 };
+	const decl: NegativePromptDeclarations = {
+		applies_when: preset,
+		modes: { video: { default: own, variants: { fast: preset, slow: own } } }
+	};
+
+	it('uses the selected variant, then the mode default, then the preset level', () => {
+		expect(resolveNegativeAppliesWhen(decl, 'video', 'fast')).toBe(preset);
+		expect(resolveNegativeAppliesWhen(decl, 'video', 'slow')).toBe(own);
+		expect(resolveNegativeAppliesWhen(decl, 'video', null)).toBe(own);
+		expect(resolveNegativeAppliesWhen(decl, 'video', 'unknown')).toBe(own);
+		expect(resolveNegativeAppliesWhen(decl, 'upscale', null)).toBe(preset);
 	});
 });

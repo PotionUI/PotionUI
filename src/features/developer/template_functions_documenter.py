@@ -181,7 +181,7 @@ class TemplateFunctionsDocumenter:
                 {
                     "name": "generation",
                     "alias": None,
-                    "signature": "generation.{prompts:{first,pairs,positives,negatives}, profile}",
+                    "signature": "generation.{prompts:{first,pairs,positives,negatives}, profile, negative_applied}",
                     "description": (
                         "Generation-level data resolved before the pipeline builds: expanded "
                         "prompt pairs (one per image), and `profile` - the `speed_profiles:` entry "
@@ -191,18 +191,22 @@ class TemplateFunctionsDocumenter:
                         "missing key). `prompts.first` is the first pair; `prompts.pairs` the full "
                         "list; `prompts.positives`/`negatives` the flattened sides. There is no "
                         "`generation.seed`/`generation.quantity` - read `form.seed`/`form.quantity` "
-                        "(the seed_generator pipe's own config is the only real consumer)."
+                        "(the seed_generator pipe's own config is the only real consumer). "
+                        "`negative_applied` is the preset's `negative_prompt.applies_when` evaluated "
+                        "against the bound form (true/false), `None` when the preset declares none."
                     ),
                     "parameters": [
                         {"name": "prompts.first", "type": "dict", "description": "First expanded prompt pair {positive, negative}"},
                         {"name": "prompts.pairs", "type": "list", "description": "All per-image expanded prompt pairs"},
                         {"name": "profile", "type": "dict", "description": "The speed_profiles: entry resolved for this request ({} if the preset declares none)"},
+                        {"name": "negative_applied", "type": "bool | None", "description": "negative_prompt.applies_when evaluated against the form (None if undeclared)"},
                     ],
                     "return_type": "native value",
                     "examples": [
                         {"code": "{{ generation.prompts.first.positive }}", "result": "First image's positive prompt"},
                         {"code": "{{ generation.prompts.pairs }}", "result": "List of {positive, negative} pairs"},
                         {"code": "{{ form.steps | default(generation.profile.steps) }}", "result": "form.steps if set, else the resolved profile's steps"},
+                        {"code": "{{ generation.negative_applied }}", "result": "True while the declared negative_prompt.applies_when holds"},
                     ],
                 },
                 {

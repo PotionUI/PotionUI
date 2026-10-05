@@ -144,6 +144,7 @@ pipeline:
       quantity: "{{ form.video_director.segments | length }}"
       guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
       nag_scale: "{{ form.nag_scale }}"
+      negative_applied: "{{ generation.negative_applied }}"
 
   - name: "seed_generator"
     enabled: true

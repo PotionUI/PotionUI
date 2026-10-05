@@ -48,6 +48,7 @@ pipeline:
       # Z-Image uses true CFG; the negative is encoded (turbo simply runs cfg 1.0,
       # which makes TrueCFG skip the uncond forward at sample time).
       guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
+      negative_applied: "{{ generation.negative_applied }}"
 
   #############
   ## Seed generator

@@ -339,6 +339,7 @@ class PresetTemplateLoader:
             prompt_resources=prompt_resources,
             prompt_syntax=prompt_syntax,
             formulas=manifest.formulas.model_dump() if manifest.formulas else None,
+            negative_prompt=manifest.negative_prompt.model_dump() if manifest.negative_prompt else None,
         )
 
     _NO_STYLES_PREVIEW: Dict[str, str] = {"prompt_prefix": "", "negative": "", "example_prompt": ""}
@@ -472,6 +473,7 @@ class PresetTemplateLoader:
                 examples=form_data.get('examples') or [],
                 default=form_data.get('default', False),
                 order=form_data.get('order', 0),
+                negative_prompt=validated.negative_prompt.model_dump() if validated.negative_prompt else None,
             ))
 
         return forms, errors

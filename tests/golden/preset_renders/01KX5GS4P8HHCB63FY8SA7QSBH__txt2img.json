@@ -53,6 +53,10 @@
           "type": "str",
           "value": "golden negative prompt"
         },
+        "negative_applied": {
+          "type": "bool",
+          "value": false
+        },
         "p_prompt.input": {
           "type": "str",
           "value": "golden positive prompt"

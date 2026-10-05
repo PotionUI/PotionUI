@@ -1,5 +1,14 @@
 name: "custom"
 short_description: "Generate an image from a text prompt."
+negative_prompt:
+  applies_when:
+    logic: "OR"
+    conditions:
+      - { field: "cfg", greater_than: 1 }
+      - logic: "AND"
+        conditions:
+          - { field: "nag_enabled", equals: true }
+          - { field: "nag_scale", greater_than: 1 }
 fields:
   - type: "tabs"
     children:

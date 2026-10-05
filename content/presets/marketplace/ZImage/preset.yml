@@ -76,5 +76,8 @@ llm:
     If you don't know which variant is loaded, write constraints positively - that
     works on both.
 
+negative_prompt:
+  applies_when: { field: "cfg", greater_than: 1 }
+
 modes:
   - txt2img

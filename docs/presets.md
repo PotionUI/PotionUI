@@ -180,6 +180,55 @@ state of a file PotionUI could not classify ("Needs a type" in Admin → Models)
 ask for it. A `diffusion_model` field on the native engine also lists full checkpoints of the
 supported families; see [How a model's type is decided](models.md#how-a-models-type-is-decided).
 
+## When the negative prompt applies
+
+Many models only use the negative prompt under some settings: true CFG above 1, or NAG switched
+on. A preset says when with `negative_prompt.applies_when`, a condition over the mode's form
+fields written in the same `when:` grammar as [form reactions](presets/forms.md) (a single
+`{field, <operator>: value}`, a list meaning AND, or `{logic: AND|OR, conditions: [...]}`, nesting
+allowed), or a literal `false` for a mode whose pipeline never uses the negative. Put it at the
+top of a mode's `form.yml`; a mode that declares none falls back to the same key in `preset.yml`.
+
+```yaml
+# modes/txt2img/form.yml
+negative_prompt:
+  applies_when:
+    logic: OR
+    conditions:
+      - { field: cfg, greater_than: 1 }
+      - logic: AND
+        conditions:
+          - { field: nag_enabled, equals: true }
+          - { field: nag_scale, greater_than: 1 }
+fields:
+  ...
+```
+
+- **Generate page.** The condition is evaluated against the form's current values, after
+  reactions. While it is false the negative prompt section is hidden; it comes back as soon as
+  the condition holds. With no declaration the negative is always shown.
+- **Generation record.** The same condition is evaluated against the bound form when the
+  pipeline builds and is exposed as `generation.negative_applied` (`true`/`false`, `None` when
+  undeclared). Wire it into the encoder so history marks an unused negative as not applied:
+
+  ```yaml
+  - name: "prompt_encoder"
+    configuration:
+      guidance_scale: "{{ form.cfg }}"
+      negative_applied: "{{ generation.negative_applied }}"
+  ```
+
+  `negative_applied` only labels the record. Whether the negative is actually encoded still
+  follows `guidance_scale`/`nag_scale`, so the declaration must describe what the pipeline does,
+  not change it.
+- **Lint.** A field in `applies_when` that the mode's form does not declare is an error. A
+  declaration on a mode whose `prompt_encoder` has no `negative_applied` is a warning.
+
+Write the condition from the pipeline, not from the field labels: read what feeds the encoder's
+`guidance_scale` and `nag_scale`. A preset that always uses its negative (SDXL at its usual CFG)
+declares nothing. A preset that never takes one sets `vars.supports_negative_prompt: false`
+instead.
+
 ## See also
 
 - [Backends and Engines](backends.md) — `engine:`, how a preset's pipes get executed.

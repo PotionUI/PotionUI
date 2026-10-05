@@ -17,7 +17,7 @@ a preset instead of stopping at the first one.
 import re
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, ValidationError, model_validator
 
 from src.features.presets.css_named_colors import CSS_NAMED_COLORS
 
@@ -114,6 +114,12 @@ ConditionOrLogical = Union[ConditionSpec, LogicalCondition]
 LogicalCondition.model_rebuild()
 
 WhenSpec = Union[ConditionOrLogical, List[ConditionOrLogical]]
+
+
+class NegativePromptSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    applies_when: Union[StrictBool, WhenSpec]
 
 
 class ActionSpec(BaseModel):
@@ -393,6 +399,7 @@ class FormFile(BaseModel):
     examples: List[str] = Field(default_factory=list)  # paths, must live under public/
     default: bool = False
     order: int = 0
+    negative_prompt: Optional[NegativePromptSpec] = None
 
     @model_validator(mode="after")
     def _validate_examples(self) -> "FormFile":
@@ -903,6 +910,7 @@ class PresetManifest(BaseModel):
     requirements: List[RequirementEntry] = Field(default_factory=list)
     prompt_resources: Optional[Dict[str, List[PromptResourceSpec]]] = None
     prompt_syntax: Optional[Dict[str, List[PromptSyntaxSpec]]] = None
+    negative_prompt: Optional[NegativePromptSpec] = None
 
     @model_validator(mode="after")
     def _validate_business_rules(self) -> "PresetManifest":

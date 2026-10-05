@@ -495,6 +495,7 @@ class PresetLinter:
             issues.extend(self._lint_config_exact_expression(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_variant_form_refs(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_guard_default_mismatch(preset_file, mode_dir, mode_name))
+            issues.extend(self._lint_negative_prompt(preset_file, mode_dir, mode_name, manifest))
 
         issues.extend(self._lint_media_refs(preset_file, manifest))
 
@@ -1518,6 +1519,86 @@ class PresetLinter:
                             f"| default(...) fallback.",
                         )
                     )
+
+        return issues
+
+    @staticmethod
+    def _condition_field_names(when: Any, acc: List[str]) -> None:
+        if isinstance(when, list):
+            for item in when:
+                PresetLinter._condition_field_names(item, acc)
+        elif isinstance(when, dict):
+            if "conditions" in when:
+                PresetLinter._condition_field_names(when.get("conditions"), acc)
+            elif isinstance(when.get("field"), str):
+                acc.append(when["field"])
+
+    def _lint_negative_prompt(self, preset_file: Path, mode_dir: Path, mode_name: str, manifest) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+        preset_root = preset_file.parent
+        preset_level = manifest.negative_prompt.model_dump()["applies_when"] if manifest.negative_prompt else None
+
+        pipeline_data: Any = None
+        pipeline_file = mode_dir / "pipeline.yml"
+        if pipeline_file.exists():
+            try:
+                with open(pipeline_file, 'r', encoding='utf-8') as f:
+                    pipeline_data = yaml.safe_load(f)
+            except Exception:
+                pipeline_data = None
+        unwired = [
+            pipe.get("id") or pipe.get("name")
+            for pipe in ((pipeline_data.get("pipeline") or []) if isinstance(pipeline_data, dict) else [])
+            if isinstance(pipe, dict)
+            and pipe.get("name") == "prompt_encoder"
+            and "negative_applied" not in (pipe.get("configuration") or {})
+        ]
+
+        for variant_name, form_dir in discover_form_variants(mode_dir):
+            vloc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
+            try:
+                with open(form_dir / "form.yml", 'r', encoding='utf-8') as f:
+                    form_data = yaml.safe_load(f) or {}
+            except Exception:
+                continue
+            if not isinstance(form_data, dict):
+                continue
+            declared = form_data.get("negative_prompt")
+            when = declared.get("applies_when") if isinstance(declared, dict) else None
+            source = f"{vloc}/form.yml" if when is not None else "preset.yml"
+            if when is None:
+                when = preset_level
+            if when is None:
+                continue
+
+            known_fields: set = set(_INJECTED_FORM_KEYS)
+            self._collect_field_names(form_data.get("fields", []), preset_root, known_fields)
+            referenced: List[str] = []
+            self._condition_field_names(when, referenced)
+            for name in dict.fromkeys(referenced):
+                if name not in known_fields:
+                    issues.append(
+                        LintIssue(
+                            "error",
+                            preset_str,
+                            f"{source}: negative_prompt.applies_when references field '{name}', which "
+                            f"form variant '{variant_name}' ({vloc}/form.yml) does not declare, so the "
+                            f"condition can never read it.",
+                        )
+                    )
+            for identifier in unwired:
+                issues.append(
+                    LintIssue(
+                        "warning",
+                        preset_str,
+                        f"modes/{mode_name}/pipeline.yml: pipe '{identifier}': negative_prompt.applies_when "
+                        f"is declared ({source}) but prompt_encoder has no negative_applied config, so the "
+                        f"generation record keeps its own guess. Add "
+                        f"negative_applied: \"{{{{ generation.negative_applied }}}}\".",
+                    )
+                )
+            unwired = []
 
         return issues
 

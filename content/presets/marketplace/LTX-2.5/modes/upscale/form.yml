@@ -1,5 +1,7 @@
 name: "custom"
 short_description: "Increase the resolution of a video."
+negative_prompt:
+  applies_when: false
 fields:
   - type: "tabs"
     children:

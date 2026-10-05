@@ -1,5 +1,7 @@
 name: "custom"
 short_description: "Change an existing image by instruction."
+negative_prompt:
+  applies_when: false
 fields:
   - type: "tabs"
     children:

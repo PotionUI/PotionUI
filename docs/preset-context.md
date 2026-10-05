@@ -67,13 +67,14 @@ The active request: which mode and which form variant is being generated.
 - `{{ request.mode }}` → 'txt2img'
 - `{{ request.form_name }}` → 'custom'
 
-**`generation`** — `generation.{prompts:{first,pairs,positives,negatives}, profile}`
+**`generation`** — `generation.{prompts:{first,pairs,positives,negatives}, profile, negative_applied}`
 
-Generation-level data resolved before the pipeline builds: expanded prompt pairs (one per image), and `profile` - the `speed_profiles:` entry resolved for this request (the one `form.speed_profile` names; the first declared profile if the form has no matching value; `{}` if the preset declares none, so `generation.profile.steps` fails loudly like any other missing key). `prompts.first` is the first pair; `prompts.pairs` the full list; `prompts.positives`/`negatives` the flattened sides. There is no `generation.seed`/`generation.quantity` - read `form.seed`/`form.quantity` (the seed_generator pipe's own config is the only real consumer).
+Generation-level data resolved before the pipeline builds: expanded prompt pairs (one per image), and `profile` - the `speed_profiles:` entry resolved for this request (the one `form.speed_profile` names; the first declared profile if the form has no matching value; `{}` if the preset declares none, so `generation.profile.steps` fails loudly like any other missing key). `prompts.first` is the first pair; `prompts.pairs` the full list; `prompts.positives`/`negatives` the flattened sides. There is no `generation.seed`/`generation.quantity` - read `form.seed`/`form.quantity` (the seed_generator pipe's own config is the only real consumer). `negative_applied` is the preset's `negative_prompt.applies_when` evaluated against the bound form (true/false), `None` when the preset declares none.
 
 - `{{ generation.prompts.first.positive }}` → First image's positive prompt
 - `{{ generation.prompts.pairs }}` → List of {positive, negative} pairs
 - `{{ form.steps | default(generation.profile.steps) }}` → form.steps if set, else the resolved profile's steps
+- `{{ generation.negative_applied }}` → True while the declared negative_prompt.applies_when holds
 
 **`preset`** — `preset.{id, name, vars}`
 

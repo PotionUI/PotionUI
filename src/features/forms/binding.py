@@ -799,6 +799,13 @@ def _condition_matches(when: Any, values: Dict[str, Any], warn: Any) -> bool:
         return False
 
 
+def condition_matches(when: Any, values: Dict[str, Any], *, context: str = "condition") -> bool:
+    def warn(problem: str) -> None:
+        logger.warning(f"{context}: skipping condition: {problem}")
+
+    return _condition_matches(when, values, warn)
+
+
 def _reaction_matches(
     when: Any, values: Dict[str, Any], *, preset_id: str, mode: str, field_name: str
 ) -> bool:

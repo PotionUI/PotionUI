@@ -62,6 +62,7 @@ pipeline:
       quantity: "{{ form.quantity }}"
       # Qwen-Image uses true CFG -> encode the negative pass (guidance_scale > 1).
       guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
+      negative_applied: "{{ generation.negative_applied }}"
 
   #############
   ## Seed generator

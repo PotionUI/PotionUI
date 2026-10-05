@@ -70,7 +70,7 @@
 	import BackendModelsSection from './BackendModelsSection.svelte';
 	import CloudCatalogSection from './CloudCatalogSection.svelte';
 	import { backendDetailTabsFor, backendDetailTabHasFooter, isBackendDetailTab, type BackendDetailTabId } from './backendDetailTabs';
-	import { readBackendsUrlState, writeBackendsUrlState } from './backendsUrlState';
+	import { readAddBackendDriver, readBackendsUrlState, writeBackendsUrlState } from './backendsUrlState';
 	import { BACKENDS_LIBRARY_SECTIONS, type BackendLibrarySection } from './backends/backendsLibrarySections';
 
 	type DetailTab = BackendDetailTabId;
@@ -285,6 +285,11 @@
 	});
 
 	async function restoreFromUrl() {
+		const addDriver = readAddBackendDriver($page.url.searchParams);
+		if (addDriver && creatableEngines.some((e) => e.driver === addDriver)) {
+			formData = emptyFormData(addDriver);
+			showModal = true;
+		}
 		const { backendId, view } = readBackendsUrlState($page.url.searchParams);
 		if (!backendId) return;
 		const backend = backends.find((b) => b.id === backendId);

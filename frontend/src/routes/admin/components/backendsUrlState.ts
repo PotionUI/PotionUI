@@ -3,6 +3,7 @@ import { CATALOG_FILTER_PARAMS } from './cloudCatalog';
 const BACKEND_PARAM = 'backend';
 const VIEW_PARAM = 'view';
 const CATALOG_VIEW = 'catalog';
+const ADD_PARAM = 'add';
 
 export interface BackendsUrlState {
 	backendId: string | null;
@@ -25,6 +26,7 @@ export function readBackendsUrlState(searchParams: URLSearchParams): BackendsUrl
  * removed rather than written, so an idle Backends tab keeps a clean URL. */
 export function writeBackendsUrlState(url: URL, state: BackendsUrlState): URL {
 	const next = new URL(url);
+	next.searchParams.delete(ADD_PARAM);
 	const previousBackendId = url.searchParams.get(BACKEND_PARAM);
 	if (state.backendId) {
 		next.searchParams.set(BACKEND_PARAM, state.backendId);
@@ -40,4 +42,8 @@ export function writeBackendsUrlState(url: URL, state: BackendsUrlState): URL {
 		for (const param of CATALOG_FILTER_PARAMS) next.searchParams.delete(param);
 	}
 	return next;
+}
+
+export function readAddBackendDriver(searchParams: URLSearchParams): string | null {
+	return searchParams.get(ADD_PARAM) || null;
 }

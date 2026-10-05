@@ -4,17 +4,20 @@
 	import LibraryEntryCard from '$lib/components/library/LibraryEntryCard.svelte';
 	import { resolveCategory } from '$lib/plugins/categories';
 	import type { Plugin } from '$lib/stores/plugins';
+	import type { PluginSetupReport } from '$lib/plugins/setup';
 
 	let {
 		plugin,
 		busy = false,
 		dense = false,
+		setup = null,
 		onOpen,
 		onToggle
 	}: {
 		plugin: Plugin;
 		busy?: boolean;
 		dense?: boolean;
+		setup?: PluginSetupReport | null;
 		onOpen: (plugin: Plugin) => void;
 		onToggle: (plugin: Plugin) => void;
 	} = $props();
@@ -62,6 +65,10 @@
 		{#if isError}
 			<Tooltip text={plugin.error || 'Invalid manifest'}>
 				<Badge variant="danger" dot>Error</Badge>
+			</Tooltip>
+		{:else if setup}
+			<Tooltip text={`${setup.remaining} setup step${setup.remaining === 1 ? '' : 's'} left`}>
+				<Badge variant="warning" dot>Setup needed</Badge>
 			</Tooltip>
 		{/if}
 	{/snippet}

@@ -3,7 +3,12 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { parseServerDate } from '$lib/utils/relativeTime';
-	import { pluginStore, plugins, frontendHooks, loading, error, pendingPluginIds, type Plugin, type PluginSettingSchema } from '$lib/stores/plugins';
+	import { pluginStore, plugins, frontendHooks, loading, error, pendingPluginIds, pluginSetup, type Plugin, type PluginSettingSchema } from '$lib/stores/plugins';
+	import { setupPendingFor, type SetupStep } from '$lib/plugins/setup';
+	import { restartApp } from '$lib/services/admin-api';
+	import { api } from '$lib/services/api/index';
+	import { waitForHealthy } from '$lib/utils/healthPoll';
+	import { confirmDialog } from '$lib/stores/confirm';
 	import { authStore } from '$lib/stores/auth';
 	import { Button, Badge, Spinner, Input, EmptyState, LoadErrorState, Switch, Alert, SegmentedControl } from '$lib/components/ui';
 	import {
@@ -29,6 +34,7 @@
 	import { PLUGIN_SECTIONS, pluginSectionFromSearchParams, type PluginSection } from './plugins/pluginSections';
 	import PluginFiltersPopover from './plugins/PluginFiltersPopover.svelte';
 	import PluginCard from './plugins/PluginCard.svelte';
+	import PluginSetupPanel from './plugins/PluginSetupPanel.svelte';
 	import {
 		PLUGIN_SORT_OPTIONS,
 		applyPluginFilters,
@@ -52,6 +58,7 @@
 	let saving = $state(false);
 	let scanning = $state(false);
 	let scanResult = $state<{ newPlugins: number; updatedPlugins: number } | null>(null);
+	let setupBusyStepId = $state<string | null>(null);
 
 	const params = $derived($page.url.searchParams);
 	const section = $derived(pluginSectionFromSearchParams(params));
@@ -79,6 +86,7 @@
 	const adminTabHooks = $derived($frontendHooks[ADMIN_PLUGIN_TABS_HOOK] ?? []);
 	const detailTabs = $derived(liveSelected ? pluginDetailTabsFor(liveSelected, adminTabHooks, $authStore.user?.account_type) : []);
 	const showHiddenAdminTabsHint = $derived(liveSelected ? hasHiddenAdminTabs(liveSelected.hooks, liveSelected.enabled) : false);
+	const setupReport = $derived(liveSelected?.enabled ? ($pluginSetup[liveSelected.id] ?? null) : null);
 	const pluginIcon = $derived(liveSelected ? resolveCategory(liveSelected.category).icon : undefined);
 	const pluginChips = $derived(
 		liveSelected
@@ -103,7 +111,7 @@
 	);
 
 	onMount(async () => {
-		await Promise.all([pluginStore.loadPlugins(), refreshPluginExtensions()]);
+		await Promise.all([pluginStore.loadPlugins(), refreshPluginExtensions(), pluginStore.loadSetup()]);
 		window.addEventListener('potionui:switch-plugin-tab', handleSwitchPluginTab as EventListener);
 	});
 
@@ -126,7 +134,7 @@
 		const result = await pluginStore.scanPlugins();
 		scanning = false;
 		if (result) {
-			await refreshPluginExtensions();
+			await Promise.all([refreshPluginExtensions(), pluginStore.loadSetup()]);
 			if (selectedPluginId) {
 				const refreshed = await pluginStore.getPluginDetails(selectedPluginId);
 				if (refreshed) {
@@ -143,8 +151,36 @@
 
 	async function togglePlugin(plugin: Plugin) {
 		if (await pluginStore.togglePlugin(plugin.id, !plugin.enabled)) {
-			await refreshPluginExtensions();
+			await Promise.all([refreshPluginExtensions(), pluginStore.loadSetup()]);
 		}
+	}
+
+	async function serverIsUp(): Promise<boolean> {
+		try {
+			const response = await api.getClient().get('/health', { timeout: 3000, validateStatus: () => true });
+			return response.status === 200;
+		} catch {
+			return false;
+		}
+	}
+
+	async function restartForSetup(step: SetupStep) {
+		const confirmed = await confirmDialog({
+			title: 'Restart the app now?',
+			message: 'Active generations will be interrupted.',
+			variant: 'danger'
+		});
+		if (!confirmed) return;
+		setupBusyStepId = step.id;
+		await restartApp().catch(() => null);
+		await waitForHealthy({ check: serverIsUp });
+		await Promise.all([pluginStore.loadPlugins(), refreshPluginExtensions(), pluginStore.loadSetup()]);
+		setupBusyStepId = null;
+	}
+
+	function runSetupAction(step: SetupStep) {
+		if (step.action?.kind === 'settings') detailTab = 'settings';
+		else if (step.action?.kind === 'restart') void restartForSetup(step);
 	}
 
 	function initSettingsValues(detail: Plugin) {
@@ -163,6 +199,7 @@
 		const success = await pluginStore.updatePluginSettings(selectedPlugin.id, settingsValues);
 		saving = false;
 		if (success) {
+			void pluginStore.loadSetup();
 			const pluginDetails = await pluginStore.getPluginDetails(selectedPlugin.id);
 			if (pluginDetails) {
 				selectedPlugin = pluginDetails;
@@ -337,6 +374,10 @@
 							{#snippet overviewMain()}
 								{#if liveSelected.state === 'error' && liveSelected.error}
 									<Alert variant="danger" icon title="Invalid manifest">{liveSelected.error}</Alert>
+								{/if}
+
+								{#if setupReport}
+									<PluginSetupPanel report={setupReport} busyStepId={setupBusyStepId} onAction={runSetupAction} />
 								{/if}
 
 								<DetailSection label="Overview">
@@ -584,6 +625,7 @@
 										{plugin}
 										busy={$pendingPluginIds.has(plugin.id)}
 										dense={$libraryCardDensity === 'compact'}
+										setup={setupPendingFor(plugin, $pluginSetup)}
 										onOpen={openPlugin}
 										onToggle={togglePlugin}
 									/>

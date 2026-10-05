@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readBackendsUrlState, writeBackendsUrlState } from './backendsUrlState';
+import { readAddBackendDriver, readBackendsUrlState, writeBackendsUrlState } from './backendsUrlState';
 
 describe('readBackendsUrlState', () => {
 	it('reads backend and view from the query params', () => {
@@ -71,5 +71,20 @@ describe('writeBackendsUrlState catalog filters', () => {
 	it('drops them when nothing is selected', () => {
 		const next = writeBackendsUrlState(new URL(filtered), { backendId: null, view: null });
 		expect(next.searchParams.has('q')).toBe(false);
+	});
+});
+
+describe('add backend intent', () => {
+	it('reads the driver to open Add backend with', () => {
+		expect(readAddBackendDriver(new URLSearchParams('tab=backends&add=cloud.fake'))).toBe('cloud.fake');
+		expect(readAddBackendDriver(new URLSearchParams('tab=backends&add='))).toBeNull();
+		expect(readAddBackendDriver(new URLSearchParams('tab=backends'))).toBeNull();
+	});
+
+	it('is dropped from the URL once the tab writes its own state', () => {
+		const url = new URL('https://example.test/admin?tab=backends&add=cloud.fake');
+		const next = writeBackendsUrlState(url, { backendId: null, view: null });
+		expect(next.searchParams.has('add')).toBe(false);
+		expect(next.searchParams.get('tab')).toBe('backends');
 	});
 });

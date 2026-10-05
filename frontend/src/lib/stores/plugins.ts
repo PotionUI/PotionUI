@@ -3,6 +3,7 @@ import { writable, derived, get } from 'svelte/store';
 import type { Writable } from 'svelte/store';
 import { api } from '$lib/services/api/index';
 import type { PluginCategoryId } from '$lib/plugins/categories';
+import { setupMapFrom, type PluginSetupMap } from '$lib/plugins/setup';
 
 // Plugin page interface
 export interface PluginPage {
@@ -114,6 +115,7 @@ export const frontendHooks: Writable<FrontendHooks> = writable({});
 export const pluginPages: Writable<PluginPage[]> = writable([]);
 export const pluginQuickActions: Writable<PluginQuickAction[]> = writable([]);
 export const sidebarWidgets: Writable<SidebarWidget[]> = writable([]);
+export const pluginSetup: Writable<PluginSetupMap> = writable({});
 // Whole-catalogue operations only (initial fetch, scan). A per-plugin mutation
 // (toggle, settings save) must never set this - it gates the entire plugin
 // list's visibility in PluginsTab, so doing so would blank every row for the
@@ -196,6 +198,17 @@ function createPluginStore() {
 				const errorMessage = getErrorMessage(err, 'Failed to load frontend hooks')
 				error.set(errorMessage);
 				logger.error('Failed to load frontend hooks:', err);
+			}
+		},
+
+		async loadSetup(): Promise<void> {
+			try {
+				const response = await api.getClient().get('/api/plugins/setup');
+				const data = response.data;
+				if (!data.success) throw new Error(data.message || 'Failed to load plugin setup');
+				pluginSetup.set(setupMapFrom(Array.isArray(data.data) ? data.data : []));
+			} catch (err: unknown) {
+				logger.warn('Failed to load plugin setup:', getErrorMessage(err, 'Failed to load plugin setup'));
 			}
 		},
 

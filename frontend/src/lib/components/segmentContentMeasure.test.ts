@@ -7,12 +7,6 @@ import { describe, expect, it } from 'vitest';
  * the typing area and click target aren't shrunk, and the resolved panel
  * fills its container so it can show the full expanded prompt.
  *
- * The literal port of prompt-segments-concept.html (see
- * PromptSegment.svelte / SegmentedPromptEditor.svelte) moved both rules out
- * of the components' own `<style>` blocks into the ported, globally-imported
- * segment-composer.css — this reads that file instead, and checks the mock's
- * own 13px/1.85 comfortable content setting (12px/1.65 compact) rather than
- * the pre-port 15px/1.6.
  */
 function readCss(): string {
 	return readFileSync(new URL('../styles/segment-composer.css', import.meta.url), 'utf8');
@@ -36,9 +30,9 @@ describe('the segment card’s editable content', () => {
 
 	it('carries the mock’s comfortable/compact content settings', () => {
 		expect(rule).toMatch(/font-size:\s*13px/);
-		expect(rule).toMatch(/line-height:\s*1\.85\b/);
+		expect(rule).toMatch(/line-height:\s*2\b/);
 		expect(compactRule).toMatch(/font-size:\s*12px/);
-		expect(compactRule).toMatch(/line-height:\s*1\.65\b/);
+		expect(compactRule).toMatch(/line-height:\s*2\b/);
 	});
 });
 

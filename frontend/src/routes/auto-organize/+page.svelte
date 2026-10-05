@@ -347,9 +347,9 @@
 			{:else if loadError && rules.length === 0}
 				<LoadErrorState message={loadError} onRetry={loadAll} retrying={loading} />
 			{:else}
-				<p class="text-sm text-fg-muted">
+				<Alert variant="info" icon="wand" title="How rules work" live="off">
 					Rules file your new {noun.plural} into collections{subject === 'model' ? '' : ' and tags'} for you. They only add, they never remove anything, and every run can be undone from Activity.
-				</p>
+				</Alert>
 				{#if rules.length === 0}
 					<EmptyState
 						icon="wand"

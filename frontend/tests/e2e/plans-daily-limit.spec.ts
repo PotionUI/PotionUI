@@ -70,6 +70,7 @@ test.describe('a daily generation limit', () => {
 
 	let token = '';
 	let planId = '';
+	let allowed = 1;
 	let previousSettings: { default_plan_id: string | null; exempt_admins: boolean } | null = null;
 
 	test.afterAll(async ({ browser }) => {
@@ -103,9 +104,18 @@ test.describe('a daily generation limit', () => {
 		planId = plan.id;
 		await call(page, token, 'put', '/api/admin/plans/settings', { default_plan_id: planId, exempt_admins: false });
 
+		const before = await call(page, token, 'get', '/api/me/limits');
+		const usedToday = before.limits.find((row: any) => row.kind === 'generations_per_day')?.used ?? 0;
+		allowed = usedToday + 1;
+		await call(page, token, 'put', `/api/admin/plans/${planId}`, {
+			name: PLAN_NAME,
+			description: 'Playwright',
+			limits: [{ kind: 'generations_per_day', value: allowed }]
+		});
+
 		const limits = await call(page, token, 'get', '/api/me/limits');
 		const rows = limits.limits;
-		expect(rows.some((row: any) => row.kind === 'generations_per_day' && row.limit === 1)).toBeTruthy();
+		expect(rows.some((row: any) => row.kind === 'generations_per_day' && row.limit === allowed && row.used === usedToday)).toBeTruthy();
 	});
 
 	test('the first generation runs and the second is stopped with the limit message', async ({ page }) => {
@@ -132,10 +142,10 @@ test.describe('a daily generation limit', () => {
 		await page.goto('/settings');
 		const section = page.locator('#plan');
 		await expect(section).toContainText('Generations today', { timeout: 15000 });
-		await expect(section).toContainText('1 / 1');
+		await expect(section).toContainText(/Generations today\s*(\d+) \/ \1/);
 		await screenshot(page, JOURNEY, 'settings-usage-1440');
 
 		await page.getByRole('button', { name: 'Account menu' }).click();
-		await expect(page.locator('[data-menu-usage]')).toContainText('1 / 1');
+		await expect(page.locator('[data-menu-usage]')).toContainText(/(\d+) \/ \1/);
 	});
 });

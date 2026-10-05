@@ -18,7 +18,7 @@ test('admin creates a plan with a daily limit, assigns it to a group and sees it
 
 	const userCreate = await page.request.post('/api/users', {
 		headers,
-		data: { username, email: `${username}@example.invalid`, password: 'e2e-password-1', account_type: 'USER' }
+		data: { username, email: `${username}@example.com`, password: 'e2e-password-1', account_type: 'USER' }
 	});
 	expect(userCreate.ok(), `user create -> ${userCreate.status()}`).toBeTruthy();
 	const userId = (await userCreate.json()).data.id as string;

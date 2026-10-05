@@ -13,6 +13,7 @@
 	import { PageHeader, PageTitle, IconButton, Badge } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { api } from '$lib/services/api/index';
+	import ModelAssignmentModal from '$lib/components/modals/ModelAssignmentModal.svelte';
 	import HistorySearchableFilter from './HistorySearchableFilter.svelte';
 	import type { HistorySearchMode, SortBy, SortDir } from '$lib/types/history';
 	import { computeAnchoredMenuPosition } from '$lib/utils/menuPosition';
@@ -28,6 +29,7 @@
 
 	let isMoreMenuOpen = false;
 	let isFiltersOpen = false;
+	let isModelPickerOpen = false;
 	let filtersButtonEl: HTMLButtonElement;
 	let filtersPanelEl: HTMLDivElement;
 	let filtersPanelPosition = { top: 0, left: 0 };
@@ -190,6 +192,16 @@
 		historyStore.loadGenerations();
 	}
 
+	function openModelPicker() {
+		closeFiltersPanel();
+		isModelPickerOpen = true;
+	}
+
+	function handleModelPicked(model: { filename?: string } | null) {
+		isModelPickerOpen = false;
+		handleModelChange(model?.filename ?? '');
+	}
+
 	// Search phrasebook values (navigational by category path) for the
 	// "Phrasebook used" filter.
 	async function searchPhrasebookOptions(query: string) {
@@ -328,6 +340,18 @@
 </script>
 
 <svelte:window on:click={handleWindowClick} on:keydown={handleWindowKeydown} />
+
+{#if isModelPickerOpen}
+	<ModelAssignmentModal
+		selectionMode="single"
+		allowClear={true}
+		title="Filter history by model"
+		subtitle="Search the model catalog or narrow it by type, then select one model."
+		onSelect={handleModelPicked}
+		onClear={() => handleModelPicked(null)}
+		onClose={() => (isModelPickerOpen = false)}
+	/>
+{/if}
 
 <input
 	type="file"
@@ -547,24 +571,18 @@
 									</div>
 								{/if}
 
-								{#if facets.models.length > 0}
-									<div class={facets.modes.length > 0 ? '' : 'col-span-2'}>
-										<label class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1" for="history-filter-model">
-											Model
-										</label>
-										<select
-											id="history-filter-model"
-											class="input text-xs py-1.5 px-2 bg-surface-3/50 w-full"
-											value={currentState.filters.modelName ?? ''}
-											on:change={(e) => handleModelChange(e.currentTarget.value)}
-										>
-											<option value="">All Models</option>
-											{#each facets.models as m}
-												<option value={m.name}>{m.name} ({m.count})</option>
-											{/each}
-										</select>
-									</div>
-								{/if}
+								<div class={facets.modes.length > 0 ? '' : 'col-span-2'}>
+									<span class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1">Model</span>
+									<button
+										id="history-filter-model"
+										type="button"
+										class="input text-xs py-1.5 px-2 bg-surface-3/50 w-full flex items-center gap-2 text-left"
+										on:click={openModelPicker}
+									>
+										<span class="min-w-0 flex-1 truncate">{currentState.filters.modelName || 'All Models'}</span>
+										<Icon name="chevron-down" className="w-3 h-3 text-fg-subtle shrink-0" />
+									</button>
+								</div>
 
 								<div>
 									<label class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1" for="history-filter-rating">
@@ -771,7 +789,7 @@
 				{#if currentState.filters.modelName}
 					<button
 						class="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-dashed border-line bg-surface-2/50 text-xs text-fg-muted hover:text-fg transition-colors flex-shrink-0"
-						title="Clear model filter"
+						aria-label="Clear model filter"
 						on:click={() => handleModelChange('')}
 					>
 						<span class="truncate max-w-[8rem]">{currentState.filters.modelName}</span>

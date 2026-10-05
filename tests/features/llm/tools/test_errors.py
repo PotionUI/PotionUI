@@ -1,6 +1,6 @@
 """Tests for the shared teaching-error helper."""
 
-from src.features.llm.tools.errors import teach, unexpected
+from src.features.llm.tools.errors import scrub_paths, teach, unexpected
 
 
 class TestTeach:
@@ -53,3 +53,14 @@ class TestUnexpected:
     def test_signals_retrying_the_call_will_not_help(self):
         result = unexpected("run_generation", "start the generation", RuntimeError("boom"))
         assert "not something you can fix" in result.lower()
+
+
+class TestScrubPaths:
+    def test_replaces_absolute_posix_and_windows_paths(self):
+        text = scrub_paths("missing under /home/u/models/siglip/x and C:\\Users\\me\\m.bin")
+        assert "/home/" not in text and "C:\\" not in text
+        assert text.count("<server path>") == 2
+
+    def test_keeps_relative_paths_urls_and_repo_ids(self):
+        text = "see https://hf.co/a/b, generations/2026/x.png and google/siglip-base-patch16-224"
+        assert scrub_paths(text) == text

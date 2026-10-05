@@ -92,8 +92,21 @@ class TestRegisterBuiltinTools:
             "list_segment_categories",
             "get_saved_segments",
             "get_segment_templates",
+            "create_segment_category",
+            "update_segment_category",
+            "delete_segment_category",
+            "create_saved_segment",
+            "update_saved_segment",
+            "delete_saved_segment",
+            "create_segment_template",
+            "update_segment_template",
+            "delete_segment_template",
             "get_model_info",
             "get_preset_info",
+            "list_presets",
+            "update_phrasebook_category",
+            "delete_phrasebook_category",
+            "search_models",
             "list_phrasebook_categories",
             "get_phrasebook_values",
             "list_phrasebook_values",
@@ -734,7 +747,8 @@ class TestGetPresetInfoTool:
         ctx = make_context(preset_collaborators=pm)
         result = await self._tool().execute(ctx)
         assert result.success is False
-        assert "No preset_id" in result.error
+        assert "preset_id is required" in result.error
+        assert "list_presets" in result.error
 
     @pytest.mark.asyncio
     async def test_no_preset_collaborators(self):

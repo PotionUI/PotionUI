@@ -19,6 +19,17 @@ def _truncate(text: str, limit: int = 200) -> str:
 
 NO_SESSION_ERROR = "No saved session in the active tab — save the session first."
 
+NO_TAB_SESSION_ERROR = (
+    "There is no open Generate tab, so 'session' scope needs scope_ref set to the saved "
+    "session id. read_memory with scope 'all' lists every note with its scope_ref."
+)
+
+_SCOPE_REF_SOURCES = {
+    "preset": "a preset id from list_presets",
+    "model": "a model id from search_models",
+    "mode": "a chat mode id",
+}
+
 SESSION_SCOPE_TEXT = (
     "'session' is for facts tied to the saved Generate session of the current tab (not this chat "
     "conversation) -- scope_ref auto-resolves to that session, omit it."
@@ -32,6 +43,23 @@ def _active_session_id(context: ToolContext) -> Optional[str]:
     return form_state.get("session_id") or None
 
 
+def _has_tab(context: ToolContext) -> bool:
+    return context.chat_session or isinstance(context.session_metadata.get("form_state"), dict)
+
+
+def _no_session_error(context: ToolContext) -> str:
+    return NO_SESSION_ERROR if _has_tab(context) else NO_TAB_SESSION_ERROR
+
+
+def _missing_scope_ref_error(context: ToolContext, scope: str) -> str:
+    if _has_tab(context):
+        return f"scope_ref is required for {scope}-scoped notes and could not be auto-resolved"
+    return (
+        f"scope_ref is required for {scope}-scoped notes: there is no open Generate tab to "
+        f"resolve it from. Pass {_SCOPE_REF_SOURCES.get(scope, 'its id')}."
+    )
+
+
 def _resolve_scope_ref(scope: str, scope_ref: Any, context: ToolContext) -> Any:
     """Auto-resolve scope_ref from the active preset/model/mode when omitted.
 
@@ -41,7 +69,7 @@ def _resolve_scope_ref(scope: str, scope_ref: Any, context: ToolContext) -> Any:
     of the form for it.
     """
     if scope == "session":
-        return _active_session_id(context)
+        return _active_session_id(context) or (None if _has_tab(context) else scope_ref or None)
     if scope_ref:
         return scope_ref
     form_state = context.session_metadata.get("form_state")
@@ -75,7 +103,7 @@ def _resolve_target_note(context: ToolContext, kwargs: Dict[str, Any]):
 
     scope_ref = _resolve_scope_ref(scope, kwargs.get("scope_ref"), context)
     if scope == "session" and not scope_ref:
-        return None, NO_SESSION_ERROR
+        return None, _no_session_error(context)
     try:
         note = memory_operations.get_note_by_key(
             context.llm_memory_repository, user_id=context.user_id, key=key, scope=scope, scope_ref=scope_ref,
@@ -235,8 +263,8 @@ class WriteMemoryTool(BaseTool):
                 "scope_ref": {
                     "type": "string",
                     "description": (
-                        "Preset, model, or mode ID to associate with a scoped note. "
-                        "Auto-resolved from the active preset/model/mode if omitted."
+                        "Preset, model, mode or saved-session id for a scoped note. Auto-resolved "
+                        "from the open Generate tab when there is one; required otherwise."
                     ),
                 },
             },
@@ -270,13 +298,10 @@ class WriteMemoryTool(BaseTool):
         scope_ref = _resolve_scope_ref(scope, kwargs.get("scope_ref"), context)
 
         if scope == "session" and not scope_ref:
-            return ToolResult(success=False, data="", error=NO_SESSION_ERROR)
+            return ToolResult(success=False, data="", error=_no_session_error(context))
 
         if scope in ("preset", "model", "mode") and not scope_ref:
-            return ToolResult(
-                success=False, data="",
-                error=f"scope_ref is required for {scope}-scoped notes and could not be auto-resolved",
-            )
+            return ToolResult(success=False, data="", error=_missing_scope_ref_error(context, scope))
 
         try:
             note = memory_operations.write_note(
@@ -336,9 +361,12 @@ class ReadMemoryTool(BaseTool):
     def description(self) -> str:
         return (
             "Read persistent memory notes from previous sessions. "
-            "Can filter by scope ('global', 'preset', 'model', 'mode', 'session', or 'all' for every "
-            "scope) and optionally by scope_ref (preset, model, or mode ID). 'session' means the saved "
-            "Generate session of the current tab, not this chat conversation. Returns all matching notes."
+            "Can filter by scope ('global', 'preset', 'model', 'mode', 'session', or 'all') and "
+            "optionally by scope_ref (preset, model, mode or saved-session id). With an open Generate "
+            "tab, 'all' returns global notes plus the notes for that tab's preset, model, mode and "
+            "saved session; with no open tab (e.g. an MCP client) 'all' returns every note the user "
+            "has, each with its scope and scope_ref. 'session' means a saved Generate session, not "
+            "a chat conversation. Returns all matching notes."
         )
 
     @property
@@ -350,16 +378,16 @@ class ReadMemoryTool(BaseTool):
                     "type": "string",
                     "enum": ["all", "global", "preset", "model", "mode", "session"],
                     "description": (
-                        "Filter by scope. 'all' returns global, active-preset, active-model, "
-                        "active-mode, and active-session notes."
+                        "Filter by scope. 'all' returns global plus the open tab's preset, model, "
+                        "mode and session notes, or every note when no tab is open."
                     ),
                     "default": "all",
                 },
                 "scope_ref": {
                     "type": "string",
                     "description": (
-                        "Preset, model, or mode ID to filter scoped notes. "
-                        "Auto-resolved from the active preset/model/mode if omitted."
+                        "Preset, model, mode or saved-session id to filter scoped notes. "
+                        "Auto-resolved from the open Generate tab if omitted."
                     ),
                 },
             },
@@ -370,19 +398,22 @@ class ReadMemoryTool(BaseTool):
         if not context.llm_memory_repository:
             return ToolResult(success=False, data="", error="Memory manager not available")
 
-        scope = kwargs.get("scope", "all")
+        scope = kwargs.get("scope") or "all"
         scope_ref = kwargs.get("scope_ref")
+        has_tab = _has_tab(context)
         form_state = context.session_metadata.get("form_state")
         preset_ref = scope_ref or resolve_active_preset_id(form_state)
         model_ref = scope_ref or resolve_active_model_id(form_state, context.model_index_manager)
         mode_ref = scope_ref or context.mode_id
-        session_ref = _active_session_id(context)
+        session_ref = _active_session_id(context) or (None if has_tab else scope_ref)
 
         if scope == "session" and not session_ref:
-            return ToolResult(success=False, data="", error=NO_SESSION_ERROR)
+            return ToolResult(success=False, data="", error=_no_session_error(context))
 
         try:
-            if scope == "all":
+            if scope == "all" and not has_tab and not scope_ref:
+                all_notes = memory_operations.read_notes(context.llm_memory_repository, user_id=context.user_id)
+            elif scope == "all":
                 all_notes = memory_operations.read_notes(
                     context.llm_memory_repository,
                     user_id=context.user_id,
@@ -430,15 +461,18 @@ class ReadMemoryTool(BaseTool):
                 all_notes = memory_operations.read_notes(context.llm_memory_repository, **filter_kwargs)
 
             notes_data = [note.to_dict() for note in all_notes]
-
-            return ToolResult(
-                success=True,
-                data=json.dumps({
-                    "notes": notes_data,
-                    "count": len(notes_data),
-                    "scope_filter": scope,
-                }),
-            )
+            payload: Dict[str, Any] = {
+                "notes": notes_data,
+                "count": len(notes_data),
+                "scope_filter": scope,
+            }
+            if not has_tab:
+                payload["context"] = (
+                    "No open Generate tab: every note you have was returned, each with its scope and scope_ref."
+                    if scope == "all" and not scope_ref else
+                    "No open Generate tab: only the scope_ref you passed was used to filter."
+                )
+            return ToolResult(success=True, data=json.dumps(payload))
         except Exception as e:
             logger.error(f"read_memory failed: {e}")
             return ToolResult(success=False, data="", error=unexpected("read_memory", "read", e))

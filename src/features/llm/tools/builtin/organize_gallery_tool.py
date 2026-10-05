@@ -92,7 +92,7 @@ class OrganizeGalleryTool(BaseTool):
                     "description": "Tag names. Required for tag/untag.",
                 },
                 "rating": {"type": "integer", "minimum": 0, "maximum": 5, "description": "Required for rate; 0 clears the rating."},
-                "limit": {"type": "integer", "description": "Max results for list_recent (default 20)."},
+                "limit": {"type": "integer", "description": "Max results for list_recent (default 20, max 100)."},
                 "text": {"type": "string", "description": "list_recent only: free-text search over the prompt."},
                 "preset_id": {"type": "string", "description": "list_recent only: filter to one preset id."},
                 "model_name": {"type": "string", "description": "list_recent only: filter to generations that used this model."},
@@ -176,7 +176,7 @@ class OrganizeGalleryTool(BaseTool):
 
         try:
             if operation == "list_recent":
-                limit = max(1, int(kwargs.get("limit") or 20))
+                limit = min(max(1, int(kwargs.get("limit") or 20)), 100)
                 return self._list_recent(history_facade, context.user_id, limit, kwargs)
 
             generation_id = kwargs.get("generation_id")
@@ -229,7 +229,7 @@ class OrganizeGalleryTool(BaseTool):
 
         try:
             if operation == "list_recent":
-                limit = max(1, int(kwargs.get("limit") or 20))
+                limit = min(max(1, int(kwargs.get("limit") or 20)), 100)
                 return self._list_recent(history_facade, context.user_id, limit, kwargs)
 
             generation_id = kwargs.get("generation_id")

@@ -27,6 +27,18 @@ def allowed_model_ids(context: ToolContext) -> Optional[List[str]]:
     )
     return context.model_index_manager.access.get_allowed_model_ids(stand_in, all_models=True)
 
+
+def viewer_is_restricted(context: ToolContext) -> bool:
+    safety = context.content_safety
+    if safety is None:
+        return False
+    try:
+        return bool(safety.is_restricted(context.user_id))
+    except Exception:
+        logger.warning("could not resolve the content policy; treating the viewer as restricted", exc_info=True)
+        return True
+
+
 # form_data keys the generation preview's settings grid reads, in display order.
 _GENERATION_SETTINGS_FIELDS = (
     ("batch_size", "Batch"),

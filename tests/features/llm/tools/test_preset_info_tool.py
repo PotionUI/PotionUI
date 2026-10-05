@@ -99,7 +99,7 @@ class TestGetPresetInfoRealPreset:
 
         assert result.success is False
         assert "No preset 'does-not-exist'" in result.error
-        assert "get_form_state" in result.error
+        assert "list_presets" in result.error
 
     @pytest.mark.asyncio
     async def test_non_admin_without_assignment_cannot_see_preset(self, marketplace_file_repo, sdxl):
@@ -287,5 +287,5 @@ class TestGetPresetInfoResolutionOrder:
         result = await self._tool().execute(ctx)
 
         assert result.success is False
-        assert "No preset_id" in result.error
-        assert "session metadata" in result.error
+        assert "preset_id is required" in result.error
+        assert "list_presets" in result.error

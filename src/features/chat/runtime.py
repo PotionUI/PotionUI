@@ -75,6 +75,7 @@ class ChatRuntime:
         collection_repository: Optional[Any] = None,
         tag_repository: Optional[Any] = None,
         generation_history_facade: Optional[Any] = None,
+        content_safety: Optional[Any] = None,
         tool_governance_repository: Optional[Any] = None,
         generation_repository: Optional[Any] = None,
         generation_parameter_repository: Optional[Any] = None,
@@ -141,6 +142,7 @@ class ChatRuntime:
         self.collection_repository = collection_repository
         self.tag_repository = tag_repository
         self.generation_history_facade = generation_history_facade
+        self.content_safety = content_safety
         self.tool_governance_repository = tool_governance_repository
         # Generation repositories for the @generations resource provider.
         self.generation_repository = generation_repository

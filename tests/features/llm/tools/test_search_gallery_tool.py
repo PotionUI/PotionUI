@@ -159,3 +159,78 @@ class TestExecute:
         payload = json.loads(result.data)
         assert len(payload["results"]) == SearchGalleryTool.MAX_QUERIES
         assert "truncated" in payload
+
+
+def make_history(generations_by_query):
+    history = MagicMock()
+
+    async def get_history_async(**filters):
+        return {"generations": list(generations_by_query.get(filters["search"], [])), "total": 0}
+
+    history.get_history_async.side_effect = get_history_async
+    return history
+
+
+def generation(gen_id, prompt, files):
+    return {"id": gen_id, "form_data": {"prompt": prompt}, "created_at": "2026-10-05T00:00:00Z", "files": files}
+
+
+class TestTextFallback:
+    @pytest.mark.asyncio
+    async def test_without_vision_weights_it_searches_prompts_and_says_visual_search_is_off(self):
+        manager = make_manager()
+        manager.vision_embedder.is_available.return_value = False
+        history = make_history({"fox": [generation("gen-1", "a red fox", [
+            {"id": "f0", "file_path": "g/f0.png", "file_type": "IMAGE", "is_final": False},
+            {"id": "f1", "file_path": "g/f1.png", "file_type": "IMAGE", "is_final": True, "thumbnail_medium": "t/f1.jpg"},
+        ])]})
+        context = ToolContext(user_id="user-1", media_indexer=manager, generation_history_facade=history)
+
+        result = await SearchGalleryTool().execute(context, queries=["fox"])
+
+        payload = json.loads(result.data)
+        assert result.success
+        assert payload["search_mode"] == "text"
+        assert "vision embedder" in payload["note"]
+        assert payload["results"][0]["matches"] == [{
+            "generation_id": "gen-1", "file_id": "f1", "media_type": "IMAGE", "path": "g/f1.png",
+            "thumbnail": "t/f1.jpg", "prompt": "a red fox", "created_at": "2026-10-05T00:00:00Z",
+        }]
+        manager.search_gallery.assert_not_called()
+        history.get_history_async.assert_called_once_with(
+            user_id="user-1", search="fox", status="completed", limit=5, offset=0, include_tags=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_failing_visual_search_falls_back_without_leaking_the_error(self):
+        manager = make_manager()
+        manager.search_gallery.side_effect = RuntimeError("weights not found under /srv/models/siglip")
+        history = make_history({})
+        context = ToolContext(user_id="user-1", media_indexer=manager, generation_history_facade=history)
+
+        result = await SearchGalleryTool().execute(context, queries=["fox"])
+
+        assert result.success
+        assert json.loads(result.data)["search_mode"] == "text"
+        assert "/srv/" not in result.data
+
+    @pytest.mark.asyncio
+    async def test_files_hidden_from_the_viewer_are_never_returned(self):
+        manager = make_manager()
+        manager.vision_embedder.is_available.return_value = False
+        history = make_history({"fox": [generation("gen-1", "a fox", [{"id": "f1", "file_type": "IMAGE", "content_state": "unrated"}])]})
+        context = ToolContext(user_id="user-1", media_indexer=manager, generation_history_facade=history)
+
+        payload = json.loads((await SearchGalleryTool().execute(context, queries=["fox"])).data)
+
+        assert payload["results"][0]["matches"] == []
+
+    @pytest.mark.asyncio
+    async def test_without_weights_or_history_it_explains_why(self):
+        manager = make_manager()
+        manager.vision_embedder.is_available.return_value = False
+
+        result = await SearchGalleryTool().execute(make_context(manager), queries=["fox"])
+
+        assert result.success is False
+        assert "vision embedder" in result.error

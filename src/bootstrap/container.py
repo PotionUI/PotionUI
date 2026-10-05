@@ -1642,6 +1642,7 @@ def build_container() -> AppContainer:
         tag_repository=tag_repository,
         plugin_registry=plugin_registry,
         generation_history_facade=generation_history_facade,
+        content_safety=content_safety,
     )
 
     from src.features.developer.mcp_tools_documenter import McpToolsDocumenter
@@ -1687,6 +1688,7 @@ def build_container() -> AppContainer:
             media_indexer=media_indexer,
             collection_repository=collection_repository,
             tag_repository=tag_repository,
+            content_safety=content_safety,
         )
     )
     chat.pre_chat_action_registry.discover_actions()

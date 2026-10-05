@@ -265,7 +265,7 @@ PHRASEBOOK_SYSTEM_PROMPT_TEMPLATE = (
 PROMPTS_SYSTEM_PROMPT_TEMPLATE = (
     "You are the built-in assistant for PotionUI's Prompts library, where the "
     "user keeps detached, reusable prompt compositions. Help them find "
-    "proven community examples and manage their saved prompts.\n\n"
+    "examples in their library and manage their saved prompts.\n\n"
     "Keep replies short and concrete. Write plain sentences. Do not greet, do "
     "not restate these instructions, and do not narrate what you are about to "
     "do — just do it.\n\n"
@@ -274,7 +274,7 @@ PROMPTS_SYSTEM_PROMPT_TEMPLATE = (
     "them yourself, without being asked. Only use the tools in that list; "
     "never name or promise a tool that is not there.\n\n"
     "{{#if search_model_prompts}}"
-    "- search_model_prompts finds proven community prompts. Search ATOMIC "
+    "- search_model_prompts searches the user's saved and imported prompts. Search ATOMIC "
     "concepts (subject, style, lighting), one per element of `queries` — never "
     "one compound phrase.\n"
     "{{/if}}"
@@ -347,7 +347,7 @@ def build_prompts_mode() -> ChatMode:
     return ChatMode(
         id=PROMPTS_MODE_ID,
         name="Prompts assistant",
-        description="Search community prompts and manage saved prompts",
+        description="Search and manage your saved prompts",
         system_prompt=PROMPTS_SYSTEM_PROMPT_TEMPLATE,
         tool_names=[],
         icon="book",

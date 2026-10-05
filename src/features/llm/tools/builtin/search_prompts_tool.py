@@ -1,18 +1,16 @@
-"""Search prompts tool for finding community prompt examples."""
-
 import json
 import logging
 from typing import Any, Dict, Optional
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult, ToolSource
 from src.features.llm.tools.builtin.utils import resolve_active_model_id, extract_model_path
+from src.features.llm.tools.errors import unexpected
 from src.features.prompt_database import operations
 
 logger = logging.getLogger(__name__)
 
 
 class SearchModelPromptsTool(BaseTool):
-    """Searches community prompts for inspiration and reference."""
 
     modes = ["generation", "prompts"]
     icon = "search"
@@ -30,13 +28,13 @@ class SearchModelPromptsTool(BaseTool):
 
     @property
     def user_description(self) -> str:
-        return "Finds example prompts known to work well with your model."
+        return "Finds example prompts in your prompt library, including ones you imported."
 
     @property
     def hint(self) -> str:
         return (
             "ALWAYS call this BEFORE you write, improve, or suggest any prompt — you do not need the "
-            "user to ask. Ground every suggestion in real, proven community prompts. "
+            "user to ask. Ground every suggestion in real prompts from the user's library. "
             "Decompose the desired image into ATOMIC concepts (subject, environment, style, lighting, "
             "composition, mood) and pass them all as separate elements of `queries` in a single call — "
             "the search is semantic, so compound phrases like 'fox in forest' match poorly while "
@@ -49,13 +47,15 @@ class SearchModelPromptsTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Search community prompts for inspiration and reference. Returns top-rated prompts with "
-            "generation parameters, grouped per query concept. "
+            "Search the user's own saved Prompt library (prompts they saved or imported, e.g. from a "
+            "model marketplace) for reference examples. It does not search any public or community "
+            "site. Returns matching prompts with their generation parameters and reactions, grouped "
+            "per query concept; each prompt_id works with get_prompt and edit_prompt. "
             "Pass MULTIPLE atomic concepts in `queries` (one per element) rather than a single combined "
             "phrase — the search is semantic and compound phrases match poorly. "
             "{{#if get_active_models}}Best workflow: call get_active_models first to get model IDs, then "
             "pass the relevant model_id here for model-specific results. {{/if}}"
-            "Use proactively when writing prompts to improve quality with real community examples."
+            "Use proactively when writing prompts to ground them in the user's saved examples."
         )
 
     @property
@@ -80,7 +80,8 @@ class SearchModelPromptsTool(BaseTool):
                     "description": (
                         "Model ID to search prompts for."
                         "{{#if get_active_models}} Get this from get_active_models.{{/if}} "
-                        "If omitted, auto-resolves from the currently active model in the form."
+                        "If omitted, uses the model of the open Generate tab when there is one, "
+                        "else searches prompts for every model."
                     ),
                 },
                 "limit": {
@@ -204,4 +205,4 @@ class SearchModelPromptsTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(payload), sources=sources)
         except Exception as e:
             logger.error(f"search_model_prompts failed: {e}")
-            return ToolResult(success=False, data="", error=f"Search failed: {e}")
+            return ToolResult(success=False, data="", error=unexpected("search_model_prompts", "search", e))

@@ -3,17 +3,28 @@
 import logging
 
 from src.features.llm.tools.builtin.segments_tool import (
+    CreateSavedSegmentTool,
+    CreateSegmentCategoryTool,
+    CreateSegmentTemplateTool,
+    DeleteSavedSegmentTool,
+    DeleteSegmentCategoryTool,
+    DeleteSegmentTemplateTool,
     GetSavedSegmentsTool,
     GetSegmentTemplatesTool,
     ListSegmentCategoriesTool,
+    UpdateSavedSegmentTool,
+    UpdateSegmentCategoryTool,
+    UpdateSegmentTemplateTool,
 )
 from src.features.llm.tools.builtin.model_info_tool import GetModelInfoTool
-from src.features.llm.tools.builtin.preset_info_tool import GetPresetInfoTool
+from src.features.llm.tools.builtin.preset_info_tool import GetPresetInfoTool, ListPresetsTool
 from src.features.llm.tools.builtin.phrasebook_tool import (
     ListPhrasebookCategoriesTool,
     GetPhrasebookValuesTool,
     ListPhrasebookValuesTool,
     CreatePhrasebookCategoryTool,
+    UpdatePhrasebookCategoryTool,
+    DeletePhrasebookCategoryTool,
     CreatePhrasebookValuesTool,
     RemovePhrasebookValuesTool,
     UpdatePhrasebookValuesTool,
@@ -29,7 +40,7 @@ from src.features.llm.tools.builtin.manage_prompts_tool import (
     AddPromptTool, DeletePromptTool, EditPromptTool, GetPromptTool, ListPromptsTool,
 )
 from src.features.llm.tools.builtin.run_generation_tool import RunGenerationTool
-from src.features.llm.tools.builtin.list_models_tool import ListModelsTool
+from src.features.llm.tools.builtin.list_models_tool import ListModelsTool, SearchModelsTool
 from src.features.llm.tools.builtin.memory_tool import (
     WriteMemoryTool,
     ReadMemoryTool,
@@ -52,12 +63,24 @@ def register_builtin_tools(registry) -> None:
         ListSegmentCategoriesTool(),
         GetSavedSegmentsTool(),
         GetSegmentTemplatesTool(),
+        CreateSegmentCategoryTool(),
+        UpdateSegmentCategoryTool(),
+        DeleteSegmentCategoryTool(),
+        CreateSavedSegmentTool(),
+        UpdateSavedSegmentTool(),
+        DeleteSavedSegmentTool(),
+        CreateSegmentTemplateTool(),
+        UpdateSegmentTemplateTool(),
+        DeleteSegmentTemplateTool(),
         GetModelInfoTool(),
         GetPresetInfoTool(),
+        ListPresetsTool(),
         ListPhrasebookCategoriesTool(),
         GetPhrasebookValuesTool(),
         ListPhrasebookValuesTool(),
         CreatePhrasebookCategoryTool(),
+        UpdatePhrasebookCategoryTool(),
+        DeletePhrasebookCategoryTool(),
         CreatePhrasebookValuesTool(),
         RemovePhrasebookValuesTool(),
         UpdatePhrasebookValuesTool(),
@@ -76,6 +99,7 @@ def register_builtin_tools(registry) -> None:
         DeletePromptTool(),
         RunGenerationTool(),
         ListModelsTool(),
+        SearchModelsTool(),
         WriteMemoryTool(),
         ReadMemoryTool(),
         UpdateMemoryTool(),

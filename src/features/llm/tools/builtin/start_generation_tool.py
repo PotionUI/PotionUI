@@ -9,7 +9,7 @@ preset's own defaults.
 
 import json
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple
 
 from src.features.generation.failure import start_failure_reason
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
@@ -52,9 +52,10 @@ class StartGenerationTool(BaseTool):
     def description(self) -> str:
         return (
             "Start a generation for an explicit preset, independent of any live form state. "
-            "Unset fields fall back to the preset's own defaults. Returns a preview for approval "
-            "before starting. Example: "
-            '{"preset_id": "sdxl/base", "mode": "txt2img", "prompt": "a red fox in snow", '
+            "Unset fields fall back to the preset's own defaults. Get preset ids from list_presets "
+            "and a preset's modes and field names from get_preset_info. Requires user approval; "
+            "returns the generation_id once started. Example: "
+            '{"preset_id": "<id from list_presets>", "mode": "txt2img", "prompt": "a red fox in snow", '
             '"form_overrides": {"width": 1024, "height": 1024, "steps": 30}}'
         )
 
@@ -64,7 +65,7 @@ class StartGenerationTool(BaseTool):
             "type": "object",
             "properties": {
                 "preset_id": {"type": "string", "description": "The preset id to generate with."},
-                "mode": {"type": "string", "description": "Generation mode (e.g. txt2img, img2img). Defaults to txt2img."},
+                "mode": {"type": "string", "description": "One of the preset's modes (see get_preset_info). Defaults to txt2img when the preset has it, else its first mode."},
                 "prompt": {"type": "string"},
                 "negative_prompt": {"type": "string"},
                 "form_overrides": {
@@ -116,7 +117,10 @@ class StartGenerationTool(BaseTool):
         if not preset_id:
             return ToolResult(success=False, data="", error="'preset_id' is required")
 
-        mode = kwargs.get("mode") or "txt2img"
+        mode, preset_error = self._resolve_preset(context, preset_id, kwargs.get("mode"))
+        if preset_error:
+            return ToolResult(success=False, data="", error=preset_error)
+        kwargs = {**kwargs, "mode": mode}
         overrides = kwargs.get("form_overrides") or {}
         media_errors = preset_form_media_errors(context.preset_collaborators, context.storage_dir(), preset_id, mode, overrides)
         if media_errors:
@@ -133,6 +137,30 @@ class StartGenerationTool(BaseTool):
             preview=self._build_approval_preview(kwargs),
         )
 
+    @staticmethod
+    def _resolve_preset(context: ToolContext, preset_id: str, mode: Optional[str]) -> Tuple[str, Optional[str]]:
+        collaborators = context.preset_collaborators
+        if collaborators is None:
+            return mode or "txt2img", None
+        not_found = f"No preset '{preset_id}'. Call list_presets to see the preset ids you can use."
+        try:
+            if not context.is_admin and preset_id not in (
+                collaborators.db_repo.get_available_preset_ids_for_user(context.user_id) or []
+            ):
+                return mode or "txt2img", not_found
+            found = collaborators.file_repo.find_preset_by_id(preset_id)
+        except Exception:
+            logger.warning("could not check preset %s before starting", preset_id, exc_info=True)
+            return mode or "txt2img", None
+        if not found:
+            return mode or "txt2img", not_found
+        modes = list((getattr(found, "modes", None) or {}).keys())
+        if not mode:
+            mode = "txt2img" if "txt2img" in modes or not modes else modes[0]
+        if modes and mode not in modes:
+            return mode, f"Preset '{preset_id}' has no mode '{mode}'. Its modes are: {', '.join(modes)}."
+        return mode, None
+
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         """Actually start the generation after user approval."""
         if not context.generation_orchestrator:
@@ -142,7 +170,9 @@ class StartGenerationTool(BaseTool):
         if not preset_id:
             return ToolResult(success=False, data="", error="'preset_id' is required")
 
-        mode = kwargs.get("mode") or "txt2img"
+        mode, preset_error = self._resolve_preset(context, preset_id, kwargs.get("mode"))
+        if preset_error:
+            return ToolResult(success=False, data="", error=preset_error)
         form_data = dict(kwargs.get("form_overrides") or {})
 
         # Re-validated on replay (same reasoning as run_generation): approval

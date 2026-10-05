@@ -9,7 +9,14 @@ module names that shape so a new call site reaches for it instead of
 reinventing a bare `f"Failed: {e}"`.
 """
 
+import re
 from typing import Optional, Union
+
+_ABSOLUTE_PATH = re.compile(r"(?<![\w.:/\\-])(?:/(?:[\w.\-]+/)+[\w.\-]*|[A-Za-z]:\\[^\s'\"]+)")
+
+
+def scrub_paths(text: str) -> str:
+    return _ABSOLUTE_PATH.sub("<server path>", text)
 
 
 def teach(problem: str, expected: str, next_step: Optional[str] = None) -> str:

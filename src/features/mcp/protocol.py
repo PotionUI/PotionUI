@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from src.features.llm.tools.base import ToolContext, ToolResult
+from src.features.llm.tools.errors import scrub_paths
 from src.features.llm.tools.governance import compute_allowed_tool_names
 from src.features.llm.tools.governance_repository import ToolGovernanceRepository
 from src.features.llm.tools.registry import ToolRegistry
@@ -120,6 +121,7 @@ class McpToolCollaborators:
     tag_repository: Any = None
     plugin_registry: Any = None
     generation_history_facade: Any = None
+    content_safety: Any = None
 
 
 # --- tool exposure ---
@@ -175,6 +177,8 @@ def _build_tool_context(collaborators: McpToolCollaborators, user_id: str, is_ad
         tag_repository=collaborators.tag_repository,
         plugin_registry=collaborators.plugin_registry,
         generation_history_facade=collaborators.generation_history_facade,
+        content_safety=collaborators.content_safety,
+        chat_session=False,
         llm_id=default_config.id if default_config else None,
     )
 
@@ -229,7 +233,7 @@ async def call_tool(
         logger.error("MCP tool '%s' raised: %s", name, exc, exc_info=True)
         result = ToolResult(success=False, data="", error=f"Tool execution failed: {exc}")
 
-    text = result.data if result.success else f"Error: {result.error}"
+    text = result.data if result.success else f"Error: {scrub_paths(str(result.error or 'the tool failed'))}"
     return {
         "content": [{"type": "text", "text": text}],
         "isError": not result.success,

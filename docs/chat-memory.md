@@ -80,6 +80,12 @@ the automatic injection above:
 - **`read_memory`** — an explicit read, filterable by scope (`all` returns global +
   active-preset + active-model + active-mode). Mostly useful for a scope not already in
   context, or to double-check something before writing.
+
+Over MCP there is no chat session and no Generate tab, so nothing auto-resolves:
+`read_memory` with `all` returns every note the user has (each with its `scope` and
+`scope_ref`) plus a `context` line saying so, and `write_memory`/`update_memory` need an
+explicit `scope_ref` for every scope except `global` (a preset id from `list_presets`, a
+model id from `search_models`, or a saved session id).
 - **`delete_memory`** — removes a note by id. Requires user approval, showing a preview of
   what will be deleted.
 

@@ -122,6 +122,8 @@ class ToolContext:
     # collaborator the old tag/collection managers held internally.
     plugin_registry: Any = None
     generation_history_facade: Any = None
+    content_safety: Any = None
+    chat_session: bool = True
 
     def storage_dir(self) -> Optional[str]:
         """The requesting user's file storage root, or None if unavailable."""

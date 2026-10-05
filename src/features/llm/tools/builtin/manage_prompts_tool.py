@@ -8,6 +8,7 @@ from src.features.prompt_database import operations
 from src.features.prompt_database.dto import PromptRequest
 from src.features.prompt_database.repository import flatten_segments
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
+from src.features.llm.tools.builtin.utils import viewer_is_restricted
 from src.features.llm.tools.errors import unexpected
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,15 @@ VARIABLES_SCHEMA = {
 }
 
 
+def _visible_prompt(context: ToolContext, prompt_id: Optional[str]):
+    if not context.prompt_database or not prompt_id:
+        return None
+    prompt = context.prompt_database.repository.get_by_id(prompt_id, context.user_id)
+    if prompt is not None and prompt.nsfw and viewer_is_restricted(context):
+        return None
+    return prompt
+
+
 def _prompt_request(existing=None, **kwargs) -> PromptRequest:
     if existing is None:
         return PromptRequest(
@@ -126,10 +136,7 @@ class GetPromptTool(BaseTool):
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
         prompt_id = kwargs.get("prompt_id")
-        existing = (
-            context.prompt_database.repository.get_by_id(prompt_id, context.user_id)
-            if context.prompt_database and prompt_id else None
-        )
+        existing = _visible_prompt(context, prompt_id)
         if existing is None:
             return ToolResult(success=False, data="", error=f"Prompt '{prompt_id}' not found")
         payload = {
@@ -190,7 +197,7 @@ class ListPromptsTool(BaseTool):
             return ToolResult(success=False, data="", error="limit and offset must be integers")
         prompts = context.prompt_database.repository.get_all(
             context.user_id, limit=limit, offset=offset,
-            q=(kwargs.get("search") or "").strip() or None, sort_by="updated_at",
+            q=(kwargs.get("search") or "").strip() or None, sort_by="updated_at", nsfw="exclude",
         )
         return ToolResult(success=True, data=json.dumps({
             "prompts": [
@@ -335,7 +342,7 @@ class EditPromptTool(BaseTool):
         }
 
     def _existing(self, context, prompt_id):
-        return context.prompt_database.repository.get_by_id(prompt_id, context.user_id)
+        return _visible_prompt(context, prompt_id)
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
         if not context.prompt_database:
@@ -432,7 +439,7 @@ class DeletePromptTool(BaseTool):
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
         prompt_id = kwargs.get("prompt_id")
-        existing = context.prompt_database.repository.get_by_id(prompt_id, context.user_id) if context.prompt_database and prompt_id else None
+        existing = _visible_prompt(context, prompt_id)
         if existing is None:
             return ToolResult(success=False, data="", error=f"Prompt '{prompt_id}' not found")
         preview = ToolApprovalPreview(
@@ -450,6 +457,8 @@ class DeletePromptTool(BaseTool):
         prompt_id = kwargs.get("prompt_id")
         if not context.prompt_database or not prompt_id:
             return ToolResult(success=False, data="", error="prompt_id is required")
+        if _visible_prompt(context, prompt_id) is None:
+            return ToolResult(success=False, data="", error=f"Prompt '{prompt_id}' not found")
         success = operations.delete_prompt(context.prompt_database, context.user_id, prompt_id)
         return ToolResult(success=success, data=json.dumps({
             "action": "delete_prompt", "success": success, "prompt_id": prompt_id,

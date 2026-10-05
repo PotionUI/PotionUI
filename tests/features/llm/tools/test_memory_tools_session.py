@@ -114,3 +114,62 @@ async def test_update_session_scope_addresses_note_in_active_session():
 
     assert result.success, result.error
     assert json.loads(result.data)["note_id"] == "id-a-sess-B"
+
+
+def _detached_ctx(repo, user_id="u1"):
+    return ToolContext(user_id=user_id, mode_id="generation", llm_memory_repository=repo, chat_session=False)
+
+
+def _scoped(key, scope, ref, user_id="u1"):
+    return LLMMemoryNote(id=f"id-{key}", user_id=user_id, key=key, content=f"{key} text", scope=scope, scope_ref=ref)
+
+
+@pytest.mark.asyncio
+async def test_read_all_without_a_tab_returns_every_scope_and_says_so():
+    repo = FakeMemoryRepository([
+        _scoped("g", "global", None), _scoped("p", "preset", "flux/dev"), _scoped("m", "model", "model-1"),
+        _scoped("md", "mode", "prompts"), _scoped("s", "session", "sess-A"), _scoped("x", "global", None, user_id="u2"),
+    ])
+
+    result = await ReadMemoryTool().execute(_detached_ctx(repo), scope="all")
+
+    payload = json.loads(result.data)
+    assert sorted(n["key"] for n in payload["notes"]) == ["g", "m", "md", "p", "s"]
+    assert "every note" in payload["context"]
+
+
+@pytest.mark.asyncio
+async def test_read_all_in_a_chat_without_a_tab_keeps_the_mode_scoped_behaviour():
+    repo = FakeMemoryRepository([_scoped("g", "global", None), _scoped("p", "preset", "flux/dev")])
+
+    result = await ReadMemoryTool().execute(
+        ToolContext(user_id="u1", mode_id="generation", llm_memory_repository=repo), scope="all",
+    )
+
+    assert [n["key"] for n in json.loads(result.data)["notes"]] == ["g"]
+
+
+@pytest.mark.asyncio
+async def test_session_scope_without_a_tab_uses_the_passed_ref_or_explains_what_to_pass():
+    repo = FakeMemoryRepository([_note("a", "sess-A"), _note("b", "sess-B")])
+
+    filtered = await ReadMemoryTool().execute(_detached_ctx(repo), scope="session", scope_ref="sess-B")
+    missing = await ReadMemoryTool().execute(_detached_ctx(repo), scope="session")
+
+    assert [n["key"] for n in json.loads(filtered.data)["notes"]] == ["b"]
+    assert missing.success is False
+    assert "scope_ref" in missing.error and "save the session" not in missing.error
+
+
+@pytest.mark.asyncio
+async def test_write_without_a_tab_needs_an_explicit_ref_and_names_where_to_get_it():
+    repo = FakeMemoryRepository()
+
+    missing = await WriteMemoryTool().execute(_detached_ctx(repo), key="cfg", content="likes cfg 3 here", scope="preset")
+    saved = await WriteMemoryTool().execute(
+        _detached_ctx(repo), key="cfg", content="likes cfg 3 here", scope="preset", scope_ref="flux/dev",
+    )
+
+    assert missing.success is False and "list_presets" in missing.error
+    assert saved.success, saved.error
+    assert [(n.scope, n.scope_ref) for n in repo.notes] == [("preset", "flux/dev")]

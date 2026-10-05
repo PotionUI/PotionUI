@@ -2,10 +2,12 @@
 
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
-from src.features.llm.tools.builtin.utils import video_director_active
+from src.features.llm.tools.builtin.model_info_tool import model_visible
+from src.features.llm.tools.builtin.utils import allowed_model_ids, video_director_active
+from src.features.llm.tools.errors import unexpected
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +50,10 @@ class EnhancePromptTool(BaseTool):
         return (
             "Enhance an image generation prompt via a dedicated multi-step creative pipeline "
             "that grounds on the active model's metadata, community examples, and the user's "
-            "approved prompts. Returns a finished rich prompt. Optionally pass a brief; "
-            "otherwise the current prompt segments are used."
+            "approved prompts. Returns a finished rich prompt. Pass a brief; in chat it falls "
+            "back to the open tab's prompt segments. Without an open Generate tab, pass "
+            "model_id (from search_models) and/or preset_id (from list_presets) to ground the "
+            "result on that model and preset."
         )
 
     @property
@@ -64,6 +68,14 @@ class EnhancePromptTool(BaseTool):
                         "current prompt segments are used as the brief."
                     ),
                 },
+                "model_id": {
+                    "type": "string",
+                    "description": "Model to ground on, when no Generate tab is open.",
+                },
+                "preset_id": {
+                    "type": "string",
+                    "description": "Preset whose prompting guide to follow, when no Generate tab is open.",
+                },
                 "n_candidates": {
                     "type": "integer",
                     "description": "Number of enhanced prompts to produce (default 1).",
@@ -77,7 +89,10 @@ class EnhancePromptTool(BaseTool):
         if not context.prompt_enhancement_manager:
             return ToolResult(success=False, data="", error="Prompt enhancement not available")
         if not context.llm_id:
-            return ToolResult(success=False, data="", error="No LLM configuration in context")
+            return ToolResult(
+                success=False, data="",
+                error="No default LLM is configured on this server, so prompts cannot be enhanced.",
+            )
 
         brief = (kwargs.get("brief") or "").strip()
         if not brief:
@@ -85,11 +100,18 @@ class EnhancePromptTool(BaseTool):
         if not brief:
             return ToolResult(
                 success=False, data="",
-                error="No prompt to enhance. Ask the user to describe the image or fill a prompt segment.",
+                error="No prompt to enhance. Pass 'brief' with a short description of the image.",
             )
 
-        n_candidates = kwargs.get("n_candidates") or 1
+        try:
+            n_candidates = max(1, min(int(kwargs.get("n_candidates") or 1), 3))
+        except (TypeError, ValueError):
+            return ToolResult(success=False, data="", error="'n_candidates' must be an integer from 1 to 3.")
         form_state = context.session_metadata.get("form_state")
+        if not isinstance(form_state, dict):
+            form_state, error = self._grounding_form_state(context, kwargs.get("model_id"), kwargs.get("preset_id"))
+            if error:
+                return ToolResult(success=False, data="", error=error)
 
         from src.features.prompt_enhancement import operations as prompt_enhancement_operations
 
@@ -100,11 +122,11 @@ class EnhancePromptTool(BaseTool):
                 llm_id=context.llm_id,
                 brief=brief,
                 form_state=form_state,
-                n_candidates=max(1, min(int(n_candidates), 3)),
+                n_candidates=n_candidates,
             )
         except Exception as e:
             logger.error(f"enhance_prompt failed: {e}")
-            return ToolResult(success=False, data="", error=f"Enhancement failed: {e}")
+            return ToolResult(success=False, data="", error=unexpected("enhance_prompt", "enhancement", e))
 
         candidates = [c["text"] for c in result.get("candidates", []) if c.get("text")]
         if not candidates:
@@ -122,9 +144,34 @@ class EnhancePromptTool(BaseTool):
                 "or summarize the prompt."
             ),
         }
+        if not context.chat_session:
+            payload.pop("instruction")
         if len(candidates) > 1:
             payload["alternative_prompts"] = candidates[1:]
         return ToolResult(success=True, data=json.dumps(payload))
+
+    @staticmethod
+    def _grounding_form_state(
+        context: ToolContext, model_id: Optional[str], preset_id: Optional[str],
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        if not model_id and not preset_id:
+            return None, None
+        form_state: Dict[str, Any] = {"form_data": {}}
+        if model_id:
+            if not context.model_index_manager or not model_visible(context, model_id, allowed_model_ids(context)):
+                return None, f"Model '{model_id}' not found. Call search_models to find model ids."
+            form_state["form_data"]["model"] = f"model:{model_id}"
+        if preset_id:
+            collaborators = context.preset_collaborators
+            if collaborators is None:
+                return None, "Presets are not available on this server."
+            allowed = context.is_admin or preset_id in (
+                collaborators.db_repo.get_available_preset_ids_for_user(context.user_id) or []
+            )
+            if not allowed or not collaborators.file_repo.find_preset_by_id(preset_id):
+                return None, f"No preset '{preset_id}'. Call list_presets to see the preset ids you can use."
+            form_state["preset"] = preset_id
+        return form_state, None
 
     @staticmethod
     def _brief_from_segments(context: ToolContext) -> str:

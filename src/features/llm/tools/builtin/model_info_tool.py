@@ -5,7 +5,8 @@ import logging
 from typing import Any, Dict, Optional
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
-from src.features.llm.tools.builtin.utils import allowed_model_ids
+from src.features.content_safety.restrict import provider_flags_nsfw
+from src.features.llm.tools.builtin.utils import allowed_model_ids, viewer_is_restricted
 
 # Opt-in payload extras; everything else is the always-returned compact core.
 _EXTRA_FIELDS = {"description", "tags", "provider", "model_metadata"}
@@ -13,12 +14,17 @@ _EXTRA_FIELDS = {"description", "tags", "provider", "model_metadata"}
 logger = logging.getLogger(__name__)
 
 
-def _visible(context: ToolContext, model_id: Optional[str], allowed: Optional[list]) -> bool:
+def model_visible(context: ToolContext, model_id: Optional[str], allowed: Optional[list]) -> bool:
     """Whether `model_id` is within `allowed` (None = unrestricted). Every lookup
     path below (by id, by file path, by filename) must pass its resolved model
     through this before returning it, or a user could reach a model they have no
     assignment to just by knowing its path/filename instead of its id."""
-    return bool(model_id) and (allowed is None or model_id in allowed)
+    if not model_id or (allowed is not None and model_id not in allowed):
+        return False
+    if not viewer_is_restricted(context):
+        return True
+    full = context.model_index_manager.model_repo.get_by_id(model_id, include_providers=True)
+    return full is not None and not provider_flags_nsfw(full.providers)
 
 
 class GetModelInfoTool(BaseTool):
@@ -67,7 +73,7 @@ class GetModelInfoTool(BaseTool):
             "properties": {
                 "model_id": {
                     "type": "string",
-                    "description": "The model ID or file path to look up.",
+                    "description": "The model id (from search_models), or its file path or filename.",
                 },
                 "fields": {
                     "type": "array",
@@ -101,7 +107,7 @@ class GetModelInfoTool(BaseTool):
         try:
             model_data = context.model_index_manager.catalog.get_model_by_id(model_id)
             resolved_id = model_data.get("model", model_data).get("id")
-            if _visible(context, resolved_id, allowed):
+            if model_visible(context, resolved_id, allowed):
                 return ToolResult(success=True, data=json.dumps(self._summarize(model_data, fields)))
         except Exception:
             logger.debug(f"get_model_by_id failed for '{model_id}', trying path-based lookup")
@@ -110,7 +116,7 @@ class GetModelInfoTool(BaseTool):
         try:
             locator = context.model_index_manager.locator
             model = locator.model_for_path(model_id)
-            if model and _visible(context, model.id, allowed):
+            if model and model_visible(context, model.id, allowed):
                 return ToolResult(
                     success=True,
                     data=json.dumps(self._model_obj_to_summary(model, fields)),
@@ -120,7 +126,7 @@ class GetModelInfoTool(BaseTool):
 
         return ToolResult(
             success=False, data="",
-            error=f"Model '{model_id}' not found by ID, path, or filename.",
+            error=f"Model '{model_id}' not found by ID, path, or filename. Call search_models to find model ids.",
         )
 
     @staticmethod

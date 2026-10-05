@@ -279,6 +279,7 @@ class ConversationRunner:
                 tag_repository=self._m.tag_repository,
                 plugin_registry=self._m.plugins,
                 generation_history_facade=self._m.generation_history_facade,
+                content_safety=self._m.content_safety,
                 llm_id=session.llm_config_id,
             )
 
@@ -685,6 +686,7 @@ class ConversationRunner:
                     tag_repository=self._m.tag_repository,
                     plugin_registry=self._m.plugins,
                     generation_history_facade=self._m.generation_history_facade,
+                    content_safety=self._m.content_safety,
                     llm_id=session.llm_config_id,
                 )
 

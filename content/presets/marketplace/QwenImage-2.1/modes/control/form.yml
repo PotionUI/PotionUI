@@ -1,4 +1,5 @@
 name: "custom"
+short_description: "Generate an image guided by a control image."
 fields:
   - type: "tabs"
     children:

@@ -1,4 +1,5 @@
 name: "catalog"
+short_description: "Browse every form field type in one place."
 fields:
   - type: "tabs"
     children:

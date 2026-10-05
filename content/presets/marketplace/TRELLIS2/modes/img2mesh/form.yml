@@ -1,4 +1,5 @@
 name: "custom"
+short_description: "Turn an image into a textured 3D model."
 label: "Image to Mesh"
 description: "Reconstructs a single image into a textured GLB mesh with PBR materials."
 fields:

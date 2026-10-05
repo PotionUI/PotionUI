@@ -1,4 +1,5 @@
 name: "custom"
+short_description: "Animate a still image into a video."
 fields:
   - type: "tabs"
     children:

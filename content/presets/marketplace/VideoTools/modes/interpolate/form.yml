@@ -1,4 +1,5 @@
 name: "custom"
+short_description: "Add in-between frames for smoother motion."
 fields:
   - type: "tabs"
     children:

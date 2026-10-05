@@ -1,4 +1,5 @@
 name: "custom"
+short_description: "Refine an upscaled image without a full resample."
 label: "Whole-Frame Enhance (Experimental)"
 description: "Refines an already-upscaled image by walking only the tail of Krea-2's official fixed-mu 8-step schedule instead of a full resample. Experimental: an unconventional generation path -- output quality across arbitrary sources isn't yet validated the way txt2img is."
 fields:

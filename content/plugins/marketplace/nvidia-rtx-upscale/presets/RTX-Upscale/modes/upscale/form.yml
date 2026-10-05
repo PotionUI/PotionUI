@@ -1,4 +1,5 @@
 name: "custom"
+short_description: "Upscale an image with NVIDIA RTX."
 fields:
   - type: "tabs"
     children:

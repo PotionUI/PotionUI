@@ -1,4 +1,5 @@
 name: "custom"
+short_description: "Cut the subject out of its background."
 fields:
   - type: "tabs"
     children:

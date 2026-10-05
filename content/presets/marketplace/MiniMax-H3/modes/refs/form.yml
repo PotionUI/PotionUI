@@ -2,6 +2,7 @@
 # the DiT, its LoRA stack, FBCache, Sol-Attn and the manual sigmas are the same
 # machinery on the same checkpoint family, and a copy here would drift.
 name: "custom"
+short_description: "Generate a video that follows reference images."
 fields:
   - type: "tabs"
     children:

@@ -1,4 +1,5 @@
 name: "custom"
+short_description: "Upscale and restore a video."
 fields:
   - type: "tabs"
     children:

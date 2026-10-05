@@ -1,4 +1,5 @@
 name: "custom"
+short_description: "Change an existing image by instruction."
 fields:
   - type: "tabs"
     children:

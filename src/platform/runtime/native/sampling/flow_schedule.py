@@ -29,7 +29,7 @@ import math
 
 import torch
 
-from .registry import OptionSpec, ScheduleContext, ScheduleDefinition, schedule_registry
+from .registry import ScheduleContext, schedule_registry
 
 logger = logging.getLogger(__name__)
 
@@ -460,79 +460,6 @@ def _build_ltx_dynamic_schedule(ctx: ScheduleContext) -> Tensor:
     return _ltx_dynamic_shift_sigmas(
         ctx.steps, int(ctx.image_seq_len), base_shift, max_shift, stretch, terminal,
     )
-
-
-_CORE_SCHEDULES = (
-    ScheduleDefinition(
-        "shift", _build_shift_schedule, "Model default",
-        description="The model's own shift-based ramp: fixed mu, resolution-anchored mu, "
-                    "Flux1 dynamic mu, or a constant shift -- whichever the ModelSpec's "
-                    "sampling_settings supply.",
-    ),
-    ScheduleDefinition(
-        "beta", _build_beta_schedule, "Beta",
-        options=(
-            OptionSpec("alpha", "float", 0.6, "Beta distribution alpha.", min_value=0.0),
-            OptionSpec("beta", "float", 0.6, "Beta distribution beta.", min_value=0.0),
-        ),
-        description="Beta-CDF spacing; alpha, beta < 1 concentrates steps near both ends.",
-    ),
-    ScheduleDefinition(
-        "exponential", _build_exponential_schedule, "Exponential",
-        options=(
-            OptionSpec(
-                "sigma_min", "float", 1e-3,
-                "Geometric floor the ramp descends to before the exact-zero terminal.",
-                min_value=0.0, max_value=1.0,
-            ),
-        ),
-        description="Geometrically-spaced sigmas from 1.0 down to sigma_min.",
-    ),
-    ScheduleDefinition(
-        "linear_quadratic", _build_linear_quadratic_schedule, "Linear-quadratic",
-        options=(
-            OptionSpec(
-                "threshold_noise", "float", 0.025,
-                "Noise level the linear segment ramps to before the quadratic tail.",
-                min_value=0.0, max_value=1.0,
-            ),
-            OptionSpec(
-                "linear_steps", "int", None,
-                "Length of the linear segment; defaults to half the step count.",
-                min_value=1,
-            ),
-        ),
-        description="LTX-lineage linear-then-quadratic noise ramp.",
-    ),
-    ScheduleDefinition(
-        "manual", _build_manual_schedule, "Manual sigmas", owns_steps=True,
-        options=(
-            OptionSpec(
-                "sigmas", "str", None,
-                "Descending sigma list -- a comma-separated string or a sequence of "
-                "floats. Its length IS the step count.",
-            ),
-        ),
-        description="An explicit, hand-authored sigma list (ComfyUI 'ManualSigmas'-style); "
-                    "ignores steps and denoise entirely.",
-    ),
-    ScheduleDefinition(
-        "ltx_dynamic", _build_ltx_dynamic_schedule, "LTX dynamic shift",
-        families=("ltx",), requires_image_seq_len=True,
-        options=(
-            OptionSpec("base_shift", "float", 0.95, "mu at the low token-count anchor."),
-            OptionSpec("max_shift", "float", 2.05, "mu at the high token-count anchor."),
-            OptionSpec("stretch", "bool", True, "Stretch the last nonzero sigma onto 'terminal'."),
-            OptionSpec("terminal", "float", 0.1, "Stretch target for the last nonzero sigma.",
-                       min_value=0.0, max_value=1.0),
-        ),
-        description="LTX-2.5's resolution-dependent shift: mu interpolated from the packed "
-                    "video token count.",
-    ),
-)
-
-for _schedule in _CORE_SCHEDULES:
-    schedule_registry.register(_schedule)
 
 
 def build_sigmas(

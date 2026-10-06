@@ -9,8 +9,8 @@ types, the preset linter, the sampling catalog route, application boot.
 ``src/platform/runtime/native/sampling/registry.py`` re-exports these names
 for the engine-side callers that already depend on torch.
 
-Core registers its own entries at import time (``denoise_loop`` for samplers,
-``flow_schedule`` for schedules); plugins register through the ``samplers:`` /
+Core's own entries are declared in ``core_sampling.py`` (torch-free, with lazy
+shims onto the algorithms) and registered when this module is imported; plugins register through the ``samplers:`` /
 ``schedules:`` manifest roots (``src/platform/plugins/registry.py``) and are
 removed again by ``source`` on disable. Every dispatch site -- ``denoise()``,
 ``build_sigmas()``, the pipe config resolvers, the form field types, the
@@ -32,6 +32,8 @@ sigma list) sets ``owns_steps=True`` and receives the raw ``steps``.
 """
 
 from __future__ import annotations
+
+from importlib import import_module
 
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Generic, Iterable, List, Optional, Tuple, TypeVar
@@ -207,3 +209,5 @@ class SamplingRegistry(Generic[T]):
 
 sampler_registry: SamplingRegistry[SamplerDefinition] = SamplingRegistry("sampler")
 schedule_registry: SamplingRegistry[ScheduleDefinition] = SamplingRegistry("schedule")
+
+import_module("src.platform.plugins.core_sampling")

@@ -34,158 +34,15 @@ import math
 
 import torch
 
-from .algorithms import (
-    ANCESTRAL_NOISE_SEED_OFFSET,
-    sample_dpmpp_2m,
-    sample_dpmpp_2m_sde,
-    sample_dpmpp_3m,
-    sample_er_sde,
-    sample_euler,
-    sample_euler_ancestral,
-    sample_euler_ancestral_cfg_pp,
-    sample_euler_cfg_pp,
-    sample_euler_restart,
-    sample_euler_sde,
-    sample_lcm,
-    sample_res_multistep,
-    sample_unipc,
-)
 from .cfg import EmbeddedGuidance, GuidanceStrategy, NoCFG, SkipLayerGuidance, TrueCFG
 from .flow_schedule import build_sigmas
-from .registry import OptionSpec, SamplerDefinition, sampler_registry
+from .registry import sampler_registry
 from .hooks import with_numerics_watchdog
 from .step_cache import StepCacheSet
 
 logger = logging.getLogger(__name__)
 
 Tensor = torch.Tensor
-
-# The core step algorithms, registered onto the process-wide
-# ``sampler_registry`` (``sampling/registry.py``) at import time; a plugin adds
-# more through the ``samplers:`` manifest root. Every entry matches
-# sample_euler's signature: (model_fn, x, sigmas, guidance, cond, uncond,
-# hooks, is_cancelled, sampler_options). ``sampler_options`` is an opaque dict
-# passed through unmodified from denoise()'s own ``sampler_options`` kwarg; the
-# ``options`` declared below are the knobs a PRESET may set, and deliberately
-# exclude the two engine-supplied keys an algorithm may also read from that
-# same dict: ``generator`` (the request's seeded torch.Generator, filled in by
-# ``ensure_sampler_generator``) and ``discontinuity_steps`` (the multi-expert
-# reset points, set by ``denoise`` from its ``expert_boundary``).
-#
-# ``stochastic=True`` marks the algorithms whose per-step noise draw NEEDS that
-# generator -- absent it the draw falls back to the UNSEEDED global RNG,
-# breaking the seed-provenance guarantee (same seed twice must reproduce the
-# same output). Every other entry is either fully deterministic (euler,
-# euler_cfg_pp, dpmpp_2m, unipc, dpmpp_3m, res_multistep) or already seeds its
-# own restarts from the caller's seed_noise (euler_restart), so the stochastic
-# set is intentionally the minority. ``euler_ancestral`` (LTX-2.5 stage-1) is
-# unlike its siblings here: callers are expected to hand it a DEDICATED
-# generator seeded off ``ANCESTRAL_NOISE_SEED_OFFSET``, not the shared per-seed
-# generator ``ensure_sampler_generator`` below argues for -- see
-# ``sampling/algorithms/euler_ancestral.py``'s module docstring.
-_ETA_OPTION = OptionSpec(
-    "eta", "float", 1.0,
-    "Fraction of the implied per-step noise replaced with fresh noise, in [0, 1]. "
-    "0.0 reduces exactly to plain Euler; 1.0 is fully ancestral.",
-    min_value=0.0, max_value=1.0,
-)
-_S_NOISE_OPTION = OptionSpec(
-    "s_noise", "float", 1.0, "Extra scale on the injected noise.", min_value=0.0,
-)
-
-_CORE_SAMPLERS = (
-    SamplerDefinition(
-        "euler", sample_euler, "Euler",
-        description="First-order flow-matching step; deterministic and the reference "
-                    "implementation of the sampler contract.",
-    ),
-    SamplerDefinition(
-        "dpmpp_2m", sample_dpmpp_2m, "DPM++ 2M",
-        description="Second-order multistep solver reusing the previous step's x0 estimate.",
-    ),
-    SamplerDefinition(
-        "unipc", sample_unipc, "UniPC",
-        description="Unified predictor-corrector multistep solver.",
-    ),
-    SamplerDefinition(
-        "euler_sde", sample_euler_sde, "Euler SDE", stochastic=True,
-        options=(_ETA_OPTION,),
-        description="Euler with a per-step fresh-noise injection (ancestral SDE).",
-    ),
-    SamplerDefinition(
-        "euler_ancestral", sample_euler_ancestral, "Euler Ancestral", stochastic=True,
-        options=(_ETA_OPTION, _S_NOISE_OPTION),
-        description="Ancestral Euler; LTX-2.5's stage-1 sampler.",
-    ),
-    SamplerDefinition(
-        "euler_ancestral_cfg_pp", sample_euler_ancestral_cfg_pp, "Euler Ancestral CFG++",
-        stochastic=True, options=(_ETA_OPTION,),
-        description="Ancestral Euler stepping along the uncond prediction (CFG++).",
-    ),
-    SamplerDefinition(
-        "euler_cfg_pp", sample_euler_cfg_pp, "Euler CFG++",
-        description="Deterministic Euler stepping along the uncond prediction (CFG++).",
-    ),
-    SamplerDefinition(
-        "euler_restart", sample_euler_restart, "Euler Restart",
-        options=(
-            OptionSpec(
-                "restart_count", "int", 0,
-                "Number of re-noise/re-descend restarts appended after the main descent; "
-                "0 is exactly plain Euler.",
-                min_value=0,
-            ),
-            OptionSpec(
-                "restart_strength", "float", 0.3,
-                "How far back up the schedule each restart re-noises.",
-                min_value=0.0, max_value=1.0,
-            ),
-        ),
-        description="Euler with Restart sampling (arXiv:2306.14878). An explicit "
-                    "'restarts' list of (sigma_hi, sigma_low, n_steps) triples in "
-                    "sampler_options overrides the two convenience knobs.",
-    ),
-    SamplerDefinition(
-        "dpmpp_2m_sde", sample_dpmpp_2m_sde, "DPM++ 2M SDE", stochastic=True,
-        options=(_ETA_OPTION, _S_NOISE_OPTION),
-        description="DPM++ 2M with a per-step fresh-noise injection.",
-    ),
-    SamplerDefinition(
-        "dpmpp_3m", sample_dpmpp_3m, "DPM++ 3M",
-        description="Third-order multistep solver; deterministic.",
-    ),
-    SamplerDefinition(
-        "er_sde", sample_er_sde, "ER SDE", stochastic=True,
-        options=(
-            _S_NOISE_OPTION,
-            OptionSpec(
-                "max_stage", "int", 3,
-                "Solver order (1/2/3); early steps warm up at a lower order until enough "
-                "x0 history exists.",
-                min_value=1, max_value=3,
-            ),
-            OptionSpec(
-                "noise_scaler", "str", "default",
-                "'default' for the paper's recommended phi, 'identity' to degenerate the "
-                "solver to the probability-flow ODE (diagnostic).",
-            ),
-        ),
-        description="Extended Reverse-Time SDE solver (arXiv:2410.11541).",
-    ),
-    SamplerDefinition(
-        "res_multistep", sample_res_multistep, "RES Multistep",
-        description="Exponential-integrator multistep solver; deterministic.",
-    ),
-    SamplerDefinition(
-        "lcm", sample_lcm, "LCM", stochastic=True,
-        description="Latent Consistency Model stepping: predict x0, re-noise to the next "
-                    "sigma. Needs an LCM/consistency-distilled checkpoint.",
-    ),
-)
-
-for _sampler in _CORE_SAMPLERS:
-    sampler_registry.register(_sampler)
-
 
 def ensure_sampler_generator(
     sampler_options: dict | None,

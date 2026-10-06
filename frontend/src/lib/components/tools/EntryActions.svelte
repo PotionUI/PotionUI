@@ -77,7 +77,7 @@
 		<Tooltip text={deleteLabel} position="bottom" delay={150}>
 			<button
 				type="button"
-				class="bg-black/60 hover:bg-danger-solid text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 [@media(hover:none)]:hidden {revealClass}"
+				class="rounded border border-line-strong bg-surface-2 p-1.5 text-fg shadow-raised hover:border-transparent hover:bg-danger-solid hover:text-white transition-[opacity,background-color,border-color,color] duration-100 [@media(hover:none)]:hidden {revealClass}"
 				onclick={(event) => {
 					event.stopPropagation();
 					event.preventDefault();

@@ -221,7 +221,7 @@
 
 	let triggerClass = $derived(
 		variant === 'entry'
-			? `relative inline-flex items-center justify-center rounded bg-black/60 hover:bg-black/80 text-white backdrop-blur-sm transition-opacity duration-100 before:absolute before:-inset-[6px] before:content-[''] ${open ? 'ring-1 ring-signal opacity-100' : ''} ${triggerClassOverride}`
+			? `relative inline-flex items-center justify-center rounded border border-line-strong bg-surface-2 text-fg shadow-raised hover:border-line-hover hover:bg-surface-3 transition-[opacity,background-color,border-color] duration-100 before:absolute before:-inset-[6px] before:content-[''] ${open ? 'ring-1 ring-signal opacity-100' : ''} ${triggerClassOverride}`
 			: variant === 'field'
 				? `inline-flex items-center justify-center gap-1.5 h-8 rounded border border-line-strong bg-surface-2 text-sm text-fg hover:border-line-hover hover:bg-surface-3 transition-colors ${compact ? 'w-8' : 'px-2.5'}`
 				: 'px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5'

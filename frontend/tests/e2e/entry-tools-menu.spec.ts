@@ -128,7 +128,7 @@ test.describe('per-entry tools menu', () => {
 		await cards.first().getByRole('button', { name: 'Item actions' }).click();
 		await page.locator('[data-tools-menu] [data-tool="delete"]').click();
 
-		const dialog = page.getByRole('dialog', { name: 'Delete Generation' });
+		const dialog = page.getByRole('alertdialog', { name: 'Delete Generation' });
 		await expect(dialog).toBeVisible();
 		await expect(cards).toHaveCount(2);
 		await dialog.getByRole('button', { name: 'Confirm' }).click();
@@ -142,7 +142,7 @@ test.describe('per-entry tools menu', () => {
 		await expect(cards).toHaveCount(2);
 		await cards.first().hover();
 		await cards.first().getByRole('button', { name: 'Delete generation' }).click();
-		const dialog = page.getByRole('dialog', { name: 'Delete Generation' });
+		const dialog = page.getByRole('alertdialog', { name: 'Delete Generation' });
 		await expect(dialog).toBeVisible();
 		await dialog.getByRole('button', { name: 'Cancel' }).click();
 		await expect(cards).toHaveCount(2);

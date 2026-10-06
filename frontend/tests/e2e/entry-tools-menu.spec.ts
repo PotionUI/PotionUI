@@ -95,7 +95,7 @@ test.describe('per-entry tools menu', () => {
 		const card = cards.first();
 		await card.hover();
 		await expect(card.locator('[data-entry-actions] button')).toHaveCount(2);
-		await card.getByRole('button', { name: 'More actions' }).click();
+		await card.getByRole('button', { name: 'Item actions' }).click();
 
 		const menu = page.locator('[data-tools-menu]');
 		await expect(menu).toBeVisible();
@@ -125,7 +125,7 @@ test.describe('per-entry tools menu', () => {
 		const cards = page.locator('[data-generation-card]');
 		await expect(cards).toHaveCount(2);
 
-		await cards.first().getByRole('button', { name: 'More actions' }).click();
+		await cards.first().getByRole('button', { name: 'Item actions' }).click();
 		await page.locator('[data-tools-menu] [data-tool="delete"]').click();
 
 		const dialog = page.getByRole('dialog', { name: 'Delete Generation' });
@@ -155,7 +155,7 @@ test.describe('per-entry tools menu', () => {
 		await card.hover();
 		await expect(card.getByRole('button', { name: 'Open library item' })).toHaveCount(0);
 		await expect(card.getByRole('button', { name: 'Download' })).toHaveCount(0);
-		await card.getByRole('button', { name: 'More actions' }).click();
+		await card.getByRole('button', { name: 'Item actions' }).click();
 
 		const menu = page.locator('[data-tools-menu]');
 		await expect(menu).toBeVisible();
@@ -180,7 +180,7 @@ test.describe('per-entry tools menu on a phone', () => {
 		const card = page.locator('[data-generation-card]').first();
 		await expect(card).toBeVisible();
 
-		const chip = card.getByRole('button', { name: 'More actions' });
+		const chip = card.getByRole('button', { name: 'Item actions' });
 		await expect(chip).toBeVisible();
 		const box = await chip.boundingBox();
 		expect(box!.width).toBeGreaterThanOrEqual(31);

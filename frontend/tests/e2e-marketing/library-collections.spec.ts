@@ -18,7 +18,7 @@ test('library-collections', async ({ page }) => {
 	const menuButton = page
 		.locator('[data-library-card-body]')
 		.first()
-		.getByRole('button', { name: 'More actions' });
+		.getByRole('button', { name: 'Item actions' });
 	await expect(menuButton).toBeVisible({ timeout: 15000 });
 	await menuButton.click();
 	await page.getByRole('menuitem', { name: 'Open details' }).click();

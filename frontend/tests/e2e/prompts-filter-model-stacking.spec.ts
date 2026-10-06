@@ -115,7 +115,7 @@ test('a tag picker dropdown opened from inside the Generation Details modal stac
 	const menuButton = page
 		.locator('[data-generation-card]')
 		.first()
-		.getByRole('button', { name: 'More actions' });
+		.getByRole('button', { name: 'Item actions' });
 	await expect(menuButton).toBeVisible({ timeout: 20000 });
 	await menuButton.click();
 	await page.getByRole('menuitem', { name: 'Open details' }).click();

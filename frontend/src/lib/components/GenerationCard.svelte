@@ -470,19 +470,7 @@
 			{/if}
 
 			<!-- Actions - top right on hover -->
-			{#if menuEnabled && chromeBucket}
-					<EntryActions
-						bind:this={actions}
-						scope="history"
-						getModel={menuModel}
-						onPick={handleMenuPick}
-						onDelete={() => dispatch('deleteClick', generation)}
-						deleteLabel="Delete generation"
-						showDelete={showActions && !selectable}
-						deleteInRow={chromeBucket.deleteInRow}
-						chipSize={chromeBucket.menuChipSize}
-					/>
-				{:else if showActions && !selectable}
+			{#if !menuEnabled && showActions && !selectable}
 					{#if !tile && density.actionMode !== 'none'}
 					<div class="absolute top-2 right-2 z-30 flex items-center gap-1">
 						<div
@@ -651,6 +639,20 @@
 				</div>
 			{/if}
 		</div>
+
+		{#if menuEnabled && chromeBucket}
+				<EntryActions
+					bind:this={actions}
+					scope="history"
+					getModel={menuModel}
+					onPick={handleMenuPick}
+					onDelete={() => dispatch('deleteClick', generation)}
+					deleteLabel="Delete generation"
+					showDelete={showActions && !selectable}
+					deleteInRow={chromeBucket.deleteInRow}
+					chipSize={chromeBucket.menuChipSize}
+				/>
+		{/if}
 
 		<!-- Justified tile: persistent bottom info bar. Rating (or status, while not
 		     completed) sits left; resolution (+ time, full bucket only) sits right.

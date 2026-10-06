@@ -61,6 +61,7 @@
 		triggerClass?: string;
 	} = $props();
 
+	const entryLabel = 'Item actions';
 	const starPath = getIconPath('star') as string;
 	const MENU_WIDTH = 256;
 	const MENU_HEIGHT_ESTIMATE = 320;
@@ -244,7 +245,7 @@
 			style="width: {chipSize}px; height: {chipSize}px"
 			aria-haspopup="menu"
 			aria-expanded={open}
-			aria-label="More actions"
+			aria-label={entryLabel}
 			data-entry-menu-trigger
 			onclick={(event) => {
 				event.stopPropagation();

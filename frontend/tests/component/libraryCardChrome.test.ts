@@ -103,7 +103,7 @@ describe('library card', () => {
 	it('hover row is exactly Delete and the menu button on a wide tile', () => {
 		mounted = mountCard({ tile: { width: 320, height: 160 } });
 
-		expect(mounted.labels()).toEqual(['Select item', 'Delete library item', 'More actions']);
+		expect(mounted.labels()).toEqual(['Select item', 'Delete library item', 'Item actions']);
 	});
 
 	it('retires the grouped pill toolbar: no view or download buttons on the card', () => {
@@ -115,6 +115,13 @@ describe('library card', () => {
 		expect(mounted.target.querySelector('.ring-inset')).toBeNull();
 	});
 
+	it('keeps the controls out of the media element', () => {
+		mounted = mountCard();
+		const media = mounted.target.querySelector('.media-zoom')!;
+		expect(media.querySelectorAll('button, [role="button"]').length).toBe(0);
+		expect(media.contains(mounted.target.querySelector('[data-entry-menu-trigger]'))).toBe(false);
+	});
+
 	it('never offers a favorite action', () => {
 		mounted = mountCard();
 
@@ -124,11 +131,11 @@ describe('library card', () => {
 	it('folds Delete into the menu on narrow tiles but keeps the menu button', () => {
 		mounted = mountCard({ tile: { width: 120, height: 120 } });
 		expect(mounted.labels()).not.toContain('Delete library item');
-		expect(mounted.labels()).toContain('More actions');
+		expect(mounted.labels()).toContain('Item actions');
 		mounted.destroy();
 		mounted = mountCard({ tile: { width: 100, height: 100 } });
 		expect(mounted.labels()).not.toContain('Delete library item');
-		expect(mounted.labels()).toContain('More actions');
+		expect(mounted.labels()).toContain('Item actions');
 	});
 
 	it('opens the same grouped menu as History, minus what an upload cannot do', async () => {
@@ -160,6 +167,6 @@ describe('library card', () => {
 		mounted = mountCard({ selectable: true });
 
 		expect(mounted.labels()).not.toContain('Delete library item');
-		expect(mounted.labels()).toContain('More actions');
+		expect(mounted.labels()).toContain('Item actions');
 	});
 });

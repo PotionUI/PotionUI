@@ -16,7 +16,7 @@ test('seedvr2-before-after', async ({ page }) => {
 
 	const detailsButtons = page
 		.locator('[data-generation-card]')
-		.getByRole('button', { name: 'More actions' });
+		.getByRole('button', { name: 'Item actions' });
 	await expect(detailsButtons.first()).toBeVisible({ timeout: 15000 });
 	const count = await detailsButtons.count();
 	// The seeded SeedVR2 video_upscale row is the only "restoration"-tagged

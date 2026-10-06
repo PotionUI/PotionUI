@@ -206,20 +206,6 @@
 				<img src={gridSrc} alt={displayName} class="w-full h-full object-contain" loading="lazy" />
 			{/if}
 
-			{#if entryMenu && bucket}
-				<EntryActions
-					bind:this={actions}
-					scope="library"
-					getModel={menuModel}
-					onPick={handleMenuPick}
-					onDelete={() => dispatch('delete', item)}
-					deleteLabel="Delete library item"
-					showDelete={showActions && !selectable}
-					deleteInRow={bucket.deleteInRow}
-					chipSize={bucket.menuChipSize}
-				/>
-			{/if}
-
 			<!-- Media kind (+ a video's duration), bottom-left -->
 			{#if bucket.showMediaChip}
 				<div
@@ -240,6 +226,20 @@
 				</div>
 			{/if}
 		</div>
+
+		{#if entryMenu && bucket}
+			<EntryActions
+				bind:this={actions}
+				scope="library"
+				getModel={menuModel}
+				onPick={handleMenuPick}
+				onDelete={() => dispatch('delete', item)}
+				deleteLabel="Delete library item"
+				showDelete={showActions && !selectable}
+				deleteInRow={bucket.deleteInRow}
+				chipSize={bucket.menuChipSize}
+			/>
+		{/if}
 
 		<!-- Bottom info bar: the name an upload is known by, then its resolution. -->
 		<div

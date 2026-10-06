@@ -92,7 +92,7 @@ test('FE tag-clear — opening the generation details modal drops previously-ass
 	const menuButton = page
 		.locator('[data-generation-card]')
 		.first()
-		.getByRole('button', { name: 'More actions' });
+		.getByRole('button', { name: 'Item actions' });
 	await expect(menuButton).toBeVisible({ timeout: 20000 });
 	await menuButton.click();
 	await page.getByRole('menuitem', { name: 'Open details' }).click();

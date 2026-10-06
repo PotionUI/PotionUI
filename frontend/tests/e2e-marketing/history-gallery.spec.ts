@@ -19,7 +19,7 @@ test('history-gallery', async ({ page }) => {
 	const menuButton = page
 		.locator('[data-generation-card]')
 		.first()
-		.getByRole('button', { name: 'More actions' });
+		.getByRole('button', { name: 'Item actions' });
 	await menuButton.scrollIntoViewIfNeeded();
 	await menuButton.click({ force: true });
 	await page.getByRole('menuitem', { name: 'Open details' }).click();

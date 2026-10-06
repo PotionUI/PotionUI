@@ -183,7 +183,7 @@ async function settle() {
 describe('card hover row', () => {
 	it('holds exactly Delete and the more-actions menu button', () => {
 		mounted = mountCard(generation('g1'));
-		expect(mounted.rowLabels()).toEqual(['Delete generation', 'More actions']);
+		expect(mounted.rowLabels()).toEqual(['Delete generation', 'Item actions']);
 	});
 
 	it('no longer renders the favorite, details, download or reuse buttons', () => {
@@ -203,16 +203,38 @@ describe('card hover row', () => {
 
 	it('folds Delete into the menu on a narrow tile but keeps the menu button', () => {
 		mounted = mountCard(generation('g1'), { width: 120 });
-		expect(mounted.rowLabels()).toEqual(['More actions']);
+		expect(mounted.rowLabels()).toEqual(['Item actions']);
 		mounted.destroy();
 		mounted = mountCard(generation('g1'), { width: 90 });
-		expect(mounted.rowLabels()).toEqual(['More actions']);
+		expect(mounted.rowLabels()).toEqual(['Item actions']);
 		expect(mounted.trigger().style.width).toBe('20px');
 	});
 
 	it('shows only the menu button in selection mode', () => {
 		mounted = mountCard(generation('g1'), { selectable: true });
-		expect(mounted.rowLabels()).toEqual(['More actions']);
+		expect(mounted.rowLabels()).toEqual(['Item actions']);
+	});
+});
+
+describe('card structure', () => {
+	it('keeps the controls out of the media element, which is itself a button', () => {
+		mounted = mountCard(generation('g1'));
+		const media = mounted.media();
+		expect(media.getAttribute('role')).toBe('button');
+		expect(media.querySelectorAll('button, [role="button"]').length).toBe(0);
+		expect(media.contains(mounted.trigger())).toBe(false);
+		expect(mounted.card().querySelector('[data-entry-actions]')!.parentElement).not.toBe(media);
+	});
+
+	it('gives the card trigger a name distinct from the page header More actions button', () => {
+		const header = document.createElement('button');
+		header.setAttribute('aria-label', 'More actions');
+		document.body.appendChild(header);
+		mounted = mountCard(generation('g1'));
+		mounted.card().insertAdjacentElement('beforebegin', header);
+		expect(document.body.querySelectorAll('[aria-label="More actions"]').length).toBe(1);
+		expect(document.body.querySelectorAll('[aria-label="Item actions"]').length).toBe(1);
+		expect(mounted.media().textContent).not.toContain('Item actions');
 	});
 });
 

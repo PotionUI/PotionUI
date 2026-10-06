@@ -6,6 +6,7 @@ from src.features.forms.binding import form_field_index
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.generation.dto import GenerationRequest
 from src.features.generation.failure import scope_generation
+from src.features.generation.file_repository import file_repo
 from src.features.generation.grids.dto import (
     DEFAULT_CONFIRM_ABOVE,
     HARD_CAP,
@@ -284,7 +285,11 @@ class GridService:
         rows = self.grids.cells(grid.id)
         latest = self._latest_by_position(rows)
         admin = self.is_admin(user)
-        dicts = self.history.query.serialize_generations(list(latest.values()), False, viewer_id=user.id)
+        shown = list(latest.values())
+        files = file_repo.get_generation_files_bulk([row.id for row in shown])
+        for row in shown:
+            row.files = files.get(row.id, [])
+        dicts = self.history.query.serialize_generations(shown, False, viewer_id=user.id)
         by_id = {item["id"]: item for item in dicts}
         cells: List[Dict[str, Any]] = []
         for x, y in positions(grid.x_axis, grid.y_axis):

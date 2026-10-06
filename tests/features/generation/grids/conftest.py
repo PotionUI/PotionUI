@@ -64,17 +64,7 @@ class FakeHistory:
         self.query = SimpleNamespace(serialize_generations=self.serialize)
 
     def serialize(self, rows, include_tags, *, viewer_id):
-        return [
-            {
-                "id": row.id,
-                "files": [
-                    {"id": f"file-{row.id}", "file_type": "IMAGE", "is_final": True},
-                ]
-                if row.status == "completed"
-                else [],
-            }
-            for row in rows
-        ]
+        return [row.to_dict(include_files=True) for row in rows]
 
     def bulk_delete(self, ids, user_id):
         for generation_id in ids:
@@ -158,6 +148,20 @@ class Harness:
             cursor.execute("UPDATE generations SET status = ? WHERE id = ?", (status, generation_id))
             for column, value in extra.items():
                 cursor.execute(f"UPDATE generations SET {column} = ? WHERE id = ?", (value, generation_id))
+
+    def add_file(self, generation_id, file_type="image", is_final=True):
+        file_id = f"file-{generation_id}"
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO files (id, file_path, file_type, is_final, user_id) "
+                "SELECT ?, ?, ?, ?, user_id FROM generations WHERE id = ?",
+                (file_id, f"generations/{generation_id}/out.png", file_type, is_final, generation_id),
+            )
+            cursor.execute(
+                "INSERT INTO generation_files (id, generation_id, file_id) VALUES (?, ?, ?)",
+                (f"gf-{generation_id}", generation_id, file_id),
+            )
+        return file_id
 
     def rows(self, table="generations", where="1=1", params=()):
         with self.db.get_cursor() as cursor:

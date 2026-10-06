@@ -190,6 +190,7 @@ async def test_grid_status_is_derived_from_its_cells(harness):
 async def test_completed_cells_carry_a_thumbnail_and_failed_cells_a_plain_error(harness):
     grid = await harness.service.create(harness.users["u1"], body(["a", "b"]))
     harness.set_status("gen-000", "completed")
+    harness.add_file("gen-000")
     harness.set_status("gen-001", "failed", error_code="out_of_memory", error_message="CUDA out of memory: raw detail")
 
     cells = (await harness.service.get(grid["id"], harness.users["u1"]))["cells"]

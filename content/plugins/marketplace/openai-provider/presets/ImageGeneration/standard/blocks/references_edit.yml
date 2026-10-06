@@ -1,0 +1,18 @@
+fields:
+  - name: "image"
+    type: "image"
+    label: "Picture to edit"
+    required: true
+    ai_hint: "The picture the model changes. Paint a mask on it to change only that area and keep the rest; without a mask the model may change the whole picture."
+    configuration:
+      allow_inpaint: true
+    capability: { model_field: "model", input: "reference" }
+
+  - name: "references"
+    type: "image"
+    label: "More reference pictures"
+    ai_hint: "Optional pictures the model may draw on, for example a product, a person or a style to bring into the picture to edit. OpenAI takes up to 16 pictures in one edit, the picture to edit included."
+    configuration:
+      multi: true
+      max_items: 15
+    capability: { model_field: "model", input: "reference" }

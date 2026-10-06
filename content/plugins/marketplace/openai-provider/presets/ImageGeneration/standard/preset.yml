@@ -1,0 +1,19 @@
+schema: 1
+id: "01M48T1KZ430KCQ3AF9H8EZZVJ"
+name: "OpenAI Images"
+category: "image"
+version: "1.0.0"
+engine: "cloud"
+driver: "cloud.openai"
+tags: ["cloud", "openai", "image", "edit"]
+
+formulas:
+  groups:
+    size:     { label: "Size" }
+    output:   { label: "Output format" }
+    provider: { label: "Provider options" }
+    models:   { label: "Models", preselect: false }
+
+modes:
+  - txt2img
+  - edit

@@ -1,0 +1,53 @@
+checked: "2026-10-06"
+
+suggested:
+  - "gpt-image-2.5-flare"
+  - "gpt-image-2.5-sunburst"
+
+models:
+  gpt-image-2.5-sunburst:
+    label: "GPT Image 2.5 Sunburst"
+    description: "OpenAI's most capable image model, for generation and precise editing."
+    sizes: "flexible"
+    quality: ["auto", "low", "medium", "high", "xhigh", "max"]
+    transparent: true
+    input_fidelity: false
+    usd_per_million_tokens: { text_input: "5.00", image_input: "8.00", image_output: "30.00" }
+
+  gpt-image-2.5-flare:
+    label: "GPT Image 2.5 Flare"
+    description: "Fast, high quality everyday image generation and editing."
+    sizes: "flexible"
+    quality: ["auto", "low", "medium", "high", "xhigh", "max"]
+    transparent: true
+    input_fidelity: false
+    usd_per_million_tokens: { text_input: "5.00", image_input: "8.00", image_output: "30.00" }
+
+  gpt-image-2:
+    label: "GPT Image 2"
+    description: "OpenAI's previous generation image model, for generation and editing."
+    sizes: "fixed"
+    quality: ["auto", "low", "medium", "high"]
+    transparent: false
+    input_fidelity: false
+    usd_per_million_tokens: { text_input: "5.00", image_input: "8.00", image_output: "30.00" }
+
+  gpt-image-1.5:
+    label: "GPT Image 1.5"
+    description: "An older image model. OpenAI removes it from the API on 2026-12-01."
+    sizes: "fixed"
+    quality: ["auto", "low", "medium", "high"]
+    transparent: true
+    input_fidelity: true
+    deprecated_at: "2026-12-01"
+    usd_per_million_tokens: { text_input: "5.00", image_input: "8.00", image_output: "32.00" }
+
+  gpt-image-1-mini:
+    label: "GPT Image 1 Mini"
+    description: "A lower cost older image model. OpenAI removes it from the API on 2026-12-01."
+    sizes: "fixed"
+    quality: ["auto", "low", "medium", "high"]
+    transparent: true
+    input_fidelity: true
+    deprecated_at: "2026-12-01"
+    usd_per_million_tokens: { text_input: "2.00", image_input: "2.50", image_output: "8.00" }

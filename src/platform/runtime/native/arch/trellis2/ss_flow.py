@@ -121,7 +121,8 @@ class _TimestepEmbedder(nn.Module):
         return embedding
 
     def forward(self, t: Tensor) -> Tensor:
-        return self.mlp(self._timestep_embedding(t, self.frequency_embedding_size))
+        embedding = self._timestep_embedding(t, self.frequency_embedding_size)
+        return self.mlp(embedding.to(self.mlp[0].weight.dtype))
 
 
 class _MultiHeadRMSNorm(nn.Module):

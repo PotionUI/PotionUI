@@ -155,3 +155,16 @@ def test_numeric_parity_forward():
         out_native = native(x, t, cond)
 
     torch.testing.assert_close(out_native, out_vendor, atol=1e-5, rtol=1e-5)
+
+
+def test_timestep_embedders_run_on_bf16_weights_without_manual_cast():
+    import torch
+    from vendor.gpl.comfyui.ops import disable_weight_init
+    from src.platform.runtime.native.arch.trellis2.ss_flow import _TimestepEmbedder as SSEmbedder
+    from src.platform.runtime.native.arch.trellis2.slat_flow import _TimestepEmbedder as SLatEmbedder
+
+    t = torch.tensor([0.5, 0.25])
+    ss = SSEmbedder(8, disable_weight_init, frequency_embedding_size=16, dtype=torch.bfloat16)
+    slat = SLatEmbedder(8, frequency_embedding_size=16).to(torch.bfloat16)
+    assert ss(t).dtype == torch.bfloat16
+    assert slat(t).dtype == torch.bfloat16

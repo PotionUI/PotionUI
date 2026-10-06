@@ -70,4 +70,19 @@ test('Compare arms next to Continuous, takes sampler by scheduler and locks the 
 	await drawer.getByRole('button', { name: 'Turn off' }).click();
 	await expect(page.locator('[data-axis-locked]')).toHaveCount(0);
 	await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+	if (await drawer.isVisible()) await closeCompareDrawer(page);
+
+	for (const field of [samplerField, scheduleField]) {
+		const input = field.locator('input').first();
+		const trigger = (await input.count()) ? input : field.locator('button[aria-haspopup="listbox"]').first();
+		await trigger.scrollIntoViewIfNeeded();
+		await trigger.click();
+		const options = page.getByRole('option');
+		await expect.poll(async () => options.count(), { timeout: 10000 }).toBeGreaterThan(1);
+		const last = options.last();
+		const label = ((await last.textContent()) ?? '').trim();
+		await last.click();
+		if (await input.count()) await expect(input).toHaveValue(label);
+		else await expect(trigger).toContainText(label);
+	}
 });

@@ -140,6 +140,9 @@ def edit_form(request: Any, moderation: str, user: Optional[str]) -> aiohttp.For
         raise _not_sent("Add a picture to edit.", "no reference images for an edit")
     if len(images) > MAX_IMAGES:
         raise _not_sent(f"OpenAI takes at most {MAX_IMAGES} pictures in one edit.", f"{len(images)} images")
+    unreadable = [media.path.name for media in images if media.media_type not in MEDIA_TYPES.values()]
+    if unreadable:
+        raise _not_sent("OpenAI takes PNG, JPEG and WebP pictures only.", f"unsupported pictures: {', '.join(unreadable)}")
     masks = list(request.inputs.get("mask") or [])
     form = aiohttp.FormData()
     for name, value in request_fields(request, moderation, user).items():

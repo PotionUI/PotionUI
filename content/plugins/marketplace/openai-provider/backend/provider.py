@@ -16,7 +16,7 @@ from src.plugin_api.cloud import (
 
 from .catalog import catalog_specs, load_catalog
 from .config import DEFAULT_BASE_URL, OpenAIConfig
-from .errors import map_error
+from .errors import lacks_listing_scope, map_error
 from .mapping import edit_form, parse_result, request_fields
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,7 @@ class OpenAIProvider(CloudProvider):
         try:
             payload = await self.http.request_json("GET", "/models")
         except CloudError as error:
-            if error.kind != "refused":
+            if not lacks_listing_scope(error):
                 raise
             logger.info("[OPENAI] this key may not list models; offering the whole catalog")
             return None
@@ -109,9 +109,9 @@ class OpenAIProvider(CloudProvider):
         try:
             await self.http.request_json("GET", "/models")
         except CloudError as error:
-            if error.kind == "refused":
+            if lacks_listing_scope(error):
                 return CloudHealth(ok=True, message="The key works, but it may not list models. The whole catalog is offered.")
-            if error.kind in ("auth", "credits"):
+            if error.kind in ("auth", "credits", "refused"):
                 return CloudHealth(ok=False, message=error.user_message)
             raise
         return CloudHealth(ok=True)

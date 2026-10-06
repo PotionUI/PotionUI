@@ -40,6 +40,7 @@ ERRORS = {
     "rate": (429, {"message": "Rate limit reached for images per min.", "type": "requests", "code": "rate_limit_exceeded"}),
     "rate_reset": (429, {"message": "Rate limit reached for tokens.", "type": "tokens", "code": "rate_limit_exceeded"}),
     "forbidden": (403, {"message": "Your organization must be verified to use the model.", "type": "invalid_request_error", "code": None}),
+    "no_scope": (403, {"message": "You have insufficient permissions for this operation. Missing scopes: api.model.read.", "type": "invalid_request_error", "code": None}),
     "unknown_model": (404, {"message": "The model does not exist.", "type": "invalid_request_error", "code": "model_not_found"}),
     "bad": (400, {"message": "Invalid value for size.", "type": "invalid_request_error", "param": "size", "code": "invalid_value"}),
     "server": (500, {"message": "The server had an error.", "type": "server_error", "code": None}),
@@ -88,10 +89,8 @@ class OpenAIFixture:
 
     async def list_models(self, request: web.Request) -> web.Response:
         self.record(request)
-        if self.models_mode == "forbidden":
-            return self.failure("forbidden")
-        if self.models_mode == "auth":
-            return self.failure("auth")
+        if self.models_mode != "ok":
+            return self.failure(self.models_mode)
         data = [{"id": model_id, "object": "model", "created": 1, "owned_by": "system"} for model_id in LISTED]
         data[1]["shutdown_date"] = "2027-03-01"
         return web.json_response({"object": "list", "data": data})

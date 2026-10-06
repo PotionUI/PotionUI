@@ -28,6 +28,14 @@ UNKNOWN_MODEL = "OpenAI does not offer this model to this account."
 BAD_SETTINGS = "OpenAI rejected the request settings."
 
 
+MISSING_SCOPE_WORDS = ("missing scopes", "insufficient permissions")
+
+
+def lacks_listing_scope(error: CloudError) -> bool:
+    detail = (error.detail or "").lower()
+    return error.kind == "refused" and "http 403" in detail and any(word in detail for word in MISSING_SCOPE_WORDS)
+
+
 def reset_seconds(value: Optional[str]) -> Optional[float]:
     text = (value or "").strip().lower()
     if not text:

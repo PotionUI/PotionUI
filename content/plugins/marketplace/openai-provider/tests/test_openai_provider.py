@@ -79,7 +79,7 @@ async def test_a_shutdown_date_from_the_listing_marks_the_model_deprecated(provi
 
 
 async def test_a_key_that_may_not_list_models_gets_the_whole_catalog(openai_api):
-    openai_api.models_mode = "forbidden"
+    openai_api.models_mode = "no_scope"
     made, http = build(openai_api)
     try:
         specs = await made.discover()
@@ -87,6 +87,18 @@ async def test_a_key_that_may_not_list_models_gets_the_whole_catalog(openai_api)
         await http.close()
 
     assert len(specs) == 5 and "gpt-image-1-mini" in {spec.provider_model_id for spec in specs}
+
+
+async def test_any_other_refused_listing_fails_the_refresh(openai_api):
+    openai_api.models_mode = "forbidden"
+    made, http = build(openai_api)
+    try:
+        with pytest.raises(CloudError) as raised:
+            await made.discover()
+    finally:
+        await http.close()
+
+    assert raised.value.kind == "refused"
 
 
 async def test_a_rejected_key_fails_the_refresh(openai_api):
@@ -343,15 +355,30 @@ async def test_check_reports_the_state_of_the_key(openai_api):
     made, http = build(openai_api)
     try:
         assert (await made.check()).ok is True
-        openai_api.models_mode = "forbidden"
+        openai_api.models_mode = "no_scope"
         limited = await made.check()
+        openai_api.models_mode = "forbidden"
+        unverified = await made.check()
         openai_api.models_mode = "auth"
         rejected = await made.check()
     finally:
         await http.close()
 
     assert limited.ok is True and limited.message
+    assert unverified.ok is False and "verified" in unverified.message
     assert rejected.ok is False and KEY not in (rejected.message or "")
+
+
+async def test_an_edit_picture_openai_cannot_read_is_refused_before_sending(provider, openai_api, tmp_path):
+    path = tmp_path / "a.heic"
+    path.write_bytes(PNG)
+    request = await request_for(provider, task="img_edit", inputs={"reference": [LocalMedia(path, "application/octet-stream", path.stat().st_size)]})
+
+    with pytest.raises(CloudError) as raised:
+        await provider.submit(request)
+
+    assert raised.value.kind == "invalid_request" and raised.value.request_sent is False
+    assert calls(openai_api, "/images/edits") == []
 
 
 async def test_pictures_are_read_off_the_event_loop_thread(provider, monkeypatch, tmp_path):

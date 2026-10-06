@@ -21,14 +21,14 @@ before the bake so the two phases never overlap.
 faces, many minutes at 200k — so the default here is far below upstream's
 GPU-sized 1M. See ``arch/trellis2/postprocess.py``'s module docstring.
 
-**Cancellation is checked at cooperative boundaries, not inside the bake.**
+**Cancellation is checked at cooperative boundaries and while the bake runs.**
 ``is_cancelled`` is polled before each image starts, threaded into the cascade
-so its sampling loops can stop mid-step, and polled again before the bake --
-the one call in this pipe (``postprocess_to_glb``) that cannot be interrupted.
-A cancellation observed while it runs only takes effect once it returns; the
-finished export is discarded rather than reaching the gallery. Nothing here
-kills the process or touches the environment -- see
-:class:`~src.platform.runtime.native.errors.SamplingCancelled`.
+so its sampling loops can stop mid-step, polled again before the bake, and
+polled while the GIL-holding mesh cleanup and UV unwrap run in the offload
+worker process (``src/platform/runtime/offload``). A cancellation observed
+there kills that worker and raises
+:class:`~src.platform.runtime.native.errors.SamplingCancelled`; the server
+process is never touched.
 """
 
 from __future__ import annotations
@@ -235,7 +235,7 @@ class GeneratorTrellis2Pipe(BasePipe):
                     state="Baking PBR materials", icon=Icon(name="cube", effect="pulse"),
                     progress=Progress(index, len(images)),
                 ))
-                mesh_path = self._export(volume)
+                mesh_path = self._export(volume, is_cancelled)
                 mesh_paths.append(mesh_path)
                 meshes.append(MeshGenerationOutput(
                     mesh_path=mesh_path,
@@ -329,7 +329,7 @@ class GeneratorTrellis2Pipe(BasePipe):
 
         return report
 
-    def _export(self, volume) -> str:
+    def _export(self, volume, is_cancelled: Optional[Callable[[], bool]] = None) -> str:
         """Bake ``volume`` into a ``.glb`` and return its path.
 
         ``volume.voxel_size`` is the texture grid's own, which after a
@@ -337,11 +337,9 @@ class GeneratorTrellis2Pipe(BasePipe):
         requested tier instead would sample the attribute volume off-grid and
         texture the mesh with the wrong voxels.
 
-        ``postprocess_to_glb`` is a single uninterruptible native call — it
-        takes no cancellation probe and does not poll one internally. A
-        cancellation requested while it runs is only observed at the caller's
-        next cooperative boundary, once this returns; it does not stop the
-        call, kill the process, or touch the environment.
+        The GIL-holding cleanup and UV unwrap run in a separate worker
+        process so the server's event loop keeps being served; ``is_cancelled``
+        is polled while they run and a cancellation kills that worker.
         """
         out_path = tempfile.NamedTemporaryFile(suffix=".glb", delete=False).name
         try:
@@ -355,8 +353,13 @@ class GeneratorTrellis2Pipe(BasePipe):
                 texture_size=int(self.config.get("texture_size", 2048)),
                 out_path=out_path,
                 project_to_source=bool(self.config.get("project_to_source", False)),
+                is_cancelled=is_cancelled,
             )
-        except ValueError as exc:
+        except BaseException as exc:
+            if os.path.exists(out_path):
+                os.unlink(out_path)
+            if not isinstance(exc, ValueError):
+                raise
             raise ValueError(
                 f"TRELLIS.2 produced no exportable geometry: {exc}. This usually means the "
                 "source image did not give the sparse-structure stage a solid subject to "

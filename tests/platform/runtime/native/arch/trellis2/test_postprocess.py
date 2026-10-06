@@ -5,9 +5,9 @@ import pytest
 import torch
 import trimesh
 
+from src.platform.runtime.offload.mesh_ops import _fill_small_holes
 from src.platform.runtime.native.arch.trellis2.postprocess import (
     _closest_point_on_triangles,
-    _fill_small_holes,
     build_textured_mesh,
     clean_and_decimate,
     inpaint_texture,

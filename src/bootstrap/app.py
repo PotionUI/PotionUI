@@ -25,6 +25,7 @@ from src.bootstrap.errors import register_error_handlers
 from src.bootstrap.middleware import register_middleware
 from src.bootstrap.routers import register_routers
 from src.bootstrap.static_frontend import mount_frontend
+from src.platform.runtime.offload.pool import shutdown_offload
 from src.platform.plugins.router_mounter import MOUNT_FAILURE_MESSAGE, MountResult
 
 from src.platform.security.current_user import set_auth, set_media_bearer_fallback
@@ -460,6 +461,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         await automation_runtime.stop_all()
         container.generation_history_facade.shutdown()
         container.chat_call_trace_recorder.shutdown(drain=True)
+        await asyncio.to_thread(shutdown_offload)
 
     # Create FastAPI app
     app = FastAPI(

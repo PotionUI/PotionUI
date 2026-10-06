@@ -75,12 +75,16 @@ around 50k-100k faces and the whole chain lands in well under a minute at
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
+from src.platform.runtime.offload.mesh_ops import clean_and_decimate_arrays, unwrap_uv_arrays
+from src.platform.runtime.offload.pool import OffloadCancelled, run_offloaded
+
+from ...errors import SamplingCancelled
 from ...sparse3d import sparse_grid_sample_3d
 from .uv_raster import interpolate_barycentric, rasterize_uv_atlas
 
@@ -100,13 +104,6 @@ PBR_ATTR_LAYOUT: Dict[str, slice] = {
     "alpha": slice(5, 6),
 }
 
-_MIN_COMPONENT_AREA = 1e-5
-
-#: Upstream's hole-fill perimeter cap. Mesh space here is the unit-side AABB
-#: every TRELLIS.2 volume decodes into (``((-0.5,)*3, (0.5,)*3)``, see
-#: ``image_to_mesh.AABB``), so this is 3% of that box's side length.
-_MAX_HOLE_PERIMETER = 3e-2
-
 
 def _to_numpy(value) -> np.ndarray:
     if isinstance(value, torch.Tensor):
@@ -114,110 +111,18 @@ def _to_numpy(value) -> np.ndarray:
     return np.asarray(value)
 
 
-def _simplify(vertices: np.ndarray, faces: np.ndarray, target: int) -> Tuple[np.ndarray, np.ndarray]:
-    import pyfqmr
-
-    if faces.shape[0] <= target:
-        return vertices, faces
-    simplifier = pyfqmr.Simplify()
-    simplifier.setMesh(vertices.astype(np.float64), faces.astype(np.int32))
-    simplifier.simplify_mesh(target_count=int(target), aggressiveness=7, preserve_border=True, verbose=0)
-    out_vertices, out_faces, _ = simplifier.getMesh()
-    return np.ascontiguousarray(out_vertices, dtype=np.float32), np.ascontiguousarray(out_faces, dtype=np.int64)
-
-
-def _drop_small_components(mesh) -> None:
-    """Delete connected components whose surface area is below
-    ``_MIN_COMPONENT_AREA`` (upstream's ``remove_small_connected_components``)."""
-    import trimesh
-
-    if mesh.faces.shape[0] == 0:
-        return
-    components = trimesh.graph.connected_components(mesh.face_adjacency, nodes=np.arange(mesh.faces.shape[0]))
-    if len(components) <= 1:
-        return
-    areas = mesh.area_faces
-    keep = np.zeros(mesh.faces.shape[0], dtype=bool)
-    for component in components:
-        if areas[component].sum() >= _MIN_COMPONENT_AREA:
-            keep[component] = True
-    if keep.any() and not keep.all():
-        mesh.update_faces(keep)
-
-
-def _fill_small_holes(mesh, max_perimeter: float = _MAX_HOLE_PERIMETER) -> None:
-    """Close boundary loops under ``max_perimeter``, leaving larger geometric
-    openings intact.
-
-    Mirrors ``trimesh.repair.fill_holes`` (find boundary edges, take
-    ``nx.cycle_basis`` of them, triangulate, fix winding against the original
-    boundary, ``extend_faces``) but selects which loops to triangulate instead
-    of handing it every loop trimesh finds. A loop is eligible only if every
-    vertex on it has boundary-degree 2 — a higher degree means the vertex is
-    shared with another boundary loop, which makes ``cycle_basis``'s split
-    between them a topological artifact rather than a geometric fact, so
-    such loops are left untouched rather than filled on a guess.
-
-    Triangulation uses ``use_fan=False``: a loop over four vertices is left
-    open even when its perimeter passes the cap. Fanning a polygon from its
-    first vertex is only guaranteed correct when the polygon is convex; the
-    perimeter cap says nothing about convexity, so a small concave loop (a
-    keyhole, a slot) fanned this way can produce triangles that fold outside
-    the hole. Filling those needs an actual triangulation (ear-clipping or
-    similar), which is deferred rather than risked here.
-    """
-    import networkx as nx
-    from trimesh.geometry import faces_to_edges, triangulate_quads
-    from trimesh.grouping import group_rows, hashable_rows
-
-    if len(mesh.faces) < 3 or mesh.is_watertight:
-        return
-
-    boundary_groups = group_rows(mesh.edges_sorted, require_count=1)
-    if len(boundary_groups) < 3:
-        return
-    boundary = mesh.edges[boundary_groups]
-
-    boundary_graph = nx.from_edgelist(boundary)
-    vertices = mesh.vertices
-    eligible = []
-    for loop in nx.cycle_basis(boundary_graph):
-        if len(loop) < 3 or any(boundary_graph.degree[v] != 2 for v in loop):
-            continue
-        ring = loop + [loop[0]]
-        perimeter = np.linalg.norm(vertices[ring[1:]] - vertices[ring[:-1]], axis=1).sum()
-        if perimeter <= max_perimeter:
-            eligible.append(loop)
-    if not eligible:
-        return
-
-    new_faces = triangulate_quads(eligible, use_fan=False)
-    if len(new_faces) == 0:
-        return
-
-    # Same trick trimesh.repair.fill_holes uses: a new face whose edge already
-    # appears (in the same order) on the old boundary is wound backwards.
-    new_edges = faces_to_edges(new_faces)
-    hashable_new = hashable_rows(new_edges)
-    hashable_old = hashable_rows(boundary)
-    needs_reverse = np.isin(hashable_new, hashable_old).reshape((-1, 3)).any(axis=1)
-    new_faces[needs_reverse] = np.fliplr(new_faces[needs_reverse])
-
-    mesh.extend_faces(new_faces)
-
-
-def _tidy(mesh) -> None:
-    mesh.update_faces(mesh.unique_faces())
-    mesh.update_faces(mesh.nondegenerate_faces())
-    mesh.remove_unreferenced_vertices()
-    _drop_small_components(mesh)
-    _fill_small_holes(mesh)
+def _offload(func, *args, is_cancelled: Optional[Callable[[], bool]] = None):
+    try:
+        return run_offloaded(func, *args, is_cancelled=is_cancelled)
+    except OffloadCancelled as exc:
+        raise SamplingCancelled() from exc
 
 
 def clean_and_decimate(
     vertices: Union[np.ndarray, torch.Tensor],
     faces: Union[np.ndarray, torch.Tensor],
     decimation_target: int = 1_000_000,
+    is_cancelled: Optional[Callable[[], bool]] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Upstream's ``remesh=False`` cleaning chain: fill holes, simplify to 3x
     target, clean, simplify to target, clean, unify face orientations.
@@ -226,54 +131,20 @@ def clean_and_decimate(
     extraction winds inward, and ``fix_normals`` flips the whole shell so the
     signed volume comes out positive.
     """
-    import trimesh
-
-    verts = np.ascontiguousarray(_to_numpy(vertices), dtype=np.float32)
-    tris = np.ascontiguousarray(_to_numpy(faces), dtype=np.int64)
-
-    mesh = trimesh.Trimesh(vertices=verts, faces=tris, process=False)
-    # flexible_dual_grid_to_mesh emits a vertex per input voxel whether or not a
-    # face references it, so most of the array is unreferenced on arrival.
-    mesh.remove_unreferenced_vertices()
-    _fill_small_holes(mesh)
-
-    verts, tris = _simplify(np.asarray(mesh.vertices), np.asarray(mesh.faces), decimation_target * 3)
-    mesh = trimesh.Trimesh(vertices=verts, faces=tris, process=False)
-    _tidy(mesh)
-
-    verts, tris = _simplify(np.asarray(mesh.vertices), np.asarray(mesh.faces), decimation_target)
-    mesh = trimesh.Trimesh(vertices=verts, faces=tris, process=False)
-    _tidy(mesh)
-
-    trimesh.repair.fix_normals(mesh, multibody=True)
-    return (
-        np.ascontiguousarray(mesh.vertices, dtype=np.float32),
-        np.ascontiguousarray(mesh.faces, dtype=np.int64),
-    )
+    vertices = np.ascontiguousarray(_to_numpy(vertices), dtype=np.float32)
+    faces = np.ascontiguousarray(_to_numpy(faces), dtype=np.int64)
+    return _offload(clean_and_decimate_arrays, vertices, faces, int(decimation_target), is_cancelled=is_cancelled)
 
 
 def unwrap_uv(
-    vertices: np.ndarray, faces: np.ndarray
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    is_cancelled: Optional[Callable[[], bool]] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """``xatlas`` UV atlas. Returns ``(vertices, faces, uvs, normals)`` for the
     cut vertex set — charts duplicate vertices along their seams, so the vertex
     count grows and normals are carried over through xatlas' vertex mapping."""
-    import trimesh
-    import xatlas
-
-    source = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
-    source_normals = np.asarray(source.vertex_normals, dtype=np.float32)
-
-    vmapping, indices, uvs = xatlas.parametrize(
-        np.ascontiguousarray(vertices, dtype=np.float32),
-        np.ascontiguousarray(faces, dtype=np.uint32),
-    )
-    return (
-        np.ascontiguousarray(vertices[vmapping], dtype=np.float32),
-        np.ascontiguousarray(indices, dtype=np.int64),
-        np.ascontiguousarray(uvs, dtype=np.float32),
-        np.ascontiguousarray(source_normals[vmapping], dtype=np.float32),
-    )
+    return _offload(unwrap_uv_arrays, vertices, faces, is_cancelled=is_cancelled)
 
 
 def _push_pull_fill(value: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
@@ -537,6 +408,7 @@ def build_textured_mesh(
     texture_size: int = 2048,
     attr_layout: Optional[Dict[str, slice]] = None,
     project_to_source: bool = False,
+    is_cancelled: Optional[Callable[[], bool]] = None,
 ):
     """Run the whole chain and return the textured ``trimesh.Trimesh``.
 
@@ -554,7 +426,9 @@ def build_textured_mesh(
     source_vertices = np.ascontiguousarray(_to_numpy(vertices), dtype=np.float32)
     source_faces = np.ascontiguousarray(_to_numpy(faces), dtype=np.int64)
 
-    clean_vertices, clean_faces = clean_and_decimate(source_vertices, source_faces, decimation_target)
+    clean_vertices, clean_faces = clean_and_decimate(
+        source_vertices, source_faces, decimation_target, is_cancelled=is_cancelled
+    )
     if clean_faces.shape[0] == 0:
         # trimesh's vertex_normals setter reduces over an empty array and dies
         # with a bare numpy ValueError several stages later; a decode that
@@ -563,7 +437,7 @@ def build_textured_mesh(
             f"no geometry to post-process: {source_faces.shape[0]} input faces "
             "cleaned down to nothing"
         )
-    uv_vertices, uv_faces, uvs, uv_normals = unwrap_uv(clean_vertices, clean_faces)
+    uv_vertices, uv_faces, uvs, uv_normals = unwrap_uv(clean_vertices, clean_faces, is_cancelled=is_cancelled)
 
     uvs_t = torch.from_numpy(uvs).to(device)
     faces_t = torch.from_numpy(uv_faces).to(device)
@@ -627,6 +501,7 @@ def postprocess_to_glb(
     attr_layout: Optional[Dict[str, slice]] = None,
     project_to_source: bool = False,
     embed_webp: bool = True,
+    is_cancelled: Optional[Callable[[], bool]] = None,
 ) -> None:
     """Write the post-processed, textured mesh to ``out_path`` as a GLB.
 
@@ -646,5 +521,6 @@ def postprocess_to_glb(
         texture_size=texture_size,
         attr_layout=attr_layout,
         project_to_source=project_to_source,
+        is_cancelled=is_cancelled,
     )
     mesh.export(out_path, file_type="glb", extension_webp=embed_webp)

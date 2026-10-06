@@ -1,6 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner } from './helpers';
 
+test.afterEach(async ({ page }) => {
+	await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
 const SHOTS = process.env.ADD_DOWNLOAD_SHOTS;
 
 const TYPES = [

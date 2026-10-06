@@ -56,6 +56,10 @@ async function noHorizontalScroll(page: Page) {
 test.describe('Formulas drawer', () => {
 	test.use({ viewport: { width: 1440, height: 900 } });
 
+	test.afterEach(async ({ page }) => {
+		await page.unrouteAll({ behavior: 'ignoreErrors' });
+	});
+
 	test('shows no Formulas button when the preset declares none', async ({ page }) => {
 		await page.route(/\/api\/presets\/[^/]+\/form(\?|$)/, async (route) => {
 			const response = await route.fetch();

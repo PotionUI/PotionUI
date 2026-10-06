@@ -125,21 +125,24 @@ class World:
         path.write_bytes(content)
         return filename
 
-    def model_preview(self, assigned_to):
+    def model_preview(self, assigned_to, file_id=None):
         model_id = generate_ulid()
-        file_id = generate_ulid()
-        key = f"models/previews/{file_id}.png"
-        path = self.storage / key
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(PIXELS)
         with self.db.get_cursor() as cursor:
             cursor.execute(
                 "INSERT INTO models (id, filename, model_type) VALUES (?, ?, 'checkpoint')",
                 (model_id, f"{model_id}.safetensors"),
             )
-            cursor.execute(
-                "INSERT INTO files (id, file_path, file_type) VALUES (?, ?, 'IMAGE')", (file_id, key)
-            )
+        if file_id is None:
+            file_id = generate_ulid()
+            key = f"models/previews/{file_id}.png"
+            path = self.storage / key
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(PIXELS)
+            with self.db.get_cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO files (id, file_path, file_type) VALUES (?, ?, 'IMAGE')", (file_id, key)
+                )
+        with self.db.get_cursor() as cursor:
             cursor.execute(
                 "INSERT INTO model_files (id, model_id, file_id) VALUES (?, ?, ?)",
                 (generate_ulid(), model_id, file_id),
@@ -377,6 +380,13 @@ class TestRestrictedViewer:
     def test_a_restricted_user_never_sees_model_preview_media(self, client, world):
         file_id = world.model_preview(world.kid)
         assert _get(client, f"/api/media/files/{file_id}", "tok-kid").status_code == 404
+
+    def test_a_model_preview_picked_from_an_admin_generation_reaches_an_assigned_user(self, client, world):
+        source = world.generation(world.admin)
+        file_id = world.model_preview(world.other, file_id=source.file_id)
+        assert _get(client, f"/api/media/files/{file_id}?size=small", "tok-other").status_code == 200
+        assert _get(client, f"/api/media/files/{file_id}", "tok-owner").status_code == 404
+        assert _get(client, f"/api/media/generations/{source.id}/{source.filename}", "tok-other").status_code == 404
 
     def test_a_flagged_file_still_reaches_an_unrestricted_owner(self, client, world):
         flagged = world.generation(world.owner)

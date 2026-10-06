@@ -68,8 +68,8 @@ class MediaAccess:
         if record is None:
             return False
         generation_ids = self.files.generation_ids_for_file(file_id)
-        if generation_ids:
-            return any(self.generation_allowed(viewer, gid) for gid in generation_ids)
+        if generation_ids and any(self.generation_allowed(viewer, gid) for gid in generation_ids):
+            return True
         restricted = self.is_restricted(viewer)
         model_ids = self.models.model_ids_for_file(file_id)
         if model_ids:
@@ -78,6 +78,8 @@ class MediaAccess:
             if GenerationPolicy.is_admin(viewer):
                 return True
             return any(self.models.is_model_assigned_to_user(mid, viewer.id) for mid in model_ids)
+        if generation_ids:
+            return False
         if not GenerationPolicy.can_access(viewer, getattr(record, "user_id", None)):
             return False
         return not restricted or self._rating_state(record.file_path) == STATE_SAFE

@@ -3,9 +3,6 @@ import { loginAsOwner, ownerToken, screenshot } from './helpers';
 
 const JOURNEY = 'admin-assignment-card';
 
-// The shared AssignmentCard, mounted on the LLM Configuration detail pane:
-// it must render, a group toggle must persist through a reload, and the
-// unassigned badge on the list row must clear once something is assigned.
 test('admin can assign a group to an LLM configuration from its detail pane', async ({ page }) => {
 	await loginAsOwner(page);
 	const token = await ownerToken(page);
@@ -52,13 +49,18 @@ test('admin can assign a group to an LLM configuration from its detail pane', as
 
 	await assignmentCard.locator('nav[aria-label="Access type"]').getByRole('button', { name: /Groups/ }).click();
 
-	const groupRow = assignmentCard.locator('[data-testid="assignment-row"]').filter({ hasText: groupName });
-	await expect(groupRow).toBeVisible({ timeout: 15000 });
-	await expect(groupRow.getByRole('button', { name: 'Add group' })).toBeVisible();
-
 	await screenshot(page, JOURNEY, 'before-assign');
-	await groupRow.getByRole('button', { name: 'Add group' }).click();
-	await expect(groupRow.getByRole('button', { name: 'Remove' })).toBeVisible({ timeout: 10000 });
+	await assignmentCard.getByRole('button', { name: 'Add groups' }).first().click();
+
+	const picker = page.getByRole('dialog', { name: `Add groups to ${configName}` });
+	await expect(picker).toBeVisible({ timeout: 15000 });
+	await picker.getByRole('row').filter({ hasText: groupName }).click();
+	await picker.getByRole('button', { name: 'Add 1 group' }).click();
+	await expect(picker).toBeHidden({ timeout: 15000 });
+
+	const groupRow = assignmentCard.getByRole('row').filter({ hasText: groupName });
+	await expect(groupRow).toBeVisible({ timeout: 15000 });
+	await expect(groupRow.getByRole('button', { name: `Remove ${groupName}` })).toBeVisible({ timeout: 10000 });
 
 	// The unassigned badge on the list row must clear once something is assigned.
 	await expect(configOption.getByText('Unassigned', { exact: true })).toHaveCount(0);
@@ -73,11 +75,14 @@ test('admin can assign a group to an LLM configuration from its detail pane', as
 	await expect(assignmentCard).toBeVisible({ timeout: 15000 });
 	await assignmentCard.locator('nav[aria-label="Access type"]').getByRole('button', { name: /Groups/ }).click();
 
-	const groupRowAfterReload = assignmentCard.locator('[data-testid="assignment-row"]').filter({ hasText: groupName });
+	const groupRowAfterReload = assignmentCard.getByRole('row').filter({ hasText: groupName });
 	await expect(groupRowAfterReload).toBeVisible({ timeout: 15000 });
-	await expect(groupRowAfterReload.getByRole('button', { name: 'Remove' }), 'group assignment should survive a reload').toBeVisible({
+	await expect(groupRowAfterReload.getByRole('button', { name: `Remove ${groupName}` }), 'group assignment should survive a reload').toBeVisible({
 		timeout: 10000
 	});
+
+	await groupRowAfterReload.getByRole('button', { name: `Remove ${groupName}` }).click();
+	await expect(assignmentCard.getByRole('row').filter({ hasText: groupName })).toHaveCount(0, { timeout: 15000 });
 
 	await screenshot(page, JOURNEY, 'after-reload');
 });

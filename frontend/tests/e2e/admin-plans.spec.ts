@@ -43,8 +43,13 @@ test('admin creates a plan with a daily limit, assigns it to a group and sees it
 	await page.goto(`/admin?tab=users&view=groups&id=${groupId}`);
 	const groupPlan = page.locator('[data-group-plan-select]');
 	await expect(groupPlan).toBeVisible({ timeout: 15000 });
-	await groupPlan.locator('button[aria-haspopup="listbox"]').click();
-	await page.getByRole('option').filter({ hasText: planName }).click();
+	await groupPlan.locator('[data-plan-picker-trigger]').click();
+	const planDialog = page.getByRole('dialog', { name: 'Group plan' });
+	await expect(planDialog).toBeVisible({ timeout: 15000 });
+	await planDialog.getByRole('row').filter({ hasText: planName }).click();
+	await planDialog.getByRole('button', { name: /^Select/ }).click();
+	await expect(planDialog).toHaveCount(0);
+	await expect(groupPlan.locator('[data-plan-picker-label]')).toHaveText(planName);
 	await expect(page.locator('[data-plan-impact]').getByText(username)).toBeVisible({ timeout: 15000 });
 	await screenshot(page, JOURNEY, 'group-plan-impact');
 	await page.getByRole('button', { name: 'Save', exact: true }).click();

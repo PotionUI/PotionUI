@@ -52,7 +52,7 @@ test('empty group Presets tab settles without a request loop', async ({ page }) 
 	const afterQuiet = countPresetFetches();
 
 	const spinner = page.locator('[role="status"][aria-label="Loading"]');
-	const emptyState = page.getByText('No presets installed', { exact: true });
+	const emptyState = page.getByText('No presets assigned', { exact: true });
 
 	await screenshot(page, JOURNEY, 'group-presets-settled');
 

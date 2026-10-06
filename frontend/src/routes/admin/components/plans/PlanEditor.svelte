@@ -20,6 +20,12 @@
 		type ByteUnit,
 		type PlanDraft
 	} from '$lib/plans/editor';
+	import { EntityPicker, applyDiff, type PickerDiff } from '$lib/components/picker';
+	import { groupsKind } from '$lib/components/picker/kinds/groups';
+	import { usersKind } from '$lib/components/picker/kinds/users';
+	import { setGroupPlan, setUserPlan } from '$lib/plans/api';
+	import type { User } from '$lib/stores/auth';
+	import type { UserGroup } from '$lib/services/admin-api';
 	import { formatLimitChip, kindIcon, kindUnitLabel } from '$lib/plans/format';
 	import type { LimitKindDescriptor, Plan, PlanBody, PlanDetail } from '$lib/plans/types';
 	import { formatLimitValue, percent } from '$lib/plans/format';
@@ -28,6 +34,9 @@
 		plan,
 		kinds,
 		detail = null,
+		groups = [],
+		users = [],
+		onAssignmentsChanged,
 		saving = false,
 		onSave,
 		onDelete,
@@ -36,6 +45,9 @@
 		plan: Plan | null;
 		kinds: readonly LimitKindDescriptor[];
 		detail?: PlanDetail | null;
+		groups?: readonly UserGroup[];
+		users?: readonly User[];
+		onAssignmentsChanged?: () => void | Promise<void>;
 		saving?: boolean;
 		onSave: (body: PlanBody) => void | Promise<void>;
 		onDelete?: () => void;
@@ -45,6 +57,35 @@
 	let draft = $state<PlanDraft>(untrack(() => (plan ? draftFromPlan(plan, kinds) : emptyDraft())));
 	let snapshot = $state<PlanDraft>(untrack(() => (plan ? draftFromPlan(plan, kinds) : emptyDraft())));
 	let pickerOpen = $state(false);
+	let groupPickerOpen = $state(false);
+	let userPickerOpen = $state(false);
+	let assignError = $state('');
+	const assignedGroupIds = $derived(new Set((detail?.assigned_to.groups ?? []).map((g) => g.id)));
+	const assignedUserIds = $derived(new Set((detail?.assigned_to.users ?? []).map((u) => u.id)));
+
+	async function applyAssignments(diff: PickerDiff, set: (id: string, planId: string | null) => Promise<unknown>) {
+		if (!plan) return { ok: [], failed: [] };
+		const planId = plan.id;
+		const result = await applyDiff(diff, {
+			assign: (id) => set(id, planId),
+			unassign: (id) => set(id, null)
+		});
+		await onAssignmentsChanged?.();
+		return result;
+	}
+
+	const applyGroups = (diff: PickerDiff) => applyAssignments(diff, setGroupPlan);
+	const applyUsers = (diff: PickerDiff) => applyAssignments(diff, setUserPlan);
+
+	async function removeAssignment(set: (id: string, planId: string | null) => Promise<unknown>, id: string) {
+		assignError = '';
+		try {
+			await set(id, null);
+			await onAssignmentsChanged?.();
+		} catch (error) {
+			assignError = error instanceof Error && error.message ? error.message : 'Could not remove the assignment';
+		}
+	}
 	const planKey = $derived(plan ? JSON.stringify([plan.id, plan.name, plan.description, plan.limits]) : '');
 	let loadedKey = untrack(() => planKey);
 
@@ -222,23 +263,48 @@
 									{#each detail.assigned_to.groups as group (group.id)}
 										<div class="flex items-center justify-between gap-2 py-1 text-sm">
 											<span class="truncate text-fg">{group.name}</span>
-											<Badge size="sm" class="font-mono">{group.members} {group.members === 1 ? 'member' : 'members'}</Badge>
+											<span class="flex flex-shrink-0 items-center gap-1">
+												<Badge size="sm" class="font-mono">{group.members} {group.members === 1 ? 'member' : 'members'}</Badge>
+												<IconButton
+													icon="close"
+													label={`Remove ${group.name} from this plan`}
+													size="sm"
+													onclick={() => removeAssignment(setGroupPlan, group.id)}
+												/>
+											</span>
 										</div>
 									{:else}
 										<p class="text-sm text-fg-muted">No groups</p>
 									{/each}
+									<div class="mt-2">
+										<Button size="xs" variant="secondary" icon="plus" onclick={() => (groupPickerOpen = true)}>Add groups</Button>
+									</div>
 								</div>
 								<div>
 									<p class="mb-1.5 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Personal overrides</p>
 									{#each detail.assigned_to.users as user (user.id)}
 										<div class="flex items-center justify-between gap-2 py-1 text-sm">
 											<span class="truncate text-fg">{user.username}</span>
-											<span class="text-fg-subtle">override</span>
+											<span class="flex flex-shrink-0 items-center gap-1">
+												<span class="text-fg-subtle">override</span>
+												<IconButton
+													icon="close"
+													label={`Remove ${user.username} from this plan`}
+													size="sm"
+													onclick={() => removeAssignment(setUserPlan, user.id)}
+												/>
+											</span>
 										</div>
 									{:else}
 										<p class="text-sm text-fg-muted">No overrides</p>
 									{/each}
+									<div class="mt-2">
+										<Button size="xs" variant="secondary" icon="plus" onclick={() => (userPickerOpen = true)}>Add users</Button>
+									</div>
 								</div>
+								{#if assignError}
+									<p class="text-sm text-danger" role="alert" data-plan-assign-error>{assignError}</p>
+								{/if}
 							</div>
 						</DetailSection>
 						<DetailSection label="In use, per limit">
@@ -270,6 +336,29 @@
 				{/snippet}
 		</DetailLayout>
 	</DetailBody>
+
+	{#if plan}
+		<EntityPicker
+			kind={groupsKind}
+			items={groups}
+			assignedIds={assignedGroupIds}
+			isOpen={groupPickerOpen}
+			title="Assign groups to this plan"
+			subtitle={plan.name}
+			onApply={applyGroups}
+			onClose={() => (groupPickerOpen = false)}
+		/>
+		<EntityPicker
+			kind={usersKind}
+			items={users}
+			assignedIds={assignedUserIds}
+			isOpen={userPickerOpen}
+			title="Assign users to this plan"
+			subtitle={plan.name}
+			onApply={applyUsers}
+			onClose={() => (userPickerOpen = false)}
+		/>
+	{/if}
 
 	<DetailFooter
 		mode={plan ? 'edit' : 'create'}

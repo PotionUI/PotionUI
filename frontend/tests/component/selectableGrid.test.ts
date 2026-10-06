@@ -31,7 +31,7 @@ function setup(overrides: Record<string, unknown> = {}) {
 		onSelectedChange: (next: Set<string>) => live.set({ selected: next }),
 		...overrides
 	});
-	component = mount(DataTable, { target, props: live.props });
+	component = mount(DataTable as any, { target, props: live.props as any });
 	flushSync();
 	return live;
 }

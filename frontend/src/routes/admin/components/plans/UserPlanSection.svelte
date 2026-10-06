@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { DetailSection } from '$lib/components/detail';
 	import { Badge } from '$lib/components/ui';
-	import CustomSelect from '$lib/components/CustomSelect.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { kindIcon } from '$lib/plans/format';
 	import { describeSource } from '$lib/plans/usage';
-	import { INHERIT_PLAN, planOptions } from '$lib/plans/options';
 	import type { LimitKindDescriptor, Plan, UserPlanDetail } from '$lib/plans/types';
+	import PlanPickerField from './PlanPickerField.svelte';
 	import UsageBar from './UsageBar.svelte';
 
 	let {
@@ -23,7 +22,6 @@
 		onChange: (planId: string | null) => void;
 	} = $props();
 
-	const options = $derived(planOptions(plans, kinds, { inheritLabel: 'None (use groups)' }));
 	const rows = $derived(
 		(detail?.limits ?? []).flatMap((entry) => {
 			const kind = kinds.find((k) => k.key === entry.kind);
@@ -67,12 +65,15 @@
 				<p class="text-sm font-medium text-fg">Personal override</p>
 				<p class="text-sm text-fg-muted">Replaces every group plan for this person, all limits. Pick Unlimited to lift all limits.</p>
 			</div>
-			<div class="w-64 flex-shrink-0" data-user-plan-select>
-				<CustomSelect
-					size="sm"
-					value={overrideId ?? INHERIT_PLAN}
-					{options}
-					on:change={(e) => onChange(e.detail === INHERIT_PLAN ? null : String(e.detail))}
+			<div class="w-72 flex-shrink-0" data-user-plan-select>
+				<PlanPickerField
+					{plans}
+					{kinds}
+					value={overrideId}
+					inheritLabel="None (use groups)"
+					title="Personal override plan"
+					subtitle="Replaces every group plan for this person"
+					{onChange}
 				/>
 			</div>
 		</div>

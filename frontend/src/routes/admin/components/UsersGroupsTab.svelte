@@ -12,7 +12,9 @@
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
 	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
-	import ModelAssignmentPicker from '$lib/components/modals/ModelAssignmentPicker.svelte';
+	import { AssignedList, EntityPicker, applyDiff, type ApplyResult, type PickerDiff } from '$lib/components/picker';
+	import { presetsKind, llmsKind, usersKind, groupsKind, modelsKind, type PickerModel, type PickerUser } from '$lib/components/picker/kinds';
+	import { createModelRemote, fetchAssignedModels, fetchModelTypeOptions } from './users/modelAssignmentSource';
 	import { Button, IconButton, Badge, Input, Spinner, EmptyState, LoadErrorState, Switch, SegmentedControl } from '$lib/components/ui';
 	import {
 		CONTENT_POLICY_INHERIT,
@@ -31,8 +33,6 @@
 	import { DataTable, TablePager, pageCount, clampPage, type DataTableColumn } from '$lib/components/table';
 	import { selectPage, clearAll } from '$lib/components/table/selection';
 	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
-	import AssignmentList from './AssignmentList.svelte';
-	import BulkPickerModal from './users/BulkPickerModal.svelte';
 	import { adminSectionIcon } from '../adminSections';
 	import {
 		USERS_LIBRARY_SECTIONS,
@@ -246,20 +246,18 @@
 		return map;
 	});
 
-	let togglingMembership = $state<string | null>(null);
-
 	let allLLMConfigs = $state<any[]>([]);
 	let allPresets = $state<any[]>([]);
 
 	let userLLMAssignments = $state<Record<string, any[]>>({});
 	let userPresetAssignments = $state<Record<string, any[]>>({});
 	let userModelAssignments = $state<Record<string, string[]>>({});
+	let userModelRows = $state<Record<string, PickerModel[]>>({});
+	let groupModelRows = $state<Record<string, PickerModel[]>>({});
+	let modelTypeOptions = $state<{ value: string; label: string }[]>([]);
 	let loadingUserLLMs = $state(false);
 	let loadingUserPresets = $state(false);
 	let loadingUserModelAssignments = $state(false);
-	let assigningUserLLM = $state<string | null>(null);
-	let assigningUserPreset = $state<string | null>(null);
-	let assigningUserModel = $state<string | null>(null);
 
 	let userMcpEnabled = $state<Record<string, boolean>>({});
 	let togglingUserMcp = $state<string | null>(null);
@@ -270,9 +268,6 @@
 	let loadingGroupLLMs = $state(false);
 	let loadingGroupPresets = $state(false);
 	let loadingGroupModelAssignments = $state(false);
-	let assigningGroupLLM = $state<string | null>(null);
-	let assigningGroupPreset = $state<string | null>(null);
-	let assigningGroupModel = $state<string | null>(null);
 
 	const activeUser = $derived(subView === 'users' && viewId ? (users.find((u) => u.id === viewId) ?? null) : null);
 	const activeGroupEntity = $derived(subView === 'groups' && viewId ? (groups.find((g) => g.id === viewId) ?? null) : null);
@@ -294,8 +289,6 @@
 	let groupsPageSize = $state(25);
 	let showAddToGroupModal = $state(false);
 	let showAssignPresetModal = $state(false);
-	let bulkAdding = $state(false);
-	let bulkAssigning = $state(false);
 	let bulkDeletingUsers = $state(false);
 	let bulkDeletingGroups = $state(false);
 
@@ -679,44 +672,163 @@
 	}
 
 	async function handleAddSelectedUsersToGroup(groupId: string) {
-		bulkAdding = true;
 		try {
 			const result = await adminApi.addUsersToGroup(groupId, Array.from(selectedUserIds));
-			if (result.success) {
-				await loadMemberships();
-				const groupName = groups.find((g) => g.id === groupId)?.name ?? 'the group';
-				toasts.success(`Added ${selectedUserIds.size} ${selectedUserIds.size === 1 ? 'user' : 'users'} to ${groupName}`);
-				selectedUserIds = new Set();
-				showAddToGroupModal = false;
-			} else {
-				toasts.error(`Failed to add users to group: ${result.message || 'Unknown error'}`);
-			}
+			if (!result.success) throw new Error(`Failed to add users to group: ${result.message || 'Unknown error'}`);
+			await loadMemberships();
+			const groupName = groups.find((g) => g.id === groupId)?.name ?? 'the group';
+			toasts.success(`Added ${selectedUserIds.size} ${selectedUserIds.size === 1 ? 'user' : 'users'} to ${groupName}`);
+			selectedUserIds = new Set();
 		} catch (error) {
 			logger.error('Failed to add users to group:', error);
-			toasts.error('Failed to add users to group.');
-		} finally {
-			bulkAdding = false;
+			throw error;
 		}
 	}
 
 	async function handleAssignSelectedUsersToPreset(presetId: string) {
-		bulkAssigning = true;
 		try {
 			const result = await adminApi.assignPresetToUsers(presetId, Array.from(selectedUserIds));
-			if (result.success) {
-				const presetName = allPresets.find((p) => p.id === presetId)?.name ?? 'the preset';
-				toasts.success(`Assigned ${selectedUserIds.size} ${selectedUserIds.size === 1 ? 'user' : 'users'} to ${presetName}`);
-				selectedUserIds = new Set();
-				showAssignPresetModal = false;
-			} else {
-				toasts.error(`Failed to assign preset: ${result.message || result.error || 'Unknown error'}`);
-			}
+			if (!result.success) throw new Error(`Failed to assign preset: ${result.message || result.error || 'Unknown error'}`);
+			const presetName = allPresets.find((p) => p.id === presetId)?.name ?? 'the preset';
+			toasts.success(`Assigned ${selectedUserIds.size} ${selectedUserIds.size === 1 ? 'user' : 'users'} to ${presetName}`);
+			selectedUserIds = new Set();
 		} catch (error) {
 			logger.error('Failed to assign preset to users:', error);
-			toasts.error('Failed to assign preset to users.');
-		} finally {
-			bulkAssigning = false;
+			throw error;
 		}
+	}
+
+	async function applySingle(diff: PickerDiff, run: (id: string) => Promise<void>) {
+		const id = diff.add[0];
+		if (id) await run(id);
+	}
+
+	function ensureOk(result: { success: boolean; message?: string; error?: string }, fallback: string) {
+		if (!result.success) throw new Error(result.message || result.error || fallback);
+	}
+
+	async function applyAssignments(
+		diff: PickerDiff,
+		handlers: { assign: (id: string) => Promise<void>; unassign: (id: string) => Promise<void> },
+		reload: () => Promise<void>,
+		noun: string
+	): Promise<ApplyResult> {
+		const result = await applyDiff(diff, handlers);
+		if (result.ok.length > 0) {
+			try {
+				await reload();
+			} catch (error) {
+				logger.error(`Failed to reload ${noun}:`, error);
+			}
+			toasts.success(`Updated ${noun}: ${result.ok.length} ${result.ok.length === 1 ? 'change' : 'changes'} applied`);
+		}
+		return result;
+	}
+
+	async function refreshGroupMembers(groupId: string) {
+		const membersResult = await adminApi.getGroupMembers(groupId);
+		if (!membersResult.success) return;
+		const members = membersResult.data || [];
+		membersByGroup = { ...membersByGroup, [groupId]: members };
+		groups = groups.map((g) => (g.id === groupId ? { ...g, member_count: members.length } : g));
+	}
+
+	function applyUserGroups(userId: string, diff: PickerDiff) {
+		return applyAssignments(
+			diff,
+			{
+				assign: async (groupId) => ensureOk(await adminApi.addUsersToGroup(groupId, [userId]), 'Could not add to group'),
+				unassign: async (groupId) => ensureOk(await adminApi.removeUserFromGroup(groupId, userId), 'Could not remove from group')
+			},
+			async () => {
+				await Promise.all([...new Set([...diff.add, ...diff.remove])].map(refreshGroupMembers));
+			},
+			'groups'
+		);
+	}
+
+	function applyGroupUsers(groupId: string, diff: PickerDiff) {
+		return applyAssignments(
+			diff,
+			{
+				assign: async (userId) => ensureOk(await adminApi.addUsersToGroup(groupId, [userId]), 'Could not add user'),
+				unassign: async (userId) => ensureOk(await adminApi.removeUserFromGroup(groupId, userId), 'Could not remove user')
+			},
+			() => refreshGroupMembers(groupId),
+			'group members'
+		);
+	}
+
+	function applyUserPresets(userId: string, diff: PickerDiff) {
+		return applyAssignments(
+			diff,
+			{
+				assign: async (id) => ensureOk(await adminApi.assignPresetToUsers(id, [userId]), 'Could not assign preset'),
+				unassign: async (id) => ensureOk(await adminApi.unassignPresetFromUser(id, userId), 'Could not unassign preset')
+			},
+			() => loadUserPresetAssignments(userId),
+			'presets'
+		);
+	}
+
+	function applyUserLLMs(userId: string, diff: PickerDiff) {
+		return applyAssignments(
+			diff,
+			{
+				assign: async (id) => ensureOk(await adminApi.assignLLMToUser(userId, id), 'Could not assign LLM'),
+				unassign: async (id) => ensureOk(await adminApi.unassignLLMFromUser(userId, id), 'Could not unassign LLM')
+			},
+			() => loadUserLLMAssignments(userId),
+			'LLMs'
+		);
+	}
+
+	function applyUserModels(userId: string, diff: PickerDiff) {
+		return applyAssignments(
+			diff,
+			{
+				assign: async (id) => ensureOk(await adminApi.assignModelToUser(userId, id), 'Could not assign model'),
+				unassign: async (id) => ensureOk(await adminApi.unassignModelFromUser(userId, id), 'Could not unassign model')
+			},
+			() => loadUserModelAssignments(userId),
+			'models'
+		);
+	}
+
+	function applyGroupPresets(groupId: string, diff: PickerDiff) {
+		return applyAssignments(
+			diff,
+			{
+				assign: async (id) => ensureOk(await adminApi.assignPresetsToGroup(groupId, [id]), 'Could not assign preset'),
+				unassign: async (id) => ensureOk(await adminApi.unassignPresetFromGroup(groupId, id), 'Could not unassign preset')
+			},
+			() => loadGroupPresets(groupId),
+			'presets'
+		);
+	}
+
+	function applyGroupLLMs(groupId: string, diff: PickerDiff) {
+		return applyAssignments(
+			diff,
+			{
+				assign: async (id) => ensureOk(await adminApi.assignLLMsToGroup(groupId, [id]), 'Could not assign LLM'),
+				unassign: async (id) => ensureOk(await adminApi.unassignLLMFromGroup(groupId, id), 'Could not unassign LLM')
+			},
+			() => loadGroupLLMs(groupId),
+			'LLMs'
+		);
+	}
+
+	function applyGroupModels(groupId: string, diff: PickerDiff) {
+		return applyAssignments(
+			diff,
+			{
+				assign: async (id) => ensureOk(await adminApi.assignModelsToGroup(groupId, [id]), 'Could not assign model'),
+				unassign: async (id) => ensureOk(await adminApi.unassignModelFromGroup(groupId, id), 'Could not unassign model')
+			},
+			() => loadGroupModelAssignments(groupId),
+			'models'
+		);
 	}
 
 	async function openGroup(id: string) {
@@ -882,31 +994,6 @@
 		}
 	}
 
-	async function toggleUserGroupMembership(userId: string, groupId: string, isMember: boolean) {
-		const key = `${userId}:${groupId}`;
-		togglingMembership = key;
-		try {
-			const result = isMember
-				? await adminApi.removeUserFromGroup(groupId, userId)
-				: await adminApi.addUsersToGroup(groupId, [userId]);
-			if (result.success) {
-				const membersResult = await adminApi.getGroupMembers(groupId);
-				if (membersResult.success) {
-					const members = membersResult.data || [];
-					membersByGroup = { ...membersByGroup, [groupId]: members };
-					groups = groups.map((g) => (g.id === groupId ? { ...g, member_count: members.length } : g));
-				}
-			} else {
-				toasts.error(`Failed to update group membership: ${result.message || 'Unknown error'}`);
-			}
-		} catch (error) {
-			logger.error('Failed to update group membership:', error);
-			toasts.error('Failed to update group membership.');
-		} finally {
-			togglingMembership = null;
-		}
-	}
-
 	async function loadUserLLMAssignments(userId: string) {
 		try {
 			loadingUserLLMs = true;
@@ -918,42 +1005,6 @@
 			logger.error('Failed to load user LLM assignments:', error);
 		} finally {
 			loadingUserLLMs = false;
-		}
-	}
-
-	async function handleAssignUserLLM(llmConfigId: string) {
-		if (!selectedUserId) return;
-		try {
-			assigningUserLLM = llmConfigId;
-			const result = await adminApi.assignLLMToUser(selectedUserId, llmConfigId);
-			if (result.success) {
-				await loadUserLLMAssignments(selectedUserId);
-			} else {
-				toasts.error(`Failed to assign LLM: ${result.message || 'Unknown error'}`);
-			}
-		} catch (error) {
-			logger.error('Failed to assign LLM:', error);
-			toasts.error('Failed to assign LLM to user.');
-		} finally {
-			assigningUserLLM = null;
-		}
-	}
-
-	async function handleUnassignUserLLM(llmConfigId: string) {
-		if (!selectedUserId) return;
-		try {
-			assigningUserLLM = llmConfigId;
-			const result = await adminApi.unassignLLMFromUser(selectedUserId, llmConfigId);
-			if (result.success) {
-				await loadUserLLMAssignments(selectedUserId);
-			} else {
-				toasts.error(`Failed to unassign LLM: ${result.message || 'Unknown error'}`);
-			}
-		} catch (error) {
-			logger.error('Failed to unassign LLM:', error);
-			toasts.error('Failed to unassign LLM from user.');
-		} finally {
-			assigningUserLLM = null;
 		}
 	}
 
@@ -980,89 +1031,19 @@
 		}
 	}
 
-	async function handleAssignUserPreset(presetId: string) {
-		if (!selectedUserId) return;
-		try {
-			assigningUserPreset = presetId;
-			const result = await adminApi.assignPresetToUsers(presetId, [selectedUserId]);
-			if (result.success) {
-				await loadUserPresetAssignments(selectedUserId);
-			} else {
-				toasts.error(`Failed to assign preset: ${result.message || result.error || 'Unknown error'}`);
-			}
-		} catch (error) {
-			logger.error('Failed to assign preset:', error);
-			toasts.error('Failed to assign preset to user.');
-		} finally {
-			assigningUserPreset = null;
-		}
-	}
-
-	async function handleUnassignUserPreset(presetId: string) {
-		if (!selectedUserId) return;
-		try {
-			assigningUserPreset = presetId;
-			const result = await adminApi.unassignPresetFromUser(presetId, selectedUserId);
-			if (result.success) {
-				await loadUserPresetAssignments(selectedUserId);
-			} else {
-				toasts.error(`Failed to unassign preset: ${result.message || 'Unknown error'}`);
-			}
-		} catch (error) {
-			logger.error('Failed to unassign preset:', error);
-			toasts.error('Failed to unassign preset from user.');
-		} finally {
-			assigningUserPreset = null;
-		}
-	}
-
 	async function loadUserModelAssignments(userId: string) {
 		try {
 			loadingUserModelAssignments = true;
-			const response = await adminApi.getUserModelAssignments(userId);
-			if (response.success && response.data) {
-				userModelAssignments = { ...userModelAssignments, [userId]: (response.data.assignments || []).map((a: any) => a.model_id) };
-			}
+			const rows = await fetchAssignedModels({ userId });
+			userModelRows = { ...userModelRows, [userId]: rows };
+			userModelAssignments = { ...userModelAssignments, [userId]: rows.map((m) => m.id) };
 		} catch (error) {
 			logger.error('Failed to load user model assignments:', error);
+			userModelRows = { ...userModelRows, [userId]: [] };
+			userModelAssignments = { ...userModelAssignments, [userId]: [] };
+			toasts.error('Failed to load assigned models.');
 		} finally {
 			loadingUserModelAssignments = false;
-		}
-	}
-
-	async function assignUserModel(modelId: string) {
-		if (!selectedUserId) return;
-		try {
-			assigningUserModel = modelId;
-			const result = await adminApi.assignModelToUser(selectedUserId, modelId);
-			if (result.success) {
-				await loadUserModelAssignments(selectedUserId);
-			} else {
-				toasts.error(`Failed to assign model: ${result.message || 'Unknown error'}`);
-			}
-		} catch (error) {
-			logger.error('Failed to assign model:', error);
-			toasts.error('Failed to assign model to user.');
-		} finally {
-			assigningUserModel = null;
-		}
-	}
-
-	async function unassignUserModel(modelId: string) {
-		if (!selectedUserId) return;
-		try {
-			assigningUserModel = modelId;
-			const result = await adminApi.unassignModelFromUser(selectedUserId, modelId);
-			if (result.success) {
-				await loadUserModelAssignments(selectedUserId);
-			} else {
-				toasts.error(`Failed to unassign model: ${result.message || 'Unknown error'}`);
-			}
-		} catch (error) {
-			logger.error('Failed to unassign model:', error);
-			toasts.error('Failed to unassign model from user.');
-		} finally {
-			assigningUserModel = null;
 		}
 	}
 
@@ -1106,42 +1087,6 @@
 		}
 	}
 
-	async function handleAssignGroupLLM(llmConfigId: string) {
-		if (!selectedGroupId) return;
-		try {
-			assigningGroupLLM = llmConfigId;
-			const result = await adminApi.assignLLMsToGroup(selectedGroupId, [llmConfigId]);
-			if (result.success) {
-				await loadGroupLLMs(selectedGroupId);
-			} else {
-				toasts.error(`Failed to assign LLM: ${result.message || 'Unknown error'}`);
-			}
-		} catch (error) {
-			logger.error('Failed to assign LLM:', error);
-			toasts.error('Failed to assign LLM to group.');
-		} finally {
-			assigningGroupLLM = null;
-		}
-	}
-
-	async function handleUnassignGroupLLM(llmConfigId: string) {
-		if (!selectedGroupId) return;
-		try {
-			assigningGroupLLM = llmConfigId;
-			const result = await adminApi.unassignLLMFromGroup(selectedGroupId, llmConfigId);
-			if (result.success) {
-				await loadGroupLLMs(selectedGroupId);
-			} else {
-				toasts.error(`Failed to unassign LLM: ${result.message || 'Unknown error'}`);
-			}
-		} catch (error) {
-			logger.error('Failed to unassign LLM:', error);
-			toasts.error('Failed to unassign LLM from group.');
-		} finally {
-			assigningGroupLLM = null;
-		}
-	}
-
 	async function loadGroupPresets(groupId: string) {
 		loadingGroupPresets = true;
 		try {
@@ -1154,87 +1099,19 @@
 		}
 	}
 
-	async function handleAssignGroupPreset(presetId: string) {
-		if (!selectedGroupId) return;
-		try {
-			assigningGroupPreset = presetId;
-			const result = await adminApi.assignPresetsToGroup(selectedGroupId, [presetId]);
-			if (result.success) {
-				await loadGroupPresets(selectedGroupId);
-			} else {
-				toasts.error(`Failed to assign preset: ${result.message || 'Unknown error'}`);
-			}
-		} catch (error) {
-			logger.error('Failed to assign preset:', error);
-			toasts.error('Failed to assign preset to group.');
-		} finally {
-			assigningGroupPreset = null;
-		}
-	}
-
-	async function handleUnassignGroupPreset(presetId: string) {
-		if (!selectedGroupId) return;
-		try {
-			assigningGroupPreset = presetId;
-			const result = await adminApi.unassignPresetFromGroup(selectedGroupId, presetId);
-			if (result.success) {
-				await loadGroupPresets(selectedGroupId);
-			} else {
-				toasts.error(`Failed to unassign preset: ${result.message || 'Unknown error'}`);
-			}
-		} catch (error) {
-			logger.error('Failed to unassign preset:', error);
-			toasts.error('Failed to unassign preset from group.');
-		} finally {
-			assigningGroupPreset = null;
-		}
-	}
-
 	async function loadGroupModelAssignments(groupId: string) {
 		loadingGroupModelAssignments = true;
 		try {
-			const result = await adminApi.getGroupModels(groupId);
-			if (result.success) groupModelsByGroup = { ...groupModelsByGroup, [groupId]: result.data || [] };
+			const rows = await fetchAssignedModels({ groupId });
+			groupModelRows = { ...groupModelRows, [groupId]: rows };
+			groupModelsByGroup = { ...groupModelsByGroup, [groupId]: rows.map((m) => ({ model_id: m.id })) };
 		} catch (error) {
 			logger.error('Failed to load group model assignments:', error);
+			groupModelRows = { ...groupModelRows, [groupId]: [] };
+			groupModelsByGroup = { ...groupModelsByGroup, [groupId]: [] };
+			toasts.error('Failed to load assigned models.');
 		} finally {
 			loadingGroupModelAssignments = false;
-		}
-	}
-
-	async function handleAssignGroupModel(modelId: string) {
-		if (!selectedGroupId) return;
-		try {
-			assigningGroupModel = modelId;
-			const result = await adminApi.assignModelsToGroup(selectedGroupId, [modelId]);
-			if (result.success) {
-				await loadGroupModelAssignments(selectedGroupId);
-			} else {
-				toasts.error(`Failed to assign model: ${result.message || 'Unknown error'}`);
-			}
-		} catch (error) {
-			logger.error('Failed to assign model:', error);
-			toasts.error('Failed to assign model to group.');
-		} finally {
-			assigningGroupModel = null;
-		}
-	}
-
-	async function handleUnassignGroupModel(modelId: string) {
-		if (!selectedGroupId) return;
-		try {
-			assigningGroupModel = modelId;
-			const result = await adminApi.unassignModelFromGroup(selectedGroupId, modelId);
-			if (result.success) {
-				await loadGroupModelAssignments(selectedGroupId);
-			} else {
-				toasts.error(`Failed to unassign model: ${result.message || 'Unknown error'}`);
-			}
-		} catch (error) {
-			logger.error('Failed to unassign model:', error);
-			toasts.error('Failed to unassign model from group.');
-		} finally {
-			assigningGroupModel = null;
 		}
 	}
 
@@ -1263,6 +1140,42 @@
 				]
 			: []
 	);
+
+	const pickerUsers = $derived<PickerUser[]>(
+		users.map((u) => {
+			const usage = usageByUser.get(u.id);
+			const groupNames = (userGroupIds[u.id] || [])
+				.map((id) => groups.find((g) => g.id === id)?.name)
+				.filter((name): name is string => !!name);
+			return {
+				...u,
+				groups: groupNames,
+				plan: usage?.plan?.name ?? null,
+				planSource: usage ? sourceLabel(usage.source, usage.exempt) : null
+			};
+		})
+	);
+	const userGroupRows = $derived(activeUser ? groups.filter((g) => (userGroupIds[activeUser.id] || []).includes(g.id)) : []);
+	const userPresetRows = $derived(
+		activeUser ? allPresets.filter((p) => (userPresetAssignments[activeUser.id] || []).some((a: any) => a.preset_id === p.preset_db_id)) : []
+	);
+	const userLLMRows = $derived(
+		activeUser ? allLLMConfigs.filter((l) => (userLLMAssignments[activeUser.id] || []).some((a: any) => a.id === l.id)) : []
+	);
+	const groupUserRows = $derived(
+		activeGroupEntity ? pickerUsers.filter((u) => (userGroupIds[u.id] || []).includes(activeGroupEntity.id)) : []
+	);
+	const groupPresetRows = $derived(allPresets.filter((p) => groupPresets.some((gp) => gp.preset_id === p.preset_db_id)));
+	const groupLLMRows = $derived(allLLMConfigs.filter((l) => groupLLMs.some((gl) => gl.llm_config_id === l.id)));
+	const userModelRemote = $derived(activeUser ? createModelRemote({ userId: activeUser.id }, modelTypeOptions) : undefined);
+	const groupModelRemote = $derived(activeGroupEntity ? createModelRemote({ groupId: activeGroupEntity.id }, modelTypeOptions) : undefined);
+
+	$effect(() => {
+		const needed = userDetailTab === 'models' || groupDetailTab === 'models';
+		if (needed && untrack(() => modelTypeOptions.length === 0)) {
+			void fetchModelTypeOptions().then((options) => (modelTypeOptions = options));
+		}
+	});
 
 	const usageKinds = $derived(planKindsInUse);
 	const usersSortOptions = $derived([...USERS_SORT_OPTIONS, ...(usageKinds.length ? usageSortOptions(usageKinds) : [])]);
@@ -1658,27 +1571,15 @@
 						<DetailBody>
 							<DetailLayout>
 								{#snippet main()}
-									<AssignmentList
-										items={groups}
-										getId={(g) => g.id}
-										getSearchText={(g) => `${g.name} ${g.description || ''}`}
-										isAssigned={(g) => (userGroupIds[activeUser.id] || []).includes(g.id)}
-										isToggling={(g) => togglingMembership === `${activeUser.id}:${g.id}`}
-										onToggle={(g) => toggleUserGroupMembership(activeUser.id, g.id, (userGroupIds[activeUser.id] || []).includes(g.id))}
-										searchPlaceholder="Search groups…"
-										ariaLabel="Groups"
-										emptyIcon="group"
-										emptyTitle="No groups yet"
-										emptyDescription="Create one from the Groups view, then come back here to add this user to it."
-									>
-										{#snippet row(group)}
-											<div class="flex items-center gap-2">
-												<p class="text-sm font-medium text-fg truncate">{group.name}</p>
-												{#if group.is_system}<Badge variant="neutral" size="sm">Built in</Badge>{/if}
-											</div>
-											{#if group.description}<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{group.description}</p>{/if}
-										{/snippet}
-									</AssignmentList>
+									<AssignedList
+										kind={groupsKind}
+										label="Groups"
+										assignedRows={userGroupRows}
+										pickerItems={groups}
+										onApply={(diff) => applyUserGroups(activeUser.id, diff)}
+										loading={loadingMemberships}
+										pickerSubtitle={`Add ${activeUser.username} to groups`}
+									/>
 								{/snippet}
 							</DetailLayout>
 						</DetailBody>
@@ -1686,28 +1587,15 @@
 						<DetailBody>
 							<DetailLayout>
 								{#snippet main()}
-									<AssignmentList
-										items={allPresets}
-										getId={(p) => p.id}
-										getSearchText={(p) => `${p.name} ${p.id}`}
-										isAssigned={(p) => (userPresetAssignments[activeUser.id] || []).some((a: any) => a.preset_id === p.preset_db_id)}
-										isToggling={(p) => assigningUserPreset === p.id}
-										onToggle={(p) => {
-											const assigned = (userPresetAssignments[activeUser.id] || []).some((a: any) => a.preset_id === p.preset_db_id);
-											assigned ? handleUnassignUserPreset(p.id) : handleAssignUserPreset(p.id);
-										}}
-										loading={loadingUserPresets}
-										searchPlaceholder="Search presets…"
-										ariaLabel="Presets"
-										emptyIcon="layers"
-										emptyTitle="No presets installed"
-										emptyDescription="Install presets in the Presets tab, then come back here to grant this user access."
-									>
-										{#snippet row(preset)}
-											<p class="text-sm font-medium text-fg truncate">{preset.name}</p>
-											<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{preset.id}</p>
-										{/snippet}
-									</AssignmentList>
+									<AssignedList
+										kind={presetsKind}
+										label="Presets"
+										assignedRows={userPresetRows}
+										pickerItems={allPresets}
+										onApply={(diff) => applyUserPresets(activeUser.id, diff)}
+										loading={!userPresetAssignments[activeUser.id] && loadingUserPresets}
+										pickerSubtitle={`Grant ${activeUser.username} access to presets`}
+									/>
 								{/snippet}
 							</DetailLayout>
 						</DetailBody>
@@ -1715,31 +1603,15 @@
 						<DetailBody>
 							<DetailLayout>
 								{#snippet main()}
-									<AssignmentList
-										items={allLLMConfigs}
-										getId={(l) => l.id}
-										getSearchText={(l) => `${l.name} ${l.type} ${l.model}`}
-										isAssigned={(l) => (userLLMAssignments[activeUser.id] || []).some((a: any) => a.id === l.id)}
-										isToggling={(l) => assigningUserLLM === l.id}
-										onToggle={(l) => {
-											const assigned = (userLLMAssignments[activeUser.id] || []).some((a: any) => a.id === l.id);
-											assigned ? handleUnassignUserLLM(l.id) : handleAssignUserLLM(l.id);
-										}}
-										loading={loadingUserLLMs}
-										searchPlaceholder="Search LLM configurations…"
-										ariaLabel="LLM configurations"
-										emptyIcon="chat"
-										emptyTitle="No LLM configurations yet"
-										emptyDescription="Create an LLM configuration in the LLM Configuration tab, then come back here to grant this user access."
-									>
-										{#snippet row(llm)}
-											<div class="flex items-center gap-2">
-												<p class="text-sm font-medium text-fg truncate">{llm.name}</p>
-												{#if !llm.enabled}<Badge variant="warning" size="sm">Disabled</Badge>{/if}
-											</div>
-											<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{llm.type} · {llm.model}</p>
-										{/snippet}
-									</AssignmentList>
+									<AssignedList
+										kind={llmsKind}
+										label="LLM configurations"
+										assignedRows={userLLMRows}
+										pickerItems={allLLMConfigs}
+										onApply={(diff) => applyUserLLMs(activeUser.id, diff)}
+										loading={!userLLMAssignments[activeUser.id] && loadingUserLLMs}
+										pickerSubtitle={`Grant ${activeUser.username} access to LLM configurations`}
+									/>
 								{/snippet}
 							</DetailLayout>
 						</DetailBody>
@@ -1747,15 +1619,15 @@
 						<DetailBody>
 							<DetailLayout>
 								{#snippet main()}
-									<DetailSection label="Models" padded={false}>
-										<ModelAssignmentPicker
-											assignedModelIds={userModelAssignments[activeUser.id] || []}
-											processingModelId={assigningUserModel}
-											assignedUserId={activeUser.id}
-											onAssign={(modelId) => assignUserModel(modelId)}
-											onUnassign={(modelId) => unassignUserModel(modelId)}
-										/>
-									</DetailSection>
+									<AssignedList
+										kind={modelsKind}
+										label="Models"
+										assignedRows={userModelRows[activeUser.id] ?? []}
+										remote={userModelRemote}
+										onApply={(diff) => applyUserModels(activeUser.id, diff)}
+										loading={!(activeUser.id in userModelRows)}
+										pickerSubtitle={`Grant ${activeUser.username} access to models`}
+									/>
 								{/snippet}
 							</DetailLayout>
 						</DetailBody>
@@ -1788,6 +1660,11 @@
 						plan={activePlan}
 						kinds={planKinds}
 						detail={planDetail}
+						{groups}
+						{users}
+						onAssignmentsChanged={async () => {
+							if (activePlan) await Promise.all([loadPlans(), loadPlanDetail(activePlan.id)]);
+						}}
 						saving={savingPlan}
 						onSave={savePlan}
 						onDelete={activePlan ? () => handleDeletePlan(activePlan) : undefined}
@@ -1881,24 +1758,15 @@
 					<DetailBody>
 						<DetailLayout>
 							{#snippet main()}
-								<AssignmentList
-									items={users}
-									getId={(u) => u.id}
-									getSearchText={(u) => `${u.username} ${u.email}`}
-									isAssigned={(u) => (userGroupIds[u.id] || []).includes(activeGroupEntity.id)}
-									isToggling={(u) => togglingMembership === `${u.id}:${activeGroupEntity.id}`}
-									onToggle={(u) => toggleUserGroupMembership(u.id, activeGroupEntity.id, (userGroupIds[u.id] || []).includes(activeGroupEntity.id))}
-									searchPlaceholder="Search users…"
-									ariaLabel="Users"
-									emptyIcon="user"
-									emptyTitle="No users yet"
-									emptyDescription="Add users from the Users view, then come back here to add them to this group."
-								>
-									{#snippet row(user)}
-										<p class="text-sm font-medium text-fg truncate">{user.username}</p>
-										<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{user.email}</p>
-									{/snippet}
-								</AssignmentList>
+								<AssignedList
+									kind={usersKind}
+									label="Users"
+									assignedRows={groupUserRows}
+									pickerItems={pickerUsers}
+									onApply={(diff) => applyGroupUsers(activeGroupEntity.id, diff)}
+									loading={loadingMemberships}
+									pickerSubtitle={`Add users to ${activeGroupEntity.name}`}
+								/>
 							{/snippet}
 						</DetailLayout>
 					</DetailBody>
@@ -1906,28 +1774,15 @@
 					<DetailBody>
 						<DetailLayout>
 							{#snippet main()}
-								<AssignmentList
-									items={allPresets}
-									getId={(p) => p.id}
-									getSearchText={(p) => `${p.name} ${p.id}`}
-									isAssigned={(p) => groupPresets.some((gp) => gp.preset_id === p.preset_db_id)}
-									isToggling={(p) => assigningGroupPreset === p.id}
-									onToggle={(p) => {
-										const assigned = groupPresets.some((gp) => gp.preset_id === p.preset_db_id);
-										assigned ? handleUnassignGroupPreset(p.id) : handleAssignGroupPreset(p.id);
-									}}
-									loading={loadingGroupPresets}
-									searchPlaceholder="Search presets…"
-									ariaLabel="Presets"
-									emptyIcon="layers"
-									emptyTitle="No presets installed"
-									emptyDescription="Install presets in the Presets tab, then come back here to grant this group access."
-								>
-									{#snippet row(preset)}
-										<p class="text-sm font-medium text-fg truncate">{preset.name}</p>
-										<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{preset.id}</p>
-									{/snippet}
-								</AssignmentList>
+								<AssignedList
+									kind={presetsKind}
+									label="Presets"
+									assignedRows={groupPresetRows}
+									pickerItems={allPresets}
+									onApply={(diff) => applyGroupPresets(activeGroupEntity.id, diff)}
+									loading={!groupPresetsByGroup[activeGroupEntity.id] && loadingGroupPresets}
+									pickerSubtitle={`Grant ${activeGroupEntity.name} access to presets`}
+								/>
 							{/snippet}
 						</DetailLayout>
 					</DetailBody>
@@ -1935,31 +1790,15 @@
 					<DetailBody>
 						<DetailLayout>
 							{#snippet main()}
-								<AssignmentList
-									items={allLLMConfigs}
-									getId={(l) => l.id}
-									getSearchText={(l) => `${l.name} ${l.type} ${l.model}`}
-									isAssigned={(l) => groupLLMs.some((gl) => gl.llm_config_id === l.id)}
-									isToggling={(l) => assigningGroupLLM === l.id}
-									onToggle={(l) => {
-										const assigned = groupLLMs.some((gl) => gl.llm_config_id === l.id);
-										assigned ? handleUnassignGroupLLM(l.id) : handleAssignGroupLLM(l.id);
-									}}
-									loading={loadingGroupLLMs}
-									searchPlaceholder="Search LLM configurations…"
-									ariaLabel="LLM configurations"
-									emptyIcon="chat"
-									emptyTitle="No LLM configurations yet"
-									emptyDescription="Create an LLM configuration in the LLM Configuration tab, then come back here to grant this group access."
-								>
-									{#snippet row(llm)}
-										<div class="flex items-center gap-2">
-											<p class="text-sm font-medium text-fg truncate">{llm.name}</p>
-											{#if !llm.enabled}<Badge variant="warning" size="sm">Disabled</Badge>{/if}
-										</div>
-										<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{llm.type} · {llm.model}</p>
-									{/snippet}
-								</AssignmentList>
+								<AssignedList
+									kind={llmsKind}
+									label="LLM configurations"
+									assignedRows={groupLLMRows}
+									pickerItems={allLLMConfigs}
+									onApply={(diff) => applyGroupLLMs(activeGroupEntity.id, diff)}
+									loading={!groupLLMsByGroup[activeGroupEntity.id] && loadingGroupLLMs}
+									pickerSubtitle={`Grant ${activeGroupEntity.name} access to LLM configurations`}
+								/>
 							{/snippet}
 						</DetailLayout>
 					</DetailBody>
@@ -1967,15 +1806,15 @@
 					<DetailBody>
 						<DetailLayout>
 							{#snippet main()}
-								<DetailSection label="Models" padded={false}>
-									<ModelAssignmentPicker
-										assignedModelIds={groupModels.map((gm) => gm.model_id)}
-										processingModelId={assigningGroupModel}
-										assignedGroupId={activeGroupEntity.id}
-										onAssign={(modelId) => handleAssignGroupModel(modelId)}
-										onUnassign={(modelId) => handleUnassignGroupModel(modelId)}
-									/>
-								</DetailSection>
+								<AssignedList
+									kind={modelsKind}
+									label="Models"
+									assignedRows={groupModelRows[activeGroupEntity.id] ?? []}
+									remote={groupModelRemote}
+									onApply={(diff) => applyGroupModels(activeGroupEntity.id, diff)}
+									loading={!(activeGroupEntity.id in groupModelRows)}
+									pickerSubtitle={`Grant ${activeGroupEntity.name} access to models`}
+								/>
 							{/snippet}
 						</DetailLayout>
 					</DetailBody>
@@ -2141,43 +1980,25 @@
 	</SelectionActionBar>
 {/if}
 
-<BulkPickerModal
+<EntityPicker
+	kind={groupsKind}
+	items={groups}
+	mode="single"
 	isOpen={showAddToGroupModal}
 	title="Add {selectedUserIds.size} {selectedUserIds.size === 1 ? 'user' : 'users'} to a group"
-	items={groups}
-	getId={(g) => g.id}
-	getSearchText={(g) => `${g.name} ${g.description || ''}`}
-	searchPlaceholder="Search groups…"
-	confirmLabel="Add to group"
-	emptyTitle="No groups yet"
-	busy={bulkAdding}
-	onConfirm={handleAddSelectedUsersToGroup}
+	onApply={(diff) => applySingle(diff, handleAddSelectedUsersToGroup)}
 	onClose={() => (showAddToGroupModal = false)}
->
-	{#snippet row(group)}
-		<p class="text-sm font-medium text-fg truncate">{group.name}</p>
-		{#if group.description}<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{group.description}</p>{/if}
-	{/snippet}
-</BulkPickerModal>
+/>
 
-<BulkPickerModal
+<EntityPicker
+	kind={presetsKind}
+	items={allPresets}
+	mode="single"
 	isOpen={showAssignPresetModal}
 	title="Assign {selectedUserIds.size} {selectedUserIds.size === 1 ? 'user' : 'users'} to a preset"
-	items={allPresets}
-	getId={(p) => p.id}
-	getSearchText={(p) => `${p.name} ${p.id}`}
-	searchPlaceholder="Search presets…"
-	confirmLabel="Assign preset"
-	emptyTitle="No presets installed"
-	busy={bulkAssigning}
-	onConfirm={handleAssignSelectedUsersToPreset}
+	onApply={(diff) => applySingle(diff, handleAssignSelectedUsersToPreset)}
 	onClose={() => (showAssignPresetModal = false)}
->
-	{#snippet row(preset)}
-		<p class="text-sm font-medium text-fg truncate">{preset.name}</p>
-		<p class="font-mono text-xs text-fg-subtle truncate mt-0.5">{preset.id}</p>
-	{/snippet}
-</BulkPickerModal>
+/>
 
 <DeletePlanDialog
 	plan={deletingPlan}

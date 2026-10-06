@@ -1,11 +1,12 @@
 <script lang="ts" generics="Row">
 	import { untrack, type Snippet } from 'svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-		import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+		import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
+	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
 	import LibraryFilterChipRow from '$lib/components/library/LibraryFilterChipRow.svelte';
 	import FilterPopoverFrame from '$lib/components/library/FilterPopoverFrame.svelte';
 	import SelectFilterField from '$lib/components/library/SelectFilterField.svelte';
-	import { Button, EmptyState, Kbd, LoadErrorState, SegmentedControl } from '$lib/components/ui';
+	import { Button, EmptyState, LoadErrorState, SegmentedControl } from '$lib/components/ui';
 	import EntityRows from './EntityRows.svelte';
 	import { buildCollisionIndex } from './pickFacts';
 	import {
@@ -432,8 +433,14 @@
 	</div>
 
 	<svelte:fragment slot="footer">
-		<div class="flex items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
-			<div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+		<ConfirmFooter
+			confirmLabel={primaryLabel}
+			{busy}
+			confirmDisabled={!canApply}
+			onCancel={onClose}
+			onConfirm={() => void apply()}
+		>
+			{#snippet leftActions()}
 				<span class="font-mono text-xs tabular-nums text-fg-muted" data-picker-summary>{footerSummary}</span>
 				{#if multi && filtered.length > 0 && headState !== 'all'}
 					<button type="button" class="text-xs text-signal hover:underline" onclick={selectAllFiltered}>
@@ -443,15 +450,7 @@
 				{#if multi && !diffIsEmpty(effectiveDiff)}
 					<button type="button" class="text-xs text-fg-subtle hover:text-fg" onclick={clearSelection}>Reset</button>
 				{/if}
-			</div>
-			<div class="ml-auto flex flex-shrink-0 items-center gap-3">
-				<Button variant="secondary" disabled={busy} onclick={onClose}>
-					<span class="inline-flex items-center gap-2">Cancel <Kbd keys="Esc" /></span>
-				</Button>
-				<Button variant="primary" disabled={!canApply} loading={busy} onclick={() => void apply()}>
-					<span class="inline-flex items-center gap-2">{primaryLabel} <Kbd keys={['Ctrl', 'Enter']} /></span>
-				</Button>
-			</div>
-		</div>
+			{/snippet}
+		</ConfirmFooter>
 	</svelte:fragment>
 </BaseModal>

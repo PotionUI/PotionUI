@@ -194,7 +194,7 @@ describe('UsersGroupsTab', () => {
 		expect(mounted.target.querySelector('nav[aria-label="Group details"]')).toBeTruthy();
 	});
 
-	it('adds the selected users to a group through the bulk picker modal', async () => {
+	it('adds the selected users to a group through the group picker', async () => {
 		vi.mocked(adminApi.getUsers).mockResolvedValue({ success: true, data: [user({ id: 'user-a', username: 'someuser' })] });
 		vi.mocked(adminApi.getUserGroups).mockResolvedValue({ success: true, data: [group({ id: 'group-a', name: 'Editors' })] });
 		vi.mocked(adminApi.getGroupMembers).mockResolvedValue({ success: true, data: [] });
@@ -218,12 +218,12 @@ describe('UsersGroupsTab', () => {
 		const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
 		expect(dialog).toBeTruthy();
 
-		const groupOption = Array.from(dialog.querySelectorAll('[role="option"]')).find((el) => el.textContent?.includes('Editors'))!;
+		const groupOption = dialog.querySelector('[role="row"][data-row-id="group-a"]') as HTMLElement;
 		expect(groupOption).toBeTruthy();
-		(groupOption as HTMLElement).click();
+		groupOption.click();
 		flushSync();
 
-		const confirmButton = Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent?.includes('Add to group'))!;
+		const confirmButton = dialog.querySelector('button.bg-accent') as HTMLButtonElement;
 		expect(confirmButton).toBeTruthy();
 		expect(confirmButton.disabled).toBe(false);
 		confirmButton.click();

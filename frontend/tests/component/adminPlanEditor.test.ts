@@ -4,13 +4,37 @@ import PlanEditor from '../../src/routes/admin/components/plans/PlanEditor.svelt
 import type { Plan, PlanBody } from '../../src/lib/plans/types';
 import { GB, KINDS, PLANS } from './plansFixtures';
 
+const api = vi.hoisted(() => ({
+	setGroupPlan: vi.fn(async () => undefined),
+	setUserPlan: vi.fn(async () => undefined)
+}));
+
+vi.mock('../../src/lib/plans/api', () => api);
+
 let target: HTMLDivElement | undefined;
 let component: ReturnType<typeof mount> | null = null;
 
-function render(plan: Plan | null, onSave: (body: PlanBody) => void = () => {}) {
+const DETAIL = {
+	plan: PLANS[0],
+	assigned_to: {
+		groups: [{ id: 'g1', name: 'premium-tier-1', members: 3, is_default: false }],
+		users: [{ id: 'u1', username: 'mira' }]
+	},
+	in_use: { people: 0, above_warn: 0, at_limit: 0, kinds: [] }
+};
+const GROUPS = [
+	{ id: 'g1', name: 'premium-tier-1' },
+	{ id: 'g2', name: 'staff' }
+];
+const USERS = [
+	{ id: 'u1', username: 'mira', email: 'mira@example.com', account_type: 'USER' },
+	{ id: 'u2', username: 'jonas', email: 'jonas@example.com', account_type: 'USER' }
+];
+
+function render(plan: Plan | null, onSave: (body: PlanBody) => void = () => {}, extra: Record<string, unknown> = {}) {
 	target = document.createElement('div');
 	document.body.appendChild(target);
-	component = mount(PlanEditor, { target, props: { plan, kinds: KINDS, onSave, onBack: () => {} } });
+	component = mount(PlanEditor, { target, props: { plan, kinds: KINDS, onSave, onBack: () => {}, ...extra } } as never);
 	flushSync();
 	return target;
 }
@@ -114,5 +138,76 @@ describe('PlanEditor', () => {
 		const discard = Array.from(root.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Discard') as HTMLButtonElement;
 		await click(discard);
 		expect(root.querySelector('[data-limit-row="storage_bytes"]')).not.toBeNull();
+	});
+
+	describe('assignments', () => {
+		function dialog() {
+			return document.body.querySelector('[role="dialog"]') as HTMLElement;
+		}
+
+		function buttonNamed(root: ParentNode, text: string) {
+			return Array.from(root.querySelectorAll('button')).find((b) => b.textContent?.trim().startsWith(text)) as HTMLButtonElement;
+		}
+
+		async function pickRow(name: string) {
+			const row = Array.from(dialog().querySelectorAll<HTMLElement>('[role="row"]')).find((r) => r.textContent?.includes(name));
+			if (!row) throw new Error(`row ${name} not found`);
+			await click(row);
+		}
+
+		function renderAssigned(onAssignmentsChanged = vi.fn()) {
+			const root = render(PLANS[0], () => {}, { detail: DETAIL, groups: GROUPS, users: USERS, onAssignmentsChanged });
+			return { root, onAssignmentsChanged };
+		}
+
+		it('assigns the plan to the ticked users through the plans API and reloads', async () => {
+			api.setUserPlan.mockClear();
+			const { root, onAssignmentsChanged } = renderAssigned();
+			await click(buttonNamed(root, 'Add users'));
+			expect(dialog()).not.toBeNull();
+			expect(dialog().textContent).toContain('jonas');
+			expect(dialog().textContent).not.toContain('mira@example.com');
+			await pickRow('jonas');
+			await click(buttonNamed(dialog(), 'Add 1'));
+			await vi.waitFor(() => expect(onAssignmentsChanged).toHaveBeenCalledTimes(1));
+			expect(api.setUserPlan).toHaveBeenCalledTimes(1);
+			expect(api.setUserPlan).toHaveBeenCalledWith('u2', PLANS[0].id);
+		});
+
+		it('assigns the plan to groups through the plans API', async () => {
+			api.setGroupPlan.mockClear();
+			const { root, onAssignmentsChanged } = renderAssigned();
+			await click(buttonNamed(root, 'Add groups'));
+			await pickRow('staff');
+			await click(buttonNamed(dialog(), 'Add 1'));
+			await vi.waitFor(() => expect(onAssignmentsChanged).toHaveBeenCalledTimes(1));
+			expect(api.setGroupPlan).toHaveBeenCalledWith('g2', PLANS[0].id);
+		});
+
+		it('removes an assigned group and user by clearing their plan', async () => {
+			api.setGroupPlan.mockClear();
+			api.setUserPlan.mockClear();
+			const { root, onAssignmentsChanged } = renderAssigned();
+			await click(root.querySelector('button[aria-label="Remove premium-tier-1 from this plan"]'));
+			await vi.waitFor(() => expect(onAssignmentsChanged).toHaveBeenCalledTimes(1));
+			expect(api.setGroupPlan).toHaveBeenCalledWith('g1', null);
+			await click(root.querySelector('button[aria-label="Remove mira from this plan"]'));
+			await vi.waitFor(() => expect(onAssignmentsChanged).toHaveBeenCalledTimes(2));
+			expect(api.setUserPlan).toHaveBeenCalledWith('u1', null);
+		});
+
+		it('shows the error when removing fails and does not reload', async () => {
+			api.setGroupPlan.mockRejectedValueOnce(new Error('Group is locked'));
+			const { root, onAssignmentsChanged } = renderAssigned();
+			await click(root.querySelector('button[aria-label="Remove premium-tier-1 from this plan"]'));
+			await vi.waitFor(() => expect(root.querySelector('[data-plan-assign-error]')?.textContent).toContain('Group is locked'));
+			expect(onAssignmentsChanged).not.toHaveBeenCalled();
+		});
+
+		it('offers no assignment buttons while creating a plan', () => {
+			const root = render(null);
+			expect(buttonNamed(root, 'Add users')).toBeUndefined();
+			expect(buttonNamed(root, 'Add groups')).toBeUndefined();
+		});
 	});
 });

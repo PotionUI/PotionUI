@@ -1,9 +1,9 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mount, unmount, flushSync } from 'svelte';
+import { mount, unmount, flushSync, tick } from 'svelte';
 import GroupPlanSection from '../../src/routes/admin/components/plans/GroupPlanSection.svelte';
 import UserPlanSection from '../../src/routes/admin/components/plans/UserPlanSection.svelte';
 import type { UserPlanDetail } from '../../src/lib/plans/types';
-import { GB, IMPACT, KINDS, PLANS, USER_DETAIL, openSelectAndPick } from './plansFixtures';
+import { GB, IMPACT, KINDS, PLANS, USER_DETAIL } from './plansFixtures';
 
 let target: HTMLDivElement | undefined;
 let component: ReturnType<typeof mount> | null = null;
@@ -14,6 +14,29 @@ function render(Component: never, props: Record<string, unknown>) {
 	component = mount(Component, { target, props } as never);
 	flushSync();
 	return target;
+}
+
+async function settle() {
+	await tick();
+	flushSync();
+}
+
+async function pickPlan(container: HTMLElement, name: string) {
+	(container.querySelector('[data-plan-picker-trigger]') as HTMLElement).click();
+	await settle();
+	const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement;
+	expect(dialog).not.toBeNull();
+	const row = Array.from(dialog.querySelectorAll<HTMLElement>('[role="row"]')).find((r) => r.textContent?.includes(name));
+	if (!row) throw new Error(`plan row ${name} not found`);
+	row.click();
+	await settle();
+	const apply = Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent?.trim().startsWith('Select ')) as HTMLButtonElement;
+	apply.click();
+	await settle();
+}
+
+function inheritButton(container: HTMLElement) {
+	return Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Use inherited plan')) as HTMLButtonElement | undefined;
 }
 
 afterEach(() => {
@@ -51,17 +74,25 @@ describe('GroupPlanSection', () => {
 		expect(root.querySelector('[data-plan-impact-empty]')).not.toBeNull();
 	});
 
-	it('reports the picked plan, and null for inherit', async () => {
+	it('shows the inherited default on the trigger and reports the picked plan', async () => {
 		const onChange = vi.fn();
 		const root = render(GroupPlanSection as never, { plans: PLANS, kinds: KINDS, planId: null, defaultPlanName: 'Free', onChange });
-		expect(root.querySelector('[data-group-plan-select]')?.textContent).toContain('Inherit (use default: Free)');
-		await openSelectAndPick(root.querySelector('[data-group-plan-select]') as HTMLElement, 'Tier 1');
+		const select = root.querySelector('[data-group-plan-select]') as HTMLElement;
+		expect(select.querySelector('[data-plan-picker-label]')?.textContent).toContain('Inherit (use default: Free)');
+		expect(inheritButton(select)).toBeUndefined();
+		await pickPlan(select, 'Tier 1');
 		expect(onChange).toHaveBeenLastCalledWith('tier1');
-		unmount(component!);
-		component = null;
-		target?.remove();
-		const again = render(GroupPlanSection as never, { plans: PLANS, kinds: KINDS, planId: 'tier1', onChange });
-		await openSelectAndPick(again.querySelector('[data-group-plan-select]') as HTMLElement, 'Inherit');
+		expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+	});
+
+	it('shows the current plan with its limits and clears it back to inherit', async () => {
+		const onChange = vi.fn();
+		const root = render(GroupPlanSection as never, { plans: PLANS, kinds: KINDS, planId: 'tier1', onChange });
+		const select = root.querySelector('[data-group-plan-select]') as HTMLElement;
+		expect(select.querySelector('[data-plan-picker-label]')?.textContent).toBe('Tier 1');
+		expect(select.querySelector('[data-plan-picker-summary]')?.textContent).toBeTruthy();
+		inheritButton(select)!.click();
+		await settle();
 		expect(onChange).toHaveBeenLastCalledWith(null);
 	});
 });
@@ -98,14 +129,19 @@ describe('UserPlanSection', () => {
 	it('reports the personal override and clears it back to groups', async () => {
 		const onChange = vi.fn();
 		const root = render(UserPlanSection as never, { plans: PLANS, kinds: KINDS, detail: USER_DETAIL, overrideId: null, onChange });
-		expect(root.querySelector('[data-user-plan-select]')?.textContent).toContain('None (use groups)');
-		await openSelectAndPick(root.querySelector('[data-user-plan-select]') as HTMLElement, 'Unlimited');
+		const select = root.querySelector('[data-user-plan-select]') as HTMLElement;
+		expect(select.querySelector('[data-plan-picker-label]')?.textContent).toContain('None (use groups)');
+		expect(inheritButton(select)).toBeUndefined();
+		await pickPlan(select, 'Unlimited');
 		expect(onChange).toHaveBeenLastCalledWith('unlimited');
 		unmount(component!);
 		component = null;
 		target?.remove();
 		const again = render(UserPlanSection as never, { plans: PLANS, kinds: KINDS, detail: USER_DETAIL, overrideId: 'unlimited', onChange });
-		await openSelectAndPick(again.querySelector('[data-user-plan-select]') as HTMLElement, 'None (use groups)');
+		const againSelect = again.querySelector('[data-user-plan-select]') as HTMLElement;
+		expect(againSelect.querySelector('[data-plan-picker-label]')?.textContent).toContain('Unlimited');
+		inheritButton(againSelect)!.click();
+		await settle();
 		expect(onChange).toHaveBeenLastCalledWith(null);
 	});
 });

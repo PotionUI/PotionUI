@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { DetailSection } from '$lib/components/detail';
 	import { Spinner } from '$lib/components/ui';
-	import CustomSelect from '$lib/components/CustomSelect.svelte';
 	import { shortLabel } from '$lib/plans/format';
 	import { formatImpactCell, impactNote } from '$lib/plans/usage';
-	import { INHERIT_PLAN, planOptions } from '$lib/plans/options';
+	import PlanPickerField from './PlanPickerField.svelte';
 	import type { GroupImpact, LimitKindDescriptor, Plan } from '$lib/plans/types';
 
 	let {
@@ -25,7 +24,7 @@
 		onChange: (planId: string | null) => void;
 	} = $props();
 
-	const options = $derived(planOptions(plans, kinds, { inheritLabel: defaultPlanName ? `Inherit (use default: ${defaultPlanName})` : 'Inherit (use default)' }));
+	const inheritLabel = $derived(defaultPlanName ? `Inherit (use default: ${defaultPlanName})` : 'Inherit (use default)');
 	const impactKinds = $derived(impact ? impact.kinds : []);
 	const memberCount = $derived(impact?.members.length ?? 0);
 </script>
@@ -37,12 +36,15 @@
 				Members get this plan's limits. If someone is in several groups with plans, they get the most generous value for each limit. A personal
 				override on the user wins over groups.
 			</p>
-			<div class="w-64 flex-shrink-0" data-group-plan-select>
-				<CustomSelect
-					size="sm"
-					value={planId ?? INHERIT_PLAN}
-					{options}
-					on:change={(e) => onChange(e.detail === INHERIT_PLAN ? null : String(e.detail))}
+			<div class="w-72 flex-shrink-0" data-group-plan-select>
+				<PlanPickerField
+					{plans}
+					{kinds}
+					value={planId}
+					{inheritLabel}
+					title="Group plan"
+					subtitle="Members get this plan's limits"
+					{onChange}
 				/>
 			</div>
 		</div>

@@ -12,6 +12,8 @@
 	import { DataTable, TablePager, pageCount, clearAll, type DataTableColumn } from '$lib/components/table';
 	import { getApiErrorMessage } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
+	import { cloudModelsKind } from '$lib/components/picker/kinds';
+	import { pickFacts } from '$lib/components/picker';
 	import type { PresetInfo } from '$lib/types/api';
 	import { parseServerDate, timeAgo } from '$lib/utils/relativeTime';
 	import {
@@ -337,7 +339,9 @@
 	}
 
 	function idLine(item: CloudCatalogItem): string {
-		return item.vendor ? `${item.vendor} · ${item.provider_model_id}` : item.provider_model_id;
+		return pickFacts(item, cloudModelsKind, undefined)
+			.map((fact) => fact.value)
+			.join(' · ');
 	}
 </script>
 
@@ -346,9 +350,9 @@
 	<div class="w-full min-w-0 py-1.5">
 		<Tooltip text={modelHref ? `Open ${row.label}: access and allowed presets` : row.label} wrapperClass="block min-w-0">
 			{#if modelHref}
-				<a href={modelHref} class="block truncate text-base font-medium text-signal hover:underline">{row.label}</a>
+				<a href={modelHref} class="block truncate text-base font-medium text-signal hover:underline">{cloudModelsKind.getName(row)}</a>
 			{:else}
-				<span class="block truncate text-base font-medium text-fg">{row.label}</span>
+				<span class="block truncate text-base font-medium text-fg">{cloudModelsKind.getName(row)}</span>
 			{/if}
 		</Tooltip>
 		<Tooltip text={idLine(row)} wrapperClass="block min-w-0">
@@ -435,9 +439,9 @@
 	<div class="flex items-start justify-between gap-3">
 		<div class="min-w-0 flex-1">
 			{#if modelHref}
-				<a href={modelHref} class="block truncate text-base font-semibold text-signal hover:underline">{row.label}</a>
+				<a href={modelHref} class="block truncate text-base font-semibold text-signal hover:underline">{cloudModelsKind.getName(row)}</a>
 			{:else}
-				<span class="block truncate text-base font-semibold text-fg">{row.label}</span>
+				<span class="block truncate text-base font-semibold text-fg">{cloudModelsKind.getName(row)}</span>
 			{/if}
 			<span class="block truncate font-mono text-sm text-fg-subtle">{idLine(row)}</span>
 		</div>

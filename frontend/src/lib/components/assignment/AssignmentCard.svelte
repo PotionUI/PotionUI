@@ -1,20 +1,17 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import * as adminApi from '$lib/services/admin-api';
-	import type { User } from '$lib/stores/auth';
 	import { logger } from '$lib/utils/logger';
-	import { toasts } from '$lib/stores/toast';
-	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Badge, Button, Input, Spinner, EmptyState, SegmentedControl } from '$lib/components/ui';
-	import { DetailSection } from '$lib/components/detail';
-	import { toGroupAccessRows, toUserAccessRows } from './accessRows';
+	import { SegmentedControl } from '$lib/components/ui';
+	import { AssignedList, applyDiff } from '$lib/components/picker';
+	import { groupsKind, usersKind } from '$lib/components/picker/kinds';
+	import type { ApplyResult, PickerDiff } from '$lib/components/picker';
+	import type { PickerUser } from '$lib/components/picker/kinds';
+	import type { APIResponse } from '$lib/types/api';
 	import type { AssignmentAdapter } from './types';
 
 	export let adapter: AssignmentAdapter;
 	export let resourceName: string;
-	/** Identifies which resource `adapter` targets - a primitive so reload only
-	    fires when it actually changes, not whenever the parent re-renders and
-	    hands down a freshly-constructed (but equivalent) adapter object. */
 	export let resourceKey: string;
 
 	type AccessView = 'users' | 'groups';
@@ -24,54 +21,29 @@
 	}>();
 
 	let accessView: AccessView = 'users';
-	let searchQuery = '';
-	let allUsers: User[] = [];
+	let allUsers: PickerUser[] = [];
 	let allGroups: adminApi.UserGroup[] = [];
 	let assignedUserIds = new Set<string>();
 	let assignedGroupIds = new Set<string>();
 	let loading = true;
 	let loadError = '';
-	let processingKeys = new Set<string>();
 	let loadedForKey = '';
 	let requestVersion = 0;
 
-	$: rows =
-		accessView === 'users'
-			? toUserAccessRows(allUsers, assignedUserIds, searchQuery)
-			: toGroupAccessRows(allGroups, assignedGroupIds, searchQuery);
-	$: total = accessView === 'users' ? allUsers.length : allGroups.length;
-	$: toggleRow = accessView === 'users' ? toggleUser : toggleGroup;
-	$: view =
-		accessView === 'users'
-			? {
-					searchPlaceholder: 'Find a user…',
-					searchLabel: 'Search users',
-					description: `Add individual users who should see ${resourceName} directly.`,
-					addLabel: 'Add user',
-					emptyIcon: 'user',
-					noMatchTitle: 'No users match your search',
-					noneTitle: 'No users yet',
-					noneDescription: 'Create a user from the Users admin tab first.'
-				}
-			: {
-					searchPlaceholder: 'Find a group…',
-					searchLabel: 'Search groups',
-					description: `Every member of an assigned group can use ${resourceName}.`,
-					addLabel: 'Add group',
-					emptyIcon: 'group',
-					noMatchTitle: 'No groups match your search',
-					noneTitle: 'No user groups yet',
-					noneDescription: 'Create a group from the User Groups admin tab first.'
-				};
+	$: assignedUsers = allUsers.filter((user) => assignedUserIds.has(user.id));
+	$: assignedGroups = allGroups.filter((group) => assignedGroupIds.has(group.id));
 
 	$: if (resourceKey && resourceKey !== loadedForKey) {
 		loadedForKey = resourceKey;
-		searchQuery = '';
 		loadAccess();
 	}
 
 	function errorMessage(response: { message?: string } | null | undefined, fallback: string) {
 		return response?.message || fallback;
+	}
+
+	function ensureOk(response: APIResponse, fallback: string) {
+		if (!response.success) throw new Error(errorMessage(response, fallback));
 	}
 
 	async function loadAccess() {
@@ -80,7 +52,6 @@
 		const version = ++requestVersion;
 		loading = true;
 		loadError = '';
-		processingKeys = new Set();
 
 		try {
 			const [usersResponse, groupsResponse, state] = await Promise.all([
@@ -89,12 +60,8 @@
 				activeAdapter.loadState()
 			]);
 
-			if (!usersResponse.success) {
-				throw new Error(errorMessage(usersResponse, 'Could not load users'));
-			}
-			if (!groupsResponse.success) {
-				throw new Error(errorMessage(groupsResponse, 'Could not load user groups'));
-			}
+			if (!usersResponse.success) throw new Error(errorMessage(usersResponse, 'Could not load users'));
+			if (!groupsResponse.success) throw new Error(errorMessage(groupsResponse, 'Could not load user groups'));
 			if (version !== requestVersion || activeKey !== resourceKey) return;
 
 			allUsers = usersResponse.data || [];
@@ -110,154 +77,73 @@
 		}
 	}
 
-	function notifyChanged() {
-		dispatch('changed', {
-			userCount: assignedUserIds.size,
-			groupCount: assignedGroupIds.size
+	async function refreshState(activeKey: string) {
+		const state = await adapter.loadState();
+		if (activeKey !== resourceKey) return;
+		assignedUserIds = state.userIds;
+		assignedGroupIds = state.groupIds;
+		dispatch('changed', { userCount: state.userIds.size, groupCount: state.groupIds.size });
+	}
+
+	async function applyUsers(diff: PickerDiff): Promise<ApplyResult> {
+		const activeKey = resourceKey;
+		const result = await applyDiff(diff, {
+			assign: async (id) => ensureOk(await adapter.assignUser(id), 'The user assignment could not be updated'),
+			unassign: async (id) => ensureOk(await adapter.unassignUser(id), 'The user assignment could not be updated')
 		});
+		await refreshState(activeKey);
+		return result;
 	}
 
-	// Granting/revoking commits immediately, one API call per toggle — there's no
-	// draft state to save here, each row's control IS the action.
-	async function toggleUser(userId: string) {
-		const activeAdapter = adapter;
+	async function applyGroups(diff: PickerDiff): Promise<ApplyResult> {
 		const activeKey = resourceKey;
-		const assigned = assignedUserIds.has(userId);
-		const key = `user:${userId}`;
-		processingKeys = new Set(processingKeys).add(key);
-		try {
-			const response = assigned
-				? await activeAdapter.unassignUser(userId)
-				: await activeAdapter.assignUser(userId);
-			if (!response.success) {
-				throw new Error(errorMessage(response, 'The user assignment could not be updated'));
-			}
-			if (activeKey !== resourceKey) return;
-
-			const next = new Set(assignedUserIds);
-			if (assigned) next.delete(userId);
-			else next.add(userId);
-			assignedUserIds = next;
-			notifyChanged();
-		} catch (error) {
-			logger.error('Failed to update user assignment:', error);
-			toasts.error(error instanceof Error ? error.message : 'Failed to update user access');
-		} finally {
-			const nextProcessing = new Set(processingKeys);
-			nextProcessing.delete(key);
-			processingKeys = nextProcessing;
-		}
-	}
-
-	async function toggleGroup(groupId: string) {
-		const activeAdapter = adapter;
-		const activeKey = resourceKey;
-		const assigned = assignedGroupIds.has(groupId);
-		const key = `group:${groupId}`;
-		processingKeys = new Set(processingKeys).add(key);
-		try {
-			const response = assigned
-				? await activeAdapter.unassignGroup(groupId)
-				: await activeAdapter.assignGroup(groupId);
-			if (!response.success) {
-				throw new Error(errorMessage(response, 'The group assignment could not be updated'));
-			}
-			if (activeKey !== resourceKey) return;
-
-			const next = new Set(assignedGroupIds);
-			if (assigned) next.delete(groupId);
-			else next.add(groupId);
-			assignedGroupIds = next;
-			notifyChanged();
-		} catch (error) {
-			logger.error('Failed to update group assignment:', error);
-			toasts.error(error instanceof Error ? error.message : 'Failed to update group access');
-		} finally {
-			const nextProcessing = new Set(processingKeys);
-			nextProcessing.delete(key);
-			processingKeys = nextProcessing;
-		}
+		const result = await applyDiff(diff, {
+			assign: async (id) => ensureOk(await adapter.assignGroup(id), 'The group assignment could not be updated'),
+			unassign: async (id) => ensureOk(await adapter.unassignGroup(id), 'The group assignment could not be updated')
+		});
+		await refreshState(activeKey);
+		return result;
 	}
 </script>
 
-<div data-testid="assignment-card">
-	<DetailSection label="Access" padded={false}>
-		{#snippet headerExtra()}
-			<span class="font-mono text-2xs text-fg-subtle">{rows.length} of {total} shown</span>
-		{/snippet}
+<div data-testid="assignment-card" class="flex flex-col gap-3">
+	<SegmentedControl
+		items={[
+			{ id: 'users', label: 'Users', icon: 'user', count: assignedUserIds.size },
+			{ id: 'groups', label: 'Groups', icon: 'group', count: assignedGroupIds.size }
+		]}
+		selected={accessView}
+		onSelect={(id) => (accessView = id as AccessView)}
+		ariaLabel="Access type"
+	/>
 
-		<div class="border-b border-line px-4 py-3">
-			<div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-				<SegmentedControl
-					items={[
-						{ id: 'users', label: 'Users', icon: 'user', count: assignedUserIds.size },
-						{ id: 'groups', label: 'Groups', icon: 'group', count: assignedGroupIds.size }
-					]}
-					selected={accessView}
-					onSelect={(id) => (accessView = id as AccessView)}
-					ariaLabel="Access type"
-				/>
-				<div class="sm:ml-auto sm:w-72">
-					<Input
-						bind:value={searchQuery}
-						type="search"
-						placeholder={view.searchPlaceholder}
-						aria-label={view.searchLabel}
-					/>
-				</div>
-			</div>
-			<p class="mt-2 text-xs text-fg-muted">{view.description}</p>
-		</div>
-
-		{#if loading}
-			<div class="flex flex-col items-center justify-center py-14">
-				<Spinner size="md" />
-				<p class="text-sm text-fg-muted mt-3">Loading access settings…</p>
-			</div>
-		{:else if loadError}
-			<div class="p-5">
-				<EmptyState title="Access settings are unavailable" description={loadError} icon="warning" compact>
-					{#snippet actions()}<Button variant="secondary" size="sm" icon="refresh" onclick={() => loadAccess()}>Retry</Button>{/snippet}
-				</EmptyState>
-			</div>
-		{:else if rows.length === 0}
-			<EmptyState
-				icon={view.emptyIcon}
-				title={total ? view.noMatchTitle : view.noneTitle}
-				description={total ? 'Try a different search term.' : view.noneDescription}
-				compact
-			/>
-		{:else}
-			<div class="divide-y divide-line/70">
-				{#each rows as row (row.id)}
-					<div class="flex items-center gap-3 px-4 py-3" data-testid="assignment-row" data-key={row.key}>
-						<Tooltip text={row.assigned ? 'Has access' : 'No access'}>
-							<span
-								class="w-2 h-2 rounded-full flex-shrink-0 {row.assigned ? 'bg-success-solid' : 'bg-line-strong'}"
-							></span>
-						</Tooltip>
-						<div class="min-w-0 flex-1">
-							<div class="flex items-center gap-2 min-w-0">
-								<p class="text-sm font-medium text-fg truncate">{row.title}</p>
-								{#if row.badge}<Badge variant={row.badge.variant} size="sm">{row.badge.text}</Badge>{/if}
-								{#if row.assigned}<Badge variant="success" size="sm" dot>has access</Badge>{/if}
-							</div>
-							{#if row.subtitle}<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{row.subtitle}</p>{/if}
-						</div>
-						<Button
-							variant={row.assigned ? 'ghost' : 'secondary'}
-							size="sm"
-							icon={row.assigned ? 'close' : 'plus'}
-							class={row.assigned ? 'text-danger hover:text-danger hover:bg-danger/10' : ''}
-							loading={processingKeys.has(row.key)}
-							disabled={processingKeys.has(row.key)}
-							onclick={() => toggleRow(row.id)}
-						>
-							{row.assigned ? 'Remove' : view.addLabel}
-						</Button>
-					</div>
-				{/each}
-			</div>
-		{/if}
-	</DetailSection>
+	{#if accessView === 'users'}
+		<AssignedList
+			kind={usersKind}
+			label="Access"
+			assignedRows={assignedUsers}
+			pickerItems={allUsers}
+			onApply={applyUsers}
+			{loading}
+			error={loadError || null}
+			onRetry={loadAccess}
+			addLabel="Add users"
+			pickerTitle={`Add users to ${resourceName}`}
+			pickerSubtitle={`Selected users can use ${resourceName} directly.`}
+		/>
+	{:else}
+		<AssignedList
+			kind={groupsKind}
+			label="Access"
+			assignedRows={assignedGroups}
+			pickerItems={allGroups}
+			onApply={applyGroups}
+			{loading}
+			error={loadError || null}
+			onRetry={loadAccess}
+			addLabel="Add groups"
+			pickerTitle={`Add groups to ${resourceName}`}
+			pickerSubtitle={`Every member of a selected group can use ${resourceName}.`}
+		/>
+	{/if}
 </div>

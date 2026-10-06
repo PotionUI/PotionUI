@@ -32,6 +32,18 @@ describe('plugin registries', () => {
 		expect(pluginTools.has('line')).toBe(false);
 	});
 
+	it('registers an adjustment, with registerFilter kept as an alias', () => {
+		const api = createImageEditorApi();
+		const offAdjustment = api.registerAdjustment({ ...filter, id: 'sepia-wash' });
+		const offAlias = api.registerFilter({ ...filter, id: 'legacy-wash' });
+		expect(paintFilters.has('sepia-wash')).toBe(true);
+		expect(paintFilters.has('legacy-wash')).toBe(true);
+		offAdjustment();
+		offAlias();
+		expect(paintFilters.has('sepia-wash')).toBe(false);
+		expect(paintFilters.has('legacy-wash')).toBe(false);
+	});
+
 	it('registers filters and image sources through the plugin api', () => {
 		const api = createImageEditorApi();
 		const offFilter = api.registerFilter(filter);

@@ -50,7 +50,7 @@ export interface Selection {
 
 export type OptionKey = 'size' | 'opacity' | 'color' | 'tolerance';
 
-export type ToolPanelKind = 'options' | 'adjust' | 'crop' | 'transform' | 'selection';
+export type ToolPanelKind = 'options' | 'adjust' | 'filters' | 'crop' | 'transform' | 'selection';
 
 export interface ToolSettings {
 	color: string;
@@ -154,6 +154,7 @@ export interface FilterParam {
 	max: number;
 	value: number;
 	unit?: string;
+	step?: number;
 }
 
 export interface PaintFilter {
@@ -161,6 +162,7 @@ export interface PaintFilter {
 	label: string;
 	params: FilterParam[];
 	toggle?: boolean;
+	plot?: boolean;
 	active(values: FilterValues): boolean;
 	apply(image: PixelBuffer, values: FilterValues): PixelBuffer | Promise<PixelBuffer>;
 }

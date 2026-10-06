@@ -9,8 +9,22 @@ import {
 	translateGeometry
 } from './docGeometry';
 import { canvasToPngFile, flattenDocument } from './flatten';
-import { runFilters, type FilterStep } from './filters/run';
-import { defaultFilterValues } from './filters/builtin';
+import { runFilters, type FilterStep } from './adjustments/run';
+import { defaultFilterValues } from './adjustments/builtin';
+import { renderRecipe } from '$lib/filters/render';
+import { makeThumbSource } from '$lib/filters/thumbs';
+import type { FilterStepSpec } from '$lib/filters/engine';
+import type { ActiveFilter } from '$lib/filters/types';
+import {
+	canApply,
+	historyLabel,
+	initialToolState,
+	selectActive,
+	withCompare,
+	withIntensity,
+	type FilterToolState
+} from '$lib/filters/toolState';
+import { toggleStep, setStepParam } from '$lib/filters/steps';
 import {
 	FIT_MAX_ZOOM,
 	MAX_SIDE,
@@ -28,7 +42,7 @@ import {
 } from './geometry';
 import { History, type Command } from './history';
 import { DEFAULT_PEN, DEFAULT_SIZE, rgbaToHex } from './palette';
-import { clearByMask, extractByMask, sampleMaskForLayer } from './raster/layerMask';
+import { blendByMask, clearByMask, extractByMask, sampleMaskForLayer } from './raster/layerMask';
 import { buildSelection, rectPath } from './raster/selection';
 import { createPatch, patchBytes, writePatch } from './patch';
 import { paintFilters, pluginTools, setActiveEditor } from './registries';
@@ -37,6 +51,7 @@ import { createBrushTool, createEraserTool } from './tools/brush';
 import { createAdjustTool } from './tools/adjust';
 import { createCropTool } from './tools/crop';
 import { createFillTool } from './tools/fill';
+import { createFiltersTool } from './tools/filters';
 import { createMoveTool } from './tools/move';
 import { createPickTool } from './tools/pick';
 import { createLassoTool, createRectSelectTool } from './tools/select';
@@ -59,7 +74,18 @@ import type {
 	View
 } from './types';
 
+export interface FilterSnapshot {
+	active: ActiveFilter | null;
+	intensity: number;
+	compare: boolean;
+	fineTune: boolean;
+	steps: FilterStepSpec[];
+	error: string | null;
+}
+
 export interface SessionSnapshot {
+	filter: FilterSnapshot;
+	contentRevision: number;
 	toolId: string;
 	tools: PaintTool[];
 	settings: ToolSettings;
@@ -98,6 +124,7 @@ export interface BlankOptions {
 	pen: string | null;
 }
 
+const PREVIEW_LONG_EDGE = 1600;
 const DESKTOP_BUDGET = 256 * 1024 * 1024;
 const PHONE_BUDGET = 96 * 1024 * 1024;
 
@@ -172,6 +199,19 @@ export class PaintSession implements ToolHost, EditorApi {
 	private adjustToken = 0;
 	private transformBefore: DocSnapshot | null = null;
 	private adjustBase: { layer: Layer; canvas: HTMLCanvasElement; image: ImageData } | null = null;
+	private filterState: FilterToolState<ActiveFilter> = initialToolState<ActiveFilter>();
+	private filterSteps: FilterStepSpec[] = [];
+	private fineTune = false;
+	private filterError: string | null = null;
+	private filterPreview: { layer: Layer; canvas: HTMLCanvasElement } | null = null;
+	private filterToken = 0;
+	private filterBase: {
+		layer: Layer;
+		canvas: HTMLCanvasElement;
+		scale: number;
+		image: ImageData;
+	} | null = null;
+	private contentRevision = 0;
 	private unsubscribers: Array<() => void> = [];
 
 	constructor() {
@@ -185,10 +225,14 @@ export class PaintSession implements ToolHost, EditorApi {
 			createRectSelectTool(),
 			createLassoTool(),
 			createCropTool(),
-			createAdjustTool()
+			createAdjustTool(),
+			createFiltersTool()
 		];
 		this.unsubscribers.push(
-			this.history.subscribe(() => this.emit()),
+			this.history.subscribe(() => {
+				this.contentRevision++;
+				this.emit();
+			}),
 			pluginTools.subscribe(() => this.emit()),
 			paintFilters.subscribe(() => {
 				this.ensureAdjustValues();
@@ -283,6 +327,15 @@ export class PaintSession implements ToolHost, EditorApi {
 	snapshot(): SessionSnapshot {
 		const adjustActive = this.adjustSteps().some((step) => step.filter.active(step.values));
 		return {
+			filter: {
+				active: this.filterState.active,
+				intensity: this.filterState.intensity,
+				compare: this.filterState.compare,
+				fineTune: this.fineTune,
+				steps: this.filterSteps,
+				error: this.filterError
+			},
+			contentRevision: this.contentRevision,
 			toolId: this.toolId,
 			tools: this.allTools,
 			settings: { ...this.settings },
@@ -331,7 +384,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		this.groupCommands = [];
 		this.preview = null;
 		this.adjustPreview = null;
-		this.adjustBase = null;
+		this.dropBases();
 		this.resetAdjust(false);
 		this.stopAnts();
 	}
@@ -422,7 +475,8 @@ export class PaintSession implements ToolHost, EditorApi {
 	setTool(id: string): void {
 		if (!this.getTool(id) || id === this.toolId) return;
 		if (this.activePointerId !== null) this.tool?.pointerCancel?.(this);
-		if (this.toolId === 'adjust') this.discardAdjust();
+		if (this.toolId === 'adjust' && !this.fineTune) this.discardAdjust();
+		if (this.toolId === 'filters' || this.fineTune) this.discardFilter();
 		if (this.toolId === 'crop') this.cropRect = null;
 		this.toolId = id;
 		if (id === 'adjust') this.scheduleAdjust();
@@ -455,7 +509,7 @@ export class PaintSession implements ToolHost, EditorApi {
 	}
 
 	private afterHistory(): void {
-		this.adjustBase = null;
+		this.dropBases();
 		if (this.toolId === 'adjust') this.scheduleAdjust();
 		this.startAntsIfNeeded();
 		this.invalidate();
@@ -530,7 +584,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		this.groupCommands = [];
 		if (discard) {
 			for (const command of [...commands].reverse()) command.undo();
-			this.adjustBase = null;
+			this.dropBases();
 			this.invalidate();
 			this.emit();
 			return;
@@ -578,7 +632,7 @@ export class PaintSession implements ToolHost, EditorApi {
 			undo: () => apply('before'),
 			redo: () => apply('after')
 		});
-		this.adjustBase = null;
+		this.dropBases();
 		this.invalidate();
 	}
 
@@ -592,7 +646,7 @@ export class PaintSession implements ToolHost, EditorApi {
 			const restored = restoreDoc(this.doc, snapshot);
 			this.selection = restored.selection;
 			this.geometry = restored.geometry;
-			this.adjustBase = null;
+			this.dropBases();
 			this.startAntsIfNeeded();
 			this.invalidate();
 		};
@@ -639,7 +693,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		layer.canvas = canvas;
 		layer.x = x;
 		layer.y = y;
-		this.adjustBase = null;
+		this.dropBases();
 	}
 
 	setCropRect(rect: Rect | null): void {
@@ -694,7 +748,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		if (index < 0 || index >= this.doc.layers.length) return;
 		if (index === this.doc.activeIndex) return;
 		this.doc.activeIndex = index;
-		this.adjustBase = null;
+		this.dropBases();
 		if (this.toolId === 'adjust') this.scheduleAdjust();
 		this.emit();
 		this.invalidate();
@@ -1099,6 +1153,206 @@ export class PaintSession implements ToolHost, EditorApi {
 		this.commitStructure('Nudge', before);
 	}
 
+	private dropBases(): void {
+		this.adjustBase = null;
+		this.filterBase = null;
+		if (this.filterState.active) this.scheduleFilterPreview();
+	}
+
+	setFilter(active: ActiveFilter | null): void {
+		this.filterState = selectActive(this.filterState, active, active?.defaultIntensity);
+		this.filterSteps = active ? active.steps.map((step) => ({ ...step })) : [];
+		this.filterError = null;
+		this.scheduleFilterPreview();
+		this.emit();
+	}
+
+	setFilterIntensity(value: number): void {
+		if (!this.filterState.active) return;
+		this.filterState = withIntensity(this.filterState, value);
+		this.scheduleFilterPreview();
+		this.emit();
+	}
+
+	setFilterCompare(on: boolean): void {
+		if (this.filterState.compare === on) return;
+		this.filterState = withCompare(this.filterState, on);
+		this.emit();
+		this.invalidate();
+	}
+
+	clearFilter(): void {
+		const wasFineTune = this.fineTune;
+		this.discardFilter();
+		if (wasFineTune) {
+			this.toolId = 'filters';
+			this.emit();
+		}
+	}
+
+	clearFilterError(): void {
+		if (this.filterError === null) return;
+		this.filterError = null;
+		this.emit();
+	}
+
+	openFineTune(): void {
+		if (!this.filterState.active || this.toolId !== 'filters') return;
+		this.fineTune = true;
+		this.toolId = 'adjust';
+		this.emit();
+		this.invalidate();
+	}
+
+	closeFineTune(): void {
+		if (!this.fineTune) return;
+		this.fineTune = false;
+		this.toolId = 'filters';
+		this.emit();
+		this.invalidate();
+	}
+
+	setFilterStepParam(index: number, paramId: string, value: number): void {
+		if (!this.filterState.active) return;
+		this.filterSteps = setStepParam(this.filterSteps, index, paramId, value);
+		this.scheduleFilterPreview();
+		this.emit();
+	}
+
+	toggleFilterStep(index: number): void {
+		if (!this.filterState.active) return;
+		this.filterSteps = toggleStep(this.filterSteps, index);
+		this.scheduleFilterPreview();
+		this.emit();
+	}
+
+	resetFilterSteps(): void {
+		const active = this.filterState.active;
+		if (!active) return;
+		this.filterSteps = active.steps.map((step) => ({ ...step }));
+		this.scheduleFilterPreview();
+		this.emit();
+	}
+
+	thumbSource(): ImageData | null {
+		const layer = this.activeLayer;
+		return layer ? makeThumbSource(layer.canvas) : null;
+	}
+
+	private discardFilter(): void {
+		this.filterToken++;
+		this.filterState = initialToolState<ActiveFilter>();
+		this.filterSteps = [];
+		this.filterPreview = null;
+		this.fineTune = false;
+		this.emit();
+		this.invalidate();
+	}
+
+	private scheduleFilterPreview(): void {
+		const token = ++this.filterToken;
+		if (!this.filterState.active) {
+			this.filterPreview = null;
+			this.invalidate();
+			return;
+		}
+		setTimeout(() => this.computeFilterPreview(token), 0);
+	}
+
+	private filterBaseFor(layer: Layer, allowScale: boolean) {
+		const longest = Math.max(layer.canvas.width, layer.canvas.height);
+		const scale = allowScale ? Math.min(1, PREVIEW_LONG_EDGE / longest) : 1;
+		const cached = this.filterBase;
+		if (cached && cached.layer === layer && cached.canvas === layer.canvas && cached.scale === scale) {
+			return cached;
+		}
+		let image: ImageData;
+		if (scale === 1) {
+			image = context2d(layer.canvas).getImageData(0, 0, layer.canvas.width, layer.canvas.height);
+		} else {
+			const small = makeCanvas(layer.canvas.width * scale, layer.canvas.height * scale);
+			const context = context2d(small);
+			context.imageSmoothingQuality = 'high';
+			context.drawImage(layer.canvas, 0, 0, small.width, small.height);
+			image = context.getImageData(0, 0, small.width, small.height);
+		}
+		const base = { layer, canvas: layer.canvas, scale, image };
+		this.filterBase = base;
+		return base;
+	}
+
+	private computeFilterPreview(token: number): void {
+		const layer = this.activeLayer;
+		const active = this.filterState.active;
+		if (token !== this.filterToken || !layer || !active) return;
+		try {
+			const mask = this.layerSelectionMask(layer);
+			const base = this.filterBaseFor(layer, mask === null);
+			const output = renderRecipe(
+				{ width: base.image.width, height: base.image.height, data: base.image.data },
+				{ steps: this.filterSteps, cube: active.cube },
+				this.filterState.intensity
+			);
+			const data = mask ? blendByMask(base.image.data, output.data, mask) : output.data;
+			const canvas =
+				this.filterPreview?.layer === layer &&
+				this.filterPreview.canvas.width === output.width &&
+				this.filterPreview.canvas.height === output.height
+					? this.filterPreview.canvas
+					: makeCanvas(output.width, output.height);
+			context2d(canvas).putImageData(
+				new ImageData(new Uint8ClampedArray(data), output.width, output.height),
+				0,
+				0
+			);
+			this.filterPreview = { layer, canvas };
+		} catch (error) {
+			this.failFilter(error);
+			return;
+		}
+		this.invalidate();
+	}
+
+	private failFilter(error: unknown): void {
+		const name = this.filterState.active?.name ?? 'The filter';
+		const reason = error instanceof Error ? error.message : 'it could not be compiled';
+		const wasFineTune = this.fineTune;
+		this.discardFilter();
+		if (wasFineTune) this.toolId = 'filters';
+		this.filterError = `${name} could not be applied: ${reason}`;
+		this.emit();
+	}
+
+	applyFilterToLayer(): void {
+		const layer = this.activeLayer;
+		const active = this.filterState.active;
+		if (!layer || !active || !canApply(this.filterState)) return;
+		try {
+			const context = context2d(layer.canvas);
+			const image = context.getImageData(0, 0, layer.canvas.width, layer.canvas.height);
+			const output = renderRecipe(
+				{ width: image.width, height: image.height, data: image.data },
+				{ steps: this.filterSteps, cube: active.cube },
+				this.filterState.intensity
+			);
+			const mask = this.layerSelectionMask(layer);
+			const data = mask ? blendByMask(image.data, output.data, mask) : output.data;
+			const before = this.snapshotLayer(layer);
+			context.putImageData(new ImageData(new Uint8ClampedArray(data), image.width, image.height), 0, 0);
+			this.commitPixels(
+				historyLabel(active.name, this.filterState.intensity),
+				layer,
+				{ x: 0, y: 0, width: layer.canvas.width, height: layer.canvas.height },
+				before
+			);
+		} catch (error) {
+			this.failFilter(error);
+			return;
+		}
+		this.clearFilter();
+		this.invalidate();
+	}
+
 	private adjustSteps(): FilterStep[] {
 		return paintFilters.list().map((filter) => ({
 			filter,
@@ -1144,7 +1398,7 @@ export class PaintSession implements ToolHost, EditorApi {
 
 	private async computeAdjust(token: number): Promise<void> {
 		const layer = this.activeLayer;
-		if (!layer || this.toolId !== 'adjust') return;
+		if (!layer || this.toolId !== 'adjust' || this.fineTune) return;
 		const steps = this.adjustSteps();
 		if (!steps.some((step) => step.filter.active(step.values))) {
 			this.adjustPreview = null;
@@ -1209,7 +1463,7 @@ export class PaintSession implements ToolHost, EditorApi {
 			before
 		);
 		this.resetAdjust(false);
-		this.adjustBase = null;
+		this.dropBases();
 		this.emit();
 		this.invalidate();
 	}
@@ -1393,7 +1647,19 @@ export class PaintSession implements ToolHost, EditorApi {
 			if (!layer.visible) continue;
 			context.globalAlpha = layer.opacity;
 			const adjusted = this.adjustPreview && this.adjustPreview.layer === layer;
-			context.drawImage(adjusted ? this.adjustPreview!.canvas : layer.canvas, layer.x, layer.y);
+			const filtered =
+				this.filterPreview && this.filterPreview.layer === layer && !this.filterState.compare;
+			if (filtered) {
+				context.drawImage(
+					this.filterPreview!.canvas,
+					layer.x,
+					layer.y,
+					layer.canvas.width,
+					layer.canvas.height
+				);
+			} else {
+				context.drawImage(adjusted ? this.adjustPreview!.canvas : layer.canvas, layer.x, layer.y);
+			}
 			if (this.preview && this.preview.layer === layer) {
 				context.globalAlpha = layer.opacity * this.preview.alpha;
 				context.drawImage(this.preview.canvas, layer.x, layer.y);

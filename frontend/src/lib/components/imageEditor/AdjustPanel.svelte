@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui';
+	import CurvePlot from './CurvePlot.svelte';
+	import FineTunePanel from './FineTunePanel.svelte';
 	import type { PaintSession, SessionSnapshot } from './session';
 
 	export let session: PaintSession;
 	export let state: SessionSnapshot;
+	export let onSaveFilter: () => void = () => {};
 
 	$: layer = state.layers[state.activeIndex];
 
@@ -12,6 +15,9 @@
 	}
 </script>
 
+{#if state.filter.fineTune}
+	<FineTunePanel {session} {state} {onSaveFilter} />
+{:else}
 <div class="flex flex-col gap-3 p-3">
 	<p class="font-mono text-xs uppercase tracking-[0.08em] text-fg-subtle">Adjust</p>
 
@@ -30,6 +36,7 @@
 						type="range"
 						min={param.min}
 						max={param.max}
+						step={param.step ?? 1}
 						value={state.adjustValues[filter.id]?.[param.id] ?? param.value}
 						class="flex-1 min-w-0 h-6 accent-signal"
 						on:input={(event) => session.setAdjustValue(filter.id, param.id, number(event))}
@@ -39,6 +46,9 @@
 					</span>
 				</div>
 			{/each}
+			{#if filter.plot}
+				<CurvePlot label={filter.label} />
+			{/if}
 		</div>
 	{/each}
 
@@ -80,3 +90,4 @@
 		</Button>
 	</div>
 </div>
+{/if}

@@ -9,10 +9,12 @@
 	import type { DrawConfig } from './drawConfig';
 	import { defaultExportStem, exportFileName } from './exportName';
 	import { PAINT_ICONS } from './icons';
+	import FilterStrip from './FilterStrip.svelte';
 	import ImageSourceMenu from './ImageSourceMenu.svelte';
 	import LayersPanel from './LayersPanel.svelte';
 	import { decideMaskFate } from './maskPolicy';
 	import OptionsPanel from './OptionsPanel.svelte';
+	import SaveFilterDialog from './SaveFilterDialog.svelte';
 	import SavePopover from './SavePopover.svelte';
 	import { PaintSession, type SessionSnapshot } from './session';
 	import ToolButton from './ToolButton.svelte';
@@ -39,6 +41,9 @@
 	let fullScreen = false;
 	let saveOpen = false;
 	let discardOpen = false;
+	let saveFilterOpen = false;
+	let phone = false;
+	let phoneQuery: MediaQueryList | null = null;
 	let menuMode: 'open' | 'layer' | null = null;
 	let sheet: Sheet = null;
 	let stem = defaultExportStem(draw ? null : (source?.fileName ?? null));
@@ -46,6 +51,10 @@
 	let observer: ResizeObserver | null = null;
 	let themeObserver: MutationObserver | null = null;
 	let stopSession: (() => void) | null = null;
+
+	function syncPhone() {
+		phone = phoneQuery?.matches ?? false;
+	}
 
 	$: tool = state.tools.find((candidate) => candidate.id === state.toolId);
 	$: decision = decideMaskFate({
@@ -74,6 +83,11 @@
 
 	onMount(async () => {
 		suppressKeyboard();
+		if (typeof matchMedia === 'function') {
+			phoneQuery = matchMedia('(max-width: 767px)');
+			syncPhone();
+			phoneQuery.addEventListener?.('change', syncPhone);
+		}
 		session.attach(stageCanvas);
 		stopSession = session.subscribe(() => {
 			state = session.snapshot();
@@ -111,6 +125,7 @@
 
 	onDestroy(() => {
 		resumeKeyboard();
+		phoneQuery?.removeEventListener?.('change', syncPhone);
 		observer?.disconnect();
 		themeObserver?.disconnect();
 		stopSession?.();
@@ -134,6 +149,10 @@
 
 	function requestClose() {
 		if (busy) return;
+		if (saveFilterOpen) {
+			saveFilterOpen = false;
+			return;
+		}
 		if (menuMode) {
 			menuMode = null;
 			return;
@@ -144,6 +163,10 @@
 		}
 		if (discardOpen) {
 			discardOpen = false;
+			return;
+		}
+		if (state.filter.active) {
+			session.clearFilter();
 			return;
 		}
 		if (state.cropRect) {
@@ -245,6 +268,14 @@
 		}
 		if (event.altKey) return;
 
+		if (event.key === '\\' && !mod) {
+			if (state.filter.active) {
+				event.preventDefault();
+				session.setFilterCompare(true);
+			}
+			return;
+		}
+
 		if (key === 'enter') {
 			if (state.cropRect) {
 				event.preventDefault();
@@ -289,6 +320,7 @@
 
 	function onKeyup(event: KeyboardEvent) {
 		if (event.key === ' ') session.setSpaceHeld(false);
+		if (event.key === '\\') session.setFilterCompare(false);
 	}
 
 	function pointerDown(event: PointerEvent) {
@@ -450,6 +482,12 @@
 				{/if}
 			</div>
 
+			{#if state.toolId === 'filters' && !phone}
+				<div class="shrink-0 border-t border-line bg-surface-1">
+					<FilterStrip {session} {state} />
+				</div>
+			{/if}
+
 			<div class="md:hidden">
 				{#if sheet}
 					<div class="flex flex-col max-h-[42vh] border-t border-line-strong bg-surface-1 overflow-y-auto">
@@ -462,7 +500,7 @@
 						{:else if sheet === 'canvas'}
 							<CanvasPanel {session} {state} onOpenImage={() => openMenu('open')} />
 						{:else}
-							<ToolPanel {session} {state} />
+							<ToolPanel {session} {state} {phone} onSaveFilter={() => (saveFilterOpen = true)} />
 						{/if}
 					</div>
 				{:else if toolHasOptions}
@@ -495,7 +533,7 @@
 				class="order-4 hidden md:block w-[17rem] shrink-0 border-l border-line bg-surface-1 overflow-y-auto"
 				aria-label="Tool options, layers and canvas"
 			>
-				<ToolPanel {session} {state} />
+				<ToolPanel {session} {state} onSaveFilter={() => (saveFilterOpen = true)} />
 				<div class="border-t border-line">
 					<LayersPanel {session} {state} onAddImage={() => openMenu('layer')} />
 				</div>
@@ -554,3 +592,10 @@
 		</div>
 	</svelte:fragment>
 </EditorShell>
+
+<SaveFilterDialog
+	isOpen={saveFilterOpen}
+	{session}
+	{state}
+	on:close={() => (saveFilterOpen = false)}
+/>

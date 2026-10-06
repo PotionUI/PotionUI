@@ -1843,7 +1843,7 @@ const offTool = editor.registerTool({
   on `host.activeLayer`, then call `host.commitPixels(label, layer, dirtyRect, before)` with a
   copy from `host.snapshotLayer(layer)` taken first; that single call is what makes the edit
   undoable. Pointer handlers run only for the primary button.
-- **Filters** (`registerFilter`): a `PaintFilter` with `id`, `label`, numeric `params`
+- **Adjustments** (`registerAdjustment`; `registerFilter` stays as a deprecated alias for one release): a `PaintFilter` with `id`, `label`, numeric `params`
   (`{id, label, min, max, value}`) or `toggle: true`, `active(values)` and
   `apply(image, values)` returning the new `{width, height, data}` RGBA buffer (it may be a
   promise). Filters appear in the Adjust panel, preview live, and honour the selection

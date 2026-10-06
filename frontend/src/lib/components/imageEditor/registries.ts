@@ -1,4 +1,4 @@
-import { BUILTIN_FILTERS } from './filters/builtin';
+import { BUILTIN_FILTERS } from './adjustments/builtin';
 import { Registry } from './registry';
 import type { EditorApi, ImageSource, PaintAction, PaintFilter, PaintTool } from './types';
 
@@ -17,6 +17,7 @@ export function setActiveEditor(editor: EditorApi | null): void {
 
 export interface PluginImageEditorApi {
 	registerTool(tool: PaintTool): () => void;
+	registerAdjustment(adjustment: PaintFilter): () => void;
 	registerFilter(filter: PaintFilter): () => void;
 	registerImageSource(source: ImageSource): () => void;
 	registerAction(action: PaintAction): () => void;
@@ -28,6 +29,7 @@ export interface PluginImageEditorApi {
 export function createImageEditorApi(): PluginImageEditorApi {
 	return {
 		registerTool: (tool) => pluginTools.register(tool),
+		registerAdjustment: (adjustment) => paintFilters.register(adjustment),
 		registerFilter: (filter) => paintFilters.register(filter),
 		registerImageSource: (source) => imageSources.register(source),
 		registerAction: (action) => paintActions.register(action),

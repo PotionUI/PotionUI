@@ -1,5 +1,6 @@
 import type { FilterValues, PaintFilter, PixelBuffer } from '../types';
 import { applyGrayscale, applyInvert, applyTone } from './kernels';
+import { ENGINE_ADJUSTMENTS } from './engineOps';
 
 function copy(image: PixelBuffer): PixelBuffer {
 	return { width: image.width, height: image.height, data: new Uint8ClampedArray(image.data) };
@@ -62,7 +63,12 @@ export const grayscaleFilter: PaintFilter = {
 	}
 };
 
-export const BUILTIN_FILTERS: PaintFilter[] = [toneFilter, invertFilter, grayscaleFilter];
+export const BUILTIN_FILTERS: PaintFilter[] = [
+	toneFilter,
+	...ENGINE_ADJUSTMENTS,
+	invertFilter,
+	grayscaleFilter
+];
 
 export function defaultFilterValues(filter: PaintFilter): FilterValues {
 	if (filter.toggle) return { on: false };

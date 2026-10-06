@@ -381,6 +381,31 @@ class TestRestrictedViewer:
         file_id = world.model_preview(world.kid)
         assert _get(client, f"/api/media/files/{file_id}", "tok-kid").status_code == 404
 
+    def test_a_model_gallery_preview_reaches_an_assigned_user_and_no_one_else(self, client, world):
+        source = world.generation(world.admin)
+        model_id = generate_ulid()
+        with world.db.get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO models (id, filename, model_type) VALUES (?, ?, 'diffusion_model')",
+                (model_id, f"{model_id}.safetensors"),
+            )
+            cursor.execute(
+                "DELETE FROM generation_files WHERE file_id = ?", (source.file_id,)
+            )
+            cursor.execute(
+                "INSERT INTO model_preview_media (id, model_id, file_id, url, type, name, position) "
+                "VALUES (?, ?, ?, ?, 'image', '0.png', 0)",
+                (generate_ulid(), model_id, source.file_id, f"/api/media/files/{source.file_id}"),
+            )
+            cursor.execute(
+                "INSERT INTO user_models (id, user_id, model_id) VALUES (?, ?, ?)",
+                (generate_ulid(), world.other.id, model_id),
+            )
+        url = f"/api/media/files/{source.file_id}?size=small"
+        assert _get(client, url, "tok-other").status_code == 200
+        assert _get(client, url, "tok-owner").status_code == 404
+        assert _get(client, url, "tok-kid").status_code == 404
+
     def test_a_model_preview_picked_from_an_admin_generation_reaches_an_assigned_user(self, client, world):
         source = world.generation(world.admin)
         file_id = world.model_preview(world.other, file_id=source.file_id)

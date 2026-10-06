@@ -1007,7 +1007,11 @@ class ModelRepository:
     def model_ids_for_file(self, file_id: str) -> List[str]:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
-            cursor.execute("SELECT DISTINCT model_id FROM model_files WHERE file_id = ?", (file_id,))
+            cursor.execute(
+                "SELECT model_id FROM model_files WHERE file_id = ? "
+                "UNION SELECT model_id FROM model_preview_media WHERE file_id = ?",
+                (file_id, file_id),
+            )
             return [row['model_id'] for row in cursor.fetchall()]
 
     def get_model_files(self, model_id: str, file_type: Optional[str] = None) -> List[Dict[str, Any]]:

@@ -77,13 +77,14 @@
 		<Tooltip text={deleteLabel} position="bottom" delay={150}>
 			<button
 				type="button"
-				class="rounded border border-line-strong bg-surface-2 p-1.5 text-fg shadow-raised hover:border-transparent hover:bg-danger-solid hover:text-white transition-[opacity,background-color,border-color,color] duration-100 [@media(hover:none)]:hidden {revealClass}"
+				class="inline-flex items-center justify-center rounded border border-line-strong bg-surface-2 text-fg shadow-raised hover:border-transparent hover:bg-danger-solid hover:text-white transition-[opacity,background-color,border-color,color] duration-100 [@media(hover:none)]:hidden {revealClass}"
 				onclick={(event) => {
 					event.stopPropagation();
 					event.preventDefault();
 					onDelete();
 				}}
 				aria-label={deleteLabel}
+				style="width: {chipSize}px; height: {chipSize}px"
 			>
 				<Icon name="trash" className="h-3.5 w-3.5" />
 			</button>

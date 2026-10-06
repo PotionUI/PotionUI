@@ -68,29 +68,58 @@ def _fill_small_holes(mesh, max_perimeter: float=_MAX_HOLE_PERIMETER) -> None:
     mesh.extend_faces(new_faces)
 
 
-def _tidy(mesh) -> None:
+def _tidy(mesh, recorder=None, prefix: str = "tidy") -> None:
     mesh.update_faces(mesh.unique_faces())
+    _record(recorder, f"{prefix}_unique_faces", mesh)
     mesh.update_faces(mesh.nondegenerate_faces())
+    _record(recorder, f"{prefix}_nondegenerate", mesh)
     mesh.remove_unreferenced_vertices()
+    _record(recorder, f"{prefix}_unreferenced", mesh)
     _drop_small_components(mesh)
+    _record(recorder, f"{prefix}_small_components", mesh)
     _fill_small_holes(mesh)
+    _record(recorder, f"{prefix}_hole_fill", mesh)
 
 
-def clean_and_decimate_arrays(vertices: np.ndarray, faces: np.ndarray, decimation_target: int) -> Tuple[np.ndarray, np.ndarray]:
+def _record(recorder, name: str, mesh) -> None:
+    if recorder is not None:
+        recorder.record(name, np.asarray(mesh.vertices), np.asarray(mesh.faces))
+
+
+def _clean_and_decimate(vertices: np.ndarray, faces: np.ndarray, decimation_target: int, recorder=None) -> Tuple[np.ndarray, np.ndarray]:
     import trimesh
     verts = np.ascontiguousarray(vertices, dtype=np.float32)
     tris = np.ascontiguousarray(faces, dtype=np.int64)
+    if recorder is not None:
+        recorder.reset()
     mesh = trimesh.Trimesh(vertices=verts, faces=tris, process=False)
     mesh.remove_unreferenced_vertices()
+    _record(recorder, "clean_unreferenced", mesh)
     _fill_small_holes(mesh)
+    _record(recorder, "clean_hole_fill", mesh)
     verts, tris = _simplify(np.asarray(mesh.vertices), np.asarray(mesh.faces), decimation_target * 3)
     mesh = trimesh.Trimesh(vertices=verts, faces=tris, process=False)
-    _tidy(mesh)
+    _record(recorder, "decimate_3x", mesh)
+    _tidy(mesh, recorder, "tidy_3x")
     verts, tris = _simplify(np.asarray(mesh.vertices), np.asarray(mesh.faces), decimation_target)
     mesh = trimesh.Trimesh(vertices=verts, faces=tris, process=False)
-    _tidy(mesh)
+    _record(recorder, "decimate_1x", mesh)
+    _tidy(mesh, recorder, "tidy_1x")
     trimesh.repair.fix_normals(mesh, multibody=True)
+    _record(recorder, "fix_normals", mesh)
     return (np.ascontiguousarray(mesh.vertices, dtype=np.float32), np.ascontiguousarray(mesh.faces, dtype=np.int64))
+
+
+def clean_and_decimate_arrays(vertices: np.ndarray, faces: np.ndarray, decimation_target: int) -> Tuple[np.ndarray, np.ndarray]:
+    return _clean_and_decimate(vertices, faces, decimation_target)
+
+
+def clean_and_decimate_traced(vertices: np.ndarray, faces: np.ndarray, decimation_target: int):
+    from src.platform.runtime.offload.mesh_diagnostics import StageRecorder
+
+    recorder = StageRecorder()
+    out_vertices, out_faces = _clean_and_decimate(vertices, faces, decimation_target, recorder)
+    return out_vertices, out_faces, recorder.rows
 
 
 def unwrap_uv_arrays(vertices: np.ndarray, faces: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:

@@ -81,7 +81,12 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from src.platform.runtime.offload.mesh_ops import clean_and_decimate_arrays, unwrap_uv_arrays
+from src.platform.runtime.offload.mesh_diagnostics import StageRecorder, log_stage_row
+from src.platform.runtime.offload.mesh_ops import (
+    clean_and_decimate_arrays,
+    clean_and_decimate_traced,
+    unwrap_uv_arrays,
+)
 from src.platform.runtime.offload.pool import OffloadCancelled, run_offloaded
 
 from ...errors import SamplingCancelled
@@ -426,9 +431,19 @@ def build_textured_mesh(
     source_vertices = np.ascontiguousarray(_to_numpy(vertices), dtype=np.float32)
     source_faces = np.ascontiguousarray(_to_numpy(faces), dtype=np.int64)
 
-    clean_vertices, clean_faces = clean_and_decimate(
-        source_vertices, source_faces, decimation_target, is_cancelled=is_cancelled
+    recorder = StageRecorder()
+    log_stage_row(recorder.record("raw", source_vertices, source_faces))
+    recorder.reset()
+    clean_vertices, clean_faces, clean_rows = _offload(
+        clean_and_decimate_traced,
+        source_vertices,
+        source_faces,
+        int(decimation_target),
+        is_cancelled=is_cancelled,
     )
+    for row in clean_rows:
+        log_stage_row(row)
+    log_stage_row(recorder.record("decimated", clean_vertices, clean_faces))
     if clean_faces.shape[0] == 0:
         # trimesh's vertex_normals setter reduces over an empty array and dies
         # with a bare numpy ValueError several stages later; a decode that
@@ -437,7 +452,9 @@ def build_textured_mesh(
             f"no geometry to post-process: {source_faces.shape[0]} input faces "
             "cleaned down to nothing"
         )
+    recorder.reset()
     uv_vertices, uv_faces, uvs, uv_normals = unwrap_uv(clean_vertices, clean_faces, is_cancelled=is_cancelled)
+    log_stage_row(recorder.record("unwrap", uv_vertices, uv_faces))
 
     uvs_t = torch.from_numpy(uvs).to(device)
     faces_t = torch.from_numpy(uv_faces).to(device)
@@ -479,13 +496,15 @@ def build_textured_mesh(
     export_vertices = np.stack([uv_vertices[:, 0], uv_vertices[:, 2], -uv_vertices[:, 1]], axis=-1)
     export_normals = np.stack([uv_normals[:, 0], uv_normals[:, 2], -uv_normals[:, 1]], axis=-1)
 
-    return trimesh.Trimesh(
+    textured = trimesh.Trimesh(
         vertices=export_vertices,
         faces=uv_faces,
         vertex_normals=export_normals,
         process=False,
         visual=trimesh.visual.TextureVisuals(uv=uvs, material=material),
     )
+    log_stage_row(recorder.record("bake", export_vertices, uv_faces))
+    return textured
 
 
 def postprocess_to_glb(
@@ -523,4 +542,6 @@ def postprocess_to_glb(
         project_to_source=project_to_source,
         is_cancelled=is_cancelled,
     )
+    recorder = StageRecorder()
     mesh.export(out_path, file_type="glb", extension_webp=embed_webp)
+    log_stage_row(recorder.record("export", np.asarray(mesh.vertices), np.asarray(mesh.faces)))

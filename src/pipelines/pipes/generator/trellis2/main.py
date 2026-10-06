@@ -33,10 +33,13 @@ process is never touched.
 
 from __future__ import annotations
 
+import hashlib
+import logging
 import os
 import tempfile
 from typing import Any, Callable, Dict, List, Optional
 
+import numpy as np
 import torch
 
 from src.pipelines.contracts import (
@@ -56,6 +59,7 @@ from src.pipelines.outputs import (
     ProgressGenerationOutput,
     SeedGenerationOutput,
 )
+from src.platform.observability.profiling import get_profiler, profiling_enabled
 from src.platform.runtime.native.arch.trellis2.config import STAGE_SAMPLING, StageSampling
 from src.platform.runtime.native.arch.trellis2.image_to_mesh import run_image_to_mesh
 from src.platform.runtime.native.arch.trellis2.postprocess import postprocess_to_glb
@@ -86,6 +90,9 @@ _STAGE_LABELS_SHORT = {
     "shape": "shape",
     "texture": "PBR texture",
 }
+
+
+logger = logging.getLogger(__name__)
 
 
 class GeneratorTrellis2Pipe(BasePipe):
@@ -235,7 +242,7 @@ class GeneratorTrellis2Pipe(BasePipe):
                     state="Baking PBR materials", icon=Icon(name="cube", effect="pulse"),
                     progress=Progress(index, len(images)),
                 ))
-                mesh_path = self._export(volume, is_cancelled)
+                mesh_path = self._export(volume, is_cancelled, source_id=self._source_id(image, seed, tier))
                 mesh_paths.append(mesh_path)
                 meshes.append(MeshGenerationOutput(
                     mesh_path=mesh_path,
@@ -279,6 +286,35 @@ class GeneratorTrellis2Pipe(BasePipe):
                 os.remove(path)
             except OSError:
                 pass
+
+    @staticmethod
+    def _source_id(image, seed: int, tier: str) -> str:
+        try:
+            digest = hashlib.sha1(image.tobytes()).hexdigest()[:16]
+        except Exception:
+            digest = "unknown"
+        return f"{digest}:seed={int(seed)}:tier={tier}"
+
+    @staticmethod
+    def _dump_raw_mesh(volume, source_id: str) -> Optional[str]:
+        if not profiling_enabled():
+            return None
+        out_dir = get_profiler().out_dir
+        if out_dir is None:
+            return None
+        path = os.path.join(str(out_dir), "raw_mesh.npz")
+        try:
+            np.savez(
+                path,
+                vertices=volume.vertices.detach().cpu().numpy(),
+                faces=volume.faces.detach().cpu().numpy(),
+                source_id=np.array(source_id),
+                resolution=np.array(int(volume.resolution)),
+            )
+        except Exception:
+            logger.warning("TRELLIS.2 raw mesh dump to %s failed", path, exc_info=True)
+            return None
+        return path
 
     def _seeds(self, pipe_input: PipeInput, count: int) -> List[int]:
         """One seed per image: the wired ``seed`` input, else the config's.
@@ -329,7 +365,12 @@ class GeneratorTrellis2Pipe(BasePipe):
 
         return report
 
-    def _export(self, volume, is_cancelled: Optional[Callable[[], bool]] = None) -> str:
+    def _export(
+        self,
+        volume,
+        is_cancelled: Optional[Callable[[], bool]] = None,
+        source_id: str = "",
+    ) -> str:
         """Bake ``volume`` into a ``.glb`` and return its path.
 
         ``volume.voxel_size`` is the texture grid's own, which after a
@@ -342,6 +383,7 @@ class GeneratorTrellis2Pipe(BasePipe):
         is polled while they run and a cancellation kills that worker.
         """
         out_path = tempfile.NamedTemporaryFile(suffix=".glb", delete=False).name
+        self._dump_raw_mesh(volume, source_id)
         try:
             postprocess_to_glb(
                 vertices=volume.vertices,

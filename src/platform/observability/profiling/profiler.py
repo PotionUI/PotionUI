@@ -218,6 +218,7 @@ class GenerationProfiler:
         self._lock = threading.RLock()
         self._proc = psutil.Process()
         self._generation_id: Optional[str] = None
+        self._out_dir: Optional[Path] = None
         self._fh = None
         self._thread: Optional[threading.Thread] = None
         self._stop_event: Optional[threading.Event] = None
@@ -248,6 +249,7 @@ class GenerationProfiler:
                 self._fh = open(profile_path, "a", buffering=1)
                 self._attach_log_handler(out_dir)
                 self._generation_id = generation_id
+                self._out_dir = out_dir
                 self._last_flush = time.monotonic()
                 try:
                     self._proc.cpu_percent(interval=None)  # prime the % counter
@@ -269,6 +271,10 @@ class GenerationProfiler:
             return
         self._join_sampler(replaced)
         self.mark("generation.start")
+
+    @property
+    def out_dir(self) -> Optional[Path]:
+        return self._out_dir
 
     def stop(self, generation_id: str) -> None:
         handoff = None
@@ -421,6 +427,7 @@ class GenerationProfiler:
                 logger.debug("profiler: failed closing writer", exc_info=True)
         self._fh = None
         self._generation_id = None
+        self._out_dir = None
         self._stop_event = None
         self._detach_log_handler()
         return thread

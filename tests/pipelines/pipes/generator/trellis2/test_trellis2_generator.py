@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 from PIL import Image
@@ -490,3 +491,28 @@ def test_a_whole_run_writes_a_real_glb():
     assert mesh.temporary is False
     assert mesh.face_count == 12
     path.unlink()
+
+
+def test_raw_mesh_is_dumped_into_the_profile_dir_when_profiling_is_on(
+    recorded_run, exported, monkeypatch, tmp_path
+):
+    class _Profiler:
+        out_dir = tmp_path
+
+    monkeypatch.setattr(generator_main, "profiling_enabled", lambda: True)
+    monkeypatch.setattr(generator_main, "get_profiler", lambda: _Profiler())
+    _run_pipe()
+    dump = np.load(tmp_path / "raw_mesh.npz")
+    assert dump["vertices"].shape == (8, 3)
+    assert dump["faces"].shape == (12, 3)
+    assert str(dump["source_id"]).count(":") == 2
+
+
+def test_no_raw_mesh_is_written_when_profiling_is_off(recorded_run, exported, monkeypatch, tmp_path):
+    class _Profiler:
+        out_dir = tmp_path
+
+    monkeypatch.setattr(generator_main, "profiling_enabled", lambda: False)
+    monkeypatch.setattr(generator_main, "get_profiler", lambda: _Profiler())
+    _run_pipe()
+    assert not (tmp_path / "raw_mesh.npz").exists()

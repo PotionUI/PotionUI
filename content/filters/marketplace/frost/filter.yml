@@ -1,0 +1,18 @@
+schema: 1
+id: frost
+name: Frost
+description: Cool, bright and slightly muted.
+group: Colour
+order: 40
+intensity: 100
+tags: [cool, clean]
+author: PotionUI
+
+steps:
+  - op: white_balance
+    temperature: -30
+    tint: -4
+  - op: tone
+    brightness: 6
+    contrast: 6
+    saturation: -4

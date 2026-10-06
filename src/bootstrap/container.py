@@ -230,6 +230,8 @@ if TYPE_CHECKING:
     from src.features.stats.routes import StatsController
     from src.features.sessions.routes import SessionController
     from src.features.formulas.routes import FormulaController
+    from src.features.filters.catalog import FilterCatalog
+    from src.features.filters.routes import FilterController
     from src.features.organize.manager import OrganizeManager
     from src.features.organize.routes import OrganizeController
     from src.features.organize.worker import OrganizeWorker
@@ -466,6 +468,8 @@ class AppContainer:
     session_version_repository: "SessionVersionRepository"
     session_controller: "SessionController"
     formula_controller: "FormulaController"
+    filter_catalog: "FilterCatalog"
+    filter_controller: "FilterController"
     organize_registry: OrganizeRegistry
     organize_manager: "OrganizeManager"
     organize_controller: "OrganizeController"
@@ -1792,6 +1796,19 @@ def build_container() -> AppContainer:
             forms=PresetFormSource(preset_collaborators),
             models=ModelRepositoryRefChecker(model_repository),
         )
+    )
+
+    from src.features.filters.catalog import FilterCatalog
+    from src.features.filters.collaborators import FilterCollaborators
+    from src.features.filters.repository import UserFilterRepository
+    from src.features.filters.routes import FilterController
+
+    filter_catalog = FilterCatalog(
+        os.getenv("POTIONUI_FILTERS_DIR", "content/filters"),
+        plugin_registry=plugin_registry,
+    )
+    filter_controller = FilterController(
+        FilterCollaborators(repository=UserFilterRepository(), catalog=filter_catalog)
     )
 
     from src.features.notifications.types import notification_type_registry as _organize_notification_types

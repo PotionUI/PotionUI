@@ -1,0 +1,21 @@
+schema: 1
+id: noir
+name: Noir
+description: Deep black and white with a darker frame and heavy grain.
+group: "Black & white"
+order: 10
+intensity: 100
+tags: [mono, contrast]
+author: PotionUI
+
+steps:
+  - op: grayscale
+  - op: curves
+    master: [[0, 0], [0.25, 0.16], [0.75, 0.86], [1, 1]]
+  - op: vignette
+    amount: 38
+    midpoint: 45
+  - op: grain
+    amount: 30
+    size: 1.2
+    seed: 3

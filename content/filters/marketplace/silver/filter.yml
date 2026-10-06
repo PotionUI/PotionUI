@@ -1,0 +1,22 @@
+schema: 1
+id: silver
+name: Silver
+description: Soft, slightly faded black and white with fine grain.
+group: "Black & white"
+order: 20
+intensity: 100
+tags: [mono, soft]
+author: PotionUI
+
+steps:
+  - op: grayscale
+  - op: fade
+    black_lift: 8
+    white_cap: 5
+  - op: tone
+    brightness: 6
+    contrast: -6
+  - op: grain
+    amount: 12
+    size: 1
+    seed: 5

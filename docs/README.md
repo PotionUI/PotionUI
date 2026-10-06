@@ -45,6 +45,7 @@ Subsystem docs for anyone authoring presets, plugins, or touching the engine. Ad
 - [Backends and Engines](backends.md) — the `native`/`comfyui` engine split and how a backend is admin-configured.
 - [Generation Routing](generation-routing.md) — the rule chain that decides which enabled backend of an engine runs a generation.
 - [Cloud Models](cloud-models.md) — models that run on a provider's servers: the catalog, capability-driven forms, costs, scopes, and how to write a provider plugin.
+- [Photo Filters](filters.md) — the filter recipe format, op catalogue, LUT handling, user filters and the shared browser/Python engine.
 - [Model Inference Path](model-inference-path.md) — one generation, followed from the **Generate** action to its saved output.
 - [Native Engine v2](native-engine.md) — the in-process loading/detection/ops/sampling stack.
 - [The Plugin API](plugin-api.md) — `src.plugin_api`, the only surface a plugin may import from.

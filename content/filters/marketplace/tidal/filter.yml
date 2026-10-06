@@ -1,0 +1,19 @@
+schema: 1
+id: tidal
+name: Tidal
+description: Teal shadows against warm highlights.
+group: Colour
+order: 50
+intensity: 100
+tags: [teal, orange]
+author: PotionUI
+
+steps:
+  - op: split_tone
+    shadow_hue: 195
+    shadow_sat: 42
+    highlight_hue: 30
+    highlight_sat: 38
+  - op: tone
+    contrast: 14
+    saturation: 8

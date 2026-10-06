@@ -1,0 +1,17 @@
+schema: 1
+id: matte
+name: Matte
+description: Lifted blacks and capped whites for a flat printed look.
+group: Film
+order: 10
+intensity: 100
+tags: [faded, flat]
+author: PotionUI
+
+steps:
+  - op: fade
+    black_lift: 12
+    white_cap: 6
+  - op: tone
+    contrast: -4
+    saturation: -14

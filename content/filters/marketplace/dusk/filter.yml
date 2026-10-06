@@ -1,0 +1,23 @@
+schema: 1
+id: dusk
+name: Dusk
+description: Violet shadows, amber highlights and a darker frame.
+group: Film
+order: 20
+intensity: 100
+tags: [moody, purple]
+author: PotionUI
+
+steps:
+  - op: split_tone
+    shadow_hue: 285
+    shadow_sat: 44
+    highlight_hue: 35
+    highlight_sat: 32
+    balance: -10
+  - op: tone
+    contrast: 8
+  - op: vignette
+    amount: 30
+    midpoint: 50
+    feather: 60

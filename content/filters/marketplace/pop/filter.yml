@@ -1,0 +1,17 @@
+schema: 1
+id: pop
+name: Pop
+description: Punchy contrast with vibrance that lifts muted colour.
+group: Colour
+order: 10
+intensity: 100
+tags: [vivid, punchy]
+author: PotionUI
+
+steps:
+  - op: tone
+    brightness: 2
+    contrast: 14
+    saturation: 6
+  - op: vibrance
+    amount: 48

@@ -1,0 +1,26 @@
+schema: 1
+id: reel
+name: Reel
+description: A soft film curve, teal and amber split tone, vignette and grain.
+group: Film
+order: 30
+intensity: 100
+tags: [film, grain]
+author: PotionUI
+
+steps:
+  - op: curves
+    master: [[0, 0.03], [0.3, 0.26], [0.7, 0.76], [1, 0.97]]
+  - op: split_tone
+    shadow_hue: 195
+    shadow_sat: 22
+    highlight_hue: 42
+    highlight_sat: 20
+  - op: tone
+    saturation: -6
+  - op: vignette
+    amount: 22
+  - op: grain
+    amount: 24
+    size: 1.2
+    seed: 7

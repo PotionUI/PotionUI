@@ -1,0 +1,21 @@
+schema: 1
+id: sage
+name: Sage
+description: Desaturated greens with a quiet faded base.
+group: Colour
+order: 60
+intensity: 100
+tags: [muted, green]
+author: PotionUI
+
+steps:
+  - op: tone
+    contrast: 6
+    saturation: -24
+  - op: split_tone
+    shadow_hue: 150
+    shadow_sat: 16
+    highlight_hue: 75
+    highlight_sat: 14
+  - op: fade
+    black_lift: 3

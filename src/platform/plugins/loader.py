@@ -60,6 +60,8 @@ class PluginManifest:
     preset_modes: List[Dict[str, Any]] = field(default_factory=list)
     recipes: List[Dict[str, Any]] = field(default_factory=list)  # Recipe roots: [{path}]
     model_layouts: List[Dict[str, Any]] = field(default_factory=list)
+    filters: List[Dict[str, Any]] = field(default_factory=list)
+    filter_ops: List[Dict[str, Any]] = field(default_factory=list)
     # Recipe step kinds: [{kind, backend}]
     recipe_steps: List[Dict[str, Any]] = field(default_factory=list)
     # Native sampling extension points: [{key, handler, label, ...}]
@@ -450,6 +452,8 @@ class PluginLoader:
             preset_modes=[p.model_dump() for p in schema.preset_modes],
             recipes=[r.model_dump() for r in schema.recipes],
             model_layouts=[m.model_dump() for m in schema.model_layouts],
+            filters=[f.model_dump() for f in schema.filters],
+            filter_ops=[o.model_dump() for o in schema.filter_ops],
             recipe_steps=[s.model_dump() for s in schema.recipe_steps],
             samplers=[s.model_dump() for s in schema.samplers],
             schedules=[s.model_dump() for s in schema.schedules],

@@ -1,0 +1,23 @@
+schema: 1
+id: ember
+name: Ember
+description: Warm skin and wood, a lifted midtone curve, a soft vignette.
+group: Colour
+order: 20
+intensity: 100
+tags: [warm, portrait]
+author: PotionUI
+
+steps:
+  - op: white_balance
+    temperature: 34
+    tint: 6
+  - op: tone
+    contrast: 10
+    saturation: 8
+  - op: curves
+    master: [[0, 0.02], [0.25, 0.22], [0.75, 0.8], [1, 0.98]]
+  - op: vignette
+    amount: 22
+    midpoint: 55
+    feather: 60

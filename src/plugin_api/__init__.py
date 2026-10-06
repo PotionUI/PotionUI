@@ -250,6 +250,17 @@ from src.platform.plugins.sampling import (
     schedule_registry,
 )
 
+from src.plugin_api.filters import (
+    ColourOp,
+    Cube,
+    CubeError,
+    SpatialOp,
+    apply_filter,
+    compile_lut,
+    parse_cube,
+    validate_steps,
+)
+
 __all__ = [
     "OrganizeActionBlocked",
     "OrganizeChange",
@@ -436,6 +447,14 @@ __all__ = [
     "sample_euler",
     "sampler_registry",
     "schedule_registry",
+    "ColourOp",
+    "Cube",
+    "CubeError",
+    "SpatialOp",
+    "apply_filter",
+    "compile_lut",
+    "parse_cube",
+    "validate_steps",
 ]
 
 

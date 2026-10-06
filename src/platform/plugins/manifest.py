@@ -250,6 +250,67 @@ class ModelLayoutsRootSpec(BaseModel):
         return value
 
 
+class FiltersRootSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+
+    @field_validator("path")
+    @classmethod
+    def _contained_relative_path(cls, value: str) -> str:
+        normalized = value.replace("\\", "/")
+        if not normalized or normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized):
+            raise ValueError("must be a relative path inside the plugin directory")
+        if ".." in normalized.split("/"):
+            raise ValueError("must not contain '..' segments")
+        return value
+
+
+class FilterOpParamSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    label: str = Field(min_length=1)
+    type: Literal["int", "float"] = "int"
+    min: float
+    max: float
+    default: float = 0
+    unit: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _validate_range(self) -> "FilterOpParamSpec":
+        if self.max < self.min:
+            raise ValueError("max must be >= min")
+        if not self.min <= self.default <= self.max:
+            raise ValueError("default must be within min..max")
+        return self
+
+
+class FilterOpSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[a-z0-9-]+\.[a-z][a-z0-9_]*$")
+    label: str = Field(min_length=1)
+    kind: Literal["colour", "spatial"]
+    params: List[FilterOpParamSpec] = Field(default_factory=list)
+    python: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9_][A-Za-z0-9_./-]*\.py:[A-Za-z_][A-Za-z0-9_]*$")
+
+    @field_validator("params")
+    @classmethod
+    def _unique_params(cls, value: List[FilterOpParamSpec]) -> List[FilterOpParamSpec]:
+        ids = [param.id for param in value]
+        if len(ids) != len(set(ids)):
+            raise ValueError("param ids must be unique")
+        return value
+
+    @field_validator("python")
+    @classmethod
+    def _contained_python_path(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and ".." in value.split(":", 1)[0].split("/"):
+            raise ValueError("must not contain '..' segments")
+        return value
+
+
 class PresetModeContributionSpec(BaseModel):
     """A plugin-contributed MODE targeting an existing preset: `preset_modes[]`
     - distinct from `presets[]`, which contributes whole new presets.
@@ -765,6 +826,8 @@ class PluginManifestSchema(BaseModel):
     # content/recipes/ tree - see RecipesRootSpec.
     recipes: List[RecipesRootSpec] = Field(default_factory=list)
     model_layouts: List[ModelLayoutsRootSpec] = Field(default_factory=list)
+    filters: List[FiltersRootSpec] = Field(default_factory=list)
+    filter_ops: List[FilterOpSpec] = Field(default_factory=list)
     # Recipe step kinds this plugin contributes - see RecipeStepSpec.
     recipe_steps: List[RecipeStepSpec] = Field(default_factory=list)
     # Step algorithms and sigma schedules this plugin contributes to the native
@@ -819,3 +882,14 @@ class PluginManifestSchema(BaseModel):
     requirement_checkers: List[RequirementCheckerSpec] = Field(default_factory=list)
 
     setup: List[SetupStepSpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _filter_ops_belong_to_this_plugin(self) -> "PluginManifestSchema":
+        seen = set()
+        for op in self.filter_ops:
+            if not op.id.startswith(f"{self.id}."):
+                raise ValueError(f"filter_ops id '{op.id}' must start with '{self.id}.'")
+            if op.id in seen:
+                raise ValueError(f"filter_ops id '{op.id}' is declared twice")
+            seen.add(op.id)
+        return self

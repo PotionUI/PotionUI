@@ -78,6 +78,7 @@ installed_presets.json
 content/presets/local/
 content/presets/.import-*
 content/automation/local/
+content/filters/local/
 content/model-layouts/local/
 content/recipes/local/
 content/plugins/local/

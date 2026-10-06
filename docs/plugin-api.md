@@ -70,6 +70,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Limits** — contributing a plan limit kind | `.limits` | `LimitKind`, `Usage`, `Refusal`, `MeasureContext`, `RefusalContext`, `AdmissionRequest`, `LimitEvents` (`record(user_id, kind, units=1, ref_id=None)`, `refund(ref_id)`), `LimitEventsView`, `LimitExceeded` |
 | **Phrasebook** — contributing a batch tool to Find & replace | `.phrasebook` | `PhrasebookBatchOperation`, `PhrasebookBatchContext`, `BatchOutcome`, `BatchPreview`, `BatchOperationError` |
 | **Sampling** — contributing a step algorithm or a sigma schedule | `.sampling` | `SamplerDefinition`, `ScheduleDefinition`, `ScheduleContext`, `OptionSpec`, `GuidanceStrategy`, `SamplingCancelled`, `run_hooks`, `sample_euler`, `sampler_registry`, `schedule_registry` |
+| **Filters** — contributing a photo filter op with a Python counterpart | `.filters` | `ColourOp`, `SpatialOp`, `apply_filter`, `compile_lut`, `parse_cube`, `validate_steps`, `Cube`, `CubeError` |
 | **Setup** — telling admins what to do after enabling the plugin | `.setup` | `SetupCheck`, `SetupCheckContext`, `SetupCheckResult` |
 
 Each module's docstring explains what its exports are for; this table is the index.
@@ -925,6 +926,76 @@ core profile id is reported as a load error and the core profile wins, the same 
 `local` profile colliding with a `marketplace` one gets. Plugins ship YAML only: the config
 readers a profile can name are a closed set implemented in core. Check a profile with
 `python scripts/model_layout_lint.py`.
+
+## Contributing photo filters and filter ops
+
+A **filter** is a recipe of adjustment steps (plus an optional `.cube` LUT) the image editor and the server
+apply the same way; [Photo Filters](filters.md) is the reference for the file format, the ops and the
+engine. An enabled plugin can ship ready-made filters and add new ops. Both are declared in `manifest.yml`;
+disabling the plugin takes them away again.
+
+### Shipping filters
+
+```yaml
+filters:
+  - path: filters          # <plugin>/filters/<name>/filter.yml
+```
+
+The root is scanned exactly like `content/filters/marketplace/`: each `<name>/filter.yml` (plus an optional
+`lut.cube`) is one filter, and the directory name must equal the `id:`. Public ids are
+`<plugin_id>:<name>`, so a plugin filter never collides with a core, local or user filter. A filter that ships
+a `.cube` must declare `license:`. A filter that fails validation is reported under `load_errors` in
+`GET /api/filters` and the rest still load. Check yours with `python scripts/filter_lint.py`.
+
+### Adding an op
+
+```yaml
+filter_ops:
+  - id: retro-tape.scanlines        # must be "<plugin-id>.<op>"; core ops never contain a dot
+    label: Scanlines
+    kind: spatial                   # colour | spatial
+    params:
+      - { id: strength, label: Strength, type: int, min: 0, max: 100, default: 30 }
+      - { id: gap, label: Gap, type: int, min: 2, max: 12, default: 4 }
+    python: ops.py:Scanlines        # optional; absent means editor only
+```
+
+The declaration is what the backend and the linter validate a filter's params against, without importing
+JavaScript. A param is `type: int` or `float` with a `min`, a `max` and a `default` inside that range.
+
+An op is **colour** only if each output pixel depends on that pixel's RGB alone; then it is folded into the
+filter's LUT like a core colour op. Anything that needs position or neighbours is **spatial** and runs after
+the LUT. A filter lists its colour steps before its spatial steps.
+
+The browser half is registered through the image-editor host (`window.__potionui.imageEditor`), next to the
+declaration above. The Python half is optional and is a class named by `python:` (`file.py:ClassName`, a path
+inside the plugin directory), imported only while the plugin is enabled:
+
+```python
+from src.plugin_api.filters import ColourOp, SpatialOp
+
+
+class Warmth(ColourOp):
+    def map(self, rgb, params):
+        return rgb
+
+
+class Scanlines(SpatialOp):
+    def apply(self, image, params, amount):
+        return image
+```
+
+- `ColourOp.map(rgb, params)`: `rgb` is a float32 array of shape `(N, 3)` in 0..1, vectorised over lattice
+  nodes; return the same shape. The result is clamped to 0..1.
+- `SpatialOp.apply(image, params, amount)`: `image` is a float32 array of shape `(H, W, 3)` in 0..1 and
+  `amount` is the intensity as 0..1. A spatial op **must scale its effect by `amount`**: at 0 it returns the
+  image unchanged.
+- Without a `python:` entry the filter still works in the editor, `GET /api/filters` reports
+  `backend_ok: false` for any filter using it, and server-side consumers refuse it with a message naming
+  the op.
+
+`apply_filter`, `compile_lut`, `parse_cube`, `validate_steps`, `Cube` and `CubeError` are exported from the
+same module so a plugin's own tests can check its op against the engine.
 
 ## Samplers and schedules
 

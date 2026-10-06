@@ -12,3 +12,6 @@ export type { PageSelectionState } from './selection';
 export { pageSelectionState, toggleRow, selectPage, clearPage, clearAll } from './selection';
 
 export { pageCount, clampPage, canGoPrev, canGoNext } from './pager';
+
+export { rangeBetween, applyRange, moveActiveIndex } from './selection';
+export { VIRTUAL_THRESHOLD, shouldVirtualize, virtualWindow, scrollTopToReveal } from './virtualWindow';

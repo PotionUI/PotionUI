@@ -3,7 +3,8 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { alignClass, gridTemplateColumns, visibleColumns, type DataTableColumn } from './column';
 	import { cycleSort, type SortState } from './sortState';
-	import { clearPage, pageSelectionState, selectPage, toggleRow } from './selection';
+	import { clearPage, pageSelectionState, selectPage, toggleRow, type PageSelectionState } from './selection';
+	import SelectableGrid from './SelectableGrid.svelte';
 
 	let {
 		columns,
@@ -22,6 +23,22 @@
 		isFiltered = false,
 		rowActions,
 		card,
+		rowSelect = false,
+		selectionType = 'multi',
+		isLocked,
+		rowClass,
+		headerState,
+		onHeaderToggle,
+		headerLabel,
+		onSelectAll,
+		onConfirm,
+		virtual = false,
+		rowHeight,
+		cardHeight,
+		scrollMaxHeight,
+		onNearEnd,
+		ariaLabel,
+		forceNarrow,
 		class: className = ''
 	}: {
 		columns: readonly DataTableColumn<Row>[];
@@ -40,6 +57,22 @@
 		isFiltered?: boolean;
 		rowActions?: Snippet<[Row]>;
 		card?: Snippet<[Row]>;
+		rowSelect?: boolean;
+		selectionType?: 'multi' | 'single';
+		isLocked?: (row: Row) => boolean;
+		rowClass?: (row: Row) => string;
+		headerState?: PageSelectionState;
+		onHeaderToggle?: () => void;
+		headerLabel?: string;
+		onSelectAll?: () => void;
+		onConfirm?: () => void;
+		virtual?: boolean;
+		rowHeight?: number;
+		cardHeight?: number;
+		scrollMaxHeight?: string;
+		onNearEnd?: () => void;
+		ariaLabel?: string;
+		forceNarrow?: boolean;
 		class?: string;
 	} = $props();
 
@@ -76,6 +109,41 @@
 	}
 </script>
 
+{#if rowSelect && selected && onSelectedChange}
+	<SelectableGrid
+		{columns}
+		{rows}
+		{getRowId}
+		{sort}
+		{onSortChange}
+		{selected}
+		{onSelectedChange}
+		{selectionType}
+		{isLocked}
+		{rowClass}
+		{headerState}
+		{onHeaderToggle}
+		{headerLabel}
+		{onSelectAll}
+		{onConfirm}
+		{detail}
+		{loading}
+		{loadingRowCount}
+		{emptyState}
+		{filteredEmptyState}
+		{isFiltered}
+		{rowActions}
+		{card}
+		{virtual}
+		{rowHeight}
+		{cardHeight}
+		{scrollMaxHeight}
+		{onNearEnd}
+		{ariaLabel}
+		{forceNarrow}
+		class={className}
+	/>
+{:else}
 <div
 	class="dt-root rounded-lg border border-line-strong bg-surface-1 {className}"
 	style="--dt-cols-full: {colsFull}; --dt-cols-narrow: {colsNarrow};"
@@ -230,6 +298,7 @@
 		</div>
 	</div>
 </div>
+{/if}
 
 <style>
 	.dt-root {

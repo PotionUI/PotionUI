@@ -258,6 +258,12 @@ export interface PresetStyle {
 	preview?: string;
 }
 
+export interface PresetOrigin {
+	kind: 'marketplace' | 'local' | 'plugin';
+	plugin_id: string | null;
+	path: string;
+}
+
 export interface PresetInfo {
 	id: string;
 	name: string;
@@ -266,6 +272,8 @@ export interface PresetInfo {
 	tags: string[];
 	category?: string;
 	source?: string;
+	origin?: PresetOrigin | null;
+	modes?: string[];
 	engine?: string;
 	driver?: string | null;
 	media?: PresetMedia;

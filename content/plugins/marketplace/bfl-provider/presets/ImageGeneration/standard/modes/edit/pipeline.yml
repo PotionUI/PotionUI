@@ -1,0 +1,69 @@
+pipeline:
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.count or 1 }}"
+
+  - name: "seed_generator"
+    id: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.count or 1 }}"
+
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: "{{ (form.references or []) | length > 0 }}"
+    configuration:
+      media:
+        "@loop":
+          items: "{{ form.references }}"
+          template:
+            type: "image"
+            path: "{{ item.path | default(item) }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.count or 1 }}"
+      parameters:
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+
+  - name: "cloud_generate"
+    id: "cloud_generate"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+      - ["images", "media_loader", "image"]
+    configuration:
+      task: "img_edit"
+      model: "{{ form.model }}"
+      quantity: "{{ form.count or 1 }}"
+      prompts: "{{ generation.prompts.pairs }}"
+      params:
+        aspect_ratio: "{{ form.aspect_ratio }}"
+        resolution: "{{ form.resolution }}"
+        output_format: "{{ form.output_format }}"
+      options: "{{ form.provider_options }}"
+
+  - name: "gallery"
+    id: "gallery"
+    enabled: true
+    input:
+      - ["image", "cloud_generate", "image"]
+      - ["video", "cloud_generate", "video"]
+      - ["seed", "cloud_generate", "seed"]

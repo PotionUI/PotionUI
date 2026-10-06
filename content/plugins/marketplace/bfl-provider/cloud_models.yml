@@ -1,0 +1,213 @@
+checked: "2026-10-06"
+
+suggested:
+  - "flux-2-pro-preview"
+  - "flux-kontext-pro"
+  - "flux-2-klein-9b-preview"
+
+models:
+  - id: "flux-3-image"
+    label: "FLUX 3 Image"
+    description: "BFL's newest image model. Draws from a prompt or edits with up to 10 reference pictures. It may look things up on the web while it plans the picture (Web grounding). It does not take a seed or a file format."
+    tasks: ["txt2img", "img_edit"]
+    shape: "flux3"
+    references: 10
+    safety_max: 4
+    seed: false
+    output_format: false
+    user: false
+    grounding: true
+    typical_seconds: 40
+    pricing:
+      - {unit: "image", usd: "0.041", applies_to: "768sq"}
+      - {unit: "image", usd: "0.048", applies_to: "1k"}
+      - {unit: "image", usd: "0.100", applies_to: "2k"}
+      - {unit: "image", usd: "0.607", applies_to: "4k"}
+
+  - id: "flux-2-pro-preview"
+    label: "FLUX.2 [pro] (latest)"
+    description: "FLUX.2 [pro], always the newest version. Draws from a prompt or edits with up to 8 reference pictures, up to 4 megapixels."
+    tasks: ["txt2img", "img_edit"]
+    shape: "dimensions"
+    step: 16
+    min_side: 64
+    max_side: 2048
+    resolutions: ["1K", "2K"]
+    references: 8
+    safety_max: 5
+    upsampling: "disable_pup"
+    upsampling_default: true
+    typical_seconds: 20
+    pricing:
+      - {unit: "image", usd: "0.03"}
+
+  - id: "flux-2-pro"
+    label: "FLUX.2 [pro]"
+    description: "A fixed version of FLUX.2 [pro], for results that stay the same over time. Draws from a prompt or edits with up to 8 reference pictures."
+    tasks: ["txt2img", "img_edit"]
+    shape: "dimensions"
+    step: 16
+    min_side: 64
+    max_side: 2048
+    resolutions: ["1K", "2K"]
+    references: 8
+    safety_max: 5
+    upsampling: "disable_pup"
+    upsampling_default: true
+    typical_seconds: 20
+    pricing:
+      - {unit: "image", usd: "0.03"}
+
+  - id: "flux-2-max"
+    label: "FLUX.2 [max]"
+    description: "The most capable FLUX.2 model. Draws from a prompt or edits with up to 8 reference pictures."
+    tasks: ["txt2img", "img_edit"]
+    shape: "dimensions"
+    step: 16
+    min_side: 64
+    max_side: 2048
+    resolutions: ["1K", "2K"]
+    references: 8
+    safety_max: 5
+    upsampling: "disable_pup"
+    upsampling_default: true
+    typical_seconds: 30
+    pricing:
+      - {unit: "image", usd: "0.07"}
+
+  - id: "flux-2-flex"
+    label: "FLUX.2 [flex]"
+    description: "FLUX.2 with steps and guidance you can set, strong at lettering. Draws from a prompt or edits with up to 8 reference pictures."
+    tasks: ["txt2img", "img_edit"]
+    shape: "dimensions"
+    step: 16
+    min_side: 64
+    max_side: 2048
+    resolutions: ["1K", "2K"]
+    references: 8
+    safety_max: 5
+    upsampling: "prompt_upsampling"
+    upsampling_default: true
+    guidance: {minimum: 1.5, maximum: 10, default: 5, step: 0.5}
+    steps: {minimum: 1, maximum: 50, default: 50}
+    typical_seconds: 40
+    pricing:
+      - {unit: "image", usd: "0.05"}
+
+  - id: "flux-2-klein-9b-preview"
+    label: "FLUX.2 [klein] 9B (latest)"
+    description: "Fast, low-cost FLUX.2, always the newest version. Draws from a prompt or edits with up to 4 reference pictures."
+    tasks: ["txt2img", "img_edit"]
+    shape: "dimensions"
+    step: 16
+    min_side: 64
+    max_side: 2048
+    resolutions: ["1K", "2K"]
+    references: 4
+    safety_max: 5
+    typical_seconds: 5
+    pricing:
+      - {unit: "image", usd: "0.015"}
+
+  - id: "flux-2-klein-9b"
+    label: "FLUX.2 [klein] 9B"
+    description: "A fixed version of the fast, low-cost FLUX.2 [klein] 9B. Draws from a prompt or edits with up to 4 reference pictures."
+    tasks: ["txt2img", "img_edit"]
+    shape: "dimensions"
+    step: 16
+    min_side: 64
+    max_side: 2048
+    resolutions: ["1K", "2K"]
+    references: 4
+    safety_max: 5
+    typical_seconds: 5
+    pricing:
+      - {unit: "image", usd: "0.015"}
+
+  - id: "flux-2-klein-4b"
+    label: "FLUX.2 [klein] 4B"
+    description: "The fastest and cheapest FLUX.2. Draws from a prompt or edits with up to 4 reference pictures."
+    tasks: ["txt2img", "img_edit"]
+    shape: "dimensions"
+    step: 16
+    min_side: 64
+    max_side: 2048
+    resolutions: ["1K", "2K"]
+    references: 4
+    safety_max: 5
+    typical_seconds: 3
+    pricing:
+      - {unit: "image", usd: "0.014"}
+
+  - id: "flux-kontext-max"
+    label: "FLUX.1 Kontext [max]"
+    description: "Kontext edits a picture by instruction while keeping what you do not ask to change. The max version follows the prompt more closely. Takes up to 4 pictures (more than one is experimental at BFL)."
+    tasks: ["txt2img", "img_edit"]
+    shape: "aspect_ratio"
+    references: 4
+    safety_max: 6
+    upsampling: "prompt_upsampling"
+    upsampling_default: false
+    output_format_default: "png"
+    typical_seconds: 15
+    pricing:
+      - {unit: "image", usd: "0.08"}
+
+  - id: "flux-kontext-pro"
+    label: "FLUX.1 Kontext [pro]"
+    description: "Kontext edits a picture by instruction while keeping what you do not ask to change, and draws from a prompt too. Takes up to 4 pictures (more than one is experimental at BFL)."
+    tasks: ["txt2img", "img_edit"]
+    shape: "aspect_ratio"
+    references: 4
+    safety_max: 6
+    upsampling: "prompt_upsampling"
+    upsampling_default: false
+    output_format_default: "png"
+    typical_seconds: 10
+    pricing:
+      - {unit: "image", usd: "0.04"}
+
+  - id: "flux-pro-1.1-ultra"
+    label: "FLUX1.1 [pro] Ultra"
+    description: "FLUX1.1 [pro] at about 4 megapixels. Raw mode gives a less processed, more natural look."
+    tasks: ["txt2img"]
+    shape: "aspect_ratio"
+    safety_max: 6
+    upsampling: "prompt_upsampling"
+    upsampling_default: false
+    raw: true
+    typical_seconds: 15
+    pricing:
+      - {unit: "image", usd: "0.06"}
+
+  - id: "flux-pro-1.1"
+    label: "FLUX1.1 [pro]"
+    description: "The FLUX1.1 [pro] text to image model, up to 1440 pixels a side."
+    tasks: ["txt2img"]
+    shape: "dimensions"
+    step: 32
+    min_side: 256
+    max_side: 1440
+    resolutions: ["1K"]
+    safety_max: 6
+    upsampling: "prompt_upsampling"
+    upsampling_default: false
+    typical_seconds: 10
+    pricing:
+      - {unit: "image", usd: "0.04"}
+
+  - id: "flux-dev"
+    label: "FLUX.1 [dev]"
+    description: "The FLUX.1 [dev] text to image model with steps and guidance you can set, up to 1440 pixels a side."
+    tasks: ["txt2img"]
+    shape: "dimensions"
+    step: 32
+    min_side: 256
+    max_side: 1440
+    resolutions: ["1K"]
+    safety_max: 6
+    upsampling: "prompt_upsampling"
+    upsampling_default: false
+    guidance: {minimum: 1.5, maximum: 5, default: 3, step: 0.1}
+    steps: {minimum: 1, maximum: 50, default: 28}
+    typical_seconds: 10

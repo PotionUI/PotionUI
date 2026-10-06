@@ -1,0 +1,33 @@
+id: "bfl-provider"
+name: "Black Forest Labs"
+version: "0.1.0"
+description: "Generate and edit images with the FLUX models hosted by Black Forest Labs. Adds a BFL cloud backend, its model catalog (FLUX 3 Image, FLUX.2, FLUX.1 Kontext, FLUX1.1 [pro] and FLUX.1 [dev]) and a ready-made image preset (text to image, edit)."
+author: "PotionUI Team"
+type: "backend-only"
+category: "backends"
+
+capabilities:
+  - "backend-provider"
+  - "cloud-models"
+
+hooks:
+  backend:
+    - hook: "backend.register"
+      handler: "backend.hooks.backend_hooks.register_backend"
+
+presets:
+  - path: "presets"
+
+docs:
+  - path: "README.md"
+    title: "Black Forest Labs"
+    audience: "admin"
+
+setup:
+  - kind: "backend.added"
+    driver: "cloud.bfl"
+    label: "Add a Black Forest Labs backend with your API key"
+  - kind: "cloud.models_enabled"
+    driver: "cloud.bfl"
+  - kind: "presets.installed"
+  - kind: "presets.assigned"

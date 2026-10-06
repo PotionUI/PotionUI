@@ -1,0 +1,19 @@
+schema: 1
+id: "01M48T1R0JCM082KNNNA894GGC"
+name: "FLUX by Black Forest Labs"
+category: "image"
+version: "1.0.0"
+engine: "cloud"
+driver: "cloud.bfl"
+tags: ["cloud", "bfl", "flux", "kontext", "image", "edit"]
+
+formulas:
+  groups:
+    size:     { label: "Size" }
+    output:   { label: "Output format" }
+    provider: { label: "Provider options" }
+    models:   { label: "Models", preselect: false }
+
+modes:
+  - txt2img
+  - edit

@@ -44,6 +44,7 @@ const { default: AdjustPanel } = await import('$lib/components/imageEditor/Adjus
 const { default: SaveFilterDialog } = await import('$lib/components/imageEditor/SaveFilterDialog.svelte');
 const { PaintSession } = await import('$lib/components/imageEditor/session');
 const { resetFilterCatalog } = await import('$lib/filters/catalog');
+const { paintFilters } = await import('$lib/components/imageEditor/registries');
 const { createClassComponent } = await import('svelte/legacy');
 const { tick } = await import('svelte');
 
@@ -200,6 +201,67 @@ describe('Filters tool strip', () => {
 		locked.click();
 		await settle();
 		expect(session.snapshot().filter.active).toBeNull();
+	});
+
+	describe('a plugin op with no browser part', () => {
+		const GLOW_OP = {
+			id: 'crt.glow',
+			label: 'Glow',
+			kind: 'colour',
+			source: 'plugin',
+			plugin_id: 'crt',
+			params: []
+		};
+
+		beforeEach(() => {
+			listFilters.mockResolvedValue({
+				...CATALOG,
+				filters: [
+					...CATALOG.filters,
+					item({ id: 'crt:glow', name: 'Glow', source: 'plugin', plugin_id: 'crt', order: 30, steps: [{ op: 'crt.glow' }] })
+				],
+				ops: [GLOW_OP]
+			});
+		});
+
+		it('is locked with a tooltip naming the plugin and cannot be selected', async () => {
+			mountComponent(FiltersPanel, { phone: true });
+			await settle();
+
+			const glow = document.body.querySelector('[role="radio"][aria-label^="Glow"]') as HTMLButtonElement;
+			expect(glow.getAttribute('aria-disabled')).toBe('true');
+			expect(glow.getAttribute('aria-label')).toBe("Glow. Needs a browser part of plugin 'crt' that isn't loaded");
+			expect(glow.className).toContain('opacity-60');
+			expect(glow.querySelector('svg')).not.toBeNull();
+
+			glow.click();
+			await settle();
+			expect(session.snapshot().filter.active).toBeNull();
+			expect(session.snapshot().filter.error).toBeNull();
+		});
+
+		it('is selectable once the plugin registers its browser part', async () => {
+			const unregister = paintFilters.register({
+				id: 'crt.glow',
+				label: 'Glow',
+				params: [],
+				active: () => true,
+				apply: (image) => image,
+				kind: 'colour',
+				map: (rgb) => rgb
+			});
+			try {
+				mountComponent(FiltersPanel, { phone: true });
+				await settle();
+				const glow = document.body.querySelector('[role="radio"][aria-label="Glow"]') as HTMLButtonElement;
+				expect(glow.getAttribute('aria-disabled')).toBe('false');
+				glow.click();
+				await settle();
+				expect(session.snapshot().filter.active?.id).toBe('crt:glow');
+			} finally {
+				unregister();
+			}
+		});
 	});
 
 	it('selecting a filter shows its name, steps and the default intensity', async () => {

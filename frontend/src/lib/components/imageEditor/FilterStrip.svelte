@@ -12,12 +12,14 @@
 		updateMineFilter
 	} from '$lib/filters/catalog';
 	import { selectFilterItem } from '$lib/filters/actions';
+	import { sharedExtensions } from '$lib/filters/extensions';
 	import { buildStrip, isLocked, lockReason, moveSelection, selectableOrder } from '$lib/filters/strip';
 	import { ThumbCache, renderThumb } from '$lib/filters/thumbs';
 	import type { FilterItem } from '$lib/filters/types';
 	import { toasts } from '$lib/stores/toast';
 	import FilterMineMenu from './FilterMineMenu.svelte';
 	import { PAINT_ICONS } from './icons';
+	import { paintFilters } from './registries';
 	import type { PaintSession, SessionSnapshot } from './session';
 
 	export let session: PaintSession;
@@ -39,7 +41,8 @@
 
 	$: items = $filterCatalog.items;
 	$: sections = buildStrip(items, $filterCatalog.groups);
-	$: order = selectableOrder(sections);
+	$: extensions = sharedExtensions($filterCatalog.ops, paintFilters.list());
+	$: order = selectableOrder(sections, extensions);
 	$: selectedId = state.filter.active?.id ?? null;
 	$: refreshThumbs(state.contentRevision, state.activeIndex, state.ready, items);
 	$: if (state.filter.error) {
@@ -68,12 +71,11 @@
 	async function renderThumbs(token: number, revision: number, list: FilterItem[]) {
 		const source = session.thumbSource();
 		if (!source || token !== thumbToken) return;
-		const extensions = session.filterExtensions();
 		cache.prune(revision);
 		thumbs = { ...thumbs, none: source };
 		for (const item of list) {
 			if (token !== thumbToken) return;
-			if (isLocked(item)) continue;
+			if (isLocked(item, extensions)) continue;
 			let image = cache.get(revision, item);
 			if (!image) {
 				try {
@@ -104,7 +106,7 @@
 	}
 
 	async function choose(item: FilterItem | null) {
-		if (item && isLocked(item)) return;
+		if (item && isLocked(item, extensions)) return;
 		if (renaming) cancelRename();
 		try {
 			await selectFilterItem(session, item);
@@ -227,11 +229,11 @@
 		{#each sections as section (section.key)}
 			<div class="shrink-0 self-stretch w-px mx-1 bg-line" aria-hidden="true"></div>
 			{#each section.items as item (item.id)}
-				{@const locked = isLocked(item)}
+				{@const locked = isLocked(item, extensions)}
 				{@const selected = selectedId === item.id}
 				<div class="group shrink-0 relative flex flex-col items-center gap-1 w-16 md:w-[4.5rem]">
 					<Tooltip
-						text={locked ? `${item.name}: ${lockReason(item)}` : (item.description ?? item.name)}
+						text={locked ? `${item.name}: ${lockReason(item, extensions)}` : (item.description ?? item.name)}
 						position="top"
 						delay={250}
 						wrapperClass="block"
@@ -241,7 +243,7 @@
 							role="radio"
 							aria-checked={selected}
 							aria-disabled={locked}
-							aria-label={locked ? `${item.name}. ${lockReason(item)}` : item.name}
+							aria-label={locked ? `${item.name}. ${lockReason(item, extensions)}` : item.name}
 							tabindex={selected ? 0 : -1}
 							class="relative block {tileSize} overflow-hidden rounded bg-surface-2 transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal {selected ? 'ring-2 ring-signal' : ''} {locked ? 'opacity-60 cursor-not-allowed' : ''}"
 							on:click={() => choose(item)}

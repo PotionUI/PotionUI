@@ -87,6 +87,27 @@ describe('locking', () => {
 		expect(isLocked(make({ id: 'b', unavailable_ops: ['crt.scan'] }))).toBe(true);
 		expect(isLocked(make({ id: 'c' }))).toBe(false);
 	});
+
+	it('locks a filter whose plugin op has no browser part and names the plugin', () => {
+		const spec = {
+			id: 'retro-tape.scanlines',
+			label: 'Scanlines',
+			kind: 'spatial' as const,
+			source: 'plugin' as const,
+			plugin_id: 'retro-tape',
+			params: []
+		};
+		const item = make({ id: 'retro-tape:lines', steps: [{ op: 'tone' }, { op: 'retro-tape.scanlines' }] });
+		const missing = { ops: { [spec.id]: spec }, colour: {}, spatial: {} };
+		expect(isLocked(item, missing)).toBe(true);
+		expect(lockReason(item, missing)).toBe("Needs a browser part of plugin 'retro-tape' that isn't loaded");
+		expect(selectableOrder(buildStrip([item], ['Colour']), missing)).toEqual([null]);
+
+		const loaded = { ...missing, spatial: { [spec.id]: () => {} } };
+		expect(isLocked(item, loaded)).toBe(false);
+		expect(lockReason(item, loaded)).toBe('');
+		expect(isLocked(make({ id: 'core', steps: [{ op: 'tone' }] }), missing)).toBe(false);
+	});
 });
 
 describe('keyboard order', () => {

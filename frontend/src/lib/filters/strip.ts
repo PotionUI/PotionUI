@@ -1,3 +1,4 @@
+import type { FilterExtensions } from './engine';
 import type { FilterItem, FilterSource } from './types';
 
 export interface StripSection {
@@ -9,13 +10,29 @@ export interface StripSection {
 
 const SOURCE_RANK: Record<FilterSource, number> = { builtin: 0, local: 1, plugin: 2, mine: 3 };
 
-export function isLocked(item: FilterItem): boolean {
-	return item.unavailable_ops.length > 0 || item.needs_plugin !== null;
+function missingBrowserPlugin(item: FilterItem, extensions?: FilterExtensions): string | null {
+	for (const step of item.steps) {
+		const spec = extensions?.ops?.[step.op];
+		if (!spec) continue;
+		const loaded = spec.kind === 'colour' ? extensions?.colour?.[step.op] : extensions?.spatial?.[step.op];
+		if (!loaded) return spec.plugin_id ?? step.op.split('.')[0];
+	}
+	return null;
 }
 
-export function lockReason(item: FilterItem): string {
+export function isLocked(item: FilterItem, extensions?: FilterExtensions): boolean {
+	return (
+		item.unavailable_ops.length > 0 ||
+		item.needs_plugin !== null ||
+		missingBrowserPlugin(item, extensions) !== null
+	);
+}
+
+export function lockReason(item: FilterItem, extensions?: FilterExtensions): string {
 	if (item.needs_plugin) return `Needs plugin "${item.needs_plugin}" (not enabled)`;
 	if (item.unavailable_ops.length > 0) return `Needs ${item.unavailable_ops.join(', ')} (not available)`;
+	const plugin = missingBrowserPlugin(item, extensions);
+	if (plugin) return `Needs a browser part of plugin '${plugin}' that isn't loaded`;
 	return '';
 }
 
@@ -61,10 +78,13 @@ export function buildStrip(items: FilterItem[], groups: string[]): StripSection[
 	return sections;
 }
 
-export function selectableOrder(sections: StripSection[]): Array<FilterItem | null> {
+export function selectableOrder(
+	sections: StripSection[],
+	extensions?: FilterExtensions
+): Array<FilterItem | null> {
 	const order: Array<FilterItem | null> = [null];
 	for (const section of sections) {
-		for (const item of section.items) if (!isLocked(item)) order.push(item);
+		for (const item of section.items) if (!isLocked(item, extensions)) order.push(item);
 	}
 	return order;
 }

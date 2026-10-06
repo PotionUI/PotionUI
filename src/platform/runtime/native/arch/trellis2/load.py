@@ -23,10 +23,9 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
-from vendor.gpl.comfyui.ops import pick_operations
+from vendor.gpl.comfyui.ops import manual_cast
 
 from ...io.safetensors_loader import load_torch_file_prefixed
-from ...ops.dtype import is_mixed_precision
 from .config import (
     OCTREE_VAE_DECODER_TORSO_PRODUCTION,
     SHAPE_SLAT_FLOW_512,
@@ -117,20 +116,6 @@ def _fill(module: nn.Module, sd: dict[str, torch.Tensor], what: str) -> nn.Modul
     return module.eval()
 
 
-def _ops_for(sd: dict[str, torch.Tensor], dtype: torch.dtype | None):
-    """The ops namespace for a component built from ``sd``.
-
-    Mirrors ``NativeEngineLoader._ops_for`` minus the fp8/streaming tiers, which
-    no released TRELLIS.2 file needs: every one is plain bf16.
-    """
-    from vendor.gpl.comfyui.ops import manual_cast
-
-    if is_mixed_precision(sd):
-        return manual_cast
-    storage = dtype or next(iter(sd.values())).dtype
-    return pick_operations(storage, storage, None)
-
-
 # -- flow models -----------------------------------------------------------
 
 
@@ -144,7 +129,7 @@ def load_ss_flow(
     stage, a dense DiT over a 16^3 voxel grid."""
     sd = _read(path, FLOW_PREFIXES["structure"], dtype)
     with torch.device("meta"):
-        module = SSFlowDiT(config, _ops_for(sd, dtype))
+        module = SSFlowDiT(config, manual_cast)
     return _fill(module, sd, "sparse-structure flow")
 
 
@@ -207,7 +192,7 @@ def load_ss_vae_decoder(
     16^3 latent -> 64^3 occupancy."""
     sd = _read(path, STRUCTURE_DECODER_PREFIX, dtype)
     with torch.device("meta"):
-        module = SSVAEDecoder(config, _ops_for(sd, dtype))
+        module = SSVAEDecoder(config, manual_cast)
     return _fill(module, sd, "sparse-structure VAE decoder")
 
 

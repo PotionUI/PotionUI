@@ -168,3 +168,21 @@ def test_timestep_embedders_run_on_bf16_weights_without_manual_cast():
     slat = SLatEmbedder(8, frequency_embedding_size=16).to(torch.bfloat16)
     assert ss(t).dtype == torch.bfloat16
     assert slat(t).dtype == torch.bfloat16
+
+
+def test_an_all_bf16_checkpoint_loads_and_runs_on_fp32_and_bf16_inputs(tmp_path):
+    from safetensors.torch import save_file
+    from src.platform.runtime.native.arch.trellis2.load import FLOW_PREFIXES, load_ss_flow
+
+    prefix = FLOW_PREFIXES["structure"][0] if isinstance(FLOW_PREFIXES["structure"], (list, tuple)) else FLOW_PREFIXES["structure"]
+    source = _build()
+    sd = {f"{prefix}{k}": v.to(torch.bfloat16).contiguous() for k, v in source.state_dict().items()}
+    path = tmp_path / "structure.safetensors"
+    save_file(sd, str(path))
+
+    m = load_ss_flow(path, TINY)
+    t = torch.tensor([250.0, 900.0])
+    for dtype in (torch.float32, torch.bfloat16):
+        x = torch.randn(2, TINY.in_channels, TINY.resolution, TINY.resolution, TINY.resolution, dtype=dtype)
+        cond = torch.randn(2, 5, TINY.cond_channels, dtype=dtype)
+        assert m(x, t, cond).shape == x.shape

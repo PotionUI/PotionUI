@@ -11,7 +11,7 @@
 	import ToolsMenu from '$lib/components/tools/ToolsMenu.svelte';
 	import {
 		buildHistoryToolContext,
-		listToolGroups,
+		groupToolsFor,
 		type MediaTool,
 		type MediaToolContext,
 		type MediaToolGroup
@@ -40,7 +40,7 @@
 	$: toolGroups = groupsFor(toolContext, $mediaToolRegistrations);
 
 	function groupsFor(context: MediaToolContext, _registrations: number): MediaToolGroup[] {
-		return listToolGroups(context);
+		return groupToolsFor(context, { surface: 'bar' });
 	}
 
 	// Copy, not move: the generations stay in history untouched and the copies

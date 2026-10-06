@@ -18,8 +18,10 @@
 	import { isContentPolicyCode, policyShowsErrorId, firstHintLine } from '$lib/generation/failurePolicy';
 	import { leadIndex } from '$lib/generation/leadFile';
 	import { isStackEntry, isLooseCell, stackBadge, stackInfo, cellChip, gridIdOf } from '$lib/generation/compare/view/historyGrid';
-	import { api } from '$lib/services/api/index';
 	import { getIconPath } from '$lib/utils/IconLibrary';
+	import EntryActions from '$lib/components/tools/EntryActions.svelte';
+	import type { EntryMenuController } from '$lib/tools/entryMenu';
+	import type { MediaTool, MediaToolContext, ToolRunExtra } from '$lib/tools/tools';
 	import {
 		getGenerationCardDensity,
 		shouldShowGenerationCardCounter,
@@ -28,7 +30,6 @@
 	} from './generationCardDensity';
 	import {
 		bucketForCardWidth,
-		actionsForCount,
 		formatBarResolution,
 		resolveCardResolution,
 		mediaChipOwnsDuration
@@ -53,9 +54,7 @@
 	export let onSelect:
 		| ((generation: GenerationHistoryItem, file: GenerationFile | null, event?: MouseEvent) => void)
 		| null = null;
-	/** Opt-in "reuse this generation's settings" action, tile mode only (see
-	 *  the reuse block below) — omitted callers get no button at all. */
-	export let onReuse: ((generation: GenerationHistoryItem) => void) | null = null;
+	export let entryMenu: EntryMenuController<GenerationHistoryItem, GenerationFile> | null = null;
 	/**
 	 * Justified-gallery mode: explicit media box in px (native aspect ratio) plus
 	 * a bottom info bar whose chrome scales with tile width (`generationCardChrome.ts`).
@@ -150,7 +149,7 @@
 	// table above (which still governs the media-area overlays shared with the
 	// fixed-aspect card).
 	$: chromeBucket = tile ? bucketForCardWidth(tile.width) : null;
-	$: chromeActions = chromeBucket ? actionsForCount(chromeBucket.actionCount) : [];
+	$: menuEnabled = !!(tile && chromeBucket && entryMenu);
 	$: cardResolution = resolveCardResolution(currentMediaFile, generation.form_data);
 	$: fullResolutionTitle = cardResolution ? `${cardResolution.width}×${cardResolution.height}` : undefined;
 	$: barResolutionText =
@@ -193,6 +192,10 @@
 	}
 
 	function handleCardClick(event?: MouseEvent) {
+		if (longPressFired) {
+			longPressFired = false;
+			return;
+		}
 		// Outside selection mode, a shift/ctrl/cmd-click still starts a
 		// selection (desktop-file-manager convention) rather than opening the
 		// preview; a plain click there falls through to the preview as usual.
@@ -217,21 +220,54 @@
 		dispatch('deleteClick', generation);
 	}
 
-	function handleReuseClick(e: Event) {
-		e.stopPropagation();
-		e.preventDefault();
-		onReuse?.(generation);
+	let actions: EntryActions | undefined;
+	let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+	let longPressOrigin = { x: 0, y: 0 };
+	let longPressFired = false;
+
+	function menuModel() {
+		return entryMenu!.model(generation, currentMediaFile ?? null);
 	}
 
-	function handleDownloadClick(e: Event) {
-		e.stopPropagation();
-		e.preventDefault();
-		if (!currentMediaFile) return;
-		const filename = currentMediaFile.file_path.split('/').pop() || currentMediaFile.file_path;
-		const link = document.createElement('a');
-		link.href = api.getGenerationImageURL(generation.id, filename);
-		link.download = filename;
-		link.click();
+	function handleMenuPick(tool: MediaTool, ctx: MediaToolContext, extra?: ToolRunExtra) {
+		void entryMenu?.pick(generation, tool, ctx, extra);
+	}
+
+	function handleContextMenu(event: MouseEvent) {
+		if (!menuEnabled || event.shiftKey) return;
+		event.preventDefault();
+		event.stopPropagation();
+		if (longPressFired) return;
+		if (event.clientX === 0 && event.clientY === 0) {
+			const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+			actions?.openAt(rect.left + 16, rect.top + 16);
+			return;
+		}
+		actions?.openAt(event.clientX, event.clientY);
+	}
+
+	function clearLongPress() {
+		if (longPressTimer) clearTimeout(longPressTimer);
+		longPressTimer = null;
+	}
+
+	function handlePointerDown(event: PointerEvent) {
+		longPressFired = false;
+		if (!menuEnabled || event.pointerType !== 'touch') return;
+		longPressOrigin = { x: event.clientX, y: event.clientY };
+		clearLongPress();
+		longPressTimer = setTimeout(() => {
+			longPressTimer = null;
+			longPressFired = true;
+			actions?.openSheet();
+		}, 500);
+	}
+
+	function handlePointerMove(event: PointerEvent) {
+		if (!longPressTimer) return;
+		if (Math.hypot(event.clientX - longPressOrigin.x, event.clientY - longPressOrigin.y) > 10) {
+			clearLongPress();
+		}
 	}
 
 	function handleFavoriteToggle() {
@@ -273,7 +309,13 @@
 	}
 </script>
 
-<div class="group relative" style={tile ? `width: ${tile.width}px` : undefined}>
+<div
+	class="group relative"
+	style={tile ? `width: ${tile.width}px` : undefined}
+	data-generation-card
+	role="presentation"
+	on:contextmenu={handleContextMenu}
+>
 	{#if stackEntry}
 		<div
 			aria-hidden="true"
@@ -323,6 +365,10 @@
 			role="button"
 			tabindex="0"
 			on:click={handleCardClick}
+			on:pointerdown={handlePointerDown}
+			on:pointermove={handlePointerMove}
+			on:pointerup={clearLongPress}
+			on:pointercancel={clearLongPress}
 			on:keydown={(e) => {
 				if (e.key === 'Enter' || e.key === ' ') {
 					e.preventDefault();
@@ -424,54 +470,20 @@
 			{/if}
 
 			<!-- Actions - top right on hover -->
-			{#if showActions && !selectable}
-				{#if tile && chromeBucket}
-					<div class="absolute top-2 right-2 z-30 flex items-center gap-1">
-						{#each chromeActions as action (action)}
-							{#if action === 'favorite'}
-								<div
-									class="bg-black/60 hover:bg-black/80 rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 flex items-center opacity-0 group-hover:opacity-100 focus-within:opacity-100"
-								>
-									<FavoriteButton
-										active={generation.is_favorite}
-										tone="onMedia"
-										onToggle={handleFavoriteToggle}
-									/>
-								</div>
-							{:else if action === 'view'}
-								<Tooltip text="View generation details" position="bottom" delay={150}>
-									<button
-										class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
-										on:click={handleViewClick}
-										aria-label="View generation details"
-									>
-										<Icon name="eyes" className="h-3.5 w-3.5" />
-									</button>
-								</Tooltip>
-							{:else if action === 'download'}
-								<Tooltip text="Download" position="bottom" delay={150}>
-									<button
-										class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
-										on:click={handleDownloadClick}
-										aria-label="Download"
-									>
-										<Icon name="download" className="h-3.5 w-3.5" />
-									</button>
-								</Tooltip>
-							{:else}
-								<Tooltip text="Delete generation" position="bottom" delay={150}>
-									<button
-										class="bg-black/60 hover:bg-danger-solid text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
-										on:click={handleDeleteClick}
-										aria-label="Delete generation"
-									>
-										<Icon name="trash" className="h-3.5 w-3.5" />
-									</button>
-								</Tooltip>
-							{/if}
-						{/each}
-					</div>
-				{:else if !tile && density.actionMode !== 'none'}
+			{#if menuEnabled && chromeBucket}
+					<EntryActions
+						bind:this={actions}
+						scope="history"
+						getModel={menuModel}
+						onPick={handleMenuPick}
+						onDelete={() => dispatch('deleteClick', generation)}
+						deleteLabel="Delete generation"
+						showDelete={showActions && !selectable}
+						deleteInRow={chromeBucket.deleteInRow}
+						chipSize={chromeBucket.menuChipSize}
+					/>
+				{:else if showActions && !selectable}
+					{#if !tile && density.actionMode !== 'none'}
 					<div class="absolute top-2 right-2 z-30 flex items-center gap-1">
 						<div
 							class="bg-black/60 hover:bg-black/80 rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 flex items-center opacity-0 group-hover:opacity-100 focus-within:opacity-100"
@@ -500,23 +512,6 @@
 						{/if}
 					</div>
 				{/if}
-			{/if}
-
-			<!-- Reuse - independent of `showActions` (favorite/view/download/delete):
-			     opt-in per caller via `onReuse`, tile mode only. Top-left, since the
-			     showActions box above already owns top-right. -->
-			{#if tile && onReuse}
-				<div class="absolute top-2 left-2 z-30 opacity-0 group-hover:opacity-100 transition-opacity duration-100">
-					<Tooltip text="Reuse in this tab" position="bottom" delay={150}>
-						<button
-							class="bg-black/70 hover:bg-black/80 text-white rounded-md p-1 backdrop-blur-sm ring-1 ring-inset ring-white/10 transition-colors duration-100"
-							on:click={handleReuseClick}
-							aria-label="Reuse in this tab"
-						>
-							<Icon name="refresh" className="h-3.5 w-3.5" />
-						</button>
-					</Tooltip>
-				</div>
 			{/if}
 
 			{#if stackEntry || looseCell}

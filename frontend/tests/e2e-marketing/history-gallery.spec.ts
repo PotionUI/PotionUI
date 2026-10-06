@@ -16,9 +16,13 @@ test('history-gallery', async ({ page }) => {
 	await page.getByRole('button', { name: 'Videos only' }).click();
 	await beat(page, 600);
 
-	const detailsButton = page.getByRole('button', { name: 'View generation details' }).first();
-	await detailsButton.scrollIntoViewIfNeeded();
-	await detailsButton.click({ force: true });
+	const menuButton = page
+		.locator('[data-generation-card]')
+		.first()
+		.getByRole('button', { name: 'More actions' });
+	await menuButton.scrollIntoViewIfNeeded();
+	await menuButton.click({ force: true });
+	await page.getByRole('menuitem', { name: 'Open details' }).click();
 
 	await expect(page.getByText('Generation Details')).toBeVisible({ timeout: 15000 });
 	await expect(page.getByText('Parameters')).toBeVisible();

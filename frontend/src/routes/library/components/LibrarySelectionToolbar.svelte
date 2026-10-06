@@ -9,7 +9,7 @@
 	import ToolsMenu from '$lib/components/tools/ToolsMenu.svelte';
 	import {
 		buildLibraryToolContext,
-		listToolGroups,
+		groupToolsFor,
 		type MediaTool,
 		type MediaToolContext,
 		type MediaToolGroup
@@ -35,7 +35,7 @@
 	$: toolGroups = groupsFor(toolContext, $mediaToolRegistrations);
 
 	function groupsFor(context: MediaToolContext, _registrations: number): MediaToolGroup[] {
-		return listToolGroups(context);
+		return groupToolsFor(context, { surface: 'bar' });
 	}
 
 	async function handleAddToCollection(collectionId: string): Promise<boolean> {

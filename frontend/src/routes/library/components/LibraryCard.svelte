@@ -10,8 +10,10 @@
 		formatBarResolution,
 		resolveCardResolution
 	} from '$lib/components/generationCardChrome';
+	import EntryActions from '$lib/components/tools/EntryActions.svelte';
+	import type { EntryMenuController } from '$lib/tools/entryMenu';
+	import type { MediaTool, MediaToolContext, ToolRunExtra } from '$lib/tools/tools';
 	import {
-		libraryActionsForCount,
 		libraryItemDisplayName,
 		libraryItemGridSrc,
 		libraryItemIcon,
@@ -27,6 +29,7 @@
 	export let selectable = false;
 	export let showCheckbox = true;
 	export let showActions = true;
+	export let entryMenu: EntryMenuController<LibraryItem, never> | null = null;
 	/** The second argument is the originating pointer event (omitted for a
 	 *  keyboard activation), so a multi-select grid can read its modifier keys
 	 *  for shift-range / ctrl-toggle behavior. */
@@ -35,7 +38,6 @@
 	const dispatch = createEventDispatcher<{ open: LibraryItem; delete: LibraryItem }>();
 
 	$: bucket = bucketForCardWidth(tile.width);
-	$: actions = showActions ? libraryActionsForCount(bucket.actionCount) : [];
 	$: displayName = libraryItemDisplayName(item);
 	$: gridSrc = libraryItemGridSrc(item);
 	$: metaParts = libraryItemMetaParts(item);
@@ -54,6 +56,10 @@
 		typeof item.duration_seconds === 'number' ? formatSeconds(item.duration_seconds) : '';
 
 	function handleCardClick(event?: MouseEvent) {
+		if (longPressFired) {
+			longPressFired = false;
+			return;
+		}
 		// Outside selection mode, a shift/ctrl/cmd-click still starts a
 		// selection (desktop-file-manager convention) rather than opening the
 		// preview; a plain click there falls through to the preview as usual.
@@ -66,29 +72,64 @@
 		}
 	}
 
-	function handleView(e: Event) {
-		e.stopPropagation();
-		e.preventDefault();
-		dispatch('open', item);
+	let actions: EntryActions | undefined;
+	let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+	let longPressOrigin = { x: 0, y: 0 };
+	let longPressFired = false;
+
+	function menuModel() {
+		return entryMenu!.model(item);
 	}
 
-	function handleDelete(e: Event) {
-		e.stopPropagation();
-		e.preventDefault();
-		dispatch('delete', item);
+	function handleMenuPick(tool: MediaTool, ctx: MediaToolContext, extra?: ToolRunExtra) {
+		void entryMenu?.pick(item, tool, ctx, extra);
 	}
 
-	function handleDownload(e: Event) {
-		e.stopPropagation();
-		e.preventDefault();
-		const link = document.createElement('a');
-		link.href = item.url;
-		link.download = displayName;
-		link.click();
+	function handleContextMenu(event: MouseEvent) {
+		if (!entryMenu || event.shiftKey) return;
+		event.preventDefault();
+		event.stopPropagation();
+		if (longPressFired) return;
+		if (event.clientX === 0 && event.clientY === 0) {
+			const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+			actions?.openAt(rect.left + 16, rect.top + 16);
+			return;
+		}
+		actions?.openAt(event.clientX, event.clientY);
+	}
+
+	function clearLongPress() {
+		if (longPressTimer) clearTimeout(longPressTimer);
+		longPressTimer = null;
+	}
+
+	function handlePointerDown(event: PointerEvent) {
+		longPressFired = false;
+		if (!entryMenu || event.pointerType !== 'touch') return;
+		longPressOrigin = { x: event.clientX, y: event.clientY };
+		clearLongPress();
+		longPressTimer = setTimeout(() => {
+			longPressTimer = null;
+			longPressFired = true;
+			actions?.openSheet();
+		}, 500);
+	}
+
+	function handlePointerMove(event: PointerEvent) {
+		if (!longPressTimer) return;
+		if (Math.hypot(event.clientX - longPressOrigin.x, event.clientY - longPressOrigin.y) > 10) {
+			clearLongPress();
+		}
 	}
 </script>
 
-<div class="group" style="width: {tile.width}px">
+<div
+	class="group"
+	style="width: {tile.width}px"
+	data-library-card-body
+	role="presentation"
+	on:contextmenu={handleContextMenu}
+>
 	<div
 		class="relative cursor-pointer rounded-lg overflow-hidden transition-colors duration-100 ease-out border bg-black {selected
 			? 'border-line-hover'
@@ -121,6 +162,10 @@
 			role="button"
 			tabindex="0"
 			on:click={handleCardClick}
+			on:pointerdown={handlePointerDown}
+			on:pointermove={handlePointerMove}
+			on:pointerup={clearLongPress}
+			on:pointercancel={clearLongPress}
 			on:keydown={(e) => {
 				if (e.key === 'Enter' || e.key === ' ') {
 					e.preventDefault();
@@ -161,39 +206,18 @@
 				<img src={gridSrc} alt={displayName} class="w-full h-full object-contain" loading="lazy" />
 			{/if}
 
-			<!-- Actions - top right on hover -->
-			{#if actions.length > 0 && !selectable}
-				<div
-					class="absolute top-2 right-2 z-30 flex items-center gap-0.5 bg-black/70 rounded-md p-1 backdrop-blur-sm ring-1 ring-inset ring-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-100"
-				>
-					{#each actions as action (action)}
-						{#if action === 'view'}
-							<button
-								class="text-white hover:bg-white/10 rounded p-1 transition-colors duration-100"
-								on:click={handleView}
-								aria-label="Open library item"
-							>
-								<Icon name="eyes" className="h-3.5 w-3.5" />
-							</button>
-						{:else if action === 'download'}
-							<button
-								class="text-white hover:bg-white/10 rounded p-1 transition-colors duration-100"
-								on:click={handleDownload}
-								aria-label="Download"
-							>
-								<Icon name="download" className="h-3.5 w-3.5" />
-							</button>
-						{:else}
-							<button
-								class="text-white hover:bg-danger-solid rounded p-1 transition-colors duration-100"
-								on:click={handleDelete}
-								aria-label="Delete library item"
-							>
-								<Icon name="trash" className="h-3.5 w-3.5" />
-							</button>
-						{/if}
-					{/each}
-				</div>
+			{#if entryMenu && bucket}
+				<EntryActions
+					bind:this={actions}
+					scope="library"
+					getModel={menuModel}
+					onPick={handleMenuPick}
+					onDelete={() => dispatch('delete', item)}
+					deleteLabel="Delete library item"
+					showDelete={showActions && !selectable}
+					deleteInRow={bucket.deleteInRow}
+					chipSize={bucket.menuChipSize}
+				/>
 			{/if}
 
 			<!-- Media kind (+ a video's duration), bottom-left -->

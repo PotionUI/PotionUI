@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-	libraryActionsForCount,
 	libraryItemAspect,
 	libraryItemDisplayName,
 	libraryItemGridSrc,
@@ -98,16 +97,5 @@ describe('libraryItemGridSrc', () => {
 		expect(libraryItemGridSrc({ url: '/api/media/uploads/abc.png' })).toBe(
 			'/api/media/uploads/abc.png'
 		);
-	});
-});
-
-describe('libraryActionsForCount', () => {
-	it('never offers favorite or rating - an upload has no such state', () => {
-		expect(libraryActionsForCount(4)).toEqual(['view', 'download', 'delete']);
-	});
-
-	it('drops view before delete as the tile shrinks', () => {
-		expect(libraryActionsForCount(2)).toEqual(['view', 'delete']);
-		expect(libraryActionsForCount(1)).toEqual(['delete']);
 	});
 });

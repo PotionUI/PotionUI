@@ -11,6 +11,39 @@ const { default: LibraryCard } = await import(
 	'../../src/routes/library/components/LibraryCard.svelte'
 );
 const { createClassComponent } = await import('svelte/legacy');
+const { registerEntryTools } = await import('$lib/tools/entryTools');
+const { registerMediaTool } = await import('$lib/tools/tools');
+const { createLibraryEntryMenu } = await import('$lib/tools/entryMenu');
+const { flushSync } = await import('svelte');
+
+vi.stubGlobal('ClipboardItem', class {});
+registerEntryTools();
+registerMediaTool({
+	id: 'edit-image',
+	label: 'Edit image',
+	icon: 'paint-brush',
+	category: 'compose',
+	source: 'core',
+	scopes: ['history', 'library'],
+	selection: { min: 1, max: 1 },
+	kinds: ['image'],
+	applies: () => ({ enabled: true }),
+	component: {} as never
+});
+
+const host = {
+	open: vi.fn(),
+	remove: vi.fn(),
+	deselect: vi.fn(),
+	addToCollection: vi.fn()
+};
+const entryMenu = createLibraryEntryMenu({
+	items: () => [ITEM as never],
+	selectedIds: () => [],
+	collections: () => [{ id: 'c1', name: 'Boats' }],
+	host,
+	onTool: vi.fn()
+});
 
 const ITEM = {
 	id: 'item-1',
@@ -31,7 +64,7 @@ function mountCard(props: Record<string, unknown> = {}) {
 	const component = createClassComponent({
 		component: LibraryCard as never,
 		target,
-		props: { item: ITEM, tile: { width: 320, height: 160 }, ...props }
+		props: { item: ITEM, entryMenu, tile: { width: 320, height: 160 }, ...props }
 	});
 	return {
 		target,
@@ -67,38 +100,47 @@ describe('library card', () => {
 		expect(mounted.text()).toContain('1024×512');
 	});
 
-	it('offers view, download and delete on a wide tile', () => {
+	it('hover row is exactly Delete and the menu button on a wide tile', () => {
+		mounted = mountCard({ tile: { width: 320, height: 160 } });
+
+		expect(mounted.labels()).toEqual(['Select item', 'Delete library item', 'More actions']);
+	});
+
+	it('retires the grouped pill toolbar: no view or download buttons on the card', () => {
 		mounted = mountCard({ tile: { width: 320, height: 160 } });
 
 		const labels = mounted.labels();
-		expect(labels).toContain('Open library item');
-		expect(labels).toContain('Download');
-		expect(labels).toContain('Delete library item');
+		expect(labels).not.toContain('Open library item');
+		expect(labels).not.toContain('Download');
+		expect(mounted.target.querySelector('.ring-inset')).toBeNull();
 	});
 
-	// An upload has no favorite or rating state - the generation card's two
-	// smallest buckets keep favorite, this one must not invent it.
 	it('never offers a favorite action', () => {
 		mounted = mountCard();
 
 		expect(mounted.labels().join(' ')).not.toMatch(/favorit/i);
 	});
 
-	it('drops download before delete on a mid-width tile', () => {
-		mounted = mountCard({ tile: { width: 150, height: 150 } });
-
-		const labels = mounted.labels();
-		expect(labels).toContain('Delete library item');
-		expect(labels).toContain('Open library item');
-		expect(labels).not.toContain('Download');
+	it('folds Delete into the menu on narrow tiles but keeps the menu button', () => {
+		mounted = mountCard({ tile: { width: 120, height: 120 } });
+		expect(mounted.labels()).not.toContain('Delete library item');
+		expect(mounted.labels()).toContain('More actions');
+		mounted.destroy();
+		mounted = mountCard({ tile: { width: 100, height: 100 } });
+		expect(mounted.labels()).not.toContain('Delete library item');
+		expect(mounted.labels()).toContain('More actions');
 	});
 
-	it('keeps delete on the narrowest tile', () => {
-		mounted = mountCard({ tile: { width: 100, height: 100 } });
+	it('opens the same grouped menu as History, minus what an upload cannot do', async () => {
+		mounted = mountCard();
+		(mounted.target.querySelector('[data-entry-menu-trigger]') as HTMLButtonElement).click();
+		for (let i = 0; i < 4; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+		flushSync();
 
-		const labels = mounted.labels();
-		expect(labels).toContain('Delete library item');
-		expect(labels).not.toContain('Download');
+		const ids = Array.from(document.body.querySelectorAll('[data-tool]')).map((el) => el.getAttribute('data-tool'));
+		expect(ids).toEqual(['open-details', 'edit-image', 'download', 'copy-image', 'add-to-collection', 'delete']);
+		document.body.querySelector<HTMLButtonElement>('[data-tool="open-details"]')!.click();
+		expect(host.open).toHaveBeenCalledTimes(1);
 	});
 
 	it('emits delete with the item rather than deleting anything itself', () => {
@@ -114,9 +156,10 @@ describe('library card', () => {
 		expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: 'item-1' }));
 	});
 
-	it('hides the per-item actions in selection mode', () => {
+	it('leaves only the menu button in selection mode', () => {
 		mounted = mountCard({ selectable: true });
 
 		expect(mounted.labels()).not.toContain('Delete library item');
+		expect(mounted.labels()).toContain('More actions');
 	});
 });

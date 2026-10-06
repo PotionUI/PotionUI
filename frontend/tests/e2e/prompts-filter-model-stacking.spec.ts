@@ -112,9 +112,13 @@ test('a tag picker dropdown opened from inside the Generation Details modal stac
 	expect(uploadRes.ok(), `upload -> ${uploadRes.status()}`).toBeTruthy();
 
 	await page.goto('/history');
-	const viewButton = page.getByRole('button', { name: 'View generation details' }).first();
-	await expect(viewButton).toBeVisible({ timeout: 20000 });
-	await viewButton.click();
+	const menuButton = page
+		.locator('[data-generation-card]')
+		.first()
+		.getByRole('button', { name: 'More actions' });
+	await expect(menuButton).toBeVisible({ timeout: 20000 });
+	await menuButton.click();
+	await page.getByRole('menuitem', { name: 'Open details' }).click();
 
 	const modal = page.getByRole('dialog', { name: 'Generation Details' });
 	await expect(modal).toBeVisible({ timeout: 10000 });

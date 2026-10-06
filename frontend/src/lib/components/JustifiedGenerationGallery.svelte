@@ -3,6 +3,11 @@
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import { layoutJustifiedRows, clampAspect, type JustifiedRow } from '$lib/utils/justifiedLayout';
 	import { leadIndex } from '$lib/generation/leadFile';
+	import { createHistoryEntryMenu } from '$lib/tools/entryMenu';
+	import { registerEntryTools } from '$lib/tools/entryTools';
+	import type { ToolRunHost } from '$lib/tools/tools';
+
+	registerEntryTools();
 
 	// Justified light-table of generations (native aspect ratios, uniform row
 	// heights) — the same treatment as the history page, reusable on any page
@@ -39,6 +44,17 @@
 		if (generation) onOpen(generation, 0);
 	}
 
+	$: host = {
+		open: (ctx) => ctx.generations[0] && onOpen(ctx.generations[0], 0),
+		reuse: onReuse ? (ctx) => ctx.generations[0] && onReuse?.(ctx.generations[0]) : undefined
+	} as ToolRunHost;
+
+	$: entryMenu = createHistoryEntryMenu({
+		generations: () => generations,
+		selectedIds: () => [],
+		host
+	});
+
 	function handleViewClick(event: CustomEvent<GenerationHistoryItem>) {
 		onOpen(event.detail, 0);
 	}
@@ -54,7 +70,7 @@
 							generation={box.item}
 							tile={{ width: box.width, height: box.height }}
 							{showActions}
-							{onReuse}
+							{entryMenu}
 							on:imageClick={handleImageClick}
 							on:viewClick={handleViewClick}
 						/>

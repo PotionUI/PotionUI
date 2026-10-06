@@ -19,7 +19,8 @@ export interface ChromeBucket {
 	showRatingChip: boolean;
 	showBarTime: boolean;
 	starSize: number;
-	actionCount: number;
+	menuChipSize: number;
+	deleteInRow: boolean;
 	checkboxSize: number;
 	showHoverMeta: boolean;
 	showMediaChip: boolean;
@@ -35,7 +36,8 @@ const FULL: ChromeBucket = {
 	showRatingChip: false,
 	showBarTime: true,
 	starSize: 13,
-	actionCount: 4,
+	menuChipSize: 26,
+	deleteInRow: true,
 	checkboxSize: 20,
 	showHoverMeta: true,
 	showMediaChip: true,
@@ -49,7 +51,8 @@ const REGULAR: ChromeBucket = {
 	showRatingChip: false,
 	showBarTime: false,
 	starSize: 12,
-	actionCount: 3,
+	menuChipSize: 26,
+	deleteInRow: true,
 	checkboxSize: 20,
 	showHoverMeta: true,
 	showMediaChip: true,
@@ -63,7 +66,8 @@ const COMPACT: ChromeBucket = {
 	showRatingChip: true,
 	showBarTime: false,
 	starSize: 11,
-	actionCount: 2,
+	menuChipSize: 24,
+	deleteInRow: true,
 	checkboxSize: 18,
 	showHoverMeta: false,
 	showMediaChip: true,
@@ -77,7 +81,8 @@ const MICRO: ChromeBucket = {
 	showRatingChip: false,
 	showBarTime: false,
 	starSize: 11,
-	actionCount: 2,
+	menuChipSize: 22,
+	deleteInRow: false,
 	checkboxSize: 16,
 	showHoverMeta: false,
 	showMediaChip: false,
@@ -91,7 +96,8 @@ const NANO: ChromeBucket = {
 	showRatingChip: false,
 	showBarTime: false,
 	starSize: 11,
-	actionCount: 1,
+	menuChipSize: 20,
+	deleteInRow: false,
 	checkboxSize: 14,
 	showHoverMeta: false,
 	showMediaChip: false,
@@ -112,19 +118,6 @@ export function bucketForCardWidth(width: number): ChromeBucket {
 		if (width >= minWidth) return bucket;
 	}
 	return NANO;
-}
-
-export type ChromeAction = 'favorite' | 'view' | 'download' | 'delete';
-
-/**
- * Favorite and delete are the two actions that must survive down to the
- * smallest tile; view and download drop out first as the row runs out of room.
- */
-export function actionsForCount(count: number): ChromeAction[] {
-	if (count >= 4) return ['favorite', 'view', 'download', 'delete'];
-	if (count === 3) return ['favorite', 'view', 'delete'];
-	if (count === 2) return ['favorite', 'delete'];
-	return ['delete'];
 }
 
 /** `W×H`, or (below `micro`) the short side alone in the `<n>p` video convention. */

@@ -14,7 +14,9 @@ test('seedvr2-before-after', async ({ page }) => {
 	await page.getByRole('button', { name: 'Videos only' }).click();
 	await beat(page, 1000);
 
-	const detailsButtons = page.getByRole('button', { name: 'View generation details' });
+	const detailsButtons = page
+		.locator('[data-generation-card]')
+		.getByRole('button', { name: 'More actions' });
 	await expect(detailsButtons.first()).toBeVisible({ timeout: 15000 });
 	const count = await detailsButtons.count();
 	// The seeded SeedVR2 video_upscale row is the only "restoration"-tagged
@@ -24,6 +26,7 @@ test('seedvr2-before-after', async ({ page }) => {
 	for (let i = 0; i < count && !opened; i++) {
 		await detailsButtons.nth(i).scrollIntoViewIfNeeded();
 		await detailsButtons.nth(i).click({ force: true });
+		await page.getByRole('menuitem', { name: 'Open details' }).click();
 		await expect(page.getByText('Generation Details')).toBeVisible({ timeout: 15000 });
 		const isSeedVR2 = await page.getByText('01KXB7C553THYMSMKY1QSYESFM').isVisible().catch(() => false);
 		if (isSeedVR2) {

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-	actionsForCount,
 	bucketForCardWidth,
 	formatBarResolution,
 	mediaChipOwnsDuration,
@@ -48,20 +47,23 @@ describe('bucketForCardWidth', () => {
 	});
 });
 
-describe('actionsForCount', () => {
-	it('keeps favorite and delete at every count, adding view then download as room allows', () => {
-		expect(actionsForCount(1)).toEqual(['delete']);
-		expect(actionsForCount(2)).toEqual(['favorite', 'delete']);
-		expect(actionsForCount(3)).toEqual(['favorite', 'view', 'delete']);
-		expect(actionsForCount(4)).toEqual(['favorite', 'view', 'download', 'delete']);
+describe('menu chrome folding', () => {
+	it('keeps Delete in the hover row from the compact bucket up and folds it into the menu below', () => {
+		expect(bucketForCardWidth(320).deleteInRow).toBe(true);
+		expect(bucketForCardWidth(220).deleteInRow).toBe(true);
+		expect(bucketForCardWidth(140).deleteInRow).toBe(true);
+		expect(bucketForCardWidth(139).deleteInRow).toBe(false);
+		expect(bucketForCardWidth(110).deleteInRow).toBe(false);
+		expect(bucketForCardWidth(80).deleteInRow).toBe(false);
 	});
 
-	it('treats counts above 4 the same as 4', () => {
-		expect(actionsForCount(9)).toEqual(['favorite', 'view', 'download', 'delete']);
-	});
-
-	it('treats a count of zero the same as the smallest bucket', () => {
-		expect(actionsForCount(0)).toEqual(['delete']);
+	it('shrinks the menu chip with the tile and never below 20px', () => {
+		expect(bucketForCardWidth(320).menuChipSize).toBe(26);
+		expect(bucketForCardWidth(220).menuChipSize).toBe(26);
+		expect(bucketForCardWidth(150).menuChipSize).toBe(24);
+		expect(bucketForCardWidth(120).menuChipSize).toBe(22);
+		expect(bucketForCardWidth(109).menuChipSize).toBe(20);
+		expect(bucketForCardWidth(0).menuChipSize).toBe(20);
 	});
 });
 

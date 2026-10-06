@@ -1,5 +1,6 @@
 import type { ComponentType } from 'svelte';
 import { registerMediaTool } from '$lib/tools/tools';
+import { registerEntryTools } from '$lib/tools/entryTools';
 import HistoryCompareModal from '../components/HistoryCompareModal.svelte';
 import HistoryEditImageModal from '../components/HistoryEditImageModal.svelte';
 import HistoryExportZipModal from '../components/HistoryExportZipModal.svelte';
@@ -13,6 +14,8 @@ export function registerCoreHistoryTools(): void {
 	if (registered) return;
 	registered = true;
 
+	registerEntryTools();
+
 	registerMediaTool({
 		id: 'compare',
 		label: 'Compare',
@@ -21,6 +24,7 @@ export function registerCoreHistoryTools(): void {
 		category: 'analyze',
 		source: 'core',
 		scopes: ['history', 'library'],
+		selection: { min: 2, max: 2 },
 		// History compares two *generations* (their full params, not just their
 		// media) - two items from the same batch-of-N generation is still one
 		// generation, and can't be diffed. Library has no generation concept,
@@ -41,6 +45,7 @@ export function registerCoreHistoryTools(): void {
 		category: 'export',
 		source: 'core',
 		scopes: ['history', 'library'],
+		selection: { min: 2 },
 		applies: () => ({ enabled: true }),
 		component: HistoryExportZipModal as unknown as ComponentType
 	});
@@ -53,6 +58,7 @@ export function registerCoreHistoryTools(): void {
 		category: 'compose',
 		source: 'core',
 		scopes: ['history', 'library'],
+		selection: { min: 2 },
 		applies: (ctx) =>
 			ctx.items.filter((item) => item.kind === 'image').length >= 2
 				? { enabled: true }
@@ -66,8 +72,11 @@ export function registerCoreHistoryTools(): void {
 		description: 'Open the selected image in the image editor',
 		icon: 'paint-brush',
 		category: 'compose',
+		shortcut: 'E',
 		source: 'core',
 		scopes: ['history', 'library'],
+		selection: { min: 1, max: 1 },
+		kinds: ['image'],
 		applies: editImageAvailability,
 		component: HistoryEditImageModal as unknown as ComponentType
 	});

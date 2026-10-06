@@ -87,17 +87,15 @@ test('FE tag-clear — opening the generation details modal drops previously-ass
 		[tagAId, tagBId].sort()
 	);
 
-	// --- Open the details modal the way a real user does: from /history.
-	// be77725d ("History tiles reveal their chrome as they grow") made the
-	// per-tile action set responsive to rendered tile width — at Playwright's
-	// default (narrower) viewport a lone tile lands in a chrome bucket below
-	// the one that keeps "View generation details", so it never renders. A
-	// wide viewport puts the tile in a bucket wide enough to keep the action.
 	await page.setViewportSize({ width: 1440, height: 960 });
 	await page.goto('/history');
-	const viewButton = page.getByRole('button', { name: 'View generation details' }).first();
-	await expect(viewButton).toBeVisible({ timeout: 20000 });
-	await viewButton.click();
+	const menuButton = page
+		.locator('[data-generation-card]')
+		.first()
+		.getByRole('button', { name: 'More actions' });
+	await expect(menuButton).toBeVisible({ timeout: 20000 });
+	await menuButton.click();
+	await page.getByRole('menuitem', { name: 'Open details' }).click();
 
 	const tagButton = page.getByRole('button', { name: 'Manage tags' });
 	await expect(tagButton).toBeVisible({ timeout: 20000 });

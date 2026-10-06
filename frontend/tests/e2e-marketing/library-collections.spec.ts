@@ -15,9 +15,13 @@ test('library-collections', async ({ page }) => {
 	await showcase.click();
 	await beat(page, 1000);
 
-	const openItem = page.getByRole('button', { name: 'Open library item' }).first();
-	await expect(openItem).toBeVisible({ timeout: 15000 });
-	await openItem.click();
+	const menuButton = page
+		.locator('[data-library-card-body]')
+		.first()
+		.getByRole('button', { name: 'More actions' });
+	await expect(menuButton).toBeVisible({ timeout: 15000 });
+	await menuButton.click();
+	await page.getByRole('menuitem', { name: 'Open details' }).click();
 	await beat(page, 900);
 
 	const tagInput = page.getByPlaceholder('Add tags...');

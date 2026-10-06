@@ -40,8 +40,9 @@
 	}
 
 	function finishTool() {
+		const entryScoped = !!activeToolContext?.entry;
 		closeTool();
-		libraryStore.clearSelection();
+		if (!entryScoped) libraryStore.clearSelection();
 	}
 
 	let sidebarOpen = true;
@@ -177,7 +178,12 @@
 			onToolSelect={handleToolSelect}
 		/>
 
-		<LibraryGrid onDeleteRequest={(item) => (itemToDelete = item)} onUploadRequest={pickFiles} />
+		<LibraryGrid
+				onDeleteRequest={(item) => (itemToDelete = item)}
+				onBulkDeleteRequest={() => (showBulkDeleteModal = true)}
+				onToolSelect={handleToolSelect}
+				onUploadRequest={pickFiles}
+			/>
 	</div>
 </div>
 

@@ -61,10 +61,41 @@ export interface MediaToolContext {
 	generations: GenerationHistoryItem[];
 	generationIds: string[];
 	files: MediaToolFile[];
+	entry?: MediaToolEntryInfo;
+}
+
+export type MediaToolEntryStatus = 'completed' | 'failed' | 'running';
+
+export interface MediaToolEntryInfo {
+	status: MediaToolEntryStatus;
+	stackCells: number | null;
+	looseCell: boolean;
+	error: string | null;
+}
+
+export type MediaToolSurface = 'entry' | 'selection' | 'bar';
+
+export interface ToolRunHost {
+	open?: (ctx: MediaToolContext) => void;
+	openGrid?: (ctx: MediaToolContext) => void;
+	reuse?: (ctx: MediaToolContext) => void;
+	remove?: (ctx: MediaToolContext) => void;
+	cancel?: (ctx: MediaToolContext) => void;
+	deselect?: (ctx: MediaToolContext, entryId?: string) => void;
+	rate?: (ctx: MediaToolContext, rating: number) => void;
+	favorite?: (ctx: MediaToolContext) => void;
+	copyToLibrary?: (ctx: MediaToolContext) => void;
+	addToCollection?: (ctx: MediaToolContext, collectionId: string) => void;
+}
+
+export interface ToolRunExtra {
+	rating?: number;
+	collectionId?: string;
 }
 
 export interface MediaToolAvailability {
 	enabled: boolean;
+	hidden?: boolean;
 	/** Shown as the disabled menu item's tooltip, e.g. "Select exactly 2 generations". */
 	reason?: string;
 }
@@ -100,12 +131,24 @@ export interface MediaTool {
 	applies: (ctx: MediaToolContext) => MediaToolAvailability;
 	component?: ComponentType | null;
 	componentRef?: string | null;
+	selection?: { min?: number; max?: number };
+	run?: (ctx: MediaToolContext, host: ToolRunHost, extra?: ToolRunExtra) => void | Promise<void>;
+	surfaces?: MediaToolSurface[];
+	entryStates?: MediaToolEntryStatus[];
+	kinds?: MediaKind[];
+	requires?: keyof ToolRunHost;
+	control?: 'rating' | 'collection';
+	tone?: 'danger';
+	labelFor?: (ctx: MediaToolContext) => string;
 }
 
 export const MEDIA_TOOL_CATEGORIES: MediaToolCategory[] = [
+	{ id: 'open', label: 'Open', order: 0 },
 	{ id: 'analyze', label: 'Analyze', order: 10 },
 	{ id: 'compose', label: 'Compose', order: 20 },
-	{ id: 'export', label: 'Export', order: 30 }
+	{ id: 'export', label: 'Export', order: 30 },
+	{ id: 'organize', label: 'Organize', order: 40 },
+	{ id: 'danger', label: 'Danger', order: 99 }
 ];
 
 const categories = new Map<string, MediaToolCategory>(
@@ -287,6 +330,57 @@ export function listToolGroups(ctx: MediaToolContext): MediaToolGroup[] {
 	return [...groups.values()].sort((a, b) => a.category.order - b.category.order);
 }
 
+export function selectionCount(ctx: MediaToolContext): number {
+	return ctx.scope === 'history' ? ctx.generations.length : ctx.items.length;
+}
+
+function selectionSatisfied(tool: MediaTool, ctx: MediaToolContext): boolean {
+	const count = selectionCount(ctx);
+	const min = tool.selection?.min;
+	const max = tool.selection?.max;
+	if (min !== undefined && count < min) return false;
+	if (max !== undefined && count > max) return false;
+	return true;
+}
+
+export function toolLabel(tool: MediaTool, ctx: MediaToolContext): string {
+	return tool.labelFor ? tool.labelFor(ctx) : tool.label;
+}
+
+export interface GroupToolsOptions {
+	surface: MediaToolSurface;
+	host?: ToolRunHost;
+}
+
+function visibleOnSurface(tool: MediaTool, ctx: MediaToolContext, options: GroupToolsOptions): boolean {
+	const surfaces = tool.surfaces ?? ['entry', 'selection', 'bar'];
+	if (!surfaces.includes(options.surface)) return false;
+	if (options.surface === 'bar') return true;
+	if (options.host && tool.requires && !options.host[tool.requires]) return false;
+	if (options.surface === 'selection') return true;
+	if (ctx.entry?.stackCells && !tool.surfaces?.includes('entry')) return false;
+	const status = ctx.entry?.status ?? 'completed';
+	if (!(tool.entryStates ?? ['completed']).includes(status)) return false;
+	if (status === 'completed') {
+		if (!selectionSatisfied(tool, ctx)) return false;
+		if (tool.kinds && !tool.kinds.some((kind) => ctx.kinds.has(kind))) return false;
+	}
+	return true;
+}
+
+export function groupToolsFor(ctx: MediaToolContext, options: GroupToolsOptions): MediaToolGroup[] {
+	return listToolGroups(ctx)
+		.map((group) => ({
+			...group,
+			tools: group.tools.filter(
+				({ tool, availability }) =>
+					visibleOnSurface(tool, ctx, options) &&
+					!(options.surface === 'entry' && availability.hidden)
+			)
+		}))
+		.filter((group) => group.tools.length > 0);
+}
+
 export interface PluginMediaToolAppliesTo {
 	min_selection?: number | null;
 	max_selection?: number | null;
@@ -351,6 +445,11 @@ export function pluginMediaToolFromManifest(entry: PluginMediaToolEntry): MediaT
 		category: entry.category,
 		source: 'plugin',
 		scopes: entry.scopes && entry.scopes.length > 0 ? entry.scopes : ['history'],
+		selection: {
+			...(min !== null ? { min } : {}),
+			...(max !== null ? { max } : {})
+		},
+		kinds: kinds.length > 0 ? kinds : undefined,
 		componentRef,
 		applies(ctx) {
 			const count = ctx.scope === 'history' ? ctx.generations.length : ctx.items.length;

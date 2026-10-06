@@ -124,8 +124,9 @@
 	}
 
 	function finishTool() {
+		const entryScoped = !!activeToolContext?.entry;
 		closeTool();
-		historyStore.clearSelection();
+		if (!entryScoped) historyStore.clearSelection();
 	}
 
 	// ── Live status updates ────────────────────────────────────────────────
@@ -343,7 +344,12 @@
 				onToolSelect={handleToolSelect}
 			/>
 
-			<HistoryGrid onDeleteRequest={handleDeleteRequest} />
+			<HistoryGrid
+				onDeleteRequest={handleDeleteRequest}
+				onBulkDeleteRequest={() => (showBulkDeleteModal = true)}
+				onReuseRequest={handleReuseRequest}
+				onToolSelect={handleToolSelect}
+			/>
 		</main>
 	</div>
 </div>

@@ -12,6 +12,12 @@
 	import { libraryItemAspect } from '$lib/library/libraryItemMeta';
 	import type { LibraryItem } from '$lib/services/api/library';
 	import LibraryCard from './LibraryCard.svelte';
+	import { api } from '$lib/services/api/index';
+	import { toasts } from '$lib/stores/toast';
+	import { logger, getErrorMessage } from '$lib/utils/logger';
+	import { libraryCollectionsStore as collectionsStore } from '$lib/stores/collections';
+	import { createLibraryEntryMenu } from '$lib/tools/entryMenu';
+	import type { MediaTool, MediaToolContext, ToolRunHost } from '$lib/tools/tools';
 	import {
 		classifyCardSelectEvent,
 		marqueeSelection,
@@ -23,6 +29,8 @@
 	// as the history gallery, grouped by the day the item entered the library.
 	export let onDeleteRequest: (item: LibraryItem) => void;
 	export let onUploadRequest: () => void;
+	export let onBulkDeleteRequest: () => void = () => {};
+	export let onToolSelect: (tool: MediaTool, context: MediaToolContext) => void = () => {};
 
 	$: state = $libraryStore;
 	$: items = state.items;
@@ -107,6 +115,50 @@
 		libraryStore.clearFilters();
 		libraryStore.load();
 	}
+
+	async function addToCollection(ctx: MediaToolContext, collectionId: string) {
+		const ids = ctx.items.map((entry) => entry.id);
+		if (ids.length === 0) return;
+		try {
+			const response = await api.addUploadsToCollection(collectionId, ids, 'library');
+			if (response.success) {
+				await collectionsStore.load();
+				toasts.success(`Added ${response.data?.added ?? ids.length} to collection`);
+			} else {
+				toasts.error('Failed to add to collection');
+			}
+		} catch (error) {
+			logger.error('Add to collection failed:', getErrorMessage(error));
+			toasts.error('Failed to add to collection');
+		}
+	}
+
+	const host: ToolRunHost = {
+		open: (ctx) => {
+			const found = items.find((candidate) => candidate.id === ctx.items[0]?.id);
+			if (found) libraryStore.setSelectedItem(found);
+		},
+		remove: (ctx) => {
+			if (ctx.items.length > 1) {
+				onBulkDeleteRequest();
+				return;
+			}
+			const found = items.find((candidate) => candidate.id === ctx.items[0]?.id);
+			if (found) onDeleteRequest(found);
+		},
+		deselect: (_ctx, entryId) =>
+			libraryStore.setSelection(state.selectedIds.filter((id) => id !== entryId)),
+		addToCollection
+	};
+
+	$: entryMenu = createLibraryEntryMenu({
+		items: () => items,
+		selectedIds: () => state.selectedIds,
+		collectionId: () => state.filters.collectionId ?? null,
+		collections: () => $collectionsStore.collections,
+		host,
+		onTool: onToolSelect
+	});
 
 	// --- Multi-select: click, shift-range, ctrl/cmd-toggle, and marquee drag ---
 	// DOM wiring lives in `$lib/selection/marquee`; this just supplies the
@@ -202,6 +254,7 @@
 							<LibraryCard
 								item={box.item}
 								tile={{ width: box.width, height: box.height }}
+								{entryMenu}
 								showActions={!state.selectionMode}
 								selectable={state.selectionMode}
 								selected={state.selectedIds.includes(box.item.id)}

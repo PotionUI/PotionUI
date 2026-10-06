@@ -9,6 +9,14 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { Button, EmptyState, Pagination } from '$lib/components/ui';
 	import type { GenerationHistoryItem } from '$lib/types/history';
+	import { api } from '$lib/services/api/index';
+	import { toasts } from '$lib/stores/toast';
+	import { logger, getErrorMessage } from '$lib/utils/logger';
+	import { libraryStore } from '$lib/stores/library';
+	import { summarizeCopyOutcome } from '$lib/library/copyToLibrary';
+	import { historyCollectionsStore as collectionsStore } from '$lib/stores/collections';
+	import { createHistoryEntryMenu } from '$lib/tools/entryMenu';
+	import type { MediaTool, MediaToolContext, ToolRunHost } from '$lib/tools/tools';
 	import {
 		layoutJustifiedRows,
 		flattenJustifiedRows,
@@ -31,6 +39,9 @@
 	// generations as a justified gallery (native aspect ratios, uniform row
 	// heights) grouped by day. Delete confirmation modal lives on the page.
 	export let onDeleteRequest: (generation: GenerationHistoryItem) => void;
+	export let onBulkDeleteRequest: () => void = () => {};
+	export let onReuseRequest: ((generation: GenerationHistoryItem) => void) | null = null;
+	export let onToolSelect: (tool: MediaTool, context: MediaToolContext) => void = () => {};
 
 	nsfwFilterStore.init();
 
@@ -171,6 +182,78 @@
 		currentState.filters.mediaType !== 'all' ||
 		currentState.filters.search !== '';
 
+	function openGeneration(generation: GenerationHistoryItem) {
+		if (generation.grid) {
+			openGridId.set(generation.grid.id);
+			return;
+		}
+		historyStore.setSelectedGeneration(generation, 0);
+	}
+
+	async function addToCollection(ctx: MediaToolContext, collectionId: string) {
+		if (ctx.generationIds.length === 0) return;
+		try {
+			const response = await api.addToCollection(collectionId, ctx.generationIds, 'history');
+			if (response.success) {
+				await collectionsStore.load();
+				toasts.success(`Added ${response.data?.added ?? ctx.generationIds.length} to collection`);
+			} else {
+				toasts.error('Failed to add to collection');
+			}
+		} catch (error) {
+			logger.error('Add to collection failed:', getErrorMessage(error));
+			toasts.error('Failed to add to collection');
+		}
+	}
+
+	async function copyToLibrary(ctx: MediaToolContext) {
+		try {
+			const { copied, failed } = await libraryStore.copyFromGenerations(ctx.generations);
+			toasts.info(summarizeCopyOutcome(copied, failed));
+		} catch (error) {
+			logger.error('Copy to library failed:', getErrorMessage(error));
+			toasts.error('Could not copy to your library');
+		}
+	}
+
+	const host: ToolRunHost = {
+		open: (ctx) => ctx.generations[0] && openGeneration(ctx.generations[0]),
+		openGrid: (ctx) => {
+			const gridId = ctx.generations[0]?.grid_id;
+			if (gridId) openGridId.set(gridId);
+		},
+		reuse: (ctx) => ctx.generations[0] && onReuseRequest?.(ctx.generations[0]),
+		remove: (ctx) =>
+			ctx.generations.length > 1 ? onBulkDeleteRequest() : onDeleteRequest(ctx.generations[0]),
+		cancel: async (ctx) => {
+			const id = ctx.generations[0]?.id;
+			if (!id) return;
+			try {
+				await api.cancelGeneration(id);
+			} catch (error) {
+				logger.error('Cancel failed:', getErrorMessage(error));
+				toasts.error('Could not cancel the generation');
+			}
+		},
+		deselect: (_ctx, entryId) =>
+			historyStore.setSelection(
+				currentState.selectedGenerationIds.filter((id) => id !== entryId)
+			),
+		rate: (ctx, rating) => ctx.generations[0] && historyStore.setRating(ctx.generations[0].id, rating),
+		favorite: (ctx) => ctx.generations[0] && historyStore.toggleFavorite(ctx.generations[0].id),
+		copyToLibrary,
+		addToCollection
+	};
+
+	$: entryMenu = createHistoryEntryMenu({
+		generations: () => generations,
+		selectedIds: () => currentState.selectedGenerationIds,
+		collectionId: () => currentState.filters.collectionId ?? null,
+		collections: () => $collectionsStore.collections,
+		host: onReuseRequest ? host : { ...host, reuse: undefined },
+		onTool: onToolSelect
+	});
+
 	// --- Multi-select: click, shift-range, ctrl/cmd-toggle, and marquee drag ---
 	// DOM wiring lives in `$lib/selection/marquee`; this just supplies the
 	// row-major order and applies the selection it computes.
@@ -276,6 +359,7 @@
 								on:viewClick={handleViewGeneration}
 								on:deleteClick={handleDeleteClick}
 								thumbnailSize="medium"
+								{entryMenu}
 								showActions={!currentState.selectionMode}
 								selectable={currentState.selectionMode}
 								showCheckbox={true}

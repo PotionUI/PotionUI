@@ -79,17 +79,3 @@ export function libraryItemMetaParts(item: LibraryItemLike): string[] {
 	}
 	return parts;
 }
-
-export type LibraryCardAction = 'view' | 'download' | 'delete';
-
-/**
- * The library card's counterpart to `actionsForCount` in
- * `generationCardChrome.ts`: the same width buckets, minus the actions an
- * upload has no state for (an upload cannot be favorited or rated). Delete is
- * the one that must survive down to the smallest tile.
- */
-export function libraryActionsForCount(count: number): LibraryCardAction[] {
-	if (count >= 3) return ['view', 'download', 'delete'];
-	if (count === 2) return ['view', 'delete'];
-	return ['delete'];
-}

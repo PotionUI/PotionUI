@@ -1,4 +1,5 @@
 import type { PixelBuffer } from '$lib/components/imageEditor/types';
+import type { Cube, FilterExtensions } from './engine';
 import { renderRecipe } from './render';
 import type { FilterItem } from './types';
 
@@ -31,9 +32,14 @@ export function makeThumbSource(canvas: HTMLCanvasElement, size = THUMB_SIZE): I
 	}
 }
 
-export function renderThumb(source: ImageData, item: FilterItem, cube: string | null): ImageData {
+export function renderThumb(
+	source: ImageData,
+	item: FilterItem,
+	cube: Cube | null,
+	extensions?: FilterExtensions
+): ImageData {
 	const buffer: PixelBuffer = { width: source.width, height: source.height, data: source.data };
-	const output = renderRecipe(buffer, { steps: item.steps, cube }, item.intensity);
+	const output = renderRecipe(buffer, { steps: item.steps, cube }, item.intensity, { extensions });
 	if (typeof ImageData === 'undefined') return output as unknown as ImageData;
 	return new ImageData(output.data as Uint8ClampedArray<ArrayBuffer>, output.width, output.height);
 }

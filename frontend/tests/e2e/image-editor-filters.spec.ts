@@ -1,7 +1,7 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsOwner, screenshot } from './helpers';
 import { pickFieldTool } from './mediaFieldHelpers';
-import { SIZES, expectEditorReady, openEditField, stagePixel } from './imageEditorHelpers';
+import { SIZES, expectEditorReady, openEditField, stagePixel, visibleText } from './imageEditorHelpers';
 
 const JOURNEY = 'image-editor-filters';
 
@@ -25,8 +25,8 @@ async function chooseFilter(dialog: Locator, name: string) {
 }
 
 async function setIntensity(dialog: Locator, value: number) {
-	await dialog.getByLabel('Intensity', { exact: true }).fill(String(value));
-	await expect(dialog.getByText(`${value}%`, { exact: true })).toBeVisible();
+	await dialog.locator('#filter-intensity:visible').fill(String(value));
+	await expect(visibleText(dialog, `${value}%`)).toBeVisible();
 }
 
 for (const size of SIZES) {

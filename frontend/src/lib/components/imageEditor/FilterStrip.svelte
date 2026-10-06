@@ -32,6 +32,7 @@
 	let firstRun = true;
 	let renaming: string | null = null;
 	let renameValue = '';
+	let renameError: string | null = null;
 	let deleting: FilterItem | null = null;
 	let busy = false;
 	let group: HTMLDivElement;
@@ -67,6 +68,7 @@
 	async function renderThumbs(token: number, revision: number, list: FilterItem[]) {
 		const source = session.thumbSource();
 		if (!source || token !== thumbToken) return;
+		const extensions = session.filterExtensions();
 		cache.prune(revision);
 		thumbs = { ...thumbs, none: source };
 		for (const item of list) {
@@ -76,7 +78,7 @@
 			if (!image) {
 				try {
 					const cube = item.has_lut ? await loadCube(item) : null;
-					image = renderThumb(source, item, cube);
+					image = renderThumb(source, item, cube, extensions);
 					cache.set(revision, item, image);
 				} catch {
 					continue;
@@ -103,7 +105,7 @@
 
 	async function choose(item: FilterItem | null) {
 		if (item && isLocked(item)) return;
-		if (renaming) renaming = null;
+		if (renaming) cancelRename();
 		try {
 			await selectFilterItem(session, item);
 		} catch (error) {
@@ -134,21 +136,34 @@
 	function startRename(item: FilterItem) {
 		renaming = item.id;
 		renameValue = item.name;
+		renameError = null;
 		void tick().then(() => group?.querySelector<HTMLInputElement>('input[data-rename]')?.select());
+	}
+
+	function cancelRename() {
+		renaming = null;
+		renameError = null;
 	}
 
 	async function commitRename(item: FilterItem) {
 		if (renaming !== item.id || busy) return;
 		const name = renameValue.trim().slice(0, 24);
-		renaming = null;
-		if (!name || name === item.name) return;
+		if (!name || name === item.name) {
+			cancelRename();
+			return;
+		}
 		busy = true;
 		try {
 			await updateMineFilter(item.id, { name });
+			cancelRename();
 		} catch (error) {
-			toasts.error(
-				isNameTaken(error) ? 'You already have a filter with that name.' : errorText(error, 'The filter could not be renamed.')
-			);
+			if (isNameTaken(error)) {
+				renameError = errorText(error, 'You already have a filter with that name.');
+				void tick().then(() => group?.querySelector<HTMLInputElement>('input[data-rename]')?.focus());
+			} else {
+				cancelRename();
+				toasts.error(errorText(error, 'The filter could not be renamed.'));
+			}
 		} finally {
 			busy = false;
 		}
@@ -262,13 +277,19 @@
 							aria-label="Rename {item.name}"
 							maxlength="24"
 							class="w-full rounded border border-line-strong bg-surface-2 px-1 text-xs text-fg focus:outline-none focus:ring-2 focus:ring-signal"
+							aria-invalid={renameError !== null}
+							aria-describedby={renameError ? 'filter-rename-error' : undefined}
 							bind:value={renameValue}
+							on:input={() => (renameError = null)}
 							on:keydown|stopPropagation={(event) => {
 								if (event.key === 'Enter') void commitRename(item);
-								else if (event.key === 'Escape') renaming = null;
+								else if (event.key === 'Escape') cancelRename();
 							}}
-							on:blur={() => commitRename(item)}
+							on:blur={() => (renameError ? cancelRename() : commitRename(item))}
 						/>
+						{#if renameError}
+							<p id="filter-rename-error" class="w-full text-center text-xs text-danger" role="alert">{renameError}</p>
+						{/if}
 					{:else}
 						<span
 							class="w-full truncate text-center text-xs {selected ? 'font-semibold text-signal' : locked ? 'text-fg-subtle' : 'text-fg-muted'}"

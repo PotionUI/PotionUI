@@ -1,5 +1,6 @@
-import { OP_CATALOGUE, type OpDef, type OpParam } from '$lib/filters/engine';
+import { OPS_BY_ID, type OpSpec } from '$lib/filters/engine';
 import { renderRecipe } from '$lib/filters/render';
+import { scalarParams, type ScalarParam } from '$lib/filters/steps';
 import type { FilterValues, PaintFilter } from '../types';
 
 const ADJUSTMENT_OPS = [
@@ -13,24 +14,13 @@ const ADJUSTMENT_OPS = [
 	'grain'
 ] as const;
 
-function unitFor(param: OpParam): string | undefined {
-	return param.id.endsWith('_hue') ? '°' : undefined;
-}
-
-function stepFor(param: OpParam): number | undefined {
+function stepFor(param: ScalarParam): number | undefined {
 	return param.type === 'float' ? 0.1 : undefined;
 }
 
-function defaultsOf(def: OpDef): Record<string, number> {
-	const defaults: Record<string, number> = {};
-	for (const param of def.params) if (param.type !== 'points') defaults[param.id] = param.default;
-	return defaults;
-}
-
-export function adjustmentFromOp(def: OpDef): PaintFilter {
-	const scalar = def.params.filter((param) => param.type !== 'points');
-	const defaults = defaultsOf(def);
-	const plot = def.params.some((param) => param.type === 'points');
+export function adjustmentFromOp(def: OpSpec): PaintFilter {
+	const scalar = scalarParams(def);
+	const plot = def.params.some((param) => param.type === 'curve');
 	return {
 		id: def.id,
 		label: def.label,
@@ -41,11 +31,11 @@ export function adjustmentFromOp(def: OpDef): PaintFilter {
 			min: param.min,
 			max: param.max,
 			value: param.default,
-			unit: unitFor(param),
+			unit: param.unit ?? undefined,
 			step: stepFor(param)
 		})),
 		active: (values: FilterValues) =>
-			scalar.some((param) => Number(values[param.id] ?? param.default) !== defaults[param.id]),
+			scalar.some((param) => Number(values[param.id] ?? param.default) !== param.default),
 		apply(image, values) {
 			const step: Record<string, unknown> = { op: def.id };
 			for (const param of scalar) step[param.id] = Number(values[param.id] ?? param.default);
@@ -55,6 +45,6 @@ export function adjustmentFromOp(def: OpDef): PaintFilter {
 }
 
 export const ENGINE_ADJUSTMENTS: PaintFilter[] = ADJUSTMENT_OPS.flatMap((id) => {
-	const def = OP_CATALOGUE.find((candidate) => candidate.id === id);
+	const def = OPS_BY_ID[id];
 	return def ? [adjustmentFromOp(def)] : [];
 });

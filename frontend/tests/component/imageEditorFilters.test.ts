@@ -27,10 +27,17 @@ const renderRecipe = vi.fn((buffer: { width: number; height: number; data: Uint8
 	return { width: buffer.width, height: buffer.height, data };
 });
 
-vi.mock('$lib/filters/render', () => ({
+vi.mock('$lib/filters/render', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/filters/render')>()),
 	renderRecipe: (buffer: never, recipe: unknown, intensity: number) => renderRecipe(buffer, recipe, intensity),
 	toImageData: (buffer: unknown) => buffer
 }));
+
+const CUBE_2 = ['LUT_3D_SIZE 2', '0 0 0', '1 0 0', '0 1 0', '1 1 0', '0 0 1', '1 0 1', '0 1 1', '1 1 1'].join('\n');
+
+function apiError(status: number, error: string, message: string) {
+	return { response: { status, data: { detail: { error, message } } } };
+}
 
 const { default: FiltersPanel } = await import('$lib/components/imageEditor/FiltersPanel.svelte');
 const { default: AdjustPanel } = await import('$lib/components/imageEditor/AdjustPanel.svelte');
@@ -74,7 +81,15 @@ const CATALOG = {
 		item({ id: 'pop', name: 'Pop', order: 10 }),
 		item({ id: 'ember', name: 'Ember', order: 20, description: 'Warm skin and wood.' }),
 		item({ id: 'matte', name: 'Matte', group: 'Film', order: 10 }),
-		item({ id: 'harbor', name: 'Harbor', source: 'local', has_lut: true, lut_size: 33, order: 10 }),
+		item({
+			id: 'harbor',
+			name: 'Harbor',
+			source: 'local',
+			has_lut: true,
+			lut_size: 2,
+			lut_url: '/api/filters/harbor/lut',
+			order: 10
+		}),
 		item({ id: 'crt:neon', name: 'Neon Rain', source: 'plugin', plugin_id: 'crt', order: 10 }),
 		item({
 			id: 'crt:scanlines',
@@ -135,7 +150,7 @@ beforeEach(async () => {
 	host = document.createElement('div');
 	document.body.appendChild(host);
 	listFilters.mockReset().mockResolvedValue(CATALOG);
-	getFilterLut.mockReset().mockResolvedValue('LUT_3D_SIZE 2');
+	getFilterLut.mockReset().mockResolvedValue(CUBE_2);
 	createMineFilter.mockReset();
 	updateMineFilter.mockReset();
 	deleteMineFilter.mockReset();
@@ -283,14 +298,17 @@ describe('Save as filter', () => {
 				{ op: 'white_balance', temperature: 44, tint: 6 },
 				{ op: 'tone', contrast: 10, saturation: 8 },
 				{ op: 'vignette', amount: 22, midpoint: 55, feather: 60, enabled: false }
-			]
+			],
+			source_id: 'ember'
 		});
 		expect(listFilters).toHaveBeenCalledTimes(2);
 		expect(session.snapshot().filter.active?.id).toBe('mine:02');
 	});
 
-	it('shows an inline message when the name is taken', async () => {
-		createMineFilter.mockRejectedValue({ response: { status: 409, data: { code: 'filter_name_taken' } } });
+	it('shows the server message under the name when the name is taken', async () => {
+		createMineFilter.mockRejectedValue(
+			apiError(409, 'filter_name_taken', "You already have a filter named 'My Pop'")
+		);
 		mountComponent(FiltersPanel, { phone: true });
 		await settle();
 		byLabel('Pop')!.click();
@@ -298,8 +316,45 @@ describe('Save as filter', () => {
 		await openDialog();
 		buttonByText('Save filter')!.click();
 		await settle();
-		expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('already have a filter');
+		const name = document.body.querySelector('#save-filter-name') as HTMLInputElement;
+		expect(name.getAttribute('aria-invalid')).toBe('true');
+		expect(document.body.querySelector('[role="alert"]')?.textContent).toContain(
+			"You already have a filter named 'My Pop'"
+		);
 		expect(session.snapshot().filter.active?.id).toBe('pop');
+	});
+
+	it('shows the limit message without marking the name', async () => {
+		createMineFilter.mockRejectedValue(
+			apiError(409, 'filter_limit_reached', 'You can keep at most 100 filters; delete one to save another')
+		);
+		mountComponent(FiltersPanel, { phone: true });
+		await settle();
+		byLabel('Pop')!.click();
+		await settle();
+		await openDialog();
+		buttonByText('Save filter')!.click();
+		await settle();
+		const name = document.body.querySelector('#save-filter-name') as HTMLInputElement;
+		expect(name.getAttribute('aria-invalid')).not.toBe('true');
+		expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('at most 100 filters');
+	});
+
+	it('turns a server LUT refusal into the LUT message and blocks saving', async () => {
+		createMineFilter.mockRejectedValue(
+			apiError(422, 'filter_lut_unsupported', "LUT filters can't be copied yet; only filters made of steps can be saved to My filters")
+		);
+		mountComponent(FiltersPanel, { phone: true });
+		await settle();
+		byLabel('Pop')!.click();
+		await settle();
+		await openDialog();
+		buttonByText('Save filter')!.click();
+		await settle();
+		expect(document.body.querySelector('[data-testid="lut-refusal"]')?.textContent).toContain(
+			'only filters made of steps'
+		);
+		expect(buttonByText('Save filter')!.disabled).toBe(true);
 	});
 
 	it('refuses a LUT filter with the README message and never POSTs', async () => {
@@ -307,7 +362,7 @@ describe('Save as filter', () => {
 		await settle();
 		byLabel('Harbor')!.click();
 		await settle();
-		expect(getFilterLut).toHaveBeenCalledWith('harbor');
+		expect(getFilterLut).toHaveBeenCalledWith('/api/filters/harbor/lut');
 		expect(session.snapshot().filter.active?.hasLut).toBe(true);
 
 		const save = buttonByText('Save as filter')!;
@@ -408,6 +463,24 @@ describe('Mine filters', () => {
 		rename.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 		await settle();
 		expect(updateMineFilter).toHaveBeenCalledWith('mine:01', { name: 'Evening' });
+	});
+
+	it('keeps the rename open with the server message when the name is taken', async () => {
+		updateMineFilter.mockRejectedValue(
+			apiError(409, 'filter_name_taken', "You already have a filter named 'Pop'")
+		);
+		await openMenu();
+		(document.body.querySelector('[role="menuitem"]') as HTMLButtonElement).click();
+		await settle();
+
+		const rename = document.body.querySelector('input[data-rename]') as HTMLInputElement;
+		input(rename, 'Pop');
+		rename.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+		await settle();
+		expect(document.body.querySelector('input[data-rename]')).not.toBeNull();
+		expect(document.body.querySelector('#filter-rename-error')?.textContent).toContain(
+			"You already have a filter named 'Pop'"
+		);
 	});
 
 	it('asks before deleting, keeps the filter on Cancel and deletes on confirm', async () => {

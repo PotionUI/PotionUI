@@ -1,5 +1,6 @@
 import { get, writable } from 'svelte/store';
 import { api } from '$lib/services/api/index';
+import { parseCube, type Cube } from './engine';
 import type { FilterCatalogData, FilterDraft, FilterItem, FilterOpInfo, FilterPatch } from './types';
 
 export interface CatalogState {
@@ -14,7 +15,7 @@ const EMPTY: CatalogState = { status: 'idle', items: [], ops: [], groups: [], er
 
 export const filterCatalog = writable<CatalogState>(EMPTY);
 
-const cubes = new Map<string, Promise<string>>();
+const cubes = new Map<string, Promise<Cube>>();
 let pending: Promise<void> | null = null;
 
 export function resetFilterCatalog(): void {
@@ -23,19 +24,31 @@ export function resetFilterCatalog(): void {
 	pending = null;
 }
 
+interface ErrorDetail {
+	error?: unknown;
+	message?: unknown;
+}
+
+function errorDetail(error: unknown): ErrorDetail | null {
+	const data = (error as { response?: { data?: { detail?: unknown } } })?.response?.data;
+	const detail = data?.detail;
+	return detail && typeof detail === 'object' ? (detail as ErrorDetail) : null;
+}
+
+export function errorCode(error: unknown): string | null {
+	const code = errorDetail(error)?.error;
+	return typeof code === 'string' ? code : null;
+}
+
 export function errorText(error: unknown, fallback: string): string {
-	const response = (error as { response?: { data?: Record<string, unknown> } })?.response?.data;
-	const detail = response?.error ?? response?.message ?? response?.detail;
-	if (typeof detail === 'string' && detail) return detail;
-	if (error instanceof Error && error.message) return error.message;
+	const message = errorDetail(error)?.message;
+	if (typeof message === 'string' && message) return message;
+	if (error instanceof Error && !('response' in error) && error.message) return error.message;
 	return fallback;
 }
 
 export function isNameTaken(error: unknown): boolean {
-	const response = (error as { response?: { status?: number; data?: Record<string, unknown> } })?.response;
-	if (!response) return false;
-	const code = response.data?.code ?? response.data?.error_code;
-	return response.status === 409 && (code === undefined || code === 'filter_name_taken');
+	return errorCode(error) === 'filter_name_taken';
 }
 
 function apply(data: FilterCatalogData): void {
@@ -69,11 +82,12 @@ export function loadFilterCatalog(force = false): Promise<void> {
 	return pending;
 }
 
-export function loadCube(item: FilterItem): Promise<string> {
+export function loadCube(item: FilterItem): Promise<Cube> {
 	const key = `${item.id}@${item.revision}`;
 	let cube = cubes.get(key);
 	if (!cube) {
-		cube = api.getFilterLut(item.id);
+		const url = item.lut_url ?? `/api/filters/${encodeURIComponent(item.id)}/lut`;
+		cube = api.getFilterLut(url).then(parseCube);
 		cube.catch(() => cubes.delete(key));
 		cubes.set(key, cube);
 	}

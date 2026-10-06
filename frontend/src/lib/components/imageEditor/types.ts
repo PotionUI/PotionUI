@@ -165,6 +165,8 @@ export interface PaintFilter {
 	plot?: boolean;
 	active(values: FilterValues): boolean;
 	apply(image: PixelBuffer, values: FilterValues): PixelBuffer | Promise<PixelBuffer>;
+	kind?: 'colour' | 'spatial';
+	map?: (rgb: [number, number, number], values: Record<string, unknown>) => [number, number, number];
 }
 
 export interface PickedImage {

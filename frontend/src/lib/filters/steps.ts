@@ -1,47 +1,53 @@
-import { OP_CATALOGUE, type FilterStepSpec, type OpDef, type OpParam } from './engine';
+import { OPS, type FilterStep, type OpParam, type OpSpec } from './engine';
 
-export type OpLookup = (id: string) => OpDef | undefined;
+export type OpLookup = (id: string) => OpSpec | undefined;
 
-export function opLookup(extra: OpDef[] = []): OpLookup {
-	const table = new Map<string, OpDef>();
-	for (const def of OP_CATALOGUE) table.set(def.id, def);
+export type ScalarParam = OpParam & { type: 'int' | 'float'; min: number; max: number; default: number };
+
+export function opLookup(extra: OpSpec[] = []): OpLookup {
+	const table = new Map<string, OpSpec>();
+	for (const def of OPS) table.set(def.id, def);
 	for (const def of extra) table.set(def.id, def);
 	return (id) => table.get(id);
 }
 
-export function scalarParams(def: OpDef | undefined): OpParam[] {
-	return (def?.params ?? []).filter((param) => param.type !== 'points');
+function isScalar(param: OpParam): param is ScalarParam {
+	return param.type !== 'curve';
 }
 
-export function pointParams(def: OpDef | undefined): OpParam[] {
-	return (def?.params ?? []).filter((param) => param.type === 'points');
+export function scalarParams(def: OpSpec | undefined): ScalarParam[] {
+	return (def?.params ?? []).filter(isScalar);
 }
 
-export function stepValue(step: FilterStepSpec, param: OpParam): number {
+export function pointParams(def: OpSpec | undefined): OpParam[] {
+	return (def?.params ?? []).filter((param) => param.type === 'curve');
+}
+
+export function stepValue(step: FilterStep, param: ScalarParam): number {
 	const raw = step[param.id];
 	return typeof raw === 'number' ? raw : param.default;
 }
 
-export function isStepEnabled(step: FilterStepSpec): boolean {
+export function isStepEnabled(step: FilterStep): boolean {
 	return step.enabled !== false;
 }
 
 export function setStepParam(
-	steps: FilterStepSpec[],
+	steps: FilterStep[],
 	index: number,
 	paramId: string,
 	value: number
-): FilterStepSpec[] {
+): FilterStep[] {
 	return steps.map((step, i) => (i === index ? { ...step, [paramId]: value } : step));
 }
 
-export function toggleStep(steps: FilterStepSpec[], index: number): FilterStepSpec[] {
+export function toggleStep(steps: FilterStep[], index: number): FilterStep[] {
 	return steps.map((step, i) => (i === index ? { ...step, enabled: !isStepEnabled(step) } : step));
 }
 
 export function editedParams(
-	base: FilterStepSpec | undefined,
-	current: FilterStepSpec,
+	base: FilterStep | undefined,
+	current: FilterStep,
 	lookup: OpLookup
 ): number {
 	if (!base) return 0;
@@ -52,21 +58,21 @@ export function editedParams(
 	return edited;
 }
 
-export function countEdits(base: FilterStepSpec[], current: FilterStepSpec[], lookup: OpLookup): number {
+export function countEdits(base: FilterStep[], current: FilterStep[], lookup: OpLookup): number {
 	return current.reduce((total, step, index) => total + editedParams(base[index], step, lookup), 0);
 }
 
-export function editedSteps(base: FilterStepSpec[], current: FilterStepSpec[], lookup: OpLookup): number {
+export function editedSteps(base: FilterStep[], current: FilterStep[], lookup: OpLookup): number {
 	return current.filter((step, index) => editedParams(base[index], step, lookup) > 0).length;
 }
 
-export function serializeSteps(steps: FilterStepSpec[]): FilterStepSpec[] {
+export function serializeSteps(steps: FilterStep[]): FilterStep[] {
 	return steps.map((step) => {
 		const { enabled, ...rest } = step;
 		return enabled === false ? { ...rest, enabled: false } : { ...rest };
 	});
 }
 
-export function stepsEqual(a: FilterStepSpec[], b: FilterStepSpec[]): boolean {
+export function stepsEqual(a: FilterStep[], b: FilterStep[]): boolean {
 	return JSON.stringify(serializeSteps(a)) === JSON.stringify(serializeSteps(b));
 }

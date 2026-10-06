@@ -1,3 +1,4 @@
+import { get } from 'svelte/store';
 import { loadImage } from '$lib/media/editors/loadImage';
 import { captureDoc, restoreDoc, structuralBytes } from './docState';
 import {
@@ -11,9 +12,11 @@ import {
 import { canvasToPngFile, flattenDocument } from './flatten';
 import { runFilters, type FilterStep } from './adjustments/run';
 import { defaultFilterValues } from './adjustments/builtin';
-import { renderRecipe } from '$lib/filters/render';
+import { filterCatalog } from '$lib/filters/catalog';
+import { sharedExtensions } from '$lib/filters/extensions';
+import { LutMemo, renderRecipe } from '$lib/filters/render';
 import { makeThumbSource } from '$lib/filters/thumbs';
-import type { FilterStepSpec } from '$lib/filters/engine';
+import type { FilterExtensions, FilterStep as RecipeStep } from '$lib/filters/engine';
 import type { ActiveFilter } from '$lib/filters/types';
 import {
 	canApply,
@@ -79,7 +82,7 @@ export interface FilterSnapshot {
 	intensity: number;
 	compare: boolean;
 	fineTune: boolean;
-	steps: FilterStepSpec[];
+	steps: RecipeStep[];
 	error: string | null;
 }
 
@@ -200,11 +203,12 @@ export class PaintSession implements ToolHost, EditorApi {
 	private transformBefore: DocSnapshot | null = null;
 	private adjustBase: { layer: Layer; canvas: HTMLCanvasElement; image: ImageData } | null = null;
 	private filterState: FilterToolState<ActiveFilter> = initialToolState<ActiveFilter>();
-	private filterSteps: FilterStepSpec[] = [];
+	private filterSteps: RecipeStep[] = [];
 	private fineTune = false;
 	private filterError: string | null = null;
 	private filterPreview: { layer: Layer; canvas: HTMLCanvasElement } | null = null;
 	private filterToken = 0;
+	private filterLut = new LutMemo();
 	private filterBase: {
 		layer: Layer;
 		canvas: HTMLCanvasElement;
@@ -1244,6 +1248,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		this.filterState = initialToolState<ActiveFilter>();
 		this.filterSteps = [];
 		this.filterPreview = null;
+		this.filterLut.clear();
 		this.fineTune = false;
 		this.emit();
 		this.invalidate();
@@ -1291,7 +1296,8 @@ export class PaintSession implements ToolHost, EditorApi {
 			const output = renderRecipe(
 				{ width: base.image.width, height: base.image.height, data: base.image.data },
 				{ steps: this.filterSteps, cube: active.cube },
-				this.filterState.intensity
+				this.filterState.intensity,
+				this.filterRenderOptions(active)
 			);
 			const data = mask ? blendByMask(base.image.data, output.data, mask) : output.data;
 			const canvas =
@@ -1311,6 +1317,16 @@ export class PaintSession implements ToolHost, EditorApi {
 			return;
 		}
 		this.invalidate();
+	}
+
+	filterExtensions(): FilterExtensions {
+		return sharedExtensions(get(filterCatalog).ops, paintFilters.list());
+	}
+
+	private filterRenderOptions(active: ActiveFilter) {
+		const extensions = this.filterExtensions();
+		const recipe = { steps: this.filterSteps, cube: active.cube };
+		return { extensions, lut: this.filterLut.get(recipe, this.filterState.intensity, extensions) };
 	}
 
 	private failFilter(error: unknown): void {
@@ -1333,7 +1349,8 @@ export class PaintSession implements ToolHost, EditorApi {
 			const output = renderRecipe(
 				{ width: image.width, height: image.height, data: image.data },
 				{ steps: this.filterSteps, cube: active.cube },
-				this.filterState.intensity
+				this.filterState.intensity,
+				this.filterRenderOptions(active)
 			);
 			const mask = this.layerSelectionMask(layer);
 			const data = mask ? blendByMask(image.data, output.data, mask) : output.data;

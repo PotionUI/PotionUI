@@ -1,4 +1,4 @@
-import type { FilterStepSpec, OpDef } from './engine';
+import type { Cube, FilterStep, OpSpec } from './engine';
 
 export type FilterSource = 'builtin' | 'local' | 'plugin' | 'mine';
 
@@ -17,7 +17,7 @@ export interface FilterItem {
 	has_lut: boolean;
 	lut_size?: number | null;
 	lut_url?: string | null;
-	steps: FilterStepSpec[];
+	steps: FilterStep[];
 	kinds?: { colour: number; spatial: number };
 	unavailable_ops: string[];
 	needs_plugin: string | null;
@@ -25,29 +25,30 @@ export interface FilterItem {
 	revision: string;
 }
 
-export interface FilterOpInfo extends OpDef {
-	source?: string;
-	plugin_id?: string | null;
-}
+export type FilterOpInfo = OpSpec;
 
 export interface FilterCatalogData {
+	schema?: number;
 	filters: FilterItem[];
 	ops: FilterOpInfo[];
 	groups: string[];
+	load_errors?: Record<string, string[]>;
 }
 
 export interface FilterDraft {
 	name: string;
 	description?: string;
+	group?: string;
 	intensity: number;
-	steps: FilterStepSpec[];
+	steps: FilterStep[];
+	source_id?: string;
 }
 
 export interface FilterPatch {
 	name?: string;
 	description?: string;
 	intensity?: number;
-	steps?: FilterStepSpec[];
+	steps?: FilterStep[];
 }
 
 export interface ActiveFilter {
@@ -60,11 +61,11 @@ export interface ActiveFilter {
 	description: string;
 	hasLut: boolean;
 	defaultIntensity: number;
-	steps: FilterStepSpec[];
-	cube: string | null;
+	steps: FilterStep[];
+	cube: Cube | null;
 }
 
-export function toActiveFilter(item: FilterItem, cube: string | null): ActiveFilter {
+export function toActiveFilter(item: FilterItem, cube: Cube | null): ActiveFilter {
 	return {
 		id: item.id,
 		name: item.name,

@@ -132,7 +132,7 @@
 									on:input={(event) => session.setFilterStepParam(index, param.id, number(event))}
 								/>
 								<span class="w-12 text-right font-mono text-xs tabular-nums text-fg-muted">
-									{stepValue(step, param)}{param.id.endsWith('hue') ? '°' : ''}
+									{stepValue(step, param)}{param.unit ?? ''}
 								</span>
 							</div>
 						{/each}

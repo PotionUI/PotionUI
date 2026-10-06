@@ -968,7 +968,11 @@ filter's LUT like a core colour op. Anything that needs position or neighbours i
 the LUT. A filter lists its colour steps before its spatial steps.
 
 The browser half is registered through the image-editor host (`window.__potionui.imageEditor`), next to the
-declaration above. The Python half is optional and is a class named by `python:` (`file.py:ClassName`, a path
+declaration above: call `registerAdjustment` with an adjustment whose `id` is the op id. A colour op adds
+`kind: 'colour'` and `map(rgb, values)`, a pointwise function over `[r, g, b]` floats in 0..1, so the editor
+folds it into the LUT. A spatial op uses its `apply(image, values)`, which must return synchronously; the
+editor blends its result by the filter's intensity. An op with no browser half leaves its filters unusable in
+the editor. The Python half is optional and is a class named by `python:` (`file.py:ClassName`, a path
 inside the plugin directory), imported only while the plugin is enabled:
 
 ```python

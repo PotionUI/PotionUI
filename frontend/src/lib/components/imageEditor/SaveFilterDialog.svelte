@@ -3,7 +3,7 @@
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import { Button, Input } from '$lib/components/ui';
 	import { selectFilterItem, suggestedName } from '$lib/filters/actions';
-	import { createMineFilter, errorText, filterCatalog, isNameTaken } from '$lib/filters/catalog';
+	import { createMineFilter, errorCode, errorText, filterCatalog } from '$lib/filters/catalog';
 	import { editedSteps, opLookup, serializeSteps } from '$lib/filters/steps';
 	import { toasts } from '$lib/stores/toast';
 	import type { PaintSession, SessionSnapshot } from './session';
@@ -19,6 +19,8 @@
 	let name = '';
 	let description = '';
 	let error: string | null = null;
+	let formError: string | null = null;
+	let lutRefusal: string | null = null;
 	let saving = false;
 	let wasOpen = false;
 
@@ -26,7 +28,7 @@
 	$: lookup = opLookup($filterCatalog.ops);
 	$: edited = active ? editedSteps(active.steps, state.filter.steps, lookup) : 0;
 	$: stepCount = state.filter.steps.length;
-	$: lutBlocked = !!active?.hasLut;
+	$: lutBlocked = !!active?.hasLut || lutRefusal !== null;
 	$: trimmed = name.trim();
 	$: canSave = !!active && !lutBlocked && trimmed.length > 0 && trimmed.length <= NAME_MAX && !saving;
 	$: if (isOpen !== wasOpen) {
@@ -35,6 +37,8 @@
 			name = suggestedName(active.name, active.owned);
 			description = active.description.slice(0, DESCRIPTION_MAX);
 			error = null;
+			formError = null;
+			lutRefusal = null;
 			saving = false;
 		}
 	}
@@ -43,20 +47,23 @@
 		if (!active || !canSave) return;
 		saving = true;
 		error = null;
+		formError = null;
 		try {
 			const created = await createMineFilter({
 				name: trimmed,
 				description: description.trim() || undefined,
 				intensity: state.filter.intensity,
-				steps: serializeSteps(state.filter.steps)
+				steps: serializeSteps(state.filter.steps),
+				source_id: active.id
 			});
 			await selectFilterItem(session, created);
 			toasts.success(`Saved ${created.name} to My filters`);
 			dispatch('close');
 		} catch (failure) {
-			error = isNameTaken(failure)
-				? 'You already have a filter with that name.'
-				: errorText(failure, 'The filter could not be saved.');
+			const code = errorCode(failure);
+			if (code === 'filter_name_taken') error = errorText(failure, 'You already have a filter with that name.');
+			else if (code === 'filter_lut_unsupported') lutRefusal = errorText(failure, "LUT filters can't be copied yet.");
+			else formError = errorText(failure, 'The filter could not be saved.');
 		} finally {
 			saving = false;
 		}
@@ -86,12 +93,14 @@
 				bind:value={name}
 				maxlength={NAME_MAX}
 				invalid={error !== null}
+				aria-invalid={error !== null}
+				aria-describedby={error ? 'save-filter-name-error' : undefined}
 				autocomplete="off"
 				data-autofocus
 				onkeydown={onKeydown}
 			/>
 			{#if error}
-				<p class="text-xs text-danger" role="alert">{error}</p>
+				<p id="save-filter-name-error" class="text-xs text-danger" role="alert">{error}</p>
 			{/if}
 		</div>
 
@@ -121,8 +130,12 @@
 			</div>
 		</dl>
 
+		{#if formError}
+			<p class="text-xs text-danger" role="alert">{formError}</p>
+		{/if}
+
 		{#if lutBlocked}
-			<p class="text-xs text-warning" data-testid="lut-refusal">LUT filters can't be copied yet.</p>
+			<p class="text-xs text-warning" data-testid="lut-refusal">{lutRefusal ?? "LUT filters can't be copied yet."}</p>
 		{:else}
 			<p class="text-xs leading-relaxed text-fg-subtle">
 				Only you can see it. You can rename or delete it any time from the Mine group.

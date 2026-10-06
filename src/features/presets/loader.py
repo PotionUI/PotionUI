@@ -42,6 +42,21 @@ from .schema import (
 )
 
 
+def plugin_preset_root_owners(manifests) -> List[Tuple[Path, str]]:
+    owners: List[Tuple[Path, str]] = []
+    for manifest in manifests:
+        entries = getattr(manifest, "presets", None) or []
+        plugin_dir = getattr(manifest, "plugin_dir", None)
+        if not entries or not plugin_dir:
+            continue
+        base = Path(plugin_dir).resolve()
+        for entry in entries:
+            path = entry.get("path") if isinstance(entry, dict) else None
+            if path:
+                owners.append((base / path, manifest.id))
+    return owners
+
+
 def plugin_preset_roots(manifests) -> List[Path]:
     """Resolve the preset roots contributed by a set of plugin manifests.
 
@@ -694,16 +709,28 @@ class PresetTemplateLoader:
 
         # Core preset directories plus the roots contributed by enabled plugins
         # (a plugin owning its presets).
+        plugin_owners: Dict[Path, str] = {}
+        if self.plugin_registry is not None:
+            plugin_owners = dict(plugin_preset_root_owners(self.plugin_registry.get_enabled_plugins()))
+
         for base_path in self.all_preset_roots():
             if not base_path.exists():
                 logger.info(f"Preset directory does not exist, skipping: {base_path}")
                 continue
+
+            owner_plugin = plugin_owners.get(base_path)
+            root_kind = "plugin" if owner_plugin else ("local" if base_path.name == "local" else "marketplace")
 
             logger.info(f"Loading presets from: {base_path}")
             for preset_file in sorted(base_path.rglob("preset.yml")):
                 logger.debug(f"Loading preset file: {preset_file}")
                 preset = self._load_preset_file(preset_file, base_path, errors)
                 if preset:
+                    preset.origin = {
+                        "kind": root_kind,
+                        "plugin_id": owner_plugin,
+                        "path": preset_file.parent.relative_to(base_path).as_posix(),
+                    }
                     presets.append(preset)
                     logger.debug(f"Loaded preset: {preset.name} (from {base_path})")
                 else:

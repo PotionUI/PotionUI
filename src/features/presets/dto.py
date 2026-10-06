@@ -21,6 +21,12 @@ class PresetStyle(BaseModel):
     preview: Optional[str] = None
 
 
+class PresetOrigin(BaseModel):
+    kind: str
+    plugin_id: Optional[str] = None
+    path: str = ""
+
+
 class PresetInfo(BaseModel):
     id: str
     name: str
@@ -29,6 +35,8 @@ class PresetInfo(BaseModel):
     tags: List[str] = []
     category: Optional[str] = None
     source: Optional[str] = None
+    origin: Optional[PresetOrigin] = None
+    modes: List[str] = []
     engine: Optional[str] = None
     driver: Optional[str] = None
     media: Optional[dict] = None

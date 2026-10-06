@@ -146,6 +146,7 @@ class PresetTemplate:
     # in the pipeline context. See docs/presets.md "Speed profiles".
     speed_profiles: Dict[str, Dict[str, Any]] = None
     base_path: str = None  # Base directory where this preset was loaded from (e.g., "content/presets/marketplace" or "content/presets/local")
+    origin: Optional[Dict[str, Any]] = None
     engine: str = None  # Engine this preset's pipes speak (e.g. "native", "comfyui")
     driver: Optional[str] = None
     media: Optional[dict] = None  # {cover, gallery: [...]} - see PresetMedia in schema.py

@@ -1,7 +1,7 @@
 from pathlib import PurePath
 from typing import Dict, Any, Optional, List
 from src.features.presets import PresetTemplateLoader
-from src.features.presets.dto import PresetInfo, PresetStyle
+from src.features.presets.dto import PresetInfo, PresetOrigin, PresetStyle
 from src.features.presets.negative_prompt import negative_prompt_declarations
 
 class FilePresetRepository:
@@ -79,6 +79,8 @@ class FilePresetRepository:
             tags=preset_template.tags or [],
             category=preset_template.category,
             source=source,
+            origin=PresetOrigin(**preset_template.origin) if preset_template.origin else None,
+            modes=list((preset_template.modes or {}).keys()),
             engine=preset_template.engine,
             driver=preset_template.driver,
             media=media,

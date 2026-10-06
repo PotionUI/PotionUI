@@ -52,9 +52,17 @@ def plugin_preset_root_owners(manifests) -> List[Tuple[Path, str]]:
         base = Path(plugin_dir).resolve()
         for entry in entries:
             path = entry.get("path") if isinstance(entry, dict) else None
-            if path:
-                owners.append((base / path, manifest.id))
+            plugin_id = getattr(manifest, "id", None)
+            if path and plugin_id:
+                owners.append((base / path, plugin_id))
     return owners
+
+
+def _origin_path(preset_dir: Path, base_path: Path) -> str:
+    try:
+        return preset_dir.relative_to(base_path).as_posix()
+    except ValueError:
+        return preset_dir.name
 
 
 def plugin_preset_roots(manifests) -> List[Path]:
@@ -729,7 +737,7 @@ class PresetTemplateLoader:
                     preset.origin = {
                         "kind": root_kind,
                         "plugin_id": owner_plugin,
-                        "path": preset_file.parent.relative_to(base_path).as_posix(),
+                        "path": _origin_path(preset_file.parent, base_path),
                     }
                     presets.append(preset)
                     logger.debug(f"Loaded preset: {preset.name} (from {base_path})")

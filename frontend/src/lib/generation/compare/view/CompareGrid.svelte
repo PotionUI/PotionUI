@@ -88,7 +88,7 @@
 </script>
 
 <section
-	class="flex min-h-0 min-w-0 flex-col rounded-lg border border-line bg-surface-1"
+	class="flex min-h-0 w-full min-w-0 max-w-full flex-col rounded-lg border border-line bg-surface-1"
 	aria-label="Compare grid"
 	data-testid="compare-grid"
 	data-grid-cols={grid.cols}
@@ -147,12 +147,12 @@
 
 	<div
 		bind:clientWidth={width}
-		class="max-h-[70vh] min-h-0 flex-1 overflow-auto bg-canvas p-3"
+		class="max-h-[70vh] min-h-0 min-w-0 max-w-full flex-1 overflow-auto bg-canvas p-3"
 		data-testid="compare-scroller"
 		data-scrolls={sizing.scrolls}
 	>
 		<div
-			class="grid w-max"
+			class="mx-auto grid w-max"
 			style="grid-template-columns: {gridTemplateColumns(grid.cols, sizing.size)}; gap: {CELL_GAP}px"
 		>
 			<div

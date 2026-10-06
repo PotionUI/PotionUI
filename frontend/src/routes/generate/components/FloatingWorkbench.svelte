@@ -221,7 +221,7 @@
 				<IconButton icon="close" label="Close floating workbench" onclick={onClose} />
 			</Tooltip>
 		</div>
-		<div bind:this={bodyEl} bind:clientHeight={bodyNaturalHeight} class="p-4">
+		<div bind:this={bodyEl} bind:clientHeight={bodyNaturalHeight} class="min-w-0 p-4">
 			<GenerationWorkbenchPane
 				{tab}
 				{onWorkbenchPrevious}

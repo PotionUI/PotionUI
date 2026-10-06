@@ -21,10 +21,13 @@
 	import { formatElapsedClock } from './studioProgressRing';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import ImagePreview from '$lib/components/workbench/renderers/ImagePreview.svelte';
+	import GridWorkbench from '$lib/generation/compare/view/GridWorkbench.svelte';
+	import { compareRevision, readWorkbenchGrid } from '$lib/generation/compare/compareStore.svelte';
 
 	export let tab: Tab;
 
 	$: generation = tab.generation;
+	$: compareGrid = readWorkbenchGrid($compareRevision, tab.id);
 	// Workbench.svelte's own `currentGeneration` prop is typed `any` for the
 	// same reason: the WebSocket envelope carries fields (`current_image`,
 	// `current_video`, ...) the shared `ActiveGeneration` type doesn't declare.
@@ -132,7 +135,15 @@
 </script>
 
 <div class="studio-canvas absolute inset-0 overflow-hidden bg-canvas">
-	{#if isGenerating}
+	{#if compareGrid}
+		<div
+			class="absolute inset-0 min-w-0 overflow-y-auto px-3 pt-16"
+			style="padding-bottom: calc(var(--dock-height, 7rem) + 0.75rem)"
+			data-testid="studio-compare-stage"
+		>
+			<GridWorkbench tabId={tab.id} />
+		</div>
+	{:else if isGenerating}
 		<div class="absolute inset-0 flex items-center justify-center bg-canvas">
 			{#if currentGeneration?.current_image}
 				<img

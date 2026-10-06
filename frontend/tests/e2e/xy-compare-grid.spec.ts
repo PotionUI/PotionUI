@@ -52,6 +52,67 @@ test.describe('X/Y compare grid view', () => {
 		expect(request.form_data.model).toBeTruthy();
 	});
 
+	test('a wide grid never clips its header or axis labels and scrolls from the true left edge', async ({ page }) => {
+		test.setTimeout(240000);
+		await loginAsOwner(page);
+		token = await ownerToken(page);
+		await openFakeStudio(page);
+		await pickModel(page, 'Fake Image');
+		await typePrompt(page, 'a lighthouse on a cliff at dusk');
+
+		const drawer = await openCompareDrawer(page);
+		await pickAxisField(page, 'X', 'quality');
+		const xCard = drawer.getByTestId('axis-card-x');
+		for (let guard = 0; guard < 12; guard++) {
+			const idle = xCard.locator('button[aria-pressed="false"]');
+			if ((await idle.count()) === 0) break;
+			await idle.first().click();
+		}
+		await expect(xCard.getByTestId('chips-count')).toHaveText('10 of 10');
+		await closeCompareDrawer(page);
+
+		const grid = page.getByTestId('compare-grid');
+		await expect(grid).toBeVisible();
+		await expect(grid.getByTestId('compare-x-label')).toHaveCount(10);
+
+		const assertNotClipped = async () => {
+			const pane = page.getByTestId('workbench-pane').first();
+			const paneBox = (await pane.boundingBox())!;
+			const headerText = grid.getByTestId('compare-header').getByText('Compare', { exact: true });
+			const headerBox = (await headerText.boundingBox())!;
+			expect(headerBox.x).toBeGreaterThanOrEqual(paneBox.x);
+			const scroller = grid.getByTestId('compare-scroller');
+			const scrollerBox = (await scroller.boundingBox())!;
+			expect(scrollerBox.x).toBeGreaterThanOrEqual(paneBox.x);
+			await scroller.evaluate((el) => el.scrollTo({ left: 0 }));
+			const corner = grid.getByText('Quality', { exact: false }).first();
+			const cornerBox = (await corner.boundingBox())!;
+			expect(cornerBox.x).toBeGreaterThanOrEqual(scrollerBox.x);
+			const firstLabel = grid.getByTestId('compare-x-label').first();
+			await firstLabel.scrollIntoViewIfNeeded();
+			const labelBox = (await firstLabel.boundingBox())!;
+			expect(labelBox.x).toBeGreaterThanOrEqual(scrollerBox.x);
+			expect(await pane.evaluate((el) => el.scrollLeft)).toBe(0);
+		};
+
+		await assertNotClipped();
+		await screenshot(page, JOURNEY, 'wide-grid-1440');
+
+		await page.setViewportSize({ width: 1000, height: 900 });
+		await assertNotClipped();
+		await screenshot(page, JOURNEY, 'wide-grid-1000');
+
+		await page.setViewportSize({ width: 390, height: 844 });
+		const scroller = grid.getByTestId('compare-scroller');
+		await expect(scroller).toHaveAttribute('data-scrolls', 'true');
+		await expect(grid.getByTestId('compare-header').getByText('Compare', { exact: true })).toBeVisible();
+		const lastLabel = grid.getByTestId('compare-x-label').last();
+		await lastLabel.scrollIntoViewIfNeeded();
+		await expect(lastLabel).toBeVisible();
+		await scroller.evaluate((el) => el.scrollTo({ left: 0 }));
+		await expect(grid.getByTestId('compare-x-label').first()).toBeVisible();
+	});
+
 	test('the Workbench draws labelled axes and the cells fill in until the grid is done', async ({ page }) => {
 		test.setTimeout(240000);
 		await loginAsOwner(page);

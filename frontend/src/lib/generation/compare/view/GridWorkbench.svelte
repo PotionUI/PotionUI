@@ -31,14 +31,16 @@
 </script>
 
 {#if grid}
-	<CompareGrid
-		{grid}
-		bind:durations
-		selectedIndex={viewing}
-		onOpenCell={(index) => (viewIndex = index)}
-		onCancelAll={() => void cancelGrid(tabId)}
-		onRetryFailed={() => void retryFailed(tabId)}
-	/>
+	<div class="w-full min-w-0 max-w-full" data-testid="compare-host">
+		<CompareGrid
+			{grid}
+			bind:durations
+			selectedIndex={viewing}
+			onOpenCell={(index) => (viewIndex = index)}
+			onCancelAll={() => void cancelGrid(tabId)}
+			onRetryFailed={() => void retryFailed(tabId)}
+		/>
+	</div>
 
 	{#if viewing !== null}
 		<GridCellViewer

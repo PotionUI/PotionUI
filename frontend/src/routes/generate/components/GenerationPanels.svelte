@@ -405,7 +405,7 @@
 			</Tooltip>
 		{:else}
 			<div
-				class="relative flex-1 overflow-y-auto p-4 pb-[var(--dock-height)]"
+				class="relative min-w-0 flex-1 overflow-y-auto p-4 pb-[var(--dock-height)]"
 				style="min-width: {paneLayout.workbenchMinWidth}px"
 				data-testid="workbench-pane"
 				bind:clientWidth={measuredPaneWidth}
@@ -477,7 +477,7 @@
 			{:else}
 				<!-- Workbench Area -->
 				<div
-					class="relative flex-1 min-h-0 overflow-y-auto p-4 pb-[var(--dock-height)]"
+					class="relative min-h-0 min-w-0 flex-1 overflow-y-auto p-4 pb-[var(--dock-height)]"
 					data-testid="workbench-pane"
 					bind:clientWidth={measuredPaneWidth}
 				>

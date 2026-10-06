@@ -270,3 +270,55 @@ describe('compare grid view', () => {
 		expect(q(target, '[data-testid="video-transport"]')).toBeNull();
 	});
 });
+
+describe('compare grid left edge', () => {
+	function wide() {
+		const values = Array.from({ length: 12 }, (_, i) => ({ value: `s${i}`, label: `s${i}` }));
+		return {
+			id: 'wide',
+			config: { armed: true, x: { ...sampler, values }, lockSeed: true },
+			cols: 12,
+			rows: 1,
+			cells: values.map((_, i) => ({ ...emptyCell(i, 0), axisValues: { sampler: `s${i}` } }))
+		};
+	}
+
+	it('keeps the header outside the horizontal scroller', () => {
+		const { target } = mount(CompareGrid, { grid: wide() });
+		const scroller = q(target, '[data-testid="compare-scroller"]') as HTMLElement;
+		const header = q(target, '[data-testid="compare-header"]') as HTMLElement;
+		expect(scroller.contains(header)).toBe(false);
+		expect(header.parentElement).toBe(scroller.parentElement);
+	});
+
+	it('never centres the scrolled content with justify-center or items-center', () => {
+		const { target } = mount(CompareGrid, { grid: wide() });
+		const scroller = q(target, '[data-testid="compare-scroller"]') as HTMLElement;
+		const content = scroller.firstElementChild as HTMLElement;
+		for (const el of [scroller, content, scroller.parentElement as HTMLElement]) {
+			expect(el.className).not.toMatch(/justify-center|items-center/);
+		}
+		expect(scroller.className).toContain('overflow-auto');
+		expect(content.className).toContain('mx-auto');
+		expect(content.className).toContain('w-max');
+	});
+
+	it('lets the section and scroller shrink to their container', () => {
+		const { target } = mount(CompareGrid, { grid: wide() });
+		const section = q(target, '[data-testid="compare-grid"]') as HTMLElement;
+		const scroller = q(target, '[data-testid="compare-scroller"]') as HTMLElement;
+		for (const el of [section, scroller]) {
+			expect(el.className).toContain('min-w-0');
+			expect(el.className).toContain('max-w-full');
+		}
+	});
+
+	it('pins the axis corner and the Y labels to the left of the scroller', () => {
+		const { target } = mount(CompareGrid, { grid: wide() });
+		const scroller = q(target, '[data-testid="compare-scroller"]') as HTMLElement;
+		const corner = (scroller.firstElementChild as HTMLElement).firstElementChild as HTMLElement;
+		expect(corner.className).toContain('sticky');
+		expect(corner.className).toContain('left-0');
+		expect(qa(target, '[data-testid="compare-y-label"]').every((el) => el.className.includes('left-0'))).toBe(true);
+	});
+});

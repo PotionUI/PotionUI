@@ -1,5 +1,6 @@
 import hashlib
 import time
+from pathlib import Path
 from typing import Optional
 
 from fastapi import Request, Response
@@ -18,7 +19,17 @@ def media_cookie_name() -> str:
         return MEDIA_COOKIE
     if not isinstance(secret, str) or not secret:
         return MEDIA_COOKIE
-    return f"{MEDIA_COOKIE}_{hashlib.sha256(secret.encode()).hexdigest()[:12]}"
+    identity = f"{secret}\0{_instance_location()}"
+    return f"{MEDIA_COOKIE}_{hashlib.sha256(identity.encode()).hexdigest()[:12]}"
+
+
+def _instance_location() -> str:
+    from src.platform.database.database import db
+
+    try:
+        return str(Path(db.db_path).resolve())
+    except Exception:
+        return ""
 
 
 def _is_secure(request: Request) -> bool:

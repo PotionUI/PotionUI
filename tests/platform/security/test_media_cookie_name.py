@@ -45,3 +45,12 @@ def test_a_cookie_written_by_another_instance_is_not_read(use_secret):
 def test_the_legacy_shared_name_is_ignored(use_secret):
     use_secret("dev-secret")
     assert media_session.media_cookie_token(_request({"potionui_media": "other"})) is None
+
+
+def test_two_instances_sharing_a_key_still_use_different_cookie_names(use_secret, monkeypatch):
+    monkeypatch.setattr(media_session, "_instance_location", lambda: "/srv/dev/storage/db.sqlite")
+    dev = use_secret("shared-secret")
+    monkeypatch.setattr(media_session, "_instance_location", lambda: "/srv/prod/storage/db.sqlite")
+    prod = use_secret("shared-secret")
+    assert dev != prod
+    assert media_session.media_cookie_token(_request({dev: "dev-token"})) is None

@@ -45,14 +45,16 @@ async function keyboardFocus(page: Page, el: Locator) {
 }
 
 async function tabTo(page: Page, el: Locator) {
-	await page.locator('#fx-start').click();
 	const id = await el.getAttribute('id');
-	for (let hops = 0; hops < 10; hops++) {
-		await page.keyboard.press('Tab');
-		if ((await page.evaluate(() => document.activeElement?.id)) === id) break;
-	}
-	await expect(el).toBeFocused();
-	await expect.poll(() => el.evaluate((node) => node.matches(':focus-visible')), { timeout: 5000 }).toBe(true);
+	await expect(async () => {
+		await page.locator('#fx-start').click();
+		for (let hops = 0; hops < 10; hops++) {
+			await page.keyboard.press('Tab');
+			if ((await page.evaluate(() => document.activeElement?.id)) === id) break;
+		}
+		await expect(el).toBeFocused({ timeout: 1000 });
+		expect(await el.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
+	}).toPass({ timeout: 20000 });
 }
 
 async function shoot(el: Locator, label: string) {

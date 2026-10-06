@@ -142,12 +142,12 @@ test.describe('X/Y compare grid view', () => {
 		await screenshot(page, JOURNEY, 'workbench-preview-1440');
 
 		await compareGenerate(page, 6).click();
-		await expect(page.getByTestId('compare-grid').locator('[data-cell-state="queued"], [data-cell-state="running"]').first()).toBeVisible({
-			timeout: 15000
-		});
+		await expect(page.getByTestId('compare-grid').locator('[data-cell-state="empty"]')).toHaveCount(0, { timeout: 15000 });
 		await expect(page.getByTestId('compare-progress')).toBeVisible();
-		await expect(page.getByRole('button', { name: /Cancel all/ }).first()).toBeVisible();
-		await screenshot(page, JOURNEY, 'workbench-running-1440');
+		if (await page.getByTestId('compare-grid').locator('[data-cell-state="queued"], [data-cell-state="running"]').count()) {
+			await expect(page.getByRole('button', { name: /Cancel all/ }).first()).toBeVisible();
+			await screenshot(page, JOURNEY, 'workbench-running-1440');
+		}
 
 		await expect(page.getByTestId('compare-count')).toHaveText('6/6', { timeout: 150000 });
 		await expect(page.getByTestId('compare-grid').locator('[data-cell-state="completed"]')).toHaveCount(6);

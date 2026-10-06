@@ -194,7 +194,7 @@ test.describe('X/Y compare grid view', () => {
 		await expect(dialog.getByRole('button', { name: 'axis values' })).toHaveAttribute('aria-pressed', 'true');
 		await expect(dialog.getByRole('button', { name: 'seed' })).toBeVisible();
 		await expect(dialog.getByRole('button', { name: 'time' })).toBeVisible();
-		await expect(dialog.getByLabel('Stitch preview')).toBeVisible();
+		await expect(dialog.getByLabel('Stitch preview', { exact: true })).toBeVisible();
 		await dialog.getByRole('button', { name: 'seed' }).click();
 		await expect(dialog.getByRole('button', { name: 'seed' })).toHaveAttribute('aria-pressed', 'true');
 		await screenshot(page, JOURNEY, 'stitch-grid-1440');

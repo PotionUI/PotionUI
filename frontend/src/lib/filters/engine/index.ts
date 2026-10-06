@@ -1,6 +1,43 @@
 import { applyLut, compileLut } from './lut';
+import { OPS } from './ops';
 import { applySpatial } from './spatial';
 import type { FilterExtensions, FilterRecipe, ImageDataLike, Lut } from './types';
+
+export interface OpCatalogueParam {
+	id: string;
+	label: string;
+	type: 'int' | 'float' | 'points';
+	min: number;
+	max: number;
+	default: number;
+}
+
+export interface OpCatalogueEntry {
+	id: string;
+	label: string;
+	kind: 'colour' | 'spatial';
+	params: OpCatalogueParam[];
+}
+
+export const OP_CATALOGUE: OpCatalogueEntry[] = OPS.map((op) => ({
+	id: op.id,
+	label: op.label,
+	kind: op.kind,
+	params: op.params.map((param) =>
+		param.type === 'curve'
+			? { id: param.id, label: param.label, type: 'points', min: 0, max: 1, default: 0 }
+			: {
+					id: param.id,
+					label: param.label,
+					type: param.type,
+					min: param.min as number,
+					max: param.max as number,
+					default: param.default as number
+				}
+	)
+}));
+
+export type { FilterStep as FilterStepSpec } from './types';
 
 export interface ApplyFilterOptions {
 	lut?: Lut;

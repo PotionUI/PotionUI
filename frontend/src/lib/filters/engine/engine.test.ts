@@ -5,6 +5,7 @@ import {
 	COLOUR_OPS,
 	CubeError,
 	OPS,
+	OP_CATALOGUE,
 	applyFilter,
 	applyLut,
 	compileLut,
@@ -77,6 +78,18 @@ describe('op catalogue', () => {
 	it('matches the Python catalogue exactly', () => {
 		const file = golden<{ catalogue: OpSpec[] }>('ops.json');
 		expect(JSON.parse(JSON.stringify(OPS))).toEqual(file.catalogue);
+	});
+});
+
+describe('OP_CATALOGUE compatibility view', () => {
+	it('lists every op with scalar ranges and curves as points', () => {
+		expect(OP_CATALOGUE.map((op) => op.id)).toEqual(OPS.map((op) => op.id));
+		const tone = OP_CATALOGUE.find((op) => op.id === 'tone')!;
+		expect(tone.params[3]).toEqual({
+			id: 'hue', label: 'Hue', type: 'int', min: -180, max: 180, default: 0
+		});
+		const curves = OP_CATALOGUE.find((op) => op.id === 'curves')!;
+		expect(curves.params.every((p) => p.type === 'points')).toBe(true);
 	});
 });
 

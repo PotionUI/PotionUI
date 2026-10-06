@@ -22,6 +22,7 @@ ALLOWED_BASENAMES = {
     "reset_password.py",
     "rotate_secret_key.py",
     "profile_report.py",
+    "filter_lint.py",
     "preset_lint.py",
     "preset_new.py",
     "preset_render.py",

@@ -17,6 +17,7 @@
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import Icon from '$lib/components/Icon.svelte';
 	import { IconButton } from '$lib/components/ui';
+	import { noteModelKind } from '$lib/services/cloudCapabilities';
 	import { refFor, matchesStoredValue, findModelForValue, MODEL_REF_PREFIX } from '$lib/utils/modelRef';
 	import { toggleModelFavoriteOptimistic } from '$lib/utils/modelFavorite';
 	import { buildModelSearchRequest } from '$lib/utils/modelSearchParams';
@@ -182,6 +183,7 @@
 
 		const model = await lookup;
 		if (disposed || lookupKey(modelPath, presetId, modelType) !== key || !model) return;
+		noteModelKind(model);
 		selectedModelData = model;
 		selectedModelScopeKey = key;
 	}
@@ -232,6 +234,7 @@
 		} else {
 			logger.warn('[ModelField] name is null/undefined, onChange not called!');
 		}
+		noteModelKind(model);
 		selectedModelData = model;
 		searchQuery = (displayName(model) || model.filename || '').replace(/\.[^/.]+$/, '');
 		showDropdown = false;

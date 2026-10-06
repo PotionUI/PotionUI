@@ -1,3 +1,4 @@
+import logging
 import json
 from dataclasses import replace
 
@@ -200,3 +201,34 @@ async def test_a_depot_model_sharing_a_cloud_slug_never_gets_the_cloud_capabilit
         response = await client.get(url(impostor.id))
 
     assert response.status_code == 404
+
+
+def error_records(caplog):
+    return [record for record in caplog.records if record.name == "CloudCapabilitiesController" and record.levelno >= logging.ERROR]
+
+
+async def test_a_local_model_is_a_quiet_404(refreshed, container, caplog):
+    from src.features.models.records import Model
+
+    checkpoint = model_repo.create(Model(filename="a.safetensors", model_type="checkpoint"))
+
+    with caplog.at_level(logging.DEBUG, logger="CloudCapabilitiesController"):
+        async with client_as(container, AccountType.ADMIN) as client:
+            response = await client.get(url(checkpoint.id))
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["error"] == "model_not_found"
+    assert error_records(caplog) == []
+    assert any(record.levelno == logging.DEBUG and checkpoint.id in record.getMessage() for record in caplog.records)
+
+
+async def test_a_model_the_user_may_not_read_is_still_logged_as_an_error(refreshed, container, mock_db, caplog):
+    add_user(mock_db)
+    model_id = await enabled_model(refreshed, IMAGE)
+
+    with caplog.at_level(logging.DEBUG, logger="CloudCapabilitiesController"):
+        async with client_as(container, AccountType.USER) as client:
+            response = await client.get(url(model_id))
+
+    assert response.status_code == 404
+    assert len(error_records(caplog)) >= 1

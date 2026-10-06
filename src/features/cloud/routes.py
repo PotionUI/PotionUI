@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Any, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.features.cloud.capabilities import CloudCapabilities
 from src.features.cloud.catalog import CloudCatalog
@@ -9,7 +9,7 @@ from src.features.cloud.director import DirectorEstimateError
 from src.features.cloud.dto import CatalogSelectionRequest, DirectorEstimateRequest, ModelScopeRequest
 from src.features.cloud.errors import CloudCatalogError
 from src.features.cloud.scopes import CloudModelScopes
-from src.platform.http.base_controller import APIResponse, BaseController
+from src.platform.http.base_controller import APIError, APIResponse, BaseController
 from src.features.models.exceptions import ModelAccessDeniedException, ModelNotFoundException
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 
@@ -77,7 +77,13 @@ class CloudCapabilitiesController(BaseController):
     async def get_capabilities(self, model_id: str, user: Any, driver: Optional[str]) -> APIResponse:
         try:
             data = self.capabilities.payload(model_id, user, driver)
-        except (ModelNotFoundException, ModelAccessDeniedException):
+        except ModelNotFoundException:
+            self.logger.debug(f"No cloud capabilities for model '{model_id}': not an enabled cloud model")
+            raise HTTPException(
+                status_code=404,
+                detail=APIError(error="model_not_found", message=f"Model '{model_id}' not found").model_dump(),
+            )
+        except ModelAccessDeniedException:
             self.error_response(error="model_not_found", message=f"Model '{model_id}' not found", status_code=404)
         return self.success_response(data=data)
 

@@ -1,0 +1,17 @@
+name: "custom"
+short_description: "Change an existing image by instruction."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration: {icon: "generation", icon_display: "icon_only"}
+        children: "{{ paths._shared }}/cloud/tabs/image_edit.yml"
+      - type: "tab"
+        label: "References"
+        configuration: {icon: "image", icon_display: "icon_only"}
+        children: "{{ paths._shared }}/cloud/tabs/references_edit.yml"
+      - type: "tab"
+        label: "Provider options"
+        configuration: {icon: "settings", icon_display: "icon_only"}
+        children: "{{ paths._shared }}/cloud/tabs/provider_options.yml"

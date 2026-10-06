@@ -1,0 +1,21 @@
+fields:
+  - name: "seed"
+    type: "seed"
+    label: "Seed"
+    default: -1
+    ai_hint: "-1 picks a random seed each time. Every shot of a Director film gets the next seed after the one before it. Not every hosted model honours a seed; when it does not, the result is simply not repeatable."
+
+  - name: "aspect_ratio"
+    type: "select"
+    formula: "size"
+    label: "Aspect ratio"
+    ai_hint: "The shape of the video. The choices come from the selected model, and every shot of a film uses the same one."
+    capability: { model_field: "model", param: "aspect_ratio" }
+
+  - name: "resolution"
+    type: "select"
+    formula: "size"
+    label: "Resolution"
+    ai_hint: "The size tier of the video. Larger tiers cost more, and 1080p and 4K videos are always 8 seconds long."
+    capability: { model_field: "model", param: "resolution" }
+

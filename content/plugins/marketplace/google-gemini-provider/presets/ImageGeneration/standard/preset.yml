@@ -1,0 +1,19 @@
+schema: 1
+id: "01M48T0Q8PFET5JD9Z2FDP8E11"
+name: "Gemini Images"
+category: "image"
+version: "1.0.0"
+engine: "cloud"
+driver: "cloud.google"
+tags: ["cloud", "google", "gemini", "nano-banana", "image", "edit"]
+
+formulas:
+  groups:
+    size:     { label: "Size" }
+    output:   { label: "Output format" }
+    provider: { label: "Provider options" }
+    models:   { label: "Models", preselect: false }
+
+modes:
+  - txt2img
+  - edit

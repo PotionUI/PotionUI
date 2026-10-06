@@ -1,0 +1,33 @@
+id: "google-gemini-provider"
+name: "Google Gemini"
+version: "0.1.0"
+description: "Generate images and video with Google's hosted models through the Gemini API and a Google AI Studio key. Adds a Google Gemini cloud backend, its model catalog (Gemini image models, Imagen and Veo) and ready-made image (text to image, edit) and video (text to video, image to video) presets."
+author: "PotionUI Team"
+type: "backend-only"
+category: "backends"
+
+capabilities:
+  - "backend-provider"
+  - "cloud-models"
+
+hooks:
+  backend:
+    - hook: "backend.register"
+      handler: "backend.hooks.backend_hooks.register_backend"
+
+presets:
+  - path: "presets"
+
+docs:
+  - path: "README.md"
+    title: "Google Gemini"
+    audience: "admin"
+
+setup:
+  - kind: "backend.added"
+    driver: "cloud.google"
+    label: "Add a Google Gemini backend with your AI Studio API key"
+  - kind: "cloud.models_enabled"
+    driver: "cloud.google"
+  - kind: "presets.installed"
+  - kind: "presets.assigned"

@@ -1,0 +1,50 @@
+schema: 1
+id: "01M48T0Q8Q0V2WNW3WTX3FY1MW"
+name: "Gemini Video"
+category: "video"
+version: "1.0.0"
+engine: "cloud"
+driver: "cloud.google"
+tags: ["cloud", "google", "veo", "video"]
+
+formulas:
+  groups:
+    size:     { label: "Size" }
+    provider: { label: "Provider options" }
+    models:   { label: "Models", preselect: false }
+
+modes:
+  - txt2video
+  - img2video
+
+vars:
+  video_director:
+    family: "cloud"
+    model_field: "model"
+    preset_modes: ["txt2video", "img2video"]
+    segment_routing: true
+    modes:
+      t2v: {}
+      director:
+        keyframes: "first_only"
+        max_segments: 6
+        fps_locked: true
+        max_overlap_frames: 0
+        continue_from_video: true
+        continuation:
+          source: "last_frame"
+          overlap_frames: 0
+          stitch: true
+        tips:
+          - "Every shot is its own paid request to the provider, so a film of four shots costs four videos."
+          - "A shot that continues starts from the last frame of the shot before it. Give a shot its own start picture to cut instead."
+    limits:
+      default_duration: 8
+      default_fps: 24
+      max_duration: 8
+    preset_mode_overrides:
+      img2video:
+        modes:
+          t2v: null
+          i2v: {}
+          flf: {}

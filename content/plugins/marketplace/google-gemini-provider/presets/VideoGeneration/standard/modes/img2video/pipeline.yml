@@ -1,0 +1,34 @@
+pipeline:
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["positive_prompt", "{{ (form.video_director.segments | map(attribute='prompt') | list) if form.video_director is defined else generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ (form.video_director.segments | map(attribute='negative_prompt') | list) if form.video_director is defined else generation.prompts.negatives }}"]
+        - ["seed", "{{ form.video_director.settings.seed if form.video_director is defined else form.seed }}"]
+        - ["director_mode", "{{ form.video_director.mode if form.video_director is defined else '' }}"]
+
+  - name: "cloud_generate"
+    id: "cloud_generate"
+    enabled: true
+    configuration:
+      task: "img2video"
+      model: "{{ form.model }}"
+      quantity: 1
+      prompts: "{{ generation.prompts.pairs }}"
+      params:
+        aspect_ratio: "{{ form.aspect_ratio }}"
+        resolution: "{{ form.resolution }}"
+      options: "{{ form.provider_options }}"
+      director: "{{ form.video_director if form.video_director is defined else none }}"
+
+  - name: "gallery"
+    id: "gallery"
+    enabled: true
+    input:
+      - ["image", "cloud_generate", "image"]
+      - ["video", "cloud_generate", "video"]
+      - ["seed", "cloud_generate", "seed"]

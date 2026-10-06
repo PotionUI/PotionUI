@@ -1,0 +1,13 @@
+name: "custom"
+short_description: "Generate an image from a text prompt."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration: {icon: "generation", icon_display: "icon_only"}
+        children: "{{ paths._shared }}/cloud/tabs/image.yml"
+      - type: "tab"
+        label: "Provider options"
+        configuration: {icon: "settings", icon_display: "icon_only"}
+        children: "{{ paths._shared }}/cloud/tabs/provider_options.yml"

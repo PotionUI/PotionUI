@@ -211,6 +211,7 @@ class CloudHttp:
         target: str,
         *,
         json: Any = None,
+        data: Any = None,
         params: Optional[Mapping[str, Any]] = None,
         headers: Optional[Mapping[str, str]] = None,
         timeout_s: Optional[float] = None,
@@ -222,6 +223,7 @@ class CloudHttp:
             method.upper(),
             self.resolve(target),
             json=json,
+            data=data,
             params=params,
             headers=headers,
             extra_auth=None,
@@ -238,11 +240,12 @@ class CloudHttp:
         target: str,
         *,
         json: Any = None,
+        data: Any = None,
         params: Optional[Mapping[str, Any]] = None,
         headers: Optional[Mapping[str, str]] = None,
         timeout_s: Optional[float] = None,
     ) -> Any:
-        response = await self.request(method, target, json=json, params=params, headers=headers, timeout_s=timeout_s)
+        response = await self.request(method, target, json=json, data=data, params=params, headers=headers, timeout_s=timeout_s)
         return response.json()
 
     async def download(
@@ -276,6 +279,7 @@ class CloudHttp:
                 "GET",
                 self.resolve(url),
                 json=None,
+                data=None,
                 params=None,
                 headers=None,
                 extra_auth=auth_headers,
@@ -320,6 +324,7 @@ class CloudHttp:
         url: str,
         *,
         json: Any,
+        data: Any,
         params: Optional[Mapping[str, Any]],
         headers: Optional[Mapping[str, str]],
         extra_auth: Optional[Mapping[str, str]],
@@ -347,6 +352,7 @@ class CloudHttp:
                         method,
                         url,
                         json=json if hops == 0 else None,
+                        data=data if hops == 0 else None,
                         params=params if hops == 0 else None,
                         headers=sent,
                         timeout=timeout,

@@ -95,6 +95,7 @@ def op_cases() -> List[Dict[str, Any]]:
         ("invert", [{"op": "invert"}], 100),
         ("vignette-dark", [{"op": "vignette", "amount": 50, "midpoint": 30, "feather": 50}], 100),
         ("vignette-light", [{"op": "vignette", "amount": -60, "midpoint": 40, "feather": 20}], 100),
+        ("vignette-feather-zero", [{"op": "vignette", "amount": 70, "midpoint": 30, "feather": 0}], 100),
         ("vignette-intensity", [{"op": "vignette", "amount": 80}], 40),
         ("grain", [{"op": "grain", "amount": 60, "size": 1, "seed": 9}], 100),
         ("grain-intensity", [{"op": "grain", "amount": 80, "size": 2, "seed": 65535}], 35),

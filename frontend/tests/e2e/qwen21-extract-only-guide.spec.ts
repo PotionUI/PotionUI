@@ -1,7 +1,7 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { deflateSync } from 'node:zlib';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 
 const JOURNEY = 'qwen21-extract-only-guide';
 const PRESET_ID = '01M31Y6WNM07EHAXXCDV1QVJVX';
@@ -183,7 +183,7 @@ test('only extracting the guide needs no prompt and saves a labelled map', async
 			active.activeGenerationId = genId;
 			localStorage.setItem(key, JSON.stringify(state));
 		},
-		{ key: TABS_STORAGE_KEY, genId: seeded.id }
+		{ key: await scopedStorageKey(page, TABS_STORAGE_KEY), genId: seeded.id }
 	);
 	send.fn = null;
 	reattached.statusServed = 0;

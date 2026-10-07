@@ -40,6 +40,18 @@ export async function ownerToken(page: Page): Promise<string> {
 	return token as string;
 }
 
+export async function scopedStorageKey(page: Page, base: string): Promise<string> {
+	return page.evaluate((key) => {
+		try {
+			const registry = JSON.parse(localStorage.getItem('potionui_accounts') || 'null');
+			const id = registry?.activeId || localStorage.getItem('auth_last_user_id');
+			return id ? `${key}::${id}` : key;
+		} catch {
+			return key;
+		}
+	}, base);
+}
+
 export async function waitForFormPublished(page: Page): Promise<void> {
 	await expect(page.locator('section[aria-label] > div.space-y-4').first()).toBeAttached({ timeout: 20000 });
 	await expect(page.getByText('Loading Form...')).toHaveCount(0, { timeout: 20000 });

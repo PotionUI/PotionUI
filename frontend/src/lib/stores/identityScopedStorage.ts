@@ -80,16 +80,23 @@ export function migrateLegacyIdentityKeys(userId: string): void {
 	if (!hasStorage() || userId === ANON_IDENTITY) return;
 	const owner = localStorage.getItem(LAST_USER_ID_KEY);
 	for (const key of keysToPurge(listKeys())) {
+		const foreign = owner !== null && owner !== userId;
 		if (key.startsWith(LEGACY_PER_MODE_SESSION_PREFIX)) {
-			if (owner !== userId) localStorage.removeItem(key);
+			if (foreign) localStorage.removeItem(key);
 			continue;
 		}
-		if (owner === userId) {
+		if (!foreign) {
 			const value = localStorage.getItem(key);
 			if (value !== null) localStorage.setItem(identityKey(key, userId), value);
 		}
 		localStorage.removeItem(key);
 	}
+}
+
+export function hasIdentityState(userId: string): boolean {
+	if (!hasStorage()) return false;
+	const keys = listKeys();
+	return keysToPurge(keys).length > 0 || namespacedKeys(keys, userId).length > 0;
 }
 
 export function removeIdentityKeys(userId: string): void {

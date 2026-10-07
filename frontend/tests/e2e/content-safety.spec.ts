@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 
 const JOURNEY = 'content-safety';
 const TABS_STORAGE_KEY = 'potionui_tabs_state';
@@ -113,7 +113,7 @@ test('workbench: hidden preview placeholder, then blocked notice tile', async ({
 			state.tabs[0].selectedMode = mode;
 			localStorage.setItem(key, JSON.stringify(state));
 		},
-		{ key: TABS_STORAGE_KEY, genId: GEN_ID, presetId: preset.id, mode: modeName }
+		{ key: await scopedStorageKey(page, TABS_STORAGE_KEY), genId: GEN_ID, presetId: preset.id, mode: modeName }
 	);
 	await page.reload();
 	await page.waitForURL(/\/generate/, { timeout: 15000 });

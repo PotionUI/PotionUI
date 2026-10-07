@@ -22,8 +22,10 @@ import {
 	type StoredAccount
 } from '$lib/stores/accountRegistry';
 import {
+	ANON_IDENTITY,
 	LAST_USER_ID_KEY,
 	bootIdentity,
+	hasIdentityState,
 	readActiveIdentity,
 	removeAllIdentityKeys,
 	removeIdentityKeys
@@ -114,7 +116,10 @@ function reloadCurrentPage(): void {
 }
 
 export function needsReloadForIdentity(): boolean {
-	return readActiveIdentity() !== bootIdentity;
+	const active = readActiveIdentity();
+	if (active === bootIdentity) return false;
+	if (bootIdentity !== ANON_IDENTITY) return true;
+	return hasIdentityState(active);
 }
 
 export function accountCount(): number {

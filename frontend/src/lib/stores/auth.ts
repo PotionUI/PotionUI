@@ -108,6 +108,10 @@ function createAuthStore() {
 				if (response.success && response.data) {
 					applyIdentityGuard(response.data.id);
 					syncActive(response.data, token);
+					if (needsReloadForIdentity() && typeof location !== 'undefined') {
+						hardNavigate(location.pathname + location.search);
+						return;
+					}
 					update((state) => ({
 						...state,
 						user: response.data ?? null,

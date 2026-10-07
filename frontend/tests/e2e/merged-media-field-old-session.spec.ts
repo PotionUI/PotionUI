@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { deflateSync } from 'node:zlib';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 
 const JOURNEY = 'merged-media-field-old-session';
 const PRESET_ID = '01KX47H3MINIMAX000000000VA';
@@ -326,10 +326,11 @@ async function expectChipsResolved(page: Page, old: OldSession) {
 }
 
 async function expectStoredMarkersRewritten(page: Page, old: OldSession) {
+	const tabsKey = await scopedStorageKey(page, TABS_STORAGE_KEY);
 	await expect
 		.poll(
 			async () =>
-				page.evaluate((key) => localStorage.getItem(key) ?? '', TABS_STORAGE_KEY).then((raw) => ({
+				page.evaluate((key) => localStorage.getItem(key) ?? '', tabsKey).then((raw) => ({
 					rewritten: raw.includes(`@[references:${keyOf(old.video)}]`) && raw.includes(`@[references:${keyOf(old.audio)}]`),
 					oldVideo: raw.includes('@[reference_videos:'),
 					oldAudio: raw.includes('@[reference_audios:'),

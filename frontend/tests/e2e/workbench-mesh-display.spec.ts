@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 
 // A generated 3D mesh (TRELLIS.2 emits a .glb) must actually display in the
 // workbench. The failure this guards against: `displayImage` in
@@ -154,7 +154,7 @@ test('workbench renders a generated mesh through <model-viewer>', async ({ page 
 			state.tabs[0].selectedMode = mode;
 			localStorage.setItem(key, JSON.stringify(state));
 		},
-		{ key: TABS_STORAGE_KEY, genId: generationId, presetId: preset.id, mode: modeName }
+		{ key: await scopedStorageKey(page, TABS_STORAGE_KEY), genId: generationId, presetId: preset.id, mode: modeName }
 	);
 
 	// Surface the restore path's two API calls in the test output - when the

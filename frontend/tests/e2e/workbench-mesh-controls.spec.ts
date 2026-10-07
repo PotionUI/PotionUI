@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 
 // The 3D viewer controls wave: wireframe toggle, camera presets, auto-rotate,
 // exposure, screenshot, and the material inspector, all layered onto
@@ -152,7 +152,7 @@ test('mesh viewer controls: wireframe, camera presets, auto-rotate, exposure, sc
 			state.tabs[0].selectedMode = mode;
 			localStorage.setItem(key, JSON.stringify(state));
 		},
-		{ key: TABS_STORAGE_KEY, genId: generationId, presetId: preset.id, mode: modeName }
+		{ key: await scopedStorageKey(page, TABS_STORAGE_KEY), genId: generationId, presetId: preset.id, mode: modeName }
 	);
 
 	await page.reload();

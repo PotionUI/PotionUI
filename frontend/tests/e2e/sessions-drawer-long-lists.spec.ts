@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 import { installAndSelectImagePreset } from './presetPreamble';
 
 const JOURNEY = 'sessions-drawer-long-lists';
@@ -37,13 +37,14 @@ async function seedSessions(page: Page, presetId: string): Promise<void> {
 }
 
 async function expectPresetPersisted(page: Page, presetId: string): Promise<void> {
+	const tabsKey = await scopedStorageKey(page, 'potionui_tabs_state');
 	await expect
 		.poll(() =>
-			page.evaluate((id) => {
-				const raw = localStorage.getItem('potionui_tabs_state');
+			page.evaluate(({ id, key }) => {
+				const raw = localStorage.getItem(key);
 				const state = raw ? JSON.parse(raw) : null;
 				return Boolean(state?.tabs?.some((t: { selectedPreset: unknown }) => JSON.stringify(t.selectedPreset ?? '').includes(id)));
-			}, presetId)
+			}, { id: presetId, key: tabsKey })
 		)
 		.toBe(true);
 }

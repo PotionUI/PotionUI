@@ -254,18 +254,55 @@ describe('authStore with several accounts', () => {
 		expect(get(authStore).isAuthenticated).toBe(false);
 	});
 
-	it('finishSignIn reloads when the identity changed since boot and navigates softly otherwise', async () => {
+	it('finishSignIn navigates softly on a first login in a clean browser', async () => {
 		const { authStore, accounts } = await loadAuth();
 		accounts.syncActive(userRow('alice') as never, 'tok-alice');
-		authStore.finishSignIn('/generate');
-		expect(location.assign).toHaveBeenCalledWith('/generate');
-		expect(hoisted.goto).not.toHaveBeenCalled();
 
-		location.assign.mockClear();
-		seed('alice', ['alice']);
-		const second = await loadAuth();
-		second.authStore.finishSignIn('/generate');
+		authStore.finishSignIn('/generate');
+
 		expect(location.assign).not.toHaveBeenCalled();
 		expect(hoisted.goto).toHaveBeenCalledWith('/generate', { replaceState: true });
+	});
+
+	it('finishSignIn reloads when stored state is waiting for the new identity', async () => {
+		localStorage.setItem(TABS_STORAGE_KEY, 'seeded-before-login');
+		const { authStore, accounts } = await loadAuth();
+		accounts.syncActive(userRow('alice') as never, 'tok-alice');
+
+		authStore.finishSignIn('/generate');
+
+		expect(location.assign).toHaveBeenCalledWith('/generate');
+		expect(hoisted.goto).not.toHaveBeenCalled();
+	});
+
+	it('finishSignIn reloads when a different account signs in than the tab booted with', async () => {
+		seed('alice', ['alice']);
+		const { authStore, accounts } = await loadAuth();
+		accounts.syncActive(userRow('bob') as never, 'tok-bob');
+
+		authStore.finishSignIn('/generate');
+
+		expect(location.assign).toHaveBeenCalledWith('/generate');
+	});
+
+	it('finishSignIn stays soft for the same account signing in again', async () => {
+		seed('alice', ['alice']);
+		const { authStore, accounts } = await loadAuth();
+		accounts.syncActive(userRow('alice') as never, 'tok-alice-new');
+
+		authStore.finishSignIn('/generate');
+
+		expect(location.assign).not.toHaveBeenCalled();
+		expect(hoisted.goto).toHaveBeenCalled();
+	});
+
+	it('a token boot with legacy keys and no registry reloads once so the keys reach the user', async () => {
+		localStorage.setItem('auth_token', 'tok-alice');
+		localStorage.setItem(TABS_STORAGE_KEY, 'legacy-tabs');
+		location.pathname = '/generate';
+		(location as any).search = '?x=1';
+		await loadAuth();
+
+		expect(location.assign).toHaveBeenCalledWith('/generate?x=1');
 	});
 });

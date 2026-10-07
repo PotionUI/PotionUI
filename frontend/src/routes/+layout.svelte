@@ -203,18 +203,24 @@
 		$page.url.pathname === '/login' ||
 		$page.url.pathname === '/register' ||
 		$page.url.pathname === '/setup/claim';
+	$: addingAccount =
+		$page.url.pathname === '/login' &&
+		$page.url.searchParams.get('add') === '1' &&
+		$authStore.isAuthenticated;
 	$: shouldShowNav = mounted && $authStore.isAuthenticated && !isPublicRoute;
 
 	// Drives which branch of the shell markup below renders. Kept as a
 	// dedicated derivation (rather than reusing shouldShowNav/isPublicRoute
 	// inline) so the public/login branch never renders for an authenticated
 	// user who is merely mid-redirect off a public route - see authLayout.ts.
-	$: layoutMode = resolveAuthLayoutMode({
-		mounted,
-		loading: $authStore.loading,
-		isAuthenticated: $authStore.isAuthenticated,
-		isPublicRoute
-	});
+	$: layoutMode = addingAccount && !$authStore.loading
+		? 'public'
+		: resolveAuthLayoutMode({
+				mounted,
+				loading: $authStore.loading,
+				isAuthenticated: $authStore.isAuthenticated,
+				isPublicRoute
+			});
 
 	// Reflect the unread count in the tab title, but only inside the authenticated
 	// app shell — unauthenticated routes (login/docs) manage their own <title> via
@@ -233,7 +239,7 @@
 	}
 
 	// Redirect to generate if authenticated and on public auth page
-	$: if (mounted && !$authStore.loading && $authStore.isAuthenticated && isPublicRoute) {
+	$: if (mounted && !$authStore.loading && $authStore.isAuthenticated && isPublicRoute && !addingAccount) {
 		goto('/generate');
 	}
 </script>

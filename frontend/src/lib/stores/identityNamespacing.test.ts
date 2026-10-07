@@ -195,6 +195,28 @@ describe('legacy key migration', () => {
 		expect(localStorage.getItem(`${TABS_STORAGE_KEY}::alice`)).toBeNull();
 	});
 
+	it('hands legacy keys to the first user who signs in when no previous identity is recorded', async () => {
+		localStorage.setItem(ACCOUNTS_STORAGE_KEY, registryJson('alice', ['alice']));
+		localStorage.setItem(TABS_STORAGE_KEY, 'seeded-tabs');
+		const { scopedStorage } = await load();
+
+		expect(scopedStorage.get(TABS_STORAGE_KEY)).toBe('seeded-tabs');
+		expect(localStorage.getItem(TABS_STORAGE_KEY)).toBeNull();
+		expect(localStorage.getItem(`${TABS_STORAGE_KEY}::alice`)).toBe('seeded-tabs');
+	});
+
+	it('reports pending identity state for legacy keys and for the namespace of the user', async () => {
+		const { hasIdentityState } = await load();
+		expect(hasIdentityState('alice')).toBe(false);
+		localStorage.setItem(`${TABS_STORAGE_KEY}::bob`, 'x');
+		expect(hasIdentityState('alice')).toBe(false);
+		localStorage.setItem(`${TABS_STORAGE_KEY}::alice`, 'x');
+		expect(hasIdentityState('alice')).toBe(true);
+		localStorage.removeItem(`${TABS_STORAGE_KEY}::alice`);
+		localStorage.setItem(TABS_STORAGE_KEY, 'legacy');
+		expect(hasIdentityState('alice')).toBe(true);
+	});
+
 	it('migrates only once: a second read does not re-import the legacy copy', async () => {
 		localStorage.setItem('auth_last_user_id', 'alice');
 		localStorage.setItem(TABS_STORAGE_KEY, 'old-tabs');

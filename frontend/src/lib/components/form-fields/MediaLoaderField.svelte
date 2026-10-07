@@ -676,7 +676,7 @@
 		const kind = item ? kindOfMediaItem(item) : null;
 		const editor = FIELD_TOOL_EDITORS[tool.id as keyof typeof FIELD_TOOL_EDITORS];
 		if (editor) {
-			openEditor(editor, multiple ? item : value, multiple ? flatIndex : null);
+			openEditor(editor, item, multiple ? flatIndex : null);
 			return;
 		}
 		switch (tool.id) {

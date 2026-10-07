@@ -202,4 +202,8 @@ describe('fieldToolGroupsFor', () => {
 	it('offers nothing for an item whose kind is unknown', () => {
 		expect(fieldToolGroupsFor(env(), { ...target, kind: null })).toEqual([]);
 	});
+
+	it('offers nothing while an upload has not produced an item yet', () => {
+		expect(fieldToolGroupsFor(env(), { ...target, item: null })).toEqual([]);
+	});
 });

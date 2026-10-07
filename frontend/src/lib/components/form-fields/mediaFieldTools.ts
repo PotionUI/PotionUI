@@ -213,7 +213,7 @@ export interface FieldToolTarget {
 
 export function fieldToolGroupsFor(env: FieldToolEnv, target: FieldToolTarget): MediaToolGroup[] {
 	const { kind, item, flatIndex } = target;
-	if (!kind) return [];
+	if (!kind || !item) return [];
 	const group = env.multiple ? env.groups.find((candidate) => candidate.kind === kind) : undefined;
 	const entry = group?.items.find((candidate) => candidate.flatIndex === flatIndex);
 	const core = buildFieldToolGroups({

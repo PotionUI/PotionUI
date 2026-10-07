@@ -424,6 +424,24 @@ def test_grid_projection_under_a_tiny_budget_gives_the_same_answer():
     assert torch.equal(whole, split)
 
 
+def test_grid_projection_measures_only_the_triangles_that_can_still_win(monkeypatch):
+    vertices, faces = _sphere(subdivisions=4)
+    rng = np.random.default_rng(21)
+    direction = rng.normal(size=(300, 3))
+    direction /= np.linalg.norm(direction, axis=1, keepdims=True)
+    points = torch.from_numpy((direction * 0.41).astype(np.float32))
+    measured = []
+    original = postprocess._closest_on_pairs
+    monkeypatch.setattr(
+        postprocess, "_closest_on_pairs", lambda p, t: (measured.append(p.shape[0]), original(p, t))[1]
+    )
+
+    got = _project_to_source_grid(points, vertices, faces, cell=0.2, reach=1.0)
+
+    assert torch.allclose(got, _reference(points, vertices, faces), atol=1e-6)
+    assert sum(measured) < 300 * 40
+
+
 def test_grid_projection_of_nothing_returns_nothing():
     vertices, faces = _sphere()
 

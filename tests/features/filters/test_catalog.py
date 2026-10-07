@@ -171,10 +171,10 @@ def test_directory_name_must_equal_the_id(filters_dir, catalog):
 
 
 def test_ids_with_a_colon_are_reserved(filters_dir, catalog):
-    write_filter(filters_dir / "local", "mine:abc")
+    write_filter(filters_dir / "local", "mine:abc", directory_name="mine-abc")
 
     assert catalog.list_filters() == []
-    assert "reserved" in catalog.load_errors["local/mine:abc"][0]
+    assert any("reserved" in message for message in catalog.load_errors["local/mine-abc"])
 
 
 def test_oversized_filter_file_is_rejected(filters_dir, catalog):

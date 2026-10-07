@@ -36,13 +36,19 @@ def filter_data(filter_id: str = "demo", **overrides: Any) -> Dict[str, Any]:
     return data
 
 
-def write_filter(root: Path, filter_id: str = "demo", cube: Optional[str] = None, **overrides: Any) -> Path:
-    directory = root / filter_id
+def write_filter(
+    root: Path,
+    filter_id: str = "demo",
+    cube: Optional[str] = None,
+    directory_name: Optional[str] = None,
+    **overrides: Any,
+) -> Path:
+    directory = root / (directory_name or filter_id)
     directory.mkdir(parents=True, exist_ok=True)
     data = filter_data(filter_id, **overrides)
     if cube is not None:
         data.setdefault("lut", "lut.cube")
-        (directory / "lut.cube").write_text(cube, encoding="utf-8")
+        (directory / "lut.cube").write_text(cube, encoding="utf-8", newline="\n")
     (directory / "filter.yml").write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     return directory
 

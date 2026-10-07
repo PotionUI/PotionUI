@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from scripts import filter_lint
@@ -75,9 +77,9 @@ def test_id_must_match_the_directory(tmp_path):
 
 @pytest.mark.parametrize("bad_id", ["mine:abc", "a:b"])
 def test_ids_containing_a_colon_are_reserved(tmp_path, bad_id):
-    write_filter(tmp_path, bad_id)
+    write_filter(tmp_path, bad_id, directory_name=bad_id.replace(":", "-"))
 
-    assert rules(lint(tmp_path), "error") == ["reserved_id"]
+    assert "reserved_id" in rules(lint(tmp_path), "error")
 
 
 def test_id_pattern(tmp_path):
@@ -194,7 +196,7 @@ def test_a_group_used_by_nobody_else_warns(tmp_path):
     report = lint(tmp_path)
 
     typos = [(p, f) for p, f in report.warnings if f.rule == "group_new"]
-    assert [p.endswith("/a") for p, _ in typos] == [True]
+    assert [Path(p).name for p, _ in typos] == ["a"]
 
 
 def test_a_look_that_clips_much_of_the_cube_warns(tmp_path):
@@ -203,7 +205,7 @@ def test_a_look_that_clips_much_of_the_cube_warns(tmp_path):
 
     warned = [p for p, f in lint(tmp_path).warnings if f.rule == "preview_gamut"]
 
-    assert [p.endswith("/x") for p in warned] == [True]
+    assert [Path(p).name for p in warned] == ["x"]
 
 
 def test_duplicate_ids_in_one_namespace_are_an_error(tmp_path):

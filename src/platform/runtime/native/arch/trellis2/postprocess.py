@@ -439,6 +439,8 @@ class _TriangleGrid:
         self.faces = faces
         self.cell = float(cell)
         centroids = (vertices[faces[:, 0]] + vertices[faces[:, 1]] + vertices[faces[:, 2]]) / 3.0
+        self.centroids = centroids
+        self.radii = (vertices[faces] - centroids.unsqueeze(1)).norm(dim=-1).amax(dim=1)
         self.origin = centroids.amin(dim=0) - self.cell
         self.dims = ((centroids.amax(dim=0) - self.origin) / self.cell).floor().to(torch.long) + 2
         codes = self._code(self._cell_of(centroids))
@@ -479,8 +481,13 @@ class _TriangleGrid:
             position = low.reshape(-1)[slot] + torch.arange(total, device=points.device) - start[slot]
             owner = slot // _CELL_OFFSETS.shape[0]
             face = self.order[position]
-            tris = self.vertices[self.faces[face]]
             query = points[rows][owner]
+            gap = (query - self.centroids[face]).norm(dim=-1)
+            bound = torch.full((rows.shape[0],), float("inf"), dtype=gap.dtype, device=points.device)
+            bound = bound.scatter_reduce(0, owner, gap, reduce="amin", include_self=True)
+            near = gap - self.radii[face] <= bound[owner] * (1.0 + 1e-4) + 1e-6
+            face, owner, query = face[near], owner[near], query[near]
+            tris = self.vertices[self.faces[face]]
             closest = _closest_on_pairs(query, tris)
             squared = (closest - query).pow(2).sum(-1)
             best = torch.full((rows.shape[0],), float("inf"), dtype=squared.dtype, device=points.device)

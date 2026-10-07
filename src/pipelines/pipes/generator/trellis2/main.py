@@ -110,6 +110,7 @@ class GeneratorTrellis2Pipe(BasePipe):
             "texture_size": 2048,
             "max_num_tokens": 49152,
             "project_to_source": False,
+            "remesh": True,
             "device": "cuda",
         }
         for stage, defaults in STAGE_SAMPLING.items():
@@ -145,6 +146,11 @@ class GeneratorTrellis2Pipe(BasePipe):
                            "Push baked texels back onto the pre-decimation surface. More "
                            "accurate and much slower — the query has no acceleration structure "
                            "on CPU.", required=False),
+            PipeConfigSpec("remesh", bool, True,
+                           "Rebuild the decoded surface as a closed, consistently wound mesh "
+                           "(narrow-band dual contouring one voxel off the surface) before "
+                           "decimating, as upstream does. Off keeps the decoded topology, "
+                           "voxel-scale tears included.", required=False),
             PipeConfigSpec("device", str, "cuda", "Compute device", required=False,
                            choices=["cuda", "cpu"]),
         ]
@@ -396,6 +402,7 @@ class GeneratorTrellis2Pipe(BasePipe):
                 out_path=out_path,
                 project_to_source=bool(self.config.get("project_to_source", False)),
                 is_cancelled=is_cancelled,
+                remesh=bool(self.config.get("remesh", True)),
             )
         except BaseException as exc:
             if os.path.exists(out_path):

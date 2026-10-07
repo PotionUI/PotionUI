@@ -326,6 +326,13 @@ def test_bake_settings_come_from_the_form(recorded_run, exported):
     assert exported[0]["project_to_source"] is True
 
 
+def test_remeshing_is_on_by_default_and_the_form_can_turn_it_off(recorded_run, exported):
+    _run_pipe(_config())
+    _run_pipe(_config(remesh=False))
+    assert exported[0]["remesh"] is True
+    assert exported[1]["remesh"] is False
+
+
 def test_an_empty_decode_is_reported_as_a_generation_failure(recorded_run, monkeypatch):
     def _empty(**kwargs):
         raise ValueError("no geometry to post-process: 0 input faces cleaned down to nothing")

@@ -215,6 +215,35 @@ def _clean_and_decimate(vertices: np.ndarray, faces: np.ndarray, decimation_targ
     return (np.ascontiguousarray(mesh.vertices, dtype=np.float32), np.ascontiguousarray(mesh.faces, dtype=np.int64))
 
 
+def fill_holes_traced(vertices: np.ndarray, faces: np.ndarray):
+    import trimesh
+    from src.platform.runtime.offload.mesh_diagnostics import StageRecorder
+
+    recorder = StageRecorder()
+    mesh = trimesh.Trimesh(vertices=np.ascontiguousarray(vertices, dtype=np.float32), faces=np.ascontiguousarray(faces, dtype=np.int64), process=False)
+    if mesh.faces.shape[0]:
+        mesh.update_faces(mesh.nondegenerate_faces())
+    _fill_small_holes(mesh)
+    _record(recorder, "fill_holes", mesh)
+    return (np.ascontiguousarray(mesh.vertices, dtype=np.float32), np.ascontiguousarray(mesh.faces, dtype=np.int64), recorder.rows)
+
+
+def decimate_traced(vertices: np.ndarray, faces: np.ndarray, decimation_target: int, source_stage: str = "remesh"):
+    import trimesh
+    from src.platform.runtime.offload.mesh_diagnostics import StageRecorder
+
+    recorder = StageRecorder()
+    verts = np.ascontiguousarray(vertices, dtype=np.float32)
+    tris = np.ascontiguousarray(faces, dtype=np.int64)
+    recorder.record(source_stage, verts, tris)
+    recorder.reset()
+    verts, tris = _simplify(verts, tris, decimation_target)
+    mesh = trimesh.Trimesh(vertices=verts, faces=tris, process=False)
+    mesh.remove_unreferenced_vertices()
+    _record(recorder, "decimate", mesh)
+    return (np.ascontiguousarray(mesh.vertices, dtype=np.float32), np.ascontiguousarray(mesh.faces, dtype=np.int64), recorder.rows)
+
+
 def clean_and_decimate_arrays(vertices: np.ndarray, faces: np.ndarray, decimation_target: int) -> Tuple[np.ndarray, np.ndarray]:
     return _clean_and_decimate(vertices, faces, decimation_target)
 

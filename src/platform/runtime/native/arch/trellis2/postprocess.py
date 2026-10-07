@@ -19,10 +19,15 @@ upstream                             here
 
 Divergences worth knowing about:
 
-* **No remeshing.** Only upstream's ``remesh=False`` branch is ported; the
-  narrow-band dual-contouring rebuild has no CPU equivalent. Because we never
-  remesh, the material is always ``doubleSided=True``, matching what upstream
-  emits on that branch.
+* **Remeshing** (``remesh=True``, the default, as in upstream's ``example.py``
+  and ``app.py``) ports ``cumesh.remeshing.remesh_narrow_band_dc`` to torch
+  (:mod:`.remesh`): it runs on the attribute volume's device, so on the GPU
+  in the generating process when there is one. Upstream's BVH distance query
+  becomes an exact point-triangle scan of every grid corner inside each
+  triangle's bounding box, and the active voxels are those around a sign
+  change rather than a centre-distance test, so every crossing edge gets its
+  quad. The remeshed material is single-sided and the ``remesh=False``
+  branch's is double-sided, as upstream emits them.
 * **No non-manifold-edge repair.** ``cumesh.repair_non_manifold_edges`` splits
   edges shared by more than two faces; trimesh has no equivalent. The cleanup
   here drops duplicate, degenerate and tiny-component faces, which removes the
@@ -71,6 +76,7 @@ around 50k-100k faces and the whole chain lands in well under a minute at
 
 from __future__ import annotations
 
+import time
 from typing import Callable, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -81,12 +87,15 @@ from src.platform.runtime.offload.mesh_diagnostics import StageRecorder, log_sta
 from src.platform.runtime.offload.mesh_ops import (
     clean_and_decimate_arrays,
     clean_and_decimate_traced,
+    decimate_traced,
+    fill_holes_traced,
     unwrap_uv_arrays,
 )
 from src.platform.runtime.offload.pool import OffloadCancelled, run_offloaded
 
 from ...errors import SamplingCancelled
 from ...sparse3d import sparse_grid_sample_3d
+from .remesh import remesh_narrow_band_dc
 from .uv_raster import interpolate_barycentric, rasterize_uv_atlas
 
 __all__ = [
@@ -398,6 +407,40 @@ def _resolve_volume_geometry(
     return aabb_t, voxel, grid_size
 
 
+def _remesh_and_decimate(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    aabb: torch.Tensor,
+    grid_size: torch.Tensor,
+    band: float,
+    decimation_target: int,
+    device: torch.device,
+    is_cancelled: Optional[Callable[[], bool]],
+):
+    filled_vertices, filled_faces, rows = _offload(fill_holes_traced, vertices, faces, is_cancelled=is_cancelled)
+    resolution = int(grid_size.max())
+    extent = float((aabb[1] - aabb[0]).max())
+    started = time.perf_counter()
+    remeshed_vertices, remeshed_faces = remesh_narrow_band_dc(
+        torch.from_numpy(filled_vertices).to(device),
+        torch.from_numpy(filled_faces).to(device),
+        center=aabb.mean(dim=0),
+        scale=(resolution + 3 * band) / resolution * extent,
+        resolution=resolution,
+        band=band,
+        is_cancelled=is_cancelled,
+    )
+    remeshed_vertices = remeshed_vertices.cpu().numpy()
+    remeshed_faces = remeshed_faces.cpu().numpy()
+    elapsed = time.perf_counter() - started
+    clean_vertices, clean_faces, decimate_rows = _offload(
+        decimate_traced, remeshed_vertices, remeshed_faces, decimation_target, is_cancelled=is_cancelled
+    )
+    decimate_rows = list(decimate_rows)
+    decimate_rows[0] = tuple(decimate_rows[0][:5]) + (elapsed,)
+    return clean_vertices, clean_faces, list(rows) + decimate_rows
+
+
 def build_textured_mesh(
     vertices: Union[np.ndarray, torch.Tensor],
     faces: Union[np.ndarray, torch.Tensor],
@@ -410,6 +453,8 @@ def build_textured_mesh(
     attr_layout: Optional[Dict[str, slice]] = None,
     project_to_source: bool = False,
     is_cancelled: Optional[Callable[[], bool]] = None,
+    remesh: bool = True,
+    remesh_band: float = 1.0,
 ):
     """Run the whole chain and return the textured ``trimesh.Trimesh``.
 
@@ -430,13 +475,18 @@ def build_textured_mesh(
     recorder = StageRecorder()
     log_stage_row(recorder.record("raw", source_vertices, source_faces))
     recorder.reset()
-    clean_vertices, clean_faces, clean_rows = _offload(
-        clean_and_decimate_traced,
-        source_vertices,
-        source_faces,
-        int(decimation_target),
-        is_cancelled=is_cancelled,
-    )
+    if remesh:
+        clean_vertices, clean_faces, clean_rows = _remesh_and_decimate(
+            source_vertices, source_faces, aabb_t, grid_size, remesh_band, int(decimation_target), device, is_cancelled
+        )
+    else:
+        clean_vertices, clean_faces, clean_rows = _offload(
+            clean_and_decimate_traced,
+            source_vertices,
+            source_faces,
+            int(decimation_target),
+            is_cancelled=is_cancelled,
+        )
     for row in clean_rows:
         log_stage_row(row)
     log_stage_row(recorder.record("decimated", clean_vertices, clean_faces))
@@ -484,7 +534,7 @@ def build_textured_mesh(
         metallicFactor=1.0,
         roughnessFactor=1.0,
         alphaMode="OPAQUE",
-        doubleSided=True,
+        doubleSided=not remesh,
     )
 
     # y-up to glTF's z-forward: (x, y, z) -> (x, z, -y). A proper rotation, so
@@ -517,6 +567,7 @@ def postprocess_to_glb(
     project_to_source: bool = False,
     embed_webp: bool = True,
     is_cancelled: Optional[Callable[[], bool]] = None,
+    remesh: bool = True,
 ) -> None:
     """Write the post-processed, textured mesh to ``out_path`` as a GLB.
 
@@ -537,6 +588,7 @@ def postprocess_to_glb(
         attr_layout=attr_layout,
         project_to_source=project_to_source,
         is_cancelled=is_cancelled,
+        remesh=remesh,
     )
     recorder = StageRecorder()
     mesh.export(out_path, file_type="glb", extension_webp=embed_webp)

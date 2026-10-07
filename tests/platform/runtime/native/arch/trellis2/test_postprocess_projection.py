@@ -222,7 +222,7 @@ def test_projection_is_opt_in_and_changes_nothing_but_the_sampled_positions(text
         assert material.baseColorTexture.size == (texture_size, texture_size)
         assert material.baseColorTexture.mode == "RGBA"
         assert material.metallicRoughnessTexture.size == (texture_size, texture_size)
-        assert material.doubleSided is True
+        assert material.doubleSided is False
         assert material.alphaMode == "OPAQUE"
     # Projection moves where the volume is sampled, so the texels shift; it must
     # be a correction to the same image, not a different one.

@@ -361,7 +361,7 @@ def test_material_channels_land_where_gltf_expects_them():
     assert packed[:, 1].mean() == pytest.approx(0.75, abs=0.02), "green channel carries roughness"
     assert packed[:, 2].mean() == pytest.approx(0.25, abs=0.02), "blue channel carries metallic"
     assert material.alphaMode == "OPAQUE"
-    assert material.doubleSided is True
+    assert material.doubleSided is False
 
 
 def test_glb_round_trips_through_trimesh_with_texture_and_outward_winding(tmp_path):

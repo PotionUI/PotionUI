@@ -1197,6 +1197,7 @@ Native TRELLIS.2 generator (single image to a textured GLB mesh)
 | `texture_size` | `int` | `2048` | no | `1024`, `2048`, `4096` | — | — | Edge length of the baked PBR texture maps |
 | `max_num_tokens` | `int` | `49152` | no | — | 4096 | 262144 | Token budget for the cascade's high-resolution shape pass. A shape too detailed for the tier is decoded at a coarser one instead of failing. |
 | `project_to_source` | `bool` | `false` | no | — | — | — | Push baked texels back onto the pre-decimation surface. More accurate and much slower — the query has no acceleration structure on CPU. |
+| `remesh` | `bool` | `true` | no | — | — | — | Rebuild the decoded surface as a closed, consistently wound mesh (narrow-band dual contouring one voxel off the surface) before decimating, as upstream does. Off keeps the decoded topology, voxel-scale tears included. |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `sparse_structure_steps` | `int` | `12` | no | — | 1 | 50 | Sampling steps for the sparse-structure stage |
 | `sparse_structure_guidance_strength` | `float` | `7.5` | no | — | 0.0 | 10.0 | Guidance strength for the sparse-structure stage |

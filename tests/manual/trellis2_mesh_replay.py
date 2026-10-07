@@ -102,7 +102,19 @@ def run_pre_0905(vertices: np.ndarray, faces: np.ndarray, target: int) -> None:
     clean_and_decimate_0901(vertices, faces, target, StageRecorder())
 
 
-VARIANTS = {"current": run_current, "pre-0905": run_pre_0905}
+def run_remesh(vertices: np.ndarray, faces: np.ndarray, target: int, resolution: int, device: str) -> None:
+    import torch
+
+    from src.platform.runtime.native.arch.trellis2.postprocess import _remesh_and_decimate
+
+    aabb = torch.tensor([[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]])
+    grid = torch.full((3,), resolution, dtype=torch.long)
+    _, _, rows = _remesh_and_decimate(vertices, faces, aabb, grid, 1.0, target, torch.device(device), None)
+    for row in rows:
+        print(format_stage_line(row), flush=True)
+
+
+VARIANTS = {"current": run_current, "pre-0905": run_pre_0905, "remesh": run_remesh}
 
 
 def main() -> int:
@@ -110,6 +122,7 @@ def main() -> int:
     parser.add_argument("raw_mesh", type=Path, help="raw_mesh.npz from a profiled generation")
     parser.add_argument("--decimation-target", type=int, default=100000)
     parser.add_argument("--variant", choices=[*VARIANTS, "both"], default="both")
+    parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
 
     data = np.load(args.raw_mesh)
@@ -117,12 +130,15 @@ def main() -> int:
     faces = np.ascontiguousarray(data["faces"], dtype=np.int64)
     print(f"source_id={data['source_id']} resolution={data['resolution']}", flush=True)
 
-    names = list(VARIANTS) if args.variant == "both" else [args.variant]
+    names = ["current", "pre-0905"] if args.variant == "both" else [args.variant]
     for name in names:
         print(f"--- variant={name} decimation_target={args.decimation_target}", flush=True)
         recorder = StageRecorder()
         print(format_stage_line(recorder.record("raw", vertices, faces)), flush=True)
-        VARIANTS[name](vertices, faces, args.decimation_target)
+        if name == "remesh":
+            run_remesh(vertices, faces, args.decimation_target, int(data["resolution"]), args.device)
+        else:
+            VARIANTS[name](vertices, faces, args.decimation_target)
     return 0
 
 

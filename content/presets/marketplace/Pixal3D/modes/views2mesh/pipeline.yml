@@ -10,9 +10,6 @@ pipeline:
         - type: "image"
           path: "{{ form.front_image }}"
 
-  # The optional views: `enabled:` must be an exact `{{ expression }}` so it
-  # evaluates to a real bool, and a disabled loader's configuration is never
-  # rendered.
   - name: "media_loader"
     id: "view_left"
     enabled: "{{ (form.left_image | default('', true)) != '' }}"

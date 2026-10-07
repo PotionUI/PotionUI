@@ -3,26 +3,22 @@ fields:
     type: "image"
     label: "Front"
     required: true
-    description: "The view every other view is placed against."
     ai_hint: "The views are a fixed 4-view orbit around the subject: front, left, back and right at 0, 90, 180 and 270 degrees azimuth, elevation 0, all at the same distance. Front is required; the others are optional. The views must be framed identically, as a multi-view generator produces them: they are matted but never cropped or rescaled, because the framing has to match the cameras."
 
   - name: "left_image"
     type: "image"
     label: "Left"
     required: false
-    description: "The subject seen from its own left side (camera at +90 degrees azimuth)."
     ai_hint: "The view from the subject's left side, i.e. the camera at +90 degrees azimuth, matching the left slot of ComfyUI's Pixal3DMultiViewConditioning node. Framed exactly like the front view."
 
   - name: "back_image"
     type: "image"
     label: "Back"
     required: false
-    description: "The subject seen from behind (camera at 180 degrees azimuth)."
     ai_hint: "The view from behind the subject, camera at 180 degrees azimuth. Framed exactly like the front view."
 
   - name: "right_image"
     type: "image"
     label: "Right"
     required: false
-    description: "The subject seen from its own right side (camera at 270 degrees azimuth)."
     ai_hint: "The view from the subject's right side, camera at 270 degrees azimuth, matching the right slot of ComfyUI's Pixal3DMultiViewConditioning node. Framed exactly like the front view."

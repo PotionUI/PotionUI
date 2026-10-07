@@ -108,7 +108,6 @@ fields:
         type: "select"
         label: "Unwrap Quality"
         default: "balanced"
-        description: "How much work goes into laying the mesh out flat for its textures."
         ai_hint: "Balanced is right for almost everything: seconds at the default face budget, with a gutter between UV charts so textures do not bleed across seams. Best spends xatlas' extra chart-relocation pass for fewer, rounder charts and fewer seams; it is about four times slower on a remeshed surface and takes minutes with remeshing off, so suggest it only for a final asset. Fast skips the gutter and is only worth it when iterating on shape."
         configuration:
           options:
@@ -125,7 +124,6 @@ fields:
         label: "Export Orientation"
         audience: "advanced"
         default: "upstream"
-        description: "Which way the exported mesh faces."
         ai_hint: "Upstream Pixal3D and ComfyUI disagree by a 180° yaw about the up axis. The default follows upstream, (x, y, z) -> (-x, y, -z); the other option exports the mesh as decoded, which is what ComfyUI does. Which one faces the default glTF camera is pending GPU validation, so only suggest switching if the user reports the mesh facing away from them."
         configuration:
           options:

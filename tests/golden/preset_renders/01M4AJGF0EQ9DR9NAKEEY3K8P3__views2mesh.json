@@ -152,7 +152,7 @@
             ],
             [
               "decimation_target",
-              100000
+              300000
             ],
             [
               "texture_size",
@@ -180,7 +180,7 @@
         },
         "decimation_target": {
           "type": "int",
-          "value": 100000
+          "value": 300000
         },
         "export_frame": {
           "type": "str",
@@ -245,6 +245,10 @@
         "texture_steps": {
           "type": "int",
           "value": 12
+        },
+        "uv_quality": {
+          "type": "str",
+          "value": "balanced"
         }
       },
       "enabled": {

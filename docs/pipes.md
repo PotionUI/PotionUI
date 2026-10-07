@@ -1023,10 +1023,12 @@ Native Pixal3D generator (one image, or a front/left/back/right rig, to a textur
 |---|---|---|---|---|---|---|---|
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed; -1 draws a fresh one per image |
 | `remove_background` | `bool` | `false` | no | — | — | — | Crop and centre the subject before reconstruction. An image with a transparent background uses its own alpha; an opaque one needs the loader's matting model and fails with an explanation without it. |
-| `decimation_target` | `int` | `100000` | no | — | 5000 | 1000000 | Face budget the exported mesh is decimated to. The UV unwrap is CPU-bound and scales worse than linearly, so this dominates export time above ~100k. |
+| `decimation_target` | `int` | `100000` | no | — | 5000 | 1000000 | Face budget the exported mesh is decimated to. The UV unwrap is CPU-bound and grows faster than the face count: at the balanced unwrap quality about 2s at 50k, 5s at 100k, 12s at 200k and 20s at 300k faces. |
 | `texture_size` | `int` | `2048` | no | `1024`, `2048`, `4096` | — | — | Edge length of the baked PBR texture maps |
 | `max_num_tokens` | `int` | `49152` | no | — | 4096 | 262144 | Token budget for the cascade's high-resolution shape pass. A shape too detailed for the tier is decoded at a coarser one instead of failing. |
-| `project_to_source` | `bool` | `false` | no | — | — | — | Push baked texels back onto the pre-decimation surface. More accurate and much slower — the query has no acceleration structure on CPU. |
+| `project_to_source` | `bool` | `true` | no | — | — | — | Push baked texels back onto the pre-decimation surface before sampling colour, so decimated faces that drift off the voxel shell do not read empty space. |
+| `remesh` | `bool` | `true` | no | — | — | — | Rebuild the decoded surface as a closed, consistently wound mesh (narrow-band dual contouring one voxel off the surface) before decimating, as upstream does. Off keeps the decoded topology, voxel-scale tears included. |
+| `uv_quality` | `str` | `"balanced"` | no | `fast`, `balanced`, `best` | — | — | How much work the xatlas UV unwrap does. fast and balanced grow the charts in a single pass, seconds at 100k faces; balanced also packs them on a finer grid with a 2-texel gutter so the bake does not bleed across seams. best adds xatlas' seed-relocation pass for fewer, rounder charts: about 4x longer on a remeshed surface and minutes on an unremeshed one. |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `sparse_structure_steps` | `int` | `12` | no | — | 1 | 50 | Sampling steps for the sparse-structure stage |
 | `sparse_structure_guidance_strength` | `float` | `7.5` | no | — | 0.0 | 10.0 | Guidance strength for the sparse-structure stage |

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -143,13 +143,7 @@ def reframe_volume(volume: MeshVolume, frame: str) -> MeshVolume:
     coords = torch.stack(
         [volume.coords[:, axis] if sign > 0 else last - volume.coords[:, axis] for axis, sign in axes], dim=-1
     )
-    return MeshVolume(
-        vertices=vertices,
-        faces=volume.faces,
-        attrs=volume.attrs,
-        coords=coords,
-        resolution=volume.resolution,
-    )
+    return replace(volume, vertices=vertices, coords=coords)
 
 
 def _sample_sparse_structure(components, cond, neg, settings, device, generator, progress, is_cancelled):
@@ -252,4 +246,7 @@ def run_pixal3d(
     tex_slat = _sample_texture(components, cond, neg, shape_slat, settings, device, generator, progress, is_cancelled)
     del cond, neg, encoded
 
-    return _decode(components, shape_slat, tex_slat, resolution, device, progress)
+    volume = _decode(components, shape_slat, tex_slat, resolution, device, progress)
+    volume.cond_image = views[0].image
+    volume.tex_slat = tex_slat
+    return volume

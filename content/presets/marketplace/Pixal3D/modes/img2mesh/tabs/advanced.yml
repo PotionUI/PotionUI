@@ -100,6 +100,23 @@ fields:
             configuration: {min: 1.0, max: 6.0, step: 0.1}
 
   - type: "section"
+    label: "UV Unwrap"
+    formula: "mesh"
+    audience: "advanced"
+    children:
+      - name: "uv_quality"
+        type: "select"
+        label: "Unwrap Quality"
+        default: "balanced"
+        description: "How much work goes into laying the mesh out flat for its textures."
+        ai_hint: "Balanced is right for almost everything: seconds at the default face budget, with a gutter between UV charts so textures do not bleed across seams. Best spends xatlas' extra chart-relocation pass for fewer, rounder charts and fewer seams; it is about four times slower on a remeshed surface and takes minutes with remeshing off, so suggest it only for a final asset. Fast skips the gutter and is only worth it when iterating on shape."
+        configuration:
+          options:
+            - { label: "Fast", value: "fast", sub_label: "Single chart pass · no gutter between charts" }
+            - { label: "Balanced", value: "balanced", sub_label: "Single chart pass · 2-texel gutter · default" }
+            - { label: "Best", value: "best", sub_label: "Chart relocation pass · fewest seams · slowest" }
+
+  - type: "section"
     label: "Export"
     formula: "mesh"
     children:

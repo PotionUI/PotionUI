@@ -72,7 +72,7 @@ Both use `model_loader/pixal3d` and `generator/pixal3d`, thin subclasses of the 
 
 ## Mesh export
 
-Pixal3D decodes through the TRELLIS.2 path unchanged: FlexiDualGrid shape decoder, `dual_grid`, then `postprocess` (cleanup, decimation, UV unwrap, bake, GLB). Only the export frame is new. The known export costs apply, and the 1536 default makes them heavier: denser raw meshes and a slower CPU UV unwrap at the same decimation target. The `[TRELLIS2_MESH]` stage log and the `raw_mesh.npz` dump cover Pixal3D runs as well.
+Pixal3D decodes through the TRELLIS.2 path unchanged: FlexiDualGrid shape decoder, `dual_grid`, then `postprocess` (remesh, decimation, UV unwrap, projection onto the pre-decimation surface, bake, GLB). The preset carries TRELLIS.2's Decimation Target (default 300k faces, up to 1M) and Unwrap Quality (Fast, Balanced, Best). Only the export frame is new: it is applied to the decoded volume before that chain, as a proper rotation of both the vertices and the attribute voxels, so the remesh, the winding and the texture lookup are unaffected. The 1536 default makes the export heavier than TRELLIS.2's 1024 default: denser raw meshes, so the remesh and the decimation take longer at the same target. A profiled Pixal3D run writes the same `[TRELLIS2_MESH]` stage log and the same dumps as TRELLIS.2: `raw_mesh.npz`, `texture_volume.npz` (in the export frame), `cond_image.png` (the front view as conditioned) and `tex_slat.npz`.
 
 ## Hardware
 

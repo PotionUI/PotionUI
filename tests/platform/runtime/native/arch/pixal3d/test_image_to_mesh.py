@@ -183,6 +183,15 @@ def test_the_whole_cascade_runs_on_real_projection_flows():
     assert volume.faces.shape == (12, 3)
 
 
+def test_the_volume_carries_the_conditioned_front_view_and_texture_latent_for_profiling_dumps():
+    components = _components()
+    front = _image()
+    volume = _run(components, p3d.Pixal3DViews({"front": front, "left": _image((1, 2, 3))}))
+    assert volume.cond_image is front
+    assert volume.tex_slat is not None
+    assert torch.equal(volume.tex_slat.coords, components.tex_flow.conds[-1][0].coords)
+
+
 def test_there_is_no_512_tier():
     with pytest.raises(ValueError, match="tier"):
         _run(_components(), tier="512")
@@ -420,6 +429,15 @@ def test_reframing_is_a_proper_rotation_so_winding_survives(frame):
         frame,
     ).vertices
     assert torch.det(rotated) == pytest.approx(1.0)
+
+
+def test_reframing_keeps_the_profiling_payload():
+    volume = _volume()
+    volume.cond_image = _image()
+    volume.tex_slat = object()
+    reframed = p3d.reframe_volume(volume, "upstream")
+    assert reframed.cond_image is volume.cond_image
+    assert reframed.tex_slat is volume.tex_slat
 
 
 def test_an_unknown_export_frame_is_refused():

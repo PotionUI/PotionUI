@@ -117,7 +117,7 @@
             ],
             [
               "decimation_target",
-              100000
+              300000
             ],
             [
               "texture_size",
@@ -141,7 +141,7 @@
       "config": {
         "decimation_target": {
           "type": "int",
-          "value": 100000
+          "value": 300000
         },
         "remove_background": {
           "type": "bool",

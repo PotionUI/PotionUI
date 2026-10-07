@@ -34,12 +34,12 @@ fields:
             type: "slider"
             formula: "mesh"
             label: "Decimation Target"
-            default: 100000
+            default: 300000
             description: "Face budget the exported mesh is simplified down to."
-            ai_hint: "This costs export time, not generation time: the UV unwrap runs on CPU and grows faster than the face count — at the default Balanced unwrap about 2 seconds at 50k faces, 5 at 100k, 12 at 200k and 20 at 300k, and roughly four times that on Best. The 100k default suits most uses; go higher when the user wants a denser final asset."
+            ai_hint: "This costs export time, not generation time: the UV unwrap runs on CPU and grows faster than the face count — at the default Balanced unwrap about 2 seconds at 50k faces, 5 at 100k, 12 at 200k and 20 at 300k, and roughly four times that on Best. The 300k default keeps small parts such as lamps, wheels and panel edges; go lower for a lightweight asset and up to 1M when the user wants the densest mesh."
             configuration:
               min: 20000
-              max: 300000
+              max: 1000000
               step: 10000
 
           - name: "texture_size"

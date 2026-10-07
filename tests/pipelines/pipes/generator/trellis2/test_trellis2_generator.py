@@ -55,6 +55,8 @@ def _cube_volume(resolution=512):
         attrs=torch.full((8, 6), 0.75),
         coords=coords[:, 1:],
         resolution=resolution,
+        cond_image=Image.new("RGB", (4, 4), (10, 20, 30)),
+        tex_slat=SparseTensor(feats=torch.zeros((8, 32)), coords=coords),
     )
 
 
@@ -552,3 +554,30 @@ def test_no_texture_volume_is_written_when_profiling_is_off(recorded_run, export
     monkeypatch.setattr(generator_main, "get_profiler", lambda: _Profiler())
     _run_pipe()
     assert not (tmp_path / "texture_volume.npz").exists()
+
+
+def test_conditioning_is_dumped_into_the_profile_dir_when_profiling_is_on(
+    recorded_run, exported, monkeypatch, tmp_path
+):
+    class _Profiler:
+        out_dir = tmp_path
+
+    monkeypatch.setattr(generator_main, "profiling_enabled", lambda: True)
+    monkeypatch.setattr(generator_main, "get_profiler", lambda: _Profiler())
+    _run_pipe()
+    dump = np.load(tmp_path / "tex_slat.npz")
+    assert dump["coords"].shape[1] == 4
+    assert dump["feats_normalised"].shape == dump["feats_denormalised"].shape
+    assert dump["feats_normalised"].dtype == np.float16
+    assert (tmp_path / "cond_image.png").exists()
+
+
+def test_no_conditioning_is_written_when_profiling_is_off(recorded_run, exported, monkeypatch, tmp_path):
+    class _Profiler:
+        out_dir = tmp_path
+
+    monkeypatch.setattr(generator_main, "profiling_enabled", lambda: False)
+    monkeypatch.setattr(generator_main, "get_profiler", lambda: _Profiler())
+    _run_pipe()
+    assert not (tmp_path / "tex_slat.npz").exists()
+    assert not (tmp_path / "cond_image.png").exists()

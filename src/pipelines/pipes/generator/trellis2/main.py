@@ -60,8 +60,8 @@ from src.pipelines.outputs import (
     SeedGenerationOutput,
 )
 from src.platform.observability.profiling import get_profiler, profiling_enabled
-from src.platform.runtime.native.arch.trellis2.config import STAGE_SAMPLING, StageSampling
-from src.platform.runtime.native.arch.trellis2.image_to_mesh import AABB, run_image_to_mesh
+from src.platform.runtime.native.arch.trellis2.config import STAGE_SAMPLING, TEX_SLAT_NORMALIZATION, StageSampling
+from src.platform.runtime.native.arch.trellis2.image_to_mesh import AABB, normalize_slat, run_image_to_mesh
 from src.platform.runtime.native.arch.trellis2.postprocess import PBR_ATTR_LAYOUT, postprocess_to_glb
 from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.util.latents import generate_seed
@@ -346,6 +346,33 @@ class GeneratorTrellis2Pipe(BasePipe):
             return None
         return path
 
+    @staticmethod
+    def _dump_conditioning(volume, source_id: str) -> Optional[str]:
+        if not profiling_enabled():
+            return None
+        out_dir = get_profiler().out_dir
+        if out_dir is None:
+            return None
+        path = os.path.join(str(out_dir), "tex_slat.npz")
+        try:
+            if volume.cond_image is not None:
+                volume.cond_image.convert("RGB").save(os.path.join(str(out_dir), "cond_image.png"))
+            if volume.tex_slat is None:
+                return None
+            after = volume.tex_slat
+            before = normalize_slat(after, TEX_SLAT_NORMALIZATION)
+            np.savez(
+                path,
+                coords=after.coords.detach().cpu().numpy().astype(np.int32),
+                feats_normalised=before.feats.detach().float().cpu().numpy().astype(np.float16),
+                feats_denormalised=after.feats.detach().float().cpu().numpy().astype(np.float16),
+                source_id=np.array(source_id),
+            )
+        except Exception:
+            logger.warning("TRELLIS.2 conditioning dump to %s failed", path, exc_info=True)
+            return None
+        return path
+
     def _seeds(self, pipe_input: PipeInput, count: int) -> List[int]:
         """One seed per image: the wired ``seed`` input, else the config's.
 
@@ -415,6 +442,7 @@ class GeneratorTrellis2Pipe(BasePipe):
         out_path = tempfile.NamedTemporaryFile(suffix=".glb", delete=False).name
         self._dump_raw_mesh(volume, source_id)
         self._dump_texture_volume(volume, source_id)
+        self._dump_conditioning(volume, source_id)
         try:
             postprocess_to_glb(
                 vertices=volume.vertices,

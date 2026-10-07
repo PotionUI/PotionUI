@@ -135,6 +135,8 @@ class MeshVolume:
     attrs: torch.Tensor
     coords: torch.Tensor
     resolution: int
+    cond_image: Any = None
+    tex_slat: Any = None
 
     @property
     def voxel_size(self) -> float:
@@ -386,7 +388,10 @@ def run_image_to_mesh(
         components, cond, neg, shape_slat, settings, device, generator, progress, is_cancelled
     )
 
-    return _decode(components, shape_slat, tex_slat, resolution, device, progress)
+    volume = _decode(components, shape_slat, tex_slat, resolution, device, progress)
+    volume.cond_image = image
+    volume.tex_slat = tex_slat
+    return volume
 
 
 def _sample_sparse_structure(

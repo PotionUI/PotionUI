@@ -56,6 +56,8 @@ CASES = [
     ("presets/marketplace/Krea2", "edit", {"source_image", "source_image_b"}),
     ("presets/marketplace/SDXL", "inpaint", {"source_image"}),
     ("presets/marketplace/TRELLIS2", "img2mesh", {"source_image"}),
+    ("presets/marketplace/Pixal3D", "img2mesh", {"source_image"}),
+    ("presets/marketplace/Pixal3D", "views2mesh", {"front_image", "left_image", "back_image", "right_image"}),
     ("presets/marketplace/MiniMax-H3", "refs", {"references"}),
     ("comfyui-backend/presets/FluxKlein9b", "img2img", {"input_image", "input_image_2"}),
     ("comfyui-backend/presets/LTX-2-3/official", "flf2v", {"first_frame", "last_frame"}),

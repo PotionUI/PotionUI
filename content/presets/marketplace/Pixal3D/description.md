@@ -1,0 +1,1 @@
+Turn an image, or a front/left/back/right set of views, into a textured GLB mesh with PBR materials. Built for Pixal3D from TencentARC, which extends TRELLIS.2 with pixel-aligned conditioning: every voxel samples the image features at the point where the camera sees it, so the mesh follows the picture closely and comes out posed the way the camera saw it.

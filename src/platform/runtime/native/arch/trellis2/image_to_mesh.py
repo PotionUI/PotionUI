@@ -146,7 +146,7 @@ class MeshVolume:
 # -- image preparation ------------------------------------------------------
 
 
-def prepare_image(image, matting=None):
+def prepare_image(image, matting=None, pad: float = 1.0):
     """Upstream's ``preprocess_image``: matte, crop to the subject, premultiply.
 
     An image that already carries a non-trivial alpha channel uses it directly
@@ -193,6 +193,8 @@ def prepare_image(image, matting=None):
     right, bottom = int(subject[:, 1].max()), int(subject[:, 0].max())
     centre_x, centre_y = (left + right) / 2, (top + bottom) / 2
     size = max(right - left, bottom - top)
+    if pad != 1.0:
+        size = int(size * pad)
     cropped = matted.crop((
         int(centre_x - size // 2), int(centre_y - size // 2),
         int(centre_x + size // 2), int(centre_y + size // 2),

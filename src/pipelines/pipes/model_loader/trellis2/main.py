@@ -84,6 +84,14 @@ class ModelLoaderTrellis2Pipe(BaseModelLoaderPipe):
     name = "model_loader"
     description = "Load a native TRELLIS.2 set (4 flow DiTs + 3 decoders + DINOv3 encoder)"
 
+    _model_types = (
+        ("diffusion_model", "trellis2_dit"),
+        ("shape_vae", "trellis2_shape_vae"),
+        ("texture_vae", "trellis2_texture_vae"),
+        ("image_encoder", "trellis2_image_encoder"),
+        ("matting_model", "matting"),
+    )
+
     # -- declaration -------------------------------------------------------
 
     @classmethod
@@ -147,13 +155,7 @@ class ModelLoaderTrellis2Pipe(BaseModelLoaderPipe):
 
     def describe_models(self) -> List[ModelGenerationOutput]:
         described = []
-        for key, model_type in (
-            ("diffusion_model", "trellis2_dit"),
-            ("shape_vae", "trellis2_shape_vae"),
-            ("texture_vae", "trellis2_texture_vae"),
-            ("image_encoder", "trellis2_image_encoder"),
-            ("matting_model", "matting"),
-        ):
+        for key, model_type in self._model_types:
             component = self.config.get(key)
             path = _path_of(component)
             if path:
@@ -176,11 +178,9 @@ class ModelLoaderTrellis2Pipe(BaseModelLoaderPipe):
 
         paths = self._weight_paths()
         tier = self._tier()
-        _ss_grid, shape_tier, tex_tier, is_cascade = TIERS[tier]
         dtype_name = self.config.get("dtype", "bfloat16")
         dtype = _DTYPES[dtype_name]
         device = self.config.get("device", "cuda")
-        matting_path = _path_of(self.config.get("matting_model"))
 
         # Recorded, not consumed: this family places one model at a time and
         # returns it to CPU before the next arrives, so there is no streaming
@@ -188,6 +188,22 @@ class ModelLoaderTrellis2Pipe(BaseModelLoaderPipe):
         # run that ran out of VRAM has to be diagnosed from.
         self._vram_budget(pipe_input)
 
+        plan = self._plan(paths, tier, dtype)
+
+        models = pipe_input.input.get("MODELS", None)
+        progress = ComponentProgress(generation_outputs, models, self.progress_message(), len(plan))
+        lifecycle = ComponentLifecycle(models, progress)
+
+        loaded = {
+            key: lifecycle.acquire(Component(label, key, f"{key}|{dtype_name}", loader, estimated_gb))
+            for label, key, loader, estimated_gb in plan
+        }
+
+        return PipeOutput(output={"model": self._bundle(loaded, paths, tier, device)})
+
+    def _plan(self, paths: Dict[str, str], tier: str, dtype: torch.dtype) -> list:
+        _ss_grid, shape_tier, tex_tier, is_cascade = TIERS[tier]
+        matting_path = _path_of(self.config.get("matting_model"))
         dit, shape_vae = paths["diffusion_model"], paths["shape_vae"]
         plan = [
             ("image encoder", f"native/trellis2/dino/{paths['image_encoder']}",
@@ -228,17 +244,13 @@ class ModelLoaderTrellis2Pipe(BaseModelLoaderPipe):
                 "matting model", f"native/matting/{matting_path}",
                 lambda: _load_matting(matting_path), file_size_gb(matting_path),
             ))
+        return plan
 
-        models = pipe_input.input.get("MODELS", None)
-        progress = ComponentProgress(generation_outputs, models, self.progress_message(), len(plan))
-        lifecycle = ComponentLifecycle(models, progress)
-
-        loaded = {
-            key: lifecycle.acquire(Component(label, key, f"{key}|{dtype_name}", loader, estimated_gb))
-            for label, key, loader, estimated_gb in plan
-        }
-
-        bundle = Trellis2ModelBundle(
+    def _bundle(self, loaded: Dict[str, Any], paths: Dict[str, str], tier: str, device: str):
+        _ss_grid, _shape_tier, tex_tier, _is_cascade = TIERS[tier]
+        matting_path = _path_of(self.config.get("matting_model"))
+        dit, shape_vae = paths["diffusion_model"], paths["shape_vae"]
+        return Trellis2ModelBundle(
             conditioner=loaded[f"native/trellis2/dino/{paths['image_encoder']}"],
             ss_flow=loaded[f"native/trellis2/ss_flow/{dit}"],
             ss_vae=loaded[f"native/trellis2/ss_vae/{shape_vae}"],
@@ -251,7 +263,6 @@ class ModelLoaderTrellis2Pipe(BaseModelLoaderPipe):
             tier=tier,
             device=device,
         )
-        return PipeOutput(output={"model": bundle})
 
     # -- helpers -----------------------------------------------------------
 

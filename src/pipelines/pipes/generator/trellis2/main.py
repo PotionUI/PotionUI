@@ -209,13 +209,13 @@ class GeneratorTrellis2Pipe(BasePipe):
             is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> PipeOutput:
         is_cancelled = is_cancelled or (lambda: False)
-        images = pipe_input.input.get("image") or []
+        images = self._sources(pipe_input)
         if not images:
-            raise ValueError("generator/trellis2 needs a source image, but none was provided")
+            raise ValueError(f"{self._family_pipe} needs a source image, but none was provided")
 
         bundle = pipe_input.input.get("model")
         if bundle is None:
-            raise ValueError("generator/trellis2 needs the model bundle from model_loader/trellis2")
+            raise ValueError(f"{self._family_pipe} needs the model bundle from {self._loader_pipe}")
 
         components = bundle.components()
         tier = getattr(bundle, "tier", "1024")
@@ -232,7 +232,7 @@ class GeneratorTrellis2Pipe(BasePipe):
                     raise SamplingCancelled()
 
                 generation_outputs(SeedGenerationOutput(index=index, seed=seed))
-                volume = run_image_to_mesh(
+                volume = self._reconstruct(
                     components,
                     image,
                     tier=tier,
@@ -288,6 +288,15 @@ class GeneratorTrellis2Pipe(BasePipe):
         return PipeOutput(output={"mesh": mesh_paths, "seed": seeds})
 
     # -- helpers -----------------------------------------------------------
+
+    _family_pipe = "generator/trellis2"
+    _loader_pipe = "model_loader/trellis2"
+
+    def _sources(self, pipe_input: PipeInput) -> List[Any]:
+        return list(pipe_input.input.get("image") or [])
+
+    def _reconstruct(self, components, image, **kwargs):
+        return run_image_to_mesh(components, image, **kwargs)
 
     @staticmethod
     def _discard_exports(mesh_paths: List[str]) -> None:

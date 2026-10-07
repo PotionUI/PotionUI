@@ -11,7 +11,9 @@ sparse-structure flow DiT (``SparseStructureFlowModel``) and its VAE decoder
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
+
+IMAGE_ATTN_MODES = ("cross", "proj")
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,8 @@ class SSFlowConfig:
     share_mod: bool = False
     qk_rms_norm: bool = False
     qk_rms_norm_cross: bool = False
+    image_attn_mode: str = "cross"
+    proj_in_channels: Optional[int] = None
 
     def __post_init__(self) -> None:
         if self.model_channels % self.num_heads != 0:
@@ -39,6 +43,8 @@ class SSFlowConfig:
             )
         if self.pe_mode not in ("ape", "rope"):
             raise ValueError(f"unsupported pe_mode {self.pe_mode!r}")
+        if self.image_attn_mode not in IMAGE_ATTN_MODES:
+            raise ValueError(f"unsupported image_attn_mode {self.image_attn_mode!r}")
 
     @property
     def head_dim(self) -> int:
@@ -143,12 +149,16 @@ class SLatFlowConfig:
     share_mod: bool = True
     qk_rms_norm: bool = True
     qk_rms_norm_cross: bool = True
+    image_attn_mode: str = "cross"
+    proj_in_channels: Optional[int] = None
 
     def __post_init__(self) -> None:
         if self.model_channels % self.num_heads != 0:
             raise ValueError(
                 f"model_channels {self.model_channels} not divisible by num_heads {self.num_heads}"
             )
+        if self.image_attn_mode not in IMAGE_ATTN_MODES:
+            raise ValueError(f"unsupported image_attn_mode {self.image_attn_mode!r}")
 
     def as_kwargs(self) -> Dict[str, Any]:
         return asdict(self)

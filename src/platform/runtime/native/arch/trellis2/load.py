@@ -42,6 +42,7 @@ from .config import (
 from .conditioner import DinoV3ImageConditioner
 from .detect import (
     FLOW_PREFIXES,
+    PROJECTION_PROBE,
     SHAPE_DECODER_PREFIX,
     STRUCTURE_DECODER_PREFIX,
     TEXTURE_DECODER_PREFIX,
@@ -119,6 +120,30 @@ def _fill(module: nn.Module, sd: dict[str, torch.Tensor], what: str) -> nn.Modul
 # -- flow models -----------------------------------------------------------
 
 
+_QUANTISED_SUFFIXES = (".weight_scale", ".comfy_quant")
+
+
+def _check_flow_layout(path: str | Path, sd: dict[str, torch.Tensor], mode: str, what: str) -> None:
+    name = Path(path).name
+    if any(key.endswith(_QUANTISED_SUFFIXES) for key in sd):
+        raise ValueError(
+            f"{name} is a quantised (int8) bundle; {what} loads only the bf16 bundles. "
+            "Select the bf16 file instead."
+        )
+    projected = PROJECTION_PROBE in sd
+    if projected and mode != "proj":
+        raise ValueError(
+            f"{name} is a Pixal3D bundle (its flow blocks carry pixel-projection weights), not a "
+            "TRELLIS.2 one. Load it with the Pixal3D preset."
+        )
+    if not projected and mode == "proj":
+        raise ValueError(
+            f"{name} is a TRELLIS.2 bundle, not a Pixal3D one: its flow blocks have no "
+            "pixel-projection weights. Select pixal3d_bf16.safetensors or "
+            "pixal3d_multiview_bf16.safetensors."
+        )
+
+
 def load_ss_flow(
     path: str | Path,
     config: SSFlowConfig = SS_FLOW_PRODUCTION,
@@ -128,6 +153,7 @@ def load_ss_flow(
     """The sparse-structure flow DiT (``model.structure_model.``): the first
     stage, a dense DiT over a 16^3 voxel grid."""
     sd = _read(path, FLOW_PREFIXES["structure"], dtype)
+    _check_flow_layout(path, sd, config.image_attn_mode, "the sparse-structure flow")
     with torch.device("meta"):
         module = SSFlowDiT(config, manual_cast)
     return _fill(module, sd, "sparse-structure flow")
@@ -148,6 +174,7 @@ def load_shape_slat_flow(
     default = _tier(_SHAPE_FLOWS, tier, "shape")
     config = default if config is None else config
     sd = _read(path, FLOW_PREFIXES[f"shape_{tier}"], dtype)
+    _check_flow_layout(path, sd, config.image_attn_mode, f"the shape flow ({tier})")
     return _fill(SLatFlowModel(**config.as_kwargs()), sd, f"shape SLat flow ({tier})")
 
 
@@ -167,6 +194,7 @@ def load_tex_slat_flow(
     default = _tier(_TEX_FLOWS, tier, "texture")
     config = default if config is None else config
     sd = _read(path, FLOW_PREFIXES["texture"], dtype)
+    _check_flow_layout(path, sd, config.image_attn_mode, f"the texture flow ({tier})")
     return _fill(SLatFlowModel(**config.as_kwargs()), sd, f"texture SLat flow ({tier})")
 
 

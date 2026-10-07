@@ -1,0 +1,26 @@
+name: "custom"
+short_description: "Turn front, left, back and right views into one textured 3D model."
+label: "Views to Mesh"
+description: "Reconstructs up to four views of one subject, taken on a fixed orbit, into a textured GLB mesh with PBR materials."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/views2mesh/tabs/generation.yml"
+      - type: "tab"
+        label: "References"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/views2mesh/tabs/references.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/views2mesh/tabs/advanced.yml"

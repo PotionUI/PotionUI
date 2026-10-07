@@ -211,6 +211,18 @@ class _FeedForwardNet(nn.Module):
         return self.mlp(x)
 
 
+class _ProjectAttention(nn.Module):
+    def __init__(self, cross_attn_block: nn.Module, channels: int, proj_in_channels: int, operations,
+                 device=None, dtype=None) -> None:
+        super().__init__()
+        self.cross_attn_block = cross_attn_block
+        self.proj_linear = operations.Linear(proj_in_channels, channels, bias=True, device=device, dtype=dtype)
+
+    def forward(self, x: Tensor, context) -> Tensor:
+        tokens, proj = context
+        return self.proj_linear(proj) + self.cross_attn_block(x, tokens)
+
+
 class _SSFlowBlock(nn.Module):
     """``ModulatedTransformerCrossBlock``: self-attn (RoPE) + cross-attn + MLP,
     each adaLN-modulated from a shared per-model (``share_mod``) or per-block
@@ -235,6 +247,11 @@ class _SSFlowBlock(nn.Module):
             attn_type="cross", qk_rms_norm=config.qk_rms_norm_cross,
             device=device, dtype=dtype,
         )
+        if config.image_attn_mode == "proj":
+            self.cross_attn = _ProjectAttention(
+                self.cross_attn, channels, config.proj_in_channels or config.cond_channels,
+                operations, device=device, dtype=dtype,
+            )
         self.mlp = _FeedForwardNet(channels, config.mlp_ratio, operations, device=device, dtype=dtype)
 
         if not self.share_mod:
@@ -313,6 +330,16 @@ class SSFlowDiT(NativeArchModule):
 
     # -- forward --------------------------------------------------------------
 
+    def _projected_condition(self, cond, batch: int, dtype: torch.dtype):
+        tokens, proj = cond
+        expected = (batch, self.config.num_tokens, self.config.proj_in_channels or self.config.cond_channels)
+        if tuple(proj.shape) != expected:
+            raise ValueError(
+                f"projected features have shape {tuple(proj.shape)}, expected {expected}: one row per "
+                "voxel of the dense grid, in its row-major (x, y, z) order"
+            )
+        return _manual_cast(tokens, dtype), _manual_cast(proj, dtype)
+
     def forward(self, x: Tensor, t: Tensor, cond: Tensor) -> Tensor:
         config = self.config
         expected = [x.shape[0], config.in_channels] + [config.resolution] * 3
@@ -325,7 +352,10 @@ class SSFlowDiT(NativeArchModule):
         if config.share_mod:
             t_emb = self.adaLN_modulation(t_emb)
         t_emb = _manual_cast(t_emb, h.dtype)
-        cond = _manual_cast(cond, h.dtype)
+        if config.image_attn_mode == "proj":
+            cond = self._projected_condition(cond, x.shape[0], h.dtype)
+        else:
+            cond = _manual_cast(cond, h.dtype)
 
         for block in self.blocks:
             h = block(h, t_emb, cond, self.rope_phases)

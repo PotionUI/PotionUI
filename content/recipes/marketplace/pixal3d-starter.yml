@@ -1,0 +1,245 @@
+########
+## Setup recipe: Pixal3D on the native engine
+##
+## See src/features/recipes/schema.py for the schema this file is
+## validated against (scripts/recipe_lint.py) and
+## src/features/recipes/executors/ for what each step kind actually does.
+########
+schema_version: 1
+id: "pixal3d-starter"
+version: 1
+name: "Pixal3D Starter"
+engine: "native"
+category: "3d"
+summary: "Get a working Pixal3D setup on your local GPU, ready to reconstruct your first camera-aligned mesh."
+description: >
+  Installs the bundled Pixal3D preset on the native (in-process) engine
+  and makes sure the four model files its Image to 3D mode needs are
+  available before handing you a ready-to-use preset. Pixal3D is TRELLIS.2
+  with pixel-aligned conditioning: each voxel is projected into the image
+  through a camera and samples the image features at that point, on top of
+  TRELLIS.2's global image tokens. One consolidated file carries the
+  sparse-structure, shape and texture flow models, two VAEs decode geometry
+  and texture, and a DINOv3 image encoder with the NAF feature upsampler
+  bundled in the same file supplies the conditioning (there is no text
+  encoder). The four files together are a real download (~14.3 GB).
+
+  The two VAEs are byte-identical to the TRELLIS.2 ones and keep the same
+  file names, so an instance that already ran the TRELLIS.2 Starter reuses
+  them and only downloads the transformer and the image encoder. The image
+  encoder is NOT the TRELLIS.2 dino_v3_vit_l file: that one has no NAF
+  weights.
+
+  The Views to 3D mode needs a second, separately fine-tuned transformer,
+  pixal3d_multiview_bf16.safetensors (another ~11.0 GB, same repository).
+  This recipe lists it as optional but does not download it, so the starter
+  stays at the single-view set. Fetch it from the Views to 3D mode's model
+  picker (it is offered there as a recommendation) or from
+  Comfy-Org/Pixal3D under diffusion_models/.
+
+  The optional background-matting model (BiRefNet) is left out of this
+  recipe's minimal set - "Remove background" only needs it when the source
+  image is already opaque, and nothing forces the user to enable it.
+
+  LICENCE: Pixal3D's code and weights are MIT (TencentARC/Pixal3D,
+  repackaged by Comfy-Org). The image encoder file combines two other
+  licences. Its DINOv3 weights derive from Meta's DINOv3 release
+  (facebook/dinov3-vitl16-pretrain-lvd1689m, gated on HuggingFace), which
+  Meta publishes under its own DINOv3 Licence, not MIT. Its NAF upsampler
+  weights come from valeoai/NAF under Apache-2.0. This recipe downloads the
+  file from the ungated Comfy-Org repackage, so no licence click-through is
+  required to fetch it - but its use is still governed by Meta's DINOv3
+  Licence and, for the NAF part, Apache-2.0.
+
+plugins:
+  - id: "huggingface-provider"
+    reason: >
+      Resolves the diffusion model, both VAEs and the image encoder from
+      HuggingFace (Comfy-Org's consolidated single-file release of Pixal3D)
+      by exact repo path. HuggingFace has no hash-lookup API, so each
+      artifact below names its file explicitly; the sha256 in each
+      artifact's checksum still verifies the download afterwards.
+
+backend:
+  engine: "native"
+
+artifacts:
+  - id: "pixal3d-diffusion-model"
+    kind: "diffusion_model"
+    model_type: "diffusion_model"
+    filename: "pixal3d_bf16.safetensors"
+    display_name: "Pixal3D transformer, single view (sparse-structure + shape + texture flow, bf16)"
+    required: true
+    size_bytes: 10999317704
+    checksum:
+      algorithm: "sha256"
+      value: "5f3cd67b7ff9104d810754bcd89e47a6c2393e41f8c0a808d0dead37802d85fe"
+    # Declared by capability, never by a concrete plugin id - core resolves a
+    # download source through whichever enabled plugin advertises this
+    # capability (see plugin manifest `capabilities:`).
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Pixal3D"
+      version_id: "main@diffusion_models/pixal3d_bf16.safetensors"
+
+  # Only the Views to 3D mode uses this file. It is declared so its size and
+  # sha256 are on record, but neither artifacts.plan nor artifacts.fetch
+  # below lists it - see the description for why.
+  - id: "pixal3d-multiview-diffusion-model"
+    kind: "diffusion_model"
+    model_type: "diffusion_model"
+    filename: "pixal3d_multiview_bf16.safetensors"
+    display_name: "Pixal3D transformer, multi-view (Views to 3D only, bf16, optional)"
+    required: false
+    size_bytes: 10999317704
+    checksum:
+      algorithm: "sha256"
+      value: "302d00adb453f089c87ea083ebde2c9087bc259170d17910136ad1d8231f49a3"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Pixal3D"
+      version_id: "main@diffusion_models/pixal3d_multiview_bf16.safetensors"
+
+  - id: "pixal3d-shape-vae"
+    kind: "vae"
+    model_type: "vae"
+    filename: "trellis_2_shape_vae_bf16.safetensors"
+    display_name: "TRELLIS.2 shape VAE (sparse structure + shape latent, bf16)"
+    required: true
+    size_bytes: 1095844024
+    checksum:
+      algorithm: "sha256"
+      value: "de0cb4949a76c59ee5c091a995a69bcc8c51d5aeda939f0c641a50d2a72341f4"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Pixal3D"
+      version_id: "main@vae/trellis_2_shape_vae_bf16.safetensors"
+
+  - id: "pixal3d-texture-vae"
+    kind: "vae"
+    model_type: "vae"
+    filename: "trellis_2_texture_vae_bf16.safetensors"
+    display_name: "TRELLIS.2 texture VAE (PBR attributes, bf16)"
+    required: true
+    size_bytes: 948461364
+    checksum:
+      algorithm: "sha256"
+      value: "714e5ebf094a610e12a8e3b5175c18a62f37f6ea4218acb6073644456b73ab0e"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Pixal3D"
+      version_id: "main@vae/trellis_2_texture_vae_bf16.safetensors"
+
+  - id: "pixal3d-image-encoder"
+    kind: "text_encoder"
+    model_type: "text_encoder"
+    filename: "dino_v3_L_naf_fp32.safetensors"
+    display_name: "DINOv3 ViT-L/16 image encoder with the NAF upsampler"
+    required: true
+    size_bytes: 1215214176
+    checksum:
+      algorithm: "sha256"
+      value: "4ad2ec4e0879a5b5b04cd97325cc37da954a7b6edca5170b86510f17f2b2290f"
+    capability: "model-lookup"
+    # See the top-level description's LICENCE note: the DINOv3 part of this
+    # file is governed by Meta's DINOv3 Licence and the NAF part by
+    # Apache-2.0, not Pixal3D's MIT terms - the download itself needs no
+    # click-through because Comfy-Org repackaged it into an ungated
+    # repository.
+    gated: false
+    license_url: "https://ai.meta.com/resources/models-and-libraries/dinov3-license/"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/Pixal3D"
+      version_id: "main@clip_vision/dino_v3_L_naf_fp32.safetensors"
+
+presets:
+  - preset_id: "01M4AJGF0EQ9DR9NAKEEY3K8P3"
+    path_hint: "marketplace/Pixal3D"
+    assign_to_owner: true
+
+# No `smoke:` block / `generation.smoke` step here on purpose - see the
+# comment above the "Validate the pipeline" step below for why.
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable required plugins"
+    params:
+      # huggingface-provider is needed so the download step can resolve each
+      # artifact's exact repo file.
+      plugin_ids: ["huggingface-provider"]
+
+  - key: "backend.ensure"
+    kind: "backend.ensure"
+    title: "Prepare the native backend"
+    params:
+      engine: "native"
+
+  # Index BEFORE planning downloads: on a fresh instance nothing is indexed
+  # yet, so without this pass artifacts.plan cannot see files the user
+  # already has (the TRELLIS.2 VAEs, for one) and would ask to download them.
+  - key: "models.index"
+    kind: "models.index"
+    title: "Find models you already have"
+    params:
+      engine: "native"
+
+  - key: "artifacts.plan"
+    kind: "artifacts.plan"
+    title: "Plan required downloads"
+    params:
+      artifact_ids:
+        ["pixal3d-diffusion-model", "pixal3d-shape-vae", "pixal3d-texture-vae", "pixal3d-image-encoder"]
+
+  - key: "artifacts.fetch"
+    kind: "artifacts.fetch"
+    title: "Download the Pixal3D model files"
+    params:
+      artifact_ids:
+        ["pixal3d-diffusion-model", "pixal3d-shape-vae", "pixal3d-texture-vae", "pixal3d-image-encoder"]
+
+  - key: "models.index.downloads"
+    kind: "models.index"
+    title: "Register downloaded models"
+    params:
+      engine: "native"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign the Pixal3D preset"
+    params:
+      preset_id: "01M4AJGF0EQ9DR9NAKEEY3K8P3"
+
+  # A `generation.smoke` step is out for the same reasons as in
+  # trellis2-starter.yml: the required source image would reach the real
+  # loaders as a `/SETUP-CHECK` placeholder, and the step only counts image
+  # outputs while img2mesh produces a MeshGenerationOutput. `pipeline.render`
+  # (a dry run, no GPU) is the strongest validation this recipe can safely
+  # run, and since it loads nothing it can also check views2mesh, whose
+  # transformer this recipe does not download.
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the Image to 3D pipeline"
+    params:
+      preset_id: "01M4AJGF0EQ9DR9NAKEEY3K8P3"
+      mode: "img2mesh"
+
+  - key: "pipeline.render.views2mesh"
+    kind: "pipeline.render"
+    title: "Validate the Views to 3D pipeline"
+    params:
+      preset_id: "01M4AJGF0EQ9DR9NAKEEY3K8P3"
+      mode: "views2mesh"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    # Only meaningful during the first-run wizard - a run started from
+    # Admin -> Recipes skips it.
+    onboarding_only: true
+    params: {}

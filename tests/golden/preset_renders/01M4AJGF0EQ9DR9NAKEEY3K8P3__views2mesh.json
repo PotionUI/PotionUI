@@ -1,0 +1,260 @@
+{
+  "mode": "views2mesh",
+  "pipes": [
+    {
+      "config": {
+        "auto_detect_type": {
+          "type": "bool",
+          "value": true
+        },
+        "max_file_size": {
+          "type": "int",
+          "value": 52428800
+        },
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/front_image.png",
+              "type": "image"
+            }
+          ]
+        },
+        "validate_files": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "view_front",
+      "name": "media_loader"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "view_left",
+      "name": "media_loader"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "view_back",
+      "name": "media_loader"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "view_right",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "bundle_mode": {
+          "type": "str",
+          "value": "multiview"
+        },
+        "diffusion_model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/diffusion_model.safetensors"
+        },
+        "diffusion_model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/diffusion_model.safetensors"
+        },
+        "image_encoder.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/image_encoder.safetensors"
+        },
+        "image_encoder.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/image_encoder.safetensors"
+        },
+        "matting_model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/matting_model.safetensors"
+        },
+        "matting_model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/matting_model.safetensors"
+        },
+        "resolution_tier": {
+          "type": "str",
+          "value": "1536"
+        },
+        "shape_vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/shape_vae.safetensors"
+        },
+        "shape_vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/shape_vae.safetensors"
+        },
+        "texture_vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/texture_vae.safetensors"
+        },
+        "texture_vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/texture_vae.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "model_loader",
+      "name": "model_loader/pixal3d"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/diffusion_model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/shape_vae.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/texture_vae.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/image_encoder.safetensors"
+            ],
+            [
+              "seed",
+              -1
+            ],
+            [
+              "resolution_tier",
+              "1536"
+            ],
+            [
+              "camera_fov",
+              20.0
+            ],
+            [
+              "decimation_target",
+              100000
+            ],
+            [
+              "texture_size",
+              2048
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "camera_fov": {
+          "type": "float",
+          "value": 20.0
+        },
+        "decimation_target": {
+          "type": "int",
+          "value": 100000
+        },
+        "export_frame": {
+          "type": "str",
+          "value": "upstream"
+        },
+        "remove_background": {
+          "type": "bool",
+          "value": false
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        },
+        "shape_guidance_rescale": {
+          "type": "float",
+          "value": 0.5
+        },
+        "shape_guidance_strength": {
+          "type": "float",
+          "value": 7.5
+        },
+        "shape_rescale_t": {
+          "type": "float",
+          "value": 3.0
+        },
+        "shape_steps": {
+          "type": "int",
+          "value": 12
+        },
+        "sparse_structure_guidance_rescale": {
+          "type": "float",
+          "value": 0.7
+        },
+        "sparse_structure_guidance_strength": {
+          "type": "float",
+          "value": 7.5
+        },
+        "sparse_structure_rescale_t": {
+          "type": "float",
+          "value": 5.0
+        },
+        "sparse_structure_steps": {
+          "type": "int",
+          "value": 12
+        },
+        "texture_guidance_rescale": {
+          "type": "float",
+          "value": 0.0
+        },
+        "texture_guidance_strength": {
+          "type": "float",
+          "value": 1.0
+        },
+        "texture_rescale_t": {
+          "type": "float",
+          "value": 3.0
+        },
+        "texture_size": {
+          "type": "int",
+          "value": 2048
+        },
+        "texture_steps": {
+          "type": "int",
+          "value": 12
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "generator",
+      "name": "generator/pixal3d"
+    }
+  ],
+  "preset_id": "01M4AJGF0EQ9DR9NAKEEY3K8P3",
+  "preset_name": "Pixal3D"
+}

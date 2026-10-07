@@ -23,6 +23,7 @@ from typing import Iterable
 __all__ = [
     "FLOW_BUNDLE",
     "IMAGE_ENCODER",
+    "PIXAL3D_FLOW_BUNDLE",
     "SHAPE_VAE",
     "TEXTURE_VAE",
     "TRELLIS2_ROLES",
@@ -36,7 +37,11 @@ SHAPE_VAE = "shape_vae"
 TEXTURE_VAE = "texture_vae"
 IMAGE_ENCODER = "image_encoder"
 
+PIXAL3D_FLOW_BUNDLE = "pixal3d_flow_bundle"
+
 TRELLIS2_ROLES = (FLOW_BUNDLE, SHAPE_VAE, TEXTURE_VAE, IMAGE_ENCODER)
+
+PROJECTION_PROBE = "blocks.0.cross_attn.proj_linear.weight"
 
 #: The four sub-models inside the unified flow file, and the prefix each sits
 #: under. There is one texture flow where upstream ships a 512 and a 1024 — the
@@ -74,6 +79,8 @@ def detect_trellis2_role(keys: Iterable[str]) -> str | None:
     keys = list(keys)
 
     if all(_has_prefix(keys, prefix) for prefix in FLOW_PREFIXES.values()):
+        if FLOW_PREFIXES["structure"] + PROJECTION_PROBE in keys:
+            return PIXAL3D_FLOW_BUNDLE
         return FLOW_BUNDLE
     if _has_prefix(keys, STRUCTURE_DECODER_PREFIX) and _has_prefix(keys, SHAPE_DECODER_PREFIX):
         return SHAPE_VAE
@@ -91,6 +98,7 @@ _FILENAME_MARKERS = (
     ("shape_vae", SHAPE_VAE),
     ("texture_vae", TEXTURE_VAE),
     ("dino", IMAGE_ENCODER),
+    ("pixal3d", PIXAL3D_FLOW_BUNDLE),
     ("trellis_2", FLOW_BUNDLE),
     ("trellis2", FLOW_BUNDLE),
 )

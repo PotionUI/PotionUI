@@ -9,7 +9,7 @@ order: 60
 
 Reference pages for each model family PotionUI drives directly, one page per family: what the architecture is, what files/text-encoder/VAE it needs, and what a preset for it looks like. Each family page also lists which optimization and quality techniques apply to it — see [Techniques](../techniques/) for how each of those works and how to turn it on. This section is about the **models**, not preset-authoring mechanics ([Presets](../presets.md)) or how a downloaded file becomes a selectable, backend-loadable row ([Models and Backend Availability](../models.md)) — read those for the surrounding machinery this section assumes.
 
-Ten of the eleven families below run on the native engine ([Native Engine v2](../native-engine.md)): a shared detection/loading/ops/attention/sampling stack that every native transformer family plugs into, so a technique landing once is a candidate for every family on that stack, subject to per-family eligibility. SDXL is the exception — it runs on a `diffusers`-based pipeline stack with its own, separate quality and performance techniques.
+Every family below except SDXL runs on the native engine ([Native Engine v2](../native-engine.md)): a shared detection/loading/ops/attention/sampling stack that every native transformer family plugs into, so a technique landing once is a candidate for every family on that stack, subject to per-family eligibility. SDXL is the exception — it runs on a `diffusers`-based pipeline stack with its own, separate quality and performance techniques.
 
 ## Families
 
@@ -25,6 +25,7 @@ Ten of the eleven families below run on the native engine ([Native Engine v2](..
 - [YuE2](yue2.md) — text-to-music, style tags + tagged lyrics, optional chain-of-thought
 - [SDXL](sdxl.md) — text-to-image, image-to-image, inpaint (diffusers pipeline)
 - [SeedVR2](seedvr2.md) — image and video upscaling
+- [Pixal3D](pixal3d.md) — image to textured 3D mesh, single view or a four-view orbit (TRELLIS.2 with pixel-aligned conditioning)
 
 One preset directory exists that this section does not cover: **Chroma** has loader/generator pipes on disk but no shipped preset and no native-engine detection entry — it is not a working, documentable family.
 
@@ -49,6 +50,12 @@ family, using only their transformer.
 | LTX-2 / 2.3 | yes | no |
 | MiniMax-Music3, YuE2 | yes | no |
 | SDXL, SD 1.x / 2.x, SD3, Chroma | yes (as checkpoints) | no |
+
+TRELLIS.2 and Pixal3D are not in this table: model indexing does not read their headers, so their
+files take their type from the folder they sit in. The Pixal3D bundle uses the same four prefixes
+as the TRELLIS.2 bundle. Only the family's own load-time check (`arch/trellis2/detect.py`, which
+probes for the `proj_linear` weights) tells the two apart, and the single-view and multi-view
+Pixal3D bundles differ only by file name.
 
 bitsandbytes (nf4, fp4) files and GGUF files are never listed as full checkpoints. A plugin can add
 recognition for another family; see

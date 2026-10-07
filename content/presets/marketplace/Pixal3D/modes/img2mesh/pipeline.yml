@@ -1,0 +1,75 @@
+pipeline:
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 52428800
+      auto_detect_type: true
+      media:
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  - name: "model_loader/pixal3d"
+    id: "model_loader"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      shape_vae:
+        file_path: "{{ form.shape_vae }}"
+        name: "{{ form.shape_vae }}"
+      texture_vae:
+        file_path: "{{ form.texture_vae }}"
+        name: "{{ form.texture_vae }}"
+      image_encoder:
+        file_path: "{{ form.image_encoder }}"
+        name: "{{ form.image_encoder }}"
+      matting_model:
+        file_path: "{{ form.matting_model | default('') }}"
+        name: "{{ form.matting_model | default('') }}"
+      resolution_tier: "{{ form.resolution_tier }}"
+      bundle_mode: "single"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.shape_vae }}"]
+        - ["model", "{{ form.texture_vae }}"]
+        - ["model", "{{ form.image_encoder }}"]
+        - ["seed", "{{ form.seed }}"]
+        - ["resolution_tier", "{{ form.resolution_tier }}"]
+        - ["camera_fov", "{{ form.camera_fov }}"]
+        - ["decimation_target", "{{ form.decimation_target }}"]
+        - ["texture_size", "{{ form.texture_size }}"]
+
+  - name: "generator/pixal3d"
+    id: "generator"
+    input:
+      - ["model", "model_loader", "model"]
+      - ["image", "media_loader", "image"]
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      remove_background: "{{ form.remove_background }}"
+      decimation_target: "{{ form.decimation_target }}"
+      texture_size: "{{ form.texture_size }}"
+      camera_fov: "{{ form.camera_fov }}"
+      export_frame: "{{ form.export_frame }}"
+      sparse_structure_steps: "{{ form.sparse_structure_steps }}"
+      sparse_structure_guidance_strength: "{{ form.sparse_structure_guidance_strength }}"
+      sparse_structure_guidance_rescale: "{{ form.sparse_structure_guidance_rescale }}"
+      sparse_structure_rescale_t: "{{ form.sparse_structure_rescale_t }}"
+      shape_steps: "{{ form.shape_steps }}"
+      shape_guidance_strength: "{{ form.shape_guidance_strength }}"
+      shape_guidance_rescale: "{{ form.shape_guidance_rescale }}"
+      shape_rescale_t: "{{ form.shape_rescale_t }}"
+      texture_steps: "{{ form.texture_steps }}"
+      texture_guidance_strength: "{{ form.texture_guidance_strength }}"
+      texture_guidance_rescale: "{{ form.texture_guidance_rescale }}"
+      texture_rescale_t: "{{ form.texture_rescale_t }}"

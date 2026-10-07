@@ -1,0 +1,26 @@
+schema: 1
+id: "01M4AJGF0EQ9DR9NAKEEY3K8P3"
+name: "Pixal3D"
+category: "3d"
+version: "1.0.0"
+engine: "native"
+tags: ["pixal3d", "trellis2", "3d", "mesh", "glb", "pbr", "image-to-3d", "multi-view", "local"]
+
+requires:
+  min_vram_gb: 16
+  recommended_vram_gb: 24
+
+vars:
+  promptless_modes: [img2mesh, views2mesh]
+
+formulas:
+  groups:
+    speed:  { label: "Speed and sampling" }
+    size:   { label: "Size" }
+    camera: { label: "Camera" }
+    mesh:   { label: "Mesh and texture" }
+    models: { label: "Models", preselect: false }
+
+modes:
+  - img2mesh
+  - views2mesh

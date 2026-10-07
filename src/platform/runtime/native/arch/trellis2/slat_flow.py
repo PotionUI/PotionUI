@@ -193,6 +193,35 @@ class _SparseFeedForwardNet(nn.Module):
         return self.mlp(x)
 
 
+class _SparseProjectAttention(nn.Module):
+    def __init__(self, cross_attn_block: nn.Module, channels: int, proj_in_channels: int):
+        super().__init__()
+        self.cross_attn_block = cross_attn_block
+        self.proj_linear = nn.Linear(proj_in_channels, channels, bias=True)
+
+    def forward(self, x: SparseTensor, context) -> SparseTensor:
+        tokens, proj = context
+        global_out = self.cross_attn_block(x, tokens)
+        return global_out.replace(self.proj_linear(proj) + global_out.feats)
+
+
+def _aligned_projection(cond, x: SparseTensor):
+    tokens, proj = cond
+    if not isinstance(proj, SparseTensor):
+        raise TypeError(
+            "projected features must arrive as a SparseTensor on the latent's own coordinates, "
+            f"got {type(proj).__name__}"
+        )
+    if proj.coords is not x.coords and not (
+        proj.coords.shape == x.coords.shape and torch.equal(proj.coords, x.coords)
+    ):
+        raise ValueError(
+            "projected features are not row-aligned with the latent: their coordinates differ "
+            f"from the noise's ({proj.coords.shape[0]} vs {x.coords.shape[0]} rows)"
+        )
+    return tokens, proj.feats
+
+
 class _SLatDiTBlock(nn.Module):
     """Derived from ``ModulatedSparseTransformerCrossBlock``: self-attn (sparse
     tokens, rope) + cross-attn (sparse queries, dense cond kv) + FFN, each
@@ -209,6 +238,8 @@ class _SLatDiTBlock(nn.Module):
         qk_rms_norm_cross: bool = False,
         qkv_bias: bool = True,
         share_mod: bool = False,
+        image_attn_mode: str = "cross",
+        proj_in_channels: Optional[int] = None,
     ):
         super().__init__()
         self.share_mod = share_mod
@@ -223,6 +254,10 @@ class _SLatDiTBlock(nn.Module):
             channels, num_heads, ctx_channels=ctx_channels, attn_type="cross",
             qkv_bias=qkv_bias, qk_rms_norm=qk_rms_norm_cross,
         )
+        if image_attn_mode == "proj":
+            self.cross_attn = _SparseProjectAttention(
+                self.cross_attn, channels, proj_in_channels or ctx_channels
+            )
         self.mlp = _SparseFeedForwardNet(channels, mlp_ratio=mlp_ratio)
         if not share_mod:
             self.adaLN_modulation = nn.Sequential(
@@ -280,6 +315,8 @@ class SLatFlowModel(nn.Module):
         qk_rms_norm: bool = False,
         qk_rms_norm_cross: bool = False,
         qkv_bias: bool = True,
+        image_attn_mode: str = "cross",
+        proj_in_channels: Optional[int] = None,
     ):
         super().__init__()
         if pe_mode != "rope":
@@ -298,6 +335,8 @@ class SLatFlowModel(nn.Module):
         self.share_mod = share_mod
         self.qk_rms_norm = qk_rms_norm
         self.qk_rms_norm_cross = qk_rms_norm_cross
+        self.image_attn_mode = image_attn_mode
+        self.proj_in_channels = proj_in_channels
 
         self.t_embedder = _TimestepEmbedder(model_channels)
         if share_mod:
@@ -317,6 +356,8 @@ class SLatFlowModel(nn.Module):
                 qk_rms_norm_cross=qk_rms_norm_cross,
                 qkv_bias=qkv_bias,
                 share_mod=share_mod,
+                image_attn_mode=image_attn_mode,
+                proj_in_channels=proj_in_channels,
             )
             for _ in range(num_blocks)
         ])
@@ -329,6 +370,8 @@ class SLatFlowModel(nn.Module):
         cond: torch.Tensor,
         concat_cond: Optional[SparseTensor] = None,
     ) -> SparseTensor:
+        if self.image_attn_mode == "proj":
+            cond = _aligned_projection(cond, x)
         if concat_cond is not None:
             x = sparse_cat([x, concat_cond], dim=-1)
 

@@ -55,6 +55,10 @@
     "label": "Image to 3D",
     "icon": "cube"
   },
+  "views2mesh": {
+    "label": "Views to 3D",
+    "icon": "cube"
+  },
   "inpaint": {
     "label": "Inpaint",
     "icon": "brush"

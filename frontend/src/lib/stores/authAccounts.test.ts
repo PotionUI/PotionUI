@@ -264,6 +264,18 @@ describe('authStore with several accounts', () => {
 		expect(hoisted.goto).toHaveBeenCalledWith('/generate', { replaceState: true });
 	});
 
+	it('a soft first login saves the open tabs under the new account right away', async () => {
+		const { authStore, accounts } = await loadAuth();
+		expect(localStorage.getItem(`${TABS_STORAGE_KEY}::alice`)).toBeNull();
+		accounts.syncActive(userRow('alice') as never, 'tok-alice');
+
+		authStore.finishSignIn('/generate');
+
+		const saved = JSON.parse(localStorage.getItem(`${TABS_STORAGE_KEY}::alice`)!);
+		expect(saved.tabs).toHaveLength(1);
+		expect(localStorage.getItem(TABS_STORAGE_KEY)).toBeNull();
+	});
+
 	it('finishSignIn reloads when stored state is waiting for the new identity', async () => {
 		localStorage.setItem(TABS_STORAGE_KEY, 'seeded-before-login');
 		const { authStore, accounts } = await loadAuth();

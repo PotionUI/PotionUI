@@ -199,6 +199,10 @@ function createTabsStore() {
 	return {
 		subscribe,
 
+		persistNow: () => {
+			subscribe((state) => saveTabsToLocalStorage(state.tabs, state.activeTabId))();
+		},
+
 		// Tab management
 		addTab: () => {
 			update((state) => {

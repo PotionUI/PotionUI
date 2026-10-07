@@ -5,6 +5,7 @@ import { api } from '$lib/services/api/index';
 import { logger } from '$lib/utils/logger';
 import { storage } from '$lib/utils/storage';
 import { chatSession } from '$lib/stores/chatSession';
+import { tabsStore } from '$lib/stores/tabs';
 import { nsfwFilterStore } from '$lib/stores/nsfwFilter';
 import { LAST_USER_ID_KEY } from '$lib/stores/identityScopedStorage';
 import { activeAccount } from '$lib/stores/accountRegistry';
@@ -292,8 +293,12 @@ function createAuthStore() {
 		},
 
 		finishSignIn(path: string) {
-			if (needsReloadForIdentity()) hardNavigate(path);
-			else void goto(path, { replaceState: true });
+			if (needsReloadForIdentity()) {
+				hardNavigate(path);
+				return;
+			}
+			tabsStore.persistNow();
+			void goto(path, { replaceState: true });
 		},
 
 		clearError() {

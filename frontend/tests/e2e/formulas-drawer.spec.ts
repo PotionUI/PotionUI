@@ -128,9 +128,9 @@ test.describe('Formulas drawer', () => {
 		await page.screenshot({ path: shotPath(JOURNEY, 'preview') });
 
 		const apply = drawer.getByRole('button', { name: /^Apply/ });
-		await drawer.getByRole('checkbox', { name: 'Apply Resolution' }).uncheck();
+		await drawer.getByRole('checkbox', { name: /^Apply (Image )?Resolution$/ }).uncheck();
 		await expect(apply).toBeDisabled();
-		await drawer.getByRole('checkbox', { name: 'Apply Resolution' }).check();
+		await drawer.getByRole('checkbox', { name: /^Apply (Image )?Resolution$/ }).check();
 		await expect(apply).toBeEnabled();
 
 		await apply.click();

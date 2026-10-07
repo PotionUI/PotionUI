@@ -395,6 +395,120 @@ def _project_to_source(
     return out
 
 
+_CELL_OFFSETS = torch.tensor(
+    [[i, j, k] for i in (-1, 0, 1) for j in (-1, 0, 1) for k in (-1, 0, 1)], dtype=torch.long
+)
+
+def _closest_on_pairs(points: torch.Tensor, tris: torch.Tensor) -> torch.Tensor:
+    eps = 1e-20
+    a, b, c = tris[:, 0], tris[:, 1], tris[:, 2]
+    ab, ac = b - a, c - a
+    normal = torch.cross(ab, ac, dim=-1)
+    norm_sq = (normal * normal).sum(-1)
+    ap = points - a
+    weight_c = (torch.cross(ab, ap, dim=-1) * normal).sum(-1) / norm_sq.clamp_min(eps)
+    weight_b = (torch.cross(ap, ac, dim=-1) * normal).sum(-1) / norm_sq.clamp_min(eps)
+    inside = (weight_b >= 0) & (weight_c >= 0) & (weight_b + weight_c <= 1) & (norm_sq > eps)
+    interior = a + ab * weight_b.unsqueeze(-1) + ac * weight_c.unsqueeze(-1)
+
+    def on_segment(start, end):
+        direction = end - start
+        t = ((points - start) * direction).sum(-1) / (direction * direction).sum(-1).clamp_min(eps)
+        return start + direction * t.clamp(0, 1).unsqueeze(-1)
+
+    candidates = torch.stack([interior, on_segment(a, b), on_segment(b, c), on_segment(c, a)], dim=1)
+    distances = (candidates - points.unsqueeze(1)).pow(2).sum(-1)
+    distances[:, 0] = torch.where(inside, distances[:, 0], torch.full_like(distances[:, 0], float("inf")))
+    best = distances.argmin(dim=1)
+    return candidates[torch.arange(points.shape[0], device=points.device), best]
+
+class _TriangleGrid:
+    def __init__(self, vertices: torch.Tensor, faces: torch.Tensor, cell: float) -> None:
+        self.vertices = vertices
+        self.faces = faces
+        self.cell = float(cell)
+        centroids = (vertices[faces[:, 0]] + vertices[faces[:, 1]] + vertices[faces[:, 2]]) / 3.0
+        self.origin = centroids.amin(dim=0) - self.cell
+        self.dims = ((centroids.amax(dim=0) - self.origin) / self.cell).floor().to(torch.long) + 2
+        codes = self._code(self._cell_of(centroids))
+        self.sorted_codes, self.order = torch.sort(codes)
+
+    def _cell_of(self, points: torch.Tensor) -> torch.Tensor:
+        return ((points - self.origin) / self.cell).floor().to(torch.long)
+
+    def _code(self, cells: torch.Tensor) -> torch.Tensor:
+        return (cells[..., 0] * int(self.dims[1]) + cells[..., 1]) * int(self.dims[2]) + cells[..., 2]
+
+    def _ranges(self, points: torch.Tensor):
+        cells = self._cell_of(points).unsqueeze(1) + _CELL_OFFSETS.to(points.device)
+        valid = ((cells >= 0) & (cells < self.dims.to(points.device))).all(dim=-1)
+        codes = self._code(cells.clamp_min(0))
+        low = torch.searchsorted(self.sorted_codes, codes.reshape(-1)).reshape(codes.shape)
+        high = torch.searchsorted(self.sorted_codes, codes.reshape(-1), right=True).reshape(codes.shape)
+        return low, torch.where(valid, high - low, torch.zeros_like(low))
+
+    def nearest(self, points: torch.Tensor, budget: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        count = points.shape[0]
+        out = points.clone()
+        distance = torch.full((count,), float("inf"), dtype=points.dtype, device=points.device)
+        pending = [torch.arange(count, device=points.device)]
+        while pending:
+            rows = pending.pop()
+            low, size = self._ranges(points[rows])
+            total = int(size.sum())
+            if total > budget and rows.shape[0] > 1:
+                half = rows.shape[0] // 2
+                pending.extend([rows[:half], rows[half:]])
+                continue
+            if total == 0:
+                continue
+            flat_size = size.reshape(-1)
+            slot = torch.repeat_interleave(torch.arange(flat_size.shape[0], device=points.device), flat_size)
+            start = torch.cumsum(flat_size, dim=0) - flat_size
+            position = low.reshape(-1)[slot] + torch.arange(total, device=points.device) - start[slot]
+            owner = slot // _CELL_OFFSETS.shape[0]
+            face = self.order[position]
+            tris = self.vertices[self.faces[face]]
+            query = points[rows][owner]
+            closest = _closest_on_pairs(query, tris)
+            squared = (closest - query).pow(2).sum(-1)
+            best = torch.full((rows.shape[0],), float("inf"), dtype=squared.dtype, device=points.device)
+            best = best.scatter_reduce(0, owner, squared, reduce="amin", include_self=True)
+            tied = squared == best[owner]
+            pick = torch.full((rows.shape[0],), total, dtype=torch.long, device=points.device)
+            pick = pick.scatter_reduce(
+                0, owner, torch.where(tied, torch.arange(total, device=points.device), torch.full_like(owner, total)),
+                reduce="amin", include_self=True,
+            )
+            hit = pick < total
+            out[rows[hit]] = closest[pick[hit]]
+            distance[rows[hit]] = best[hit].sqrt()
+        return out, distance
+
+def _project_to_source_grid(
+    positions: torch.Tensor,
+    source_vertices: np.ndarray,
+    source_faces: np.ndarray,
+    cell: float,
+    reach: float,
+    budget: int = 6_000_000,
+) -> torch.Tensor:
+    if positions.shape[0] == 0 or source_faces.shape[0] == 0:
+        return positions
+    device = positions.device
+    grid = _TriangleGrid(
+        torch.from_numpy(np.ascontiguousarray(source_vertices, dtype=np.float32)).to(device),
+        torch.from_numpy(np.ascontiguousarray(source_faces, dtype=np.int64)).to(device),
+        cell,
+    )
+    projected, distance = grid.nearest(positions.to(torch.float32), budget)
+    missed = ~(distance <= reach)
+    if bool(missed.any()):
+        projected[missed] = _project_to_source(
+            positions[missed].to(torch.float32), source_vertices, source_faces
+        )
+    return projected
+
 def _resolve_volume_geometry(
     aabb, voxel_size, coords_device: torch.device
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -451,7 +565,7 @@ def build_textured_mesh(
     decimation_target: int = 1_000_000,
     texture_size: int = 2048,
     attr_layout: Optional[Dict[str, slice]] = None,
-    project_to_source: bool = False,
+    project_to_source: bool = True,
     is_cancelled: Optional[Callable[[], bool]] = None,
     remesh: bool = True,
     remesh_band: float = 1.0,
@@ -513,7 +627,9 @@ def build_textured_mesh(
     if bool(covered.any()):
         sampled_at = positions[covered]
         if project_to_source:
-            sampled_at = _project_to_source(sampled_at, source_vertices, source_faces)
+            sampled_at = _project_to_source_grid(
+                sampled_at, source_vertices, source_faces, cell=2.0 * float(voxel.max()), reach=float(voxel.max())
+            )
         attrs[covered] = _sample_attributes(sampled_at, attr_volume, coords, aabb_t, voxel, grid_size)
 
     def channel(name: str, radius: int) -> np.ndarray:
@@ -564,7 +680,7 @@ def postprocess_to_glb(
     texture_size: int = 2048,
     out_path: Optional[str] = None,
     attr_layout: Optional[Dict[str, slice]] = None,
-    project_to_source: bool = False,
+    project_to_source: bool = True,
     embed_webp: bool = True,
     is_cancelled: Optional[Callable[[], bool]] = None,
     remesh: bool = True,

@@ -438,7 +438,7 @@ def test_projection_to_source_pulls_texels_onto_the_undecimated_surface():
     attrs, coords, voxel_size = _linear_colour_shell()
     kwargs = dict(voxel_size=voxel_size, decimation_target=300, texture_size=64)
 
-    plain = build_textured_mesh(vertices, faces, attrs, coords, **kwargs)
+    plain = build_textured_mesh(vertices, faces, attrs, coords, project_to_source=False, **kwargs)
     projected = build_textured_mesh(vertices, faces, attrs, coords, project_to_source=True, **kwargs)
 
     def radial_error(mesh):

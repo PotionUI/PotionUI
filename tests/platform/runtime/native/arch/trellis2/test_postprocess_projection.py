@@ -19,6 +19,7 @@ from src.platform.runtime.native.arch.trellis2.postprocess import (
     _closest_point_on_triangles,
     _project_exhaustive,
     _project_to_source,
+    _project_to_source_grid,
     _source_spatial_index,
     build_textured_mesh,
 )
@@ -180,6 +181,13 @@ def test_projection_falls_back_to_the_exhaustive_scan_without_scipy(monkeypatch)
     assert torch.equal(got, _reference(points, vertices, faces))
 
 
+def test_default_bake_projects_onto_the_source_surface():
+    import inspect
+
+    assert inspect.signature(build_textured_mesh).parameters["project_to_source"].default is True
+    assert inspect.signature(postprocess.postprocess_to_glb).parameters["project_to_source"].default is True
+
+
 def _volume_and_coords(grid=24):
     """A linear colour field over the unit cube, the fixture shape
     ``build_textured_mesh`` expects."""
@@ -195,7 +203,7 @@ def _volume_and_coords(grid=24):
 
 
 @pytest.mark.parametrize("texture_size", [32, 64])
-def test_projection_is_opt_in_and_changes_nothing_but_the_sampled_positions(texture_size):
+def test_projection_changes_nothing_but_the_sampled_positions(texture_size):
     vertices, faces = _sphere(subdivisions=3)
     attrs, coords, voxel_size = _volume_and_coords()
     kwargs = dict(
@@ -203,17 +211,17 @@ def test_projection_is_opt_in_and_changes_nothing_but_the_sampled_positions(text
     )
 
     calls = []
-    real = postprocess._project_to_source
-    postprocess._project_to_source = lambda *a, **k: calls.append(1) or real(*a, **k)
+    real = postprocess._project_to_source_grid
+    postprocess._project_to_source_grid = lambda *a, **k: calls.append(1) or real(*a, **k)
     try:
-        plain = build_textured_mesh(vertices, faces, attrs, coords, **kwargs)
+        plain = build_textured_mesh(vertices, faces, attrs, coords, project_to_source=False, **kwargs)
         assert calls == []
         projected = build_textured_mesh(
             vertices, faces, attrs, coords, project_to_source=True, **kwargs
         )
         assert calls == [1]
     finally:
-        postprocess._project_to_source = real
+        postprocess._project_to_source_grid = real
 
     assert np.array_equal(plain.faces, projected.faces)
     assert np.allclose(plain.vertices, projected.vertices)
@@ -348,3 +356,75 @@ def test_triangle_slicing_matches_a_single_kernel_call_including_ties():
     for budget in (1, 2, 61, 122, 1 << 20):
         assert torch.equal(_closest_over_triangle_chunks(points, tris, budget), expected)
         assert torch.equal(_project_exhaustive(points, tris, budget), expected)
+
+
+def _shell_volume(grid, radius, colour):
+    axis = np.arange(grid)
+    coords = np.stack(np.meshgrid(axis, axis, axis, indexing="ij"), axis=-1).reshape(-1, 3)
+    centres = (coords + 0.5) / grid - 0.5
+    keep = np.abs(np.linalg.norm(centres, axis=1) - radius) < 0.87 / grid
+    attrs = np.zeros((int(keep.sum()), 6), dtype=np.float32)
+    attrs[:, :3] = colour
+    attrs[:, 3:] = 0.5
+    return torch.from_numpy(attrs), torch.from_numpy(coords[keep]).long()
+
+
+def _covered_rgb(mesh):
+    texture = np.asarray(mesh.visual.material.baseColorTexture)
+    return texture[..., :3].reshape(-1, 3)
+
+
+def test_a_decimated_mesh_off_the_voxel_shell_still_bakes_the_shell_colour():
+    grid, radius = 64, 0.35
+    mesh = trimesh.creation.icosphere(subdivisions=5, radius=radius)
+    vertices = mesh.vertices.astype(np.float32)
+    faces = mesh.faces.astype(np.int64)
+    attrs, coords = _shell_volume(grid, radius, 0.8)
+    kwargs = dict(voxel_size=1.0 / grid, decimation_target=40, texture_size=256)
+
+    baked = build_textured_mesh(vertices, faces, attrs, coords, **kwargs)
+    unprojected = build_textured_mesh(vertices, faces, attrs, coords, project_to_source=False, **kwargs)
+
+    assert (_covered_rgb(unprojected).max(axis=1) < 20).mean() > 0.05
+    assert (_covered_rgb(baked).max(axis=1) < 20).mean() == 0.0
+    assert _covered_rgb(baked).min() >= 190
+
+
+def test_grid_projection_matches_the_exact_closest_point():
+    vertices, faces = _sphere(subdivisions=3)
+    rng = np.random.default_rng(5)
+    direction = rng.normal(size=(500, 3))
+    direction /= np.linalg.norm(direction, axis=1, keepdims=True)
+    points = torch.from_numpy((direction * rng.uniform(0.3, 0.5, size=(500, 1))).astype(np.float32))
+
+    got = _project_to_source_grid(points, vertices, faces, cell=0.1, reach=1.0)
+
+    assert torch.allclose(got, _reference(points, vertices, faces), atol=1e-6)
+
+
+def test_grid_projection_answers_far_points_through_the_exact_fallback():
+    vertices, faces = _sphere(subdivisions=2)
+    points = torch.tensor([[3.0, 0.2, -1.0], [0.0, 0.0, 0.0], [0.41, 0.0, 0.0]])
+
+    got = _project_to_source_grid(points, vertices, faces, cell=0.05, reach=0.05)
+
+    assert torch.allclose(got, _reference(points, vertices, faces), atol=1e-6)
+
+
+def test_grid_projection_under_a_tiny_budget_gives_the_same_answer():
+    vertices, faces = _sphere(subdivisions=3)
+    rng = np.random.default_rng(9)
+    direction = rng.normal(size=(300, 3))
+    direction /= np.linalg.norm(direction, axis=1, keepdims=True)
+    points = torch.from_numpy((direction * 0.41).astype(np.float32))
+
+    whole = _project_to_source_grid(points, vertices, faces, cell=0.1, reach=1.0)
+    split = _project_to_source_grid(points, vertices, faces, cell=0.1, reach=1.0, budget=2000)
+
+    assert torch.equal(whole, split)
+
+
+def test_grid_projection_of_nothing_returns_nothing():
+    vertices, faces = _sphere()
+
+    assert _project_to_source_grid(torch.zeros((0, 3)), vertices, faces, cell=0.1, reach=0.1).shape == (0, 3)

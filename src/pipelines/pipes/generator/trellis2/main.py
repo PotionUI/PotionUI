@@ -109,7 +109,7 @@ class GeneratorTrellis2Pipe(BasePipe):
             "decimation_target": 100000,
             "texture_size": 2048,
             "max_num_tokens": 49152,
-            "project_to_source": False,
+            "project_to_source": True,
             "remesh": True,
             "device": "cuda",
         }
@@ -142,10 +142,10 @@ class GeneratorTrellis2Pipe(BasePipe):
                            "too detailed for the tier is decoded at a coarser one instead of "
                            "failing.",
                            required=False, min_value=4096, max_value=262144),
-            PipeConfigSpec("project_to_source", bool, False,
-                           "Push baked texels back onto the pre-decimation surface. More "
-                           "accurate and much slower — the query has no acceleration structure "
-                           "on CPU.", required=False),
+            PipeConfigSpec("project_to_source", bool, True,
+                           "Push baked texels back onto the pre-decimation surface before "
+                           "sampling colour, so decimated faces that drift off the voxel shell "
+                           "do not read empty space.", required=False),
             PipeConfigSpec("remesh", bool, True,
                            "Rebuild the decoded surface as a closed, consistently wound mesh "
                            "(narrow-band dual contouring one voxel off the surface) before "
@@ -400,7 +400,7 @@ class GeneratorTrellis2Pipe(BasePipe):
                 decimation_target=int(self.config.get("decimation_target", 100000)),
                 texture_size=int(self.config.get("texture_size", 2048)),
                 out_path=out_path,
-                project_to_source=bool(self.config.get("project_to_source", False)),
+                project_to_source=bool(self.config.get("project_to_source", True)),
                 is_cancelled=is_cancelled,
                 remesh=bool(self.config.get("remesh", True)),
             )

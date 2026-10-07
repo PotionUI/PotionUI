@@ -6,7 +6,11 @@ const TABS_KEY = 'potionui_tabs_state';
 const PASSWORD = 'e2e-password-1';
 
 async function registry(page: Page) {
-	return page.evaluate(() => JSON.parse(localStorage.getItem('potionui_accounts') ?? 'null'));
+	try {
+		return await page.evaluate(() => JSON.parse(localStorage.getItem('potionui_accounts') ?? 'null'));
+	} catch {
+		return null;
+	}
 }
 
 async function activeUserId(page: Page): Promise<string | null> {

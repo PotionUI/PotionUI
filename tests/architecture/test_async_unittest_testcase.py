@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
@@ -36,6 +37,14 @@ SKIP_DIRS = {"__pycache__", "node_modules", "venv", ".git", ".svelte-kit", "dist
 # is itself a unittest.TestCase subclass.
 SAFE_BASE = "IsolatedAsyncioTestCase"
 UNSAFE_BASE = "TestCase"
+CLASS_RE = re.compile(r"^[ \t]*class[ \t]+(\w+)[ \t]*\(([^)]*)\)", re.M)
+
+
+def _text_base_name(part: str):
+    part = part.split("[", 1)[0].strip()
+    if not part or "=" in part:
+        return None
+    return part.rsplit(".", 1)[-1].strip() or None
 
 
 def _py_files():
@@ -75,6 +84,11 @@ def _collect():
     for f in _py_files():
         source = f.read_text(encoding="utf-8")
         if "class " not in source:
+            continue
+        for match in CLASS_RE.finditer(source):
+            bases = {_text_base_name(part) for part in match.group(2).split(",")}
+            global_bases.setdefault(match.group(1), set()).update(b for b in bases if b)
+        if "async def test" not in source:
             continue
         try:
             tree = ast.parse(source, filename=str(f))

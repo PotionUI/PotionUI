@@ -329,7 +329,8 @@ def test_baked_texels_carry_the_colour_of_the_position_that_sampled_them():
     attrs, coords, voxel_size = _linear_colour_shell()
 
     mesh = build_textured_mesh(
-        vertices, faces, attrs, coords, voxel_size=voxel_size, decimation_target=2000, texture_size=512
+        vertices, faces, attrs, coords, voxel_size=voxel_size, decimation_target=2000, texture_size=512,
+        project_to_source=False,
     )
 
     texture = np.asarray(mesh.visual.material.baseColorTexture)

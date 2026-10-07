@@ -627,8 +627,9 @@ def build_textured_mesh(
     if bool(covered.any()):
         sampled_at = positions[covered]
         if project_to_source:
+            reach = (1.0 + (remesh_band if remesh else 0.0)) * float(voxel.max())
             sampled_at = _project_to_source_grid(
-                sampled_at, source_vertices, source_faces, cell=2.0 * float(voxel.max()), reach=float(voxel.max())
+                sampled_at, source_vertices, source_faces, cell=reach + float(voxel.max()), reach=reach
             )
         attrs[covered] = _sample_attributes(sampled_at, attr_volume, coords, aabb_t, voxel, grid_size)
 

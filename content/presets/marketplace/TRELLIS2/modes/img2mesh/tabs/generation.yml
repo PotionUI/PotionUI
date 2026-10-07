@@ -36,7 +36,7 @@ fields:
             label: "Decimation Target"
             default: 100000
             description: "Face budget the exported mesh is simplified down to."
-            ai_hint: "This dominates export time, not generation time: the UV unwrap runs on CPU and scales worse than linearly — roughly 12 seconds at 50k faces and over ten minutes at 200k. Keep it at or below the 100k default unless the user explicitly wants a denser asset and accepts the wait; raise it only for a final export."
+            ai_hint: "This costs export time, not generation time: the UV unwrap runs on CPU and grows faster than the face count — at the default Balanced unwrap about 2 seconds at 50k faces, 5 at 100k, 12 at 200k and 20 at 300k, and roughly four times that on Best. The 100k default suits most uses; go higher when the user wants a denser final asset."
             configuration:
               min: 20000
               max: 300000

@@ -57,6 +57,7 @@ pipeline:
       remove_background: "{{ form.remove_background }}"
       decimation_target: "{{ form.decimation_target }}"
       texture_size: "{{ form.texture_size }}"
+      uv_quality: "{{ form.uv_quality }}"
       sparse_structure_steps: "{{ form.sparse_structure_steps }}"
       sparse_structure_guidance_strength: "{{ form.sparse_structure_guidance_strength }}"
       sparse_structure_guidance_rescale: "{{ form.sparse_structure_guidance_rescale }}"

@@ -335,6 +335,15 @@ def test_remeshing_is_on_by_default_and_the_form_can_turn_it_off(recorded_run, e
     assert exported[1]["remesh"] is False
 
 
+def test_uv_quality_defaults_to_balanced_and_the_form_can_pick_another(recorded_run, exported):
+    _run_pipe(_config())
+    _run_pipe(_config(uv_quality="best"))
+    assert exported[0]["uv_quality"] == "balanced"
+    assert exported[1]["uv_quality"] == "best"
+    spec = {spec.name: spec for spec in GeneratorTrellis2Pipe.configuration()}["uv_quality"]
+    assert list(spec.choices) == ["fast", "balanced", "best"]
+
+
 def test_an_empty_decode_is_reported_as_a_generation_failure(recorded_run, monkeypatch):
     def _empty(**kwargs):
         raise ValueError("no geometry to post-process: 0 input faces cleaned down to nothing")

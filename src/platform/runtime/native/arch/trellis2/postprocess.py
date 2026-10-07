@@ -85,6 +85,7 @@ import torch.nn.functional as F
 
 from src.platform.runtime.offload.mesh_diagnostics import StageRecorder, log_stage_row
 from src.platform.runtime.offload.mesh_ops import (
+    DEFAULT_UV_QUALITY,
     clean_and_decimate_arrays,
     clean_and_decimate_traced,
     decimate_traced,
@@ -150,11 +151,12 @@ def unwrap_uv(
     vertices: np.ndarray,
     faces: np.ndarray,
     is_cancelled: Optional[Callable[[], bool]] = None,
+    quality: str = DEFAULT_UV_QUALITY,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """``xatlas`` UV atlas. Returns ``(vertices, faces, uvs, normals)`` for the
     cut vertex set — charts duplicate vertices along their seams, so the vertex
     count grows and normals are carried over through xatlas' vertex mapping."""
-    return _offload(unwrap_uv_arrays, vertices, faces, is_cancelled=is_cancelled)
+    return _offload(unwrap_uv_arrays, vertices, faces, quality, is_cancelled=is_cancelled)
 
 
 def _push_pull_fill(value: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
@@ -569,6 +571,7 @@ def build_textured_mesh(
     is_cancelled: Optional[Callable[[], bool]] = None,
     remesh: bool = True,
     remesh_band: float = 1.0,
+    uv_quality: str = DEFAULT_UV_QUALITY,
 ):
     """Run the whole chain and return the textured ``trimesh.Trimesh``.
 
@@ -613,7 +616,7 @@ def build_textured_mesh(
             "cleaned down to nothing"
         )
     recorder.reset()
-    uv_vertices, uv_faces, uvs, uv_normals = unwrap_uv(clean_vertices, clean_faces, is_cancelled=is_cancelled)
+    uv_vertices, uv_faces, uvs, uv_normals = unwrap_uv(clean_vertices, clean_faces, is_cancelled=is_cancelled, quality=uv_quality)
     log_stage_row(recorder.record("unwrap", uv_vertices, uv_faces))
 
     uvs_t = torch.from_numpy(uvs).to(device)
@@ -687,6 +690,7 @@ def postprocess_to_glb(
     embed_webp: bool = True,
     is_cancelled: Optional[Callable[[], bool]] = None,
     remesh: bool = True,
+    uv_quality: str = DEFAULT_UV_QUALITY,
 ) -> None:
     """Write the post-processed, textured mesh to ``out_path`` as a GLB.
 
@@ -708,6 +712,7 @@ def postprocess_to_glb(
         project_to_source=project_to_source,
         is_cancelled=is_cancelled,
         remesh=remesh,
+        uv_quality=uv_quality,
     )
     recorder = StageRecorder()
     mesh.export(out_path, file_type="glb", extension_webp=embed_webp)

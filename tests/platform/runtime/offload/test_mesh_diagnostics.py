@@ -69,3 +69,24 @@ def test_traced_cleanup_reports_every_substep(sphere):
     assert names[0] == "clean_unreferenced"
     assert "decimate_1x" in names and "tidy_1x_hole_fill" in names and names[-1] == "fix_normals"
     assert rows[-1][1] == out_faces.shape[0]
+
+
+def test_signed_zero_coordinates_weld_together(sphere):
+    vertices, faces = sphere
+    split_vertices = vertices[faces].reshape(-1, 3)
+    split_vertices[np.isclose(split_vertices, 0.0)] = 0.0
+    negated = split_vertices.copy()
+    negated[negated == 0.0] = -0.0
+    split_vertices[1::2] = negated[1::2]
+    split_faces = np.arange(split_vertices.shape[0]).reshape(-1, 3)
+    assert np.signbit(split_vertices[split_vertices == 0.0]).any()
+    assert boundary_and_components(split_vertices, split_faces) == (0, 1)
+
+
+def test_boundary_count_above_the_face_limit_matches_the_count_below_it(sphere, monkeypatch):
+    vertices, faces = sphere
+    opened = faces[np.arange(faces.shape[0]) % 7 != 0]
+    below = boundary_and_components(vertices, opened)
+    monkeypatch.setattr(mesh_diagnostics, "MAX_COMPONENT_FACES", 5)
+    assert below[0] > 0
+    assert boundary_and_components(vertices, opened) == (below[0], -1)

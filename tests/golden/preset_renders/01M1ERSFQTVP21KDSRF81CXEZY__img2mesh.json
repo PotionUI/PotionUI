@@ -202,6 +202,10 @@
         "texture_steps": {
           "type": "int",
           "value": 12
+        },
+        "uv_quality": {
+          "type": "str",
+          "value": "balanced"
         }
       },
       "enabled": {

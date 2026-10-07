@@ -63,6 +63,7 @@ from src.platform.observability.profiling import get_profiler, profiling_enabled
 from src.platform.runtime.native.arch.trellis2.config import STAGE_SAMPLING, TEX_SLAT_NORMALIZATION, StageSampling
 from src.platform.runtime.native.arch.trellis2.image_to_mesh import AABB, normalize_slat, run_image_to_mesh
 from src.platform.runtime.native.arch.trellis2.postprocess import PBR_ATTR_LAYOUT, postprocess_to_glb
+from src.platform.runtime.offload.mesh_ops import DEFAULT_UV_QUALITY, UV_QUALITIES
 from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.util.latents import generate_seed
 
@@ -111,6 +112,7 @@ class GeneratorTrellis2Pipe(BasePipe):
             "max_num_tokens": 49152,
             "project_to_source": True,
             "remesh": True,
+            "uv_quality": DEFAULT_UV_QUALITY,
             "device": "cuda",
         }
         for stage, defaults in STAGE_SAMPLING.items():
@@ -132,8 +134,9 @@ class GeneratorTrellis2Pipe(BasePipe):
                            required=False),
             PipeConfigSpec("decimation_target", int, 100000,
                            "Face budget the exported mesh is decimated to. The UV unwrap is "
-                           "CPU-bound and scales worse than linearly, so this dominates export "
-                           "time above ~100k.",
+                           "CPU-bound and grows faster than the face count: at the balanced "
+                           "unwrap quality about 2s at 50k, 5s at 100k, 12s at 200k and 20s at "
+                           "300k faces.",
                            required=False, min_value=5000, max_value=1000000),
             PipeConfigSpec("texture_size", int, 2048, "Edge length of the baked PBR texture maps",
                            required=False, choices=[1024, 2048, 4096]),
@@ -151,6 +154,14 @@ class GeneratorTrellis2Pipe(BasePipe):
                            "(narrow-band dual contouring one voxel off the surface) before "
                            "decimating, as upstream does. Off keeps the decoded topology, "
                            "voxel-scale tears included.", required=False),
+            PipeConfigSpec("uv_quality", str, DEFAULT_UV_QUALITY,
+                           "How much work the xatlas UV unwrap does. fast and balanced grow the "
+                           "charts in a single pass, seconds at 100k faces; balanced also packs "
+                           "them on a finer grid with a 2-texel gutter so the bake does not bleed "
+                           "across seams. best adds xatlas' seed-relocation pass for fewer, "
+                           "rounder charts: about 4x longer on a remeshed surface and minutes on "
+                           "an unremeshed one.",
+                           required=False, choices=list(UV_QUALITIES)),
             PipeConfigSpec("device", str, "cuda", "Compute device", required=False,
                            choices=["cuda", "cpu"]),
         ]
@@ -456,6 +467,7 @@ class GeneratorTrellis2Pipe(BasePipe):
                 project_to_source=bool(self.config.get("project_to_source", True)),
                 is_cancelled=is_cancelled,
                 remesh=bool(self.config.get("remesh", True)),
+                uv_quality=str(self.config.get("uv_quality", DEFAULT_UV_QUALITY)),
             )
         except BaseException as exc:
             if os.path.exists(out_path):

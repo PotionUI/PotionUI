@@ -320,6 +320,21 @@ def test_a_decode_with_no_surface_is_reported_not_crashed(vertices, faces):
         )
 
 
+def _gltf_texcoords(mesh):
+    import json
+    import struct
+
+    blob = trimesh.exchange.gltf.export_glb(mesh)
+    json_length = struct.unpack_from("<I", blob, 12)[0]
+    document = json.loads(blob[20 : 20 + json_length])
+    binary = blob[20 + json_length + 8 :]
+    primitive = document["meshes"][0]["primitives"][0]
+    accessor = document["accessors"][primitive["attributes"]["TEXCOORD_0"]]
+    view = document["bufferViews"][accessor["bufferView"]]
+    offset = view.get("byteOffset", 0) + accessor.get("byteOffset", 0)
+    return np.frombuffer(binary, dtype="<f4", count=accessor["count"] * 2, offset=offset).reshape(-1, 2)
+
+
 def test_baked_texels_carry_the_colour_of_the_position_that_sampled_them():
     """The end-to-end oracle. Read each vertex's texel back through the glTF UV
     convention (u -> column, v -> row from the top) and compare against the
@@ -335,7 +350,7 @@ def test_baked_texels_carry_the_colour_of_the_position_that_sampled_them():
 
     texture = np.asarray(mesh.visual.material.baseColorTexture)
     size = texture.shape[0]
-    uvs = np.asarray(mesh.visual.uv)
+    uvs = _gltf_texcoords(mesh)
     expected = _undo_export_transform(np.asarray(mesh.vertices)) + 0.5
 
     col = np.clip((uvs[:, 0] * size).astype(int), 0, size - 1)

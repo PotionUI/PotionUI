@@ -664,7 +664,9 @@ def build_textured_mesh(
         faces=uv_faces,
         vertex_normals=export_normals,
         process=False,
-        visual=trimesh.visual.TextureVisuals(uv=uvs, material=material),
+        visual=trimesh.visual.TextureVisuals(
+            uv=np.stack([uvs[:, 0], 1.0 - uvs[:, 1]], axis=-1), material=material
+        ),
     )
     log_stage_row(recorder.record("bake", export_vertices, uv_faces))
     return textured

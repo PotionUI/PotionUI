@@ -21,7 +21,7 @@ async function openMenu(page: Page) {
 
 async function menuHeaderName(page: Page): Promise<string> {
 	await openMenu(page);
-	const header = page.getByTestId('user-menu-active').locator('xpath=ancestor::div[contains(@class,"border-b")][1]');
+	const header = page.getByTestId('user-menu-active').locator('xpath=ancestor::*[@data-testid="user-menu-identity"][1]');
 	const text = (await header.innerText()).trim();
 	await page.keyboard.press('Escape');
 	return text;

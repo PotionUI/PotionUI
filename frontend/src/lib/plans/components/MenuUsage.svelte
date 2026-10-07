@@ -19,11 +19,6 @@
 		if (storageRow) return formatAmount(storageRow);
 		return storageBytes === null ? null : `${formatBytes(storageBytes)} · no limit`;
 	});
-	const surface = {
-		ok: 'border-line',
-		warn: 'border-warning/40',
-		full: 'border-danger/40'
-	} as const;
 </script>
 
 {#if row}
@@ -31,7 +26,7 @@
 		type="button"
 		role="menuitem"
 		onclick={onOpen}
-		class="block w-full text-left rounded border bg-surface-1 px-2.5 py-2 hover:bg-surface-3 transition-colors {surface[row.state]}"
+		class="block w-full text-left rounded px-2.5 py-2 hover:bg-surface-3 transition-colors"
 		data-menu-usage
 	>
 		<span class="flex items-baseline justify-between gap-2">
@@ -50,7 +45,7 @@
 		type="button"
 		role="menuitem"
 		onclick={onOpen}
-		class="flex w-full items-baseline justify-between gap-2 rounded px-2.5 py-2 text-left hover:bg-surface-3 transition-colors {row ? 'mt-1' : ''}"
+		class="flex w-full items-baseline justify-between gap-2 rounded px-2.5 py-2 text-left hover:bg-surface-3 transition-colors"
 		data-menu-storage
 	>
 		<span class="text-2xs font-medium uppercase tracking-wide text-fg-subtle">Storage</span>

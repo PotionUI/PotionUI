@@ -410,7 +410,7 @@
 					</Button>
 				</div>
 				{#if accountsSheetOpen}
-					<AccountsSheet activeUsername={user.username} onClose={() => (accountsSheetOpen = false)} />
+					<AccountsSheet onClose={() => (accountsSheetOpen = false)} />
 				{/if}
 				{#if avatarPickerOpen}
 					<div class="mt-3">

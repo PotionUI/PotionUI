@@ -41,6 +41,8 @@ vi.mock('$lib/stores/auth', () => ({
 }));
 
 const accounts = await import('$lib/stores/accounts');
+const { nsfwFilterStore } = await import('$lib/stores/nsfwFilter');
+const { limits, storageUsed, resetLimitsState } = await import('$lib/plans/store');
 const { ACCOUNTS_STORAGE_KEY } = await import('$lib/stores/accountRegistry');
 const { activeConfirm, settleConfirm, cancelAllConfirms } = await import('$lib/stores/confirm');
 const { page } = await import('../../tests/component/stubs/appStores');
@@ -137,6 +139,8 @@ beforeEach(() => {
 
 afterEach(() => {
 	cancelAllConfirms();
+	nsfwFilterStore.reset();
+	resetLimitsState();
 	vi.unstubAllGlobals();
 	document.body.innerHTML = '';
 });
@@ -272,29 +276,150 @@ describe('UserMenu account switcher', () => {
 	});
 });
 
+const storageRow = {
+	kind: 'storage_bytes',
+	label: 'Storage',
+	used: 3.2 * 2 ** 30,
+	limit: 10 * 2 ** 30,
+	format: 'bytes',
+	resets_at: null,
+	state: 'ok',
+	percent: null,
+	enforced: true
+};
+
+function headers(target: HTMLElement) {
+	return Array.from(target.querySelectorAll('[data-section-header]')).map((h) => h.textContent?.replace(/\s+/g, ' ').trim());
+}
+
+describe('UserMenu section cards', () => {
+	it('groups the menu into Accounts, Workspace, Content and Session cards', async () => {
+		seed('alice', [{ id: 'alice' }, { id: 'bob' }]);
+		const menu = await openMenu();
+
+		expect(headers(menu.target)).toEqual(['Accounts 2 / 5', 'Workspace', 'Content', 'Session']);
+		const identity = menu.target.querySelector('[data-testid="user-menu-identity"]')!;
+		expect(identity.textContent).toContain('alice');
+		expect(identity.textContent).toContain('Admin');
+		expect(identity.textContent).not.toContain('@');
+		menu.destroy();
+	});
+
+	it('drops the Content section for restricted users', async () => {
+		seed('alice', [{ id: 'alice' }]);
+		nsfwFilterStore.setRestricted(true);
+		const menu = await openMenu();
+
+		expect(headers(menu.target)).toEqual(['Accounts 1 / 5', 'Workspace', 'Session']);
+		expect(menu.target.querySelector('[role="radiogroup"]')).toBeNull();
+		menu.destroy();
+	});
+
+	it('puts Sensitive content on one row with the segmented control', async () => {
+		seed('alice', [{ id: 'alice' }]);
+		const menu = await openMenu();
+
+		const row = menu.target.querySelector('[data-testid="user-menu-content-row"]')!;
+		expect(row.textContent).toContain('Sensitive content');
+		expect(Array.from(row.querySelectorAll('[role="radio"]')).map((r) => r.textContent?.trim())).toEqual([
+			'Blur',
+			'Show',
+			'Hide'
+		]);
+		menu.destroy();
+	});
+
+	it('shows storage with no limit and no meter without a quota', async () => {
+		seed('alice', [{ id: 'alice' }]);
+		storageUsed.set(0);
+		const menu = await openMenu();
+
+		expect(menu.target.querySelector('[data-menu-storage]')?.textContent).toContain('0 B · no limit');
+		expect(menu.target.querySelector('[role="progressbar"]')).toBeNull();
+		menu.destroy();
+	});
+
+	it('shows a quota meter with the plan link, and the warning colour near the limit', async () => {
+		seed('alice', [{ id: 'alice' }]);
+		limits.set([{ ...storageRow, used: 9.4 * 2 ** 30, state: 'warn' }] as never);
+		const menu = await openMenu();
+
+		const usage = menu.target.querySelector('[data-menu-usage]')!;
+		expect(usage.textContent).toContain('Storage');
+		expect(usage.textContent).toContain('9.4 / 10 GB');
+		expect(usage.textContent).toContain('Plan');
+		expect(usage.querySelector('.bg-warning')).not.toBeNull();
+		menu.destroy();
+	});
+
+	it('keeps the signal meter below the warning threshold', async () => {
+		seed('alice', [{ id: 'alice' }]);
+		limits.set([storageRow] as never);
+		const menu = await openMenu();
+
+		const usage = menu.target.querySelector('[data-menu-usage]')!;
+		expect(usage.querySelector('.bg-signal')).not.toBeNull();
+		expect(usage.querySelector('.bg-warning')).toBeNull();
+		menu.destroy();
+	});
+
+	it('is 384 px wide and scrolls its body so Log out stays on screen', async () => {
+		seed('alice', [{ id: 'alice' }, { id: 'bob' }]);
+		const menu = await openMenu();
+
+		const scroll = menu.target.querySelector<HTMLElement>('[data-testid="user-menu-scroll"]')!;
+		expect(scroll.className).toContain('overflow-y-auto');
+		expect(scroll.style.maxHeight).toContain('720px');
+		expect(scroll.closest('[role="menu"]')!.className).toContain('w-96');
+		expect(scroll.contains(menu.target.querySelector('[data-testid="user-menu-logout"]'))).toBe(true);
+		menu.destroy();
+	});
+
+	it('says Limit reached on the disabled Add account at the cap', async () => {
+		seed('alice', ['alice', 'b', 'c', 'd', 'e'].map((id) => ({ id })));
+		const menu = await openMenu();
+
+		expect(menu.target.querySelector('[data-testid="user-menu-add-account"]')?.textContent).toContain('Limit reached');
+		menu.destroy();
+	});
+});
+
 describe('AccountsSheet (mobile)', () => {
 	it('lists every account with the active one first, the count and the log out entries', async () => {
 		seed('alice', [{ id: 'bob' }, { id: 'alice' }, { id: 'carol', expired: true }]);
-		const view = mount(AccountsSheet, { onClose: vi.fn(), activeUsername: 'alice' });
+		const view = mount(AccountsSheet, { onClose: vi.fn() });
 		await tick();
 
 		const list = rows(document.body);
-		expect(list.map((r) => r.dataset.userId)).toEqual(['alice', 'bob', 'carol']);
-		expect(list[0].textContent).toContain('Active');
-		expect(list[2].textContent).toContain('Session expired');
+		expect(list.map((r) => r.dataset.userId)).toEqual(['bob', 'carol']);
+		expect(document.querySelector('[data-testid="user-menu-active"]')?.textContent).toContain('Active');
+		expect(list[1].textContent).toContain('Session expired');
 		expect(document.querySelector('[data-testid="accounts-sheet-count"]')?.textContent).toBe('3 / 5');
 		expect(document.querySelector('[data-testid="accounts-sheet-logout"]')?.textContent).toContain('Log out alice');
 		expect(document.querySelector('[data-testid="accounts-sheet-logout-all"]')).not.toBeNull();
 		view.destroy();
 	});
 
+	it('uses the same four section cards and stacks Sensitive content over a full width control', async () => {
+		seed('alice', [{ id: 'alice' }, { id: 'bob' }]);
+		const view = mount(AccountsSheet, { onClose: vi.fn() });
+		await tick();
+
+		expect(headers(document.body)).toEqual(['Accounts 2 / 5', 'Workspace', 'Content', 'Session']);
+		const row = document.querySelector('[data-testid="user-menu-content-row"]')!;
+		expect(row.className).toContain('flex-col');
+		expect(row.querySelector('[role="radiogroup"]')!.className).toContain('w-full');
+		expect(rows(document.body)[0].querySelector('button[role="menuitem"]')!.className).toContain('min-h-[52px]');
+		view.destroy();
+	});
+
 	it('switching from the sheet closes it and runs the switch flow', async () => {
 		seed('alice', [{ id: 'alice' }, { id: 'bob' }]);
 		const onClose = vi.fn();
-		const view = mount(AccountsSheet, { onClose, activeUsername: 'alice' });
+		const view = mount(AccountsSheet, { onClose });
 		await tick();
 
-		rows(document.body)[1].querySelector<HTMLButtonElement>('button[role="menuitem"]')!.click();
+		rows(document.body)[0].querySelector<HTMLButtonElement>('button[role="menuitem"]')!.click();
 		await tick();
 
 		expect(onClose).toHaveBeenCalled();
@@ -305,7 +430,7 @@ describe('AccountsSheet (mobile)', () => {
 
 	it('the row x on the sheet logs out only that account', async () => {
 		seed('alice', [{ id: 'alice' }, { id: 'bob' }]);
-		const view = mount(AccountsSheet, { onClose: vi.fn(), activeUsername: 'alice' });
+		const view = mount(AccountsSheet, { onClose: vi.fn() });
 		await tick();
 
 		document.querySelector<HTMLButtonElement>('button[aria-label="Log out bob"]')!.click();

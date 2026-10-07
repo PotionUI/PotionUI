@@ -523,3 +523,32 @@ def test_no_raw_mesh_is_written_when_profiling_is_off(recorded_run, exported, mo
     monkeypatch.setattr(generator_main, "get_profiler", lambda: _Profiler())
     _run_pipe()
     assert not (tmp_path / "raw_mesh.npz").exists()
+
+
+def test_texture_volume_is_dumped_into_the_profile_dir_when_profiling_is_on(
+    recorded_run, exported, monkeypatch, tmp_path
+):
+    class _Profiler:
+        out_dir = tmp_path
+
+    monkeypatch.setattr(generator_main, "profiling_enabled", lambda: True)
+    monkeypatch.setattr(generator_main, "get_profiler", lambda: _Profiler())
+    _run_pipe()
+    dump = np.load(tmp_path / "texture_volume.npz")
+    assert dump["coords"].shape == (8, 3)
+    assert dump["feats"].shape == (8, 6)
+    assert dump["feats"].dtype == np.float16
+    assert float(dump["voxel_size"]) == 1.0 / int(dump["resolution"])
+    assert dump["aabb"].shape == (2, 3)
+    assert list(dump["layout"]) == ["base_color", "metallic", "roughness", "alpha"]
+    assert str(dump["source_id"]).count(":") == 2
+
+
+def test_no_texture_volume_is_written_when_profiling_is_off(recorded_run, exported, monkeypatch, tmp_path):
+    class _Profiler:
+        out_dir = tmp_path
+
+    monkeypatch.setattr(generator_main, "profiling_enabled", lambda: False)
+    monkeypatch.setattr(generator_main, "get_profiler", lambda: _Profiler())
+    _run_pipe()
+    assert not (tmp_path / "texture_volume.npz").exists()

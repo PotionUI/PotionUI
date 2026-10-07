@@ -61,8 +61,8 @@ from src.pipelines.outputs import (
 )
 from src.platform.observability.profiling import get_profiler, profiling_enabled
 from src.platform.runtime.native.arch.trellis2.config import STAGE_SAMPLING, StageSampling
-from src.platform.runtime.native.arch.trellis2.image_to_mesh import run_image_to_mesh
-from src.platform.runtime.native.arch.trellis2.postprocess import postprocess_to_glb
+from src.platform.runtime.native.arch.trellis2.image_to_mesh import AABB, run_image_to_mesh
+from src.platform.runtime.native.arch.trellis2.postprocess import PBR_ATTR_LAYOUT, postprocess_to_glb
 from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.util.latents import generate_seed
 
@@ -322,6 +322,30 @@ class GeneratorTrellis2Pipe(BasePipe):
             return None
         return path
 
+    @staticmethod
+    def _dump_texture_volume(volume, source_id: str) -> Optional[str]:
+        if not profiling_enabled():
+            return None
+        out_dir = get_profiler().out_dir
+        if out_dir is None:
+            return None
+        path = os.path.join(str(out_dir), "texture_volume.npz")
+        try:
+            np.savez(
+                path,
+                coords=volume.coords.detach().cpu().numpy().astype(np.int32),
+                feats=volume.attrs.detach().cpu().numpy().astype(np.float16),
+                source_id=np.array(source_id),
+                resolution=np.array(int(volume.resolution)),
+                voxel_size=np.array(float(volume.voxel_size)),
+                aabb=np.array(AABB, dtype=np.float32),
+                layout=np.array(list(PBR_ATTR_LAYOUT)),
+            )
+        except Exception:
+            logger.warning("TRELLIS.2 texture volume dump to %s failed", path, exc_info=True)
+            return None
+        return path
+
     def _seeds(self, pipe_input: PipeInput, count: int) -> List[int]:
         """One seed per image: the wired ``seed`` input, else the config's.
 
@@ -390,6 +414,7 @@ class GeneratorTrellis2Pipe(BasePipe):
         """
         out_path = tempfile.NamedTemporaryFile(suffix=".glb", delete=False).name
         self._dump_raw_mesh(volume, source_id)
+        self._dump_texture_volume(volume, source_id)
         try:
             postprocess_to_glb(
                 vertices=volume.vertices,

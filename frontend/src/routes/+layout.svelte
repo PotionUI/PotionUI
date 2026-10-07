@@ -16,6 +16,8 @@
 	import { canInstall, initPwaInstall, promptInstall } from '$lib/stores/pwaInstall';
 	import ToastContainer from '$lib/components/ToastContainer.svelte';
 	import ConfirmHost from '$lib/components/modals/ConfirmHost.svelte';
+	import AccountSwitchOverlay from '$lib/components/accounts/AccountSwitchOverlay.svelte';
+	import { initCrossTab } from '$lib/stores/accounts';
 	import { notifications } from '$lib/stores/notifications';
 	import { notificationsWebSocket } from '$lib/services/notificationsWebsocket';
 	import { themeStore } from '$lib/stores/theme';
@@ -38,10 +40,12 @@
 
 	onMount(() => {
 		mounted = true;
+		const stopCrossTab = initCrossTab();
 		printStartupBanner();
 		themeStore.init();
 		initPwaInstall();
 		installDismissed = localStorage.getItem('potionui-install-dismissed') === '1';
+		return stopCrossTab;
 	});
 
 	function dismissInstallPrompt() {
@@ -293,6 +297,7 @@
 		{#if NotificationPanelComponent}<svelte:component this={NotificationPanelComponent} />{/if}
 		<ToastContainer />
 		<ConfirmHost />
+		<AccountSwitchOverlay />
 	</div>
 {:else}
 	<!-- Public layout without nav (login page) -->
@@ -300,5 +305,6 @@
 		<slot />
 		<ToastContainer />
 		<ConfirmHost />
+		<AccountSwitchOverlay />
 	</div>
 {/if}

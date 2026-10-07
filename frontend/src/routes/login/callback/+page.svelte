@@ -6,6 +6,9 @@
 	import { authStore } from '$lib/stores/auth';
 	import { Alert, Spinner } from '$lib/components/ui';
 	import AuthShell from '$lib/components/auth/AuthShell.svelte';
+	import { ADDING_ACCOUNT_FLAG, addAccountFromToken } from '$lib/stores/accounts';
+	import { ADD_ACCOUNT_BLOCKED_MESSAGE } from '$lib/stores/accountActions';
+	import { toasts } from '$lib/stores/toast';
 
 	let status: 'loading' | 'error' = 'loading';
 	let errorMessage = '';
@@ -25,10 +28,39 @@
 			return;
 		}
 
+		let adding = false;
+		try {
+			adding = sessionStorage.getItem(ADDING_ACCOUNT_FLAG) === '1';
+			sessionStorage.removeItem(ADDING_ACCOUNT_FLAG);
+		} catch {
+			adding = false;
+		}
+
 		try {
 			const tokenData = await api.exchangeExternalLoginCode(code);
-			await authStore.adoptToken(tokenData.access_token);
-			goto('/', { replaceState: true });
+			if (adding) {
+				const outcome = await addAccountFromToken(tokenData.access_token);
+				if (outcome.status === 'duplicate') {
+					goto(`/login?add=1&dup=${encodeURIComponent(outcome.username)}`, { replaceState: true });
+				} else if (outcome.status === 'refreshed') {
+					toasts.success(`${outcome.username} signed in again`);
+					goto('/generate', { replaceState: true });
+				} else if (outcome.status === 'full') {
+					status = 'error';
+					errorMessage = ADD_ACCOUNT_BLOCKED_MESSAGE;
+				} else if (outcome.status === 'error') {
+					status = 'error';
+					errorMessage = outcome.message;
+				}
+				return;
+			}
+			const session = await authStore.adoptToken(tokenData.access_token);
+			if (!session.ok) {
+				status = 'error';
+				errorMessage = session.error;
+				return;
+			}
+			authStore.finishSignIn('/');
 		} catch {
 			status = 'error';
 			errorMessage = 'This sign-in link is invalid or has expired.';

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/auth';
 	import { api } from '$lib/services/api/index';
 	import type { SetupStatus } from '$lib/services/api/setup';
@@ -32,7 +31,7 @@
 			status?.claim_requires_token ? values.claimCode : undefined
 		);
 		if (result.success) {
-			goto('/setup', { replaceState: true });
+			authStore.finishSignIn('/setup');
 		}
 		return result;
 	}

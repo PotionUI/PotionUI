@@ -1,7 +1,7 @@
 import { logger } from '$lib/utils/logger';
 import { writable, get } from 'svelte/store';
 import { api, type Session } from '$lib/services/api/index';
-import { storage } from '$lib/utils/storage';
+import { scopedStorage } from '$lib/stores/identityScopedStorage';
 import { WebSocketService, createGenerationSocket, type WebSocketMessage } from '$lib/services/websocket';
 import { phrasebookStore } from '$lib/stores/phrasebook';
 import type { RichSegment, Segment } from '$lib/types/segments';
@@ -99,7 +99,7 @@ function createPreviewGenerationStore() {
 			useFixedSeed: s.useFixedSeed,
 			fixedSeed: s.fixedSeed
 		};
-		storage.setJSON(GENERATION_CONFIG_KEY, config);
+		scopedStorage.setJSON(GENERATION_CONFIG_KEY, config);
 	}
 
 	/** Reads a saved config, migrating a pre-segments `promptTemplate` string into a
@@ -107,7 +107,7 @@ function createPreviewGenerationStore() {
 	 *  Also rewrites any lingering `{{ value }}` token (the pre-rename placeholder)
 	 *  to `<< value >>` in restored segment content. */
 	function loadGenerationConfig(): GenerationConfig | null {
-		const raw = storage.getJSON<GenerationConfig & LegacyGenerationConfig>(GENERATION_CONFIG_KEY);
+		const raw = scopedStorage.getJSON<GenerationConfig & LegacyGenerationConfig>(GENERATION_CONFIG_KEY);
 		if (!raw) return null;
 		if (Array.isArray(raw.promptSegments)) {
 			return {

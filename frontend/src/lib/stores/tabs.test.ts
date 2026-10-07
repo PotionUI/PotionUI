@@ -308,7 +308,7 @@ describe('restoring a tab persisted with the removed Flow-view fields', () => {
 
 	it('restores silently (the unknown editorView/flowAppearance keys are simply ignored), and neither key survives the next persisted save', async () => {
 		localStorage.setItem(
-			TABS_STORAGE_KEY,
+			`${TABS_STORAGE_KEY}::anon`,
 			JSON.stringify({
 				tabs: [
 					{
@@ -340,7 +340,7 @@ describe('restoring a tab persisted with the removed Flow-view fields', () => {
 			const { saveTabsToLocalStorage } = await import('./tabPersistence');
 			saveTabsToLocalStorage(state.tabs, state.activeTabId);
 
-			const raw = localStorage.getItem(TABS_STORAGE_KEY)!;
+			const raw = localStorage.getItem(`${TABS_STORAGE_KEY}::anon`)!;
 			expect(raw).not.toContain('editorView');
 			expect(raw).not.toContain('flowAppearance');
 		} finally {
@@ -351,7 +351,7 @@ describe('restoring a tab persisted with the removed Flow-view fields', () => {
 
 	it('hydrates a persisted workbenchCollapsed flag, same tier as leftPanelCollapsed', async () => {
 		localStorage.setItem(
-			TABS_STORAGE_KEY,
+			`${TABS_STORAGE_KEY}::anon`,
 			JSON.stringify({
 				tabs: [
 					{

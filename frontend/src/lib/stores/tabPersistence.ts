@@ -2,6 +2,7 @@ import { browser } from '$app/environment';
 import type { Tab } from '$lib/types/tabs';
 import type { PersistedTab, PersistedTabsState } from '$lib/types/tabs';
 import { TABS_STORAGE_KEY } from '$lib/types/tabs';
+import { scopedStorage } from '$lib/stores/identityScopedStorage';
 import { randomUUID } from '$lib/utils/uuid';
 
 // A field value that slipped a `data:` URI into `formData`/`variables` (an
@@ -86,7 +87,7 @@ export function saveTabsToLocalStorage(tabs: Tab[], activeTabId: string): void {
 			tabs: tabs.map(toPersistedTab),
 			activeTabId
 		};
-		localStorage.setItem(TABS_STORAGE_KEY, JSON.stringify(persisted));
+		scopedStorage.set(TABS_STORAGE_KEY, JSON.stringify(persisted));
 	} catch {
 		// localStorage may be full or unavailable
 	}
@@ -129,7 +130,7 @@ function migrateLegacyTabIds(parsed: PersistedTabsState): { state: PersistedTabs
 export function loadTabsFromLocalStorage(): PersistedTabsState | null {
 	if (!browser) return null;
 	try {
-		const raw = localStorage.getItem(TABS_STORAGE_KEY);
+		const raw = scopedStorage.get(TABS_STORAGE_KEY);
 		if (!raw) return null;
 		const parsed = JSON.parse(raw) as PersistedTabsState;
 		if (!parsed.tabs || !Array.isArray(parsed.tabs) || parsed.tabs.length === 0) return null;
@@ -137,7 +138,7 @@ export function loadTabsFromLocalStorage(): PersistedTabsState | null {
 		const { state, changed } = migrateLegacyTabIds(parsed);
 		if (changed) {
 			try {
-				localStorage.setItem(TABS_STORAGE_KEY, JSON.stringify(state));
+				scopedStorage.set(TABS_STORAGE_KEY, JSON.stringify(state));
 			} catch {
 				// localStorage may be full or unavailable — the in-memory migrated
 				// state is still returned below, it just won't stick across reloads.

@@ -8,6 +8,18 @@
 	import Icon from './Icon.svelte';
 	import MenuUsage from '$lib/plans/components/MenuUsage.svelte';
 	import { limits, storageUsed } from '$lib/plans/store';
+	import { accountsStore } from '$lib/stores/accounts';
+	import { MAX_ACCOUNTS, type StoredAccount } from '$lib/stores/accountRegistry';
+	import {
+		logoutAccount,
+		logoutActiveAccount,
+		logoutEverywhere,
+		refreshAccountList,
+		signInAgain,
+		startAddAccount,
+		switchAccount
+	} from '$lib/stores/accountActions';
+	import AccountRows from './accounts/AccountRows.svelte';
 
 	let open = false;
 	let menuEl: HTMLDivElement;
@@ -27,12 +39,17 @@
 		{ value: 'hide', label: 'Hide' }
 	];
 
+	$: otherAccounts = $accountsStore.accounts.filter((a) => a.userId !== user?.id);
+	$: accountTotal = Math.max($accountsStore.accounts.length, 1);
+	$: canAdd = accountTotal < MAX_ACCOUNTS;
+
 	$: counts = Object.values($autoOrganizeCounts).filter((c) => c !== null);
 	$: autoActive = counts.reduce((sum, c) => sum + c.active, 0);
 	$: autoAttention = counts.some((c) => c.needsAttention > 0);
 
 	function toggle() {
 		open = !open;
+		if (open) refreshAccountList();
 		if (open && counts.length === 0) void autoOrganizeCounts.load();
 	}
 
@@ -57,7 +74,27 @@
 
 	function handleLogout() {
 		close();
-		authStore.logout();
+		logoutActiveAccount();
+	}
+
+	function handleLogoutAll() {
+		close();
+		void logoutEverywhere();
+	}
+
+	function handleAddAccount() {
+		close();
+		startAddAccount();
+	}
+
+	function handleSwitch(account: StoredAccount) {
+		close();
+		void switchAccount(account);
+	}
+
+	function handleSignInAgain(account: StoredAccount) {
+		close();
+		signInAgain(account);
 	}
 
 	function onWindowClick(e: MouseEvent) {
@@ -130,12 +167,55 @@
 							{user.username.charAt(0).toUpperCase()}
 						{/if}
 					</div>
-					<div class="min-w-0">
+					<div class="min-w-0 flex-1">
 						<p class="text-sm font-medium text-fg truncate">{user.username}</p>
 						<p class="text-2xs font-medium text-fg-subtle uppercase tracking-wide">
 							{user.account_type}
 						</p>
 					</div>
+					<span
+						class="flex shrink-0 items-center gap-1 font-mono text-2xs uppercase tracking-wide text-signal"
+						data-testid="user-menu-active"
+					>
+						<Icon name="check" className="w-3.5 h-3.5" strokeWidth={1.5} />
+						Active
+					</span>
+				</div>
+
+				{#if otherAccounts.length > 0}
+					<div class="border-b border-line p-1" data-testid="user-menu-accounts">
+						<p
+							class="flex items-center justify-between px-2.5 pb-1 pt-1.5 font-mono text-2xs uppercase tracking-wide text-fg-subtle"
+						>
+							<span>Other accounts</span>
+							<span class="tabular-nums">{accountTotal} / {MAX_ACCOUNTS}</span>
+						</p>
+						<AccountRows
+							accounts={otherAccounts}
+							onSwitch={handleSwitch}
+							onSignInAgain={handleSignInAgain}
+							onRemove={logoutAccount}
+						/>
+					</div>
+				{/if}
+
+				<div class="p-1 {otherAccounts.length > 0 ? '' : 'border-b border-line'}">
+					<button
+						type="button"
+						role="menuitem"
+						data-testid="user-menu-add-account"
+						disabled={!canAdd}
+						title={canAdd ? undefined : 'Remove an account first'}
+						on:click={handleAddAccount}
+						class="{itemClass} text-fg-muted hover:text-fg hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						<span
+							class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-dashed border-line-strong"
+						>
+							<Icon name="plus" className="w-3.5 h-3.5" strokeWidth={1.5} />
+						</span>
+						<span>Add account</span>
+					</button>
 				</div>
 
 				<!-- Items -->
@@ -213,12 +293,28 @@
 					<button
 						type="button"
 						role="menuitem"
+						data-testid="user-menu-logout"
 						on:click={handleLogout}
 						class="{itemClass} text-fg-muted hover:text-danger hover:bg-surface-3"
 					>
 						<Icon name="logout" className="w-4 h-4 shrink-0" strokeWidth={1.5} />
-						<span>Logout</span>
+						<span>Log out {user.username}</span>
 					</button>
+					{#if $accountsStore.accounts.length > 1}
+						<button
+							type="button"
+							role="menuitem"
+							data-testid="user-menu-logout-all"
+							on:click={handleLogoutAll}
+							class="{itemClass} text-fg-muted hover:text-danger hover:bg-surface-3"
+						>
+							<Icon name="group" className="w-4 h-4 shrink-0" strokeWidth={1.5} />
+							<span class="flex-1">Log out of all accounts</span>
+							<span class="shrink-0 font-mono text-2xs tabular-nums text-fg-subtle">
+								{$accountsStore.accounts.length}
+							</span>
+						</button>
+					{/if}
 				</div>
 			</div>
 		{/if}

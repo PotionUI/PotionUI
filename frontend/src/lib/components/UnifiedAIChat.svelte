@@ -5,7 +5,7 @@
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { onDestroy, tick } from 'svelte';
 	import { browser } from '$app/environment';
-	import { storage } from '$lib/utils/storage';
+	import { scopedStorage } from '$lib/stores/identityScopedStorage';
 	import { api, type ChatSessionResponse } from '$lib/services/api/index';
 	import { loadPresets } from '$lib/stores/presetsCatalog';
 	import ChatMessage from '$lib/components/ChatMessage.svelte';
@@ -225,7 +225,7 @@
 	// Configuration data
 	let llmConfigs: any[] = [];
 	let selectedConfigId = '';
-	let enableTools = browser ? storage.get(STORAGE_KEY_ENABLE_TOOLS) !== 'false' : true;
+	let enableTools = browser ? scopedStorage.get(STORAGE_KEY_ENABLE_TOOLS) !== 'false' : true;
 	let configsLoaded = false;
 	let dataLoadInitiated = false;
 	let recentSessions: ChatSessionResponse[] = [];
@@ -239,22 +239,22 @@
 	let selectedImageData: { path: string; relative_path?: string; url: string; name: string; type: string } | null = null;
 
 	// Phase 4: Auto-attach last generated image (only when it changes)
-	let alwaysAttachLastImage = storage.get(STORAGE_KEY_ATTACH_IMAGE) === 'true';
+	let alwaysAttachLastImage = scopedStorage.get(STORAGE_KEY_ATTACH_IMAGE) === 'true';
 	let lastAutoAttachedUrl: string | null = null;
 	function toggleAttachLastImage() {
 		alwaysAttachLastImage = !alwaysAttachLastImage;
-		storage.set(STORAGE_KEY_ATTACH_IMAGE, alwaysAttachLastImage ? 'true' : 'false');
+		scopedStorage.set(STORAGE_KEY_ATTACH_IMAGE, alwaysAttachLastImage ? 'true' : 'false');
 	}
 
 	// Tab context pinning
-	let pinnedTabId: string | null = storage.get(STORAGE_KEY_PINNED_TAB);
+	let pinnedTabId: string | null = scopedStorage.get(STORAGE_KEY_PINNED_TAB);
 
 	function savePinnedTab(id: string | null) {
 		pinnedTabId = id;
 		if (id) {
-			storage.set(STORAGE_KEY_PINNED_TAB, id);
+			scopedStorage.set(STORAGE_KEY_PINNED_TAB, id);
 		} else {
-			storage.remove(STORAGE_KEY_PINNED_TAB);
+			scopedStorage.remove(STORAGE_KEY_PINNED_TAB);
 		}
 	}
 
@@ -549,7 +549,7 @@
 
 	// Save enable tools toggle when it changes
 	$: if (browser) {
-		storage.set(STORAGE_KEY_ENABLE_TOOLS, enableTools ? 'true' : 'false');
+		scopedStorage.set(STORAGE_KEY_ENABLE_TOOLS, enableTools ? 'true' : 'false');
 	}
 
 	// Load configs on mount

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { LAST_USER_ID_KEY } from './identityScopedStorage';
+import { TABS_STORAGE_KEY } from '$lib/types/tabs';
+import { LAST_USER_ID_KEY, identityKey } from './identityScopedStorage';
 
 // applyIdentityGuard is exercised at the module boundary (not through a
 // simulated login/logout, which would need mocking every store's own API
@@ -82,40 +83,30 @@ describe('applyIdentityGuard', () => {
 		vi.doUnmock('$app/navigation');
 	});
 
-	it('resets every identity-scoped store when a different user signs in', async () => {
+	it('never resets an in-memory store or deletes stored state when a different user signs in', async () => {
 		const { applyIdentityGuard, stores } = await freshGuardWithStores();
 		const spies = Object.values(stores).map((store) => vi.spyOn(store, 'reset'));
 
 		localStorage.setItem(LAST_USER_ID_KEY, 'user-a');
+		localStorage.setItem(identityKey(TABS_STORAGE_KEY, 'user-a'), '{"tabs":[1]}');
+		localStorage.setItem(identityKey(TABS_STORAGE_KEY, 'user-b'), '{"tabs":[2]}');
 		applyIdentityGuard('user-b');
 
 		for (const spy of spies) {
-			expect(spy).toHaveBeenCalledTimes(1);
+			expect(spy).not.toHaveBeenCalled();
 		}
+		expect(localStorage.getItem(identityKey(TABS_STORAGE_KEY, 'user-a'))).toBe('{"tabs":[1]}');
+		expect(localStorage.getItem(identityKey(TABS_STORAGE_KEY, 'user-b'))).toBe('{"tabs":[2]}');
 		expect(localStorage.getItem(LAST_USER_ID_KEY)).toBe('user-b');
 	});
 
-	it('does not reset any store on a same-user relogin (e.g. after a token expiry)', async () => {
-		const { applyIdentityGuard, stores } = await freshGuardWithStores();
-		const spies = Object.values(stores).map((store) => vi.spyOn(store, 'reset'));
-
-		localStorage.setItem(LAST_USER_ID_KEY, 'user-a');
-		applyIdentityGuard('user-a');
-
-		for (const spy of spies) {
-			expect(spy).not.toHaveBeenCalled();
-		}
-	});
-
-	it('does not reset any store on the very first login (no prior identity recorded)', async () => {
-		const { applyIdentityGuard, stores } = await freshGuardWithStores();
-		const spies = Object.values(stores).map((store) => vi.spyOn(store, 'reset'));
+	it('records the identity on a same-user relogin and on the very first login', async () => {
+		const { applyIdentityGuard } = await freshGuardWithStores();
 
 		applyIdentityGuard('user-a');
+		expect(localStorage.getItem(LAST_USER_ID_KEY)).toBe('user-a');
 
-		for (const spy of spies) {
-			expect(spy).not.toHaveBeenCalled();
-		}
+		applyIdentityGuard('user-a');
 		expect(localStorage.getItem(LAST_USER_ID_KEY)).toBe('user-a');
 	});
 });

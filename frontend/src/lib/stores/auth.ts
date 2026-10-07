@@ -4,18 +4,19 @@ import { goto } from '$app/navigation';
 import { api } from '$lib/services/api/index';
 import { logger } from '$lib/utils/logger';
 import { storage } from '$lib/utils/storage';
-import { tabsStore } from '$lib/stores/tabs';
 import { chatSession } from '$lib/stores/chatSession';
-import { chatComposerDrafts } from '$lib/stores/chatComposerDrafts';
-import { historyStore } from '$lib/stores/history';
-import { libraryStore } from '$lib/stores/library';
-import { phrasebookStore } from '$lib/stores/phrasebook';
 import { nsfwFilterStore } from '$lib/stores/nsfwFilter';
-import { promptSegmentActionPins } from '$lib/stores/promptSegmentActionPins';
-import { workbenchGallerySettingsStore } from '$lib/stores/workbenchGallerySettings';
-import { previewGenerationStore } from '$lib/stores/previewGeneration';
-import { resetPageContext } from '$lib/chat/pageContext';
-import { LAST_USER_ID_KEY, isDifferentIdentity, keysToPurge } from '$lib/stores/identityScopedStorage';
+import { LAST_USER_ID_KEY } from '$lib/stores/identityScopedStorage';
+import { activeAccount } from '$lib/stores/accountRegistry';
+import {
+	clearAllAccounts,
+	currentRegistry,
+	handleUnauthorized,
+	isSwitching,
+	needsReloadForIdentity,
+	removeAccount,
+	syncActive
+} from '$lib/stores/accounts';
 
 export interface User {
 	id: string;
@@ -49,42 +50,8 @@ function extractApiErrorMessage(error: any): string | undefined {
 	return error?.message;
 }
 
-// Tabs (prompts, presets, form data), the active chat session, the selected
-// LLM config, and the phrasebook preview config are held in localStorage
-// un-namespaced by user. If this browser's last known identity differs from
-// the one that just authenticated, that state belongs to whoever was signed
-// in before — wipe it before the new session can read or overwrite it.
-// A same-user relogin (e.g. after a token expiry) must NOT trigger this.
-// localStorage is not the only surface: module-scope stores that outlive a
-// login/logout cycle (the chat conversation and its unsent composer draft
-// live in one so the panel survives open/close, history/library/phrasebook
-// keep a "selected item" so a route can remount mid-edit) hold identity
-// content in memory and must
-// be reset too — otherwise a route that renders its "selected" field with no
-// loading gate (the details modal on History/Library, the phrasebook editor
-// pane) paints the previous user's content the instant it remounts.
 export function applyIdentityGuard(userId: string): void {
 	if (!browser) return;
-	const lastUserId = storage.get(LAST_USER_ID_KEY);
-	if (isDifferentIdentity(lastUserId, userId)) {
-		const allKeys: string[] = [];
-		for (let i = 0; i < localStorage.length; i++) {
-			const key = localStorage.key(i);
-			if (key) allKeys.push(key);
-		}
-		for (const key of keysToPurge(allKeys)) localStorage.removeItem(key);
-		tabsStore.reset();
-		chatSession.reset();
-		chatComposerDrafts.reset();
-		historyStore.reset();
-		libraryStore.reset();
-		phrasebookStore.reset();
-		nsfwFilterStore.reset();
-		promptSegmentActionPins.reset();
-		workbenchGallerySettingsStore.reset();
-		previewGenerationStore.reset();
-		resetPageContext();
-	}
 	storage.set(LAST_USER_ID_KEY, userId);
 }
 
@@ -99,9 +66,9 @@ function createAuthStore() {
 
 	const { subscribe, set, update } = writable(initialState);
 
-	// Register this for the lifetime of the store, including sessions created by
-	// logging in after the app originally mounted without a token.
-	api.setOnAuthExpired(() => {
+	function expireSession(requestToken: string | null = api.getToken()) {
+		if (isSwitching()) return;
+		if (handleUnauthorized(requestToken) === 'other') return;
 		update((currentState) => {
 			if (!currentState.isAuthenticated) return currentState;
 			storage.remove('auth_token');
@@ -117,12 +84,18 @@ function createAuthStore() {
 				error: null
 			};
 		});
-	});
+	}
 
-	// Initialize from localStorage on browser
-	const token = storage.get('auth_token');
+	api.setOnAuthExpired((requestToken) => expireSession(requestToken));
+
+	function hardNavigate(path: string) {
+		if (typeof location !== 'undefined') location.assign(path);
+	}
+
+	const registryActive = activeAccount(currentRegistry());
+	const token = registryActive ? (registryActive.expired ? null : registryActive.token) : storage.get('auth_token');
 	if (token) {
-		api.setAuthHeader(token);
+		if (api.getToken() !== token) api.setAuthHeader(token);
 		update((state) => ({
 			...state,
 			isAuthenticated: true,
@@ -130,18 +103,17 @@ function createAuthStore() {
 			loading: true
 		}));
 
-		// Fetch user info on initialization
 		api.getCurrentUser()
 			.then((response) => {
 				if (response.success && response.data) {
 					applyIdentityGuard(response.data.id);
+					syncActive(response.data, token);
 					update((state) => ({
 						...state,
 						user: response.data ?? null,
 						loading: false
 					}));
 				} else {
-					// Token is invalid/expired - clear it
 					storage.remove('auth_token');
 					api.clearAuth();
 					update((state) => ({ ...state, isAuthenticated: false, loading: false }));
@@ -153,8 +125,8 @@ function createAuthStore() {
 				api.clearAuth();
 				update((state) => ({ ...state, isAuthenticated: false, loading: false }));
 			});
-
 	} else {
+		if (registryActive?.expired) storage.remove('auth_token');
 		update((state) => ({ ...state, loading: false }));
 	}
 
@@ -172,6 +144,19 @@ function createAuthStore() {
 		try {
 			const userResponse = await api.getCurrentUser();
 			if (userResponse.success && userResponse.data) {
+				if (syncActive(userResponse.data, token) === 'full') {
+					api.clearAuth();
+					void api.endMediaSession();
+					const message = 'This browser already holds 5 accounts. Remove one first.';
+					update((state) => ({
+						...state,
+						isAuthenticated: false,
+						token: null,
+						user: null,
+						error: message
+					}));
+					return { ok: false as const, error: message };
+				}
 				applyIdentityGuard(userResponse.data.id);
 				update((state) => ({
 					...state,
@@ -181,6 +166,25 @@ function createAuthStore() {
 		} catch (err) {
 			logger.error('Failed to fetch user info:', err);
 		}
+		return { ok: true as const };
+	}
+
+
+	function logoutActive() {
+		const activeId = currentRegistry().activeId ?? storage.get(LAST_USER_ID_KEY);
+		api.clearAuth();
+		void api.endMediaSession();
+		chatSession.reset();
+		if (activeId) removeAccount(activeId);
+		else storage.remove('auth_token');
+		set({
+			isAuthenticated: false,
+			token: null,
+			user: null,
+			loading: false,
+			error: null
+		});
+		hardNavigate('/login');
 	}
 
 	return {
@@ -193,7 +197,8 @@ function createAuthStore() {
 				const response = await api.login({ username, password, remember_me: rememberMe });
 
 				if (response.access_token) {
-					await establishAuthenticatedSession(response.access_token);
+					const session = await establishAuthenticatedSession(response.access_token);
+					if (!session.ok) return { success: false, error: session.error };
 					return { success: true };
 				}
 				return { success: false, error: 'Login did not return an access token.' };
@@ -217,6 +222,7 @@ function createAuthStore() {
 				const response = await api.register({ username, email, password, claim_token: claimToken });
 
 				if (response.success && response.data?.access_token) {
+					syncActive(response.data.user, response.data.access_token);
 					applyIdentityGuard(response.data.user.id);
 					update((state) => ({
 						...state,
@@ -251,16 +257,26 @@ function createAuthStore() {
 		},
 
 		async adoptToken(token: string) {
-			await establishAuthenticatedSession(token);
+			return establishAuthenticatedSession(token);
 		},
 
-		logout() {
-			storage.remove('auth_token');
+		expireSession,
+
+		logout: logoutActive,
+
+		logoutAccount(userId: string) {
+			if (userId === currentRegistry().activeId) {
+				logoutActive();
+				return;
+			}
+			removeAccount(userId);
+		},
+
+		logoutAll() {
 			api.clearAuth();
 			void api.endMediaSession();
-			// Explicit logout drops the in-memory conversation; a same-user
-			// relogin restores it from the backend via the persisted session id.
 			chatSession.reset();
+			clearAllAccounts();
 			set({
 				isAuthenticated: false,
 				token: null,
@@ -268,6 +284,12 @@ function createAuthStore() {
 				loading: false,
 				error: null
 			});
+			hardNavigate('/login');
+		},
+
+		finishSignIn(path: string) {
+			if (needsReloadForIdentity()) hardNavigate(path);
+			else void goto(path, { replaceState: true });
 		},
 
 		clearError() {

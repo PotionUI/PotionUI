@@ -3,10 +3,15 @@ import type { User } from '$lib/stores/auth';
 import type { APIResponse } from '$lib/types/api';
 import { storage } from '$lib/utils/storage';
 
+function bearerTokenOf(header: unknown): string | null {
+	if (typeof header !== 'string') return null;
+	return header.startsWith('Bearer ') ? header.slice(7) : null;
+}
+
 export class APIClient {
 	private client: AxiosInstance;
 	private token: string | null = null;
-	private onAuthExpiredCallback: (() => void) | null = null;
+	private onAuthExpiredCallback: ((requestToken: string | null) => void) | null = null;
 
 	constructor(baseURL: string = '') {
 		this.client = axios.create({
@@ -46,7 +51,7 @@ export class APIClient {
 					!error.config?.url?.includes('/api/auth/login') &&
 					!error.config?.url?.includes('/api/auth/register')
 				) {
-					this.onAuthExpiredCallback?.();
+					this.onAuthExpiredCallback?.(bearerTokenOf(error.config?.headers?.Authorization));
 				}
 				return Promise.reject(error);
 			}
@@ -69,15 +74,15 @@ export class APIClient {
 		storage.remove('auth_token');
 	}
 
-	setOnAuthExpired(callback: () => void): void {
+	setOnAuthExpired(callback: (requestToken: string | null) => void): void {
 		this.onAuthExpiredCallback = callback;
 	}
 
 	// Lets callers built before setOnAuthExpired runs (e.g. domain modules
 	// assembled at import time) still reach whichever callback is registered
 	// by the time a 401 actually happens.
-	triggerAuthExpired(): void {
-		this.onAuthExpiredCallback?.();
+	triggerAuthExpired(requestToken: string | null = this.token): void {
+		this.onAuthExpiredCallback?.(requestToken);
 	}
 
 	getBaseURL(): string {

@@ -30,7 +30,7 @@
 	async function handleRegister(values: RegistrationSubmitValues) {
 		const result = await authStore.register(values.username, values.email, values.password);
 		if (result.success) {
-			goto('/generate');
+			authStore.finishSignIn('/generate');
 		}
 		return result;
 	}

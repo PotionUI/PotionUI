@@ -370,7 +370,7 @@ describe('persistence', () => {
 			clear: () => store.clear()
 		};
 		store.set(
-			'potionui_tabs_state',
+			'potionui_tabs_state::anon',
 			JSON.stringify({
 				tabs: [
 					{

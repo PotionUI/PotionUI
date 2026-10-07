@@ -11,6 +11,8 @@ vi.mock('$lib/services/api/index', () => ({ api: { getMyLLMConfigurations: vi.fn
 
 import { ACTIVE_SESSION_KEY, loadActiveSessionId, saveActiveSessionId } from './chatConfig';
 
+const SCOPED_ACTIVE_KEY = `${ACTIVE_SESSION_KEY}::anon`;
+
 describe('active session id storage', () => {
 	beforeEach(() => {
 		const store = new Map<string, string>();
@@ -33,20 +35,20 @@ describe('active session id storage', () => {
 	it('round-trips a saved session id', () => {
 		saveActiveSessionId('sess-1');
 		expect(loadActiveSessionId()).toBe('sess-1');
-		expect(localStorage.getItem(ACTIVE_SESSION_KEY)).toBe('sess-1');
+		expect(localStorage.getItem(SCOPED_ACTIVE_KEY)).toBe('sess-1');
 	});
 
 	it('clears the key when saving an empty id', () => {
 		saveActiveSessionId('sess-1');
 		saveActiveSessionId('');
-		expect(localStorage.getItem(ACTIVE_SESSION_KEY)).toBeNull();
+		expect(localStorage.getItem(SCOPED_ACTIVE_KEY)).toBeNull();
 		expect(loadActiveSessionId()).toBe('');
 	});
 
 	it('migrates a legacy per-mode key into the active-session key and removes it', () => {
 		localStorage.setItem('unified-ai-chat-session-id:generation', 'legacy-sess');
 		expect(loadActiveSessionId()).toBe('legacy-sess');
-		expect(localStorage.getItem(ACTIVE_SESSION_KEY)).toBe('legacy-sess');
+		expect(localStorage.getItem(SCOPED_ACTIVE_KEY)).toBe('legacy-sess');
 		expect(localStorage.getItem('unified-ai-chat-session-id:generation')).toBeNull();
 	});
 
@@ -61,7 +63,7 @@ describe('active session id storage', () => {
 	});
 
 	it('does not overwrite an already-set active session id, but still cleans up legacy keys', () => {
-		localStorage.setItem(ACTIVE_SESSION_KEY, 'current-sess');
+		localStorage.setItem(SCOPED_ACTIVE_KEY, 'current-sess');
 		localStorage.setItem('unified-ai-chat-session-id:generation', 'stale-legacy');
 
 		expect(loadActiveSessionId()).toBe('current-sess');

@@ -16,8 +16,9 @@ vi.mock('$lib/services/api/index', () => ({
 	}
 }));
 
-vi.mock('$lib/utils/storage', () => ({
-	storage: {
+vi.mock('$lib/stores/identityScopedStorage', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/stores/identityScopedStorage')>()),
+	scopedStorage: {
 		get: vi.fn(),
 		set: vi.fn(),
 		remove: vi.fn(),

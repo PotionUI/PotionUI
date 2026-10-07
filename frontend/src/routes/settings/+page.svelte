@@ -17,8 +17,12 @@
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { toasts } from '$lib/stores/toast';
+	import AccountsSheet from '$lib/components/accounts/AccountsSheet.svelte';
+	import { accountsStore } from '$lib/stores/accounts';
 
 	$: user = $authStore.user;
+	let accountsSheetOpen = false;
+	$: accountCount = Math.max($accountsStore.accounts.length, 1);
 	$: hasLocalPassword = user?.has_local_password ?? true;
 
 	// Unwraps the backend's error_response() detail shape (see auth store) so
@@ -372,6 +376,9 @@
 						{#if user.email}
 							<p class="text-fg-muted text-sm truncate">{user.email}</p>
 						{/if}
+						<p class="mt-0.5 font-mono text-2xs uppercase tracking-wide text-fg-subtle md:hidden">
+							{user.account_type} &middot; {accountCount} {accountCount === 1 ? 'account' : 'accounts'}
+						</p>
 						<div class="flex items-center gap-3 mt-2">
 							<Button
 								size="xs"
@@ -397,6 +404,14 @@
 						{/if}
 					</div>
 				</div>
+				<div class="mt-3 md:hidden">
+					<Button size="sm" variant="secondary" class="w-full" onclick={() => (accountsSheetOpen = true)}>
+						Accounts
+					</Button>
+				</div>
+				{#if accountsSheetOpen}
+					<AccountsSheet activeUsername={user.username} onClose={() => (accountsSheetOpen = false)} />
+				{/if}
 				{#if avatarPickerOpen}
 					<div class="mt-3">
 						<MediaLoaderField

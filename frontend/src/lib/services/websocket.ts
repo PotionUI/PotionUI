@@ -1,4 +1,3 @@
-import { goto } from '$app/navigation';
 import { logger } from '$lib/utils/logger';
 import { api } from '$lib/services/api/index';
 import { authStore } from '$lib/stores/auth';
@@ -144,8 +143,7 @@ export class WebSocketService extends BaseWebSocket {
 export function createGenerationSocket(): WebSocketService {
 	const ws = new WebSocketService(getWsUrl('/ws/generation'), api.getToken());
 	ws.onAuthFailed(() => {
-		authStore.logout();
-		goto('/login?expired=1');
+		authStore.expireSession(api.getToken());
 	});
 	return ws;
 }

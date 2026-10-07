@@ -1,12 +1,6 @@
 import { TABS_STORAGE_KEY } from '$lib/types/tabs';
+import { ACCOUNTS_STORAGE_KEY, parseRegistry } from '$lib/stores/accountRegistry';
 
-// localStorage keys that hold content tied to a specific signed-in identity
-// (open tabs with their prompts/presets, the active chat session, the
-// selected LLM config, the chat behavior toggles, the phrasebook preview
-// config). Logging in as a DIFFERENT user must not surface these — see
-// keysToPurge()/LAST_USER_ID_KEY below. UI-only prefs (theme, panel widths,
-// sound toggles, item-per-page counts, ...) are device state rather than
-// identity state and are deliberately left out of this list.
 export const IDENTITY_SCOPED_STORAGE_KEYS: readonly string[] = [
 	TABS_STORAGE_KEY,
 	'unified-ai-chat-session-id',
@@ -17,30 +11,131 @@ export const IDENTITY_SCOPED_STORAGE_KEYS: readonly string[] = [
 	'phrasebook-generation-config'
 ];
 
-// `unified-ai-chat-disabled-tools:<mode>` is keyed per chat mode, so it's
-// matched by prefix rather than enumerated. The legacy per-mode session-id
-// keys (`unified-ai-chat-session-id:<mode>`, migrated by chatConfig.ts) are
-// identity state too and must not survive a user switch to be migrated into
-// the new user's session pointer.
 export const IDENTITY_SCOPED_STORAGE_PREFIXES: readonly string[] = [
 	'unified-ai-chat-disabled-tools:',
 	'unified-ai-chat-session-id:'
 ];
 
-// Records which user id last populated the identity-scoped keys above, so a
-// same-user relogin (e.g. after a session expiry) is told apart from an
-// actual switch to a different account.
+const LEGACY_PER_MODE_SESSION_PREFIX = 'unified-ai-chat-session-id:';
+
+export const IDENTITY_NAMESPACE_SEPARATOR = '::';
+export const ANON_IDENTITY = 'anon';
+
 export const LAST_USER_ID_KEY = 'auth_last_user_id';
 
 export function isDifferentIdentity(lastUserId: string | null, currentUserId: string): boolean {
 	return lastUserId !== null && lastUserId !== currentUserId;
 }
 
-/** Pure filter: given every key currently in storage, which ones to drop. */
-export function keysToPurge(allKeys: readonly string[]): string[] {
-	return allKeys.filter(
-		(key) =>
-			IDENTITY_SCOPED_STORAGE_KEYS.includes(key) ||
-			IDENTITY_SCOPED_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix))
+function isScopedBase(key: string): boolean {
+	return (
+		IDENTITY_SCOPED_STORAGE_KEYS.includes(key) ||
+		IDENTITY_SCOPED_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix))
 	);
 }
+
+export function keysToPurge(allKeys: readonly string[]): string[] {
+	return allKeys.filter((key) => isScopedBase(key) && !key.includes(IDENTITY_NAMESPACE_SEPARATOR));
+}
+
+export function namespacedKeys(allKeys: readonly string[], userId?: string): string[] {
+	return allKeys.filter((key) => {
+		const at = key.lastIndexOf(IDENTITY_NAMESPACE_SEPARATOR);
+		if (at === -1) return false;
+		if (!isScopedBase(key.slice(0, at))) return false;
+		return userId === undefined || key.slice(at + IDENTITY_NAMESPACE_SEPARATOR.length) === userId;
+	});
+}
+
+export function identityKey(base: string, userId: string): string {
+	return `${base}${IDENTITY_NAMESPACE_SEPARATOR}${userId}`;
+}
+
+function listKeys(): string[] {
+	const keys: string[] = [];
+	for (let i = 0; i < localStorage.length; i++) {
+		const key = localStorage.key(i);
+		if (key) keys.push(key);
+	}
+	return keys;
+}
+
+function hasStorage(): boolean {
+	return typeof localStorage !== 'undefined';
+}
+
+export function readActiveIdentity(): string {
+	if (!hasStorage()) return ANON_IDENTITY;
+	try {
+		const registry = parseRegistry(localStorage.getItem(ACCOUNTS_STORAGE_KEY));
+		return registry.activeId ?? localStorage.getItem(LAST_USER_ID_KEY) ?? ANON_IDENTITY;
+	} catch {
+		return ANON_IDENTITY;
+	}
+}
+
+export const bootIdentity: string = readActiveIdentity();
+
+export function migrateLegacyIdentityKeys(userId: string): void {
+	if (!hasStorage() || userId === ANON_IDENTITY) return;
+	const owner = localStorage.getItem(LAST_USER_ID_KEY);
+	for (const key of keysToPurge(listKeys())) {
+		if (key.startsWith(LEGACY_PER_MODE_SESSION_PREFIX)) {
+			if (owner !== userId) localStorage.removeItem(key);
+			continue;
+		}
+		if (owner === userId) {
+			const value = localStorage.getItem(key);
+			if (value !== null) localStorage.setItem(identityKey(key, userId), value);
+		}
+		localStorage.removeItem(key);
+	}
+}
+
+export function removeIdentityKeys(userId: string): void {
+	if (!hasStorage()) return;
+	for (const key of namespacedKeys(listKeys(), userId)) localStorage.removeItem(key);
+}
+
+export function removeAllIdentityKeys(): void {
+	if (!hasStorage()) return;
+	for (const key of namespacedKeys(listKeys())) localStorage.removeItem(key);
+}
+
+let migratedFor: string | null = null;
+
+function scopedKey(base: string): string {
+	const userId = readActiveIdentity();
+	if (migratedFor !== userId) {
+		migratedFor = userId;
+		migrateLegacyIdentityKeys(userId);
+	}
+	return identityKey(base, userId);
+}
+
+export const scopedStorage = {
+	get(base: string): string | null {
+		if (!hasStorage()) return null;
+		return localStorage.getItem(scopedKey(base));
+	},
+	set(base: string, value: string): void {
+		if (!hasStorage()) return;
+		localStorage.setItem(scopedKey(base), value);
+	},
+	remove(base: string): void {
+		if (!hasStorage()) return;
+		localStorage.removeItem(scopedKey(base));
+	},
+	getJSON<T>(base: string): T | null {
+		const raw = scopedStorage.get(base);
+		if (!raw) return null;
+		try {
+			return JSON.parse(raw) as T;
+		} catch {
+			return null;
+		}
+	},
+	setJSON(base: string, value: unknown): void {
+		scopedStorage.set(base, JSON.stringify(value));
+	}
+};

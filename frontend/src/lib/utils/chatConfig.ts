@@ -1,15 +1,15 @@
 import { browser } from '$app/environment';
 import { api } from '$lib/services/api/index';
-import { storage } from '$lib/utils/storage';
+import { IDENTITY_NAMESPACE_SEPARATOR, scopedStorage } from '$lib/stores/identityScopedStorage';
 
 export function loadFromStorage(key: string): string {
 	if (!browser) return '';
-	return localStorage.getItem(key) || '';
+	return scopedStorage.get(key) || '';
 }
 
 export function saveToStorage(key: string, value: string): void {
 	if (!browser) return;
-	localStorage.setItem(key, value);
+	scopedStorage.set(key, value);
 }
 
 export async function loadConfigurations(): Promise<any[]> {
@@ -46,10 +46,10 @@ export function loadActiveSessionId(): string {
 	const legacyKeys: string[] = [];
 	for (let i = 0; i < localStorage.length; i++) {
 		const key = localStorage.key(i);
-		if (key?.startsWith(LEGACY_PER_MODE_PREFIX)) legacyKeys.push(key);
+		if (key?.startsWith(LEGACY_PER_MODE_PREFIX) && !key.includes(IDENTITY_NAMESPACE_SEPARATOR)) legacyKeys.push(key);
 	}
 
-	let current = localStorage.getItem(ACTIVE_SESSION_KEY) || '';
+	let current = scopedStorage.get(ACTIVE_SESSION_KEY) || '';
 	if (!current) {
 		for (const key of legacyKeys) {
 			const value = localStorage.getItem(key);
@@ -58,7 +58,7 @@ export function loadActiveSessionId(): string {
 				break;
 			}
 		}
-		if (current) localStorage.setItem(ACTIVE_SESSION_KEY, current);
+		if (current) scopedStorage.set(ACTIVE_SESSION_KEY, current);
 	}
 	for (const key of legacyKeys) localStorage.removeItem(key);
 	return current;
@@ -67,9 +67,9 @@ export function loadActiveSessionId(): string {
 export function saveActiveSessionId(id: string): void {
 	if (!browser) return;
 	if (id) {
-		localStorage.setItem(ACTIVE_SESSION_KEY, id);
+		scopedStorage.set(ACTIVE_SESSION_KEY, id);
 	} else {
-		localStorage.removeItem(ACTIVE_SESSION_KEY);
+		scopedStorage.remove(ACTIVE_SESSION_KEY);
 	}
 }
 
@@ -79,9 +79,9 @@ export function disabledToolsStorageKey(mode: string): string {
 }
 
 export function loadDisabledTools(mode: string): string[] {
-	return storage.getJSON<string[]>(disabledToolsStorageKey(mode)) ?? [];
+	return scopedStorage.getJSON<string[]>(disabledToolsStorageKey(mode)) ?? [];
 }
 
 export function saveDisabledTools(mode: string, names: string[]): void {
-	storage.setJSON(disabledToolsStorageKey(mode), names);
+	scopedStorage.setJSON(disabledToolsStorageKey(mode), names);
 }

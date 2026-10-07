@@ -86,6 +86,7 @@ jobs:
       # ffmpeg unlocks the media-editing suite's video/audio round-trips the
       # same way.
       - name: Install system dependencies
+        timeout-minutes: 12
         run: |
           # The runner image ships Google's Chrome apt source (a .list or a deb822
           # .sources file depending on the image); its mirror rotates mid-update and
@@ -93,8 +94,13 @@ jobs:
           # that points at dl.google.com, and do not let an unrelated index failure
           # fail the step - the Ubuntu indexes the two packages come from still load.
           sudo grep -rl "dl.google.com" /etc/apt/sources.list.d/ 2>/dev/null | xargs -r sudo rm -f
-          sudo apt-get update -o Acquire::Retries=3 || true
-          sudo apt-get install -y --no-install-recommends libglib2.0-0 ffmpeg
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          for attempt in 1 2 3; do
+            sudo timeout 120 apt-get update $APT_OPTS || true
+            sudo timeout 240 apt-get install -y --no-install-recommends $APT_OPTS libglib2.0-0 ffmpeg && break
+            [ "$attempt" = 3 ] && exit 1
+            sleep 15
+          done
 
       # pytest-timeout backs pytest.ini's `timeout = 300` - it is not in
       # requirements-dev.txt today, so it's installed explicitly here rather

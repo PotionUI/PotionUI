@@ -108,7 +108,7 @@ fields:
         type: "select"
         label: "Unwrap Quality"
         default: "balanced"
-        ai_hint: "Balanced is right for almost everything: seconds at the default face budget, with a gutter between UV charts so textures do not bleed across seams. Best spends xatlas' extra chart-relocation pass for fewer, rounder charts and fewer seams; it is about four times slower on a remeshed surface and takes minutes with remeshing off, so suggest it only for a final asset. Fast skips the gutter and is only worth it when iterating on shape."
+        ai_hint: "Balanced is right for almost everything: a few seconds even at 500k faces, with a gutter between UV charts so textures do not bleed across seams. Best spends xatlas' extra chart-relocation pass for slightly fewer, rounder charts and fewer seams at about a tenth more unwrap time, remeshed or not. Fast skips the gutter and is only worth it when iterating on shape."
         configuration:
           options:
             - { label: "Fast", value: "fast", sub_label: "Single chart pass · no gutter between charts" }

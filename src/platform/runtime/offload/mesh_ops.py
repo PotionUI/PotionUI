@@ -189,6 +189,29 @@ def _drop_small_components(mesh) -> None:
         mesh.update_faces(keep)
 
 
+def _shell_faces_to_keep(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    count = faces.shape[0]
+    keep = np.ones(count, dtype=bool)
+    if count == 0:
+        return keep
+    src = faces.reshape(-1)
+    dst = np.roll(faces, -1, axis=1).reshape(-1)
+    keys = np.minimum(src, dst) * vertices.shape[0] + np.maximum(src, dst)
+    _, edge = np.unique(keys, return_inverse=True)
+    edge = np.asarray(edge).reshape(-1)
+    owner = np.repeat(np.arange(count), 3)
+    graph = coo_matrix((np.ones(owner.shape[0], dtype=np.int8), (owner, edge + count)), shape=(count + int(edge.max()) + 1,) * 2)
+    _, label = connected_components(graph, directed=False)
+    label = label[:count]
+    corners = vertices[faces].astype(np.float64)
+    areas = 0.5 * np.linalg.norm(np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]), axis=1)
+    shell_area = np.bincount(label, weights=areas)
+    keep = shell_area[label] >= _MIN_COMPONENT_AREA
+    return keep if keep.any() else np.ones(count, dtype=bool)
+
+
 def _boundary_edges(faces: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     faces = np.asarray(faces, dtype=np.int64)
     src = np.concatenate([faces[:, 0], faces[:, 1], faces[:, 2]])
@@ -477,6 +500,9 @@ def decimate_traced(vertices: np.ndarray, faces: np.ndarray, decimation_target: 
     mesh = trimesh.Trimesh(vertices=verts, faces=tris, process=False)
     mesh.remove_unreferenced_vertices()
     _record(recorder, "decimate", mesh)
+    mesh.update_faces(_shell_faces_to_keep(np.asarray(mesh.vertices), np.asarray(mesh.faces, dtype=np.int64)))
+    mesh.remove_unreferenced_vertices()
+    _record(recorder, "small_components", mesh)
     return (np.ascontiguousarray(mesh.vertices, dtype=np.float32), np.ascontiguousarray(mesh.faces, dtype=np.int64), recorder.rows)
 
 
@@ -505,14 +531,44 @@ def uv_atlas_options(quality: str):
     return chart, pack
 
 
-def unwrap_uv_arrays(vertices: np.ndarray, faces: np.ndarray, quality: str = DEFAULT_UV_QUALITY) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _chart_meshes(faces: np.ndarray, charts: np.ndarray, vertex_count: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    order = np.argsort(charts, kind="stable")
+    sorted_charts = charts[order].astype(np.int64)
+    count = int(sorted_charts[-1]) + 1
+    corner_charts = np.repeat(sorted_charts, 3)
+    keys = corner_charts * vertex_count + faces[order].reshape(-1)
+    unique, inverse = np.unique(keys, return_inverse=True)
+    vertex_bounds = np.searchsorted(unique // vertex_count, np.arange(count + 1))
+    face_bounds = np.searchsorted(sorted_charts, np.arange(count + 1))
+    local = (np.asarray(inverse).reshape(-1) - vertex_bounds[corner_charts]).reshape(-1, 3)
+    return unique % vertex_count, vertex_bounds, np.ascontiguousarray(local, dtype=np.uint32), face_bounds
+
+
+def _atlas_meshes(vertices: np.ndarray, faces: np.ndarray, charts) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    if charts is None or faces.shape[0] == 0:
+        return np.arange(vertices.shape[0]), np.array([0, vertices.shape[0]]), np.ascontiguousarray(faces, dtype=np.uint32), np.array([0, faces.shape[0]])
+    return _chart_meshes(faces, np.asarray(charts), vertices.shape[0])
+
+
+def unwrap_uv_arrays(vertices: np.ndarray, faces: np.ndarray, quality: str = DEFAULT_UV_QUALITY, charts=None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     import trimesh
     import xatlas
     chart_options, pack_options = uv_atlas_options(quality)
     source = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
     source_normals = np.asarray(source.vertex_normals, dtype=np.float32)
+    positions = np.ascontiguousarray(vertices, dtype=np.float32)
+    vmap, vertex_bounds, local, face_bounds = _atlas_meshes(positions, faces, charts)
     atlas = xatlas.Atlas()
-    atlas.add_mesh(np.ascontiguousarray(vertices, dtype=np.float32), np.ascontiguousarray(faces, dtype=np.uint32))
+    for index in range(face_bounds.shape[0] - 1):
+        atlas.add_mesh(positions[vmap[vertex_bounds[index]:vertex_bounds[index + 1]]], local[face_bounds[index]:face_bounds[index + 1]])
     atlas.generate(chart_options, pack_options)
-    vmapping, indices, uvs = atlas.get_mesh(0)
-    return (np.ascontiguousarray(vertices[vmapping], dtype=np.float32), np.ascontiguousarray(indices, dtype=np.int64), np.ascontiguousarray(uvs, dtype=np.float32), np.ascontiguousarray(source_normals[vmapping], dtype=np.float32))
+    mappings, indices, uvs = [], [], []
+    base = 0
+    for index in range(face_bounds.shape[0] - 1):
+        mapping, piece_indices, piece_uvs = atlas.get_mesh(index)
+        mappings.append(vmap[vertex_bounds[index] + mapping.astype(np.int64)])
+        indices.append(piece_indices.astype(np.int64) + base)
+        uvs.append(piece_uvs)
+        base += mapping.shape[0]
+    vmapping = np.concatenate(mappings)
+    return (np.ascontiguousarray(vertices[vmapping], dtype=np.float32), np.ascontiguousarray(np.concatenate(indices), dtype=np.int64), np.ascontiguousarray(np.concatenate(uvs), dtype=np.float32), np.ascontiguousarray(source_normals[vmapping], dtype=np.float32))

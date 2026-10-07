@@ -428,3 +428,32 @@ def test_grid_projection_of_nothing_returns_nothing():
     vertices, faces = _sphere()
 
     assert _project_to_source_grid(torch.zeros((0, 3)), vertices, faces, cell=0.1, reach=0.1).shape == (0, 3)
+
+
+def test_points_just_past_the_reach_are_answered_by_a_wider_grid_not_the_global_index(monkeypatch):
+    vertices, faces = _sphere(subdivisions=3)
+    rng = np.random.default_rng(13)
+    direction = rng.normal(size=(200, 3))
+    direction /= np.linalg.norm(direction, axis=1, keepdims=True)
+    points = torch.from_numpy((direction * rng.uniform(0.47, 0.6, size=(200, 1))).astype(np.float32))
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("the global index must not be built for points a wider grid can answer")
+
+    monkeypatch.setattr(postprocess, "_project_to_source", refuse)
+    got = _project_to_source_grid(points, vertices, faces, cell=0.06, reach=0.03)
+
+    assert torch.allclose(got, _reference(points, vertices, faces), atol=1e-6)
+
+
+def test_points_beyond_every_widening_still_reach_the_exact_fallback(monkeypatch):
+    vertices, faces = _sphere(subdivisions=2)
+    points = torch.tensor([[0.0, 0.0, 9.0], [0.41, 0.0, 0.0]])
+    calls = []
+    real = postprocess._project_to_source
+    monkeypatch.setattr(postprocess, "_project_to_source", lambda p, *a, **k: calls.append(p.shape[0]) or real(p, *a, **k))
+
+    got = _project_to_source_grid(points, vertices, faces, cell=0.01, reach=0.005)
+
+    assert calls == [1]
+    assert torch.allclose(got, _reference(points, vertices, faces), atol=1e-6)

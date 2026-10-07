@@ -276,6 +276,19 @@ def test_unwrap_produces_normalized_uvs_over_a_cut_vertex_set():
     assert np.allclose(np.linalg.norm(normals, axis=1), 1.0, atol=1e-4)
 
 
+def test_unwrap_follows_the_normal_cone_charts():
+    from src.platform.runtime.native.arch.trellis2.charts import compute_charts
+    from src.platform.runtime.offload.mesh_ops import unwrap_uv_arrays
+
+    vertices, faces = clean_and_decimate(*_inward_sphere(subdivisions=3), decimation_target=800)
+    charts = compute_charts(torch.from_numpy(vertices), torch.from_numpy(faces)).numpy()
+    expected = unwrap_uv_arrays(vertices, faces, "balanced", charts)
+
+    assert np.bincount(charts).shape[0] > 1
+    for got, want in zip(unwrap_uv(vertices, faces), expected):
+        assert np.array_equal(got, want)
+
+
 def test_inpaint_fills_every_masked_texel_and_keeps_the_known_ones(monkeypatch):
     """Forces the no-cv2 path: OpenCV's native deps are not guaranteed present,
     and the push-pull fallback has to close UV gutters on its own."""

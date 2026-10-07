@@ -10,10 +10,10 @@ sampling. This is the same chain on CPU libraries and pure torch:
 upstream                             here
 ===================================  ===========================================
 ``cumesh`` simplify / clean          ``pyfqmr`` + ``trimesh.repair``
-``cumesh.uv_unwrap``                 ``xatlas.parametrize``
+``cumesh.uv_unwrap``                 :mod:`.charts` + ``xatlas`` per chart
 ``nvdiffrast.rasterize/interpolate`` :mod:`.uv_raster`
 ``flex_gemm`` ``grid_sample_3d``     ``sparse3d.sparse_grid_sample_3d``
-``cumesh.cuBVH.unsigned_distance``   ``cKDTree`` + exact kernel (opt-in, below)
+``cumesh.cuBVH.unsigned_distance``   centroid grid, ``cKDTree`` fallback (below)
 ``cv2.inpaint``                      ``cv2`` when importable, else push-pull fill
 ===================================  ===========================================
 
@@ -45,19 +45,19 @@ Divergences worth knowing about:
   the flexible dual grid leaves voxel-scale tears wherever predicted edge
   flags disagree, and pinning every border vertex stalls ``pyfqmr`` far above
   the decimation target on such a mesh.
-* **Projection to the source surface is off by default.** Upstream corrects
-  decimation error by pushing every baked texel back onto the pre-decimation
-  mesh with a CUDA BVH. The CPU stand-in indexes the source triangles with
-  ``scipy.spatial.cKDTree`` and runs the exact point-triangle kernel on a
-  provably sufficient candidate set (see :func:`_project_to_source`), which is
-  what makes ``project_to_source=True`` usable rather than quadratic —
-  ``trimesh.proximity`` would do the same job but needs ``rtree``, a native
-  dependency this project does not carry. It is still a CPU query against a
-  full-resolution mesh, so a 2048² bake against a 1M-face source stays a
-  minutes-scale operation and stays opt-in. Without SciPy the fallback is the
-  exhaustive points x triangles scan — same answer, far slower. The default
-  takes texel positions from the decimated surface, where the error is bounded
-  by the decimation error itself.
+* **Projection to the source surface.** Upstream corrects decimation error by
+  pushing every baked texel back onto the pre-decimation mesh with a CUDA BVH.
+  Here a uniform grid of source-triangle centroids on the volume's device
+  answers every texel within reach of the surface, a grid with doubled cells
+  answers the few that are not, and only texels beyond every widening fall
+  back to a ``scipy.spatial.cKDTree`` index over the source triangles with the
+  exact point-triangle kernel on a provably sufficient candidate set (see
+  :func:`_project_to_source`) — ``trimesh.proximity`` would do the same job but
+  needs ``rtree``, a native dependency this project does not carry. Without
+  SciPy that fallback is the exhaustive points x triangles scan — same answer,
+  far slower. ``project_to_source=False`` takes texel positions from the
+  decimated surface, where the error is bounded by the decimation error
+  itself.
 * **Texture format.** trimesh 4.12's glTF exporter takes ``extension_webp``, so
   textures are embedded as WebP (about a third the bytes of PNG) and the GLB
   declares ``EXT_texture_webp``. Consumers must understand that extension —
@@ -66,12 +66,14 @@ Divergences worth knowing about:
   :func:`.uv_raster.rasterize_uv_atlas`, which writes rows top-down rather than
   in nvdiffrast's bottom-up order. See that module.
 
-``decimation_target`` is the parameter that decides whether this is usable.
-Upstream's default of 1M faces assumes a GPU unwrapper; ``xatlas`` is CPU-only
-and scales worse than linearly, so it dominates everything else here — measured
-on this box, 50k faces unwrap in ~12s while 200k takes many minutes. Budget
-around 50k-100k faces and the whole chain lands in well under a minute at
-2048²; the texture size itself is comparatively cheap.
+The UV unwrap follows ``cumesh.uv_unwrap``: faces are first merged into
+normal-cone charts (:mod:`.charts`) of at most 2048 faces each, and xatlas
+then parametrises and packs every chart as a mesh of its own. Handed a
+whole surface, xatlas grows its charts over one face group at a time and
+scales with faces x charts in each, so a 500k-face remesh took 25s at a single
+seeding pass and over 15 minutes with seed relocation; split this way the same
+mesh unwraps in 6-7s at any quality, and the cost grows linearly with the face
+count.
 """
 
 from __future__ import annotations
@@ -96,6 +98,7 @@ from src.platform.runtime.offload.pool import OffloadCancelled, run_offloaded
 
 from ...errors import SamplingCancelled
 from ...sparse3d import sparse_grid_sample_3d
+from .charts import compute_charts
 from .remesh import remesh_narrow_band_dc
 from .uv_raster import interpolate_barycentric, rasterize_uv_atlas
 
@@ -156,7 +159,12 @@ def unwrap_uv(
     """``xatlas`` UV atlas. Returns ``(vertices, faces, uvs, normals)`` for the
     cut vertex set — charts duplicate vertices along their seams, so the vertex
     count grows and normals are carried over through xatlas' vertex mapping."""
-    return _offload(unwrap_uv_arrays, vertices, faces, quality, is_cancelled=is_cancelled)
+    charts = compute_charts(
+        torch.from_numpy(np.ascontiguousarray(vertices, dtype=np.float32)),
+        torch.from_numpy(np.ascontiguousarray(faces, dtype=np.int64)),
+        is_cancelled=is_cancelled,
+    )
+    return _offload(unwrap_uv_arrays, vertices, faces, quality, charts.numpy(), is_cancelled=is_cancelled)
 
 
 def _push_pull_fill(value: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
@@ -397,6 +405,7 @@ def _project_to_source(
     return out
 
 
+_WIDEN_STEPS = 5
 _CELL_OFFSETS = torch.tensor(
     [[i, j, k] for i in (-1, 0, 1) for j in (-1, 0, 1) for k in (-1, 0, 1)], dtype=torch.long
 )
@@ -477,14 +486,14 @@ class _TriangleGrid:
             best = torch.full((rows.shape[0],), float("inf"), dtype=squared.dtype, device=points.device)
             best = best.scatter_reduce(0, owner, squared, reduce="amin", include_self=True)
             tied = squared == best[owner]
-            pick = torch.full((rows.shape[0],), total, dtype=torch.long, device=points.device)
-            pick = pick.scatter_reduce(
-                0, owner, torch.where(tied, torch.arange(total, device=points.device), torch.full_like(owner, total)),
-                reduce="amin", include_self=True,
+            sentinel = self.faces.shape[0]
+            first = torch.full((rows.shape[0],), sentinel, dtype=torch.long, device=points.device)
+            first = first.scatter_reduce(
+                0, owner, torch.where(tied, face, torch.full_like(face, sentinel)), reduce="amin", include_self=True,
             )
-            hit = pick < total
-            out[rows[hit]] = closest[pick[hit]]
-            distance[rows[hit]] = best[hit].sqrt()
+            chosen = tied & (face == first[owner])
+            out[rows[owner[chosen]]] = closest[chosen]
+            distance[rows[owner[chosen]]] = squared[chosen].sqrt()
         return out, distance
 
 def _project_to_source_grid(
@@ -498,13 +507,19 @@ def _project_to_source_grid(
     if positions.shape[0] == 0 or source_faces.shape[0] == 0:
         return positions
     device = positions.device
-    grid = _TriangleGrid(
-        torch.from_numpy(np.ascontiguousarray(source_vertices, dtype=np.float32)).to(device),
-        torch.from_numpy(np.ascontiguousarray(source_faces, dtype=np.int64)).to(device),
-        cell,
-    )
-    projected, distance = grid.nearest(positions.to(torch.float32), budget)
+    vertices_t = torch.from_numpy(np.ascontiguousarray(source_vertices, dtype=np.float32)).to(device)
+    faces_t = torch.from_numpy(np.ascontiguousarray(source_faces, dtype=np.int64)).to(device)
+    points = positions.to(torch.float32)
+    projected, distance = _TriangleGrid(vertices_t, faces_t, cell).nearest(points, budget)
     missed = ~(distance <= reach)
+    for step in range(1, _WIDEN_STEPS + 1):
+        if not bool(missed.any()):
+            return projected
+        wide = cell * (2.0 ** step)
+        rows = torch.nonzero(missed).flatten()
+        found, found_distance = _TriangleGrid(vertices_t, faces_t, wide).nearest(points[rows], budget)
+        projected[rows] = found
+        missed[rows] = ~(found_distance <= reach + wide - cell)
     if bool(missed.any()):
         projected[missed] = _project_to_source(
             positions[missed].to(torch.float32), source_vertices, source_faces
@@ -694,9 +709,8 @@ def postprocess_to_glb(
 ) -> None:
     """Write the post-processed, textured mesh to ``out_path`` as a GLB.
 
-    ``decimation_target`` keeps upstream's GPU-sized default; on CPU the xatlas
-    unwrap makes anything much above ~100k faces impractical. See the module
-    docstring.
+    ``decimation_target`` keeps upstream's GPU-sized default. See the module
+    docstring for what the CPU unwrap costs.
     """
     assert out_path is not None, "out_path is required"
     mesh = build_textured_mesh(

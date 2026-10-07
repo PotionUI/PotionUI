@@ -44,7 +44,7 @@ fields:
             formula: "mesh"
             label: "Decimation Target"
             default: 300000
-            ai_hint: "This costs export time, not generation time: the UV unwrap runs on CPU and grows faster than the face count — at the default Balanced unwrap about 2 seconds at 50k faces, 5 at 100k, 12 at 200k and 20 at 300k, and roughly four times that on Best. The 300k default keeps small parts such as lamps, wheels and panel edges; go lower for a lightweight asset and up to 1M when the user wants the densest mesh."
+            ai_hint: "This costs export time, not generation time: the UV unwrap runs on CPU and grows with the face count — at the default Balanced unwrap about 1 second at 50k faces, 2 at 100k, 4 at 300k and 7 at 500k, and a tenth more on Best. The 300k default keeps small parts such as lamps, wheels and panel edges; go lower for a lightweight asset and up to 1M when the user wants the densest mesh."
             configuration:
               min: 20000
               max: 1000000

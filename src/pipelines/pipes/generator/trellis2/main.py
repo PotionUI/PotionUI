@@ -133,10 +133,10 @@ class GeneratorTrellis2Pipe(BasePipe):
                            "loader's matting model and fails with an explanation without it.",
                            required=False),
             PipeConfigSpec("decimation_target", int, 100000,
-                           "Face budget the exported mesh is decimated to. The UV unwrap is "
-                           "CPU-bound and grows faster than the face count: at the balanced "
-                           "unwrap quality about 2s at 50k, 5s at 100k, 12s at 200k and 20s at "
-                           "300k faces.",
+                           "Face budget the exported mesh is decimated to. The UV unwrap splits "
+                           "the surface into charts of at most 2048 faces before xatlas lays each "
+                           "one out, so it grows with the face count: at the balanced unwrap "
+                           "quality about 1s at 50k, 2s at 100k, 4s at 300k and 7s at 500k faces.",
                            required=False, min_value=5000, max_value=1000000),
             PipeConfigSpec("texture_size", int, 2048, "Edge length of the baked PBR texture maps",
                            required=False, choices=[1024, 2048, 4096]),
@@ -155,12 +155,11 @@ class GeneratorTrellis2Pipe(BasePipe):
                            "decimating, as upstream does. Off keeps the decoded topology, "
                            "voxel-scale tears included.", required=False),
             PipeConfigSpec("uv_quality", str, DEFAULT_UV_QUALITY,
-                           "How much work the xatlas UV unwrap does. fast and balanced grow the "
-                           "charts in a single pass, seconds at 100k faces; balanced also packs "
-                           "them on a finer grid with a 2-texel gutter so the bake does not bleed "
-                           "across seams. best adds xatlas' seed-relocation pass for fewer, "
-                           "rounder charts: about 4x longer on a remeshed surface and minutes on "
-                           "an unremeshed one.",
+                           "How much work the xatlas UV unwrap does on each chart. fast and "
+                           "balanced grow the charts in a single pass; balanced also packs them "
+                           "on a finer grid with a 2-texel gutter so the bake does not bleed "
+                           "across seams. best adds xatlas' seed-relocation pass for slightly "
+                           "fewer, rounder charts at about a tenth more unwrap time.",
                            required=False, choices=list(UV_QUALITIES)),
             PipeConfigSpec("device", str, "cuda", "Compute device", required=False,
                            choices=["cuda", "cpu"]),

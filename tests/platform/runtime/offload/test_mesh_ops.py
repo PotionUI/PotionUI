@@ -315,6 +315,67 @@ def test_unwrap_is_deterministic_and_normalized_for_every_quality(closed_sphere,
     assert normals.shape == uv_vertices.shape
 
 
+def _band_charts(vertices, faces, bands):
+    heights = vertices[faces].mean(axis=1)[:, 2]
+    edges = np.linspace(heights.min(), heights.max(), bands + 1)[1:-1]
+    return np.searchsorted(edges, heights).astype(np.int64)
+
+
+def _triangle_keys(vertices, faces):
+    corners = np.round(vertices[faces].astype(np.float64), 6)
+    rolled = [np.roll(corners, -shift, axis=1) for shift in range(3)]
+    keys = [tuple(map(tuple, min(tri, key=lambda t: tuple(t[0])))) for tri in zip(*rolled)]
+    return sorted(keys)
+
+
+@pytest.mark.parametrize("quality", ["fast", "balanced", "best"])
+def test_a_charted_unwrap_keeps_every_triangle_and_cuts_along_every_chart_border(closed_sphere, quality):
+    vertices, faces = closed_sphere
+    charts = _band_charts(vertices, faces, 4)
+    uv_vertices, uv_faces, uvs, normals = mesh_ops.unwrap_uv_arrays(vertices, faces, quality, charts)
+    assert uv_faces.shape == faces.shape
+    assert _triangle_keys(uv_vertices, uv_faces) == _triangle_keys(vertices, faces)
+    face_charts = np.sort(charts, kind="stable")
+    vertex_charts = np.full(uv_vertices.shape[0], -1)
+    for column in range(3):
+        vertex_charts[uv_faces[:, column]] = face_charts
+    for column in range(3):
+        assert np.array_equal(vertex_charts[uv_faces[:, column]], face_charts)
+    assert uvs.min() >= 0.0 and uvs.max() <= 1.0
+    assert np.allclose(np.linalg.norm(normals, axis=1), 1.0, atol=1e-4)
+
+
+def test_a_charted_unwrap_is_deterministic(closed_sphere):
+    vertices, faces = closed_sphere
+    charts = _band_charts(vertices, faces, 6)
+    first = mesh_ops.unwrap_uv_arrays(vertices, faces, "balanced", charts)
+    second = mesh_ops.unwrap_uv_arrays(vertices, faces, "balanced", charts)
+    for a, b in zip(first, second):
+        assert np.array_equal(a, b)
+
+
+def test_one_chart_per_face_still_maps_every_face(closed_sphere):
+    vertices, faces = closed_sphere
+    uv_vertices, uv_faces, uvs, _ = mesh_ops.unwrap_uv_arrays(vertices, faces, "balanced", np.arange(faces.shape[0]))
+    assert uv_vertices.shape[0] == 3 * faces.shape[0]
+    assert np.array_equal(uv_faces.reshape(-1), np.arange(3 * faces.shape[0]))
+    assert uvs.min() >= 0.0 and uvs.max() <= 1.0
+
+
+def test_decimating_a_remeshed_surface_drops_its_tiny_fragments():
+    body = trimesh.creation.icosphere(subdivisions=4, radius=0.4)
+    speck = trimesh.creation.icosphere(subdivisions=1, radius=5e-4)
+    speck.apply_translation((0.45, 0.0, 0.0))
+    mesh = trimesh.util.concatenate([body, speck])
+    vertices = np.asarray(mesh.vertices, dtype=np.float32)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    out_vertices, out_faces, rows = mesh_ops.decimate_traced(vertices, faces, 2000)
+    result = trimesh.Trimesh(out_vertices, out_faces, process=False)
+    assert len(trimesh.graph.connected_components(result.face_adjacency, nodes=np.arange(out_faces.shape[0]))) == 1
+    assert np.linalg.norm(out_vertices, axis=1).min() > 0.3
+    assert [row[0] for row in rows] == ["remesh", "decimate", "small_components"]
+
+
 def _closed_blob(subdivisions=4):
     sphere = trimesh.creation.icosphere(subdivisions=subdivisions, radius=0.3)
     vertices = np.asarray(sphere.vertices)

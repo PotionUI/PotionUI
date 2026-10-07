@@ -5,7 +5,6 @@ import threading
 import time
 
 import numpy as np
-import psutil
 import pytest
 import trimesh
 
@@ -145,10 +144,12 @@ def test_already_cancelled_call_never_reaches_the_worker():
 
 def test_shutdown_terminates_the_worker_process():
     pid = run_offloaded(ping)["pid"]
+    workers = [w for w in pool._pool._processes.values() if w.pid == pid]
 
     shutdown_offload()
 
-    assert not psutil.pid_exists(pid)
+    assert workers
+    assert all(not w.is_alive() and w.exitcode is not None for w in workers)
     assert pool._pool is None
     assert run_offloaded(ping)["pid"] != pid
 

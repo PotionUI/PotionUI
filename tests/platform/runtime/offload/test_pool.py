@@ -1,4 +1,5 @@
 import logging
+import multiprocessing.connection
 import os
 import sys
 import threading
@@ -149,7 +150,7 @@ def test_shutdown_terminates_the_worker_process():
     shutdown_offload()
 
     assert workers
-    assert all(not w.is_alive() and w.exitcode is not None for w in workers)
+    assert len(multiprocessing.connection.wait([w.sentinel for w in workers], timeout=0)) == len(workers)
     assert pool._pool is None
     assert run_offloaded(ping)["pid"] != pid
 

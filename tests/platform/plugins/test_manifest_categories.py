@@ -57,6 +57,9 @@ class TestManifestCategories(unittest.TestCase):
         expected = {
             "comfyui-backend": "backends",
             "openrouter-provider": "backends",
+            "bfl-provider": "backends",
+            "google-gemini-provider": "backends",
+            "openai-provider": "backends",
             "runpod-provider": "backends",
             "civitai-provider": "sources",
             "huggingface-provider": "sources",

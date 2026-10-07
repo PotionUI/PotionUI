@@ -219,7 +219,10 @@ backends are plugins, not core code:
   server via the `comfyui-backend` plugin, which also ships image presets for
   SDXL, Qwen-Image, Z-Image, Krea-2, and Flux Klein 9B); you can import your
   own ComfyUI workflows as presets too — see
-  [docs/presets/comfyui.md](docs/presets/comfyui.md)
+  [docs/presets/comfyui.md](docs/presets/comfyui.md); hosted cloud models
+  come from the `openrouter-provider`, `bfl-provider`,
+  `google-gemini-provider` and `openai-provider` plugins, each with its own
+  presets — see [docs/cloud-models.md](docs/cloud-models.md)
 - **Pipes** — the individual steps a generation pipeline is built from
 - **Field types, chat modes, frontend pages** — all pluggable
 

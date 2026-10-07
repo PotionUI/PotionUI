@@ -157,7 +157,7 @@ word on what you were billed.
 | What you see | What to do |
 |---|---|
 | The plugin is enabled, but **Black Forest Labs** is not in the **Engine** list when adding a backend. | Restart PotionUI (see Step 1). |
-| Users see "BFL rejected the API key. An administrator can check it in Administration, Backends." | The key is wrong, revoked or missing. Open the backend, paste a new **API key** and save. |
+| Users see "BFL rejected the API key. Check it in Administration, Backends." | The key is wrong, revoked or missing. Open the backend, paste a new **API key** and save. |
 | Users see "The BFL account is out of credits. An administrator can add credits at api.bfl.ai." | Buy credits on api.bfl.ai. Nothing else needs changing. |
 | Users see "BFL's content filter refused this prompt or picture. Try a different prompt or picture." | BFL's input filter stopped the request before drawing (BFL calls this Request Moderated). As an admin, open the generation in **Administration → Generations**: its **Failure** panel lists the categories BFL gave. Users never see them. Raising **Safety tolerance** on the Provider options tab makes the filter more lenient. |
 | Users see "BFL's content filter blocked the finished picture. Try a different prompt." | BFL drew the picture and its output filter withheld it (Content Moderated). The job may still be billed. The Failure panel lists the categories. |

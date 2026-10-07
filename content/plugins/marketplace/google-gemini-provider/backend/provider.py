@@ -130,7 +130,7 @@ class GoogleProvider(CloudProvider):
         if status == 504:
             return CloudError("timeout", "Google took too long to answer.", detail=detail)
         if status >= 500:
-            return CloudError("unavailable", "Google had a problem on its side. Try again shortly.", detail=detail, retry_after_s=retry_after)
+            return CloudError("unavailable", "Google is having trouble at the moment. Try again shortly.", detail=detail, retry_after_s=retry_after)
         return None
 
     async def _list_models(self) -> List[Any]:

@@ -319,7 +319,14 @@ def test_every_shipped_preset_declares_formula_groups_that_lint_clean():
     plugins = REPO_ROOT / "content" / "plugins" / "marketplace"
     preset_files = sorted(MARKETPLACE.rglob("preset.yml")) + [
         path
-        for plugin in ("comfyui-backend", "nvidia-rtx-upscale", "openrouter-provider")
+        for plugin in (
+            "comfyui-backend",
+            "nvidia-rtx-upscale",
+            "openrouter-provider",
+            "bfl-provider",
+            "google-gemini-provider",
+            "openai-provider",
+        )
         for path in sorted((plugins / plugin / "presets").rglob("preset.yml"))
     ]
     linter = PresetLinter([])

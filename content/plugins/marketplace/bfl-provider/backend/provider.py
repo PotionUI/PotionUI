@@ -93,7 +93,7 @@ class BflProvider(CloudProvider):
         retry_after = parse_retry_after(headers.get("retry-after"))
         detail = f"HTTP {status}: {message}"
         if status == 401:
-            return CloudError("auth", "BFL rejected the API key. An administrator can check it in Administration, Backends.", detail=detail)
+            return CloudError("auth", "BFL rejected the API key. Check it in Administration, Backends.", detail=detail)
         if status == 402:
             return CloudError(
                 "credits", "The BFL account is out of credits. An administrator can add credits at api.bfl.ai.",
@@ -111,7 +111,7 @@ class BflProvider(CloudProvider):
         if status in (400, 422):
             return CloudError("invalid_request", "BFL rejected the request settings.", detail=detail)
         if status >= 500:
-            return CloudError("unavailable", "BFL is not answering at the moment. Try again shortly.", detail=detail, retry_after_s=retry_after)
+            return CloudError("unavailable", "BFL is having trouble at the moment. Try again shortly.", detail=detail, retry_after_s=retry_after)
         return None
 
     async def discover(self) -> List[CloudModelSpec]:
@@ -125,7 +125,7 @@ class BflProvider(CloudProvider):
         return specs
 
     async def submit(self, request: CloudRequest) -> CloudJob:
-        user_ref = request.user_ref if getattr(self.config, "send_user_hash", False) else None
+        user_ref = request.user_ref if self.config.send_user_hash else None
         body = await asyncio.to_thread(build_body, request, user_ref)
         payload = await self.http.request_json(
             "POST", f"/{request.model.provider_model_id}", json=body, timeout_s=float(self.config.timeout_seconds),

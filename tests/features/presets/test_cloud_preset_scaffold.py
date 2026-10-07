@@ -231,16 +231,24 @@ def test_the_served_form_of_every_scaffolded_mode_carries_its_model_picker(tmp_p
 
 
 @pytest.mark.parametrize(
-    "preset,mode,task",
+    "plugin,preset,mode,task",
     [
-        ("OpenRouter Images", "txt2img", "txt2img"),
-        ("OpenRouter Images", "edit", "img_edit"),
-        ("OpenRouter Video", "txt2video", "txt2video"),
-        ("OpenRouter Video", "img2video", "img2video"),
+        ("openrouter-provider", "OpenRouter Images", "txt2img", "txt2img"),
+        ("openrouter-provider", "OpenRouter Images", "edit", "img_edit"),
+        ("openrouter-provider", "OpenRouter Video", "txt2video", "txt2video"),
+        ("openrouter-provider", "OpenRouter Video", "img2video", "img2video"),
+        ("bfl-provider", "FLUX by Black Forest Labs", "txt2img", "txt2img"),
+        ("bfl-provider", "FLUX by Black Forest Labs", "edit", "img_edit"),
+        ("google-gemini-provider", "Gemini Images", "txt2img", "txt2img"),
+        ("google-gemini-provider", "Gemini Images", "edit", "img_edit"),
+        ("google-gemini-provider", "Gemini Video", "txt2video", "txt2video"),
+        ("google-gemini-provider", "Gemini Video", "img2video", "img2video"),
+        ("openai-provider", "OpenAI Images", "txt2img", "txt2img"),
+        ("openai-provider", "OpenAI Images", "edit", "img_edit"),
     ],
 )
-def test_the_served_forms_of_the_openrouter_presets_carry_their_model_picker(preset, mode, task):
-    field = served_model_field(REPO / "content" / "plugins" / "marketplace" / "openrouter-provider" / "presets", preset, mode)
+def test_the_served_forms_of_the_provider_presets_carry_their_model_picker(plugin, preset, mode, task):
+    field = served_model_field(REPO / "content" / "plugins" / "marketplace" / plugin / "presets", preset, mode)
 
     assert field is not None and field["configuration"]["model_type"] == "cloud"
     assert field["configuration"]["tasks"] == [task]

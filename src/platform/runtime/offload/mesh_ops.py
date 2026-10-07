@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Tuple
+from typing import List, Tuple
 
 import numpy as np
 
@@ -14,7 +14,7 @@ def _simplify(vertices: np.ndarray, faces: np.ndarray, target: int) -> Tuple[np.
         return (vertices, faces)
     simplifier = pyfqmr.Simplify()
     simplifier.setMesh(vertices.astype(np.float64), faces.astype(np.int32))
-    simplifier.simplify_mesh(target_count=int(target), aggressiveness=7, preserve_border=True, verbose=0)
+    simplifier.simplify_mesh(target_count=int(target), aggressiveness=7, preserve_border=False, verbose=0)
     out_vertices, out_faces, _ = simplifier.getMesh()
     return (np.ascontiguousarray(out_vertices, dtype=np.float32), np.ascontiguousarray(out_faces, dtype=np.int64))
 
@@ -35,37 +35,142 @@ def _drop_small_components(mesh) -> None:
         mesh.update_faces(keep)
 
 
-def _fill_small_holes(mesh, max_perimeter: float=_MAX_HOLE_PERIMETER) -> None:
-    import networkx as nx
-    from trimesh.geometry import faces_to_edges, triangulate_quads
-    from trimesh.grouping import group_rows, hashable_rows
-    if len(mesh.faces) < 3 or mesh.is_watertight:
-        return
-    boundary_groups = group_rows(mesh.edges_sorted, require_count=1)
-    if len(boundary_groups) < 3:
-        return
-    boundary = mesh.edges[boundary_groups]
-    boundary_graph = nx.from_edgelist(boundary)
-    vertices = mesh.vertices
-    eligible = []
-    for loop in nx.cycle_basis(boundary_graph):
-        if len(loop) < 3 or any((boundary_graph.degree[v] != 2 for v in loop)):
+def _boundary_edges(faces: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    directed = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+    undirected = np.sort(directed, axis=1)
+    _, inverse, counts = np.unique(undirected, axis=0, return_inverse=True, return_counts=True)
+    once = counts[np.asarray(inverse).reshape(-1)] == 1
+    return undirected[once], directed[once]
+
+
+def _simple_loops(edges: np.ndarray) -> List[List[int]]:
+    ends = edges.reshape(-1)
+    order = np.argsort(ends, kind="stable")
+    sorted_ends = ends[order]
+    starts = np.searchsorted(sorted_ends, sorted_ends, side="left")
+    degree = np.searchsorted(sorted_ends, sorted_ends, side="right") - starts
+    other = edges[order // 2, 1 - order % 2]
+    neighbours = {}
+    simple = set()
+    for vertex, deg, nxt in zip(sorted_ends.tolist(), degree.tolist(), other.tolist()):
+        neighbours.setdefault(vertex, []).append(nxt)
+        if deg == 2:
+            simple.add(vertex)
+    loops = []
+    visited = set()
+    for start in neighbours:
+        if start in visited:
             continue
-        ring = loop + [loop[0]]
-        perimeter = np.linalg.norm(vertices[ring[1:]] - vertices[ring[:-1]], axis=1).sum()
-        if perimeter <= max_perimeter:
-            eligible.append(loop)
-    if not eligible:
+        loop = [start]
+        visited.add(start)
+        closed = start in simple
+        previous, current = start, neighbours[start][0]
+        while closed and current != start:
+            if current in visited or current not in simple:
+                closed = False
+                break
+            visited.add(current)
+            loop.append(current)
+            a, b = neighbours[current]
+            previous, current = current, (b if a == previous else a)
+        if not closed:
+            stack = [start]
+            while stack:
+                vertex = stack.pop()
+                for nxt in neighbours[vertex]:
+                    if nxt not in visited:
+                        visited.add(nxt)
+                        stack.append(nxt)
+            continue
+        if len(loop) >= 3:
+            loops.append(loop)
+    return loops
+
+
+def _project_ring(points: np.ndarray) -> np.ndarray:
+    rolled = np.roll(points, -1, axis=0)
+    normal = np.cross(points, rolled).sum(axis=0)
+    length = np.linalg.norm(normal)
+    if length < 1e-30:
+        return None
+    normal = normal / length
+    seed = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    u = np.cross(normal, seed)
+    u = u / np.linalg.norm(u)
+    v = np.cross(normal, u)
+    centred = points - points.mean(axis=0)
+    return np.stack([centred @ u, centred @ v], axis=1)
+
+
+def _cross2(o, a, b) -> float:
+    return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+
+def _ear_clip(ring: np.ndarray) -> List[Tuple[int, int, int]]:
+    flat = ring.tolist()
+    remaining = list(range(len(flat)))
+    triangles = []
+    while len(remaining) > 3:
+        count = len(remaining)
+        for k in range(count):
+            i, j, l = remaining[k - 1], remaining[k], remaining[(k + 1) % count]
+            a, b, c = flat[i], flat[j], flat[l]
+            if _cross2(a, b, c) <= 0.0:
+                continue
+            blocked = False
+            for m in remaining:
+                if m in (i, j, l):
+                    continue
+                p = flat[m]
+                if _cross2(a, b, p) >= 0.0 and _cross2(b, c, p) >= 0.0 and _cross2(c, a, p) >= 0.0:
+                    blocked = True
+                    break
+            if not blocked:
+                triangles.append((i, j, l))
+                del remaining[k]
+                break
+        else:
+            return []
+    triangles.append(tuple(remaining))
+    return triangles
+
+
+def _triangulate_loop(loop: List[int], vertices: np.ndarray, directed: set) -> np.ndarray:
+    points = np.asarray(vertices[loop], dtype=np.float64)
+    ring = _project_ring(points)
+    if ring is None:
+        return None
+    triangles = _ear_clip(ring)
+    if not triangles:
+        return None
+    ids = np.asarray(loop, dtype=np.int64)
+    out = ids[np.asarray(triangles, dtype=np.int64)]
+    successors = loop[1:] + loop[:1]
+    same = sum(1 for a, b in zip(loop, successors) if (a, b) in directed)
+    if 2 * same > len(loop):
+        out = out[:, ::-1]
+    return out
+
+
+def _fill_small_holes(mesh, max_perimeter: float=_MAX_HOLE_PERIMETER) -> None:
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    if faces.shape[0] < 3:
         return
-    new_faces = triangulate_quads(eligible, use_fan=False)
-    if len(new_faces) == 0:
+    edges, directed_edges = _boundary_edges(faces)
+    if edges.shape[0] < 3:
         return
-    new_edges = faces_to_edges(new_faces)
-    hashable_new = hashable_rows(new_edges)
-    hashable_old = hashable_rows(boundary)
-    needs_reverse = np.isin(hashable_new, hashable_old).reshape((-1, 3)).any(axis=1)
-    new_faces[needs_reverse] = np.fliplr(new_faces[needs_reverse])
-    mesh.extend_faces(new_faces)
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    directed = set(map(tuple, directed_edges.tolist()))
+    new_faces = []
+    for loop in _simple_loops(edges):
+        ring = vertices[loop + loop[:1]]
+        if np.linalg.norm(ring[1:] - ring[:-1], axis=1).sum() > max_perimeter:
+            continue
+        patch = _triangulate_loop(loop, vertices, directed)
+        if patch is not None:
+            new_faces.append(patch)
+    if new_faces:
+        mesh.faces = np.concatenate([faces, *new_faces]).astype(np.int64)
 
 
 def _tidy(mesh, recorder=None, prefix: str = "tidy") -> None:

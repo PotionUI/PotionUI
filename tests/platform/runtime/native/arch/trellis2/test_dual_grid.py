@@ -191,3 +191,38 @@ def test_train_mode_is_rejected():
     except AssertionError:
         raised = True
     assert raised
+
+
+def _closed_surface_stats(shape, resolution):
+    import numpy as np
+
+    from ._fdg_shapes import dual_grid_fields, edge_counts, welded
+
+    coords, offsets, flags, lerp = dual_grid_fields(shape, resolution)
+    mesh_vertices, mesh_triangles = flexible_dual_grid_to_mesh(
+        coords, offsets, flags, lerp, aabb=[[-0.5] * 3, [0.5] * 3], grid_size=resolution,
+    )
+    faces = welded(mesh_vertices.numpy(), mesh_triangles.numpy())
+    counts = edge_counts(faces)
+    euler = np.unique(faces).size - counts.size + faces.shape[0]
+    return faces.shape[0], counts, euler
+
+
+def test_sdf_sphere_extracts_a_closed_two_manifold_of_genus_zero():
+    from ._fdg_shapes import sphere_sdf
+
+    face_count, counts, euler = _closed_surface_stats(sphere_sdf(0.37), 24)
+
+    assert face_count > 2000
+    assert (counts == 2).all()
+    assert euler == 2
+
+
+def test_sdf_torus_extracts_a_closed_two_manifold_of_genus_one():
+    from ._fdg_shapes import torus_sdf
+
+    face_count, counts, euler = _closed_surface_stats(torus_sdf(0.27, 0.11), 24)
+
+    assert face_count > 1500
+    assert (counts == 2).all()
+    assert euler == 0

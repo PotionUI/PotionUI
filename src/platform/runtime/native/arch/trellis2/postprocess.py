@@ -29,21 +29,17 @@ Divergences worth knowing about:
   usual sources of such edges without reconstructing the ones that remain.
   xatlas tolerates them — it charts per face — so they survive into the output
   rather than failing the bake.
-* **Hole filling** replicates ``trimesh.repair.fill_holes`` per boundary loop
-  (:func:`_fill_small_holes`) instead of calling it directly: the installed
-  trimesh (``repair.py``) triangulates every loop uniformly by vertex count —
-  a 3- or 4-vertex loop is always fanned/quad-split regardless of its size, so
-  it cannot tell a stray missing quad from a metre-wide window with a simple
-  rectangular rim. This filters loops by mesh-space perimeter against
-  upstream's ``3e-2`` cap first, so a genuinely large opening (cup mouth,
-  arch, window) survives even when its rim happens to be a low-vertex-count
-  loop, while voxel-scale pinholes are still closed. Triangulation stays
-  ``use_fan=False`` (trimesh's own default): only 3- and 4-vertex loops are
-  ever filled. A fan over a 5+-vertex loop is only correct for a convex hole
-  — trimesh's own docs call out wrong answers on non-convex ones — and
-  eligibility here is decided by perimeter, not convexity, so a large
-  concave loop under the cap could otherwise be fanned wrong; such loops are
-  left open, deferred rather than risked.
+* **Hole filling** (:func:`_fill_small_holes`) closes every simple boundary
+  loop whose mesh-space perimeter is at most upstream's ``3e-2`` cap, whatever
+  its vertex count, as ``cumesh.fill_holes`` does; a loop sharing a vertex
+  with another stays open. Upstream fans each loop from its centroid; here the
+  loop is ear-clipped in its best-fit plane, which stays inside a concave hole
+  where a fan would not. A loop that does not project to a simple polygon
+  stays open.
+* **Simplification does not preserve borders**, matching ``cumesh.simplify``:
+  the flexible dual grid leaves voxel-scale tears wherever predicted edge
+  flags disagree, and pinning every border vertex stalls ``pyfqmr`` far above
+  the decimation target on such a mesh.
 * **Projection to the source surface is off by default.** Upstream corrects
   decimation error by pushing every baked texel back onto the pre-decimation
   mesh with a CUDA BVH. The CPU stand-in indexes the source triangles with

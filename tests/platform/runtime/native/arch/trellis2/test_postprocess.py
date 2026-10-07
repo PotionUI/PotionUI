@@ -220,15 +220,17 @@ def test_a_boundary_loop_sharing_a_vertex_with_another_is_never_filled():
     assert mesh.faces.shape[0] == 4
 
 
-def test_a_small_concave_ngon_hole_stays_open():
-    """Small and unshared, so both the perimeter and degree checks would pass
-    it — it must be excluded on vertex count alone (``use_fan=False``), since
-    fanning a concave loop from a single vertex is not a valid triangulation."""
-    mesh = _concave_ring_cap_mesh()
+def test_a_small_concave_ngon_hole_is_filled_without_covering_area_outside_it():
+    scale = 1e-3
+    mesh = _concave_ring_cap_mesh(scale)
 
     _fill_small_holes(mesh)
 
-    assert mesh.faces.shape[0] == 8
+    assert mesh.faces.shape[0] == 8 + 6
+    assert mesh.is_watertight
+    assert mesh.is_winding_consistent
+    cap_area = mesh.area_faces[8:].sum()
+    assert cap_area == pytest.approx(7 * scale**2, rel=1e-9)
 
 
 def test_fill_small_holes_is_a_noop_on_an_already_watertight_mesh():
@@ -446,3 +448,63 @@ def test_projection_to_source_pulls_texels_onto_the_undecimated_surface():
         return np.abs(np.linalg.norm(sampled, axis=1) - _SPHERE_RADIUS).mean()
 
     assert radial_error(projected) < radial_error(plain)
+
+
+def _torn_dual_grid_mesh(shape, resolution, half_extent, tears):
+    from src.platform.runtime.native.arch.trellis2.dual_grid import flexible_dual_grid_to_mesh
+
+    from ._fdg_shapes import dual_grid_fields, tear_quad_pairs
+
+    coords, offsets, flags, lerp = dual_grid_fields(shape, resolution)
+    mesh_vertices, mesh_triangles = flexible_dual_grid_to_mesh(
+        coords, offsets, flags, lerp,
+        aabb=[[-half_extent] * 3, [half_extent] * 3], grid_size=resolution,
+    )
+    faces, torn = tear_quad_pairs(mesh_triangles.numpy(), tears)
+    assert torn == tears
+    return mesh_vertices.numpy(), faces
+
+
+@pytest.mark.parametrize(
+    "shape_name, euler",
+    [("sphere", 2), ("torus", 0)],
+)
+def test_torn_dual_grid_surface_is_closed_consistently_wound_and_decimated_to_target(shape_name, euler):
+    from ._fdg_shapes import edge_counts, sphere_sdf, torus_sdf, welded
+
+    shape = sphere_sdf(0.37) if shape_name == "sphere" else torus_sdf(0.27, 0.11)
+    vertices, faces = _torn_dual_grid_mesh(shape, 32, 0.05, tears=12)
+    torn_counts = edge_counts(welded(vertices, faces))
+    assert (torn_counts == 1).sum() == 12 * 6
+
+    target = faces.shape[0] // 3
+    out_vertices, out_faces = clean_and_decimate(vertices, faces, decimation_target=target)
+
+    closed = welded(out_vertices, out_faces)
+    counts = edge_counts(closed)
+    mesh = trimesh.Trimesh(out_vertices, out_faces, process=False)
+    assert out_faces.shape[0] <= target
+    assert (counts == 2).all()
+    assert np.unique(closed).size - counts.size + closed.shape[0] == euler
+    assert mesh.is_winding_consistent
+    assert mesh.volume > 0
+
+
+def test_a_surface_torn_beyond_the_fill_threshold_still_decimates_to_target():
+    from src.platform.runtime.native.arch.trellis2.dual_grid import flexible_dual_grid_to_mesh
+
+    from ._fdg_shapes import dual_grid_fields, edge_counts, sphere_sdf, tear_quad_pairs, welded
+
+    coords, offsets, flags, lerp = dual_grid_fields(sphere_sdf(0.37), 32)
+    mesh_vertices, mesh_triangles = flexible_dual_grid_to_mesh(
+        coords, offsets, flags, lerp, aabb=[[-0.5] * 3, [0.5] * 3], grid_size=32,
+    )
+    vertices = mesh_vertices.numpy()
+    faces, torn = tear_quad_pairs(mesh_triangles.numpy(), 10_000)
+    assert torn > 100
+    target = faces.shape[0] // 4
+
+    out_vertices, out_faces = clean_and_decimate(vertices, faces, decimation_target=target)
+
+    assert (edge_counts(welded(out_vertices, out_faces)) == 1).sum() > 0
+    assert out_faces.shape[0] <= target

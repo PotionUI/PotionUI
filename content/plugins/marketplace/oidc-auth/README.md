@@ -15,7 +15,10 @@ exactly as they do for a local account.
 1. `GET /api/plugins/oidc-auth/start` redirects the browser to your issuer's
    authorization endpoint with a PKCE (S256) challenge, `state` and `nonce`. It stores
    the flow's secrets (state, nonce, PKCE verifier, redirect URI) in a short-lived
-   (10 minute), HttpOnly, signed cookie - nothing is kept server-side.
+   (10 minute), HttpOnly, signed cookie - nothing is kept server-side. The only query
+   parameter it forwards is `prompt`, and only when it is `select_account` or `login`;
+   PotionUI's "Add account" page uses `prompt=select_account` so the issuer offers
+   another identity instead of silently reusing the current session.
 2. Your issuer authenticates the user and redirects back to
    `GET /api/plugins/oidc-auth/callback` with an authorization code.
 3. The plugin exchanges the code at the token endpoint (with the PKCE verifier),

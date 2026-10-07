@@ -33,6 +33,7 @@ ROUTER_PREFIX = f"/api/plugins/{PLUGIN_ID}"
 START_PATH = f"{ROUTER_PREFIX}/start"
 CALLBACK_PATH = f"{ROUTER_PREFIX}/callback"
 LOGIN_ERROR_URL = "/login?error=external_login"
+ALLOWED_PROMPTS = frozenset({"select_account", "login"})
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ def _fail(reason: str) -> RedirectResponse:
 
 
 @router.get("/start")
-async def start(request: Request):
+async def start(request: Request, prompt: Optional[str] = Query(default=None)):
     settings = load_settings()
     if not settings.is_configured():
         return _fail("issuer_url, client_id or client_secret is not configured")
@@ -96,6 +97,8 @@ async def start(request: Request):
         "code_challenge": code_challenge_s256(code_verifier),
         "code_challenge_method": "S256",
     }
+    if prompt in ALLOWED_PROMPTS:
+        params["prompt"] = prompt
     response = RedirectResponse(url=f"{authorization_endpoint}?{urlencode(params)}", status_code=302)
     response.set_cookie(
         key=FLOW_COOKIE_NAME,

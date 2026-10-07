@@ -27,6 +27,8 @@ __all__ = ["SparseConv3d"]
 
 _KernelSize = Union[int, Tuple[int, int, int]]
 
+_CHUNK_BYTES = 256 * 1024 * 1024
+
 
 def _as_triple(value: _KernelSize) -> Tuple[int, int, int]:
     if isinstance(value, (list, tuple)):
@@ -69,18 +71,20 @@ def _build_neighbor_map(
     taps = torch.stack(torch.meshgrid(rd, rh, rw, indexing="ij"), dim=-1).reshape(-1, 3)
     delta = taps[:, 0] * ey * ez + taps[:, 1] * ez + taps[:, 2]
 
-    neighbor_codes = codes.unsqueeze(0) + delta.unsqueeze(1)
-
+    k = delta.shape[0]
+    row_idx = torch.zeros((k, n), dtype=torch.long, device=device)
+    valid = torch.zeros((k, n), dtype=torch.bool, device=device)
     if n == 0:
-        row_idx = torch.zeros_like(neighbor_codes)
-        valid = torch.zeros_like(neighbor_codes, dtype=torch.bool)
         return row_idx, valid
 
     sorted_codes, sort_pos = torch.sort(codes)
-    pos = torch.searchsorted(sorted_codes, neighbor_codes).clamp(max=n - 1)
-    matched = sorted_codes[pos] == neighbor_codes
-    row_idx = torch.where(matched, sort_pos[pos], torch.zeros_like(pos))
-    return row_idx, matched
+    for tap in range(k):
+        query = codes + delta[tap]
+        pos = torch.searchsorted(sorted_codes, query).clamp_(max=n - 1)
+        torch.eq(sorted_codes[pos], query, out=valid[tap])
+        row_idx[tap] = sort_pos[pos]
+        row_idx[tap].masked_fill_(~valid[tap], 0)
+    return row_idx, valid
 
 
 class SparseConv3d(nn.Module):
@@ -126,9 +130,32 @@ class SparseConv3d(nn.Module):
         else:
             row_idx, valid = cached
 
-        gathered = x.feats[row_idx] * valid.unsqueeze(-1).to(x.feats.dtype)
-        weight_flat = self.weight.reshape(self.out_channels, -1, self.in_channels)
-        out = torch.einsum("kni,oki->no", gathered, weight_flat)
-        if self.bias is not None:
-            out = out + self.bias
-        return x.replace(out)
+        return x.replace(self._apply_taps(x.feats, row_idx, valid))
+
+    def _apply_taps(self, feats: torch.Tensor, row_idx: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:
+        n = feats.shape[0]
+        k = row_idx.shape[0]
+        weight = self.weight.reshape(self.out_channels, k, self.in_channels)
+        acc_dtype = torch.float32 if feats.dtype in (torch.float16, torch.bfloat16) else feats.dtype
+        out = torch.empty((n, self.out_channels), dtype=feats.dtype, device=feats.device)
+        row_bytes = (
+            self.in_channels * feats.element_size()
+            + self.out_channels * (feats.element_size() + torch.finfo(acc_dtype).bits // 8)
+        )
+        rows = max(1, _CHUNK_BYTES // row_bytes)
+        for start in range(0, n, rows):
+            stop = min(n, start + rows)
+            acc = torch.zeros((stop - start, self.out_channels), dtype=acc_dtype, device=feats.device)
+            for tap in range(k):
+                gathered = feats.index_select(0, row_idx[tap, start:stop])
+                gathered.masked_fill_(~valid[tap, start:stop].unsqueeze(-1), 0)
+                tap_weight = weight[:, tap].t()
+                if acc_dtype == gathered.dtype:
+                    acc.addmm_(gathered, tap_weight)
+                else:
+                    acc += torch.mm(gathered, tap_weight)
+                del gathered
+            if self.bias is not None:
+                acc += self.bias
+            out[start:stop] = acc
+        return out

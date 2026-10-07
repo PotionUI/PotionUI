@@ -14,11 +14,12 @@ from .config import (
     VIEW_AZIMUTHS,
     bundle_mode_of,
 )
-from .image_to_mesh import Pixal3DComponents, Pixal3DViews, reframe_volume, run_pixal3d
+from .image_to_mesh import CameraFov, Pixal3DComponents, Pixal3DViews, reframe_volume, run_pixal3d
 from .naf import NAF, load_naf, neighborhood_attention_2d
 
 __all__ = [
     "BUNDLE_MODES",
+    "CameraFov",
     "DEFAULT_FOV_DEG",
     "DEFAULT_TIER",
     "EXPORT_FRAMES",

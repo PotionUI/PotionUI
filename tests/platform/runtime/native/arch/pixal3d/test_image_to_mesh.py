@@ -6,8 +6,9 @@ import pytest
 import torch
 from PIL import Image
 
+from src.platform.runtime.native.arch.moge import FovEstimate
 from src.platform.runtime.native.arch.pixal3d import image_to_mesh as p3d
-from src.platform.runtime.native.arch.pixal3d.conditioning import ProjectedCondition
+from src.platform.runtime.native.arch.pixal3d.conditioning import ProjectedCondition, view_pixels
 from src.platform.runtime.native.arch.pixal3d.projection import distance_from_fov, front_camera, orbit_camera
 from src.platform.runtime.native.arch.trellis2 import image_to_mesh as trellis2_itm
 from src.platform.runtime.native.arch.trellis2.config import SSFlowConfig, StageSampling
@@ -376,6 +377,88 @@ def test_the_fov_changes_where_voxels_sample():
 def test_an_impossible_fov_is_refused():
     with pytest.raises(ValueError, match="field of view"):
         _run(_components(), fov_deg=180.0)
+
+
+class _FakeEstimator(_Placed):
+    def __init__(self, fov_x_deg=None) -> None:
+        super().__init__()
+        self.fov_x_deg = fov_x_deg
+        self.pixels: list[torch.Tensor] = []
+
+    def estimate_fov(self, pixels):
+        self.pixels.append(pixels)
+        if self.fov_x_deg is None:
+            return [None]
+        return [FovEstimate(self.fov_x_deg, self.fov_x_deg, 1.0)]
+
+
+def _reported(components, source=None, **kwargs):
+    reports = []
+    _run(components, source, on_camera_fov=reports.append, **kwargs)
+    return reports
+
+
+def test_auto_fov_runs_moge_on_the_conditioned_front_image_at_1024():
+    estimator = _FakeEstimator(31.5)
+    source = _image((10, 120, 240))
+    reports = _reported(_components(camera_estimator=estimator), source, estimate_fov=True)
+    assert reports == [p3d.CameraFov(31.5, "estimated")]
+    [pixels] = estimator.pixels
+    assert pixels.shape == (1, 3, 1024, 1024)
+    assert torch.equal(pixels[0], view_pixels(source, 1024))
+    assert estimator.placements == ["cpu", "cpu"]
+
+
+def test_the_estimated_fov_is_the_one_every_voxel_is_projected_with():
+    estimated = _components(camera_estimator=_FakeEstimator(31.5))
+    manual = _components()
+    _run(estimated, estimate_fov=True, fov_deg=49.13)
+    _run(manual, fov_deg=31.5)
+    assert torch.equal(estimated.ss_flow.conds[0][1].proj, manual.ss_flow.conds[0][1].proj)
+    assert torch.equal(estimated.tex_flow.conds[-1][1].proj.feats, manual.tex_flow.conds[-1][1].proj.feats)
+
+
+def test_auto_fov_falls_back_to_the_manual_value_when_moge_recovers_no_focal_length():
+    fallback = _components(camera_estimator=_FakeEstimator(None))
+    manual = _components()
+    reports = _reported(fallback, estimate_fov=True, fov_deg=35.0)
+    _run(manual, fov_deg=35.0)
+    assert reports == [p3d.CameraFov(35.0, "fallback")]
+    assert torch.equal(fallback.ss_flow.conds[0][1].proj, manual.ss_flow.conds[0][1].proj)
+
+
+def test_auto_fov_without_an_estimator_is_refused_before_anything_runs():
+    components = _components()
+    with pytest.raises(ValueError, match="MoGe-2"):
+        _run(components, estimate_fov=True)
+    assert components.conditioner.calls == []
+
+
+def test_a_manual_run_never_touches_the_estimator_and_reports_its_own_value():
+    estimator = _FakeEstimator(31.5)
+    reports = _reported(_components(camera_estimator=estimator), fov_deg=42.0)
+    assert reports == [p3d.CameraFov(42.0, "manual")]
+    assert estimator.pixels == []
+    assert estimator.placements == []
+
+
+def test_a_multi_view_auto_fov_is_estimated_from_the_front_view_alone():
+    estimator = _FakeEstimator(18.0)
+    front, left = _image((250, 10, 10)), _image((10, 10, 250))
+    reports = _reported(_components(camera_estimator=estimator), p3d.Pixal3DViews({"left": left, "front": front}),
+                        estimate_fov=True)
+    assert reports == [p3d.CameraFov(18.0, "estimated")]
+    [pixels] = estimator.pixels
+    assert torch.equal(pixels[0], view_pixels(front, 1024))
+
+
+def test_auto_fov_sees_the_matted_crop_not_the_raw_upload():
+    estimator = _FakeEstimator(25.0)
+    image = Image.new("RGBA", (200, 200), (255, 0, 0, 0))
+    image.paste((255, 0, 0, 255), (50, 50, 151, 151))
+    _run(_components(camera_estimator=estimator), image, estimate_fov=True, remove_background=True)
+    cropped = trellis2_itm.prepare_image(image, pad=1.1)
+    assert torch.equal(estimator.pixels[0][0], view_pixels(cropped, 1024))
 
 
 def test_cancellation_stops_the_cascade():

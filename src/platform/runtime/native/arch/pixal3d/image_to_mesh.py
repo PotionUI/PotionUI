@@ -20,12 +20,16 @@ from ..trellis2.image_to_mesh import (
     prepare_image,
 )
 from ..trellis2.sampling import sample_flow_stage
-from .conditioning import ConditioningView, encode_views, stage_condition
+from .conditioning import ConditioningView, encode_views, stage_condition, view_pixels
 from .config import (
+    CAMERA_ESTIMATE_SIZE,
     CROP_PAD,
     DEFAULT_FOV_DEG,
     DEFAULT_TIER,
     EXPORT_FRAMES,
+    FOV_ESTIMATED,
+    FOV_FALLBACK,
+    FOV_MANUAL,
     LR_PROJECTION_GRID,
     PIXAL3D_TIERS,
     STAGE_CONDITIONING,
@@ -36,11 +40,13 @@ from .config import (
 from .projection import distance_from_fov, front_camera, orbit_camera, relative_cameras
 
 __all__ = [
+    "CameraFov",
     "Pixal3DComponents",
     "Pixal3DViews",
     "prepare_views",
     "quantize_to_projection_grid",
     "reframe_volume",
+    "resolve_camera_fov",
     "resolve_projection_grid",
     "run_pixal3d",
 ]
@@ -58,9 +64,22 @@ _FRAMES = {
 }
 
 
+_NO_ESTIMATOR = (
+    "the camera FOV is set to Auto (MoGe-2), but no MoGe-2 camera estimator is loaded. Select "
+    "moge_2_vitl_normal_fp16.safetensors as the Camera Estimator, or set the camera FOV to Manual."
+)
+
+
 @dataclass
 class Pixal3DComponents(Trellis2Components):
     naf: Any = None
+    camera_estimator: Any = None
+
+
+@dataclass(frozen=True)
+class CameraFov:
+    degrees: float
+    source: str
 
 
 @dataclass
@@ -121,17 +140,36 @@ def _matte_view(image, matting):
     return Image.fromarray((pixels[:, :, :3] * pixels[:, :, 3:4] * 255).astype(np.uint8))
 
 
-def prepare_views(source, fov: float, *, matting=None, remove_background: bool = False) -> List[ConditioningView]:
+def _prepare_images(source, matting, remove_background: bool) -> List[Any]:
+    if isinstance(source, Pixal3DViews):
+        return [_matte_view(image, matting) if remove_background else image for image in source.views.values()]
+    return [prepare_image(source, matting, pad=CROP_PAD) if remove_background else source]
+
+
+def _assemble_views(source, images: List[Any], fov: float) -> List[ConditioningView]:
     if isinstance(source, Pixal3DViews):
         distance = VIEW_PAD * distance_from_fov(fov)
-        images = [
-            _matte_view(image, matting) if remove_background else image for image in source.views.values()
-        ]
         cameras = torch.stack([orbit_camera(VIEW_AZIMUTHS[name], 0.0, distance) for name in source.names])
         cameras = relative_cameras(cameras, float(cameras[0, :3, 3].norm()))
         return [ConditioningView(image=image, camera=camera) for image, camera in zip(images, cameras)]
-    image = prepare_image(source, matting, pad=CROP_PAD) if remove_background else source
-    return [ConditioningView(image=image, camera=front_camera(distance_from_fov(fov)))]
+    return [ConditioningView(image=images[0], camera=front_camera(distance_from_fov(fov)))]
+
+
+def prepare_views(source, fov: float, *, matting=None, remove_background: bool = False) -> List[ConditioningView]:
+    return _assemble_views(source, _prepare_images(source, matting, remove_background), fov)
+
+
+def resolve_camera_fov(estimator, image, fov_deg: float, *, estimate: bool, device) -> CameraFov:
+    if not estimate:
+        return CameraFov(float(fov_deg), FOV_MANUAL)
+    if estimator is None:
+        raise ValueError(_NO_ESTIMATOR)
+    pixels = view_pixels(image, CAMERA_ESTIMATE_SIZE).unsqueeze(0).to(device)
+    with _on_device(estimator, device) as model:
+        [estimated] = model.estimate_fov(pixels)
+    if estimated is None or not 0.0 < estimated.fov_x_deg < 180.0:
+        return CameraFov(float(fov_deg), FOV_FALLBACK)
+    return CameraFov(float(estimated.fov_x_deg), FOV_ESTIMATED)
 
 
 def reframe_volume(volume: MeshVolume, frame: str) -> MeshVolume:
@@ -179,6 +217,8 @@ def run_pixal3d(
     *,
     tier: str = DEFAULT_TIER,
     fov_deg: float = DEFAULT_FOV_DEG,
+    estimate_fov: bool = False,
+    on_camera_fov: Optional[Callable[[CameraFov], None]] = None,
     seed: int = 0,
     device: str | torch.device = "cuda",
     stage_settings: Optional[dict] = None,
@@ -194,16 +234,23 @@ def run_pixal3d(
     if components.naf is None:
         raise ValueError("Pixal3D conditions its shape and texture stages on NAF features; no NAF upsampler is loaded")
 
-    fov = fov_radians(fov_deg)
+    fov_radians(fov_deg)
+    if estimate_fov and components.camera_estimator is None:
+        raise ValueError(_NO_ESTIMATOR)
     settings = {**STAGE_SAMPLING, **(stage_settings or {})}
     device = torch.device(device)
     generator = torch.Generator(device="cpu").manual_seed(int(seed))
 
     if remove_background and components.matting is not None:
         with _on_device(components.matting, device) as matting:
-            views = prepare_views(source, fov, matting=matting, remove_background=True)
+            images = _prepare_images(source, matting, True)
     else:
-        views = prepare_views(source, fov, remove_background=remove_background)
+        images = _prepare_images(source, None, remove_background)
+    camera = resolve_camera_fov(components.camera_estimator, images[0], fov_deg, estimate=estimate_fov, device=device)
+    if on_camera_fov is not None:
+        on_camera_fov(camera)
+    fov = fov_radians(camera.degrees)
+    views = _assemble_views(source, images, fov)
 
     with _on_device(components.conditioner, device) as conditioner:
         encoded = encode_views(conditioner, views, _CONDITION_SIZES, device)

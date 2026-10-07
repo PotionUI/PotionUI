@@ -1042,6 +1042,7 @@ Native Pixal3D generator (one image, or a front/left/back/right rig, to a textur
 | `texture_guidance_strength` | `float` | `1.0` | no | — | 0.0 | 10.0 | Guidance strength for the PBR texture stage |
 | `texture_guidance_rescale` | `float` | `0.0` | no | — | 0.0 | 1.0 | Guidance rescale for the PBR texture stage |
 | `texture_rescale_t` | `float` | `3.0` | no | — | 1.0 | 6.0 | Rescale t for the PBR texture stage |
+| `camera_fov_mode` | `str` | `"manual"` | no | `manual`, `auto` | — | — | manual projects through camera_fov; auto estimates the horizontal FOV of the (front) input image with the loader's MoGe-2 camera estimator, as ComfyUI's Pixal3D workflow does, and falls back to camera_fov when no focal length can be recovered. |
 | `camera_fov` | `float` | `49.13` | no | — | 1.0 | 170.0 | Horizontal field of view of the input camera in degrees. It sets the camera distance every voxel is projected from, so a wrong value misplaces the samples. |
 | `export_frame` | `str` | `"upstream"` | no | `upstream`, `camera` | — | — | Orientation of the exported mesh. upstream applies Pixal3D's own (x, y, z) -> (-x, y, -z); camera keeps the frame as decoded (ComfyUI's choice). The two differ by a 180 degree turn about the vertical axis. |
 
@@ -2064,6 +2065,7 @@ Load a native Pixal3D set (4 pixel-aligned flow DiTs + TRELLIS.2 decoders + DINO
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `dtype` | `str` | `"bfloat16"` | no | `bfloat16`, `float16`, `float32` | — | — | Compute dtype |
 | `vram_limit_gb` | `float` | — | no | — | — | — | VRAM budget hint (backend-injected) |
+| `camera_estimator` | `dict` | — | no | — | — | — | MoGe-2 checkpoint that estimates the input camera's field of view for the generator's Auto FOV. Only loaded when selected; a manual FOV needs none. |
 | `resolution_tier` | `str` | `"1536"` | no | `1024`, `1536` | — | — | Reconstruction cascade. Pixal3D has no single-pass 512 tier; 1536 is upstream's default and degrades toward 1024 on the token budget. |
 | `bundle_mode` | `str` | `"single"` | no | `single`, `multiview` | — | — | Which bundle the mode expects: single (one image) or multiview (the front/left/back/right rig). A mismatched file is refused. |
 

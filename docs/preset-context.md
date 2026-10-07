@@ -106,7 +106,7 @@ Runtime-injected documents that arrive as ordinary keys of the `form` context ro
 
 ## `model_type` values
 
-The 20 model types a `model`/`lora_picker` field's `configuration.model_type` may select, and the depot directory each maps to (`src/platform/filesystem/model_types.py`):
+The 21 model types a `model`/`lora_picker` field's `configuration.model_type` may select, and the depot directory each maps to (`src/platform/filesystem/model_types.py`):
 
 | `model_type` | Directory |
 |---|---|
@@ -118,6 +118,7 @@ The 20 model types a `model`/`lora_picker` field's `configuration.model_type` ma
 | `diffusion_model` | `diffusion_models/` |
 | `embedding` | `embeddings/` |
 | `facerestore` | `facerestore/` |
+| `geometry_estimation` | `geometry_estimation/` |
 | `insightface` | `insightface/` |
 | `instantid` | `instantid/` |
 | `llm` | `llm/` |

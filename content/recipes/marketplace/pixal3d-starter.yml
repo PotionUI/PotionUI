@@ -14,7 +14,7 @@ category: "3d"
 summary: "Get a working Pixal3D setup on your local GPU, ready to reconstruct your first camera-aligned mesh."
 description: >
   Installs the bundled Pixal3D preset on the native (in-process) engine
-  and makes sure the four model files its Image to 3D mode needs are
+  and makes sure the five model files its Image to 3D mode needs are
   available before handing you a ready-to-use preset. Pixal3D is TRELLIS.2
   with pixel-aligned conditioning: each voxel is projected into the image
   through a camera and samples the image features at that point, on top of
@@ -22,7 +22,10 @@ description: >
   sparse-structure, shape and texture flow models, two VAEs decode geometry
   and texture, and a DINOv3 image encoder with the NAF feature upsampler
   bundled in the same file supplies the conditioning (there is no text
-  encoder). The four files together are a real download (~14.3 GB).
+  encoder). The fifth file is MoGe-2, which estimates the input photo's
+  field of view for the default "Auto (MoGe-2)" camera FOV, as ComfyUI's
+  Pixal3D workflow does. The five files together are a real download
+  (~15.0 GB).
 
   The two VAEs are byte-identical to the TRELLIS.2 ones and keep the same
   file names, so an instance that already ran the TRELLIS.2 Starter reuses
@@ -41,6 +44,12 @@ description: >
   recipe's minimal set - "Remove background" only needs it when the source
   image is already opaque, and nothing forces the user to enable it.
 
+  MoGe-2 is only loaded while the camera FOV is on Auto; a run with a
+  Manual FOV never touches it. The file is Comfy-Org's repackage of
+  Ruicheng/moge-2-vitl-normal (fp16), the one ComfyUI's Pixal3D template
+  loads; upstream Pixal3D uses the sibling Ruicheng/moge-2-vitl, which has
+  no normal head but the same encoder, neck, point and mask heads layout.
+
   LICENCE: Pixal3D's code and weights are MIT (TencentARC/Pixal3D,
   repackaged by Comfy-Org). The image encoder file combines two other
   licences. Its DINOv3 weights derive from Meta's DINOv3 release
@@ -49,7 +58,9 @@ description: >
   weights come from valeoai/NAF under Apache-2.0. This recipe downloads the
   file from the ungated Comfy-Org repackage, so no licence click-through is
   required to fetch it - but its use is still governed by Meta's DINOv3
-  Licence and, for the NAF part, Apache-2.0.
+  Licence and, for the NAF part, Apache-2.0. The MoGe-2 weights are MIT
+  (Ruicheng/moge-2-vitl-normal, Microsoft) on a DINOv2 ViT-L/14 backbone
+  that Meta releases under Apache-2.0; neither is gated.
 
 plugins:
   - id: "huggingface-provider"
@@ -157,6 +168,24 @@ artifacts:
       model_id: "Comfy-Org/Pixal3D"
       version_id: "main@clip_vision/dino_v3_L_naf_fp32.safetensors"
 
+  - id: "pixal3d-camera-estimator"
+    kind: "geometry_estimation"
+    model_type: "geometry_estimation"
+    filename: "moge_2_vitl_normal_fp16.safetensors"
+    display_name: "MoGe-2 ViT-L camera estimator (Auto camera FOV, fp16)"
+    required: true
+    size_bytes: 661859924
+    checksum:
+      algorithm: "sha256"
+      value: "cb1a692d03235671e959e81360d7b4d9f44aefadb1f852d6ca6aa17799d5e31f"
+    capability: "model-lookup"
+    gated: false
+    license_url: "https://huggingface.co/Ruicheng/moge-2-vitl-normal"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/MoGe"
+      version_id: "main@geometry_estimation/moge_2_vitl_normal_fp16.safetensors"
+
 presets:
   - preset_id: "01M4AJGF0EQ9DR9NAKEEY3K8P3"
     path_hint: "marketplace/Pixal3D"
@@ -194,14 +223,16 @@ steps:
     title: "Plan required downloads"
     params:
       artifact_ids:
-        ["pixal3d-diffusion-model", "pixal3d-shape-vae", "pixal3d-texture-vae", "pixal3d-image-encoder"]
+        ["pixal3d-diffusion-model", "pixal3d-shape-vae", "pixal3d-texture-vae", "pixal3d-image-encoder",
+         "pixal3d-camera-estimator"]
 
   - key: "artifacts.fetch"
     kind: "artifacts.fetch"
     title: "Download the Pixal3D model files"
     params:
       artifact_ids:
-        ["pixal3d-diffusion-model", "pixal3d-shape-vae", "pixal3d-texture-vae", "pixal3d-image-encoder"]
+        ["pixal3d-diffusion-model", "pixal3d-shape-vae", "pixal3d-texture-vae", "pixal3d-image-encoder",
+         "pixal3d-camera-estimator"]
 
   - key: "models.index.downloads"
     kind: "models.index"

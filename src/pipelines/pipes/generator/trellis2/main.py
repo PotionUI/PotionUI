@@ -234,6 +234,8 @@ class GeneratorTrellis2Pipe(BasePipe):
                 volume = self._reconstruct(
                     components,
                     image,
+                    generation_outputs,
+                    index,
                     tier=tier,
                     seed=seed,
                     device=device,
@@ -294,7 +296,7 @@ class GeneratorTrellis2Pipe(BasePipe):
     def _sources(self, pipe_input: PipeInput) -> List[Any]:
         return list(pipe_input.input.get("image") or [])
 
-    def _reconstruct(self, components, image, **kwargs):
+    def _reconstruct(self, components, image, generation_outputs, index, **kwargs):
         return run_image_to_mesh(components, image, **kwargs)
 
     @staticmethod

@@ -1,21 +1,30 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from typing import Any, Callable, Dict, List, Optional
 
 from src.pipelines.contracts import IOType, PipeConfigSpec, PipeInput, PipeInputSpec
+from src.pipelines.outputs import TextGenerationOutput
 from src.pipelines.pipes.generator.trellis2.main import GeneratorTrellis2Pipe
 from src.platform.runtime.native.arch.pixal3d.config import (
     DEFAULT_FOV_DEG,
     EXPORT_FRAMES,
+    FOV_AUTO,
+    FOV_ESTIMATED,
+    FOV_MANUAL,
+    FOV_MODES,
     MULTIVIEW,
     VIEW_AZIMUTHS,
 )
 from src.platform.runtime.native.arch.pixal3d.image_to_mesh import (
+    CameraFov,
     Pixal3DViews,
     reframe_volume,
     run_pixal3d,
 )
+
+logger = logging.getLogger(__name__)
 
 _SIDE_VIEWS = tuple(name for name in VIEW_AZIMUTHS if name != "front")
 
@@ -29,12 +38,23 @@ class GeneratorPixal3DPipe(GeneratorTrellis2Pipe):
 
     @classmethod
     def get_default_config(cls) -> Dict[str, Any]:
-        return {**super().get_default_config(), "camera_fov": DEFAULT_FOV_DEG, "export_frame": EXPORT_FRAMES[0]}
+        return {
+            **super().get_default_config(),
+            "camera_fov_mode": FOV_MANUAL,
+            "camera_fov": DEFAULT_FOV_DEG,
+            "export_frame": EXPORT_FRAMES[0],
+        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             *super().configuration(),
+            PipeConfigSpec("camera_fov_mode", str, FOV_MANUAL,
+                           "manual projects through camera_fov; auto estimates the horizontal FOV of the "
+                           "(front) input image with the loader's MoGe-2 camera estimator, as ComfyUI's "
+                           "Pixal3D workflow does, and falls back to camera_fov when no focal length can "
+                           "be recovered.",
+                           required=False, choices=list(FOV_MODES)),
             PipeConfigSpec("camera_fov", float, DEFAULT_FOV_DEG,
                            "Horizontal field of view of the input camera in degrees. It sets the camera "
                            "distance every voxel is projected from, so a wrong value misplaces the samples.",
@@ -78,8 +98,47 @@ class GeneratorPixal3DPipe(GeneratorTrellis2Pipe):
         views = {"front": images[0], **{view: items[0] for view, items in sides.items() if items}}
         return [Pixal3DViews(views)]
 
-    def _reconstruct(self, components, image, **kwargs):
-        return run_pixal3d(components, image, fov_deg=float(self.config.get("camera_fov", DEFAULT_FOV_DEG)), **kwargs)
+    def _fov_mode(self) -> str:
+        mode = str(self.config.get("camera_fov_mode") or FOV_MANUAL)
+        if mode not in FOV_MODES:
+            raise ValueError(f"unknown camera FOV mode {mode!r}; expected one of {list(FOV_MODES)}")
+        return mode
+
+    def _reconstruct(self, components, image, generation_outputs, index, **kwargs):
+        estimate = self._fov_mode() == FOV_AUTO
+        if estimate and getattr(components, "camera_estimator", None) is None:
+            raise ValueError(
+                "Camera FOV is set to Auto (MoGe-2), but no camera estimator was loaded. Select "
+                "moge_2_vitl_normal_fp16.safetensors (Comfy-Org/MoGe, geometry_estimation/) as the Camera "
+                "Estimator under Models, or set Camera FOV to Manual."
+            )
+        return run_pixal3d(
+            components,
+            image,
+            fov_deg=float(self.config.get("camera_fov", DEFAULT_FOV_DEG)),
+            estimate_fov=estimate,
+            on_camera_fov=self._camera_fov_reporter(generation_outputs, index) if estimate else None,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _camera_fov_reporter(generation_outputs, index: int) -> Callable[[CameraFov], None]:
+        def report(camera: CameraFov) -> None:
+            if camera.source == FOV_ESTIMATED:
+                text = f"{camera.degrees:.2f}° horizontal, estimated by MoGe-2"
+                logger.info("Pixal3D camera FOV for image %d estimated by MoGe-2: %.2f deg", index, camera.degrees)
+            else:
+                text = (
+                    f"{camera.degrees:.2f}° horizontal (the manual value): MoGe-2 recovered no focal length "
+                    "from this image"
+                )
+                logger.warning(
+                    "Pixal3D camera FOV for image %d: MoGe-2 recovered no focal length, using %.2f deg",
+                    index, camera.degrees,
+                )
+            generation_outputs(TextGenerationOutput(title="Camera FOV", text=text, index=index))
+
+        return report
 
     @staticmethod
     def _source_id(image, seed: int, tier: str) -> str:

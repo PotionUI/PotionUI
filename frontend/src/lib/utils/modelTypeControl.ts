@@ -21,7 +21,8 @@ export const ASSIGNABLE_MODEL_TYPES: readonly string[] = [
 	'mediapipe',
 	'vfi',
 	'refmod',
-	'model_patch'
+	'model_patch',
+	'geometry_estimation'
 ];
 
 export interface ModelTypeInfo {

@@ -217,3 +217,71 @@ def test_describe_models_reports_the_pixal3d_types():
     assert {"pixal3d_dit", "pixal3d_image_encoder"} <= types
     assert "trellis2_dit" not in types
     assert "trellis2_image_encoder" not in types
+
+
+MOGE = "/m/moge_2_vitl_normal_fp16.safetensors"
+
+
+@pytest.fixture
+def fake_estimator(monkeypatch):
+    loaded = []
+
+    def _load(path):
+        loaded.append(path)
+        return _FakeComponent("moge")
+
+    monkeypatch.setattr(pixal3d_main, "_load_camera_estimator", _load)
+    monkeypatch.setattr(pixal3d_main, "file_size_gb", lambda path: 0.66)
+    return loaded
+
+
+def test_the_camera_estimator_is_optional_and_unset_by_default():
+    spec = _specs()["camera_estimator"]
+    assert spec.required is False
+    assert ModelLoaderPixal3DPipe.get_default_config()["camera_estimator"] is None
+
+
+def test_a_selected_camera_estimator_is_acquired_under_its_own_key(fake_estimator):
+    models, bundle = _process(camera_estimator={"file_path": MOGE, "name": "moge"})
+    assert f"native/moge/{MOGE}" in models.keys()
+    assert fake_estimator == [MOGE]
+    assert bundle.camera_estimator_selected is True
+    assert bundle.components().camera_estimator.label == "moge"
+
+
+@pytest.mark.parametrize("value", [None, {"file_path": "", "name": ""}])
+def test_without_a_camera_estimator_nothing_extra_loads(fake_estimator, value):
+    models, bundle = _process(camera_estimator=value)
+    assert not [key for key in models.keys() if key.startswith("native/moge/")]
+    assert fake_estimator == []
+    assert bundle.camera_estimator_selected is False
+    assert bundle.components().camera_estimator is None
+
+
+def test_an_evicted_camera_estimator_is_named_rather_than_read_as_unselected(fake_estimator):
+    _, bundle = _process(camera_estimator={"file_path": MOGE, "name": "moge"})
+    bundle.camera_estimator = None
+    with pytest.raises(ValueError, match="camera estimator was evicted"):
+        bundle.components()
+
+
+def test_the_camera_estimator_is_budgeted_at_its_fp32_size(fake_estimator):
+    pipe = ModelLoaderPixal3DPipe(_config(camera_estimator={"file_path": MOGE, "name": "moge"}))
+    plan = pipe._plan(pipe._weight_paths(), "1536", None)
+    [entry] = [entry for entry in plan if entry[1] == f"native/moge/{MOGE}"]
+    assert entry[0] == "camera estimator"
+    assert entry[3] == pytest.approx(1.32)
+
+
+def test_describe_models_names_the_camera_estimator():
+    described = ModelLoaderPixal3DPipe(_config(camera_estimator={"file_path": MOGE, "name": "moge"})).describe_models()
+    assert ("moge", "geometry_estimation") in [(model.name, model.type) for model in described]
+
+
+def test_a_camera_estimator_that_fails_to_load_is_named(monkeypatch):
+    def _refuse(path):
+        raise ValueError("other.safetensors is not a MoGe-2 checkpoint")
+
+    monkeypatch.setattr(pixal3d_main.moge_load, "load_moge2", _refuse)
+    with pytest.raises(ValueError, match="camera estimator could not be loaded: other.safetensors"):
+        pixal3d_main._load_camera_estimator("/m/other.safetensors")

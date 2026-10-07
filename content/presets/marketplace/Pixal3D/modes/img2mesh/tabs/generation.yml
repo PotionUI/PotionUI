@@ -10,12 +10,26 @@ fields:
         - { label: "Standard (1024)", value: "1024", sub_label: "Cascade · lighter on VRAM" }
         - { label: "High (1536)", value: "1536", sub_label: "Cascade · default · heaviest on VRAM" }
 
+  - name: "camera_fov_mode"
+    type: "select"
+    formula: "camera"
+    label: "Camera FOV"
+    default: "auto"
+    ai_hint: "Pixal3D is pixel-aligned: every voxel is projected into the image through a camera whose distance comes from the field of view (d = 0.5 / tan(fov / 2)), so a wrong FOV misplaces every voxel's sample. Auto runs MoGe-2 on the image the model is conditioned on and uses the horizontal FOV it recovers, which is what upstream Pixal3D and ComfyUI's Pixal3D workflow do by default; the value used is reported with the run. Suggest Manual when the auto value looks wrong for the shot, or to compare FOVs on the same image."
+    configuration:
+      options:
+        - { label: "Auto (MoGe-2)", value: "auto", sub_label: "Estimated from the image · default" }
+        - { label: "Manual", value: "manual", sub_label: "Set the angle yourself" }
+
   - name: "camera_fov"
     type: "slider"
     formula: "camera"
-    label: "Camera FOV"
+    label: "Field of View"
     default: 49.13
-    ai_hint: "Pixal3D is pixel-aligned: every voxel is projected into the image through a camera and samples the features at that point. The FOV sets the camera distance (d = 0.5 / tan(fov / 2)), so a wrong FOV misplaces every voxel's sample. 49.13 is upstream's default. For telephoto photos, product shots and AI-generated renders that come out distorted, try about 12 to 20 (Telephoto 12, Normal 30, Default 49). The mesh comes out posed as the camera saw it, not turned to a canonical front."
+    ai_hint: "The horizontal FOV in degrees used when Camera FOV is Manual, and the fallback when Auto cannot recover a focal length. 49.13 is upstream's default. For telephoto photos, product shots and AI-generated renders that come out distorted, try about 12 to 20 (Telephoto 12, Normal 30, Default 49). The mesh comes out posed as the camera saw it, not turned to a canonical front."
+    reactions:
+      - when: { field: "camera_fov_mode", equals: "auto" }
+        then: { set_visibility: false }
     configuration:
       min: 5
       max: 120
@@ -104,3 +118,19 @@ fields:
         configuration:
           model_type: "detection_segm"
           placeholder: "Select BiRefNet-general.safetensors..."
+
+      - name: "camera_estimator"
+        type: "model"
+        label: "Camera Estimator (MoGe-2)"
+        required: true
+        reactions:
+          - when: { field: "camera_fov_mode", not_equals: "auto" }
+            then: { set_visibility: false }
+        configuration:
+          model_type: "geometry_estimation"
+          placeholder: "Select moge_2_vitl_normal_fp16.safetensors..."
+          recommendations:
+            - name: "moge_2_vitl_normal_fp16.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "Comfy-Org/MoGe", "file": "geometry_estimation/moge_2_vitl_normal_fp16.safetensors", "revision": "main"}'
+              size: "662 MB"

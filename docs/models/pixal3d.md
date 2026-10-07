@@ -23,12 +23,13 @@ Weights come from `Comfy-Org/Pixal3D`, a bf16 repack of TencentARC's fp32 checkp
 | `clip_vision/dino_v3_L_naf_fp32.safetensors` | 1.2 GB | DINOv3 ViT-L/16 plus 37 `naf.image_encoder.*` keys |
 | `vae/trellis_2_shape_vae_bf16.safetensors` | 1.1 GB | byte-identical to the TRELLIS.2 file |
 | `vae/trellis_2_texture_vae_bf16.safetensors` | 0.95 GB | byte-identical to the TRELLIS.2 file |
+| `geometry_estimation/moge_2_vitl_normal_fp16.safetensors` (`Comfy-Org/MoGe`) | 0.66 GB | MoGe-2 camera estimator for Auto FOV; loaded only while Camera FOV is Auto |
 
 The single-view and multi-view bundles have byte-identical key spaces and shapes. Only the file name tells them apart: a name containing `multiview` (also `multi_view`, `multi-view` or an `mv` token) is the multi-view bundle. Each mode refuses the other bundle. The NAF weights are read from the `naf.` prefix of the DINOv3 file. The plain TRELLIS.2 `dino_v3_vit_l` file has no NAF weights and is refused.
 
-The `pixal3d-starter` recipe fetches the single-view set. The VAEs are the same files `trellis2-starter` fetches, so an instance with TRELLIS.2 reuses them. The multi-view bundle is listed in the recipe as optional but is not downloaded. The `views2mesh` model picker offers it as a recommendation.
+The `pixal3d-starter` recipe fetches the single-view set and the MoGe-2 file. The VAEs are the same files `trellis2-starter` fetches, so an instance with TRELLIS.2 reuses them. The multi-view bundle is listed in the recipe as optional but is not downloaded. The `views2mesh` model picker offers it as a recommendation.
 
-Licences: Pixal3D code and weights are MIT (TencentARC). The NAF upsampler weights are Apache-2.0 (valeoai/NAF). The DINOv3 weights are under Meta's DINOv3 Licence.
+Licences: Pixal3D code and weights are MIT (TencentARC). The NAF upsampler weights are Apache-2.0 (valeoai/NAF). The DINOv3 weights are under Meta's DINOv3 Licence. MoGe-2's code and weights are MIT (Microsoft, `Ruicheng/moge-2-vitl-normal`), on a DINOv2 ViT-L/14 backbone that Meta releases under Apache-2.0.
 
 ## Cascade
 
@@ -43,7 +44,21 @@ Per stage, the image is encoded at 512 px (sparse structure, shape-LR) or 1024 p
 
 ## Camera
 
-The camera is a fixed front view with a pinhole model, and its distance follows from the field of view: `d = 0.5 / tan(fov / 2)`, so the centre slice of the unit cube spans the image width. The FOV is set by hand (Camera FOV, default 49.13°, upstream's default). A wrong FOV misplaces every voxel's sample. Upstream suggests a much narrower FOV for inputs that come out distorted, and telephoto photos, product shots and AI-generated renders usually want about 12–20°. Upstream estimates the FOV from the photo with MoGe-2. That auto-FOV path is deferred and not ported.
+The camera is a fixed front view with a pinhole model, and its distance follows from the field of view: `d = 0.5 / tan(fov / 2)`, so the centre slice of the unit cube spans the image width. A wrong FOV misplaces every voxel's sample.
+
+Camera FOV has two settings. **Auto (MoGe-2)**, the `img2mesh` default, estimates the horizontal FOV from the image, as upstream's `inference.py` and ComfyUI's Pixal3D template both do by default. **Manual** takes the Field of View slider (49.13°, upstream's default when no estimate is made). Upstream suggests a much narrower FOV for inputs that come out distorted; telephoto photos, product shots and AI-generated renders usually want about 12–20°. Auto falls back to the slider value when MoGe-2 recovers no usable focal length, and says so.
+
+### Auto FOV (MoGe-2)
+
+The estimator is a pure-torch port of MoGe-2 in `src/platform/runtime/native/arch/moge/`, loaded by `model_loader/pixal3d` as its optional `camera_estimator` component (its own `MODELS` key, `native/moge/<file>`, fp32, about 1.3 GB resident). It is acquired only when the preset passes a file, and the preset passes one only while Camera FOV is Auto.
+
+- **Input.** The image the conditioner sees: the matted, 1.1-padded square crop when background removal is on, the upload as given when it is off (front view in `views2mesh`), resized to 1024² and fed as RGB in [0, 1]. ComfyUI's template feeds MoGe its 1024² `ImageCropToMask` output, the same image.
+- **Model.** DINOv2 ViT-L/14 (24 blocks, layers 5/11/17/23 projected and summed), a UV-conditioned conv neck, and the points and mask heads. The normal and metric-scale heads are skipped at load, because FOV needs neither. Resolution level 9 = 3600 tokens (a 60×60 grid on a square image). Compute is fp32 from the fp16 file, as in ComfyUI's MoGe-2 path.
+- **Intrinsics.** The predicted affine point map (`xy·e^z, e^z`) and its mask (> 0.5) go through MoGe's own recovery: nearest-downsample to 64×64, then Levenberg-Marquardt over the z-shift with the focal solved in closed form (`scipy.optimize.least_squares`, `ftol=1e-3`, as upstream). The focal is relative to the half diagonal. With aspect `a`, `fx = f·√(1+a²)/(2a)` (normalised by width), and Pixal3D takes `fov_x = 2·atan(0.5 / fx)`, the axis upstream uses (`2·atan(W / 2fx_px)`) and ComfyUI wires (`MoGeGeometryToFOV`, `axis="horizontal"`).
+- **Report.** The value used reaches the run as a "Camera FOV" text artifact on the generator pipe (`38.42° horizontal, estimated by MoGe-2`, or the fallback note) and an INFO log line.
+- **Checkpoint.** Comfy-Org ships the `moge-2-vitl-normal` weights, which add a normal head to `moge-2-vitl`. Upstream Pixal3D loads `Ruicheng/moge-2-vitl` (a pickle `model.pt`, which the native engine does not load). Expect small FOV differences against upstream, and none against ComfyUI beyond float noise.
+
+`views2mesh` keeps Manual at 20° as its default: the four cameras share one FOV, the shipped rig and most multi-view generators render at 20°, and ComfyUI's multi-view template runs no MoGe (its node's FOV widget defaults to 20). Auto is offered there for photographed views, estimated from the front view, as that node's tooltip suggests ("MoGeGeometryToFOV on one of the views for photos").
 
 The mesh comes out posed as the camera saw it, not turned to a canonical front, because the training latents were encoded in each view's camera frame.
 
@@ -65,8 +80,10 @@ Upstream and ComfyUI export the mesh 180° apart about the up axis. Upstream's c
 
 The shipped preset is `content/presets/marketplace/Pixal3D/`, with two modes:
 
-- `img2mesh` (Image to 3D): one source image, Camera FOV (default 49.13°), Detail Level 1024 / 1536 (default 1536).
-- `views2mesh` (Views to 3D): named Front (required), Left, Back and Right image slots, each loaded by its own media loader, and Camera FOV (default 20°).
+- `img2mesh` (Image to 3D): one source image, Camera FOV (default Auto (MoGe-2); Manual uses Field of View, default 49.13°), Detail Level 1024 / 1536 (default 1536).
+- `views2mesh` (Views to 3D): named Front (required), Left, Back and Right image slots, each loaded by its own media loader, and Camera FOV (default Manual at 20°).
+
+The Camera Estimator (MoGe-2) model field sits in the Models section of both modes. It is shown and required only while Camera FOV is Auto, so a manual run never needs the file.
 
 Both use `model_loader/pixal3d` and `generator/pixal3d`, thin subclasses of the TRELLIS.2 pipes. The loader's `bundle_mode` (`single` / `multiview`) is fixed per mode in `pipeline.yml`.
 

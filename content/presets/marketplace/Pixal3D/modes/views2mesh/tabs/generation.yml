@@ -10,12 +10,26 @@ fields:
         - { label: "Standard (1024)", value: "1024", sub_label: "Cascade · lighter on VRAM" }
         - { label: "High (1536)", value: "1536", sub_label: "Cascade · default · heaviest on VRAM" }
 
+  - name: "camera_fov_mode"
+    type: "select"
+    formula: "camera"
+    label: "Camera FOV"
+    default: "manual"
+    ai_hint: "Pixal3D is pixel-aligned: every voxel is projected into each view through its camera and samples the features at that point, and the views are then averaged. The four cameras sit on one orbit at distance 1.1 x 0.5 / tan(fov / 2) with one shared FOV, so a wrong FOV misplaces every voxel's sample in every view. Manual at 20 matches upstream's shipped rig, ComfyUI's default and most multi-view generators. Auto estimates the FOV from the front view with MoGe-2, which ComfyUI suggests for real photos of the views; for generated turnarounds it is a guess, so keep Manual there."
+    configuration:
+      options:
+        - { label: "Manual", value: "manual", sub_label: "One FOV for the rig · default" }
+        - { label: "Auto (MoGe-2)", value: "auto", sub_label: "Estimated from the front view" }
+
   - name: "camera_fov"
     type: "slider"
     formula: "camera"
-    label: "Camera FOV"
+    label: "Field of View"
     default: 20.0
-    ai_hint: "Pixal3D is pixel-aligned: every voxel is projected into each view through its camera and samples the features at that point, and the views are then averaged. The four cameras sit on one orbit at distance 1.1 x 0.5 / tan(fov / 2), so a wrong FOV misplaces every voxel's sample in every view. 20 is the FOV of upstream's shipped multi-view rig and ComfyUI's default; keep it unless the views were rendered with a known, different FOV."
+    ai_hint: "The horizontal FOV in degrees shared by the four views when Camera FOV is Manual, and the fallback when Auto cannot recover a focal length. 20 is the FOV of upstream's shipped multi-view rig and ComfyUI's default; keep it unless the views were rendered with a known, different FOV."
+    reactions:
+      - when: { field: "camera_fov_mode", equals: "auto" }
+        then: { set_visibility: false }
     configuration:
       min: 5
       max: 120
@@ -109,3 +123,19 @@ fields:
         configuration:
           model_type: "detection_segm"
           placeholder: "Select BiRefNet-general.safetensors..."
+
+      - name: "camera_estimator"
+        type: "model"
+        label: "Camera Estimator (MoGe-2)"
+        required: true
+        reactions:
+          - when: { field: "camera_fov_mode", not_equals: "auto" }
+            then: { set_visibility: false }
+        configuration:
+          model_type: "geometry_estimation"
+          placeholder: "Select moge_2_vitl_normal_fp16.safetensors..."
+          recommendations:
+            - name: "moge_2_vitl_normal_fp16.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "Comfy-Org/MoGe", "file": "geometry_estimation/moge_2_vitl_normal_fp16.safetensors", "revision": "main"}'
+              size: "662 MB"

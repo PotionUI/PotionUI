@@ -38,6 +38,14 @@
           "type": "str",
           "value": "single"
         },
+        "camera_estimator.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/camera_estimator.safetensors"
+        },
+        "camera_estimator.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/camera_estimator.safetensors"
+        },
         "diffusion_model.file_path": {
           "type": "str",
           "value": "/GOLDEN/models/diffusion_model.safetensors"
@@ -150,6 +158,10 @@
         "camera_fov": {
           "type": "float",
           "value": 49.13
+        },
+        "camera_fov_mode": {
+          "type": "str",
+          "value": "auto"
         },
         "decimation_target": {
           "type": "int",

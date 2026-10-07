@@ -28,6 +28,7 @@ KEY_TO_MODEL_TYPE = {
     "t2i_adapter": "controlnet",
     "ultralytics_bbox": "detection_bbox",
     "ultralytics_segm": "detection_segm",
+    "geometry_estimation": "geometry_estimation",
 }
 
 

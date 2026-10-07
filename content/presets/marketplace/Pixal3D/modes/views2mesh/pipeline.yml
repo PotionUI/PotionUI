@@ -62,6 +62,9 @@ pipeline:
       matting_model:
         file_path: "{{ form.matting_model | default('') }}"
         name: "{{ form.matting_model | default('') }}"
+      camera_estimator:
+        file_path: "{{ (form.camera_estimator | default('')) if form.camera_fov_mode == 'auto' else '' }}"
+        name: "{{ (form.camera_estimator | default('')) if form.camera_fov_mode == 'auto' else '' }}"
       resolution_tier: "{{ form.resolution_tier }}"
       bundle_mode: "multiview"
 
@@ -96,6 +99,7 @@ pipeline:
       decimation_target: "{{ form.decimation_target }}"
       texture_size: "{{ form.texture_size }}"
       uv_quality: "{{ form.uv_quality }}"
+      camera_fov_mode: "{{ form.camera_fov_mode }}"
       camera_fov: "{{ form.camera_fov }}"
       export_frame: "{{ form.export_frame }}"
       sparse_structure_steps: "{{ form.sparse_structure_steps }}"

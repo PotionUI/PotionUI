@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
 from PIL import Image
 
 from src.pipelines.contracts import PipeInput
-from src.pipelines.outputs import GalleryGenerationOutput
+from src.pipelines.outputs import GalleryGenerationOutput, TextGenerationOutput
 from src.pipelines.pipes.generator.pixal3d import main as generator_main
 from src.pipelines.pipes.generator.pixal3d.main import GeneratorPixal3DPipe
 from src.pipelines.pipes.generator.trellis2 import main as trellis2_generator_main
-from src.platform.runtime.native.arch.pixal3d.image_to_mesh import Pixal3DViews
+from src.platform.runtime.native.arch.pixal3d.image_to_mesh import CameraFov, Pixal3DViews
 from src.platform.runtime.native.arch.trellis2.image_to_mesh import MeshVolume
 from src.platform.runtime.native.errors import SamplingCancelled
 
@@ -31,26 +32,34 @@ def _volume():
 
 
 class _FakeBundle:
-    def __init__(self, variant="single", tier="1536"):
+    def __init__(self, variant="single", tier="1536", estimator=None):
         self.variant = variant
         self.tier = tier
         self.device = "cpu"
+        self.estimator = estimator
 
     def components(self):
-        return object()
+        return SimpleNamespace(camera_estimator=self.estimator)
 
 
 def _image(color=9):
     return Image.new("RGB", (16, 16), (color, color, color))
 
 
+class _Calls(list):
+    camera = CameraFov(38.4167, "estimated")
+
+
 @pytest.fixture
 def recorded_run(monkeypatch):
-    calls = []
 
     def _run(components, image, **kwargs):
         calls.append({"components": components, "image": image, **kwargs})
+        if kwargs.get("on_camera_fov") is not None:
+            kwargs["on_camera_fov"](calls.camera)
         return _volume()
+
+    calls = _Calls()
 
     monkeypatch.setattr(generator_main, "run_pixal3d", _run)
     return calls
@@ -212,3 +221,67 @@ def test_a_run_cancelled_up_front_never_reconstructs_or_exports(recorded_run, ex
         _run_pipe(is_cancelled=lambda: True)
     assert recorded_run == []
     assert exported == []
+
+
+def test_the_fov_mode_defaults_to_manual_and_offers_auto():
+    specs = {spec.name: spec for spec in GeneratorPixal3DPipe.configuration()}
+    assert specs["camera_fov_mode"].default == "manual"
+    assert specs["camera_fov_mode"].choices == ["manual", "auto"]
+    assert GeneratorPixal3DPipe.get_default_config()["camera_fov_mode"] == "manual"
+
+
+def test_a_manual_run_never_asks_for_an_estimate(recorded_run, exported):
+    _, emitted = _run_pipe(_config(camera_fov=33.0))
+    assert recorded_run[0]["estimate_fov"] is False
+    assert recorded_run[0]["on_camera_fov"] is None
+    assert recorded_run[0]["fov_deg"] == 33.0
+    assert not [o for o in emitted if isinstance(o, TextGenerationOutput)]
+
+
+def test_an_auto_run_asks_for_an_estimate_with_the_manual_value_as_fallback(recorded_run, exported):
+    _run_pipe(_config(camera_fov_mode="auto", camera_fov=27.0), bundle=_FakeBundle(estimator=object()))
+    assert recorded_run[0]["estimate_fov"] is True
+    assert recorded_run[0]["fov_deg"] == 27.0
+    assert callable(recorded_run[0]["on_camera_fov"])
+
+
+def test_the_estimated_fov_is_reported_with_the_run(recorded_run, exported):
+    _, emitted = _run_pipe(
+        _config(camera_fov_mode="auto"), bundle=_FakeBundle(estimator=object()), image=[_image(1), _image(2)])
+    reports = [o for o in emitted if isinstance(o, TextGenerationOutput)]
+    assert [(r.title, r.text, r.index) for r in reports] == [
+        ("Camera FOV", "38.42° horizontal, estimated by MoGe-2", 0),
+        ("Camera FOV", "38.42° horizontal, estimated by MoGe-2", 1),
+    ]
+
+
+def test_a_fallback_fov_is_reported_as_the_manual_value(recorded_run, exported):
+    recorded_run.camera = CameraFov(49.13, "fallback")
+    _, emitted = _run_pipe(_config(camera_fov_mode="auto"), bundle=_FakeBundle(estimator=object()))
+    [report] = [o for o in emitted if isinstance(o, TextGenerationOutput)]
+    assert report.text.startswith("49.13° horizontal (the manual value)")
+    assert "no focal length" in report.text
+
+
+def test_auto_without_a_camera_estimator_names_the_file_to_pick(recorded_run, exported):
+    with pytest.raises(ValueError) as excinfo:
+        _run_pipe(_config(camera_fov_mode="auto"))
+    message = str(excinfo.value)
+    assert "Auto (MoGe-2)" in message
+    assert "moge_2_vitl_normal_fp16.safetensors" in message
+    assert "Manual" in message
+    assert recorded_run == []
+    assert exported == []
+
+
+def test_a_multiview_run_can_estimate_its_fov_too(recorded_run, exported):
+    _run_pipe(_config(camera_fov_mode="auto"), bundle=_FakeBundle("multiview", estimator=object()),
+              image=[_image(1)], left=[_image(2)])
+    assert len(recorded_run) == 1
+    assert recorded_run[0]["estimate_fov"] is True
+
+
+def test_an_unknown_fov_mode_is_refused(recorded_run, exported):
+    with pytest.raises(ValueError, match="camera FOV mode"):
+        _run_pipe(_config(camera_fov_mode="guess"))
+    assert recorded_run == []

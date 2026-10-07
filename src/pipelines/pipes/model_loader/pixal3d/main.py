@@ -10,6 +10,8 @@ from src.pipelines.pipes._shared.generation.loader_helpers import path_of as _pa
 from src.pipelines.pipes.model_loader.pixal3d.bundle import Pixal3DModelBundle
 from src.pipelines.pipes.model_loader.trellis2.main import ModelLoaderTrellis2Pipe
 from src.pipelines.pipes.model_loader.trellis2.weights import prefix_size_gb
+from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
+from src.platform.runtime.native.arch.moge import load as moge_load
 from src.platform.runtime.native.arch.pixal3d import load as pixal3d_load
 from src.platform.runtime.native.arch.pixal3d.config import (
     BUNDLE_MODES,
@@ -41,11 +43,17 @@ class ModelLoaderPixal3DPipe(ModelLoaderTrellis2Pipe):
         ("texture_vae", "trellis2_texture_vae"),
         ("image_encoder", "pixal3d_image_encoder"),
         ("matting_model", "matting"),
+        ("camera_estimator", "geometry_estimation"),
     )
 
     @classmethod
     def get_default_config(cls) -> Dict[str, Any]:
-        return {**super().get_default_config(), "resolution_tier": DEFAULT_TIER, "bundle_mode": SINGLE_VIEW}
+        return {
+            **super().get_default_config(),
+            "camera_estimator": None,
+            "resolution_tier": DEFAULT_TIER,
+            "bundle_mode": SINGLE_VIEW,
+        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
@@ -58,6 +66,10 @@ class ModelLoaderPixal3DPipe(ModelLoaderTrellis2Pipe):
                            "DINOv3 ViT-L/16 image encoder with the NAF upsampler bundled (naf.* keys)",
                            required=True),
             *specs,
+            PipeConfigSpec("camera_estimator", dict, None,
+                           "MoGe-2 checkpoint that estimates the input camera's field of view for the "
+                           "generator's Auto FOV. Only loaded when selected; a manual FOV needs none.",
+                           required=False),
             PipeConfigSpec("resolution_tier", str, DEFAULT_TIER,
                            "Reconstruction cascade. Pixal3D has no single-pass 512 tier; 1536 is upstream's "
                            "default and degrades toward 1024 on the token budget.",
@@ -111,6 +123,13 @@ class ModelLoaderPixal3DPipe(ModelLoaderTrellis2Pipe):
     def _plan(self, paths: Dict[str, str], tier: str, dtype: torch.dtype) -> list:
         shared = [entry for entry in super()._plan(paths, tier, dtype) if not entry[1].startswith(_TRELLIS2_FLOW_KEYS)]
         dit, encoder = paths["diffusion_model"], paths["image_encoder"]
+        estimator = _path_of(self.config.get("camera_estimator"))
+        if estimator:
+            shared.append((
+                "camera estimator", f"native/moge/{estimator}",
+                lambda: NativeModel("text_encoder", _load_camera_estimator(estimator)),
+                2 * file_size_gb(estimator),
+            ))
         return [
             *shared,
             ("NAF upsampler", f"native/pixal3d/naf/{encoder}",
@@ -132,6 +151,7 @@ class ModelLoaderPixal3DPipe(ModelLoaderTrellis2Pipe):
 
     def _bundle(self, loaded: Dict[str, Any], paths: Dict[str, str], tier: str, device: str):
         matting_path = _path_of(self.config.get("matting_model"))
+        estimator = _path_of(self.config.get("camera_estimator"))
         dit, shape_vae, encoder = paths["diffusion_model"], paths["shape_vae"], paths["image_encoder"]
         return Pixal3DModelBundle(
             conditioner=loaded[f"native/trellis2/dino/{encoder}"],
@@ -144,7 +164,16 @@ class ModelLoaderPixal3DPipe(ModelLoaderTrellis2Pipe):
             tex_flow=loaded[f"native/pixal3d/tex_flow_1024/{dit}"],
             tex_decoder=loaded[f"native/trellis2/tex_decoder/{paths['texture_vae']}"],
             matting=loaded.get(f"native/matting/{matting_path}") if matting_path else None,
+            camera_estimator=loaded.get(f"native/moge/{estimator}") if estimator else None,
+            camera_estimator_selected=bool(estimator),
             tier=tier,
             device=device,
             variant=self._bundle_mode(),
         )
+
+
+def _load_camera_estimator(path: str):
+    try:
+        return moge_load.load_moge2(path)
+    except ValueError as exc:
+        raise ValueError(f"the camera estimator could not be loaded: {exc}") from exc

@@ -52,3 +52,8 @@ def test_every_depot_scanner_shares_the_same_supported_extensions():
 def test_model_patches_hold_model_patch_files():
     assert DIRECTORY_TO_MODEL_TYPE['model_patches'] == 'model_patch'
     assert MODEL_TYPE_TO_DIRECTORY['model_patch'] == 'model_patches'
+
+
+def test_geometry_estimation_holds_geometry_estimation_files():
+    assert DIRECTORY_TO_MODEL_TYPE['geometry_estimation'] == 'geometry_estimation'
+    assert MODEL_TYPE_TO_DIRECTORY['geometry_estimation'] == 'geometry_estimation'

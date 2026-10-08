@@ -148,6 +148,18 @@ class TestBasicPipelineBuilding:
         assert result.preset_template == sample_preset_template
         mock_preset_template_loader.load_preset_by_id.assert_not_called()
 
+    def test_build_pipeline_logs_only_the_preset_id_for_a_preloaded_template(
+        self,
+        pipeline_builder,
+        sample_preset_template,
+        caplog
+    ):
+        with caplog.at_level("INFO", logger="src.features.generation.pipeline_builder"):
+            pipeline_builder.build_pipeline(preset_id=sample_preset_template, form_data={}, mode='txt2img')
+
+        building = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Building pipeline")]
+        assert building == [f"Building pipeline for preset_id={sample_preset_template.id}, mode=txt2img"]
+
     def test_build_pipeline_with_custom_generation_id(
         self,
         pipeline_builder,

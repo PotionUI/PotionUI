@@ -140,7 +140,7 @@ class PipelineBuilder:
         Raises:
             ValueError: If preset not found or invalid configuration
         """
-        logger.info(f"Building pipeline for preset_id={preset_id}, mode={mode}")
+        logger.info(f"Building pipeline for preset_id={getattr(preset_id, 'id', preset_id)}, mode={mode}")
 
         # Generate ULID if not provided
         if not generation_id:

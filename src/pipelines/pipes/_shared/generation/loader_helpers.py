@@ -68,12 +68,15 @@ class ComponentProgress:
         self._step = 0
 
     def advance(self, component: str, cache_key: str) -> None:
-        state = f"{self._label} — {component} ({self._step + 1} of {self._total})"
-        is_cached = getattr(self._models, "is_cached", None)
-        if callable(is_cached) and not is_cached(cache_key):
-            state += COLD_LOAD_NOTE
-        self._generation_outputs(ProgressGenerationOutput(state=state, progress=Progress(self._step, self._total)))
+        step = self._step
         self._step += 1
+        state = f"{self._label} — {component} ({step + 1} of {self._total})"
+        is_cached = getattr(self._models, "is_cached", None)
+        if callable(is_cached):
+            if is_cached(cache_key):
+                return
+            state += COLD_LOAD_NOTE
+        self._generation_outputs(ProgressGenerationOutput(state=state, progress=Progress(step, self._total)))
 
 
 def _affects_audio(value: Any, path: Any, log_tag: str) -> bool:

@@ -56,7 +56,7 @@ class TestComponentProgress:
 
         assert lh.COLD_LOAD_NOTE in emitted[0].state
 
-    def test_omits_cold_load_note_when_component_key_is_already_cached(self):
+    def test_announces_nothing_for_a_component_that_is_already_cached(self):
         class _FakeModels:
             def is_cached(self, key):
                 return True
@@ -65,7 +65,21 @@ class TestComponentProgress:
         progress = lh.ComponentProgress(emitted.append, models=_FakeModels(), label="Loading X", total=1)
         progress.advance("DiT", "native/dit/foo")
 
-        assert lh.COLD_LOAD_NOTE not in emitted[0].state
+        assert emitted == []
+
+    def test_a_cached_component_still_advances_the_step_of_later_ones(self):
+        class _FakeModels:
+            def is_cached(self, key):
+                return key != "native/dit/foo"
+
+        emitted = []
+        progress = lh.ComponentProgress(emitted.append, models=_FakeModels(), label="Loading X", total=2)
+        progress.advance("VAE", "native/vae/bar")
+        progress.advance("DiT", "native/dit/foo")
+
+        assert len(emitted) == 1
+        assert emitted[0].state.startswith("Loading X — DiT (2 of 2)")
+        assert (emitted[0].progress.current, emitted[0].progress.max) == (1, 2)
 
     def test_tolerates_a_models_service_without_is_cached(self):
         class _BareModels:

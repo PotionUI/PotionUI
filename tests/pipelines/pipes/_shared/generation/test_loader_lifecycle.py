@@ -103,6 +103,23 @@ def test_eager_acquire_announces_then_loads_through_models():
     ]
 
 
+def test_second_generation_over_the_same_components_announces_no_loading():
+    models = _FakeModels()
+    components = [
+        Component("VAE", "native/vae/v", "v|bf16", lambda: _Loaded("vae"), 1.0),
+        Component("DiT", "native/dit/d", "d|bf16", lambda: _Loaded("dit"), 2.0),
+    ]
+
+    cold, warm = _Recorder(), _Recorder()
+    for rec in (cold, warm):
+        lifecycle = _lifecycle(models, rec, total=2)
+        for component in components:
+            lifecycle.acquire(component)
+
+    assert len(cold.events) == 2
+    assert warm.events == []
+
+
 def test_eager_acquire_without_models_loads_directly():
     rec = _Recorder()
     lifecycle = _lifecycle(None, rec)

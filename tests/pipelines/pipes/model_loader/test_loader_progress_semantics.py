@@ -38,15 +38,16 @@ class _FakeModule:
 
 
 class _FakeModels:
-    def __init__(self) -> None:
+    def __init__(self, cached: bool = False) -> None:
         self.keys: list[str] = []
+        self._cached = cached
 
     def acquire(self, key, fingerprint, loader, estimated_vram_gb=None):
         self.keys.append(key)
         return loader()
 
     def is_cached(self, key):
-        return True
+        return self._cached
 
 
 @pytest.fixture(autouse=True)
@@ -272,6 +273,11 @@ _IDS = [
 @pytest.mark.parametrize("pipe_cls,config,cached,_uncached", _FAMILIES, ids=_IDS)
 def test_progress_sequence_with_a_lifecycle_service(pipe_cls, config, cached, _uncached):
     assert _components(pipe_cls(_cfg(pipe_cls, **config)), _FakeModels()) == cached
+
+
+@pytest.mark.parametrize("pipe_cls,config,_cached,_uncached", _FAMILIES, ids=_IDS)
+def test_a_fully_cached_bundle_announces_no_loading(pipe_cls, config, _cached, _uncached):
+    assert _components(pipe_cls(_cfg(pipe_cls, **config)), _FakeModels(cached=True)) == []
 
 
 @pytest.mark.parametrize("pipe_cls,config,_cached,uncached", _FAMILIES, ids=_IDS)

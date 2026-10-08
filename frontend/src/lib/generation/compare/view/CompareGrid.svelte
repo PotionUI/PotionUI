@@ -39,7 +39,7 @@
 	const timer = createCellTimer();
 	const group = createVideoGroup();
 
-	let width = $state(0);
+	let contentBox = $state<DOMRectReadOnly | undefined>();
 	let imageAspect = $state(1);
 	let aspectLocked = $state(false);
 	let videoUrls = $state<Record<string, string>>({});
@@ -47,7 +47,7 @@
 
 	let progress = $derived(gridProgress(grid));
 	let failed = $derived(retryableCount(grid));
-	let sizing = $derived(computeCellSize(width, grid.cols));
+	let sizing = $derived(computeCellSize(contentBox?.width ?? 0, grid.cols));
 	let ordinals = $derived(queueOrdinals(grid));
 	let isVideoGrid = $derived(grid.cells.some((cell) => cell.mediaType === 'video'));
 	let aspect = $derived(isVideoGrid && !aspectLocked ? 16 / 9 : imageAspect);
@@ -146,7 +146,7 @@
 	</header>
 
 	<div
-		bind:clientWidth={width}
+		bind:contentRect={contentBox}
 		class="max-h-[70vh] min-h-0 min-w-0 max-w-full flex-1 overflow-auto bg-canvas p-3"
 		data-testid="compare-scroller"
 		data-scrolls={sizing.scrolls}

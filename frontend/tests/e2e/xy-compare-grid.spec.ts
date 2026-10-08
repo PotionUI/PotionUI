@@ -138,6 +138,9 @@ test.describe('X/Y compare grid view', () => {
 		await expect(cells(page)).toHaveCount(6);
 		await expect(grid.getByTestId('compare-x-label')).toHaveText(['1', '2', '3']);
 		await expect(grid.getByTestId('compare-y-label')).toHaveText(['1:1', '16:9']);
+		const fittedScroller = grid.getByTestId('compare-scroller');
+		await expect(fittedScroller).toHaveAttribute('data-scrolls', 'false');
+		expect(await fittedScroller.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
 		await expect(page.getByTestId('compare-grid').locator('[data-cell-state="empty"]')).toHaveCount(6);
 		await screenshot(page, JOURNEY, 'workbench-preview-1440');
 

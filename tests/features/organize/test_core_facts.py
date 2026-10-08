@@ -179,3 +179,30 @@ def test_fact_options(seed, manager):
     assert manager.fact_options(user, "mode", "generation", "image to image", 50) == [{"value": "img2img", "label": "Image to Image"}]
     assert manager.fact_options(user, "tags", "generation", "sun", 50) == [{"value": "Sunset", "label": "Sunset"}]
     assert manager.fact_options(user, "aspect", "generation", "port", 50) == [{"value": "portrait", "label": "Portrait"}]
+
+
+@pytest.fixture
+def segmented(seed, manager):
+    seed.user("u1")
+    state = {
+        "prompt": "A magic POTION on a shelf",
+        "negativePrompt": "blurry dog",
+        "promptSegments": [{"content": "A magic POTION on a shelf"}],
+    }
+    return {
+        "ids": {
+            "in_state": seed.generation("u1", prompt_state=state),
+            "in_form": seed.generation("u1", prompt="plain cat"),
+        }
+    }
+
+
+@pytest.mark.parametrize("operator,value,expected", [
+    ("contains", "potion", ["in_state"]),
+    ("contains", "dog", []),
+    ("not_contains", "potion", ["in_form"]),
+])
+def test_prompt_fact_reads_prompt_state(segmented, manager, operator, value, expected):
+    conditions = [{"fact": "prompt", "operator": operator, "value": value}]
+    assert names(segmented, matches_python(manager, conditions)) == expected
+    assert names(segmented, matches_sql(manager, conditions)) == expected

@@ -104,7 +104,7 @@ class OrganizeItemRepository:
             for chunk in _chunks(ids):
                 placeholders = ",".join("?" * len(chunk))
                 cursor.execute(
-                    f"SELECT id, user_id, preset_id, mode, backend_id, form_data, status, created_at, completed_at "
+                    f"SELECT id, user_id, preset_id, mode, backend_id, form_data, prompt_state, status, created_at, completed_at "
                     f"FROM generations WHERE user_id = ? AND id IN ({placeholders})",
                     (user_id, *chunk),
                 )
@@ -118,6 +118,7 @@ class OrganizeItemRepository:
                         "backend_id": row["backend_id"],
                         "status": row["status"],
                         "form_data": form_data,
+                        "prompt_state": json_column(row["prompt_state"], {}),
                         "model_ids": list(collect_model_ids(form_data)),
                         "files": [],
                         "tags": [],

@@ -248,15 +248,18 @@ def _duration_sql(operator: str, value: Any, alias: str) -> SqlResult:
 def _prompt_sql(operator: str, value: Any, alias: str) -> SqlResult:
     if alias != "g" or not isinstance(value, str) or not value:
         return None
-    exists = (
-        "CASE WHEN json_valid(g.form_data) THEN EXISTS (SELECT 1 FROM json_tree(g.form_data) jt "
-        "WHERE jt.type = 'text' AND LOWER(jt.key) LIKE '%prompt%' AND LOWER(jt.key) NOT LIKE '%negative%' "
-        "AND instr(LOWER(jt.value), LOWER(?)) > 0) ELSE 0 END"
-    )
+    def column_matches(column: str) -> str:
+        return (
+            f"CASE WHEN json_valid({column}) THEN EXISTS (SELECT 1 FROM json_tree({column}) jt "
+            "WHERE jt.type = 'text' AND LOWER(jt.key) LIKE '%prompt%' AND LOWER(jt.key) NOT LIKE '%negative%' "
+            "AND instr(LOWER(jt.value), LOWER(?)) > 0) ELSE 0 END"
+        )
+
+    exists = f"{column_matches('g.form_data')} OR {column_matches('g.prompt_state')}"
     if operator == "contains":
-        return f"({exists}) = 1", [value]
+        return f"({exists})", [value, value]
     if operator == "not_contains":
-        return f"({exists}) = 0", [value]
+        return f"NOT ({exists})", [value, value]
     return None
 
 
@@ -635,7 +638,8 @@ def register_core_facts(registry: OrganizeRegistry, items: OrganizeItemRepositor
         OrganizeFactDefinition(
             key="prompt", label="Prompt", subjects=("generation",), kind="text",
             operators=("contains", "not_contains"),
-            extract=lambda item: prompt_texts(item.get("form_data", {})), sql=_prompt_sql,
+            extract=lambda item: prompt_texts(item.get("form_data", {})) + prompt_texts(item.get("prompt_state", {})),
+            sql=_prompt_sql,
             picker={"placeholder": "a word or phrase"},
         ),
         OrganizeFactDefinition(

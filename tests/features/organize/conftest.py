@@ -105,15 +105,17 @@ class Seeder:
         )
 
     def generation(self, user_id, preset_id="krea-2", mode="txt2img", status="completed", prompt="a cat",
-                   models=(), files=((1344, 768, "IMAGE", None),), form_extra=None, linked_models=()):
+                   models=(), files=((1344, 768, "IMAGE", None),), form_extra=None, linked_models=(), prompt_state=None):
         generation_id = generate_ulid()
-        form = {"prompt": prompt, "negative_prompt": "blurry dog"}
+        form = {"prompt": prompt, "negative_prompt": "blurry dog"} if prompt_state is None else {"seed": 1}
         for index, model_id in enumerate(models):
             form[f"model_{index}"] = f"model:{model_id}"
         form.update(form_extra or {})
         self._exec(
-            "INSERT INTO generations (id, preset_id, form_data, user_id, status, mode) VALUES (?, ?, ?, ?, ?, ?)",
-            (generation_id, preset_id, json.dumps(form), user_id, status, mode),
+            "INSERT INTO generations (id, preset_id, form_data, prompt_state, user_id, status, mode) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (generation_id, preset_id, json.dumps(form), json.dumps(prompt_state) if prompt_state is not None else None,
+             user_id, status, mode),
         )
         for model_id in linked_models:
             self._exec(

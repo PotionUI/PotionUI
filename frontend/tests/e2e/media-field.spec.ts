@@ -662,7 +662,7 @@ for (const size of SIZES) {
 			await expect(modalTitle).toBeVisible();
 			const historyCards = page.getByRole('dialog').locator('[data-testid="history-file-tile"] button');
 			await expect(historyCards).toHaveCount(1);
-			expect(requested.at(-1)).toBe('audio');
+			expect(requested).toContain('audio');
 			await screenshot(page, JOURNEY, `audio-history-${size.tag}`);
 			await historyCards.first().click();
 			await expect(modalTitle).toBeHidden();

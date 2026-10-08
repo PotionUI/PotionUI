@@ -23,6 +23,7 @@
 		toggleCompareDrawer
 	} from '$lib/generation/compare/compareStore.svelte';
 	import { limits, limitsMeta } from '$lib/plans/store';
+	import { gridFraction } from '$lib/generation/compare/view/gridModel';
 	import CompareDrawer from './compare/CompareDrawer.svelte';
 
 	const dispatch = createEventDispatcher();
@@ -404,8 +405,10 @@
 
 	// Get progress percentage; null means the active stage reported no fraction
 	// yet (e.g. a cold model load) and the bar renders indeterminate instead.
-	$: hasProgressFraction = generation.currentProgress?.progress != null;
-	$: progressPercent = Math.round((generation.currentProgress?.progress ?? 0) * 100);
+	$: hasProgressFraction = compareGridActive || generation.currentProgress?.progress != null;
+	$: progressPercent = compareGridActive
+		? Math.round(gridFraction({ cells: compareState.cells }) * 100)
+		: Math.round((generation.currentProgress?.progress ?? 0) * 100);
 	$: stepParsed = parseTemplateMarkers(generation.currentProgress?.current_step || '');
 	$: messageParsed = parseTemplateMarkers(generation.currentProgress?.message || '');
 	$: progressMarkers = [...stepParsed.markers, ...messageParsed.markers];

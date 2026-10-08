@@ -74,6 +74,23 @@ export function gridProgress(grid: Pick<ActiveGrid, 'cells'>): GridProgress {
 	};
 }
 
+export function cellProgressLabel(progress: NonNullable<GridCell['progress']>): string {
+	return progress.percent ? `${progress.step}%` : `${progress.step} / ${progress.total}`;
+}
+
+export function gridFraction(grid: Pick<ActiveGrid, 'cells'>): number {
+	if (grid.cells.length === 0) return 0;
+	let sum = 0;
+	for (const cell of grid.cells) {
+		const state = segmentState(cell.status);
+		if (state === 'done' || state === 'failed') sum += 1;
+		else if (state === 'running' && cell.progress && cell.progress.total > 0) {
+			sum += Math.min(1, Math.max(0, cell.progress.step / cell.progress.total));
+		}
+	}
+	return sum / grid.cells.length;
+}
+
 export function queueOrdinals(grid: Pick<ActiveGrid, 'cells' | 'cols' | 'config'>): Map<number, number> {
 	const modelOnX = grid.config.x?.field === 'model';
 	const modelOnY = grid.config.y?.field === 'model';

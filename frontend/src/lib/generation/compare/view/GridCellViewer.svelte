@@ -14,6 +14,7 @@
 		cellStatusLabel,
 		formatSeconds,
 		gridDimensions,
+		cellProgressLabel,
 		gridProgress,
 		moveCell,
 		retryableCount,
@@ -164,7 +165,7 @@
 			{#if cell.status === 'running'}
 				<Spinner size="lg" />
 				<span class="font-mono text-sm tabular-nums text-fg">
-					{cell.progress ? `${cell.progress.step} / ${cell.progress.total}` : 'Running'}
+					{cell.progress ? cellProgressLabel(cell.progress) : 'Running'}
 				</span>
 			{:else if cell.status === 'queued'}
 				<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Queued</span>

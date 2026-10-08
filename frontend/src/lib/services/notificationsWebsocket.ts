@@ -17,7 +17,14 @@ import { toasts, type ToastType } from '$lib/stores/toast';
 import { playNotificationChime } from '$lib/utils/notificationChime';
 import type { AppNotification } from '$lib/services/api/notifications';
 import { generationFailureErrorId, generationFailureToastMessage } from '$lib/generation/failureToast';
+import { ownsGeneration } from '$lib/generation/compare/compareStore.svelte';
 import { copyText } from '$lib/utils/clipboard';
+
+function isCompareCellCompletion(notification: AppNotification | undefined): boolean {
+	if (notification?.type !== 'generation.completed') return false;
+	const generationId = (notification.metadata as { generation_id?: unknown } | null)?.generation_id;
+	return typeof generationId === 'string' && ownsGeneration(generationId);
+}
 
 class NotificationsWebSocketService extends BaseWebSocket {
 	private intentionalDisconnect = false;
@@ -60,7 +67,7 @@ class NotificationsWebSocketService extends BaseWebSocket {
 
 			case 'notification': {
 				const notification = message.notification as AppNotification;
-				const showToast = message.show_toast !== false;
+				const showToast = message.show_toast !== false && !isCompareCellCompletion(notification);
 				notifications.add(notification);
 				if (showToast && notification) {
 					const errorId = generationFailureErrorId(notification);

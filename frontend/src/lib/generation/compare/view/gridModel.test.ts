@@ -11,7 +11,9 @@ import {
 	cellAxisSummary,
 	cellFormPatch,
 	computeCellSize,
+	cellProgressLabel,
 	createCellTimer,
+	gridFraction,
 	gridDimensions,
 	gridProgress,
 	gridTemplateColumns,
@@ -154,6 +156,24 @@ describe('progress and queue order', () => {
 		const progress = gridProgress({ cells: statuses.map((s, i) => cell(i, 0, s)) });
 		expect(progress).toMatchObject({ total: 8, done: 2, failed: 2, running: 1, queued: 2, active: true });
 		expect(progress.segments).toEqual(['done', 'done', 'failed', 'running', 'queued', 'failed', 'idle', 'queued']);
+	});
+
+	it('labels steps as a count and a percent as a percent', () => {
+		expect(cellProgressLabel({ step: 3, total: 8 })).toBe('3 / 8');
+		expect(cellProgressLabel({ step: 40, total: 100, percent: true })).toBe('40%');
+	});
+
+	it('weights finished cells fully and a running cell by its own progress', () => {
+		const cells = [
+			cell(0, 0, 'completed'),
+			cell(1, 0, 'completed'),
+			cell(2, 0, 'running', { progress: { step: 50, total: 100, percent: true } }),
+			cell(3, 0, 'queued'),
+			cell(0, 1, 'queued'),
+			cell(1, 1, 'queued')
+		];
+		expect(gridFraction({ cells })).toBeCloseTo(2.5 / 6);
+		expect(gridFraction({ cells: [] })).toBe(0);
 	});
 
 	it('is inactive once nothing is running or queued', () => {

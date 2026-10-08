@@ -233,6 +233,41 @@ describe('live grid and message mapping', () => {
 		expect(getActiveGrid(tabId)!.cells[2].status).toBe('queued');
 	});
 
+	it('reports a percent fraction as a percent, never as steps out of 100', async () => {
+		await startGrid();
+		observeGenerationMessage({ type: 'generation_status', generation_id: 'gen-1', status: 'running', progress: 0.25 });
+		expect(getActiveGrid(tabId)!.cells[1].progress).toEqual({ step: 25, total: 100, percent: true });
+	});
+
+	it('toasts once when the whole grid has finished, not per cell', async () => {
+		vi.useFakeTimers();
+		await startGrid();
+		vi.mocked(api.fetchGrid).mockResolvedValue(serverGrid());
+		const success = vi.spyOn(toasts, 'success').mockClear();
+		for (let n = 0; n < 11; n++) {
+			observeGenerationMessage({ type: 'generation_complete', data: { id: `gen-${n}`, status: 'completed' } });
+		}
+		expect(success).not.toHaveBeenCalled();
+		observeGenerationMessage({ type: 'generation_complete', data: { id: 'gen-11', status: 'completed' } });
+		expect(success).toHaveBeenCalledTimes(1);
+		expect(success.mock.calls[0][0]).toContain('12 of 12');
+	});
+
+	it('warns once with the failure count when the grid finishes with failed cells', async () => {
+		vi.useFakeTimers();
+		await startGrid();
+		vi.mocked(api.fetchGrid).mockResolvedValue(serverGrid());
+		const warning = vi.spyOn(toasts, 'warning').mockClear();
+		const success = vi.spyOn(toasts, 'success').mockClear();
+		observeGenerationMessage({ type: 'generation_error', generation_id: 'gen-0', message: 'boom' });
+		for (let n = 1; n <= 11; n++) {
+			observeGenerationMessage({ type: 'generation_complete', data: { id: `gen-${n}`, status: 'completed' } });
+		}
+		expect(success).not.toHaveBeenCalled();
+		expect(warning).toHaveBeenCalledTimes(1);
+		expect(warning.mock.calls[0][0]).toContain('1 failed');
+	});
+
 	it('marks a failed cell with its plain message and a cancelled cell without one', async () => {
 		vi.useFakeTimers();
 		await startGrid();

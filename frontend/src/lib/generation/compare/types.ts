@@ -34,7 +34,7 @@ export type GridCell = {
 	mediaType: string | null;
 	error: string | null;
 	elapsedSeconds: number | null;
-	progress: { step: number; total: number } | null;
+	progress: { step: number; total: number; percent?: boolean } | null;
 	previewUrl: string | null;
 };
 

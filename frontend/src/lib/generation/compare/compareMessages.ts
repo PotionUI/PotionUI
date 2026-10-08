@@ -34,7 +34,7 @@ function progressOf(message: Message): GridCell['progress'] {
 	if (Number.isFinite(step) && Number.isFinite(total) && total > 0) return { step, total };
 	const fraction = message.progress;
 	if (typeof fraction === 'number' && Number.isFinite(fraction)) {
-		return { step: Math.round(Math.min(1, Math.max(0, fraction)) * 100), total: 100 };
+		return { step: Math.round(Math.min(1, Math.max(0, fraction)) * 100), total: 100, percent: true };
 	}
 	return null;
 }

@@ -3,7 +3,7 @@
 	import { Button, Spinner } from '$lib/components/ui';
 	import type { GridCell } from '../compareStore.svelte';
 	import type { VideoGroup } from './videoSync';
-	import { cellAxisSummary, cellStatusLabel, formatSeconds } from './gridModel';
+	import { cellAxisSummary, cellProgressLabel, cellStatusLabel, formatSeconds } from './gridModel';
 
 	let {
 		cell,
@@ -164,7 +164,7 @@
 			<Spinner size="sm" />
 			{#if cell.progress}
 				<span data-testid="compare-cell-steps" class="font-mono text-xs tabular-nums text-fg">
-					{cell.progress.step} / {cell.progress.total}
+					{cellProgressLabel(cell.progress)}
 				</span>
 			{:else}
 				<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted">Running</span>

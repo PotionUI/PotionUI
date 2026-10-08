@@ -40,6 +40,7 @@
 	import { createCapabilityTracker, sharedCapabilityCache } from '$lib/form/capabilityTracker';
 	import { fetchCloudCapabilities } from '$lib/services/cloudCapabilities';
 	import { clearFormulaDeclarations } from '$lib/stores/formulas';
+	import { clearMissingModel, missingRequiredModelField, publishMissingModel } from '$lib/generation/requiredModelField';
 	import { publishCompareSchema } from '$lib/generation/compare/compareStore.svelte';
 	import { compareSchemaSignature, schemaForCompare } from '$lib/generation/compare/compareSchema';
 
@@ -206,6 +207,13 @@
 		}
 		if (pass.hiddenByCapability.join('|') !== [...capabilityHiddenNames].join('|')) {
 			capabilityHiddenNames = new Set(pass.hiddenByCapability);
+		}
+		if (tabId && compareSchemaKey && initialLoadComplete) {
+			publishMissingModel(
+				tabId,
+				compareSchemaKey,
+				missingRequiredModelField(extractAllFields(pass.processedSchema), data)
+			);
 		}
 		applyAudienceVisibilityToSchema(
 			pass.processedSchema,
@@ -538,6 +546,7 @@
 	}
 
 	onDestroy(() => {
+		if (tabId) clearMissingModel(tabId);
 		capabilityTracker.destroy();
 		cancelSchemaRetry();
 		schemaRequest.invalidate();

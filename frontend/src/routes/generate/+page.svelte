@@ -46,6 +46,7 @@
 	import StudioView from './components/studio/StudioView.svelte';
 	import { isPromptlessMode } from '$lib/utils/promptlessMode';
 	import { isNegativeInert, type NegativePromptDeclarations } from '$lib/generation/negativeApplied';
+	import { missingModelByTab, missingModelFor } from '$lib/generation/requiredModelField';
 	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
 	import { attachChatStartedGeneration } from '$lib/generation/restore/chatGeneration';
 	import { onToolApplied } from '$lib/chat/pageContext';
@@ -1772,12 +1773,21 @@
 		}
 
 		const limitGate = $generateGate;
-		canGenerate = !!currentTab.selectedPreset && hasPrompt && !resourceIssue && !limitGate;
+		const missingModelField = currentTab.selectedPreset
+			? missingModelFor(
+					$missingModelByTab,
+					currentTab.id,
+					`${currentTab.selectedPreset}-${currentTab.selectedMode ?? 'txt2img'}-${currentTab.selectedVariant ?? ''}`
+				)
+			: null;
+		canGenerate = !!currentTab.selectedPreset && hasPrompt && !resourceIssue && !limitGate && !missingModelField;
 		generateDisabledReason = canGenerate
 			? undefined
 			: !currentTab.selectedPreset
 				? 'Select a preset to generate'
-				: resourceIssue || (!hasPrompt ? noPromptReason : limitGate?.reason);
+				: missingModelField
+					? `Select ${missingModelField.label} to generate`
+					: resourceIssue || (!hasPrompt ? noPromptReason : limitGate?.reason);
 	}
 
 	// Workbench event handlers

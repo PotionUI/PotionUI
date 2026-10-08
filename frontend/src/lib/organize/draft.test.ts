@@ -175,10 +175,25 @@ describe('jobs and activity', () => {
 			applied: 1,
 			undone: 0,
 			can_undo: true,
-			changes: { collections: [{ id: 'c', name: 'Landscapes', count: 1, created: false }], tags: [], other: [{ action: 'p.x', label: 'Detect', count: 3 }] }
+			changes: { collections: [{ id: 'c', name: 'Landscapes', count: 1, live: 1, created: false }], tags: [], other: [{ action: 'p.x', label: 'Detect', count: 3, live: 3 }] }
 		} as never;
 		expect(runSummary(run)).toEqual(['Added 1 item to Landscapes', 'Detect: 3 items']);
 		expect(undoMessage(run)).toContain('the collection stays');
+	});
+
+	it('keeps the applied counts after an undo and only the undo prompt uses what is left', () => {
+		const run = {
+			id: 'r',
+			rule_name: 'Krea',
+			rule_deleted: false,
+			status: 'undone',
+			applied: 4,
+			undone: 4,
+			can_undo: false,
+			changes: { collections: [{ id: 'c', name: 'Landscapes', count: 4, live: 0, created: false }], tags: [], other: [] }
+		} as never;
+		expect(runSummary(run)).toEqual(['Added 4 items to Landscapes']);
+		expect(runSummary(run, true)).toEqual(['Added 0 items to Landscapes']);
 	});
 });
 

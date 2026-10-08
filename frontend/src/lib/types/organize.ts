@@ -222,9 +222,9 @@ export interface OrganizeRun {
 	undone: number;
 	can_undo: boolean;
 	changes: {
-		collections: { id: string; name: string; count: number; created: boolean }[];
-		tags: { id: string; name: string; count: number }[];
-		other: { action: string; label: string; count: number }[];
+		collections: { id: string; name: string; count: number; live: number; created: boolean }[];
+		tags: { id: string; name: string; count: number; live: number }[];
+		other: { action: string; label: string; count: number; live: number }[];
 	};
 }
 

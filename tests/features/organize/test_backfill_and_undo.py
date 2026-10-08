@@ -70,7 +70,7 @@ def test_apply_existing_files_matches_and_records_one_backfill_run(seed, manager
     activity = manager.activity(user, "generation", None, None, 50)["runs"]
     assert [(r["kind"], r["matched"], r["applied"], r["status"]) for r in activity] == [("backfill", 3, 3, "completed")]
     assert activity[0]["changes"]["collections"] == [
-        {"id": collection_id, "name": "Landscapes", "count": 3, "created": False}
+        {"id": collection_id, "name": "Landscapes", "count": 3, "live": 3, "created": False}
     ]
     assert notices.of_type(NOTICE_JOB_FINISHED)[0]["message"] == "Added 3 items to Landscapes"
     assert notices.of_type(NOTICE_JOB_PROGRESS)[0]["transient"] is True
@@ -165,9 +165,13 @@ def test_undo_removes_exactly_what_the_run_added(seed, manager, history):
     manager.start_backfill(user, rule["id"])
     assert seed.members(landscapes) == set(wide)
     run = manager.activity(user, None, None, None, 50)["runs"][0]
+    applied_counts = [c["count"] for c in run["changes"]["collections"]] + [t["count"] for t in run["changes"]["tags"]]
 
     result = manager.undo_run(user, run["id"])
 
+    undone_changes = result["run"]["changes"]
+    assert [c["count"] for c in undone_changes["collections"]] + [t["count"] for t in undone_changes["tags"]] == applied_counts
+    assert all(c["live"] == 0 for c in undone_changes["collections"] + undone_changes["tags"])
     assert seed.members(landscapes) == {wide[0]}
     assert seed.generation_tags(wide[1]) == ["landscape"]
     assert seed.generation_tags(wide[0]) == []

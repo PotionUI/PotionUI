@@ -4,16 +4,17 @@ function plural(count: number, singular: string, pluralForm = `${singular}s`): s
 	return `${count} ${count === 1 ? singular : pluralForm}`;
 }
 
-export function runSummary(run: OrganizeRun): string[] {
+export function runSummary(run: OrganizeRun, remaining = false): string[] {
+	const countOf = (change: { count: number; live: number }) => (remaining ? change.live : change.count);
 	const lines: string[] = [];
 	for (const c of run.changes.collections) {
-		lines.push(`Added ${plural(c.count, 'item')} to ${c.name}${c.created ? ' (new collection)' : ''}`);
+		lines.push(`Added ${plural(countOf(c), 'item')} to ${c.name}${c.created ? ' (new collection)' : ''}`);
 	}
 	for (const t of run.changes.tags) {
-		lines.push(`Tagged ${plural(t.count, 'item')} "${t.name}"`);
+		lines.push(`Tagged ${plural(countOf(t), 'item')} "${t.name}"`);
 	}
 	for (const o of run.changes.other) {
-		lines.push(`${o.label}: ${plural(o.count, 'item')}`);
+		lines.push(`${o.label}: ${plural(countOf(o), 'item')}`);
 	}
 	if (lines.length === 0) lines.push(run.applied === 0 ? 'Nothing needed changing' : `Changed ${plural(run.applied, 'item')}`);
 	return lines;
@@ -28,6 +29,6 @@ export function runKindLabel(run: OrganizeRun): string {
 }
 
 export function undoMessage(run: OrganizeRun): string {
-	const parts = runSummary(run).join(', ').toLowerCase();
+	const parts = runSummary(run, true).join(', ').toLowerCase();
 	return `This removes what "${runTitle(run)}" added in this run (${parts}). Anything you already removed yourself is left alone, and the collection stays.`;
 }

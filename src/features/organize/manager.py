@@ -938,13 +938,14 @@ class OrganizeManager:
                 if row["target_type"] in ("collection", "model_collection"):
                     current = names.get(COLLECTION_SCOPES[run.subject], {}).get(row["target_id"])
                     collections.append({"id": row["target_id"], "name": current or row["target_name"],
-                                        "count": live, "created": bool(row["created"])})
+                                        "count": row["total"], "live": live, "created": bool(row["created"])})
                 elif row["target_type"] == "tag":
-                    tags.append({"id": row["target_id"], "name": row["target_name"], "count": live})
+                    tags.append({"id": row["target_id"], "name": row["target_name"], "count": row["total"], "live": live})
                 else:
                     definition = self.c.registry.action(row["action_kind"])
                     other.append({"action": row["action_kind"],
-                                  "label": definition.label if definition else row["action_kind"], "count": live})
+                                  "label": definition.label if definition else row["action_kind"],
+                                  "count": row["total"], "live": live})
             entry = run.base_dict()
             entry["rule_name"] = current_names.get(run.rule_id, run.rule_name)
             entry["undone"] = undone.get(run.id, 0)

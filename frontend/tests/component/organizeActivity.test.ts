@@ -40,8 +40,8 @@ function run(over: Record<string, unknown> = {}) {
 		undone: 0,
 		can_undo: true,
 		changes: {
-			collections: [{ id: 'c1', name: 'Landscapes', count: 198, created: true }],
-			tags: [{ id: 't1', name: 'landscape', count: 120 }],
+			collections: [{ id: 'c1', name: 'Landscapes', count: 198, live: 198, created: true }],
+			tags: [{ id: 't1', name: 'landscape', count: 120, live: 120 }],
 			other: []
 		},
 		...over

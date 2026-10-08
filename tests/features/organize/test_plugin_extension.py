@@ -91,7 +91,7 @@ def test_plugin_actions_record_changes_and_undo_through_the_plugin(seed, manager
     manager.undo_run(admin, run["id"])
 
     assert module["SENT"] == [(generation, "#art", "admin")]
-    assert run["changes"]["other"] == [{"action": "example.notify_webhook", "label": "Tell my webhook", "count": 1}]
+    assert run["changes"]["other"] == [{"action": "example.notify_webhook", "label": "Tell my webhook", "count": 1, "live": 1}]
     assert module["UNDONE"] == [(generation, "#art", "admin")]
     assert manager.get_rule(admin, rule["id"])["filed_count"] == 0
 

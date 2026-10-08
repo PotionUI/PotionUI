@@ -46,7 +46,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
   write action needs your approval.
 - **Video Director** — compose shots in sections instead of one giant prompt.
 
-*Alpha 0.0.14 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
+*Alpha 0.0.15 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
 Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Reddit](https://www.reddit.com/r/PotionUI/) ·
 [Ko-fi](https://ko-fi.com/A3B325D031)*
@@ -237,7 +237,7 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.14 matrix. **Native
+> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.15 matrix. **Native
 > Windows is supported experimentally** as of 0.0.8: the installer, the CLI,
 > the backend test suite, the frontend checks and the E2E harness all run in
 > CI on `windows-latest` — see [Windows (native)](#windows-native) below.
@@ -281,7 +281,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 | Platform                    | Status                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.14                                                              |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.15                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
 | Windows native              | Experimental (0.0.8) — installer, CLI, backend suite, frontend checks and E2E harness run in CI on `windows-latest`; see [Windows (native)](#windows-native) |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
@@ -390,6 +390,87 @@ Start with the in-app documentation browser, or read the Markdown directly:
 The three most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
 
+### 0.0.15 — 2026-10-08
+
+- X/Y compare: a Compare button in the Generate dock turns any form into a grid; pick the fields
+  for the X and Y axes, give each its values, and one Generate runs a cell per combination; the
+  Workbench fills the grid live with each cell's time, video grids play in sync, and a finished
+  grid can be stitched into one image; History keeps a grid as one stack card that opens the grid,
+  and each cell's details say which X and Y values it used; axes follow what the chosen model
+  supports, including cloud options such as aspect ratio and quality, and the phone Studio view
+  shows the grid too.
+- Photo filters: the image editor has a Filters tool with twelve built-in looks, an intensity
+  slider and fine-tuning; a look you like can be saved as your own filter, kept per user; plugins
+  can add filters and the operations behind them, and filters render the same in the browser and
+  on the server.
+- Auto-organize: per-user rules file new generations, uploads and models into collections and
+  tags; a rule can match media kind, size and aspect, and for models their name, file name,
+  description, trigger words, source, file size and custom attributes; preview a rule before
+  saving, apply it to existing items, and undo from its activity list; collections now include
+  sub-collections by default, with direct-only, Unsorted and Favorites filters and rolled-up
+  counts in History, Library, Models, Inspirations and Prompts, and prompts can be favorited.
+- Plans and limits: admins can cap storage, daily generations, monthly cloud spend and the size of
+  a single upload per user, through a default plan, group plans and personal overrides; users see
+  their plan and usage in Settings, a limit bar in the account menu and a storage card in History
+  with Review largest generations, and a refused generation or upload says why with a live
+  countdown; deleting a plan in use offers to reassign its users.
+- Cloud models: three new provider plugins join OpenRouter; OpenAI runs GPT Image text to image
+  and edit with references and a painted mask, Google Gemini runs Nano Banana image and Veo 3.1
+  video models, and Black Forest Labs runs FLUX models, each with its own preset and setup guide;
+  the cloud catalog can show suggested models and links to each model's page; changing the engine
+  in Add backend keeps the name, enabled flag, priority and scheduling.
+- Accounts: one browser can hold several accounts and switch between them from the user menu or
+  the phone Accounts sheet, each with its own tabs and saved state; with the OIDC plugin, Add
+  account can offer another identity; the user panel groups its entries into Accounts, Workspace,
+  Content and Session.
+- Generate: the header is one row with the preset picker, a mode select with plain mode names,
+  short descriptions and optional icons, and formulas; the form hides its tab bar when only one
+  tab is visible; the negative prompt hides while the current guidance would ignore it, and
+  presets can declare this per mode; the Resolved prompt row shows variable values and marks the
+  ones that re-roll per image; prompt header actions collapse into the More menu as the pane
+  narrows; a picked model clears in one click in filters and optional model fields, and History
+  filters pick a model with the model picker.
+- History and Library: each card has a Delete button and an item actions menu in place of the
+  quick-action row, and the controls stay readable on any image; the media field's History picker
+  offers every file of a generation as its own tile.
+- Native engine: LoRAs on fp8 and nvfp4 models are added in one fused step instead of slowing
+  every layer, and LoKr adapters stay on the fast path; LTX-2.5 IC-LoRA references accept videos
+  in Video Director, honour the LoRA's reference scaling, steer the first pass only with an
+  optional refine-pass toggle, and work with Upscale; engine tuning (attention backend, compile,
+  prefetch and similar) lives in each native backend's Optimizations tab and is sent to remote
+  workers with every job, and profiling is a Diagnostics setting.
+- 3D: a new Pixal3D preset turns one image or four views into a textured mesh, estimating the
+  camera's field of view on its own; TRELLIS.2 mesh export is several times faster, with UV unwrap
+  in seconds instead of minutes and cleanup in a separate process so the server stays responsive;
+  it remeshes and bakes textures the way upstream does, defaults to 300k faces with up to 1M
+  available, and no longer exports a vertically mirrored texture.
+- Chat and MCP: MCP tools work without an open browser tab (list presets and models, edit
+  segments, templates and phrasebook categories, search the gallery by text); prompts can be read
+  and listed from MCP and chat; library listings are complete and respect hidden generations;
+  tool, streaming, automation and notification failures show regular users a plain message and
+  admins the detail.
+- Plugins: a plugin can declare setup steps, and one with setup left shows a Setup needed badge
+  and a Setup section with the next step first; plugin admin tabs can draw their own page with a
+  left menu; plugins can add Auto-organize conditions and actions and their own limit kinds.
+- Admin: assigning users, groups, resource access and plans uses one shared picker with whole-row
+  toggle, shift-click ranges and keyboard control; Auto-organize has an admin page with Overview,
+  Limits and People; presets show where they were loaded from.
+- Fixes: Edit image on a media field works right after an upload and is not offered while the
+  upload is still processing; a chosen sampler survives closing the form, switching tabs and
+  reloading a session; switching Krea-2 NAG off really turns it off; a generation cancelled just
+  as a queue slot frees no longer starts, so a cancelled cloud run never reaches the provider; two
+  PotionUI instances on one host no longer break each other's images; model previews picked from
+  History show for every user the model is assigned to; failed generations tell regular users what
+  happened in plain words; new generation tabs never show the previous tab's form; the phone
+  Settings sheet fills in its tabs once the server answers; phrasebook chips on wrapped lines no
+  longer overlap; the Trim end handle is no longer clipped; daily limits work on Windows.
+- Upgrading: generated images, uploads, run reports, inspirations and avatars now need a signed-in
+  viewer, so other users get a 404 and a bare media link opened outside a logged-in browser no
+  longer loads; engine tuning set through environment variables is copied into Admin settings on
+  first start and the variables are ignored afterwards (a startup warning names any still set), so
+  change it in each native backend's Optimizations tab; tzdata is a new requirement, so reinstall
+  requirements on a manual install.
+
 ### 0.0.14 — 2026-10-02
 
 - Cloud models: a new OpenRouter plugin lets presets run on hosted image and video models such
@@ -479,43 +560,6 @@ The three most recent releases; older history lives in the
   `--backend-port`/`--frontend-port` to keep the old ports, and update bookmarks to
   `localhost:26731`; the database gains model type, folder binding, session pin and content
   policy migrations on first start, so take a backup first.
-
-### 0.0.12 — 2026-09-29
-
-- Model folders: models live in one or more folders you pick in the setup wizard or
-  Admin → Models → Folders (an existing ComfyUI or A1111 folder, an external drive, any
-  folder), scanned in place without symlinks or copies, with Windows paths supported;
-  each model type chooses its download folder and which folder wins when a model is in
-  several; folders can be read-only, reordered, relinked or removed, and an offline
-  folder fails a generation by name instead of silently; folder names are recognized in
-  any case and under a `models/` subfolder.
-- Model indexing: runs one at a time with live progress in the setup wizard, Admin →
-  Models and Admin → Backends, where every row now has Test connection, Index models and
-  Make default; the summary lists skipped same-file copies with the file that was kept,
-  models found in more than one folder and name conflicts; a restart finishes an
-  interrupted index, so recipes stop reporting installed models as missing.
-- Downloads: a CivitAI model page link picks the CivitAI provider and its credentials by
-  itself and resolves to the real file; downloads are named after the provider's file
-  or the server's filename instead of a number, keep a name you typed, and never
-  overwrite another download; the downloads list updates live instead of staying on
-  Pending until a reload; the download dialog says when a model type has no folder it
-  can write to.
-- Generate: closing a tab asks first and warns about a running generation or unsaved
-  work; the model picker folds its Suggested downloads into one short list with a
-  count, and marks what only admins see.
-- Chat: long conversations keep their history instead of being cut to fit the answer;
-  Ollama always receives the configured context window.
-- Admin: Settings → Storage is split into Media storage, Backups and Housekeeping.
-- Fixes: a picker opened from a filter menu or a modal shows above it; CivitAI's Fetch
-  prompts result can be closed again; a session no longer shows unsaved changes right
-  after saving; framed inputs show one focus ring instead of a white square inside;
-  Index models and Test connection spin again while running.
-- Upgrading: four database migrations run on first start (model folders, logical model
-  references, model file paths moved to folder locations, download filename choice) and
-  cannot be undone by downgrading; symlinked model folders are converted into model
-  folders on first start and keep downloading to the external drive; the first scan
-  reuses existing hashes, so nothing is re-hashed; plugins that read model paths use
-  `src.plugin_api.models`, as the old models location API is removed.
 
 ## Contributing
 

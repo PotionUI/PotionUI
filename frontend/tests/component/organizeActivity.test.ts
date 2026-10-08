@@ -7,12 +7,14 @@ const api = vi.hoisted(() => ({
 	undoOrganizeRun: vi.fn()
 }));
 const confirmDialog = vi.hoisted(() => vi.fn());
+const toasts = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }));
 
 vi.mock('$lib/services/api', async () => {
 	const actual = await vi.importActual<typeof import('$lib/services/api')>('$lib/services/api');
 	return { ...actual, api: { ...actual.api, ...api } };
 });
 vi.mock('$lib/stores/confirm', () => ({ confirmDialog }));
+vi.mock('$lib/stores/toast', () => ({ toasts }));
 
 const { default: ActivityList } = await import('../../src/lib/components/organize/ActivityList.svelte');
 
@@ -83,7 +85,7 @@ describe('ActivityList', () => {
 		confirmDialog.mockResolvedValue(true);
 		api.undoOrganizeRun.mockResolvedValue({
 			success: true,
-			data: { undone: 198, skipped: 0, run: run({ status: 'undone', can_undo: false, undone: 198 }) }
+			data: { undone: 198, items: 99, skipped: 0, run: run({ status: 'undone', can_undo: false, undone: 198 }) }
 		});
 		const onundone = vi.fn();
 		instance = mount(ActivityList, { target, props: { subject: 'generation', onundone } });
@@ -95,6 +97,7 @@ describe('ActivityList', () => {
 		expect(onundone).toHaveBeenCalled();
 		expect(undoButton()).toBeUndefined();
 		expect(target.textContent).toContain('Undone');
+		expect(toasts.success).toHaveBeenCalledWith('Undid this run for 99 items');
 	});
 
 	it('does nothing when the confirmation is declined', async () => {

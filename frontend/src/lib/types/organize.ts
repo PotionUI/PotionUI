@@ -235,6 +235,7 @@ export interface OrganizeActivityPage {
 
 export interface OrganizeUndoResult {
 	undone: number;
+	items: number;
 	skipped: number;
 	run: OrganizeRun;
 }

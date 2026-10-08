@@ -177,6 +177,7 @@ def test_undo_removes_exactly_what_the_run_added(seed, manager, history):
     assert seed.generation_tags(wide[0]) == []
     assert seed.generation_tags(wide[2]) == []
     assert result["undone"] == 4
+    assert result["items"] == 3
     assert result["skipped"] == 0
     assert result["run"]["status"] == "undone"
     assert result["run"]["can_undo"] is False

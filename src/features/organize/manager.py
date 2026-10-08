@@ -961,7 +961,7 @@ class OrganizeManager:
             raise errors.OrganizeError("run_not_found", "Nothing to undo", 404)
         if self.jobs.active_for_run(viewer.id, run_id) is not None:
             raise errors.OrganizeError("job_running", "Wait for the rule to finish before undoing", 409)
-        undone, skipped, done_ids = 0, 0, []
+        undone, skipped, done_ids, undone_items = 0, 0, [], set()
         for application in self.c.runs.pending_applications(viewer.id, run_id):
             definition = self.c.registry.action(application.action_kind)
             item = OrganizeItem(subject=application.item_type, item_id=application.item_id, user_id=viewer.id)
@@ -973,6 +973,7 @@ class OrganizeManager:
             try:
                 definition.undo(item, change, viewer.id)
                 undone += 1
+                undone_items.add((application.item_type, application.item_id))
             except Exception:
                 logger.warning("Auto-organize undo of %s failed", application.id, exc_info=True)
                 skipped += 1
@@ -983,7 +984,7 @@ class OrganizeManager:
             self.c.runs.mark_run_undone(viewer.id, run_id)
         entries = self.activity(user, None, run.rule_id, None, 200)["runs"]
         current = next((e for e in entries if e["id"] == run_id), None)
-        return {"undone": undone, "skipped": skipped, "run": current}
+        return {"undone": undone, "items": len(undone_items), "skipped": skipped, "run": current}
 
     def provenance(self, user: Any, item_type: str, item_id: str) -> List[Dict[str, Any]]:
         viewer = viewer_of(user)

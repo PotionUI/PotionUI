@@ -74,7 +74,7 @@
 			const response = await api.undoOrganizeRun(run.id);
 			if (response.success && response.data) {
 				runs = runs.map((r) => (r.id === run.id ? response.data!.run : r));
-				toasts.success(`Removed ${response.data.undone} ${response.data.undone === 1 ? 'item' : 'items'} this run added`);
+				toasts.success(`Undid this run for ${response.data.items} ${response.data.items === 1 ? 'item' : 'items'}`);
 				onundone?.(response.data.run);
 			} else {
 				toasts.error(response.message || 'The run could not be undone.');

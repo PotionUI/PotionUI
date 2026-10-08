@@ -1,18 +1,13 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 
-// The suite runs in the 'node' environment (no DOM), so navigator/document are
-// stubbed directly on globalThis per test, mirroring notificationChime.test.ts.
-
 function installNavigator(writeText: ReturnType<typeof vi.fn> | undefined) {
-	(globalThis as { navigator?: unknown }).navigator = writeText
-		? { clipboard: { writeText } }
-		: {};
+	vi.stubGlobal('navigator', writeText ? { clipboard: { writeText } } : {});
 }
 
 function installDocument(execCommandResult: boolean) {
 	const created: Array<{ value: string; style: Record<string, string> }> = [];
 	const execCommand = vi.fn().mockReturnValue(execCommandResult);
-	(globalThis as { document?: unknown }).document = {
+	vi.stubGlobal('document', {
 		createElement: () => {
 			const el = {
 				value: '',
@@ -26,15 +21,14 @@ function installDocument(execCommandResult: boolean) {
 		},
 		body: { appendChild: vi.fn(), removeChild: vi.fn() },
 		execCommand
-	};
+	});
 	return { execCommand, created };
 }
 
 describe('copyText', () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
-		delete (globalThis as { navigator?: unknown }).navigator;
-		delete (globalThis as { document?: unknown }).document;
+		vi.unstubAllGlobals();
 	});
 
 	it('uses the Clipboard API when available', async () => {

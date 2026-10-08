@@ -457,8 +457,9 @@ The three most recent releases; older history lives in the
   Limits and People; presets show where they were loaded from.
 - Fixes: Edit image on a media field works right after an upload and is not offered while the
   upload is still processing; a chosen sampler survives closing the form, switching tabs and
-  reloading a session; switching Krea-2 NAG off really turns it off; a generation cancelled just
-  as a queue slot frees no longer starts, so a cancelled cloud run never reaches the provider; two
+  reloading a session; switching Krea-2 NAG off really turns it off; a model already in memory no
+  longer shows a "Loading model" status before each generation; a generation cancelled just as a
+  queue slot frees no longer starts, so a cancelled cloud run never reaches the provider; two
   PotionUI instances on one host no longer break each other's images; model previews picked from
   History show for every user the model is assigned to; failed generations tell regular users what
   happened in plain words; new generation tabs never show the previous tab's form; the phone

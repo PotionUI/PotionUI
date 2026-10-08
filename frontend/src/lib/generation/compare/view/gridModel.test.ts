@@ -107,6 +107,12 @@ describe('geometry and labels', () => {
 		expect(computeCellSize(1500, 3, { height: 100, rows: 2, aspect: 1 }).size).toBe(MIN_CELL);
 	});
 
+	it('leaves room for a measured header taller than the default when fitting rows', () => {
+		const tallHeader = computeCellSize(1500, 3, { height: 600, rows: 2, aspect: 1, header: 84 });
+		expect(84 + 2 * (tallHeader.size + CELL_GAP)).toBeLessThanOrEqual(600);
+		expect(tallHeader.size).toBeLessThan(computeCellSize(1500, 3, { height: 600, rows: 2, aspect: 1 }).size);
+	});
+
 	it('fills the width with equal cells when the grid fits', () => {
 		const { size, scrolls } = computeCellSize(1200, 4);
 		expect(scrolls).toBe(false);

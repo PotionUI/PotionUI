@@ -14,7 +14,8 @@
 		gridTitle,
 		queueOrdinals,
 		retryableCount,
-		CELL_GAP
+		CELL_GAP,
+		SCROLLER_PADDING
 	} from './gridModel';
 	import { createVideoGroup } from './videoSync';
 
@@ -40,6 +41,7 @@
 	const group = createVideoGroup();
 
 	let contentBox = $state<DOMRectReadOnly | undefined>();
+	let cornerHeight = $state(0);
 	let imageAspect = $state(1);
 	let aspectLocked = $state(false);
 	let videoUrls = $state<Record<string, string>>({});
@@ -54,7 +56,9 @@
 		computeCellSize(
 			contentBox?.width ?? 0,
 			grid.cols,
-			overview ? { height: contentBox?.height ?? 0, rows: grid.rows, aspect } : undefined
+			overview
+				? { height: contentBox?.height ?? 0, rows: grid.rows, aspect, header: Math.max(0, cornerHeight - SCROLLER_PADDING) }
+				: undefined
 		)
 	);
 	let hasPlayable = $derived(
@@ -164,6 +168,7 @@
 			style="grid-template-columns: {gridTemplateColumns(grid.cols, sizing.size)}; gap: {CELL_GAP}px"
 		>
 			<div
+				bind:clientHeight={cornerHeight}
 				class="sticky left-0 -top-3 z-20 -mt-3 flex flex-col justify-end bg-canvas pb-1 pt-3 font-mono text-2xs uppercase leading-5 tracking-[0.07em] text-fg-subtle"
 			>
 				<span><span class="text-signal">X</span> {grid.config.x?.label ?? ''}</span>

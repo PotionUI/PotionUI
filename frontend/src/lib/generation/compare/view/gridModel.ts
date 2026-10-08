@@ -223,11 +223,13 @@ export const MIN_CELL = 112;
 export const MAX_CELL = 320;
 
 export const HEADER_HEIGHT = 44;
+export const SCROLLER_PADDING = 12;
 
 export interface HeightFit {
 	height: number;
 	rows: number;
 	aspect: number;
+	header?: number;
 }
 
 export function computeCellSize(containerWidth: number, cols: number, heightFit?: HeightFit): CellSize {
@@ -237,7 +239,8 @@ export function computeCellSize(containerWidth: number, cols: number, heightFit?
 	if (fitted < MIN_CELL) return { size: MIN_CELL, scrolls: true };
 	let size = Math.min(fitted, MAX_CELL);
 	if (heightFit && heightFit.height > 0 && heightFit.rows > 0 && heightFit.aspect > 0) {
-		const rowHeight = (heightFit.height - HEADER_HEIGHT - CELL_GAP * heightFit.rows) / heightFit.rows;
+		const header = heightFit.header && heightFit.header > 0 ? heightFit.header : HEADER_HEIGHT;
+		const rowHeight = (heightFit.height - header - CELL_GAP * heightFit.rows) / heightFit.rows;
 		size = Math.max(MIN_CELL, Math.min(size, Math.floor(rowHeight * heightFit.aspect)));
 	}
 	return { size, scrolls: false };

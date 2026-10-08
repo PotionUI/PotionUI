@@ -6,7 +6,7 @@
 	import CompareGrid from './CompareGrid.svelte';
 	import GridCellViewer from './GridCellViewer.svelte';
 	import GridExport from './GridExport.svelte';
-	import { cellFormPatch } from './gridModel';
+	import { cellFormPatch, cellTabUpdates } from './gridModel';
 
 	let { tabId }: { tabId: string } = $props();
 
@@ -19,10 +19,12 @@
 
 	function useSettings(index: number) {
 		if (!grid) return;
-		const { patch, skipped } = cellFormPatch(grid, grid.cells[index]);
+		const result = cellFormPatch(grid, grid.cells[index]);
+		const { skipped } = result;
 		const tab = get(tabsStore).tabs.find((candidate) => candidate.id === tabId);
 		if (!tab) return;
-		tabsStore.updateTab(tabId, { formData: { ...(tab.formData ?? {}), ...patch } });
+		const updates = cellTabUpdates(tab, result);
+		tabsStore.updateTab(tabId, updates);
 		turnOffCompare(tabId);
 		viewIndex = null;
 		if (skipped.length > 0) toasts.info(`${skipped.join(', ')} can't be copied into the form`);

@@ -261,6 +261,11 @@ test.describe('X/Y compare grid view', () => {
 		await expect(dialog.getByLabel('Stitch preview', { exact: true })).toBeVisible();
 		await dialog.getByRole('button', { name: 'seed' }).click();
 		await expect(dialog.getByRole('button', { name: 'seed' })).toHaveAttribute('aria-pressed', 'true');
+		const zoom = dialog.getByTestId('stitch-zoom-controls');
+		await expect(zoom).toBeVisible();
+		const zoomBox = (await zoom.boundingBox())!;
+		const viewportBox = (await dialog.getByRole('region', { name: 'Stitch preview viewport' }).boundingBox())!;
+		expect(zoomBox.y).toBeGreaterThanOrEqual(viewportBox.y + viewportBox.height - 1);
 		await screenshot(page, JOURNEY, 'stitch-grid-1440');
 
 		const download = page.waitForEvent('download');

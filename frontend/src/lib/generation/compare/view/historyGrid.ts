@@ -1,11 +1,8 @@
 import type { GenerationHistoryItem } from '$lib/types/history';
+import { axisFieldLabel } from './gridModel';
 
 type GridFields = Pick<GenerationHistoryItem, 'grid' | 'grid_id' | 'grid_x' | 'grid_y' | 'axis_values'>;
 
-function titleCase(field: string): string {
-	const spaced = field.replace(/_/g, ' ');
-	return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
 
 export function isStackEntry(item: GridFields): boolean {
 	return !!item.grid;
@@ -33,7 +30,7 @@ export function stackInfo(item: GridFields): StackInfo | null {
 	const fields = Object.keys(item.axis_values ?? {});
 	const total = item.grid.cell_count;
 	return {
-		title: fields.map(titleCase).join(' × '),
+		title: fields.map(axisFieldLabel).join(' × '),
 		count: `${total} ${total === 1 ? 'cell' : 'cells'}`
 	};
 }

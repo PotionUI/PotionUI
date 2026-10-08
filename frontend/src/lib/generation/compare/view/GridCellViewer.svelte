@@ -8,9 +8,10 @@
 	import GridDetailsCard from './GridDetailsCard.svelte';
 	import GridMiniMap from './GridMiniMap.svelte';
 	import {
-		axisFieldName,
+		axisFieldLabel,
 		axisTag,
 		cellFormPatch,
+		cellFormPatchSummary,
 		cellStatusLabel,
 		formatSeconds,
 		gridDimensions,
@@ -52,7 +53,7 @@
 	let progress = $derived(gridProgress(grid));
 	let failed = $derived(retryableCount(grid));
 	let preview = $derived(cellFormPatch(grid, cell));
-	let usable = $derived(Object.keys(preview.patch).length > 0);
+	let usable = $derived(Object.keys(preview.patch).length > 0 || preview.prompt !== null);
 	let isImageGrid = $derived(grid.cells.every((candidate) => candidate.mediaType !== 'video'));
 	let statusSummary = $derived(
 		progress.done === progress.total ? 'All done' : `${progress.done} / ${progress.total} done`
@@ -213,11 +214,11 @@
 				<div class="divide-y divide-line">
 					{#each Object.entries(cell.axisValues) as [field, value] (field)}
 						<div class="flex items-center justify-between px-3 py-2">
-							<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">{field.replace(/_/g, ' ')}</span>
-							<span class="font-mono text-xs text-fg">{value}</span>
+							<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">{axisFieldLabel(field)}</span>
+							<span class="font-mono text-xs text-fg" class:tabular-nums={field === 'seed'}>{value}</span>
 						</div>
 					{/each}
-					{#if cell.seed !== null}
+					{#if cell.seed !== null && !('seed' in cell.axisValues)}
 						<div class="flex items-center justify-between px-3 py-2">
 							<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Seed</span>
 							<span class="font-mono text-xs tabular-nums text-fg">
@@ -248,9 +249,7 @@
 				</Button>
 				{#if usable}
 					<p class="text-xs text-fg-muted" data-testid="use-settings-note">
-						Puts {Object.entries(preview.patch)
-							.map(([field, value]) => `${axisFieldName(field)} = ${typeof value === 'object' ? cell.axisValues[field] : value}`)
-							.join(' and ')} into the form.
+						Puts {cellFormPatchSummary(preview, cell.axisValues).join(' and ')} into the form.
 					</p>
 				{/if}
 			</div>

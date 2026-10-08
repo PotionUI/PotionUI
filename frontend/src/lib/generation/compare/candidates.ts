@@ -7,6 +7,7 @@ import {
 } from '$lib/form/reactions';
 import {
 	PROMPT_AXIS_FIELD,
+	PROMPT_AXIS_LABEL,
 	type AxisCandidate,
 	type AxisEditorKind,
 	type AxisOption
@@ -257,7 +258,7 @@ export function buildAxisCandidates(
 	if (options.includePrompt !== false) {
 		out.push({
 			field: PROMPT_AXIS_FIELD,
-			label: 'Prompt: find and replace',
+			label: PROMPT_AXIS_LABEL,
 			type: 'prompt',
 			group: 'Prompt',
 			editor: 'prompt',

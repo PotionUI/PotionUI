@@ -55,6 +55,15 @@ test.describe('X/Y compare in History', () => {
 		await expect(page.getByTestId('compare-count')).toHaveText('6/6');
 		await expect(page.getByTestId('compare-grid').locator('[data-cell-state="completed"]')).toHaveCount(6);
 		await expect(page.getByRole('button', { name: /Cancel all/ })).toHaveCount(0);
+		const fit = await page.getByTestId('compare-scroller').evaluate((scroller) => {
+			const box = scroller.getBoundingClientRect();
+			const cells = [...scroller.querySelectorAll('[data-testid="compare-cell"]')].map((cell) => cell.getBoundingClientRect());
+			return {
+				scrolls: scroller.scrollHeight > scroller.clientHeight + 1,
+				allInside: cells.every((cell) => cell.top >= box.top && cell.bottom <= box.bottom + 1)
+			};
+		});
+		expect(fit).toEqual({ scrolls: false, allInside: true });
 		await screenshot(page, JOURNEY, 'grid-overview-1440');
 	});
 
@@ -103,6 +112,16 @@ test.describe('X/Y compare in History', () => {
 			const xAfter = await xLabel.boundingBox();
 			expect(Math.abs((yAfter?.x ?? 0) - (yBefore?.x ?? 0))).toBeLessThan(2);
 			expect(Math.abs((xAfter?.y ?? 0) - (xBefore?.y ?? 0))).toBeLessThan(2);
+			const peeking = await scroller.evaluate((el) => {
+				const box = el.getBoundingClientRect();
+				const hits: boolean[] = [];
+				for (let x = box.left + 120; x < box.right - 20; x += 23) {
+					const hit = document.elementFromPoint(x, box.top + 3);
+					hits.push(!!hit?.closest('[data-testid="compare-cell"]'));
+				}
+				return hits.some(Boolean);
+			});
+			expect(peeking).toBe(false);
 			await screenshot(page, JOURNEY, 'mobile-scroller-390');
 
 			await page.getByTestId('compare-cell').nth(1).click();

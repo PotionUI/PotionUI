@@ -47,10 +47,16 @@
 
 	let progress = $derived(gridProgress(grid));
 	let failed = $derived(retryableCount(grid));
-	let sizing = $derived(computeCellSize(contentBox?.width ?? 0, grid.cols));
 	let ordinals = $derived(queueOrdinals(grid));
 	let isVideoGrid = $derived(grid.cells.some((cell) => cell.mediaType === 'video'));
 	let aspect = $derived(isVideoGrid && !aspectLocked ? 16 / 9 : imageAspect);
+	let sizing = $derived(
+		computeCellSize(
+			contentBox?.width ?? 0,
+			grid.cols,
+			overview ? { height: contentBox?.height ?? 0, rows: grid.rows, aspect } : undefined
+		)
+	);
 	let hasPlayable = $derived(
 		isVideoGrid && grid.cells.some((cell) => cell.status === 'completed' && videoUrls[cell.generationId ?? ''])
 	);
@@ -89,6 +95,7 @@
 
 <section
 	class="flex min-h-0 w-full min-w-0 max-w-full flex-col rounded-lg border border-line bg-surface-1"
+	class:h-full={overview}
 	aria-label="Compare grid"
 	data-testid="compare-grid"
 	data-grid-cols={grid.cols}
@@ -147,7 +154,8 @@
 
 	<div
 		bind:contentRect={contentBox}
-		class="max-h-[70vh] min-h-0 min-w-0 max-w-full flex-1 overflow-auto bg-canvas p-3"
+		class="min-h-0 min-w-0 max-w-full flex-1 overflow-auto bg-canvas p-3"
+		class:max-h-[70vh]={!overview}
 		data-testid="compare-scroller"
 		data-scrolls={sizing.scrolls}
 	>
@@ -156,7 +164,7 @@
 			style="grid-template-columns: {gridTemplateColumns(grid.cols, sizing.size)}; gap: {CELL_GAP}px"
 		>
 			<div
-				class="sticky left-0 top-0 z-20 flex flex-col justify-end bg-canvas pb-1 font-mono text-2xs uppercase leading-5 tracking-[0.07em] text-fg-subtle"
+				class="sticky left-0 -top-3 z-20 -mt-3 flex flex-col justify-end bg-canvas pb-1 pt-3 font-mono text-2xs uppercase leading-5 tracking-[0.07em] text-fg-subtle"
 			>
 				<span><span class="text-signal">X</span> {grid.config.x?.label ?? ''}</span>
 				{#if grid.config.y}
@@ -165,7 +173,7 @@
 			</div>
 			{#each { length: grid.cols } as _, x (x)}
 				<div
-					class="sticky top-0 z-10 flex items-end justify-center truncate bg-canvas pb-1 text-center font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted"
+					class="sticky -top-3 z-10 -mt-3 flex items-end justify-center truncate bg-canvas pb-1 pt-3 text-center font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted"
 					data-testid="compare-x-label"
 				>
 					{axisValueLabel(grid.config.x, x)}

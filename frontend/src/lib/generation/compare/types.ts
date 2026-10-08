@@ -79,6 +79,8 @@ export const MAX_AXIS_VALUES = 100;
 
 export const PROMPT_AXIS_FIELD = '__prompt__';
 
+export const PROMPT_AXIS_LABEL = 'Prompt: find and replace';
+
 export type AxisEditorKind =
 	| 'chips'
 	| 'number'

@@ -1,5 +1,7 @@
 import type { ActiveGrid, CompareAxis, GridCell } from '../compareStore.svelte';
-import { PROMPT_AXIS_FIELD } from '../types';
+import type { Tab } from '$lib/types/tabs';
+import { applyPromptReplacement } from '../axisValues';
+import { PROMPT_AXIS_FIELD, PROMPT_AXIS_LABEL } from '../types';
 
 export type MoveDirection = 'left' | 'right' | 'up' | 'down';
 
@@ -120,6 +122,12 @@ export function axisFieldName(field: string): string {
 	return field.replace(/_/g, ' ');
 }
 
+export function axisFieldLabel(field: string): string {
+	if (field === PROMPT_AXIS_FIELD) return PROMPT_AXIS_LABEL;
+	const spaced = axisFieldName(field).trim();
+	return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 export function withAxisParams(
 	params: Record<string, unknown>,
 	tags: Record<string, string>,
@@ -136,8 +144,14 @@ export function cellAxisSummary(axisValues: Record<string, string>): string {
 		.join(', ');
 }
 
+export interface PromptReplacement {
+	find: string;
+	replace: string;
+}
+
 export interface CellFormPatch {
 	patch: Record<string, unknown>;
+	prompt: PromptReplacement | null;
 	skipped: string[];
 }
 
@@ -148,13 +162,19 @@ function axisRawValue(axis: CompareAxis | null, index: number): unknown {
 export function cellFormPatch(grid: Pick<ActiveGrid, 'config'>, cell: Pick<GridCell, 'x' | 'y'>): CellFormPatch {
 	const patch: Record<string, unknown> = {};
 	const skipped: string[] = [];
+	let prompt: PromptReplacement | null = null;
 	const entries: Array<[CompareAxis | null, number]> = [
 		[grid.config.x, cell.x],
 		[grid.config.y, cell.y]
 	];
 	for (const [axis, index] of entries) {
 		if (!axis) continue;
-		if (axis.field === PROMPT_AXIS_FIELD || axis.type === 'lora_picker') {
+		if (axis.field === PROMPT_AXIS_FIELD) {
+			const value = axisRawValue(axis, index) as { find?: string; replace?: string | null } | undefined;
+			if (value?.find && typeof value.replace === 'string') prompt = { find: value.find, replace: value.replace };
+			continue;
+		}
+		if (axis.type === 'lora_picker') {
 			skipped.push(axis.label);
 			continue;
 		}
@@ -162,7 +182,34 @@ export function cellFormPatch(grid: Pick<ActiveGrid, 'config'>, cell: Pick<GridC
 		if (value === undefined) continue;
 		patch[axis.field] = value;
 	}
-	return { patch, skipped };
+	return { patch, prompt, skipped };
+}
+
+export function cellTabUpdates(
+	tab: Pick<Tab, 'formData' | 'prompt' | 'promptSegments'>,
+	result: CellFormPatch
+): Partial<Tab> {
+	const updates: Partial<Tab> = { formData: { ...(tab.formData ?? {}), ...result.patch } };
+	if (result.prompt) {
+		updates.prompt = applyPromptReplacement(tab.prompt ?? '', result.prompt);
+		updates.promptSegments = (tab.promptSegments ?? []).map((segment) =>
+			segment.enabled === false || segment.isDisabled
+				? segment
+				: { ...segment, content: applyPromptReplacement(segment.content, result.prompt) }
+		);
+	}
+	return updates;
+}
+
+export function cellFormPatchSummary(
+	result: CellFormPatch,
+	axisValues: Record<string, string>
+): string[] {
+	const parts = Object.entries(result.patch).map(
+		([field, value]) => `${axisFieldName(field)} = ${typeof value === 'object' ? axisValues[field] : value}`
+	);
+	if (result.prompt) parts.push(`prompt "${result.prompt.find}" replaced with "${result.prompt.replace}"`);
+	return parts;
 }
 
 export interface CellSize {
@@ -175,12 +222,25 @@ export const LABEL_COLUMN = 96;
 export const MIN_CELL = 112;
 export const MAX_CELL = 320;
 
-export function computeCellSize(containerWidth: number, cols: number): CellSize {
+export const HEADER_HEIGHT = 44;
+
+export interface HeightFit {
+	height: number;
+	rows: number;
+	aspect: number;
+}
+
+export function computeCellSize(containerWidth: number, cols: number, heightFit?: HeightFit): CellSize {
 	if (containerWidth <= 0 || cols <= 0) return { size: MIN_CELL, scrolls: false };
 	const available = containerWidth - LABEL_COLUMN - CELL_GAP * cols;
 	const fitted = Math.floor(available / cols);
 	if (fitted < MIN_CELL) return { size: MIN_CELL, scrolls: true };
-	return { size: Math.min(fitted, MAX_CELL), scrolls: false };
+	let size = Math.min(fitted, MAX_CELL);
+	if (heightFit && heightFit.height > 0 && heightFit.rows > 0 && heightFit.aspect > 0) {
+		const rowHeight = (heightFit.height - HEADER_HEIGHT - CELL_GAP * heightFit.rows) / heightFit.rows;
+		size = Math.max(MIN_CELL, Math.min(size, Math.floor(rowHeight * heightFit.aspect)));
+	}
+	return { size, scrolls: false };
 }
 
 export function gridTemplateColumns(cols: number, size: number): string {

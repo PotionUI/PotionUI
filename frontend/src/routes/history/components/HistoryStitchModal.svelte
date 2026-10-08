@@ -539,6 +539,7 @@
 	</svelte:fragment>
 
 	<div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 p-4 sm:p-6 md:grid-cols-[minmax(0,1fr)_260px]">
+		<div class="min-w-0 space-y-2">
 		<div
 			class="relative h-[min(60vh,640px)] min-h-0 w-full min-w-0 rounded-lg border border-line bg-surface-2"
 		>
@@ -578,10 +579,11 @@
 					></canvas>
 				{/if}
 			</div>
-
+		</div>
 			{#if !loading && loaded.length > 0}
 				<div
-					class="absolute right-2 top-2 flex items-center gap-0.5 rounded border border-line bg-surface-1/90 px-1 py-0.5 shadow-raised"
+					data-testid="stitch-zoom-controls"
+					class="ml-auto flex w-fit items-center gap-0.5 rounded border border-line bg-surface-1 px-1 py-0.5"
 				>
 					<IconButton
 						icon="minus"

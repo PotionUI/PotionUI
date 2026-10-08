@@ -10,6 +10,8 @@ import {
 	axisValueLabel,
 	cellAxisSummary,
 	cellFormPatch,
+	cellFormPatchSummary,
+	cellTabUpdates,
 	computeCellSize,
 	cellProgressLabel,
 	createCellTimer,
@@ -96,6 +98,15 @@ describe('2D navigation', () => {
 });
 
 describe('geometry and labels', () => {
+	it('shrinks cells so every row fits the available height and never below the minimum', () => {
+		const wide = computeCellSize(1500, 3).size;
+		expect(wide).toBe(MAX_CELL);
+		const fitted = computeCellSize(1500, 3, { height: 500, rows: 2, aspect: 1 });
+		expect(fitted.size).toBeLessThan(wide);
+		expect(44 + 2 * (fitted.size + CELL_GAP)).toBeLessThanOrEqual(500);
+		expect(computeCellSize(1500, 3, { height: 100, rows: 2, aspect: 1 }).size).toBe(MIN_CELL);
+	});
+
 	it('fills the width with equal cells when the grid fits', () => {
 		const { size, scrolls } = computeCellSize(1200, 4);
 		expect(scrolls).toBe(false);
@@ -234,7 +245,7 @@ describe('cell form patch', () => {
 		expect(cellFormPatch(g, { x: 3, y: 0 }).patch).toEqual({ sampler: 'dpmpp_2m_sde' });
 	});
 
-	it('skips the prompt and lora axes and reports them', () => {
+	it('carries the prompt replacement and skips and reports the lora axis', () => {
 		const prompt: CompareAxis = {
 			field: '__prompt__',
 			type: 'prompt',
@@ -250,7 +261,44 @@ describe('cell form patch', () => {
 		const g = grid([], prompt, lora);
 		const result = cellFormPatch(g, { x: 0, y: 0 });
 		expect(result.patch).toEqual({});
-		expect(result.skipped).toEqual(['Prompt', 'LoRA']);
+		expect(result.prompt).toEqual({ find: 'dusk', replace: 'dawn' });
+		expect(result.skipped).toEqual(['LoRA']);
+	});
+
+	it('lists the prompt replacement and the seed in the summary and writes both into the tab', () => {
+		const prompt: CompareAxis = {
+			field: '__prompt__',
+			type: 'prompt',
+			label: 'Prompt',
+			values: [
+				{ value: { find: 'dusk', replace: null }, label: 'dusk' },
+				{ value: { find: 'dusk', replace: 'dawn' }, label: 'dawn' }
+			]
+		};
+		const seed: CompareAxis = {
+			field: 'seed',
+			type: 'seed',
+			label: 'Seed',
+			values: [{ value: 4211984, label: '4211984' }]
+		};
+		const g = grid([], prompt, seed);
+		const result = cellFormPatch(g, { x: 1, y: 0 });
+		expect(cellFormPatchSummary(result, {})).toEqual(['seed = 4211984', 'prompt "dusk" replaced with "dawn"']);
+		const updates = cellTabUpdates(
+			{
+				formData: { steps: 20 },
+				prompt: 'a lighthouse at dusk',
+				promptSegments: [
+					{ id: 'a', content: 'dusk sky' },
+					{ id: 'b', content: 'dusk mist', enabled: false }
+				]
+			},
+			result
+		);
+		expect(updates.formData).toEqual({ steps: 20, seed: 4211984 });
+		expect(updates.prompt).toBe('a lighthouse at dawn');
+		expect(updates.promptSegments?.map((segment) => segment.content)).toEqual(['dawn sky', 'dusk mist']);
+		expect(cellFormPatch(g, { x: 0, y: 0 }).prompt).toBeNull();
 	});
 });
 

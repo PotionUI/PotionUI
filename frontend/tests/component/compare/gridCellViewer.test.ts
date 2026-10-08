@@ -114,6 +114,57 @@ describe('grid cell viewer', () => {
 		expect(rows[1]).toContain('beta');
 	});
 
+	it('lists the seed once, labelled by the axis, when the seed is an axis', async () => {
+		const seed = { field: 'seed', type: 'seed', label: 'Seed', values: [4211984, 7].map((v) => ({ value: v, label: String(v) })) };
+		const base = makeGrid();
+		const grid = {
+			...base,
+			config: { ...base.config, y: seed },
+			cells: base.cells.map((cell, i) => ({ ...cell, axisValues: { sampler: sampler.values[i % 4].label, seed: '7' } }))
+		};
+		mounted = mountViewer({ grid });
+		await flush();
+		const card = document.body.querySelector('[data-testid="cell-viewer-card"]') as HTMLElement;
+		const labels = [...card.querySelectorAll('span')].map((span) => span.textContent?.trim().toLowerCase());
+		expect(labels.filter((label) => label === 'seed')).toHaveLength(1);
+		expect(card.textContent).not.toMatch(/locked|random/);
+	});
+
+	it('keeps the locked seed row when the seed is not an axis', async () => {
+		mounted = mountViewer({});
+		await flush();
+		const card = document.body.querySelector('[data-testid="cell-viewer-card"]') as HTMLElement;
+		expect(card.textContent?.replace(/\s+/g, ' ')).toContain('4211984 locked');
+	});
+
+	it('says what Use these settings puts in, prompt replacement included', async () => {
+		const prompt = {
+			field: '__prompt__',
+			type: 'prompt',
+			label: 'Prompt: find and replace',
+			values: ['dusk', 'dawn'].map((v) => ({ value: { find: 'dusk', replace: v }, label: v }))
+		};
+		const seed = { field: 'seed', type: 'seed', label: 'Seed', values: [4211984, 7].map((v) => ({ value: v, label: String(v) })) };
+		const base = makeGrid();
+		const grid = {
+			...base,
+			config: { ...base.config, x: prompt, y: seed },
+			cols: 2,
+			rows: 2,
+			cells: base.cells.slice(0, 4).map((cell, i) => ({
+				...cell,
+				x: i % 2,
+				y: Math.floor(i / 2),
+				axisValues: { __prompt__: 'dawn', seed: '7' }
+			}))
+		};
+		mounted = mountViewer({ grid, index: 3 });
+		await flush();
+		const note = document.body.querySelector('[data-testid="use-settings-note"]');
+		expect(note?.textContent?.replace(/\s+/g, ' ')).toContain('seed = 7');
+		expect(note?.textContent).toContain('prompt "dusk" replaced with "dawn"');
+	});
+
 	it('walks the grid in 2D with the arrow keys', async () => {
 		const onIndex = vi.fn();
 		mounted = mountViewer({ onIndex });

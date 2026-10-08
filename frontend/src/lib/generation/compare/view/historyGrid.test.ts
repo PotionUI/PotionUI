@@ -35,6 +35,12 @@ describe('history grid entries', () => {
 		expect(stackInfo(loose)).toBeNull();
 	});
 
+	it('names the prompt axis with its full axis label and capitalises other fields', () => {
+		expect(
+			stackInfo({ ...stack, axis_values: { __prompt__: 'dawn', seed: '42' } })
+		).toEqual({ title: 'Prompt: find and replace × Seed', count: '12 cells' });
+	});
+
 	it('numbers a loose cell row-major when the column count is known', () => {
 		expect(cellChip({ ...loose, grid_cols: 4 })).toBe('cell 7');
 	});

@@ -1773,7 +1773,7 @@
 		}
 
 		const limitGate = $generateGate;
-		const missingModelField = currentTab.selectedPreset
+		const missingModelField = currentTab.selectedPreset && !videoDirectorActive && !musicDirectorActive && !promptRelayActive
 			? missingModelFor(
 					$missingModelByTab,
 					currentTab.id,
@@ -1785,9 +1785,9 @@
 			? undefined
 			: !currentTab.selectedPreset
 				? 'Select a preset to generate'
-				: missingModelField
-					? `Select ${missingModelField.label} to generate`
-					: resourceIssue || (!hasPrompt ? noPromptReason : limitGate?.reason);
+				: resourceIssue ||
+					(!hasPrompt ? noPromptReason : limitGate?.reason) ||
+					(missingModelField ? `Select ${missingModelField.label} to generate` : undefined);
 	}
 
 	// Workbench event handlers

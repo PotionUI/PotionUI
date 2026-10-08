@@ -64,6 +64,16 @@ function saveButton(root: HTMLElement) {
 }
 
 describe('PlanEditor', () => {
+	it('separates used and limit in the in-use readout with spaces on both sides of the slash', () => {
+		const detail = {
+			...DETAIL,
+			in_use: { people: 1, above_warn: 0, at_limit: 0, kinds: [{ kind: 'storage_bytes', used_total: 38 * 1024 ** 2, limit_total: 0.5 * GB }] }
+		};
+		const root = render(PLANS[0], () => {}, { detail, groups: GROUPS, users: USERS });
+		const readout = root.querySelector('[data-plan-in-use] span.font-mono')!;
+		expect(readout.textContent?.replace(/\s+/g, ' ').trim()).toBe('38 MB / 0.5 GB');
+	});
+
 	it('lists only the limits the plan has and offers the rest in the picker, plugin kinds tagged', async () => {
 		const root = render(PLANS[0]);
 		expect(Array.from(root.querySelectorAll('[data-limit-row]')).map((r) => r.getAttribute('data-limit-row'))).toEqual([

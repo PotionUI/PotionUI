@@ -72,4 +72,12 @@ describe('PlansList', () => {
 		await tick();
 		expect(onSettings).toHaveBeenCalledWith({ contact_line: 'Write to ops@example.com.' });
 	});
+
+	it('gives the day timezone field room for long zone names', () => {
+		const { root } = render();
+		const input = root.querySelector('input[aria-label="Day timezone"]') as HTMLInputElement;
+		expect(input.classList.contains('w-28')).toBe(false);
+		expect(input.className).toMatch(/\bw-(5[6-9]|[6-9]\d|\[)/);
+		expect(input.classList.contains('text-xs')).toBe(false);
+	});
 });

@@ -316,7 +316,7 @@
 											<div class="flex justify-between text-sm">
 												<span class="text-fg-muted">{kind.short_label ?? kind.label}</span>
 												<span class="font-mono text-xs tabular-nums text-fg">
-													{formatLimitValue(kind, entry.used_total)}{#if entry.limit_total !== null} / {formatLimitValue(kind, entry.limit_total)}{/if}
+													{formatLimitValue(kind, entry.used_total)}{entry.limit_total !== null ? ` / ${formatLimitValue(kind, entry.limit_total)}` : ''}
 												</span>
 											</div>
 											{#if entry.limit_total !== null}

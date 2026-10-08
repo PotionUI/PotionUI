@@ -86,6 +86,7 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup?.();
 	cleanup = undefined;
+	document.body.querySelectorAll('[data-limit-notice]').forEach((n) => n.remove());
 	resetLimitsState();
 	vi.useRealTimers();
 });
@@ -175,7 +176,7 @@ describe('generate refusal', () => {
 		const target = render(LimitNotice, {});
 		flushSync();
 
-		const notice = target.querySelector('[data-limit-notice]')!;
+		const notice = document.body.querySelector('[data-limit-notice]')!;
 		expect(notice.textContent).toContain('Daily limit reached');
 		expect(notice.textContent).toContain('4 h 12 min');
 		expect(notice.textContent).toContain('See my plan');
@@ -187,8 +188,20 @@ describe('generate refusal', () => {
 		const target = render(LimitNotice, {});
 		flushSync();
 
-		expect(target.textContent).toContain('Storage is full');
-		expect(target.textContent).toContain('Free up space');
+		expect(document.body.textContent).toContain('Storage is full');
+		expect(document.body.textContent).toContain('Free up space');
+	});
+
+	it('mounts on the body in the shared overlay layer with an opaque surface', () => {
+		reportLimitRefusal(refusal);
+		const target = render(LimitNotice, {});
+		flushSync();
+
+		const notice = document.body.querySelector('[data-limit-notice]') as HTMLElement;
+		expect(notice.parentElement).toBe(document.body);
+		expect(target.contains(notice)).toBe(false);
+		expect(Number(notice.style.zIndex)).toBeGreaterThanOrEqual(1000);
+		expect(notice.classList.contains('bg-surface-1')).toBe(true);
 	});
 
 	it('enables generating again when the countdown reaches zero', async () => {

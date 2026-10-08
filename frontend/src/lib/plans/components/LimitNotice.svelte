@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { Alert, Button } from '$lib/components/ui';
+	import portal from '$lib/actions/portal';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import { generateGate, refusalDismissed, serverRefusal } from '../store';
 	import { formatCountdown } from '../countdown';
 
@@ -11,7 +13,9 @@
 
 {#if visible && gate}
 	<div
-		class="fixed right-4 bottom-[calc(var(--dock-height,96px)+12px)] z-overlay w-[min(26rem,calc(100vw-2rem))]"
+		use:portal
+		use:overlayLayer
+		class="fixed right-4 bottom-[calc(var(--dock-height,96px)+12px)] z-overlay w-[min(26rem,calc(100vw-2rem))] rounded-lg bg-surface-1 shadow-floating"
 		data-limit-notice
 	>
 		<Alert variant="danger" icon title={gate.title}>

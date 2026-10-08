@@ -12,6 +12,8 @@ describe('format', () => {
 		expect(formatBytes(20 * GB)).toBe('20 GB');
 		expect(formatBytes(18.6 * GB)).toBe('18.6 GB');
 		expect(formatBytes(2 * 1024 ** 4)).toBe('2 TB');
+		expect(formatBytes(0.25 * GB)).toBe('0.25 GB');
+		expect(formatLimitChip(storage, 0.25 * GB)).toBe('Storage 0.25 GB');
 		expect(formatUsd(50)).toBe('$50');
 		expect(formatLimitValue(storage, null)).toBe('no limit');
 	});

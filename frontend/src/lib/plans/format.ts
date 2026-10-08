@@ -5,12 +5,12 @@ const GB = 1024 ** 3;
 const TB = 1024 ** 4;
 
 export function trimNumber(value: number, digits = 1): string {
-	return Number.isInteger(value) ? String(value) : value.toFixed(digits).replace(/\.0+$/, '');
+	return Number.isInteger(value) ? String(value) : value.toFixed(digits).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 }
 
 export function formatBytes(bytes: number): string {
-	if (bytes >= TB) return `${trimNumber(bytes / TB)} TB`;
-	if (bytes >= GB / 10) return `${trimNumber(bytes / GB)} GB`;
+	if (bytes >= TB) return `${trimNumber(bytes / TB, 2)} TB`;
+	if (bytes >= GB / 10) return `${trimNumber(bytes / GB, 2)} GB`;
 	if (bytes >= MB) return `${trimNumber(bytes / MB)} MB`;
 	return `${Math.round(bytes)} B`;
 }

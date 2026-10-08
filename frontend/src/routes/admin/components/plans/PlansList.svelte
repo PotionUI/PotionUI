@@ -81,7 +81,7 @@
 			<label class="flex items-center gap-2 text-sm text-fg-muted">
 				Day resets at midnight
 				<Input
-					class="w-28 font-mono"
+					class="w-64 text-sm font-mono"
 					type="text"
 					aria-label="Day timezone"
 					bind:value={timezone}

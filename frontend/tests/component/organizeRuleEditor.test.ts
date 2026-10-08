@@ -212,4 +212,30 @@ describe('RuleEditor preview and backfill', () => {
 		expect(api.updateOrganizeRule.mock.calls[0][0]).toBe('r1');
 		expect(api.updateOrganizeRule.mock.calls[0][1].name).toBe('Clips');
 	});
+
+	it('shows the collection a save just created instead of the placeholder', async () => {
+		const created = { id: 'c9', name: 'Potion shop', parent_id: null, item_count: 0 };
+		api.listCollections
+			.mockResolvedValueOnce({ success: true, data: { collections: [], total: 0 } })
+			.mockResolvedValue({ success: true, data: { collections: [created], total: 1 } });
+		api.createOrganizeRule.mockResolvedValue({
+			success: true,
+			data: ruleFixture({
+				actions: [{ action: 'add_to_collection', config: { collection_id: 'c9', collection_name: 'Potion shop', parent_id: null, create_if_missing: true } }]
+			})
+		});
+		render(
+			draftFromParts('generation', {
+				name: 'Shop',
+				conditions: [{ fact: 'media_kind', operator: 'is', value: 'video' }],
+				actions: [{ action: 'add_to_collection', config: { collection_name: 'Potion shop', create_if_missing: true } }]
+			})
+		);
+		await wait(700);
+		button('Create').click();
+		await settle();
+		const row = target.querySelector('[data-testid="action-row"]')!;
+		const select = row.querySelector('input[type="text"]') as HTMLInputElement;
+		expect(select.value).toBe('Potion shop');
+	});
 });

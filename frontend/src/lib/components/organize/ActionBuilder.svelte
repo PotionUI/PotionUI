@@ -8,7 +8,7 @@
 	import { actionIcon } from '$lib/organize/icons';
 	import { collectionOptions, loadCollections, type PlainCollection } from '$lib/organize/collections';
 	import { scopeFromSubject } from '$lib/organize/subjects';
-	import type { OrganizeActionSpec, OrganizeCatalog, OrganizeOption } from '$lib/types/organize';
+	import type { OrganizeActionSpec, OrganizeCatalog, OrganizeCollectionScope, OrganizeOption } from '$lib/types/organize';
 	import TagNamesInput from './TagNamesInput.svelte';
 
 	let {
@@ -25,6 +25,8 @@
 	let collections = $state<PlainCollection[]>([]);
 	let creating = $state<Record<string, boolean>>({});
 	let loadedScope = '';
+	let loaded = $state(false);
+	let unresolved = '';
 
 	const specs = $derived(
 		actionsForSubject(catalog, draft.subject).filter(
@@ -33,17 +35,36 @@
 	);
 	const options = $derived(collectionOptions(collections));
 
+	function reload(scope: OrganizeCollectionScope) {
+		void loadCollections(scope)
+			.then((list) => {
+				collections = list;
+				loaded = true;
+			})
+			.catch(() => {
+				collections = [];
+				loaded = true;
+			});
+	}
+
 	$effect(() => {
 		const scope = scopeFromSubject(draft.subject);
 		if (scope === loadedScope) return;
 		loadedScope = scope;
-		void loadCollections(scope)
-			.then((list) => {
-				collections = list;
-			})
-			.catch(() => {
-				collections = [];
-			});
+		loaded = false;
+		unresolved = '';
+		reload(scope);
+	});
+
+	$effect(() => {
+		if (!loaded) return;
+		const missing = draft.actions
+			.map((a) => a.config.collection_id)
+			.filter((id): id is string => typeof id === 'string' && id !== '' && !collections.some((c) => c.id === id))
+			.join(',');
+		if (!missing || missing === unresolved) return;
+		unresolved = missing;
+		reload(scopeFromSubject(draft.subject));
 	});
 
 	onMount(() => {

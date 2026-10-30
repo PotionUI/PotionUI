@@ -109,11 +109,12 @@ fields:
         formula: "models"
         label: "Spatial Upscaler"
         required: true
+        description: "Used by Standard."
         reactions:
           - when: { field: "upscale_method", not_equals: "latent" }
-            then: { set_visibility: false }
+            then: { set_required: false }
           - when: { field: "upscale_method", equals: "latent" }
-            then: { set_visibility: true }
+            then: { set_required: true }
         configuration:
           model_type: "upscaler"
           placeholder: "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0..."
@@ -130,7 +131,7 @@ fields:
         formula: "models"
         label: "Generative 2x LoRA"
         required: true
-        description: "Needed for Generative 2x."
+        description: "Used by Generative 2x."
         configuration:
           model_type: "lora"
           placeholder: "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors"
@@ -142,16 +143,16 @@ fields:
               description: "LTX-2.5 Pixel-Spatial-Upscaler IC-LoRA, x2. Gated repo: accept the license on Hugging Face and set a token in Admin - Plugins."
         reactions:
           - when: { field: "upscale_method", not_equals: "pixel_spatial" }
-            then: { set_visibility: false }
+            then: { set_required: false }
           - when: { field: "upscale_method", equals: "pixel_spatial" }
-            then: { set_visibility: true }
+            then: { set_required: true }
 
       - name: "refine_details_lora"
         type: "model"
         formula: "models"
         label: "Refine details LoRA"
         required: true
-        description: "Needed for Refine details."
+        description: "Used by Refine details."
         configuration:
           model_type: "lora"
           placeholder: "ltx-2.5-22b-ic-lora-refine-details-1.0.safetensors"
@@ -163,6 +164,6 @@ fields:
               description: "LTX-2.5 Refine-Details IC-LoRA. Gated repo: accept the license on Hugging Face and set a token in Admin - Plugins."
         reactions:
           - when: { field: "upscale_method", not_equals: "refine_details" }
-            then: { set_visibility: false }
+            then: { set_required: false }
           - when: { field: "upscale_method", equals: "refine_details" }
-            then: { set_visibility: true }
+            then: { set_required: true }

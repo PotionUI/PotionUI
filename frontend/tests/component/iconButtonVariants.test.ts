@@ -42,6 +42,7 @@ describe('IconButton', () => {
 		await Promise.resolve();
 		expect(document.body.querySelector('[role="tooltip"]')?.textContent?.trim()).toBe('Close');
 		btn.blur();
+		await Promise.resolve();
 		expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
 	});
 

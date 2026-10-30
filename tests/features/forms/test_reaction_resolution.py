@@ -548,7 +548,7 @@ class TestRealPresetTreeReactionShapes:
     # presentation-only (see TestSetVisibilityBinding); `update_options`/
     # `update_validation`/`set_filter_tags` never set a value either.
     _VALUE_ACTIONS = {"set_value"}
-    _KNOWN_INERT_ACTIONS = {"set_visibility", "set_disabled", "update_options", "update_validation", "set_filter_tags"}
+    _KNOWN_INERT_ACTIONS = {"set_visibility", "set_disabled", "set_required", "update_options", "update_validation", "set_filter_tags"}
 
     def _walk_all_fields(self):
         loader = PresetTemplateLoader([str(PRESETS_ROOT)])

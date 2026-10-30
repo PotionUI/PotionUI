@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { modeLabelIn, setModeLabels } from './modeLabel.svelte';
 import { presetModeOptions } from './presetModeOptions';
 
+const readText = (path: string): string => readFileSync(path, 'utf-8').replace(/\r\n/g, '\n');
 const REPO = join(process.cwd(), '..');
 const PRESETS = join(REPO, 'content', 'presets', 'marketplace');
 const GENERIC = JSON.parse(readFileSync(join(REPO, 'src', 'features', 'presets', 'mode_names.json'), 'utf-8')) as Record<
@@ -12,11 +13,11 @@ const GENERIC = JSON.parse(readFileSync(join(REPO, 'src', 'features', 'presets',
 >;
 
 function modesOf(preset: string): Array<{ name: string; label: string }> {
-	const manifest = readFileSync(join(PRESETS, preset, 'preset.yml'), 'utf-8');
+	const manifest = readText(join(PRESETS, preset, 'preset.yml'));
 	const block = /^modes:\s*\n((?:\s+-\s+.+\n)+)/m.exec(manifest)?.[1] ?? '';
 	const names = [...block.matchAll(/-\s+"?([A-Za-z0-9_-]+)"?/g)].map((match) => match[1]);
 	return names.map((name) => {
-		const form = readFileSync(join(PRESETS, preset, 'modes', name, 'form.yml'), 'utf-8');
+		const form = readText(join(PRESETS, preset, 'modes', name, 'form.yml'));
 		const declared = /^mode_label:\s*"([^"]+)"/m.exec(form)?.[1];
 		return { name, label: declared ?? GENERIC[name]?.label ?? name };
 	});

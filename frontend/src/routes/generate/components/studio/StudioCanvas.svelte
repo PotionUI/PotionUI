@@ -22,7 +22,7 @@
 	import GridWorkbench from '$lib/components/compare/view/GridWorkbench.svelte';
 	import { compareRevision, readWorkbenchGrid } from '$lib/generation/compare/compareStore.svelte';
 	import { createImageHandoff } from '$lib/generation/imageHandoff';
-	import { createPreviewKeeper, createVideoHandoff } from '$lib/generation/videoHandoff';
+	import { createMissingVideoExpiry, createPreviewKeeper, createVideoHandoff, isLiveStatus } from '$lib/generation/videoHandoff';
 
 	export let tab: Tab;
 
@@ -70,11 +70,22 @@
 		currentGeneration?.generation_id ?? currentGeneration?.id,
 		currentGeneration?.current_image
 	);
+	let holdExpired = false;
+	const expireMissingVideo = createMissingVideoExpiry((expired) => (holdExpired = expired));
+	$: expireMissingVideo(
+		currentGeneration?.status === 'completed' && !isGenerating && !displayVideo,
+		currentGeneration?.generation_id ?? currentGeneration?.id
+	);
 	const videoHandoff = createVideoHandoff((pending) => (videoPending = pending));
-	$: videoHandoff.want(displayFileType === 'video' ? displayVideo : null, !!heldPreview);
+	$: videoHandoff.want(
+		displayFileType === 'video' ? displayVideo : null,
+		!!heldPreview,
+		currentGeneration?.generation_id ?? currentGeneration?.id
+	);
 	$: videoGeneration = isVideoFileType(currentGeneration?.file_type) || displayFileType === 'video';
 	$: videoReady = displayFileType === 'video' && !!displayVideo && !videoPending;
-	$: holdingPreview = !!heldPreview && videoGeneration && !videoReady;
+	$: previewLive = isLiveStatus(currentGeneration?.status) || isGenerating;
+	$: holdingPreview = !!heldPreview && videoGeneration && previewLive && !videoReady && !holdExpired;
 	$: displayVideo =
 		isGalleryMode && isVideoFileType(displayFileType)
 			? galleryItemUrl(currentGalleryItem)

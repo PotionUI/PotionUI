@@ -1,4 +1,11 @@
 export const VIDEO_HANDOFF_TIMEOUT_MS = 8000;
+export const VIDEO_MISSING_GRACE_MS = 4000;
+
+const LIVE_STATUSES = new Set(['pending', 'queued', 'running', 'processing', 'completed']);
+
+export function isLiveStatus(status: string | null | undefined): boolean {
+	return !!status && LIVE_STATUSES.has(status);
+}
 
 export function createPreviewKeeper() {
 	let generationId: string | null | undefined;
@@ -13,6 +20,34 @@ export function createPreviewKeeper() {
 	};
 }
 
+export function createMissingVideoExpiry(setExpired: (expired: boolean) => void, graceMs: number = VIDEO_MISSING_GRACE_MS) {
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	let key: string | null | undefined;
+
+	function clear() {
+		if (timer !== null) clearTimeout(timer);
+		timer = null;
+	}
+
+	return (waiting: boolean, generationId: string | null | undefined): void => {
+		if (generationId !== key) {
+			key = generationId;
+			clear();
+			setExpired(false);
+		}
+		if (!waiting) {
+			clear();
+			setExpired(false);
+			return;
+		}
+		if (timer !== null) return;
+		timer = setTimeout(() => {
+			timer = null;
+			setExpired(true);
+		}, graceMs);
+	};
+}
+
 export function createVideoHandoff(
 	setPending: (pending: boolean) => void,
 	timeoutMs: number = VIDEO_HANDOFF_TIMEOUT_MS
@@ -20,6 +55,7 @@ export function createVideoHandoff(
 	let settled: string | null | undefined;
 	let waiting: string | null = null;
 	let timer: ReturnType<typeof setTimeout> | null = null;
+	let key: string | null | undefined;
 
 	function clearTimer() {
 		if (timer !== null) clearTimeout(timer);
@@ -33,7 +69,14 @@ export function createVideoHandoff(
 		setPending(false);
 	}
 
-	function want(wanted: string | null | undefined, previewHeld: boolean) {
+	function want(wanted: string | null | undefined, previewHeld: boolean, generationId?: string | null) {
+		if (generationId !== key) {
+			key = generationId;
+			settled = null;
+			waiting = null;
+			clearTimer();
+			setPending(false);
+		}
 		if (!wanted) {
 			clearTimer();
 			waiting = null;
@@ -43,7 +86,7 @@ export function createVideoHandoff(
 		if (wanted === settled || wanted === waiting) return;
 		clearTimer();
 		waiting = null;
-		if (!previewHeld) {
+		if (!previewHeld || settled) {
 			settled = wanted;
 			setPending(false);
 			return;

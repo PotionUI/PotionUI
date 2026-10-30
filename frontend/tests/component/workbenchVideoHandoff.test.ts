@@ -133,4 +133,71 @@ describe('Workbench video result landing', () => {
 
 		expect(hold()).toBeNull();
 	});
+
+	it('clears the hold when the generation fails', async () => {
+		mountGenerating();
+		await settle(10);
+		expect(hold()).not.toBeNull();
+
+		component!.$set({
+			currentGeneration: { ...generating, status: 'failed' },
+			isGenerating: false
+		});
+		await settle(10);
+
+		expect(hold()).toBeNull();
+	});
+
+	it('clears the hold when the generation is cancelled', async () => {
+		mountGenerating();
+		await settle(10);
+
+		component!.$set({ currentGeneration: null, isGenerating: false });
+		await settle(10);
+
+		expect(hold()).toBeNull();
+	});
+
+	it('clears the hold when a new generation starts', async () => {
+		mountGenerating();
+		await settle(10);
+
+		component!.$set({
+			currentGeneration: { id: 'gen-2', generation_id: 'gen-2', status: 'pending', file_type: 'video' },
+			isGenerating: true
+		});
+		await settle(10);
+
+		expect(hold()).toBeNull();
+	});
+
+	it('clears the hold when another generation is shown', async () => {
+		mountGenerating();
+		await settle(10);
+
+		component!.$set({
+			currentGeneration: { id: 'gen-9', generation_id: 'gen-9', status: 'completed', file_type: 'image', current_image: null },
+			isGenerating: false
+		});
+		await settle(10);
+
+		expect(hold()).toBeNull();
+	});
+
+	it('clears the hold when the generation completes without ever producing a video', async () => {
+		vi.useFakeTimers();
+		try {
+			mountGenerating();
+			await vi.advanceTimersByTimeAsync(20);
+			component!.$set({ currentGeneration: { ...completed, current_image: PREVIEW }, isGenerating: false });
+			await vi.advanceTimersByTimeAsync(20);
+			expect(hold()).not.toBeNull();
+
+			await vi.advanceTimersByTimeAsync(4000);
+
+			expect(hold()).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });

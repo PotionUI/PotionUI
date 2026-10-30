@@ -85,4 +85,37 @@ describe('studio canvas video result landing', () => {
 		expect(target.querySelector('[data-preview-hold]')).toBeNull();
 		expect(target.querySelector('video')).toBe(player);
 	});
+
+	function mountGenerating() {
+		target = document.createElement('div');
+		document.body.appendChild(target);
+		component = createClassComponent({
+			component: StudioCanvas as never,
+			target,
+			props: {
+				tab: tabWith(
+					generation({
+						isGenerating: true,
+						currentGeneration: { id: 'gen-1', generation_id: 'gen-1', status: 'running', file_type: 'video', current_image: PREVIEW } as never
+					})
+				)
+			}
+		}) as unknown as typeof component;
+		flushSync();
+		return target;
+	}
+
+	it.each([
+		['fails', { isGenerating: false, currentGeneration: { id: 'gen-1', generation_id: 'gen-1', status: 'failed', file_type: 'video', current_image: PREVIEW } }],
+		['is cancelled', { isGenerating: false, currentGeneration: null }],
+		['is replaced by a new generation', { isGenerating: true, currentGeneration: { id: 'gen-2', generation_id: 'gen-2', status: 'pending', file_type: 'video' } }]
+	])('clears the hold when the generation %s', (_name, patch) => {
+		const root = mountGenerating();
+		expect(root.querySelector('[data-preview-hold]')).not.toBeNull();
+
+		component!.$set({ tab: tabWith(generation(patch as never)) });
+		flushSync();
+
+		expect(root.querySelector('[data-preview-hold]')).toBeNull();
+	});
 });

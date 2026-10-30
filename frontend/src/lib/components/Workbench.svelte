@@ -26,7 +26,12 @@
 	import { fade } from 'svelte/transition';
 	import GalleryStrip from '$lib/components/workbench/GalleryStrip.svelte';
 	import { createImageHandoff, preloadImage } from '$lib/generation/imageHandoff';
-	import { createPreviewKeeper, createVideoHandoff } from '$lib/generation/videoHandoff';
+	import {
+		createMissingVideoExpiry,
+		createPreviewKeeper,
+		createVideoHandoff,
+		isLiveStatus
+	} from '$lib/generation/videoHandoff';
 	import { batchCaption } from '$lib/components/workbench/promptGroups';
 	import WorkbenchParametersModal from '$lib/components/workbench/WorkbenchParametersModal.svelte';
 	import WorkbenchProfileModal from '$lib/components/workbench/WorkbenchProfileModal.svelte';
@@ -211,6 +216,12 @@
 		currentGeneration?.generation_id ?? currentGeneration?.id,
 		currentGeneration?.current_image
 	);
+	let holdExpired = false;
+	const expireMissingVideo = createMissingVideoExpiry((expired) => (holdExpired = expired));
+	$: expireMissingVideo(
+		currentGeneration?.status === 'completed' && !isGenerating && !displayVideo,
+		currentGeneration?.generation_id ?? currentGeneration?.id
+	);
 	const videoHandoff = createVideoHandoff((pending) => (videoPending = pending));
 	function handlePlayerFrame(event: Event) {
 		const player = event.target as HTMLVideoElement;
@@ -221,7 +232,11 @@
 			videoHandoff.ready();
 		}
 	}
-	$: videoHandoff.want(displayFileType === 'video' ? displayVideo : null, !!heldPreview);
+	$: videoHandoff.want(
+		displayFileType === 'video' ? displayVideo : null,
+		!!heldPreview,
+		currentGeneration?.generation_id ?? currentGeneration?.id
+	);
 	$: stageKey = displayFileType === 'video' && displayVideo ? displayVideo : displayImage || displayVideo || displayAudio || displayMesh;
 
 	let displayImage: string | null | undefined;
@@ -261,7 +276,8 @@
 	$: ambientBlocked = previewSuppressed || isNsfwFile(((isGalleryMode ? currentGalleryItem : currentGeneration) ?? {}) as ContentFlagged);
 	$: videoGeneration = isVideoFileType(currentGeneration?.file_type) || displayFileType === 'video';
 	$: videoReady = displayFileType === 'video' && !!displayVideo && !videoPending;
-	$: holdingPreview = !!heldPreview && videoGeneration && !videoReady;
+	$: previewLive = isLiveStatus(currentGeneration?.status) || isGenerating;
+	$: holdingPreview = !!heldPreview && videoGeneration && previewLive && !videoReady && !holdExpired;
 	$: ambientKind = !holdingPreview && displayFileType === 'video' && displayVideo ? ('video' as const) : ('image' as const);
 	$: ambientSrc = holdingPreview
 		? heldPreview

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createPreviewKeeper, createVideoHandoff } from './videoHandoff';
+import { createMissingVideoExpiry, createPreviewKeeper, createVideoHandoff, isLiveStatus } from './videoHandoff';
 
 const PREVIEW = 'data:image/png;base64,last-preview';
 const FINAL = '/api/media/generations/gen-1/0.mp4';
@@ -84,5 +84,58 @@ describe('createPreviewKeeper', () => {
 		keep('gen-1', PREVIEW);
 
 		expect(keep('gen-2', null)).toBeNull();
+	});
+});
+
+describe('video handoff across generations', () => {
+	it('holds only the first video of a generation, not another video shown later', () => {
+		const states: boolean[] = [];
+		const handoff = createVideoHandoff((value) => states.push(value), 1000);
+		handoff.want(FINAL, true, 'gen-1');
+		handoff.ready();
+		handoff.want('/api/media/generations/gen-1/1.mp4', true, 'gen-1');
+
+		expect(states).toEqual([false, true, false, false]);
+	});
+
+	it('drops a pending hold when another generation is shown', () => {
+		const states: boolean[] = [];
+		const handoff = createVideoHandoff((value) => states.push(value), 1000);
+		handoff.want(FINAL, true, 'gen-1');
+		handoff.want(null, false, 'gen-2');
+
+		expect(states).toEqual([false, true, false, false]);
+		expect(states.at(-1)).toBe(false);
+	});
+});
+
+describe('createMissingVideoExpiry', () => {
+	it('expires the hold when a video never turns up, and re-arms for the next generation', () => {
+		const states: boolean[] = [];
+		const track = createMissingVideoExpiry((value) => states.push(value), 1000);
+		track(true, 'gen-1');
+		vi.advanceTimersByTime(1000);
+		expect(states.at(-1)).toBe(true);
+
+		track(true, 'gen-2');
+		expect(states.at(-1)).toBe(false);
+	});
+
+	it('never expires when the video shows up in time', () => {
+		const states: boolean[] = [];
+		const track = createMissingVideoExpiry((value) => states.push(value), 1000);
+		track(true, 'gen-1');
+		vi.advanceTimersByTime(500);
+		track(false, 'gen-1');
+		vi.advanceTimersByTime(5000);
+
+		expect(states.every((value) => value === false)).toBe(true);
+	});
+});
+
+describe('isLiveStatus', () => {
+	it('treats running, pending and completed as live and failures as not', () => {
+		for (const status of ['pending', 'running', 'completed']) expect(isLiveStatus(status)).toBe(true);
+		for (const status of ['failed', 'cancelled', 'error', undefined, null]) expect(isLiveStatus(status)).toBe(false);
 	});
 });

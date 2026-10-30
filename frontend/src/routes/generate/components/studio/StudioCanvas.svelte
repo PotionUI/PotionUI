@@ -21,8 +21,6 @@
 	import LiveModelFileArtifacts from '$lib/components/generation/LiveModelFileArtifacts.svelte';
 	import GridWorkbench from '$lib/components/compare/view/GridWorkbench.svelte';
 	import { compareRevision, readWorkbenchGrid } from '$lib/generation/compare/compareStore.svelte';
-	import { createImageHandoff } from '$lib/generation/imageHandoff';
-	import { createMissingVideoExpiry, createPreviewKeeper, createVideoHandoff, isLiveStatus } from '$lib/generation/videoHandoff';
 
 	export let tab: Tab;
 
@@ -58,34 +56,8 @@
 		? entryFileType(currentGalleryEntry)
 		: normalizeFileType(currentGeneration?.file_type);
 
-	let shownImage: string | null | undefined;
-	const handoffImage = createImageHandoff((url) => (shownImage = url));
-	$: handoffImage(
-		isGalleryMode && currentGalleryItem ? galleryItemUrl(currentGalleryItem) : currentGeneration?.current_image
-	);
-	$: displayImage = shownImage;
-	let videoPending = false;
-	const keepPreview = createPreviewKeeper();
-	$: heldPreview = keepPreview(
-		currentGeneration?.generation_id ?? currentGeneration?.id,
-		currentGeneration?.current_image
-	);
-	let holdExpired = false;
-	const expireMissingVideo = createMissingVideoExpiry((expired) => (holdExpired = expired));
-	$: expireMissingVideo(
-		currentGeneration?.status === 'completed' && !isGenerating && !displayVideo,
-		currentGeneration?.generation_id ?? currentGeneration?.id
-	);
-	const videoHandoff = createVideoHandoff((pending) => (videoPending = pending));
-	$: videoHandoff.want(
-		displayFileType === 'video' && !isGenerating ? displayVideo : null,
-		!!heldPreview,
-		currentGeneration?.generation_id ?? currentGeneration?.id
-	);
-	$: videoGeneration = isVideoFileType(currentGeneration?.file_type) || displayFileType === 'video';
-	$: videoReady = displayFileType === 'video' && !!displayVideo && !videoPending;
-	$: previewLive = isLiveStatus(currentGeneration?.status) || isGenerating;
-	$: holdingPreview = !!heldPreview && videoGeneration && previewLive && !videoReady && !holdExpired;
+	$: displayImage =
+		isGalleryMode && currentGalleryItem ? galleryItemUrl(currentGalleryItem) : currentGeneration?.current_image;
 	$: displayVideo =
 		isGalleryMode && isVideoFileType(displayFileType)
 			? galleryItemUrl(currentGalleryItem)
@@ -166,15 +138,7 @@
 				<svelte:component this={resolvedFallbackRenderer} file={currentGalleryItem ?? currentGeneration} />
 			{:else if displayFileType === 'video' && displayVideo}
 				<!-- svelte-ignore a11y-media-has-caption -->
-				<video
-					src={displayVideo}
-					controls
-					playsinline
-					preload="auto"
-					class="h-full w-full object-contain"
-					on:loadeddata={videoHandoff.ready}
-					on:error={videoHandoff.ready}
-				></video>
+				<video src={displayVideo} controls playsinline class="h-full w-full object-contain"></video>
 			{:else if displayImage}
 				<img src={displayImage} alt="Generation result" class="h-full w-full object-contain" />
 			{/if}
@@ -220,15 +184,6 @@
 				{/if}
 			</div>
 		</div>
-	{/if}
-
-	{#if holdingPreview && heldPreview && !compareGrid}
-		<img
-			src={heldPreview}
-			alt="Generation preview"
-			class="pointer-events-none absolute inset-0 z-10 h-full w-full object-contain"
-			data-preview-hold
-		/>
 	{/if}
 
 	{#if hasModelFiles}

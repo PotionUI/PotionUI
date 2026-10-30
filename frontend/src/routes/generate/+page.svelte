@@ -126,7 +126,7 @@
 	import { recipeCatalog, loadRecipeCatalog } from '$lib/stores/recipeCatalog';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import { EmptyState, Button } from '$lib/components/ui';
-	import { modeLabel } from '$lib/utils/modeLabel.svelte';
+	import { modeLabelIn } from '$lib/utils/modeLabel.svelte';
 
 	let ws: WebSocketService | null = null;
 	let showDisconnected = false;
@@ -680,7 +680,7 @@
 			}
 		: null;
 	$: panelModeLabel = currentTab.selectedMode
-		? modeLabel(currentTab.selectedMode, (modesPerTab[currentTab.id] || []).find((mode: any) => mode.id === currentTab.selectedMode)?.label)
+		? modeLabelIn(modesPerTab[currentTab.id] || [], currentTab.selectedMode)
 		: '';
 	$: generation = currentTab.generation;
 	$: isGenerating = generation.isGenerating;

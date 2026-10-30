@@ -41,3 +41,11 @@ export function modeLabel(key: string | null | undefined, served?: string | null
 	if (!key) return '';
 	return labels[key.toLowerCase()] ?? (fallbackModeLabel(key) || key);
 }
+
+export function modeLabelIn(
+	modes: ReadonlyArray<{ name?: string; id?: string; label?: string | null }>,
+	key: string | null | undefined
+): string {
+	if (!key) return '';
+	return modeLabel(key, modes.find((mode) => (mode.name ?? mode.id) === key)?.label);
+}

@@ -65,8 +65,11 @@ test('a fresh instance runs Guided setup from the real wizard', async ({ page })
 		await screenshot(page, JOURNEY, '05-starter');
 
 		await page.getByRole('radio', { name: new RegExp(RECIPE_NAME) }).click();
-		await page.getByRole('button', { name: /^Review( .+)? download$/ }).click();
-		await expect(page.getByRole('heading', { name: 'Review the download' })).toBeVisible({ timeout: 60000 });
+		const review = page.getByRole('button', { name: /^Review( .+)? download$/ });
+		await expect(async () => {
+			if ((await review.count()) > 0 && (await review.isEnabled())) await review.click();
+			await expect(page.getByRole('heading', { name: 'Review the download' })).toBeVisible({ timeout: 8000 });
+		}).toPass({ timeout: 60000, intervals: [500] });
 		await expect(page.getByText("Couldn't finish")).toHaveCount(0);
 		await expect(page.getByText(/needs to download the following/)).toBeVisible({ timeout: 60000 });
 		await expect(page.getByText(/Downloads come from Hugging Face \(huggingface\.co\)/)).toBeVisible();

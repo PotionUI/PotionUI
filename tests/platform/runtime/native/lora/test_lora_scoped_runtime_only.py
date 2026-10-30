@@ -132,3 +132,26 @@ def test_a_standard_layer_returns_to_its_plain_forward_when_the_scope_exits():
     assert during > 0
     assert cast.call_count == during
     assert qkv.comfy_cast_weights is False
+
+
+def test_a_scoped_lora_that_matches_keys_logs_the_match_count_at_info(caplog):
+    m = _build()
+    with caplog.at_level("INFO", logger="src.platform.runtime.native.lora.apply"):
+        with temporarily_applied_loras(m, [(_kohya_lora(), 1.0)], runtime_only=True):
+            pass
+    records = [r for r in caplog.records if "scoped" in r.getMessage()]
+    assert len(records) == 1
+    assert records[0].levelname == "INFO"
+    assert "matched 1 weights" in records[0].getMessage()
+
+
+def test_a_scoped_lora_that_matches_nothing_warns(caplog):
+    m = _build()
+    dead = _kohya_lora(stem="lora_unet_nothing_here_0_attn")
+    with caplog.at_level("INFO", logger="src.platform.runtime.native.lora.apply"):
+        with temporarily_applied_loras(m, [(dead, 1.0)], runtime_only=True):
+            pass
+    records = [r for r in caplog.records if "scoped" in r.getMessage()]
+    assert len(records) == 1
+    assert records[0].levelname == "WARNING"
+    assert "matched 0 weights" in records[0].getMessage()

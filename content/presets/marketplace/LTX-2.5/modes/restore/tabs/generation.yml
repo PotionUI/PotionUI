@@ -110,7 +110,7 @@ fields:
         formula: "models"
         label: "Restore LoRA"
         required: true
-        description: "Needed for this fix."
+        description: "Used by Restore old footage."
         configuration:
           model_type: "lora"
           placeholder: "ltx-2.5-22b-ic-lora-restore-1.0.safetensors"
@@ -122,16 +122,16 @@ fields:
               description: "LTX-2.5 Restore IC-LoRA. Gated repo: accept the license on Hugging Face and set a token in Admin - Plugins."
         reactions:
           - when: { field: "restore_task", not_equals: "restore" }
-            then: { set_visibility: false }
+            then: { set_required: false }
           - when: { field: "restore_task", equals: "restore" }
-            then: { set_visibility: true }
+            then: { set_required: true }
 
       - name: "deblur_lora"
         type: "model"
         formula: "models"
         label: "Remove blur LoRA"
         required: true
-        description: "Needed for this fix."
+        description: "Used by Remove blur."
         configuration:
           model_type: "lora"
           placeholder: "ltx-2.5-22b-ic-lora-deblur-0.9.safetensors"
@@ -143,16 +143,16 @@ fields:
               description: "LTX-2.5 Deblur IC-LoRA. Gated repo: accept the license on Hugging Face and set a token in Admin - Plugins."
         reactions:
           - when: { field: "restore_task", not_equals: "deblur" }
-            then: { set_visibility: false }
+            then: { set_required: false }
           - when: { field: "restore_task", equals: "deblur" }
-            then: { set_visibility: true }
+            then: { set_required: true }
 
       - name: "decompress_lora"
         type: "model"
         formula: "models"
         label: "Remove compression LoRA"
         required: true
-        description: "Needed for this fix."
+        description: "Used by Remove compression."
         configuration:
           model_type: "lora"
           placeholder: "ltx-2.5-22b-ic-lora-decompression-0.9.safetensors"
@@ -164,6 +164,6 @@ fields:
               description: "LTX-2.5 Decompression IC-LoRA. Gated repo: accept the license on Hugging Face and set a token in Admin - Plugins."
         reactions:
           - when: { field: "restore_task", not_equals: "decompress" }
-            then: { set_visibility: false }
+            then: { set_required: false }
           - when: { field: "restore_task", equals: "decompress" }
-            then: { set_visibility: true }
+            then: { set_required: true }

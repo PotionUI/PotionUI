@@ -211,6 +211,30 @@ describe('applyAction', () => {
 		expect(result.disabled).toBe(true);
 	});
 
+	it('applies set_required over the static required flag', () => {
+		expect(applyAction({ ...baseField, required: true }, { set_required: false }).required).toBe(false);
+		expect(applyAction({ ...baseField, required: false }, { set_required: true }).required).toBe(true);
+	});
+
+	it('leaves required alone when the action carries a null set_required', () => {
+		const result = applyAction({ ...baseField, required: true }, { set_required: null as any });
+		expect(result.required).toBe(true);
+	});
+
+	it('a task-scoped reaction pair makes only the selected task required', () => {
+		const field: FieldConfig = {
+			type: 'model',
+			name: 'deblur_lora',
+			required: true,
+			reactions: [
+				{ when: { field: 'task', not_equals: 'deblur' }, then: { set_required: false } },
+				{ when: { field: 'task', equals: 'deblur' }, then: { set_required: true } }
+			]
+		};
+		expect(processFieldReactions(field, { task: 'restore' }).required).toBe(false);
+		expect(processFieldReactions(field, { task: 'deblur' }).required).toBe(true);
+	});
+
 	it('applies update_options', () => {
 		const action: Action = { update_options: [{ label: 'A', value: 'a' }] };
 		const result = applyAction({ ...baseField, configuration: { existing: true } }, action);

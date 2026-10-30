@@ -77,7 +77,7 @@ SHORT_DESCRIPTION_MAX = 100
 # treats them as known.
 _INJECTED_FORM_KEYS = frozenset({"video_director", "music_director", "timeline", "llm", "prompt_timeline"})
 _PROMPT_RESOURCE_FIELD_TYPES = frozenset({"image", "video", "audio", "media"})
-_FORMULA_EXEMPT_ACTIONS = frozenset({"set_visibility", "set_filter_tags"})
+_FORMULA_EXEMPT_ACTIONS = frozenset({"set_visibility", "set_required", "set_filter_tags"})
 
 # `{{ loop.index }}` / `{{ loop.index0 }}` inside a form `@loop` template's
 # field names, expanded statically (1..count / 0..count-1) so the generated

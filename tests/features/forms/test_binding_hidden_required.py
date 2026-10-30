@@ -150,3 +150,69 @@ def test_logical_group_hides_a_section_only_when_every_condition_holds():
 
     assert _bind(preset, {"skip": True, "kind": "edge"}).values["model"] is None
     assert "model" in _field_errors(preset, {"skip": True, "kind": "none"})
+
+
+def _task_field():
+    return FieldTemplate(type="string", name="task", default="a")
+
+
+def _lora_field(task):
+    return FieldTemplate(
+        type="model",
+        name=f"{task}_lora",
+        required=True,
+        reactions=[
+            {"when": {"field": "task", "operator": "not_equals", "value": task}, "then": {"set_required": False}},
+            {"when": {"field": "task", "operator": "equals", "value": task}, "then": {"set_required": True}},
+        ],
+    )
+
+
+def _task_preset():
+    return _preset([_task_field(), _lora_field("a"), _lora_field("b")])
+
+
+def test_set_required_false_waives_a_statically_required_field():
+    bound = _bind(_task_preset(), {"task": "a", "a_lora": "x.safetensors", "b_lora": ""})
+
+    assert bound.values["b_lora"] == ""
+
+
+def test_set_required_true_requires_the_selected_tasks_field_and_names_it():
+    errors = _field_errors(_task_preset(), {"task": "b", "a_lora": "x.safetensors", "b_lora": ""})
+
+    assert list(errors) == ["b_lora"]
+
+
+def test_set_required_true_makes_an_optional_field_required():
+    optional = FieldTemplate(
+        type="model",
+        name="opt",
+        reactions=[{"when": {"field": "task", "operator": "equals", "value": "a"}, "then": {"set_required": True}}],
+    )
+    preset = _preset([_task_field(), optional])
+
+    assert "opt" in _field_errors(preset, {"task": "a", "opt": ""})
+    assert _bind(preset, {"task": "b", "opt": ""}).values["opt"] == ""
+
+
+def test_a_hidden_field_stays_waived_even_when_set_required_is_true():
+    field = FieldTemplate(
+        type="model",
+        name="opt",
+        reactions=[
+            {"when": {"field": "task", "operator": "equals", "value": "a"}, "then": {"set_required": True}},
+            {"when": {"field": "task", "operator": "equals", "value": "a"}, "then": {"set_visibility": False}},
+        ],
+    )
+    preset = _preset([_task_field(), field])
+
+    assert _bind(preset, {"task": "a", "opt": ""}).values["opt"] == ""
+
+
+def test_the_reaction_schema_accepts_set_required():
+    from src.features.presets.schema import ReactionSpec
+
+    spec = ReactionSpec.model_validate({"when": {"field": "a", "equals": 1}, "then": {"set_required": True}})
+
+    assert spec.then.set_required is True

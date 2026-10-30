@@ -304,7 +304,10 @@ def bind_form(
         value = _coerce_leniently(value, spec, name, coercions)
         hidden = name in hidden_fields
         validation = _reaction_validation(spec, values, preset_id=preset_id, mode=mode, field_name=name)
-        _validate_field(name, value, spec, errors, field_errors, validation, hidden=hidden)
+        required_override = _required_by_reactions(spec, values, preset_id=preset_id, mode=mode, field_name=name)
+        _validate_field(
+            name, value, spec, errors, field_errors, validation, hidden=hidden, required_override=required_override
+        )
         if (
             not hidden
             and validation.get("mask_required")
@@ -808,7 +811,9 @@ def _apply_reactions(
     `processSchemaWithReactions`, re-run to a fixed point every time
     `formData` changes - see the reactive block in DynamicForm.svelte).
 
-    Only `set_value` affects binding. `set_visibility`/`set_disabled` are
+    Only `set_value` affects binding. `set_required` is read separately by
+    `_required_by_reactions` at validation time, so it needs no handling here
+    either. `set_visibility`/`set_disabled` are
     recognized action keys but are genuine no-ops here, not an unhandled
     gap: the frontend's own `flattenFormData`/`getFormData` submit every
     field's current value regardless of visibility or disabled state (see
@@ -1015,6 +1020,7 @@ def _validate_field(
     validation: Optional[Dict[str, Any]] = None,
     *,
     hidden: bool = False,
+    required_override: Optional[bool] = None,
 ) -> None:
     def _fail(message: str) -> None:
         errors.append(f"{name}: {message}")
@@ -1024,7 +1030,8 @@ def _validate_field(
         return  # resolved later, per-backend; not this boundary's concern
 
     validation = validation or {}
-    required = not hidden and (field.required or validation.get("required") is True)
+    declared_required = field.required if required_override is None else required_override
+    required = not hidden and (declared_required or validation.get("required") is True)
     missing = validation.get("message") or "required field is missing"
 
     if field.type == "tags":
@@ -1079,6 +1086,21 @@ def _reaction_validation(
         ):
             merged.update(update)
     return merged
+
+
+def _required_by_reactions(
+    field: FieldTemplate, values: Dict[str, Any], *, preset_id: str, mode: str, field_name: str
+) -> Optional[bool]:
+    override: Optional[bool] = None
+    for reaction in field.reactions or []:
+        if not isinstance(reaction, dict):
+            continue
+        then = reaction.get("then") or {}
+        if then.get("set_required") is None:
+            continue
+        if _reaction_matches(reaction.get("when"), values, preset_id=preset_id, mode=mode, field_name=field_name):
+            override = then["set_required"] is True
+    return override
 
 
 def _hidden_by_reactions(

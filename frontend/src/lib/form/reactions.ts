@@ -61,6 +61,7 @@ export interface Action {
 	update_validation?: Record<string, any>;
 	set_value?: any;
 	set_disabled?: boolean;
+	set_required?: boolean;
 	set_filter_tags?: string[] | null;
 }
 
@@ -340,6 +341,10 @@ export function applyAction(
 
 	if (action.set_disabled != null) {
 		updatedConfig.disabled = action.set_disabled;
+	}
+
+	if (action.set_required != null) {
+		updatedConfig.required = action.set_required;
 	}
 
 	if (action.set_filter_tags != null) {

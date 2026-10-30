@@ -131,6 +131,7 @@ class ActionSpec(BaseModel):
     set_visibility: Optional[bool] = None
     set_value: Any = None
     set_disabled: Optional[bool] = None
+    set_required: Optional[bool] = None
     update_options: Optional[List[Dict[str, Any]]] = None
     update_validation: Optional[Dict[str, Any]] = None
     # A `model`/`lora_picker` field's `filter_tags`, resolved the same way as the

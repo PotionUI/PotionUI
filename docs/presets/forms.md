@@ -792,7 +792,7 @@ reactions:
 - a logical group — `{ logic: "AND" | "OR", conditions: [ ... ] }`.
 
 **`then`** (an `Action`) sets at least one of: `set_visibility` (bool), `set_value` (any),
-`set_disabled` (bool), `update_options` (`[{label, value}]`), `update_validation` (object),
+`set_disabled` (bool), `set_required` (bool), `update_options` (`[{label, value}]`), `update_validation` (object),
 `set_filter_tags` (a `model`/`lora_picker` field's `filter_tags` — see below).
 
 `set_filter_tags` is the one action resolved server-side rather than applied verbatim: like a
@@ -809,6 +809,13 @@ field's error) while the reaction's condition holds: `required: true` makes the 
 `mask_required: true` on an `allow_inpaint` image field requires its painted `<name>_inpaint_mask`.
 An optional `message` replaces the default error text. Both are checked by `bind_form`; the rest of
 the object only reaches the frontend.
+
+`set_required: true|false` overrides the field's static `required:` while its condition holds, in the
+form and in `bind_form` alike; the last matching reaction wins, and with none matching the static
+value stands. A hidden field is never required, whatever `set_required` says. Use it to keep a
+task-specific field visible but required only for the task that uses it, e.g. one
+`{ when: { field: task, equals: deblur }, then: { set_required: true } }` and a `not_equals` partner
+with `set_required: false`.
 
 **A hidden field is never required.** A field the form hides - by its own static `visible: false`, by
 its own `set_visibility: false` reaction, or because a container it sits in (a `section`, `row`,

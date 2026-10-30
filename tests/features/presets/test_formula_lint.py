@@ -229,6 +229,11 @@ class TestReactionLinkedFieldsStayTogether:
 
         assert _formula_issues(tmp_path) == []
 
+    def test_a_required_toggle_reaction_is_exempt(self, tmp_path):
+        _write_preset(tmp_path, _pinned(then="{ set_required: true }"))
+
+        assert _formula_issues(tmp_path) == []
+
     def test_a_model_filter_reaction_is_exempt(self, tmp_path):
         _write_preset(tmp_path, _pinned(then='{ set_filter_tags: ["turbo"] }'))
 

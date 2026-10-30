@@ -78,7 +78,7 @@
 	);
 	const videoHandoff = createVideoHandoff((pending) => (videoPending = pending));
 	$: videoHandoff.want(
-		displayFileType === 'video' ? displayVideo : null,
+		displayFileType === 'video' && !isGenerating ? displayVideo : null,
 		!!heldPreview,
 		currentGeneration?.generation_id ?? currentGeneration?.id
 	);

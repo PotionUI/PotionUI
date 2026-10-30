@@ -87,7 +87,6 @@ export function createVideoHandoff(
 		clearTimer();
 		waiting = null;
 		if (!previewHeld || settled) {
-			settled = wanted;
 			setPending(false);
 			return;
 		}

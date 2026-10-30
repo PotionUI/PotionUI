@@ -210,6 +210,9 @@
 		? entryFileType(currentGalleryEntry)
 		: normalizeFileType(currentGeneration?.file_type);
 
+	const AMBIENT_CROSSFADE_MS = 500;
+	const reducedMotion =
+		typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 	let videoPending = false;
 	const keepPreview = createPreviewKeeper();
 	$: heldPreview = keepPreview(
@@ -233,7 +236,7 @@
 		}
 	}
 	$: videoHandoff.want(
-		displayFileType === 'video' ? displayVideo : null,
+		displayFileType === 'video' && !isGenerating ? displayVideo : null,
 		!!heldPreview,
 		currentGeneration?.generation_id ?? currentGeneration?.id
 	);
@@ -795,7 +798,7 @@
 		<!-- Main media display area -->
 		<div class="relative isolate flex items-center justify-center group {showAmbient ? '' : 'bg-surface-2'}" style="height: {maxHeight}px">
 			{#if showAmbient}
-				<AmbientGlow src={ambientSrc} kind={ambientKind} />
+				<AmbientGlow src={ambientSrc} kind={ambientKind} crossfade={AMBIENT_CROSSFADE_MS} {reducedMotion} />
 			{/if}
 
 			<!-- Left Navigation Arrow - hidden during comparison and zoom -->
@@ -1412,7 +1415,7 @@
 		{/if}
 
 		{#if displayFileType !== 'audio' && displayFileType !== 'mesh' && (displayImage || displayVideo) && !ambientBlocked}
-			<AmbientGlow src={ambientSrc} kind={ambientKind} variant="fill" keyed={false} style="z-index: 0; --ambient-blur: 72px; --ambient-opacity: 0.6" />
+			<AmbientGlow src={ambientSrc} kind={ambientKind} crossfade={AMBIENT_CROSSFADE_MS} {reducedMotion} variant="fill" keyed={false} style="z-index: 0; --ambient-blur: 72px; --ambient-opacity: 0.6" />
 		{/if}
 
 		<!-- Modal content container - 80% width -->

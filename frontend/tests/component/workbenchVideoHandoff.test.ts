@@ -200,4 +200,80 @@ describe('Workbench video result landing', () => {
 			vi.useRealTimers();
 		}
 	});
+
+	it('holds the preview from the very first render of the landed video when the live preview was typed as an image', async () => {
+		component = createClassComponent({
+			component: Workbench as never,
+			target,
+			props: {
+				emptyLayout: 'pane',
+				currentGeneration: { ...generating, file_type: 'image' },
+				isGenerating: true,
+				workbenchIndex: 0,
+				workbenchTotal: 0,
+				batchImages: [],
+				batchVideos: [],
+				batchAudios: [],
+				batchMeshes: []
+			}
+		}) as unknown as typeof component;
+		await settle(10);
+		expect(previewImg()).not.toBeNull();
+
+		const frames: boolean[] = [];
+		const observer = new MutationObserver(() => frames.push(!!hold() && !!video()));
+		observer.observe(target, { childList: true, subtree: true });
+
+		component!.$set({
+			currentGeneration: { ...completed, current_image: PREVIEW },
+			isGenerating: false,
+			workbenchTotal: 1,
+			batchVideos: [{ url: VIDEO_URL, originalUrl: VIDEO_URL, file_type: 'video' }]
+		});
+		await settle(10);
+		observer.disconnect();
+
+		expect(video()).not.toBeNull();
+		expect(hold()).not.toBeNull();
+		expect(frames.filter((covered, index) => !covered && index > 0 && frames[index - 1] === false && !!video())).toEqual([]);
+	});
+
+	it('still holds the preview when live video previews were shown while generating, as in the Colorize log', async () => {
+		component = createClassComponent({
+			component: Workbench as never,
+			target,
+			props: {
+				emptyLayout: 'pane',
+				currentGeneration: { ...generating, file_type: 'video', current_image: null, current_video: '/api/media/tmp/tmp_video_a.mp4' },
+				isGenerating: true,
+				workbenchIndex: 0,
+				workbenchTotal: 0,
+				batchImages: [],
+				batchVideos: [],
+				batchAudios: [],
+				batchMeshes: []
+			}
+		}) as unknown as typeof component;
+		await settle(10);
+
+		component!.$set({ currentGeneration: { ...generating, file_type: 'image', current_video: null, current_image: PREVIEW } });
+		await settle(10);
+		expect(previewImg()).not.toBeNull();
+
+		component!.$set({
+			currentGeneration: { ...completed, current_image: PREVIEW },
+			isGenerating: false,
+			workbenchTotal: 1,
+			batchVideos: [{ url: VIDEO_URL, originalUrl: VIDEO_URL, file_type: 'video' }]
+		});
+		await settle(10);
+
+		expect(video()).not.toBeNull();
+		expect(hold()).not.toBeNull();
+
+		video()!.dispatchEvent(new Event('loadeddata'));
+		await settle(10);
+
+		expect(hold()).toBeNull();
+	});
 });

@@ -10,6 +10,11 @@ const { default: SegmentedPromptEditor } = await import(
 	'../../src/lib/components/SegmentedPromptEditor.svelte'
 );
 const { createClassComponent } = await import('svelte/legacy');
+const { api } = await import('../../src/lib/services/api/index');
+vi.spyOn(api, 'getClient').mockReturnValue({
+	get: vi.fn().mockResolvedValue({ data: { data: {} } }),
+	put: vi.fn().mockResolvedValue({ data: { success: true } })
+} as never);
 
 afterEach(() => {
 	document.body.innerHTML = '';

@@ -7,6 +7,11 @@ vi.mock('../../src/lib/utils/chipParser', () => ({
 
 const { default: SegmentedPromptEditor } = await import('../../src/lib/components/SegmentedPromptEditor.svelte');
 const { createClassComponent } = await import('svelte/legacy');
+const { api } = await import('../../src/lib/services/api/index');
+vi.spyOn(api, 'getClient').mockReturnValue({
+	get: vi.fn().mockResolvedValue({ data: { data: {} } }),
+	put: vi.fn().mockResolvedValue({ data: { success: true } })
+} as never);
 const { tick } = await import('svelte');
 
 const variables = { age: { type: 'number', mode: 'shuffle', min: 18, max: 80, step: 1, value: 18 } };

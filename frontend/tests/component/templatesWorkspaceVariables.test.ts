@@ -17,6 +17,10 @@ vi.mock('$lib/services/api/index', async (importOriginal) => {
 });
 
 const { api } = await import('$lib/services/api/index');
+vi.spyOn(api, 'getClient').mockReturnValue({
+	get: vi.fn().mockResolvedValue({ data: { data: {} } }),
+	put: vi.fn().mockResolvedValue({ data: { success: true } })
+} as never);
 const page = (await import('$app/stores')).page as unknown as PageStore;
 const { activeTab, tabsStore } = await import('$lib/stores/tabs');
 const { get } = await import('svelte/store');

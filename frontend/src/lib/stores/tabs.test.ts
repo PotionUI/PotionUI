@@ -161,6 +161,70 @@ describe('tabsStore persistence scheduling', () => {
 		expect(setItemSpy).toHaveBeenCalledTimes(1);
 	});
 
+	describe('flushing a pending save when the page goes away', () => {
+		let fakeWindow: EventTarget;
+		let fakeDocument: EventTarget & { visibilityState: string };
+
+		beforeEach(() => {
+			fakeWindow = new EventTarget();
+			fakeDocument = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+			vi.stubGlobal('window', fakeWindow);
+			vi.stubGlobal('document', fakeDocument);
+		});
+
+		afterEach(() => vi.unstubAllGlobals());
+
+		it('saves a pending edit on pagehide and does not save it again when the timer fires', async () => {
+			const { freshTabsStore, setItemSpy } = await freshBrowserTabsStore();
+			const tab = get(freshTabsStore).tabs[0];
+
+			freshTabsStore.updateTab(tab.id, { name: 'Typed just now' });
+			fakeWindow.dispatchEvent(new Event('pagehide'));
+
+			expect(setItemSpy).toHaveBeenCalledTimes(1);
+			expect(JSON.stringify(setItemSpy.mock.calls[0])).toContain('Typed just now');
+
+			vi.advanceTimersByTime(600);
+
+			expect(setItemSpy).toHaveBeenCalledTimes(1);
+		});
+
+		it('saves a pending edit when the page becomes hidden', async () => {
+			const { freshTabsStore, setItemSpy } = await freshBrowserTabsStore();
+			const tab = get(freshTabsStore).tabs[0];
+
+			freshTabsStore.updateTab(tab.id, { name: 'Typed just now' });
+			fakeDocument.visibilityState = 'hidden';
+			fakeDocument.dispatchEvent(new Event('visibilitychange'));
+
+			expect(setItemSpy).toHaveBeenCalledTimes(1);
+			vi.advanceTimersByTime(600);
+			expect(setItemSpy).toHaveBeenCalledTimes(1);
+		});
+
+		it('does nothing on pagehide or when becoming visible if nothing is pending', async () => {
+			const { setItemSpy } = await freshBrowserTabsStore();
+
+			fakeWindow.dispatchEvent(new Event('pagehide'));
+			fakeDocument.visibilityState = 'visible';
+			fakeDocument.dispatchEvent(new Event('visibilitychange'));
+
+			expect(setItemSpy).not.toHaveBeenCalled();
+		});
+
+		it('does not save twice when both events fire for one edit', async () => {
+			const { freshTabsStore, setItemSpy } = await freshBrowserTabsStore();
+			const tab = get(freshTabsStore).tabs[0];
+
+			freshTabsStore.updateTab(tab.id, { name: 'Typed just now' });
+			fakeDocument.visibilityState = 'hidden';
+			fakeDocument.dispatchEvent(new Event('visibilitychange'));
+			fakeWindow.dispatchEvent(new Event('pagehide'));
+
+			expect(setItemSpy).toHaveBeenCalledTimes(1);
+		});
+	});
+
 	it('a burst of progress ticks does not delay a real change past its own debounce window', async () => {
 		const { freshTabsStore, setItemSpy } = await freshBrowserTabsStore();
 		const tab = get(freshTabsStore).tabs[0];

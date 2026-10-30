@@ -195,15 +195,32 @@ function createTabsStore() {
 	});
 
 	// Debounced save to localStorage (500ms delay)
+	let savePending = false;
 	const debouncedSave = debounce((tabs: Tab[], activeTabId: string) => {
+		savePending = false;
 		saveTabsToLocalStorage(tabs, activeTabId);
 	}, 500);
+
+	function flushPendingSave() {
+		if (!savePending) return;
+		savePending = false;
+		debouncedSave.cancel();
+		subscribe((state) => saveTabsToLocalStorage(state.tabs, state.activeTabId))();
+	}
+
+	if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+		window.addEventListener('pagehide', flushPendingSave);
+		document.addEventListener('visibilitychange', () => {
+			if (document.visibilityState === 'hidden') flushPendingSave();
+		});
+	}
 
 	// Subscribe to changes and persist to localStorage
 	let lastPersistedState: TabsState | null = null;
 	subscribe((state) => {
 		if (lastPersistedState && !tabsRelevantToPersistenceChanged(lastPersistedState, state)) return;
 		lastPersistedState = state;
+		savePending = true;
 		debouncedSave(state.tabs, state.activeTabId);
 	});
 

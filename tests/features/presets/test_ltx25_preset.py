@@ -320,7 +320,7 @@ def test_the_modes_that_pass_the_prompt_straight_through_keep_requiring_it(ltx25
 TRIGGER_WORDS = "ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION"
 MODE_GUIDE_RULES = {
     "restore": ["The Fix field picks the task", "describe the period, place, light, materials and clothing"],
-    "colorize": ["one or two plain sentences describing the scene"],
+    "colorize": ["one or two plain sentences naming the colours to bring back", "Name real colours"],
     "day_to_night": ["Describe the night look"],
     "add_water": ["Write only the water: its type, its motion and how it touches the subject"],
     "remove_object": ["Describe the empty scene and name what must not appear"],

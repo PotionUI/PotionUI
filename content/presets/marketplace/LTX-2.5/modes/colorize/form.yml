@@ -1,5 +1,5 @@
-prompt_label: "What the clip shows"
-prompt_placeholder: "a street market in the 1950s"
+prompt_label: "Colours to bring back"
+prompt_placeholder: "red and yellow tulips, green awnings, navy wool coats"
 name: "custom"
 mode_label: "Colorize"
 short_description: "Add natural color to a black and white video."

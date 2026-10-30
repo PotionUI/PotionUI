@@ -90,18 +90,18 @@
         },
         "p_prompt.input": {
           "type": "str",
-          "value": "Reference shows golden positive prompt, in black and white. Edited shows the same scene with natural colors restored. COLORIZE golden positive prompt, in natural, true-to-life colors. Subject identity, framing, and background geometry are identical to the reference; only color information differs between reference and edited."
+          "value": "Reference shows the same scene in grayscale. Edited shows the same scene with natural colors restored. COLORIZE golden positive prompt. Subject identity, framing, and background geometry are identical to the reference; only color information differs between reference and edited."
         },
         "p_prompt.output": {
           "type": "str",
-          "value": "Reference shows golden positive prompt, in black and white. Edited shows the same scene with natural colors restored. COLORIZE golden positive prompt, in natural, true-to-life colors. Subject identity, framing, and background geometry are identical to the reference; only color information differs between reference and edited."
+          "value": "Reference shows the same scene in grayscale. Edited shows the same scene with natural colors restored. COLORIZE golden positive prompt. Subject identity, framing, and background geometry are identical to the reference; only color information differs between reference and edited."
         },
         "pairs": {
           "type": "list",
           "value": [
             {
               "negative": "golden negative prompt",
-              "positive": "Reference shows golden positive prompt, in black and white. Edited shows the same scene with natural colors restored. COLORIZE golden positive prompt, in natural, true-to-life colors. Subject identity, framing, and background geometry are identical to the reference; only color information differs between reference and edited."
+              "positive": "Reference shows the same scene in grayscale. Edited shows the same scene with natural colors restored. COLORIZE golden positive prompt. Subject identity, framing, and background geometry are identical to the reference; only color information differs between reference and edited."
             }
           ]
         },
@@ -272,7 +272,7 @@
         },
         "max_pixels": {
           "type": "int",
-          "value": 2088960
+          "value": 557056
         },
         "media_placements": {
           "type": "list",

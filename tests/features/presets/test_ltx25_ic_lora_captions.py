@@ -17,7 +17,7 @@ WATER_CARD = (
     "only water-related elements differ between reference and edited."
 )
 COLORIZE_CARD = (
-    "Reference shows {gray}. Edited shows the same scene with natural colors restored. "
+    "Reference shows the same scene in grayscale. Edited shows the same scene with natural colors restored. "
     "COLORIZE {color}. "
     "Subject identity, framing, and background geometry are identical to the reference; "
     "only color information differs between reference and edited."
@@ -45,12 +45,14 @@ def water(text):
     return WATER_CARD.format(water=text or DEFAULT_WATER)
 
 
+DEFAULT_COLORS = (
+    "the scene in rich natural colors, with warm skin tones, blue sky, green foliage "
+    "and clothing and objects in clearly different hues"
+)
+
+
 def colorize(text):
-    if text:
-        return COLORIZE_CARD.format(
-            gray=f"{text}, in black and white", color=f"{text}, in natural, true-to-life colors",
-        )
-    return COLORIZE_CARD.format(gray="a black and white scene", color="the same scene in natural, true-to-life colors")
+    return COLORIZE_CARD.format(color=text or DEFAULT_COLORS)
 
 
 def deblur(text):

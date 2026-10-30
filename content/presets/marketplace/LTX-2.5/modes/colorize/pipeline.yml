@@ -35,7 +35,7 @@ pipeline:
     enabled: true
     configuration:
       p_prompt:
-        input: &caption "{% set text = ((item.positive if item is defined else generation.prompts.first.positive) or '').strip().rstrip('. ') %}Reference shows {{ (text ~ ', in black and white') if text else 'a black and white scene' }}. Edited shows the same scene with natural colors restored. COLORIZE {{ (text ~ ', in natural, true-to-life colors') if text else 'the same scene in natural, true-to-life colors' }}. Subject identity, framing, and background geometry are identical to the reference; only color information differs between reference and edited."
+        input: &caption "{% set text = ((item.positive if item is defined else generation.prompts.first.positive) or '').strip().rstrip('. ') %}Reference shows the same scene in grayscale. Edited shows the same scene with natural colors restored. COLORIZE {{ text if text else 'the scene in rich natural colors, with warm skin tones, blue sky, green foliage and clothing and objects in clearly different hues' }}. Subject identity, framing, and background geometry are identical to the reference; only color information differs between reference and edited."
         output: *caption
       n_prompt:
         input: &negative "{{ item.negative if item is defined else generation.prompts.first.negative }}"
@@ -109,7 +109,7 @@ pipeline:
       audio: true
       audio_source: "file"
       match_video: true
-      max_pixels: "{{ 2088960 if form.output_size == '1080p' else 921600 }}"
+      max_pixels: "{{ 2088960 if form.output_size == '1080p' else (921600 if form.output_size == '720p' else 557056) }}"
       windows: true
       window_overlap: "{{ preset.vars.edit_window_overlap }}"
       fps: 24.0

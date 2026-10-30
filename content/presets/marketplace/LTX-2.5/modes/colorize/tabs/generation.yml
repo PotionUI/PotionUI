@@ -21,10 +21,11 @@ fields:
         type: "select"
         formula: "size"
         label: "Size"
-        default: "1080p"
-        description: "Pick 720p if you run out of memory."
+        default: "544p"
+        description: "Colour is strongest at 544p. Higher sizes can weaken it."
         configuration:
           options:
+            - { label: "544p", value: "544p", sub_label: "colour is strongest here" }
             - { label: "720p", value: "720p" }
             - { label: "1080p", value: "1080p" }
 

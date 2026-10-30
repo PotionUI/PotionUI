@@ -244,8 +244,11 @@ llm:
       guide: |
         Colorize mode: an IC-LoRA adds natural colour to a black and white clip, so
         never write a shot list, camera language or the 4-8 sentence video paragraph.
-        Write one or two plain sentences describing the scene in the clip ("a man walks
-        a dog down a street"), not the colouring itself.
+        Write one or two plain sentences naming the colours to bring back: the hue of
+        each subject, the clothing, the materials, the sky and the light ("a man in a
+        navy wool coat walks a golden retriever past red brick houses under a pale blue
+        sky with warm afternoon sun"). Name real colours, as the Colorize LoRA card does;
+        never describe the clip as black and white.
         The prompt is optional, and the mode adds the caption and trigger word itself,
         so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
     day_to_night:

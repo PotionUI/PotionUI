@@ -46,7 +46,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
   write action needs your approval.
 - **Video Director** — compose shots in sections instead of one giant prompt.
 
-*Alpha 0.0.17 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
+*Alpha 0.0.18 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
 Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Reddit](https://www.reddit.com/r/PotionUI/) ·
 [Ko-fi](https://ko-fi.com/A3B325D031)*
@@ -278,7 +278,7 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.17 matrix. **Native
+> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.18 matrix. **Native
 > Windows is supported experimentally** as of 0.0.8: the installer, the CLI,
 > the backend test suite, the frontend checks and the E2E harness all run in
 > CI on `windows-latest` — see [Windows (native)](#windows-native) below.
@@ -322,7 +322,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 | Platform                    | Status                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.17                                                              |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.18                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
 | Windows native              | Experimental (0.0.8) — installer, CLI, backend suite, frontend checks and E2E harness run in CI on `windows-latest`; see [Windows (native)](#windows-native) |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
@@ -430,6 +430,140 @@ Start with the in-app documentation browser, or read the Markdown directly:
 
 The three most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
+
+### 0.0.18 — 2026-10-30
+
+- Onboarding: the first run explains what PotionUI is and that the owner account stays in this
+  install's own database, then a guide inside the app checks this computer's GPU, memory and free
+  space, picks a starter model that fits, asks where models live (Start fresh or Use an existing
+  folder), offers an optional Hugging Face token and installs the starter; the guide can be skipped
+  and resumed from the sidebar or Settings; the Hugging Face provider is on by default and Guided
+  setup enables the plugins it needs, so a fresh install no longer fails on the recipe download; a
+  remote claim without the setup token names the file that holds it; the password reset script
+  resets the owner when no username is given and can run from the Pinokio menu, and the Pinokio launcher now
+  installs from master.
+- Media tools: one catalog of operation tools (trim, crop, resize, rotate, flip, speed, fit canvas,
+  color key, crop to subject, frame, split, concat) runs through one cancellable ffmpeg runner, with
+  chained steps fused into a single run; the Tools menu and card menu on Library and History group
+  them as Edit and Effects submenus, the details window has a tool row, cards show progress with
+  Cancel, and Library edits offer Save as new or Replace original while an edit of a generation
+  always saves a new Library copy; Concat takes per-clip trims and crossfades;
+  images and videos get a Resize editor with sizes worked out from the original; canvas and resize
+  are capped at 8192 px, a video's audio is re-encoded when the container changes, audio trims keep
+  the source's sample format and color keying keeps transparency.
+- Media tools elsewhere: PotionAI chat and MCP can run any media tool from the live catalog,
+  saving new copies at once and asking approval only to replace; automations get a Media Tool action
+  that hands the result items to later nodes; presets can run media tools as a step; plugins add
+  their own tools; the old `/api/media/edit` and
+  `/api/media/split` API, the AudioTools preset and the seven pipes the catalog replaced are removed.
+- Details windows: History and Library details open with an action bar above the media (Reuse,
+  Edit, Effects, Favorite, Download and a menu for the rest), with E, D and F working as the hints
+  show and a sheet on phones; History and Library cards share one corner layout of checkbox,
+  Favorite and menu; an edit started from History opens the saved copy in the Library item window
+  over History without leaving the page, Back or Escape returns to the generation's details at the
+  same file and scroll position, Cancel or a failure reopens them, a failure offers Try again with
+  the settings kept, Library items made from a generation link back to it, and an edit that keeps
+  running after its editor closes shows a progress chip with Cancel.
+- Chat: a new LLM harness runs every turn as stored, resumable steps, so a turn paused for an
+  approval continues where it stopped, an interrupted or cancelled turn keeps its partial steps, and
+  a transient provider failure retries with backoff and a notice; Anthropic, OpenAI Responses,
+  Gemini and OpenRouter get their own adapters beside Ollama and OpenAI-compatible servers; a
+  reasoning model's thinking is kept across tool calls and approval pauses and shown as raw, summary
+  or hidden blocks with how long the model thought; read-only tools run in parallel; the tool list
+  only grows during a turn so the prompt cache survives, and Anthropic's one-hour cache is used when
+  asked for.
+- LLM profiles and cost: every model has a capability profile (context window, output limit, prices,
+  vision, reasoning controls, recommended sampling) resolved from the profiles PotionUI ships, what
+  the server reports and admin overrides, with a Profile tab in Admin showing where each value
+  came from; each step is priced with cached input, cache writes and reasoning counted, and every
+  provider step is traced; Temperature and Max tokens can be left empty for the model's own value;
+  a DeepSeek plugin adds deepseek-flash and deepseek-v4-pro, and plugins can add LLM configuration
+  types.
+- LTX-2.5: Restore, Colorize, Day to night, Add water, Remove object, Layout to render and
+  Cinemagraph modes join Extend and Refine faces, with captions in the format each Lightricks model
+  card gives and one prompt per image when variables or several images are used; Upscale can use the
+  Generative 2x or Refine details LoRA; edit modes keep the source audio and length, take the whole
+  clip in one pass when it fits in VRAM and otherwise run the fewest equal crossfaded windows, and
+  the DiT stays on the GPU through a decode that fits beside it; every mode follows the Krea-2 tab
+  layout with a speed profile and defaults to the Distilled profile (8 steps, CFG 1, also for
+  LTX-2), so runs are faster and no longer overbaked, while Balanced and Quality say they need the
+  dev checkpoint; Colorize defaults to 544p, the model's training size, and its caption follows the
+  model card (a grayscale reference half, the colours named in the COLORIZE half); Restore and
+  Upscale show all their task LoRAs or method models at once and require only the file for the
+  selected Fix or Method (preset authors get a form reaction that makes a field required or
+  optional); the log warns when a LoRA matched none of the model's weights.
+- MiniMax-H3: new Extend, Refine faces, Remix and Talking video modes; Extend continues a video or
+  adds a lead-in and joins it to the source; reference pictures narrower than 1:4 or wider than 4:1
+  are padded with white instead of rejected, transparent cutouts are flattened onto white, auto
+  resolution follows a reference video, and a reference video is decoded only as far as the clip
+  can reach; every H3 mode shares one layout with a References tab and a speed profile; Upscale no
+  longer turns the clip into a grid, because the latent upscaler now gets latents normalized the way
+  it was trained, and Video mode with latent upscale hands its first stage on in the right space; the
+  Upscale encode moves a resident DiT off the GPU when it needs the room, tiles to the free VRAM and
+  steps the tile down on out of memory, a decode-only VAE is refused for Upscale with a clear message,
+  a silent source clip no longer fails the audio step, and Upscale's prompt is optional and works
+  when left empty; Refine faces keeps the face clean; Talking video and other optional-prompt modes
+  no longer send a stale prompt when the box is left empty.
+- Qwen-Image 2.1: new Edit text, Restyle (style, background, lighting, colourise and restore tasks)
+  and Combine images (one edited image plus up to nine references pointed at with @) modes; Edit
+  image crops a painted region with scaled context and composites it back pixel-exact; the control
+  mode is now called Structure; Restyle and Edit text read the standard prompt, so segments,
+  phrasebooks and variables work there, and a preset can mark a prompt optional so Generate does not
+  wait for text.
+- Prompts and generation: the prompt section header shows batch prompts as tabs with rename,
+  duplicate and delete and a list of all prompts; prompt editor text no longer renders below 12px;
+  progress spans the whole run when a batch of prompts or a quantity above one renders several
+  images, instead of sticking at 100% after the first, and the panel describes each stage in plain
+  words; a mode can declare its own missing files, which flag and block only that mode, and a
+  just-downloaded LoRA unblocks Generate without a refresh; a mode names what its prompt is for
+  with a label and an example, so Edit text asks for placement and
+  style, Talking video for the scene and every LTX-2.5 edit mode for what it changes, while exact
+  text and spoken words stay in their fields; the Generate page no longer flashes a disconnected
+  banner or the wrong empty state while it loads.
+- PotionAI modes: History, Models and Phrasebook get their own welcome text and no longer follow
+  the Generate page's prompt-writing reply format, while every mode with tools is still told to act
+  rather than announce; the chat Stop button has an accessible name, and users see their LLM's
+  Show thinking setting.
+- Fixes: reopened History details show the real preset name; Library, History and Models titles
+  say 1 item, 1 generation, 1 model; Library type counts follow Favorites, a collection or Unsorted;
+  a new Library card shows a loading placeholder instead of black; every setup wizard step opens at
+  the top, the models path wraps only at a separator and the download consent reads as a sentence;
+  the paint editor footer matches the other editors; the generation details stage and the picker
+  tiles show a loading placeholder instead of black until the image has loaded; leaving the Tools
+  Edit submenu with Escape or ArrowLeft no longer logs a Svelte state error; a tab edit still
+  waiting to be saved is saved when the page is hidden or closed, so a quick reload keeps it; on Windows a joined video no longer loses the
+  last frame of every clip.
+- Library and pickers: Library items can be favorited from the card menu and the details corner,
+  with a Favorites view; the Uploads picker shows your library in the Library's justified mosaic,
+  with checkboxes and a preview magnifier; a painted inpaint mask reaches the form data, the mask
+  editor saves a clean black and white mask, and faint stray pixels no longer stretch the inpaint
+  region; the mode and variant pickers use the preset picker's dropdown and grow to fit their options,
+  and every new mode has its own icon, including a redrawn Upscale, Extend and Talking video, with
+  Cinemagraph and Combine images drawn so they no longer resemble well-known logos, and every media
+  tool (Rotate, Flip, Fit canvas, Color key, Crop to subject, Frame, Concat) has its own glyph
+  instead of the generic puzzle icon; a signed-in hard load no longer renders the page twice.
+- Privacy: the Artifacts panel is gone from the generation details for every viewer; artifacts
+  live in Admin → Generations and their files are served to admins only; regular users no longer
+  receive server file paths anywhere in generation progress, warnings or errors, only file names.
+- Security: the frontend takes undici 7.30.1, vite 6.4.5 and vitest 4.1.12, and the plugin build
+  toolchain takes zod 4.6.7.
+- Models and downloads: a model file gets its type verdict as soon as its header is read, keyed by a
+  hash of the header and shared by files with the same header; indexing reads files less, with a
+  moved file keeping its digest, downloads hashed while they stream and progress pushed instead of
+  polled; a download reports complete only after its model is indexed; a recommendation whose name
+  ends in a model file extension downloads under that name; the BiRefNet-general recommendations are
+  verified Hugging Face links, also offered by the matting pickers in Pixal3D and TRELLIS2.
+- Native engine and Windows: Resource profile times every sampling step with its attention mode,
+  step-cache skip and wait for streamed weights, and its report adds a step table; FLUX 3 Klein
+  INT8 ConvRot checkpoints load; nvfp4 layers build their dequant tables only when needed and warn
+  once per reason when they fall back; the frontend builds again when the shell starts in a
+  lowercase Windows drive letter.
+- Upgrading: existing chats are converted to stored steps on first start; OpenAI configurations that
+  point at a server other than api.openai.com become the openai-compatible type and configurations
+  on openrouter.ai become OpenRouter; a Temperature still at the old 0.7 default is cleared to Model
+  default, and the context window and `num_ctx` settings move from the configuration form to the
+  Profile tab; plugins that used the `history_tools` key move to `media_tools`, and anything that
+  called `/api/media/edit` or `/api/media/split` must use the media tools API.
 
 ### 0.0.17 — 2026-10-22
 
@@ -543,88 +677,6 @@ The three most recent releases; older history lives in the
   security releases.
 - Upgrading: History and gallery search now look only at prompt text, preset and model names, so
   a seed or another form value no longer finds a generation.
-
-### 0.0.15 — 2026-10-08
-
-- X/Y compare: a Compare button in the Generate dock turns any form into a grid; pick the fields
-  for the X and Y axes, give each its values, and one Generate runs a cell per combination; the
-  Workbench fills the grid live with each cell's time, video grids play in sync, and a finished
-  grid can be stitched into one image; History keeps a grid as one stack card that opens the grid,
-  and each cell's details say which X and Y values it used; axes follow what the chosen model
-  supports, including cloud options such as aspect ratio and quality, and the phone Studio view
-  shows the grid too.
-- Photo filters: the image editor has a Filters tool with twelve built-in looks, an intensity
-  slider and fine-tuning; a look you like can be saved as your own filter, kept per user; plugins
-  can add filters and the operations behind them, and filters render the same in the browser and
-  on the server.
-- Auto-organize: per-user rules file new generations, uploads and models into collections and
-  tags; a rule can match media kind, size and aspect, and for models their name, file name,
-  description, trigger words, source, file size and custom attributes; preview a rule before
-  saving, apply it to existing items, and undo from its activity list; collections now include
-  sub-collections by default, with direct-only, Unsorted and Favorites filters and rolled-up
-  counts in History, Library, Models, Inspirations and Prompts, and prompts can be favorited.
-- Plans and limits: admins can cap storage, daily generations, monthly cloud spend and the size of
-  a single upload per user, through a default plan, group plans and personal overrides; users see
-  their plan and usage in Settings, a limit bar in the account menu and a storage card in History
-  with Review largest generations, and a refused generation or upload says why with a live
-  countdown; deleting a plan in use offers to reassign its users.
-- Cloud models: three new provider plugins join OpenRouter; OpenAI runs GPT Image text to image
-  and edit with references and a painted mask, Google Gemini runs Nano Banana image and Veo 3.1
-  video models, and Black Forest Labs runs FLUX models, each with its own preset and setup guide;
-  the cloud catalog can show suggested models and links to each model's page; changing the engine
-  in Add backend keeps the name, enabled flag, priority and scheduling.
-- Accounts: one browser can hold several accounts and switch between them from the user menu or
-  the phone Accounts sheet, each with its own tabs and saved state; with the OIDC plugin, Add
-  account can offer another identity; the user panel groups its entries into Accounts, Workspace,
-  Content and Session.
-- Generate: the header is one row with the preset picker, a mode select with plain mode names,
-  short descriptions and optional icons, and formulas; the form hides its tab bar when only one
-  tab is visible; the negative prompt hides while the current guidance would ignore it, and
-  presets can declare this per mode; the Resolved prompt row shows variable values and marks the
-  ones that re-roll per image; prompt header actions collapse into the More menu as the pane
-  narrows; a picked model clears in one click in filters and optional model fields, and History
-  filters pick a model with the model picker.
-- History and Library: each card has a Delete button and an item actions menu in place of the
-  quick-action row, and the controls stay readable on any image; the media field's History picker
-  offers every file of a generation as its own tile.
-- Native engine: LoRAs on fp8 and nvfp4 models are added in one fused step instead of slowing
-  every layer, and LoKr adapters stay on the fast path; LTX-2.5 IC-LoRA references accept videos
-  in Video Director, honour the LoRA's reference scaling, steer the first pass only with an
-  optional refine-pass toggle, and work with Upscale; engine tuning (attention backend, compile,
-  prefetch and similar) lives in each native backend's Optimizations tab and is sent to remote
-  workers with every job, and profiling is a Diagnostics setting.
-- 3D: a new Pixal3D preset turns one image or four views into a textured mesh, estimating the
-  camera's field of view on its own; TRELLIS.2 mesh export is several times faster, with UV unwrap
-  in seconds instead of minutes and cleanup in a separate process so the server stays responsive;
-  it remeshes and bakes textures the way upstream does, defaults to 300k faces with up to 1M
-  available, and no longer exports a vertically mirrored texture.
-- Chat and MCP: MCP tools work without an open browser tab (list presets and models, edit
-  segments, templates and phrasebook categories, search the gallery by text); prompts can be read
-  and listed from MCP and chat; library listings are complete and respect hidden generations;
-  tool, streaming, automation and notification failures show regular users a plain message and
-  admins the detail.
-- Plugins: a plugin can declare setup steps, and one with setup left shows a Setup needed badge
-  and a Setup section with the next step first; plugin admin tabs can draw their own page with a
-  left menu; plugins can add Auto-organize conditions and actions and their own limit kinds.
-- Admin: assigning users, groups, resource access and plans uses one shared picker with whole-row
-  toggle, shift-click ranges and keyboard control; Auto-organize has an admin page with Overview,
-  Limits and People; presets show where they were loaded from.
-- Fixes: Edit image on a media field works right after an upload and is not offered while the
-  upload is still processing; a chosen sampler survives closing the form, switching tabs and
-  reloading a session; switching Krea-2 NAG off really turns it off; a model already in memory no
-  longer shows a "Loading model" status before each generation; a generation cancelled just as a
-  queue slot frees no longer starts, so a cancelled cloud run never reaches the provider; two
-  PotionUI instances on one host no longer break each other's images; model previews picked from
-  History show for every user the model is assigned to; failed generations tell regular users what
-  happened in plain words; new generation tabs never show the previous tab's form; the phone
-  Settings sheet fills in its tabs once the server answers; phrasebook chips on wrapped lines no
-  longer overlap; the Trim end handle is no longer clipped; daily limits work on Windows.
-- Upgrading: generated images, uploads, run reports, inspirations and avatars now need a signed-in
-  viewer, so other users get a 404 and a bare media link opened outside a logged-in browser no
-  longer loads; engine tuning set through environment variables is copied into Admin settings on
-  first start and the variables are ignored afterwards (a startup warning names any still set), so
-  change it in each native backend's Optimizations tab; tzdata is a new requirement, so reinstall
-  requirements on a manual install.
 
 ## Contributing
 

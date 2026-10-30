@@ -25,7 +25,7 @@ Images, video and music on your own GPU · Free and open source · Linux & Windo
 
 Run Krea-2, Anima, SDXL, Flux, Wan, LTX, Qwen-Image, MiniMax and YuE2 on one box — then give your team, your household, or your agents their own logins, presets, and limits. No node graphs. No per-model setup. Pick a model, type, watch it render live.
 
-![The generate workspace: a tab per idea, a prompt built from colored segments with variable and phrasebook chips, and the finished render](docs/media/potionui-generate.png)
+![The generate workspace in three panes: the form folded to the side, a wide prompts pane holding one prompt for a potion bottle labelled ELIXIR, and the Krea-2 render beside it](docs/media/potionui-generate.png)
 
 <details>
 <summary>Watch the 60-second tour (video)</summary>
@@ -67,6 +67,7 @@ Floor: 8 GB VRAM + 16 GB RAM (SDXL). Full requirements below.
 ## Contents
 
 - [What you're looking at](#what-youre-looking-at)
+- [Modes](#modes)
 - [Multi-user, with an admin panel](#multi-user-with-an-admin-panel)
 - [AI assistant](#ai-assistant)
 - [The generate workspace](#the-generate-workspace)
@@ -90,20 +91,48 @@ Floor: 8 GB VRAM + 16 GB RAM (SDXL). Full requirements below.
 - **One app for all of it** — images, video, and audio side by side, no
   per-model setup.
 
-| Model family       | What it does                      | Docs                                                           |
-| ------------------ | --------------------------------- | -------------------------------------------------------------- |
-| SDXL               | Image (txt2img, inpaint)          | [docs/models/sdxl.md](docs/models/sdxl.md)                     |
-| Flux (1 / 2 Klein) | Image (txt2img, img2img)          | [docs/models/flux.md](docs/models/flux.md)                     |
-| Qwen-Image         | Image (txt2img, img2img, edit)    | [docs/models/qwen_image.md](docs/models/qwen_image.md)         |
-| Krea-2             | Image (txt2img, enhance)          | [docs/models/krea2.md](docs/models/krea2.md)                   |
-| Z-Image            | Image (txt2img)                   | [docs/models/z_image.md](docs/models/z_image.md)               |
-| Anima              | Image (txt2img)                   | [docs/models/anima.md](docs/models/anima.md)                   |
-| Wan 2.1 / 2.2      | Video                             | [docs/models/wan.md](docs/models/wan.md)                       |
-| LTX-2 / 2.3 / 2.5  | Video (with audio), video upscale | [docs/models/ltx.md](docs/models/ltx.md)                       |
-| MiniMax-H3         | Video (with reference images)     | [docs/models/minimax_h3.md](docs/models/minimax_h3.md)         |
-| MiniMax-Music3     | Audio (song)                      | [docs/models/minimax_music3.md](docs/models/minimax_music3.md) |
-| YuE2               | Audio (song, lyrics + style tags) | [docs/models/yue2.md](docs/models/yue2.md)                     |
-| SeedVR2            | Image & video upscale / restore   | [docs/models/seedvr2.md](docs/models/seedvr2.md)               |
+| Model family       | What it does                              | Docs                                                           |
+| ------------------ | ----------------------------------------- | -------------------------------------------------------------- |
+| SDXL               | Image (txt2img, inpaint)                  | [docs/models/sdxl.md](docs/models/sdxl.md)                     |
+| Flux (1 / 2 Klein) | Image (txt2img, img2img)                  | [docs/models/flux.md](docs/models/flux.md)                     |
+| Qwen-Image         | Image (txt2img, img2img, edit, restyle)   | [docs/models/qwen_image.md](docs/models/qwen_image.md)         |
+| Krea-2             | Image (txt2img, enhance)                  | [docs/models/krea2.md](docs/models/krea2.md)                   |
+| Z-Image            | Image (txt2img)                           | [docs/models/z_image.md](docs/models/z_image.md)               |
+| Anima              | Image (txt2img)                           | [docs/models/anima.md](docs/models/anima.md)                   |
+| Wan 2.1 / 2.2      | Video                                     | [docs/models/wan.md](docs/models/wan.md)                       |
+| LTX-2 / 2.3 / 2.5  | Video (with audio), video edit, upscale   | [docs/models/ltx.md](docs/models/ltx.md)                       |
+| MiniMax-H3         | Video (with reference images), video edit | [docs/models/minimax_h3.md](docs/models/minimax_h3.md)         |
+| MiniMax-Music3     | Audio (song)                              | [docs/models/minimax_music3.md](docs/models/minimax_music3.md) |
+| YuE2               | Audio (song, lyrics + style tags)         | [docs/models/yue2.md](docs/models/yue2.md)                     |
+| SeedVR2            | Image & video upscale / restore           | [docs/models/seedvr2.md](docs/models/seedvr2.md)               |
+
+## Modes
+
+A model does more than one job. The mode picker beside the preset switches
+it, and the form changes to what that mode needs.
+
+![The LTX-2.5 mode picker open on Day to night, listing all eleven modes, each with its icon and a one-line description](docs/media/potionui-ltx-modes.png)
+
+- **LTX-2.5** — beside Video and Upscale: Restore old or compressed footage,
+  Colorize black-and-white video, relight it from Day to night, Add water,
+  Remove object (people and moving things), Layout to render (a 3D blockout
+  into a finished shot), Cinemagraph (a still into a seamless loop), Extend a
+  clip forward or add what came before it, and Refine faces. Edit modes keep
+  the source's audio and length.
+- **MiniMax-H3** — beside Video and References to Video: Extend continues a
+  video or adds a lead-in, Refine faces sharpens faces and hands, Remix
+  re-creates a video with a change, Talking video makes a portrait speak a
+  voice clip, and Upscale raises a clip's resolution with an optional Scene
+  prompt.
+- **Qwen-Image 2.1** — beside Text to Image, Edit image, and Structure: Edit
+  text replaces or adds text in a picture, optionally only inside a painted
+  box; Restyle changes the style, background, or lighting, or colorizes and
+  restores a photo; Combine images edits one picture using up to nine others,
+  each picked with **@** in the prompt.
+
+![MiniMax-H3 Upscale: a 1344×768 input clip on the form and an optional Scene prompt showing only its hint, a rainy street at night](docs/media/potionui-h3-upscale-scene.png)
+
+![The Qwen-Image 2.1 mode picker open on Edit text, beside Text to Image, Edit image, Combine images, Restyle, and Structure](docs/media/potionui-qwen-modes.png)
 
 ## Multi-user, with an admin panel
 
@@ -165,7 +194,7 @@ and a step progress bar mid-run.
 
 ![History with collections, search, media-type and preset filters, and date-grouped image and video renders](docs/media/potionui-history.png)
 
-![Generation details: the render beside its parameters, seed, and the exact model files it used](docs/media/potionui-generation-details.png)
+![Generation details: the action bar with Edit, Effects, Favorite, Tags, Reuse settings, Copy to Library, and Download above the render, beside its information, auto tags, and parameters](docs/media/potionui-generation-details.png)
 
 ![The image editor, opened from History: paint, selection, and crop tools, layers, and color adjustments, saved as a new upload so the original stays untouched](docs/media/potionui-image-editor.png)
 
@@ -176,9 +205,21 @@ https://github.com/user-attachments/assets/f46cde26-0288-4e05-ac90-c3be31f0d2dd
 - Tag generations to group and re-find them; bulk-delete by tag to clear out
   throwaway experiments.
 - Sort work into collections, and compare two results side by side.
-- Fix a picture without leaving the app: Tools → Edit image adjusts, crops,
+- Fix a picture without leaving the app: Edit → Edit image adjusts, crops,
   paints, and layers it, then saves a new copy. The same editor opens from
   any media field in a preset form.
+
+![The Library with one image selected and the Tools menu's Edit submenu open on Crop, Resize, Rotate, Flip, Fit canvas, Color key, and Crop to subject](docs/media/potionui-media-tools.png)
+
+**Media tools** — one catalog of tools works on Library and History items,
+from the Tools menu, a card's menu, or the details action bar: Edit holds
+trim, crop, resize, rotate, flip, speed, fit canvas, color key, crop to
+subject, frame grab, split, and concat, and Effects applies photo-filter
+looks. A run goes to the background with progress and Cancel on its card. On
+a Library item each tool's dialog offers Save as new or Replace original; an
+edit started from History saves a copy to the Library and leaves the
+generation as it was. PotionAI, automations, and presets can run the same
+tools, and plugins can add their own.
 
 ## Video Director
 

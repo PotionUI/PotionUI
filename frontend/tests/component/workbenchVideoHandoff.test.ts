@@ -82,15 +82,19 @@ function mountGenerating() {
 	}) as unknown as typeof component;
 }
 
+const hold = () => target.querySelector<HTMLElement>('[data-preview-hold]');
+const holdImg = () => hold()?.querySelector('img') ?? null;
+
 describe('Workbench video result landing', () => {
-	it('keeps the preview until the visible player has a frame, in the order the live log shows', async () => {
+	it('keeps one preview image on top, over a loading player, until the player has a frame', async () => {
 		mountGenerating();
 		await settle(10);
-		expect(previewImg()).not.toBeNull();
+		expect(holdImg()?.getAttribute('src')).toBe(PREVIEW);
+		const overlayImage = holdImg();
 
 		component!.$set({ currentGeneration: { ...completed, current_image: PREVIEW }, isGenerating: false });
 		await settle(10);
-		expect(previewImg()).not.toBeNull();
+		expect(holdImg()).toBe(overlayImage);
 		expect(video()).toBeNull();
 
 		component!.$set({
@@ -100,20 +104,19 @@ describe('Workbench video result landing', () => {
 		});
 		await settle(10);
 
-		expect(previewImg()).not.toBeNull();
+		expect(holdImg()).toBe(overlayImage);
 		expect(video()).not.toBeNull();
-		expect(stage()!.className).toContain('opacity-0');
+		expect(stage()!.className).toBe('contents');
 		const player = video();
 
 		video()!.dispatchEvent(new Event('loadeddata'));
 		await settle(10);
 
-		expect(previewImg()).toBeNull();
-		expect(stage()!.className).not.toContain('opacity-0');
+		expect(hold()).toBeNull();
 		expect(video()).toBe(player);
 	});
 
-	it('swaps to the player when it errors instead of holding the preview', async () => {
+	it('releases the preview when the player errors instead of holding it', async () => {
 		mountGenerating();
 		await settle(10);
 		component!.$set({
@@ -123,11 +126,11 @@ describe('Workbench video result landing', () => {
 			batchVideos: [{ url: VIDEO_URL, originalUrl: VIDEO_URL, file_type: 'video' }]
 		});
 		await settle(10);
-		expect(previewImg()).not.toBeNull();
+		expect(hold()).not.toBeNull();
 
 		video()!.dispatchEvent(new Event('error'));
 		await settle(10);
 
-		expect(previewImg()).toBeNull();
+		expect(hold()).toBeNull();
 	});
 });

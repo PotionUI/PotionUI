@@ -72,7 +72,9 @@
 	);
 	const videoHandoff = createVideoHandoff((pending) => (videoPending = pending));
 	$: videoHandoff.want(displayFileType === 'video' ? displayVideo : null, !!heldPreview);
-	$: holdingPreview = videoPending && !!heldPreview;
+	$: videoGeneration = isVideoFileType(currentGeneration?.file_type) || displayFileType === 'video';
+	$: videoReady = displayFileType === 'video' && !!displayVideo && !videoPending;
+	$: holdingPreview = !!heldPreview && videoGeneration && !videoReady;
 	$: displayVideo =
 		isGalleryMode && isVideoFileType(displayFileType)
 			? galleryItemUrl(currentGalleryItem)
@@ -152,15 +154,13 @@
 			{:else if isFallbackFileType && resolvedFallbackRenderer}
 				<svelte:component this={resolvedFallbackRenderer} file={currentGalleryItem ?? currentGeneration} />
 			{:else if displayFileType === 'video' && displayVideo}
-				{#if holdingPreview && heldPreview}
-					<img src={heldPreview} alt="Generation preview" class="absolute inset-0 z-10 h-full w-full object-contain" />
-				{/if}
 				<!-- svelte-ignore a11y-media-has-caption -->
 				<video
 					src={displayVideo}
 					controls
 					playsinline
-					class="h-full w-full object-contain {holdingPreview ? 'opacity-0' : ''}"
+					preload="auto"
+					class="h-full w-full object-contain"
 					on:loadeddata={videoHandoff.ready}
 					on:error={videoHandoff.ready}
 				></video>
@@ -209,6 +209,15 @@
 				{/if}
 			</div>
 		</div>
+	{/if}
+
+	{#if holdingPreview && heldPreview && !compareGrid}
+		<img
+			src={heldPreview}
+			alt="Generation preview"
+			class="pointer-events-none absolute inset-0 z-10 h-full w-full object-contain"
+			data-preview-hold
+		/>
 	{/if}
 
 	{#if hasModelFiles}

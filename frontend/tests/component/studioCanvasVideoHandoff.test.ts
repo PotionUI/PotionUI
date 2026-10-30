@@ -59,7 +59,8 @@ describe('studio canvas video result landing', () => {
 			}
 		}) as unknown as typeof component;
 		flushSync();
-		expect(target.querySelector(`img[src="${PREVIEW}"]`)).not.toBeNull();
+		const overlay = target.querySelector('[data-preview-hold]');
+		expect(overlay).not.toBeNull();
 
 		component!.$set({
 			tab: tabWith(
@@ -74,15 +75,14 @@ describe('studio canvas video result landing', () => {
 		flushSync();
 
 		const player = target.querySelector('video')!;
-		expect(target.querySelector(`img[src="${PREVIEW}"]`)).not.toBeNull();
+		expect(target.querySelector('[data-preview-hold]')).toBe(overlay);
 		expect(player).not.toBeNull();
-		expect(player.className).toContain('opacity-0');
+		expect(player.className).not.toContain('opacity-0');
 
 		player.dispatchEvent(new Event('loadeddata'));
 		flushSync();
 
-		expect(target.querySelector(`img[src="${PREVIEW}"]`)).toBeNull();
+		expect(target.querySelector('[data-preview-hold]')).toBeNull();
 		expect(target.querySelector('video')).toBe(player);
-		expect(player.className).not.toContain('opacity-0');
 	});
 });

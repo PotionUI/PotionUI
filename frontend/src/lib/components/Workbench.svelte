@@ -212,6 +212,15 @@
 		currentGeneration?.current_image
 	);
 	const videoHandoff = createVideoHandoff((pending) => (videoPending = pending));
+	function handlePlayerFrame(event: Event) {
+		const player = event.target as HTMLVideoElement;
+		if (typeof player.requestVideoFrameCallback === 'function') {
+			player.requestVideoFrameCallback(() => videoHandoff.ready());
+			setTimeout(videoHandoff.ready, 250);
+		} else {
+			videoHandoff.ready();
+		}
+	}
 	$: videoHandoff.want(displayFileType === 'video' ? displayVideo : null, !!heldPreview);
 	$: stageKey = displayFileType === 'video' && displayVideo ? displayVideo : displayImage || displayVideo || displayAudio || displayMesh;
 
@@ -250,7 +259,9 @@
 	$: actions = workbenchActionsFor(displayFileType);
 
 	$: ambientBlocked = previewSuppressed || isNsfwFile(((isGalleryMode ? currentGalleryItem : currentGeneration) ?? {}) as ContentFlagged);
-	$: holdingPreview = videoPending && !!heldPreview;
+	$: videoGeneration = isVideoFileType(currentGeneration?.file_type) || displayFileType === 'video';
+	$: videoReady = displayFileType === 'video' && !!displayVideo && !videoPending;
+	$: holdingPreview = !!heldPreview && videoGeneration && !videoReady;
 	$: ambientKind = !holdingPreview && displayFileType === 'video' && displayVideo ? ('video' as const) : ('image' as const);
 	$: ambientSrc = holdingPreview
 		? heldPreview
@@ -800,6 +811,11 @@
 			{/if}
 
 			<!-- Media Display -->
+			{#if holdingPreview && heldPreview}
+				<div class="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center" data-preview-hold>
+					<ImagePreview imageUrl={heldPreview} />
+				</div>
+			{/if}
 			{#key stageKey}
 				<div in:fade={{ duration: videoPending ? 0 : 200 }} class="contents">
 					{#if displayFileType === 'audio' && audioTracks.length > 0}
@@ -811,15 +827,10 @@
 							className="shadow-lg"
 						/>
 					{:else if displayFileType === 'video' && displayVideo}
-						{#if holdingPreview && heldPreview}
-							<ImagePreview imageUrl={heldPreview} />
-						{/if}
 						<div
-							class={holdingPreview
-								? 'pointer-events-none absolute inset-0 flex items-center justify-center opacity-0'
-								: 'contents'}
+							class="contents"
 							data-video-stage
-							on:loadeddata|capture={videoHandoff.ready}
+							on:loadeddata|capture={handlePlayerFrame}
 							on:error|capture={videoHandoff.ready}
 						>
 						<VideoPreview

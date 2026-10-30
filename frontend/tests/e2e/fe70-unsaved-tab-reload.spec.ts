@@ -69,7 +69,8 @@ test('unsaved tab keeps its prompt/segments/negative prompt across a reload', as
 	await typeIntoSegment(page, 'Positive segments', 0, 'A rain-slicked alley at night, neon reflections on wet asphalt.');
 
 	const negativeList = page.locator('div[role="list"][aria-label="Negative segments"]');
-	if (await negativeList.isVisible().catch(() => false)) {
+	const negativeWasTyped = await negativeList.isVisible().catch(() => false);
+	if (negativeWasTyped) {
 		await typeIntoSegment(page, 'Negative segments', 0, 'blurry, low detail, watermark');
 	}
 
@@ -80,6 +81,17 @@ test('unsaved tab keeps its prompt/segments/negative prompt across a reload', as
 			)
 		)
 		.toBe(true);
+	if (negativeWasTyped) {
+		await expect
+			.poll(() =>
+				page.evaluate(() =>
+					Object.keys(localStorage).some((key) =>
+						(localStorage.getItem(key) || '').includes('blurry, low detail, watermark')
+					)
+				)
+			)
+			.toBe(true);
+	}
 	await screenshot(page, JOURNEY, '00-before-reload');
 
 	const beforeReloadUrl = page.url();

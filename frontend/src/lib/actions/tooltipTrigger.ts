@@ -117,17 +117,21 @@ export function watchTooltipTrigger(node: HTMLElement, handlers: TooltipTriggerH
 		schedule(0);
 	};
 	const onLeave = () => close();
+	const onFocusOut = () =>
+		queueMicrotask(() => {
+			if (!node.contains(document.activeElement)) close();
+		});
 
 	node.addEventListener('mouseenter', onEnter);
 	node.addEventListener('mouseleave', onLeave);
 	node.addEventListener('focusin', onFocusIn);
-	node.addEventListener('focusout', onLeave);
+	node.addEventListener('focusout', onFocusOut);
 
 	return () => {
 		close();
 		node.removeEventListener('mouseenter', onEnter);
 		node.removeEventListener('mouseleave', onLeave);
 		node.removeEventListener('focusin', onFocusIn);
-		node.removeEventListener('focusout', onLeave);
+		node.removeEventListener('focusout', onFocusOut);
 	};
 }

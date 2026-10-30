@@ -50,6 +50,7 @@ describe('tooltip action', () => {
 		expect(bubble.textContent?.trim()).toBe('Delete item');
 		expect(node.getAttribute('aria-describedby')).toBe(bubble.id);
 		node.blur();
+		await Promise.resolve();
 		expect(bubbleText()).toBeNull();
 		expect(node.hasAttribute('aria-describedby')).toBe(false);
 	});

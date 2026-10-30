@@ -253,6 +253,7 @@
 	function closeSubmenu() {
 		const was = submenu;
 		if (!was) return;
+		openerOf(was)?.focus();
 		submenu = null;
 		requestAnimationFrame(() => openerOf(was)?.focus());
 	}

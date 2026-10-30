@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync, mount, unmount } from 'svelte';
 import { createClassComponent } from 'svelte/legacy';
 import { settle } from './helpers/settle';
+import { emulateSyncFocusOutOnRemove } from './helpers/syncFocusOut';
+import { keyboardFocus } from './helpers/keyboardFocus';
 
 vi.mock('$lib/tools/pluginTools', () => ({ retryMediaToolCatalog: vi.fn() }));
 
@@ -590,5 +592,60 @@ describe('the collection submenu keeps working beside them', () => {
 		await frames();
 
 		expect(document.activeElement).toBe(back());
+	});
+});
+
+describe('leaving a submenu while a tool row holds focus', () => {
+	let restore: (() => void) | undefined;
+	let uncaught: unknown[] = [];
+	const collect = (event: ErrorEvent) => {
+		uncaught.push(event.error ?? event.message);
+		event.preventDefault();
+	};
+
+	beforeEach(() => {
+		uncaught = [];
+		window.addEventListener('error', collect);
+		restore = emulateSyncFocusOutOnRemove();
+	});
+
+	afterEach(() => {
+		restore?.();
+		window.removeEventListener('error', collect);
+	});
+
+	async function openEditWithFocusedTool() {
+		const view = render();
+		await frames();
+		row('edit')!.focus();
+		key(row('edit')!, 'ArrowRight');
+		await frames();
+		keyboardFocus(tool$('crop'));
+		await frames();
+		expect(document.activeElement).toBe(tool$('crop'));
+		return view;
+	}
+
+	it('raises no state error on Escape and puts focus on the opening row', async () => {
+		await openEditWithFocusedTool();
+
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+		flushSync();
+		await frames();
+
+		expect(uncaught).toEqual([]);
+		expect(rows()).toEqual(['edit', 'effects']);
+		expect(document.activeElement).toBe(row('edit'));
+	});
+
+	it('raises no state error on ArrowLeft and puts focus on the opening row', async () => {
+		await openEditWithFocusedTool();
+
+		key(document.activeElement!, 'ArrowLeft');
+		await frames();
+
+		expect(uncaught).toEqual([]);
+		expect(rows()).toEqual(['edit', 'effects']);
+		expect(document.activeElement).toBe(row('edit'));
 	});
 });

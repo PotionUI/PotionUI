@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
@@ -10,7 +11,17 @@ from src.pipelines.pipes._shared.media.video_encode import AudioTrack
 from src.pipelines.pipes._shared.video.tubes.detailer import TubeClip
 from src.pipelines.pipes.detailer.video_minimax_h3 import refine as R
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import align_num_frames
-from src.pipelines.pipes.generator.video_minimax_h3.main import GeneratorMinimaxH3Pipe
+from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
+from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
+from src.pipelines.pipes.generator.video_minimax_h3.main import GeneratorMinimaxH3Pipe, _MiniMaxH3Ctx
+from tests.pipelines.pipes.generator.video_minimax_h3.test_main import (
+    _MAIN,
+    PATCH,
+    _fake_audio_vae_module,
+    _fake_conditioning,
+    _fake_dit_module,
+)
+from tests.pipelines.pipes.generator.video_minimax_h3.vae_stub import StubVideoVae
 
 _MOD = "src.pipelines.pipes.detailer.video_minimax_h3.refine"
 
@@ -123,12 +134,54 @@ def test_sample_tube_runs_the_h3_generator_as_a_locked_audio_refine(monkeypatch)
     assert seen["input"]["conditioning"] == ["cond"] and seen["input"]["seed"] == [7]
 
 
-def test_tube_refine_generator_decodes_the_refined_latent(monkeypatch):
-    monkeypatch.setattr(GeneratorMinimaxH3Pipe, "generate_one", lambda self, ctx, i, s, p: "latent")
-    monkeypatch.setattr(GeneratorMinimaxH3Pipe, "_decode_video", lambda self, c, latent: ("decoded", c, latent))
-    gen = R.TubeRefineGenerator(config=R.TubeRefineGenerator.get_default_config())
-    ctx = SimpleNamespace(extra="h3ctx")
-    assert gen.generate_one(ctx, 0, 1, None) == ("decoded", "h3ctx", "latent")
+class _ShiftedVae(StubVideoVae):
+    latents_mean = torch.linspace(-1.0, 1.0, 24)
+    latents_std = torch.linspace(0.5, 3.0, 24)
+
+
+def _tube_refine_ctx(vae_module):
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=SimpleNamespace(compute_dtype=torch.float32, estimated_vram_gb=19.5,
+                            module=_fake_dit_module(video_patch_dim),
+                            move_to=lambda d: None, offload=lambda: None),
+        video_vae=SimpleNamespace(module=vae_module, compute_dtype=torch.float32,
+                                   move_to=Mock(), offload=Mock(), estimated_vram_gb=2.0),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=Mock(), offload=Mock(),
+                                   estimated_vram_gb=0.5),
+        te=None, te_cache_key=None,
+    )
+    extra = _MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=3,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[], keyframe_anchors=(), audio_source="passthrough", audio_file="fake.mp3",
+        decode=False,
+    )
+    return GeneratorContext(quantity=1, input_seeds=[7], extra=extra)
+
+
+def _decoded_latent(gen_class, vae_module, monkeypatch):
+    seen = []
+    monkeypatch.setattr(GeneratorMinimaxH3Pipe, "_decode_video", lambda self, c, latent: seen.append(latent) or "frames")
+    gen = gen_class({**gen_class.get_default_config(), "preview": False})
+    gen._audio_results = []
+    torch.manual_seed(0)
+    with patch(f"{_MAIN}.restore_dit_best_effort"):
+        result = gen.generate_one(_tube_refine_ctx(vae_module), 0, 7, ProgressEmitter([].append, title="test"))
+    return result, seen
+
+
+def test_tube_refine_decodes_the_sampled_latent_in_the_space_decode_video_expects(monkeypatch):
+    rows_space, _ = _decoded_latent(GeneratorMinimaxH3Pipe, StubVideoVae(), monkeypatch)
+
+    result, seen = _decoded_latent(R.TubeRefineGenerator, _ShiftedVae(), monkeypatch)
+
+    assert result == "frames"
+    (latent,) = seen
+    assert torch.allclose(latent, rows_space, atol=1e-5)
 
 
 def _patch_pipeline(monkeypatch, calls):
@@ -169,3 +222,44 @@ def test_refine_tube_pixels_maps_strength_to_denoise(monkeypatch, strength, deno
                                device="cpu", seed=1, generation_outputs=lambda o: None)
     assert calls["denoise"] == [denoise]
     assert out.shape[0] == 12
+
+
+class _Profiler:
+    def __init__(self):
+        self.marks = []
+
+    def mark(self, event, **fields):
+        self.marks.append((event, fields))
+
+
+def test_profiling_on_dumps_tube_latent_stats_and_a_source_and_refined_frame(monkeypatch, tmp_path):
+    from PIL import Image
+
+    profiler = _Profiler()
+    monkeypatch.setattr(f"{_MOD}.diagnostics_dir", lambda: tmp_path)
+    monkeypatch.setattr(f"{_MOD}.get_profiler", lambda: profiler)
+    monkeypatch.setattr(f"{_MOD}.load_clip_audio", lambda clip: (np.zeros((2, 32000), np.float32), 32000))
+    monkeypatch.setattr(f"{_MOD}.encode_tube", lambda bundle, chunk, device: (torch.randn(1, 24, 2, 2, 2), 12))
+    monkeypatch.setattr(
+        f"{_MOD}.sample_tube", lambda *a, **kw: np.full((align_num_frames(12), 8, 6, 3), 9, np.uint8),
+    )
+    clip = TubeClip(source="/x.mp4", start_frame=0, num_frames=12, fps=24.0)
+    R.refine_tube_pixels(object(), "c", torch.zeros(1, 3, 12, 8, 6), clip, strength="balanced",
+                         device="cpu", seed=1, generation_outputs=lambda o: None)
+
+    stages = [fields["stage"] for event, fields in profiler.marks if event == "h3_detailer.latent_stats"]
+    assert stages == ["encoded"]
+    with Image.open(tmp_path / "h3_detailer_0_source.png") as source, \
+         Image.open(tmp_path / "h3_detailer_0_refined.png") as refined:
+        assert source.size == refined.size == (6, 8)
+        assert refined.getpixel((0, 0)) == (9, 9, 9)
+
+
+def test_profiling_off_writes_nothing(monkeypatch, tmp_path):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls)
+    monkeypatch.setattr(f"{_MOD}.diagnostics_dir", lambda: None)
+    clip = TubeClip(source="/x.mp4", start_frame=0, num_frames=12, fps=24.0)
+    R.refine_tube_pixels(object(), "c", torch.zeros(1, 3, 12, 8, 8), clip, strength="balanced",
+                         device="cpu", seed=1, generation_outputs=lambda o: None)
+    assert list(tmp_path.iterdir()) == []

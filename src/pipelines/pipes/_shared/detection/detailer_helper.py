@@ -17,6 +17,9 @@ def host_device() -> str:
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
+DETECTOR_IMGSZ = 640
+
+
 class DetailerHelper:
     """
     Helper class for the ADetailerPipe containing utility methods for:
@@ -63,7 +66,7 @@ class DetailerHelper:
         predict_kwargs = {
             "source": np.array(image),
             "conf": float(self.config["detections"][dtype]["confidence"]),
-            "imgsz": max(image.size),
+            "imgsz": int(self.config["detections"][dtype].get("imgsz", DETECTOR_IMGSZ)),
             "device": self.config["detections"][dtype].get("device", host_device()),
             "verbose": True,
         }

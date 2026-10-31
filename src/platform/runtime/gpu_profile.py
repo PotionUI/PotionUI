@@ -148,7 +148,7 @@ def detect_gpu_profile(device_index: int = 0) -> GpuProfile:
         from src.platform.runtime.native.kernels.hardware import VENDOR_CUDA
 
         device = _usable_device(capabilities(), device_index)
-        if device is None:
+        if device is None and torch.cuda.is_available():
             device = _usable_device(refresh_capabilities(), device_index)
         if device is None:
             return GpuProfile()

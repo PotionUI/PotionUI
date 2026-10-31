@@ -305,9 +305,21 @@ def test_detect_refreshes_once_and_returns_empty_when_still_unusable(monkeypatch
     calls = []
     real = kernels.refresh_capabilities
     monkeypatch.setattr(kernels, "refresh_capabilities", lambda: calls.append(1) or real())
-    _fake_cuda(monkeypatch)
+    _fake_cuda(monkeypatch, RuntimeError("driver not ready"))
     assert detect_gpu_profile() == GpuProfile()
     assert calls == [1]
+
+
+def test_detect_never_refreshes_on_a_machine_without_a_gpu(monkeypatch):
+    import src.platform.runtime.native.kernels as kernels
+
+    calls = []
+    real = kernels.refresh_capabilities
+    monkeypatch.setattr(kernels, "refresh_capabilities", lambda: calls.append(1) or real())
+    _fake_cuda(monkeypatch)
+    for _ in range(3):
+        assert detect_gpu_profile() == GpuProfile()
+    assert calls == []
 
 
 def test_detect_logs_and_returns_empty_when_the_engine_import_fails(monkeypatch, caplog):

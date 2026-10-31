@@ -215,18 +215,23 @@ class GeneratorSDXLPipe(BasePipe):
             if is_cancelled is not None and is_cancelled():
                 self._raise_sampling_cancelled()
 
+            original_size = img.size
             img = self._fit_pixels(img, max_pixels)
             width, height = img.size
+            frame_mask, frame_controls = mask, control_images
+            if img.size != original_size:
+                frame_mask = self._resize_like(mask, img.size, Image.NEAREST)
+                frame_controls = [self._resize_like(c, img.size, Image.LANCZOS) for c in control_images]
 
             # Build generation input
             g_input = self._build_generation_input_img2img(
-                img, mask, width, height, seeds, conditioning, index
+                img, frame_mask, width, height, seeds, conditioning, index
             )
 
             # Execute generation
             if using_controlnet:
                 output = self._call_with_cancellation(
-                    model.img2img_controlnet, g_input, control_images, generation_outputs,
+                    model.img2img_controlnet, g_input, frame_controls, generation_outputs,
                     is_cancelled=is_cancelled,
                 )
             else:
@@ -327,6 +332,12 @@ class GeneratorSDXLPipe(BasePipe):
                 GenerationInputItem(name="guidance_rescale", value=float(self.config.get("guidance_rescale", 0.0)), io_type=IOType.GUIDANCE_RESCALE),
             ]
         )
+
+    @staticmethod
+    def _resize_like(item, size, resample):
+        if item is None or not hasattr(item, "resize") or item.size == size:
+            return item
+        return item.resize(size, resample)
 
     @staticmethod
     def _fit_pixels(image, max_pixels: int):

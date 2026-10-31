@@ -1,0 +1,91 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    formula: "speed"
+    children:
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        audience: "advanced"
+        default: 20
+        configuration: {min: 1, max: 100, step: 1}
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: 20, set_disabled: false }
+          - when: { field: "speed_profile", equals: "turbo" }
+            then: { set_value: 8, set_disabled: false }
+          - when: { field: "speed_profile", equals: "turbo_4" }
+            then: { set_value: 4, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG Scale"
+        audience: "advanced"
+        default: 4.0
+        configuration: {min: 1.0, max: 10.0, step: 0.5}
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: 4.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "turbo" }
+            then: { set_value: 1.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "turbo_4" }
+            then: { set_value: 1.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - type: "row"
+        children:
+          - name: "sampler"
+            type: "sampler"
+            label: "Sampler"
+            audience: "advanced"
+            default: "euler"
+            configuration:
+              family: "qwen_image"
+              exclude: ["lcm"]
+            reactions:
+              - when: { field: "speed_profile", equals: "balanced" }
+                then: { set_value: "euler", set_disabled: false }
+              - when: { field: "speed_profile", equals: "turbo" }
+                then: { set_value: "euler", set_disabled: false }
+              - when: { field: "speed_profile", equals: "turbo_4" }
+                then: { set_value: "euler", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
+
+          - name: "schedule"
+            type: "schedule"
+            label: "Schedule"
+            audience: "advanced"
+            default: "shift"
+            configuration:
+              family: "qwen_image"
+              exclude: ["manual"]
+            reactions:
+              - when: { field: "speed_profile", equals: "balanced" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "turbo" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "turbo_4" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
+
+      - name: "shift"
+        type: "number"
+        label: "Shift (override)"
+        audience: "advanced"
+        configuration: {min: 0.1, max: 10.0, step: 0.05}
+
+  - type: "section"
+    label: "Camera"
+    children:
+      - name: "camera_strength"
+        type: "slider"
+        label: "Angle strength"
+        audience: "advanced"
+        default: 0.9
+        description: "Lower if the subject drifts."
+        configuration: {min: 0.5, max: 1.2, step: 0.05}

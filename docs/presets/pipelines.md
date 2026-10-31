@@ -125,7 +125,9 @@ missing/non-numeric/negative strengths are kept, only an exact-zero strength dro
 `strip_model_dir` (strips a model picker value's depot type directory —
 `models/<vae|loras|checkpoints|...>/` — while keeping any subdirectories underneath, e.g.
 `{{ form.vae | strip_model_dir }}`; `None`/`''` and a value with no such prefix pass through
-as `''`/unchanged — see [Models and Backend Availability](../models.md)) plus all Jinja builtins —
+as `''`/unchanged — see [Models and Backend Availability](../models.md)), `text_or` (trims a
+text and returns a fallback when it is `None` or only whitespace, e.g.
+`{{ generation.prompts.first.positive | text_or('A cinematic shot') }}`) plus all Jinja builtins —
 `default` being the load-bearing one (see above).
 
 Note: `device`, `dtype` and `gpu_max_vram` are **not** in the template context — they are

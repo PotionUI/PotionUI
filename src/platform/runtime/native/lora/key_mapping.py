@@ -463,6 +463,23 @@ def build_flux3_lora_key_map(module: nn.Module) -> dict[str, tuple[str, tuple | 
     return key_map
 
 
+_QWEN_IMAGE21_MLP_PARTS = (("gate_layer", 0), ("proj", 1))
+
+
+def build_qwen_image21_lora_key_map(module: nn.Module) -> dict[str, tuple[str, tuple | None]]:
+    key_map = build_krea2_lora_key_map(module)
+    shapes = _module_param_shapes(module)
+    for stem in _linear_param_stems(module):
+        if not stem.endswith(".img_mlp.gate_up"):
+            continue
+        param = f"{stem}.weight"
+        rows = shapes[param][0] // 2
+        base = stem[: -len("gate_up")]
+        for part, index in _QWEN_IMAGE21_MLP_PARTS:
+            _register_lora_stem(key_map, f"{base}{part}", param, (0, index * rows, rows))
+    return key_map
+
+
 def _select_key_map(module: nn.Module) -> dict[str, tuple[str, tuple | None]]:
     """Pick the per-family LoRA key map from the module's arch shape.
 
@@ -483,6 +500,8 @@ def _select_key_map(module: nn.Module) -> dict[str, tuple[str, tuple | None]]:
     if cfg is not None and getattr(cfg, "fused_qkv", False):
         return build_flux3_lora_key_map(module)
     config = getattr(module, "config", None)
+    if config is not None and getattr(config, "fused_mlp", False) and hasattr(config, "mlp_ratio"):
+        return build_qwen_image21_lora_key_map(module)
     if config is not None and hasattr(config, "video_patch_dim") and hasattr(config, "pruned"):
         return build_minimax_h3_lora_key_map(module)
     return build_krea2_lora_key_map(module)

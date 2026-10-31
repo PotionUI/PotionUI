@@ -20,7 +20,7 @@ EXPECTED = {
     ("LTX-2.5", "add_water"), ("LTX-2.5", "remove_object"), ("LTX-2.5", "layout_to_render"), ("LTX-2.5", "motion_transfer"), ("LTX-2.5", "extend"), ("LTX-2.5", "refine_faces"),
     ("LTX-2.5", "day_to_night"), ("LTX-2.5", "cinemagraph"), ("LTX-2.5", "transition"), ("LTX-2.5", "follow_motion"),
     ("ZImage", "txt2img"), ("Wan", "video"),
-    ("QwenImage", "txt2img"), ("QwenImage", "img2img"), ("QwenImage", "edit"),
+    ("QwenImage", "txt2img"), ("QwenImage", "img2img"), ("QwenImage", "edit"), ("QwenImage", "camera"), ("QwenImage", "real"),
     ("QwenImage-2.1", "txt2img"), ("QwenImage-2.1", "edit"), ("QwenImage-2.1", "combine"), ("QwenImage-2.1", "text"), ("QwenImage-2.1", "restyle"), ("QwenImage-2.1", "control"),
     ("Anima", "txt2img"),
     ("Flux1", "txt2img"), ("Flux1", "img2img"), ("Flux2", "txt2img"), ("Flux2", "img2img"),

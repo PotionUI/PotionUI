@@ -57,6 +57,13 @@ def strip_model_dir(value: Any) -> str:
     return value[matches[-1].end():]
 
 
+def text_or(value: Any, fallback: Any) -> Any:
+    if value is None:
+        return fallback
+    text = str(value).strip()
+    return text if text else fallback
+
+
 def active_loras(value: Any) -> List[Any]:
     """
     Keep only the LoRA entries that actually affect a generation.

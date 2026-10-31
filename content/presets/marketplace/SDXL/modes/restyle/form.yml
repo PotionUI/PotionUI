@@ -1,0 +1,36 @@
+name: "custom"
+mode_label: "Img2img / restyle"
+short_description: "Make a new picture from yours: change its style, mood or details."
+prompt_label: "Describe the new picture"
+prompt_placeholder: "watercolor painting of the same scene, soft warm colors"
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Restyle"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/restyle/tabs/generation.yml"
+
+      - type: "tab"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/inpaint/tabs/lora.yml"
+
+      - type: "tab"
+        label: "Embeddings"
+        configuration:
+          icon: "embedding"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/embeddings.yml"
+
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/inpaint/tabs/advanced.yml"

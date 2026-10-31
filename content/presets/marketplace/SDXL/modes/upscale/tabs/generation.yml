@@ -1,0 +1,84 @@
+fields:
+  - type: "section"
+    label: "Image"
+    children:
+      - name: "source_image"
+        type: "image"
+        label: "Image"
+        required: true
+        ai_hint: "The picture to enlarge. It is scaled up first, then each part is re-detailed by the checkpoint so the result is sharper, not just bigger."
+
+  - type: "section"
+    label: "Upscale"
+    children:
+      - name: "upscale_factor"
+        type: "slider"
+        label: "Scale"
+        default: 2.0
+        ai_hint: "How many times larger the picture gets. 2 is safe on most cards; 4 needs a lot of memory and time."
+        configuration: { min: 1.5, max: 4.0, step: 0.5 }
+
+      - name: "refine"
+        type: "checkbox"
+        label: "Re-detail"
+        default: true
+        ai_hint: "On: the checkpoint repaints fine detail on the enlarged picture, tile by tile. Off: only the upscaler model enlarges it, which is faster and never changes the picture."
+
+      - name: "td_denoise"
+        type: "slider"
+        label: "Detail strength"
+        default: 0.25
+        ai_hint: "How much the checkpoint may change. 0.2 to 0.3 adds detail and keeps the picture; above 0.45 starts inventing new things."
+        reactions:
+          - when: { field: "refine", equals: false }
+            then: { set_visibility: false }
+          - when: { field: "refine", equals: true }
+            then: { set_visibility: true }
+        configuration: { min: 0.05, max: 0.6, step: 0.05 }
+
+      - name: "seed"
+        type: "seed"
+        label: "Seed"
+        default: -1
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children:
+      - name: "upscale_model"
+        type: "model"
+        label: "Upscaler"
+        required: true
+        ai_hint: "The model that enlarges the picture. Use the anime one for drawings and the general one for photos."
+        configuration:
+          model_type: "upscaler"
+          allow_info_modal: true
+          placeholder: "Select upscaler..."
+          filter_tags: "@config:upscaler_tags"
+          recommendations:
+            - name: "RealESRGAN 4x+ Anime"
+              link: "https://huggingface.co/ximso/RealESRGAN_x4plus_anime_6B/resolve/main/RealESRGAN_x4plus_anime_6B.pth"
+              size: "17.1 MB"
+              sha256: "f872d837d3c90ed2e05227bed711af5671a6fd1c9f7d7e91c911a61f155e99da"
+              description: "For drawings and anime, with sharp lines."
+            - name: "RealESRGAN 4x"
+              link: "https://huggingface.co/ai-forever/Real-ESRGAN/resolve/main/RealESRGAN_x4.pth"
+              size: "63.9 MB"
+              sha256: "aa00f09ad753d88576b21ed977e97d634976377031b178acc3b5b238df463400"
+              description: "For photos and general pictures."
+
+      - name: "model"
+        type: "model"
+        label: "Checkpoint"
+        required: true
+        ai_hint: "The checkpoint that re-details the enlarged picture. Use the one the picture was made with for the most natural result; Illustrious, Pony and NoobAI checkpoints all work."
+        reactions:
+          - when: { field: "refine", equals: false }
+            then: { set_visibility: false }
+          - when: { field: "refine", equals: true }
+            then: { set_visibility: true }
+        configuration:
+          model_type: "checkpoint"
+          allow_info_modal: true
+          placeholder: "Select model..."
+          filter_tags: "@config:checkpoint_tags"

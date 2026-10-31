@@ -23,7 +23,7 @@ pipeline:
         name: "{{ form.vae }}"
       loras:
         "@loop":
-          items: "{{ form.loras }}"
+          items: "{{ ([{'model': form.turbo_lora, 'strength': 1.0}] if form.speed_profile == 'turbo' and form.turbo_lora else []) + (form.loras or []) }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -98,7 +98,7 @@ pipeline:
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.vae }}"]
         - "@loop":
-            items: "{{ form.loras | active_loras }}"
+            items: "{{ ([{'model': form.turbo_lora}] if form.speed_profile == 'turbo' and form.turbo_lora else []) + (form.loras | active_loras) }}"
             template: ["model", "{{ item.model }}"]
         # Per-image arrays, so history records the prompt each image actually ran with.
         - ["positive_prompt", "{{ generation.prompts.positives }}"]

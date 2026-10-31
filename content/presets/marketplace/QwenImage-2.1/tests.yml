@@ -62,3 +62,28 @@ cases:
     checks:
       min_outputs: 1
       not_black: true
+
+  - name: "qwen-image-21-turbo8-fast"
+    mode: "txt2img"
+    seed: 4242
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "a bakery storefront with a wooden sign reading \"Fresh Baked Daily\""
+      speed_profile: "turbo"
+      resolution: "1024x1024"
+    models:
+      diffusion_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      turbo_lora:
+        sha256: "a0b7a7634ff2f82ccbe209e16b0ba19b25e2d9e18624d89edc490503b6a75d39"
+        hf:
+          repo: "chriswritescode/Turbo8-LoRA-Qwen-Image-2.1"
+          file: "turbo8_lora_step2500.safetensors"
+    checks:
+      min_outputs: 1
+      resolution: "1024x1024"
+      not_black: true

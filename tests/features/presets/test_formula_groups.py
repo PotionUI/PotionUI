@@ -311,7 +311,7 @@ class TestShippedDeclarations:
         assert groups["speed"].fields == ["speed_profile", "steps", "sampler", "scheduler"]
         assert groups["size"].fields == ["resolution"]
         assert groups["models"].preselect is False
-        assert groups["models"].fields == ["model", "text_encoder", "video_vae", "audio_vae", "preview_decoder", "upscale_model"]
+        assert groups["models"].fields == ["model", "text_encoder", "video_vae", "audio_vae", "flex_adapter", "preview_decoder", "upscale_model"]
         grouped = {name for group in groups.values() for name in group.fields}
         assert not grouped & {"seed", "quantity", "manual_sigmas", "keyframe_pixel_budget", "preview"}
 

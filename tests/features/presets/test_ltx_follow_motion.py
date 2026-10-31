@@ -123,7 +123,7 @@ def test_the_form_offers_depth_and_edges_and_reuses_the_motion_transfer_models(t
     assert [o["value"] for o in guide["configuration"]["options"]] == ["depth", "edges"]
     assert guide["default"] == "depth"
     form = yaml.safe_load((root / "form.yml").read_text(encoding="utf-8"))
-    assert form["requirements"][0]["filename"] == UNION_LORA
+    assert form["requirements"][0]["field"] == "effect_lora"
     tabs = form["fields"][0]["children"]
     assert tabs[0]["children"].endswith("modes/motion_transfer/tabs/generation.yml")
     assert (root.parent / "motion_transfer" / "tabs" / "generation.yml").is_file()

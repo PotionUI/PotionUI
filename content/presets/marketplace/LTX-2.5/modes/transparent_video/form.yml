@@ -4,7 +4,7 @@ mode_label: "Transparent video"
 short_description: "Cut the subject out of a video and keep it see-through."
 requirements:
   - type: "model"
-    filename: "ltx-2.5-22b-ic-lora-alpha-gen-0.9.safetensors"
+    field: "effect_lora"
     hint: "Download the Alpha-Gen LoRA in this mode."
 fields:
   - type: "tabs"

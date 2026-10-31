@@ -7,7 +7,7 @@
 ########
 schema_version: 1
 id: "ltx2-starter"
-version: 1
+version: 2
 name: "LTX-2 / 2.3 Starter"
 engine: "native"
 category: "video"
@@ -39,39 +39,7 @@ plugins:
 backend:
   engine: "native"
 
-artifacts:
-  - id: "ltx2-checkpoint"
-    kind: "checkpoint"
-    model_type: "checkpoint"
-    filename: "ltx-2.3-22b-distilled-fp8.safetensors"
-    display_name: "LTX-2.3 22B distilled checkpoint (fp8, all-in-one)"
-    required: true
-    size_bytes: 29531884062
-    checksum:
-      algorithm: "sha256"
-      value: "d9646b6f2d5c42d337b23671634c43bfeece6989644f51b4a3aa088465ccd3b2"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Lightricks/LTX-2.3-fp8"
-      version_id: "main@ltx-2.3-22b-distilled-fp8.safetensors"
-
-  - id: "ltx2-text-encoder"
-    kind: "text_encoder"
-    model_type: "text_encoder"
-    filename: "gemma_3_12B_it_fp8_scaled.safetensors"
-    display_name: "Gemma3-12B text encoder (fp8-scaled)"
-    required: true
-    size_bytes: 13205434827
-    checksum:
-      algorithm: "sha256"
-      value: "60216ce97c01c3a8753c2dfd0a89fc76e16fbe446d1a32ef8f1b528ac8bae466"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/ltx-2"
-      version_id: "main@split_files/text_encoders/gemma_3_12B_it_fp8_scaled.safetensors"
-
+artifacts: []
 presets:
   - preset_id: "01KX47LTXVIDEO0000000000TV"
     path_hint: "marketplace/LTX-2"
@@ -119,17 +87,21 @@ steps:
     params:
       engine: "native"
 
-  - key: "artifacts.plan"
-    kind: "artifacts.plan"
-    title: "Plan required downloads"
+  - key: "modes.plan"
+    kind: "modes.plan"
+    title: "Pick modes and review downloads"
     params:
-      artifact_ids: ["ltx2-checkpoint", "ltx2-text-encoder"]
+      preset_id: "01KX47LTXVIDEO0000000000TV"
+      modes: "all"
+      selected: ["video"]
+      locked: ["video"]
+      extras: "offer"
 
   - key: "artifacts.fetch"
     kind: "artifacts.fetch"
-    title: "Download the LTX-2.3 model files"
+    title: "Download the files"
     params:
-      artifact_ids: ["ltx2-checkpoint", "ltx2-text-encoder"]
+      plan: "modes.plan"
 
   - key: "models.index.downloads"
     kind: "models.index"
@@ -143,12 +115,18 @@ steps:
     params:
       preset_id: "01KX47LTXVIDEO0000000000TV"
 
+  - key: "preset.defaults"
+    kind: "preset.defaults"
+    title: "Use the downloaded files by default"
+    params:
+      plan: "modes.plan"
+
   - key: "pipeline.render"
     kind: "pipeline.render"
     title: "Validate the pipeline"
     params:
       preset_id: "01KX47LTXVIDEO0000000000TV"
-      mode: "video"
+      plan: "modes.plan"
 
   - key: "generation.smoke"
     kind: "generation.smoke"

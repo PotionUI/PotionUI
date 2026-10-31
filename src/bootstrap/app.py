@@ -401,6 +401,12 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         if reconciled:
             logging.info(f"Reconciled {reconciled} interrupted generation(s) as failed after restart")
 
+        try:
+            if container.recipe_runner.reconcile_interrupted():
+                logging.info("Marked a recipe run interrupted by the restart as failed; it can be retried")
+        except Exception as exc:
+            logging.error(f"Reconciling interrupted recipe runs failed at startup: {exc}")
+
         container.app_loop = asyncio.get_running_loop()
         container.plugin_registry.run_ready_hooks()
 

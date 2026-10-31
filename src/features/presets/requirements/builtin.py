@@ -9,12 +9,16 @@ Every checker is pure Python: no subprocess, no shell, no network I/O.
 
 import importlib.metadata
 import shutil
+from pathlib import PurePosixPath
 from typing import Any, Dict, List, Optional
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.features.models.recommendations import any_installed
+
+MODEL_REF_PREFIX = "model:"
 from src.features.presets.requirements.contracts import (
     RequirementAction,
     RequirementContext,
@@ -168,11 +172,14 @@ class ModelRequirementSchema(_RequirementEntryModel):
     tag: Optional[str] = None
     hash: Optional[str] = None
     filename: Optional[str] = None
+    field: Optional[str] = None
+    any_of: List[str] = Field(default_factory=list)
+    candidates: List[Dict[str, Any]] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _require_exactly_one(self) -> "ModelRequirementSchema":
-        if sum(bool(value) for value in (self.tag, self.hash, self.filename)) != 1:
-            raise ValueError("model requirement needs exactly one of 'tag', 'hash' or 'filename'")
+        if sum(bool(value) for value in (self.tag, self.hash, self.filename, self.field, self.any_of)) != 1:
+            raise ValueError("model requirement needs exactly one of 'tag', 'hash', 'filename', 'field' or 'any_of'")
         return self
 
 
@@ -203,6 +210,9 @@ class ModelRequirementChecker:
                 hint=parsed.hint,
                 action=RequirementAction(kind="open_downloader", payload={"hash": parsed.hash}),
             )
+
+        if parsed.field or parsed.any_of:
+            return self._check_fields(parsed, ctx)
 
         if parsed.filename:
             matches = ctx.models.model_repo.get_by_filename(parsed.filename)
@@ -237,6 +247,44 @@ class ModelRequirementChecker:
         )
 
     @staticmethod
+    def _check_fields(parsed: "ModelRequirementSchema", ctx: RequirementContext) -> RequirementResult:
+        names = [parsed.field] if parsed.field else list(parsed.any_of)
+        digests = getattr(ctx.models, "digests", None)
+        for group in parsed.candidates:
+            model = any_installed(ctx.models.model_repo, group.get("files") or [], digests=digests)
+            if model is not None:
+                return RequirementResult(status="ok", detail=f"model '{model.filename}' present for '{group.get('field')}'")
+        for group in parsed.candidates:
+            chosen = ModelRequirementChecker._admin_default(ctx, group)
+            if chosen is not None:
+                return RequirementResult(status="ok", detail=f"admin default '{chosen}' present for '{group.get('field')}'")
+        label = names[0] if parsed.field else "one of " + ", ".join(names)
+        return RequirementResult(
+            status="missing",
+            detail=f"no recommended file for {label} is installed",
+            hint=parsed.hint,
+            action=RequirementAction(kind="open_downloader", payload={"field": names[0], "fields": names}),
+        )
+
+    @staticmethod
+    def _admin_default(ctx: RequirementContext, group: Dict[str, Any]) -> Optional[str]:
+        overrides = ((ctx.form_overrides or {}).get(group.get("mode")) or {}).get(group.get("field"))
+        value = overrides.get("default") if isinstance(overrides, dict) else None
+        if not isinstance(value, str) or not value.strip():
+            return None
+        repo = ctx.models.model_repo
+        if value.startswith(MODEL_REF_PREFIX):
+            model = repo.get_by_id(value[len(MODEL_REF_PREFIX):], include_providers=False)
+        else:
+            name = PurePosixPath(value.replace("\\", "/")).name
+            model = repo.get_by_identity(group.get("model_type") or "", name) if group.get("model_type") else None
+            if model is None:
+                model = next((m for m in repo.get_by_filename(name) or [] if m.is_available), None)
+        if model is None or not getattr(model, "is_available", True):
+            return None
+        return model.filename
+
+    @staticmethod
     def _unverified_files(ctx: RequirementContext) -> int:
         digests = getattr(ctx.models, "digests", None)
         return digests.pending_count() if digests is not None else 0
@@ -248,6 +296,12 @@ class ModelRequirementChecker:
         filename = spec.get("filename")
         if filename:
             return filename
+        field_name = spec.get("field")
+        if field_name:
+            return field_name
+        any_of = spec.get("any_of") or []
+        if any_of:
+            return "one of " + ", ".join(any_of)
         model_hash = spec.get("hash")
         if model_hash:
             return model_hash[:12]

@@ -229,6 +229,7 @@ class RemoteNativeBackend(BaseBackend):
             "cpu_count": caps.cpu_count,
             "total_memory_bytes": caps.total_memory_bytes,
             "torch_version": caps.torch_version,
+            "free_disk_bytes": caps.free_disk_bytes,
             "cuda_version": caps.cuda_version,
         }
 

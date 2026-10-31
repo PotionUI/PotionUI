@@ -33,6 +33,7 @@ from src.platform.templating import TemplateProcessor
 from src.features.presets.children_paths import DEFAULT_SHARED_PATH, resolve_children_path
 from src.features.presets.children_refs import ChildrenRef, parse_children_ref, read_children_fragment
 from src.features.presets.templates import PresetTemplate, PipeTemplate, FieldTemplate, FormTemplate, ModeTemplate
+from src.features.presets.mode_fields import resolve_requirement_fields
 from src.platform.filesystem.yaml_io import load_yaml_file
 from .schema import (
     validate_manifest,
@@ -156,7 +157,7 @@ def discover_form_variants(mode_dir: Path) -> List[Tuple[str, Path]]:
 
 def _mode_scoped_requirements(mode_name: str, mode_template: ModeTemplate) -> List[Dict[str, Any]]:
     return [
-        {**spec, "mode": mode_name}
+        {**resolve_requirement_fields(spec, mode_template, mode_name), "mode": mode_name}
         for form in mode_template.forms
         for spec in form.requirements
     ]

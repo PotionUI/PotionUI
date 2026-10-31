@@ -10,7 +10,7 @@ negative_prompt:
       - { field: "cfg", greater_than: 1 }
 requirements:
   - type: "model"
-    filename: "ltx-2.5-22b-ic-lora-clean-plate-1.0.safetensors"
+    field: "effect_lora"
     hint: "Download the Remove object LoRA in this mode."
 fields:
   - type: "tabs"

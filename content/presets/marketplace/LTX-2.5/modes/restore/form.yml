@@ -10,15 +10,15 @@ negative_prompt:
       - { field: "cfg", greater_than: 1 }
 requirements:
   - type: "model"
-    filename: "ltx-2.5-22b-ic-lora-restore-1.0.safetensors"
+    field: "restore_lora"
     hint: "Download the Restore LoRA in this mode."
     optional: true
   - type: "model"
-    filename: "ltx-2.5-22b-ic-lora-deblur-0.9.safetensors"
+    field: "deblur_lora"
     hint: "Download the Remove blur LoRA in this mode."
     optional: true
   - type: "model"
-    filename: "ltx-2.5-22b-ic-lora-decompression-0.9.safetensors"
+    field: "decompress_lora"
     hint: "Download the Remove compression LoRA in this mode."
     optional: true
 fields:

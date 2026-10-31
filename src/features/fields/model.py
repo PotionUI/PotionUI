@@ -5,8 +5,12 @@ from .specs import FieldConfigSpec, FieldValidationSpec, FieldExampleSpec
 from src.features.presets.configuration import resolve_field_filter_tags, resolve_reactions_filter_tags
 from src.features.presets.form_lookups import current_form_lookups
 from src.platform.filesystem.model_types import PICKABLE_MODEL_TYPES
+from src.features.models.recommendations import (
+    RECOMMENDATION_EXTENSIONS,
+    recommendation_filenames,
+    serialize_recommendation,
+)
 
-RECOMMENDATION_EXTENSIONS = ('.safetensors', '.ckpt', '.pt', '.pth', '.bin')
 
 
 class Model(BaseField):
@@ -79,7 +83,7 @@ class Model(BaseField):
 
         serialized = []
         for rec in visible:
-            entry = dict(rec)
+            entry = serialize_recommendation(rec)
             entry['installed'] = bool(
                 rec.get('name') and existing.intersection(Model._recommendation_filenames(rec['name']))
             )
@@ -89,7 +93,7 @@ class Model(BaseField):
 
     @staticmethod
     def _recommendation_filenames(name: str) -> List[str]:
-        return [name, *(f"{name}{ext}" for ext in RECOMMENDATION_EXTENSIONS)]
+        return recommendation_filenames(name)
 
     @classmethod
     def configuration(cls) -> List[FieldConfigSpec]:

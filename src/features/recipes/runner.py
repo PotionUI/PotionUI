@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from src.features.recipes.records import (
     MODE_ONBOARDING,
+    GrantRequest,
     RecipeRun,
     RecipeRunStatus,
     RecipeStepAttempt,
@@ -34,6 +35,9 @@ from src.features.recipes.run_repository import IntegrityError, RecipeRunReposit
 from src.features.recipes.variants import validate_selections
 
 logger = logging.getLogger(__name__)
+
+INTERRUPTED_CODE = "RUN_INTERRUPTED"
+INTERRUPTED_DETAIL = "This step was interrupted by a restart. Retry it to pick up where it left off."
 
 
 class RecipeRunError(Exception):
@@ -457,6 +461,43 @@ class RecipeRunner:
                 selections.update({str(k): str(v) for k, v in chosen.items() if isinstance(v, str)})
         return selections
 
+    def latest_step_outputs(self, run_id: str) -> Dict[str, Dict[str, Any]]:
+        outputs: Dict[str, Dict[str, Any]] = {}
+        for attempt in self.repo.list_attempts(run_id):
+            if attempt.status == RecipeStepStatus.SUCCEEDED:
+                outputs[attempt.step_key] = dict(attempt.safe_output or {})
+        return outputs
+
+    def close_cancelled_attempt(self, run_id: str, step_key: str, attempt_id: Optional[str]) -> None:
+        try:
+            if attempt_id is not None:
+                self.repo.update_attempt(attempt_id, status=RecipeStepStatus.CANCELLED, finished=True)
+            else:
+                self.repo.insert_attempt(run_id, step_key, RecipeStepStatus.CANCELLED, finished=True)
+        except Exception:
+            logger.exception("Closing the cancelled attempt of run '%s' failed", run_id)
+
+    def reconcile_interrupted(self) -> int:
+        run = self.repo.get_active_run()
+        if run is None or run.status not in (RecipeRunStatus.PENDING, RecipeRunStatus.RUNNING):
+            return 0
+        for attempt in self.repo.list_attempts(run.id):
+            if attempt.status == RecipeStepStatus.RUNNING and attempt.finished_at is None:
+                self.repo.update_attempt(
+                    attempt.id,
+                    status=RecipeStepStatus.FAILED,
+                    error_code=INTERRUPTED_CODE,
+                    safe_error_detail=INTERRUPTED_DETAIL,
+                    finished=True,
+                )
+        self.repo.update_run(
+            run.id,
+            status=RecipeRunStatus.FAILED,
+            error_code=INTERRUPTED_CODE,
+            safe_error_detail=INTERRUPTED_DETAIL,
+        )
+        return 1
+
     def grant_consent(
         self,
         run_id: str,
@@ -464,6 +505,9 @@ class RecipeRunner:
         *,
         granted_by: Optional[str] = None,
         selections: Optional[Dict[str, str]] = None,
+        modes: Optional[List[str]] = None,
+        extras: Optional[List[str]] = None,
+        target: Optional[str] = None,
     ) -> RecipeRun:
         """Approve the artifacts an ``awaiting_consent`` step is parked on.
 
@@ -505,6 +549,27 @@ class RecipeRunner:
         safe_output: Dict[str, Any] = {"consent_granted": True, "granted_by": granted_by, "approved": consent_request}
         if effective:
             safe_output["selections"] = effective
+
+        recipe = self._executor_registry.catalog.get_recipe(run.recipe_id, run.recipe_version)
+        step = recipe.get_step(step_key) if recipe else None
+        executor = self._executor_registry.get_executor(step.kind) if step is not None else None
+        grant = getattr(executor, "grant", None)
+        if grant is not None:
+            context = self._executor_registry.build_context(self, run, recipe, step)
+            try:
+                safe_output.update(
+                    grant(
+                        context,
+                        consent_request or {},
+                        GrantRequest(selections=dict(selections or {}), modes=modes, extras=extras, target=target),
+                    )
+                    or {}
+                )
+            except ValueError as exc:
+                raise RecipeRunError(str(exc)) from exc
+        elif modes is not None or extras is not None or target is not None:
+            raise RecipeRunError("This step does not offer modes, extras or a target to choose.")
+
         self.record_step_attempt(
             run_id,
             step_key,
@@ -513,8 +578,6 @@ class RecipeRunner:
             finished=True,
         )
 
-        recipe = self._executor_registry.catalog.get_recipe(run.recipe_id, run.recipe_version)
-        step = recipe.get_step(step_key) if recipe else None
         if step is None:
             return self.transition(
                 run_id,

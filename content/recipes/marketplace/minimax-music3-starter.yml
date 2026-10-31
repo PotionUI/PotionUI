@@ -7,7 +7,7 @@
 ########
 schema_version: 1
 id: "minimax-music3-starter"
-version: 1
+version: 2
 name: "MiniMax-Music3 Starter"
 engine: "native"
 category: "audio"
@@ -43,58 +43,7 @@ plugins:
 backend:
   engine: "native"
 
-artifacts:
-  - id: "minimax-music3-diffusion-model"
-    kind: "diffusion_model"
-    model_type: "diffusion_model"
-    filename: "minimax_music3_dit_fp16.safetensors"
-    display_name: "MiniMax-Music3 DiT (flow-matching, fp16)"
-    required: true
-    size_bytes: 4914197682
-    checksum:
-      algorithm: "sha256"
-      value: "45494a2b6b69af115902ff28eaf54118d19067aa54da01000f3e3efce7ba0e34"
-    # Declared by capability, never by a concrete plugin id - core resolves a
-    # download source through whichever enabled plugin advertises this
-    # capability (see plugin manifest `capabilities:`).
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/MiniMax-Music-3"
-      version_id: "main@diffusion_models/minimax_music3_dit_fp16.safetensors"
-
-  - id: "minimax-music3-text-encoder"
-    kind: "text_encoder"
-    model_type: "text_encoder"
-    filename: "minimax_music3_text_encoder_pruned_bf16.safetensors"
-    display_name: "MiniMax-Music3 text encoder (pruned AR + depth decoder, bf16)"
-    required: true
-    size_bytes: 16706629398
-    checksum:
-      algorithm: "sha256"
-      value: "e81e469c92af324dc69b77e5a11179e22542a6d628f2b205c8cf6143e510d976"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/MiniMax-Music-3"
-      version_id: "main@text_encoders/minimax_music3_text_encoder_pruned_bf16.safetensors"
-
-  - id: "minimax-music3-vae"
-    kind: "vae"
-    model_type: "vae"
-    filename: "minimax_music3_dav.safetensors"
-    display_name: "MiniMax-Music3 DAV vocoder"
-    required: true
-    size_bytes: 216696128
-    checksum:
-      algorithm: "sha256"
-      value: "2a32155b769be01445fcc2a8663b910fc9e1751e18dc1c3ec528064512d9ef0c"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/MiniMax-Music-3"
-      version_id: "main@vae/minimax_music3_dav.safetensors"
-
+artifacts: []
 presets:
   - preset_id: "01KX47MINIMAXMUSIC300000MU"
     path_hint: "marketplace/MiniMax-Music3"
@@ -127,17 +76,21 @@ steps:
     params:
       engine: "native"
 
-  - key: "artifacts.plan"
-    kind: "artifacts.plan"
-    title: "Plan required downloads"
+  - key: "modes.plan"
+    kind: "modes.plan"
+    title: "Pick modes and review downloads"
     params:
-      artifact_ids: ["minimax-music3-diffusion-model", "minimax-music3-text-encoder", "minimax-music3-vae"]
+      preset_id: "01KX47MINIMAXMUSIC300000MU"
+      modes: "all"
+      selected: ["song"]
+      locked: ["song"]
+      extras: "offer"
 
   - key: "artifacts.fetch"
     kind: "artifacts.fetch"
-    title: "Download the MiniMax-Music3 model files"
+    title: "Download the files"
     params:
-      artifact_ids: ["minimax-music3-diffusion-model", "minimax-music3-text-encoder", "minimax-music3-vae"]
+      plan: "modes.plan"
 
   - key: "models.index.downloads"
     kind: "models.index"
@@ -161,12 +114,17 @@ steps:
   # `generation.smoke` has no equivalent for. Until the executor learns to
   # count audio output, `pipeline.render` (a dry run, no GPU) is the
   # strongest validation this recipe can safely run.
+  - key: "preset.defaults"
+    kind: "preset.defaults"
+    title: "Use the downloaded files by default"
+    params:
+      plan: "modes.plan"
   - key: "pipeline.render"
     kind: "pipeline.render"
     title: "Validate the pipeline"
     params:
       preset_id: "01KX47MINIMAXMUSIC300000MU"
-      mode: "song"
+      plan: "modes.plan"
 
   - key: "workspace.activate"
     kind: "workspace.activate"

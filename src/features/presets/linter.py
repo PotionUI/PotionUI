@@ -528,7 +528,73 @@ class PresetLinter:
 
         issues.extend(self._lint_tests_yml(preset_file, manifest))
 
+        issues.extend(self._lint_recommendations(preset_file))
+
         return issues, manifest
+
+    def _loaded_template(self, preset_file: Path):
+        resolved = preset_file.parent.resolve()
+        root = next(
+            (base for base in self.paths if base.exists() and resolved.is_relative_to(base.resolve())),
+            preset_file.parent.parent,
+        )
+        cache = self.__dict__.setdefault("_template_loaders", {})
+        key = str(root.resolve())
+        if key not in cache:
+            from .loader import PresetTemplateLoader
+
+            loader = PresetTemplateLoader([str(root)], shared_path=self.shared_path)
+            try:
+                loader.load_presets()
+            except Exception:
+                loader = None
+            cache[key] = {
+                Path(template.path).resolve(): template for template in (loader.presets if loader else [])
+            }
+        return cache[key].get(resolved)
+
+    def _lint_recommendations(self, preset_file: Path) -> List[LintIssue]:
+        from .mode_fields import model_fields, mode_requirement_fields
+        from src.features.models.recommendations import lint_recommendations, parse_recommendations
+
+        template = self._loaded_template(preset_file)
+        if template is None:
+            return []
+        preset_str = str(preset_file)
+        issues: List[LintIssue] = []
+        seen = set()
+
+        def add(severity: str, message: str) -> None:
+            if (severity, message) not in seen:
+                seen.add((severity, message))
+                issues.append(LintIssue(severity, preset_str, message))
+
+        for mode_name, mode in (template.modes or {}).items():
+            fields = model_fields(mode)
+            own_names = {}
+            for field_name, spec in fields.items():
+                raw = (spec.configuration or {}).get("recommendations")
+                errors, warnings = lint_recommendations(raw, f"field '{field_name}' recommendations")
+                for message in errors:
+                    add("error", message)
+                for message in warnings:
+                    add("warning", message)
+                for rec in parse_recommendations(raw):
+                    own_names[rec.filename] = field_name
+            named = mode_requirement_fields(mode)
+            for field_name in list(named["required"]) + [n for group in named["any_of"] for n in group]:
+                if field_name not in fields:
+                    add("error", f"modes/{mode_name}: requirement names field '{field_name}', which is not a model field of this mode")
+            for form in mode.forms or []:
+                for spec in form.requirements or []:
+                    filename = spec.get("filename") if spec.get("type") == "model" else None
+                    if filename and filename in own_names:
+                        add(
+                            "warning",
+                            f"modes/{mode_name}: requirement 'filename: {filename}' is one of field "
+                            f"'{own_names[filename]}' recommendations; use 'field: {own_names[filename]}' so any of them satisfies it",
+                        )
+        return issues
 
     def _lint_preset_mode_contributions(
         self, loaded_manifests: Dict[str, Tuple[Path, Any]]

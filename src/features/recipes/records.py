@@ -6,7 +6,7 @@ row records the repository reads/writes. Managers and routes import the state
 machine from here so there is exactly one definition of "which move is legal".
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -217,3 +217,16 @@ class RecipeStepAttempt:
             started_at=dt_column(row["started_at"]),
             finished_at=dt_column(row["finished_at"]),
         )
+
+
+@dataclass(frozen=True)
+class GrantRequest:
+    selections: Dict[str, str] = field(default_factory=dict)
+    modes: Optional[List[str]] = None
+    extras: Optional[List[str]] = None
+    target: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class LintContext:
+    preset_index: Dict[str, Any] = field(default_factory=dict)

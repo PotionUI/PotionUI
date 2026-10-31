@@ -44,7 +44,7 @@ fields:
         type: "select"
         label: "Surroundings"
         audience: "advanced"
-        default: "0.5"
+        default: "1.0"
         ai_hint: "How much of the picture around the painted area the model sees. Wide helps the new content match large neighbouring shapes."
         configuration:
           options:

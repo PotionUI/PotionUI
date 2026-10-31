@@ -30,13 +30,13 @@ def test_sides_grow_the_canvas_and_keep_the_original_pixels_in_place():
     assert out["images"] == [out["image"]]
 
 
-def test_mask_is_white_on_the_new_area_and_black_deep_inside_the_original():
+def test_mask_is_white_on_the_new_area_and_ramps_down_into_the_original():
     out = _run({"left": 20, "overlap": 8})
     mask = np.asarray(out["mask"])
     assert mask.shape == (32, 84)
     assert (mask[:, :20] == 255).all()
-    assert (mask[:, 44:] == 0).all()
-    assert mask[16, 26] > 100
+    assert (mask[:, 28:] == 0).all()
+    assert mask[16, 21] > mask[16, 24] > mask[16, 26] > 0
 
 
 def test_zero_overlap_masks_exactly_the_new_area():
@@ -112,4 +112,6 @@ def test_outputs_carry_the_list_forms_and_whole_canvas_restore_inputs():
     assert out["crop_region"] == {
         "top": 0, "bottom": 32, "left": 0, "right": 72, "original_width": 72, "original_height": 32,
     }
-    assert out["original_image"] is out["image"] and out["original_mask"] is out["mask"]
+    region = np.asarray(out["original_mask"])
+    assert out["original_image"] is out["image"] and set(np.unique(region)) == {0, 255}
+    assert (region[:, :8] == 255).all() and (region[:, 8:] == 0).all()

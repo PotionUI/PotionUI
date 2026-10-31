@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import cv2
 import numpy as np
 from PIL import Image, ImageFilter
 
-from src.platform.util.inpaint import dilate_mask
 
 ANCHORS = ("center", "left", "right", "top", "bottom")
 FILLS = ("blur", "edge", "gray")
@@ -64,17 +64,20 @@ def build_canvas(image: Image.Image, margins: tuple[int, int, int, int], fill: s
     return Image.fromarray(canvas)
 
 
-def build_mask(size: tuple[int, int], margins: tuple[int, int, int, int], overlap: int = 16) -> Image.Image:
+def build_region_mask(size: tuple[int, int], margins: tuple[int, int, int, int]) -> Image.Image:
     width, height = size
     left, top, right, bottom = margins
     mask = np.full((height + top + bottom, width + left + right), 255, dtype=np.uint8)
     mask[top:top + height, left:left + width] = 0
-    overlap = max(0, int(overlap))
-    if overlap:
-        mask = dilate_mask(mask, iterations=overlap)
-        mask = np.array(Image.fromarray(mask).filter(ImageFilter.GaussianBlur(overlap / 2)))
-        mask[:top] = 255
-        mask[top + height:] = 255
-        mask[:, :left] = 255
-        mask[:, left + width:] = 255
     return Image.fromarray(mask)
+
+
+def build_mask(size: tuple[int, int], margins: tuple[int, int, int, int], overlap: int = 48) -> Image.Image:
+    region = np.asarray(build_region_mask(size, margins)) > 0
+    overlap = max(0, int(overlap))
+    if not overlap or region.all():
+        return Image.fromarray(region.astype(np.uint8) * 255)
+    into_source = cv2.distanceTransform((~region).astype(np.uint8), cv2.DIST_L2, 3)
+    t = np.clip(into_source / overlap, 0.0, 1.0)
+    ramp = 1.0 - t * t * (3.0 - 2.0 * t)
+    return Image.fromarray(np.rint(np.where(region, 1.0, ramp) * 255).astype(np.uint8))

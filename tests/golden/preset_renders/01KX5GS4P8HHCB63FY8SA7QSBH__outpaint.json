@@ -278,7 +278,7 @@
         },
         "max_pixels": {
           "type": "int",
-          "value": 4194304
+          "value": 1048576
         },
         "mode": {
           "type": "str",
@@ -332,7 +332,7 @@
         },
         "strategy": {
           "type": "str",
-          "value": "inpaint"
+          "value": "outpaint"
         }
       },
       "enabled": {

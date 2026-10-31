@@ -101,11 +101,15 @@ def test_four_dim_latents_get_four_dim_mask():
     assert tuple(gen.sample_kw["latent_mask"].shape) == (1, 1, 4, 4)
 
 
-def test_a_single_masked_pixel_repaints_its_whole_latent_cell():
+def test_the_latent_mask_keeps_the_soft_edge_instead_of_binarising_it():
+    array = np.zeros((16, 16), dtype=np.float32)
+    array[:, 8:] = 1.0
+    array[:, 6:8] = 0.5
+    mask = latent_mask_from_array(array, (1, 4, 4, 4))
+    assert mask[0, 0, 0].tolist() == [0.0, 0.25, 1.0, 1.0]
     array = np.zeros((16, 16), dtype=np.float32)
     array[5, 5] = 1.0
-    mask = latent_mask_from_array(array, (1, 4, 4, 4))
-    assert mask.sum() == 1 and mask[0, 0, 1, 1] == 1
+    assert 0 < latent_mask_from_array(array, (1, 4, 4, 4))[0, 0, 1, 1] < 1
 
 
 def test_mask_is_resized_to_the_picture():

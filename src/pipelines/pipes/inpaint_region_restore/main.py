@@ -17,7 +17,7 @@ from src.pipelines.contracts import (
     PipeConfigSpec,
 )
 from src.pipelines.pipes._shared.inpainting.region_utils import resample_image
-from src.pipelines.pipes._shared.inpainting.mask_utils import color_correction, composite_inpaint, composite_region
+from src.pipelines.pipes._shared.inpainting.mask_utils import color_correction, composite_inpaint, composite_outpaint, composite_region
 
 
 class InpaintRegionRestorePipe(BasePipe):
@@ -30,7 +30,7 @@ class InpaintRegionRestorePipe(BasePipe):
             generation_outputs: callable
     ) -> PipeOutput:
         inpainted_image = pipe_input.input["inpainted_image"]
-        composite = self.config.get("strategy", "fooocus") in ("composite", "inpaint")
+        composite = self.config.get("strategy", "fooocus") in ("composite", "inpaint", "outpaint")
         if isinstance(inpainted_image, (list, tuple)):
             generated = list(inpainted_image) if composite else list(inpainted_image[:1])
             inpainted_image = generated[0]
@@ -127,16 +127,23 @@ class InpaintRegionRestorePipe(BasePipe):
             item_np = pil_to_numpy_rgb(item) if isinstance(item, Image.Image) else item
             content = resample_image(item_np, right - left, bottom - top)
             result = original_np.copy()
-            extra = (int(self.config.get("feather_px", 0) or 0),) if self.config.get("strategy") == "inpaint" else ()
-            blend = composite_inpaint if self.config.get("strategy") == "inpaint" else composite_region
-            result[top:bottom, left:right] = blend(
-                original_np[top:bottom, left:right],
-                content,
-                mask_np[top:bottom, left:right],
-                float(self.config.get("feather", 0.08)),
-                bool(self.config.get("color_match", True)),
-                *extra,
-            )
+            strategy = self.config.get("strategy")
+            if strategy == "inpaint":
+                region = composite_inpaint(
+                    original_np[top:bottom, left:right], content, mask_np[top:bottom, left:right],
+                    float(self.config.get("feather", 0.08)), int(self.config.get("feather_px", 0) or 0),
+                )
+            elif strategy == "outpaint":
+                region = composite_outpaint(
+                    original_np[top:bottom, left:right], content, mask_np[top:bottom, left:right],
+                    int(self.config.get("feather_px", 0) or 0) or 48,
+                )
+            else:
+                region = composite_region(
+                    original_np[top:bottom, left:right], content, mask_np[top:bottom, left:right],
+                    float(self.config.get("feather", 0.08)), bool(self.config.get("color_match", True)),
+                )
+            result[top:bottom, left:right] = region
             images.append(numpy_to_pil(result))
         return PipeOutput(output={"image": images})
 
@@ -162,9 +169,9 @@ class InpaintRegionRestorePipe(BasePipe):
                 name="strategy",
                 param_type=str,
                 default="fooocus",
-                description="fooocus pastes the crop and blends by the mask; inpaint feathers inward from the region edge and removes the tone step against the surroundings; composite feathers in proportion to the region, matches colour to its surroundings and leaves every pixel outside the feather untouched",
+                description="fooocus pastes the crop and blends by the mask; inpaint takes the region whole and fades out beyond its edge; outpaint pastes the original back and matches the tone of the extension to its edge; composite feathers in proportion to the region, matches colour to its surroundings and leaves every pixel outside the feather untouched",
                 required=False,
-                choices=["fooocus", "composite", "inpaint"]
+                choices=["fooocus", "composite", "inpaint", "outpaint"]
             ),
             PipeConfigSpec(
                 name="feather",

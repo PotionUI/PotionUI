@@ -117,7 +117,7 @@ pipeline:
     enabled: true
     configuration:
       mode: "inpaint"
-      max_pixels: "{{ {'1': 1048576, '2': 2097152, '4': 4194304}[form.output_size | default('4')] }}"
+      max_pixels: "{{ {'1': 1048576, '2': 2097152, '4': 4194304}[form.output_size | default('1')] }}"
       denoise: "{{ form.denoise }}"
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       guidance: "{{ form.cfg | default(generation.profile.guidance) }}"
@@ -139,7 +139,7 @@ pipeline:
       - ["original_image", "canvas_expand", "original_image"]
       - ["original_mask", "canvas_expand", "original_mask"]
     configuration:
-      strategy: "inpaint"
+      strategy: "outpaint"
       feather_px: "{{ form.mask_feather }}"
 
   - name: "gallery"

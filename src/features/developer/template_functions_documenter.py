@@ -140,6 +140,26 @@ class TemplateFunctionsDocumenter:
                     ],
                 },
                 {
+                    "name": "long_video_parts",
+                    "alias": None,
+                    "signature": "total_seconds | long_video_parts(part_seconds: float, fps: int = 24, overlap_frames: int = 17) -> list",
+                    "description": (
+                        "Frame count of every part of a chained long video: parts of part_seconds on the "
+                        "17n+5 frame lattice, each continuing the one before with overlap_frames replayed, "
+                        "the last part sized to what remains. The list length is the number of parts."
+                    ),
+                    "parameters": [
+                        {"name": "total_seconds", "type": "float", "description": "Length of the finished video (pipe input)"},
+                        {"name": "part_seconds", "type": "float", "description": "Target length of one part"},
+                        {"name": "fps", "type": "int", "default": "24", "description": "Frames per second"},
+                        {"name": "overlap_frames", "type": "int", "default": "17", "description": "Frames each continuation part replays"},
+                    ],
+                    "return_type": "list",
+                    "examples": [
+                        {"code": "{{ 30 | long_video_parts(10, 24) | length }}", "result": "4"},
+                    ],
+                },
+                {
                     "name": "default",
                     "alias": None,
                     "signature": "value | default(fallback: Any, boolean: bool = False) -> Any",

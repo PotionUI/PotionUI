@@ -92,9 +92,9 @@ Run the refine without the turbo LoRA unless its strength is set for the missing
 
 Default generation parameters: 24 steps, 1344×768, 124 frames at a fixed 24 fps (≈5.2 s).
 
-The preset offers two speed profiles, and they carry a step count and nothing else — being guidance-distilled, the family has no guidance for a profile to switch, and the sampler and scheduler are left to the user rather than pinned per profile. `quality` is the 24-step default; `turbo` is 4 steps.
+The preset offers three named speed profiles plus `custom`. `quality` and `turbo` carry a step count and nothing else — being guidance-distilled, the family has no guidance for a profile to switch, and the sampler and scheduler are left to the user. `quality` is 24 steps; `turbo` is 4 steps. `flex` is 6 steps and pins the sampler and both sigma grids too; see "Pika H3 Flex" below.
 
-Three samplers are available, all stepping in `x0` space off the same data estimate. `euler` is the reference solver and the default, and it is what the turbo LoRA was distilled against. `res_multistep` (second-order exponential Adams–Bashforth, derived from the exponential-integrator form rather than ported) and `dpmpp_2m` (DPM-Solver++(2M), adapted from the MIT-licensed `vendor/k_diffusion`) both reuse the previous step's estimate, so they cost no extra forward and buy accuracy where the grid is coarse — most visibly at turbo step counts. Their history is per stream and per window: video and audio walk different sigma grids inside one forward, and each window is an independent trajectory whose first step legitimately has no past.
+Five deterministic and stochastic solvers are available (`euler`, `res_multistep`, `dpmpp_2m`, `er_sde`, `sa_solver`), plus `lcm`, all stepping in `x0` space off the same data estimate. The first three are described here. `euler` is the reference solver and the default, and it is what the turbo LoRA was distilled against. `res_multistep` (second-order exponential Adams–Bashforth, derived from the exponential-integrator form rather than ported) and `dpmpp_2m` (DPM-Solver++(2M), adapted from the MIT-licensed `vendor/k_diffusion`) both reuse the previous step's estimate, so they cost no extra forward and buy accuracy where the grid is coarse — most visibly at turbo step counts. Their history is per stream and per window: video and audio walk different sigma grids inside one forward, and each window is an independent trajectory whose first step legitimately has no past.
 
 Two schedulers place the knots. `simple` is the reference uniform grid; `beta` pushes the same uniform quantiles through a Beta(0.6, 0.6) quantile function, which clusters knots at both ends — more steps on early composition and on final detail, fewer in the middle. A manual sigma grid together with a non-`simple` scheduler is refused rather than resolved by precedence: both knobs answer the same question, and a silent winner would leave the scheduler picker reading as if it did something on a run it has no say in.
 
@@ -176,6 +176,56 @@ The pipeline is `media_loader` (video) and `media_loader` (picture) → `control
 - Sound is Generate (new sound from the model, the default) or Keep the video's sound (`audio_source: file` fed by the driving video).
 - The mode defaults to the Quality speed profile (24 steps). Whether the Turbo step count holds with the control patch is not established, and the patch was trained on text-to-video only, so the keyframe combination is supported but unvalidated upstream.
 - One person, front-facing and well lit works best. Crowds, motion blur and side profiles are where the pose reading fails.
+
+## Long video
+
+The `long` mode chains parts into one video of up to two minutes, with seamless joins. It is the existing Video Director window chain driven by a simple form, not a second mechanism: the preset builds a Director document from the form and records `settings.long` (`total_seconds`, `part_seconds`); `windows.py` derives each part's frame count from that (`long_video_parts`, also a template filter the preset uses only to count the parts), and `generator/video_minimax_h3` runs it.
+
+**Inputs.** An optional Start picture (the first frame of the first part; empty starts from the prompt alone), the main Prompt, an optional Prompt per part (one line per part, in order; a part without a line uses the main prompt), Length in seconds, an optional Soundtrack, the resolution, the speed profile and the model files. `Part length` and `Colour hold` are on the Advanced tab. To continue an existing clip, use the `extend` mode.
+
+**How the chain runs.** The length is cut into parts of Part length (rounded up to the model's `17n + 5` frame lattice, never over 15 s). The first part is text-to-video, or image-to-video from the Start picture. Every later part is a `chain` segment: the previous part's last 17 frames are re-encoded as keyframe condition rows at the head of the next window, the audio carries over as clean condition-audio rows, and the replayed overlap is trimmed so each part contributes only new footage. The last part is sized to what is left, and the stitched result is trimmed to Length. It is one request with one progress bar, one cancel, and one resident DiT.
+
+**Why a window chain and not one generation per part.** The generator already owns continuation (the latent splice, the audio carry, the stitch, per-window seeds and prompts), and a request that drives it needs no new orchestration layer. Running each part as its own queued generation would reload or re-place the model per part, lose the audio carry, and make a cancel or a failure in part four leave three orphaned results.
+
+**Colour hold.** Each continuation window is decoded to pixels and re-encoded to condition the next one, so small colour shifts compound across parts. `drift_correction` (default 0.5 in this mode, 0 elsewhere) matches each continuation window's per-channel mean and spread to the first window's, scaled by the strength, before the window joins the timeline and before its tail conditions the next window. The contrast correction is capped to 0.8x-1.25x. A hard cut (a segment that opens on its own image) starts a new anchor. Identity drift is not corrected: keep parts short (5-10 s) and describe the subject the same way in every part prompt.
+
+**Sound.** The soundtrack, when given, is laid over the finished video in place of the generated sound. It does not drive lip-sync. The lip-sync chain would need the ref2va reference partition, whose Director windows are hard-cut-only here and take no per-window audio slice.
+
+**Seeds.** A part's seed is the document seed plus its index. A Director document with no seed now takes the request's own seed (what the Seed field resolves to, random for -1) instead of counting up from -1, which made every such run identical; a document that carries a seed, as the Video Director's always does, is unchanged. A configured generator `seed` of 0 or more still wins.
+
+**Unmeasured.** GPU validation of a 30-60 second chain, and of the default Colour hold, is pending.
+
+## Pika H3 Flex (6-step adapter)
+
+[Pika-Labs/Pika-H3-Flex](https://huggingface.co/Pika-Labs/Pika-H3-Flex) is a pair of rank-128 LoRA adapters on the base DiT, one for the fl2va partition and one for the ref2va partition, post-trained with step distillation from 50 to 6 steps plus a quality finetune. It adds no conditioning and no architecture, so it runs through the same generator as every other profile.
+
+**Where it appears.** A `Flex` choice in the Speed profile of `video`, `extend`, `refs`, `remix` and `talk`. `upscale`, `refine_faces` and `motion_transfer` do not offer it. `turbo` stays the default of the `video` mode. `MiniMax-H3-Fast` and `MiniMax-H3-VDN` have no Flex profile.
+
+**Files.** A Flex adapter model field appears on the Models section when Flex is chosen. The recommended files are the Comfy-Org bf16 repacks in [Comfy-Org/MiniMax-H3](https://huggingface.co/Comfy-Org/MiniMax-H3) under `loras/`, 1.96 GB each: `pika_h3_flex_fl2va_v1_bf16.safetensors` (sha256 `cc5453ae...358b7`) for the first/last-frame modes (`video`, `extend`) and `pika_h3_flex_ref2va_v1_bf16.safetensors` (sha256 `de3745ce...b0e0`) for the reference modes (`refs`, `remix`, `talk`). Use the file that matches the mode's DiT; a mismatched pair loads cleanly and gives a worse video. The adapter keys are in the ComfyUI generic dialect (`diffusion_model.blocks.N.attn.qkv_proj.lora_A.weight`, q/k/v fused block-diagonally at rank 384, scale folded into `lora_B`, no `.alpha` keys), and the LoRA mapper reads them with zero unmatched keys at unit scale. The original FP32 PEFT files use the diffusers dialect the mapper already reads.
+
+**Recipe.** Choosing Flex renders, in every mode that offers it:
+
+- `steps: 6`, the Steps slider locked;
+- `sampler: lcm`, `scheduler: simple`;
+- `manual_sigmas: 1.0, 0.972973, 0.923077, 0.8, 0.571429, 0.333333, 0.0` (the base ladder 1000/750/500/250/100/40/0 pushed through shift 12) and `manual_audio_sigmas: 1.0, 0.9, 0.75, 0.5, 0.25, 0.111111, 0.0` (the same ladder through shift 3);
+- the step cache off;
+- the adapter in `runtime_loras` at strength 1.0.
+
+The recipe lives in the `flex` entry of `speed_profiles:` in `preset.yml`, and the pipelines read it from there, so the sampler, sigma and step cache fields on the Advanced tab are hidden under Flex rather than left showing values that would not run. Euler at six steps, or only one of the two ladders, gives a plausible but worse video, which is why all of it is pinned together.
+
+**`lcm`.** A sampler that predicts the clean sample `x0` and re-noises it with fresh seeded noise to the next sigma, `x_next = (1 - sigma_next) * x0 + sigma_next * noise`; the last step returns `x0`. It draws noise every step from the window's own generator, like `er_sde`. It needs a distilled adapter in `runtime_loras` and is refused otherwise, and it is refused on a DiT carrying a VDN branch.
+
+**No reload.** The adapter is applied around sampling as a runtime LoRA, so switching between Quality, Turbo and Flex reuses the resident DiT and text encoder. It costs about 1.8 GiB of extra VRAM while applied.
+
+**What it cannot be combined with.** Flex hides and ignores the LoRA tab, because the turbo distillation LoRAs are a second step distillation and stacking them over-distils the result. VDN and FastH3 are separate presets without a Flex profile. The Enhance tab's refine pass runs on the base model after a Flex first stage; the Flex ladders do not support a partial denoise, so the adapter is never applied to the refine. The Fun ControlNet patch was trained on the base model at 40 steps and `motion_transfer` does not offer Flex; stacking the two by hand with the Custom profile is experimental and unvalidated.
+
+**Resolution.** The `video` and `refs` resolution lists carry Pika's eleven 480p buckets as a "480p (Flex-trained)" group, next to the native 768 canvas and the Faster list.
+
+**Sound.** Sound comes only from explicit audio references, as for every other mode.
+
+**Licence.** The adapters are Model Derivatives under the MiniMax H3 Community License, the same terms as the base weights described under Limitations. PotionUI ships no weights.
+
+**Unmeasured.** The quality and speed against Turbo and Quality has not been A/B-tested on real weights.
 
 ## Limitations
 

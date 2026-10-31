@@ -213,6 +213,7 @@
               "max_seconds",
               14
             ],
+            [],
             [
               "steps",
               4
@@ -292,6 +293,10 @@
         "resolution": {
           "type": "str",
           "value": "auto"
+        },
+        "runtime_loras": {
+          "type": "list",
+          "value": []
         },
         "sampler": {
           "type": "str",

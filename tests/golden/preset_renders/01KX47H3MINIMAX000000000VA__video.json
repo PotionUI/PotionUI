@@ -212,6 +212,7 @@
                 "golden positive prompt"
               ]
             ],
+            [],
             [
               "steps",
               4

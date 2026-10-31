@@ -164,6 +164,38 @@ artifacts:
       model_id: "Comfy-Org/MiniMax-H3"
       version_id: "main@model_patches/minimax_h3_fun_controlnet_union_2.0_pruned_bf16.safetensors"
 
+  - id: "minimax-h3-pika-flex-fl2va"
+    kind: "lora"
+    model_type: "lora"
+    filename: "pika_h3_flex_fl2va_v1_bf16.safetensors"
+    display_name: "Pika H3 Flex first/last-frame adapter (bf16, optional)"
+    required: false
+    size_bytes: 1956172304
+    checksum:
+      algorithm: "sha256"
+      value: "cc5453aeecd6189468409003fe4cf1b57e52ff3a830a0a154b87decbe07358b7"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/MiniMax-H3"
+      version_id: "main@loras/pika_h3_flex_fl2va_v1_bf16.safetensors"
+
+  - id: "minimax-h3-pika-flex-ref2va"
+    kind: "lora"
+    model_type: "lora"
+    filename: "pika_h3_flex_ref2va_v1_bf16.safetensors"
+    display_name: "Pika H3 Flex reference adapter (bf16, optional)"
+    required: false
+    size_bytes: 1956172304
+    checksum:
+      algorithm: "sha256"
+      value: "de3745ceb7d8d5c20898dd8fa3a05f1c0b00089ccd55297b2a8bab95c766b0e0"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/MiniMax-H3"
+      version_id: "main@loras/pika_h3_flex_ref2va_v1_bf16.safetensors"
+
 presets:
   - preset_id: "01KX47H3MINIMAX000000000VA"
     path_hint: "marketplace/MiniMax-H3"

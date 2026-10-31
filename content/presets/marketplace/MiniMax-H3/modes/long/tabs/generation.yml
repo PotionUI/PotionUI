@@ -1,0 +1,81 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed profile"
+    default: "turbo"
+    ai_hint: >-
+      Turbo is a 4-step recipe. It works on the base model alone — MiniMax-H3
+      turns out to be a capable few-step generator on its own schedule — so no
+      LoRA is required; expect softer detail than the 24-step Quality profile.
+      The turbo distillation LoRA on the LoRA tab sharpens it further, but read
+      that field's hint before loading one: the original ModelTC file omits its
+      PEFT alpha metadata and produces noise unless its strength is set to 0.125
+      by hand, while Kijai's conversion is correct at about 0.75. Pick Quality
+      for anything final. Custom pins nothing and hands the Steps slider to the
+      user — suggest it whenever they ask for a specific step count.
+      Flex is a 6-step recipe built on the Pika Flex adapter, which needs the
+      Flex adapter model on the Models section. It is fast, and it ignores the
+      LoRA tab and the sampler settings, so suggest it for quick drafts rather
+      than combining it with turbo LoRAs.
+    configuration:
+      options:
+        - { label: "Quality", value: "quality", sub_label: "24 steps" }
+        - { label: "Turbo", value: "turbo", sub_label: "4 steps · distillation LoRA optional" }
+        - { label: "Flex", value: "flex", sub_label: "6 steps · Flex adapter" }
+        - { label: "Custom", value: "custom", sub_label: "your own steps, left alone" }
+
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "seed"
+        type: "seed"
+        label: "Seed"
+        default: -1
+
+      - name: "start_image"
+        type: "image"
+        label: "Start picture"
+        description: "Optional first frame."
+        ai_hint: "A picture the video opens on. Leave empty to start from the prompt alone. Its look is carried forward part by part, so a clear picture of the subject and place helps keep the whole video consistent. To continue an existing clip, use Extend video."
+
+      - name: "total_seconds"
+        type: "slider"
+        formula: "size"
+        label: "Length (seconds)"
+        default: 30
+        description: "Total length of the finished video."
+        ai_hint: "Total seconds of finished video. It is generated as a chain of parts that each continue from the end of the one before, so cost grows with length. 30-60 is typical; each extra part is a full generation."
+        configuration: {min: 10, max: 120, step: 1}
+
+      - name: "piece_prompts"
+        type: "string"
+        label: "Prompt per part"
+        description: "One line per part."
+        ai_hint: "Optional. One line per part, in order: line 1 is what happens in the first part, line 2 in the second, and so on. A part with no line uses the main prompt. Describe only what happens in that part, not the whole story."
+        configuration:
+          input_type: "textarea"
+          rows: 4
+
+      - name: "soundtrack"
+        type: "audio"
+        label: "Soundtrack"
+        description: "Optional, laid over the video."
+        ai_hint: "Optional audio laid over the finished video in place of the generated sound. It is not used to drive lip-sync; for a talking portrait use Talking video."
+
+      - name: "resolution"
+        type: "resolution"
+        formula: "size"
+        label: "Resolution"
+        ai_hint: "Both axes must be multiples of 32, aspect ratio between 1:4 and 4:1. Area is the dominant cost and a long video repeats it for every part, so the smaller sizes are the practical choice."
+        configuration:
+          files:
+            - { path: "{{ paths._shared }}/resolutions/minimax_h3_canvas.yml", group: "Native canvas (768 short edge)" }
+            - { path: "{{ paths._shared }}/resolutions/minimax_h3_fast.yml", group: "Faster (below native canvas)" }
+            - { path: "{{ paths._shared }}/resolutions/minimax_h3_480p.yml", group: "480p (Flex-trained)" }
+        default: "832x480"
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models_fl2va.yml"

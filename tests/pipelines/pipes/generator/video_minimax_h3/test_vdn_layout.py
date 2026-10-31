@@ -150,7 +150,7 @@ class _AttachedDit:
         return self._forward.prepare_text_context(encoder_hidden_states, weight_revision)
 
 
-def _run(config_overrides: dict, *, attached: bool = True, steps: int = 3):
+def _run(config_overrides: dict, *, attached: bool = True, steps: int = 3, ctx_overrides: dict | None = None):
     video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
     dit_module = _AttachedDit(video_patch_dim, attached=attached)
 
@@ -174,6 +174,7 @@ def _run(config_overrides: dict, *, attached: bool = True, steps: int = 3):
         height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
         num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
         keyframe_images=[], keyframe_anchors=(), audio_source="generate", decode=False,
+        **(ctx_overrides or {}),
     ))
     pipe = GeneratorMinimaxH3Pipe({
         **GeneratorMinimaxH3Pipe.get_default_config(), "preview": False, "steps": steps,
@@ -227,3 +228,13 @@ def test_the_same_knobs_still_work_on_a_plain_dit():
     """The refusal is the VDN DiT's, not a new global rule."""
     dit_module, _ = _run({"seq_chunk_rows": 128}, attached=False, steps=1)
     assert dit_module.seen == ["ABSENT"]
+
+
+def test_the_lcm_few_step_recipe_alongside_a_vdn_dit_is_refused():
+    with pytest.raises(ValueError, match="lcm"):
+        _run({}, ctx_overrides={"sampler": "lcm"})
+
+
+def test_the_lcm_sampler_still_runs_on_a_plain_dit():
+    dit_module, _ = _run({}, attached=False, steps=2, ctx_overrides={"sampler": "lcm"})
+    assert dit_module.seen == ["ABSENT", "ABSENT"]

@@ -6,16 +6,31 @@ fields:
         label: "Cache threshold"
         default: 0.0
         ai_hint: "A speed-for-fidelity trade, never a quality improvement -- it only removes work. Suggest 0.08 when the user explicitly wants a long MiniMax-H3 run faster and can accept some softening, smoothed motion and a slightly duller soundtrack. 0.15 only if they ask for aggressive speed. Keep it at 0.0 for final renders, and for short runs (under ~15 steps) where the warmup steps already cover most of the trajectory and there is almost nothing left to skip. Be more conservative again when the Sampler is Res multistep or DPM++ 2M: a skipped step replays the previous velocity, and a second-order sampler takes that replayed estimate into its history, so one skip biases the steps after it as well. Halve whatever threshold you would suggest under Euler, and prefer 0.0 outright on a low step count -- the sampler was chosen there precisely to buy quality that caching then spends."
+        reactions:
+          - when: { field: "speed_profile", equals: "flex" }
+            then: { set_visibility: false }
+          - when: { field: "speed_profile", not_equals: "flex" }
+            then: { set_visibility: true }
         configuration: {min: 0.0, max: 0.3, step: 0.01}
       - name: "step_cache_warmup_steps"
         type: "slider"
         label: "Warmup steps"
         default: 4
         ai_hint: "Only has an effect when Cache threshold is above 0. Raise toward 6-8 if a cached run loses composition or motion -- it gives back some of the speed."
+        reactions:
+          - when: { field: "speed_profile", equals: "flex" }
+            then: { set_visibility: false }
+          - when: { field: "speed_profile", not_equals: "flex" }
+            then: { set_visibility: true }
         configuration: {min: 0, max: 12, step: 1}
       - name: "step_cache_max_skips"
         type: "slider"
         label: "Max consecutive skips"
         default: 3
         ai_hint: "Only has an effect when Cache threshold is above 0. Lower to 1-2 if a cached run drifts or loses detail late in the trajectory. Cap it at 1-2 whenever the Sampler is Res multistep or DPM++ 2M even if the run looks fine: consecutive skips feed the same replayed velocity into the sampler's two-step history, which is the case second-order solvers degrade on fastest. The Spectrum project reaches the same conclusion from the other side, keeping RES's final three steps uncached."
+        reactions:
+          - when: { field: "speed_profile", equals: "flex" }
+            then: { set_visibility: false }
+          - when: { field: "speed_profile", not_equals: "flex" }
+            then: { set_visibility: true }
         configuration: {min: 0, max: 10, step: 1}

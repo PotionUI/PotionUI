@@ -224,7 +224,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.layout import (
     patchify_video_latents,
     unpatchify_video_rows,
 )
-from src.pipelines.pipes.generator.video_minimax_h3.samplers import SAMPLERS, make_stepper
+from src.pipelines.pipes.generator.video_minimax_h3.samplers import LCM, SAMPLERS, make_stepper
 from src.pipelines.pipes.generator.video_minimax_h3.schedule import (
     KEYFRAME_NOISE_AUG,
     SCHEDULERS,
@@ -246,11 +246,13 @@ from src.pipelines.pipes.generator.video_minimax_h3.control import (
     validate_control_settings,
 )
 from src.platform.runtime.native.arch.minimax_h3.control import HINT_ROW_MODES, ControlContext, control_attached
+from src.pipelines.pipes.generator.video_minimax_h3.drift import DriftGuard
 from src.pipelines.pipes.generator.video_minimax_h3.windows import (
     DirectorPlan,
     DirectorPlanError,
     WindowPlan,
     build_director_plan,
+    director_default_seed,
 )
 from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
@@ -1224,7 +1226,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "a deterministic order-2 predictor-corrector, another no-extra-cost option in the "
                 "same family. 'er_sde' is stochastic (adds noise every step, seeded like the rest "
                 "of the request) -- more diverse, less reproducible frame-to-frame than the "
-                "deterministic solvers. Both streams run the chosen solver on their OWN sigma "
+                "deterministic solvers. 'lcm' predicts the clean sample and re-noises it with fresh "
+                "noise to the next sigma, the recipe few-step distilled adapters are trained for. Both streams run the chosen solver on their OWN sigma "
                 "grid, and the history is per stream and per Director window.",
                 required=False, choices=list(SAMPLERS),
             ),
@@ -1270,6 +1273,14 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "already-upsampled latent typically runs at a lower shift (e.g. 9) than a fresh "
                 "generation; the audio stream's own shift (3.0) is a separate, unaffected knob.",
                 required=False, min_value=0.1, max_value=50.0,
+            ),
+            PipeConfigSpec(
+                "drift_correction", float, 0.0,
+                "Director runs only: how strongly each continuation window's colour statistics are pulled "
+                "back toward the opening window's, before that window joins the timeline and before its tail "
+                "conditions the next one. 0 (default) leaves every window as sampled; values near 0.5 hold the "
+                "colour and brightness of a long chain steady without flattening a deliberate scene change.",
+                required=False, min_value=0.0, max_value=1.0,
             ),
             PipeConfigSpec(
                 "runtime_loras", list, [],
@@ -1535,6 +1546,11 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         runtime_loras_cfg = _active_loras(self.config.get("runtime_loras"), supported_options={_LORA_OPTION_AUDIO})
         runtime_lora_stack = _load_lora_stack(runtime_loras_cfg) if runtime_loras_cfg else []
         runtime_lora_masked = [not lora.get("audio", True) for lora in runtime_loras_cfg]
+        if str(self.config.get("sampler", "euler")) == LCM and not runtime_loras_cfg:
+            raise ValueError(
+                "generator/video_minimax_h3: sampler 'lcm' is the few-step recipe of a distilled adapter "
+                "and needs one in 'runtime_loras' -- pick the Flex adapter, or use another sampler"
+            )
         for name, loaded, limit in (
             ("reference_images", reference_images, _MAX_REFERENCE_IMAGES),
             ("reference_videos", reference_videos, _MAX_REFERENCE_VIDEOS),
@@ -1590,7 +1606,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         if audio_silent:
             audio_file = None
 
-        plan = build_director_plan(self.config.get("document"), default_seed=int(self.config.get("seed", -1)))
+        plan = build_director_plan(
+            self.config.get("document"),
+            default_seed=director_default_seed(int(self.config.get("seed", -1)), seeds),
+        )
         control_scale = float(self.config.get("control_context_scale", 1.0))
         control_start = float(self.config.get("control_start", 0.0))
         control_end = float(self.config.get("control_end", 1.0))
@@ -2493,6 +2512,12 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
 
         vdn_layout = None
         if vdn_attached(getattr(c.bundle.dit, "module", None)):
+            if c.sampler == LCM:
+                raise ValueError(
+                    "[GENERATOR MINIMAX-H3] this DiT carries a Video-DeltaNet branch, which was tuned "
+                    "against the base model's own steps, so it cannot run the 'lcm' few-step recipe of the "
+                    "Flex adapter. Use the Quality or Turbo speed profile with the VDN preset."
+                )
             if sparse_attn_ctx is not None or seq_chunk_rows:
                 raise ValueError(
                     "[GENERATOR MINIMAX-H3] this DiT carries a Video-DeltaNet branch, which "
@@ -2758,6 +2783,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         previous_audio_rows: Optional[Tensor] = None
         previous_audio_latents = 0
         steps_done = 0
+        drift_guard = DriftGuard(float(self.config.get("drift_correction", 0.0) or 0.0))
 
         for index, window in enumerate(windows):
             if is_cancelled is not None and is_cancelled():
@@ -2822,6 +2848,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             # "the shot resets to its first frame" class of bug; trim it off
             # both streams before this window joins the timeline.
             frames = self._decode_video(c, latent)[window.overlap_frames:]
+            frames = drift_guard.apply(frames, continues_previous=window.continues_previous)
             next_window = windows[index + 1] if index + 1 < len(windows) else None
             previous_tail_frames = self._continuation_tail_frames(frames, next_window)
             track = _trim_audio_head(

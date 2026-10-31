@@ -34,7 +34,19 @@ The text encoder is Qwen3-VL-4B. The VAE is the Wan 2.1 causal-3D VAE verbatim â
 
 ## Presets & modes
 
-The shipped Krea-2 preset ships `txt2img`, `enhance` and `edit`.
+The shipped Krea-2 preset ships `txt2img`, `enhance`, `upscale` and `edit`.
+
+### Upscale
+
+`upscale` enlarges an existing picture 2x, 3x or 4x and rebuilds its detail with Krea-2. It runs the family-agnostic `tiled_refiner` pipe: the picture is enlarged (an optional ESRGAN upscaler model, otherwise Lanczos), then each overlapping tile is refined by a low-denoise img2img pass and the seams are feathered. Peak memory is set by one tile (1024 px by default), not by the output size, so a 4x result refines in the same memory as a 1x one.
+
+`enhance` is the other way to refine an existing picture and is not replaced. It re-noises the whole enlarged frame and walks only the last 1 to 3 steps of Krea-2's fixed-mu 8-step schedule, which keeps the picture globally coherent but needs the whole frame resident and is marked experimental. Use `upscale` for large outputs, for low memory or when an ESRGAN model should do the enlargement; use `enhance` for a light single-pass refine at up to 2x.
+
+- **Added detail** is the per-tile denoise: Subtle 0.2, Balanced 0.3, Strong 0.45. **Calm flat areas** (content-aware) scales each tile's denoise by its texture so sky and skin cannot grow details the prompt does not describe.
+- The prompt is optional. Describing the picture keeps the added detail on target.
+- Turbo defaults: 8 steps, CFG 1, Euler. Tile size and overlap are in the Advanced tab.
+
+Not validated on GPU: the tail of Krea-2's distilled schedule under `tiled_refiner`'s denoise-truncated img2img is untested against real weights.
 
 ### Edit
 

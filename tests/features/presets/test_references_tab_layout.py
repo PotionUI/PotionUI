@@ -55,6 +55,7 @@ CASES = [
     ("presets/marketplace/QwenImage", "edit", {"source_image"}),
     ("presets/marketplace/QwenImage-2.1", "edit", {"source_image"}),
     ("presets/marketplace/Krea2", "enhance", {"source_image"}),
+    ("presets/marketplace/Krea2", "upscale", {"source_image"}),
     ("presets/marketplace/Krea2", "edit", {"source_image", "source_image_b"}),
     ("presets/marketplace/SDXL", "inpaint", {"source_image"}),
     ("presets/marketplace/TRELLIS2", "img2mesh", {"source_image"}),

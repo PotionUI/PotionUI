@@ -106,3 +106,8 @@ def test_the_pictures_are_required_and_described_briefly():
     pictures = [f for f in references["fields"] if f["name"] in ("first_image", "last_image")]
     assert [f["name"] for f in pictures] == ["first_image", "last_image"]
     assert all(f["required"] and len(f["description"].split()) <= 6 for f in pictures)
+
+
+def test_a_whitespace_only_prompt_falls_back_to_the_default_caption(template):
+    caption = transition(template, prompt="   ")["prompt_encoder"]["config"]["p_prompt"]["output"]
+    assert caption == "A smooth cinematic transition from the first picture to the last picture"

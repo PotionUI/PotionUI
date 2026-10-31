@@ -34,10 +34,10 @@ pipeline:
     enabled: true
     configuration:
       p_prompt:
-        input: &caption "{{ ((item.positive if item is defined else generation.prompts.first.positive) or '') | trim or 'A smooth cinematic transition from the first picture to the last picture' }}{{ ', zhuanchang' if form.effect_lora else '' }}"
+        input: &caption "{{ (item.positive if item is defined else generation.prompts.first.positive) | text_or('A smooth cinematic transition from the first picture to the last picture') }}{{ ', zhuanchang' if form.effect_lora else '' }}"
         output: *caption
       n_prompt:
-        input: &negative "{{ (item.negative if item is defined else generation.prompts.first.negative) or 'static, frozen, abrupt cut, flicker, distorted, blurry, low quality' }}"
+        input: &negative "{{ (item.negative if item is defined else generation.prompts.first.negative) | text_or('static, frozen, abrupt cut, flicker, distorted, blurry, low quality') }}"
         output: *negative
       pairs:
         "@loop":

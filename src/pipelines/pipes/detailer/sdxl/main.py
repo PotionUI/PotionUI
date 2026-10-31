@@ -51,7 +51,7 @@ def _default_detections() -> Dict[str, Any]:
             "type": "yolo",
             "model": "models/detection_bbox/hand_yolov8n.pt",
             "confidence": 0.5,
-            "mask_min_ratio": 0.005,
+            "mask_min_ratio": 0.0005,
             "mask_max_ratio": 0.6,
             "strength": 0.3,
             "cfg": 7,

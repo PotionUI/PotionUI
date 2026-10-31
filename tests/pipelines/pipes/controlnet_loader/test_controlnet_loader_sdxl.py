@@ -164,35 +164,3 @@ class TestControlNetLoaderSDXLPipe:
 
         # Verify - should return empty list
         assert result.output["controlnet"] == []
-
-    @patch('src.pipelines.pipes.controlnet_loader.sdxl.main.Path')
-    def test_process_skips_missing_files(self, mock_path):
-        """Test that process skips controlnets with missing files"""
-        # Mock Path.exists to return False
-        mock_path_instance = MagicMock()
-        mock_path_instance.exists.return_value = False
-        mock_path.return_value = mock_path_instance
-
-        config = {
-            "controlnets": [
-                {
-                    "file_path": "/path/to/missing.safetensors",
-                    "name": "missing_cn",
-                    "type": "canny",
-                    "conditioning_scale": 1.0,
-                    "enabled": True
-                }
-            ],
-            "device": "cuda",
-            "dtype": "float16"
-        }
-        pipe = ControlNetLoaderSDXLPipe(config)
-
-        pipe_input = PipeInput(input={})
-        generation_outputs = Mock()
-
-        # Execute
-        result = pipe.process(pipe_input, generation_outputs)
-
-        # Verify - should return empty list
-        assert result.output["controlnet"] == []

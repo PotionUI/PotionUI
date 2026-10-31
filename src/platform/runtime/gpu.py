@@ -4,6 +4,7 @@ from threading import Lock
 from typing import Tuple, Optional
 
 from src.platform.observability.logger import logger
+from src.platform.runtime import nvml_library
 from src.platform.runtime.vram_cap import apply_vram_cap_bytes, get_vram_cap_gb
 
 
@@ -126,6 +127,7 @@ class GpuMonitor:
         self.handle = None
         self.available = False
         try:
+            nvml_library.ensure_nvml_library()
             nvmlInit()
             self.handle = nvmlDeviceGetHandleByIndex(device_index)
             self.available = True

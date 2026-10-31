@@ -114,7 +114,7 @@ def test_enhance_upscales_by_the_chosen_factor(template, scale, factor):
     assert "resolution" not in cfg
 
 
-@pytest.mark.parametrize("detail,denoise", [("subtle", 0.2), ("balanced", 0.35), ("strong", 0.5)])
+@pytest.mark.parametrize("detail,denoise", [("subtle", 0.12), ("balanced", 0.2), ("strong", 0.35)])
 def test_enhance_detail_sets_how_much_is_redrawn(template, detail, denoise):
     cfg = _generator(_process(template, "enhance", {"enhance_detail": detail}))
     assert float(cfg["denoise"]) == denoise

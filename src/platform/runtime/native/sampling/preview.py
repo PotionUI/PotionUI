@@ -361,6 +361,8 @@ class _ClipPreviewHook(_DecoderPreviewHook):
             super().on_step(step_index, total_steps, x, sigma, denoised_x0)
             return
         if not self._schedule.due(step_index):
+            if self._schedule.emitted == 0:
+                super().on_step(step_index, total_steps, x, sigma, denoised_x0)
             return
         decoded = self._clip_decode(denoised_x0)
         if decoded is None:

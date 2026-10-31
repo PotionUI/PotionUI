@@ -167,11 +167,14 @@ def run_hook(hook, total, latent):
 def test_hook_emits_clips_on_the_schedule_when_a_decoder_and_clip_sink_are_set(monkeypatch):
     install_fake_decoder(monkeypatch)
     singles, clips = [], []
+    monkeypatch.setattr(
+        preview_module, "decode_middle_frame", lambda decoder, x0, max_size: torch.zeros(3, 8, 8)
+    )
     hook = make_preview_hook(
         WAN_SPEC, singles.append, decoder_path="d.safetensors", emit_clip=clips.append,
     )
     run_hook(hook, 20, video_latent())
-    assert singles == []
+    assert len(singles) == 1
     assert [c.step for c in clips] == [3, 6, 9, 12, 15, 18]
     assert [c.update_index for c in clips] == [1, 2, 3, 4, 5, 6]
     assert all(c.frames == 25 and c.every == 3 and c.updates_max == 8 for c in clips)
@@ -222,3 +225,19 @@ def test_a_one_frame_decode_emits_no_clip(monkeypatch):
     hook = make_preview_hook(WAN_SPEC, lambda image: None, decoder_path="d", emit_clip=clips.append)
     run_hook(hook, 10, video_latent())
     assert clips == []
+
+
+def test_single_frames_fill_the_wait_for_the_first_clip_and_stop_after_it(monkeypatch):
+    install_fake_decoder(monkeypatch)
+    monkeypatch.setattr(
+        preview_module, "decode_middle_frame", lambda decoder, x0, max_size: torch.zeros(3, 8, 8)
+    )
+    order = []
+    hook = make_preview_hook(
+        WAN_SPEC, lambda image: order.append("single"), decoder_path="d", emit_clip=lambda c: order.append("clip"),
+    )
+    run_hook(hook, 40, video_latent())
+    assert order[0] == "single"
+    first_clip = order.index("clip")
+    assert "single" not in order[first_clip:]
+    assert order.count("clip") == 8

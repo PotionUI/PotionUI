@@ -301,6 +301,10 @@
           "type": "str",
           "value": "22"
         },
+        "mask_feather": {
+          "type": "float",
+          "value": 0.12
+        },
         "mode": {
           "type": "str",
           "value": "inpaint"

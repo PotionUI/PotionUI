@@ -472,7 +472,7 @@ def denoise(
         if resume is not None:
             raise ValueError("latent_mask cannot be combined with a trajectory resume")
         latent_mask = validate_latent_mask(latent_mask, latents)
-        guidance = LatentMaskGuidance(guidance, latents, latent_mask)
+        guidance = LatentMaskGuidance(guidance, latents, latent_mask, len(sigmas) - 1)
 
     logger.debug(
         "denoise: sampler=%s steps=%d guidance=%s sigma0=%.5f denoise=%.3f",
@@ -523,7 +523,7 @@ def denoise(
     log_step_cache_totals(logger, cache_set)
 
     if latent_mask is not None:
-        latent = restore_kept_latents(latent_mask, latent, latents)
+        latent = restore_kept_latents(latent_mask, latent, latents, len(sigmas) - 1)
 
     # Cast the final latent back to the original dtype (one final rounding, same as
     # the reference's decode-boundary cast). Downstream decode contracts unchanged.

@@ -99,7 +99,7 @@
       "config": {
         "context": {
           "type": "str",
-          "value": "0.5"
+          "value": "1.0"
         },
         "multiple": {
           "type": "int",
@@ -292,6 +292,10 @@
         "guidance": {
           "type": "float",
           "value": 1.0
+        },
+        "mask_feather": {
+          "type": "float",
+          "value": 0.12
         },
         "mode": {
           "type": "str",

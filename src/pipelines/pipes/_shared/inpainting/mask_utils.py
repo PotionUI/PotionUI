@@ -94,36 +94,45 @@ def composite_region(original, content, mask, feather, color_match):
     return np.clip(np.rint(blended), 0, 255).astype(np.uint8)
 
 
-def inward_alpha(region, feather_px):
-    dist = cv2.distanceTransform(np.asarray(region, dtype=np.uint8), cv2.DIST_L2, 3)
-    t = np.clip(dist / max(float(feather_px), 1.0), 0.0, 1.0)
-    return t * t * (3.0 - 2.0 * t) * np.asarray(region, dtype=np.float32), dist
+def outward_alpha(region, feather_px):
+    region = np.asarray(region, dtype=bool)
+    outside = cv2.distanceTransform((~region).astype(np.uint8), cv2.DIST_L2, 3)
+    t = np.clip(outside / max(float(feather_px), 1.0), 0.0, 1.0)
+    return np.where(region, 1.0, 1.0 - t * t * (3.0 - 2.0 * t)).astype(np.float32)
 
 
-def edge_tone_offset(base, fresh, region, dist, feather_px):
-    band_width = max(2.0, feather_px / 4.0)
-    band = (np.asarray(region) & (dist <= band_width)).astype(np.float32)
-    if band.sum() < 16:
-        return np.zeros_like(fresh)
-    sigma = max(2.0, float(feather_px))
-    weighted = cv2.GaussianBlur((base - fresh) * band[:, :, None], (0, 0), sigma)
-    weight = cv2.GaussianBlur(band, (0, 0), sigma)[:, :, None]
-    field = np.where(weight > 1e-4, weighted / np.maximum(weight, 1e-4), 0.0)
-    reach = 3.0 * feather_px
-    return field * np.clip(1.0 - dist / reach, 0.0, 1.0)[:, :, None]
+def region_size(region):
+    ys, xs = np.nonzero(region)
+    return max(int(ys.max() - ys.min()) + 1, int(xs.max() - xs.min()) + 1)
 
 
-def composite_inpaint(original, content, mask, feather, color_match, feather_px=0):
+def composite_inpaint(original, content, mask, feather, feather_px=0):
     region = np.asarray(mask) >= 128
     if not region.any():
         return original.copy()
-    ys, xs = np.nonzero(region)
-    size = max(int(ys.max() - ys.min()) + 1, int(xs.max() - xs.min()) + 1)
-    feather_px = float(feather_px) if feather_px and feather_px > 0 else max(4.0, float(feather) * size)
+    feather_px = float(feather_px) if feather_px and feather_px > 0 else max(4.0, float(feather) * region_size(region))
+    alpha = outward_alpha(region, feather_px)[:, :, None]
+    base = original.astype(np.float32)
+    blended = base + (content.astype(np.float32) - base) * alpha
+    return np.clip(np.rint(blended), 0, 255).astype(np.uint8)
+
+
+def composite_outpaint(original, content, mask, feather_px):
+    region = np.asarray(mask) >= 128
+    if not region.any():
+        return original.copy()
+    feather_px = max(4.0, float(feather_px))
     base = original.astype(np.float32)
     fresh = content.astype(np.float32)
-    alpha, dist = inward_alpha(region, feather_px)
-    if color_match:
-        fresh = fresh + edge_tone_offset(base, fresh, region, dist, feather_px)
-    blended = base + (fresh - base) * alpha[:, :, None]
-    return np.clip(np.rint(blended), 0, 255).astype(np.uint8)
+    source = ~region
+    inside = cv2.distanceTransform(source.astype(np.uint8), cv2.DIST_L2, 3)
+    outside = cv2.distanceTransform(region.astype(np.uint8), cv2.DIST_L2, 3)
+    band = (source & (inside <= max(2.0, feather_px / 4.0))).astype(np.float32)
+    if band.sum() >= 16:
+        sigma = max(2.0, feather_px)
+        weighted = cv2.GaussianBlur((base - fresh) * band[:, :, None], (0, 0), sigma)
+        weight = cv2.GaussianBlur(band, (0, 0), sigma)[:, :, None]
+        field = np.where(weight > 1e-4, weighted / np.maximum(weight, 1e-4), 0.0)
+        fresh = fresh + field * np.clip(1.0 - outside / (3.0 * feather_px), 0.0, 1.0)[:, :, None]
+    out = np.where(source[:, :, None], base, fresh)
+    return np.clip(np.rint(out), 0, 255).astype(np.uint8)

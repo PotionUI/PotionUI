@@ -28,29 +28,32 @@ img2img path gets it from one mechanism.
 
 The source picture is VAE-encoded to a latent. The sampler starts from the usual noise blend of that
 latent, then wraps the guidance strategy in `LatentMaskGuidance`
-(`src/platform/runtime/native/sampling/latent_mask.py`). After every model call the clean-latent
-estimate is pinned to the source latent wherever the mask is 0 and kept where it is 1, and the
-velocity is rebuilt from the pinned estimate. Outside the mask the trajectory therefore follows the
-source latent's own noised path, while the masked area is free to change and still sees the kept area
-through attention. When sampling ends, every latent whose mask value is 0 is replaced by the source
-latent, so kept latents come back bit-identical to the input.
+(`src/platform/runtime/native/sampling/latent_mask.py`). The mask is the painted area plus a soft edge
+outside it, downsampled to the latent grid by area averaging, so edge cells hold fractional values.
 
-A fractional mask value blends the estimate between source and model. The mask handed to the engine
-is the pixel mask max-pooled to the latent grid, so a latent cell that touches any painted pixel is
-repainted whole.
+Sampling is differential, in the style of differential diffusion. At each step a cell is free (denoised
+by the model) only when its mask value is at least `1 - progress`. Cells at 1 are free from the first
+step; soft edge cells are freed later the lower their value, so they receive only small changes and
+the model can continue the background across the edge. Cells at 0 are never freed. Pinned cells have
+their clean estimate set to the source latent on every step, so they follow the source's own noised
+path; at the end, every cell that was never freed is replaced by the source latent, so kept latents
+come back bit-identical to the input.
 
-The decoded picture is composited over the source pixels by the pixel mask, which keeps untouched
-pixels exact despite the VAE round trip.
+Inside the painted area the output is always fully generated. The decoded picture is composited over
+the source pixels by the soft pixel mask, and the final restore takes the painted area whole, fading
+out only beyond its edge, so nothing of the old content shows through.
 
 ## Presets
 
 - **Inpaint** (Z-Image, MOSS-Image, Krea-2, Qwen-Image-2.1): paint the area, optionally describe what
   should be there. The painted area is dilated by *Grow*, cropped with surrounding context
   (`inpaint_region_crop`, scaled strategy), repainted, and composited back by `inpaint_region_restore` (`inpaint` strategy)
-  with a *Feather* seam that fades inward from the painted edge, and the edge tone is pulled toward the surroundings.
+  with a *Feather* band outside the painted edge.
 - **Outpaint** (Z-Image): `canvas_expand` grows the canvas by pixels per side or to a target shape,
-  fills the new area with a blurred copy of the edge and masks it, plus a few pixels of the original
-  edge so the seam blends. The generator repaints the mask and returns the whole canvas.
+  fills the new area with a blurred copy of the edge, and builds a mask that is 1 over the new area and
+  fades out over the *Blend* band inside the source edge. The canvas is generated at the model's pixel
+  budget (1 MP by default), scaled back up to the full canvas, and the original pixels are pasted back
+  exactly; the extension's tone is matched to the source edge.
 
 ## Tradeoffs and limitations
 
@@ -58,5 +61,5 @@ pixels exact despite the VAE round trip.
   keeps colour and layout but cannot add much that is new.
 - The prompt describes what belongs in the painted area. With no prompt, the preset asks for the
   surroundings continued, which suits removing an object.
-- The mask is applied in latent space, so the finest detail at its edge is decided by the latent grid
-  (8 to 16 pixels per cell depending on the family) and the pixel feather.
+- The mask is applied in latent space, so its edge is decided by the latent grid (8 to 16 pixels per
+  cell depending on the family) and the pixel feather.

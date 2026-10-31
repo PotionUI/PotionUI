@@ -27,6 +27,7 @@ from src.pipelines.pipes._shared.imaging.inpaint_mask import (
     composite_pixels,
     latent_mask_from_array,
     mask_to_unit_array,
+    soft_mask,
 )
 from src.pipelines.contracts import IOType, PipeConfigSpec, PipeInputSpec
 from src.pipelines.outputs import Icon
@@ -155,6 +156,12 @@ class Img2ImgGeneratorMixin:
                 required=False, min_value=0.0, max_value=8.0,
             ),
             PipeConfigSpec(
+                "mask_feather", float, 0.0,
+                "Inpaint only: soft edge added outside the mask, as a fraction of the mask's longer side; "
+                "edge latents are freed late in sampling so the model can continue the background across the edge",
+                required=False, min_value=0.0, max_value=1.0,
+            ),
+            PipeConfigSpec(
                 "max_pixels", int, 0,
                 "Inpaint only: keep the picture at its own size and scale down only when it exceeds this "
                 "pixel area; 0 matches the mode's resolution area instead",
@@ -263,7 +270,9 @@ class Img2ImgGeneratorMixin:
         if (snap_w, snap_h) != src.size:
             src = src.resize((snap_w, snap_h), Image.LANCZOS)
         pixels = np.asarray(src)
-        mask = mask_to_unit_array(mask_image, src.size)
+        mask = soft_mask(
+            mask_to_unit_array(mask_image, src.size), float(self.config.get("mask_feather", 0.0) or 0.0)
+        )
         init_latent = gen.encode_image(pixels)
 
         def on_progress(_fraction: float, step_index: int, total: int) -> None:

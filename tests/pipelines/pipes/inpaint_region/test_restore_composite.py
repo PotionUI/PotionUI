@@ -127,18 +127,23 @@ def test_composite_without_the_original_mask_raises():
         )
 
 
-def test_inpaint_strategy_feathers_inward_and_removes_the_tone_step():
+def _region(box=(50, 150, 100, 200), shape=(200, 300)):
+    mask = np.zeros(shape, dtype=np.uint8)
+    mask[box[0]:box[1], box[2]:box[3]] = 255
+    return mask
+
+
+def test_inpaint_strategy_takes_the_region_whole_and_ramps_out_beyond_its_edge():
     from src.pipelines.pipes._shared.inpainting.mask_utils import composite_inpaint
 
     original = np.full((200, 300, 3), 200, dtype=np.uint8)
     content = np.full((200, 300, 3), 218, dtype=np.uint8)
-    mask = np.zeros((200, 300), dtype=np.uint8)
-    mask[50:150, 100:200] = 255
-    row = composite_inpaint(original, content, mask, 0.12, True).astype(int)[100, :, 0]
-    assert np.abs(np.diff(row)).max() <= 2
-    assert (row[:100] == 200).all() and (row[200:] == 200).all()
-    assert row[150] >= 215
-    assert np.abs(np.diff(composite_inpaint(original, content, mask, 0.12, False).astype(int)[100, :, 0])).max() <= 3
+    row = composite_inpaint(original, content, _region(), 0.12).astype(int)[100, :, 0]
+    assert (row[100:200] == 218).all()
+    assert (row[:80] == 200).all() and (row[220:] == 200).all()
+    steps = np.abs(np.diff(row))
+    assert steps.max() <= 3
+    assert row[99] > 200 and row[200] > 200 and (np.diff(row[80:100]) >= 0).all()
 
 
 def test_inpaint_strategy_pixel_feather_overrides_the_fraction():
@@ -146,8 +151,34 @@ def test_inpaint_strategy_pixel_feather_overrides_the_fraction():
 
     original = np.zeros((100, 100, 3), dtype=np.uint8)
     content = np.full((100, 100, 3), 200, dtype=np.uint8)
-    mask = np.zeros((100, 100), dtype=np.uint8)
-    mask[20:80, 20:80] = 255
-    narrow = composite_inpaint(original, content, mask, 0.5, False, feather_px=4)[50, :, 0].astype(int)
-    wide = composite_inpaint(original, content, mask, 0.5, False, feather_px=24)[50, :, 0].astype(int)
-    assert narrow[28] > wide[28] + 50
+    mask = _region((20, 80, 20, 80), (100, 100))
+    narrow = composite_inpaint(original, content, mask, 0.5, feather_px=4)[50, :, 0].astype(int)
+    wide = composite_inpaint(original, content, mask, 0.5, feather_px=16)[50, :, 0].astype(int)
+    assert narrow[14] < wide[14] and narrow[19] > 100 and wide[19] > narrow[19]
+
+
+def test_inpaint_strategy_never_fades_the_generated_region_back_to_the_source():
+    from src.pipelines.pipes._shared.inpainting.mask_utils import composite_inpaint
+
+    original = np.zeros((120, 120, 3), dtype=np.uint8)
+    original[40:80, 40:80] = (255, 0, 0)
+    content = np.full((120, 120, 3), 90, dtype=np.uint8)
+    result = composite_inpaint(original, content, _region((30, 90, 30, 90), (120, 120)), 0.1)
+    assert (result[30:90, 30:90] == 90).all()
+
+
+def test_outpaint_strategy_pastes_the_source_back_exactly_and_matches_the_extension_tone():
+    from src.pipelines.pipes._shared.inpainting.mask_utils import composite_outpaint
+
+    rng = np.random.default_rng(4)
+    original = np.zeros((60, 200, 3), dtype=np.uint8)
+    original[:, 100:] = np.clip(200 + rng.integers(-3, 3, (60, 100, 3)), 0, 255)
+    content = np.full((60, 200, 3), 218, dtype=np.uint8)
+    mask = np.zeros((60, 200), dtype=np.uint8)
+    mask[:, :100] = 255
+    result = composite_outpaint(original, content, mask, 24).astype(int)
+    assert np.array_equal(result[:, 100:], original[:, 100:])
+    row = result[30, :, 0]
+    assert abs(row[99] - row[100]) <= 6
+    assert np.abs(np.diff(row[:100])).max() <= 2
+    assert row[0] >= 215

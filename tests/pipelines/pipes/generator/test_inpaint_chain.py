@@ -21,6 +21,8 @@ from src.platform.runtime.native.sampling.denoise_loop import denoise
 
 SOURCE_TONE = 200
 TONE_OFFSET = 18
+OBJECT = (220, 30, 30)
+INSIDE = (slice(80, 176), slice(140, 260))
 
 
 @dataclass(frozen=True)
@@ -85,7 +87,9 @@ def _cond():
 
 
 def _scene():
-    original = Image.fromarray(np.full((256, 384, 3), SOURCE_TONE, dtype=np.uint8))
+    pixels = np.full((256, 384, 3), SOURCE_TONE, dtype=np.uint8)
+    pixels[100:150, 170:230] = OBJECT
+    original = Image.fromarray(pixels)
     painted = np.zeros((256, 384), dtype=np.uint8)
     painted[80:176, 140:260] = 255
     return original, Image.fromarray(painted)
@@ -98,7 +102,8 @@ def _run_chain(family, wire=lambda crop: (crop["images"], crop["masks"])):
         PipeInput(input={"image": original, "mask": mask}), None
     ).output
     images, masks = wire(crop)
-    config = {**cls.get_default_config(), "mode": "inpaint", "denoise": 1.0, "preview": False, "steps": 3}
+    config = {**cls.get_default_config(), "mode": "inpaint", "denoise": 1.0, "preview": False, "steps": 3,
+              "mask_feather": 0.12}
     fake = _fake_generator(five_d, channels)
     with patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None), \
             patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", fake):
@@ -109,7 +114,7 @@ def _run_chain(family, wire=lambda crop: (crop["images"], crop["masks"])):
             }),
             lambda *_: None,
         ).output
-    restored = InpaintRegionRestorePipe({"strategy": "inpaint", "feather": 0.12, "color_match": True}).process(
+    restored = InpaintRegionRestorePipe({"strategy": "inpaint", "feather": 0.12}).process(
         PipeInput(input={
             "inpainted_image": out["image"], "crop_region": crop["crop_region"],
             "original_image": crop["original_image"], "original_mask": crop["original_mask"],
@@ -119,24 +124,31 @@ def _run_chain(family, wire=lambda crop: (crop["images"], crop["masks"])):
 
 
 @pytest.mark.parametrize("family", sorted(FAMILIES))
-def test_real_chain_runs_and_only_the_painted_area_changes(family):
+def test_real_chain_runs_and_only_the_painted_area_and_its_outer_band_change(family):
     result, gen = _run_chain(family)
     assert result.shape == (256, 384, 3)
     assert gen.masks[0] is not None and float(gen.masks[0].max()) == 1.0
-    assert (result[:60] == SOURCE_TONE).all() and (result[:, :100] == SOURCE_TONE).all()
-    assert (result[120:136, 190:210] > SOURCE_TONE + TONE_OFFSET // 2).all()
+    assert (result[:50] == SOURCE_TONE).all() and (result[:, :100] == SOURCE_TONE).all()
+    assert (result[:, 300:] == SOURCE_TONE).all() and (result[210:] == SOURCE_TONE).all()
 
 
 @pytest.mark.parametrize("family", sorted(FAMILIES))
-def test_a_repaint_with_a_tone_offset_leaves_no_step_at_the_mask_edge(family):
+def test_removal_leaves_no_trace_of_the_old_object_inside_the_mask(family):
     result, _ = _run_chain(family)
-    row = result[128, :, 0]
-    assert np.abs(np.diff(row)).max() <= 2
-    column = result[:, 200, 0]
-    assert np.abs(np.diff(column)).max() <= 2
-    assert abs(int(result[128, 139, 0]) - SOURCE_TONE) <= 1
-    assert result[128, 156, 0] - SOURCE_TONE <= TONE_OFFSET * 0.6
-    assert result[128, 200, 0] - SOURCE_TONE >= TONE_OFFSET * 0.8
+    inside = result[INSIDE]
+    ghost = (np.abs(inside - np.array(OBJECT)).sum(axis=-1) < 150) | (inside[..., 0] > SOURCE_TONE + TONE_OFFSET)
+    assert ghost.sum() == 0
+    assert (inside == SOURCE_TONE + TONE_OFFSET).all()
+
+
+@pytest.mark.parametrize("family", sorted(FAMILIES))
+def test_a_tone_offset_ramps_outside_the_mask_with_no_step(family):
+    result, _ = _run_chain(family)
+    for line in (result[128, :, 0], result[:, 200, 0]):
+        assert np.abs(np.diff(line)).max() <= 4
+    assert result[128, 139, 0] > SOURCE_TONE
+    assert result[128, 100, 0] == SOURCE_TONE
+    assert (np.diff(result[128, 110:140, 0]) >= 0).all()
 
 
 @pytest.mark.parametrize("family", sorted(FAMILIES))
@@ -145,12 +157,17 @@ def test_a_single_image_and_mask_instead_of_lists_still_runs(family):
     assert result.shape == (256, 384, 3)
 
 
-def test_outpaint_chain_keeps_the_source_native_and_blends_the_seam():
+def test_outpaint_generates_within_the_budget_returns_native_scale_and_keeps_the_source_exact():
     cls, five_d, channels = FAMILIES["z_image"]
-    source = Image.fromarray(np.full((320, 240, 3), SOURCE_TONE, dtype=np.uint8))
-    expand = CanvasExpandPipe({"aspect": "16:9", "overlap": 32}).process(PipeInput(input={"image": source}), None).output
+    rng = np.random.default_rng(3)
+    pixels = np.clip(SOURCE_TONE + rng.integers(-6, 6, (600, 450, 3)), 0, 255).astype(np.uint8)
+    source = Image.fromarray(pixels)
+    expand = CanvasExpandPipe({"aspect": "16:9", "overlap": 48}).process(PipeInput(input={"image": source}), None).output
+    canvas_w, canvas_h = expand["image"].size
+    budget = 524288
+    assert canvas_w * canvas_h > budget
     config = {**cls.get_default_config(), "mode": "inpaint", "denoise": 1.0, "preview": False, "steps": 3,
-              "max_pixels": 4194304}
+              "max_pixels": budget}
     fake = _fake_generator(five_d, channels)
     with patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None), \
             patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", fake):
@@ -161,16 +178,19 @@ def test_outpaint_chain_keeps_the_source_native_and_blends_the_seam():
             }),
             lambda *_: None,
         ).output
-    assert fake.last.size == (320, 576)
-    restored = InpaintRegionRestorePipe({"strategy": "inpaint", "feather_px": 32}).process(
+    generated_h, generated_w = fake.last.size
+    assert generated_w * generated_h <= budget * 1.05
+    assert generated_w < canvas_w
+    restored = InpaintRegionRestorePipe({"strategy": "outpaint", "feather_px": 48}).process(
         PipeInput(input={
             "inpainted_image": out["image"], "crop_region": expand["crop_region"],
             "original_image": expand["original_image"], "original_mask": expand["original_mask"],
         }), None
     ).output["image"]
     result = np.asarray(restored[0]).astype(int)
-    assert result.shape[:2] == expand["image"].size[::-1]
-    left = (result.shape[1] - 240) // 2
-    row = result[result.shape[0] // 2, :, 0]
-    assert np.abs(np.diff(row)).max() <= 2
-    assert (result[:, left + 60 : left + 180, 0] == SOURCE_TONE).all()
+    assert result.shape == (canvas_h, canvas_w, 3)
+    left = (canvas_w - 450) // 2
+    assert np.array_equal(result[:, left:left + 450], pixels.astype(int))
+    row = result[canvas_h // 2, :, 0]
+    assert np.abs(np.diff(row[:left])).max() <= 3
+    assert abs(row[left - 4:left].mean() - row[left:left + 4].mean()) <= 4

@@ -130,6 +130,7 @@ pipeline:
     enabled: true
     configuration:
       mode: "inpaint"
+      mask_feather: "{{ (form.mask_feather | default(12) | float) / 100 }}"
       denoise: "{{ form.denoise }}"
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       guidance: "{{ form.cfg | default(generation.profile.guidance) }}"

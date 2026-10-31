@@ -6,7 +6,7 @@ import torch
 from src.platform.runtime.native.sampling.denoise_loop import denoise
 from src.platform.runtime.native.sampling.latent_mask import (
     LatentMaskGuidance,
-    composite_latents,
+    free_cells,
     restore_kept_latents,
     validate_latent_mask,
 )
@@ -83,10 +83,6 @@ def test_empty_mask_returns_source():
     assert torch.equal(out, source)
 
 
-def test_soft_mask_blends_between_source_and_target():
-    source = torch.zeros(1, 4, 4, 4)
-    out = _run(source, torch.full((1, 1, 4, 4), 0.5), torch.full_like(source, 2.0))
-    assert torch.allclose(out, torch.full_like(out, 1.0), atol=0.05)
 
 
 def test_mask_that_does_not_broadcast_is_rejected():
@@ -108,15 +104,12 @@ def test_guidance_wrapper_delegates_attributes_to_inner():
         def __call__(self, model_fn, x, sigma, cond, uncond, step_index):
             return torch.zeros_like(x)
 
-    guidance = LatentMaskGuidance(Inner(), torch.zeros(1, 1, 2, 2), torch.ones(1, 1, 2, 2))
+    guidance = LatentMaskGuidance(Inner(), torch.zeros(1, 1, 2, 2), torch.ones(1, 1, 2, 2), 4)
     assert guidance.last_uncond_v == "marker"
     with pytest.raises(AttributeError):
         guidance.missing_attribute
 
 
-def test_composite_keeps_source_where_mask_is_zero():
-    out = composite_latents(torch.tensor([0.0, 1.0]), torch.tensor([5.0, 5.0]), torch.tensor([2.0, 2.0]))
-    assert out.tolist() == [2.0, 5.0]
 
 
 def test_resume_is_rejected_with_a_mask():
@@ -128,9 +121,6 @@ def test_resume_is_rejected_with_a_mask():
         )
 
 
-def test_restore_kept_latents_only_overrides_zero_mask():
-    out = restore_kept_latents(torch.tensor([0.0, 0.3]), torch.tensor([5.0, 5.0]), torch.tensor([2.0, 2.0]))
-    assert out.tolist() == [2.0, 5.0]
 
 
 def test_kept_region_follows_the_noised_source_at_every_model_call():
@@ -154,3 +144,54 @@ def test_kept_region_follows_the_noised_source_at_every_model_call():
         expected = sigma * noise + (1.0 - sigma) * source
         assert torch.allclose(x[keep], expected[keep], atol=1e-4)
     assert not torch.allclose(seen[-1][0][~keep], (seen[-1][1] * noise + (1 - seen[-1][1]) * source)[~keep], atol=1e-3)
+
+
+def test_cells_are_freed_later_the_softer_their_mask_value():
+    mask = torch.tensor([0.0, 0.25, 0.5, 1.0])
+    freed = [free_cells(mask, step, 8).tolist() for step in range(8)]
+    assert [row[3] for row in freed] == [1.0] * 8
+    assert [row[0] for row in freed] == [0.0] * 8
+    assert free_cells(mask, 8, 8).tolist()[0] == 0.0
+    assert [row[2] for row in freed] == [0.0] * 4 + [1.0] * 4
+    assert [row[1] for row in freed] == [0.0] * 6 + [1.0] * 2
+
+
+def test_soft_cells_follow_the_noised_source_early_and_the_model_late():
+    torch.manual_seed(2)
+    source = torch.randn(1, 4, 2, 8)
+    noise = torch.randn_like(source)
+    mask = torch.zeros(1, 1, 2, 8)
+    mask[..., 4:6] = 0.5
+    mask[..., 6:] = 1.0
+    seen = []
+
+    def model_forward(x, sigma, cond):
+        seen.append((x.clone(), float(sigma.reshape(-1)[0])))
+        return torch.randn_like(x)
+
+    out = denoise(
+        model_forward, source, cond={}, uncond=None, steps=6, sampling_settings=SETTINGS,
+        guidance_scale=0.0, seed_noise=noise, latent_mask=mask,
+    )
+    soft, free, kept = (slice(4, 6), slice(6, 8), slice(0, 4))
+    for call, (x, sigma) in enumerate(seen):
+        path = sigma * noise + (1.0 - sigma) * source
+        assert torch.allclose(x[..., kept], path[..., kept], atol=1e-4)
+        assert torch.allclose(x[..., soft], path[..., soft], atol=1e-4) == (call <= 3)
+        assert torch.allclose(x[..., free], path[..., free], atol=1e-4) == (call == 0)
+    assert torch.equal(out[..., kept], source[..., kept])
+    assert not torch.allclose(out[..., soft], source[..., soft])
+
+
+def test_cells_never_freed_come_back_as_the_source():
+    source = torch.randn(1, 4, 2, 8)
+    mask = torch.zeros(1, 1, 2, 8)
+    mask[..., 4:] = 0.04
+    out = _run(source, mask, torch.full_like(source, 3.0))
+    assert torch.equal(out, source)
+
+
+def test_restore_kept_latents_follows_the_last_step_release():
+    mask = torch.tensor([0.0, 0.1, 1.0])
+    out = restore_kept_latents(mask, torch.tensor([5.0, 5.0, 5.0]), torch.tensor([2.0, 2.0, 2.0]), 4)
+    assert out.tolist() == [2.0, 2.0, 5.0]

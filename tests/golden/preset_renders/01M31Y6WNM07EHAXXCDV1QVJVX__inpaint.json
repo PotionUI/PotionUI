@@ -293,6 +293,10 @@
           "type": "float",
           "value": 4.0
         },
+        "mask_feather": {
+          "type": "float",
+          "value": 0.12
+        },
         "mode": {
           "type": "str",
           "value": "inpaint"

@@ -20,6 +20,7 @@ from src.pipelines.pipes.canvas_expand.geometry import (
     aspect_margins,
     build_canvas,
     build_mask,
+    build_region_mask,
     pixel_margins,
 )
 
@@ -43,6 +44,7 @@ class CanvasExpandPipe(BasePipe):
             )
         canvas = build_canvas(image, margins, str(self.config.get("fill", "blur")))
         mask = build_mask(image.size, margins, int(self.config.get("overlap", 48)))
+        region_mask = build_region_mask(image.size, margins)
         logger.info("[CANVAS EXPAND] %dx%d -> %dx%d, margins %s", width, height, *canvas.size, margins)
         crop_region = {
             "top": 0, "bottom": canvas.size[1], "left": 0, "right": canvas.size[0],
@@ -50,7 +52,7 @@ class CanvasExpandPipe(BasePipe):
         }
         return PipeOutput(output={
             "image": canvas, "images": [canvas], "mask": mask, "masks": [mask],
-            "crop_region": crop_region, "original_image": canvas, "original_mask": mask,
+            "crop_region": crop_region, "original_image": canvas, "original_mask": region_mask,
         })
 
     @classmethod
@@ -66,7 +68,7 @@ class CanvasExpandPipe(BasePipe):
             PipeOutputSpec("masks", IOType.IMAGE, "White over the new area as a one-item list", is_array=True),
             PipeOutputSpec("crop_region", IOType.DICT, "The whole canvas, for the restore pipe", is_array=False),
             PipeOutputSpec("original_image", IOType.IMAGE, "Picture on the larger canvas, for the restore pipe", is_array=False),
-            PipeOutputSpec("original_mask", IOType.IMAGE, "White over the new area, for the restore pipe", is_array=False),
+            PipeOutputSpec("original_mask", IOType.IMAGE, "White over the new area only, for the restore pipe", is_array=False),
         ]
 
     @classmethod
@@ -91,6 +93,6 @@ class CanvasExpandPipe(BasePipe):
             ),
             PipeConfigSpec(
                 name="overlap", param_type=int, default=48, required=False, min_value=0, max_value=256,
-                description="Pixels of the original edge that are repainted too, so the seam blends",
+                description="Pixels into the original edge where repainting fades out, so the model continues the picture across the seam",
             ),
         ]

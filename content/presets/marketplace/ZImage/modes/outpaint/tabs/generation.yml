@@ -117,13 +117,13 @@ fields:
         type: "select"
         formula: "size"
         label: "Output size"
-        default: "4"
-        ai_hint: "The picture keeps its own size and is only scaled down when the extended canvas is larger than this."
+        default: "1"
+        ai_hint: "The size the new picture is painted at. The result is scaled back up and your original pixels are pasted over it, so the picture keeps its full size."
         configuration:
           options:
-            - { label: "1 MP", value: "1", sub_label: "Fast, scales big pictures down" }
+            - { label: "1 MP", value: "1", sub_label: "The model's native size" }
             - { label: "2 MP", value: "2", sub_label: "More detail, slower" }
-            - { label: "4 MP", value: "4", sub_label: "Native 2K, heaviest" }
+            - { label: "4 MP", value: "4", sub_label: "Heaviest" }
 
       - name: "denoise"
         type: "slider"
@@ -137,7 +137,7 @@ fields:
         type: "slider"
         label: "Blend"
         default: 48
-        ai_hint: "How far into the original edge the repaint reaches, so the seam blends."
+        ai_hint: "How far into your picture the model looks and fades its repaint, so the new area continues it."
         configuration: {min: 0, max: 128, step: 4}
 
   - type: "section"

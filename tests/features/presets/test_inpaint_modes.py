@@ -256,3 +256,22 @@ def test_the_render_harness_reraises_errors_that_are_not_about_a_mask(templates,
     with pytest.raises(FormBindingError):
         harness.build_fixture_form_data(templates["ZImage"], "outpaint")
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize("family", INPAINT_FAMILIES)
+def test_the_generator_gets_the_same_soft_edge_as_the_restore(templates, family):
+    pipes = _process(templates, family, "inpaint", {"mask_feather": 20})
+    assert float(_generator(templates, family, pipes)["mask_feather"]) == pytest.approx(0.2)
+    assert float(_pipe(pipes, "inpaint_region_restore")["config"]["feather"]) == pytest.approx(0.2)
+
+
+def test_krea2_looks_at_a_wide_surrounding_by_default(templates):
+    pipes = _process(templates, "Krea2", "inpaint")
+    assert float(_pipe(pipes, "inpaint_region_crop")["config"]["context"]) == 1.0
+
+
+def test_zimage_outpaint_restores_with_the_outpaint_strategy_over_the_blend_band(templates):
+    pipes = _process(templates, "ZImage", "outpaint", {"mask_feather": 40}, mask=False)
+    config = _pipe(pipes, "inpaint_region_restore")["config"]
+    assert config["strategy"] == "outpaint" and int(config["feather_px"]) == 40
+    assert int(_generator(templates, "ZImage", pipes)["max_pixels"]) == 1048576

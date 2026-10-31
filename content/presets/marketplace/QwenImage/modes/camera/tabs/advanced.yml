@@ -88,4 +88,4 @@ fields:
         audience: "advanced"
         default: 0.9
         description: "Lower if the subject drifts."
-        configuration: {min: 0.5, max: 1.2, step: 0.05}
+        configuration: {min: 0.0, max: 2.0, step: 0.05}

@@ -42,6 +42,8 @@ pipeline:
       quantity: "{{ form.quantity }}"
       guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
       negative_applied: "{{ generation.negative_applied }}"
+      picture_labels: true
+      grounding_area: 147456
 
   - name: "seed_generator"
     enabled: true

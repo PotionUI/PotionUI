@@ -69,6 +69,10 @@
     },
     {
       "config": {
+        "grounding_area": {
+          "type": "int",
+          "value": 147456
+        },
         "guidance_scale": {
           "type": "float",
           "value": 4.0
@@ -92,6 +96,10 @@
         "p_prompt.output": {
           "type": "str",
           "value": "<sks> front-right quarter view eye-level shot medium shot"
+        },
+        "picture_labels": {
+          "type": "bool",
+          "value": true
         },
         "quantity": {
           "type": "int",

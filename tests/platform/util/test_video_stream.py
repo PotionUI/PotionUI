@@ -156,7 +156,7 @@ def test_close_timeout_kills_and_reaps():
     assert writer._proc.waits >= 1
 
 
-def test_abort_escalates_to_kill_when_terminate_does_not_stop_it():
+def test_abort_kills_a_running_process_without_waiting_for_terminate():
     writer = object.__new__(encode.StreamingMp4Writer)
     proc = _FakeProc()
     writer._proc = proc
@@ -164,8 +164,8 @@ def test_abort_escalates_to_kill_when_terminate_does_not_stop_it():
 
     writer.abort()
 
-    assert proc.terminated
     assert proc.killed
+    assert not proc.terminated
 
 
 def test_abort_on_already_exited_process_skips_terminate_and_kill():
@@ -897,3 +897,32 @@ def test_an_audio_title_tag_is_not_mistaken_for_a_stream(monkeypatch):
     _banner_probe(monkeypatch, "  Metadata:\n    title           : Audio: demo\n  Stream #0:0: Video: h264\n")
 
     assert encode.probe_audio_stream("src.mp4").status == encode.AUDIO_PROBE_SILENT
+
+
+def test_abort_on_a_writer_blocked_on_stdin_returns_fast_and_removes_the_partial_file(ffmpeg_stub, tmp_path):
+    import time
+
+    ffmpeg_stub(_READ_STDIN)
+    out = tmp_path / "out.mp4"
+    writer = encode.StreamingMp4Writer(str(out), 64, 64, 24.0)
+    out.write_bytes(b"partial")
+    started = time.monotonic()
+
+    writer.abort()
+
+    assert time.monotonic() - started < 5
+    assert writer._proc.poll() is not None
+    assert not out.exists()
+
+
+def test_abort_keeps_a_file_that_was_already_finished(ffmpeg_stub, tmp_path):
+    ffmpeg_stub(_READ_STDIN)
+    out = tmp_path / "out.mp4"
+    writer = encode.StreamingMp4Writer(str(out), 64, 64, 24.0)
+    writer.write(np.zeros((64, 64, 3), dtype=np.uint8))
+    writer.close()
+    out.write_bytes(b"done")
+
+    writer.abort()
+
+    assert out.exists()

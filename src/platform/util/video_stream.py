@@ -14,6 +14,7 @@ from src.platform.observability.logger import logger
 from src.platform.util.video_transcode import find_ffmpeg, find_ffprobe
 
 _ABORT_WAIT_TIMEOUT = 10
+_KILL_REAP_TIMEOUT = 3
 _STDERR_TAIL_BYTES = 8192
 _MUX_TIMEOUT = 600
 _PROBE_TIMEOUT = 10
@@ -205,6 +206,7 @@ class StreamingMp4Writer:
     def __init__(self, out_path: Union[str, Path], width: int, height: int,
                  fps: float, codec: str = "libx264", crf: int = 18):
         ffmpeg = require_ffmpeg()
+        self._out_path = Path(out_path)
         self.width = int(width)
         self.height = int(height)
         if self.width % 2 or self.height % 2:
@@ -251,18 +253,22 @@ class StreamingMp4Writer:
             raise RuntimeError(f"ffmpeg encode failed (exit {returncode}): {msg}")
 
     def abort(self) -> None:
-        if self._proc.poll() is None:
-            self._proc.terminate()
-            try:
-                self._proc.wait(timeout=_ABORT_WAIT_TIMEOUT)
-            except subprocess.TimeoutExpired:
-                self._proc.kill()
+        was_running = self._proc.poll() is None
+        if was_running and self._proc.poll() is None:
+            self._proc.kill()
         self._reap()
         self._finalize_streams()
+        failed = was_running or (self._proc.returncode not in (0, None))
+        out_path = getattr(self, "_out_path", None)
+        if failed and out_path is not None:
+            try:
+                out_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _reap(self) -> None:
         try:
-            self._proc.wait(timeout=_ABORT_WAIT_TIMEOUT)
+            self._proc.wait(timeout=_KILL_REAP_TIMEOUT)
         except subprocess.TimeoutExpired:
             pass
 

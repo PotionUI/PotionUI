@@ -261,9 +261,12 @@ class Qwen25VLTextEncoder(NativeTextEncoder):
         self._has_vision = hasattr(module, "visual")
 
     @torch.inference_mode()
-    def encode(self, texts: list[str], images: list[torch.Tensor] | None = None) -> dict[str, torch.Tensor]:
+    def encode(
+        self, texts: list[str], images: list[torch.Tensor] | None = None,
+        picture_labels: bool = False, grounding_area: int = 0,
+    ) -> dict[str, torch.Tensor]:
         if images:
-            return self._encode_with_images(texts, images)
+            return self._encode_with_images(texts, images, picture_labels, grounding_area)
         ids, mask, _prefix_len = self.tokenizer(texts, device=self._device)
         return self._encode_ids(ids, mask)
 
@@ -279,7 +282,10 @@ class Qwen25VLTextEncoder(NativeTextEncoder):
         pl = self.tokenizer._prefix_len
         return ids, mask, weights[:, pl:]  # strip prefix to align with the stripped context
 
-    def _encode_with_images(self, texts: list[str], images: list[torch.Tensor]) -> dict[str, torch.Tensor]:
+    def _encode_with_images(
+        self, texts: list[str], images: list[torch.Tensor],
+        picture_labels: bool = False, grounding_area: int = 0,
+    ) -> dict[str, torch.Tensor]:
         """Splice per-image vision-tower embeddings into the token embedding
         sequence in place of each ``<|image_pad|>`` placeholder, build the
         matching 3-axis m-RoPE position ids, and run the LM on the result.
@@ -309,7 +315,9 @@ class Qwen25VLTextEncoder(NativeTextEncoder):
         if len(texts) != 1:
             raise ValueError("image-conditioned encode() supports exactly one prompt per call")
 
-        ids, mask, prefix_len = self.tokenizer(texts, device=self._device, has_image=True)
+        ids, mask, prefix_len = self.tokenizer(
+            texts, device=self._device, has_image=True, picture_labels=picture_labels, num_images=len(images),
+        )
         pad_id = self.tokenizer.IMAGE_PAD_TOKEN
         pad_positions = (ids[0] == pad_id).nonzero(as_tuple=True)[0].tolist()
         if len(pad_positions) != len(images):
@@ -338,6 +346,7 @@ class Qwen25VLTextEncoder(NativeTextEncoder):
                 patch_size=visual.patch_size,
                 temporal_patch_size=visual.patch_embed.temporal_patch_size,
                 merge_size=visual.spatial_merge_size,
+                grounding_area=grounding_area,
             )
             vision_embeds = self.module.visual(patches.to(self._device, dtype=torch.float32), grid_thw)
             start = sum(p.shape[1] for p in embed_pieces)

@@ -74,6 +74,24 @@ def test_preprocess_rejects_wrong_shape():
         preprocess_qwen_vl_image(torch.rand(4, 4))
 
 
+def test_preprocess_grounding_area_fits_the_edit_plus_condition_size():
+    img = torch.rand(750, 600, 3)
+    assert preprocess_qwen_vl_image(img)[1].tolist() == [[1, 54, 42]]
+    assert preprocess_qwen_vl_image(img, grounding_area=384 * 384)[1].tolist() == [[1, 30, 24]]
+
+
+def test_preprocess_grounding_area_leaves_a_smaller_image_alone():
+    img = torch.rand(224, 224, 3)
+    assert torch.equal(preprocess_qwen_vl_image(img, grounding_area=384 * 384)[0], preprocess_qwen_vl_image(img)[0])
+
+
+def test_preprocess_grounding_area_box_filters_to_the_area_before_the_grid_resize():
+    img = torch.rand(750, 600, 3)
+    small = torch.nn.functional.interpolate(img.permute(2, 0, 1)[None], size=(429, 343), mode="area")[0]
+    expected = preprocess_qwen_vl_image(small.permute(1, 2, 0))[0]
+    assert torch.allclose(preprocess_qwen_vl_image(img, grounding_area=384 * 384)[0], expected)
+
+
 # --- tiny synthetic tower: forward shape/finiteness -------------------------
 
 _TINY = dict(

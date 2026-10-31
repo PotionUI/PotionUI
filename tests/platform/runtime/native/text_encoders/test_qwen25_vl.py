@@ -83,6 +83,32 @@ def test_template_prefix_drop_golden():
     assert int(mask.sum()) == 41
 
 
+_VISION = "<|vision_start|><|image_pad|><|vision_end|>"
+_ASSISTANT = "<|im_end|>\n<|im_start|>assistant\n"
+
+
+def test_image_template_without_labels_keeps_the_single_vision_slot():
+    pytest.importorskip("transformers")
+    from src.platform.runtime.native.text_encoders.tokenization import Qwen25VLTokenizer
+
+    tok = Qwen25VLTokenizer()
+    ids, _mask, prefix_len = tok(["turn it"], has_image=True)
+    assert prefix_len == 64
+    assert tok._tok.decode(ids[0, prefix_len:].tolist()) == f"{_VISION}turn it{_ASSISTANT}"
+
+
+def test_image_template_labels_every_picture_like_edit_plus():
+    pytest.importorskip("transformers")
+    from src.platform.runtime.native.text_encoders.tokenization import Qwen25VLTokenizer
+
+    tok = Qwen25VLTokenizer()
+    ids, _mask, prefix_len = tok(["turn it"], has_image=True, picture_labels=True, num_images=2)
+    assert prefix_len == 64
+    assert tok._tok.decode(ids[0, prefix_len:].tolist()) == (
+        f"Picture 1: {_VISION}Picture 2: {_VISION}turn it{_ASSISTANT}"
+    )
+
+
 def test_detection_disambiguates_qwen25_from_qwen3_variants():
     def qwen_sd(bias: bool, qnorm: bool, vision: bool, hidden=64, vocab=152064):
         sd = {"model.embed_tokens.weight": torch.zeros(vocab, hidden),
@@ -278,6 +304,26 @@ def test_encode_images_wrong_count_raises(tmp_path):
     enc = load_text_encoder(str(path), vision=True)
     with pytest.raises(ValueError, match="image"):
         enc.encode(["a cat"], images=[torch.rand(32, 32, 3), torch.rand(32, 32, 3)])  # template has 1 slot
+
+
+def test_encode_images_edit_plus_layout_labels_and_shrinks_the_picture(tmp_path):
+    pytest.importorskip("transformers")
+    from src.platform.runtime.native.text_encoders.loader import load_text_encoder
+
+    path = _build_tiny_vision_checkpoint(tmp_path)
+    enc = load_text_encoder(str(path), vision=True)
+    img = torch.rand(112, 112, 3)
+    plain = enc.encode(["turn"], images=[img])
+    labelled = enc.encode(["turn"], images=[img], picture_labels=True)
+    shrunk = enc.encode(["turn"], images=[img], grounding_area=56 * 56)
+    label_tokens = (
+        enc.tokenizer(["turn"], has_image=True, picture_labels=True)[0].shape[1]
+        - enc.tokenizer(["turn"], has_image=True)[0].shape[1]
+    )
+    assert label_tokens > 0
+    assert labelled["context"].shape[1] == plain["context"].shape[1] + label_tokens
+    assert shrunk["context"].shape[1] == plain["context"].shape[1] - 12
+    assert torch.isfinite(labelled["context"]).all() and torch.isfinite(shrunk["context"]).all()
 
 
 def test_encode_images_batch_greater_than_one_raises(tmp_path):

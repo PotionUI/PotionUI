@@ -275,3 +275,9 @@ def test_zimage_outpaint_restores_with_the_outpaint_strategy_over_the_blend_band
     config = _pipe(pipes, "inpaint_region_restore")["config"]
     assert config["strategy"] == "outpaint" and int(config["feather_px"]) == 40
     assert int(_generator(templates, "ZImage", pipes)["max_pixels"]) == 1048576
+
+
+@pytest.mark.parametrize("family", INPAINT_FAMILIES)
+def test_the_crop_keeps_the_scale_near_one(templates, family):
+    config = _pipe(_process(templates, family, "inpaint"), "inpaint_region_crop")["config"]
+    assert int(config["whole_image_up_to"]) == 2097152 and float(config["max_upscale"]) == 1.5

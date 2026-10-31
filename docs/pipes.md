@@ -1879,6 +1879,8 @@ Crop image to masked region for memory-efficient inpainting (Fooocus-style)
 | `context` | `float` | `0.5` | no | — | 0.0 | 4.0 | Scaled strategy: padding on each side as a fraction of the region's longer side |
 | `min_side` | `int` | `256` | no | — | 16 | — | Scaled strategy: smallest crop side in source pixels |
 | `working_area` | `int` | `1048576` | no | — | 4096 | — | Scaled strategy: pixel area the crop is resampled to |
+| `whole_image_up_to` | `int` | `0` | no | — | 0 | — | Scaled strategy: use the whole picture as the crop when its pixel area is at most this; 0 always crops to the region |
+| `max_upscale` | `float` | `0.0` | no | — | 0.0 | 8.0 | Scaled strategy: largest factor the crop may be enlarged by; 0 leaves it uncapped |
 | `multiple` | `int` | `8` | no | — | 1 | — | Scaled strategy: both working sides snap to this multiple |
 | `k` | `float` | `0.618` | no | — | — | — | Padding factor (0.618 = Fooocus default) |
 | `min_size` | `int` | `1024` | no | — | — | — | Minimum size to upscale to |

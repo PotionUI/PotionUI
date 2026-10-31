@@ -117,6 +117,16 @@ def composite_inpaint(original, content, mask, feather, feather_px=0):
     return np.clip(np.rint(blended), 0, 255).astype(np.uint8)
 
 
+def _high_pass_gain(base, fresh, band, sigma):
+    if band.sum() < 16:
+        return np.ones(3, dtype=np.float32)
+    pick = band > 0
+    src_high = base - cv2.GaussianBlur(base, (0, 0), sigma)
+    gen_high = fresh - cv2.GaussianBlur(fresh, (0, 0), sigma)
+    ratio = src_high[pick].std(axis=0) / np.maximum(gen_high[pick].std(axis=0), 1e-3)
+    return np.clip(ratio, 0.25, 1.0).astype(np.float32)
+
+
 def composite_outpaint(original, content, mask, feather_px):
     region = np.asarray(mask) >= 128
     if not region.any():
@@ -128,11 +138,18 @@ def composite_outpaint(original, content, mask, feather_px):
     inside = cv2.distanceTransform(source.astype(np.uint8), cv2.DIST_L2, 3)
     outside = cv2.distanceTransform(region.astype(np.uint8), cv2.DIST_L2, 3)
     band = (source & (inside <= max(2.0, feather_px / 4.0))).astype(np.float32)
+    reach = np.clip(1.0 - outside / (3.0 * feather_px), 0.0, 1.0)[:, :, None]
     if band.sum() >= 16:
         sigma = max(2.0, feather_px)
         weighted = cv2.GaussianBlur((base - fresh) * band[:, :, None], (0, 0), sigma)
         weight = cv2.GaussianBlur(band, (0, 0), sigma)[:, :, None]
-        field = np.where(weight > 1e-4, weighted / np.maximum(weight, 1e-4), 0.0)
-        fresh = fresh + field * np.clip(1.0 - outside / (3.0 * feather_px), 0.0, 1.0)[:, :, None]
-    out = np.where(source[:, :, None], base, fresh)
+        fresh = fresh + np.where(weight > 1e-4, weighted / np.maximum(weight, 1e-4), 0.0) * reach
+        detail_sigma = max(1.5, feather_px / 8.0)
+        gain = _high_pass_gain(base, fresh, band, detail_sigma)
+        low = cv2.GaussianBlur(fresh, (0, 0), detail_sigma)
+        fresh = low + (fresh - low) * (1.0 + (gain - 1.0) * reach)
+    t = np.clip(outside / feather_px, 0.0, 1.0)
+    take = (t * t * (3.0 - 2.0 * t))[:, :, None]
+    extension = base + (fresh - base) * take
+    out = np.where(source[:, :, None], base, extension)
     return np.clip(np.rint(out), 0, 255).astype(np.uint8)

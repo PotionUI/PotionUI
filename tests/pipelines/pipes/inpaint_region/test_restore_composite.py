@@ -171,7 +171,7 @@ def test_outpaint_strategy_pastes_the_source_back_exactly_and_matches_the_extens
     from src.pipelines.pipes._shared.inpainting.mask_utils import composite_outpaint
 
     rng = np.random.default_rng(4)
-    original = np.zeros((60, 200, 3), dtype=np.uint8)
+    original = np.full((60, 200, 3), 200, dtype=np.uint8)
     original[:, 100:] = np.clip(200 + rng.integers(-3, 3, (60, 100, 3)), 0, 255)
     content = np.full((60, 200, 3), 218, dtype=np.uint8)
     mask = np.zeros((60, 200), dtype=np.uint8)
@@ -182,3 +182,36 @@ def test_outpaint_strategy_pastes_the_source_back_exactly_and_matches_the_extens
     assert abs(row[99] - row[100]) <= 6
     assert np.abs(np.diff(row[:100])).max() <= 2
     assert row[0] >= 215
+
+
+def _gradient_scene(canvas_fill="blur"):
+    from src.pipelines.pipes.canvas_expand.geometry import build_canvas
+
+    rng = np.random.default_rng(1)
+    height, width, left = 120, 400, 150
+    gradient = np.linspace(100, 180, width - left)[None, :, None].repeat(height, 0).repeat(3, 2)
+    source = np.clip(gradient + rng.normal(0, 2, gradient.shape), 0, 255).astype(np.uint8)
+    canvas = np.asarray(build_canvas(Image.fromarray(source), (left, 0, 0, 0), canvas_fill))
+    mask = np.zeros((height, width), dtype=np.uint8)
+    mask[:, :left] = 255
+    ramp = np.linspace(100, 180, width)[None, :, None].repeat(height, 0).repeat(3, 2)
+    brighter_sharper = np.clip(ramp + 25 + rng.normal(0, 14, (height, width, 3)), 0, 255).astype(np.uint8)
+    return source, canvas, mask, brighter_sharper, left
+
+
+def test_outpaint_strategy_blends_a_brighter_sharper_extension_into_a_gradient_source_without_a_step():
+    from src.pipelines.pipes._shared.inpainting.mask_utils import composite_outpaint
+
+    source, canvas, mask, generated, left = _gradient_scene()
+    out = composite_outpaint(canvas, generated, mask, 48).astype(float)
+    assert np.array_equal(out[:, left:], source.astype(float))
+    columns = out.mean(axis=(0, 2))
+    assert np.abs(np.diff(columns[left - 40:left + 6])).max() <= 3
+    assert abs(columns[left - 1] - columns[left]) <= 3
+    detail = lambda block: np.diff(block[:, :, 0], axis=1).std()
+    assert detail(out[:, left - 12:left]) <= 2 * detail(out[:, left:left + 12])
+    assert detail(out[:, :40]) > 3 * detail(out[:, left:left + 12])
+
+    ramp_reference = generated.astype(float)[:, left - 90:left - 70].mean() - 25
+    assert out[:, left - 90:left - 70].mean() <= ramp_reference + 17
+    assert detail(out[:, left - 100:left - 60]) < 0.8 * detail(generated[:, left - 100:left - 60].astype(float))

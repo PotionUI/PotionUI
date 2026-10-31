@@ -108,6 +108,11 @@ class QwenClipTextEncoder(SequentialWindowClipTextEncoder):
         do_classifier_free_guidance = bool(request.get("do_classifier_free_guidance", True))
         embedding_files = request.get("embedding_files")
         images = request.get("images")
+        vision_options: Dict[str, Any] = {}
+        if request.get("picture_labels"):
+            vision_options["picture_labels"] = True
+        if int(request.get("grounding_area", 0) or 0):
+            vision_options["grounding_area"] = int(request["grounding_area"])
         if embedding_files:
             logger.debug(
                 "QwenClipTextEncoder: textual-inversion embeddings are unsupported "
@@ -121,8 +126,11 @@ class QwenClipTextEncoder(SequentialWindowClipTextEncoder):
         # 7B Qwen2.5-VL forward runs on the CPU in fp32 — a big chunk of a cold run).
         def _encode():
             if image_tensors:
-                pos = self.encoder.encode([prompt], images=image_tensors)
-                neg = self.encoder.encode([negative_prompt], images=image_tensors) if do_classifier_free_guidance else {}
+                pos = self.encoder.encode([prompt], images=image_tensors, **vision_options)
+                neg = (
+                    self.encoder.encode([negative_prompt], images=image_tensors, **vision_options)
+                    if do_classifier_free_guidance else {}
+                )
             else:
                 pos = self.encoder.encode_weighted(prompt)
                 neg = self.encoder.encode_weighted(negative_prompt) if do_classifier_free_guidance else {}
@@ -134,6 +142,7 @@ class QwenClipTextEncoder(SequentialWindowClipTextEncoder):
             # alias to the same cached embedding — see embed_cache.py's
             # image_content_fingerprint docstring for the full hazard.
             key_parts.extend(image_content_fingerprint(img) for img in image_tensors)
+            key_parts.extend(f"{name}={value}" for name, value in sorted(vision_options.items()))
         # A static tag, not `self.encoder.role`: reading the live encoder here
         # would force the deferred `te_loader` to resolve on EVERY request,
         # hit or miss. `self._model_fingerprint` already encodes the

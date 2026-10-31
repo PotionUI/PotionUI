@@ -98,6 +98,17 @@ def test_the_camera_lora_loads_first_at_the_advanced_strength(qwen_template):
     assert loras[0]["weight"] == 1.0
 
 
+def test_the_angle_strength_reaches_zero_for_a_lora_off_run(qwen_template):
+    loras = _pipe(_process(qwen_template, camera_strength=0.0), "model_loader/qwen")["config"]["loras"]
+    assert float(loras[0]["weight"]) == 0.0
+
+
+def test_the_picture_is_read_the_way_the_lora_was_trained(qwen_template):
+    config = _pipe(_process(qwen_template), "prompt_encoder")["config"]
+    assert config["picture_labels"] is True
+    assert config["grounding_area"] == 384 * 384
+
+
 def test_user_loras_follow_the_camera_lora(qwen_template):
     extra = [{"model": "/models/extra.safetensors", "strength": 0.5}]
     loras = _pipe(_process(qwen_template, loras=extra), "model_loader/qwen")["config"]["loras"]

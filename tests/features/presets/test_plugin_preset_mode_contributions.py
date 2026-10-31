@@ -393,5 +393,5 @@ def test_krea2_edit_is_a_core_mode_without_any_plugin():
     loader.load_presets()
 
     krea2 = next(p for p in loader.presets if p.id == NATIVE_KREA2_PRESET_ID)
-    assert set(krea2.modes.keys()) == {"txt2img", "enhance", "edit"}
+    assert sorted(krea2.modes) == ["edit", "enhance", "real", "txt2img", "upscale"]
     assert krea2.modes["edit"].source_plugin is None

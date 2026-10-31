@@ -3957,3 +3957,61 @@ def test_a_short_length_from_reference_video_is_decoded_whole(tmp_path):
 def test_length_from_reference_audio_and_initial_latents_stay_unbounded():
     assert _length_from_video_pipe(length_from="reference_audio")._reference_decode_seconds(None, "none", False) is None
     assert _length_from_video_pipe()._reference_decode_seconds(None, "none", True) is None
+
+
+def _window_clip_means(encodes):
+    return [float(np.asarray(call.args[0], dtype=np.float64).mean()) for call in encodes]
+
+
+def test_drift_correction_pulls_a_continuation_window_toward_the_first():
+    _, _, off_encodes, _ = _run_director(_director_document(2))
+    _, _, on_encodes, _ = _run_director(_director_document(2), config_overrides={"drift_correction": 1.0})
+    off = _window_clip_means(off_encodes)
+    on = _window_clip_means(on_encodes)
+    assert on[0] == pytest.approx(off[0])
+    assert abs(off[1] - off[0]) > 4
+    assert abs(on[1] - on[0]) < 2
+
+
+def test_drift_correction_is_off_by_default():
+    _, _, encodes, _ = _run_director(_director_document(2))
+    default_means = _window_clip_means(encodes)
+    _, _, explicit, _ = _run_director(_director_document(2), config_overrides={"drift_correction": 0.0})
+    assert default_means == _window_clip_means(explicit)
+
+
+def test_the_corrected_tail_is_what_conditions_the_next_window():
+    _, _, _, _ = _run_director(_director_document(3))
+    off_vae = _FakeKeyframeVae()
+    _run_director(_director_document(3), video_vae_module=off_vae)
+    on_vae = _FakeKeyframeVae()
+    _run_director(_director_document(3), video_vae_module=on_vae, config_overrides={"drift_correction": 1.0})
+    assert off_vae.encoded_frame_markers[1] != on_vae.encoded_frame_markers[1]
+    assert off_vae.encoded_frame_markers[0] == on_vae.encoded_frame_markers[0]
+
+
+def _plan_seeds(document, *, input_seeds, config_seed=None):
+    config = {**GeneratorMinimaxH3Pipe.get_default_config(), "document": document}
+    if config_seed is not None:
+        config["seed"] = config_seed
+    pipe = GeneratorMinimaxH3Pipe(config)
+    ctx = pipe.build_context(_pipe_input(
+        model=_fake_bundle(), conditioning=[_fake_conditioning(3)] * len(document["segments"]), seed=input_seeds,
+    ))
+    return [w.seed for w in ctx.extra.plan.windows]
+
+
+def test_a_document_without_a_seed_takes_the_request_seed():
+    document = _director_document(3)
+    document["settings"]["seed"] = None
+    assert _plan_seeds(document, input_seeds=[4242]) == [4242, 4243, 4244]
+
+
+def test_a_document_seed_still_wins_over_the_request_seed():
+    assert _plan_seeds(_director_document(2, seed=1000), input_seeds=[4242]) == [1000, 1001]
+
+
+def test_a_configured_seed_wins_over_the_request_seed_for_a_seedless_document():
+    document = _director_document(2)
+    document["settings"]["seed"] = None
+    assert _plan_seeds(document, input_seeds=[4242], config_seed=77) == [77, 78]

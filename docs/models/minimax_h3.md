@@ -177,6 +177,24 @@ The pipeline is `media_loader` (video) and `media_loader` (picture) → `control
 - The mode defaults to the Quality speed profile (24 steps). Whether the Turbo step count holds with the control patch is not established, and the patch was trained on text-to-video only, so the keyframe combination is supported but unvalidated upstream.
 - One person, front-facing and well lit works best. Crowds, motion blur and side profiles are where the pose reading fails.
 
+## Long video
+
+The `long` mode chains parts into one video of up to two minutes, with seamless joins. It is the existing Video Director window chain driven by a simple form, not a second mechanism: the preset builds a Director document from the form, and `generator/video_minimax_h3` runs it.
+
+**Inputs.** An optional Start picture (the first frame of the first part; empty starts from the prompt alone), the main Prompt, an optional Prompt per part (one line per part, in order; a part without a line uses the main prompt), Length in seconds, an optional Soundtrack, the resolution, the speed profile and the model files. `Part length` and `Colour hold` are on the Advanced tab. To continue an existing clip, use the `extend` mode.
+
+**How the chain runs.** The length is cut into parts of Part length (rounded up to the model's `17n + 5` frame lattice, never over 15 s). The first part is text-to-video, or image-to-video from the Start picture. Every later part is a `chain` segment: the previous part's last 17 frames are re-encoded as keyframe condition rows at the head of the next window, the audio carries over as clean condition-audio rows, and the replayed overlap is trimmed so each part contributes only new footage. The last part is sized to what is left, and the stitched result is trimmed to Length. It is one request with one progress bar, one cancel, and one resident DiT.
+
+**Why a window chain and not one generation per part.** The generator already owns continuation (the latent splice, the audio carry, the stitch, per-window seeds and prompts), and a request that drives it needs no new orchestration layer. Running each part as its own queued generation would reload or re-place the model per part, lose the audio carry, and make a cancel or a failure in part four leave three orphaned results.
+
+**Colour hold.** Each continuation window is decoded to pixels and re-encoded to condition the next one, so small colour shifts compound across parts. `drift_correction` (default 0.5 in this mode, 0 elsewhere) matches each continuation window's per-channel mean and spread to the first window's, scaled by the strength, before the window joins the timeline and before its tail conditions the next window. The contrast correction is capped to 0.8x-1.25x. A hard cut (a segment that opens on its own image) starts a new anchor. Identity drift is not corrected: keep parts short (5-10 s) and describe the subject the same way in every part prompt.
+
+**Sound.** The soundtrack, when given, is laid over the finished video in place of the generated sound. It does not drive lip-sync. The lip-sync chain would need the ref2va reference partition, whose Director windows are hard-cut-only here and take no per-window audio slice.
+
+**Seeds.** A part's seed is the request seed plus its index, so re-running one part reproduces the same shot.
+
+**Unmeasured.** GPU validation of a 30-60 second chain, and of the default Colour hold, is pending.
+
 ## Pika H3 Flex (6-step adapter)
 
 [Pika-Labs/Pika-H3-Flex](https://huggingface.co/Pika-Labs/Pika-H3-Flex) is a pair of rank-128 LoRA adapters on the base DiT, one for the fl2va partition and one for the ref2va partition, post-trained with step distillation from 50 to 6 steps plus a quality finetune. It adds no conditioning and no architecture, so it runs through the same generator as every other profile.

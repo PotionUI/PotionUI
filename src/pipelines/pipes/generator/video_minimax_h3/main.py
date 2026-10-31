@@ -246,6 +246,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.control import (
     validate_control_settings,
 )
 from src.platform.runtime.native.arch.minimax_h3.control import HINT_ROW_MODES, ControlContext, control_attached
+from src.pipelines.pipes.generator.video_minimax_h3.drift import DriftGuard
 from src.pipelines.pipes.generator.video_minimax_h3.windows import (
     DirectorPlan,
     DirectorPlanError,
@@ -1273,6 +1274,14 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 required=False, min_value=0.1, max_value=50.0,
             ),
             PipeConfigSpec(
+                "drift_correction", float, 0.0,
+                "Director runs only: how strongly each continuation window's colour statistics are pulled "
+                "back toward the opening window's, before that window joins the timeline and before its tail "
+                "conditions the next one. 0 (default) leaves every window as sampled; values near 0.5 hold the "
+                "colour and brightness of a long chain steady without flattening a deliberate scene change.",
+                required=False, min_value=0.0, max_value=1.0,
+            ),
+            PipeConfigSpec(
                 "runtime_loras", list, [],
                 "LoRAs applied ONLY around this call's own sampling, never baked onto the shared "
                 "DiT. Lets two generator nodes that read the SAME model_loader/minimax_h3 "
@@ -1596,7 +1605,11 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         if audio_silent:
             audio_file = None
 
-        plan = build_director_plan(self.config.get("document"), default_seed=int(self.config.get("seed", -1)))
+        configured_seed = int(self.config.get("seed", -1))
+        plan = build_director_plan(
+            self.config.get("document"),
+            default_seed=int(seeds[0]) if configured_seed < 0 and seeds else configured_seed,
+        )
         control_scale = float(self.config.get("control_context_scale", 1.0))
         control_start = float(self.config.get("control_start", 0.0))
         control_end = float(self.config.get("control_end", 1.0))
@@ -2770,6 +2783,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         previous_audio_rows: Optional[Tensor] = None
         previous_audio_latents = 0
         steps_done = 0
+        drift_guard = DriftGuard(float(self.config.get("drift_correction", 0.0) or 0.0))
 
         for index, window in enumerate(windows):
             if is_cancelled is not None and is_cancelled():
@@ -2834,6 +2848,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             # "the shot resets to its first frame" class of bug; trim it off
             # both streams before this window joins the timeline.
             frames = self._decode_video(c, latent)[window.overlap_frames:]
+            frames = drift_guard.apply(frames, continues_previous=window.continues_previous)
             next_window = windows[index + 1] if index + 1 < len(windows) else None
             previous_tail_frames = self._continuation_tail_frames(frames, next_window)
             track = _trim_audio_head(

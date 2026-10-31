@@ -1,0 +1,205 @@
+pipeline:
+  - name: "model_loader/minimax_h3"
+    id: "model_loader"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      video_vae:
+        file_path: "{{ form.video_vae }}"
+        name: "{{ form.video_vae }}"
+      audio_vae:
+        file_path: "{{ form.audio_vae }}"
+        name: "{{ form.audio_vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras if form.speed_profile != 'flex' else [] }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+            audio: "{{ item.audio | default(true) }}"
+
+  - name: "media_loader"
+    id: "director_media"
+    enabled: "{{ form.start_image is defined and form.start_image is not none and form.start_image != '' }}"
+    configuration:
+      validate_files: true
+      media:
+        - type: "image"
+          path: "{{ form.start_image }}"
+
+  - name: "prompt_encoder"
+    id: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader", "text_encoder"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      pairs:
+        "@loop":
+          items: "{{ range((1 + (((([(form.total_seconds * preset.vars.fps) - (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5), 0] | max) / ((((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - 17))) | round(0, 'ceil') | int))) | list }}"
+          template:
+            positive: "{% set lines = (form.piece_prompts | default('', true)).split('\n') %}{% set own = (lines[item] | trim) if item < (lines | length) else '' %}{{ own if own else generation.prompts.first.positive }}"
+            negative: ""
+      quantity: "{{ (1 + (((([(form.total_seconds * preset.vars.fps) - (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5), 0] | max) / ((((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - 17))) | round(0, 'ceil') | int)) }}"
+      guidance_scale: 1.0
+      output_resolution: "{{ form.resolution }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: 1
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: 1
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.video_vae }}"]
+        - ["model", "{{ form.audio_vae }}"]
+        - "@loop":
+            items: "{{ (form.loras | active_loras) if form.speed_profile != 'flex' else [] }}"
+            template: ["model", "{{ item.model }}"]
+        - "@loop":
+            items: "{{ [form.flex_adapter] if form.speed_profile == 'flex' else [] }}"
+            template: ["model", "{{ item }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["speed_profile", "{{ form.speed_profile }}"]
+        - ["resolution", "{{ form.resolution }}"]
+        - ["duration", "{{ form.total_seconds }}"]
+        - ["fps", "{{ preset.vars.fps }}"]
+
+  - name: "generator/video_minimax_h3"
+    id: "generator"
+    input:
+      - ["model", "model_loader", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["director_image", "director_media", "image"]
+    enabled: true
+    configuration:
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
+      mode: "video"
+      document:
+        schema_version: 1
+        mode: "director"
+        settings:
+          fps: "{{ preset.vars.fps }}"
+          seed: null
+          resolution: ""
+          duration: null
+          continuation:
+            source: "tail_frames"
+            overlap_frames: 17
+            stitch: true
+        segments:
+          "@loop":
+            items: "{{ range((1 + (((([(form.total_seconds * preset.vars.fps) - (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5), 0] | max) / ((((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - 17))) | round(0, 'ceil') | int))) | list }}"
+            template:
+              id: "seg-{{ item }}"
+              prompt: "{% set lines = (form.piece_prompts | default('', true)).split('\n') %}{% set own = (lines[item] | trim) if item < (lines | length) else '' %}{{ own if own else generation.prompts.first.positive }}"
+              negative_prompt: ""
+              frames: "{{ (([(((((((form.total_seconds * preset.vars.fps) - (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - ((1 + (((([(form.total_seconds * preset.vars.fps) - (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5), 0] | max) / ((((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - 17))) | round(0, 'ceil') | int)) - 2) * ((((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - 17) + 17) if (1 + (((([(form.total_seconds * preset.vars.fps) - (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5), 0] | max) / ((((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - 17))) | round(0, 'ceil') | int)) > 1 else (form.total_seconds * preset.vars.fps)) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5), 22] | max) if item >= (1 + (((([(form.total_seconds * preset.vars.fps) - (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5), 0] | max) / ((((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - 17))) | round(0, 'ceil') | int)) - 1 else (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5)) }}"
+              seed: null
+              steps: null
+              cfg: null
+              loras: null
+              start: null
+              end: null
+              sub_type: "{{ 'chain' if item > 0 else ('i2v' if (form.start_image is defined and form.start_image is not none and form.start_image != '') else 't2v') }}"
+        media:
+          "@loop":
+            items: "{{ [form.start_image] if (form.start_image is defined and form.start_image is not none and form.start_image != '') else [] }}"
+            template:
+              id: "m-1"
+              role: "first"
+              segment_id: "seg-0"
+              at: 0
+              strength: 1
+              media:
+                path: "{{ item }}"
+                type: "image"
+        media_placements:
+          "@loop":
+            items: "{{ [form.start_image] if (form.start_image is defined and form.start_image is not none and form.start_image != '') else [] }}"
+            template:
+              role: "keyframe"
+              frame: "first"
+              index: 0
+              strength: 1
+        media_images: []
+        media_videos: []
+        audio:
+          "@loop":
+            items: "{{ [form.soundtrack] if (form.soundtrack is defined and form.soundtrack is not none and form.soundtrack != '') else [] }}"
+            template:
+              id: "a-1"
+              role: "mux"
+              media:
+                path: "{{ item }}"
+                type: "audio"
+        ic_lora: []
+      drift_correction: "{{ form.drift_correction }}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      resolution: "{{ form.resolution }}"
+      frames: "{{ (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) }}"
+      quantity: 1
+      preview: "{{ form.preview }}"
+      audio_source: "generate"
+      decode: true
+      step_cache_threshold: "{{ (generation.profile.extra | default({})).step_cache_threshold | default(form.step_cache_threshold) }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
+      sparse_attn: "{{ form.sparse_attn }}"
+      sol_attn_tau: "{{ form.sol_attn_tau }}"
+      sla_sparsity: "{{ form.sla_sparsity }}"
+      sla_block_size: "{{ form.sla_block_size | int }}"
+      sparse_attn_dense_last_steps: "{{ form.sparse_attn_dense_last_steps }}"
+      sampler: "{{ generation.profile.sampler | default(form.sampler) }}"
+      scheduler: "{{ generation.profile.schedule | default(form.scheduler) }}"
+      manual_sigmas: "{{ (generation.profile.extra | default({})).manual_sigmas | default(form.manual_sigmas) }}"
+      manual_audio_sigmas: "{{ (generation.profile.extra | default({})).manual_audio_sigmas | default(form.manual_audio_sigmas) }}"
+      runtime_loras:
+        "@loop":
+          items: "{{ [{'model': form.flex_adapter, 'strength': 1.0, 'audio': true}] if form.speed_profile == 'flex' else [] }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+            audio: "{{ item.audio | default(true) }}"
+
+  - name: "video_trim"
+    id: "trim"
+    input:
+      - ["video", "generator", "video"]
+    enabled: true
+    configuration:
+      keep: "head"
+      seconds: "{{ form.total_seconds }}"
+      keep_audio: true
+
+  - name: "gallery"
+    input:
+      - ["video", "trim", "video"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true

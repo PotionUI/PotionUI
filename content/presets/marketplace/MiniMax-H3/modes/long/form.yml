@@ -1,0 +1,19 @@
+name: "custom"
+mode_label: "Long video"
+short_description: "Chain parts into one long, seamless video."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration: {icon: "generation", icon_display: "icon_only"}
+        children: "{{ paths.preset }}/modes/long/tabs/generation.yml"
+      - type: "tab"
+        label: "LoRA"
+        configuration: {icon: "lora", icon_display: "icon_only"}
+        children: "{{ paths.preset }}/modes/video/tabs/lora.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration: {icon: "settings", icon_display: "icon_only"}
+        children: "{{ paths.preset }}/modes/long/tabs/advanced.yml"

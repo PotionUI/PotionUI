@@ -278,3 +278,28 @@ cases:
     checks:
       min_outputs: 1
       not_black: true
+
+  - name: "minimax-h3-long-fast"
+    mode: "long"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "a paper boat drifting down a rain-filled gutter, close-up, soft afternoon light, the sound of running water"
+      resolution: "832x480"
+      total_seconds: 12
+      piece_seconds: 5
+      speed_profile: "turbo"
+      steps: 4
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      audio_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true

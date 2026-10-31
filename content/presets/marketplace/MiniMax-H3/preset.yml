@@ -550,6 +550,7 @@ modes:
   - extend
   - remix
   - talk
+  - long
   - motion_transfer
 
 media:

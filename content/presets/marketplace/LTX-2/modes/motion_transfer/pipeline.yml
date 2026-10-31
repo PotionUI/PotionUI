@@ -58,7 +58,7 @@ pipeline:
     enabled: true
     configuration:
       p_prompt:
-        input: &caption "{{ (item.positive if item is defined else generation.prompts.first.positive) or 'A cinematic, photorealistic shot of the person from the picture dancing, full body in frame, with smooth natural motion in the same setting, lighting and clothing as the picture' }}"
+        input: &caption "{{ ((item.positive if item is defined else generation.prompts.first.positive) or '') | trim or 'A cinematic, photorealistic shot of the person from the picture dancing, full body in frame, with smooth natural motion in the same setting, lighting and clothing as the picture' }}"
         output: *caption
       n_prompt:
         input: &negative "{{ item.negative if item is defined else generation.prompts.first.negative }}"

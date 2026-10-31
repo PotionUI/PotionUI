@@ -124,4 +124,5 @@ fields:
               provider: "huggingface"
               ref: '{"repo": "Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control", "file": "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors", "revision": "main"}'
               size: "624 MB"
+              sha256: "a1b888a87f661d27f08b394ae559e8e1050be33900bcc36a5cdf659e48f88d18"
               description: "LTX-2.3 Union-Control IC-LoRA (pose, depth, canny), reference at half resolution. Trained on LTX-2.3; used here on LTX-2.5."

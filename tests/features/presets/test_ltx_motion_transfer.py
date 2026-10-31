@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock
@@ -18,12 +20,12 @@ from src.pipelines.contracts import PipeInput
 from src.pipelines.pipes._shared.video.frames import resize_cover_center_crop
 from src.pipelines.pipes.control_video.main import ControlVideoPipe
 from src.pipelines.pipes.generator.video_ltx.main import MAX_FRAMES, _fit_pixel_budget
-from src.platform.runtime.pose.geometry import resolve_output_size
 from src.platform.templating.processor import TemplateProcessor
 from tests.fixtures.pose_skeletons import skeleton
 from tests.platform.media_tools.media_factory import make_video
 
 UNION_LORA = "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors"
+UNION_SHA256 = "a1b888a87f661d27f08b394ae559e8e1050be33900bcc36a5cdf659e48f88d18"
 REFERENCE_DOWNSCALE = 2
 PRESETS = ["LTX-2.5", "LTX-2"]
 
@@ -104,8 +106,7 @@ def test_the_union_lora_is_scoped_to_the_passes_and_never_baked_into_the_loader(
     stage1 = _by_id(pipes, "generator_stage1")
     assert [entry["file_path"] for entry in stage1["config"]["scoped_loras"]] == [lora]
     stage2 = _by_id(pipes, "generator")
-    keeps_reference = stage2["config"]["refine_reference"]
-    assert [entry["file_path"] for entry in stage2["config"].get("scoped_loras", [])] == ([lora] if keeps_reference else [])
+    assert [entry["file_path"] for entry in stage2["config"]["scoped_loras"]] == [lora]
     assert "scoped_loras" not in _by_id(pipes, "latent_upscaler")["config"]
 
 
@@ -131,23 +132,6 @@ def test_ease_in_and_save_guide_reach_the_pose_guide(templates, name):
 
 
 @pytest.mark.parametrize("name", PRESETS)
-@pytest.mark.parametrize("picture", [(1080, 1920), (1920, 1080), (1000, 1000), (3024, 4032), (720, 1280), (4096, 2160)])
-def test_the_geometry_is_valid_for_the_half_resolution_reference(templates, name, picture):
-    pipes = _pipes(templates[name])
-    guide = _by_id(pipes, "pose_guide")["config"]
-    stage1 = _by_id(pipes, "generator_stage1")["config"]
-    assert stage1["match_video"] is True
-    assert guide["size_multiple"] % (32 * REFERENCE_DOWNSCALE) == 0
-    width, height = resolve_output_size(
-        picture[0], picture[1], max_pixels=guide["max_pixels"], multiple=guide["size_multiple"],
-    )
-    assert width * height <= guide["max_pixels"]
-    fitted = _fit_pixel_budget(width, height, stage1["max_pixels"], grid=32 * REFERENCE_DOWNSCALE)
-    assert fitted == (width, height)
-    assert width % 64 == 0 and height % 64 == 0
-
-
-@pytest.mark.parametrize("name", PRESETS)
 def test_the_mode_recommends_the_union_lora_by_filename(templates, name):
     root = Path("content/presets/marketplace") / name / "modes" / "motion_transfer"
     form = yaml.safe_load((root / "form.yml").read_text(encoding="utf-8"))
@@ -157,13 +141,16 @@ def test_the_mode_recommends_the_union_lora_by_filename(templates, name):
     models = yaml.safe_load((root / "tabs" / "generation.yml").read_text(encoding="utf-8"))
     section = next(f for f in models["fields"] if f.get("label") == "Models")
     lora = next(f for f in section["children"] if f.get("name") == "effect_lora")
-    assert [r["name"] for r in lora["configuration"]["recommendations"]] == [UNION_LORA]
+    (recommendation,) = lora["configuration"]["recommendations"]
+    assert recommendation["name"] == requirement["filename"] == UNION_LORA
+    assert re.fullmatch(r"\d+(\.\d+)? (MB|GB)", recommendation["size"])
+    assert re.fullmatch(r"[0-9a-f]{64}", recommendation["sha256"])
+    assert recommendation["sha256"] == UNION_SHA256
+    source = recommendation.get("link") or json.loads(recommendation["ref"])["file"]
+    assert source.rsplit("/", 1)[-1] == UNION_LORA
 
 
-@pytest.mark.parametrize("name", PRESETS)
-def test_the_prompt_is_optional_and_falls_back_to_a_dancing_caption(templates, name):
-    template = templates[name]
-    assert "motion_transfer" in template.vars["optional_prompt_modes"]
+def _caption(template, positive):
     form_data = build_fixture_form_data(template, "motion_transfer")
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
@@ -172,10 +159,26 @@ def test_the_prompt_is_optional_and_falls_back_to_a_dancing_caption(templates, n
     )
     pipes = processor.process(
         template,
-        {"mode": "motion_transfer", "form_data": form_data, "prompts": [{"positive": "", "negative": ""}]},
+        {"mode": "motion_transfer", "form_data": form_data, "prompts": [{"positive": positive, "negative": ""}]},
     )
-    caption = next(p for p in pipes if p["name"] == "prompt_encoder")["config"]["p_prompt"]["output"]
+    return next(p for p in pipes if p["name"] == "prompt_encoder")["config"]["p_prompt"]["output"]
+
+
+@pytest.mark.parametrize("name", PRESETS)
+def test_the_prompt_is_optional(templates, name):
+    assert "motion_transfer" in templates[name].vars["optional_prompt_modes"]
+
+
+@pytest.mark.parametrize("name", PRESETS)
+@pytest.mark.parametrize("empty", ["", "   ", "\n\t "])
+def test_an_empty_prompt_falls_back_to_a_dancing_caption(templates, name, empty):
+    caption = _caption(templates[name], empty)
     assert "dancing" in caption and "person from the picture" in caption
+
+
+@pytest.mark.parametrize("name", PRESETS)
+def test_a_written_prompt_wins_over_the_fallback(templates, name):
+    assert _caption(templates[name], "a knight waltzes in a ballroom") == "a knight waltzes in a ballroom"
 
 
 class _FakeEstimator:
@@ -216,6 +219,7 @@ def test_the_canvas_follows_the_picture_and_the_keyframe_is_cover_cropped(
     picture = Image.new("RGB", picture_size, (120, 120, 120))
     width, height = _guide_size(guide, video, picture, tmp_path, monkeypatch)
 
+    assert guide["size_multiple"] % (32 * REFERENCE_DOWNSCALE) == 0
     assert width % 64 == 0 and height % 64 == 0
     assert width * height <= guide["max_pixels"]
     assert (width > height) == (picture_size[0] > picture_size[1])
@@ -223,7 +227,8 @@ def test_the_canvas_follows_the_picture_and_the_keyframe_is_cover_cropped(
     assert abs(np.log((width / height) / (video_size[0] / video_size[1]))) > 0.2 or video_size == picture_size
 
     stage1 = _by_id(pipes, "generator_stage1")["config"]
-    assert _fit_pixel_budget(width, height, stage1["max_pixels"], grid=64) == (width, height)
+    assert stage1["match_video"] is True
+    assert _fit_pixel_budget(width, height, stage1["max_pixels"], grid=32 * REFERENCE_DOWNSCALE) == (width, height)
 
     frames = torch.rand(1, picture_size[1] // 8, picture_size[0] // 8, 3)
     cropped = resize_cover_center_crop(frames, height, width)

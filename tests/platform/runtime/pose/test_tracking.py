@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import numpy as np
 
 from src.platform.runtime.pose.layout import BODY, NUM_POINTS, empty_pose
@@ -105,3 +108,22 @@ def test_a_larger_newcomer_does_not_steal_the_track():
     backend = ScriptedBackend(lambda f: [mine] if f == 0 else [newcomer, mine])
     run(PersonTracker(backend, keyframe_interval=1), backend, 3)
     assert all(box[2] < 110 for box in backend.estimate_boxes)
+
+
+REAL = json.loads((Path(__file__).resolve().parents[3] / "fixtures" / "pose_real_oroko.json").read_text())
+
+
+def test_real_clip_a_bystander_cut_by_the_frame_edge_does_not_win_over_the_dancer():
+    detections = np.array(REAL["first_frame_detections"], dtype=np.float32)
+    height, width = REAL["frame_shape"]
+    backend = ScriptedBackend(lambda f: detections)
+    tracker = PersonTracker(backend, keyframe_interval=8)
+    run(tracker, backend, 1, size=(width, height))
+    chosen = backend.estimate_boxes[0]
+    assert chosen[0] > 250 and chosen[2] > 450
+
+
+def test_without_the_edge_penalty_the_real_clip_picks_the_wrong_person():
+    detections = np.array(REAL["first_frame_detections"], dtype=np.float32)
+    areas = (detections[:, 2] - detections[:, 0]) * (detections[:, 3] - detections[:, 1])
+    assert detections[int((areas * detections[:, 4]).argmax()), 0] < 5

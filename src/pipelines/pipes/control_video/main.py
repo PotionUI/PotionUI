@@ -214,7 +214,9 @@ class ControlVideoPipe(BasePipe):
             source_width, source_height = rgb.shape[1], rgb.shape[0]
             subject = estimate_subject(rgb, estimator, options.min_confidence, options.detect_resolution)
             ease = int(round(_number(self.config.get("ease_in"), float, 0.0) * fps))
-            driver = retarget_sequence(driver, subject, options.min_confidence, ease).poses
+            driver = retarget_sequence(
+                driver, subject, options.min_confidence, ease, bounds=(source_width, source_height),
+            ).poses
         else:
             source_width, source_height = video_width, video_height
         out_width, out_height = resolve_output_size(

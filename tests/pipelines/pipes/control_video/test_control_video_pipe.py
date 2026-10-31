@@ -208,6 +208,19 @@ class TestPictureRetarget:
         for guide in guides:
             Path(guide).unlink()
 
+    def test_the_retarget_is_kept_inside_the_pictures_frame(self, clip, picture, monkeypatch):
+        seen = {}
+        real = pipe_module.retarget_sequence
+
+        def spy(*args, **kwargs):
+            seen.update(kwargs)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(pipe_module, "retarget_sequence", spy)
+        (guide,), _ = run(make(), video=[clip], image=[picture])
+        assert seen["bounds"] == (200, 300)
+        Path(guide).unlink()
+
     def test_each_video_pairs_with_its_own_picture(self, clip, picture, tmp_path):
         second = str(make_video(tmp_path / "c.mp4", seconds=0.5, size=(160, 96), fps=FPS, audio=False))
         wide = Image.new("RGB", (300, 200), (120, 120, 120))

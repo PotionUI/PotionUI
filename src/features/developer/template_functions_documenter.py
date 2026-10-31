@@ -122,6 +122,24 @@ class TemplateFunctionsDocumenter:
                     ],
                 },
                 {
+                    "name": "text_or",
+                    "alias": None,
+                    "signature": "value | text_or(fallback: Any) -> Any",
+                    "description": (
+                        "Trim the value and return it, or the fallback when it is None or only "
+                        "whitespace. Use it for a default caption instead of `value or 'default'`, "
+                        "which treats a prompt of spaces or newlines as a real prompt."
+                    ),
+                    "parameters": [
+                        {"name": "value", "type": "str", "description": "The text to trim (pipe input)"},
+                        {"name": "fallback", "type": "Any", "description": "Returned when the trimmed text is empty"},
+                    ],
+                    "return_type": "Any",
+                    "examples": [
+                        {"code": "{{ generation.prompts.first.positive | text_or('A cinematic shot') }}", "result": "The trimmed prompt, or 'A cinematic shot' when it is blank"},
+                    ],
+                },
+                {
                     "name": "default",
                     "alias": None,
                     "signature": "value | default(fallback: Any, boolean: bool = False) -> Any",

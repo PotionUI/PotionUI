@@ -10,9 +10,11 @@ with them (neither ever had a real preset consumer).
 """
 
 import pytest
+from unittest.mock import Mock
 from src.platform.templating.dict_utils import (
     active_loras,
     get_speed_profile_value,
+    text_or,
     strip_model_dir,
 )
 
@@ -168,3 +170,21 @@ class TestGetSpeedProfileValue:
     def test_empty_profiles_dict_with_default_returns_default(self):
         result = get_speed_profile_value({"_speed_profiles": {}}, "draft", default="fallback")
         assert result == "fallback"
+
+
+class TestTextOr:
+    @pytest.mark.parametrize("value", [None, "", " ", "  \n\t \n", "\r\n"])
+    def test_blank_values_give_the_fallback(self, value):
+        assert text_or(value, "default") == "default"
+
+    def test_text_is_trimmed(self):
+        assert text_or("  a dog \n", "default") == "a dog"
+
+    def test_inner_whitespace_is_kept(self):
+        assert text_or("a  dog\nruns", "default") == "a  dog\nruns"
+
+    def test_the_filter_is_registered_on_the_environment(self):
+        from src.platform.templating.processor import TemplateProcessor
+
+        result = TemplateProcessor(settings=Mock()).process_template("{{ p | text_or('x') }}", {"p": " \n "})
+        assert result == "x"

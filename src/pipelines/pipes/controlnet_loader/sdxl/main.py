@@ -23,6 +23,25 @@ ASSETS = Path(__file__).resolve().parent / "assets"
 SDXL_MARKER_KEY = "add_embedding.linear_1.weight"
 LARGE_MARKER_KEY = "down_blocks.1.attentions.0.transformer_blocks.0.attn1.to_k.weight"
 MID_MARKER_KEY = "down_blocks.1.attentions.0.norm.weight"
+LDM_PREFIX = "control_model."
+LDM_SDXL_MARKER_KEY = "label_emb.0.0.weight"
+LDM_LARGE_MARKER_KEY = "input_blocks.4.1.transformer_blocks.0.attn1.to_k.weight"
+LDM_MID_MARKER_KEY = "input_blocks.4.1.norm.weight"
+
+
+def controlnet_layout_folder(keys) -> str:
+    names = {key[len(LDM_PREFIX):] if key.startswith(LDM_PREFIX) else key for key in keys}
+    if SDXL_MARKER_KEY in names:
+        large, mid = LARGE_MARKER_KEY, MID_MARKER_KEY
+    elif LDM_SDXL_MARKER_KEY in names:
+        large, mid = LDM_LARGE_MARKER_KEY, LDM_MID_MARKER_KEY
+    else:
+        raise ValueError("it is not an SDXL ControlNet")
+    if large in names:
+        return "large"
+    if mid in names:
+        return "mid"
+    return "small"
 
 
 def controlnet_config_dir(file_path: str) -> str:
@@ -31,14 +50,8 @@ def controlnet_config_dir(file_path: str) -> str:
     from safetensors import safe_open
 
     with safe_open(file_path, framework="pt") as handle:
-        keys = set(handle.keys())
-    if SDXL_MARKER_KEY not in keys:
-        raise ValueError("it is not an SDXL ControlNet in the diffusers layout")
-    if LARGE_MARKER_KEY in keys:
-        return str(ASSETS / "large")
-    if MID_MARKER_KEY in keys:
-        return str(ASSETS / "mid")
-    return str(ASSETS / "small")
+        keys = list(handle.keys())
+    return str(ASSETS / controlnet_layout_folder(keys))
 
 
 class ControlNetLoaderSDXLPipe(BasePipe):

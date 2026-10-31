@@ -12,10 +12,15 @@ from src.pipelines.pipes.controlnet_loader.sdxl import main as loader
 from src.pipelines.pipes.controlnet_loader.sdxl.main import (
     ASSETS,
     LARGE_MARKER_KEY,
+    LDM_LARGE_MARKER_KEY,
+    LDM_MID_MARKER_KEY,
+    LDM_PREFIX,
+    LDM_SDXL_MARKER_KEY,
     MID_MARKER_KEY,
     SDXL_MARKER_KEY,
     ControlNetLoaderSDXLPipe,
     controlnet_config_dir,
+    controlnet_layout_folder,
 )
 
 
@@ -36,7 +41,7 @@ def _pipe(file_path, dtype="float32"):
     )
 
 
-def _tiny_config(tmp_path):
+def _tiny_config():
     config = json.loads((ASSETS / "large" / "config.json").read_text())
     config.update(
         block_out_channels=[32, 64, 128],
@@ -63,6 +68,36 @@ def _tiny_config(tmp_path):
 def test_config_dir_follows_checkpoint_layout(tmp_path, keys, folder):
     path = _write(tmp_path / "cn.safetensors", keys)
     assert Path(controlnet_config_dir(path)) == ASSETS / folder
+
+
+@pytest.mark.parametrize("prefix", ["", LDM_PREFIX])
+@pytest.mark.parametrize(
+    ("keys", "folder"),
+    [
+        ([LDM_SDXL_MARKER_KEY, LDM_LARGE_MARKER_KEY], "large"),
+        ([LDM_SDXL_MARKER_KEY, LDM_MID_MARKER_KEY], "mid"),
+        ([LDM_SDXL_MARKER_KEY], "small"),
+    ],
+)
+def test_ldm_layout_checkpoint_selects_config(tmp_path, prefix, keys, folder):
+    path = _write(tmp_path / "cn.safetensors", [prefix + key for key in keys])
+    assert Path(controlnet_config_dir(path)) == ASSETS / folder
+
+
+@pytest.mark.parametrize("folder", ["large", "mid", "small"])
+def test_shipped_config_builds_the_layout_its_markers_select(folder):
+    config = json.loads((ASSETS / folder / "config.json").read_text())
+    with torch.device("meta"):
+        model = diffusers_module().ControlNetModel.from_config(config)
+    keys = list(model.state_dict().keys())
+    assert SDXL_MARKER_KEY in keys
+    assert controlnet_layout_folder(keys) == folder
+
+
+def diffusers_module():
+    import diffusers
+
+    return diffusers
 
 
 def test_sd15_checkpoint_is_rejected(tmp_path):
@@ -116,7 +151,7 @@ def test_real_load_makes_no_hub_call(tmp_path, monkeypatch):
     monkeypatch.setattr(huggingface_hub, "snapshot_download", blocked)
     monkeypatch.setattr(huggingface_hub, "model_info", blocked)
 
-    config = _tiny_config(tmp_path)
+    config = _tiny_config()
     model = diffusers.ControlNetModel.from_config(config)
     state = {key: value.clone() for key, value in model.state_dict().items()}
     path = tmp_path / "tiny.safetensors"

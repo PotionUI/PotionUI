@@ -89,13 +89,13 @@ beforeEach(() => {
 	live.created = 0;
 	live.disposed = 0;
 	clearSchemaCache();
-	vi.spyOn(api, 'getPresetFormSchema').mockImplementation(async (_presetId: string, mode: string) => ({
+	vi.spyOn(api, 'getPresetFormSchema').mockImplementation(async (_presetId: string, mode?: string) => ({
 		success: true,
-		data: { preset_id: 'zimage', form_schema: SCHEMAS[mode] }
+		data: { preset_id: 'zimage', form_schema: SCHEMAS[mode ?? ''] }
 	}) as never);
-	vi.spyOn(api, 'getPresetModels').mockImplementation(async (_presetId: string, modelType: string) => ({
+	vi.spyOn(api, 'getPresetModels').mockImplementation(async (_presetId: string, modelType?: string) => ({
 		success: true,
-		data: { models: [{ id: MODELS[modelType] }], total: 1 }
+		data: { models: [{ id: MODELS[modelType ?? ''] }], total: 1 }
 	}) as never);
 	vi.spyOn(api, 'getModelById').mockResolvedValue({ success: false } as never);
 });

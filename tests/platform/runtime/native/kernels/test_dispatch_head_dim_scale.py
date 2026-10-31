@@ -87,7 +87,7 @@ def test_no_scale_adds_no_scale_keyword(real_adapter_calls, backend):
     assert SCALE_KEYWORD[backend] not in real_adapter_calls[0][3]
 
 
-@pytest.mark.parametrize("backend", [SDPA, FLASH])
+@pytest.mark.parametrize("backend", [SDPA, FLASH, SAGE, SAGE2, SPARGE])
 def test_scale_reaches_the_grouped_path(real_adapter_calls, backend):
     q, k, v = _qkv(64, gqa=True)
 
@@ -116,3 +116,34 @@ def test_sdpa_with_a_scale_matches_the_manual_softmax():
 
     expected = torch.softmax(q @ k.transpose(-1, -2), dim=-1) @ v
     torch.testing.assert_close(out, expected, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.parametrize("backend", sorted(HEAD_DIM_LIMIT))
+def test_the_head_dim_gate_reads_the_query_head_dim_only(real_adapter_calls, backend):
+    limit = HEAD_DIM_LIMIT[backend]
+    q, k, _ = _qkv(64)
+    v = _qkv(limit + 64)[2]
+
+    attention(q, k, v, backend=backend)
+
+    assert len(real_adapter_calls) == 1
+    assert not _served_by_sdpa(real_adapter_calls[0])
+
+    real_adapter_calls.clear()
+    q, k, _ = _qkv(limit + 64)
+    v = _qkv(64)[2]
+
+    attention(q, k, v, backend=backend)
+
+    assert len(real_adapter_calls) == 1
+    assert _served_by_sdpa(real_adapter_calls[0])
+
+
+@pytest.mark.parametrize("backend", [SAGE, SAGE2])
+def test_sage_scale_survives_the_value_rescale_path(real_adapter_calls, backend):
+    q, k, v = _qkv(64)
+    v = v * 2000
+
+    attention(q, k, v, backend=backend, scale=0.25)
+
+    assert [call[3]["sm_scale"] for call in real_adapter_calls] == [0.25]

@@ -24,7 +24,9 @@ updating this attempt's progress fields as the download advances.
 
 from __future__ import annotations
 
+import os
 import time
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from src.features.models.recommendations import find_installed_model, format_size
@@ -295,23 +297,49 @@ class ArtifactsFetchExecutor:
                 )
         return None
 
-    def _adoptable(self, service, entry: Dict[str, Any], destination: Optional[str]):
+    def _active_index(self, service) -> Dict[Tuple[str, Optional[str]], List[Any]]:
         repo = getattr(service, "repo", None)
+        index: Dict[Tuple[str, Optional[str]], List[Any]] = {}
         if repo is None:
-            return None
-        name = (entry.get("filename") or "").lower()
+            return index
         try:
             from src.features.downloads.models import DownloadStatus
 
-            rows = []
             for status in (DownloadStatus.PENDING, DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED):
-                rows.extend(repo.get_all(status=status) or [])
+                for row in repo.get_all(status=status) or []:
+                    key = ((getattr(row, "filename", "") or "").lower(), getattr(row, "destination_backend_id", None))
+                    index.setdefault(key, []).append(row)
         except Exception:
-            return None
-        for row in rows:
-            if (getattr(row, "filename", "") or "").lower() == name and getattr(row, "destination_backend_id", None) == destination:
-                return row
+            return {}
+        return index
+
+    @staticmethod
+    def _in_type_dir(service, row, model_type: str) -> bool:
+        resolver = getattr(service, "resolver", None)
+        path = getattr(row, "destination_path", None)
+        if resolver is None or not path:
+            return True
+        try:
+            type_dir = Path(os.path.realpath(resolver.write_dir(model_type).path))
+            parent = Path(os.path.realpath(Path(path).parent))
+        except Exception:
+            return False
+        return parent == type_dir or type_dir in parent.parents
+
+    def _adoptable(self, service, index, entry: Dict[str, Any], url: str, destination: Optional[str]):
+        sha = (entry.get("sha256") or "").lower()
+        for row in index.get(((entry.get("filename") or "").lower(), destination), []):
+            same_source = getattr(row, "url", None) == url or (sha and (getattr(row, "checksum_sha256", None) or "").lower() == sha)
+            if not same_source:
+                continue
+            if destination is None and not self._in_type_dir(service, row, entry.get("model_type") or ""):
+                continue
+            return row
         return None
+
+    def _fail_after_queueing(self, service, queued, code: str, detail: str, suggested_repair: Optional[str] = None) -> StepResult:
+        self._cancel_unfinished(service, queued)
+        return StepResult.fail(code, detail, suggested_repair=suggested_repair)
 
     def _execute_plan(self, context: StepContext) -> StepResult:
         plans = context.plans(context.step.params.get("plan"))
@@ -334,18 +362,17 @@ class ArtifactsFetchExecutor:
                 problem,
                 suggested_repair="Free some space, or go back and pick fewer modes or a smaller file.",
             )
+        index = self._active_index(service)
         queued: List[Tuple[Dict[str, Any], Any, str]] = []
         for entry in pending:
             if context.is_cancelled():
                 break
             source = _PlanSource(entry)
-            adopted = self._adoptable(service, entry, destination)
-            if adopted is not None:
-                queued.append((entry, adopted, "an earlier attempt"))
-                continue
             url, note = self._resolve_download_url(source)
             if not url:
-                return StepResult.fail(
+                return self._fail_after_queueing(
+                    service,
+                    queued,
                     "ARTIFACT_SOURCE_UNRESOLVED",
                     f"Couldn't work out where to download '{source.display_name}' from ({note}).",
                     suggested_repair=(
@@ -353,6 +380,10 @@ class ArtifactsFetchExecutor:
                         "a checksum or a direct source so it can be found automatically."
                     ),
                 )
+            adopted = self._adoptable(service, index, entry, url, destination)
+            if adopted is not None:
+                queued.append((entry, adopted, "an earlier attempt"))
+                continue
             try:
                 download = run_sync(
                     service.queue_model_download(
@@ -366,7 +397,9 @@ class ArtifactsFetchExecutor:
                     )
                 )
             except Exception as exc:
-                return StepResult.fail(
+                return self._fail_after_queueing(
+                    service,
+                    queued,
                     "ARTIFACT_DOWNLOAD_FAILED",
                     f"Downloading '{source.display_name}' failed to start: {exc}",
                 )
@@ -440,7 +473,9 @@ class ArtifactsFetchExecutor:
             )
             if failure is not None:
                 entry, message = failure
-                return StepResult.fail(
+                return self._fail_after_queueing(
+                    service,
+                    queued,
                     "ARTIFACT_DOWNLOAD_FAILED",
                     message,
                     suggested_repair=self._auth_repair_hint(_PlanSource(entry), message),
@@ -467,7 +502,9 @@ class ArtifactsFetchExecutor:
                 last_progress_at = now
             elif now - last_progress_at >= _STALL_SECONDS:
                 minutes = _STALL_SECONDS // 60
-                return StepResult.fail(
+                return self._fail_after_queueing(
+                    service,
+                    queued,
                     "ARTIFACT_DOWNLOAD_FAILED",
                     f"The downloads made no progress for {minutes} minutes - the connection may have stalled.",
                 )

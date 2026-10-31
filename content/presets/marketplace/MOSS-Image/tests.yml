@@ -23,3 +23,22 @@ cases:
       min_outputs: 1
       resolution: "1024x1024"
       not_black: true
+
+  - name: "moss-image-inpaint"
+    mode: "inpaint"
+    seed: 4242
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "a wooden bench"
+      speed_profile: "base"
+      denoise: 1.0
+    models:
+      diffusion_model:
+        sha256: "f96738d8116d78b7316b57c663d8c98591ddafab7488f48e3099b7655e34ab6f"
+      text_encoder:
+        sha256: "32e3787472f708fa5f83624acbf5ef23f7fc89c439e05065ea57cfe5a97f025a"
+      vae:
+        sha256: "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
+    checks:
+      min_outputs: 1
+      not_black: true

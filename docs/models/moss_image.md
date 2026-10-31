@@ -2,7 +2,7 @@
 type: model
 title: MOSS-Image
 family_key: moss_image
-modes: [txt2img]
+modes: [txt2img, inpaint]
 spec:
   arch: MOSS-Image DiT (42 blocks, hidden size 3072, fused QKV, two text-embedder blocks)
   latent: 128-channel FLUX 2 autoencoder latent (16x downscale, 2D)
@@ -37,7 +37,9 @@ The text encoder is `qwen3.5_9b_int8_convrot.safetensors` (about 9 GB, int8 Conv
 
 ## Presets & modes
 
-The shipped **MOSS-Image** preset has `txt2img` only, with a Base speed profile (50 steps, CFG 3.0, the default) and a Custom one. The pipes are `model_loader/moss_image` and `generator/moss_image`.
+The shipped **MOSS-Image** preset has `txt2img` and `inpaint`, with a Base speed profile (50 steps, CFG 3.0, the default) and a Custom one. The pipes are `model_loader/moss_image` and `generator/moss_image`.
+
+**Inpaint** repaints a painted area of a picture. The generator runs `mode: "inpaint"`: the unpainted latents stay pinned to the source on every step, so only the painted area changes (see [Latent-Mask Inpainting](../techniques/latent-mask-inpainting.md)). *Grow* widens the painted area, the area is cropped with its surroundings, repainted and composited back with a *Feather* seam. The prompt is optional; blank asks for the surroundings continued. Strength 1.0 repaints from noise; lower keeps more of the old colours. It keeps the negative-branch layer skip of `txt2img`.
 
 The LoRA tab takes MOSS-Image LoRAs in the ComfyUI, diffusers/PEFT, ai-toolkit and kohya layouts, on both the SFT and Base checkpoints. LoRAs trained with split `q`/`k`/`v` projections are mapped onto the DiT's fused qkv. The run log lists any LoRA keys that didn't match.
 
@@ -49,7 +51,7 @@ Resolutions are multiples of 16. The sigma shift is 5.0 unless the Advanced tab 
 
 ## Limitations
 
-- No Turbo checkpoint, no img2img. Few-step distillation LoRAs load but need a sampler the preset doesn't have yet.
+- No Turbo checkpoint, and no img2img mode (inpaint is the only mode that starts from a picture). Few-step distillation LoRAs load but need a sampler the preset doesn't have yet.
 - The schedule follows the reference's snapped grid, so the same seed renders a different image than ComfyUI.
 - The int8 checkpoints carry an int8-attention hint that is ignored; attention runs on SDPA.
 

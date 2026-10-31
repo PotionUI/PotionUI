@@ -10,6 +10,8 @@ MIN_BODY_POINTS = 4
 BOX_PADDING = 0.15
 BOX_MIN_PIXELS = 12.0
 IOU_ACCEPT = 0.15
+EDGE_MARGIN = 0.015
+EDGE_PENALTY = 0.4
 
 
 class PoseBackend(Protocol):
@@ -51,7 +53,18 @@ class PersonTracker:
         self.box: Optional[np.ndarray] = None
         self.detections = 0
 
-    def _choose(self, detections: np.ndarray) -> Optional[np.ndarray]:
+    @staticmethod
+    def _weights(detections: np.ndarray, width: int, height: int) -> np.ndarray:
+        areas = (detections[:, 2] - detections[:, 0]) * (detections[:, 3] - detections[:, 1])
+        cut = (
+            (detections[:, 0] <= width * EDGE_MARGIN).astype(int)
+            + (detections[:, 2] >= width * (1 - EDGE_MARGIN)).astype(int)
+            + (detections[:, 1] <= height * EDGE_MARGIN).astype(int)
+            + (detections[:, 3] >= height * (1 - EDGE_MARGIN)).astype(int)
+        )
+        return areas * detections[:, 4] * EDGE_PENALTY ** cut
+
+    def _choose(self, detections: np.ndarray, width: int, height: int) -> Optional[np.ndarray]:
         if len(detections) == 0:
             return None
         if self.box is not None:
@@ -59,15 +72,14 @@ class PersonTracker:
             best = int(overlaps.argmax())
             if overlaps[best] >= IOU_ACCEPT:
                 return detections[best, :4]
-        areas = (detections[:, 2] - detections[:, 0]) * (detections[:, 3] - detections[:, 1])
-        return detections[int((areas * detections[:, 4]).argmax()), :4]
+        return detections[int(self._weights(detections, width, height).argmax()), :4]
 
     def process(self, rgb: np.ndarray, index: int) -> np.ndarray:
         height, width = rgb.shape[:2]
         box = self.box
         if box is None or index % self.keyframe_interval == 0:
             self.detections += 1
-            chosen = self._choose(self.backend.detect(rgb))
+            chosen = self._choose(self.backend.detect(rgb), width, height)
             if chosen is not None:
                 box = chosen
         if box is None:

@@ -48,11 +48,11 @@ class TestBoneLengthsAndAngles:
 
     def test_subject_with_different_proportions_keeps_its_own_bones(self):
         driver = dance(24)
-        long_arms = {R_ELBOW: 54.0, R_WRIST: 48.0, L_ELBOW: 54.0, L_WRIST: 48.0}
+        long_arms = {R_ELBOW: 45.0, R_WRIST: 40.0, L_ELBOW: 45.0, L_WRIST: 40.0}
         subject = skeleton(neck=(100.0, 100.0), lengths=long_arms, hands=False, face=False)
         result = retarget(driver, subject).poses
-        assert length(result[5], R_ELBOW) == pytest.approx(54.0, rel=0.02)
-        assert length(result[5], R_WRIST) == pytest.approx(48.0, rel=0.02)
+        assert length(result[5], R_ELBOW) == pytest.approx(45.0, rel=0.02)
+        assert length(result[5], R_WRIST) == pytest.approx(40.0, rel=0.02)
         assert length(result[5], R_KNEE) == pytest.approx(DEFAULT_LENGTHS[R_KNEE], rel=0.02)
 
     def test_foreshortening_of_the_driver_is_kept(self):
@@ -70,7 +70,7 @@ class TestBoneLengthsAndAngles:
         subject = skeleton(hands=False, face=False, lengths={R_WRIST: 96.0, L_WRIST: 96.0})
         result = retarget(driver, subject)
         capped = length(result.poses[3], R_WRIST)
-        assert capped == pytest.approx(length(driver[3], R_WRIST) * 1.6 * result.scale, rel=0.02)
+        assert capped == pytest.approx(length(driver[3], R_WRIST) * 1.35 * result.scale, rel=0.02)
 
     def test_a_foreshortened_subject_arm_borrows_the_other_arms_length(self):
         driver = dance(12)
@@ -200,3 +200,89 @@ class TestEaseIn:
         assert 0.0 < weights[2] < 1.0
         assert (np.diff(weights) >= 0).all()
         assert (ease_weights(5, 0) == 1.0).all()
+
+
+class TestKeepInFrame:
+    def walker(self):
+        driver = dance(24, size=1.0)
+        driver[:, :, 0] += np.arange(24)[:, None] * 12.0
+        return driver
+
+    def test_a_long_walk_is_shortened_to_stay_inside_the_picture(self):
+        driver = self.walker()
+        subject = skeleton(neck=(100.0, 80.0), size=1.0, hands=False, face=False)
+        free = retarget(driver, subject)
+        boxed = retarget(driver, subject, bounds=(300.0, 400.0))
+        assert free.poses[:, :18, 0].max() > 300
+        valid = boxed.poses[:, :18, 2] > THRESHOLD
+        assert boxed.poses[:, :18, 0][valid].max() <= 300
+        assert boxed.poses[:, :18, 0][valid].min() >= 0
+        assert boxed.path_scale < boxed.scale
+        assert free.path_scale == free.scale
+
+    def test_a_walk_that_fits_is_left_alone(self):
+        driver = dance(12)
+        subject = skeleton(neck=(300.0, 200.0), hands=False, face=False)
+        boxed = retarget(driver, subject, bounds=(2000.0, 2000.0))
+        assert boxed.path_scale == boxed.scale
+        assert boxed.poses == pytest.approx(retarget(driver, subject).poses)
+
+    def test_bone_lengths_survive_the_shortened_path(self):
+        driver = self.walker()
+        subject = skeleton(neck=(100.0, 80.0), hands=False, face=False)
+        boxed = retarget(driver, subject, bounds=(300.0, 400.0)).poses
+        assert length(boxed[10], R_ELBOW) == pytest.approx(length(subject, R_ELBOW), rel=0.02)
+
+    def test_a_subject_with_no_room_stays_put_but_still_moves_its_limbs(self):
+        driver = self.walker()
+        subject = skeleton(neck=(100.0, 80.0), hands=False, face=False)
+        boxed = retarget(driver, subject, bounds=(150.0, 400.0))
+        assert boxed.path_scale <= 0.5 * boxed.scale
+        assert not np.allclose(boxed.poses[3, R_WRIST], boxed.poses[15, R_WRIST])
+
+
+class TestHeadScaleLimits:
+    def test_a_profile_head_cannot_inflate_the_face(self):
+        driver = dance(12)
+        narrow = driver.copy()
+        for point in (R_EAR, L_EAR, R_EYE, L_EYE):
+            narrow[:, point, 0] = narrow[:, NOSE, 0] + (narrow[:, point, 0] - narrow[:, NOSE, 0]) * 0.2
+        result = retarget(narrow, skeleton(hands=False, face=False))
+        assert result.head_scale <= result.scale * 1.25 + 1e-6
+
+
+class TestRealClip:
+    @staticmethod
+    def padded(body):
+        body = np.asarray(body, dtype=np.float32)
+        full = np.zeros(body.shape[:-2] + (134, 3), dtype=np.float32)
+        full[..., :18, :] = body
+        return full
+
+    def fixture(self):
+        import json
+        from pathlib import Path
+
+        data = json.loads((Path(__file__).resolve().parents[3] / "fixtures" / "pose_real_oroko.json").read_text())
+        return self.padded(data["driver_body_every_6"]), self.padded(data["subject_body"]), data["subject_size"]
+
+    def test_the_dancers_walk_would_leave_the_picture_without_the_frame_limit(self):
+        driver, subject, size = self.fixture()
+        free = retarget(driver, subject).poses
+        valid = free[..., :18, 2] > THRESHOLD
+        assert (free[..., :18, 0][valid] < 0).any() or (free[..., :18, 0][valid] > size[0]).any()
+
+    def test_with_the_frame_limit_every_body_point_stays_inside_the_picture(self):
+        driver, subject, size = self.fixture()
+        result = retarget(driver, subject, bounds=tuple(size))
+        valid = result.poses[..., :18, 2] > THRESHOLD
+        xs, ys = result.poses[..., :18, 0][valid], result.poses[..., :18, 1][valid]
+        assert xs.min() >= 0 and xs.max() <= size[0] and ys.min() >= 0 and ys.max() <= size[1]
+        assert 0.0 < result.path_scale < result.scale
+
+    def test_head_and_body_scales_stay_in_a_sane_band_on_real_numbers(self):
+        driver, subject, _ = self.fixture()
+        result = retarget(driver, subject)
+        assert result.head_scale <= result.scale * 1.25 + 1e-6
+        for value in result.bone_scales.values():
+            assert result.scale * 0.75 - 1e-6 <= value <= result.scale * 1.35 + 1e-6

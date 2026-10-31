@@ -113,6 +113,21 @@ Pointing the 2.0/2.3 preset at a transformer-only 2.5 DiT is rejected up front b
 
 Both presets carry the same two modes — a `video`/Director mode (first-frame/last-frame/arbitrary-keyframe conditioning, IC-LoRA reference videos, an optional jointly-generated or muxed-in audio track, and an in-flow two-stage latent upscale) and a standalone `upscale` mode that refines an existing clip. With Upscale on, a Director IC-LoRA and its reference apply to the first pass only unless "Use IC-LoRA in the refine pass" is on. See [Video Director](../video-director.md) for the keyframe/IC-LoRA/audio composition contract. What genuinely differs between them, beyond the pickers, is the stage-1 sampler and schedule — see [Sampling](#sampling).
 
+### Motion transfer
+
+Both presets ship a `motion_transfer` mode: a picture of a person plus a video of someone moving, and the person from the picture performs the moves. The look, clothing and background come from the picture; only the movement comes from the video.
+
+The pipeline is `media_loader` (video) and `media_loader` (picture) → `control_video` → `model_loader/ltx` → `prompt_encoder` → `generator/video_ltx` stage 1 → `latent_upscaler/ltx` → `generator/video_ltx` refine.
+
+- `control_video` (`type: pose`, see [Pose guide](../pose-guide.md)) renders a whole-body skeleton guide. With the picture wired in (`match_picture`) the skeleton is retargeted onto the person in the picture, so the guide is drawn in the picture's own frame. `ease_in` (Advanced → Motion guide, default 0.5 s) blends from the picture's pose into the video's moves, so frame 0 agrees with the picture used as the first frame. `save_guide` also saves the skeleton video to the gallery.
+- Stage 1 and the refine take the guide as an IC-LoRA reference (`{source: video, role: reference}`) and the picture as the first-frame keyframe (`{source: image, frame: first, role: keyframe}`). The video's own soundtrack is muxed in (`audio_source: file`).
+- The IC-LoRA is `Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control`, file `ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors` (pose, depth and canny in one LoRA). It is passed as a `scoped_loras` entry, so it is applied around the generator calls and never baked into the shared DiT. The mode lists it as its recommended LoRA; "Follow strength" is its weight.
+- `ref0.5` encodes the reference at half resolution, so the generation width and height must be multiples of 64. The guide is rendered with `size_multiple: 64` and a 522240-pixel budget (the same 960×544-class budget as Layout to render), `match_video` takes that size for stage 1, and the generator snaps to 32 × the LoRA's `reference_downscale_factor`, so the two never disagree.
+- The length follows the driving video up to what one pass fits in free VRAM (the same rule as the other reference-video modes; the form says about the first 5 seconds). The picture's person should be alone, front-facing and well lit; crowds, motion blur and side profiles are where the pose reading fails.
+- The refine keeps the reference (`refine_reference: true` on the final `generator/video_ltx`, the same default as Layout to render). Lightricks' own pipeline refines without it; flipping that single line in `modes/motion_transfer/pipeline.yml` turns it off.
+
+The LoRA was trained on LTX-2.3. It is the native pairing for the `LTX-2 / 2.3` preset. The `LTX-2.5` preset reuses it unchanged: Lightricks states that most LTX-2.3 LoRAs run on 2.5, and that structural IC-LoRAs need the distilled checkpoint, which is why the mode defaults to the Distilled speed profile. No 2.5-trained Union-Control LoRA exists yet.
+
 ### Latent upscalers: spatial and temporal
 
 `latent_upscaler/ltx` runs one upsample in latent space, between two generation stages. Its `mode` config picks which checkpoint it runs, and each has its own model-loader slot, because a pipeline can need both files resident at once:

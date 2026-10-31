@@ -1,0 +1,46 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed profile"
+    default: "turbo"
+    configuration:
+      options:
+        - { label: "Turbo", value: "turbo", sub_label: "8 steps, distilled checkpoint" }
+        - { label: "Base", value: "base", sub_label: "30 steps" }
+        - { label: "Custom", value: "custom", sub_label: "set steps/CFG freely" }
+
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children: "{{ paths._shared }}/native/seed_quantity.yml"
+
+      - name: "upscale_by"
+        type: "select"
+        formula: "enhance"
+        label: "Upscale by"
+        default: "2x"
+        ai_hint: "How much bigger the picture becomes. Each step up costs more time and memory."
+        configuration:
+          options:
+            - { label: "1.5x", value: "1_5x", sub_label: "Lightest" }
+            - { label: "2x", value: "2x", sub_label: "Default" }
+            - { label: "3x", value: "3x", sub_label: "Heaviest" }
+
+      - name: "enhance_detail"
+        type: "select"
+        formula: "enhance"
+        label: "Added detail"
+        default: "balanced"
+        ai_hint: "How much new detail is painted in while upscaling. Subtle stays closest to the original, Strong changes the most."
+        configuration:
+          options:
+            - { label: "Subtle", value: "subtle", sub_label: "Closest to the original" }
+            - { label: "Balanced", value: "balanced", sub_label: "Default" }
+            - { label: "Strong", value: "strong", sub_label: "Most added detail" }
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models.yml"

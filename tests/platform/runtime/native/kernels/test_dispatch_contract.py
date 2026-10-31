@@ -420,3 +420,35 @@ def test_the_dispatcher_lives_only_in_the_kernels_package():
         assert getattr(kernels, name) is getattr(att, name)
     for name in ("PIN_ONLY_BACKENDS", "set_backend_override", "supports_grouped_kv"):
         assert name not in kernels.__all__
+
+
+@pytest.fixture
+def broken_sage(monkeypatch, install_all):
+    install_all(SAGE2)
+    loads = []
+
+    def fail(*args, **kwargs):
+        loads.append(1)
+        raise ImportError("libstdc++.so.6: version 'CXXABI_1.3.15' not found")
+
+    monkeypatch.setattr(att, "_sage", fail)
+    return loads
+
+
+def test_an_auto_selected_kernel_that_fails_to_load_falls_back_to_sdpa_once(broken_sage, caplog):
+    q, k, v = _inputs()
+    with caplog.at_level(logging.INFO, logger=att.__name__):
+        first = attention(q, k, v)
+        second = attention(q, k, v)
+    expected = F.scaled_dot_product_attention(q, k, v)
+    assert torch.allclose(first, expected) and torch.allclose(second, expected)
+    assert len(broken_sage) == 1
+    notes = [r.getMessage() for r in caplog.records if "failed to load" in r.getMessage()]
+    assert len(notes) == 1 and "CXXABI_1.3.15" in notes[0]
+    assert att.get_attention_backend() == SDPA
+
+
+def test_a_pinned_kernel_that_fails_to_load_raises_a_clear_error(broken_sage):
+    q, k, v = _inputs()
+    with pytest.raises(RuntimeError, match="CXXABI.*pinned"):
+        attention(q, k, v, backend=SAGE2)

@@ -229,6 +229,15 @@ def ref_attn_bias(boosts: list[float], txt_len: int, ref_lens: list[int], tgt_le
     return bias
 
 
+# Derived from: https://github.com/ostris/ComfyUI-Krea2-Ostris-Edit (MIT, nodes.py _precompute_ref_kv / _forward_with_cached_refs)
+def ref_isolation_bias(txt_len: int, ref_len: int, tgt_len: int, device: torch.device, dtype: torch.dtype) -> Tensor:
+    total = txt_len + ref_len + tgt_len
+    bias = torch.zeros((1, 1, total, total), device=device, dtype=dtype)
+    rows = slice(txt_len, txt_len + ref_len)
+    bias[:, :, rows, :txt_len] = float("-inf")
+    bias[:, :, rows, txt_len + ref_len:] = float("-inf")
+    return bias
+
 def _sdpa_gqa(q: Tensor, k: Tensor, v: Tensor, heads: int, kvheads: int, mask: Tensor | None) -> Tensor:
     """Attention over head-split tensors with GQA; returns merged ``(B, L, H*D)``.
 
@@ -518,7 +527,8 @@ class SingleStreamBlock(nn.Module):
     def forward(self, x: Tensor, vec: Tensor, freqs: Tensor, mask: Tensor | None = None,
                 nag_fused: Tensor | None = None, nag_freqs: Tensor | None = None,
                 nag_mask: Tensor | None = None, nag: dict | None = None,
-                txt_len: int | None = None) -> Tensor:
+                txt_len: int | None = None, ref_vec: Tensor | None = None,
+                ref_span: tuple[int, int] | None = None) -> Tensor:
         # The modulation vector ``vec`` (timestep-derived) is f32 and the f32
         # ``mod.lin`` keeps the scale/shift/gate f32. Applying them directly
         # would promote the bf16 residual ``x`` to f32, and since Krea-2 loads
@@ -530,6 +540,9 @@ class SingleStreamBlock(nn.Module):
         # file header for why porting it verbatim would reintroduce this).
         dt = x.dtype
         prescale, preshift, pregate, postscale, postshift, postgate = (m.to(dt) for m in self.mod(vec))
+        if ref_vec is not None and ref_span is not None:
+            return self._forward_ref_t0(x, (prescale, preshift, pregate, postscale, postshift, postgate),
+                                        tuple(m.to(dt) for m in self.mod(ref_vec)), ref_span, freqs, mask, txt_len)
         h = self.prenorm(x) * (prescale + 1) + preshift
         # NAG (see Attention.forward above): ``nag_fused`` is the STATIC fused
         # negative-text representation (never evolved through blocks, matching
@@ -546,3 +559,21 @@ class SingleStreamBlock(nn.Module):
         h = self.postnorm(x) * (postscale + 1) + postshift
         x = x + self.mlp(h) * postgate
         return x
+
+    def _forward_ref_t0(self, x: Tensor, main: tuple[Tensor, ...], ref: tuple[Tensor, ...],
+                        span: tuple[int, int], freqs: Tensor, mask: Tensor | None,
+                        txt_len: int | None) -> Tensor:
+        a, b = span
+
+        def modulate(h: Tensor, scale: int, shift: int) -> Tensor:
+            return torch.cat((
+                h[:, :a] * (main[scale] + 1) + main[shift],
+                h[:, a:b] * (ref[scale] + 1) + ref[shift],
+                h[:, b:] * (main[scale] + 1) + main[shift],
+            ), dim=1)
+
+        def gate(y: Tensor, index: int) -> Tensor:
+            return torch.cat((y[:, :a] * main[index], y[:, a:b] * ref[index], y[:, b:] * main[index]), dim=1)
+
+        x = x + gate(self.attn(modulate(self.prenorm(x), 0, 1), freqs, mask, txt_len=txt_len), 2)
+        return x + gate(self.mlp(modulate(self.postnorm(x), 3, 4)), 5)

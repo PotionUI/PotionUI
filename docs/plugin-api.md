@@ -1868,8 +1868,6 @@ rejected with a load error attributed to the plugin. A contributed mode inherits
 against the target, same as a core mode's) — there is no separate per-contribution mechanism for
 either. See [Plugin-Contributed Presets](presets/plugins.md) for the full contract, including how
 provenance (`source_plugin`) surfaces in `GET /api/presets/{id}/modes` and the mode picker.
-`content/plugins/marketplace/krea2-edit/` is the first shipped example: an `edit` mode contributed onto
-the native Krea-2 preset.
 
 ## Contributing a compute provisioner
 
@@ -2095,10 +2093,10 @@ each call is a fresh roll. Submit the request with `submit_generation` (or
 Most pipes just assemble existing pipes into a pipeline. A pipe that needs to run inference
 against the native (in-process) engine itself — VAE-encode a reference image, sample, decode —
 rather than only consuming other pipes' outputs, does that through `src.plugin_api.native`
-(`content/plugins/marketplace/krea2-edit/` is the shipped example — a generator that in-context
+(`src/pipelines/pipes/generator/krea2_edit/` is the in-tree example — a generator that in-context
 edits a source image rather than generating from scratch).
 
-`GeneratorKrea2Pipe` is the concrete core Krea-2 generator pipe. Subclass it (as krea2-edit does)
+`GeneratorKrea2Pipe` is the concrete core Krea-2 generator pipe. Subclass it (as `generator/krea2_edit` does)
 to reuse its config schema and the shared seed-loop/model-acquisition machinery
 (`build_context`/`process`) instead of re-deriving Krea-2's own defaults — override
 `generate_one` for whatever your pipe does differently:

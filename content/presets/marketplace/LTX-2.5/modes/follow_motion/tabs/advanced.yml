@@ -1,0 +1,41 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    formula: "speed"
+    children:
+      file: "{{ paths.preset }}/files/form/sampling.yml"
+      vars: {steps: 8, cfg: 1.0, quality_cfg: 3.0}
+
+  - type: "section"
+    label: "Guide"
+    children:
+      - name: "save_guide"
+        type: "checkbox"
+        label: "Save guide"
+        default: false
+        ai_hint: "Also saves the depth or edge video that drives the motion to the gallery, useful to check what the model is following."
+
+  - type: "section"
+    label: "Sigma schedule"
+    children: "{{ paths.preset }}/files/form/manual_sigmas.yml"
+
+  - type: "section"
+    label: "2x refine"
+    children:
+      - type: "row"
+        children: "{{ paths.preset }}/files/form/refine_sampling.yml"
+
+      - name: "refine_sigmas"
+        type: "textbox"
+        label: "Refine Sigmas"
+        audience: "advanced"
+        ai_hint: "Expert-only override for the 2x refine pass. Empty runs Lightricks' stage-2 recipe (0.909375, 0.725, 0.421875, 0.0); a lower first value re-injects less noise and keeps closer to the first pass, a higher one gives the refine more freedom."
+        configuration:
+          placeholder: "Comma-separated sigma values, first value < 1.0, e.g. 0.909375, 0.725, 0.421875, 0.0"
+        default: ""
+
+  - type: "section"
+    label: "Step cache (FBCache)"
+    formula: "cache"
+    audience: "advanced"
+    children: "{{ paths.preset }}/files/form/step_cache.yml"

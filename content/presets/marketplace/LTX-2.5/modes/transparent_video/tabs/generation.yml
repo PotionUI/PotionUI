@@ -1,0 +1,54 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed profile"
+    default: "distilled"
+    configuration:
+      options:
+        - { label: "Distilled", value: "distilled", sub_label: "8 steps · CFG off · distilled sigma recipe" }
+        - { label: "Custom", value: "custom", sub_label: "your own steps · sampler · CFG, left alone" }
+
+  - type: "section"
+    label: "Video"
+    children:
+      - type: "row"
+        children: "{{ paths.preset }}/files/form/seed_quantity.yml"
+
+      - name: "output_size"
+        type: "select"
+        formula: "size"
+        label: "Size"
+        default: "1080p"
+        description: "Pick 720p if you run out of memory."
+        configuration:
+          options:
+            - { label: "720p", value: "720p" }
+            - { label: "1080p", value: "1080p" }
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children:
+      file: "{{ paths.preset }}/files/form/models_media.yml"
+
+  - type: "section"
+    label: "Alpha-Gen LoRA"
+    formula: "models"
+    children:
+      - name: "effect_lora"
+        type: "model"
+        formula: "models"
+        label: "Alpha-Gen LoRA"
+        required: true
+        description: "Needed for this mode."
+        configuration:
+          model_type: "lora"
+          placeholder: "ltx-2.5-22b-ic-lora-alpha-gen-0.9.safetensors"
+          recommendations:
+            - name: "ltx-2.5-22b-ic-lora-alpha-gen-0.9.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "Lightricks/LTX-2.5-22b-IC-LoRA-Alpha-Gen", "file": "ltx-2.5-22b-ic-lora-alpha-gen-0.9.safetensors", "revision": "main"}'
+              size: "1.31 GB"
+              sha256: "d9e143f979e0756f0c83d772e6a8890f4c6b933db1f7d93fc06e25c179f3fd36"
+              description: "LTX-2.5 Alpha-Gen IC-LoRA (beta): turns a clip into its alpha matte. Gated repo: accept the license on Hugging Face and set a token in Admin - Plugins."

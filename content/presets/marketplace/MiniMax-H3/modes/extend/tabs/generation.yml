@@ -4,11 +4,12 @@ fields:
     formula: "speed"
     label: "Speed profile"
     default: "quality"
-    ai_hint: "Quality runs 24 steps and holds the look of the source best. Turbo runs 4 steps and is softer. Custom hands the Steps slider on the Advanced tab to the user."
+    ai_hint: "Quality runs 24 steps and holds the look of the source best. Turbo runs 4 steps and is softer. Flex runs 6 steps with the Pika Flex adapter, which needs the Flex adapter model on the Models section; it is fast, and it ignores the LoRA tab and the sampler settings. Custom hands the Steps slider on the Advanced tab to the user."
     configuration:
       options:
         - { label: "Quality", value: "quality", sub_label: "24 steps" }
         - { label: "Turbo", value: "turbo", sub_label: "4 steps" }
+        - { label: "Flex", value: "flex", sub_label: "6 steps · Flex adapter" }
         - { label: "Custom", value: "custom", sub_label: "your own steps, left alone" }
   - type: "section"
     label: "Video"

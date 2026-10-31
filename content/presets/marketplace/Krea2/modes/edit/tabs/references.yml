@@ -1,0 +1,26 @@
+fields:
+  - name: "source_image"
+    type: "image"
+    label: "Picture to edit"
+    required: true
+    configuration:
+      allow_inpaint: true
+    ai_hint: "The picture to change. In a one-picture edit, the Inpaint brush marks the region Reference Fidelity should lock onto (for example a face) instead of the whole picture."
+
+  - name: "source_image_b"
+    type: "image"
+    label: "Second picture (optional)"
+    required: false
+    configuration:
+      allow_inpaint: true
+    ai_hint: "Optional second picture for a two-picture edit: the first is the scene, this one is the subject placed into it (for example a person). Reference Fidelity then targets this picture, and its Inpaint brush restricts the boost to a region of it."
+
+  - name: "ref_boost"
+    type: "slider"
+    label: "Reference fidelity"
+    default: 0.0
+    configuration:
+      min: 0.0
+      max: 4.0
+      step: 0.05
+    ai_hint: "How hard the edit locks onto the reference's appearance. 0 = automatic (4 for edits, 2 for placing a person). 1 = neutral, above 1 pulls harder toward the reference (stronger likeness), below 1 loosens it. Applies to the second picture when set, otherwise the only picture."

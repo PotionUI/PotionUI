@@ -158,7 +158,8 @@ RES_MULTISTEP = "res_multistep"
 DPMPP_2M = "dpmpp_2m"
 ER_SDE = "er_sde"
 SA_SOLVER = "sa_solver"
-SAMPLERS = (EULER, RES_MULTISTEP, DPMPP_2M, ER_SDE, SA_SOLVER)
+LCM = "lcm"
+SAMPLERS = (EULER, RES_MULTISTEP, DPMPP_2M, ER_SDE, SA_SOLVER, LCM)
 
 # ER-SDE's noise-extension exponent, fixed at the paper's own simplest named
 # design ("ER SDE 1: phi(sigma) = sigma^1.5", i.e. eta=0.5 in the
@@ -417,6 +418,23 @@ class SASolverStepper:
         return (sigma_now / sigma_prev) * last_sample + gradient
 
 
+class LCMStepper:
+    def __init__(self, generator: torch.Generator) -> None:
+        self._generator = generator
+
+    def step(
+        self, model_output: Tensor, timestep: float | Tensor, sample: Tensor,
+        sigma: float | Tensor, sigma_next: float | Tensor,
+    ) -> Tensor:
+        dtype = _compute_dtype(sample)
+        denoised = data_estimate(model_output, timestep, sample).to(dtype)
+        sigma_then = float(sigma_next)
+        if sigma_then == 0.0:
+            return denoised.to(dtype=sample.dtype)
+        noise = torch.randn(sample.shape, generator=self._generator, device=sample.device, dtype=dtype)
+        return ((1.0 - sigma_then) * denoised + sigma_then * noise).to(dtype=sample.dtype)
+
+
 _STEPPERS = {
     EULER: EulerStepper,
     RES_MULTISTEP: ResMultistepStepper,
@@ -425,16 +443,14 @@ _STEPPERS = {
 }
 
 
-def make_stepper(sampler: str, *, generator: Optional[torch.Generator] = None):
-    """A FRESH stepper -- one per stream per window; the multistep history is
-    the stepper's own state and must not outlive either boundary.
+_STOCHASTIC = {ER_SDE: ERSDEStepper, LCM: LCMStepper}
 
-    `generator`: required for `er_sde` (it draws one noise tensor per
-    non-terminal step); ignored by every deterministic sampler."""
-    if sampler == ER_SDE:
+
+def make_stepper(sampler: str, *, generator: Optional[torch.Generator] = None):
+    if sampler in _STOCHASTIC:
         if generator is None:
-            raise ValueError(f"sampler {ER_SDE!r} needs a seeded torch.Generator -- it draws noise every step")
-        return ERSDEStepper(generator)
+            raise ValueError(f"sampler {sampler!r} needs a seeded torch.Generator -- it draws noise every step")
+        return _STOCHASTIC[sampler](generator)
     try:
         return _STEPPERS[sampler]()
     except KeyError:

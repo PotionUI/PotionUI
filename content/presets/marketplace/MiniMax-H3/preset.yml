@@ -81,6 +81,14 @@ speed_profiles:
     # it at face value runs it 8x too strong and produces noise. See the LoRA
     # tab's ai_hint and ai/minimax_h3/TURBO_LORA_FINDINGS.md.
     steps: 4
+  flex:
+    steps: 6
+    sampler: "lcm"
+    schedule: "simple"
+    extra:
+      manual_sigmas: "1.0, 0.972973, 0.923077, 0.8, 0.571429, 0.333333, 0.0"
+      manual_audio_sigmas: "1.0, 0.9, 0.75, 0.5, 0.25, 0.111111, 0.0"
+      step_cache_threshold: 0.0
   # Frees the Steps slider: the named profiles' reactions re-pin their step
   # count on every form change (the reaction engine is level-triggered), so a
   # hand-set count only survives under a profile that pins nothing. The steps
@@ -542,6 +550,7 @@ modes:
   - extend
   - remix
   - talk
+  - long
   - motion_transfer
 
 media:

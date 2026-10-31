@@ -17,7 +17,7 @@ beyond this surface.
 are the small, already-stable pieces the generator-pipe authoring path is
 built from. `GeneratorKrea2Pipe` is the concrete core
 Krea-2 generator pipe, re-exported so a plugin can subclass it
-(as krea2-edit does) to reuse its config schema and
+to reuse its config schema and
 the shared `build_context`/seed-loop machinery instead of re-deriving the
 family's own defaults.
 

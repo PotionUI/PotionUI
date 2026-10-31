@@ -926,3 +926,49 @@ def test_abort_keeps_a_file_that_was_already_finished(ffmpeg_stub, tmp_path):
     writer.abort()
 
     assert out.exists()
+
+
+def test_alpha_webm_command_reads_rgba_and_writes_vp9_with_alpha(monkeypatch, tmp_path):
+    monkeypatch.setattr(encode, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(encode, "_has_encoder", lambda ffmpeg, name: True)
+    captured = {}
+    real_popen = subprocess.Popen
+
+    def popen(cmd, **kw):
+        captured["cmd"] = cmd
+        return real_popen(_READ_STDIN, **kw)
+
+    monkeypatch.setattr(encode.subprocess, "Popen", popen)
+    writer = encode.StreamingAlphaWebmWriter(str(tmp_path / "out.webm"), 64, 32, 24.0, crf=30)
+    writer.write(np.zeros((32, 64, 4), dtype=np.uint8))
+    writer.close()
+    cmd = captured["cmd"]
+    assert cmd[cmd.index("-pix_fmt") + 1] == "rgba"
+    assert cmd[cmd.index("-c:v") + 1] == "libvpx-vp9"
+    assert "yuva420p" in cmd
+    assert cmd[cmd.index("-crf") + 1] == "30"
+    assert cmd[-1].endswith("out.webm")
+
+
+def test_alpha_webm_refuses_an_ffmpeg_without_vp9(monkeypatch, tmp_path):
+    monkeypatch.setattr(encode, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(encode, "_has_encoder", lambda ffmpeg, name: False)
+    with pytest.raises(encode.FFmpegNotFoundError, match="libvpx-vp9"):
+        encode.StreamingAlphaWebmWriter(str(tmp_path / "out.webm"), 64, 32, 24.0)
+
+
+def test_the_mp4_writer_command_is_unchanged(monkeypatch, tmp_path):
+    captured = {}
+    real_popen = subprocess.Popen
+
+    def popen(cmd, **kw):
+        captured["cmd"] = cmd
+        return real_popen(_READ_STDIN, **kw)
+
+    monkeypatch.setattr(encode, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(encode.subprocess, "Popen", popen)
+    writer = encode.StreamingMp4Writer(str(tmp_path / "out.mp4"), 64, 32, 24.0, crf=20)
+    writer.close()
+    cmd = captured["cmd"]
+    assert cmd[cmd.index("-pix_fmt") + 1] == "rgb24"
+    assert "yuv420p" in cmd and "+faststart" in cmd

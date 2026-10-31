@@ -1,0 +1,7 @@
+models:
+  - name: "Video-Depth-Anything-Small"
+    url: "https://huggingface.co/depth-anything/Video-Depth-Anything-Small/resolve/main/video_depth_anything_vits.pth"
+    file_path: "{{ path('annotators', 'depth-anything-video-depth-anything-small/video_depth_anything_vits.pth') }}"
+    type: "annotator"
+    provider: "huggingface"
+    sha256: "13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609"

@@ -1,0 +1,41 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    formula: "speed"
+    children:
+      file: "{{ paths.preset }}/files/form/sampling.yml"
+      vars: {steps: 8, cfg: 1.0, quality_cfg: 1.0}
+
+  - type: "section"
+    label: "Matte cleanup"
+    children:
+      - name: "matte_black_point"
+        type: "slider"
+        label: "Clear below"
+        default: 0.0
+        ai_hint: "Matte values at or below this become fully transparent. Raise it a little to remove a faint haze around the subject."
+        configuration: {min: 0.0, max: 0.5, step: 0.01}
+
+      - name: "matte_white_point"
+        type: "slider"
+        label: "Solid above"
+        default: 1.0
+        ai_hint: "Matte values at or above this become fully opaque. Lower it a little if the subject looks slightly see-through."
+        configuration: {min: 0.5, max: 1.0, step: 0.01}
+
+      - name: "matte_quality"
+        type: "slider"
+        label: "WebM quality"
+        default: 24
+        ai_hint: "VP9 constant-quality value for the transparent WebM. Lower is sharper and larger."
+        configuration: {min: 10, max: 40, step: 1}
+
+  - type: "section"
+    label: "Sigma schedule"
+    children: "{{ paths.preset }}/files/form/manual_sigmas.yml"
+
+  - type: "section"
+    label: "Step cache (FBCache)"
+    formula: "cache"
+    audience: "advanced"
+    children: "{{ paths.preset }}/files/form/step_cache.yml"

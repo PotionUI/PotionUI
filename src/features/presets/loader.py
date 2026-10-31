@@ -926,6 +926,10 @@ class PresetTemplateLoader:
 
                 existing = target.modes.get(mode_name)
                 if existing is not None and existing.source_plugin is None:
+                    logger.warning(
+                        f"Plugin '{contribution.plugin_id}' mode '{mode_name}' collides with the core mode of "
+                        f"preset '{contribution.target_preset_id}' - skipping the plugin's mode"
+                    )
                     errors.setdefault(error_key, []).append(
                         f"collides with a core mode already declared by preset "
                         f"'{contribution.target_preset_id}' - the core mode wins, "

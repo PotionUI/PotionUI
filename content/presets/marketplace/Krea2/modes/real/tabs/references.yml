@@ -1,0 +1,6 @@
+fields:
+  - name: "source_image"
+    type: "image"
+    label: "Picture to make real"
+    required: true
+    ai_hint: "The illustration, anime picture or 3D render to turn into a photograph. The output keeps its composition and pose and takes its shape and size."

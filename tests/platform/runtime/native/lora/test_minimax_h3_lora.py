@@ -819,3 +819,71 @@ def test_vdn_scale_one_application_equals_hand_computed_delta():
         @ lora["transformer_blocks.0.attn.orig.to_k.lora_A.turbo.weight"]
     )
     torch.testing.assert_close(qkv.weight, qkv_expected, atol=1e-5, rtol=1e-4)
+
+
+def _pika_comfy_stack(rank: int = 4) -> dict[str, torch.Tensor]:
+    lora: dict[str, torch.Tensor] = {}
+    seed = 300
+    for prefix, layers in (("blocks", TINY["num_layers"]),
+                           ("token_refiner.blocks", TINY["num_refiner_layers"])):
+        for i in range(layers):
+            pf = f"{prefix}.{i}"
+            for stem, out, inf, r in (
+                (f"{pf}.attn.qkv_proj", 3 * INNER, HIDDEN, 3 * rank),
+                (f"{pf}.attn.out_proj", HIDDEN, INNER, rank),
+                (f"{pf}.mlp.fc1", 2 * FFN, HIDDEN, rank),
+                (f"{pf}.mlp.fc2", HIDDEN, FFN, rank),
+            ):
+                pair = _comfy_lora(stem, out, inf, rank=r, seed=seed)
+                del pair[f"diffusion_model.{stem}.alpha"]
+                lora.update(pair)
+                seed += 1
+    return lora
+
+
+def test_pika_flex_comfy_adapter_without_alpha_keys_maps_at_unit_scale():
+    lora = _pika_comfy_stack()
+    assert not any(k.endswith(".alpha") for k in lora)
+    mapped, unmatched = map_lora_keys(lora, _build())
+    assert unmatched == []
+    assert len(mapped) == 4 * (TINY["num_layers"] + TINY["num_refiner_layers"])
+    for deltas in mapped.values():
+        (delta,) = deltas
+        assert delta.target_slice is None
+        assert delta.alpha == delta.down.shape[0]
+    (qkv,) = mapped["blocks.0.attn.qkv_proj.weight"]
+    assert qkv.down.shape == (12, HIDDEN) and qkv.up.shape == (3 * INNER, 12)
+
+
+def test_pika_flex_comfy_adapter_changes_the_forward_and_removes_cleanly():
+    m = _build()
+    layout = _tiny_layout()
+    inputs = _fixed_inputs(layout, seed=21)
+    with torch.no_grad():
+        base_v, base_a = _forward(m, layout, inputs)
+    n, unmatched = apply_loras(m, [(_pika_comfy_stack(), 1.0)])
+    assert n == 4 * (TINY["num_layers"] + TINY["num_refiner_layers"]) and unmatched == []
+    with torch.no_grad():
+        after_v, _ = _forward(m, layout, inputs)
+    assert not torch.allclose(base_v, after_v)
+    remove_loras(m)
+    with torch.no_grad():
+        restored_v, restored_a = _forward(m, layout, inputs)
+    torch.testing.assert_close(restored_v, base_v, atol=1e-4, rtol=1e-3)
+    torch.testing.assert_close(restored_a, base_a, atol=1e-4, rtol=1e-3)
+
+
+def test_pika_flex_peft_adapter_without_alpha_keys_maps_with_zero_unmatched():
+    lora: dict[str, torch.Tensor] = {}
+    for i in range(TINY["num_layers"]):
+        pf = f"transformer_blocks.{i}"
+        lora.update(_diffusers_qkv_lora(pf, seed=10 + i))
+        lora.update(_peft_lora(f"{pf}.attn.to_out.0", HIDDEN, INNER, seed=20 + i))
+        lora.update(_peft_lora(f"{pf}.ff.net.0.proj", 2 * FFN, HIDDEN, seed=30 + i))
+        lora.update(_peft_lora(f"{pf}.ff.net.2", HIDDEN, FFN, seed=40 + i))
+    assert not any(k.endswith(".alpha") for k in lora)
+    mapped, unmatched = map_lora_keys(lora, _build())
+    assert unmatched == []
+    for deltas in mapped.values():
+        for delta in deltas:
+            assert delta.alpha == delta.down.shape[0]

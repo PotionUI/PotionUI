@@ -1,0 +1,43 @@
+fields:
+  - type: "section"
+    label: "Long video"
+    audience: "advanced"
+    children:
+      - name: "piece_seconds"
+        type: "slider"
+        formula: "size"
+        label: "Part length (seconds)"
+        audience: "advanced"
+        default: 10
+        description: "Each part is one generation."
+        ai_hint: "Seconds generated per part before the next part continues from its end. Shorter parts drift less and cost less memory; longer parts have fewer joins. Parts are rounded up to a length the model accepts, so the finished video is trimmed to Length."
+        configuration: {min: 5, max: 14, step: 1}
+      - name: "drift_correction"
+        type: "slider"
+        formula: "speed"
+        label: "Colour hold"
+        audience: "advanced"
+        default: 0.5
+        description: "Keeps colour steady across parts."
+        ai_hint: "How strongly each part's colour and brightness are pulled back toward the first part's. 0 leaves every part as generated; around 0.5 steadies a long chain without flattening a deliberate scene change. Raise it when the video slowly turns darker, brighter or tinted; lower it when the story changes lighting on purpose."
+        configuration: {min: 0.0, max: 1.0, step: 0.05}
+  - type: "section"
+    label: "Sampling"
+    children: "{{ paths.preset }}/files/form/advanced_sampling.yml"
+
+  - type: "section"
+    label: "Sparse attention"
+    formula: "sparse"
+    audience: "advanced"
+    children: "{{ paths.preset }}/files/form/advanced_sparse.yml"
+
+  - type: "section"
+    label: "Step cache (FBCache)"
+    formula: "cache"
+    audience: "advanced"
+    children: "{{ paths.preset }}/files/form/advanced_step_cache.yml"
+
+  - name: "preview"
+    type: "checkbox"
+    label: "Live preview"
+    default: true

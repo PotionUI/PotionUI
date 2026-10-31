@@ -1,0 +1,117 @@
+fields:
+  - type: "row"
+    children: "{{ paths._shared }}/native/seed_quantity.yml"
+
+  - type: "section"
+    label: "Upscale"
+    formula: "enhance"
+    children:
+      - name: "upscale_factor"
+        type: "select"
+        formula: "enhance"
+        label: "Upscale by"
+        default: "2"
+        configuration:
+          options:
+            - { label: "2x", value: "2", sub_label: "Default" }
+            - { label: "3x", value: "3" }
+            - { label: "4x", value: "4", sub_label: "Heaviest, most tiles" }
+
+      - name: "refine_amount"
+        type: "select"
+        formula: "enhance"
+        label: "Added detail"
+        default: "balanced"
+        configuration:
+          options:
+            - { label: "Subtle", value: "subtle", sub_label: "Stays closest to the picture" }
+            - { label: "Balanced", value: "balanced", sub_label: "Default" }
+            - { label: "Strong", value: "strong", sub_label: "Most new detail, may drift" }
+
+  - type: "section"
+    label: "Upscaler"
+    formula: "enhance"
+    children:
+      - name: "upscale_model"
+        type: "model"
+        formula: "models"
+        label: "Upscaler Model"
+        configuration:
+          model_type: "upscaler"
+          placeholder: "Plain resize (no model)"
+          filter_tags: "@config:upscaler_tags"
+          recommendations:
+            - name: "RealESRGAN_x4.pth"
+              link: "https://huggingface.co/ai-forever/Real-ESRGAN/resolve/main/RealESRGAN_x4.pth"
+              size: "63.9 MB"
+              sha256: "aa00f09ad753d88576b21ed977e97d634976377031b178acc3b5b238df463400"
+              description: "General-purpose 4x upscaler. Leave empty for a plain resize."
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children:
+      - name: "diffusion_model"
+        type: "model"
+        label: "Diffusion Model"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Select Krea-2 DiT (bf16)..."
+          filter_tags: "@config:checkpoint_tags"
+          recommendations:
+            - name: "krea2_turbo_fp8_scaled.safetensors"
+              link: "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_turbo_fp8_scaled.safetensors"
+              size: "12.24 GB"
+              sha256: "eb4dd8c612cfd10f64f25b057e6e6bbcb5737c94a7372177e456dbf7579502f1"
+              description: "Krea-2 distilled turbo, fp8-scaled - half the bf16 footprint; matches the Turbo/Balanced/Quality profiles."
+            - name: "krea2_turbo_bf16.safetensors"
+              link: "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_turbo_bf16.safetensors"
+              size: "24.48 GB"
+              sha256: "78bbf8f4165eda19cea3cb06c78089221932a39e2eed8af9da741f942c47ffb3"
+              description: "Krea-2 distilled turbo, bf16 reference."
+            - name: "krea2_turbo_nvfp4.safetensors"
+              link: "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_turbo_nvfp4.safetensors"
+              size: "7.15 GB"
+              sha256: "61527003b2d537055494d01bc8efe51d6e86e64192ba23e3721a5647231fe394"
+              description: "Krea-2 distilled turbo, nvfp4 - smallest tier; the fast matmul path needs Blackwell."
+            - name: "krea2_raw_bf16.safetensors"
+              link: "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_raw_bf16.safetensors"
+              size: "24.48 GB"
+              sha256: "f99bb0ff8e362b77342bc4994e0c50906fe7ef7074864b181b7d48d2fa6d03d7"
+              description: "Krea-2 raw (non-distilled), bf16 - the checkpoint the Base speed profile is written for."
+
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (Qwen3-VL-4B)"
+        required: true
+        configuration:
+          model_type: "text_encoder"
+          placeholder: "Select Qwen3-VL-4B text encoder..."
+          filter_tags: "@config:text_encoder_tags"
+          recommendations:
+            - name: "qwen3vl_4b_fp8_scaled.safetensors"
+              link: "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_fp8_scaled.safetensors"
+              size: "4.88 GB"
+              sha256: "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094"
+              description: "Qwen3-VL-4B encoder, fp8-scaled - the practical default."
+            - name: "qwen3vl_4b_bf16.safetensors"
+              link: "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_bf16.safetensors"
+              size: "8.27 GB"
+              sha256: "36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34"
+              description: "Qwen3-VL-4B encoder, bf16 reference."
+
+      - name: "vae"
+        type: "model"
+        label: "VAE (Qwen-Image)"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "Select Qwen-Image VAE..."
+          filter_tags: "@config:vae_tags"
+          recommendations:
+            - name: "qwen_image_vae.safetensors"
+              link: "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/vae/qwen_image_vae.safetensors"
+              size: "242.0 MB"
+              sha256: "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
+              description: "Wan 2.1 causal-3D VAE, shared with Qwen-Image and Anima."

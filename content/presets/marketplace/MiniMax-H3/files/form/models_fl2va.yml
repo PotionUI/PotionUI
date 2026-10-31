@@ -92,3 +92,32 @@ fields:
       size_bytes: 605254808
       sha256: 8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48
       description: MiniMax-H3 audio VAE, fp32 - required for the audio track.
+- name: flex_adapter
+  type: model
+  label: Flex adapter
+  required: false
+  ai_hint: The Pika Flex adapter for the first/last-frame DiT, used by the Flex speed profile only. It is applied on top of the DiT without reloading it. Use the fl2va file with this mode's DiT; a mismatched pair loads cleanly and gives a worse video.
+  reactions:
+  - when:
+      field: speed_profile
+      equals: flex
+    then:
+      set_visibility: true
+      set_required: true
+  - when:
+      field: speed_profile
+      not_equals: flex
+    then:
+      set_visibility: false
+      set_required: false
+  configuration:
+    model_type: lora
+    placeholder: pika_h3_flex_fl2va_v1_bf16...
+    recommendations:
+    - name: pika_h3_flex_fl2va_v1_bf16.safetensors
+      link: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/loras/pika_h3_flex_fl2va_v1_bf16.safetensors
+      size: 1.96 GB
+      size_bytes: 1956172304
+      precision: "bf16"
+      sha256: cc5453aeecd6189468409003fe4cf1b57e52ff3a830a0a154b87decbe07358b7
+      description: Pika H3 Flex first/last-frame adapter, bf16 (MiniMax H3 Community License).

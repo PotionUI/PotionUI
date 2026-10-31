@@ -18,7 +18,7 @@ Every family below except SDXL runs on the native engine ([Native Engine v2](../
 - [Krea-2](krea2.md) — text-to-image, image-to-image
 - [MOSS-Image](moss_image.md) — text-to-image
 - [Qwen-Image](qwen_image.md) — text-to-image, image-to-image
-- [Z-Image](z_image.md) — text-to-image, image-to-image
+- [Z-Image](z_image.md) — text-to-image, image-to-image, upscale and refine, Fun ControlNet structure
 - [Anima](anima.md) — text-to-image, image-to-image
 - [Wan 2.1 / 2.2](wan.md) — text-to-video, image-to-video, chained video
 - [LTX-2 / 2.3](ltx.md) — text-to-video, video director (keyframes, audio)

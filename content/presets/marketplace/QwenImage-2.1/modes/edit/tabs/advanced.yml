@@ -13,7 +13,7 @@ fields:
           - when: { field: "speed_profile", equals: "balanced" }
             then: { set_value: 40, set_disabled: false }
           - when: { field: "speed_profile", equals: "turbo" }
-            then: { set_value: 20, set_disabled: false }
+            then: { set_value: 8, set_disabled: false }
           - when: { field: "speed_profile", equals: "custom" }
             then: { set_disabled: false }
 

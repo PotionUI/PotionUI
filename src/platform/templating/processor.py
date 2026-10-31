@@ -34,6 +34,8 @@ from src.platform.templating.dict_utils import (
     active_loras,
     strip_model_dir,
     get_speed_profile_value,
+    text_or,
+    long_video_parts,
     _NO_DEFAULT as _NO_SPEED_PROFILE_DEFAULT,
 )
 
@@ -54,6 +56,8 @@ _ENV = ImmutableSandboxedEnvironment(
 _ENV.filters['active_loras'] = active_loras
 _ENV.filters['strip_model_dir'] = strip_model_dir
 _ENV.filters['media_of_kind'] = items_of_kind
+_ENV.filters['text_or'] = text_or
+_ENV.filters['long_video_parts'] = long_video_parts
 
 
 @lru_cache(maxsize=_COMPILE_CACHE_SIZE)

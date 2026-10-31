@@ -183,9 +183,21 @@
     "label": "Motion Transfer",
     "icon": "mode-control"
   },
+  "follow_motion": {
+    "label": "Follow Motion",
+    "icon": "mode-control"
+  },
   "cinemagraph": {
     "label": "Cinemagraph",
     "icon": "mode-cinemagraph"
+  },
+  "transition": {
+    "label": "Transition",
+    "icon": "mode-transition"
+  },
+  "transparent_video": {
+    "label": "Transparent Video",
+    "icon": "mode-transparent"
   },
   "extend": {
     "label": "Extend",

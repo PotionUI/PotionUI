@@ -27,7 +27,16 @@ from src.pipelines.outputs import (
 )
 from src.pipelines.pipes._shared.media.inputs import as_flag, media_paths
 from src.pipelines.pipes._shared.media.video_encode import probe_effective_fps
+from src.pipelines.pipes._shared.depth.estimator import acquire_depth_estimator
 from src.pipelines.pipes._shared.pose.estimator import acquire_pose_estimator
+from src.platform.runtime.depth.video_depth import (
+    VideoDepthEstimator,
+    depth_frame_to_guide,
+    depth_levels,
+    sample_depth,
+)
+from src.platform.runtime.guides.edges import canny_guide
+from src.platform.runtime.guides.frames import fit_frame
 from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.pose.dwpose import DWPoseEstimator
 from src.platform.runtime.pose.geometry import FIT_MODES, fit_transform, map_points, resolve_output_size
@@ -41,10 +50,11 @@ from src.platform.runtime.pose.sequence import (
 )
 from src.platform.util.video_stream import StreamingMp4Writer
 
-GUIDE_TYPES = ["pose"]
+GUIDE_TYPES = ["pose", "depth", "edges"]
 GUIDE_CRF = 12
 DEFAULT_FPS = 24.0
 PROGRESS_STEPS = 20
+DEPTH_MAX_FRAMES = 1001
 
 
 def _number(value: Any, cast: Callable, default: Any) -> Any:
@@ -55,13 +65,13 @@ def _number(value: Any, cast: Callable, default: Any) -> Any:
 
 class ControlVideoPipe(BasePipe):
     name = "control_video"
-    description = "Render a driving video into a pose guide video, optionally retargeted onto a picture's person"
+    description = "Render a driving video into a pose, depth or edge guide video; a pose guide can be retargeted onto a picture's person"
     display_title = "Reading the motion"
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
-            PipeConfigSpec("type", str, "pose", "Kind of guide to render", required=False, choices=GUIDE_TYPES),
+            PipeConfigSpec("type", str, "pose", "Kind of guide to render: a pose skeleton, a depth map or canny edges", required=False, choices=GUIDE_TYPES),
             PipeConfigSpec("width", int, 0, "Exact guide width; 0 derives it", required=False, min_value=0),
             PipeConfigSpec("height", int, 0, "Exact guide height; 0 derives it", required=False, min_value=0),
             PipeConfigSpec("max_pixels", int, 0, "Pixel budget for the derived size; 0 = no cap", required=False, min_value=0),
@@ -80,8 +90,10 @@ class ControlVideoPipe(BasePipe):
             PipeConfigSpec("max_gap", int, 12, "Longest run of missing frames that is interpolated", required=False, min_value=0),
             PipeConfigSpec("max_frames", int, 0, "Only process the first N frames; 0 = all", required=False, min_value=0),
             PipeConfigSpec("max_seconds", float, 0.0, "Only process the first N seconds of the source, whatever its frame rate; 0 = all. The smaller of this and max_frames wins", required=False, min_value=0.0),
+            PipeConfigSpec("canny_low", float, 100.0, "Edges guide: weak edge threshold", required=False, min_value=0.0, max_value=500.0),
+            PipeConfigSpec("canny_high", float, 200.0, "Edges guide: strong edge threshold", required=False, min_value=0.0, max_value=500.0),
             PipeConfigSpec("save_guide", bool, False, "Also save the guide video to the gallery", required=False),
-            PipeConfigSpec("weights_dir", str, "", "Folder holding the two DWPose ONNX files; blank fetches them", required=False),
+            PipeConfigSpec("weights_dir", str, "", "Folder holding the model files for the guide type (the two DWPose ONNX files, or the video depth checkpoint); blank fetches them", required=False),
         ]
 
     @classmethod
@@ -89,8 +101,8 @@ class ControlVideoPipe(BasePipe):
         return [
             PipeInputSpec("video", IOType.VIDEO, True, "Driving videos", is_array=True),
             PipeInputSpec("image", IOType.IMAGE, False, "Picture of the person who should perform the motion", is_array=True),
-            PipeInputSpec("MODELS", IOType.SERVICE, False, "Model lifecycle service for caching the pose models", is_array=False),
-            PipeInputSpec("ASSETS", IOType.SERVICE, False, "Asset fetcher for the pose model files", is_array=False),
+            PipeInputSpec("MODELS", IOType.SERVICE, False, "Model lifecycle service for caching the pose and depth models", is_array=False),
+            PipeInputSpec("ASSETS", IOType.SERVICE, False, "Asset fetcher for the pose and depth model files", is_array=False),
         ]
 
     @classmethod
@@ -99,6 +111,11 @@ class ControlVideoPipe(BasePipe):
 
     def _load_estimator(self, pipe_input: PipeInput) -> DWPoseEstimator:
         return acquire_pose_estimator(
+            pipe_input.input.get("ASSETS"), pipe_input.input.get("MODELS"), str(self.config.get("weights_dir") or ""),
+        )
+
+    def _load_depth_estimator(self, pipe_input: PipeInput) -> VideoDepthEstimator:
+        return acquire_depth_estimator(
             pipe_input.input.get("ASSETS"), pipe_input.input.get("MODELS"), str(self.config.get("weights_dir") or ""),
         )
 
@@ -155,6 +172,8 @@ class ControlVideoPipe(BasePipe):
         videos = media_paths(pipe_input.input.get("video"))
         if not videos:
             raise GenerationExecutionError("control_video needs at least one video.")
+        if guide_type != "pose":
+            return self._process_dense(guide_type, videos, pipe_input, generation_outputs, is_cancelled or (lambda: False))
         pictures = pipe_input.input.get("image") or []
         if isinstance(pictures, Image.Image):
             pictures = [pictures]
@@ -249,6 +268,23 @@ class ControlVideoPipe(BasePipe):
         cancelled: Callable,
         count: int,
     ) -> str:
+        frames = (render_pose(poses[index], width, height, options) for index in range(count))
+        return self._write_guide(
+            frames, count, width, height, fps, "Drawing the pose guide", "Pose guide", generation_outputs, cancelled,
+        )
+
+    def _write_guide(
+        self,
+        frames: Iterator[np.ndarray],
+        count: int,
+        width: int,
+        height: int,
+        fps: float,
+        progress_label: str,
+        preview_label: str,
+        generation_outputs: Callable,
+        cancelled: Callable,
+    ) -> str:
         handle = tempfile.NamedTemporaryFile(prefix="potionui-guide-", suffix=".mp4", delete=False)
         handle.close()
         path = handle.name
@@ -256,15 +292,18 @@ class ControlVideoPipe(BasePipe):
         preview: Optional[np.ndarray] = None
         writer = StreamingMp4Writer(path, width, height, fps, crf=GUIDE_CRF)
         try:
-            for index in range(count):
+            written = 0
+            for index, frame in enumerate(frames):
+                written += 1
                 if cancelled():
                     raise SamplingCancelled()
-                frame = render_pose(poses[index], width, height, options)
                 if index == count // 2:
                     preview = frame
                 writer.write(frame)
                 if index % step == 0:
-                    self._progress(generation_outputs, "Drawing the pose guide", index, count)
+                    self._progress(generation_outputs, progress_label, index, count)
+            if written == 0:
+                raise GenerationExecutionError("Could not read any frames from the video.")
             writer.close()
         except BaseException:
             writer.abort()
@@ -272,7 +311,7 @@ class ControlVideoPipe(BasePipe):
             raise
         if preview is not None:
             generation_outputs(ImageGenerationOutput(
-                image=Image.fromarray(preview), temporary=True, isArtifact=True, label="Pose guide",
+                image=Image.fromarray(preview), temporary=True, isArtifact=True, label=preview_label,
             ))
         if as_flag(self.config.get("save_guide", False)):
             generation_outputs(GalleryGenerationOutput(images=[], videos=[
@@ -280,6 +319,76 @@ class ControlVideoPipe(BasePipe):
             ]))
         logger.info(f"[CONTROL_VIDEO] wrote {count} frames at {width}x{height}, {fps:.3f} fps")
         return path
+
+    def _process_dense(
+        self, guide_type: str, videos: List[str], pipe_input: PipeInput, generation_outputs: Callable, cancelled: Callable,
+    ) -> PipeOutput:
+        estimator = None
+        guides: List[str] = []
+        try:
+            if guide_type == "depth":
+                estimator = self._load_depth_estimator(pipe_input)
+            for video in videos:
+                guides.append(self._render_dense(video, guide_type, estimator, generation_outputs, cancelled))
+        except BaseException:
+            self._discard(guides)
+            raise
+        finally:
+            if estimator is not None:
+                estimator.release()
+        return PipeOutput(output={"video": guides})
+
+    def _fitted_frames(
+        self, video: str, depth: bool,
+    ) -> Tuple[Iterator[np.ndarray], Callable[[], None], int, int, float, int]:
+        limit = _number(self.config.get("max_frames"), int, 0)
+        if depth:
+            limit = min(limit, DEPTH_MAX_FRAMES) if limit else DEPTH_MAX_FRAMES
+        frames, release, (video_width, video_height, fps, total) = self._frames(
+            video, limit, _number(self.config.get("max_seconds"), float, 0.0),
+        )
+        out_width, out_height = resolve_output_size(
+            video_width, video_height,
+            width=_number(self.config.get("width"), int, 0),
+            height=_number(self.config.get("height"), int, 0),
+            max_pixels=_number(self.config.get("max_pixels"), int, 0),
+            multiple=_number(self.config.get("size_multiple"), int, 32),
+        )
+        fit = str(self.config.get("fit") or "contain")
+        fitted = (fit_frame(frame, out_width, out_height, fit) for frame in frames)
+        return fitted, release, out_width, out_height, fps, total
+
+    def _render_dense(
+        self, video: str, guide_type: str, estimator: Optional[VideoDepthEstimator], generation_outputs: Callable, cancelled: Callable,
+    ) -> str:
+        fitted, release, width, height, fps, total = self._fitted_frames(video, guide_type == "depth")
+        total = max(total, 1)
+        try:
+            if guide_type == "edges":
+                low = _number(self.config.get("canny_low"), float, 100.0)
+                high = _number(self.config.get("canny_high"), float, 200.0)
+                frames = (canny_guide(frame, low, high) for frame in fitted)
+                return self._write_guide(
+                    frames, total, width, height, fps, "Finding the edges", "Edge guide", generation_outputs, cancelled,
+                )
+
+            def report(done: int) -> None:
+                self._progress(generation_outputs, "Reading the depth", done, total)
+
+            depth_frames: List[np.ndarray] = []
+            samples: List[np.ndarray] = []
+            for depth in estimator.iter_depth(fitted, None, report, cancelled):
+                depth_frames.append(depth)
+                samples.append(sample_depth(depth))
+        finally:
+            release()
+        if not depth_frames:
+            raise GenerationExecutionError(f"Could not read any frames from {Path(video).name}.")
+        low, high = depth_levels(samples)
+        frames = (np.repeat(depth_frame_to_guide(depth, low, high)[:, :, None], 3, axis=2) for depth in depth_frames)
+        return self._write_guide(
+            frames, len(depth_frames), width, height, fps, "Drawing the depth guide", "Depth guide", generation_outputs, cancelled,
+        )
 
     @staticmethod
     def _discard(paths: List[str]) -> None:

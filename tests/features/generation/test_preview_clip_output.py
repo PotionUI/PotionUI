@@ -1,3 +1,6 @@
+import json
+
+import pytest
 import base64
 import io
 
@@ -90,3 +93,20 @@ def test_a_suppressed_clip_serializes_without_pixels():
     message = serialize(output)
     assert "image" not in message
     assert message["preview_suppressed"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_regular_subscriber_never_receives_admin_detail_but_an_admin_does():
+    from tests.features.generation.test_output_broadcaster import _broadcaster, _subscribe
+
+    broadcaster, hub, recorder = _broadcaster()
+    user = await _subscribe(hub, "user", "gen-1")
+    admin = await _subscribe(hub, "admin", "gen-1", privileged=True)
+
+    await broadcaster.handle_output("gen-1", make_output())
+
+    assert [m["type"] for m in user.sent] == ["workbench_preview_clip"]
+    assert "admin_detail" not in user.sent[0]
+    assert "admin_detail" not in json.dumps(user.sent)
+    assert user.sent[0]["image"].startswith("data:image/webp;base64,")
+    assert admin.sent[0]["admin_detail"]["format"] == "WEBP"

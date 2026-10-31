@@ -87,7 +87,7 @@ _ARTIFACT_MESSAGE_TYPE = "pipe_artifact"
 # recording them into plugin_outputs would duplicate storage and bloat the
 # report for no benefit to the drawer.
 _UNTRACKED_MESSAGE_TYPES = frozenset({
-    _STATUS_MESSAGE_TYPE, _ARTIFACT_MESSAGE_TYPE, "workbench_update", "gallery_update",
+    _STATUS_MESSAGE_TYPE, _ARTIFACT_MESSAGE_TYPE, "workbench_update", "workbench_preview_clip", "gallery_update",
 })
 
 # A generation whose terminal output_callback(None) never arrives (process

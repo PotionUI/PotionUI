@@ -1,0 +1,6 @@
+fields:
+  - name: "source_image"
+    type: "image"
+    label: "Image"
+    required: true
+    ai_hint: "The picture to view from another angle. Works best with one clear subject. The result follows its size and aspect ratio at about 1 megapixel."

@@ -60,6 +60,8 @@ speed_profiles:
 
 vars:
   default_shift: 1.15
+  promptless_modes:
+    - "camera"
 
 llm:
   guide: |
@@ -70,7 +72,9 @@ llm:
     "Qwen Coffee"'). Bilingual English+Chinese prompts are supported. The authors'
     own examples append a quality suffix - end English prompts with ", Ultra HD, 4K,
     cinematic composition." Negative prompts are supported; keep them short and
-    targeted, or empty when nothing needs suppressing.
+    targeted, or empty when nothing needs suppressing. Camera angle mode takes
+    one image and needs no prompt: its Turn, Tilt and Zoom controls choose the
+    new viewpoint.
 
 prompt_syntax:
   txt2img:
@@ -109,3 +113,4 @@ modes:
   - txt2img
   - img2img
   - edit
+  - camera

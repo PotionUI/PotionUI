@@ -2,7 +2,7 @@
 type: model
 title: Qwen-Image
 family_key: qwen_image
-modes: [txt2img, img2img, edit]
+modes: [txt2img, img2img, edit, camera]
 spec:
   arch: dual-stream joint-attention MMDiT
   latent: 16-channel, Wan21-format causal-3D VAE latent (image-only, single frame)
@@ -31,7 +31,19 @@ The text encoder is Qwen2.5-VL-7B. The VAE is the Wan 2.1 causal-3D VAE, with pe
 
 ## Presets & modes
 
-The shipped Qwen-Image preset ships `txt2img`.
+The shipped Qwen-Image preset ships `txt2img`, `img2img`, `edit` and `camera`.
+
+### Camera angle
+
+`camera` shows the same picture from another viewpoint. It is an `edit` run (the 2511 edit checkpoint with the vision tower loaded) with the fal Multiple-Angles LoRA applied, trained on 3,000+ Gaussian Splat renders over 96 camera positions. The mode is promptless: its three dials compose the LoRA trigger `<sks> [azimuth] [elevation] [distance]` and nothing the user types reaches the model.
+
+- **Turn** -135 to 180 in steps of 45 degrees. 0 is the original front view, positive goes to the subject's right, negative to its left, 180 is behind (front, front-right quarter, right side, back-right quarter, back, back-left quarter, left side, front-left quarter).
+- **Tilt** -30, 0, 30 or 60 degrees (low-angle, eye-level, elevated, high-angle).
+- **Zoom** close-up, medium shot or wide shot.
+
+The LoRA is a required `camera_lora` model field with a pinned recommendation (`qwen-image-edit-2511-multiple-angles-lora.safetensors`, 281.5 MB, Apache-2.0) and loads first, at the **Angle strength** (Advanced, default 0.9; the card recommends 0.8 to 1.0). Any LoRAs picked on the LoRA tab load after it. Only the 2511 checkpoints are recommended: the LoRA was trained on 2511, and dx8152's 2509 Multiple-angles LoRA uses free-text camera commands instead of this trigger, so it is not wired here.
+
+**Why not Qwen-Image 2.1.** Both multi-angle LoRAs target the dual-stream layout (60 blocks, width 3072, `add_*_proj` and `txt_mlp` keys). The 2.1 DiT is single-stream with 32 blocks of width 4096. Mapping the real safetensors headers onto a meta-device 2.1 DiT matched 0 of 840 (fal) and 0 of 720 (dx8152) LoRA modules, and the same headers matched all of them on the Qwen-Image DiT.
 
 ## Sampling
 

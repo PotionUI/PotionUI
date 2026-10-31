@@ -155,18 +155,21 @@ class InpaintRegionCropPipe(BasePipe):
 
     def _scaled_crop(self, image_np, mask_np) -> PipeOutput:
         height, width = image_np.shape[:2]
-        top, bottom, left, right = scaled_crop_box(
-            image_np.shape,
-            mask_bbox(mask_np),
-            float(self.config.get("context", 0.5)),
-            int(self.config.get("min_side", 256)),
-        )
-        crop_h, crop_w = working_size(
-            bottom - top,
-            right - left,
-            int(self.config.get("working_area", 1024 * 1024)),
-            int(self.config.get("multiple", 8)),
-        )
+        whole_up_to = int(self.config.get("whole_image_up_to", 0) or 0)
+        if whole_up_to and height * width <= whole_up_to:
+            top, bottom, left, right = 0, height, 0, width
+        else:
+            top, bottom, left, right = scaled_crop_box(
+                image_np.shape,
+                mask_bbox(mask_np),
+                float(self.config.get("context", 0.5)),
+                int(self.config.get("min_side", 256)),
+            )
+        target_area = int(self.config.get("working_area", 1024 * 1024))
+        max_upscale = float(self.config.get("max_upscale", 0) or 0)
+        if max_upscale > 0:
+            target_area = min(target_area, int((bottom - top) * (right - left) * max_upscale ** 2))
+        crop_h, crop_w = working_size(bottom - top, right - left, target_area, int(self.config.get("multiple", 8)))
         cropped_image = resample_image(image_np[top:bottom, left:right], crop_w, crop_h)
         cropped_mask = np.array(
             numpy_to_pil(mask_np[top:bottom, left:right]).resize((crop_w, crop_h), Image.BILINEAR)
@@ -235,6 +238,23 @@ class InpaintRegionCropPipe(BasePipe):
                 description="Scaled strategy: pixel area the crop is resampled to",
                 required=False,
                 min_value=4096
+            ),
+            PipeConfigSpec(
+                name="whole_image_up_to",
+                param_type=int,
+                default=0,
+                description="Scaled strategy: use the whole picture as the crop when its pixel area is at most this; 0 always crops to the region",
+                required=False,
+                min_value=0
+            ),
+            PipeConfigSpec(
+                name="max_upscale",
+                param_type=float,
+                default=0.0,
+                description="Scaled strategy: largest factor the crop may be enlarged by; 0 leaves it uncapped",
+                required=False,
+                min_value=0.0,
+                max_value=8.0
             ),
             PipeConfigSpec(
                 name="multiple",

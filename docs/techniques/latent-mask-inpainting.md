@@ -53,9 +53,12 @@ out only beyond its edge, so nothing of the old content shows through.
   fills the new area with a blurred copy of the edge, and builds a mask that is 1 over the new area and
   fades out over the *Blend* band inside the source edge. The canvas is generated at the model's pixel
   budget (1 MP by default), scaled back up to the full canvas, and the original pixels are pasted back
-  exactly; the extension's tone is matched to the source edge.
+  exactly. Over the *Blend* band outside the source edge the generated panel fades in from the edge-extended source, and its local mean and detail are matched to the source edge, so no brightness or sharpness step shows.
 
 ## Tradeoffs and limitations
+
+- A cast shadow can only be repainted inside the painted area, so paint where the shadow should fall.
+- The crop keeps its scale near 1: a picture up to 2 MP is used whole, and a larger one is cropped with surroundings and enlarged by at most 1.5x, so the model can judge the size of what it paints.
 
 - Lowering *Strength* below 1.0 starts the masked area from a partly noised copy of itself, so it
   keeps colour and layout but cannot add much that is new.

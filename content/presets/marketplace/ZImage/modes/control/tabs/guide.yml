@@ -1,0 +1,97 @@
+fields:
+  - type: "section"
+    label: "Guide"
+    children:
+      - name: "guide_image"
+        type: "image"
+        label: "Picture"
+        required: true
+        ai_hint: "The picture whose pose, depth or outlines the new image follows."
+
+      - name: "guide"
+        type: "select"
+        formula: "control"
+        label: "Follow"
+        default: "openpose"
+        ai_hint: "What the new image keeps from the picture. Pose follows a person's body, Depth the 3D layout, Edges the outlines and Sketch a loose line drawing."
+        configuration:
+          options:
+            - { label: "Pose", value: "openpose", sub_label: "A person's body" }
+            - { label: "Depth", value: "depth", sub_label: "The 3D layout" }
+            - { label: "Edges", value: "canny", sub_label: "Sharp outlines" }
+            - { label: "Sketch", value: "scribble", sub_label: "Loose lines" }
+
+      - name: "guide_extract"
+        type: "checkbox"
+        formula: "control"
+        label: "Find the guide in the picture"
+        default: true
+        description: "Turn off when the picture already is a pose, edge or depth map."
+        ai_hint: "On: the pose, depth, edges or sketch are worked out from a photo. Off: the picture is used as the guide unchanged, for a ready-made map."
+
+      - name: "guide_save"
+        type: "checkbox"
+        formula: "control"
+        label: "Also save the guide"
+        default: false
+        description: "Keep the extracted map next to the new image."
+        ai_hint: "Saves the extracted pose, depth, edges or sketch as an extra output beside the result."
+        reactions:
+          - when: { field: "guide_extract", equals: false }
+            then: { set_visibility: false }
+          - when: { field: "guide_extract", equals: true }
+            then: { set_visibility: true }
+
+      - name: "control_strength"
+        type: "slider"
+        formula: "control"
+        label: "Strength"
+        default: 0.8
+        ai_hint: "How closely the new image follows the guide. 0.65 to 1.0 works best; lower it to give the prompt more freedom."
+        configuration: {min: 0.0, max: 1.5, step: 0.05}
+
+      - type: "row"
+        children:
+          - name: "control_start"
+            type: "slider"
+            formula: "control"
+            label: "Guide starts"
+            audience: "advanced"
+            default: 0.0
+            width: "1/2"
+            ai_hint: "Fraction of the sampling where the guide starts to apply. 0 applies it from the first step."
+            configuration: {min: 0.0, max: 1.0, step: 0.05}
+
+          - name: "control_end"
+            type: "slider"
+            formula: "control"
+            label: "Guide ends"
+            audience: "advanced"
+            default: 1.0
+            width: "1/2"
+            ai_hint: "Fraction of the sampling where the guide stops applying. Lower it to let the last steps refine detail freely."
+            configuration: {min: 0.0, max: 1.0, step: 0.05}
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children:
+      - name: "control_model"
+        type: "model"
+        label: "Fun ControlNet"
+        required: true
+        configuration:
+          model_type: "model_patch"
+          placeholder: "Select a Z-Image Fun ControlNet Union 2.1..."
+          filter_tags: "@config:control_tags"
+          recommendations:
+            - name: "Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors"
+              link: "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1/resolve/main/Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors"
+              size: "6.25 GB"
+              sha256: "d1251cc7bc3486bc61d25c3be498ef394c31c85ddf4ee9137d2e933411f4a689"
+              description: "Alibaba PAI Fun ControlNet Union 2.1 (Apache-2.0), 8-step distilled: pose, depth, edges, sketch and more in one file."
+            - name: "Z-Image-Turbo-Fun-Controlnet-Union-2.1-lite-2602-8steps.safetensors"
+              link: "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1/resolve/main/Z-Image-Turbo-Fun-Controlnet-Union-2.1-lite-2602-8steps.safetensors"
+              size: "1.88 GB"
+              sha256: "3ea098db9bd145be525c7e2366920b6d76c5ffd46b3d7aa8169bbc943fdaee35"
+              description: "Lite Union 2.1 (Apache-2.0): fewer control layers, a gentler hold and a third of the size for smaller cards."

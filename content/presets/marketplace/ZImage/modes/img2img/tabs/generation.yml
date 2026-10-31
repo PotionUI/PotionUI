@@ -1,0 +1,30 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed profile"
+    default: "turbo"
+    configuration:
+      options:
+        - { label: "Turbo", value: "turbo", sub_label: "8 steps, distilled checkpoint" }
+        - { label: "Base", value: "base", sub_label: "30 steps" }
+        - { label: "Custom", value: "custom", sub_label: "set steps/CFG freely" }
+
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children: "{{ paths._shared }}/native/seed_quantity.yml"
+
+      - name: "denoise"
+        type: "slider"
+        formula: "speed"
+        label: "Strength"
+        default: 0.55
+        ai_hint: "How far the picture is re-drawn. Low keeps the original and only shifts the style; high approaches a brand new image."
+        configuration: {min: 0.05, max: 1.0, step: 0.05}
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models.yml"

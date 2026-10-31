@@ -2,7 +2,7 @@
 type: model
 title: Z-Image
 family_key: z_image
-modes: [txt2img]
+modes: [txt2img, img2img, enhance, control]
 spec:
   arch: NextDiT (Alpha-VLLM Lumina-Image-2.0 lineage), hidden dim 3840
   latent: 16-channel, Flux-format 2D VAE latent
@@ -20,6 +20,9 @@ files:
     note: Qwen3-4B
   - role: vae
     dir: models/vae
+  - role: control_model
+    dir: models/model_patches
+    note: optional, Structure mode only — the Fun ControlNet Union 2.1 patch
 ---
 
 # Z-Image
@@ -32,7 +35,24 @@ A `z_image_modulation` flag in the checkpoint distinguishes a Z-Image checkpoint
 
 ## Presets & modes
 
-The shipped Z-Image preset ships `txt2img`.
+The shipped Z-Image preset ships `txt2img`, `img2img` (shown as Restyle), `enhance` and `control` (shown as Structure).
+
+- **Restyle** re-renders a picture with a prompt and a Strength slider. The generator runs `mode: "img2img"`, so the output takes the picture's shape (up to about one megapixel) and Strength is the fraction of the schedule walked.
+- **Enhance** upscales a picture by 1.5x, 2x or 3x and redraws it at a low strength set by *Added detail* (Subtle 0.2, Balanced 0.35, Strong 0.5), then optionally runs the face detailer on the result. It is the same `img2img` generator with `img2img_scale`, followed by `detailer/native`.
+- **Structure** generates a new image that keeps the pose, depth, outlines or a loose sketch of a guide picture. See below.
+
+## Structure (Fun ControlNet Union 2.1)
+
+Structure loads Alibaba PAI's `Z-Image-Turbo-Fun-Controlnet-Union-2.1` (Apache-2.0) as a *model patch* beside the diffusion model (`model_loader/z_image` `control_model`, cached under its own DiT key). The patch is attached at load time by `src/platform/runtime/native/arch/z_image/control.py`, derived from VideoX-Fun's `z_image_transformer2d_control.py`.
+
+- **Layout.** The patch adds an input embedder for the control context, two control blocks that run beside the noise refiner, and a stack of control blocks (15 in the full file, 3 in the lite file) that run beside every Nth joint block, where N is the base block count divided by the control block count. Each control block ends in a zero-initialised `after_proj` whose output is added to the base stream, scaled by *Strength*.
+- **Control context.** The guide is VAE-encoded and concatenated with a mask channel and an inpaint-latent block, 33 latent channels in all. Structure fills only the guide channels; the other 17 stay zero.
+- **Hints.** The control stream runs over `[caption ; control rows]` so it can read the prompt, but hints are added to the whole sequence, caption rows included, as upstream does.
+- **Variants are checked strictly.** The loader refuses the Union 1.0 file (16 control channels, no refiner control) and the Union 2.0 file, whose noise-refiner control blocks were never trained because of an upstream typo fixed in 2.1. It also refuses a patch of the wrong width or a block count that does not divide the diffusion model's.
+- **Guides.** *Follow* picks the preprocessor: Pose (DWPose, drawn as an OpenPose skeleton), Depth, Edges (Canny) or Sketch (scribble). Turn off *Find the guide in the picture* to use a ready-made map unchanged.
+- **Strength.** The released model recommends 0.65 to 1.0; the preset defaults to 0.8. *Guide starts* and *Guide ends* limit the guide to a window of the sampling.
+
+Recommended files (`alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1`, Apache-2.0): the 2602 8-step full file (6.25 GB) and the 2602 8-step lite file (1.88 GB). The 8-step files are distilled for the turbo checkpoint's 8 steps at guidance 1.0.
 
 ## Sampling
 

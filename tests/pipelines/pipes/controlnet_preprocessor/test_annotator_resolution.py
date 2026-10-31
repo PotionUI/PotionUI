@@ -1,6 +1,6 @@
 """Tests for how `controlnet_preprocessor` obtains its annotator weights.
 
-Seven detectors used to call `from_pretrained("lllyasviel/Annotators")`, which
+Six detectors used to call `from_pretrained("lllyasviel/Annotators")`, which
 made `controlnet_aux` pull weights into the Hugging Face cache with no download
 history, no depot containment and no progress. They now load from a directory
 the ASSETS service mirrored into the depot.
@@ -39,6 +39,12 @@ class TestResolveAnnotators:
         assert _resolve(assets, [{"type": "canny", "enabled": True}]) is None
         assets.ensure_asset_repo.assert_not_called()
 
+    def test_openpose_never_fetches_the_annotator_repo(self):
+        assets = _assets()
+
+        assert _resolve(assets, [{"type": "openpose", "enabled": True}]) is None
+        assets.ensure_asset_repo.assert_not_called()
+
     def test_no_fetch_for_an_unknown_type(self):
         assets = _assets()
 
@@ -47,7 +53,7 @@ class TestResolveAnnotators:
 
     @pytest.mark.parametrize(
         "preprocessor",
-        ["depth", "openpose", "normal", "scribble", "lineart", "mlsd", "hed"],
+        ["depth", "normal", "scribble", "lineart", "mlsd", "hed"],
     )
     def test_every_weight_backed_preprocessor_triggers_the_fetch(self, preprocessor):
         assets = _assets()
@@ -68,7 +74,7 @@ class TestResolveAnnotators:
         assert not subdir.startswith("/")
 
     def test_fetched_once_for_several_enabled_detectors(self):
-        """All seven detectors share one repo; mirroring it per detector would
+        """All of them share one repo; mirroring it per detector would
         queue the same download several times."""
         assets = _assets()
 
@@ -76,7 +82,7 @@ class TestResolveAnnotators:
             assets,
             [
                 {"type": "depth", "enabled": True},
-                {"type": "openpose", "enabled": True},
+                {"type": "lineart", "enabled": True},
                 {"type": "hed", "enabled": True},
             ],
         )
@@ -113,4 +119,4 @@ class TestNoHardcodedRepoIdReachesTheLibrary:
         source = inspect.getsource(main)
 
         assert 'from_pretrained("lllyasviel/Annotators")' not in source
-        assert source.count("from_pretrained(annotators)") == 7
+        assert source.count("from_pretrained(annotators)") == 6

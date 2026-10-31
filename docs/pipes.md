@@ -265,6 +265,7 @@ Preprocess images for ControlNet (Canny, Depth, OpenPose, etc.)
 |---|---|---|---|---|
 | `image` | `IMAGE` | yes | yes | Input images to preprocess |
 | `ASSETS` | `SERVICE` | no | no | Asset fetcher, to mirror the annotator weights into the depot |
+| `MODELS` | `SERVICE` | no | no | Model lifecycle service for caching the pose models |
 
 **Outputs**
 

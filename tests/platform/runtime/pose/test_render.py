@@ -17,7 +17,7 @@ from src.platform.runtime.pose.layout import (
     R_WRIST,
     RIGHT_HAND,
 )
-from src.platform.runtime.pose.render import HAND_COLORS, RenderOptions, render_pose
+from src.platform.runtime.pose.render import HAND_COLORS, RenderOptions, render_pose, render_poses
 from tests.fixtures.pose_skeletons import skeleton
 
 W, H = 512, 512
@@ -134,3 +134,12 @@ def test_off_canvas_points_do_not_crash():
     huge = skeleton()
     huge[R_WRIST, :2] = (1e12, -1e12)
     assert render_pose(huge, W, H).shape == (H, W, 3)
+
+
+def test_several_people_share_one_canvas():
+    left = skeleton(neck=(120.0, 150.0), hands=False, face=False)
+    right = skeleton(neck=(380.0, 150.0), hands=False, face=False)
+    canvas = render_poses([left, right], W, H)
+    assert pixel(canvas, left[R_WRIST, :2]) == BODY_COLORS[R_WRIST]
+    assert pixel(canvas, right[R_WRIST, :2]) == BODY_COLORS[R_WRIST]
+    assert render_poses([], W, H).max() == 0

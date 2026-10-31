@@ -6,6 +6,7 @@ from src.platform.runtime.pose.retarget import RetargetError
 from src.platform.runtime.pose.sequence import (
     NoPersonError,
     clean_sequence,
+    estimate_people,
     estimate_sequence,
     estimate_subject,
     shrink_to_short_side,
@@ -126,3 +127,41 @@ class TestCleanSequence:
         raw[..., :2] += rng.normal(0, 1.5, raw[..., :2].shape).astype(np.float32)
         cleaned = clean_sequence(raw, 24.0, smoothing=0.6)
         assert cleaned[:, R_WRIST, :2].std() < raw[:, R_WRIST, :2].std()
+
+
+class TestEstimatePeople:
+    class Crowd(Backend):
+        def __init__(self, boxes, missing=()):
+            super().__init__(detections=boxes)
+            self.missing = set(missing)
+
+        def estimate(self, rgb, box):
+            self.estimate_calls.append((rgb.shape, np.asarray(box)))
+            if len(self.estimate_calls) - 1 in self.missing:
+                return np.zeros((NUM_POINTS, 3), dtype=np.float32)
+            return skeleton(neck=(float(box[0] + box[2]) / 2, float(box[1]) + 30))
+
+    def test_every_detected_person_gets_a_skeleton_largest_first(self):
+        backend = self.Crowd([[0, 0, 40, 90, 0.9], [100, 0, 220, 300, 0.8], [300, 0, 340, 100, 0.7]])
+        people = estimate_people(np.zeros((300, 400, 3), dtype=np.uint8), backend, detect_resolution=300)
+        assert len(people) == 3
+        assert people[0][NECK, 0] == pytest.approx(160.0)
+
+    def test_people_the_model_cannot_read_are_skipped(self):
+        backend = self.Crowd([[0, 0, 40, 90, 0.9], [100, 0, 220, 300, 0.8]], missing={0})
+        assert len(estimate_people(np.zeros((300, 400, 3), dtype=np.uint8), backend, detect_resolution=300)) == 1
+
+    def test_max_people_caps_the_work(self):
+        backend = self.Crowd([[i * 20, 0, i * 20 + 15, 90, 0.9] for i in range(10)])
+        assert len(estimate_people(np.zeros((300, 400, 3), dtype=np.uint8), backend, detect_resolution=300, max_people=4)) == 4
+
+    def test_nobody_detected_tries_the_whole_picture(self):
+        backend = self.Crowd([])
+        people = estimate_people(np.zeros((300, 400, 3), dtype=np.uint8), backend, detect_resolution=300)
+        assert len(people) == 1
+        assert backend.estimate_calls[0][1].tolist() == [0.0, 0.0, 400.0, 300.0]
+
+    def test_coordinates_are_in_source_pixels(self):
+        backend = self.Crowd([[100, 0, 220, 300, 0.8]])
+        (person,) = estimate_people(np.zeros((600, 800, 3), dtype=np.uint8), backend, detect_resolution=300)
+        assert person[NECK, 0] == pytest.approx(160.0 * 2)

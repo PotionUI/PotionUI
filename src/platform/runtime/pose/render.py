@@ -6,7 +6,7 @@ from __future__ import annotations
 import colorsys
 import math
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Sequence, Tuple
 
 import cv2
 import numpy as np
@@ -103,8 +103,8 @@ def draw_face(canvas: np.ndarray, pose: np.ndarray, valid: np.ndarray, body_pose
             cv2.circle(canvas, _px(body_pose[eye, :2]), radius, FACE_DOT, thickness=-1)
 
 
-def render_pose(pose: np.ndarray, width: int, height: int, options: RenderOptions = RenderOptions()) -> np.ndarray:
-    canvas = np.zeros((height, width, 3), dtype=np.uint8)
+def draw_pose(canvas: np.ndarray, pose: np.ndarray, options: RenderOptions) -> None:
+    height, width = canvas.shape[:2]
     valid = pose[:, 2] >= options.min_confidence
     scale = options.scale_for(width, height)
     if options.body:
@@ -114,4 +114,14 @@ def render_pose(pose: np.ndarray, width: int, height: int, options: RenderOption
         draw_hand(canvas, pose[RIGHT_HAND], valid[RIGHT_HAND], scale)
     if options.face:
         draw_face(canvas, pose[FACE], valid[FACE], pose[BODY], valid[BODY], scale)
+
+
+def render_poses(poses: Sequence[np.ndarray], width: int, height: int, options: RenderOptions = RenderOptions()) -> np.ndarray:
+    canvas = np.zeros((height, width, 3), dtype=np.uint8)
+    for pose in poses:
+        draw_pose(canvas, pose, options)
     return canvas
+
+
+def render_pose(pose: np.ndarray, width: int, height: int, options: RenderOptions = RenderOptions()) -> np.ndarray:
+    return render_poses([pose], width, height, options)

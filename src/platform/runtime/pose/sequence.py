@@ -72,6 +72,32 @@ def estimate_subject(
     return pose
 
 
+def estimate_people(
+    rgb: np.ndarray,
+    backend: PoseBackend,
+    min_confidence: float = 0.3,
+    detect_resolution: int = 512,
+    max_people: int = 16,
+) -> List[np.ndarray]:
+    small = shrink_to_short_side(rgb, detect_resolution)
+    height, width = small.shape[:2]
+    detections = backend.detect(small)
+    if len(detections):
+        order = np.argsort(-(detections[:, 2] - detections[:, 0]) * (detections[:, 3] - detections[:, 1]))
+        boxes = [detections[i, :4] for i in order[:max_people]]
+    else:
+        boxes = [np.array([0.0, 0.0, float(width), float(height)], dtype=np.float32)]
+    people: List[np.ndarray] = []
+    for box in boxes:
+        pose = backend.estimate(small, box).astype(np.float32)
+        if body_count(pose, min_confidence) < MIN_SUBJECT_BODY_POINTS:
+            continue
+        pose[:, 0] *= rgb.shape[1] / width
+        pose[:, 1] *= rgb.shape[0] / height
+        people.append(pose)
+    return people
+
+
 def clean_sequence(
     raw: np.ndarray, fps: float, min_confidence: float = 0.3, max_gap: int = 12, smoothing: float = 0.5,
 ) -> np.ndarray:

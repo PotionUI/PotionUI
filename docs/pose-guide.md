@@ -8,7 +8,9 @@ order: 35
 
 The **Pose guide** turns a person's movement into a skeleton video that a control model can follow. It
 is the `control_video` pipe (`src/pipelines/pipes/control_video/`) on top of a whole-body pose
-estimator in the platform layer (`src/platform/runtime/pose/`).
+estimator in the platform layer (`src/platform/runtime/pose/`). The same estimator renders the
+`openpose` type of `controlnet_preprocessor`, so the core no longer loads the CMU-derived OpenPose
+checkpoint.
 
 ## Models
 
@@ -68,3 +70,9 @@ the person in the picture:
 
 `ease_in` blends the first seconds from the picture's own pose into the motion, so the first frame
 of the guide agrees with a picture used as the first frame of the video.
+
+## Core `openpose` preprocessor
+
+`controlnet_preprocessor` with `type: openpose` renders the same skeleton for a single image
+(`include_body`, `include_hand`, `include_face` choose the parts), so the SDXL and Qwen-Image
+Control modes keep their option and get the Apache-2.0 estimator.

@@ -58,7 +58,7 @@ The shipped Qwen-Image-2.1 preset ships `txt2img`, `edit` and `control` (see [Fu
 
 **Guidance and caching.** The control branch is CFG-distilled: the `Control` speed profile runs 40 steps at CFG 1.0, a single forward per step. With CFG above 1 both passes get the same control, as upstream. A controlled forward bypasses the prefix K/V cache, exactly like VideoX-Fun, so the cache never holds control-shaped prefix keys. An uncontrolled forward is unchanged.
 
-**Preprocessing.** `controlnet_preprocessor` turns a photo into the chosen map (Pose is OpenPose). It runs with `strict: true` in this mode, so a missing `controlnet-aux` package, a failed detector, or a detector that found nothing (a blank map, e.g. Pose run on an image that already is a pose skeleton) stops the generation with a plain message telling the user to turn off Extract the guide from a photo. Grayscale, and any guide with the switch off, need no extra package.
+**Preprocessing.** `controlnet_preprocessor` turns a photo into the chosen map (Pose is a DWPose skeleton, drawn without `controlnet-aux`). It runs with `strict: true` in this mode, so a missing `controlnet-aux` package, a failed detector, or a detector that found nothing (a blank map, e.g. Pose run on an image that already is a pose skeleton) stops the generation with a plain message telling the user to turn off Extract the guide from a photo. Grayscale, and any guide with the switch off, need no extra package.
 
 **Licence.** The weights are under the Qwen Research License, like the base model.
 

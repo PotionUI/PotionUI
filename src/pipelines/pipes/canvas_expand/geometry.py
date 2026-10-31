@@ -7,6 +7,8 @@ from src.platform.util.inpaint import dilate_mask
 
 ANCHORS = ("center", "left", "right", "top", "bottom")
 FILLS = ("blur", "edge", "gray")
+MAX_RATIO = 8.0
+MAX_GROW = 8192
 
 
 def pixel_margins(left: int, top: int, right: int, bottom: int) -> tuple[int, int, int, int]:
@@ -21,7 +23,7 @@ def parse_aspect(aspect: str) -> float:
         w, h = (float(part) for part in str(aspect).split(":"))
     except ValueError as error:
         raise ValueError(f"Unknown aspect ratio {aspect!r}; use W:H such as 16:9") from error
-    if w <= 0 or h <= 0:
+    if w <= 0 or h <= 0 or not 1 / MAX_RATIO <= w / h <= MAX_RATIO:
         raise ValueError(f"Unknown aspect ratio {aspect!r}; use W:H such as 16:9")
     return w / h
 
@@ -34,7 +36,7 @@ def aspect_margins(width: int, height: int, aspect: str, anchor: str = "center")
         grow, horizontal = round(height * target) - width, True
     else:
         grow, horizontal = round(width / target) - height, False
-    grow = max(0, grow)
+    grow = min(max(0, grow), MAX_GROW)
     if not grow:
         raise ValueError("The picture already has that shape")
     along = "left" if horizontal else "top"

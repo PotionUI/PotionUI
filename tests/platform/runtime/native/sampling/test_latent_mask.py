@@ -131,3 +131,26 @@ def test_resume_is_rejected_with_a_mask():
 def test_restore_kept_latents_only_overrides_zero_mask():
     out = restore_kept_latents(torch.tensor([0.0, 0.3]), torch.tensor([5.0, 5.0]), torch.tensor([2.0, 2.0]))
     assert out.tolist() == [2.0, 5.0]
+
+
+def test_kept_region_follows_the_noised_source_at_every_model_call():
+    torch.manual_seed(1)
+    source = torch.randn(1, 4, 4, 8)
+    noise = torch.randn_like(source)
+    mask = _half_mask(source.shape)
+    seen = []
+
+    def model_forward(x, sigma, cond):
+        seen.append((x.clone(), float(sigma.reshape(-1)[0])))
+        return torch.randn_like(x)
+
+    denoise(
+        model_forward, source, cond={}, uncond=None, steps=6, sampling_settings=SETTINGS,
+        guidance_scale=0.0, seed_noise=noise, latent_mask=mask,
+    )
+    assert len(seen) == 6 and seen[0][1] == pytest.approx(1.0)
+    keep = (mask == 0).expand(source.shape)
+    for x, sigma in seen:
+        expected = sigma * noise + (1.0 - sigma) * source
+        assert torch.allclose(x[keep], expected[keep], atol=1e-4)
+    assert not torch.allclose(seen[-1][0][~keep], (seen[-1][1] * noise + (1 - seen[-1][1]) * source)[~keep], atol=1e-3)

@@ -84,6 +84,23 @@ def test_fills_differ_but_never_touch_the_original():
     assert np.array_equal(gray[:, 8:], edge[:, 8:])
 
 
-def test_pipe_declares_aspect_mode_over_sides():
+def test_aspect_wins_over_the_sides_when_both_are_given():
     out = _run({"aspect": "2:1", "left": 99, "anchor": "left"}, _picture(64, 64))
     assert out["image"].size == (128, 64)
+
+
+@pytest.mark.parametrize("aspect", ["1000:1", "1:1000", "inf:1", "1:nan", "nan:1", "0:1"])
+def test_absurd_aspects_are_rejected(aspect):
+    with pytest.raises(ValueError, match="aspect"):
+        aspect_margins(64, 64, aspect)
+
+
+def test_aspect_growth_is_capped_like_the_sides():
+    margins = aspect_margins(4000, 100, "1:8", "top")
+    assert sum(margins) == 8192
+    assert sum(aspect_margins(100, 4000, "8:1", "left")) == 8192
+
+
+def test_a_non_image_input_is_rejected():
+    with pytest.raises(ValueError, match="picture"):
+        CanvasExpandPipe({"left": 8}).process(PipeInput(input={"image": "x.png"}), None)

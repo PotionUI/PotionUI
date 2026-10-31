@@ -232,3 +232,17 @@ def test_the_render_harness_binds_inpaint_with_a_placeholder_mask(templates, fam
 
     values = build_fixture_form_data(templates[family], "inpaint")
     assert values["source_image_inpaint_mask"].endswith("source_image_inpaint_mask.png")
+
+
+def test_the_render_harness_reraises_errors_that_are_not_about_a_mask(templates, monkeypatch):
+    import scripts.preset_render as harness
+
+    def refuse(*args, **kwargs):
+        raise FormBindingError(["diffusion_model: bad"], {"diffusion_model": ["bad"]})
+
+    monkeypatch.setattr(harness, "bind_form", refuse)
+    calls = []
+    monkeypatch.setattr(harness, "bind_form", lambda *a, **k: calls.append(k["raw_form_data"]) or refuse())
+    with pytest.raises(FormBindingError):
+        harness.build_fixture_form_data(templates["ZImage"], "outpaint")
+    assert len(calls) == 2

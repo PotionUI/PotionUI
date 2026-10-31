@@ -56,6 +56,14 @@ export const CORE_TOOLS: ToolDTO[] = [
 	})
 ];
 
+export const FIX_COLORS_TOOL: ToolDTO = toolDto({
+	id: 'fix_colors',
+	label: 'Fix colours',
+	icon: 'palette',
+	accepts: ['video'],
+	group: 'effects'
+});
+
 export const A1111_TOOL: ToolDTO = toolDto({
 	id: 'a1111-metadata-export.export-zip',
 	label: 'Download with A1111 metadata',

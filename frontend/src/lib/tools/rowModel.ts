@@ -68,15 +68,18 @@ export const DOWNLOAD_ICON = 'download';
 export function buildRowModel(ctx: MediaToolContext, looks: readonly RecentLook[] = []): RowModel {
 	const core: RowTool[] = [];
 	const pluginEdit: RowTool[] = [];
+	const catalogEffects: RowTool[] = [];
 	const downloads: RowTool[] = [];
 	const plugins: RowTool[] = [];
 
 	for (const group of listToolGroups(ctx)) {
-		if (group.category.id !== 'edit' && group.category.id !== 'plugins') continue;
+		if (!['edit', 'effects', 'plugins'].includes(group.category.id)) continue;
 		for (const { tool, availability } of group.tools) {
 			if (availability.hidden) continue;
+			if (group.category.id === 'effects' && !tool.catalogToolId) continue;
 			const entry = catalogEntry(tool, availability);
-			if (group.category.id === 'edit') (entry.plugin ? pluginEdit : core).push(entry);
+			if (group.category.id === 'effects') catalogEffects.push(entry);
+			else if (group.category.id === 'edit') (entry.plugin ? pluginEdit : core).push(entry);
 			else if (tool.icon === DOWNLOAD_ICON && tool.catalogToolId) downloads.push(entry);
 			else if (tool.catalogToolId) plugins.push(entry);
 		}
@@ -98,7 +101,7 @@ export function buildRowModel(ctx: MediaToolContext, looks: readonly RecentLook[
 	edit.push(...pluginEdit);
 
 	const look = applyLookAvailability(ctx);
-	const effects: RowTool[] = look.hidden
+	const lookEntries: RowTool[] = look.hidden
 		? []
 		: [
 				{
@@ -124,5 +127,5 @@ export function buildRowModel(ctx: MediaToolContext, looks: readonly RecentLook[
 				)
 			];
 
-	return { edit, effects, downloads, plugins };
+	return { edit, effects: [...catalogEffects, ...lookEntries], downloads, plugins };
 }

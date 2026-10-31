@@ -8,7 +8,7 @@ import { syncCatalogTools } from './catalogTools';
 import { buildRowContext, buildRowModel, type RowTool } from './rowModel';
 import type { LibraryItem } from '$lib/services/api/library';
 import type { GenerationHistoryItem } from '$lib/types/history';
-import { A1111_TOOL, BOOMERANG_TOOL, CORE_TOOLS } from '../../../tests/component/fixtures/mediaToolCatalog';
+import { A1111_TOOL, BOOMERANG_TOOL, CORE_TOOLS, FIX_COLORS_TOOL } from '../../../tests/component/fixtures/mediaToolCatalog';
 
 registerEntryTools();
 
@@ -120,6 +120,30 @@ describe('buildRowModel', () => {
 	it('carries the note a tool shows under its label', () => {
 		const model = buildRowModel(buildRowContext('library', [item('video')]));
 		expect(model.edit.find((entry) => entry.id === 'frame')?.note).toBe('Saves one image');
+	});
+});
+
+describe('catalog effects in the Effects row', () => {
+	beforeEach(() => {
+		syncCatalogTools([...CORE_TOOLS, A1111_TOOL, BOOMERANG_TOOL, FIX_COLORS_TOOL]);
+	});
+
+	it('shows Fix colours for a video and keeps it out of Edit', () => {
+		const model = buildRowModel(buildRowContext('library', [item('video')]));
+
+		expect(ids(model.effects)).toEqual(['fix_colors']);
+		expect(ids(model.edit)).not.toContain('fix_colors');
+		expect(model.effects[0]).toMatchObject({ action: 'catalog', label: 'Fix colours', enabled: true });
+	});
+
+	it('puts it ahead of Apply a look for an image-only tool set, and hides it for an image', () => {
+		const model = buildRowModel(buildRowContext('library', [item('image')]));
+
+		expect(ids(model.effects)).toEqual(['apply-look']);
+	});
+
+	it('offers it on History too', () => {
+		expect(ids(buildRowModel(historyContext('video')).effects)).toEqual(['fix_colors']);
 	});
 });
 

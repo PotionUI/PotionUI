@@ -81,7 +81,7 @@ export function mediaToolFromCatalog(tool: ToolDTO): MediaTool {
 		id: tool.id,
 		label: tool.label,
 		icon: tool.icon && hasIcon(tool.icon) ? tool.icon : MEDIA_TOOL_FALLBACK_ICON,
-		category: runnable ? 'edit' : 'plugins',
+		category: !runnable ? 'plugins' : tool.group === 'effects' ? 'effects' : 'edit',
 		source: tool.source === 'core' ? 'core' : 'plugin',
 		scopes,
 		selection: { min, ...(Number.isFinite(max) ? { max } : {}) },

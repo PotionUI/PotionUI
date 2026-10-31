@@ -198,7 +198,8 @@ def test_the_length_follows_the_guide_and_the_guide_is_capped_at_the_generators_
     assert config["control_length_from_video"] is True
     assert config["resolution"] == "auto"
     assert config["frames"] == int(MAX_DURATION_S * 24)
-    assert _by_id(pipes, "pose_guide")["config"]["max_frames"] >= math.ceil(MAX_DURATION_S * 30)
+    assert _by_id(pipes, "pose_guide")["config"]["max_seconds"] == MAX_DURATION_S
+    assert "max_frames" not in _by_id(pipes, "pose_guide")["config"]
     assert _by_id(pipes, "pose_guide")["config"]["max_pixels"] == CANVAS_MAX_PIXELS
     assert _by_id(pipes, "pose_guide")["config"]["size_multiple"] == 32
 

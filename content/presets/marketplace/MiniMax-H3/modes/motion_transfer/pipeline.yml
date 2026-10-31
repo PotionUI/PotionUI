@@ -57,7 +57,7 @@ pipeline:
       ease_in: "{{ form.pose_ease_in }}"
       size_multiple: 32
       max_pixels: 1032192
-      max_frames: 450
+      max_seconds: 15
       save_guide: "{{ form.save_guide }}"
 
   - name: "prompt_encoder"

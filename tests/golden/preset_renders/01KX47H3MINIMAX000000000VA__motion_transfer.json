@@ -115,13 +115,13 @@
           "type": "bool",
           "value": true
         },
-        "max_frames": {
-          "type": "int",
-          "value": 450
-        },
         "max_pixels": {
           "type": "int",
           "value": 1032192
+        },
+        "max_seconds": {
+          "type": "int",
+          "value": 15
         },
         "save_guide": {
           "type": "bool",

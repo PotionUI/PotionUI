@@ -95,9 +95,5 @@ exactly like a core mode's would, because both read from the SAME merged `Preset
 under-configured field does (no filtering, not an error) - and the same lint cross-check that
 catches an undeclared `@config:` reference on a core preset's field catches it here too.
 
-**Real example**: `content/plugins/marketplace/krea2-edit/` contributes an `edit` mode onto the native
-Krea-2 preset (`content/presets/marketplace/Krea2/`) - instruction-based image editing is a mode of Krea 2, not
-a separate model, so it ships as a contribution rather than the standalone preset it used to be.
-Its fields keep their existing `@config:checkpoint_tags`/`text_encoder_tags`/`vae_tags`/`lora_tags`
-indirection unchanged, since the native Krea2 preset already declares those same four keys.
+A contributed mode's fields may keep the `@config:checkpoint_tags`/`text_encoder_tags`/`vae_tags`/`lora_tags` indirection, which resolves against the target preset's `configuration:`.
 

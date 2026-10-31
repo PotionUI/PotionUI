@@ -129,6 +129,23 @@ class TestImagesThreadedToClip:
         assert getattr(_FakeClip(), "forwards_full_image_batch", False) is False
 
 
+class TestPictureLabelsThreadedToClip:
+    def test_defaults_add_neither_key(self):
+        clip = _FakeClip()
+        PromptEncoderPipe(config=_config()).process(PipeInput(input={"text_encoder": clip, "image": ["IMG"]}), lambda o: None)
+        assert "picture_labels" not in clip.requests[0] and "grounding_area" not in clip.requests[0]
+
+    def test_set_values_reach_every_request(self):
+        clip = _FakeClip()
+        pipe = PromptEncoderPipe(config=_config(quantity=2, picture_labels=True, grounding_area=147456))
+        pipe.process(PipeInput(input={"text_encoder": clip, "image": ["IMG"]}), lambda o: None)
+        assert all(r["picture_labels"] is True and r["grounding_area"] == 147456 for r in clip.requests)
+
+    def test_they_are_declared_config_keys(self):
+        keys = {spec.name for spec in PromptEncoderPipe.configuration()}
+        assert {"picture_labels", "grounding_area"} <= keys
+
+
 class _FakeClipFullImageBatch(_FakeClip):
     """An encoder that opts into the full, unindexed image list (H3 fl2va's
     shape: a fixed keyframe pair shared by every output of a generation)."""

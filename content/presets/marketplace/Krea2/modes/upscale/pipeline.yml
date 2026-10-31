@@ -1,0 +1,110 @@
+pipeline:
+  - name: "model_loader/krea2"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+            step_start: "{{ item.step_start | default(none) }}"
+            step_end: "{{ item.step_end | default(none) }}"
+
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader/krea2", "text_encoder"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      guidance_scale: "{{ form.cfg | default(1.0) }}"
+      negative_applied: "{{ generation.negative_applied }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg | default(1.0) }}"]
+        - ["steps", "{{ form.steps | default(8) }}"]
+        - ["upscale_by", "{{ form.upscale_factor | default('2') }}"]
+
+  - name: "tiled_refiner"
+    input:
+      - ["image", "media_loader", "image"]
+      - ["model", "model_loader/krea2", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      scale: "{{ (form.upscale_factor | default('2')) | float }}"
+      upscale_model: "{{ form.upscale_model | default('') }}"
+      denoise: "{{ {'subtle': 0.2, 'balanced': 0.3, 'strong': 0.45}[form.refine_amount | default('balanced')] }}"
+      content_aware: "{{ form.content_aware | default(true) }}"
+      tile_size: "{{ form.tile_size | default(1024) }}"
+      tile_overlap: "{{ form.tile_overlap | default(128) }}"
+      steps: "{{ form.steps | default(8) }}"
+      guidance: "{{ form.cfg | default(1.0) }}"
+      sampler: "euler"
+
+  - name: "gallery"
+    input:
+      - ["image", "tiled_refiner", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true

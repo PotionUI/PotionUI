@@ -1,0 +1,62 @@
+fields:
+  - name: "edit_lora"
+    type: "model"
+    formula: "models"
+    label: "Edit LoRA"
+    required: true
+    configuration:
+      model_type: "lora"
+      placeholder: "Select an edit LoRA..."
+      filter_tags: "@config:lora_tags"
+      recommendations:
+        - name: "krea2_general_edit_v2.safetensors"
+          link: "https://huggingface.co/conradlocke/krea2-identity-edit/resolve/main/krea2_general_edit_v2.safetensors"
+          size: "1.83 GB"
+          sha256: "fb5315477444c8df6dea2ad347a852bd90e97ab0f9109f4100a39714a7a09356"
+          description: "General edit v2: remove, recolor, relight, swap backgrounds, restyle. Free for non-commercial use."
+        - name: "krea2_identity_edit_v2.safetensors"
+          link: "https://huggingface.co/conradlocke/krea2-identity-edit/resolve/main/krea2_identity_edit_v2.safetensors"
+          size: "1.83 GB"
+          sha256: "c53843f9451963a6cb3c22dc4975205056b93a6575fb9347dd2bc6e055ef9877"
+          description: "Identity edit v2: put one person into any scene. Free for non-commercial use."
+        - name: "krea2_identity_edit_v1_2.safetensors"
+          link: "https://huggingface.co/conradlocke/krea2-identity-edit/resolve/main/krea2_identity_edit_v1_2.safetensors"
+          size: "1.83 GB"
+          sha256: "6adf9a69cc9502d286db7b69964d37da7e9cfe4b05b4d004bc275f087d3fd3cf"
+          description: "Identity edit v1.2, Krea 2 Community License only. Use with Source Fit set to Crop for older weights."
+    ai_hint: "Required. Use one edit LoRA per task: loading the general and identity LoRAs together at 1.0 breaks the image (about 0.6 each if you must combine them). A style or character LoRA here will not activate editing."
+
+  - name: "edit_lora_strength"
+    type: "slider"
+    label: "Edit LoRA strength"
+    default: 1.0
+    configuration:
+      min: 0.0
+      max: 2.0
+      step: 0.05
+
+  - name: "loras"
+    type: "lora_picker"
+    formula: "loras"
+    default: []
+    label: "Extra LoRAs"
+    ai_hint: "Optional style or concept LoRAs stacked on top of the edit LoRA. 0.5-0.8 suits most, 1.0 is full effect."
+    configuration:
+      model_type: "lora"
+      placeholder: "Select LoRAs..."
+      allow_info_modal: true
+      strength_min: -10.0
+      strength_max: 10.0
+      strength_step: 0.1
+      strength_default: 1.0
+      max_items: 10
+      filter_tags: "@config:lora_tags"
+      row_fields:
+        - name: "step_start"
+          type: "number"
+          label: "From step"
+          default: null
+        - name: "step_end"
+          type: "number"
+          label: "To step"
+          default: null

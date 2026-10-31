@@ -153,6 +153,7 @@ def preprocess_qwen3_vl_image(
     image: torch.Tensor,
     *,
     grounding_px: int = 768,
+    grounding_area: int = 0,
     min_pixels: int = 3136,
     max_pixels: int = 12845056,
     patch_size: int = VISION_PATCH_SIZE,
@@ -183,6 +184,11 @@ def preprocess_qwen3_vl_image(
 
     if grounding_px and max(height, width) > grounding_px:
         scale = grounding_px / max(height, width)
+        height = max(1, round(height * scale))
+        width = max(1, round(width * scale))
+
+    if grounding_area and height * width > grounding_area:
+        scale = (grounding_area / (height * width)) ** 0.5
         height = max(1, round(height * scale))
         width = max(1, round(width * scale))
 
@@ -587,7 +593,7 @@ class Qwen3VLVisionTower(nn.Module):
 
 def splice_vision_inputs(
     module, ids: torch.Tensor, mask: torch.Tensor, images: list[torch.Tensor], *,
-    device, grounding_px: int, image_pad_token: int = IMAGE_PAD_TOKEN,
+    device, grounding_px: int, image_pad_token: int = IMAGE_PAD_TOKEN, grounding_area: int = 0,
 ) -> tuple[dict[str, Any], torch.Tensor, list[tuple[int, int, torch.Tensor]]]:
     pad_positions = (ids[0] == image_pad_token).nonzero(as_tuple=True)[0].tolist()
     if len(pad_positions) != len(images):
@@ -608,7 +614,7 @@ def splice_vision_inputs(
         mask_pieces.append(mask[:, cursor:pad_pos])
 
         patches, grid_thw = preprocess_qwen3_vl_image(
-            image.to(device), grounding_px=grounding_px,
+            image.to(device), grounding_px=grounding_px, grounding_area=grounding_area,
             patch_size=visual.patch_size,
             temporal_patch_size=visual.patch_embed.temporal_patch_size,
             merge_size=visual.spatial_merge_size,

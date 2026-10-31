@@ -217,6 +217,16 @@ class PipeCatalog:
         except Exception as e:
             logger.error(f"Error light-scanning plugin pipes: {e}", exc_info=True)
 
+    def _core_claims(self, pipe_name: str, plugin_id: str) -> bool:
+        owner = self.pipe_sources.get(pipe_name)
+        if owner in ("core", "custom"):
+            logger.warning(
+                f"Plugin {plugin_id} pipe '{pipe_name}' collides with the {owner} pipe of the same id - "
+                f"skipping the plugin's pipe"
+            )
+            return True
+        return False
+
     def _light_scan_manifest_pipes(self, plugin_manifest, manifest_pipes: list):
         """Record locations for manifest-declared pipes that carry a
         `register_as` alias; import immediately (via the existing eager path)
@@ -236,6 +246,9 @@ class PipeCatalog:
 
             if not main_file.exists():
                 logger.warning(f"Plugin {plugin_id} declares pipe at {pipe_path_str} but main.py not found")
+                continue
+
+            if self._core_claims(register_as, plugin_id):
                 continue
 
             module_name = f"plugin_{plugin_id}.pipes.{pipe_path.name}"
@@ -390,9 +403,7 @@ class PipeCatalog:
           enabled would have done.
         - Disable: removes every entry whose recorded source is a plugin no
           longer in the enabled set, so a disabled plugin's pipe stops
-          resolving instead of continuing to serve an already-imported class
-          (the ``krea2-edit`` plugin ships one such pipe - the case that
-          motivated this audit).
+          resolving instead of continuing to serve an already-imported class.
 
         Held under ``self._light_lock`` (the same lock ``get_pipe()``'s
         first-import path takes) so this serializes against a concurrent

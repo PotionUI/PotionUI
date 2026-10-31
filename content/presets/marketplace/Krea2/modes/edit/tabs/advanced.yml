@@ -1,0 +1,124 @@
+fields:
+  - type: "section"
+    label: "Instruction"
+    children:
+      - name: "vision_grounded_encode"
+        type: "checkbox"
+        label: "Read the picture"
+        audience: "advanced"
+        default: true
+        ai_hint: "Lets the text encoder see the picture while reading the instruction, so 'the man on the left' or 'the sign in the back' resolves. The v2 edit LoRAs were trained this way. Loads the encoder's vision tower (a few extra GB)."
+
+      - name: "grounding_px"
+        type: "slider"
+        label: "Reading detail"
+        audience: "advanced"
+        default: 768
+        configuration:
+          min: 0
+          max: 2048
+          step: 64
+        ai_hint: "Longest side of the picture the text encoder sees when Read the picture is on. 768 is what the LoRAs were trained at; 0 uses the native size (slower)."
+
+      - name: "grounding_system_prompt"
+        type: "textbox"
+        label: "Reading prompt"
+        audience: "advanced"
+        default: ""
+        ai_hint: "Optional override for the grounded encoder's system prompt. Leave empty for the training-matched default."
+
+  - type: "section"
+    label: "Reference"
+    children:
+      - name: "fit_mode"
+        type: "select"
+        label: "Source fit"
+        audience: "advanced"
+        default: "fit"
+        configuration:
+          options:
+            - { label: "Fit", value: "fit", sub_label: "Whole picture, no crop" }
+            - { label: "Crop", value: "crop", sub_label: "Centre crop, for v1 weights" }
+
+      - name: "ref_position"
+        type: "select"
+        label: "Subject placement"
+        audience: "advanced"
+        default: "auto"
+        configuration:
+          options:
+            - { label: "Auto", value: "auto", sub_label: "Beside for a person, pinned for edits" }
+            - { label: "Pinned", value: "aligned", sub_label: "Keeps the layout of the picture" }
+            - { label: "Beside", value: "beside", sub_label: "Restages the subject more freely" }
+        ai_hint: "Where the last picture sits for the model. Pinned keeps its layout, Beside keeps identity but lets the subject be restaged. For a person placed into a scene, Scene pinned and Subject beside works best. The v2 LoRAs were trained pinned."
+
+      - name: "ref_position_a"
+        type: "select"
+        label: "Scene placement"
+        audience: "advanced"
+        default: "aligned"
+        configuration:
+          options:
+            - { label: "Pinned", value: "aligned", sub_label: "Keeps the scene layout" }
+            - { label: "Beside", value: "beside", sub_label: "Loosens the scene" }
+        ai_hint: "Placement of the first picture in a two-picture edit. No effect with one picture."
+
+      - name: "ref_boost_a"
+        type: "slider"
+        label: "Scene fidelity"
+        audience: "advanced"
+        default: 1.0
+        configuration:
+          min: 0.5
+          max: 4.0
+          step: 0.05
+        ai_hint: "Reference fidelity for the first picture (the scene) in a two-picture edit. No effect with one picture. 1 = neutral."
+
+  - type: "section"
+    label: "Sampling"
+    formula: "speed"
+    children:
+      - name: "cfg"
+        type: "slider"
+        label: "CFG scale"
+        audience: "advanced"
+        default: 1.0
+        configuration:
+          min: 1.0
+          max: 8.0
+          step: 0.5
+        ai_hint: "1 = off, the turbo default. Removals and large deletions work better on the raw checkpoint with CFG 3 and about 20 steps; the negative prompt is read against the same picture."
+
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        audience: "advanced"
+        default: 8
+        configuration: {min: 1, max: 50, step: 1}
+        reactions:
+          - when: { field: "speed_profile", equals: "turbo" }
+            then: { set_value: 8, set_disabled: false }
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: 14, set_disabled: false }
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_value: 25, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - name: "sampler"
+        type: "select"
+        label: "Sampler"
+        audience: "advanced"
+        default: "euler"
+        configuration:
+          options:
+            - { label: "Euler", value: "euler" }
+            - { label: "DPM++ 2M", value: "dpmpp_2m" }
+            - { label: "UniPC", value: "unipc" }
+        reactions:
+          - when: { field: "speed_profile", in: ["turbo", "balanced"] }
+            then: { set_value: "euler", set_disabled: false }
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_value: "dpmpp_2m", set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }

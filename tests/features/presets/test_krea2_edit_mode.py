@@ -24,10 +24,12 @@ def krea2():
     return template
 
 
-def _pipes(template, form_over=None):
+def _pipes(template, form_over=None, absent=()):
     form_data = build_fixture_form_data(template, "edit")
     if form_over:
         form_data.update(form_over)
+    for key in absent:
+        form_data.pop(key, None)
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),
         settings=Mock(),
@@ -136,3 +138,7 @@ def test_edit_lora_is_required(krea2):
 def test_edit_matches_the_source_shape_by_default_and_the_toggle_turns_it_off(krea2):
     assert _generator(_pipes(krea2))["config"]["match_source"] is True
     assert _generator(_pipes(krea2, {"match_source": False}))["config"]["match_source"] is False
+
+
+def test_match_source_is_on_when_the_form_omits_it(krea2):
+    assert _generator(_pipes(krea2, absent=("match_source",)))["config"]["match_source"] is True

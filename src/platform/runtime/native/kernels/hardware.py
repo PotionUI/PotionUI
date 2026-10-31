@@ -21,6 +21,9 @@ _SAGE3_MIN_CUDA_RUNTIME: tuple[int, int] = (12, 8)
 _SPARGE_CAPABILITY_MAJORS: frozenset[int] = frozenset({8, 9})
 _PROBED_MODULES: tuple[str, ...] = ("triton", "sageattention", "flash_attn", "sageattn3", "spas_sage_attn")
 _CPU_NAME = "cpu"
+VENDOR_CUDA = "cuda"
+VENDOR_HIP = "hip"
+VENDOR_NONE = "none"
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,8 @@ class DeviceCapabilities:
     name: str | None
     capability: tuple[int, int]
     attention_backends: frozenset[str]
+    total_memory: int = 0
+    vendor: str = VENDOR_CUDA
 
     @property
     def generation(self) -> GpuGeneration:
@@ -116,6 +121,18 @@ def _device_name(index: int) -> str | None:
         return None
 
 
+def _device_total_memory(index: int) -> int:
+    try:
+        return int(torch.cuda.get_device_properties(index).total_memory)
+    except Exception:
+        return 0
+
+def _vendor() -> str:
+    try:
+        return VENDOR_HIP if getattr(torch.version, "hip", None) is not None else VENDOR_CUDA
+    except Exception:
+        return VENDOR_CUDA
+
 def _attention_backends(
     capability: tuple[int, int],
     modules: frozenset[str],
@@ -146,6 +163,7 @@ def _build() -> Capabilities:
     modules = frozenset(name for name in _PROBED_MODULES if _has_module(name))
     sage_v2 = "sageattention" in modules and _sageattention_is_v2()
     cuda_runtime = _cuda_runtime_version()
+    vendor = _vendor()
     devices = []
     for index in range(_device_count()):
         capability = _device_capability(index)
@@ -155,6 +173,8 @@ def _build() -> Capabilities:
                 name=_device_name(index),
                 capability=capability,
                 attention_backends=_attention_backends(capability, modules, sage_v2, cuda_runtime),
+                total_memory=_device_total_memory(index),
+                vendor=vendor,
             )
         )
     cpu = DeviceCapabilities(
@@ -162,6 +182,7 @@ def _build() -> Capabilities:
         name=_CPU_NAME,
         capability=(0, 0),
         attention_backends=frozenset({SDPA}),
+        vendor=VENDOR_NONE,
     )
     return Capabilities(devices=tuple(devices), cpu=cpu)
 

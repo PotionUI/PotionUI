@@ -82,6 +82,7 @@
   .deck-detail { min-width: 0; min-height: 24px; display: flex; align-items: center; gap: 8px; color: rgb(var(--fg-muted)); font-size: 12px; line-height: 16px; white-space: nowrap; }
 
   .deck-detail-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .deck-detail-text.is-wrapping { white-space: normal; }
 
   .inline-action { height: 24px; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 0; border-radius: 4px; background: rgb(var(--surface-2)); color: rgb(var(--fg)); cursor: pointer; font-size: 12px; font-weight: 600; }
 

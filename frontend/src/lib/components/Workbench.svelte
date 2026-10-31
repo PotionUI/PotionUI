@@ -38,6 +38,9 @@
 	import { resolveWorkbenchFileRenderer } from '$lib/registries/workbenchFileRendererRegistry';
 	import ImagePreview from '$lib/components/workbench/renderers/ImagePreview.svelte';
 	import VideoPreview from '$lib/components/workbench/renderers/VideoPreview.svelte';
+	import PreviewClipPlayer from '$lib/components/workbench/PreviewClipPlayer.svelte';
+	import Spinner from '$lib/components/ui/Spinner.svelte';
+	import { adminStatusLine } from '$lib/generation/previewClip';
 	import AudioPreview from '$lib/components/workbench/renderers/AudioPreview.svelte';
 	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
 	import '$lib/components/workbench/renderers/builtin'; // registers the image/video/audio core defaults
@@ -86,6 +89,8 @@
 	export let className: string = '';
 	export let emptyLayout: WorkbenchEmptyLayout;
 	export let stageTop = 0;
+	export let samplingProgress: number = 0;
+	export let samplingStep: number = 0;
 
 	const dispatch = createEventDispatcher<{
 		previous: void;
@@ -210,7 +215,11 @@
 	// through the generic `resolvedFallbackRenderer` branch below, which passes
 	// the raw file object rather than a resolved URL.
 	$: displayMesh = isGalleryMode && isMeshFileType(displayFileType) ? galleryItemUrl(currentGalleryItem) : currentGeneration?.current_mesh;
-	$: hasDisplayMedia = !!displayImage || !!displayVideo || !!displayAudio || !!displayMesh;
+	$: previewClip = isGenerating ? (currentGeneration?.preview_clip ?? null) : null;
+	let clipFadeFor: string | null = null;
+	$: if (previewClip) clipFadeFor = currentGeneration?.id ?? null;
+	$: mediaFadeMs = clipFadeFor && clipFadeFor === currentGeneration?.id ? 150 : 200;
+	$: hasDisplayMedia = !!displayImage || !!displayVideo || !!displayAudio || !!displayMesh || !!previewClip;
 
 	$: previewSuppressed = !!currentGeneration?.preview_suppressed;
 	$: contentBlocked = currentGeneration?.content_blocked ?? null;
@@ -774,8 +783,15 @@
 
 			<!-- Media Display -->
 			{#key displayImage || displayVideo || displayAudio || displayMesh}
-				<div in:fade={{ duration: 200 }} class="contents">
-					{#if displayFileType === 'audio' && audioTracks.length > 0}
+				<div in:fade={{ duration: mediaFadeMs }} class="contents">
+					{#if previewClip}
+						<PreviewClipPlayer
+							clip={previewClip}
+							progress={samplingProgress}
+							liveStep={samplingStep}
+							{isAdmin}
+						/>
+					{:else if displayFileType === 'audio' && audioTracks.length > 0}
 						<!-- Audio Player -->
 						<AudioPreview
 							tracks={audioTracks}
@@ -1125,9 +1141,15 @@
 			{/if}
 		</div>
 
-		<!-- Video controls bar for regular (non-comparison) video - rendered outside media area -->
-		{#if displayFileType === 'video' && displayVideo && !isComparing}
-			<div class="flex-shrink-0 bg-canvas border-t border-line-strong px-4 py-2 flex items-center gap-3">
+		{#if previewClip}
+			<div class="flex-shrink-0 bg-canvas border-t border-line-strong px-4 py-2 min-h-[45px] flex items-center gap-3" data-preview-status>
+				<Spinner size="sm" />
+				<span class="font-mono text-sm text-fg-muted">
+					{isAdmin && previewClip.admin_detail ? adminStatusLine(previewClip.admin_detail, previewClip.frames) : 'Preview'}
+				</span>
+			</div>
+		{:else if displayFileType === 'video' && displayVideo && !isComparing}
+			<div class="flex-shrink-0 bg-canvas border-t border-line-strong px-4 py-2 min-h-[45px] flex items-center gap-3">
 				<!-- Play/Pause button -->
 				<Tooltip text={vpRegularPlaying ? 'Pause video' : 'Play video'} position="top" delay={150}>
 				<button

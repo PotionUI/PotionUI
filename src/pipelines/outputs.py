@@ -86,6 +86,25 @@ class ImageGenerationOutput(GenerationOutput):
 
 
 @dataclass
+class PreviewClipGenerationOutput(GenerationOutput):
+    sprite: Image
+    encoded: bytes
+    frames: int
+    columns: int
+    frame_width: int
+    frame_height: int
+    fps: int
+    step: int
+    total_steps: int
+    source_indices: List[int]
+    long_edge: int
+    update_index: int = 0
+    updates_max: int = 0
+    every: int = 0
+    temporary: bool = True
+
+
+@dataclass
 class VideoGenerationOutput(GenerationOutput):
     video_path: Path  # Path to the video file
     temporary: bool = True  # True = don't save, False = save video

@@ -17,6 +17,7 @@
 	} from '$lib/components/workbench/workbenchGallery';
 	import { resolveWorkbenchFileRenderer } from '$lib/registries/workbenchFileRendererRegistry';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
+	import PreviewClipPlayer from '$lib/components/workbench/PreviewClipPlayer.svelte';
 	import ImagePreview from '$lib/components/workbench/renderers/ImagePreview.svelte';
 	import LiveModelFileArtifacts from '$lib/components/generation/LiveModelFileArtifacts.svelte';
 	import GridWorkbench from '$lib/components/compare/view/GridWorkbench.svelte';
@@ -122,7 +123,11 @@
 		</div>
 	{:else if isGenerating}
 		<div class="absolute inset-0 flex items-center justify-center bg-canvas">
-			{#if currentGeneration?.current_image}
+			{#if currentGeneration?.preview_clip}
+				<div class="absolute inset-x-0 top-14" style="bottom: var(--studio-dock-height, 7rem)" data-studio-preview-clip>
+					<PreviewClipPlayer clip={currentGeneration.preview_clip} ruler={false} />
+				</div>
+			{:else if currentGeneration?.current_image}
 				<img
 					src={currentGeneration.current_image}
 					alt="Generation preview"

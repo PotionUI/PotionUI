@@ -6,7 +6,7 @@ shapes over and over.
 """
 from typing import Optional
 
-from src.pipelines.outputs import ProgressGenerationOutput, ImageGenerationOutput
+from src.pipelines.outputs import ProgressGenerationOutput, ImageGenerationOutput, PreviewClipGenerationOutput
 from src.pipelines.outputs import Progress, Icon
 
 
@@ -78,6 +78,24 @@ class ProgressEmitter:
     def preview(self, image, **meta) -> None:
         """Emit a temporary (workbench-only) image preview."""
         self.emit(ImageGenerationOutput(image=image, temporary=True, **meta))
+
+    def preview_clip(self, clip) -> None:
+        self.emit(PreviewClipGenerationOutput(
+            sprite=clip.sprite,
+            encoded=clip.encoded,
+            frames=clip.frames,
+            columns=clip.columns,
+            frame_width=clip.frame_width,
+            frame_height=clip.frame_height,
+            fps=clip.fps,
+            step=clip.step,
+            total_steps=clip.total_steps,
+            source_indices=clip.source_indices,
+            long_edge=clip.long_edge,
+            update_index=clip.update_index,
+            updates_max=clip.updates_max,
+            every=clip.every,
+        ))
 
 
 def native_step_hooks(gen, progress: "ProgressEmitter", on_progress, *, preview: bool = True, decoder_path=None, extra=()):

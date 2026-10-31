@@ -24,6 +24,7 @@ from src.features.generation.handlers.artifact_handlers import (
 from src.features.generation.handlers.cost_handler import CostGenerationOutputHandler
 from src.features.generation.handlers.director_shot_handler import serialize_director_shot_output
 from src.features.generation.handlers.error_handler import serialize_error_output
+from src.features.generation.handlers.preview_clip_handler import serialize_preview_clip_output
 
 __all__ = [
     'BaseGenerationOutputHandler',
@@ -38,5 +39,6 @@ __all__ = [
     'ModelFileGenerationOutputHandler',
     'CostGenerationOutputHandler',
     'serialize_error_output',
+    'serialize_preview_clip_output',
     'serialize_director_shot_output',
 ]

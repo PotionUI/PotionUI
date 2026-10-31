@@ -142,7 +142,7 @@ class TestPluginOutputs:
         assert entry["plugin_id"] == "my-plugin"
         assert entry["message"]["payload"] == "second"
 
-    @pytest.mark.parametrize("message_type", ["generation_status", "pipe_artifact", "workbench_update", "gallery_update"])
+    @pytest.mark.parametrize("message_type", ["generation_status", "pipe_artifact", "workbench_update", "workbench_preview_clip", "gallery_update"])
     def test_core_message_types_never_land_in_plugin_outputs(self, recorder, message_type):
         recorder.record_output("gen-1", {"type": message_type, "pipe_id": 0, "pipe_name": "core"})
 

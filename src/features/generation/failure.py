@@ -9,6 +9,7 @@ from src.features.generation.error_classification import (
     classify_generation_error,
     user_classification_for_code,
 )
+from src.features.generation.preview_clip_message import ADMIN_DETAIL_KEY, PREVIEW_CLIP_MESSAGE
 from src.features.plans.errors import LimitExceeded
 from src.pipelines.outputs import ErrorGenerationOutput
 from src.platform.database.rows import dt_iso
@@ -145,6 +146,8 @@ def scope_live_message(message: Dict[str, Any], is_admin: bool) -> Dict[str, Any
         return message
     if message.get("type") == "generation_status":
         return _basenamed(message, ("current_step", "message"))
+    if message.get("type") == PREVIEW_CLIP_MESSAGE and ADMIN_DETAIL_KEY in message:
+        return {key: value for key, value in message.items() if key != ADMIN_DETAIL_KEY}
     data = message.get("artifact_data")
     if message.get("type") == "pipe_artifact" and isinstance(data, dict):
         scoped = _basenamed(data, ("index_warning",))

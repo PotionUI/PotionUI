@@ -6,10 +6,18 @@ GENERIC_FAILURE = (
 )
 
 _ABSOLUTE_PATH = re.compile(r"(?<![\w.:/\\-])(?:/(?:[\w.\-]+/)+[\w.\-]*|[A-Za-z]:\\[^\s'\"]+)")
+_ENDPOINT = re.compile(
+    r"(?P<at>\s+at)?\s+(?:(?:[a-z][a-z0-9+.-]*://)[^\s'\"<>]+|(?<![\w.:<-])(?=[\w.-]*[A-Za-z.])\w[\w.-]*:\d{2,5}(?!\w))",
+    re.IGNORECASE,
+)
 
 
 def scrub_paths(text: str) -> str:
     return _ABSOLUTE_PATH.sub("<server path>", text)
+
+
+def hide_endpoints(text: str) -> str:
+    return _ENDPOINT.sub(lambda match: "\u2026" if match.group("at") else " the server", text)
 
 
 def basename_paths(text: str) -> str:

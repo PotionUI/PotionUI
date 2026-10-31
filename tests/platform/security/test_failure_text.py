@@ -1,4 +1,4 @@
-from src.platform.security.failure_text import GENERIC_FAILURE, basename_paths, failure_detail, scrub_paths
+from src.platform.security.failure_text import GENERIC_FAILURE, basename_paths, failure_detail, hide_endpoints, scrub_paths
 
 
 def test_scrub_paths_hides_absolute_paths_only():
@@ -29,3 +29,11 @@ def test_basename_paths_keeps_only_the_file_name_of_an_absolute_path():
 def test_basename_paths_leaves_relative_paths_urls_and_fractions_alone():
     text = "step 1/20 from https://example.com/org/repo and checkpoints/sdxl/x.safetensors"
     assert basename_paths(text) == text
+
+
+def test_hide_endpoints_drops_a_host_and_port_or_a_url_but_not_markers_or_times():
+    assert hide_endpoints("Connecting to ComfyUI at gpu-box.lan:8188") == "Connecting to ComfyUI\u2026"
+    assert hide_endpoints("Connecting to ComfyUI at localhost:8188") == "Connecting to ComfyUI\u2026"
+    assert hide_endpoints("Fetching http://10.0.0.5:8188/view?name=x") == "Fetching the server"
+    text = "Step 12:30 <<NUMBER:12/20>> <<TIME:30s>> <<MODEL:a.safetensors>> at 12:30"
+    assert hide_endpoints(text) == text

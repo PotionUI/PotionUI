@@ -29,7 +29,7 @@ class TestCatalog(MediaToolsTestBase):
             sorted([
                 "id", "label", "icon", "accepts", "produces", "cardinality", "params", "requires",
                 "selection", "scopes", "editor", "preview", "component", "source", "description",
-                "last_params", "runnable",
+                "last_params", "runnable", "group",
             ]),
         )
         self.assertEqual(entry["accepts"], ["image"])

@@ -65,6 +65,7 @@ export interface ToolDTO {
 	preview: boolean;
 	component: string | null;
 	runnable: boolean;
+	group?: 'edit' | 'effects';
 	source: string;
 	last_params: Record<string, unknown> | null;
 }

@@ -109,6 +109,7 @@ class ToolSpec:
     impl: Optional["MediaTool"] = None
     description: Optional[str] = None
     name_suffix: str = ""
+    group: str = "edit"
 
     def to_dict(self) -> dict:
         return {
@@ -127,6 +128,7 @@ class ToolSpec:
             "component": self.component,
             "source": self.source,
             "description": self.description,
+            "group": self.group,
         }
 
     def output_kind(self, kind: str) -> str:

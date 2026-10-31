@@ -35,10 +35,10 @@ pipeline:
     enabled: true
     configuration:
       p_prompt:
-        input: &caption "{{ (item.positive if item is defined else generation.prompts.first.positive) or 'A realistic nighttime scene with photorealistic moonlight and deep natural shadows. Only the lighting changes from day to night; identical composition, subjects and camera motion.' }}"
+        input: &caption "{{ (item.positive if item is defined else generation.prompts.first.positive) | text_or('A realistic nighttime scene with photorealistic moonlight and deep natural shadows. Only the lighting changes from day to night; identical composition, subjects and camera motion.') }}"
         output: *caption
       n_prompt:
-        input: &negative "{{ (item.negative if item is defined else generation.prompts.first.negative) or 'daylight, sunshine, bright sky, pitch black, underexposed, crushed shadows, low quality, distorted' }}"
+        input: &negative "{{ (item.negative if item is defined else generation.prompts.first.negative) | text_or('daylight, sunshine, bright sky, pitch black, underexposed, crushed shadows, low quality, distorted') }}"
         output: *negative
       pairs:
         "@loop":

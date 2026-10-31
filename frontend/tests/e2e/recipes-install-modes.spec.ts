@@ -486,9 +486,12 @@ for (const width of [1440, 390]) {
 			await expect(page.getByRole('button', { name: 'Install 4 modes and nvfp4' })).toBeVisible();
 			await sheet.locator('[data-customize-toggle]').scrollIntoViewIfNeeded();
 			await shot('1b');
+			await sheet.locator('[data-customize-toggle]').click();
+			await expect(sheet.locator('[data-mode-customize]')).toHaveCount(0);
 
 			await sheet.locator('[data-target="pod"]').click();
 			await expect(sheet.locator('[data-mode-disk-short]')).toBeVisible();
+			await expect(sheet.locator('[data-customize-toggle]')).toBeVisible();
 			await expect(page.locator('[data-mode-blocker]')).toContainText('Deselect');
 			await expect(page.getByRole('button', { name: /^Install 4 modes/ })).toBeDisabled();
 			await expect(sheet.locator('[data-total-time]')).toContainText('—');
@@ -507,14 +510,18 @@ for (const width of [1440, 390]) {
 			await expect(downloads.locator('[data-download-file="cine_lora"]')).toContainText('Done');
 			await expect(downloads.locator('[data-download-file="face_refiner"]')).toContainText('Waiting');
 			await expect(downloads).toContainText('58 MB/s');
-			await expect(page.getByText('Installing 5 modes')).toBeVisible();
+			await expect(page.getByText('Installing 4 modes')).toBeVisible();
+			await expect(page.locator('[data-mode-step="modes.plan"]')).toContainText('4 modes, 4 files, nothing duplicated');
+			await expect(page.locator('[data-mode-step="fetch"]')).toContainText('2 of 4 running');
+			await expect(page.locator('[data-mode-step="defaults"]')).toContainText('Fills empty choices only');
 			await shot('5a');
 
 			mock.phase = 'done';
 			await expect(page.locator('[data-mode-install-done]')).toBeVisible({ timeout: 15000 });
-			await expect(page.locator('[data-mode-install-done]')).toContainText('Ready: Video, Layout to render, Cinemagraph, Motion transfer and Refine faces');
-			await expect(page.locator('[data-try-mode]')).toHaveCount(5);
-			await expect(page.getByText('Installed 5 modes')).toBeVisible();
+			await expect(page.locator('[data-mode-install-done]')).toContainText('Ready: Layout to render, Cinemagraph, Motion transfer, Refine faces');
+			await expect(page.locator('[data-try-mode]')).toHaveCount(4);
+			await expect(page.locator('[data-mode-access-heading]')).toContainText('Who can use LTX-2.5');
+			await expect(page.getByText('Installed 4 modes')).toBeVisible();
 			await shot('5b');
 
 			mock.phase = 'none';

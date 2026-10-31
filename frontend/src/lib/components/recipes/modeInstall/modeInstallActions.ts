@@ -17,7 +17,8 @@ export function preselectOf(run: Pick<SetupRun, 'safe_input'>): string[] {
 
 export interface ModeCatalogEntry {
 	label: string;
-	description: string | null;
+		description: string | null;
+	ready: boolean;
 }
 
 export interface ModeRunContext {
@@ -33,7 +34,7 @@ export function modeContextOf(run: Pick<SetupRun, 'steps' | 'attempts'>): ModeRu
 		if (!request) continue;
 		const out: Record<string, ModeCatalogEntry> = {};
 		for (const mode of request.modes) {
-			out[mode.id] = { label: mode.label, description: mode.short_description ?? null };
+			out[mode.id] = { label: mode.label, description: mode.short_description ?? null, ready: mode.ready };
 		}
 		return { presetName: request.preset_name, modes: out };
 	}

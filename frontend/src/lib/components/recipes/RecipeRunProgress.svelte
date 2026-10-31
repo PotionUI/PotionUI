@@ -32,6 +32,7 @@
 	import ModeConsentGate from './modeInstall/ModeConsentGate.svelte';
 	import ModeInstallDownloads from './modeInstall/ModeInstallDownloads.svelte';
 	import ModeInstallDone from './modeInstall/ModeInstallDone.svelte';
+	import ModeInstallSteps from './modeInstall/ModeInstallSteps.svelte';
 	import { modeContextOf, preselectOf, replanFor } from './modeInstall/modeInstallActions';
 	import {
 		extractApprovedPlan,
@@ -100,9 +101,12 @@
 			: null
 	);
 	const downloadProgress = $derived(downloadGroup ? extractDownloadProgress(downloadGroup.latest) : null);
+		const newModeIds = $derived(
+		approvedPlan ? approvedPlan.modes.filter((id) => modeContext.modes[id] && !modeContext.modes[id].ready) : []
+	);
 	const modesTitle = $derived.by(() => {
 		if (!modesRun || !approvedPlan) return null;
-		const count = approvedPlan.modes.length;
+		const count = newModeIds.length;
 		const noun = `${count} ${count === 1 ? 'mode' : 'modes'}`;
 		return run.status === 'completed' ? `Installed ${noun}` : `Installing ${noun}`;
 	});
@@ -255,6 +259,7 @@
 
 	{#if consentGroup && modesConsent}
 		<ModeConsentGate
+			{guided}
 			request={modesConsent}
 			preselect={preselectOf(run)}
 			busy={consentBusy}
@@ -369,9 +374,7 @@
 		<ModeInstallDone
 			presetId={approvedPlan.presetId}
 			presetName={modeContext.presetName}
-			modes={approvedPlan.modes
-				.filter((id) => modeContext.modes[id])
-				.map((id) => ({ id, label: modeContext.modes[id].label, description: modeContext.modes[id].description }))}
+			modes={newModeIds.map((id) => ({ id, label: modeContext.modes[id].label, description: modeContext.modes[id].description }))}
 			bytes={approvedPlan.bytes}
 		/>
 	{/if}
@@ -406,7 +409,14 @@
 		</Alert>
 	{/if}
 
-	{#if resolvedSteps.groups.length > 0}
+	{#if modesRun && resolvedSteps.groups.length > 0}
+		<ModeInstallSteps
+			groups={resolvedSteps.groups}
+			plan={approvedPlan}
+			modeCount={newModeIds.length}
+			progress={downloadProgress}
+		/>
+	{:else if resolvedSteps.groups.length > 0}
 		<div class="space-y-2">
 			{#each resolvedSteps.groups as group (group.stepKey)}
 				{@const isConsent = isConsentStatus(group.status as any)}

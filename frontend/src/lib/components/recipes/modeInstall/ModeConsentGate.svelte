@@ -2,8 +2,10 @@
 	import { Button } from '$lib/components/ui';
 	import type { ModeConsentRequest, ModesGrantBody } from '$lib/services/api/recipeModes';
 	import ModeInstallSheet from './ModeInstallSheet.svelte';
+	import ModeWizardConsent from './ModeWizardConsent.svelte';
 
 	let {
+		guided = false,
 		request,
 		preselect = [],
 		busy = false,
@@ -13,6 +15,7 @@
 		onCancelRun,
 		onReplan
 	}: {
+		guided?: boolean;
 		request: ModeConsentRequest;
 		preselect?: string[];
 		busy?: boolean;
@@ -26,6 +29,9 @@
 	let open = $state(true);
 </script>
 
+{#if guided}
+	<ModeWizardConsent {request} {busy} {error} {cancelBusy} {onApprove} {onCancelRun} />
+{:else}
 <div class="rounded border border-signal/30 bg-signal/5 px-3 py-3" data-mode-consent-gate>
 	<p class="text-sm font-semibold text-signal">Needs your go-ahead</p>
 	<p class="mt-0.5 text-sm text-fg-muted">Choose which modes to install, then approve the download.</p>
@@ -45,4 +51,5 @@
 		onConfirm={onApprove}
 		onCancel={() => (open = false)}
 	/>
+{/if}
 {/if}

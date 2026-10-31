@@ -366,3 +366,34 @@ export function downloadFileLabel(file: ModeDownloadProgress['files'][number]): 
 export function isDerivedRecipeId(recipeId: string): boolean {
 	return recipeId.startsWith('modes-');
 }
+
+export function stepDetailLine(
+	kind: string,
+	state: 'done' | 'active' | 'failed' | 'pending',
+	plan: ApprovedModesPlan | null,
+	modeCount: number,
+	progress: ModeDownloadProgress | null
+): string {
+	if (kind === 'modes.plan') {
+		if (plan && state === 'done') {
+			const files = plan.files;
+			return `${modeCount} ${modeCount === 1 ? 'mode' : 'modes'}, ${files} ${files === 1 ? 'file' : 'files'}, nothing duplicated`;
+		}
+		return 'Choose the modes and review the downloads';
+	}
+	if (kind === 'artifacts.fetch') {
+		if (progress && state === 'active') {
+			const running = progress.files.filter((file) => file.status === 'downloading').length;
+			return `${running} of ${progress.files_total} running`;
+		}
+		if (state === 'done' && plan) return `${plan.files} ${plan.files === 1 ? 'file' : 'files'} downloaded`;
+		return 'Fetch the files you picked';
+	}
+	if (kind === 'plugins.ensure') return 'Turn on the sources these files come from';
+	if (kind === 'backend.ensure') return 'Make sure something can run this model';
+	if (kind === 'models.index') return 'Register what was downloaded';
+	if (kind === 'preset.ensure') return 'Install and assign the preset';
+	if (kind === 'preset.defaults') return 'Fills empty choices only';
+	if (kind === 'pipeline.render') return 'Make sure nothing is damaged';
+	return '';
+}

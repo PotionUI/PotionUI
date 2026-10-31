@@ -166,7 +166,10 @@ describe('RecipeRunProgress with a modes run', () => {
 			{ slot_id: 'c', display_name: 'Face refiner', filename: 'c', size_bytes: 700_000_000, downloaded_bytes: 0, status: 'pending' }
 		];
 		const running = run('running', [
-			step('modes.plan', 'modes.plan', 0, 'succeeded', [attempt('modes.plan', 'succeeded', { plan: { preset_id: 'p1', modes: ['video', 'cinemagraph'], bytes: 3, files: [1, 2, 3] } })]),
+			step('modes.plan', 'modes.plan', 0, 'succeeded', [
+				attempt('modes.plan', 'awaiting_consent', { consent_request: modesRequest() }),
+				attempt('modes.plan', 'succeeded', { plan: { preset_id: 'p1', modes: ['video', 'cinemagraph'], bytes: 3, files: [1, 2, 3] } })
+			]),
 			step('artifacts.fetch', 'artifacts.fetch', 1, 'running', [
 				attempt('artifacts.fetch', 'running', { files, files_done: 1, files_total: 3, speed_bytes_per_sec: 58_000_000, eta_seconds: 45 }, { progress_current: 1_500_000_000, progress_total: 3_500_000_000, progress_unit: 'bytes' })
 			])
@@ -179,7 +182,12 @@ describe('RecipeRunProgress with a modes run', () => {
 		expect(panel.querySelector('[data-download-file="a"]')!.textContent).toContain('Done');
 		expect(panel.querySelector('[data-download-file="b"]')!.textContent).toContain('50%');
 		expect(panel.querySelector('[data-download-file="c"]')!.textContent).toContain('Waiting');
-		expect(target.textContent).toContain('Installing 2 modes');
+		expect(target.textContent).toContain('Installing 1 mode');
+		expect(target.querySelector('[data-mode-step="modes.plan"]')!.textContent).toContain('1 mode, 3 files, nothing duplicated');
+		expect(target.querySelector('[data-mode-step="modes.plan"]')!.getAttribute('data-step-state')).toBe('done');
+		const fetchStep = target.querySelector('[data-mode-step="artifacts.fetch"]')!;
+		expect(fetchStep.getAttribute('data-step-state')).toBe('active');
+		expect(fetchStep.textContent).toContain('1 of 3 running');
 		(Array.from(panel.querySelectorAll('button')).find((b) => b.textContent?.includes('Cancel download')) as HTMLButtonElement).click();
 		await settle();
 		expect(actions.applyAction).toHaveBeenCalledWith('run1', 'cancel');
@@ -190,18 +198,67 @@ describe('RecipeRunProgress with a modes run', () => {
 		const done = run('completed', [
 			step('modes.plan', 'modes.plan', 0, 'succeeded', [
 				consent,
-				attempt('modes.plan', 'succeeded', { plan: { preset_id: 'p1', modes: ['cinemagraph', 'motion'], bytes: 5 * GB, files: [1, 2] } })
+				attempt('modes.plan', 'succeeded', { plan: { preset_id: 'p1', modes: ['video', 'cinemagraph', 'motion'], bytes: 5 * GB, files: [1, 2] } })
 			])
 		]);
 		const addTab = vi.spyOn(tabsStore, 'addTabWithData');
 		const { target } = render(done, { applyAction: vi.fn(), grantConsent: vi.fn() });
 		const card = target.querySelector('[data-mode-install-done]')!;
-		expect(card.textContent).toContain('Ready: Cinemagraph and Motion transfer');
+		expect(card.textContent).toContain('Ready: Cinemagraph, Motion transfer');
+		expect(card.querySelectorAll('[data-try-mode]')).toHaveLength(2);
 		expect(card.textContent).toContain('4.7 GB downloaded and checked');
 		expect(target.textContent).toContain('Installed 2 modes');
+		expect(target.querySelector('[data-mode-access-heading]')!.textContent).toContain('Who can use LTX-2.5');
+		expect(target.querySelector('[data-mode-access-heading]')!.textContent).toContain('The new modes are open to anyone who already has the preset.');
 		(card.querySelector('[data-try-mode="motion"] button') as HTMLButtonElement).click();
 		expect(addTab).toHaveBeenCalledWith('Motion transfer', { selectedPreset: 'p1', selectedMode: 'motion' });
 		expect(get(tabsStore).tabs.some((tab) => tab.selectedMode === 'motion')).toBe(true);
+	});
+});
+
+describe('wizard consent', () => {
+	function wizardRun(): SetupRun {
+		const request = modesRequest();
+		request.modes[0] = { ...request.modes[0], ready: false, slot_ids: ['model', 'effect_lora@cinemagraph'] };
+		return run(
+			'awaiting_consent',
+			[step('modes.plan', 'modes.plan', 0, 'awaiting_consent', [attempt('modes.plan', 'awaiting_consent', { consent_request: request })])]
+		);
+	}
+
+	function renderGuided(actions: unknown) {
+		const target = document.body.appendChild(document.createElement('div'));
+		instance = mount(RecipeRunProgress, {
+			target,
+			props: { run: wizardRun(), actions: actions as never, onRunUpdated: vi.fn(), guided: true }
+		});
+		flushSync();
+		return target;
+	}
+
+	it('keeps the default path to one click and hides the other modes under Add more modes', async () => {
+		const actions = { applyAction: vi.fn(), grantConsent: vi.fn().mockResolvedValue(run('running', [])) };
+		const target = renderGuided(actions);
+		expect(target.querySelector('[data-mode-wizard-consent]')).not.toBeNull();
+		expect(document.body.querySelector('[data-mode-install-sheet]')).toBeNull();
+		const more = target.querySelector<HTMLDetailsElement>('[data-add-more-modes]')!;
+		expect(more.open).toBe(false);
+		expect(more.textContent).toContain('Add more modes');
+		expect(target.querySelector('[data-wizard-total]')!.textContent).toBe('1.9 GB');
+		(Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.includes('Approve and download')) as HTMLButtonElement).click();
+		await settle();
+		expect(actions.grantConsent).toHaveBeenCalledWith('run1', 'modes.plan', {}, { modes: ['video'], extras: [], target: 'native' });
+	});
+
+	it('adds the ticked extra modes to the total and to the grant', async () => {
+		const actions = { applyAction: vi.fn(), grantConsent: vi.fn().mockResolvedValue(run('running', [])) };
+		const target = renderGuided(actions);
+		target.querySelector<HTMLInputElement>('[data-wizard-mode="motion"] input')!.click();
+		flushSync();
+		expect(target.querySelector('[data-wizard-total]')!.textContent).toBe('4.7 GB');
+		(Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.includes('Approve and download')) as HTMLButtonElement).click();
+		await settle();
+		expect(actions.grantConsent.mock.calls[0][3].modes).toEqual(['video', 'motion']);
 	});
 });
 

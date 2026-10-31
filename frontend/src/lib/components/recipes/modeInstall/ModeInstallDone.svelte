@@ -4,7 +4,7 @@
 	import AssignmentCard from '$lib/components/assignment/AssignmentCard.svelte';
 	import { createPresetAssignmentAdapter } from '$lib/components/assignment/presetAssignmentAdapter';
 	import { tabsStore } from '$lib/stores/tabs';
-	import { joinLabels, sizeLabel } from './modeInstallModel';
+	import { sizeLabel } from './modeInstallModel';
 
 	let {
 		presetId,
@@ -31,7 +31,7 @@
 		<Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-success" />
 		<div class="min-w-0">
 			<p class="text-base font-semibold text-fg">
-				{modes.length > 0 ? `Ready: ${joinLabels(modes.map((mode) => mode.label))}` : 'Everything is ready'}
+				{modes.length > 0 ? `Ready: ${modes.map((mode) => mode.label).join(', ')}` : 'Everything is ready'}
 			</p>
 			<p class="text-sm text-fg-muted">
 				{bytes ? `${sizeLabel(bytes)} downloaded and checked. ` : ''}Default files were filled in for these modes.
@@ -67,6 +67,10 @@
 	{/if}
 
 	{#if showAccess && presetId}
+		<div class="rounded-lg border border-line bg-surface-1 px-5 py-3" data-mode-access-heading>
+			<h3 class="text-base font-semibold text-fg">Who can use {presetName}</h3>
+			<p class="text-sm text-fg-muted">The new modes are open to anyone who already has the preset.</p>
+		</div>
 		{#key presetId}
 			<AssignmentCard
 				adapter={createPresetAssignmentAdapter(presetId)}

@@ -77,7 +77,9 @@
 	subtitle={preview ? `Frees ${frees} ${targetWord}.` : ''}
 		size="md"
 	compact
-	stackOnPhone
+		stackOnPhone
+	splitOnPhone
+	subtitleWrap
 	{busy}
 	confirmLabel={removeConfirmLabel(preview)}
 	confirmVariant="danger"

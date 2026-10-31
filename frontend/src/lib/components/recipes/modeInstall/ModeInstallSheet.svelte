@@ -160,7 +160,9 @@
 	subtitle="Pick the modes you want. Files you already have are kept."
 		sizeClass="md:max-w-3xl md:w-full mode-install-dialog"
 	compact
-	stackOnPhone
+		stackOnPhone
+	splitOnPhone
+	subtitleWrap
 	{busy}
 	{confirmLabel}
 	confirmDisabled={!!blocker || replanning}
@@ -182,14 +184,14 @@
 							aria-checked={active}
 							data-target={option.backend_id}
 							disabled={replanning || busy}
-							class="flex min-w-0 flex-col items-start rounded border px-3 py-1 text-left transition-colors max-sm:flex-1 {active
+							class="flex min-w-0 flex-col items-start rounded border px-3 py-1 text-left transition-colors max-sm:flex-1 max-sm:basis-0 {active
 								? 'border-signal bg-signal/10'
 								: 'border-transparent hover:bg-surface-3'}"
 							onclick={() => chooseTarget(option.backend_id)}
 						>
-							<span class="flex items-center gap-1.5 text-sm font-medium text-fg">
-								<Icon name={option.kind === 'remote' ? 'server' : 'monitor'} className="h-3.5 w-3.5 text-fg-muted" />
-								{option.label}
+							<span class="flex min-w-0 max-w-full items-center gap-1.5 text-sm font-medium text-fg">
+								<Icon name={option.kind === 'remote' ? 'server' : 'monitor'} className="h-3.5 w-3.5 flex-shrink-0 text-fg-muted" />
+								<span class="truncate">{option.label}</span>
 							</span>
 							<span class="font-mono text-sm tabular-nums {tight ? 'text-danger' : 'text-fg-muted'}">
 								{targetFreeLabel(option.free_bytes)}
@@ -264,7 +266,7 @@
 				{@const ticked = !!choice.modes[mode.id]}
 				<li class="border-t border-line {ticked && !locked ? 'bg-surface-2/60' : ''}">
 					<label
-						class="flex items-center gap-3 px-5 py-2 {locked ? 'cursor-default' : 'cursor-pointer hover:bg-surface-2'}"
+						class="flex items-center gap-3 px-5 py-1.5 {locked ? 'cursor-default' : 'cursor-pointer hover:bg-surface-2'}"
 						data-mode-row={mode.id}
 					>
 						<input

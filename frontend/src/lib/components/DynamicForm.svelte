@@ -2,24 +2,14 @@
 	import { logger } from '$lib/utils/logger';
 	import { onDestroy, setContext } from 'svelte';
 	import { writable } from 'svelte/store';
-	import { api } from '$lib/services/api/index';
-	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import FormField from './form-fields/FormField.svelte';
-	import {
-		type FieldConfig,
-		extractAllFields,
-		processSchemaWithReactions,
-		staleOptionFields,
-		type ValueGate
-	} from '$lib/form/reactions';
-	import { applyReactionValueChanges, valuesEqual } from './dynamicFormReactionApply';
-	import { getSchemaDefaults } from '$lib/form/defaults';
-	import { applyMergeFrom } from '$lib/form/mergeFrom';
-	import { createLatestRequestGuard, getCachedSchema } from '$lib/form/schemaCache';
+	import { type FieldConfig, extractAllFields } from '$lib/form/reactions';
+	import { valuesEqual } from './dynamicFormReactionApply';
+	import { flattenFormData, hydrateFormData, settleFormReactions } from '$lib/form/formState';
+	import { loadPresetFormSchema, searchAutopickSlot } from '$lib/form/formSources';
+	import { createLatestRequestGuard } from '$lib/form/schemaCache';
 	import { formAudienceStore } from '$lib/stores/formAudience';
 	import { applyAudienceVisibilityToSchema, type FormAudience } from '$lib/utils/audienceFilter';
-	import { applyReadonlyToSchema } from '$lib/utils/readonlyFilter';
-	import { annotateLockHints } from '$lib/form/lockHints';
 	import { FORM_FIELD_ERRORS_CONTEXT_KEY } from '$lib/form/fieldErrorsContext';
 	import {
 		FORM_FIELD_ERROR_ACTIONS_CONTEXT_KEY,
@@ -31,14 +21,7 @@
 		type SectionCollapsedContext
 	} from '$lib/form/sectionCollapsedContext';
 	import { shouldPublishFormData } from '$lib/utils/formDataPublication';
-	import {
-		applyCapabilitiesToSchema,
-		capabilityValueChanges,
-		cloudModelId,
-		collectCapabilityModelFields,
-		omitCapabilityHidden,
-		resolveCapabilities
-	} from '$lib/form/capabilityBinder';
+	import { cloudModelId, collectCapabilityModelFields } from '$lib/form/capabilityBinder';
 	import { createCapabilityTracker, sharedCapabilityCache } from '$lib/form/capabilityTracker';
 	import { fetchCloudCapabilities } from '$lib/services/cloudCapabilities';
 	import { clearFormulaDeclarations } from '$lib/stores/formulas';
@@ -51,10 +34,7 @@
 		createModelSlotAutopick,
 		hasModelValue,
 		isSlotClearEdit,
-		resolveSlotTagIds,
-		markSlotCleared,
-		slotSearchRequest,
-		type AutopickSlot
+		markSlotCleared
 	} from '$lib/form/modelSlotAutopick';
 
 	const PUBLISHED_SNAPSHOT_LIMIT = 8;
@@ -256,107 +236,16 @@
 		revision: number,
 		loaded: boolean
 	) {
-		let data = start;
-		let gate: ValueGate | undefined = loaded
-			? {
-					previous: reactionBaseline,
-					pinned: reactionPinned,
-					stale: reactionBaseline === null ? staleOptionFields(schema, data) : undefined
-				}
-			: undefined;
-		let pass = reprocessSchema(schema, data, modelFields, revision, gate);
-		let unsettled = false;
-		for (let round = 0; round < MAX_REACTION_ROUNDS && loaded; round++) {
-			const applied = applyReactionValueChanges(data, pass.valueChanges);
-			unsettled = applied.changed;
-			if (!applied.changed) break;
-			gate = { previous: data };
-			data = applied.data;
-			pass = reprocessSchema(schema, data, modelFields, revision, gate);
-		}
-		if (loaded) reactionBaseline = data;
-		return { data, pass, unsettled };
-	}
-
-	function reprocessSchema(
-		schema: any,
-		data: Record<string, any>,
-		modelFields: string[],
-		revision: number,
-		gate?: ValueGate
-	) {
-		const result = processSchemaWithReactions(schema, data, gate);
-		applyReadonlyToSchema(result.processedSchema);
-		annotateLockHints(result.processedSchema, data);
-		const capabilities = resolveCapabilities(
+		const settled = settleFormReactions(start, schema, {
 			modelFields,
-			data,
-			(modelId) => (revision >= 0 ? sharedCapabilityCache.get(modelId) : undefined)
-		);
-		const hiddenByCapability = applyCapabilitiesToSchema(result.processedSchema, capabilities);
-		const valueChanges = {
-			...result.valueChanges,
-			...capabilityValueChanges(result.processedSchema, data, capabilities)
-		};
-		return { processedSchema: result.processedSchema, valueChanges, hiddenByCapability };
-	}
-
-	// Helper to merge form data
-	function mergeFormData(
-		schemaDefaults: Record<string, any>,
-		userData: Record<string, any> | null
-	): Record<string, any> {
-		if (!userData) return { ...schemaDefaults };
-
-		const merged = { ...schemaDefaults };
-
-		for (const key in userData) {
-			if (key.endsWith('_tagFilters')) continue;
-
-			// Check if this field has a corresponding model object in defaults
-			if (merged[key] && typeof merged[key] === 'object' && merged[key].hasOwnProperty('modelPath')) {
-				const modelPath = userData[key] || '';
-				const tagFiltersKey = `${key}_tagFilters`;
-				const tagFilters = userData[tagFiltersKey] || merged[key].tagFilters || [];
-
-				merged[key] = {
-					modelPath: modelPath,
-					tagFilters: tagFilters
-				};
-			} else {
-				merged[key] = userData[key];
-			}
-		}
-
-		return merged;
-	}
-
-	// Helper to flatten form data for submission
-	function flattenFormData(
-		data: Record<string, any>,
-		hiddenNames: ReadonlySet<string> = capabilityHiddenNames
-	): Record<string, any> {
-		const flattened: Record<string, any> = {};
-
-		for (const [key, value] of Object.entries(omitCapabilityHidden(data, hiddenNames))) {
-			if (value && typeof value === 'object' && !Array.isArray(value) && value.constructor === Object) {
-				// Check if this is a model selector object
-				if (value.hasOwnProperty('modelPath') && value.hasOwnProperty('tagFilters')) {
-					flattened[key] = value.modelPath;
-					flattened[`${key}_tagFilters`] = value.tagFilters;
-				}
-				// Check if this is a MediaLoaderField object (has path property)
-				else if (value.hasOwnProperty('path')) {
-					flattened[key] = value.path;
-				} else {
-					flattened[key] = value;
-				}
-			} else {
-				flattened[key] = value;
-			}
-		}
-
-		return flattened;
+			capabilityOf: (modelId) => (revision >= 0 ? sharedCapabilityCache.get(modelId) : undefined),
+			baseline: reactionBaseline,
+			pinned: reactionPinned,
+			loaded,
+			maxRounds: MAX_REACTION_ROUNDS
+		});
+		if (loaded) reactionBaseline = settled.data;
+		return settled;
 	}
 
 	// Load form schema
@@ -375,19 +264,7 @@
 			schemaError = '';
 			initialLoadComplete = false;
 
-			const schema = await getCachedSchema(
-				requestPresetId,
-				requestMode,
-				async () => {
-					const response = await api.getPresetFormSchema(requestPresetId, requestMode, requestVariant);
-					if (!response.success || !response.data?.form_schema) {
-						throw new Error(response.error || 'The preset did not return a form schema.');
-					}
-					return response.data.form_schema;
-				},
-				force,
-				requestVariant
-			);
+			const schema = await loadPresetFormSchema(requestPresetId, requestMode, requestVariant, force);
 
 			// A slower request for the previous preset must never replace the active form.
 			if (!schemaRequest.isCurrent(requestId)) return;
@@ -395,9 +272,8 @@
 			compareSchemaKey = `${requestPresetId}-${requestMode}-${requestVariant ?? ''}`;
 			publishedCompareSignature = '';
 			formSchema = schema;
-			const schemaDefaults = getSchemaDefaults(schema);
 			resetReactionBaseline(initialData);
-			formData = mergeFormData(schemaDefaults, applyMergeFrom(schema, initialData));
+			formData = hydrateFormData(schema, initialData);
 			previousInitialDataKey = JSON.stringify(initialData);
 			initialLoadComplete = true;
 			schemaRetryCount = 0;
@@ -410,21 +286,6 @@
 		} finally {
 			if (schemaRequest.isCurrent(requestId)) schemaLoading = false;
 		}
-	}
-
-	async function searchAutopickSlot(slot: AutopickSlot) {
-		let tagIds: string[] = [];
-		if (slot.tagFilters.length > 0) {
-			const tags = await tagCatalog.get('MODEL');
-			const resolved = resolveSlotTagIds(slot.tagFilters, tags);
-			if (!resolved) return null;
-			tagIds = resolved;
-		}
-		const request = slotSearchRequest(slot, tagIds);
-		if (request.kind !== 'preset') return null;
-		const response = await api.getPresetModels(request.presetId, request.modelType, request.search, request.opts);
-		if (!response.success || !response.data) return null;
-		return { models: response.data.models ?? [], total: response.data.total };
 	}
 
 	const modelSlotAutopick = createModelSlotAutopick({ tabKey: tabId ?? '', search: searchAutopickSlot });
@@ -556,10 +417,7 @@
 			// be forwarded once so the page can settle its one-shot session baseline.
 			lastPublishedFormDataKey = null;
 
-			// Get root schema for defaults
-			const schemaDefaults = getSchemaDefaults(schema);
-
-			const mergedData = mergeFormData(schemaDefaults, applyMergeFrom(schema, incoming));
+			const mergedData = hydrateFormData(schema, incoming);
 			resetReactionBaseline(incoming);
 			formData = mergedData;
 		}

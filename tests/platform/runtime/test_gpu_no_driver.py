@@ -22,22 +22,19 @@ class TestConstructionWithoutADriver:
 
     def test_available_is_false(self, monkeypatch):
         monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)
+        monkeypatch.setattr("torch.cuda.is_available", lambda: False)
         g = gpu_module.GpuMonitor()
         assert g.available is False
         assert g.handle is None
 
-    def test_vram_getters_report_zero_instead_of_raising(self, monkeypatch):
+    def test_vram_getters_never_raise_and_the_budget_is_unknown(self, monkeypatch):
         monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)
-        # A real CPU-only host has no CUDA either - torch.cuda.is_available()
-        # would be False there too. This process may genuinely have a CUDA
-        # pin it here to reproduce the true CPU-only case rather than a
-        # partial (no-NVML, yes-CUDA) state that can't occur on real hardware.
         monkeypatch.setattr("torch.cuda.is_available", lambda: False)
         g = gpu_module.GpuMonitor()
         assert g.get_total_vram() == 0
         assert g.get_free_vram() == 0
-        assert g.get_available_vram() == 0.0
-        assert g.get_vram_budget() == 0.0
+        assert g.get_available_vram() is None
+        assert g.get_vram_budget() is None
 
     def test_del_does_not_raise(self, monkeypatch):
         monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)
@@ -56,6 +53,7 @@ class TestConstructionWithAWorkingDriver:
             raise RuntimeError("No devices found")
 
         monkeypatch.setattr(gpu_module, "nvmlDeviceGetHandleByIndex", _broken_handle)
+        monkeypatch.setattr("torch.cuda.is_available", lambda: False)
         g = gpu_module.GpuMonitor()
         assert g.available is False
         assert g.get_total_vram() == 0

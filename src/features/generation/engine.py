@@ -278,13 +278,8 @@ class GenerationEngine:
             return self._running_generation_id
 
     def _live_vram_note(self) -> Optional[str]:
-        """Free/total VRAM (GB), read live via NVML at the moment a CUDA OOM
-        was caught, or None if the read itself fails. The orchestrator's
-        pre-flight `vram_estimate_gb` (computed from form_data before backend
-        selection, in orchestrator.py) is not threaded down here - it would
-        mean widening the generate() call across every backend implementation
-        for a number that is stale anyway by the time a failure actually
-        lands, minutes into model loading/sampling."""
+        if not getattr(self.gpu_monitor, "available", True):
+            return None
         try:
             free_gb = round(self.gpu_monitor.get_free_vram() / 1024, 2)
             total_gb = round(self.gpu_monitor.get_total_vram() / 1024, 2)

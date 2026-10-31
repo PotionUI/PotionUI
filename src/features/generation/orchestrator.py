@@ -637,13 +637,7 @@ class GenerationOrchestrator:
         return self._queue_dispatcher.queue
 
     def _read_vram_gb(self) -> tuple:
-        """(free_gb, total_gb) from the host GPU monitor, or (None, None).
-
-        Reads NVML through `GpuMonitor` (the same source the resource trigger
-        polls) - it does not initialize CUDA. None when no GpuMonitor was wired
-        (e.g. tests) or the read fails, so the payload stays well-formed.
-        """
-        if self.gpu_monitor is None:
+        if self.gpu_monitor is None or not getattr(self.gpu_monitor, "available", True):
             return None, None
         try:
             free_gb = round(self.gpu_monitor.get_free_vram() / 1024, 2)

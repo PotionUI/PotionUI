@@ -97,3 +97,18 @@ fields:
               size: "242.0 MB"
               sha256: "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
               description: "Qwen-Image VAE (Wan 2.1 causal-3D). One file for every mode."
+
+      - name: "preview_decoder"
+        type: "model"
+        label: "Preview decoder"
+        required: false
+        ai_hint: "Optional tiny decoder that turns the live preview into a true-colour frame from the middle of the clip. Leave empty to keep the fast latent colour projection."
+        configuration:
+          model_type: "preview_decoder"
+          placeholder: "Select taew2_1.safetensors..."
+          recommendations:
+            - name: "taew2_1.safetensors"
+              link: "https://raw.githubusercontent.com/madebyollin/taehv/62f7591f59dfbb4c3c02b7a621d180a9eeaba26c/safetensors/taew2_1.safetensors"
+              size: "21.59 MB"
+              sha256: "04766eac0221b5390b985ae3fdcca652cbb4b1e8b82b28ea7ff89dfad1b1a93f"
+              description: "Wan 2.1, Wan 2.2 14B and Qwen-Image true-colour live preview decoder (MIT)."

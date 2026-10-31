@@ -25,8 +25,11 @@ from src.platform.runtime.pose.layout import (
 )
 
 REFERENCE_PERCENTILE = 85.0
-SCALE_FLOOR = 0.6
-SCALE_CEILING = 1.6
+SCALE_FLOOR = 0.75
+SCALE_CEILING = 1.35
+HEAD_FLOOR = 0.8
+HEAD_CEILING = 1.25
+FRAME_MARGIN = 0.02
 MIN_SAMPLES = 3
 EPS = 1e-6
 MAJOR_BONES = tuple(
@@ -44,6 +47,7 @@ class RetargetError(ValueError):
 class RetargetResult:
     poses: np.ndarray
     scale: float
+    path_scale: float
     bone_scales: Dict[Tuple[int, int], float]
     head_scale: float
 
@@ -106,8 +110,8 @@ def head_ratio(driver: np.ndarray, subject: np.ndarray, min_confidence: float) -
     return None
 
 
-def _clip(value: float, anchor: float) -> float:
-    return float(np.clip(value, anchor * SCALE_FLOOR, anchor * SCALE_CEILING))
+def _clip(value: float, anchor: float, floor: float = SCALE_FLOOR, ceiling: float = SCALE_CEILING) -> float:
+    return float(np.clip(value, anchor * floor, anchor * ceiling))
 
 
 def compute_scales(
@@ -136,7 +140,7 @@ def compute_scales(
             continue
         counterpart = COUNTERPART.get(bone)
         scales[bone] = _clip(ratios[counterpart], overall) if counterpart in ratios else overall
-    head = _clip(head_value, overall) if head_value is not None else overall
+    head = _clip(head_value, overall, HEAD_FLOOR, HEAD_CEILING) if head_value is not None else overall
     return overall, scales, head
 
 
@@ -221,11 +225,34 @@ def ease_weights(count: int, frames: int) -> np.ndarray:
     return weights
 
 
+def path_limit(
+    shifts: np.ndarray, relative: np.ndarray, anchor: np.ndarray, bounds: Tuple[float, float], min_confidence: float,
+) -> float:
+    limit = float("inf")
+    margins = (bounds[0] * FRAME_MARGIN, bounds[1] * FRAME_MARGIN)
+    for t in range(relative.shape[0]):
+        valid = relative[t, :, 2] >= min_confidence
+        if not valid.any():
+            continue
+        low = relative[t, valid, :2].min(axis=0)
+        high = relative[t, valid, :2].max(axis=0)
+        for axis in range(2):
+            shift = shifts[t, axis]
+            if shift < 0:
+                room = anchor[axis] + low[axis] - margins[axis]
+                limit = min(limit, room / -shift)
+            elif shift > 0:
+                room = bounds[axis] - margins[axis] - anchor[axis] - high[axis]
+                limit = min(limit, room / shift)
+    return max(limit, 0.0)
+
+
 def retarget_sequence(
     driver: np.ndarray,
     subject: np.ndarray,
     min_confidence: float = 0.3,
     ease_in_frames: int = 0,
+    bounds: Optional[Tuple[float, float]] = None,
 ) -> RetargetResult:
     dvalid = driver[:, NECK, 2] >= min_confidence
     if not dvalid.any():
@@ -233,10 +260,19 @@ def retarget_sequence(
     first = int(np.flatnonzero(dvalid)[0])
     overall, scales, head = compute_scales(driver, subject, min_confidence)
     anchor = _anchor(subject, driver[first], overall, min_confidence)
+    origin = np.zeros(2)
+    relative = np.stack([
+        retarget_frame(driver[t], origin, scales, head, overall, min_confidence) for t in range(driver.shape[0])
+    ])
+    shifts = np.where(dvalid[:, None], driver[:, NECK, :2] - driver[first, NECK, :2], 0.0)
+    path = overall
+    if bounds is not None:
+        path = min(overall, path_limit(shifts, relative, anchor, bounds, min_confidence))
     out = np.zeros_like(driver)
     for t in range(driver.shape[0]):
-        neck_out = anchor + (driver[t, NECK, :2] - driver[first, NECK, :2]) * overall
-        out[t] = retarget_frame(driver[t], neck_out, scales, head, overall, min_confidence)
+        out[t] = relative[t]
+        placed = relative[t, :, 2] > 0
+        out[t, placed, :2] += (anchor + shifts[t] * path).astype(np.float32)
     if ease_in_frames > 0:
         weights = ease_weights(driver.shape[0], ease_in_frames)
         svalid = subject[:, 2] >= min_confidence
@@ -248,4 +284,4 @@ def retarget_sequence(
             only_subject = svalid & ~ovalid & (weights[t] < 0.5)
             blend[only_subject] = subject[only_subject]
             out[t] = blend
-    return RetargetResult(poses=out, scale=overall, bone_scales=scales, head_scale=head)
+    return RetargetResult(poses=out, scale=overall, path_scale=path, bone_scales=scales, head_scale=head)

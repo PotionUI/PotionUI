@@ -57,3 +57,8 @@ def test_model_patches_hold_model_patch_files():
 def test_geometry_estimation_holds_geometry_estimation_files():
     assert DIRECTORY_TO_MODEL_TYPE['geometry_estimation'] == 'geometry_estimation'
     assert MODEL_TYPE_TO_DIRECTORY['geometry_estimation'] == 'geometry_estimation'
+
+
+def test_preview_decoders_live_in_the_comfyui_vae_approx_folder():
+    assert DIRECTORY_TO_MODEL_TYPE['vae_approx'] == 'preview_decoder'
+    assert MODEL_TYPE_TO_DIRECTORY['preview_decoder'] == 'vae_approx'

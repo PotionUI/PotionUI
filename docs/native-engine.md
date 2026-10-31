@@ -98,10 +98,10 @@ reads a GEMM capability itself.
 
 | Module | Public names | Role |
 |---|---|---|
-| `hardware.py` | `capabilities()`, `refresh_capabilities()`, `Capabilities`, `DeviceCapabilities`, `GpuGeneration`, the backend names `SDPA`/`FLASH`/`SAGE`/`SAGE2`/`SAGE3`/`SPARGE` | A per-process snapshot of every visible GPU (compute capability, name, generation, which attention backends are importable and eligible), built lazily once, allocation-free, cached. `Capabilities.device(index)` returns the entry for one device; an unknown or CUDA-less device answers with a CPU entry of capability `(0, 0)`, and a probe that fails never raises. `refresh_capabilities()` rebuilds it after an in-process install of an attention package. The only place in `src/` that calls `torch.cuda.get_device_capability`; the vendored `sol_attn` keeps its own probe because `vendor/` cannot import `src`. |
+| `hardware.py` | `capabilities()`, `refresh_capabilities()`, `Capabilities`, `DeviceCapabilities`, `GpuGeneration`, the backend names `SDPA`/`FLASH`/`SAGE`/`SAGE2`/`SAGE3`/`SPARGE` | A per-process snapshot of every visible GPU (compute capability, name, generation, total VRAM, vendor `cuda`/`hip`, which attention backends are importable and eligible), built lazily once, allocation-free, cached. `Capabilities.device(index)` returns the entry for one device; an unknown or CUDA-less device answers with a CPU entry of capability `(0, 0)`, and a probe that fails never raises. `refresh_capabilities()` rebuilds it after an in-process install of an attention package. The only place in `src/` that calls `torch.cuda.get_device_capability`; the vendored `sol_attn` keeps its own probe because `vendor/` cannot import `src`. |
 | `gemm.py` | `gemm_support(device)`, `GemmSupport` | Whether `torch._scaled_mm` (fp8) and `torch._scaled_mm_v2` (nvfp4) work on a device, with a reason string when not. Probed lazily per device and cached; the nvfp4 trial GEMM runs only on the first ask. The live flags `native_fp8_matmul` / `native_nvfp4_matmul` are not part of it. |
 | `linear.py` | `fast_path(layer)`, `quant_format(layer)`, `FastPath`, `FastPathKind`, `QuantFormat` | The static answer to "which path will this quantised linear take": the layer's format, `gemm_support` for its device and the live flags combined into a kind (`fp8_scaled_mm` / `nvfp4_gemm` / `dequant`), whether runtime LoRA output branches are fused, and the reason when the fast kind is not taken. `None` for layers that are not quantised linears. Value-dependent conditions (zero, NaN or negative scales) are outside the static answer. |
-| `dispatch.py` | `attention(q, k, v, ...)`, `available_backends`, `get_attention_backend`, `get_backend_override`, `known_backends`, `reset_backend_cache`, `BACKEND_PRIORITY` | The one attention call every arch module shares: a uniform `(B, H, L, D)` contract over sdpa/flash/sage/sage2/sage3 (sparge by pin only), picked by availability from the snapshot, with grouped-KV and mask handling. |
+| `dispatch.py` | `attention(q, k, v, ...)`, `available_backends`, `get_attention_backend`, `get_backend_override`, `known_backends`, `reset_backend_cache`, `BACKEND_PRIORITY` | The one attention call every arch module shares: a uniform `(B, H, L, D)` contract over sdpa/flash/sage/sage2/sage3 (sparge by pin only), picked by availability from the snapshot, with grouped-KV and mask handling, an optional softmax `scale` forwarded to every backend that takes one, and a per-backend `head_dim` gate (sage/sage2/sage3 up to 128, flash up to 256, sparge 64 or 128). A call a backend cannot serve (mask, dtype, head_dim, or a `scale` on sage3) runs on sdpa inside the dispatcher and is logged once. |
 | `casting.py` | `disable_weight_init`, `manual_cast`, `CastWeightBiasOp`, `cast_to` | The plain and cast-on-forward layer namespaces every arch module is built from. |
 | `fp8_linear.py`, `nvfp4_linear.py` | `Fp8ScaledLinear` (and `Nvfp4Linear`, reached as `fp8_ops.Linear`) | The scaled-fp8, int8 and ConvRot layer, and the nvfp4 layer, with their dequant-on-forward and GEMM forwards. |
 | `operations.py` | `pick_operations`, `detect_quant_format`, `fp8_ops`, `QUANT_FP8_SCALED` | Chooses the layer namespace from a checkpoint's storage dtype and quant format. |
@@ -360,6 +360,46 @@ still no branch on family name.
 > `process_in`/`process_out` (which read `self.latents_mean`/`self.latents_std`) but its own
 > `__init__` never sets them -- verified by reading the class, not assumed. Wan 2.2 normalization
 > is plain `scale_factor=1.0` (a no-op), nothing per-channel.
+
+## Live previews
+
+Sampling streams a preview of the running `x0` estimate to the workbench every fifth step (the first
+and last step always). Two sources produce it:
+
+- **Latent colour projection** (default). A per-family `C x 3` linear map from ComfyUI's
+  `latent_formats.py`, applied at latent resolution (`sampling/preview.py`). It costs one matmul and
+  shows only the first frame of a video. MiniMax-H3 has no trained table, so its colours are a
+  placeholder.
+- **Preview decoder.** A TAEHV tiny decoder ([madebyollin/taehv](https://github.com/madebyollin/taehv),
+  MIT, vendored under `vendor/taehv/`). It decodes the running latent to real colour, under 0.5 GB of
+  VRAM and several times faster than the full VAE, and the preview shows the middle frame of the clip.
+
+The decoder is an ordinary model slot, not a setting. A preset declares an optional `preview_decoder`
+model field (`model_type: preview_decoder`, depot folder `vae_approx/`, the same folder ComfyUI uses),
+admins can set its default or hide it like any other model field, and nothing is downloaded behind the
+user's back: the weights come from the field's recommendation or the `src/std/models/preview_decoders.yml`
+catalog. When the field is empty, missing, unreadable or built for another latent width than the model
+samples, the hook silently keeps the colour projection.
+
+| Weights | Latent | Use with |
+|---|---|---|
+| `taeh3` | 24 ch | MiniMax-H3 |
+| `taeltx_2` | 128 ch | LTX-2 |
+| `taeltx2_3` | 128 ch | LTX-2.3, LTX-2.5 |
+| `taew2_1` | 16 ch | Wan 2.1, Wan 2.2 14B, Qwen-Image |
+| `taew2_2` | 48 ch | Wan 2.2 5B |
+
+The architecture is read from the weights (latent width and layer shapes), never from the file name, so
+a renamed file still loads. A decoder is loaded once through `ModelLifecycle` under the key
+`native/preview_decoder/<path>`, runs in fp16 on CUDA and fp32 on CPU, and goes back to the CPU when the
+sampling loop ends. To keep the cost flat on long clips, a step decodes a window of three latent frames
+around the middle one, at the smallest spatial scale that still reaches the 512 px preview cap.
+`sampling/preview_decoder.py` also exposes `decode_clip`, which decodes every frame of a latent
+(optionally at reduced spatial scale) for callers that want the whole low-resolution clip.
+
+To add the slot to another mode, copy the `preview_decoder` field into that mode's Models section and
+add `preview_decoder: "{{ form.preview_decoder | default('') }}"` to each generator pipe's
+`configuration:`.
 
 ## Verification approach
 

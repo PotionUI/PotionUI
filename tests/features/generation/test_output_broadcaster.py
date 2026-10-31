@@ -351,6 +351,20 @@ async def test_a_progress_line_names_only_the_file_for_a_user_and_the_path_for_a
 
 
 @pytest.mark.asyncio
+async def test_the_comfyui_connecting_line_hides_the_backend_address_from_a_user():
+    broadcaster, hub, recorder = _broadcaster()
+    user = await _subscribe(hub, "user", "gen-1")
+    admin = await _subscribe(hub, "admin", "gen-1", privileged=True)
+    state = "Connecting to ComfyUI at 10.0.0.5:8188"
+
+    await broadcaster.handle_output("gen-1", ProgressGenerationOutput(state=state))
+
+    assert user.sent[-1]["current_step"] == "Connecting to ComfyUI\u2026"
+    assert admin.sent[-1]["current_step"] == state
+    assert recorder.record_output.call_args[0][1]["current_step"] == state
+
+
+@pytest.mark.asyncio
 async def test_a_model_file_index_warning_names_only_the_file_for_a_user():
     broadcaster, hub, _ = _broadcaster()
     user = await _subscribe(hub, "user", "gen-1")

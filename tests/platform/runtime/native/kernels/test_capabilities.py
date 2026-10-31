@@ -50,7 +50,7 @@ def _raise(*args, **kwargs):
     raise RuntimeError("driver hiccup")
 
 
-def _environment(monkeypatch, *, devices=(), modules=(), sage_v2=True, runtime="12.8", current=0):
+def _environment(monkeypatch, *, devices=(), modules=(), sage_v2=True, runtime="12.8", current=0, memory=24 * 1024 ** 3, hip=None):
     state = types.SimpleNamespace(current=current, availability_calls=0, device_count_calls=0)
 
     def is_available():
@@ -87,6 +87,12 @@ def _environment(monkeypatch, *, devices=(), modules=(), sage_v2=True, runtime="
     monkeypatch.setattr(torch.cuda, "device_count", device_count)
     monkeypatch.setattr(torch.cuda, "get_device_capability", get_device_capability)
     monkeypatch.setattr(torch.cuda, "get_device_name", get_device_name)
+    monkeypatch.setattr(
+        torch.cuda,
+        "get_device_properties",
+        lambda index=None: types.SimpleNamespace(total_memory=memory[index] if isinstance(memory, (list, tuple)) else memory),
+    )
+    monkeypatch.setattr(torch.version, "hip", hip, raising=False)
     monkeypatch.setattr(torch.cuda, "current_device", lambda: state.current)
     monkeypatch.setattr(torch.version, "cuda", runtime, raising=False)
     monkeypatch.setattr(importlib.util, "find_spec", find_spec)
@@ -255,6 +261,51 @@ def test_at_least_compares_major_then_minor(capability, major, minor, expected):
 def test_at_least_defaults_the_minor_to_zero():
     assert fake_device((8, 0)).at_least(8) is True
     assert fake_device((7, 5)).at_least(8) is False
+
+
+def test_snapshot_carries_total_memory_per_device(monkeypatch):
+    _environment(monkeypatch, devices=[(8, 9), (12, 0)], memory=[24 * 1024 ** 3, 32 * 1024 ** 3])
+    first, second = capabilities().devices
+    assert (first.total_memory, second.total_memory) == (24 * 1024 ** 3, 32 * 1024 ** 3)
+    assert capabilities().cpu.total_memory == 0
+
+
+def test_snapshot_vendor_is_cuda_without_hip(monkeypatch):
+    _environment(monkeypatch, devices=[(8, 9)])
+    assert capabilities().device(0).vendor == "cuda"
+    assert capabilities().cpu.vendor == "none"
+
+
+def test_snapshot_vendor_is_hip_on_a_rocm_build(monkeypatch):
+    _environment(monkeypatch, devices=[(9, 0), (9, 0)], hip="6.2.41")
+    assert [device.vendor for device in capabilities().devices] == ["hip", "hip"]
+
+
+def test_snapshot_memory_probe_failure_falls_back_to_zero(monkeypatch):
+    _environment(monkeypatch, devices=[(8, 9)])
+    monkeypatch.setattr(torch.cuda, "get_device_properties", _raise)
+    device = capabilities().device(0)
+    assert device.total_memory == 0
+    assert device.capability == (8, 9)
+
+
+def test_snapshot_hip_probe_failure_falls_back_to_cuda(monkeypatch):
+    _environment(monkeypatch, devices=[(8, 9)])
+
+    class Broken:
+        cuda = "12.8"
+
+        def __getattr__(self, name):
+            raise RuntimeError("no version")
+
+    monkeypatch.setattr(torch, "version", Broken())
+    assert capabilities().device(0).vendor == "cuda"
+
+
+def test_fake_device_defaults_memory_and_vendor():
+    device = fake_device((8, 6))
+    assert (device.total_memory, device.vendor) == (24 * 1024 ** 3, "cuda")
+    assert fake_capabilities(device).cpu.vendor == "none"
 
 
 def test_snapshot_exposes_immutable_containers(monkeypatch):

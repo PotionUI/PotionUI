@@ -50,6 +50,7 @@ class ToolDTO(BaseModel):
     component: Optional[str] = None
     source: str
     description: Optional[str] = None
+    group: str = "edit"
     runnable: bool = True
     last_params: Optional[Dict[str, Any]] = None
 

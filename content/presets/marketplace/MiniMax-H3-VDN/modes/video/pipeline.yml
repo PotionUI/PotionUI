@@ -283,6 +283,7 @@ pipeline:
       - ["director_image", "director_media", "image"]
     enabled: true
     configuration:
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       mode: "video"
       # The whole normalized Director document, raw (an exact `{{ }}` scalar
       # bypasses Jinja stringification -- the pipe reads real nested dicts and

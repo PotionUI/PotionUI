@@ -25,8 +25,10 @@ reported by name instead of failing inside the runtime.
 
 They run on ONNX Runtime. `requirements.txt` carries the CPU `onnxruntime` package. If the installed
 build offers the CUDA execution provider (the `onnxruntime-gpu` package) the estimator uses it,
-otherwise it falls back to the CPU. Only one of the two packages may be installed at a time; swap
-them with `pip uninstall onnxruntime && pip install onnxruntime-gpu` when the GPU provider is wanted.
+otherwise it falls back to the CPU. The chosen providers are logged when each model loads. Only one of
+the two packages may be installed at a time. For CUDA pose, uninstall `onnxruntime` and install
+`onnxruntime-gpu` (`pip uninstall onnxruntime && pip install onnxruntime-gpu`); `requirements.txt`
+keeps the CPU package.
 
 ## The `control_video` pipe
 

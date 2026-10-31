@@ -78,7 +78,8 @@ class QwenEditMixin:
             sampler_options=ctx.extra.get("sampler_options"),
             step_cache_options=ctx.extra.get("step_cache_options"),
             schedule_settings=ctx.extra.get("schedule_settings"),
-            hooks=native_step_hooks(gen, progress, on_progress, preview=self.config.get("preview", True)),
+            hooks=native_step_hooks(gen, progress, on_progress, preview=self.config.get("preview", True),
+                                    decoder_path=self.config.get("preview_decoder") or None),
             is_cancelled=ctx.is_cancelled,
         )
         pixels = gen.decode(latent)

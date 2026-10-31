@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Sequence, Tuple
@@ -11,6 +12,8 @@ import cv2
 import numpy as np
 
 from src.platform.runtime.pose.layout import coco_wholebody_to_openpose
+
+logger = logging.getLogger(__name__)
 
 DETECTOR_FILENAME = "yolox_l.onnx"
 POSE_FILENAME = "dw-ll_ucoco_384.onnx"
@@ -62,6 +65,7 @@ def create_onnx_session(path: str) -> Any:
 
     available = set(ort.get_available_providers())
     providers = [name for name in ("CUDAExecutionProvider",) if name in available] + ["CPUExecutionProvider"]
+    logger.info("[POSE] ONNX Runtime providers for %s: %s", Path(path).name, providers)
     return ort.InferenceSession(str(path), providers=providers)
 
 

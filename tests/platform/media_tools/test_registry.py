@@ -8,7 +8,7 @@ from tests.platform.media_tools.fake_tools import make_spec
 
 CORE_IDS = [
     "trim", "crop", "resize", "rotate", "flip", "speed",
-    "fit_canvas", "color_key", "crop_subject", "frame", "split", "concat",
+    "fit_canvas", "color_key", "crop_subject", "frame", "split", "concat", "fix_colors", "cut_finder",
 ]
 
 
@@ -18,13 +18,13 @@ def plugin_spec(plugin="boomerang", tool="loop", **overrides):
     return make_spec(f"{plugin}.{tool}", MediaTool(), **values)
 
 
-def test_core_registers_exactly_the_twelve_contract_tools_in_menu_order():
+def test_core_registers_exactly_the_contract_tools_in_menu_order():
     registry = MediaToolRegistry()
 
     register_core_tools(registry)
 
     assert [spec.id for spec in registry.list()] == CORE_IDS
-    assert len(CORE_MODULES) == 12
+    assert len(CORE_MODULES) == 14
     assert all(spec.source == "core" and "." not in spec.id for spec in registry.list())
 
 
@@ -41,6 +41,9 @@ def test_core_specs_follow_the_contract_table():
     assert by_id["crop_subject"].requires == {"has_alpha": True}
     assert by_id["frame"].produces == "image" and by_id["frame"].editor == "frame"
     assert by_id["split"].cardinality == "one_to_many" and by_id["split"].editor == "split"
+    assert by_id["fix_colors"].accepts == ("video",) and by_id["fix_colors"].group == "effects"
+    assert by_id["cut_finder"].accepts == ("video",) and by_id["cut_finder"].cardinality == "one_to_many"
+    assert all(spec.group == "edit" for spec in by_id.values() if spec.id != "fix_colors")
     assert by_id["concat"].cardinality == "many_to_one" and by_id["concat"].selection == {"min": 2, "max": 8}
     assert all(spec.scopes == ("library", "history", "field") for spec in by_id.values())
     assert all(spec.impl is not None for spec in by_id.values())
@@ -60,6 +63,8 @@ def test_core_param_names_are_the_contract_names():
         "frame": ["time"],
         "split": ["part_seconds"],
         "concat": ["overlap", "overlap_frames", "fit", "keep_audio"],
+        "fix_colors": ["white_balance", "contrast", "strength"],
+        "cut_finder": ["sensitivity", "min_shot_seconds"],
     }
 
     assert {spec.id: [p["name"] for p in spec.params] for spec in core_specs()} == expected
@@ -98,7 +103,7 @@ def test_unregister_source_removes_only_that_sources_tools():
 
     assert removed == 2
     assert registry.get("a.one") is None and registry.get("b.one") is not None
-    assert len(registry.list()) == 13
+    assert len(registry.list()) == 15
     assert registry.unregister_source("a") == 0
     assert registry.sources() == {"core", "b"}
 
@@ -170,7 +175,7 @@ def test_to_dict_leaks_no_implementation_and_copies_params():
     assert spec.accepts == ("image",)
     assert set(data) == {
         "id", "label", "icon", "accepts", "produces", "cardinality", "params", "requires",
-        "selection", "scopes", "editor", "preview", "component", "source", "description",
+        "selection", "scopes", "editor", "preview", "component", "source", "description", "group",
     }
 
 

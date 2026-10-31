@@ -36,6 +36,12 @@ import torch
 from PIL import Image
 
 from .hooks import PreviewHook
+from .preview_decoder import (
+    acquire_preview_decoder,
+    decode_middle_frame,
+    frame_to_image,
+    spec_latent_channels,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -317,6 +323,36 @@ def latent_to_preview_image(
     return img
 
 
+class _DecoderPreviewHook(PreviewHook):
+    def __init__(self, decode_fn, every_n, callback, decoder, priority: int = 50) -> None:
+        super().__init__(decode_fn, every_n, callback, priority=priority)
+        self._decoder = decoder
+
+    def on_end(self) -> None:
+        try:
+            self._decoder.to("cpu")
+        except Exception:
+            logger.debug("preview decoder offload failed", exc_info=True)
+
+
+def _resolve_decoder(spec: Any, decoder_path: Optional[Any]):
+    if not decoder_path:
+        return None
+    try:
+        decoder = acquire_preview_decoder(decoder_path)
+    except Exception:
+        logger.warning("preview decoder %s could not be loaded; using the latent projection", decoder_path, exc_info=True)
+        return None
+    expected = spec_latent_channels(spec)
+    if expected is not None and expected != decoder.latent_channels:
+        logger.warning(
+            "preview decoder %s has %d latent channels but the model has %d; using the latent projection",
+            decoder_path, decoder.latent_channels, expected,
+        )
+        return None
+    return decoder
+
+
 def make_preview_hook(
     spec: Any,
     emit: Callable[[Image.Image], None],
@@ -325,23 +361,11 @@ def make_preview_hook(
     max_size: int = PREVIEW_MAX_SIZE,
     priority: int = 50,
     latent_transform: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
+    decoder_path: Optional[Any] = None,
 ) -> Optional[PreviewHook]:
-    """Build a :class:`~.hooks.PreviewHook` for ``spec`` that emits PIL previews.
-
-    Returns ``None`` when the family has no vendored factors (``spec`` unknown or
-    latent-only-video without a table) so callers can unconditionally
-    ``if hook: hooks.append(hook)``. Decode and emit are both guarded: a preview
-    that raises is logged at debug and dropped, never surfacing to the sampler
-    (which already isolates hook failures, but the extra guard keeps a preview
-    error inert even off the sampler's ``run_hooks`` path).
-
-    ``latent_transform`` (optional) maps the sampler's x0 estimate to the
-    family's native 5D/4D latent grid before RGB projection — for samplers
-    whose working state is packed tokens (e.g. the conditioned LTX path, which
-    carries ``[B, S, C]`` tokens plus appended conditioning/audio slices).
-    """
     factors = resolve_preview_factors(spec)
-    if factors is None:
+    decoder = _resolve_decoder(spec, decoder_path)
+    if factors is None and decoder is None:
         logger.debug(
             "no preview factors for spec %s; step previews disabled",
             getattr(spec, "variant", spec),
@@ -352,8 +376,15 @@ def make_preview_hook(
         try:
             if latent_transform is not None:
                 x0 = latent_transform(x0)
+            if decoder is not None:
+                try:
+                    return frame_to_image(decode_middle_frame(decoder, x0, max_size=max_size), max_size=max_size)
+                except Exception:
+                    if factors is None:
+                        raise
+                    logger.debug("preview decoder failed; using the latent projection", exc_info=True)
             return latent_to_preview_image(x0, factors, max_size=max_size)
-        except Exception:  # noqa: BLE001 - a preview must never break generation
+        except Exception:
             logger.debug("latent preview decode failed; skipping frame", exc_info=True)
             return None
 
@@ -362,7 +393,9 @@ def make_preview_hook(
             return
         try:
             emit(image)
-        except Exception:  # noqa: BLE001 - as above
+        except Exception:
             logger.debug("latent preview emit failed; skipping frame", exc_info=True)
 
+    if decoder is not None:
+        return _DecoderPreviewHook(decode_fn, every_n, callback, decoder, priority=priority)
     return PreviewHook(decode_fn, every_n, callback, priority=priority)

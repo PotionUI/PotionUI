@@ -306,6 +306,7 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
             schedule_settings=ctx.extra.get("schedule_settings"),
             warm_start=ctx.extra.get("iterate_mode", False),
             hooks=native_step_hooks(gen, progress, on_progress, preview=self.config.get("preview", True),
+                                    decoder_path=self.config.get("preview_decoder") or None,
                                     extra=self.extra_step_hooks()),
             is_cancelled=ctx.is_cancelled,
         )

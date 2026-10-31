@@ -5,6 +5,7 @@ from typing import List
 from src.pipelines.contracts import PipeConfigSpec
 
 DEFAULT_PREVIEW_DESCRIPTION = "Emit live latent previews to the workbench during sampling"
+DEFAULT_PREVIEW_DECODER_DESCRIPTION = "Tiny preview decoder weights (vae_approx); blank uses the latent colour projection"
 DEFAULT_NAG_SCALE_DESCRIPTION = (
     "Normalized Attention Guidance scale (1.0 = off). Injects the negative "
     "prompt into cross-attention so it's enforced even at cfg=1.0 (single-forward speed) — set "
@@ -31,6 +32,10 @@ def seed_config_spec(description: str = "Random seed") -> PipeConfigSpec:
 
 def preview_config_spec(description: str = DEFAULT_PREVIEW_DESCRIPTION) -> PipeConfigSpec:
     return PipeConfigSpec("preview", bool, True, description, required=False)
+
+
+def preview_decoder_config_spec(description: str = DEFAULT_PREVIEW_DECODER_DESCRIPTION) -> PipeConfigSpec:
+    return PipeConfigSpec("preview_decoder", str, "", description, required=False)
 
 
 def loras_config_spec(description: str) -> PipeConfigSpec:

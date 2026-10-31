@@ -13,6 +13,8 @@ from src.platform.media_tools.ops import (
     frame,
     split,
     concat,
+    fix_colors,
+    cut_finder,
 )
 from src.platform.media_tools.registry import MediaToolRegistry
 from src.platform.media_tools.types import ToolSpec
@@ -30,6 +32,8 @@ CORE_MODULES = (
     frame,
     split,
     concat,
+    fix_colors,
+    cut_finder,
 )
 
 

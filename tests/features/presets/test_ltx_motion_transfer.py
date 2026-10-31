@@ -136,13 +136,13 @@ def test_the_mode_recommends_the_union_lora_by_filename(templates, name):
     root = Path("content/presets/marketplace") / name / "modes" / "motion_transfer"
     form = yaml.safe_load((root / "form.yml").read_text(encoding="utf-8"))
     requirement = form["requirements"][0]
-    assert requirement["filename"] == UNION_LORA
+    assert requirement["field"] == "effect_lora"
     assert requirement["hint"]
     models = yaml.safe_load((root / "tabs" / "generation.yml").read_text(encoding="utf-8"))
     section = next(f for f in models["fields"] if f.get("label") == "Models")
     lora = next(f for f in section["children"] if f.get("name") == "effect_lora")
     (recommendation,) = lora["configuration"]["recommendations"]
-    assert recommendation["name"] == requirement["filename"] == UNION_LORA
+    assert recommendation["name"] == UNION_LORA
     assert re.fullmatch(r"\d+(\.\d+)? (MB|GB)", recommendation["size"])
     assert re.fullmatch(r"[0-9a-f]{64}", recommendation["sha256"])
     assert recommendation["sha256"] == UNION_SHA256

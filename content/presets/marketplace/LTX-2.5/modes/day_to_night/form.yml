@@ -10,7 +10,7 @@ negative_prompt:
       - { field: "cfg", greater_than: 1 }
 requirements:
   - type: "model"
-    filename: "ltx-2.5-22b-ic-lora-day-to-night-0.9.safetensors"
+    field: "effect_lora"
     hint: "Download the Day to night LoRA in this mode."
 fields:
   - type: "tabs"

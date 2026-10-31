@@ -5,7 +5,7 @@ mode_label: "Motion transfer"
 short_description: "Make the person in a picture perform the moves from a video."
 requirements:
   - type: "model"
-    filename: "minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors"
+    field: "control_model"
     hint: "Download the Fun ControlNet patch in this mode."
 fields:
   - type: "tabs"

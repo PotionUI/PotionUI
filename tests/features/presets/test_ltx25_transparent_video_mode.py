@@ -99,7 +99,7 @@ def test_the_mode_takes_no_prompt():
 
 def test_the_alpha_gen_lora_is_required_and_recommended_by_hash():
     form = yaml.safe_load((MODE_ROOT / "form.yml").read_text(encoding="utf-8"))
-    assert form["requirements"][0]["filename"] == LORA
+    assert form["requirements"][0]["field"] == "effect_lora"
     generation = yaml.safe_load((MODE_ROOT / "tabs" / "generation.yml").read_text(encoding="utf-8"))
     section = next(f for f in generation["fields"] if f.get("label") == "Alpha-Gen LoRA")
     (lora,) = section["children"]

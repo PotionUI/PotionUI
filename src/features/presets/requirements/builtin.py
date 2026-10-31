@@ -9,6 +9,7 @@ Every checker is pure Python: no subprocess, no shell, no network I/O.
 
 import importlib.metadata
 import shutil
+from pathlib import PurePosixPath
 from typing import Any, Dict, List, Optional
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
@@ -16,6 +17,8 @@ from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.features.models.recommendations import any_installed
+
+MODEL_REF_PREFIX = "model:"
 from src.features.presets.requirements.contracts import (
     RequirementAction,
     RequirementContext,
@@ -251,6 +254,10 @@ class ModelRequirementChecker:
             model = any_installed(ctx.models.model_repo, group.get("files") or [], digests=digests)
             if model is not None:
                 return RequirementResult(status="ok", detail=f"model '{model.filename}' present for '{group.get('field')}'")
+        for group in parsed.candidates:
+            chosen = ModelRequirementChecker._admin_default(ctx, group)
+            if chosen is not None:
+                return RequirementResult(status="ok", detail=f"admin default '{chosen}' present for '{group.get('field')}'")
         label = names[0] if parsed.field else "one of " + ", ".join(names)
         return RequirementResult(
             status="missing",
@@ -258,6 +265,24 @@ class ModelRequirementChecker:
             hint=parsed.hint,
             action=RequirementAction(kind="open_downloader", payload={"field": names[0], "fields": names}),
         )
+
+    @staticmethod
+    def _admin_default(ctx: RequirementContext, group: Dict[str, Any]) -> Optional[str]:
+        overrides = ((ctx.form_overrides or {}).get(group.get("mode")) or {}).get(group.get("field"))
+        value = overrides.get("default") if isinstance(overrides, dict) else None
+        if not isinstance(value, str) or not value.strip():
+            return None
+        repo = ctx.models.model_repo
+        if value.startswith(MODEL_REF_PREFIX):
+            model = repo.get_by_id(value[len(MODEL_REF_PREFIX):], include_providers=False)
+        else:
+            name = PurePosixPath(value.replace("\\", "/")).name
+            model = repo.get_by_identity(group.get("model_type") or "", name) if group.get("model_type") else None
+            if model is None:
+                model = next((m for m in repo.get_by_filename(name) or [] if m.is_available), None)
+        if model is None or not getattr(model, "is_available", True):
+            return None
+        return model.filename
 
     @staticmethod
     def _unverified_files(ctx: RequirementContext) -> int:

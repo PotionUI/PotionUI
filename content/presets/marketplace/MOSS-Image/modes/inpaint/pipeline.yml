@@ -125,8 +125,8 @@ pipeline:
       - ["model", "model_loader/moss_image", "model"]
       - ["conditioning", "prompt_encoder", "conditioning"]
       - ["seed", "seed_generator", "seed"]
-      - ["image", "{% if (form.source_image_inpaint_mask | default('', true)) != '' %}inpaint_region_crop{% else %}media_loader{% endif %}", "image"]
-      - ["mask", "inpaint_region_crop", "mask"]
+      - ["image", "{% if (form.source_image_inpaint_mask | default('', true)) != '' %}inpaint_region_crop{% else %}media_loader{% endif %}", "{% if (form.source_image_inpaint_mask | default('', true)) != '' %}images{% else %}image{% endif %}"]
+      - ["mask", "inpaint_region_crop", "masks"]
     enabled: true
     configuration:
       mode: "inpaint"
@@ -154,8 +154,8 @@ pipeline:
       - ["original_image", "inpaint_region_crop", "original_image"]
       - ["original_mask", "inpaint_region_crop", "original_mask"]
     configuration:
-      strategy: "composite"
-      feather: "{{ (form.mask_feather | default(8) | float) / 100 }}"
+      strategy: "inpaint"
+      feather: "{{ (form.mask_feather | default(12) | float) / 100 }}"
 
   - name: "gallery"
     input:

@@ -154,6 +154,10 @@ Grow the canvas around a picture and mask the new area for outpainting
 | `image` | `IMAGE` | no | Picture on the larger canvas |
 | `images` | `IMAGE` | yes | Picture on the larger canvas as a one-item list |
 | `mask` | `IMAGE` | no | White over the new area |
+| `masks` | `IMAGE` | yes | White over the new area as a one-item list |
+| `crop_region` | `DICT` | no | The whole canvas, for the restore pipe |
+| `original_image` | `IMAGE` | no | Picture on the larger canvas, for the restore pipe |
+| `original_mask` | `IMAGE` | no | White over the new area, for the restore pipe |
 
 **Configuration**
 
@@ -166,7 +170,7 @@ Grow the canvas around a picture and mask the new area for outpainting
 | `aspect` | `str` | `""` | no | — | — | — | Target shape as W:H; grows the canvas to it instead of using the sides |
 | `anchor` | `str` | `"center"` | no | `center`, `left`, `right`, `top`, `bottom` | — | — | Where the picture sits when growing to a target shape |
 | `fill` | `str` | `"blur"` | no | `blur`, `edge`, `gray` | — | — | What the new area starts as before it is repainted |
-| `overlap` | `int` | `16` | no | — | 0 | 128 | Pixels of the original edge that are repainted too, so the seam blends |
+| `overlap` | `int` | `48` | no | — | 0 | 256 | Pixels of the original edge that are repainted too, so the seam blends |
 
 ## checkpoint_loader
 
@@ -659,6 +663,7 @@ Native Anima generator (flow matching, true CFG, LLMAdapter text fusion)
 | `mode` | `str` | `"txt2img"` | yes | `txt2img`, `img2img` | — | — | Generation mode |
 | `denoise` | `float` | `0.55` | no | — | 0.0 | 1.0 | img2img denoise strength (fraction of the schedule to walk) |
 | `img2img_scale` | `float` | `0.0` | no | — | 0.0 | 8.0 | Literal multiplier of the SOURCE image's own (width, height) for the img2img target size, snapped to the model's granularity same as every other path here. 0 (default) is off and leaves the existing resolution-area-match / area-cap behaviour byte-identical -- set this instead of (not alongside) the mode's ``resolution`` config for a true "upscale by Nx of whatever was uploaded" mode. |
+| `max_pixels` | `int` | `0` | no | — | 0 | 33554432 | Inpaint only: keep the picture at its own size and scale down only when it exceeds this pixel area; 0 matches the mode's resolution area instead |
 | `steps` | `int` | `24` | no | — | 1 | 100 | Denoising steps |
 | `guidance` | `float` | `6.0` | no | — | 0.0 | 30.0 | True CFG scale |
 | `shift` | `float` | — | no | — | — | — | Sigma-shift override; blank -> spec default (3.0) |
@@ -886,6 +891,7 @@ Native Flux-family generator (flow matching, embedded guidance)
 | `mode` | `str` | `"txt2img"` | yes | `txt2img`, `img2img` | — | — | Generation mode |
 | `denoise` | `float` | `0.55` | no | — | 0.0 | 1.0 | img2img denoise strength (fraction of the schedule to walk) |
 | `img2img_scale` | `float` | `0.0` | no | — | 0.0 | 8.0 | Literal multiplier of the SOURCE image's own (width, height) for the img2img target size, snapped to the model's granularity same as every other path here. 0 (default) is off and leaves the existing resolution-area-match / area-cap behaviour byte-identical -- set this instead of (not alongside) the mode's ``resolution`` config for a true "upscale by Nx of whatever was uploaded" mode. |
+| `max_pixels` | `int` | `0` | no | — | 0 | 33554432 | Inpaint only: keep the picture at its own size and scale down only when it exceeds this pixel area; 0 matches the mode's resolution area instead |
 | `steps` | `int` | `20` | no | — | 1 | 100 | Denoising steps |
 | `guidance` | `float` | `3.5` | no | — | 0.0 | 30.0 | Embedded (distilled) guidance scale |
 | `shift` | `float` | — | no | — | — | — | Sigma-shift override (constant-shift variants only) |
@@ -1038,6 +1044,7 @@ Native Krea-2 generator (flow matching, true CFG; turbo defaults to cfg=1)
 | `mode` | `str` | `"txt2img"` | yes | `txt2img`, `img2img`, `inpaint` | — | — | Generation mode |
 | `denoise` | `float` | `0.55` | no | — | 0.0 | 1.0 | img2img denoise strength (fraction of the schedule to walk) |
 | `img2img_scale` | `float` | `0.0` | no | — | 0.0 | 8.0 | Literal multiplier of the SOURCE image's own (width, height) for the img2img target size, snapped to the model's granularity same as every other path here. 0 (default) is off and leaves the existing resolution-area-match / area-cap behaviour byte-identical -- set this instead of (not alongside) the mode's ``resolution`` config for a true "upscale by Nx of whatever was uploaded" mode. |
+| `max_pixels` | `int` | `0` | no | — | 0 | 33554432 | Inpaint only: keep the picture at its own size and scale down only when it exceeds this pixel area; 0 matches the mode's resolution area instead |
 | `steps` | `int` | `8` | no | — | 1 | 100 | Denoising steps (turbo default 8) |
 | `guidance` | `float` | `1.0` | no | — | 1.0 | 15.0 | CFG scale. 1.0 = single conditional-only forward (turbo/distilled default, byte-identical to the old NoCFG path); above 1.0 runs a real negative-conditioned forward pass each step -- needed for a raw/base checkpoint, optional as an experiment on the distilled checkpoint at higher step counts. |
 | `mu_schedule` | `str` | `"fixed"` | no | `fixed`, `dynamic` | — | — | Sigma-schedule mu source: 'fixed' pins the official turbo schedule (fixed_mu=1.15); 'dynamic' switches to the resolution-anchored mu interpolation for a raw/base (non-distilled) checkpoint (see docs/models/krea2.md). |
@@ -1089,6 +1096,7 @@ Native Krea-2 instruction-based edit generator (in-context source tokens)
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
 | `img2img_scale` | `float` | `0.0` | no | — | 0.0 | 8.0 | Literal multiplier of the SOURCE image's own (width, height) for the img2img target size, snapped to the model's granularity same as every other path here. 0 (default) is off and leaves the existing resolution-area-match / area-cap behaviour byte-identical -- set this instead of (not alongside) the mode's ``resolution`` config for a true "upscale by Nx of whatever was uploaded" mode. |
+| `max_pixels` | `int` | `0` | no | — | 0 | 33554432 | Inpaint only: keep the picture at its own size and scale down only when it exceeds this pixel area; 0 matches the mode's resolution area instead |
 | `steps` | `int` | `8` | no | — | 1 | 100 | Denoising steps (turbo default 8) |
 | `guidance` | `float` | `1.0` | no | — | 1.0 | 15.0 | CFG scale. 1.0 = single conditional-only forward (turbo/distilled default, byte-identical to the old NoCFG path); above 1.0 runs a real negative-conditioned forward pass each step -- needed for a raw/base checkpoint, optional as an experiment on the distilled checkpoint at higher step counts. |
 | `mu_schedule` | `str` | `"fixed"` | no | `fixed`, `dynamic` | — | — | Sigma-schedule mu source: 'fixed' pins the official turbo schedule (fixed_mu=1.15); 'dynamic' switches to the resolution-anchored mu interpolation for a raw/base (non-distilled) checkpoint (see docs/models/krea2.md). |
@@ -1182,6 +1190,7 @@ Native MOSS-Image text-to-image generator (true CFG with a layer-skipped negativ
 | `mode` | `str` | `"txt2img"` | no | `txt2img`, `inpaint` | — | — | Generation mode |
 | `denoise` | `float` | `1.0` | no | — | 0.0 | 1.0 | img2img denoise strength (fraction of the schedule to walk) |
 | `img2img_scale` | `float` | `0.0` | no | — | 0.0 | 8.0 | Literal multiplier of the SOURCE image's own (width, height) for the img2img target size, snapped to the model's granularity same as every other path here. 0 (default) is off and leaves the existing resolution-area-match / area-cap behaviour byte-identical -- set this instead of (not alongside) the mode's ``resolution`` config for a true "upscale by Nx of whatever was uploaded" mode. |
+| `max_pixels` | `int` | `0` | no | — | 0 | 33554432 | Inpaint only: keep the picture at its own size and scale down only when it exceeds this pixel area; 0 matches the mode's resolution area instead |
 | `steps` | `int` | `50` | no | — | 1 | 100 | Denoising steps |
 | `guidance` | `float` | `3.0` | no | — | 0.0 | 30.0 | True CFG scale (3.0 for both SFT and Base) |
 | `shift` | `float` | — | no | — | — | — | Sigma-shift override; blank uses the checkpoint's 5.0 |
@@ -1277,6 +1286,7 @@ Native Qwen-Image generator (flow matching, true CFG)
 | `mode` | `str` | `"txt2img"` | yes | `txt2img`, `img2img`, `edit` | — | — | Generation mode |
 | `denoise` | `float` | `0.55` | no | — | 0.0 | 1.0 | img2img denoise strength (fraction of the schedule to walk) |
 | `img2img_scale` | `float` | `0.0` | no | — | 0.0 | 8.0 | Literal multiplier of the SOURCE image's own (width, height) for the img2img target size, snapped to the model's granularity same as every other path here. 0 (default) is off and leaves the existing resolution-area-match / area-cap behaviour byte-identical -- set this instead of (not alongside) the mode's ``resolution`` config for a true "upscale by Nx of whatever was uploaded" mode. |
+| `max_pixels` | `int` | `0` | no | — | 0 | 33554432 | Inpaint only: keep the picture at its own size and scale down only when it exceeds this pixel area; 0 matches the mode's resolution area instead |
 | `steps` | `int` | `20` | no | — | 1 | 100 | Denoising steps |
 | `guidance` | `float` | `4.0` | no | — | 0.0 | 30.0 | True CFG scale (Qwen true_cfg_scale) |
 | `shift` | `float` | — | no | — | — | — | Sigma-shift override; blank -> spec default (1.15) |
@@ -1325,6 +1335,7 @@ Native Qwen-Image-2.1 generator (flow matching, true CFG)
 | `mode` | `str` | `"txt2img"` | yes | `txt2img`, `edit`, `inpaint`, `control` | — | — | Generation mode |
 | `denoise` | `float` | `1.0` | no | — | 0.0 | 1.0 | img2img denoise strength (fraction of the schedule to walk) |
 | `img2img_scale` | `float` | `0.0` | no | — | 0.0 | 8.0 | Literal multiplier of the SOURCE image's own (width, height) for the img2img target size, snapped to the model's granularity same as every other path here. 0 (default) is off and leaves the existing resolution-area-match / area-cap behaviour byte-identical -- set this instead of (not alongside) the mode's ``resolution`` config for a true "upscale by Nx of whatever was uploaded" mode. |
+| `max_pixels` | `int` | `0` | no | — | 0 | 33554432 | Inpaint only: keep the picture at its own size and scale down only when it exceeds this pixel area; 0 matches the mode's resolution area instead |
 | `control_strength` | `float` | `1.0` | no | — | 0.0 | 2.0 | Fun ControlNet strength (control_context_scale) |
 | `control_start` | `float` | `0.0` | no | — | 0.0 | 1.0 | Fraction of the sampling where the Fun ControlNet starts |
 | `control_end` | `float` | `1.0` | no | — | 0.0 | 1.0 | Fraction of the sampling where the Fun ControlNet ends |
@@ -1809,6 +1820,7 @@ Native Z-Image generator (flow matching, true CFG)
 | `control_end` | `float` | `1.0` | no | — | 0.0 | 1.0 | Fraction of the sampling where the Fun ControlNet ends |
 | `denoise` | `float` | `0.55` | no | — | 0.0 | 1.0 | img2img denoise strength (fraction of the schedule to walk) |
 | `img2img_scale` | `float` | `0.0` | no | — | 0.0 | 8.0 | Literal multiplier of the SOURCE image's own (width, height) for the img2img target size, snapped to the model's granularity same as every other path here. 0 (default) is off and leaves the existing resolution-area-match / area-cap behaviour byte-identical -- set this instead of (not alongside) the mode's ``resolution`` config for a true "upscale by Nx of whatever was uploaded" mode. |
+| `max_pixels` | `int` | `0` | no | — | 0 | 33554432 | Inpaint only: keep the picture at its own size and scale down only when it exceeds this pixel area; 0 matches the mode's resolution area instead |
 | `steps` | `int` | `8` | no | — | 1 | 100 | Denoising steps (turbo ~8, base ~30) |
 | `guidance` | `float` | `1.0` | no | — | 0.0 | 30.0 | True CFG scale (turbo 1.0 = single forward; base ~4) |
 | `shift` | `float` | — | no | — | — | — | Sigma-shift override; blank -> spec default (3.0) |
@@ -1846,6 +1858,7 @@ Crop image to masked region for memory-efficient inpainting (Fooocus-style)
 | `image` | `IMAGE` | no | Cropped image (masked region only) |
 | `images` | `IMAGE` | yes | Cropped image as a one-item list |
 | `mask` | `IMAGE` | no | Cropped mask |
+| `masks` | `IMAGE` | yes | Cropped mask as a one-item list |
 | `crop_region` | `DICT` | no | Crop region metadata for restore |
 | `original_image` | `IMAGE` | no | Original full image for restore |
 | `original_mask` | `IMAGE` | no | Original full-size mask for color correction |
@@ -1888,8 +1901,9 @@ Restore inpainted region back into original full image (Fooocus-style)
 
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
-| `strategy` | `str` | `"fooocus"` | no | `fooocus`, `composite` | — | — | fooocus pastes the crop and blends by the mask; composite feathers in proportion to the region, matches colour to its surroundings and leaves every pixel outside the feather untouched |
+| `strategy` | `str` | `"fooocus"` | no | `fooocus`, `composite`, `inpaint` | — | — | fooocus pastes the crop and blends by the mask; inpaint feathers inward from the region edge and removes the tone step against the surroundings; composite feathers in proportion to the region, matches colour to its surroundings and leaves every pixel outside the feather untouched |
 | `feather` | `float` | `0.08` | no | — | 0.0 | 1.0 | Composite strategy: feather width as a fraction of the region's longer side |
+| `feather_px` | `int` | `0` | no | — | 0 | 1024 | Inpaint strategy: feather width in pixels, replacing the fraction when above 0 |
 | `color_match` | `bool` | `true` | no | — | — | — | Composite strategy: match the edit's colour statistics to a ring around the region |
 | `color_correction` | `bool` | `true` | no | — | — | — | Apply color correction for smooth blending |
 

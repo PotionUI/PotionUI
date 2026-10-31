@@ -38,7 +38,7 @@ The shipped Krea-2 preset ships `txt2img`, `enhance`, `upscale`, `edit`, `real` 
 
 ### Inpaint
 
-`inpaint` repaints a painted area of a picture with the ordinary Krea-2 weights, on any of the Turbo, Balanced, Quality and Base profiles. The generator runs `mode: "inpaint"`: the unpainted latents stay pinned to the source on every step, so only the painted area changes (see [Latent-Mask Inpainting](../techniques/latent-mask-inpainting.md)). *Grow* widens the painted area, the area is cropped with its surroundings, repainted and composited back with a *Feather* seam. The prompt is optional; blank asks for the surroundings continued. Strength 1.0 repaints from noise; lower keeps more of the old colours. It uses the plain `generator/krea2` path, not the reference-token edit pipe: no inpaint LoRA is needed, and the reference-boost mask of `edit` is not involved.
+`inpaint` repaints a painted area of a picture with the ordinary Krea-2 weights, on any of the Turbo, Balanced, Quality and Base profiles. The generator runs `mode: "inpaint"`: the unpainted latents stay pinned to the source on every step, so only the painted area changes (see [Latent-Mask Inpainting](../techniques/latent-mask-inpainting.md)). *Grow* widens the painted area, the area is cropped with its surroundings, repainted and composited back with a *Feather* seam that fades inward from the painted edge and pulls the edge tone toward the surroundings. The prompt is optional; blank asks for the surroundings continued. Strength 1.0 repaints from noise; lower keeps more of the old colours. It uses the plain `generator/krea2` path, not the reference-token edit pipe: no inpaint LoRA is needed, and the reference-boost mask of `edit` is not involved.
 
 ### Upscale
 

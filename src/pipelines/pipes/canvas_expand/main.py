@@ -42,9 +42,16 @@ class CanvasExpandPipe(BasePipe):
                 self.config.get("right", 0), self.config.get("bottom", 0),
             )
         canvas = build_canvas(image, margins, str(self.config.get("fill", "blur")))
-        mask = build_mask(image.size, margins, int(self.config.get("overlap", 16)))
+        mask = build_mask(image.size, margins, int(self.config.get("overlap", 48)))
         logger.info("[CANVAS EXPAND] %dx%d -> %dx%d, margins %s", width, height, *canvas.size, margins)
-        return PipeOutput(output={"image": canvas, "images": [canvas], "mask": mask})
+        crop_region = {
+            "top": 0, "bottom": canvas.size[1], "left": 0, "right": canvas.size[0],
+            "original_width": canvas.size[0], "original_height": canvas.size[1],
+        }
+        return PipeOutput(output={
+            "image": canvas, "images": [canvas], "mask": mask, "masks": [mask],
+            "crop_region": crop_region, "original_image": canvas, "original_mask": mask,
+        })
 
     @classmethod
     def inputs(cls) -> List[PipeInputSpec]:
@@ -56,6 +63,10 @@ class CanvasExpandPipe(BasePipe):
             PipeOutputSpec("image", IOType.IMAGE, "Picture on the larger canvas", is_array=False),
             PipeOutputSpec("images", IOType.IMAGE, "Picture on the larger canvas as a one-item list", is_array=True),
             PipeOutputSpec("mask", IOType.IMAGE, "White over the new area", is_array=False),
+            PipeOutputSpec("masks", IOType.IMAGE, "White over the new area as a one-item list", is_array=True),
+            PipeOutputSpec("crop_region", IOType.DICT, "The whole canvas, for the restore pipe", is_array=False),
+            PipeOutputSpec("original_image", IOType.IMAGE, "Picture on the larger canvas, for the restore pipe", is_array=False),
+            PipeOutputSpec("original_mask", IOType.IMAGE, "White over the new area, for the restore pipe", is_array=False),
         ]
 
     @classmethod
@@ -79,7 +90,7 @@ class CanvasExpandPipe(BasePipe):
                 description="What the new area starts as before it is repainted",
             ),
             PipeConfigSpec(
-                name="overlap", param_type=int, default=16, required=False, min_value=0, max_value=128,
+                name="overlap", param_type=int, default=48, required=False, min_value=0, max_value=256,
                 description="Pixels of the original edge that are repainted too, so the seam blends",
             ),
         ]

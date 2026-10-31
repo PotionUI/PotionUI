@@ -117,12 +117,13 @@ fields:
         type: "select"
         formula: "size"
         label: "Output size"
-        default: "1"
+        default: "4"
+        ai_hint: "The picture keeps its own size and is only scaled down when the extended canvas is larger than this."
         configuration:
           options:
-            - { label: "1 MP", value: "1", sub_label: "Fast" }
+            - { label: "1 MP", value: "1", sub_label: "Fast, scales big pictures down" }
             - { label: "2 MP", value: "2", sub_label: "More detail, slower" }
-            - { label: "4 MP", value: "4", sub_label: "Heaviest" }
+            - { label: "4 MP", value: "4", sub_label: "Native 2K, heaviest" }
 
       - name: "denoise"
         type: "slider"
@@ -135,9 +136,9 @@ fields:
       - name: "mask_feather"
         type: "slider"
         label: "Blend"
-        default: 16
+        default: 48
         ai_hint: "How far into the original edge the repaint reaches, so the seam blends."
-        configuration: {min: 0, max: 64, step: 4}
+        configuration: {min: 0, max: 128, step: 4}
 
   - type: "section"
     label: "Models"

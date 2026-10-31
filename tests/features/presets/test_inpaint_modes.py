@@ -105,12 +105,13 @@ def test_inpaint_runs_the_generator_in_inpaint_mode_on_the_cropped_region(templa
     cfg = _generator(templates, family, pipes)
     assert cfg["mode"] == "inpaint"
     providers = _providers(pipes, FAMILIES[family]["generator"])
-    assert providers["image"] == "inpaint_region_crop"
-    assert providers["mask"] == "inpaint_region_crop"
+    inputs = {i["name"]: i for i in _pipe(pipes, FAMILIES[family]["generator"])["input"]}
+    assert providers["image"] == "inpaint_region_crop" and inputs["image"]["output_var"] == "images"
+    assert providers["mask"] == "inpaint_region_crop" and inputs["mask"]["output_var"] == "masks"
     assert _pipe(pipes, "mask_loader")["config"]["media"][0]["path"] == MASK
     assert _pipe(pipes, "inpaint_region_crop")["config"]["strategy"] == "scaled"
     restore = _pipe(pipes, "inpaint_region_restore")
-    assert restore["enabled"] is True and restore["config"]["strategy"] == "composite"
+    assert restore["enabled"] is True and restore["config"]["strategy"] == "inpaint"
     assert _providers(pipes, "gallery")["image"] == "inpaint_region_restore"
 
 
@@ -181,14 +182,23 @@ def test_zimage_outpaint_repaints_only_the_new_canvas(templates):
     providers = _providers(pipes, "generator/z_image")
     assert generator["mode"] == "inpaint"
     assert providers["image"] == "canvas_expand" and providers["mask"] == "canvas_expand"
-    assert _providers(pipes, "gallery")["image"] == "generator/z_image"
+    assert _providers(pipes, "gallery")["image"] == "inpaint_region_restore"
+    restore = _providers(pipes, "inpaint_region_restore")
+    assert restore["inpainted_image"] == "generator/z_image" and restore["original_mask"] == "canvas_expand"
     assert all(p["name"] != "inpaint_region_crop" for p in pipes)
 
 
-@pytest.mark.parametrize("size,resolution", [("1", "1024x1024"), ("2", "1448x1448"), ("4", "2048x2048")])
-def test_zimage_outpaint_output_size_sets_the_working_area(templates, size, resolution):
+@pytest.mark.parametrize("size,pixels", [("1", 1048576), ("2", 2097152), ("4", 4194304)])
+def test_zimage_outpaint_output_size_is_a_pixel_budget_not_a_resolution(templates, size, pixels):
     pipes = _process(templates, "ZImage", "outpaint", {"output_size": size}, mask=False)
-    assert _generator(templates, "ZImage", pipes)["resolution"] == resolution
+    config = _generator(templates, "ZImage", pipes)
+    assert int(config["max_pixels"]) == pixels and "resolution" not in config
+
+
+def test_zimage_outpaint_blend_reaches_the_overlap_and_the_restore_feather(templates):
+    pipes = _process(templates, "ZImage", "outpaint", {"mask_feather": 64}, mask=False)
+    assert int(_pipe(pipes, "canvas_expand")["config"]["overlap"]) == 64
+    assert int(_pipe(pipes, "inpaint_region_restore")["config"]["feather_px"]) == 64
 
 
 def test_zimage_outpaint_needs_only_a_picture(templates):

@@ -5,6 +5,7 @@ Provides functions for mask-based color correction and blending
 used across multiple inpaint pipes.
 """
 
+import cv2
 import numpy as np
 from PIL import Image, ImageFilter
 
@@ -89,5 +90,40 @@ def composite_region(original, content, mask, feather, color_match):
     fresh = content.astype(np.float32)
     if color_match:
         fresh = match_ring_statistics(fresh, base, region, feather_px, feather_px + max(8, 2 * feather_px))
+    blended = base + (fresh - base) * alpha[:, :, None]
+    return np.clip(np.rint(blended), 0, 255).astype(np.uint8)
+
+
+def inward_alpha(region, feather_px):
+    dist = cv2.distanceTransform(np.asarray(region, dtype=np.uint8), cv2.DIST_L2, 3)
+    t = np.clip(dist / max(float(feather_px), 1.0), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t) * np.asarray(region, dtype=np.float32), dist
+
+
+def edge_tone_offset(base, fresh, region, dist, feather_px):
+    band_width = max(2.0, feather_px / 4.0)
+    band = (np.asarray(region) & (dist <= band_width)).astype(np.float32)
+    if band.sum() < 16:
+        return np.zeros_like(fresh)
+    sigma = max(2.0, float(feather_px))
+    weighted = cv2.GaussianBlur((base - fresh) * band[:, :, None], (0, 0), sigma)
+    weight = cv2.GaussianBlur(band, (0, 0), sigma)[:, :, None]
+    field = np.where(weight > 1e-4, weighted / np.maximum(weight, 1e-4), 0.0)
+    reach = 3.0 * feather_px
+    return field * np.clip(1.0 - dist / reach, 0.0, 1.0)[:, :, None]
+
+
+def composite_inpaint(original, content, mask, feather, color_match, feather_px=0):
+    region = np.asarray(mask) >= 128
+    if not region.any():
+        return original.copy()
+    ys, xs = np.nonzero(region)
+    size = max(int(ys.max() - ys.min()) + 1, int(xs.max() - xs.min()) + 1)
+    feather_px = float(feather_px) if feather_px and feather_px > 0 else max(4.0, float(feather) * size)
+    base = original.astype(np.float32)
+    fresh = content.astype(np.float32)
+    alpha, dist = inward_alpha(region, feather_px)
+    if color_match:
+        fresh = fresh + edge_tone_offset(base, fresh, region, dist, feather_px)
     blended = base + (fresh - base) * alpha[:, :, None]
     return np.clip(np.rint(blended), 0, 255).astype(np.uint8)

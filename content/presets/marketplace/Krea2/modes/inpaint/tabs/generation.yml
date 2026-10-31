@@ -36,7 +36,7 @@ fields:
       - name: "mask_feather"
         type: "slider"
         label: "Feather"
-        default: 8
+        default: 12
         ai_hint: "Softens the seam where the new area meets the untouched picture, in percent of the area's size."
         configuration: {min: 0, max: 30, step: 1}
 

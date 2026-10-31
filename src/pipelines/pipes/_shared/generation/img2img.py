@@ -104,6 +104,12 @@ def img2img_denoise(
     return gen.decode(latent, vram_free_gb=vram_free_gb)
 
 
+def _as_list(value) -> list:
+    if value is None:
+        return []
+    return [value] if isinstance(value, Image.Image) else list(value)
+
+
 # Pixel-area budget for an img2img refine whose mode declares no output
 # resolution — a source larger than this is downscaled to it so a big upload
 # can't drive an untiled full-res VAE encode / DiT denoise.
@@ -148,6 +154,12 @@ class Img2ImgGeneratorMixin:
                 "``resolution`` config for a true \"upscale by Nx of whatever was uploaded\" mode.",
                 required=False, min_value=0.0, max_value=8.0,
             ),
+            PipeConfigSpec(
+                "max_pixels", int, 0,
+                "Inpaint only: keep the picture at its own size and scale down only when it exceeds this "
+                "pixel area; 0 matches the mode's resolution area instead",
+                required=False, min_value=0, max_value=33554432,
+            ),
         ]
 
     @staticmethod
@@ -163,13 +175,13 @@ class Img2ImgGeneratorMixin:
         return {
             "mode": self.config.get("mode", "txt2img"),
             "denoise": float(self.config.get("denoise", 0.55)),
-            "images": pipe_input.input.get("image") or [],
+            "images": _as_list(pipe_input.input.get("image")),
             # An explicit sigma schedule (e.g. Krea-2's ``refine_tail``), set
             # by a family that needs to override the denoise-truncated derived
             # schedule; ``None`` here is a byte-identical no-op for every other
             # family (see ``maybe_img2img``'s ``sigmas=`` forward below).
             "sigmas": None,
-            "masks": pipe_input.input.get("mask") or [],
+            "masks": _as_list(pipe_input.input.get("mask")),
         }
 
     def maybe_img2img(
@@ -247,7 +259,7 @@ class Img2ImgGeneratorMixin:
             raise GenerationExecutionError("Paint the area to repaint")
 
         src = source.convert("RGB")
-        snap_w, snap_h = self._img2img_target_size(gen, ctx, src.size)
+        snap_w, snap_h = self._inpaint_target_size(gen, ctx, src.size)
         if (snap_w, snap_h) != src.size:
             src = src.resize((snap_w, snap_h), Image.LANCZOS)
         pixels = np.asarray(src)
@@ -279,6 +291,13 @@ class Img2ImgGeneratorMixin:
             image=image, temporary=True, seed=seed,
             resolution=image.size, cfg=ctx.extra["guidance"], step=ctx.extra["steps"],
         )
+
+    def _inpaint_target_size(self, gen, ctx, size: tuple) -> tuple:
+        budget = int(self.config.get("max_pixels", 0) or 0)
+        if budget <= 0:
+            return self._img2img_target_size(gen, ctx, size)
+        scale = min(1.0, (budget / max(1, size[0] * size[1])) ** 0.5)
+        return gen.snap_resolution(max(1, round(size[0] * scale)), max(1, round(size[1] * scale)))
 
     @staticmethod
     def _select_source(images: List[Any], index: int) -> Optional[Image.Image]:

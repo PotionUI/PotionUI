@@ -348,7 +348,7 @@ describe('PresetRequirementsTab', () => {
 		mounted = mount();
 		await settle();
 		const install = mounted.button('Install mode');
-		expect(install).toBeTruthy();
+		expect(install!.disabled).toBe(false);
 		expect(mounted.button('Open Downloader')).toBeUndefined();
 		install!.click();
 

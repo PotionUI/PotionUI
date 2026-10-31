@@ -26,6 +26,7 @@
 	let request = $state<ModeInstallRequest | null>(null);
 	let grantBusy = $state(false);
 	let grantError = $state('');
+	let cancelError = $state('');
 	let startedId = 0;
 
 	const unsubscribe = modeInstallRequest.subscribe((value) => {
@@ -38,6 +39,7 @@
 		if (value.id !== startedId) {
 			startedId = value.id;
 			grantError = '';
+			cancelError = '';
 			session.reset();
 			void session.start(value.recipeId, value.modes);
 		}
@@ -84,17 +86,45 @@
 		}
 	}
 
+	const downloadStarted = $derived(
+		!!run?.steps?.some((step) => step.kind === 'artifacts.fetch' && step.status !== 'pending')
+	);
+
 	async function cancelAndClose() {
 		const active = session.run;
+		cancelError = '';
 		if (active && !isRunTerminal(active.status)) {
 			try {
-				await adminRecipeRunActions.applyAction(active.id, 'cancel');
-			} catch {
-				closeModeInstall();
+				session.adopt(await adminRecipeRunActions.applyAction(active.id, 'cancel'));
+			} catch (error) {
+				cancelError = getApiErrorMessage(error, "Couldn't cancel this install.");
 				return;
 			}
 		}
 		closeModeInstall();
+	}
+
+	function dismiss() {
+		const active = session.run;
+		if (active && !isRunTerminal(active.status) && !downloadStarted) {
+			void cancelAndClose();
+			return;
+		}
+		closeModeInstall();
+	}
+
+	function openConflictRun() {
+		const conflict = session.conflict;
+		if (!conflict) return;
+		void api.getRecipeRun(conflict.activeRun.id).then(
+			(active) => {
+				session.conflict = null;
+				session.adopt(active);
+			},
+			(error) => {
+				cancelError = getApiErrorMessage(error, "Couldn't open that install.");
+			}
+		);
 	}
 </script>
 
@@ -105,14 +135,14 @@
 				request={awaitingModes.consent}
 				preselect={preselectOf(run)}
 				busy={grantBusy}
-				error={grantError}
+				error={grantError || cancelError}
 				onConfirm={approve}
 				onCancel={cancelAndClose}
 				onReplan={replanFor(run.recipe_id)}
 			/>
 		{/key}
 	{:else}
-		<BaseModal isOpen={true} title="Install modes" size="lg" compact on:close={closeModeInstall}>
+		<BaseModal isOpen={true} title="Install modes" size="lg" compact on:close={dismiss}>
 			<div class="space-y-3 p-5" data-mode-install-host>
 				{#if session.conflict}
 					{@const conflictRun = session.conflict.activeRun}
@@ -120,21 +150,20 @@
 						{conflictRun.recipeName} is still running ({runStatusLabel(conflictRun.status).toLowerCase()}).
 						{#snippet actions()}
 							<div class="flex items-center gap-2">
-								<Button
-									variant="secondary"
-									size="sm"
-									href="/admin?tab=recipes&id={encodeURIComponent(conflictRun.recipeId)}"
-									onclick={closeModeInstall}
-								>
-									Open it
-								</Button>
+								<Button variant="secondary" size="sm" onclick={openConflictRun}>Open it</Button>
 								<Button variant="secondary" size="sm" onclick={() => session.cancelConflict()}>Cancel it</Button>
 							</div>
 						{/snippet}
 					</Alert>
+				{#if session.error || cancelError}
+						<p class="text-sm text-danger" data-mode-install-error>{session.error || cancelError}</p>
+					{/if}
 				{:else if session.error}
 					<Alert variant="danger" density="compact" title="Couldn't start this install">{session.error}</Alert>
 				{:else if run}
+					{#if cancelError}
+						<p class="text-sm text-danger" data-mode-install-error>{cancelError}</p>
+					{/if}
 					<RecipeRunProgress
 						{run}
 						title="Installing modes"

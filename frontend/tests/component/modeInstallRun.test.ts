@@ -348,8 +348,8 @@ describe('ModeRemoveModal', () => {
 		expect(kept.textContent).toContain('default file choice is cleared');
 		expect(document.body.textContent).toContain('Remove Upscale files?');
 		expect(document.body.querySelector('[data-remove-frees]')!.textContent).toContain('Frees 1.6 GB');
-		expect(button('Remove 1 file')).toBeTruthy();
-		expect(button('Keep files')).toBeTruthy();
+		expect(button('Remove 1 file')!.disabled).toBe(false);
+		expect(button('Keep files')!.disabled).toBe(false);
 	});
 
 	it('removes exactly the previewed ids and reports the freed bytes', async () => {

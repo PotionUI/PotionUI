@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
+import { AxiosError } from 'axios';
+import { get } from 'svelte/store';
 import { settle } from './helpers/settle';
 import { modesRequest } from '../../src/lib/components/recipes/modeInstall/modeInstallFixtures';
 import type { SetupRun } from '../../src/lib/services/api/setup';
@@ -19,7 +21,7 @@ vi.mock('$lib/services/api/index', () => ({
 
 const { api } = await import('$lib/services/api/index');
 const { default: ModeInstallHost } = await import('../../src/lib/components/recipes/modeInstall/ModeInstallHost.svelte');
-const { openModeInstall, closeModeInstall } = await import('../../src/lib/stores/modeInstall');
+const { openModeInstall, closeModeInstall, modeInstallRequest } = await import('../../src/lib/stores/modeInstall');
 const { onModelInstalled } = await import('../../src/lib/stores/modelInstalls');
 
 function run(status: string, steps: unknown[], safeInput: Record<string, unknown> = {}): SetupRun {
@@ -170,5 +172,115 @@ describe('ModeInstallHost', () => {
 		await settle();
 		flushSync();
 		expect(document.body.querySelector('[data-mode-install-host]')!.textContent).toContain("Couldn't start this install");
+	});
+
+	const closeProgress = () =>
+		(document.body.querySelector('[aria-label="Close modal"]:not([role="button"])') ??
+			Array.from(document.body.querySelectorAll('button')).find((b) => b.getAttribute('aria-label') === 'Close modal')) as HTMLButtonElement;
+
+	function fetchingRun(): SetupRun {
+		return run('running', [
+			{ step_key: 'fetch', title: 'Fetch', kind: 'artifacts.fetch', ordinal: 0, status: 'running', attempts: [] }
+		]);
+	}
+
+	it('closing the progress modal before any download starts cancels the run', async () => {
+		vi.mocked(api.startRecipeModesRun).mockResolvedValue(run('running', []));
+		vi.mocked(api.applyRecipeRunAction).mockResolvedValue(run('cancelled', []));
+		mountHost();
+		openModeInstall('modes-ltx-2-5', ['motion']);
+		await settle();
+		flushSync();
+		closeProgress().click();
+		await settle();
+		expect(api.applyRecipeRunAction).toHaveBeenCalledWith('run-h', 'cancel');
+		expect(get(modeInstallRequest)).toBeNull();
+	});
+
+	it('closing the progress modal while files download only hides it and leaves the run going', async () => {
+		vi.mocked(api.startRecipeModesRun).mockResolvedValue(fetchingRun());
+		mountHost();
+		openModeInstall('modes-ltx-2-5', ['motion']);
+		await settle();
+		flushSync();
+		closeProgress().click();
+		await settle();
+		expect(api.applyRecipeRunAction).not.toHaveBeenCalled();
+		expect(get(modeInstallRequest)).toBeNull();
+		expect(document.body.querySelector('[data-mode-install-host]')).toBeNull();
+	});
+
+	it('keeps the sheet open and says why when cancelling the run fails', async () => {
+		vi.mocked(api.startRecipeModesRun).mockResolvedValue(awaiting());
+		vi.mocked(api.applyRecipeRunAction).mockRejectedValue(new Error('server down'));
+		mountHost();
+		openModeInstall('modes-ltx-2-5', ['motion']);
+		await settle();
+		flushSync();
+		sheetCancel().click();
+		await settle();
+		flushSync();
+		expect(document.body.querySelector('[data-mode-install-sheet]')).not.toBeNull();
+		expect(document.body.querySelector('[data-mode-install-error]')!.textContent).toContain('server down');
+		expect(get(modeInstallRequest)).not.toBeNull();
+	});
+
+	it('keeps the progress modal open when cancelling before the download fails', async () => {
+		vi.mocked(api.startRecipeModesRun).mockResolvedValue(run('running', []));
+		vi.mocked(api.applyRecipeRunAction).mockRejectedValue(new Error('server down'));
+		mountHost();
+		openModeInstall('modes-ltx-2-5', ['motion']);
+		await settle();
+		flushSync();
+		closeProgress().click();
+		await settle();
+		flushSync();
+		expect(document.body.querySelector('[data-mode-install-error]')!.textContent).toContain('server down');
+		expect(get(modeInstallRequest)).not.toBeNull();
+	});
+
+	function conflictError() {
+		const error = new AxiosError('conflict');
+		error.response = {
+			status: 409,
+			data: { detail: { message: 'busy', active_run: { id: 'other-run', recipe_id: 'modes-other', recipe_name: 'Other modes', status: 'running' } } }
+		} as never;
+		return error;
+	}
+
+	it('offers Open it and Cancel it when another recipe is running, and Open it reopens that run', async () => {
+		vi.mocked(api.startRecipeModesRun).mockRejectedValue(conflictError());
+		vi.mocked(api.getRecipeRun).mockResolvedValue({ ...fetchingRun(), id: 'other-run', recipe_id: 'modes-other' });
+		mountHost();
+		openModeInstall('modes-ltx-2-5', ['motion']);
+		await settle();
+		flushSync();
+		const host = document.body.querySelector('[data-mode-install-host]')!;
+		expect(host.textContent).toContain('Other modes is still running');
+		const buttons = Array.from(host.querySelectorAll('button'));
+		const open = buttons.find((b) => b.textContent?.trim() === 'Open it')!;
+		expect(open.disabled).toBe(false);
+		expect(buttons.find((b) => b.textContent?.trim() === 'Cancel it')!.disabled).toBe(false);
+		open.click();
+		await settle();
+		flushSync();
+		expect(api.getRecipeRun).toHaveBeenCalledWith('other-run');
+		expect(document.body.textContent).not.toContain('Other modes is still running');
+		expect(document.body.querySelector('[data-mode-install-host]')!.textContent).toContain('Installing modes');
+	});
+
+	it('Cancel it cancels the other run and clears the notice', async () => {
+		vi.mocked(api.startRecipeModesRun).mockRejectedValue(conflictError());
+		vi.mocked(api.applyRecipeRunAction).mockResolvedValue(run('cancelled', []));
+		mountHost();
+		openModeInstall('modes-ltx-2-5', ['motion']);
+		await settle();
+		flushSync();
+		const cancel = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Cancel it')!;
+		cancel.click();
+		await settle();
+		flushSync();
+		expect(api.applyRecipeRunAction).toHaveBeenCalledWith('other-run', 'cancel');
+		expect(document.body.textContent).not.toContain('Other modes is still running');
 	});
 });

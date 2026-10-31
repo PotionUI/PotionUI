@@ -145,7 +145,7 @@ describe('RecipesTab modes recipes', () => {
 		expect(modesGrid.textContent).toContain('LTX-2.5 modes');
 		expect(modesGrid.textContent).toContain('8 of 12 modes ready');
 		expect(modesGrid.textContent).toContain('35.6 GB on disk · 4 to add');
-		expect(buttonIn(modesGrid, 'Install modes')).toBeTruthy();
+		expect(buttonIn(modesGrid, 'Install modes')!.disabled).toBe(false);
 		const starters = target.querySelector('[role="list"][aria-label="Recipe catalog"]')!;
 		expect(starters.textContent).toContain('LTX-2.5 Starter');
 		expect(starters.textContent).not.toContain('modes ready');
@@ -157,7 +157,7 @@ describe('RecipesTab modes recipes', () => {
 		await settle();
 		const modesGrid = mounted.target.querySelector('[role="list"][aria-label="Mode recipes"]')!;
 		expect(modesGrid.textContent).toContain('All 12 modes ready');
-		expect(buttonIn(modesGrid, 'Manage modes')).toBeTruthy();
+		expect(buttonIn(modesGrid, 'Manage modes')!.disabled).toBe(false);
 		expect(modesGrid.textContent).not.toContain('to add');
 	});
 
@@ -201,7 +201,7 @@ describe('RecipesTab modes recipes', () => {
 		expect(section.textContent).toContain('Shares extend files');
 		expect(section.querySelectorAll('[data-recipe-mode]')).toHaveLength(3);
 		expect(target.querySelector('[data-recipe-modes-subtitle]')!.textContent).toContain('Sets up LTX-2.5 · 35.6 GB on disk · 4 to add');
-		expect(buttonIn(target, 'Preview')).toBeTruthy();
+		expect(buttonIn(target, 'Preview')!.disabled).toBe(false);
 		flushSync(() => buttonIn(section, 'Install')!.click());
 		await settle();
 		expect(api.api.startRecipeModesRun).toHaveBeenCalledWith('modes-ltx-2-5', ['cine']);

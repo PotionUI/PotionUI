@@ -127,3 +127,53 @@ def test_family_generators_expose_inpaint(pipe):
     names = {spec.name for spec in pipe.inputs()}
     assert {"image", "mask"} <= names
     assert any(spec.name == "denoise" for spec in pipe.configuration())
+
+
+class _EchoGen:
+    def __init__(self):
+        self.shape = None
+
+    def snap_resolution(self, w, h):
+        return round(w / 16) * 16, round(h / 16) * 16
+
+    def encode_image(self, image, vram_free_gb=None):
+        self.shape = np.asarray(image).shape
+        return torch.zeros(1, 4, 1, self.shape[0] // 8, self.shape[1] // 8)
+
+    def sample(self, conditioning, latents_shape, **kw):
+        return "latent"
+
+    def decode(self, latent, vram_free_gb=None):
+        return np.full((1, *self.shape), 250, dtype=np.uint8)
+
+
+def test_crop_generate_restore_chain_changes_only_the_painted_area():
+    from src.pipelines.contracts import PipeInput
+    from src.pipelines.pipes.inpaint_region_crop.main import InpaintRegionCropPipe
+    from src.pipelines.pipes.inpaint_region_restore.main import InpaintRegionRestorePipe
+
+    rng = np.random.default_rng(1)
+    original = Image.fromarray(rng.integers(0, 120, (192, 256, 3), dtype=np.uint8))
+    painted = np.zeros((192, 256), dtype=np.uint8)
+    painted[64:128, 96:160] = 255
+    crop = InpaintRegionCropPipe({"strategy": "scaled", "multiple": 16, "working_area": 128 * 128}).process(
+        PipeInput(input={"image": original, "mask": Image.fromarray(painted)}), None
+    ).output
+
+    gen = _EchoGen()
+    ctx = _ctx(images=[crop["image"]], masks=[crop["mask"]])
+    ctx.extra["width"], ctx.extra["height"] = crop["image"].size
+    result = _Pipe().maybe_inpaint(gen, "COND", ctx, 0, 1, _Progress())
+
+    restored = InpaintRegionRestorePipe({"strategy": "composite", "feather": 0.05, "color_match": False}).process(
+        PipeInput(input={
+            "inpainted_image": [result.image], "crop_region": crop["crop_region"],
+            "original_image": crop["original_image"], "original_mask": crop["original_mask"],
+        }), None
+    ).output["image"]
+
+    before, after = np.asarray(original), np.asarray(restored[0] if isinstance(restored, (list, tuple)) else restored).reshape(192, 256, 3)
+    assert after.shape == before.shape
+    assert np.array_equal(after[:32], before[:32])
+    assert np.array_equal(after[:, :48], before[:, :48])
+    assert (after[88:104, 112:144] > 200).all()

@@ -31,12 +31,12 @@ def test_sides_grow_the_canvas_and_keep_the_original_pixels_in_place():
 
 
 def test_mask_is_white_on_the_new_area_and_black_deep_inside_the_original():
-    out = _run({"left": 20, "overlap": 4})
+    out = _run({"left": 20, "overlap": 8})
     mask = np.asarray(out["mask"])
     assert mask.shape == (32, 84)
     assert (mask[:, :20] == 255).all()
-    assert (mask[:, 40:] == 0).all()
-    assert mask[16, 21] > 0
+    assert (mask[:, 44:] == 0).all()
+    assert mask[16, 26] > 100
 
 
 def test_zero_overlap_masks_exactly_the_new_area():

@@ -2,6 +2,7 @@
 	import PresetHeader from '$lib/components/preset/PresetHeader.svelte';
 	import type { Tab } from '$lib/types/tabs';
 	import type { PresetInfo, PresetModeVariant } from '$lib/services/api/index';
+	import type { PresetModeInstall } from '$lib/types/api';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 
 	export let tab: Tab;
@@ -17,6 +18,7 @@
 		description?: string | null;
 		icon?: string | null;
 		requirementsMissing?: string[] | null;
+		install?: PresetModeInstall | null;
 	}> = [];
 	export let onPresetChange: (presetId: string) => void;
 	export let onModeChange: (mode: string) => void;

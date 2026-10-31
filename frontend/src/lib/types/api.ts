@@ -97,6 +97,13 @@ export interface PresetModeInfo {
 	 *  `preset_modes:` instead of the preset's own preset.yml. */
 	source_plugin?: string | null;
 	requirements_missing?: string[] | null;
+	install?: PresetModeInstall | null;
+}
+
+export interface PresetModeInstall {
+	recipe_id: string;
+	ready: boolean;
+	missing_bytes: number | null;
 }
 
 /** Body of a 422 response from `POST /api/generations/start` when the submitted
@@ -313,7 +320,7 @@ export interface PresetRecipeLink {
 export type RequirementStatus = 'ok' | 'missing' | 'unknown';
 
 export interface RequirementAction {
-	kind: 'open_downloader' | 'open_backends' | 'open_url';
+	kind: 'open_downloader' | 'open_backends' | 'open_url' | 'install_mode';
 	payload: Record<string, unknown>;
 }
 

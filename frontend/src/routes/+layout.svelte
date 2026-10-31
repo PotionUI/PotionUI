@@ -20,6 +20,7 @@
 	import LibraryModalHost from '$lib/components/library/LibraryModalHost.svelte';
 	import ToolRunChip from '$lib/components/tools/ToolRunChip.svelte';
 	import ConfirmHost from '$lib/components/modals/ConfirmHost.svelte';
+	import ModeInstallHost from '$lib/components/recipes/modeInstall/ModeInstallHost.svelte';
 	import IndexingChoiceModal from '$lib/models-location/IndexingChoiceModal.svelte';
 	import AccountSwitchOverlay from '$lib/components/accounts/AccountSwitchOverlay.svelte';
 	import { initCrossTab } from '$lib/stores/accounts';
@@ -322,6 +323,7 @@
 		<LibraryModalHost />
 		<ToolRunChip />
 		<ToastContainer />
+		<ModeInstallHost />
 		<ConfirmHost />
 		<IndexingChoiceModal />
 		<AccountSwitchOverlay />

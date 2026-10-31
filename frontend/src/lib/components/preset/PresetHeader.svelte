@@ -8,6 +8,8 @@
 	import PresetPicker from '$lib/components/preset/PresetPicker.svelte';
 	import { resolveVariant, sortVariants } from '$lib/utils/variants';
 	import { presetModeOptions } from '$lib/utils/presetModeOptions';
+	import { authStore } from '$lib/stores/auth';
+	import type { PresetModeInstall } from '$lib/types/api';
 
 	export let presets: PresetInfo[] = [];
 	export let selectedPreset: string = '';
@@ -23,6 +25,7 @@
 		description?: string | null;
 		icon?: string | null;
 		requirementsMissing?: string[] | null;
+		install?: PresetModeInstall | null;
 	}> = [
 		{ id: 'txt2img', label: 'Text to Image' },
 		{ id: 'img2img', label: 'Image to Image' },
@@ -42,7 +45,7 @@
 	const NARROW_PANEL_PX = 340;
 	$: narrow = panelWidth > 0 && panelWidth < NARROW_PANEL_PX;
 	$: hasModeSelect = availableModes.length > 1;
-	$: modeOptions = presetModeOptions(availableModes);
+	$: modeOptions = presetModeOptions(availableModes, { admin: $authStore.user?.account_type === 'ADMIN' });
 
 	$: currentModeVariants = sortVariants(
 		availableModes.find((mode) => mode.id === selectedMode)?.variants

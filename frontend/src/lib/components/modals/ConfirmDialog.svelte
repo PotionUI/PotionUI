@@ -13,6 +13,8 @@
 		isOpen = false,
 		title = '',
 		subtitle = '',
+		subtitleWrap = false,
+		splitOnPhone = false,
 		size = 'md',
 		sizeClass = '',
 		compact = false,
@@ -46,6 +48,8 @@
 		isOpen?: boolean;
 		title?: string;
 		subtitle?: string;
+		subtitleWrap?: boolean;
+		splitOnPhone?: boolean;
 		size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
 		sizeClass?: string;
 		compact?: boolean;
@@ -141,6 +145,7 @@
 			{confirmDisabled}
 			{hideCancel}
 			{stackOnPhone}
+			{splitOnPhone}
 			{secondaryLabel}
 			{secondaryIcon}
 			{secondaryBusy}
@@ -159,6 +164,7 @@
 	{isOpen}
 	{title}
 	{subtitle}
+	{subtitleWrap}
 	{size}
 	{sizeClass}
 	{compact}
@@ -185,6 +191,7 @@
 	{isOpen}
 	{title}
 	{subtitle}
+	{subtitleWrap}
 	{size}
 	{sizeClass}
 	{compact}

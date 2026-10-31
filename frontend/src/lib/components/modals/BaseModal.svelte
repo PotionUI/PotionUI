@@ -14,6 +14,7 @@
 	export let title: string = '';
 	/** One-line description rendered under the title, before the border. */
 	export let subtitle: string = '';
+	export let subtitleWrap: boolean = false;
 	export let size: ModalSize = 'md';
 	/** Override the size preset with a custom class string (e.g. 'md:w-[85vw] md:h-[85vh]'). */
 	export let sizeClass: string = '';
@@ -133,7 +134,7 @@
 									<h2 class="text-lg font-semibold text-fg truncate">{title}</h2>
 								{/if}
 								{#if subtitle}
-									<p class="text-sm text-fg-muted mt-0.5 truncate">{subtitle}</p>
+									<p class="text-sm text-fg-muted mt-0.5 {subtitleWrap ? '' : 'truncate'}">{subtitle}</p>
 								{/if}
 							</div>
 						{/if}

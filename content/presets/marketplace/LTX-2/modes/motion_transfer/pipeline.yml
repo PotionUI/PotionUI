@@ -29,6 +29,7 @@ pipeline:
       match_picture: true
       ease_in: "{{ form.pose_ease_in }}"
       size_multiple: 64
+      max_frames: 1001
       max_pixels: 522240
       save_guide: "{{ form.save_guide }}"
 

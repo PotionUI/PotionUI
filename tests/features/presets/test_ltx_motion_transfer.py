@@ -1,17 +1,27 @@
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 from unittest.mock import Mock
 
+import cv2
+import numpy as np
 import pytest
+import torch
 import yaml
+from PIL import Image
 
 from scripts.preset_render import build_fixture_form_data
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
-from src.pipelines.pipes.generator.video_ltx.main import _fit_pixel_budget
+from src.pipelines.contracts import PipeInput
+from src.pipelines.pipes._shared.video.frames import resize_cover_center_crop
+from src.pipelines.pipes.control_video.main import ControlVideoPipe
+from src.pipelines.pipes.generator.video_ltx.main import MAX_FRAMES, _fit_pixel_budget
 from src.platform.runtime.pose.geometry import resolve_output_size
 from src.platform.templating.processor import TemplateProcessor
+from tests.fixtures.pose_skeletons import skeleton
+from tests.platform.media_tools.media_factory import make_video
 
 UNION_LORA = "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors"
 REFERENCE_DOWNSCALE = 2
@@ -166,3 +176,65 @@ def test_the_prompt_is_optional_and_falls_back_to_a_dancing_caption(templates, n
     )
     caption = next(p for p in pipes if p["name"] == "prompt_encoder")["config"]["p_prompt"]["output"]
     assert "dancing" in caption and "person from the picture" in caption
+
+
+class _FakeEstimator:
+    def detect(self, rgb):
+        height, width = rgb.shape[:2]
+        return np.array([[0, 0, width, height, 0.9]], dtype=np.float32)
+
+    def estimate(self, rgb, box):
+        height, width = rgb.shape[:2]
+        return skeleton(neck=(width / 2, height * 0.25), size=height / 260.0)
+
+
+def _guide_size(config, video, picture, tmp_path, monkeypatch):
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    values = ControlVideoPipe.get_default_config()
+    values.update({k: v for k, v in config.items() if k in values})
+    pipe = ControlVideoPipe(values)
+    pipe._load_estimator = lambda _input: _FakeEstimator()
+    guide = pipe.process(PipeInput(input={"video": [video], "image": [picture]}), lambda _o: None, None).output["video"][0]
+    capture = cv2.VideoCapture(str(guide))
+    ok, frame = capture.read()
+    capture.release()
+    assert ok
+    return frame.shape[1], frame.shape[0]
+
+
+@pytest.mark.parametrize("name", PRESETS)
+@pytest.mark.parametrize(
+    "picture_size,video_size",
+    [((1080, 1920), (320, 192)), ((1920, 1080), (192, 320)), ((1500, 1000), (192, 192))],
+)
+def test_the_canvas_follows_the_picture_and_the_keyframe_is_cover_cropped(
+    templates, name, picture_size, video_size, tmp_path, monkeypatch,
+):
+    pipes = _pipes(templates[name])
+    guide = _by_id(pipes, "pose_guide")["config"]
+    video = str(make_video(tmp_path / "dance.mp4", seconds=0.5, size=video_size, fps=10, audio=False))
+    picture = Image.new("RGB", picture_size, (120, 120, 120))
+    width, height = _guide_size(guide, video, picture, tmp_path, monkeypatch)
+
+    assert width % 64 == 0 and height % 64 == 0
+    assert width * height <= guide["max_pixels"]
+    assert (width > height) == (picture_size[0] > picture_size[1])
+    assert abs(np.log((width / height) / (picture_size[0] / picture_size[1]))) < 64 / min(width, height)
+    assert abs(np.log((width / height) / (video_size[0] / video_size[1]))) > 0.2 or video_size == picture_size
+
+    stage1 = _by_id(pipes, "generator_stage1")["config"]
+    assert _fit_pixel_budget(width, height, stage1["max_pixels"], grid=64) == (width, height)
+
+    frames = torch.rand(1, picture_size[1] // 8, picture_size[0] // 8, 3)
+    cropped = resize_cover_center_crop(frames, height, width)
+    assert tuple(cropped.shape[-2:]) == (height, width)
+    scale = max(width / frames.shape[2], height / frames.shape[1])
+    kept_w, kept_h = width / (frames.shape[2] * scale), height / (frames.shape[1] * scale)
+    assert max(kept_w, kept_h) == pytest.approx(1.0)
+    assert min(kept_w, kept_h) > 1 - 64 / min(width, height) - 1e-6
+
+
+@pytest.mark.parametrize("name", PRESETS)
+def test_the_guide_is_capped_at_the_generators_hard_frame_limit(templates, name):
+    guide = _by_id(_pipes(templates[name]), "pose_guide")["config"]
+    assert guide["max_frames"] == MAX_FRAMES

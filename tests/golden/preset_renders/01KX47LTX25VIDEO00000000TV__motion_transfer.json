@@ -61,6 +61,10 @@
           "type": "bool",
           "value": true
         },
+        "max_frames": {
+          "type": "int",
+          "value": 1001
+        },
         "max_pixels": {
           "type": "int",
           "value": 522240

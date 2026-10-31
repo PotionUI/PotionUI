@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.platform.media_tools import InvalidToolParams, run_chain, validate_params
+from src.platform.media_tools import InvalidToolParams, ToolFailed, run_chain, validate_params
 from src.platform.media_tools.ops import fix_colors
 from tests.platform.media_tools.ops.raw_runner import raw_context, video_media
 
@@ -76,3 +76,24 @@ def test_defaults_validate():
     cleaned = validate_params(fix_colors.spec(), {})
 
     assert cleaned["white_balance"] is True and cleaned["strength"] == 100
+
+
+def test_a_failure_after_decoding_leaves_no_frame_dump(tmp_path, monkeypatch):
+    def broken(*_args, **_kwargs):
+        raise ToolFailed("analysis broke")
+
+    monkeypatch.setattr(fix_colors, "estimate_fix", broken)
+
+    with pytest.raises(ToolFailed, match="analysis broke"):
+        run_fix(tmp_path, {"white_balance": True, "contrast": True, "strength": 100})
+
+    assert list((tmp_path / "scratch").glob("frames-*.rgb")) == []
+
+
+def test_a_failed_encode_leaves_no_partial_output(tmp_path):
+    ctx = raw_context(tmp_path, cast_clip(), fail_encode=1)
+
+    with pytest.raises(Exception):
+        run_chain([(fix_colors.spec(), {"white_balance": True, "contrast": True, "strength": 100})], [video_media(tmp_path)], ctx)
+
+    assert [p for p in (tmp_path / "scratch").rglob("*") if p.is_file()] == []

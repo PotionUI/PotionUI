@@ -3,7 +3,7 @@ from __future__ import annotations
 from src.platform.imaging.color_fix import ColorFix, estimate_fix, ffmpeg_filters
 from src.platform.media_tools.base import MediaTool
 from src.platform.media_tools.fastpath import run_fragments
-from src.platform.media_tools.frames import decode_rgb_frames, open_rgb_frames
+from src.platform.media_tools.frames import decode_rgb_frames, load_rgb_frames
 from src.platform.media_tools.types import (
     FilterFragment,
     InvalidToolParams,
@@ -63,13 +63,11 @@ class FixColors(MediaTool):
             max_frames=MAX_SAMPLES,
         )
         try:
-            frames = open_rgb_frames(path, frame_count, SAMPLE_WIDTH, SAMPLE_HEIGHT)
             fix = estimate_fix(
-                frames,
+                load_rgb_frames(path, frame_count, SAMPLE_WIDTH, SAMPLE_HEIGHT),
                 white_balance=bool(params.get("white_balance", True)),
                 contrast=bool(params.get("contrast", True)),
             )
-            del frames
         finally:
             path.unlink(missing_ok=True)
         fix = fix.with_strength(float(params.get("strength", 100.0)) / 100.0)

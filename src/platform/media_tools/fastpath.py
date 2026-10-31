@@ -223,7 +223,11 @@ def run_fragments(media: ToolMedia, fragments: Sequence[FilterFragment], ctx: To
     plan = merge_fragments(media, fragments)
     suffix = audio_output_suffix(media) if media.kind == "audio" else video_output_suffix(media)
     out_path = ctx.new_path(suffix, stem=media.path.stem[:40] or "out")
-    ctx.ffmpeg(build_timed_args(media, plan, out_path), duration=plan.duration)
+    try:
+        ctx.ffmpeg(build_timed_args(media, plan, out_path), duration=plan.duration)
+    except BaseException:
+        out_path.unlink(missing_ok=True)
+        raise
     if not out_path.is_file() or out_path.stat().st_size == 0:
         raise ToolFailed("The encoder produced an empty file")
     return ctx.probe(out_path, media.kind)

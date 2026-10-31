@@ -8,7 +8,7 @@ import { syncCatalogTools } from './catalogTools';
 import { buildRowContext, buildRowModel, type RowTool } from './rowModel';
 import type { LibraryItem } from '$lib/services/api/library';
 import type { GenerationHistoryItem } from '$lib/types/history';
-import { A1111_TOOL, BOOMERANG_TOOL, CORE_TOOLS, FIX_COLORS_TOOL } from '../../../tests/component/fixtures/mediaToolCatalog';
+import { A1111_TOOL, BOOMERANG_TOOL, CORE_TOOLS, FIX_COLORS_TOOL, toolDto } from '../../../tests/component/fixtures/mediaToolCatalog';
 
 registerEntryTools();
 
@@ -136,10 +136,20 @@ describe('catalog effects in the Effects row', () => {
 		expect(model.effects[0]).toMatchObject({ action: 'catalog', label: 'Fix colours', enabled: true });
 	});
 
-	it('puts it ahead of Apply a look for an image-only tool set, and hides it for an image', () => {
+	it('hides it for an image, which keeps only Apply a look', () => {
 		const model = buildRowModel(buildRowContext('library', [item('image')]));
 
 		expect(ids(model.effects)).toEqual(['apply-look']);
+	});
+
+	it('lists catalog effects ahead of Apply a look and the recent looks', () => {
+		const wide = toolDto({ id: 'wide_fx', label: 'Wide', accepts: ['image', 'video'], group: 'effects' });
+		syncCatalogTools([...CORE_TOOLS, FIX_COLORS_TOOL, wide]);
+		const looks = [{ id: 'noir', name: 'Noir', group: 'Black and white' }];
+
+		const model = buildRowModel(buildRowContext('library', [item('image')]), looks);
+
+		expect(ids(model.effects)).toEqual(['wide_fx', 'apply-look', 'look:noir']);
 	});
 
 	it('offers it on History too', () => {

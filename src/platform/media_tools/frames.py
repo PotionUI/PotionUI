@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -37,5 +37,24 @@ def decode_rgb_frames(
     return dest, count
 
 
-def open_rgb_frames(path: Path, count: int, width: int, height: int) -> np.ndarray:
-    return np.memmap(path, dtype=np.uint8, mode="r", shape=(count, height, width, CHANNELS))
+def load_rgb_frames(path: Path, count: int, width: int, height: int) -> np.ndarray:
+    data = np.fromfile(path, dtype=np.uint8, count=count * width * height * CHANNELS)
+    return data.reshape(count, height, width, CHANNELS)
+
+
+def map_rgb_chunks(
+    path: Path,
+    count: int,
+    width: int,
+    height: int,
+    chunk_frames: int,
+    function: Callable[[np.ndarray], np.ndarray],
+) -> list[np.ndarray]:
+    frame_bytes = width * height * CHANNELS
+    results: list[np.ndarray] = []
+    with open(path, "rb") as handle:
+        for start in range(0, count, chunk_frames):
+            size = min(chunk_frames, count - start)
+            data = np.fromfile(handle, dtype=np.uint8, count=size * frame_bytes)
+            results.append(function(data.reshape(size, height, width, CHANNELS)))
+    return results

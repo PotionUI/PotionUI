@@ -6,7 +6,7 @@ import numpy as np
 from src.platform.imaging.shot_cuts import find_cuts, frame_features
 from src.platform.media_tools.base import MediaTool
 from src.platform.media_tools.fastpath import run_fragments
-from src.platform.media_tools.frames import decode_rgb_frames, open_rgb_frames
+from src.platform.media_tools.frames import decode_rgb_frames, map_rgb_chunks
 from src.platform.media_tools.types import (
     FilterFragment,
     InvalidToolParams,
@@ -82,9 +82,7 @@ class CutFinder(MediaTool):
     def _detect(self, media: ToolMedia, fps: float, params: dict, ctx: ToolContext) -> list[int]:
         path, count = decode_rgb_frames(media, ctx, ANALYSIS_WIDTH, ANALYSIS_HEIGHT, fps=fps)
         try:
-            frames = open_rgb_frames(path, count, ANALYSIS_WIDTH, ANALYSIS_HEIGHT)
-            parts = [frame_features(frames[start:start + CHUNK_FRAMES]) for start in range(0, count, CHUNK_FRAMES)]
-            del frames
+            parts = map_rgb_chunks(path, count, ANALYSIS_WIDTH, ANALYSIS_HEIGHT, CHUNK_FRAMES, frame_features)
         finally:
             path.unlink(missing_ok=True)
         return find_cuts(

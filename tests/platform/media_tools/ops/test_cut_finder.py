@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.platform.media_tools import InvalidToolParams, ToolFailed, run_chain
+from src.platform.media_tools import InvalidToolParams, ToolCancelled, ToolFailed, run_chain
 from src.platform.media_tools.ops import cut_finder
 from tests.platform.media_tools.ops.raw_runner import raw_context, video_media
 
@@ -81,3 +81,46 @@ def test_shot_boundaries_cover_the_whole_duration():
 
     assert windows[0][0] == 0.0 and windows[-1][1] == 3.0
     assert all(a[1] == b[0] for a, b in zip(windows, windows[1:]))
+
+
+def shot_files(tmp_path):
+    return [path for path in (tmp_path / "scratch").rglob("*") if path.is_file()]
+
+
+@pytest.mark.parametrize("error", [ToolCancelled(), ToolFailed("encode broke")])
+def test_a_failure_on_the_second_shot_propagates_and_leaves_no_files(tmp_path, error):
+    ctx = raw_context(tmp_path, two_cut_clip(), fail_encode=2, error=error)
+    media = video_media(tmp_path, duration=3.0)
+
+    with pytest.raises(type(error)):
+        run_chain([(cut_finder.spec(), {"sensitivity": 50, "min_shot_seconds": 0.5})], [media], ctx)
+
+    assert shot_files(tmp_path) == []
+
+
+def test_a_failure_after_decoding_leaves_no_frame_dump(tmp_path, monkeypatch):
+    def broken(_frames):
+        raise ToolFailed("analysis broke")
+
+    monkeypatch.setattr(cut_finder, "frame_features", broken)
+    ctx = raw_context(tmp_path, two_cut_clip())
+
+    with pytest.raises(ToolFailed, match="analysis broke"):
+        run_chain([(cut_finder.spec(), {"sensitivity": 50, "min_shot_seconds": 0.5})], [video_media(tmp_path)], ctx)
+
+    assert list((tmp_path / "scratch").glob("frames-*.rgb")) == []
+
+
+def test_an_unknown_duration_fails_cleanly(tmp_path):
+    ctx = raw_context(tmp_path, two_cut_clip())
+    media = video_media(tmp_path).with_changes(duration=None)
+
+    with pytest.raises(ToolFailed, match="duration"):
+        run_chain([(cut_finder.spec(), {"sensitivity": 50, "min_shot_seconds": 0.5})], [media], ctx)
+
+    assert ctx.runner.commands == []
+
+
+def test_a_zero_shortest_shot_is_rejected():
+    with pytest.raises(InvalidToolParams):
+        cut_finder.spec().impl.check_params({"min_shot_seconds": 0})

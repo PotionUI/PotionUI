@@ -61,7 +61,7 @@ pipeline:
       # there iterates the string's CHARACTERS instead.
       loras:
         "@loop":
-          items: "{{ form.loras if (form.latent_upscale) == 'off' else [] }}"
+          items: "{{ form.loras if (form.latent_upscale) == 'off' and form.speed_profile != 'flex' else [] }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
@@ -239,9 +239,12 @@ pipeline:
         - ["model", "{{ form.audio_vae }}"]
         - ["model", "{{ form.upscale_model | default('') }}"]
         - "@loop":
-            items: "{{ form.loras | active_loras }}"
+            items: "{{ (form.loras | active_loras) if form.speed_profile != 'flex' else [] }}"
             template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - "@loop":
+            items: "{{ [form.flex_adapter] if form.speed_profile == 'flex' else [] }}"
+            template: ["model", "{{ item }}"]
         - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
         - ["speed_profile", "{{ form.speed_profile }}"]
         - ["resolution", "{{ form.resolution }}"]
@@ -305,7 +308,7 @@ pipeline:
       # FBCache. The pipe's own defaults are off (threshold 0.0), so an
       # untouched Advanced tab renders exactly the pipeline it did before
       # these three controls existed.
-      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_threshold: "{{ (generation.profile.extra | default({})).step_cache_threshold | default(form.step_cache_threshold) }}"
       step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
       step_cache_max_skips: "{{ form.step_cache_max_skips }}"
       # Sparse attention: ONE method knob (off/sol/sla). Off by default like
@@ -321,16 +324,16 @@ pipeline:
       # Solver and knot placement. The pipe's defaults (euler/simple) ARE the
       # reference schedule, so an untouched Generation tab renders exactly the
       # pipeline it did before these two controls existed.
-      sampler: "{{ form.sampler }}"
-      scheduler: "{{ form.scheduler }}"
+      sampler: "{{ generation.profile.sampler | default(form.sampler) }}"
+      scheduler: "{{ generation.profile.schedule | default(form.scheduler) }}"
       # Blank (the default) leaves the schedules computed from `steps` above;
       # a filled-in list owns the step count outright, profile included, and
       # is refused outright alongside a non-simple `scheduler`.
-      manual_sigmas: "{{ form.manual_sigmas }}"
-      manual_audio_sigmas: "{{ form.manual_audio_sigmas }}"
+      manual_sigmas: "{{ (generation.profile.extra | default({})).manual_sigmas | default(form.manual_sigmas) }}"
+      manual_audio_sigmas: "{{ (generation.profile.extra | default({})).manual_audio_sigmas | default(form.manual_audio_sigmas) }}"
       runtime_loras:
         "@loop":
-          items: "{{ form.loras if (form.latent_upscale) != 'off' else [] }}"
+          items: "{{ [{'model': form.flex_adapter, 'strength': 1.0, 'audio': true}] if form.speed_profile == 'flex' else (form.loras if (form.latent_upscale) != 'off' else []) }}"
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"

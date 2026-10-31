@@ -584,6 +584,23 @@ def test_runtime_loras_default_empty_and_declared_in_configuration():
     assert spec.required is False
 
 
+def test_the_lcm_sampler_without_a_runtime_adapter_is_refused():
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "sampler": "lcm"})
+    with pytest.raises(ValueError, match="runtime_loras"):
+        pipe.build_context(_pipe_input(model=_fake_bundle(), conditioning=[_fake_conditioning(3)]))
+
+
+def test_the_lcm_sampler_with_a_runtime_adapter_builds_its_context():
+    pipe = GeneratorMinimaxH3Pipe({
+        **GeneratorMinimaxH3Pipe.get_default_config(), "sampler": "lcm",
+        "runtime_loras": [{"file_path": "/fake/flex.safetensors", "weight": 1.0}],
+    })
+    with patch(f"{_MAIN}._load_lora_stack") as mock_load:
+        mock_load.return_value = [({"lora.weight": torch.zeros(1)}, 1.0)]
+        ctx = pipe.build_context(_pipe_input(model=_fake_bundle(), conditioning=[_fake_conditioning(3)]))
+    assert ctx.extra.sampler == "lcm"
+
+
 def test_runtime_loras_empty_stays_empty_stack():
     pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
     bundle = _fake_bundle()

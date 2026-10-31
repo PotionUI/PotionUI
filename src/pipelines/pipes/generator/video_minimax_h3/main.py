@@ -224,7 +224,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.layout import (
     patchify_video_latents,
     unpatchify_video_rows,
 )
-from src.pipelines.pipes.generator.video_minimax_h3.samplers import SAMPLERS, make_stepper
+from src.pipelines.pipes.generator.video_minimax_h3.samplers import LCM, SAMPLERS, make_stepper
 from src.pipelines.pipes.generator.video_minimax_h3.schedule import (
     KEYFRAME_NOISE_AUG,
     SCHEDULERS,
@@ -1224,7 +1224,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "a deterministic order-2 predictor-corrector, another no-extra-cost option in the "
                 "same family. 'er_sde' is stochastic (adds noise every step, seeded like the rest "
                 "of the request) -- more diverse, less reproducible frame-to-frame than the "
-                "deterministic solvers. Both streams run the chosen solver on their OWN sigma "
+                "deterministic solvers. 'lcm' predicts the clean sample and re-noises it with fresh "
+                "noise to the next sigma, the recipe few-step distilled adapters are trained for. Both streams run the chosen solver on their OWN sigma "
                 "grid, and the history is per stream and per Director window.",
                 required=False, choices=list(SAMPLERS),
             ),
@@ -1535,6 +1536,11 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         runtime_loras_cfg = _active_loras(self.config.get("runtime_loras"), supported_options={_LORA_OPTION_AUDIO})
         runtime_lora_stack = _load_lora_stack(runtime_loras_cfg) if runtime_loras_cfg else []
         runtime_lora_masked = [not lora.get("audio", True) for lora in runtime_loras_cfg]
+        if str(self.config.get("sampler", "euler")) == LCM and not runtime_loras_cfg:
+            raise ValueError(
+                "generator/video_minimax_h3: sampler 'lcm' is the few-step recipe of a distilled adapter "
+                "and needs one in 'runtime_loras' -- pick the Flex adapter, or use another sampler"
+            )
         for name, loaded, limit in (
             ("reference_images", reference_images, _MAX_REFERENCE_IMAGES),
             ("reference_videos", reference_videos, _MAX_REFERENCE_VIDEOS),
@@ -2493,6 +2499,12 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
 
         vdn_layout = None
         if vdn_attached(getattr(c.bundle.dit, "module", None)):
+            if c.sampler == LCM:
+                raise ValueError(
+                    "[GENERATOR MINIMAX-H3] this DiT carries a Video-DeltaNet branch, which was tuned "
+                    "against the base model's own steps, so it cannot run the 'lcm' few-step recipe of the "
+                    "Flex adapter. Use the Quality or Turbo speed profile with the VDN preset."
+                )
             if sparse_attn_ctx is not None or seq_chunk_rows:
                 raise ValueError(
                     "[GENERATOR MINIMAX-H3] this DiT carries a Video-DeltaNet branch, which "

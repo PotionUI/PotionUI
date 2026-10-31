@@ -21,6 +21,11 @@ fields:
       not require either file — the base model is a capable 3-4 step generator
       on its own schedule, just softer in detail than 24 steps. Full analysis in
       ai/minimax_h3/TURBO_LORA_FINDINGS.md.
+    reactions:
+      - when: { field: "speed_profile", equals: "flex" }
+        then: { set_visibility: false }
+      - when: { field: "speed_profile", not_equals: "flex" }
+        then: { set_visibility: true }
     configuration:
       model_type: "lora"
       placeholder: "Select a MiniMax-H3 LoRA..."

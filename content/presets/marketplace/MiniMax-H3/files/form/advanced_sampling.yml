@@ -12,6 +12,8 @@ fields:
         then: { set_value: 24, set_disabled: false }
       - when: { field: "speed_profile", equals: "turbo" }
         then: { set_value: 4, set_disabled: false }
+      - when: { field: "speed_profile", equals: "flex" }
+        then: { set_value: 6, set_disabled: true }
       - when: { field: "speed_profile", equals: "custom" }
         then: { set_disabled: false }
   - type: "row"
@@ -35,6 +37,11 @@ fields:
           at a low step count, or wants to try the community's MiniMax-H3
           recipes — res multistep with the Simple scheduler, DPM++ 2M with
           Beta.
+        reactions:
+          - when: { field: "speed_profile", equals: "flex" }
+            then: { set_visibility: false }
+          - when: { field: "speed_profile", not_equals: "flex" }
+            then: { set_visibility: true }
         configuration:
           options:
             - { label: "Euler (reference)", value: "euler" }
@@ -42,6 +49,7 @@ fields:
             - { label: "DPM++ 2M", value: "dpmpp_2m" }
             - { label: "ER-SDE (stochastic)", value: "er_sde" }
             - { label: "SA-Solver", value: "sa_solver" }
+            - { label: "LCM (re-noise)", value: "lcm" }
 
       - name: "scheduler"
         type: "select"
@@ -58,6 +66,11 @@ fields:
           are derived from the same knots either way. Cannot be combined with
           this tab's manual sigmas; that combination is refused rather than
           silently ignored.
+        reactions:
+          - when: { field: "speed_profile", equals: "flex" }
+            then: { set_visibility: false }
+          - when: { field: "speed_profile", not_equals: "flex" }
+            then: { set_visibility: true }
         configuration:
           options:
             - { label: "Simple (reference)", value: "simple" }
@@ -67,6 +80,11 @@ fields:
         label: "Manual sigmas (video)"
         default: ""
         ai_hint: "An expert escape hatch for reshaping where the model spends its steps -- front-load values near 1.0 for more composition work, cluster them low for more detail refinement. Do not offer it for ordinary requests; Steps and the speed profile cover those. Only reach for it when the user explicitly asks for a custom or non-uniform sigma schedule, or is transplanting a schedule from another tool. Always end the list at 0.0 or the render is refused. The list is the grid, not the step count: N values run N-1 steps. The computed default is shift 12 (video) / shift 3 (audio)."
+        reactions:
+          - when: { field: "speed_profile", equals: "flex" }
+            then: { set_visibility: false }
+          - when: { field: "speed_profile", not_equals: "flex" }
+            then: { set_visibility: true }
         configuration:
           placeholder: "e.g. 1.0, 0.93, 0.8, 0.55, 0.0"
       - name: "manual_audio_sigmas"
@@ -74,5 +92,10 @@ fields:
         label: "Manual sigmas (audio)"
         default: ""
         ai_hint: "Rarely needed on its own. Leave blank even when Manual sigmas (video) is set, unless the user specifically wants a different noise curve for the soundtrack than for the picture. If both lists are filled they must have the same number of values."
+        reactions:
+          - when: { field: "speed_profile", equals: "flex" }
+            then: { set_visibility: false }
+          - when: { field: "speed_profile", not_equals: "flex" }
+            then: { set_visibility: true }
         configuration:
           placeholder: "blank = matched to the video schedule"

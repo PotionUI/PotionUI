@@ -2,7 +2,7 @@
 type: model
 title: SDXL
 family_key: sdxl
-modes: [txt2img, inpaint, refine_faces]
+modes: [txt2img, inpaint, refine_faces, upscale]
 spec:
   arch: SDXL U-Net (diffusers pipeline stack, not the native transformer engine)
   latent: 4-channel SD-VAE latent, 2D
@@ -39,6 +39,10 @@ The shipped SDXL preset lives under the same directory layout as the native-engi
 Takes one picture and repaints its faces and hands with the checkpoint you pick; everything else is left as it is. It reuses the `detailer/sdxl` pipe that txt2img runs after generation, as two passes: a face pass, then a hand pass on its result. **Fix** chooses faces, hands or both, **Strength** is the denoise of each repaint (0.4 by default), and the prompt box is the optional face prompt. An empty prompt falls back to `detailed face, detailed eyes, best quality`; the hands use their own **Hand description** (Advanced) instead, so a face prompt never leaks into the hands.
 
 The detectors are YOLO files picked in the `detection_bbox` pickers. The mode recommends `face_yolov8s.pt` / `face_yolov8n.pt` and `hand_yolov8s.pt` / `hand_yolov8n.pt` from `Bingsu/adetailer` (the model card declares Apache-2.0; the files are Ultralytics YOLOv8 weights, whose upstream licence is AGPL-3.0). A picker is hidden, and so not required, when its target is not selected. The detailer skips a detection whose model file is missing and logs a warning rather than failing.
+
+### Upscale & refine (`upscale`)
+
+Enlarges one picture 1.5 to 4 times with an ESRGAN upscaler, then re-details it tile by tile with the checkpoint (`upscaler`, then `tiled_detailer/sdxl`, the same pair txt2img runs in its Enhance tab). **Detail strength** is the per-tile denoise (0.25 by default; above about 0.45 the checkpoint starts inventing content). Turning **Re-detail** off runs the upscaler alone: the checkpoint, prompt encoder and tiled detailer are disabled and the Checkpoint picker is hidden, so no checkpoint has to be installed. The prompt is optional; an empty one is replaced by `best quality, highly detailed`. Tile overlap, blending, minimum tile size, detail boost and the two adaptive options are under Advanced.
 
 ## Sampling
 

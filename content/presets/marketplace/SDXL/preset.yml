@@ -140,6 +140,8 @@ llm:
     Fix faces & hands mode takes one picture and repaints its faces and hands with the
     chosen checkpoint; the prompt describes only the face (expression, eyes, light), in
     the checkpoint's own tag style, and may be left empty.
+    Upscale & refine mode enlarges one picture 1.5 to 4 times and re-details it tile
+    by tile; the prompt is optional and, when given, describes the whole picture.
 
 prompt_syntax:
   txt2img:
@@ -172,6 +174,16 @@ prompt_syntax:
       kind: "marker"
       help: "Splits the prompt into separate ~75-token CLIP chunks, encoded independently"
       tone: "accent"
+  upscale:
+    - token: "(tag:1.2)"
+      kind: "weight"
+      pattern: '\(([^()]+?):(\d+(?:[.,]\d+)?)\)'
+      insert: "({}:{weight=1.2})"
+      help: "Explicit attention weight; above 1 emphasizes, below 1 de-emphasizes"
+    - token: "BREAK"
+      kind: "marker"
+      help: "Splits the prompt into separate ~75-token CLIP chunks, encoded independently"
+      tone: "accent"
 
 formulas:
   groups:
@@ -189,3 +201,4 @@ modes:
   - txt2img
   - inpaint
   - refine_faces
+  - upscale

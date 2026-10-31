@@ -1,0 +1,117 @@
+pipeline:
+  - name: "checkpoint_loader/sdxl"
+    id: "checkpoint_loader"
+    enabled: "{{ form.refine }}"
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+        base: "SDXL"
+      loras: []
+      nsfw: "{{ runtime.settings.nsfw }}"
+      clip_skip: "{{ form.clip_skip }}"
+
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  - name: "prompt_encoder"
+    id: "prompt_encoder"
+    enabled: "{{ form.refine }}"
+    input:
+      - ["text_encoder", "checkpoint_loader/sdxl", "text_encoder"]
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{% if generation.prompts.first.positive %}{{ generation.prompts.first.positive }}, {% endif %}best quality, highly detailed"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      quantity: 1
+
+  - name: "seed_generator"
+    id: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: 1
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: "{{ form.refine }}"
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: 1
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: 1
+      parameters:
+        - "@loop":
+            items: "{{ [form.model] if form.refine else [] }}"
+            template: ["model", "{{ item }}"]
+        - ["model", "{{ form.upscale_model }}"]
+        - "@loop":
+            items: "{{ [generation.prompts.positives] if form.refine else [] }}"
+            template: ["positive_prompt", "{{ item }}"]
+        - "@loop":
+            items: "{{ [generation.prompts.negatives] if form.refine else [] }}"
+            template: ["negative_prompt", "{{ item }}"]
+        - ["upscale_factor", "{{ form.upscale_factor }}"]
+        - "@loop":
+            items: "{{ [form.td_denoise] if form.refine else [] }}"
+            template: ["denoise", "{{ item }}"]
+
+  - name: "upscaler"
+    id: "upscaler"
+    enabled: true
+    input:
+      - ["image", "media_loader", "image"]
+    configuration:
+      model: "{{ form.upscale_model }}"
+      scale: "{{ form.upscale_factor }}"
+
+  - name: "tiled_detailer/sdxl"
+    id: "tiled_detailer"
+    enabled: "{{ form.refine }}"
+    input:
+      - ["model", "checkpoint_loader/sdxl", "model"]
+      - ["image", "upscaler", "image"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      denoise: "{{ form.td_denoise }}"
+      steps: "{{ form.td_steps }}"
+      cfg: "{{ form.td_cfg }}"
+      detail_boost: "{{ form.td_detail_boost }}"
+      sampler: "{{ form.sampler }}"
+      scheduler: "{{ form.scheduler }}"
+      clip_skip: "{{ form.clip_skip }}"
+      overlap: "{{ form.td_overlap }}"
+      feather_amount: "{{ form.td_feather_amount }}"
+      min_tile_size: "{{ form.td_min_tile_size }}"
+      enable_detail_conditioning: "{{ 'enable_detail_conditioning' in form.td_adaptive_tiles }}"
+      content_aware_denoise: "{{ 'content_aware_denoise' in form.td_adaptive_tiles }}"
+
+  - name: "gallery"
+    id: "gallery"
+    enabled: true
+    input:
+      - ["image", "{% if form.refine %}tiled_detailer{% else %}upscaler{% endif %}", "image"]
+      - ["seed", "seed_generator", "seed"]

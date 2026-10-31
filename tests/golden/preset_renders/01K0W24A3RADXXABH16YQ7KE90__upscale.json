@@ -1,0 +1,285 @@
+{
+  "mode": "upscale",
+  "pipes": [
+    {
+      "config": {
+        "clip_skip": {
+          "type": "int",
+          "value": 2
+        },
+        "loras": {
+          "type": "list",
+          "value": []
+        },
+        "model.base": {
+          "type": "str",
+          "value": "SDXL"
+        },
+        "model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "nsfw": {
+          "type": "bool",
+          "value": false
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "checkpoint_loader",
+      "name": "checkpoint_loader/sdxl"
+    },
+    {
+      "config": {
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/source_image.png",
+              "type": "image"
+            }
+          ]
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "n_prompt.input": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "n_prompt.output": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "p_prompt.input": {
+          "type": "str",
+          "value": "golden positive prompt"
+        },
+        "p_prompt.output": {
+          "type": "str",
+          "value": "golden positive prompt, best quality, highly detailed"
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "prompt_encoder",
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "seed_generator",
+      "name": "seed_generator"
+    },
+    {
+      "config": {
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "dynamic_prompts_renderer",
+      "name": "dynamic_prompts_renderer"
+    },
+    {
+      "config": {
+        "from": {
+          "type": "str",
+          "value": "seed"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "from_iotype",
+      "name": "from_iotype"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              [
+                "model",
+                "/GOLDEN/models/model.safetensors"
+              ]
+            ],
+            [
+              "model",
+              "/GOLDEN/models/upscale_model.safetensors"
+            ],
+            [
+              [
+                "positive_prompt",
+                [
+                  "golden positive prompt"
+                ]
+              ]
+            ],
+            [
+              [
+                "negative_prompt",
+                [
+                  "golden negative prompt"
+                ]
+              ]
+            ],
+            [
+              "upscale_factor",
+              2.0
+            ],
+            [
+              [
+                "denoise",
+                0.25
+              ]
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "model": {
+          "type": "str",
+          "value": "/GOLDEN/models/upscale_model.safetensors"
+        },
+        "scale": {
+          "type": "float",
+          "value": 2.0
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "upscaler",
+      "name": "upscaler"
+    },
+    {
+      "config": {
+        "cfg": {
+          "type": "float",
+          "value": 5.5
+        },
+        "clip_skip": {
+          "type": "int",
+          "value": 2
+        },
+        "content_aware_denoise": {
+          "type": "bool",
+          "value": true
+        },
+        "denoise": {
+          "type": "float",
+          "value": 0.25
+        },
+        "detail_boost": {
+          "type": "float",
+          "value": 1.1
+        },
+        "enable_detail_conditioning": {
+          "type": "bool",
+          "value": true
+        },
+        "feather_amount": {
+          "type": "int",
+          "value": 96
+        },
+        "min_tile_size": {
+          "type": "int",
+          "value": 896
+        },
+        "overlap": {
+          "type": "int",
+          "value": 128
+        },
+        "sampler": {
+          "type": "str",
+          "value": "DPMPP_2M"
+        },
+        "scheduler": {
+          "type": "str",
+          "value": "karras"
+        },
+        "steps": {
+          "type": "int",
+          "value": 24
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "tiled_detailer",
+      "name": "tiled_detailer/sdxl"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "gallery",
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01K0W24A3RADXXABH16YQ7KE90",
+  "preset_name": "SDXL"
+}

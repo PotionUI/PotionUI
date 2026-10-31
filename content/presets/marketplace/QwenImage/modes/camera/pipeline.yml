@@ -1,0 +1,102 @@
+pipeline:
+  - name: "model_loader/qwen"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras:
+        "@loop":
+          items: "{{ [{'model': form.camera_lora, 'strength': form.camera_strength | default(0.9)}] + (form.loras or []) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+      vision: true
+
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader/qwen", "text_encoder"]
+      - ["image", "media_loader", "image"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: &camera_prompt "{% set views = {0: 'front view', 45: 'front-right quarter view', 90: 'right side view', 135: 'back-right quarter view', 180: 'back view', 225: 'back-left quarter view', 270: 'left side view', 315: 'front-left quarter view'} %}{% set shots = {-30: 'low-angle shot', 0: 'eye-level shot', 30: 'elevated shot', 60: 'high-angle shot'} %}<sks> {{ views[(form.camera_turn | int) % 360] }} {{ shots[form.camera_tilt | int] }} {{ form.camera_zoom }}"
+        output: *camera_prompt
+      n_prompt:
+        input: ""
+        output: ""
+      quantity: "{{ form.quantity }}"
+      guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
+      negative_applied: "{{ generation.negative_applied }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["model", "{{ form.camera_lora }}"]
+        - ["positive_prompt", *camera_prompt]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - ["schedule", "{{ form.schedule }}"]
+
+  - name: "generator/qwen"
+    input:
+      - ["model", "model_loader/qwen", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "media_loader", "image"]
+    enabled: true
+    configuration:
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
+      mode: "edit"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      guidance: "{{ form.cfg | default(generation.profile.guidance) }}"
+      shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      schedule: "{{ form.schedule }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "gallery"
+    input:
+      - ["image", "generator/qwen", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true

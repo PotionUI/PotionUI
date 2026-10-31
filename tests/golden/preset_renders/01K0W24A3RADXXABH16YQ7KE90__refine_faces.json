@@ -1,0 +1,384 @@
+{
+  "mode": "refine_faces",
+  "pipes": [
+    {
+      "config": {
+        "clip_skip": {
+          "type": "int",
+          "value": 2
+        },
+        "loras": {
+          "type": "list",
+          "value": []
+        },
+        "model.base": {
+          "type": "str",
+          "value": "SDXL"
+        },
+        "model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "nsfw": {
+          "type": "bool",
+          "value": false
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "checkpoint_loader",
+      "name": "checkpoint_loader/sdxl"
+    },
+    {
+      "config": {
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/source_image.png",
+              "type": "image"
+            }
+          ]
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "n_prompt.input": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "n_prompt.output": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "p_prompt.input": {
+          "type": "str",
+          "value": "golden positive prompt"
+        },
+        "p_prompt.output": {
+          "type": "str",
+          "value": "golden positive prompt, detailed face, detailed eyes, best quality"
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "face_encoder",
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {
+        "n_prompt.input": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "n_prompt.output": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "p_prompt.input": {
+          "type": "str",
+          "value": "detailed hands, five fingers, best quality"
+        },
+        "p_prompt.output": {
+          "type": "str",
+          "value": "detailed hands, five fingers, best quality"
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "hand_encoder",
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "seed_generator",
+      "name": "seed_generator"
+    },
+    {
+      "config": {
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "dynamic_prompts_renderer",
+      "name": "dynamic_prompts_renderer"
+    },
+    {
+      "config": {
+        "from": {
+          "type": "str",
+          "value": "seed"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "from_iotype",
+      "name": "from_iotype"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/model.safetensors"
+            ],
+            [],
+            [
+              "positive_prompt",
+              [
+                "golden positive prompt"
+              ]
+            ],
+            [
+              "negative_prompt",
+              [
+                "golden negative prompt"
+              ]
+            ],
+            [
+              "cfg",
+              5
+            ],
+            [
+              "steps",
+              24
+            ],
+            [
+              "sampler",
+              "DPMPP_2M"
+            ],
+            [
+              "scheduler",
+              "karras"
+            ],
+            [
+              "clip_skip",
+              2
+            ],
+            [
+              "fix_target",
+              "both"
+            ],
+            [
+              "fix_strength",
+              0.4
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "detect": {
+          "type": "list",
+          "value": [
+            "face"
+          ]
+        },
+        "detections.face.cfg": {
+          "type": "int",
+          "value": 5
+        },
+        "detections.face.clip_skip": {
+          "type": "int",
+          "value": 2
+        },
+        "detections.face.confidence": {
+          "type": "float",
+          "value": 0.3
+        },
+        "detections.face.enabled": {
+          "type": "bool",
+          "value": true
+        },
+        "detections.face.mask_blur": {
+          "type": "int",
+          "value": 4
+        },
+        "detections.face.min_size_for_upscale": {
+          "type": "int",
+          "value": 256
+        },
+        "detections.face.model": {
+          "type": "str",
+          "value": "/GOLDEN/models/face_detector_model.safetensors"
+        },
+        "detections.face.padding": {
+          "type": "int",
+          "value": 32
+        },
+        "detections.face.sampler": {
+          "type": "str",
+          "value": "DPMPP_2M"
+        },
+        "detections.face.scheduler": {
+          "type": "str",
+          "value": "karras"
+        },
+        "detections.face.steps": {
+          "type": "int",
+          "value": 24
+        },
+        "detections.face.strength": {
+          "type": "float",
+          "value": 0.4
+        },
+        "detections.face.type": {
+          "type": "str",
+          "value": "yolo"
+        },
+        "detections.face.upscale_factor": {
+          "type": "float",
+          "value": 1.5
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "face_detailer",
+      "name": "detailer/sdxl"
+    },
+    {
+      "config": {
+        "detect": {
+          "type": "list",
+          "value": [
+            "hand"
+          ]
+        },
+        "detections.hand.cfg": {
+          "type": "int",
+          "value": 5
+        },
+        "detections.hand.clip_skip": {
+          "type": "int",
+          "value": 2
+        },
+        "detections.hand.confidence": {
+          "type": "float",
+          "value": 0.3
+        },
+        "detections.hand.enabled": {
+          "type": "bool",
+          "value": true
+        },
+        "detections.hand.mask_blur": {
+          "type": "int",
+          "value": 4
+        },
+        "detections.hand.model": {
+          "type": "str",
+          "value": "/GOLDEN/models/hand_detector_model.safetensors"
+        },
+        "detections.hand.padding": {
+          "type": "int",
+          "value": 32
+        },
+        "detections.hand.sampler": {
+          "type": "str",
+          "value": "DPMPP_2M"
+        },
+        "detections.hand.scheduler": {
+          "type": "str",
+          "value": "karras"
+        },
+        "detections.hand.steps": {
+          "type": "int",
+          "value": 24
+        },
+        "detections.hand.strength": {
+          "type": "float",
+          "value": 0.4
+        },
+        "detections.hand.type": {
+          "type": "str",
+          "value": "yolo"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "hand_detailer",
+      "name": "detailer/sdxl"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "gallery",
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01K0W24A3RADXXABH16YQ7KE90",
+  "preset_name": "SDXL"
+}

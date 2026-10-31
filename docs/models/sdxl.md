@@ -2,7 +2,7 @@
 type: model
 title: SDXL
 family_key: sdxl
-modes: [txt2img, inpaint]
+modes: [txt2img, inpaint, refine_faces, upscale, restyle, control]
 spec:
   arch: SDXL U-Net (diffusers pipeline stack, not the native transformer engine)
   latent: 4-channel SD-VAE latent, 2D
@@ -33,6 +33,26 @@ SDXL checkpoints load via `from_single_file()` (a single safetensors file), with
 ## Presets & modes
 
 The shipped SDXL preset lives under the same directory layout as the native-engine presets — the shared "native" label refers to plugin-free in-process execution, contrasted with a remote ComfyUI backend, not to the transformer engine. A ComfyUI-backed SDXL preset also exists as an alternative.
+
+### Fix faces & hands (`refine_faces`)
+
+Takes one picture and repaints its faces and hands with the checkpoint you pick; everything else is left as it is. It reuses the `detailer/sdxl` pipe that txt2img runs after generation, as two passes: a face pass, then a hand pass on its result. **Fix** chooses faces, hands or both, **Strength** is the denoise of each repaint (0.4 by default), and the prompt box is the optional face prompt. An empty prompt falls back to `detailed face, detailed eyes, best quality`; the hands use their own **Hand description** (Advanced) instead, so a face prompt never leaks into the hands.
+
+The detectors are YOLO files (AGPL-3.0 upstream, labelled as such in the pickers like Krea2's YOLO option) picked in the `detection_bbox` pickers. The mode recommends `face_yolov8s.pt` / `face_yolov8n.pt` and `hand_yolov8s.pt` / `hand_yolov8n.pt` from `Bingsu/adetailer` (the model card declares Apache-2.0; the files are Ultralytics YOLOv8 weights, whose upstream licence is AGPL-3.0). A picker is hidden, and so not required, when its target is not selected. The detailer skips a detection whose model file is missing and logs a warning rather than failing.
+
+### Upscale & refine (`upscale`)
+
+Enlarges one picture 1.5 to 4 times with an ESRGAN upscaler, then re-details it tile by tile with the checkpoint (`upscaler`, then `tiled_detailer/sdxl`, the same pair txt2img runs in its Enhance tab). **Detail strength** is the per-tile denoise (0.25 by default; above about 0.45 the checkpoint starts inventing content). Turning **Re-detail** off runs the upscaler alone: the checkpoint, prompt encoder and tiled detailer are disabled and the Checkpoint picker is hidden, so no checkpoint has to be installed. The prompt is optional; an empty one is replaced by `best quality, highly detailed`. Tile overlap, blending, minimum tile size, detail boost and the two adaptive options are under Advanced.
+
+### Img2img / restyle (`restyle`)
+
+Starts from one picture instead of noise: the picture is encoded, partly noised by **Strength** and denoised again toward the prompt. Around 0.3 changes finish and detail, 0.6 changes style and mood, 0.9 keeps only the rough layout. It uses the `generator/sdxl` img2img path with no mask (the same path inpaint uses with one), plus the LoRA and Embeddings tabs of txt2img. **Working size** caps the source at 1, 2 or 4 megapixels (default 1) through the generator's `max_pixels` option, shrinking a larger picture to a multiple of 8 before it is encoded; Original size keeps it. **Quantity** loads the source once per image, and each image gets its own seed and its own expanded prompt.
+
+### Structure (`control`)
+
+The txt2img ControlNet tab promoted into its own mode: a guide picture, what to follow (Pose, Sketch / Lineart, Depth or Edges) and a strength. With **Extract it from a photo** on, `controlnet_preprocessor` turns the picture into the matching map (DWPose for Pose) and fails loudly if it finds nothing; with it off the picture is used as the map unchanged. **Also save the guide** adds the extracted map to the results.
+
+Each guide has its own ControlNet picker, shown only for the chosen guide, with the matching `xinsir/controlnet-*-sdxl-1.0` file recommended (Apache-2.0 on every model card: openpose, scribble, depth, canny). The xinsir union ControlNet is not offered: the `controlnet_loader/sdxl` pipe loads plain `ControlNetModel` files, and the union model needs a control-type input it does not provide.
 
 ## Sampling
 

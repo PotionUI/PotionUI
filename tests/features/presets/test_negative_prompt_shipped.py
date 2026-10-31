@@ -21,7 +21,7 @@ EXPECTED = {
     ("LTX-2.5", "day_to_night"), ("LTX-2.5", "cinemagraph"),
     ("ZImage", "txt2img"), ("Wan", "video"),
     ("ZImage", "img2img"), ("ZImage", "enhance"), ("ZImage", "control"),
-    ("QwenImage", "txt2img"), ("QwenImage", "img2img"), ("QwenImage", "edit"),
+    ("QwenImage", "txt2img"), ("QwenImage", "img2img"), ("QwenImage", "edit"), ("QwenImage", "camera"), ("QwenImage", "real"),
     ("QwenImage-2.1", "txt2img"), ("QwenImage-2.1", "edit"), ("QwenImage-2.1", "combine"), ("QwenImage-2.1", "text"), ("QwenImage-2.1", "restyle"), ("QwenImage-2.1", "control"),
     ("Anima", "txt2img"),
     ("Flux1", "txt2img"), ("Flux1", "img2img"), ("Flux2", "txt2img"), ("Flux2", "img2img"),

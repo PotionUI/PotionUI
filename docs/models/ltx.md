@@ -148,6 +148,15 @@ The `LTX-2.5` preset ships a `transparent_video` mode: a clip in, the same clip 
 - The WebM needs an ffmpeg with `libvpx-vp9`. The bundled `imageio-ffmpeg` build has it; a system ffmpeg without it makes the run fail with a message naming the missing encoder.
 - A PNG sequence export is not offered: the gallery has no archive output type, and hundreds of loose PNG frames would flood it.
 
+### Follow motion
+
+Both presets ship a `follow_motion` mode: a Video with the camera moves and layout you want, a First Frame picture and a prompt for the new scene, and the result is the new scene moving the way the video does. It reuses the Motion transfer pipeline and its Union-Control LoRA, and only changes the guide.
+
+- `control_video` runs with `type: depth` (default) or `type: edges`, chosen by the Follow field. Depth is Video Depth Anything Small and keeps camera and layout loosely; edges is canny and keeps outlines closely. Neither reads the picture, so the guide keeps the video's own frame; the picture is the first-frame keyframe and is cover-cropped onto it.
+- Stage 1 and the refine take the guide as the IC-LoRA reference and the picture as the first frame, exactly as in Motion transfer. The video's soundtrack is not carried over, since the scene is new.
+- The Generation tab and the Union-Control LoRA are the Motion transfer ones (`modes/motion_transfer/tabs/generation.yml` is included, not copied). The LoRA was trained on LTX-2.3: native on `LTX-2 / 2.3`, reused unchanged on `LTX-2.5`. The Distilled speed profile is the default, as structural IC-LoRAs need the distilled checkpoint.
+- Advanced has "Save guide" to put the depth or edge video in the gallery, which is the quickest way to see what the model is following. See [Pose guide](../pose-guide.md#depth-and-edges) for the guide itself.
+
 ### Latent upscalers: spatial and temporal
 
 `latent_upscaler/ltx` runs one upsample in latent space, between two generation stages. Its `mode` config picks which checkpoint it runs, and each has its own model-loader slot, because a pipeline can need both files resident at once:

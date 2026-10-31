@@ -112,17 +112,18 @@ class TestContract:
             "type": "pose", "width": 0, "height": 0, "max_pixels": 0, "size_multiple": 32, "fit": "contain",
             "match_picture": True, "ease_in": 0.0, "body": True, "hands": True, "face": True,
             "detect_resolution": 512, "line_scale": 1.0, "min_confidence": 0.3, "smoothing": 0.5,
-            "keyframe_interval": 8, "max_gap": 12, "max_frames": 0, "max_seconds": 0.0, "save_guide": False, "weights_dir": "",
+            "keyframe_interval": 8, "max_gap": 12, "max_frames": 0, "max_seconds": 0.0, "canny_low": 100.0, "canny_high": 200.0,
+            "save_guide": False, "weights_dir": "",
         }
-        assert specs["type"].choices == ["pose"]
+        assert specs["type"].choices == ["pose", "depth", "edges"]
 
     def test_an_unknown_guide_type_is_rejected_by_the_config_check(self):
         with pytest.raises(ValueError, match="type"):
-            validate_pipe_configuration(ControlVideoPipe, {"type": "depth"})
+            validate_pipe_configuration(ControlVideoPipe, {"type": "normals"})
 
     def test_an_unknown_guide_type_is_rejected_at_run_time(self, clip):
         with pytest.raises(GenerationExecutionError, match="Unknown guide type"):
-            run(make(type="depth"), video=[clip])
+            run(make(type="normals"), video=[clip])
 
     def test_no_video_is_an_error(self):
         with pytest.raises(GenerationExecutionError, match="at least one video"):

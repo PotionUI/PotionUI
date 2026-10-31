@@ -51,7 +51,7 @@ frame rate** as the source.
 - Size: `width` and `height` win; otherwise the picture's (or the clip's) size is capped by
   `max_pixels` and snapped to `size_multiple` (32 for LTX and MiniMax-H3). `fit` decides between
   letterboxing and cropping when the shape differs.
-- `type` is `pose` today; `depth` and `edges` are reserved for later.
+- `type` is `pose`, `depth` or `edges`; the last two are described under [Depth and edges](#depth-and-edges).
 
 ### Matching a picture
 
@@ -78,3 +78,13 @@ of the guide agrees with a picture used as the first frame of the video.
 `controlnet_preprocessor` with `type: openpose` renders the same skeleton for a single image
 (`include_body`, `include_hand`, `include_face` choose the parts), so the SDXL and Qwen-Image
 Control modes keep their option and get the Apache-2.0 estimator.
+
+## Depth and edges
+
+`type: depth` and `type: edges` turn the driving video into a grey depth map or a canny outline video instead of a skeleton. Neither draws a person, so neither reads or retargets a picture: an `image` input is ignored, and the guide keeps the clip's own frame (size and fit rules as above, with `max_pixels` and `size_multiple` snapping).
+
+- `edges` runs OpenCV Canny on each frame at the guide size. `canny_low` and `canny_high` (100 and 200 by default) are its two thresholds. White outlines on black, no model download.
+- `depth` runs Video Depth Anything Small (Apache-2.0, vendored under `vendor/VideoDepthAnything`; the Base and Large sizes are non-commercial and are never used). The 116 MB checkpoint `video_depth_anything_vits.pth` is fetched on first use through the asset service into `annotators/depth-anything-video-depth-anything-small/` and verified by size and SHA-256. A `weights_dir` pointing at a folder that already holds it skips the fetch.
+- The network sees 32-frame windows with a 10-frame overlap. Each later window is shifted and scaled onto the previous one through the shared keyframes, and the overlap is cross-faded, so depth does not pump between windows. The depth values are stretched between the 2nd and 98th percentile of the whole clip and written as bright for near, dark for far.
+- The depth model runs on the GPU when there is one and is moved back to the CPU and dropped when the pipe finishes, so it never competes with the generator for VRAM. On CPU it works but takes much longer.
+- Frame count and rate follow the clip, like the pose guide. `max_frames` and `max_seconds` apply to every type.

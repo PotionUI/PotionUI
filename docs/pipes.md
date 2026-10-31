@@ -216,7 +216,7 @@ Generates media with a model hosted by a cloud provider
 
 ### <a id="pipe-control-video"></a>`control_video`
 
-Render a driving video into a pose guide video, optionally retargeted onto a picture's person
+Render a driving video into a pose, depth or edge guide video; a pose guide can be retargeted onto a picture's person
 
 **Inputs**
 
@@ -237,7 +237,7 @@ Render a driving video into a pose guide video, optionally retargeted onto a pic
 
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
-| `type` | `str` | `"pose"` | no | `pose` | — | — | Kind of guide to render |
+| `type` | `str` | `"pose"` | no | `pose`, `depth`, `edges` | — | — | Kind of guide to render: a pose skeleton, a depth map or canny edges |
 | `width` | `int` | `0` | no | — | 0 | — | Exact guide width; 0 derives it |
 | `height` | `int` | `0` | no | — | 0 | — | Exact guide height; 0 derives it |
 | `max_pixels` | `int` | `0` | no | — | 0 | — | Pixel budget for the derived size; 0 = no cap |
@@ -256,8 +256,10 @@ Render a driving video into a pose guide video, optionally retargeted onto a pic
 | `max_gap` | `int` | `12` | no | — | 0 | — | Longest run of missing frames that is interpolated |
 | `max_frames` | `int` | `0` | no | — | 0 | — | Only process the first N frames; 0 = all |
 | `max_seconds` | `float` | `0.0` | no | — | 0.0 | — | Only process the first N seconds of the source, whatever its frame rate; 0 = all. The smaller of this and max_frames wins |
+| `canny_low` | `float` | `100.0` | no | — | 0.0 | 500.0 | Edges guide: weak edge threshold |
+| `canny_high` | `float` | `200.0` | no | — | 0.0 | 500.0 | Edges guide: strong edge threshold |
 | `save_guide` | `bool` | `false` | no | — | — | — | Also save the guide video to the gallery |
-| `weights_dir` | `str` | `""` | no | — | — | — | Folder holding the two DWPose ONNX files; blank fetches them |
+| `weights_dir` | `str` | `""` | no | — | — | — | Folder holding the model files for the guide type (the two DWPose ONNX files, or the video depth checkpoint); blank fetches them |
 
 ## controlnet_loader
 

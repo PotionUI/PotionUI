@@ -126,3 +126,26 @@ cases:
         sha256: "d9e143f979e0756f0c83d772e6a8890f4c6b933db1f7d93fc06e25c179f3fd36"
     checks:
       min_outputs: 1
+
+  - name: "ltx25-follow-motion-fast"
+    mode: "follow_motion"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      speed_profile: "distilled"
+      guide_type: "depth"
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      upscale_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      effect_lora:
+        sha256: "a1b888a87f661d27f08b394ae559e8e1050be33900bcc36a5cdf659e48f88d18"
+    checks:
+      min_outputs: 1
+      not_black: true

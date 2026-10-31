@@ -183,6 +183,10 @@
     "label": "Motion Transfer",
     "icon": "mode-control"
   },
+  "follow_motion": {
+    "label": "Follow Motion",
+    "icon": "mode-control"
+  },
   "cinemagraph": {
     "label": "Cinemagraph",
     "icon": "mode-cinemagraph"

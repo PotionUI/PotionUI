@@ -15,6 +15,7 @@ from src.pipelines.outputs import (
     ProgressGenerationOutput,
 )
 from src.pipelines.pipes._shared.pose import estimator as shared_estimator
+from src.pipelines.pipes.control_video import main as pipe_module
 from src.pipelines.pipes.control_video.main import ControlVideoPipe
 from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.pose.dwpose import DETECTOR_FILENAME, DWPOSE_REPO, POSE_FILENAME
@@ -288,6 +289,55 @@ class TestFailures:
         with pytest.raises(GenerationExecutionError, match="No person found in the video"):
             run(make(), estimator=OnlyLandscape(), video=[clip, portrait])
         assert list(scratch.iterdir()) == []
+
+    def test_a_cancelled_encode_aborts_the_writer_without_closing_it(self, clip, scratch, monkeypatch):
+        events = []
+
+        class FakeWriter:
+            def __init__(self, path, *args, **kwargs):
+                Path(path).write_bytes(b"partial")
+
+            def write(self, frame):
+                events.append("write")
+
+            def close(self):
+                events.append("close")
+
+            def abort(self):
+                events.append("abort")
+
+        monkeypatch.setattr(pipe_module, "StreamingMp4Writer", FakeWriter)
+        state = {"n": 0}
+
+        def cancelled():
+            state["n"] += 1
+            return state["n"] > 14
+
+        with pytest.raises(SamplingCancelled):
+            run(make(), cancelled=cancelled, video=[clip])
+        assert "abort" in events and "close" not in events
+        assert list(scratch.iterdir()) == []
+
+    def test_a_finished_encode_closes_the_writer(self, clip, monkeypatch):
+        events = []
+
+        class FakeWriter:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def write(self, frame):
+                pass
+
+            def close(self):
+                events.append("close")
+
+            def abort(self):
+                events.append("abort")
+
+        monkeypatch.setattr(pipe_module, "StreamingMp4Writer", FakeWriter)
+        (guide,), _ = run(make(), video=[clip])
+        assert events == ["close"]
+        Path(guide).unlink()
 
     def test_a_failure_on_a_later_video_discards_the_earlier_guide(self, clip, tmp_path, scratch):
         broken = tmp_path / "broken.mp4"

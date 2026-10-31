@@ -259,10 +259,7 @@ class ControlVideoPipe(BasePipe):
                     self._progress(generation_outputs, "Drawing the pose guide", index, count)
             writer.close()
         except BaseException:
-            try:
-                writer.close()
-            except Exception:
-                writer.abort()
+            writer.abort()
             Path(path).unlink(missing_ok=True)
             raise
         if preview is not None:

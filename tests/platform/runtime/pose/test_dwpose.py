@@ -1,4 +1,6 @@
 import hashlib
+import sys
+import types
 
 import numpy as np
 import pytest
@@ -277,3 +279,32 @@ class TestVerifyWeights:
             216746733, "7860ae79de6c89a3c1eb72ae9a2756c0ccfbe04b7791bb5880afabd97855a411")
         assert dwpose.WEIGHT_FILES[POSE_FILENAME] == (
             134399116, "724f4ff2439ed61afb86fb8a1951ec39c6220682803b4a8bd4f598cd913b1843")
+
+
+class TestProviders:
+    def install(self, monkeypatch, available):
+        created = []
+
+        class Session:
+            def __init__(self, path, providers=None):
+                created.append(providers)
+
+        module = types.SimpleNamespace(get_available_providers=lambda: available, InferenceSession=Session)
+        monkeypatch.setitem(sys.modules, "onnxruntime", module)
+        return created
+
+    def test_cpu_only_build_uses_the_cpu_provider(self, monkeypatch):
+        created = self.install(monkeypatch, ["CPUExecutionProvider"])
+        dwpose.create_onnx_session("/m/yolox_l.onnx")
+        assert created == [["CPUExecutionProvider"]]
+
+    def test_cuda_build_puts_cuda_first_then_cpu(self, monkeypatch):
+        created = self.install(monkeypatch, ["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"])
+        dwpose.create_onnx_session("/m/yolox_l.onnx")
+        assert created == [["CUDAExecutionProvider", "CPUExecutionProvider"]]
+
+    def test_the_choice_is_logged(self, monkeypatch, caplog):
+        self.install(monkeypatch, ["CPUExecutionProvider"])
+        with caplog.at_level("INFO", logger=dwpose.logger.name):
+            dwpose.create_onnx_session("/m/yolox_l.onnx")
+        assert "CPUExecutionProvider" in caplog.text

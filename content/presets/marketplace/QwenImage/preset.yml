@@ -62,6 +62,8 @@ vars:
   default_shift: 1.15
   promptless_modes:
     - "camera"
+  optional_prompt_modes:
+    - "real"
 
 llm:
   guide: |
@@ -74,7 +76,9 @@ llm:
     cinematic composition." Negative prompts are supported; keep them short and
     targeted, or empty when nothing needs suppressing. Camera angle mode takes
     one image and needs no prompt: its Turn, Tilt and Zoom controls choose the
-    new viewpoint.
+    new viewpoint. Make it real mode turns an illustration, render or 3D shot into a
+    photograph and keeps the composition; the prompt is optional and only describes
+    what is in the picture (e.g. "a woman in a red coat on a rainy street").
 
 prompt_syntax:
   txt2img:
@@ -114,3 +118,4 @@ modes:
   - img2img
   - edit
   - camera
+  - real

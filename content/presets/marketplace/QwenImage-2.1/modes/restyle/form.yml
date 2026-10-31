@@ -2,7 +2,7 @@ prompt_label: "What to change it to"
 prompt_placeholder: "a soft watercolour painting"
 name: "custom"
 mode_label: "Restyle"
-short_description: "Change the style, background or lighting, colourise or restore a photo."
+short_description: "Change the style, background or lighting, make it a photo, colourise or restore."
 fields:
   - type: "tabs"
     children:

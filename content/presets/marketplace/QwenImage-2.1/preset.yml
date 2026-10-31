@@ -73,7 +73,7 @@ vars:
   optional_prompt_modes:
     - "text"
     - mode: "restyle"
-      when: { field: "restyle_task", in: ["colourise", "restore"] }
+      when: { field: "restyle_task", in: ["colourise", "restore", "photo"] }
 
 llm:
   guide: |
@@ -98,7 +98,7 @@ llm:
     instruction from the task the user picks (style, background, lighting, colourise,
     restore); the prompt is the result in a few words ("watercolour painting", "a white
     studio", "golden hour"), required for style, background and lighting and optional
-    extra details for colourise and restore. Structure mode follows the structure of a guide
+    extra details for photo, colourise and restore (photo turns an illustration or render into a photograph). Structure mode follows the structure of a guide
     image (edges, depth, pose, lines or grayscale; use Pose to transfer a pose) and can repaint a masked part
     of an image; describe the whole finished image, not just the masked part.
 

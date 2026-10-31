@@ -24,6 +24,7 @@ STYLE = "Restyle the whole image as watercolour. Keep the composition, subjects 
 BACKGROUND = "Replace the background with a white studio. Keep the subject, its pose and its lighting unchanged."
 LIGHTING = "Change the lighting to golden hour. Keep the composition, subjects and colours of objects unchanged."
 COLOURISE = "Colourise this black and white photo with natural, realistic colours."
+PHOTO = "Turn this image into a realistic photograph. Keep the composition, subjects, layout and colours unchanged."
 RESTORE = (
     "Restore this old photo: remove scratches, dust and fading, repair damage and sharpen detail, "
     "keeping the people and scene exactly as they are."
@@ -79,7 +80,7 @@ def test_mode_follows_text_is_named_restyle_and_takes_the_standard_prompt(templa
     assert mode_display_icon("restyle") == "mode-restyle"
     assert all(isinstance(e, dict) and e["mode"] != "restyle" for e in template.vars["promptless_modes"])
     entry = next(e for e in template.vars["optional_prompt_modes"] if isinstance(e, dict) and e["mode"] == "restyle")
-    assert entry["when"] == {"field": "restyle_task", "in": ["colourise", "restore"]}
+    assert entry["when"] == {"field": "restyle_task", "in": ["colourise", "restore", "photo"]}
 
 
 def test_the_description_field_is_gone(template):
@@ -101,6 +102,8 @@ def test_the_description_field_is_gone(template):
     ("lighting", "golden hour", LIGHTING),
     ("colourise", "", COLOURISE),
     ("restore", "", RESTORE),
+    ("photo", "", PHOTO),
+    ("photo", " a knight in a field ", PHOTO.replace("photograph.", "photograph. It shows a knight in a field.")),
     ("colourise", "  warm tones ", COLOURISE + " Details: warm tones."),
     ("restore", "faces first", RESTORE + " Details: faces first."),
 ])
@@ -119,7 +122,7 @@ def test_history_records_the_same_prompt(template):
     assert _emitted(pipes, "positive_prompt") == [LIGHTING]
 
 
-@pytest.mark.parametrize("task", ["style", "background", "lighting", "colourise", "restore"])
+@pytest.mark.parametrize("task", ["style", "background", "lighting", "photo", "colourise", "restore"])
 def test_no_description_is_asked_for_by_the_form(template, task):
     bound_form_data(template, "restyle", {**BASE, "restyle_task": task})
 
@@ -142,7 +145,7 @@ def test_a_prompt_that_repeats_the_wrapper_words_still_lands_in_its_slot(templat
 
 
 def test_the_flow_is_a_plain_edit_for_every_task(template):
-    for task in ("style", "background", "lighting", "colourise", "restore"):
+    for task in ("style", "background", "lighting", "photo", "colourise", "restore"):
         pipes = _render(template, restyle_task=task, restyle_text="x")
         assert not {"matting", "subject_composite"} & set(pipes)
         gallery = next(i for i in pipes["gallery"]["input"] if i["name"] == "image")

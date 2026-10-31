@@ -117,6 +117,7 @@ pipeline:
       - ["video", "context", "video"]
     enabled: true
     configuration:
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
       sampler: "{{ form.sampler | default(generation.profile.sampler) }}"

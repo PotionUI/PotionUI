@@ -361,6 +361,46 @@ still no branch on family name.
 > `__init__` never sets them -- verified by reading the class, not assumed. Wan 2.2 normalization
 > is plain `scale_factor=1.0` (a no-op), nothing per-channel.
 
+## Live previews
+
+Sampling streams a preview of the running `x0` estimate to the workbench every fifth step (the first
+and last step always). Two sources produce it:
+
+- **Latent colour projection** (default). A per-family `C x 3` linear map from ComfyUI's
+  `latent_formats.py`, applied at latent resolution (`sampling/preview.py`). It costs one matmul and
+  shows only the first frame of a video. MiniMax-H3 has no trained table, so its colours are a
+  placeholder.
+- **Preview decoder.** A TAEHV tiny decoder ([madebyollin/taehv](https://github.com/madebyollin/taehv),
+  MIT, vendored under `vendor/taehv/`). It decodes the running latent to real colour, under 0.5 GB of
+  VRAM and several times faster than the full VAE, and the preview shows the middle frame of the clip.
+
+The decoder is an ordinary model slot, not a setting. A preset declares an optional `preview_decoder`
+model field (`model_type: preview_decoder`, depot folder `vae_approx/`, the same folder ComfyUI uses),
+admins can set its default or hide it like any other model field, and nothing is downloaded behind the
+user's back: the weights come from the field's recommendation or the `src/std/models/preview_decoders.yml`
+catalog. When the field is empty, missing, unreadable or built for another latent width than the model
+samples, the hook silently keeps the colour projection.
+
+| Weights | Latent | Use with |
+|---|---|---|
+| `taeh3` | 24 ch | MiniMax-H3 |
+| `taeltx_2` | 128 ch | LTX-2 |
+| `taeltx2_3` | 128 ch | LTX-2.3, LTX-2.5 |
+| `taew2_1` | 16 ch | Wan 2.1, Wan 2.2 14B, Qwen-Image |
+| `taew2_2` | 48 ch | Wan 2.2 5B |
+
+The architecture is read from the weights (latent width and layer shapes), never from the file name, so
+a renamed file still loads. A decoder is loaded once through `ModelLifecycle` under the key
+`native/preview_decoder/<path>`, runs in fp16 on CUDA and fp32 on CPU, and goes back to the CPU when the
+sampling loop ends. To keep the cost flat on long clips, a step decodes a window of three latent frames
+around the middle one, at the smallest spatial scale that still reaches the 512 px preview cap.
+`sampling/preview_decoder.py` also exposes `decode_clip`, which decodes every frame of a latent
+(optionally at reduced spatial scale) for callers that want the whole low-resolution clip.
+
+To add the slot to another mode, copy the `preview_decoder` field into that mode's Models section and
+add `preview_decoder: "{{ form.preview_decoder | default('') }}"` to each generator pipe's
+`configuration:`.
+
 ## Verification approach
 
 - **Key-parity fixtures.** `tests/core/native/text_encoders/test_key_parity.py` and the VAE/arch

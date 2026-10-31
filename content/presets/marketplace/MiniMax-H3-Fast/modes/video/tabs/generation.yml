@@ -125,3 +125,23 @@ fields:
               size: "577.2 MB"
               sha256: "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48"
               description: "MiniMax-H3 audio VAE, fp32 - required for the audio track."
+
+      - name: "preview_decoder"
+        type: "model"
+        label: "Preview decoder"
+        required: false
+        ai_hint: "Optional tiny decoder that turns the live preview into a true-colour frame from the middle of the clip. Leave empty to keep the fast latent colour projection."
+        reactions:
+          - when: { field: "preview", equals: false }
+            then: { set_visibility: false }
+          - when: { field: "preview", equals: true }
+            then: { set_visibility: true }
+        configuration:
+          model_type: "preview_decoder"
+          placeholder: "Select taeh3.safetensors..."
+          recommendations:
+            - name: "taeh3.safetensors"
+              link: "https://raw.githubusercontent.com/madebyollin/taehv/62f7591f59dfbb4c3c02b7a621d180a9eeaba26c/safetensors/taeh3.safetensors"
+              size: "21.66 MB"
+              sha256: "4fd022bfcab08772fe0536b17ea1a3bbb5625be11e397868d1c5d891863d4c13"
+              description: "MiniMax-H3 true-colour live preview decoder (MIT)."

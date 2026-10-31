@@ -226,6 +226,7 @@ pipeline:
       - ["seed", "seed_generator", "seed"]
     enabled: "{{ form.video_director.mode == 't2v' }}"
     configuration:
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
       sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
@@ -280,6 +281,7 @@ pipeline:
       - ["seed", "seed_generator", "seed"]
     enabled: "{{ form.video_director.mode in ['i2v', 'flf'] }}"
     configuration:
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
       sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
@@ -329,6 +331,7 @@ pipeline:
     # degenerate chain of one.
     enabled: "{{ form.video_director.mode == 'director' }}"
     configuration:
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       # Raw passthrough (bypasses Jinja stringification, same idiom as
       # `pairs: "{{ generation.prompts.pairs }}"` elsewhere) -- the chain pipe
       # reads document.segments/['settings']/['media'] directly and needs real

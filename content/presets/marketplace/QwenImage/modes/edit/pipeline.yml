@@ -156,6 +156,7 @@ pipeline:
       - ["image", "media_loader", "image"]
     enabled: true
     configuration:
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       mode: "edit"
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       guidance: "{{ form.cfg | default(generation.profile.guidance) }}"

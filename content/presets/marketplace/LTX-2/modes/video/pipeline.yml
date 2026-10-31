@@ -295,6 +295,7 @@ pipeline:
       - ["audio", "media_audio", "audio"]
     enabled: true
     configuration:
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       # Krea-2-style idiom (docs/presets.md "Speed profiles"): the profile
       # supplies the baseline, the visible form field (baked to the profile's
       # exact value by the reactions in tabs/generation.yml) is what actually
@@ -465,6 +466,7 @@ pipeline:
     # an exact `{{ expression }}`, not a `{% set %}`-prefixed string.
     enabled: "{{ (form.upscale) != 'off' }}"
     configuration:
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       # Resolution x factor -- the inverse of stage 1's (now-plain)
       # `form.resolution` (see this file's header comment and generator_
       # stage1's own resolution comment above). 544x960 + 2.0x -> 1088x1920.

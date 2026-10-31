@@ -119,6 +119,7 @@ pipeline:
       - ["seed", "seed_generator", "seed"]
     enabled: true
     configuration:
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       guidance: "{{ form.cfg | default(generation.profile.guidance) }}"
       # Optional shift override; blank -> spec default (1.15).

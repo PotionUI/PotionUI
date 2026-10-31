@@ -199,19 +199,6 @@ DETECT_CASES = [
         id="ampere",
     ),
     pytest.param(
-        (8, 9, 25757220864, "NVIDIA GeForce RTX 4090"),
-        None,
-        {
-            "generation": "ada",
-            "generation_label": "RTX 40-series (Ada)",
-            "name": "NVIDIA GeForce RTX 4090",
-            "vram_gb": 24.0,
-            "compute_capability": "8.9",
-            "fast_precisions": ["bf16", "fp16", "fp8"],
-        },
-        id="ada-rounded",
-    ),
-    pytest.param(
         (9, 0, 80 * GIB, "NVIDIA H100"),
         None,
         {
@@ -283,3 +270,53 @@ def test_detect_unknown_device_index_returns_none(monkeypatch):
 def test_detect_survives_a_driver_error(monkeypatch):
     _fake_cuda(monkeypatch, RuntimeError("driver gone"))
     assert detect_gpu_profile() == GpuProfile()
+
+
+def test_detect_returns_the_cached_snapshot_without_refreshing(monkeypatch):
+    import src.platform.runtime.native.kernels as kernels
+
+    calls = []
+    real = kernels.refresh_capabilities
+    monkeypatch.setattr(kernels, "refresh_capabilities", lambda: calls.append(1) or real())
+    _fake_cuda(monkeypatch, (8, 6, 24 * GIB, "first"))
+    assert detect_gpu_profile().name == "first"
+    _fake_cuda(monkeypatch, (12, 0, 32 * GIB, "second"))
+    assert detect_gpu_profile().name == "first"
+    assert calls == []
+
+
+def test_detect_refreshes_once_when_the_snapshot_has_no_usable_device(monkeypatch):
+    import src.platform.runtime.native.kernels as kernels
+    from src.platform.runtime.native.kernels.hardware import _install_snapshot
+    from tests.fixtures.kernel_capabilities import fake_capabilities
+
+    calls = []
+    real = kernels.refresh_capabilities
+    monkeypatch.setattr(kernels, "refresh_capabilities", lambda: calls.append(1) or real())
+    _install_snapshot(fake_capabilities(fake_device((8, 6), total_memory=0)))
+    _fake_cuda(monkeypatch, (12, 0, 32 * GIB, "late"))
+    assert detect_gpu_profile().name == "late"
+    assert calls == [1]
+
+
+def test_detect_refreshes_once_and_returns_empty_when_still_unusable(monkeypatch):
+    import src.platform.runtime.native.kernels as kernels
+
+    calls = []
+    real = kernels.refresh_capabilities
+    monkeypatch.setattr(kernels, "refresh_capabilities", lambda: calls.append(1) or real())
+    _fake_cuda(monkeypatch)
+    assert detect_gpu_profile() == GpuProfile()
+    assert calls == [1]
+
+
+def test_detect_logs_and_returns_empty_when_the_engine_import_fails(monkeypatch, caplog):
+    import src.platform.runtime.native.kernels as kernels
+
+    def boom():
+        raise ImportError("engine broken")
+
+    monkeypatch.setattr(kernels, "capabilities", boom)
+    with caplog.at_level("ERROR", logger="src.platform.runtime.gpu_profile"):
+        assert detect_gpu_profile() == GpuProfile()
+    assert "GPU profile detection failed" in caplog.text

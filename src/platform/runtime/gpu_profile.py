@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Tuple
 
 from src.platform.runtime.gpu_generation import GpuGeneration, generation_for
+
+logger = logging.getLogger(__name__)
 
 GENERATION_NONE = GpuGeneration.NONE.value
 GENERATION_AMPERE = GpuGeneration.AMPERE.value
@@ -125,16 +128,29 @@ def build_gpu_profile(
     )
 
 
+def _usable_device(snapshot: Any, device_index: int) -> Any:
+    devices = snapshot.devices
+    if not 0 <= device_index < len(devices):
+        return None
+    device = devices[device_index]
+    if device.capability == (0, 0) or device.total_memory <= 0:
+        return None
+    return device
+
+
 def detect_gpu_profile(device_index: int = 0) -> GpuProfile:
     try:
-        from src.platform.runtime.native.kernels import capabilities
+        import torch
+    except Exception:
+        return GpuProfile()
+    try:
+        from src.platform.runtime.native.kernels import capabilities, refresh_capabilities
         from src.platform.runtime.native.kernels.hardware import VENDOR_CUDA
 
-        devices = capabilities().devices
-        if not 0 <= device_index < len(devices):
-            return GpuProfile()
-        device = devices[device_index]
-        if device.capability == (0, 0) or device.total_memory <= 0:
+        device = _usable_device(capabilities(), device_index)
+        if device is None:
+            device = _usable_device(refresh_capabilities(), device_index)
+        if device is None:
             return GpuProfile()
         return build_gpu_profile(
             device.capability,
@@ -143,4 +159,5 @@ def detect_gpu_profile(device_index: int = 0) -> GpuProfile:
             device.vendor == VENDOR_CUDA,
         )
     except Exception:
+        logger.exception("GPU profile detection failed")
         return GpuProfile()

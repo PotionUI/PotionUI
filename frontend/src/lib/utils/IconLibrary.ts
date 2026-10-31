@@ -197,6 +197,7 @@ export const iconPaths: Record<string, string | string[]> = {
 	],
 	frame: ['M4 5h16v14H4z', 'M8 5v14', 'M16 5v14', 'M4 9h4', 'M4 15h4', 'M16 9h4', 'M16 15h4'],
 	concat: ['M3 8h8v8H3z', 'M13 8h8v8h-8z', 'M11 12h2'],
+	cuts: ['M3 6h6v12H3z', 'M15 6h6v12h-6z', 'M12 3v18'],
 	plug: ['M12 22v-5', 'M9 8V2', 'M15 8V2', 'M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z'],
 	database: [
 		'M21 5a9 3 0 1 1 -18 0a9 3 0 0 1 18 0z',

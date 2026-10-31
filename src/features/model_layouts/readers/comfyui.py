@@ -30,6 +30,7 @@ KEY_TO_MODEL_TYPE = {
     "ultralytics_bbox": "detection_bbox",
     "ultralytics_segm": "detection_segm",
     "geometry_estimation": "geometry_estimation",
+    "vae_approx": "preview_decoder",
 }
 
 

@@ -2,10 +2,12 @@ import numpy as np
 import pytest
 
 from src.platform.runtime.pose.layout import NECK, NUM_POINTS, R_WRIST
+from src.platform.runtime.pose.retarget import RetargetError
 from src.platform.runtime.pose.sequence import (
     NoPersonError,
     clean_sequence,
     estimate_sequence,
+    estimate_subject,
     shrink_to_short_side,
 )
 from src.platform.runtime.pose.temporal import lost_frames
@@ -62,6 +64,42 @@ class TestEstimateSequence:
     def test_an_empty_video_is_an_error(self):
         with pytest.raises(NoPersonError):
             estimate_sequence([], Backend())
+
+
+class TestEstimateSubject:
+    def test_largest_detection_is_used_and_coordinates_come_back_in_picture_pixels(self):
+        backend = Backend(
+            detections=[[0, 0, 20, 40, 0.99], [100, 50, 400, 480, 0.8]],
+            pose=skeleton(neck=(256.0, 100.0)),
+        )
+        picture = np.zeros((1024, 768, 3), dtype=np.uint8)
+        pose = estimate_subject(picture, backend)
+        assert backend.estimate_calls[0][1].tolist() == [100, 50, 400, 480]
+        assert backend.estimate_calls[0][0][1] == 512
+        assert pose[NECK, 0] == pytest.approx(256.0 * 768 / backend.estimate_calls[0][0][1], rel=1e-4)
+
+    def test_without_a_detection_the_whole_picture_is_the_box(self):
+        backend = Backend(detections=[])
+        estimate_subject(np.zeros((600, 400, 3), dtype=np.uint8), backend)
+        shape, box = backend.estimate_calls[0]
+        assert box.tolist() == [0.0, 0.0, float(shape[1]), float(shape[0])]
+
+    def test_a_bad_box_is_retried_on_the_whole_picture(self):
+        class Fussy(Backend):
+            def estimate(self, rgb, box):
+                self.estimate_calls.append((rgb.shape, np.asarray(box)))
+                full = box[2] - box[0] >= rgb.shape[1]
+                return self.pose.copy() if full else np.zeros((NUM_POINTS, 3), dtype=np.float32)
+
+        backend = Fussy(detections=[[0, 0, 30, 30, 0.9]])
+        pose = estimate_subject(np.zeros((400, 400, 3), dtype=np.uint8), backend)
+        assert len(backend.estimate_calls) == 2
+        assert pose[NECK, 2] > 0.3
+
+    def test_no_person_raises(self):
+        backend = Backend(detections=[], pose=np.zeros((NUM_POINTS, 3), dtype=np.float32))
+        with pytest.raises(RetargetError, match="picture"):
+            estimate_subject(np.zeros((300, 300, 3), dtype=np.uint8), backend)
 
 
 class TestCleanSequence:

@@ -185,13 +185,14 @@ Generates media with a model hosted by a cloud provider
 
 ### <a id="pipe-control-video"></a>`control_video`
 
-Render a driving video into a pose guide video
+Render a driving video into a pose guide video, optionally retargeted onto a picture's person
 
 **Inputs**
 
 | Name | IO Type | Required | Array | Description |
 |---|---|---|---|---|
 | `video` | `VIDEO` | yes | yes | Driving videos |
+| `image` | `IMAGE` | no | yes | Picture of the person who should perform the motion |
 | `MODELS` | `SERVICE` | no | no | Model lifecycle service for caching the pose models |
 | `ASSETS` | `SERVICE` | no | no | Asset fetcher for the pose model files |
 
@@ -211,6 +212,8 @@ Render a driving video into a pose guide video
 | `max_pixels` | `int` | `0` | no | — | 0 | — | Pixel budget for the derived size; 0 = no cap |
 | `size_multiple` | `int` | `32` | no | — | 2 | — | Guide width and height are multiples of this |
 | `fit` | `str` | `"contain"` | no | `contain`, `cover` | — | — | How the source frame fits a different-shaped guide |
+| `match_picture` | `bool` | `true` | no | — | — | — | Retarget the motion onto the person in the picture input |
+| `ease_in` | `float` | `0.0` | no | — | 0.0 | — | Seconds to blend from the picture's own pose into the motion |
 | `body` | `bool` | `true` | no | — | — | — | Draw the body skeleton |
 | `hands` | `bool` | `true` | no | — | — | — | Draw the hands |
 | `face` | `bool` | `true` | no | — | — | — | Draw the face points |

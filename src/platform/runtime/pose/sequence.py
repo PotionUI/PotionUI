@@ -6,8 +6,11 @@ import cv2
 import numpy as np
 
 from src.platform.runtime.pose.layout import NUM_POINTS
+from src.platform.runtime.pose.retarget import RetargetError
 from src.platform.runtime.pose.temporal import fill_gaps, hold_lost, lost_frames, smooth
-from src.platform.runtime.pose.tracking import PersonTracker, PoseBackend
+from src.platform.runtime.pose.tracking import PersonTracker, PoseBackend, body_count
+
+MIN_SUBJECT_BODY_POINTS = 3
 
 
 class NoPersonError(ValueError):
@@ -46,6 +49,27 @@ def estimate_sequence(
     if not poses:
         raise NoPersonError("the video has no frames")
     return np.stack(poses).astype(np.float32)
+
+
+def estimate_subject(
+    rgb: np.ndarray, backend: PoseBackend, min_confidence: float = 0.3, detect_resolution: int = 512,
+) -> np.ndarray:
+    small = shrink_to_short_side(rgb, detect_resolution)
+    height, width = small.shape[:2]
+    detections = backend.detect(small)
+    if len(detections):
+        areas = (detections[:, 2] - detections[:, 0]) * (detections[:, 3] - detections[:, 1])
+        box = detections[int((areas * detections[:, 4]).argmax()), :4]
+    else:
+        box = np.array([0.0, 0.0, float(width), float(height)], dtype=np.float32)
+    pose = backend.estimate(small, box).astype(np.float32)
+    if body_count(pose, min_confidence) < MIN_SUBJECT_BODY_POINTS and len(detections):
+        pose = backend.estimate(small, np.array([0.0, 0.0, float(width), float(height)], dtype=np.float32)).astype(np.float32)
+    if body_count(pose, min_confidence) < MIN_SUBJECT_BODY_POINTS:
+        raise RetargetError("no person found in the picture")
+    pose[:, 0] *= rgb.shape[1] / width
+    pose[:, 1] *= rgb.shape[0] / height
+    return pose
 
 
 def clean_sequence(

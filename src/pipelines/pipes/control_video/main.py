@@ -32,10 +32,12 @@ from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.pose.dwpose import DWPoseEstimator
 from src.platform.runtime.pose.geometry import FIT_MODES, fit_transform, map_points, resolve_output_size
 from src.platform.runtime.pose.render import RenderOptions, render_pose
+from src.platform.runtime.pose.retarget import RetargetError, retarget_sequence
 from src.platform.runtime.pose.sequence import (
     NoPersonError,
     clean_sequence,
     estimate_sequence,
+    estimate_subject,
 )
 from src.platform.util.video_stream import StreamingMp4Writer
 
@@ -53,7 +55,7 @@ def _number(value: Any, cast: Callable, default: Any) -> Any:
 
 class ControlVideoPipe(BasePipe):
     name = "control_video"
-    description = "Render a driving video into a pose guide video"
+    description = "Render a driving video into a pose guide video, optionally retargeted onto a picture's person"
     display_title = "Reading the motion"
 
     @classmethod
@@ -65,6 +67,8 @@ class ControlVideoPipe(BasePipe):
             PipeConfigSpec("max_pixels", int, 0, "Pixel budget for the derived size; 0 = no cap", required=False, min_value=0),
             PipeConfigSpec("size_multiple", int, 32, "Guide width and height are multiples of this", required=False, min_value=2),
             PipeConfigSpec("fit", str, "contain", "How the source frame fits a different-shaped guide", required=False, choices=list(FIT_MODES)),
+            PipeConfigSpec("match_picture", bool, True, "Retarget the motion onto the person in the picture input", required=False),
+            PipeConfigSpec("ease_in", float, 0.0, "Seconds to blend from the picture's own pose into the motion", required=False, min_value=0.0),
             PipeConfigSpec("body", bool, True, "Draw the body skeleton", required=False),
             PipeConfigSpec("hands", bool, True, "Draw the hands", required=False),
             PipeConfigSpec("face", bool, True, "Draw the face points", required=False),
@@ -83,6 +87,7 @@ class ControlVideoPipe(BasePipe):
     def inputs(cls) -> List[PipeInputSpec]:
         return [
             PipeInputSpec("video", IOType.VIDEO, True, "Driving videos", is_array=True),
+            PipeInputSpec("image", IOType.IMAGE, False, "Picture of the person who should perform the motion", is_array=True),
             PipeInputSpec("MODELS", IOType.SERVICE, False, "Model lifecycle service for caching the pose models", is_array=False),
             PipeInputSpec("ASSETS", IOType.SERVICE, False, "Asset fetcher for the pose model files", is_array=False),
         ]
@@ -146,13 +151,18 @@ class ControlVideoPipe(BasePipe):
         videos = media_paths(pipe_input.input.get("video"))
         if not videos:
             raise GenerationExecutionError("control_video needs at least one video.")
+        pictures = pipe_input.input.get("image") or []
+        if isinstance(pictures, Image.Image):
+            pictures = [pictures]
+        retarget = as_flag(self.config.get("match_picture", True)) and bool(pictures)
         cancelled = is_cancelled or (lambda: False)
         estimator = self._load_estimator(pipe_input)
         guides: List[str] = []
         try:
-            for video in videos:
-                guides.append(self._render_one(video, estimator, generation_outputs, cancelled))
-        except NoPersonError as error:
+            for position, video in enumerate(videos):
+                picture = pictures[min(position, len(pictures) - 1)] if retarget else None
+                guides.append(self._render_one(video, picture, estimator, generation_outputs, cancelled))
+        except (NoPersonError, RetargetError) as error:
             self._discard(guides)
             message = str(error)
             raise GenerationExecutionError(message[:1].upper() + message[1:] + ".") from error
@@ -164,6 +174,7 @@ class ControlVideoPipe(BasePipe):
     def _render_one(
         self,
         video: str,
+        picture: Optional[Image.Image],
         estimator: DWPoseEstimator,
         generation_outputs: Callable,
         cancelled: Callable,
@@ -198,7 +209,14 @@ class ControlVideoPipe(BasePipe):
             max_gap=_number(self.config.get("max_gap"), int, 12),
             smoothing=_number(self.config.get("smoothing"), float, 0.5),
         )
-        source_width, source_height = video_width, video_height
+        if picture is not None:
+            rgb = np.asarray(picture.convert("RGB"))
+            source_width, source_height = rgb.shape[1], rgb.shape[0]
+            subject = estimate_subject(rgb, estimator, options.min_confidence, options.detect_resolution)
+            ease = int(round(_number(self.config.get("ease_in"), float, 0.0) * fps))
+            driver = retarget_sequence(driver, subject, options.min_confidence, ease).poses
+        else:
+            source_width, source_height = video_width, video_height
         out_width, out_height = resolve_output_size(
             source_width, source_height,
             width=_number(self.config.get("width"), int, 0),

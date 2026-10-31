@@ -4,6 +4,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pytest
+from PIL import Image
 
 from src.features.generation.engine import validate_pipe_configuration
 from src.pipelines.contracts import IOType, PipeInput
@@ -80,6 +81,11 @@ def clip(tmp_path_factory):
 
 
 @pytest.fixture
+def picture():
+    return Image.new("RGB", (200, 300), (120, 120, 120))
+
+
+@pytest.fixture
 def scratch(tmp_path, monkeypatch):
     root = tmp_path / "scratch"
     root.mkdir()
@@ -94,6 +100,7 @@ class TestContract:
     def test_inputs_and_outputs(self):
         inputs = {spec.name: spec for spec in ControlVideoPipe.inputs()}
         assert (inputs["video"].io_type, inputs["video"].required, inputs["video"].is_array) == (IOType.VIDEO, True, True)
+        assert (inputs["image"].io_type, inputs["image"].required, inputs["image"].is_array) == (IOType.IMAGE, False, True)
         assert inputs["MODELS"].io_type == IOType.SERVICE and inputs["ASSETS"].io_type == IOType.SERVICE
         (out,) = ControlVideoPipe.outputs()
         assert (out.name, out.io_type, out.is_array) == ("video", IOType.VIDEO, True)
@@ -102,7 +109,7 @@ class TestContract:
         specs = {spec.name: spec for spec in ControlVideoPipe.configuration()}
         assert {name: spec.default for name, spec in specs.items()} == {
             "type": "pose", "width": 0, "height": 0, "max_pixels": 0, "size_multiple": 32, "fit": "contain",
-            "body": True, "hands": True, "face": True,
+            "match_picture": True, "ease_in": 0.0, "body": True, "hands": True, "face": True,
             "detect_resolution": 512, "line_scale": 1.0, "min_confidence": 0.3, "smoothing": 0.5,
             "keyframe_interval": 8, "max_gap": 12, "max_frames": 0, "save_guide": False, "weights_dir": "",
         }
@@ -180,6 +187,45 @@ class TestGuideVideo:
         Path(partial).unlink()
 
 
+class TestPictureRetarget:
+    def test_size_comes_from_the_picture_and_motion_is_retargeted(self, clip, picture):
+        (guide,), _ = run(make(smoothing=0.0), video=[clip], image=[picture])
+        frames, fps = probe(guide)
+        assert len(frames) == FRAMES and fps == pytest.approx(FPS, abs=0.01)
+        assert frames[0].shape[:2] == (288, 192)
+        Path(guide).unlink()
+
+    def test_match_picture_off_ignores_the_picture(self, clip, picture):
+        (guide,), _ = run(make(match_picture=False), video=[clip], image=[picture])
+        assert probe(guide)[0][0].shape[:2] == (96, 160)
+        Path(guide).unlink()
+
+    def test_one_picture_pairs_with_every_video(self, clip, picture, tmp_path):
+        second = str(make_video(tmp_path / "b.mp4", seconds=0.5, size=(160, 96), fps=FPS, audio=False))
+        guides, _ = run(make(), video=[clip, second], image=[picture])
+        assert [probe(g)[0][0].shape[:2] for g in guides] == [(288, 192)] * 2
+        for guide in guides:
+            Path(guide).unlink()
+
+    def test_each_video_pairs_with_its_own_picture(self, clip, picture, tmp_path):
+        second = str(make_video(tmp_path / "c.mp4", seconds=0.5, size=(160, 96), fps=FPS, audio=False))
+        wide = Image.new("RGB", (300, 200), (120, 120, 120))
+        guides, _ = run(make(), video=[clip, second], image=[picture, wide])
+        assert [probe(g)[0][0].shape[:2] for g in guides] == [(288, 192), (192, 288)]
+        for guide in guides:
+            Path(guide).unlink()
+
+    def test_ease_in_starts_from_the_pictures_pose(self, clip, picture):
+        (plain,), _ = run(make(smoothing=0.0), video=[clip], image=[picture])
+        (eased,), _ = run(make(smoothing=0.0, ease_in=0.5), video=[clip], image=[picture])
+        assert not np.array_equal(probe(plain)[0][0], probe(eased)[0][0])
+        first = np.abs(probe(plain)[0][0].astype(int) - probe(eased)[0][0].astype(int)).mean()
+        last = np.abs(probe(plain)[0][-1].astype(int) - probe(eased)[0][-1].astype(int)).mean()
+        assert first > 5 * last
+        Path(plain).unlink()
+        Path(eased).unlink()
+
+
 class TestOutputs:
     def test_a_preview_artifact_and_progress_are_emitted(self, clip):
         (guide,), emitted = run(make(), video=[clip])
@@ -203,6 +249,16 @@ class TestFailures:
         with pytest.raises(GenerationExecutionError, match="No person found in the video"):
             run(make(), estimator=FakeEstimator(detect_empty=True), video=[clip])
         assert list(scratch.iterdir()) == []
+
+    def test_no_person_in_the_picture(self, clip, picture):
+        class VideoOnly(FakeEstimator):
+            def estimate(self, rgb, box):
+                if rgb.shape[0] > rgb.shape[1]:
+                    return np.zeros((NUM_POINTS, 3), dtype=np.float32)
+                return super().estimate(rgb, box)
+
+        with pytest.raises(GenerationExecutionError, match="No person found in the picture"):
+            run(make(), estimator=VideoOnly(), video=[clip], image=[picture])
 
     def test_unreadable_video(self, tmp_path):
         broken = tmp_path / "broken.mp4"

@@ -28,7 +28,8 @@ them with `pip uninstall onnxruntime && pip install onnxruntime-gpu` when the GP
 
 ## The `control_video` pipe
 
-Input: `video` (the driving clip). Output: `video`, one guide per driving clip with the **same frame count and
+Inputs: `video` (the driving clip) and, optionally, `image` (a picture of the person who should
+perform the motion). Output: `video`, one guide per driving clip with the **same frame count and
 frame rate** as the source.
 
 - The person is detected on keyframes (`keyframe_interval`) and followed between them from the
@@ -43,7 +44,27 @@ frame rate** as the source.
   joints, hue-ramped hand edges, white face dots. Line widths scale with the guide's short side
   relative to `detect_resolution` (512), so a 544- or 704-pixel guide looks like the 512 one the
   control models were trained on.
-- Size: `width` and `height` win; otherwise the clip's size is capped by
+- Size: `width` and `height` win; otherwise the picture's (or the clip's) size is capped by
   `max_pixels` and snapped to `size_multiple` (32 for LTX and MiniMax-H3). `fit` decides between
   letterboxing and cropping when the shape differs.
 - `type` is `pose` today; `depth` and `edges` are reserved for later.
+
+### Matching a picture
+
+With an `image` input and `match_picture` on (the default), the driver's skeleton is retargeted onto
+the person in the picture:
+
+1. The picture is run through the same estimator to get the subject's skeleton.
+2. Every driver bone keeps its angle and its foreshortening but takes the subject's bone length. The
+   per-bone scale is the subject-over-driver ratio of a high percentile of the driver's bone length
+   over the clip, so a tall driver and a short subject end up with the subject's proportions.
+   A subject limb that looks short in the picture (pointing at the camera) borrows the length of
+   its mirror limb.
+3. The neck is the root. It starts on the subject's neck in the picture and then follows the driver's
+   neck path scaled by the subject's size.
+4. Hands follow the wrist and the face follows the nose, scaled like the arm and the head.
+5. Joints the picture does not show (a half-length portrait) are still drawn from the driver, scaled
+   by the visible part of the subject.
+
+`ease_in` blends the first seconds from the picture's own pose into the motion, so the first frame
+of the guide agrees with a picture used as the first frame of the video.

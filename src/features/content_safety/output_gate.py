@@ -11,6 +11,7 @@ from src.pipelines.outputs import (
     GalleryGenerationOutput,
     GenerationOutput,
     ImageGenerationOutput,
+    PreviewClipGenerationOutput,
     VideoGenerationOutput,
 )
 
@@ -106,6 +107,8 @@ def gate_items(output: GenerationOutput) -> List[GateItem]:
         items = [GateItem(KIND_IMAGE, image, _is_final(image), gallery=True) for image in output.images or []]
         items += [GateItem(KIND_VIDEO, video, _is_final(video), gallery=True) for video in output.videos or []]
         return items
+    if isinstance(output, PreviewClipGenerationOutput):
+        return _generic_items(output)
     if is_unknown_output(output):
         return _generic_items(output)
     return []

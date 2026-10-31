@@ -309,7 +309,7 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
         logger.debug("[GENERATOR WAN-I2V] video %d/%d, seed %d", index + 1, ctx.quantity, seed)
         hooks = [ProgressHook(on_progress)]
         if self.config.get("preview", True):
-            preview_hook = make_preview_hook(c.spec, progress.preview, decoder_path=self.config.get("preview_decoder") or None)
+            preview_hook = make_preview_hook(c.spec, progress.preview, emit_clip=progress.preview_clip, decoder_path=self.config.get("preview_decoder") or None)
             if preview_hook is not None:
                 hooks.append(preview_hook)
         # try/finally: a partial-residency (streamed) expert pins host

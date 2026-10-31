@@ -36,9 +36,11 @@ import torch
 from PIL import Image
 
 from .hooks import PreviewHook
+from .preview_clip import CLIP_MAX_FRAMES, ClipRelay, ClipSchedule, SpriteClip
 from .preview_decoder import (
     acquire_preview_decoder,
     decode_middle_frame,
+    decode_preview_clip,
     frame_to_image,
     spec_latent_channels,
 )
@@ -335,6 +337,50 @@ class _DecoderPreviewHook(PreviewHook):
             logger.debug("preview decoder offload failed", exc_info=True)
 
 
+CLIP_MAX_SIZE = 384
+
+
+class _ClipPreviewHook(_DecoderPreviewHook):
+    def __init__(self, decode_fn, every_n, callback, decoder, clip_decode, is_clip, relay, priority: int = 50) -> None:
+        super().__init__(decode_fn, every_n, callback, decoder, priority=priority)
+        self._clip_decode = clip_decode
+        self._is_clip = is_clip
+        self._clip_latent: Optional[bool] = None
+        self._relay = relay
+        self._schedule = ClipSchedule()
+
+    def on_start(self, total_steps: int) -> None:
+        self._schedule.start(total_steps)
+
+    def on_step(self, step_index, total_steps, x, sigma, denoised_x0) -> None:
+        if denoised_x0 is None:
+            return
+        if self._clip_latent is None:
+            self._clip_latent = self._is_clip(denoised_x0)
+        if not self._clip_latent:
+            super().on_step(step_index, total_steps, x, sigma, denoised_x0)
+            return
+        if not self._schedule.due(step_index):
+            return
+        decoded = self._clip_decode(denoised_x0)
+        if decoded is None:
+            return
+        frames, indices = decoded
+        self._schedule.mark_emitted()
+        self._relay.submit(
+            frames,
+            indices,
+            step=step_index + 1,
+            total_steps=total_steps,
+            update_index=self._schedule.emitted,
+            every=self._schedule.every,
+        )
+
+    def on_end(self) -> None:
+        self._relay.drain()
+        super().on_end()
+
+
 def _resolve_decoder(spec: Any, decoder_path: Optional[Any]):
     if not decoder_path:
         return None
@@ -362,6 +408,7 @@ def make_preview_hook(
     priority: int = 50,
     latent_transform: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
     decoder_path: Optional[Any] = None,
+    emit_clip: Optional[Callable[[SpriteClip], None]] = None,
 ) -> Optional[PreviewHook]:
     factors = resolve_preview_factors(spec)
     decoder = _resolve_decoder(spec, decoder_path)
@@ -396,6 +443,27 @@ def make_preview_hook(
         except Exception:
             logger.debug("latent preview emit failed; skipping frame", exc_info=True)
 
+    if decoder is not None and emit_clip is not None:
+        def clip_decode(x0: torch.Tensor):
+            try:
+                if latent_transform is not None:
+                    x0 = latent_transform(x0)
+                frames, indices = decode_preview_clip(decoder, x0, max_frames=CLIP_MAX_FRAMES, max_size=CLIP_MAX_SIZE)
+                return (frames, indices) if len(frames) > 1 else None
+            except Exception:
+                logger.debug("preview clip decode failed; skipping update", exc_info=True)
+                return None
+
+        def is_clip(x0: torch.Tensor) -> bool:
+            try:
+                t = latent_transform(x0) if latent_transform is not None else x0
+                return t.ndim == 5 and t.shape[2] > 1
+            except Exception:
+                return False
+
+        return _ClipPreviewHook(
+            decode_fn, every_n, callback, decoder, clip_decode, is_clip, ClipRelay(emit_clip), priority=priority,
+        )
     if decoder is not None:
         return _DecoderPreviewHook(decode_fn, every_n, callback, decoder, priority=priority)
     return PreviewHook(decode_fn, every_n, callback, priority=priority)

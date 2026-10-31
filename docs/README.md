@@ -52,6 +52,7 @@ Subsystem docs for anyone authoring presets, plugins, or touching the engine. Ad
 - [Providers](providers.md) — plugins that talk to a model marketplace and own their own credentials.
 - [Prompt Expansion](prompts.md) — how a prompt template expands per image.
 - [Model Tools](model-tools.md) — the admin preset that quantizes models and merges LoRAs into new files.
+- [Pose Guide](pose-guide.md) — the DWPose estimator, the `control_video` pipe and how a driving video is retargeted onto a picture.
 - [Remote Native](remote-native.md) — the standalone native-engine worker and its wire protocol.
 
 **Chat & directors**

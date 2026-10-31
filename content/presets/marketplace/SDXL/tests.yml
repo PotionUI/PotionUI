@@ -130,3 +130,23 @@ cases:
     checks:
       min_outputs: 1
       not_black: true
+
+  - name: "sdxl-structure-pose-fast"
+    mode: "control"
+    seed: 999
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "a knight in silver armor, forest at dawn"
+      guide: "openpose"
+      steps: 10
+      cfg: 4
+      resolution: "1024x1024"
+    models:
+      model:
+        sha256: "c9e3e68f89b8e38689e1097d4be4573cf308de4e3fd044c64ca697bdb4aa8bca"
+      cn_openpose_model:
+        sha256: "b8524e557a7df60d081f5d4a0eb109967d107df217943bf88c2d99b9ebcc06c5"
+    checks:
+      min_outputs: 1
+      resolution: "1024x1024"
+      not_black: true

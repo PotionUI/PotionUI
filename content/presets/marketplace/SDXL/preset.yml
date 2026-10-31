@@ -144,6 +144,8 @@ llm:
     by tile; the prompt is optional and, when given, describes the whole picture.
     Img2img / restyle mode starts from one picture: describe the NEW picture in full
     (the prompt is not a list of changes), in the checkpoint's own tag style.
+    Structure mode follows the pose, sketch lines, depth or edges of a guide picture;
+    describe the whole new picture, not the guide.
 
 prompt_syntax:
   txt2img:
@@ -196,6 +198,16 @@ prompt_syntax:
       kind: "marker"
       help: "Splits the prompt into separate ~75-token CLIP chunks, encoded independently"
       tone: "accent"
+  control:
+    - token: "(tag:1.2)"
+      kind: "weight"
+      pattern: '\(([^()]+?):(\d+(?:[.,]\d+)?)\)'
+      insert: "({}:{weight=1.2})"
+      help: "Explicit attention weight; above 1 emphasizes, below 1 de-emphasizes"
+    - token: "BREAK"
+      kind: "marker"
+      help: "Splits the prompt into separate ~75-token CLIP chunks, encoded independently"
+      tone: "accent"
 
 formulas:
   groups:
@@ -207,6 +219,7 @@ formulas:
     detailer:   { label: "Face and hand detailer" }
     effects:    { label: "Effects" }
     guidance:   { label: "Guidance" }
+    control:    { label: "Structure" }
     models:     { label: "Models", preselect: false }
 
 modes:
@@ -215,3 +228,4 @@ modes:
   - refine_faces
   - upscale
   - restyle
+  - control

@@ -1,0 +1,207 @@
+fields:
+  - type: "section"
+    label: "Guide"
+    children:
+      - name: "guide_image"
+        type: "image"
+        label: "Guide picture"
+        required: true
+        ai_hint: "The picture whose structure the new image follows: a photo, a drawing, or a ready-made pose, depth or edge map."
+
+      - name: "guide"
+        type: "select"
+        formula: "control"
+        label: "Follow"
+        default: "openpose"
+        ai_hint: "What to take from the guide. Sketch / Lineart follows drawn lines, Pose follows the people's bodies, Depth follows the 3D layout, Edges follows sharp outlines."
+        configuration:
+          options:
+            - { label: "Pose", value: "openpose" }
+            - { label: "Sketch / Lineart", value: "scribble" }
+            - { label: "Depth", value: "depth" }
+            - { label: "Edges", value: "canny" }
+
+      - name: "guide_extract"
+        type: "checkbox"
+        formula: "control"
+        label: "Extract it from a photo"
+        default: true
+        description: "Turn off when your picture already is a pose, sketch, depth or edge map."
+        ai_hint: "On: the pose, lines, depth or edges are worked out from the picture. Off: the picture is used as the guide unchanged, for a ready-made map."
+
+      - name: "guide_save"
+        type: "checkbox"
+        formula: "control"
+        label: "Also save the guide"
+        default: false
+        description: "Keep the extracted map next to the new image."
+        ai_hint: "Saves the extracted map to History as an extra output, labelled with its type."
+        reactions:
+          - when: { field: "guide_extract", equals: false }
+            then: { set_visibility: false }
+          - when: { field: "guide_extract", equals: true }
+            then: { set_visibility: true }
+
+      - name: "control_strength"
+        type: "slider"
+        formula: "control"
+        label: "Strength"
+        default: 0.8
+        ai_hint: "How closely the new image follows the guide. 1.0 follows it strictly; lower it toward 0.5 to give the prompt more freedom."
+        configuration: { min: 0.0, max: 2.0, step: 0.05 }
+
+      - type: "row"
+        children:
+          - name: "control_start"
+            type: "slider"
+            formula: "control"
+            label: "Guide start"
+            audience: "advanced"
+            default: 0.0
+            width: "1/2"
+            ai_hint: "Fraction of the sampling where the guide starts to apply. 0 applies it from the first step."
+            configuration: { min: 0.0, max: 1.0, step: 0.05 }
+
+          - name: "control_end"
+            type: "slider"
+            formula: "control"
+            label: "Guide end"
+            audience: "advanced"
+            default: 1.0
+            width: "1/2"
+            ai_hint: "Fraction of the sampling where the guide stops applying. Lower it, for example to 0.8, to let the last steps refine detail freely."
+            configuration: { min: 0.0, max: 1.0, step: 0.05 }
+
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            width: "2/5"
+            full_width: true
+            configuration: { min: 1, max: 30, step: 1 }
+      - name: "resolution"
+        type: "resolution"
+        formula: "size"
+        label: "Resolution"
+        ai_hint: "SDXL works best at 1024x1024 total pixel area. The guide is fitted to this size."
+        configuration:
+          files:
+            - { path: "{{ paths._shared }}/resolutions/sdxl.yml", group: "SDXL" }
+            - { path: "{{ paths._shared }}/resolutions/social_media.yml", group: "Social Media" }
+        default: "896x1152"
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children:
+      - name: "model"
+        type: "model"
+        label: "Checkpoint"
+        required: true
+        ai_hint: "The checkpoint that paints the new image. Illustrious, Pony and NoobAI checkpoints all work."
+        configuration:
+          model_type: "checkpoint"
+          allow_info_modal: true
+          placeholder: "Select model..."
+          filter_tags: "@config:checkpoint_tags"
+
+      - name: "cn_scribble_model"
+        type: "model"
+        label: "Sketch / Lineart model"
+        required: true
+        visible: false
+        ai_hint: "The ControlNet that reads a sketch / lineart guide. It must match what you follow."
+        reactions:
+          - when: { field: "guide", equals: "scribble" }
+            then: { set_visibility: true }
+          - when: { field: "guide", not_equals: "scribble" }
+            then: { set_visibility: false }
+        configuration:
+          model_type: "controlnet"
+          allow_info_modal: true
+          placeholder: "Select sketch / lineart model..."
+          filter_tags: "@config:controlnet_tags"
+          recommendations:
+            - name: "xinsir-controlnet-scribble-sdxl.safetensors"
+              link: "https://huggingface.co/xinsir/controlnet-scribble-sdxl-1.0/resolve/main/diffusion_pytorch_model.safetensors"
+              size: "2.33 GB"
+              sha256: "b3e4ac47bc814019d50dc842f579301440deb6d8f09ee1b91a30f527ace1b852"
+              description: "Follows hand-drawn sketches and line art."
+
+      - name: "cn_openpose_model"
+        type: "model"
+        label: "Pose model"
+        required: true
+        ai_hint: "The ControlNet that reads a pose guide. It must match what you follow."
+        reactions:
+          - when: { field: "guide", equals: "openpose" }
+            then: { set_visibility: true }
+          - when: { field: "guide", not_equals: "openpose" }
+            then: { set_visibility: false }
+        configuration:
+          model_type: "controlnet"
+          allow_info_modal: true
+          placeholder: "Select pose model..."
+          filter_tags: "@config:controlnet_tags"
+          recommendations:
+            - name: "xinsir-controlnet-openpose-sdxl.safetensors"
+              link: "https://huggingface.co/xinsir/controlnet-openpose-sdxl-1.0/resolve/main/diffusion_pytorch_model.safetensors"
+              size: "2.33 GB"
+              sha256: "b8524e557a7df60d081f5d4a0eb109967d107df217943bf88c2d99b9ebcc06c5"
+              description: "Follows the pose of one or more people."
+
+      - name: "cn_depth_model"
+        type: "model"
+        label: "Depth model"
+        required: true
+        visible: false
+        ai_hint: "The ControlNet that reads a depth guide. It must match what you follow."
+        reactions:
+          - when: { field: "guide", equals: "depth" }
+            then: { set_visibility: true }
+          - when: { field: "guide", not_equals: "depth" }
+            then: { set_visibility: false }
+        configuration:
+          model_type: "controlnet"
+          allow_info_modal: true
+          placeholder: "Select depth model..."
+          filter_tags: "@config:controlnet_tags"
+          recommendations:
+            - name: "xinsir-controlnet-depth-sdxl.safetensors"
+              link: "https://huggingface.co/xinsir/controlnet-depth-sdxl-1.0/resolve/main/diffusion_pytorch_model.safetensors"
+              size: "2.33 GB"
+              sha256: "ea3770af4c33ea8ba8dccc0106ec5d5c5c6e504eb382119a3ccac3c9d973d344"
+              description: "Follows the 3D layout of the scene."
+
+      - name: "cn_canny_model"
+        type: "model"
+        label: "Edges model"
+        required: true
+        visible: false
+        ai_hint: "The ControlNet that reads a edges guide. It must match what you follow."
+        reactions:
+          - when: { field: "guide", equals: "canny" }
+            then: { set_visibility: true }
+          - when: { field: "guide", not_equals: "canny" }
+            then: { set_visibility: false }
+        configuration:
+          model_type: "controlnet"
+          allow_info_modal: true
+          placeholder: "Select edges model..."
+          filter_tags: "@config:controlnet_tags"
+          recommendations:
+            - name: "xinsir-controlnet-canny-sdxl.safetensors"
+              link: "https://huggingface.co/xinsir/controlnet-canny-sdxl-1.0/resolve/main/diffusion_pytorch_model.safetensors"
+              size: "2.33 GB"
+              sha256: "bf47cd757ceaf2572c53321329ef819ea38c09a6e3783588387913cd94dff47c"
+              description: "Follows the outlines of the guide."

@@ -2,7 +2,7 @@
 type: model
 title: SDXL
 family_key: sdxl
-modes: [txt2img, inpaint, refine_faces, upscale, restyle]
+modes: [txt2img, inpaint, refine_faces, upscale, restyle, control]
 spec:
   arch: SDXL U-Net (diffusers pipeline stack, not the native transformer engine)
   latent: 4-channel SD-VAE latent, 2D
@@ -47,6 +47,12 @@ Enlarges one picture 1.5 to 4 times with an ESRGAN upscaler, then re-details it 
 ### Img2img / restyle (`restyle`)
 
 Starts from one picture instead of noise: the picture is encoded, partly noised by **Strength** and denoised again toward the prompt. Around 0.3 changes finish and detail, 0.6 changes style and mood, 0.9 keeps only the rough layout. It uses the `generator/sdxl` img2img path with no mask (the same path inpaint uses with one), plus the LoRA and Embeddings tabs of txt2img. **Working size** caps the source at 1, 2 or 4 megapixels (default 1) through the generator's `max_pixels` option, shrinking a larger picture to a multiple of 8 before it is encoded; Original size keeps it. **Quantity** loads the source once per image, and each image gets its own seed and its own expanded prompt.
+
+### Structure (`control`)
+
+The txt2img ControlNet tab promoted into its own mode: a guide picture, what to follow (Pose, Sketch / Lineart, Depth or Edges) and a strength. With **Extract it from a photo** on, `controlnet_preprocessor` turns the picture into the matching map (DWPose for Pose) and fails loudly if it finds nothing; with it off the picture is used as the map unchanged. **Also save the guide** adds the extracted map to the results.
+
+Each guide has its own ControlNet picker, shown only for the chosen guide, with the matching `xinsir/controlnet-*-sdxl-1.0` file recommended (Apache-2.0 on every model card: openpose, scribble, depth, canny). The xinsir union ControlNet is not offered: the `controlnet_loader/sdxl` pipe loads plain `ControlNetModel` files, and the union model needs a control-type input it does not provide.
 
 ## Sampling
 

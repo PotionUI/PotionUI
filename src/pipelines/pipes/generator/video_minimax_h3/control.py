@@ -31,7 +31,8 @@ def available_frames(count: int, fps: float) -> int:
 
 
 def snap_control_frames(available: int, max_frames: int) -> int:
-    snapped = max(MIN_CONTROL_FRAMES, (available - LATENTS_PER_CHUNK) // FRAMES_PER_CHUNK * FRAMES_PER_CHUNK + LATENTS_PER_CHUNK)
+    chunks = -(-(available - LATENTS_PER_CHUNK) // FRAMES_PER_CHUNK)
+    snapped = max(MIN_CONTROL_FRAMES, chunks * FRAMES_PER_CHUNK + LATENTS_PER_CHUNK)
     return min(snapped, max_frames)
 
 

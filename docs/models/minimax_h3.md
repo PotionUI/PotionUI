@@ -163,6 +163,20 @@ The DiT can carry Alibaba PAI's MiniMax-H3 Fun ControlNet Union as a model patch
 
 **Strength.** `control_context_scale` is 1.0 upstream (strongest), lower follows the control loosely, 0 switches the branch off bit-exactly. `control_start` / `control_end` limit the steps (as a fraction of the sampling) on which the hints are added. Upstream samples at 40 steps with guidance 1; whether the Turbo and FastH3 step counts hold is not established.
 
+## Motion transfer
+
+The `motion_transfer` mode takes a picture of a person and a video of someone moving, and the person from the picture performs the moves. The look, clothes and background come from the picture; only the movement comes from the video.
+
+The pipeline is `media_loader` (video) and `media_loader` (picture) → `control_video` → `model_loader/minimax_h3` with the control patch → `prompt_encoder` → `generator/video_minimax_h3` → `gallery`.
+
+- `control_video` (`type: pose`, see [Pose guide](../pose-guide.md)) renders a whole-body skeleton guide. With the picture wired in (`match_picture`) the skeleton is retargeted onto the person in the picture, so the guide is drawn in the picture's own frame and the canvas follows the picture, never the video. `size_multiple` is 32 and `max_pixels` is H3's own canvas budget, so `resolution: auto` lands on the picture's aspect on the 768 short edge. `ease_in` (Advanced, default 0.5 s) blends from the picture's pose into the video's moves, so frame 0 agrees with the first-frame keyframe. `save_guide` also saves the skeleton video to the gallery.
+- The guide is the generator's `control_video`. The DiT is the fl2va file plus the Control model field, a pruned Fun ControlNet Union 2.0 patch loaded as `control_module`: int8 ConvRot (4.5 GB) is the pick for a 32 GB card, bf16 (8.4 GB) the alternative. "Follow strength" is `control_context_scale`.
+- The picture is the first-frame keyframe (`keyframe_anchors: [first]`) and the prompt encoder reads it as `<Picture 1>`. This identity path is provisional. The alternative is ref2va, with the picture as a reference and `<Subject 1>` defined by `<Picture 1>`. The preset var `motion_identity` in `preset.yml` picks between them: `first_frame` (default) or `reference`. The reference path needs the ref2va DiT in the Model picker; nothing detects a wrong pick.
+- The length follows the guide: its frames at 24 fps snapped down to `17n + 5`, at most 15 s (`control_length_from_video`). The guide renders at most 450 source frames (15 s at 30 fps), so pose detection never runs on frames the generator drops; a clip above 30 fps is cut earlier than 15 s.
+- Sound is Generate (new sound from the model, the default), None (the generator muxes the guide, which carries no audio) or Keep the video's sound (`audio_source: file` fed by the driving video).
+- The mode defaults to the Quality speed profile (24 steps). Whether the Turbo step count holds with the control patch is not established, and the patch was trained on text-to-video only, so the keyframe combination is supported but unvalidated upstream.
+- One person, front-facing and well lit works best. Crowds, motion blur and side profiles are where the pose reading fails.
+
 ## Limitations
 
 - **The weights are territorially restricted.** MiniMax-H3's weights are published under the MiniMax H3 Community License, not an open-source license. Its Applicable Territory excludes the European Union, the United Kingdom, the United States and the Republic of Korea, and the exclusion extends to the model's outputs; use in those territories requires an individual authorization from MiniMax (https://platform.minimax.io/h3-license). The license additionally requires separate written authorization above US$20M annual revenue, and requires a commercial product's interface to display "MiniMax H3" prominently. PotionUI ships no H3 weights. The architecture implementation is ported from the Apache-2.0 diffusers source, which carries none of these terms.

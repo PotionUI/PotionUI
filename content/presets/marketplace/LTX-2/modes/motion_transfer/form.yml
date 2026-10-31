@@ -1,0 +1,43 @@
+prompt_label: "Look and action"
+prompt_placeholder: "a woman in a red coat dances on a rooftop at dusk"
+name: "custom"
+mode_label: "Motion transfer"
+short_description: "Make the person in a picture perform the moves from a video."
+negative_prompt:
+  applies_when:
+    logic: "OR"
+    conditions:
+      - { field: "cfg", greater_than: 1 }
+      - { field: "refine_cfg", greater_than: 1 }
+requirements:
+  - type: "model"
+    filename: "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors"
+    hint: "Download the Union-Control LoRA in this mode."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/motion_transfer/tabs/generation.yml"
+      - type: "tab"
+        label: "References"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/motion_transfer/tabs/references.yml"
+      - type: "tab"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/video/tabs/lora.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/motion_transfer/tabs/advanced.yml"

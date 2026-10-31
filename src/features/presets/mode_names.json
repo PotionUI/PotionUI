@@ -179,6 +179,10 @@
     "label": "Layout to Render",
     "icon": "mode-layout-render"
   },
+  "motion_transfer": {
+    "label": "Motion Transfer",
+    "icon": "mode-control"
+  },
   "cinemagraph": {
     "label": "Cinemagraph",
     "icon": "mode-cinemagraph"

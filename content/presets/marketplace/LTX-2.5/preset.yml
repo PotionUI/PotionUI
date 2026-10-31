@@ -168,7 +168,7 @@ vars:
   # NOT applied to the video mode's in-flow upscale stage-2 refine -- see that
   # pipeline.yml's stage-2 comment for why (shared conditioning with stage 1).
   refine_quality_prompt: "the video is sharp and richly detailed, with clean well-defined edges, natural skin and material texture, smooth coherent motion, and free of compression artifacts, noise, or blurring"
-  optional_prompt_modes: ["restore", "colorize", "day_to_night", "add_water", "remove_object", "layout_to_render", "cinemagraph"]
+  optional_prompt_modes: ["restore", "colorize", "day_to_night", "add_water", "remove_object", "layout_to_render", "motion_transfer", "cinemagraph"]
 
   # Video Director capabilities for the `video` mode. Read by
   # normalize_video_director() (src/features/video_director/normalize.py) via
@@ -285,6 +285,14 @@ llm:
         Frame picture. Never use the words clay, 3D or Unreal.
         The prompt is optional, and the mode adds the caption and trigger word itself,
         so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+    motion_transfer:
+      guide: |
+        Motion transfer mode: an IC-LoRA makes the person in the Picture perform the moves
+        of the Video, so never write a shot list or the 4-8 sentence video paragraph.
+        Write one or two sentences describing the finished shot of the person from the
+        Picture dancing, matching the Picture's setting and clothing. Describe the person
+        and the place, never the pose or the moves; the Video supplies those.
+        The prompt is optional, and the mode writes a default caption when it is empty.
     cinemagraph:
       guide: |
         Cinemagraph mode: an IC-LoRA turns a still image into a seamless loop, so never
@@ -316,4 +324,5 @@ modes:
   - add_water
   - remove_object
   - layout_to_render
+  - motion_transfer
   - cinemagraph

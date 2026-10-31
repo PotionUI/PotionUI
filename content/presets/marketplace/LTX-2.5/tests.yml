@@ -64,3 +64,26 @@ cases:
     checks:
       min_outputs: 1
       not_black: true
+
+  - name: "ltx25-motion-transfer-fast"
+    mode: "motion_transfer"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      speed_profile: "distilled"
+      pose_ease_in: 0.5
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      upscale_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      effect_lora:
+        sha256: "a1b888a87f661d27f08b394ae559e8e1050be33900bcc36a5cdf659e48f88d18"
+    checks:
+      min_outputs: 1
+      not_black: true

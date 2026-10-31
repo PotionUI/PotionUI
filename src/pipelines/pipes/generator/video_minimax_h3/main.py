@@ -252,6 +252,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.windows import (
     DirectorPlanError,
     WindowPlan,
     build_director_plan,
+    director_default_seed,
 )
 from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
@@ -1605,10 +1606,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         if audio_silent:
             audio_file = None
 
-        configured_seed = int(self.config.get("seed", -1))
         plan = build_director_plan(
             self.config.get("document"),
-            default_seed=int(seeds[0]) if configured_seed < 0 and seeds else configured_seed,
+            default_seed=director_default_seed(int(self.config.get("seed", -1)), seeds),
         )
         control_scale = float(self.config.get("control_context_scale", 1.0))
         control_start = float(self.config.get("control_start", 0.0))

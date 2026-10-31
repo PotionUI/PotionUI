@@ -250,7 +250,7 @@
             {
               "cfg": null,
               "end": null,
-              "frames": 243,
+              "frames": null,
               "id": "seg-0",
               "loras": null,
               "negative_prompt": "",
@@ -263,7 +263,7 @@
             {
               "cfg": null,
               "end": null,
-              "frames": 243,
+              "frames": null,
               "id": "seg-1",
               "loras": null,
               "negative_prompt": "",
@@ -276,7 +276,7 @@
             {
               "cfg": null,
               "end": null,
-              "frames": 243,
+              "frames": null,
               "id": "seg-2",
               "loras": null,
               "negative_prompt": "",
@@ -289,7 +289,7 @@
             {
               "cfg": null,
               "end": null,
-              "frames": 56,
+              "frames": null,
               "id": "seg-3",
               "loras": null,
               "negative_prompt": "",
@@ -320,6 +320,14 @@
         "document.settings.fps": {
           "type": "int",
           "value": 24
+        },
+        "document.settings.long.part_seconds": {
+          "type": "int",
+          "value": 10
+        },
+        "document.settings.long.total_seconds": {
+          "type": "int",
+          "value": 30
         },
         "document.settings.resolution": {
           "type": "str",

@@ -179,7 +179,7 @@ The pipeline is `media_loader` (video) and `media_loader` (picture) → `control
 
 ## Long video
 
-The `long` mode chains parts into one video of up to two minutes, with seamless joins. It is the existing Video Director window chain driven by a simple form, not a second mechanism: the preset builds a Director document from the form, and `generator/video_minimax_h3` runs it.
+The `long` mode chains parts into one video of up to two minutes, with seamless joins. It is the existing Video Director window chain driven by a simple form, not a second mechanism: the preset builds a Director document from the form and records `settings.long` (`total_seconds`, `part_seconds`); `windows.py` derives each part's frame count from that (`long_video_parts`, also a template filter the preset uses only to count the parts), and `generator/video_minimax_h3` runs it.
 
 **Inputs.** An optional Start picture (the first frame of the first part; empty starts from the prompt alone), the main Prompt, an optional Prompt per part (one line per part, in order; a part without a line uses the main prompt), Length in seconds, an optional Soundtrack, the resolution, the speed profile and the model files. `Part length` and `Colour hold` are on the Advanced tab. To continue an existing clip, use the `extend` mode.
 
@@ -191,7 +191,7 @@ The `long` mode chains parts into one video of up to two minutes, with seamless 
 
 **Sound.** The soundtrack, when given, is laid over the finished video in place of the generated sound. It does not drive lip-sync. The lip-sync chain would need the ref2va reference partition, whose Director windows are hard-cut-only here and take no per-window audio slice.
 
-**Seeds.** A part's seed is the request seed plus its index, so re-running one part reproduces the same shot.
+**Seeds.** A part's seed is the document seed plus its index. A Director document with no seed now takes the request's own seed (what the Seed field resolves to, random for -1) instead of counting up from -1, which made every such run identical; a document that carries a seed, as the Video Director's always does, is unchanged. A configured generator `seed` of 0 or more still wins.
 
 **Unmeasured.** GPU validation of a 30-60 second chain, and of the default Colour hold, is pending.
 

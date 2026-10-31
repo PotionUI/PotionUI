@@ -43,11 +43,11 @@ pipeline:
         output: "{{ generation.prompts.first.positive }}"
       pairs:
         "@loop":
-          items: "{{ range((1 + (((([(form.total_seconds * preset.vars.fps) - (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5), 0] | max) / ((((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - 17))) | round(0, 'ceil') | int))) | list }}"
+          items: "{{ range((form.total_seconds | long_video_parts(form.piece_seconds, preset.vars.fps)) | length) | list }}"
           template:
-            positive: "{% set lines = (form.piece_prompts | default('', true)).split('\n') %}{% set own = (lines[item] | trim) if item < (lines | length) else '' %}{{ own if own else generation.prompts.first.positive }}"
+            positive: "{{ ((form.piece_prompts | default('', true)).split('\n')[item] if item < ((form.piece_prompts | default('', true)).split('\n') | length) else '') | text_or(generation.prompts.first.positive) }}"
             negative: ""
-      quantity: "{{ (1 + (((([(form.total_seconds * preset.vars.fps) - (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5), 0] | max) / ((((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - 17))) | round(0, 'ceil') | int)) }}"
+      quantity: "{{ (form.total_seconds | long_video_parts(form.piece_seconds, preset.vars.fps)) | length }}"
       guidance_scale: 1.0
       output_resolution: "{{ form.resolution }}"
 
@@ -113,14 +113,17 @@ pipeline:
             source: "tail_frames"
             overlap_frames: 17
             stitch: true
+          long:
+            total_seconds: "{{ form.total_seconds }}"
+            part_seconds: "{{ form.piece_seconds }}"
         segments:
           "@loop":
-            items: "{{ range((1 + (((([(form.total_seconds * preset.vars.fps) - (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5), 0] | max) / ((((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - 17))) | round(0, 'ceil') | int))) | list }}"
+            items: "{{ range((form.total_seconds | long_video_parts(form.piece_seconds, preset.vars.fps)) | length) | list }}"
             template:
               id: "seg-{{ item }}"
-              prompt: "{% set lines = (form.piece_prompts | default('', true)).split('\n') %}{% set own = (lines[item] | trim) if item < (lines | length) else '' %}{{ own if own else generation.prompts.first.positive }}"
+              prompt: "{{ ((form.piece_prompts | default('', true)).split('\n')[item] if item < ((form.piece_prompts | default('', true)).split('\n') | length) else '') | text_or(generation.prompts.first.positive) }}"
               negative_prompt: ""
-              frames: "{{ (([(((((((form.total_seconds * preset.vars.fps) - (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - ((1 + (((([(form.total_seconds * preset.vars.fps) - (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5), 0] | max) / ((((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - 17))) | round(0, 'ceil') | int)) - 2) * ((((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - 17) + 17) if (1 + (((([(form.total_seconds * preset.vars.fps) - (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5), 0] | max) / ((((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - 17))) | round(0, 'ceil') | int)) > 1 else (form.total_seconds * preset.vars.fps)) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5), 22] | max) if item >= (1 + (((([(form.total_seconds * preset.vars.fps) - (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5), 0] | max) / ((((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) - 17))) | round(0, 'ceil') | int)) - 1 else (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5)) }}"
+              frames: null
               seed: null
               steps: null
               cfg: null
@@ -163,7 +166,7 @@ pipeline:
       drift_correction: "{{ form.drift_correction }}"
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       resolution: "{{ form.resolution }}"
-      frames: "{{ (((((form.piece_seconds * preset.vars.fps) - 5) / 17) | round(0, 'ceil') | int) * 17 + 5) }}"
+      frames: "{{ (form.total_seconds | long_video_parts(form.piece_seconds, preset.vars.fps)) | max }}"
       quantity: 1
       preview: "{{ form.preview }}"
       audio_source: "generate"

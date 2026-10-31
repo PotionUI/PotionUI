@@ -64,6 +64,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.platform.templating.dict_utils import long_video_parts
+
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     FPS,
     MAX_DURATION_S,
@@ -269,6 +271,24 @@ class SegmentWindowGeometry:
         return self.frames - self.overlap_frames
 
 
+def segment_frame_requests(segments: List[Dict[str, Any]], settings: Dict[str, Any]) -> List[Any]:
+    """Each segment's requested frame count. A segment with its own `frames`
+    keeps it; a segment without one takes its part of `settings.long`
+    (`total_seconds` cut into `part_seconds` parts by `long_video_parts`)."""
+    long_video = settings.get("long")
+    parts: List[int] = []
+    if isinstance(long_video, dict):
+        overlap = (settings.get("continuation") or {}).get("overlap_frames", 17)
+        parts = long_video_parts(
+            long_video["total_seconds"], long_video["part_seconds"], settings.get("fps") or FPS, overlap,
+        )
+    return [
+        segment.get("frames") if segment.get("frames") is not None
+        else (parts[index] if index < len(parts) else None)
+        for index, segment in enumerate(segments)
+    ]
+
+
 def resolve_window_geometry(
     segments: List[Dict[str, Any]], settings: Dict[str, Any],
 ) -> List[SegmentWindowGeometry]:
@@ -281,10 +301,11 @@ def resolve_window_geometry(
     top in `build_director_plan`.
     """
     overlap_latents_default, _stitch = _resolve_overlap(settings)
+    requests = segment_frame_requests(segments, settings)
     geometry: List[SegmentWindowGeometry] = []
     for index, segment in enumerate(segments):
         sub_type = segment.get("sub_type") or (CONTINUING_SUB_TYPE if index else "t2v")
-        requested = segment.get("frames")
+        requested = requests[index]
         if not isinstance(requested, int):
             raise DirectorPlanError(
                 f"segments[{index}]: a MiniMax-H3 Director segment needs an explicit frame count"
@@ -301,6 +322,12 @@ def resolve_window_geometry(
             overlap_frames=head_frames_for_latents(overlap_latents),
         ))
     return geometry
+
+
+def director_default_seed(configured_seed: int, input_seeds: Any) -> int:
+    if configured_seed >= 0 or not input_seeds:
+        return configured_seed
+    return int(input_seeds[0])
 
 
 def build_director_plan(document: Optional[Dict[str, Any]], *, default_seed: int) -> Optional[DirectorPlan]:
@@ -321,12 +348,13 @@ def build_director_plan(document: Optional[Dict[str, Any]], *, default_seed: int
     document_seed = settings.get("seed")
     base_seed = int(document_seed) if isinstance(document_seed, int) else int(default_seed)
     window_geometry = resolve_window_geometry(segments, settings)
+    requests = segment_frame_requests(segments, settings)
 
     windows: List[WindowPlan] = []
     for index, segment in enumerate(segments):
         sub_type = segment.get("sub_type") or (CONTINUING_SUB_TYPE if index else "t2v")
         geometry = window_geometry[index]
-        requested = segment.get("frames")
+        requested = requests[index]
         segment_seed = segment.get("seed")
 
         raw_reference_indices = segment.get("reference_indices")

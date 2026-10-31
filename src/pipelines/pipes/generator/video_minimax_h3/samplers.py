@@ -443,16 +443,14 @@ _STEPPERS = {
 }
 
 
-def make_stepper(sampler: str, *, generator: Optional[torch.Generator] = None):
-    """A FRESH stepper -- one per stream per window; the multistep history is
-    the stepper's own state and must not outlive either boundary.
+_STOCHASTIC = {ER_SDE: ERSDEStepper, LCM: LCMStepper}
 
-    `generator`: required for `er_sde` (it draws one noise tensor per
-    non-terminal step); ignored by every deterministic sampler."""
-    if sampler in (ER_SDE, LCM):
+
+def make_stepper(sampler: str, *, generator: Optional[torch.Generator] = None):
+    if sampler in _STOCHASTIC:
         if generator is None:
             raise ValueError(f"sampler {sampler!r} needs a seeded torch.Generator -- it draws noise every step")
-        return ERSDEStepper(generator) if sampler == ER_SDE else LCMStepper(generator)
+        return _STOCHASTIC[sampler](generator)
     try:
         return _STEPPERS[sampler]()
     except KeyError:

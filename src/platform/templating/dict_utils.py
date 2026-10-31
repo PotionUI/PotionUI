@@ -64,6 +64,25 @@ def text_or(value: Any, fallback: Any) -> Any:
     return text if text else fallback
 
 
+def long_video_parts(
+    total_seconds: Any, part_seconds: Any, fps: Any = 24, overlap_frames: Any = 17,
+) -> List[int]:
+    chunk, lattice = 17, 5
+
+    def aligned(frames: int) -> int:
+        return max(-(-(frames - lattice) // chunk) * chunk + lattice, chunk + lattice)
+
+    fps, overlap = int(fps), int(overlap_frames)
+    total = round(float(total_seconds) * fps)
+    part = aligned(round(float(part_seconds) * fps))
+    if total <= part:
+        return [aligned(total)]
+    stride = part - overlap
+    count = 1 + -(-(total - part) // stride)
+    remaining = total - (part + (count - 2) * stride) + overlap
+    return [part] * (count - 1) + [aligned(remaining)]
+
+
 def active_loras(value: Any) -> List[Any]:
     """
     Keep only the LoRA entries that actually affect a generation.

@@ -1,6 +1,0 @@
-fields:
-  - name: "source_image"
-    type: "image"
-    label: "Picture"
-    required: true
-    ai_hint: "The picture to extend. It is kept exactly as it is; new picture is painted around it."

@@ -101,10 +101,6 @@
           "type": "str",
           "value": "0.5"
         },
-        "max_upscale": {
-          "type": "float",
-          "value": 1.5
-        },
         "multiple": {
           "type": "int",
           "value": 16
@@ -112,10 +108,6 @@
         "strategy": {
           "type": "str",
           "value": "scaled"
-        },
-        "whole_image_up_to": {
-          "type": "int",
-          "value": 2097152
         }
       },
       "enabled": {

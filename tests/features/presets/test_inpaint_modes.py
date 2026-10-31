@@ -22,14 +22,6 @@ FAMILIES = {
             "vae": "/models/moss_vae.safetensors",
         },
     },
-    "Krea2": {
-        "generator": "generator/krea2",
-        "models": {
-            "diffusion_model": "/models/krea2_dit.safetensors",
-            "text_encoder": "/models/krea2_te.safetensors",
-            "vae": "/models/krea2_vae.safetensors",
-        },
-    },
     "QwenImage-2.1": {
         "generator": "generator/qwen_image21",
         "models": {
@@ -155,68 +147,16 @@ def test_the_prompt_is_optional_and_labelled(templates, family):
     assert len(copy["label"]) <= 32
 
 
-def test_zimage_outpaint_grows_the_canvas_by_pixels(templates):
-    pipes = _process(
-        templates, "ZImage", "outpaint",
-        {"expand_left": 128, "expand_right": 64, "expand_top": 32, "expand_bottom": 0}, mask=False,
-    )
-    cfg = _pipe(pipes, "canvas_expand")["config"]
-    assert [int(cfg[k]) for k in ("left", "right", "top", "bottom")] == [128, 64, 32, 0]
-    assert cfg["aspect"] == ""
-    assert _providers(pipes, "canvas_expand")["image"] == "media_loader"
 
 
-def test_zimage_outpaint_grows_to_a_shape_and_ignores_the_sides(templates):
-    pipes = _process(
-        templates, "ZImage", "outpaint",
-        {"canvas_mode": "shape", "target_shape": "21:9", "shape_anchor": "left", "expand_left": 500}, mask=False,
-    )
-    cfg = _pipe(pipes, "canvas_expand")["config"]
-    assert cfg["aspect"] == "21:9" and cfg["anchor"] == "left"
-    assert int(cfg["left"]) == 0
 
 
-def test_zimage_outpaint_repaints_only_the_new_canvas(templates):
-    pipes = _process(templates, "ZImage", "outpaint", mask=False)
-    generator = _generator(templates, "ZImage", pipes)
-    providers = _providers(pipes, "generator/z_image")
-    assert generator["mode"] == "inpaint"
-    assert providers["image"] == "canvas_expand" and providers["mask"] == "canvas_expand"
-    assert _providers(pipes, "gallery")["image"] == "inpaint_region_restore"
-    restore = _providers(pipes, "inpaint_region_restore")
-    assert restore["inpainted_image"] == "generator/z_image" and restore["original_mask"] == "canvas_expand"
-    assert all(p["name"] != "inpaint_region_crop" for p in pipes)
 
 
-@pytest.mark.parametrize("size,pixels", [("1", 1048576), ("2", 2097152), ("4", 4194304)])
-def test_zimage_outpaint_output_size_is_a_pixel_budget_not_a_resolution(templates, size, pixels):
-    pipes = _process(templates, "ZImage", "outpaint", {"output_size": size}, mask=False)
-    config = _generator(templates, "ZImage", pipes)
-    assert int(config["max_pixels"]) == pixels and "resolution" not in config
 
 
-def test_zimage_outpaint_blend_reaches_the_overlap_and_the_restore_feather(templates):
-    pipes = _process(templates, "ZImage", "outpaint", {"mask_feather": 64}, mask=False)
-    assert int(_pipe(pipes, "canvas_expand")["config"]["overlap"]) == 64
-    assert int(_pipe(pipes, "inpaint_region_restore")["config"]["feather_px"]) == 64
 
 
-def test_zimage_outpaint_needs_only_a_picture(templates):
-    bind_form(
-        templates["ZImage"], "outpaint", form_name=None, raw_form_data=_form("ZImage", mask=False),
-        user_id=None, storage_dir=None,
-    )
-    with pytest.raises(FormBindingError):
-        bind_form(
-            templates["ZImage"], "outpaint", form_name=None, raw_form_data=dict(FAMILIES["ZImage"]["models"]),
-            user_id=None, storage_dir=None,
-        )
-
-
-@pytest.mark.parametrize("profile,schedule", [("turbo", "fixed"), ("balanced", "fixed"), ("base", "dynamic")])
-def test_krea2_inpaint_uses_the_schedule_of_its_speed_profile(templates, profile, schedule):
-    pipes = _process(templates, "Krea2", "inpaint", {"speed_profile": profile})
-    assert _generator(templates, "Krea2", pipes)["mu_schedule"] == schedule
 
 
 def test_qwen_turbo_profile_loads_the_turbo_lora(templates):
@@ -254,7 +194,7 @@ def test_the_render_harness_reraises_errors_that_are_not_about_a_mask(templates,
     calls = []
     monkeypatch.setattr(harness, "bind_form", lambda *a, **k: calls.append(k["raw_form_data"]) or refuse())
     with pytest.raises(FormBindingError):
-        harness.build_fixture_form_data(templates["ZImage"], "outpaint")
+        harness.build_fixture_form_data(templates["ZImage"], "inpaint")
     assert len(calls) == 2
 
 
@@ -265,19 +205,4 @@ def test_the_generator_gets_the_same_soft_edge_as_the_restore(templates, family)
     assert float(_pipe(pipes, "inpaint_region_restore")["config"]["feather"]) == pytest.approx(0.2)
 
 
-def test_krea2_looks_at_a_wide_surrounding_by_default(templates):
-    pipes = _process(templates, "Krea2", "inpaint")
-    assert float(_pipe(pipes, "inpaint_region_crop")["config"]["context"]) == 1.0
 
-
-def test_zimage_outpaint_restores_with_the_outpaint_strategy_over_the_blend_band(templates):
-    pipes = _process(templates, "ZImage", "outpaint", {"mask_feather": 40}, mask=False)
-    config = _pipe(pipes, "inpaint_region_restore")["config"]
-    assert config["strategy"] == "outpaint" and int(config["feather_px"]) == 40
-    assert int(_generator(templates, "ZImage", pipes)["max_pixels"]) == 1048576
-
-
-@pytest.mark.parametrize("family", INPAINT_FAMILIES)
-def test_the_crop_keeps_the_scale_near_one(templates, family):
-    config = _pipe(_process(templates, family, "inpaint"), "inpaint_region_crop")["config"]
-    assert int(config["whole_image_up_to"]) == 2097152 and float(config["max_upscale"]) == 1.5

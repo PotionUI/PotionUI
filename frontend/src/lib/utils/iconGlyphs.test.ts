@@ -99,14 +99,18 @@ describe('mode glyphs', () => {
 	it('registers exactly these mode glyphs', () => {
 		expect([...names].sort()).toEqual([
 			'mode-add-water',
+			'mode-camera',
 			'mode-cinemagraph',
 			'mode-colorize',
 			'mode-combine',
 			'mode-control',
 			'mode-day-night',
 			'mode-extend',
+			'mode-follow-motion',
 			'mode-layout-render',
+			'mode-long',
 			'mode-person-swap',
+			'mode-real',
 			'mode-refine-faces',
 			'mode-refs',
 			'mode-remix',

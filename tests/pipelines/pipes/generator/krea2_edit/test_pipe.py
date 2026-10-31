@@ -593,3 +593,47 @@ def test_cond_and_uncond_receive_identical_reference_options(pipe_module):
     sent = gen.sample_calls[0]["conditioning"]
     keys = {"ref_latents", "ref_boost", "ref_boost_a", "ref_position", "ref_position_a"}
     assert {k: sent.cond[k] for k in keys} == {k: sent.uncond[k] for k in keys}
+
+
+def _match_pipe(pipe_module, **over):
+    pipe = _make_pipe(pipe_module, **over)
+    pipe._img2img_target_size = lambda gen, ctx, size: gen.snap_resolution(
+        *pipe_module.area_fit_size(size[0], size[1], ctx.extra["width"] * ctx.extra["height"])
+    )
+    return pipe
+
+
+def test_match_source_gives_a_four_by_five_source_a_four_by_five_output(pipe_module):
+    gen = _FakeGenerator()
+    pipe = _match_pipe(pipe_module, match_source=True)
+    ctx = _ostris_extra(gen, Image.new("RGB", (912, 1152)), width=1024, height=1024)
+
+    out = pipe.generate_one(ctx, index=0, seed=1, progress=_FakeProgress())
+
+    assert out.resolution[0] / out.resolution[1] == pytest.approx(0.8, abs=0.02)
+    assert abs(out.resolution[0] * out.resolution[1] - 1024 * 1024) < 0.1 * 1024 * 1024
+
+
+def test_match_source_uses_the_shared_img2img_sizing_helper(pipe_module):
+    gen = _FakeGenerator()
+    pipe = _make_pipe(pipe_module, match_source=True)
+    ctx = _ostris_extra(gen, Image.new("RGB", (912, 1152)), width=1024, height=1024)
+
+    out = pipe.generate_one(ctx, index=0, seed=1, progress=_FakeProgress())
+
+    assert out.resolution == pipe._img2img_target_size(gen, ctx, (912, 1152))
+    assert out.resolution[0] < out.resolution[1]
+
+
+def test_without_match_source_the_explicit_resolution_wins(pipe_module):
+    gen = _FakeGenerator()
+    pipe = _match_pipe(pipe_module, match_source=False)
+    ctx = _ostris_extra(gen, Image.new("RGB", (912, 1152)), width=1024, height=1024)
+
+    out = pipe.generate_one(ctx, index=0, seed=1, progress=_FakeProgress())
+
+    assert out.resolution == (1024, 1024)
+
+
+def test_match_source_defaults_off_in_the_pipe_schema(pipe_module):
+    assert pipe_module.GeneratorKrea2EditPipe.get_default_config()["match_source"] is False

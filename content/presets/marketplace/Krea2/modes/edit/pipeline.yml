@@ -139,6 +139,7 @@ pipeline:
       sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
       resolution: "{{ form.resolution }}"
       quantity: "{{ form.quantity | default(1) }}"
+      match_source: "{{ form.match_source | default(true) }}"
       fit_mode: "{{ form.fit_mode | default('fit') }}"
       ref_boost: "{{ form.ref_boost if (form.ref_boost | default(0.0)) else (2.0 if (form.edit_task | default('edit')) == 'person' else 4.0) }}"
       ref_boost_a: "{{ form.ref_boost_a | default(1.0) }}"

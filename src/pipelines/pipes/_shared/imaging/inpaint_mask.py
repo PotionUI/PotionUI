@@ -20,6 +20,7 @@ def latent_mask_from_array(mask: np.ndarray, latent_shape: tuple[int, ...]) -> t
 
 
 def composite_pixels(generated: np.ndarray, source: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    generated = generated[..., :3]
     weight = mask[..., None]
     blended = generated.astype(np.float32) * weight + source.astype(np.float32) * (1.0 - weight)
     out = np.clip(np.rint(blended), 0, 255).astype(np.uint8)

@@ -125,3 +125,29 @@ def test_composite_without_the_original_mask_raises():
             }),
             None,
         )
+
+
+def test_inpaint_strategy_feathers_inward_and_removes_the_tone_step():
+    from src.pipelines.pipes._shared.inpainting.mask_utils import composite_inpaint
+
+    original = np.full((200, 300, 3), 200, dtype=np.uint8)
+    content = np.full((200, 300, 3), 218, dtype=np.uint8)
+    mask = np.zeros((200, 300), dtype=np.uint8)
+    mask[50:150, 100:200] = 255
+    row = composite_inpaint(original, content, mask, 0.12, True).astype(int)[100, :, 0]
+    assert np.abs(np.diff(row)).max() <= 2
+    assert (row[:100] == 200).all() and (row[200:] == 200).all()
+    assert row[150] >= 215
+    assert np.abs(np.diff(composite_inpaint(original, content, mask, 0.12, False).astype(int)[100, :, 0])).max() <= 3
+
+
+def test_inpaint_strategy_pixel_feather_overrides_the_fraction():
+    from src.pipelines.pipes._shared.inpainting.mask_utils import composite_inpaint
+
+    original = np.zeros((100, 100, 3), dtype=np.uint8)
+    content = np.full((100, 100, 3), 200, dtype=np.uint8)
+    mask = np.zeros((100, 100), dtype=np.uint8)
+    mask[20:80, 20:80] = 255
+    narrow = composite_inpaint(original, content, mask, 0.5, False, feather_px=4)[50, :, 0].astype(int)
+    wide = composite_inpaint(original, content, mask, 0.5, False, feather_px=24)[50, :, 0].astype(int)
+    assert narrow[28] > wide[28] + 50

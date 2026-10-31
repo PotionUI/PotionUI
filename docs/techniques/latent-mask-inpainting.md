@@ -46,8 +46,8 @@ pixels exact despite the VAE round trip.
 
 - **Inpaint** (Z-Image, MOSS-Image, Krea-2, Qwen-Image-2.1): paint the area, optionally describe what
   should be there. The painted area is dilated by *Grow*, cropped with surrounding context
-  (`inpaint_region_crop`, scaled strategy), repainted, and composited back by `inpaint_region_restore`
-  with a *Feather* seam and colour matching.
+  (`inpaint_region_crop`, scaled strategy), repainted, and composited back by `inpaint_region_restore` (`inpaint` strategy)
+  with a *Feather* seam that fades inward from the painted edge, and the edge tone is pulled toward the surroundings.
 - **Outpaint** (Z-Image): `canvas_expand` grows the canvas by pixels per side or to a target shape,
   fills the new area with a blurred copy of the edge and masks it, plus a few pixels of the original
   edge so the seam blends. The generator repaints the mask and returns the whole canvas.

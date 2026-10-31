@@ -349,11 +349,11 @@
       "config": {
         "feather": {
           "type": "float",
-          "value": 0.08
+          "value": 0.12
         },
         "strategy": {
           "type": "str",
-          "value": "composite"
+          "value": "inpaint"
         }
       },
       "enabled": {

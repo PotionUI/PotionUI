@@ -78,7 +78,7 @@
         },
         "overlap": {
           "type": "int",
-          "value": 16
+          "value": 48
         },
         "right": {
           "type": "int",
@@ -276,6 +276,10 @@
           "type": "float",
           "value": 1.0
         },
+        "max_pixels": {
+          "type": "int",
+          "value": 4194304
+        },
         "mode": {
           "type": "str",
           "value": "inpaint"
@@ -283,10 +287,6 @@
         "quantity": {
           "type": "int",
           "value": 1
-        },
-        "resolution": {
-          "type": "str",
-          "value": "1024x1024"
         },
         "sampler": {
           "type": "str",
@@ -323,6 +323,24 @@
       },
       "id": null,
       "name": "generator/z_image"
+    },
+    {
+      "config": {
+        "feather_px": {
+          "type": "int",
+          "value": 48
+        },
+        "strategy": {
+          "type": "str",
+          "value": "inpaint"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "inpaint_region_restore",
+      "name": "inpaint_region_restore"
     },
     {
       "config": {},

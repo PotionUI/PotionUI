@@ -104,3 +104,12 @@ def test_aspect_growth_is_capped_like_the_sides():
 def test_a_non_image_input_is_rejected():
     with pytest.raises(ValueError, match="picture"):
         CanvasExpandPipe({"left": 8}).process(PipeInput(input={"image": "x.png"}), None)
+
+
+def test_outputs_carry_the_list_forms_and_whole_canvas_restore_inputs():
+    out = _run({"left": 8})
+    assert out["masks"] == [out["mask"]] and out["images"] == [out["image"]]
+    assert out["crop_region"] == {
+        "top": 0, "bottom": 32, "left": 0, "right": 72, "original_width": 72, "original_height": 32,
+    }
+    assert out["original_image"] is out["image"] and out["original_mask"] is out["mask"]

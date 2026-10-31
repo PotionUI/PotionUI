@@ -38,7 +38,7 @@ pipeline:
       bottom: "{{ form.expand_bottom | default(0) if form.canvas_mode | default('sides') == 'sides' else 0 }}"
       aspect: "{{ form.target_shape | default('16:9') if form.canvas_mode | default('sides') == 'shape' else '' }}"
       anchor: "{{ form.shape_anchor | default('center') }}"
-      overlap: "{{ form.mask_feather | default(16) }}"
+      overlap: "{{ form.mask_feather }}"
 
   - name: "prompt_encoder"
     input:
@@ -112,12 +112,12 @@ pipeline:
       - ["model", "model_loader/z_image", "model"]
       - ["conditioning", "prompt_encoder", "conditioning"]
       - ["seed", "seed_generator", "seed"]
-      - ["image", "canvas_expand", "image"]
-      - ["mask", "canvas_expand", "mask"]
+      - ["image", "canvas_expand", "images"]
+      - ["mask", "canvas_expand", "masks"]
     enabled: true
     configuration:
       mode: "inpaint"
-      resolution: "{{ {'1': '1024x1024', '2': '1448x1448', '4': '2048x2048'}[form.output_size | default('1')] }}"
+      max_pixels: "{{ {'1': 1048576, '2': 2097152, '4': 4194304}[form.output_size | default('4')] }}"
       denoise: "{{ form.denoise }}"
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       guidance: "{{ form.cfg | default(generation.profile.guidance) }}"
@@ -130,8 +130,20 @@ pipeline:
         warmup_steps: "{{ form.step_cache_warmup_steps }}"
         max_consecutive_skips: "{{ form.step_cache_max_skips }}"
 
+  - name: "inpaint_region_restore"
+    id: "inpaint_region_restore"
+    enabled: true
+    input:
+      - ["inpainted_image", "generator/z_image", "image"]
+      - ["crop_region", "canvas_expand", "crop_region"]
+      - ["original_image", "canvas_expand", "original_image"]
+      - ["original_mask", "canvas_expand", "original_mask"]
+    configuration:
+      strategy: "inpaint"
+      feather_px: "{{ form.mask_feather }}"
+
   - name: "gallery"
     input:
-      - ["image", "generator/z_image", "image"]
+      - ["image", "inpaint_region_restore", "image"]
       - ["seed", "seed_generator", "seed"]
     enabled: true

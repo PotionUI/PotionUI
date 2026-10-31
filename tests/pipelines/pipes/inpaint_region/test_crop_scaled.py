@@ -117,3 +117,8 @@ def test_composite_region_ignores_faint_stray_pixels():
     out = composite_region(original, content, mask, 0.08, False)
     assert (out[:20, :20] == 0).all()
     assert (out[95:105, 95:105] == 200).all()
+
+
+def test_crop_emits_the_mask_as_a_one_item_list_like_the_image():
+    out = _run(SCALED, *_scene())
+    assert out["masks"] == [out["mask"]]

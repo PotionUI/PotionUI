@@ -127,16 +127,20 @@ def build_gpu_profile(
 
 def detect_gpu_profile(device_index: int = 0) -> GpuProfile:
     try:
-        import torch
-    except Exception:
-        return GpuProfile()
-    try:
-        if not torch.cuda.is_available():
+        from src.platform.runtime.native.kernels import capabilities
+        from src.platform.runtime.native.kernels.hardware import VENDOR_CUDA
+
+        devices = capabilities().devices
+        if not 0 <= device_index < len(devices):
             return GpuProfile()
-        properties = torch.cuda.get_device_properties(device_index)
-        capability = (int(properties.major), int(properties.minor))
-        vram_gb = properties.total_memory / (1024 ** 3)
-        vendor_is_nvidia = getattr(torch.version, "hip", None) is None
-        return build_gpu_profile(capability, vram_gb, str(properties.name), vendor_is_nvidia)
+        device = devices[device_index]
+        if device.capability == (0, 0) or device.total_memory <= 0:
+            return GpuProfile()
+        return build_gpu_profile(
+            device.capability,
+            device.total_memory / (1024 ** 3),
+            device.name,
+            device.vendor == VENDOR_CUDA,
+        )
     except Exception:
         return GpuProfile()

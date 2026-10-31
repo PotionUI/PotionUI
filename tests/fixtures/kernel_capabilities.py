@@ -23,6 +23,8 @@ def fake_device(
     index: int = 0,
     name: object = DEFAULT_NAME,
     attention_backends: Optional[frozenset[str]] = None,
+    total_memory: int = 24 * 1024 ** 3,
+    vendor: str = "cuda",
 ) -> DeviceCapabilities:
     from src.platform.runtime.native.kernels import SDPA, DeviceCapabilities
 
@@ -31,6 +33,8 @@ def fake_device(
         name=f"Fake GPU sm{capability[0]}{capability[1]}" if name is DEFAULT_NAME else name,
         capability=capability,
         attention_backends=frozenset({SDPA}) if attention_backends is None else attention_backends,
+        total_memory=total_memory,
+        vendor=vendor,
     )
 
 
@@ -58,6 +62,7 @@ def fake_capabilities(*devices: DeviceCapabilities) -> Capabilities:
         name="cpu",
         capability=(0, 0),
         attention_backends=frozenset({SDPA}),
+        vendor="none",
     )
     placed = tuple(dataclasses.replace(device, index=index) for index, device in enumerate(devices))
     return Capabilities(devices=placed, cpu=cpu)

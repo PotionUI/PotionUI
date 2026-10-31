@@ -128,6 +128,15 @@ The pipeline is `media_loader` (video) and `media_loader` (picture) → `control
 
 The LoRA was trained on LTX-2.3. It is the native pairing for the `LTX-2 / 2.3` preset. The `LTX-2.5` preset reuses it unchanged: Lightricks states that most LTX-2.3 LoRAs run on 2.5, and that structural IC-LoRAs need the distilled checkpoint, which is why the mode defaults to the Distilled speed profile. No 2.5-trained Union-Control LoRA exists yet.
 
+### Transition
+
+The `LTX-2.5` preset ships a `transition` mode: a First picture and a Last picture in, the video between them out. It is the focused form of the Video mode's first-frame and last-frame keyframes, with a length in seconds and nothing else to set.
+
+- One `generator/video_ltx` pass with two `role: keyframe` placements: the First picture at `frame: first` and the Last picture at `frame: last`, both at strength 1.0. The length is `duration * 24` frames, snapped by the generator to 1 + 8k.
+- The prompt is optional. Empty, the caption is "A smooth cinematic transition from the first picture to the last picture".
+- The optional Transition LoRA (`valiantcat/LTX-2.3-Transition-LORA`, `ltx2.3-transition.safetensors`, 390 MB, Apache-2.0) rides `scoped_loras`. Its card names first-to-last-frame generation as a core use and asks for the trigger word `zhuanchang` at the end of the prompt; the mode appends it only when the LoRA is selected. Without the LoRA nothing is scoped and the caption is untouched.
+- The LoRA was trained on LTX-2.3. Its card does not say whether it loads on 2.5, so it stays optional; the mode works without it.
+
 ### Latent upscalers: spatial and temporal
 
 `latent_upscaler/ltx` runs one upsample in latent space, between two generation stages. Its `mode` config picks which checkpoint it runs, and each has its own model-loader slot, because a pipeline can need both files resident at once:

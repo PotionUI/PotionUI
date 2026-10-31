@@ -87,3 +87,22 @@ cases:
     checks:
       min_outputs: 1
       not_black: true
+
+  - name: "ltx25-transition-fast"
+    mode: "transition"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      speed_profile: "distilled"
+      duration: 3
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true

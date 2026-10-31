@@ -82,6 +82,7 @@ CASES = [
     ("presets/marketplace/LTX-2.5", "layout_to_render", {"input_video", "style_image"}),
     ("presets/marketplace/LTX-2.5", "motion_transfer", {"input_video", "input_image"}),
     ("presets/marketplace/LTX-2.5", "cinemagraph", {"input_image"}),
+    ("presets/marketplace/LTX-2.5", "transition", {"first_image", "last_image"}),
     ("comfyui-backend/presets/FluxKlein9b", "img2img", {"input_image", "input_image_2"}),
     ("comfyui-backend/presets/QwenImage", "img2img", {"source_image", "ref_image_2", "ref_image_3"}),
 ]

@@ -168,7 +168,7 @@ vars:
   # NOT applied to the video mode's in-flow upscale stage-2 refine -- see that
   # pipeline.yml's stage-2 comment for why (shared conditioning with stage 1).
   refine_quality_prompt: "the video is sharp and richly detailed, with clean well-defined edges, natural skin and material texture, smooth coherent motion, and free of compression artifacts, noise, or blurring"
-  optional_prompt_modes: ["restore", "colorize", "day_to_night", "add_water", "remove_object", "layout_to_render", "motion_transfer", "cinemagraph"]
+  optional_prompt_modes: ["restore", "colorize", "day_to_night", "add_water", "remove_object", "layout_to_render", "motion_transfer", "cinemagraph", "transition"]
 
   # Video Director capabilities for the `video` mode. Read by
   # normalize_video_director() (src/features/video_director/normalize.py) via
@@ -301,6 +301,15 @@ llm:
         still, and there are no camera moves.
         The prompt is optional, and the mode adds the caption and trigger word itself,
         so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+    transition:
+      guide: |
+        Transition mode: the video starts on the First picture and ends on the Last
+        picture, so never describe either picture. Write one or two sentences about how
+        the first becomes the second: the camera move and the change itself ("the camera
+        pushes in slowly as her hair shortens and her face turns into a young man's").
+        The prompt is optional, and the mode writes a default caption when it is empty.
+        Never type zhuanchang; the mode adds that trigger word itself when the
+        Transition LoRA is selected.
 
 formulas:
   groups:
@@ -326,3 +335,4 @@ modes:
   - layout_to_render
   - motion_transfer
   - cinemagraph
+  - transition

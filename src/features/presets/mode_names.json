@@ -187,6 +187,10 @@
     "label": "Cinemagraph",
     "icon": "mode-cinemagraph"
   },
+  "transition": {
+    "label": "Transition",
+    "icon": "mode-transition"
+  },
   "extend": {
     "label": "Extend",
     "icon": "mode-extend"

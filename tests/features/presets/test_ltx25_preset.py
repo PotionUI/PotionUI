@@ -286,7 +286,7 @@ def test_every_windowed_edit_mode_takes_its_frames_from_the_clip():
 
 
 OPTIONAL_PROMPT_MODES = [
-    "restore", "colorize", "day_to_night", "add_water", "remove_object", "layout_to_render", "motion_transfer", "cinemagraph",
+    "restore", "colorize", "day_to_night", "add_water", "remove_object", "layout_to_render", "motion_transfer", "cinemagraph", "transition",
 ]
 PROMPT_PASS_THROUGH_MODES = ["extend", "refine_faces"]
 
@@ -317,7 +317,7 @@ def test_the_modes_that_pass_the_prompt_straight_through_keep_requiring_it(ltx25
     assert not _prompt_built_from_an_empty_prompt(ltx25_template, mode).strip()
 
 
-NO_TRIGGER_MODES = {"motion_transfer"}
+NO_TRIGGER_MODES = {"motion_transfer", "transition"}
 TRIGGER_WORDS = "ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION"
 MODE_GUIDE_RULES = {
     "restore": ["The Fix field picks the task", "describe the period, place, light, materials and clothing"],
@@ -334,6 +334,7 @@ MODE_GUIDE_RULES = {
         "Describe the person and the place, never the pose or the moves",
     ],
     "cinemagraph": ["Name exactly what moves", "everything else stays still", "there are no camera moves"],
+    "transition": ["the video starts on the First picture and ends on the Last", "never describe either picture", "Never type zhuanchang"],
 }
 
 

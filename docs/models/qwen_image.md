@@ -33,6 +33,12 @@ The text encoder is Qwen2.5-VL-7B. The VAE is the Wan 2.1 causal-3D VAE, with pe
 
 The shipped Qwen-Image preset ships `txt2img`.
 
+### Picture layout in edit mode
+
+`edit` reads the source picture through the Qwen2.5-VL vision tower, and the layout follows the loaded checkpoint. The Edit-Plus releases (2509 and 2511) get the layout they were trained with (diffusers `QwenImageEditPlusPipeline`, ComfyUI `TextEncodeQwenImageEditPlus`): the instruction reads `Picture 1: <image>` and the picture the vision tower sees is box-filtered to at most 384 x 384 pixels in area. The original Qwen-Image-Edit release keeps its single-image layout, with no label and the picture at full size. The reference latent the DiT edits stays at about 1 MP either way. For a 1200 x 1500 photo the vision tower sees about 2,300 tokens in the single-image layout and 180 in the Plus layout.
+
+2511 is recognised by its timestep-zero marker. 2508 and 2509 share every key and shape, so the original release is recognised by the values of its `proj_out` bias, cast to fp8 e4m3 and hashed so that bf16, fp16, fp32 and fp8 copies all match. Every other checkpoint gets the Plus layout.
+
 ## Sampling
 
 Default generation parameters: 20 steps, guidance 4.0 (true CFG scale), sampler `euler`, img2img strength 0.55.

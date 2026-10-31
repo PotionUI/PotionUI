@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import re
 from pathlib import Path
 
@@ -8,8 +9,9 @@ import yaml
 
 from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE, MODEL_TYPE_TO_DIRECTORY
 
-ROOT = Path("content/presets/marketplace")
-CATALOG = Path("src/std/models/preview_decoders.yml")
+REPO = Path(__file__).resolve().parents[3]
+ROOT = REPO / "content/presets/marketplace"
+CATALOG = REPO / "src/std/models/preview_decoders.yml"
 
 FIELD_FILES = {
     ("MiniMax-H3", "video"): "MiniMax-H3/modes/video/tabs/generation.yml",
@@ -36,8 +38,13 @@ EXPECTED_DECODERS = {
 }
 
 
+@functools.cache
+def _load(path):
+    return yaml.safe_load(Path(path).read_text())
+
+
 def _catalog():
-    return {Path(entry["url"]).stem: entry for entry in yaml.safe_load(CATALOG.read_text())["models"]}
+    return {Path(entry["url"]).stem: entry for entry in _load(CATALOG)["models"]}
 
 
 def _walk(node, name):
@@ -52,7 +59,7 @@ def _walk(node, name):
 
 
 def _field(relative):
-    found = list(_walk(yaml.safe_load((ROOT / relative).read_text()), "preview_decoder"))
+    found = list(_walk(_load(ROOT / relative), "preview_decoder"))
     assert len(found) == 1, relative
     return found[0]
 
@@ -95,7 +102,7 @@ def test_field_recommendations_match_the_catalog(preset, mode):
 
 @pytest.mark.parametrize("preset,mode", sorted(FIELD_FILES))
 def test_every_generator_of_a_covered_mode_receives_the_decoder(preset, mode):
-    pipeline = yaml.safe_load((ROOT / preset / "modes" / mode / "pipeline.yml").read_text())["pipeline"]
+    pipeline = _load(ROOT / preset / "modes" / mode / "pipeline.yml")["pipeline"]
     generators = [pipe for pipe in pipeline if pipe["name"] in GENERATORS]
     assert generators
     for pipe in generators:

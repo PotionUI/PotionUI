@@ -80,7 +80,7 @@ class ProgressEmitter:
         self.emit(ImageGenerationOutput(image=image, temporary=True, **meta))
 
 
-def native_step_hooks(gen, progress: "ProgressEmitter", on_progress, *, preview: bool = True, extra=()):
+def native_step_hooks(gen, progress: "ProgressEmitter", on_progress, *, preview: bool = True, decoder_path=None, extra=()):
     """Sampler hook list for a native generator: progress + (optional) preview.
 
     Every native generator wires the same ``[ProgressHook(on_progress)]``; this
@@ -100,7 +100,7 @@ def native_step_hooks(gen, progress: "ProgressEmitter", on_progress, *, preview:
     hooks = [ProgressHook(on_progress)]
     spec = getattr(gen, "spec", None)
     if preview and spec is not None:
-        preview_hook = make_preview_hook(spec, progress.preview)
+        preview_hook = make_preview_hook(spec, progress.preview, decoder_path=decoder_path)
         if preview_hook is not None:
             hooks.append(preview_hook)
     hooks.extend(extra)

@@ -244,6 +244,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.windows import (
 from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
     preview_config_spec,
+    preview_decoder_config_spec,
     seed_config_spec,
 )
 
@@ -1055,6 +1056,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             seed_config_spec(),
             device_config_spec(),
             preview_config_spec("Emit live latent previews during sampling"),
+            preview_decoder_config_spec(),
             PipeConfigSpec("keyframe_anchors", list, [],
                            "Which end of the video each 'image' input anchors, positional with it: "
                            "['first'], ['last'] or ['first','last'] (fl2va). Empty with images present "
@@ -2479,7 +2481,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
 
         hooks = [ProgressHook(on_progress)]
         if self.config.get("preview", True):
-            preview_hook = make_preview_hook(c.spec, progress.preview)
+            preview_hook = make_preview_hook(c.spec, progress.preview, decoder_path=self.config.get("preview_decoder") or None)
             if preview_hook is not None:
                 hooks.append(preview_hook)
 

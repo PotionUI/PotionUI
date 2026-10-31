@@ -46,6 +46,7 @@ from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
     nag_config_specs,
     preview_config_spec,
+    preview_decoder_config_spec,
     seed_config_spec,
 )
 
@@ -145,6 +146,7 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
             seed_config_spec(),
             device_config_spec(),
             preview_config_spec("Emit live latent previews (frame 0) to the workbench during sampling"),
+            preview_decoder_config_spec(),
             PipeConfigSpec("cfg_zero_star", bool, True, "CFG-Zero*: rescale the uncond branch onto cond before extrapolation (free quality correction)", required=False),
             PipeConfigSpec("zero_init_steps", int, 0, "CFG-Zero*: return a zero velocity prediction for the first N steps", required=False,
                            min_value=0, max_value=100),
@@ -436,7 +438,7 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
 
             hooks = [ProgressHook(on_progress)]
             if self.config.get("preview", True):
-                preview_hook = make_preview_hook(c.spec, progress.preview)
+                preview_hook = make_preview_hook(c.spec, progress.preview, decoder_path=self.config.get("preview_decoder") or None)
                 if preview_hook is not None:
                     hooks.append(preview_hook)
 

@@ -51,6 +51,7 @@ from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
     preview_config_spec,
+    preview_decoder_config_spec,
     seed_config_spec,
 )
 
@@ -77,6 +78,7 @@ class GeneratorQwenPipe(QwenEditMixin, FlowMatchGeneratorPipe):
             seed_config_spec(),
             device_config_spec(),
             preview_config_spec(),
+            preview_decoder_config_spec(),
             *schedule_settings_config_specs(),
             # Only txt2img engages this (see NativeGenerator._plan_warm_start) --
             # img2img/edit always pass init_latent and silently fall back to a

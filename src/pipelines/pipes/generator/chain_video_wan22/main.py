@@ -98,6 +98,7 @@ from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
     nag_config_specs,
     preview_config_spec,
+    preview_decoder_config_spec,
 )
 
 _LOG_TAG = "GENERATOR WAN CHAIN"
@@ -266,6 +267,7 @@ class GeneratorWanChainVideoPipe(BasePipe):
                            "i2v low-noise expert DiT file (Wan 2.2 dual-expert only)", required=False),
             device_config_spec(),
             preview_config_spec(),
+            preview_decoder_config_spec(),
             PipeConfigSpec("cfg_zero_star", bool, True,
                            "CFG-Zero*: rescale the uncond branch onto cond before extrapolation", required=False),
             PipeConfigSpec("zero_init_steps", int, 0, "CFG-Zero*: zero velocity for the first N steps",
@@ -667,7 +669,7 @@ class GeneratorWanChainVideoPipe(BasePipe):
                             _LOG_TAG, i + 1, n, sub_type, set_name, seed_i, frames_i, shape)
                 hooks = [ProgressHook(on_progress)]
                 if self.config.get("preview", True):
-                    preview_hook = make_preview_hook(mset.spec, progress.preview)
+                    preview_hook = make_preview_hook(mset.spec, progress.preview, decoder_path=self.config.get("preview_decoder") or None)
                     if preview_hook is not None:
                         hooks.append(preview_hook)
 

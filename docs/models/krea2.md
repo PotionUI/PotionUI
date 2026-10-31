@@ -2,7 +2,7 @@
 type: model
 title: Krea-2
 family_key: krea2
-modes: [txt2img, enhance]
+modes: [txt2img, enhance, inpaint]
 spec:
   arch: Krea2 distilled turbo MMDiT (forked from diffusers' transformer_krea2, Apache-2.0)
   latent: 16-channel, Wan21-format causal-3D VAE latent (image-only, single frame)
@@ -34,7 +34,11 @@ The text encoder is Qwen3-VL-4B. The VAE is the Wan 2.1 causal-3D VAE verbatim â
 
 ## Presets & modes
 
-The shipped Krea-2 preset ships `txt2img`, `enhance`, `upscale`, `edit` and `real`.
+The shipped Krea-2 preset ships `txt2img`, `enhance`, `upscale`, `edit`, `real` and `inpaint`.
+
+### Inpaint
+
+`inpaint` repaints a painted area of a picture with the ordinary Krea-2 weights, on any of the Turbo, Balanced, Quality and Base profiles. The generator runs `mode: "inpaint"`: the unpainted latents stay pinned to the source on every step, so only the painted area changes (see [Latent-Mask Inpainting](../techniques/latent-mask-inpainting.md)). *Grow* widens the painted area, the area is cropped with its surroundings, repainted and composited back with a *Feather* seam. The prompt is optional; blank asks for the surroundings continued. Strength 1.0 repaints from noise; lower keeps more of the old colours. It uses the plain `generator/krea2` path, not the reference-token edit pipe: no inpaint LoRA is needed, and the reference-boost mask of `edit` is not involved.
 
 ### Upscale
 

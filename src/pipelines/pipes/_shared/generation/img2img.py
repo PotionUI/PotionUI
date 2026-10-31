@@ -22,7 +22,12 @@ from typing import TYPE_CHECKING, Any, List, Optional
 import numpy as np
 from PIL import Image
 
-from src.pipelines.outputs import ImageGenerationOutput
+from src.pipelines.outputs import GenerationExecutionError, ImageGenerationOutput
+from src.pipelines.pipes._shared.imaging.inpaint_mask import (
+    composite_pixels,
+    latent_mask_from_array,
+    mask_to_unit_array,
+)
 from src.pipelines.contracts import IOType, PipeConfigSpec, PipeInputSpec
 from src.pipelines.outputs import Icon
 from src.pipelines.pipes._shared.generation.progress import native_step_hooks
@@ -53,6 +58,7 @@ def img2img_denoise(
     step_cache_options: dict | None = None,
     schedule_settings: dict | None = None,
     sigmas=None,
+    latent_mask=None,
 ) -> np.ndarray:
     """Refine ``image`` toward ``conditioning`` at ``denoise`` strength; return uint8 HWC pixels.
 
@@ -93,6 +99,7 @@ def img2img_denoise(
         step_cache_options=step_cache_options,
         schedule_settings=schedule_settings,
         sigmas=sigmas,
+        latent_mask=latent_mask,
     )
     return gen.decode(latent, vram_free_gb=vram_free_gb)
 
@@ -147,6 +154,10 @@ class Img2ImgGeneratorMixin:
     def img2img_input_spec() -> PipeInputSpec:
         return PipeInputSpec("image", IOType.IMAGE, False, "Input images for img2img mode", is_array=True)
 
+    @staticmethod
+    def inpaint_input_spec() -> PipeInputSpec:
+        return PipeInputSpec("mask", IOType.IMAGE, False, "Repaint mask for inpaint mode (white = repaint)", is_array=True)
+
     def img2img_context(self, pipe_input) -> dict:
         """The ``extra`` keys img2img needs; merge into ``GeneratorContext.extra``."""
         return {
@@ -158,6 +169,7 @@ class Img2ImgGeneratorMixin:
             # schedule; ``None`` here is a byte-identical no-op for every other
             # family (see ``maybe_img2img``'s ``sigmas=`` forward below).
             "sigmas": None,
+            "masks": pipe_input.input.get("mask") or [],
         }
 
     def maybe_img2img(
@@ -211,6 +223,58 @@ class Img2ImgGeneratorMixin:
             is_cancelled=ctx.is_cancelled,
         )
         image = Image.fromarray(pixels[0])
+        return ImageGenerationOutput(
+            image=image, temporary=True, seed=seed,
+            resolution=image.size, cfg=ctx.extra["guidance"], step=ctx.extra["steps"],
+        )
+
+    def maybe_inpaint(
+        self,
+        gen: "NativeGenerator",
+        conditioning: "Conditioning",
+        ctx: "GeneratorContext",
+        index: int,
+        seed: int,
+        progress: "ProgressEmitter",
+    ) -> Optional[ImageGenerationOutput]:
+        if ctx.extra.get("mode") != "inpaint":
+            return None
+        source = self._select_source(ctx.extra.get("images") or [], index)
+        if source is None:
+            raise GenerationExecutionError("Inpaint needs a picture")
+        mask_image = self._select_source(ctx.extra.get("masks") or [], index)
+        if mask_image is None:
+            raise GenerationExecutionError("Paint the area to repaint")
+
+        src = source.convert("RGB")
+        snap_w, snap_h = self._img2img_target_size(gen, ctx, src.size)
+        if (snap_w, snap_h) != src.size:
+            src = src.resize((snap_w, snap_h), Image.LANCZOS)
+        pixels = np.asarray(src)
+        mask = mask_to_unit_array(mask_image, src.size)
+        init_latent = gen.encode_image(pixels)
+
+        def on_progress(_fraction: float, step_index: int, total: int) -> None:
+            progress.step(step_index + 1, total, state="INPAINT", icon=Icon(name="bolt", effect="pulse"))
+
+        decoded = img2img_denoise(
+            gen, pixels, conditioning,
+            steps=ctx.extra["steps"], seed=seed, cfg_scale=ctx.extra["guidance"],
+            sampler=ctx.extra["sampler"], denoise=ctx.extra["denoise"],
+            init_latent=init_latent,
+            latent_mask=latent_mask_from_array(mask, tuple(init_latent.shape)),
+            guidance_options=ctx.extra.get("guidance_options"),
+            sampler_options=ctx.extra.get("sampler_options"),
+            step_cache_options=ctx.extra.get("step_cache_options"),
+            schedule_settings=ctx.extra.get("schedule_settings"),
+            sigmas=ctx.extra.get("sigmas"),
+            hooks=native_step_hooks(gen, progress, on_progress, preview=self.config.get("preview", True),
+                                    decoder_path=self.config.get("preview_decoder") or None,
+                                    extra=self.extra_step_hooks()),
+            is_cancelled=ctx.is_cancelled,
+        )
+        decoded = decoded[0] if decoded.ndim == 4 else decoded
+        image = Image.fromarray(composite_pixels(decoded, pixels, mask))
         return ImageGenerationOutput(
             image=image, temporary=True, seed=seed,
             resolution=image.size, cfg=ctx.extra["guidance"], step=ctx.extra["steps"],

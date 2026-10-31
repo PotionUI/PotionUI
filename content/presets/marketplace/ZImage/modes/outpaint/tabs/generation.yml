@@ -1,0 +1,145 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed profile"
+    default: "turbo"
+    configuration:
+      options:
+        - { label: "Turbo", value: "turbo", sub_label: "8 steps, distilled checkpoint" }
+        - { label: "Base", value: "base", sub_label: "30 steps" }
+        - { label: "Custom", value: "custom", sub_label: "set steps/CFG freely" }
+
+  - type: "section"
+    label: "Canvas"
+    children:
+      - name: "canvas_mode"
+        type: "select"
+        formula: "size"
+        label: "Extend by"
+        default: "sides"
+        ai_hint: "Grow the canvas by an amount on each side, or to a chosen shape."
+        configuration:
+          options:
+            - { label: "Pixels", value: "sides", sub_label: "Pick each side" }
+            - { label: "Shape", value: "shape", sub_label: "Grow to a chosen shape" }
+
+      - type: "row"
+        visible: false
+        reactions:
+          - when: { field: "canvas_mode", equals: "sides" }
+            then: { set_visibility: true }
+        children:
+          - name: "expand_left"
+            type: "stepper"
+            formula: "size"
+            label: "Left"
+            default: 256
+            width: "1/2"
+            full_width: true
+            configuration: { min: 0, max: 2048, step: 64 }
+          - name: "expand_right"
+            type: "stepper"
+            formula: "size"
+            label: "Right"
+            default: 256
+            width: "1/2"
+            full_width: true
+            configuration: { min: 0, max: 2048, step: 64 }
+
+      - type: "row"
+        visible: false
+        reactions:
+          - when: { field: "canvas_mode", equals: "sides" }
+            then: { set_visibility: true }
+        children:
+          - name: "expand_top"
+            type: "stepper"
+            formula: "size"
+            label: "Top"
+            default: 0
+            width: "1/2"
+            full_width: true
+            configuration: { min: 0, max: 2048, step: 64 }
+          - name: "expand_bottom"
+            type: "stepper"
+            formula: "size"
+            label: "Bottom"
+            default: 0
+            width: "1/2"
+            full_width: true
+            configuration: { min: 0, max: 2048, step: 64 }
+
+      - name: "target_shape"
+        type: "select"
+        formula: "size"
+        label: "Shape"
+        default: "16:9"
+        visible: false
+        reactions:
+          - when: { field: "canvas_mode", equals: "shape" }
+            then: { set_visibility: true }
+        configuration:
+          options:
+            - { label: "Square", value: "1:1" }
+            - { label: "Wide 16:9", value: "16:9" }
+            - { label: "Ultra-wide 21:9", value: "21:9" }
+            - { label: "Landscape 3:2", value: "3:2" }
+            - { label: "Landscape 4:3", value: "4:3" }
+            - { label: "Portrait 4:5", value: "4:5" }
+            - { label: "Portrait 2:3", value: "2:3" }
+            - { label: "Tall 9:16", value: "9:16" }
+
+      - name: "shape_anchor"
+        type: "select"
+        formula: "size"
+        label: "Keep the picture"
+        default: "center"
+        visible: false
+        reactions:
+          - when: { field: "canvas_mode", equals: "shape" }
+            then: { set_visibility: true }
+        configuration:
+          options:
+            - { label: "Centered", value: "center" }
+            - { label: "At the left", value: "left" }
+            - { label: "At the right", value: "right" }
+            - { label: "At the top", value: "top" }
+            - { label: "At the bottom", value: "bottom" }
+
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children: "{{ paths._shared }}/native/seed_quantity.yml"
+
+      - name: "output_size"
+        type: "select"
+        formula: "size"
+        label: "Output size"
+        default: "1"
+        configuration:
+          options:
+            - { label: "1 MP", value: "1", sub_label: "Fast" }
+            - { label: "2 MP", value: "2", sub_label: "More detail, slower" }
+            - { label: "4 MP", value: "4", sub_label: "Heaviest" }
+
+      - name: "denoise"
+        type: "slider"
+        formula: "speed"
+        label: "Strength"
+        default: 1.0
+        ai_hint: "How freely the new area is painted. Full strength invents it; lower stays closer to the stretched edge colours."
+        configuration: {min: 0.2, max: 1.0, step: 0.05}
+
+      - name: "mask_feather"
+        type: "slider"
+        label: "Blend"
+        default: 16
+        ai_hint: "How far into the original edge the repaint reaches, so the seam blends."
+        configuration: {min: 0, max: 64, step: 4}
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models.yml"

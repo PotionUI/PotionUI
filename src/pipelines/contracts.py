@@ -302,6 +302,7 @@ PIPE_FAMILY_TITLES: Dict[str, str] = {
     "matting": "Removing background",
     "media_loader": "Loading media",
     "mask_preprocessor": "Preparing mask",
+    "canvas_expand": "Expanding canvas",
     "inpaint_region_crop": "Cropping inpaint region",
     "inpaint_region_restore": "Restoring inpaint region",
     "controlnet_loader": "Loading ControlNet",

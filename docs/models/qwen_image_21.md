@@ -2,7 +2,7 @@
 type: model
 title: Qwen-Image-2.1
 family_key: qwen_image21
-modes: [txt2img, edit, combine, text, restyle, control]
+modes: [txt2img, edit, combine, text, restyle, inpaint, control]
 spec:
   arch: single-stream block-causal MMDiT
   latent: 64-channel, RGBA causal-3D VAE latent (16x downscale, image-only, single frame)
@@ -35,6 +35,8 @@ The text encoder is Qwen3-VL-8B (not Qwen2.5-VL — a different encoder than 1.0
 ## Presets & modes
 
 The shipped Qwen-Image-2.1 preset ships `txt2img`, `edit` and `control` (see [Fun ControlNet Union](#fun-controlnet-union) below). `edit` reuses the SAME checkpoint set as `txt2img` — `model_loader/qwen_image21` loads the Qwen3-VL-8B text encoder's vision tower (`vision: true`) so the text conditioning is grounded on up to 10 reference images, and `generator/qwen_image21`'s `GeneratorQwenImage21Pipe.maybe_edit` VAE-encodes each reference (its own area-target aspect, snapped to the 16px granularity) into `ref_latents`. Each reference is spliced INTO the text run at the `image_slots` position the text encoder recorded (`QwenImage21TextEncoder._encode_with_images`), not simply appended after all the text — `QwenImage21DiT.build_sequence` honours those slots (falling back to "after the text" for any reference without one, which keeps a caller that never passes `image_slots` — e.g. a plain txt2img forward — byte-identical to the pre-edit layout).
+
+**Inpaint** repaints a painted area of a picture without an instruction or the vision tower. The generator runs `mode: "inpaint"`: the unpainted latents stay pinned to the source on every step, so only the painted area changes (see [Latent-Mask Inpainting](../techniques/latent-mask-inpainting.md)). *Grow* widens the painted area, the area is cropped with its surroundings, repainted and composited back with a *Feather* seam. The prompt is optional; blank asks for the surroundings continued. Strength 1.0 repaints from noise; lower keeps more of the old colours. It is separate from `edit`, which also accepts a painted region but changes it by instruction.
 
 **Restyle tasks.** `restyle` builds an `edit` instruction from the task picked: Style, Background, Lighting, Photo, Colourise or Restore. **Photo** turns an illustration, render or 3D shot into a photograph without a LoRA: `Turn this image into a realistic photograph. It shows <prompt>. Keep the composition, subjects, layout and colours unchanged.` The prompt is optional there. It is prompt-only because the 2509/2511 anything-to-real LoRAs cannot load on the 2.1 DiT; whether the base model alone is photographic enough is a GPU check, and `QwenImage` `real` is the LoRA route.
 
@@ -82,7 +84,7 @@ Turbo8 is not distributed with PotionUI. It is a derivative of Qwen-Image-2.1 un
 
 ## Limitations
 
-- No img2img mode; only `txt2img`, `edit` and `control`.
+- No img2img mode: `inpaint` is the only mode that starts from an encoded picture; the others are `txt2img`, `edit`, `combine`, `text`, `restyle` and `control`.
 - `control` does not combine with edit references.
 - `edit` accepts up to 10 reference images; the first sets the output's size and aspect and is the image being edited, the rest condition the generation without affecting output sizing.
 - Qwen3-VL has a different text-encoder architecture than CLIP-family encoders — there is no CLIP-skip concept for this family. A `clip_skip` setting carried over from an SDXL-style preset has no effect here.

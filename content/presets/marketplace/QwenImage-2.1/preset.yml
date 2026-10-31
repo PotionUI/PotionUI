@@ -153,6 +153,7 @@ modes:
   - combine
   - text
   - restyle
+  - inpaint
   - control
 
 media:

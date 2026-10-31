@@ -1,0 +1,137 @@
+pipeline:
+  - name: "model_loader/z_image"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  - name: "canvas_expand"
+    id: "canvas_expand"
+    enabled: true
+    input:
+      - ["image", "media_loader", "image"]
+    configuration:
+      left: "{{ form.expand_left if form.canvas_mode | default('sides') == 'sides' else 0 }}"
+      top: "{{ form.expand_top | default(0) if form.canvas_mode | default('sides') == 'sides' else 0 }}"
+      right: "{{ form.expand_right if form.canvas_mode | default('sides') == 'sides' else 0 }}"
+      bottom: "{{ form.expand_bottom | default(0) if form.canvas_mode | default('sides') == 'sides' else 0 }}"
+      aspect: "{{ form.target_shape | default('16:9') if form.canvas_mode | default('sides') == 'shape' else '' }}"
+      anchor: "{{ form.shape_anchor | default('center') }}"
+      overlap: "{{ form.mask_feather | default(16) }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader/z_image", "text_encoder"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: &inpaint_prompt "{{ (item.positive if item is defined else generation.prompts.first.positive) | text_or('the scene continued naturally beyond the edge') }}"
+        output: *inpaint_prompt
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      pairs:
+        "@loop":
+          items: "{{ generation.prompts.pairs }}"
+          template:
+            positive: *inpaint_prompt
+            negative: "{{ item.negative }}"
+      quantity: "{{ form.quantity }}"
+      guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
+      negative_applied: "{{ generation.negative_applied }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - "@loop":
+            items: "{{ generation.prompts.pairs }}"
+            template: ["positive_prompt", *inpaint_prompt]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - ["schedule", "{{ form.schedule }}"]
+        - ["denoise", "{{ form.denoise }}"]
+        - ["canvas", "{{ form.canvas_mode | default('sides') }}"]
+
+  - name: "generator/z_image"
+    input:
+      - ["model", "model_loader/z_image", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "canvas_expand", "image"]
+      - ["mask", "canvas_expand", "mask"]
+    enabled: true
+    configuration:
+      mode: "inpaint"
+      resolution: "{{ {'1': '1024x1024', '2': '1448x1448', '4': '2048x2048'}[form.output_size | default('1')] }}"
+      denoise: "{{ form.denoise }}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      guidance: "{{ form.cfg | default(generation.profile.guidance) }}"
+      shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      schedule: "{{ form.schedule }}"
+      quantity: "{{ form.quantity }}"
+      step_cache:
+        rel_threshold: "{{ form.step_cache_threshold }}"
+        warmup_steps: "{{ form.step_cache_warmup_steps }}"
+        max_consecutive_skips: "{{ form.step_cache_max_skips }}"
+
+  - name: "gallery"
+    input:
+      - ["image", "generator/z_image", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.features.recipes.mode_plans import ModePlanner, PlanApprovalError
-from src.features.recipes.targets import InstallTargets
+from src.features.recipes.targets import InstallTargets, TargetOption
 from src.platform.runtime.gpu_profile import build_gpu_profile
 from tests.features.recipes.mode_fixtures import GIB, FakeDbRepo, FakeLoader, FakeModelRepo, video_preset
 
@@ -195,3 +195,15 @@ def test_unknown_target_is_reported(tmp_path):
     planner = _planner(tmp_path)
     with pytest.raises(PlanApprovalError, match="not a place"):
         _assess(planner, target="worker-9")
+
+
+def test_a_target_that_cannot_download_turns_every_slot_manual(tmp_path):
+    planner = _planner(tmp_path)
+    planner.targets.options = lambda engine: [TargetOption(backend_id="comfy", label="My ComfyUI", kind="external")]
+    assessment = _assess(planner)
+    payload = planner.consent_payload(assessment)
+
+    assert all(slot["manual"] for slot in payload["slots"])
+    assert _slot(payload, "model")["reason"] == "Add this file to My ComfyUI's models folder"
+    assert payload["total_bytes"] == 0
+    assert planner.approve(assessment)["files"] == []

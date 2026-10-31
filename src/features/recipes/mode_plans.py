@@ -34,6 +34,7 @@ class SlotState:
     best_fit_variant_id: Optional[str] = None
     satisfied_by: Optional[str] = None
     hidden: bool = False
+    manual: bool = False
 
     @property
     def is_installed(self) -> bool:
@@ -169,16 +170,17 @@ class ModePlanner:
         hash_candidates: str,
     ) -> SlotState:
         override_default, hidden = self._slot_override(slot, overrides)
-        if slot.manual:
+        if slot.manual or not profile.downloads:
             satisfied = "admin_default" if override_default is not None and self.model_available(override_default, slot.model_type) else None
             return SlotState(
                 slot=slot,
                 variants=[],
                 installed={},
                 recommended_variant_id=None,
-                reason="Pick your own file in Models",
+                reason="Pick your own file in Models" if slot.manual else f"Add this file to {profile.option.label}'s models folder",
                 satisfied_by=satisfied,
                 hidden=hidden,
+                manual=True,
             )
         artifact = slot.artifact
         gpu = profile.gpu
@@ -265,7 +267,7 @@ class ModePlanner:
             selected=list(dict.fromkeys(chosen)),
             locked=[m for m in locked if m in slot_plan.modes],
             extras_offered=extras_offered,
-            preselect_extras=[s for s in preselect_extras if extras_offered and s in slots and not slots[s].slot.manual],
+            preselect_extras=[s for s in preselect_extras if extras_offered and s in slots and not slots[s].manual],
             estimate=self.targets.estimate(option) if with_estimate else None,
         )
 
@@ -274,7 +276,7 @@ class ModePlanner:
         return state.variant(picked) or state.variant(state.recommended_variant_id)
 
     def _needs_download(self, state: SlotState, selections: Dict[str, str]) -> bool:
-        if state.slot.manual or state.satisfied_by is not None:
+        if state.manual or state.satisfied_by is not None:
             return False
         chosen = self._chosen_variant(state, selections)
         return chosen is not None and not chosen.get("installed")
@@ -285,7 +287,7 @@ class ModePlanner:
             return False
         for slot_id in mode.slot_ids:
             state = assessment.slots[slot_id]
-            if not state.slot.manual and not state.is_installed:
+            if not state.manual and not state.is_installed:
                 return False
         for group in mode.any_of:
             if not any(assessment.slots[sid].is_installed for sid in group):
@@ -303,7 +305,7 @@ class ModePlanner:
             for group in mode.any_of:
                 if any(assessment.slots[sid].is_installed or sid in extras for sid in group):
                     continue
-                downloadable = [sid for sid in group if not assessment.slots[sid].slot.manual]
+                downloadable = [sid for sid in group if not assessment.slots[sid].manual]
                 if downloadable:
                     needed.append(downloadable[0])
         needed.extend(extras)
@@ -386,7 +388,7 @@ class ModePlanner:
             "model_type": slot.model_type,
             "required": slot.required,
             "extra": slot.extra,
-            "manual": slot.manual,
+            "manual": state.manual,
             "used_by": list(slot.used_by),
             "disk_id": disk.id if disk is not None else None,
             "satisfied_by": state.satisfied_by,
@@ -443,7 +445,7 @@ class ModePlanner:
             )
         manifest = []
         for state in visible_slots:
-            if state.slot.manual:
+            if state.manual:
                 continue
             for variant in state.variants:
                 if not variant.get("installed"):
@@ -451,7 +453,7 @@ class ModePlanner:
         offered_missing = [
             state.slot.artifact.resolve(self._chosen_variant(state, {})["id"])
             for state in visible_slots
-            if not state.slot.manual and not state.is_installed and self._chosen_variant(state, {}) is not None
+            if not state.manual and not state.is_installed and self._chosen_variant(state, {}) is not None
         ]
         checking = []
         for entry in default_files:
@@ -539,7 +541,7 @@ class ModePlanner:
         chosen: Dict[str, Dict[str, Any]] = {}
         for slot_id in self.needed_slots(assessment, chosen_modes, chosen_extras):
             state = assessment.slots[slot_id]
-            if state.slot.manual or state.satisfied_by is not None:
+            if state.manual or state.satisfied_by is not None:
                 continue
             variant = self._chosen_variant(state, selections)
             if variant is None:
@@ -619,7 +621,7 @@ class ModePlanner:
         total_needed = []
         for slot_id in self.needed_slots(assessment, default_modes, assessment.preselect_extras):
             state = assessment.slots[slot_id]
-            if state.slot.manual:
+            if state.manual:
                 continue
             chosen = self._chosen_variant(state, {})
             total_needed.append(chosen.get("size_bytes") if chosen else None)
@@ -636,7 +638,7 @@ class ModePlanner:
 
     @staticmethod
     def _slot_size(state: SlotState) -> Optional[int]:
-        if state.slot.manual:
+        if state.manual:
             return None
         for variant_id in state.installed:
             entry = state.variant(variant_id)

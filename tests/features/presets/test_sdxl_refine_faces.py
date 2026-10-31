@@ -108,3 +108,9 @@ def test_the_detector_pickers_follow_the_target_and_recommend_hashed_files():
 def test_a_whitespace_only_prompt_counts_as_empty(sdxl):
     pipes = render(sdxl, MODE, positive="   ")
     assert pipe(pipes, "face_encoder")["config"]["p_prompt"]["output"] == "detailed face, detailed eyes, best quality"
+
+
+def test_the_yolo_pickers_are_labelled_as_agpl_like_krea2():
+    fields = mode_fields(MODE, "generation")
+    assert fields["face_detector_model"]["label"] == "Face Detection Model (YOLO, AGPL-3.0)"
+    assert fields["hand_detector_model"]["label"] == "Hand Detection Model (YOLO, AGPL-3.0)"

@@ -38,7 +38,7 @@ The shipped SDXL preset lives under the same directory layout as the native-engi
 
 Takes one picture and repaints its faces and hands with the checkpoint you pick; everything else is left as it is. It reuses the `detailer/sdxl` pipe that txt2img runs after generation, as two passes: a face pass, then a hand pass on its result. **Fix** chooses faces, hands or both, **Strength** is the denoise of each repaint (0.4 by default), and the prompt box is the optional face prompt. An empty prompt falls back to `detailed face, detailed eyes, best quality`; the hands use their own **Hand description** (Advanced) instead, so a face prompt never leaks into the hands.
 
-The detectors are YOLO files picked in the `detection_bbox` pickers. The mode recommends `face_yolov8s.pt` / `face_yolov8n.pt` and `hand_yolov8s.pt` / `hand_yolov8n.pt` from `Bingsu/adetailer` (the model card declares Apache-2.0; the files are Ultralytics YOLOv8 weights, whose upstream licence is AGPL-3.0). A picker is hidden, and so not required, when its target is not selected. The detailer skips a detection whose model file is missing and logs a warning rather than failing.
+The detectors are YOLO files (AGPL-3.0 upstream, labelled as such in the pickers like Krea2's YOLO option) picked in the `detection_bbox` pickers. The mode recommends `face_yolov8s.pt` / `face_yolov8n.pt` and `hand_yolov8s.pt` / `hand_yolov8n.pt` from `Bingsu/adetailer` (the model card declares Apache-2.0; the files are Ultralytics YOLOv8 weights, whose upstream licence is AGPL-3.0). A picker is hidden, and so not required, when its target is not selected. The detailer skips a detection whose model file is missing and logs a warning rather than failing.
 
 ### Upscale & refine (`upscale`)
 

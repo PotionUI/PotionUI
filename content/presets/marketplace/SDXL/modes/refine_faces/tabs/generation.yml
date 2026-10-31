@@ -51,7 +51,7 @@ fields:
 
       - name: "face_detector_model"
         type: "model"
-        label: "Face finder"
+        label: "Face Detection Model (YOLO, AGPL-3.0)"
         required: true
         ai_hint: "The detector that finds faces. The recommended one is trained on photos and anime."
         reactions:
@@ -78,7 +78,7 @@ fields:
 
       - name: "hand_detector_model"
         type: "model"
-        label: "Hand finder"
+        label: "Hand Detection Model (YOLO, AGPL-3.0)"
         required: true
         ai_hint: "The detector that finds hands. The recommended one is trained on photos and anime."
         reactions:

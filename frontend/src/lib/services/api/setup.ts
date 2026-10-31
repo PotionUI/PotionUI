@@ -301,11 +301,13 @@ export function createSetupApi(client: AxiosInstance) {
 		async grantSetupRunConsent(
 			runId: string,
 			stepKey: string,
-			selections?: Record<string, string>
+			selections?: Record<string, string>,
+			extra?: { modes?: string[]; extras?: string[]; target?: string }
 		): Promise<SetupRun> {
 			const response = await client.post(`/api/setup/runs/${runId}/actions/grant_consent`, {
 				step_key: stepKey,
-				selections: selections ?? {}
+				selections: selections ?? {},
+				...(extra ?? {})
 			});
 			return response.data;
 		},

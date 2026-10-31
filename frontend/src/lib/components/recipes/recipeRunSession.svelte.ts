@@ -7,7 +7,7 @@ import { createVisiblePoll, type VisiblePoll } from '$lib/utils/visiblePoll';
 
 export interface RecipeRunApi {
 	get(runId: string): Promise<SetupRun>;
-	create?(recipeId: string): Promise<SetupRun>;
+	create?(recipeId: string, preselectModes?: string[]): Promise<SetupRun>;
 	cancel?(runId: string): Promise<unknown>;
 }
 
@@ -19,7 +19,8 @@ export interface RecipeRunSessionOptions {
 }
 
 const recipeRunApi: RecipeRunApi = {
-	create: (recipeId) => api.createRecipeRun(recipeId),
+	create: (recipeId, preselectModes) =>
+		preselectModes?.length ? api.startRecipeModesRun(recipeId, preselectModes) : api.createRecipeRun(recipeId),
 	get: (runId) => api.getRecipeRun(runId),
 	cancel: (runId) => api.applyRecipeRunAction(runId, 'cancel')
 };
@@ -44,14 +45,14 @@ export class RecipeRunSession {
 		return !!this.run && !isRunTerminal(this.run.status);
 	}
 
-	async start(recipeId: string): Promise<void> {
+	async start(recipeId: string, preselectModes?: string[]): Promise<void> {
 		const create = this.#requireApi('create');
 		if (this.starting || this.inFlight) return;
 		this.starting = true;
 		this.error = '';
 		this.conflict = null;
 		try {
-			this.adopt(await create(recipeId));
+			this.adopt(await (preselectModes?.length ? create(recipeId, preselectModes) : create(recipeId)));
 		} catch (error) {
 			const conflict = parseActiveRecipeRunConflict(error);
 			if (conflict && conflict.activeRun.recipeId === recipeId) {

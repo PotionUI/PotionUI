@@ -70,6 +70,7 @@ import { createAutomationsApi } from './automations';
 import { createSetupApi } from './setup';
 import { createAuthProvidersApi } from './authProviders';
 import { createRecipesApi } from './recipes';
+import { createRecipeModesApi } from './recipeModes';
 import { createMcpApi } from './mcp';
 import { createInspirationsApi } from './inspirations';
 import { createFormulasApi } from './formulas';
@@ -125,6 +126,7 @@ export const api = {
 	...createSetupApi(apiClient.getClient()),
 	...createAuthProvidersApi(apiClient.getClient()),
 	...createRecipesApi(apiClient.getClient()),
+	...createRecipeModesApi(apiClient.getClient()),
 	...createMcpApi(apiClient.getClient()),
 	...createInspirationsApi(apiClient.getClient()),
 	...createFormulasApi(apiClient.getClient()),

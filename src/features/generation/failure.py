@@ -12,7 +12,7 @@ from src.features.generation.error_classification import (
 from src.features.plans.errors import LimitExceeded
 from src.pipelines.outputs import ErrorGenerationOutput
 from src.platform.database.rows import dt_iso
-from src.platform.security.failure_text import basename_paths
+from src.platform.security.failure_text import basename_paths, hide_endpoints
 
 DETAIL_LIMIT_CHARS = 64 * 1024
 _TRUNCATION_MARKER = "\n\n[... {omitted} characters truncated ...]\n\n"
@@ -156,7 +156,7 @@ def _basenamed(payload: Dict[str, Any], keys: Tuple[str, ...]) -> Dict[str, Any]
     changed = {}
     for key in keys:
         value = payload.get(key)
-        if isinstance(value, str) and (reduced := basename_paths(value)) != value:
+        if isinstance(value, str) and (reduced := basename_paths(hide_endpoints(value))) != value:
             changed[key] = reduced
     return {**payload, **changed} if changed else payload
 

@@ -39,3 +39,12 @@ class TestOptimalTileGridVramBudget:
         # Must not raise even without a gpu_monitor - the raw configured
         # value is used as-is (pre-existing behaviour, unchanged).
         pipe._get_optimal_tile_grid((2048, 2048), gpu_monitor=None)
+
+    def test_an_unknown_gpu_budget_sizes_tiles_like_no_gpu_service(self):
+        pipe = make_pipe(vram_limit_gb=None)
+        gpu_monitor = Mock()
+        gpu_monitor.get_vram_budget.return_value = None
+
+        unknown = pipe._get_optimal_tile_grid((4096, 4096), gpu_monitor=gpu_monitor)
+
+        assert unknown == pipe._get_optimal_tile_grid((4096, 4096), gpu_monitor=None)

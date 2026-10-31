@@ -28,6 +28,7 @@ def _gpu_with_real_vram(monkeypatch, total_gb: float, free_gb: float) -> gpu_mod
     entirely (mirrors test_gpu_budget.py's bypass pattern)."""
     g = gpu_module.GpuMonitor.__new__(gpu_module.GpuMonitor)
     g.handle = "fake-handle"
+    g.source = "nvml"
     g.available = True
     g.lock = Lock()
     g._vram_cap_gb = None

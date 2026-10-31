@@ -4,6 +4,7 @@ from threading import Lock
 from typing import Tuple, Optional
 
 from src.platform.observability.logger import logger
+from src.platform.runtime import nvml_library
 from src.platform.runtime.vram_cap import apply_vram_cap_bytes, get_vram_cap_gb
 
 
@@ -29,26 +30,8 @@ class DeviceIdentity:
 def effective_vram_budget_gb(
     backend_cap_gb: Optional[float],
     pipe_hint_gb: Optional[float],
-    available_gb: float,
-) -> float:
-    """Compose the model-loading/placement VRAM budget from the backend's
-    configured cap (``NativeBackendConfig.gpu_max_vram``, applied via
-    ``GpuMonitor.set_vram_cap_gb``) and an optional per-pipe hint (a preset's
-    `vram_limit_gb` on one pipe), then bound the result by hardware.
-
-    Semantics:
-        - ``None`` means "no cap from that source" - it never affects the result.
-        - A cap `<= 0` is invalid configuration, not "unlimited" or "raise the
-          budget": it is ignored with a warning, exactly like ``None``.
-        - The two caps compose as the stricter (lesser) of the two valid ones,
-          so a pipe hint can only ever lower the budget below the backend's
-          configured maximum, never raise it - the result does not depend on
-          which of the two is passed first.
-        - With both absent, the result is bounded by ``available_gb`` alone
-          (today's uncapped behaviour).
-        - This is a planning budget for model-loading/placement decisions, not
-          an OS-enforced VRAM quota and not a guarantee a generation fits.
-    """
+    available_gb: Optional[float],
+) -> Optional[float]:
     valid_caps = []
     for label, cap in (("backend cap", backend_cap_gb), ("pipe hint", pipe_hint_gb)):
         if cap is None:
@@ -63,8 +46,40 @@ def effective_vram_budget_gb(
 
     if not valid_caps:
         return available_gb
-
+    if available_gb is None:
+        return min(valid_caps)
     return min(min(valid_caps), available_gb)
+
+
+def _nvml_text(value):
+    return value.decode("utf-8") if isinstance(value, bytes) else value
+
+
+def _cuda_device_present(device_index: int) -> bool:
+    try:
+        import torch
+
+        return bool(torch.cuda.is_available()) and device_index < torch.cuda.device_count()
+    except Exception:
+        return False
+
+
+def _cuda_initialized() -> bool:
+    try:
+        import torch
+
+        return bool(torch.cuda.is_initialized())
+    except Exception:
+        return False
+
+
+def _torch_device_identity(device_index: int) -> Optional[DeviceIdentity]:
+    try:
+        import torch
+
+        return DeviceIdentity(uuid=f"GPU-{torch.cuda.get_device_properties(device_index).uuid}")
+    except Exception:
+        return None
 
 
 class _CappedMemInfo:
@@ -89,33 +104,6 @@ class GpuMonitor:
     """
 
     def __init__(self, device_index: int = 0):
-        """
-        Initialize GPU manager.
-
-        This is a host-level service: it reports on the GPU this process can see -
-        specifically `device_index` (default 0), the only one anything in this
-        process actually reads from today (there is exactly one process-wide
-        `GpuMonitor` singleton - see `src.bootstrap.container`). It deliberately
-        holds no VRAM *budget* - that is a property of the native backend
-        (NativeBackendConfig.gpu_max_vram), passed in per call, because a budget
-        is engine configuration while the hardware is not.
-
-        `device_index` is recorded as `self.device_index` (display/log only -
-        an NVML enumeration index is not itself proof of correspondence with
-        anything, see `DeviceIdentity`) and, once NVML confirms a handle,
-        `self.device_identity` is resolved once (`DeviceIdentity` - a stable
-        UUID, not an index) so a caller with per-device evidence (e.g. a
-        preset requirement checker holding a `NativeBackend`'s own resolved
-        `ExecutionDeviceEvidence.identity`) can confirm THIS monitor's
-        reading actually corresponds to that exact physical card before
-        trusting it - never by comparing indices alone.
-
-        No NVIDIA driver/GPU is a legitimate host state (CPU-only hosts are
-        supported for claim/setup work) - construction must never raise. `nvmlInit`
-        is attempted once here; failure leaves `self.available = False` and every
-        getter below reports zeroed-out readings instead of touching NVML again,
-        mirroring `SystemMonitor.__init__` (src/platform/observability/system_probe.py).
-        """
         self.lock = Lock()
         self.device_index = device_index
         self.device_identity: Optional[DeviceIdentity] = None
@@ -124,16 +112,28 @@ class GpuMonitor:
         self._vram_cap_gb: Optional[float] = None
 
         self.handle = None
-        self.available = False
+        self.source: Optional[str] = None
+        nvml_error: Optional[Exception] = None
         try:
+            nvml_library.ensure_nvml_library()
             nvmlInit()
             self.handle = nvmlDeviceGetHandleByIndex(device_index)
-            self.available = True
+            self.source = "nvml"
         except Exception as e:
-            logger.warning(f"[GPU_MANAGER] No GPU/NVML available - VRAM readings will report 0: {e}")
+            nvml_error = e
+        if self.source is None and _cuda_device_present(device_index):
+            self.source = "torch"
+        self.available = self.source is not None
 
-        if self.available:
+        if self.source == "nvml":
             self.device_identity = self._resolve_device_identity()
+        elif self.source == "torch":
+            logger.warning(
+                f"[GPU_MANAGER] NVML unavailable ({nvml_error}); VRAM readings for "
+                f"device {device_index} come from torch.cuda"
+            )
+        else:
+            logger.warning(f"[GPU_MANAGER] No GPU/NVML available - VRAM readings are unknown: {nvml_error}")
 
         # Debug-only rig-simulation knob (POTIONUI_VRAM_CAP_GB, see vram_cap.py):
         # touching it here logs its loud one-time warning at process startup,
@@ -141,15 +141,24 @@ class GpuMonitor:
         # first generation's logs.
         get_vram_cap_gb()
 
-        # Log GPU information
-        if self.available:
+        if self.source == "nvml":
             try:
                 gpu_name = nvmlDeviceGetName(self.handle)
                 gpu_name_str = gpu_name.decode('utf-8') if isinstance(gpu_name, bytes) else str(gpu_name)
-                total_vram_gb = self.get_total_vram() / 1024  # Convert MB to GB
+                total_vram_gb = self.get_total_vram() / 1024
                 logger.info(f"[GPU_MANAGER] Initialized: {gpu_name_str} with {total_vram_gb:.1f}GB VRAM")
             except Exception as e:
                 logger.warning(f"[GPU_MANAGER] Could not get GPU name: {e}")
+
+    @property
+    def device_identity(self) -> Optional[DeviceIdentity]:
+        if self._device_identity is None and self.source == "torch" and _cuda_initialized():
+            self._device_identity = _torch_device_identity(self.device_index)
+        return self._device_identity
+
+    @device_identity.setter
+    def device_identity(self, identity: Optional[DeviceIdentity]) -> None:
+        self._device_identity = identity
 
     def _resolve_device_identity(self) -> Optional[DeviceIdentity]:
         """Best-effort - a live NVML handle does not guarantee every query on
@@ -158,33 +167,21 @@ class GpuMonitor:
         (e.g. `vram_min_gb`) degrades to `unknown`, never to guessing this
         is any particular card."""
         try:
-            uuid = nvmlDeviceGetUUID(self.handle)
+            uuid = _nvml_text(nvmlDeviceGetUUID(self.handle))
         except Exception:
             return None
         pci_bus_id = None
         try:
-            pci_bus_id = nvmlDeviceGetPciInfo(self.handle).busId
+            pci_bus_id = _nvml_text(nvmlDeviceGetPciInfo(self.handle).busId)
         except Exception:
             pass
         return DeviceIdentity(uuid=uuid, pci_bus_id=pci_bus_id)
 
     def _get_memory_info(self):
-        """Get NVML memory info (thread-safe).
-
-        When ``POTIONUI_VRAM_CAP_GB`` is set (rig-simulation harness, see
-        ``vram_cap.py``), ``total``/``free`` are capped to it before any
-        caller sees them - ``used`` is left as the real, driver-reported
-        figure, since real tensors still occupy real VRAM. Every getter on
-        this class (``get_total_vram``, ``get_free_vram``,
-        ``get_available_vram``, ...) reads through this one method, so
-        capping here is sufficient to cap every admission decision that goes
-        through ``GpuMonitor``.
-
-        Without a GPU (``self.available`` is False) this returns all zeros
-        rather than touching NVML.
-        """
-        if not self.available:
-            return _CappedMemInfo(total=0, free=0, used=0)
+        if self.source == "torch":
+            return self._torch_memory_info()
+        if self.source != "nvml":
+            return None
         with self.lock:
             info = nvmlDeviceGetMemoryInfo(self.handle)
         if get_vram_cap_gb() is None:
@@ -192,40 +189,32 @@ class GpuMonitor:
         capped_free, capped_total = apply_vram_cap_bytes(info.free, info.total)
         return _CappedMemInfo(total=capped_total, free=capped_free, used=info.used)
 
-    def get_free_vram(self) -> int:
-        """
-        Get free VRAM in MB (NVML reported).
+    def _torch_memory_info(self) -> Optional[_CappedMemInfo]:
+        import torch
 
-        Returns:
-            int: Free VRAM in MB
-        """
-        return self._get_memory_info().free // (1024 * 1024)
+        if not _cuda_initialized():
+            return None
+        with self.lock:
+            free, total = torch.cuda.mem_get_info(self.device_index)
+        capped_free, capped_total = apply_vram_cap_bytes(free, total)
+        return _CappedMemInfo(total=capped_total, free=capped_free, used=max(0, total - free))
 
-    def get_total_vram(self) -> int:
-        """
-        Get total VRAM in MB.
+    def get_free_vram(self) -> Optional[int]:
+        info = self._get_memory_info()
+        return None if info is None else info.free // (1024 * 1024)
 
-        Returns:
-            int: Total VRAM in MB
-        """
-        return self._get_memory_info().total // (1024 * 1024)
+    def get_total_vram(self) -> Optional[int]:
+        info = self._get_memory_info()
+        return None if info is None else info.total // (1024 * 1024)
 
-    def get_available_vram(self) -> float:
-        """
-        Get actually available VRAM in GB.
-
-        This accounts for PyTorch reserved but unallocated memory,
-        providing a more accurate picture of what's usable.
-
-        Returns:
-            float: Available VRAM in GB
-        """
+    def get_available_vram(self) -> Optional[float]:
         import torch
 
         mem_info = self._get_memory_info()
+        if mem_info is None:
+            return None
         free_gb = mem_info.free / (1024**3)
 
-        # Add PyTorch reserved but not allocated memory
         if torch.cuda.is_available():
             reserved_gb = torch.cuda.memory_reserved() / (1024**3)
             allocated_gb = torch.cuda.memory_allocated() / (1024**3)
@@ -250,28 +239,14 @@ class GpuMonitor:
         self,
         max_vram_gb: Optional[float] = None,
         safety_margin: float = 0.85,
-    ) -> float:
-        """
-        Get VRAM budget in GB: the stricter of the owning backend's configured cap
-        and an explicit per-pipe hint, bounded by what is actually available.
-
-        Args:
-            max_vram_gb: An explicit cap, e.g. a pipe's `vram_limit_gb` config key.
-                Composes with the owning backend's cap via `effective_vram_budget_gb`
-                - it can lower the budget below the backend's configured maximum,
-                never raise it. When neither is present, only the hardware bounds
-                the budget.
-            safety_margin: Multiply available VRAM by this factor for safety (default 0.85)
-
-        Returns:
-            float: VRAM budget in GB
-        """
-        available_vram = self.get_available_vram() * safety_margin
+    ) -> Optional[float]:
+        available = self.get_available_vram()
+        available_vram = None if available is None else available * safety_margin
         budget = effective_vram_budget_gb(self._vram_cap_gb, max_vram_gb, available_vram)
         logger.debug(
-            f"[GPU_MANAGER] VRAM Budget: {budget:.2f}GB "
+            f"[GPU_MANAGER] VRAM Budget: {budget}GB "
             f"(backend cap: {self._vram_cap_gb}, pipe hint: {max_vram_gb}, "
-            f"available: {available_vram:.2f}GB)"
+            f"available: {available_vram}GB)"
         )
         return budget
 
@@ -325,8 +300,7 @@ class GpuMonitor:
         return total_vram * 1.1
 
     def __del__(self):
-        """Cleanup NVML on destruction."""
-        if not getattr(self, "available", False):
+        if getattr(self, "source", None) != "nvml":
             return
         try:
             nvmlShutdown()

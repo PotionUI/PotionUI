@@ -144,3 +144,20 @@ def test_read_vram_soft_fails_on_error():
     gpu.get_free_vram.side_effect = RuntimeError("nvml down")
 
     assert _orchestrator(gpu_monitor=gpu)._read_vram_gb() == (None, None)
+
+
+def test_read_vram_is_unknown_when_the_reading_is_not_available_yet():
+    gpu = MagicMock()
+    gpu.get_free_vram.return_value = None
+    gpu.get_total_vram.return_value = None
+
+    assert _orchestrator(gpu_monitor=gpu)._read_vram_gb() == (None, None)
+
+
+def test_read_vram_is_unknown_not_zero_when_the_monitor_has_no_reading():
+    gpu = MagicMock()
+    gpu.available = False
+    gpu.get_free_vram.return_value = 0
+    gpu.get_total_vram.return_value = 0
+
+    assert _orchestrator(gpu_monitor=gpu)._read_vram_gb() == (None, None)

@@ -130,7 +130,11 @@ class ResourceTrigger(TriggerSource):
                 try:
                     free_mb = self._gpu_monitor.get_free_vram()
                     total_mb = self._gpu_monitor.get_total_vram()
-                    free_pct = (free_mb / total_mb) * 100.0 if total_mb else 0.0
+                    if free_mb is None or not total_mb:
+                        self._held_since = None
+                        await asyncio.sleep(max(0.5, poll_interval_s))
+                        continue
+                    free_pct = (free_mb / total_mb) * 100.0
 
                     condition_met = direction_met(free_pct, threshold_pct, direction)
                     if require_generation_idle and condition_met and self._generation_active():

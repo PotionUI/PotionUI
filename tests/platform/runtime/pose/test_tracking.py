@@ -110,7 +110,7 @@ def test_a_larger_newcomer_does_not_steal_the_track():
     assert all(box[2] < 110 for box in backend.estimate_boxes)
 
 
-REAL = json.loads((Path(__file__).resolve().parents[3] / "fixtures" / "pose_real_oroko.json").read_text())
+REAL = json.loads((Path(__file__).resolve().parents[3] / "fixtures" / "pose_real_oroko.json").read_text(encoding="utf-8"))
 
 
 def test_real_clip_a_bystander_cut_by_the_frame_edge_does_not_win_over_the_dancer():

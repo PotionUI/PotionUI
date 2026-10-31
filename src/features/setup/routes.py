@@ -208,7 +208,13 @@ def build_router(container: "AppContainer") -> APIRouter:
                         status_code=400, detail="'step_key' is required to grant consent"
                     )
                 run = runner.grant_consent(
-                    run_id, step_key, granted_by=current_user.id, selections=body.selections
+                    run_id,
+                    step_key,
+                    granted_by=current_user.id,
+                    selections=body.selections,
+                    modes=body.modes,
+                    extras=body.extras,
+                    target=body.target,
                 )
                 # Keep going in the background: the step just approved is
                 # done, so the run may already have more not-yet-gated steps

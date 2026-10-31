@@ -21,6 +21,9 @@ from typing import Dict, List, Optional, Set
 
 from src.platform.plugins.manifest_roots import PluginManifestRoot, plugin_manifest_roots
 
+from src.features.recipes.derived import build_derived_recipes
+from src.features.recipes.records import LintContext
+
 from src.features.recipes.schema import (
     SOURCE_LOCAL,
     SOURCE_MARKETPLACE,
@@ -78,6 +81,50 @@ class RecipeCatalog:
         #: file that failed to parse/validate or collided with another recipe's id.
         self.load_errors: Dict[str, List[str]] = {}
         self._loaded = False
+        self.preset_loader = None
+        self._derived: Dict[str, Recipe] = {}
+        self._derived_by_preset: Dict[str, str] = {}
+        self._derived_errors: Dict[str, List[str]] = {}
+        self._derived_key = None
+
+    def attach_presets(self, preset_loader) -> None:
+        self.preset_loader = preset_loader
+        self._derived_key = None
+
+    def _refresh_derived(self) -> None:
+        if self.preset_loader is None:
+            return
+        try:
+            presets = list(self.preset_loader.all())
+        except Exception:
+            logger.exception("Listing presets for derived recipes failed")
+            return
+        key = tuple((p.id, id(p)) for p in presets)
+        if key == self._derived_key:
+            return
+        derived, errors = build_derived_recipes(presets, self.plugin_registry, taken_ids=set(self._recipes))
+        self._derived = derived
+        self._derived_by_preset = {r.presets[0].preset_id: r.id for r in derived.values() if r.presets}
+        self._derived_errors = errors
+        self._derived_key = key
+
+    def _all(self) -> Dict[str, Recipe]:
+        self._ensure_loaded()
+        self._refresh_derived()
+        if not self._derived:
+            return self._recipes
+        merged = dict(self._derived)
+        merged.update(self._recipes)
+        return merged
+
+    def install_recipe_for(self, preset_id: str) -> Optional[Recipe]:
+        self._all()
+        recipe_id = self._derived_by_preset.get(preset_id)
+        return self._derived.get(recipe_id) if recipe_id else None
+
+    def derived_errors(self) -> Dict[str, List[str]]:
+        self._all()
+        return dict(self._derived_errors)
 
     def _ensure_loaded(self) -> None:
         if not self._loaded:
@@ -122,6 +169,11 @@ class RecipeCatalog:
                 errors[source_key] = [f"Failed to parse a validated recipe: {exc}"]
                 continue
 
+            plugin_issues = self._plugin_param_issues(recipe)
+            if plugin_issues:
+                errors[source_key] = plugin_issues
+                continue
+
             existing = recipes.get(recipe.id)
             if existing is not None:
                 errors[source_key] = [
@@ -130,6 +182,29 @@ class RecipeCatalog:
                 continue
 
             recipes[recipe.id] = recipe
+
+    def _plugin_param_issues(self, recipe: Recipe) -> List[str]:
+        if self.step_kind_registry is None:
+            return []
+        index = {}
+        if self.preset_loader is not None:
+            try:
+                index = {p.id: p for p in self.preset_loader.all()}
+            except Exception:
+                index = {}
+        registrations = {reg.kind: reg for reg in self.step_kind_registry.all()}
+        issues: List[str] = []
+        for step in recipe.steps:
+            registration = registrations.get(step.kind)
+            validate = getattr(getattr(registration, "executor", None), "validate_params", None)
+            if validate is None:
+                continue
+            try:
+                found = validate(dict(step.params), recipe, LintContext(preset_index=index)) or []
+            except Exception as exc:
+                found = [f"its params check raised {exc}"]
+            issues.extend(f"steps '{step.key}' ({step.kind}): {issue}" for issue in found)
+        return issues
 
     def reload(self) -> None:
         """(Re)scan `<recipes_dir>/marketplace`, `<recipes_dir>/local`, and
@@ -177,6 +252,7 @@ class RecipeCatalog:
         self._by_preset = by_preset
         self.load_errors = errors
         self._loaded = True
+        self._derived_key = None
 
         if errors:
             logger.warning("Recipe catalog loaded with %d file(s) failing validation: %s", len(errors), list(errors))
@@ -184,16 +260,14 @@ class RecipeCatalog:
 
     def list_recipes(self) -> List[Recipe]:
         """All valid recipes, sorted by id."""
-        self._ensure_loaded()
-        return sorted(self._recipes.values(), key=lambda r: r.id)
+        return sorted(self._all().values(), key=lambda r: r.id)
 
     def get_recipe(self, recipe_id: str, version: Optional[int] = None) -> Optional[Recipe]:
         """The recipe named `recipe_id`, or `None` if it doesn't exist (or
         failed validation). When `version` is given, also returns `None` if
         the on-disk recipe's `version` no longer matches (the run was created
         against a revision this catalog no longer serves)."""
-        self._ensure_loaded()
-        recipe = self._recipes.get(recipe_id)
+        recipe = self._all().get(recipe_id)
         if recipe is None:
             return None
         if version is not None and recipe.version != version:
@@ -201,12 +275,18 @@ class RecipeCatalog:
         return recipe
 
     def recipes_for_preset(self, preset_id: str) -> List[Recipe]:
-        self._ensure_loaded()
-        return [self._recipes[recipe_id] for recipe_id in self._by_preset.get(preset_id, [])]
+        recipes = self._all()
+        found = [recipes[recipe_id] for recipe_id in self._by_preset.get(preset_id, [])]
+        derived = self.install_recipe_for(preset_id)
+        return found + ([derived] if derived is not None and derived.id not in self._recipes else [])
 
     def preset_recipe_index(self) -> Dict[str, List[Recipe]]:
-        self._ensure_loaded()
-        return {
-            preset_id: [self._recipes[recipe_id] for recipe_id in recipe_ids]
+        recipes = self._all()
+        index = {
+            preset_id: [recipes[recipe_id] for recipe_id in recipe_ids]
             for preset_id, recipe_ids in self._by_preset.items()
         }
+        for preset_id, recipe_id in self._derived_by_preset.items():
+            if recipe_id not in self._recipes:
+                index.setdefault(preset_id, []).append(self._derived[recipe_id])
+        return index

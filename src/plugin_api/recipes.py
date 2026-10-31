@@ -36,8 +36,8 @@ those.
 See docs/plugin-api.md.
 """
 
-from src.features.recipes.executors.base import StepContext, StepExecutor, StepResult
-from src.features.recipes.records import RecipeRun, RecipeRunStatus, RecipeStepStatus
+from src.features.recipes.executors.base import LintContext, StepContext, StepExecutor, StepResult
+from src.features.recipes.records import GrantRequest, RecipeRun, RecipeRunStatus, RecipeStepStatus
 from src.features.recipes.schema import (
     Recipe,
     RecipeArtifact,
@@ -47,6 +47,8 @@ from src.features.recipes.schema import (
 )
 
 __all__ = [
+    "GrantRequest",
+    "LintContext",
     "Recipe",
     "RecipeArtifact",
     "RecipePresetRef",

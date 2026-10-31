@@ -1653,6 +1653,7 @@ Native Z-Image generator (flow matching, true CFG)
 | `conditioning` | `CONDITIONING` | yes | yes | Encoded prompt conditioning (per image) |
 | `seed` | `SEED` | no | yes | Random seeds |
 | `image` | `IMAGE` | no | yes | Input images for img2img mode |
+| `control_image` | `IMAGE` | no | yes | Guide image for the Fun ControlNet |
 
 **Outputs**
 
@@ -1664,7 +1665,10 @@ Native Z-Image generator (flow matching, true CFG)
 
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
-| `mode` | `str` | `"txt2img"` | yes | `txt2img`, `img2img` | — | — | Generation mode |
+| `mode` | `str` | `"txt2img"` | yes | `txt2img`, `img2img`, `control` | — | — | Generation mode |
+| `control_strength` | `float` | `1.0` | no | — | 0.0 | 2.0 | Fun ControlNet strength (control_context_scale) |
+| `control_start` | `float` | `0.0` | no | — | 0.0 | 1.0 | Fraction of the sampling where the Fun ControlNet starts |
+| `control_end` | `float` | `1.0` | no | — | 0.0 | 1.0 | Fraction of the sampling where the Fun ControlNet ends |
 | `denoise` | `float` | `0.55` | no | — | 0.0 | 1.0 | img2img denoise strength (fraction of the schedule to walk) |
 | `img2img_scale` | `float` | `0.0` | no | — | 0.0 | 8.0 | Literal multiplier of the SOURCE image's own (width, height) for the img2img target size, snapped to the model's granularity same as every other path here. 0 (default) is off and leaves the existing resolution-area-match / area-cap behaviour byte-identical -- set this instead of (not alongside) the mode's ``resolution`` config for a true "upscale by Nx of whatever was uploaded" mode. |
 | `steps` | `int` | `8` | no | — | 1 | 100 | Denoising steps (turbo ~8, base ~30) |
@@ -2478,6 +2482,7 @@ Load a native Z-Image checkpoint set (NextDiT + Qwen3-4B TE + 2D AE)
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `dtype` | `str` | `"bfloat16"` | no | `bfloat16`, `float16`, `float32` | — | — | Compute dtype |
 | `vram_limit_gb` | `float` | — | no | — | — | — | VRAM budget hint (backend-injected) |
+| `control_model` | `dict` | — | no | — | — | — | Fun ControlNet Union 2.1 patch loaded with the DiT |
 
 ## model_tools
 

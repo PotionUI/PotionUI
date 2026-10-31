@@ -14,6 +14,30 @@ from ._bound_form import bound_form_data
 
 MASK = "/uploads/source_mask.png"
 FAMILIES = {
+    "MOSS-Image": {
+        "generator": "generator/moss_image",
+        "models": {
+            "diffusion_model": "/models/moss_dit.safetensors",
+            "text_encoder": "/models/moss_te.safetensors",
+            "vae": "/models/moss_vae.safetensors",
+        },
+    },
+    "Krea2": {
+        "generator": "generator/krea2",
+        "models": {
+            "diffusion_model": "/models/krea2_dit.safetensors",
+            "text_encoder": "/models/krea2_te.safetensors",
+            "vae": "/models/krea2_vae.safetensors",
+        },
+    },
+    "QwenImage-2.1": {
+        "generator": "generator/qwen_image21",
+        "models": {
+            "diffusion_model": "/models/qwen21_dit.safetensors",
+            "text_encoder": "/models/qwen21_te.safetensors",
+            "vae": "/models/qwen21_vae.safetensors",
+        },
+    },
     "ZImage": {
         "generator": "generator/z_image",
         "models": {
@@ -177,3 +201,34 @@ def test_zimage_outpaint_needs_only_a_picture(templates):
             templates["ZImage"], "outpaint", form_name=None, raw_form_data=dict(FAMILIES["ZImage"]["models"]),
             user_id=None, storage_dir=None,
         )
+
+
+@pytest.mark.parametrize("profile,schedule", [("turbo", "fixed"), ("balanced", "fixed"), ("base", "dynamic")])
+def test_krea2_inpaint_uses_the_schedule_of_its_speed_profile(templates, profile, schedule):
+    pipes = _process(templates, "Krea2", "inpaint", {"speed_profile": profile})
+    assert _generator(templates, "Krea2", pipes)["mu_schedule"] == schedule
+
+
+def test_qwen_turbo_profile_loads_the_turbo_lora(templates):
+    pipes = _process(
+        templates, "QwenImage-2.1", "inpaint",
+        {"speed_profile": "turbo", "turbo_lora": "/models/loras/turbo8.safetensors"},
+    )
+    loras = _pipe(pipes, "model_loader/qwen_image21")["config"]["loras"]
+    assert [entry["file_path"] for entry in loras] == ["/models/loras/turbo8.safetensors"]
+    plain = _process(templates, "QwenImage-2.1", "inpaint")
+    assert not _pipe(plain, "model_loader/qwen_image21")["config"]["loras"]
+
+
+def test_moss_inpaint_keeps_the_layer_skipped_negative_branch(templates):
+    pipes = _process(templates, "MOSS-Image", "inpaint")
+    options = _generator(templates, "MOSS-Image", pipes)["guidance_options"]
+    assert options["uncond_skip_layers"] == "22" and options["cfg_zero_star"] is False
+
+
+@pytest.mark.parametrize("family", INPAINT_FAMILIES)
+def test_the_render_harness_binds_inpaint_with_a_placeholder_mask(templates, family):
+    from scripts.preset_render import build_fixture_form_data
+
+    values = build_fixture_form_data(templates[family], "inpaint")
+    assert values["source_image_inpaint_mask"].endswith("source_image_inpaint_mask.png")

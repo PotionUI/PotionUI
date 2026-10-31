@@ -2,7 +2,7 @@
 type: model
 title: Qwen-Image-2.1
 family_key: qwen_image21
-modes: [txt2img, edit, control]
+modes: [txt2img, edit, combine, text, restyle, control]
 spec:
   arch: single-stream block-causal MMDiT
   latent: 64-channel, RGBA causal-3D VAE latent (16x downscale, image-only, single frame)
@@ -70,13 +70,22 @@ Default generation parameters: 40 steps, guidance 4.0 (true CFG scale), sampler 
 
 The preset's **Sampler** and **Schedule** pickers (`type: "sampler"` / `type: "schedule"`, family `qwen_image21`) are registry-driven: they list whatever this instance has registered, core entries plus any a plugin contributes, rather than a list written into the preset. See [Samplers and sigma schedules](../techniques/samplers-and-schedules.md).
 
+## Turbo speed profile
+
+The **Turbo** speed profile runs 8 steps at CFG 1 (euler), a fifth of Balanced's 40. It is built for the community **Turbo8** step-distillation LoRA (`turbo8_lora_step2500.safetensors`, 1.36 GB, rank 128, DMD2) by chriswritescode, which covers text-to-image, text rendering, editing with up to 10 references and RGBA output. Every mode except `control` shows an optional **Turbo LoRA** model field in its Models section while Turbo is selected, with a pinned download recommendation. With a file chosen, Turbo loads it first at strength 1.0 (the card's value), ahead of the LoRAs from the LoRA tab, and records it in the generation's models. The field is ignored under Balanced and Custom, and with it empty Turbo only changes the sampling numbers, so a different 8-step LoRA can be picked on the LoRA tab instead.
+
+Turbo8 is not distributed with PotionUI. It is a derivative of Qwen-Image-2.1 under the Qwen Research License (non-commercial research and evaluation use only), the same terms as the base weights, and is fetched on demand through the model downloader. Its card reports weaker dense or long text (75% exact OCR match against 95% at 40 steps) and says more steps or CFG above 1 does not help.
+
+**Key mapping.** The LoRA targets the diffusers layout, which splits each block's MLP into `img_mlp.gate_layer` and `img_mlp.proj`, while this DiT stores them fused as `img_mlp.gate_up` (gate rows first). The LoRA key map (`build_qwen_image21_lora_key_map` in `lora/key_mapping.py`) registers both spellings as row slices of the fused weight, so every module applies. Checked against the real Turbo8 header: 195 native parameters mapped, none unmatched. Before the slice entries, only 163 mapped and the 64 MLP modules were silently dropped, which would have run the distilled schedule without its MLP deltas.
+
+**Schedule.** The LoRA was distilled with ComfyUI's `ModelSamplingFlux` (max shift 0.6935, base shift 0.5) following the image size. At 1024 squared the default resolution-dynamic shift of this preset gives the same value (mu 0.693); at other sizes, notably 2K, the two diverge and the Shift override in Advanced can be used to compare.
+
 ## Limitations
 
 - No img2img mode; only `txt2img`, `edit` and `control`.
 - `control` does not combine with edit references.
 - `edit` accepts up to 10 reference images; the first sets the output's size and aspect and is the image being edited, the rest condition the generation without affecting output sizing.
 - Qwen3-VL has a different text-encoder architecture than CLIP-family encoders — there is no CLIP-skip concept for this family. A `clip_skip` setting carried over from an SDXL-style preset has no effect here.
-- No distilled/Lightning LoRA exists yet for Qwen-Image-2.1; the preset's "Turbo" speed profile (20 steps) is a proposed fast profile that expects one to be paired in on the LoRA tab for acceptable quality, same as Qwen-Image 1.0's turbo profile.
 
 ## Licence
 

@@ -50,13 +50,9 @@ configuration:
     label: "Fun ControlNet tags"
     description: "Only model patches with any of these tags appear in the Fun ControlNet picker."
 
-# balanced sourced from ComfyUI's reference Qwen-Image-2.1 workflow (not
-# distilled -> ~40 steps at cfg ~4.0). turbo is a PROPOSED fast profile (no
-# distilled Qwen-Image-2.1 checkpoint exists yet) -- pair it with a Lightning
-# LoRA on the LoRA tab for acceptable quality at 20 steps/cfg 1.0.
 speed_profiles:
   balanced: { steps: 40, guidance: 4.0, sampler: "euler" }
-  turbo:    { steps: 20, guidance: 1.0, sampler: "euler" }
+  turbo:    { steps: 8,  guidance: 1.0, sampler: "euler" }
   custom:   { steps: 40, guidance: 4.0, sampler: "euler" }
   control:  { steps: 40, guidance: 1.0, sampler: "euler" }
 

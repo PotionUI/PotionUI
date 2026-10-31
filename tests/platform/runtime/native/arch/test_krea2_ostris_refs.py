@@ -161,3 +161,40 @@ def test_isolation_composes_with_the_reference_boost_bias():
     t = torch.tensor([0.5])
     out = m(x, t, te, ref_latents=ref, ref_isolated=True, ref_boost=2.0)
     assert torch.isfinite(out).all() and out.shape == x.shape
+
+
+def test_the_isolation_bias_is_built_once_per_run_not_per_step(monkeypatch):
+    from types import SimpleNamespace
+
+    from src.platform.runtime.native.arch.krea2 import model as model_module
+    from src.platform.runtime.native.engine import NativeGenerator, NativeModel
+
+    m = _build_ready()
+    x, ref, te = _inputs()
+    t = torch.tensor([0.5])
+    builds = []
+    real = model_module.ref_isolation_bias
+    monkeypatch.setattr(model_module, "ref_isolation_bias", lambda *a, **k: builds.append(a) or real(*a, **k))
+
+    with NativeGenerator._run_cache(SimpleNamespace(dit=NativeModel("diffusion_model", m))):
+        for _ in range(3):
+            m(x, t, te, ref_latents=ref, ref_isolated=True)
+    assert len(builds) == 1
+
+    m(x, t, te, ref_latents=ref, ref_isolated=True)
+    m(x, t, te, ref_latents=ref, ref_isolated=True)
+    assert len(builds) == 3
+
+
+def test_a_different_token_layout_is_not_served_the_cached_bias():
+    from types import SimpleNamespace
+
+    from src.platform.runtime.native.engine import NativeGenerator, NativeModel
+
+    m = _build_ready()
+    _, ref, te = _inputs()
+    t = torch.tensor([0.5])
+    with NativeGenerator._run_cache(SimpleNamespace(dit=NativeModel("diffusion_model", m))):
+        a = m(torch.randn(1, 4, 8, 8), t, te, ref_latents=ref, ref_isolated=True)
+        b = m(torch.randn(1, 4, 4, 4), t, te, ref_latents=ref, ref_position="origin", ref_isolated=True)
+    assert a.shape[-1] == 8 and b.shape[-1] == 4 and torch.isfinite(b).all()

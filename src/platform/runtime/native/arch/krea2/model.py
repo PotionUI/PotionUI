@@ -548,6 +548,17 @@ class Krea2(NativeArchModule):
             step_cache.record_compute(probe, out)
         return out
 
+    def _isolation_bias(self, txt_len: int, ref_len: int, tgt_len: int,
+                        device: torch.device, dtype: torch.dtype) -> Tensor:
+        cache = getattr(self, "run_cache", None)
+
+        def build() -> Tensor:
+            return ref_isolation_bias(txt_len, ref_len, tgt_len, device, dtype)
+
+        if cache is None:
+            return build()
+        return cache.memo("krea2.isolation", (), (txt_len, ref_len, tgt_len, dtype, device), build)
+
     def _maybe_ref_bias(self, refs: list[Tensor], txt_len: int, tgt_len: int,
                         ref_boost: float, ref_boost_a: float,
                         device: torch.device, dtype: torch.dtype,
@@ -653,7 +664,7 @@ class Krea2(NativeArchModule):
         if refs and ref_timestep_zero:
             _, ref_vec = self.prepare_timestep(torch.zeros_like(t), x.dtype)
         if refs and ref_isolated:
-            isolation = ref_isolation_bias(context.shape[1], ref_len, (h // p) * (w // p), x.device, x.dtype)
+            isolation = self._isolation_bias(context.shape[1], ref_len, (h // p) * (w // p), x.device, x.dtype)
             attn_bias = isolation if attn_bias is None else attn_bias.to(x.dtype) + isolation
         out = self.run_blocks(img_tokens, branch.fused, t_emb, tvec, branch.pos, branch.mask,
                                step_cache=kwargs.get("step_cache"), ref_len=ref_len,

@@ -579,3 +579,17 @@ def test_ostris_style_is_the_standard_default_off(pipe_module):
     config = pipe_module.GeneratorKrea2EditPipe.get_default_config()
     assert config["ref_style"] == "standard"
     assert config["output_pixels"] == 0
+
+
+def test_ref_pixels_is_capped_at_four_megapixels(pipe_module):
+    spec = next(s for s in pipe_module.GeneratorKrea2EditPipe.configuration() if s.name == "ref_pixels")
+    assert spec.max_value == 4 * 1024 * 1024
+
+
+def test_cond_and_uncond_receive_identical_reference_options(pipe_module):
+    gen = _FakeGenerator()
+    pipe = _make_pipe(pipe_module, ref_boost=2.0, ref_position="beside")
+    pipe.generate_one(_ostris_extra(gen, Image.new("RGB", (64, 64))), index=0, seed=1, progress=_FakeProgress())
+    sent = gen.sample_calls[0]["conditioning"]
+    keys = {"ref_latents", "ref_boost", "ref_boost_a", "ref_position", "ref_position_a"}
+    assert {k: sent.cond[k] for k in keys} == {k: sent.uncond[k] for k in keys}

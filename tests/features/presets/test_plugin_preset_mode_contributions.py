@@ -191,7 +191,7 @@ def test_no_plugin_registry_skips_contributions_without_error(tmp_path):
 # --- collisions ---------------------------------------------------------------
 
 
-def test_contribution_colliding_with_core_mode_is_rejected_core_stays_intact(tmp_path):
+def test_contribution_colliding_with_core_mode_is_rejected_core_stays_intact(tmp_path, caplog):
     core_root = tmp_path / "presets"
     _write_preset(core_root, "target-preset", ["txt2img"])
     plugin_dir = tmp_path / "plugin"
@@ -203,8 +203,11 @@ def test_contribution_colliding_with_core_mode_is_rejected_core_stays_intact(tmp
     manifest = _manifest("some-plugin", plugin_dir, [{"target": "target-preset", "modes_root": "contributed"}])
 
     loader = PresetTemplateLoader([str(core_root)], plugin_registry=_registry([manifest]))
-    loader.load_presets()
+    with caplog.at_level("WARNING"):
+        loader.load_presets()
 
+    assert any("some-plugin" in r.getMessage() and "txt2img" in r.getMessage() and "collides" in r.getMessage()
+               for r in caplog.records)
     target = next(p for p in loader.presets if p.id == "target-preset")
     assert target.modes["txt2img"].source_plugin is None  # core mode untouched
     assert any("some-plugin" in key for key in loader.load_errors)

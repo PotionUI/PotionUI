@@ -1604,7 +1604,7 @@ class NativeGenerator:
         # the same DiT forward as the main image but aren't reflected in
         # `latents_shape` at all — fold them into the placement/budget headroom
         # `cond` and `uncond` always carry the same ref_latents (see
-        # qwen_clip.py / krea2-edit's own conditioning build), so cond alone is enough.
+        # qwen_clip.py), so cond alone is enough.
         ref_latents = cond_dict.get("ref_latents")
         # Resolution-aware placement drives phase residency (esp. whether the DiT
         # must be offloaded before decode to make room for the decode spike).

@@ -163,7 +163,7 @@ def test_map_gives_well_known_keys_an_icon(key, icon):
     assert mode_display_icon(key) == icon
 
 
-SHIPPED_PRESETS = ["QwenImage-2.1", "MiniMax-H3", "MiniMax-H3-Fast", "LTX-2.5"]
+SHIPPED_PRESETS = ["QwenImage-2.1", "MiniMax-H3", "MiniMax-H3-Fast", "LTX-2.5", "LTX-2"]
 
 
 @pytest.mark.parametrize("preset", SHIPPED_PRESETS)

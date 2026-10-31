@@ -518,17 +518,22 @@ def resolve_device_evidence(
                 provenance="this backend's configured GPU is not the specific GPU this process monitors (identity mismatch)",
             )
         try:
-            free_gb = round(gpu_monitor.get_free_vram() / 1024, 2)
-            total_gb = round(gpu_monitor.get_total_vram() / 1024, 2)
-            return DeviceEvidence(
-                kind="local", free_gb=free_gb, total_gb=total_gb,
-                provenance="this host's GPU monitor",
-            )
+            free_mb = gpu_monitor.get_free_vram()
+            total_mb = gpu_monitor.get_total_vram()
         except Exception:
             return DeviceEvidence(
                 kind="none", free_gb=None, total_gb=None,
                 provenance="could not read this host's GPU",
             )
+        if free_mb is None or total_mb is None:
+            return DeviceEvidence(
+                kind="unknown", free_gb=None, total_gb=None,
+                provenance="this host's GPU memory could not be read yet",
+            )
+        return DeviceEvidence(
+            kind="local", free_gb=round(free_mb / 1024, 2), total_gb=round(total_mb / 1024, 2),
+            provenance="this host's GPU monitor",
+        )
 
     return DeviceEvidence(
         kind="unknown", free_gb=None, total_gb=None,

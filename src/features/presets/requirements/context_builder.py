@@ -136,7 +136,10 @@ def _resolve_gpu_reading(
         )
     if evidence.identity != monitor_identity:
         return None, "this backend's configured GPU is not the specific GPU this process monitors (identity mismatch)"
-    return gpu_monitor.get_total_vram() / 1024.0, None
+    total_mb = gpu_monitor.get_total_vram()
+    if total_mb is None:
+        return None, "this host's GPU memory could not be read yet"
+    return total_mb / 1024.0, None
 
 
 def _preset_device_override(preset: PresetTemplate, backend_device: Optional[str]) -> Optional[str]:

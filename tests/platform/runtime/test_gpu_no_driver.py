@@ -31,8 +31,8 @@ class TestConstructionWithoutADriver:
         monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)
         monkeypatch.setattr("torch.cuda.is_available", lambda: False)
         g = gpu_module.GpuMonitor()
-        assert g.get_total_vram() == 0
-        assert g.get_free_vram() == 0
+        assert g.get_total_vram() is None
+        assert g.get_free_vram() is None
         assert g.get_available_vram() is None
         assert g.get_vram_budget() is None
 
@@ -56,7 +56,7 @@ class TestConstructionWithAWorkingDriver:
         monkeypatch.setattr("torch.cuda.is_available", lambda: False)
         g = gpu_module.GpuMonitor()
         assert g.available is False
-        assert g.get_total_vram() == 0
+        assert g.get_total_vram() is None
 
 
 def _stub_working_driver(monkeypatch, *, uuid=None, pci_bus_id=None, uuid_raises=False, pci_raises=False):

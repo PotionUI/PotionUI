@@ -281,11 +281,13 @@ class GenerationEngine:
         if not getattr(self.gpu_monitor, "available", True):
             return None
         try:
-            free_gb = round(self.gpu_monitor.get_free_vram() / 1024, 2)
-            total_gb = round(self.gpu_monitor.get_total_vram() / 1024, 2)
+            free_mb = self.gpu_monitor.get_free_vram()
+            total_mb = self.gpu_monitor.get_total_vram()
         except Exception:
             return None
-        return f"({free_gb}GB free of {total_gb}GB total VRAM)"
+        if free_mb is None or total_mb is None:
+            return None
+        return f"({round(free_mb / 1024, 2)}GB free of {round(total_mb / 1024, 2)}GB total VRAM)"
 
     def _log_memory_summary(self, generation_id: Optional[str]) -> None:
         """One INFO line at generation end: RSS, model-cache entries, pinned bytes.

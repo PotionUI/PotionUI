@@ -64,6 +64,15 @@ def _cuda_device_present(device_index: int) -> bool:
         return False
 
 
+def _cuda_initialized() -> bool:
+    try:
+        import torch
+
+        return bool(torch.cuda.is_initialized())
+    except Exception:
+        return False
+
+
 def _torch_device_identity(device_index: int) -> Optional[DeviceIdentity]:
     try:
         import torch
@@ -119,7 +128,6 @@ class GpuMonitor:
         if self.source == "nvml":
             self.device_identity = self._resolve_device_identity()
         elif self.source == "torch":
-            self.device_identity = _torch_device_identity(device_index)
             logger.warning(
                 f"[GPU_MANAGER] NVML unavailable ({nvml_error}); VRAM readings for "
                 f"device {device_index} come from torch.cuda"
@@ -142,6 +150,16 @@ class GpuMonitor:
             except Exception as e:
                 logger.warning(f"[GPU_MANAGER] Could not get GPU name: {e}")
 
+    @property
+    def device_identity(self) -> Optional[DeviceIdentity]:
+        if self._device_identity is None and self.source == "torch" and _cuda_initialized():
+            self._device_identity = _torch_device_identity(self.device_index)
+        return self._device_identity
+
+    @device_identity.setter
+    def device_identity(self, identity: Optional[DeviceIdentity]) -> None:
+        self._device_identity = identity
+
     def _resolve_device_identity(self) -> Optional[DeviceIdentity]:
         """Best-effort - a live NVML handle does not guarantee every query on
         it succeeds (an older driver, a sandboxed/virtualised GPU). `None`
@@ -163,7 +181,7 @@ class GpuMonitor:
         if self.source == "torch":
             return self._torch_memory_info()
         if self.source != "nvml":
-            return _CappedMemInfo(total=0, free=0, used=0)
+            return None
         with self.lock:
             info = nvmlDeviceGetMemoryInfo(self.handle)
         if get_vram_cap_gb() is None:
@@ -171,38 +189,30 @@ class GpuMonitor:
         capped_free, capped_total = apply_vram_cap_bytes(info.free, info.total)
         return _CappedMemInfo(total=capped_total, free=capped_free, used=info.used)
 
-    def _torch_memory_info(self) -> _CappedMemInfo:
+    def _torch_memory_info(self) -> Optional[_CappedMemInfo]:
         import torch
 
+        if not _cuda_initialized():
+            return None
         with self.lock:
             free, total = torch.cuda.mem_get_info(self.device_index)
         capped_free, capped_total = apply_vram_cap_bytes(free, total)
         return _CappedMemInfo(total=capped_total, free=capped_free, used=max(0, total - free))
 
-    def get_free_vram(self) -> int:
-        """
-        Get free VRAM in MB (NVML reported).
+    def get_free_vram(self) -> Optional[int]:
+        info = self._get_memory_info()
+        return None if info is None else info.free // (1024 * 1024)
 
-        Returns:
-            int: Free VRAM in MB
-        """
-        return self._get_memory_info().free // (1024 * 1024)
-
-    def get_total_vram(self) -> int:
-        """
-        Get total VRAM in MB.
-
-        Returns:
-            int: Total VRAM in MB
-        """
-        return self._get_memory_info().total // (1024 * 1024)
+    def get_total_vram(self) -> Optional[int]:
+        info = self._get_memory_info()
+        return None if info is None else info.total // (1024 * 1024)
 
     def get_available_vram(self) -> Optional[float]:
         import torch
 
-        if not self.available:
-            return None
         mem_info = self._get_memory_info()
+        if mem_info is None:
+            return None
         free_gb = mem_info.free / (1024**3)
 
         if torch.cuda.is_available():

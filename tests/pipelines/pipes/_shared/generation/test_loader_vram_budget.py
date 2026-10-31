@@ -28,9 +28,10 @@ def _vram_cap_reset(monkeypatch):
 
 @pytest.fixture
 def windows_without_nvml(monkeypatch):
-    state = SimpleNamespace(free=17 * GB, total=24 * GB, reserved=int(0.06 * GB), allocated=0)
+    state = SimpleNamespace(free=17 * GB, total=24 * GB, reserved=int(0.06 * GB), allocated=0, initialized=True)
     monkeypatch.setattr(gpu_module, "nvmlInit", _nvml_missing)
     monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+    monkeypatch.setattr("torch.cuda.is_initialized", lambda: state.initialized)
     monkeypatch.setattr("torch.cuda.device_count", lambda: 1)
     monkeypatch.setattr("torch.cuda.mem_get_info", lambda index: (state.free, state.total))
     monkeypatch.setattr("torch.cuda.memory_reserved", lambda *a: state.reserved)
@@ -67,6 +68,14 @@ class TestZImageLoaderBudget:
 
         assert budget == pytest.approx(0.06 * 0.97)
         assert _dit_ops(budget) is manual_cast
+
+    def test_cuda_not_started_yet_reaches_the_loader_as_no_budget(self, windows_without_nvml):
+        windows_without_nvml.initialized = False
+
+        budget = _zimage_budget(gpu_module.GpuMonitor())
+
+        assert budget is None
+        assert _dit_ops(budget) is disable_weight_init
 
     def test_unknown_hardware_reaches_the_loader_as_no_budget(self, monkeypatch):
         monkeypatch.setattr(gpu_module, "nvmlInit", _nvml_missing)

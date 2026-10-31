@@ -10,8 +10,7 @@ INSTALL_FILES = ["requirements.txt", "requirements-cpu.txt", "requirements-ci.tx
 CONSTRAINTS_FILE = "constraints.txt"
 OFFICIAL = "nvidia-ml-py"
 ABANDONED = "nvidia-ml-py3"
-FIRST_RELEASE_LOADING_SYSTEM32 = Version("10.418.84")
-SHIPPED_IN_0_0_18 = Version("13.610.43")
+FLOOR = Version("13.615.71")
 
 
 def _requirements(path: Path) -> dict[str, Requirement]:
@@ -31,15 +30,8 @@ def test_the_abandoned_bindings_are_never_installed(name):
 
 
 @pytest.mark.parametrize("name", INSTALL_FILES)
-def test_the_official_bindings_load_nvml_from_system32(name):
-    floor = _floor(name)
-
-    assert floor >= FIRST_RELEASE_LOADING_SYSTEM32
-
-
-@pytest.mark.parametrize("name", INSTALL_FILES)
-def test_the_floor_upgrades_an_existing_install_in_place(name):
-    assert _floor(name) > SHIPPED_IN_0_0_18
+def test_the_official_bindings_floor_upgrades_existing_installs(name):
+    assert _floor(name) >= FLOOR
 
 
 @pytest.mark.parametrize("name", INSTALL_FILES)

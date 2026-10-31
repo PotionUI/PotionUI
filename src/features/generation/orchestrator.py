@@ -640,12 +640,14 @@ class GenerationOrchestrator:
         if self.gpu_monitor is None or not getattr(self.gpu_monitor, "available", True):
             return None, None
         try:
-            free_gb = round(self.gpu_monitor.get_free_vram() / 1024, 2)
-            total_gb = round(self.gpu_monitor.get_total_vram() / 1024, 2)
-            return free_gb, total_gb
+            free_mb = self.gpu_monitor.get_free_vram()
+            total_mb = self.gpu_monitor.get_total_vram()
         except Exception:
             logger.debug("before_start: VRAM read failed", exc_info=True)
             return None, None
+        if free_mb is None or total_mb is None:
+            return None, None
+        return round(free_mb / 1024, 2), round(total_mb / 1024, 2)
 
     def _resolve_model_key(
         self,

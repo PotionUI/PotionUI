@@ -23,13 +23,16 @@ def _no_vram_cap(monkeypatch):
 
 @pytest.fixture
 def cuda(monkeypatch):
-    state = SimpleNamespace(free=17 * GB, total=24 * GB, reserved=0, allocated=0, queried=[], uuid="abc-123")
+    state = SimpleNamespace(
+        free=17 * GB, total=24 * GB, reserved=0, allocated=0, queried=[], uuid="abc-123", initialized=True,
+    )
 
     def mem_get_info(index):
         state.queried.append(index)
         return state.free, state.total
 
     monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+    monkeypatch.setattr("torch.cuda.is_initialized", lambda: state.initialized)
     monkeypatch.setattr("torch.cuda.device_count", lambda: 2)
     monkeypatch.setattr("torch.cuda.mem_get_info", mem_get_info)
     monkeypatch.setattr("torch.cuda.memory_reserved", lambda *a: state.reserved)
@@ -73,6 +76,50 @@ class TestTorchFallback:
 
     def test_identity_comes_from_torch_in_nvml_form(self, cuda, no_nvml):
         g = gpu_module.GpuMonitor()
+
+        assert g.device_identity == gpu_module.DeviceIdentity(uuid="GPU-abc-123")
+
+    def test_a_poll_before_cuda_starts_never_reads_torch_memory(self, cuda, no_nvml):
+        cuda.initialized = False
+        g = gpu_module.GpuMonitor()
+
+        assert g.available is True
+        assert g.get_free_vram() is None
+        assert g.get_total_vram() is None
+        assert g.get_vram_budget() is None
+        assert cuda.queried == []
+
+    def test_a_cap_is_the_budget_before_cuda_starts(self, cuda, no_nvml):
+        cuda.initialized = False
+        g = gpu_module.GpuMonitor()
+        g.set_vram_cap_gb(8.0)
+
+        assert g.get_vram_budget() == pytest.approx(8.0)
+        assert cuda.queried == []
+
+    def test_readings_start_once_cuda_is_initialised(self, cuda, no_nvml):
+        cuda.initialized = False
+        g = gpu_module.GpuMonitor()
+        assert g.get_free_vram() is None
+
+        cuda.initialized = True
+
+        assert g.get_free_vram() == 17 * 1024
+        assert cuda.queried == [0]
+
+    def test_identity_waits_for_cuda_to_start(self, cuda, no_nvml, monkeypatch):
+        cuda.initialized = False
+        properties = []
+        monkeypatch.setattr(
+            "torch.cuda.get_device_properties",
+            lambda index: properties.append(index) or SimpleNamespace(uuid=cuda.uuid),
+        )
+        g = gpu_module.GpuMonitor()
+
+        assert g.device_identity is None
+        assert properties == []
+
+        cuda.initialized = True
 
         assert g.device_identity == gpu_module.DeviceIdentity(uuid="GPU-abc-123")
 
@@ -131,6 +178,7 @@ class TestNoGpuAtAll:
         g = gpu_module.GpuMonitor()
 
         assert g.available is False
+        assert g.get_free_vram() is None
         assert g.get_available_vram() is None
         assert g.get_vram_budget() is None
 

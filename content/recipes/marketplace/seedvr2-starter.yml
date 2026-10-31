@@ -7,7 +7,7 @@
 ########
 schema_version: 1
 id: "seedvr2-starter"
-version: 1
+version: 2
 name: "SeedVR2 Starter"
 engine: "native"
 category: "utility"
@@ -36,58 +36,7 @@ plugins:
 backend:
   engine: "native"
 
-artifacts:
-  - id: "seedvr2-diffusion-model"
-    kind: "diffusion_model"
-    model_type: "diffusion_model"
-    filename: "seedvr2_ema_3b_fp16.safetensors"
-    display_name: "SeedVR2 3B restoration DiT (NaDiT, fp16)"
-    required: true
-    size_bytes: 6783018808
-    checksum:
-      algorithm: "sha256"
-      value: "2fd0e03a3dad24e07086750360727ca437de4ecd456f769856e960ae93e2b304"
-    # Declared by capability, never by a concrete plugin id - core resolves a
-    # download source through whichever enabled plugin advertises this
-    # capability (see plugin manifest `capabilities:`).
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "numz/SeedVR2_comfyUI"
-      version_id: "main@seedvr2_ema_3b_fp16.safetensors"
-
-  - id: "seedvr2-vae"
-    kind: "vae"
-    model_type: "vae"
-    filename: "ema_vae_fp16.safetensors"
-    display_name: "SeedVR2 self-normalizing causal-video VAE (fp16)"
-    required: true
-    size_bytes: 501324814
-    checksum:
-      algorithm: "sha256"
-      value: "20678548f420d98d26f11442d3528f8b8c94e57ee046ef93dbb7633da8612ca1"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "numz/SeedVR2_comfyUI"
-      version_id: "main@ema_vae_fp16.safetensors"
-
-  - id: "seedvr2-prompt-embedding"
-    kind: "text_encoder"
-    model_type: "text_encoder"
-    filename: "pos_emb.pt"
-    display_name: "SeedVR2 fixed prompt embedding"
-    required: true
-    size_bytes: 595100
-    checksum:
-      algorithm: "sha256"
-      value: "fa07a14844314772266b66c3b95deb0027696d8fe7065721263db5176f45d799"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "ByteDance-Seed/SeedVR2-3B"
-      version_id: "main@pos_emb.pt"
-
+artifacts: []
 presets:
   - preset_id: "01KXB7C553THYMSMKY1QSYESFM"
     path_hint: "marketplace/SeedVR2"
@@ -120,17 +69,21 @@ steps:
     params:
       engine: "native"
 
-  - key: "artifacts.plan"
-    kind: "artifacts.plan"
-    title: "Plan required downloads"
+  - key: "modes.plan"
+    kind: "modes.plan"
+    title: "Pick modes and review downloads"
     params:
-      artifact_ids: ["seedvr2-diffusion-model", "seedvr2-vae", "seedvr2-prompt-embedding"]
+      preset_id: "01KXB7C553THYMSMKY1QSYESFM"
+      modes: "all"
+      selected: ["upscale"]
+      locked: ["upscale"]
+      extras: "offer"
 
   - key: "artifacts.fetch"
     kind: "artifacts.fetch"
-    title: "Download the SeedVR2 model files"
+    title: "Download the files"
     params:
-      artifact_ids: ["seedvr2-diffusion-model", "seedvr2-vae", "seedvr2-prompt-embedding"]
+      plan: "modes.plan"
 
   - key: "models.index.downloads"
     kind: "models.index"
@@ -155,12 +108,17 @@ steps:
   # headless suite can't supply") and skips the case with `needs-model`
   # instead of running it. `pipeline.render` (a dry run, no GPU) is the
   # strongest validation this recipe can safely run without a real image.
+  - key: "preset.defaults"
+    kind: "preset.defaults"
+    title: "Use the downloaded files by default"
+    params:
+      plan: "modes.plan"
   - key: "pipeline.render"
     kind: "pipeline.render"
     title: "Validate the pipeline"
     params:
       preset_id: "01KXB7C553THYMSMKY1QSYESFM"
-      mode: "upscale"
+      plan: "modes.plan"
 
   - key: "workspace.activate"
     kind: "workspace.activate"

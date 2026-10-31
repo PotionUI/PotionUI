@@ -14,7 +14,7 @@
 ########
 schema_version: 1
 id: "minimax-h3-starter"
-version: 1
+version: 2
 name: "MiniMax-H3 Starter"
 engine: "native"
 category: "video"
@@ -51,119 +51,7 @@ plugins:
 backend:
   engine: "native"
 
-artifacts:
-  - id: "minimax-h3-diffusion-model"
-    kind: "diffusion_model"
-    model_type: "diffusion_model"
-    filename: "minimax_h3_fl2va_pruned_fp8_scaled.safetensors"
-    display_name: "MiniMax-H3 DiT - first/last-frame to video+audio, pruned fp8-scaled"
-    required: true
-    size_bytes: 20958205608
-    checksum:
-      algorithm: "sha256"
-      value: "12944c1f7791637e7de12208aef04da82bd26b95271b1b47d817364315ade993"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/MiniMax-H3"
-      version_id: "main@diffusion_models/minimax_h3_fl2va_pruned_fp8_scaled.safetensors"
-
-  - id: "minimax-h3-text-encoder"
-    kind: "text_encoder"
-    model_type: "text_encoder"
-    filename: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
-    display_name: "Qwen3-VL-32B text encoder (nvfp4 AWQ)"
-    required: true
-    size_bytes: 15687142551
-    checksum:
-      algorithm: "sha256"
-      value: "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/MiniMax-H3"
-      version_id: "main@text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
-
-  - id: "minimax-h3-video-vae"
-    kind: "vae"
-    model_type: "vae"
-    filename: "minimax_h3_video_vae_fp16.safetensors"
-    display_name: "MiniMax-H3 video VAE (fp16)"
-    required: true
-    size_bytes: 5207808496
-    checksum:
-      algorithm: "sha256"
-      value: "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/MiniMax-H3"
-      version_id: "main@vae/minimax_h3_video_vae_fp16.safetensors"
-
-  - id: "minimax-h3-audio-vae"
-    kind: "vae"
-    model_type: "vae"
-    filename: "minimax_h3_audio_vae_fp32.safetensors"
-    display_name: "MiniMax-H3 audio VAE (fp32)"
-    required: true
-    size_bytes: 605254808
-    checksum:
-      algorithm: "sha256"
-      value: "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/MiniMax-H3"
-      version_id: "main@vae/minimax_h3_audio_vae_fp32.safetensors"
-
-  - id: "minimax-h3-latent-upscaler"
-    kind: "upscaler"
-    model_type: "upscaler"
-    filename: "minimax_h3_latent_upscaler_3d_bf16.safetensors"
-    display_name: "MiniMax-H3 3D latent upsampler (Apache-2.0, optional)"
-    required: false
-    size_bytes: 690592992
-    checksum:
-      algorithm: "sha256"
-      value: "4f57821f5837f32f7142b67d815606dbd7550f194e5c769f7d6c3f83b146a5e6"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "LBH-123-AI/Minimax_h3_latent_Upscaler"
-      version_id: "main@minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"
-
-  - id: "minimax-h3-fun-controlnet-int8"
-    kind: "model_patch"
-    model_type: "model_patch"
-    filename: "minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors"
-    display_name: "MiniMax-H3 Fun ControlNet Union 2.0 (pruned, int8 ConvRot, optional)"
-    required: false
-    size_bytes: 4531220608
-    checksum:
-      algorithm: "sha256"
-      value: "890af58bb350f0c2f6c409b1c67ea8f4196654297d037769b72de1e6f504c612"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/MiniMax-H3"
-      version_id: "main@model_patches/minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors"
-
-  - id: "minimax-h3-fun-controlnet-bf16"
-    kind: "model_patch"
-    model_type: "model_patch"
-    filename: "minimax_h3_fun_controlnet_union_2.0_pruned_bf16.safetensors"
-    display_name: "MiniMax-H3 Fun ControlNet Union 2.0 (pruned, bf16, optional)"
-    required: false
-    size_bytes: 8382288792
-    checksum:
-      algorithm: "sha256"
-      value: "cd48bdc11b1f1a3b934746c898d25123754b335c13d37d5c421f8373079282b4"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/MiniMax-H3"
-      version_id: "main@model_patches/minimax_h3_fun_controlnet_union_2.0_pruned_bf16.safetensors"
-
+artifacts: []
 presets:
   - preset_id: "01KX47H3MINIMAX000000000VA"
     path_hint: "marketplace/MiniMax-H3"
@@ -207,29 +95,21 @@ steps:
     params:
       engine: "native"
 
-  - key: "artifacts.plan"
-    kind: "artifacts.plan"
-    title: "Plan required downloads"
+  - key: "modes.plan"
+    kind: "modes.plan"
+    title: "Pick modes and review downloads"
     params:
-      artifact_ids:
-        [
-          "minimax-h3-diffusion-model",
-          "minimax-h3-text-encoder",
-          "minimax-h3-video-vae",
-          "minimax-h3-audio-vae",
-        ]
+      preset_id: "01KX47H3MINIMAX000000000VA"
+      modes: "all"
+      selected: ["video"]
+      locked: ["video"]
+      extras: "offer"
 
   - key: "artifacts.fetch"
     kind: "artifacts.fetch"
-    title: "Download the MiniMax-H3 model files"
+    title: "Download the files"
     params:
-      artifact_ids:
-        [
-          "minimax-h3-diffusion-model",
-          "minimax-h3-text-encoder",
-          "minimax-h3-video-vae",
-          "minimax-h3-audio-vae",
-        ]
+      plan: "modes.plan"
 
   - key: "models.index.downloads"
     kind: "models.index"
@@ -243,12 +123,18 @@ steps:
     params:
       preset_id: "01KX47H3MINIMAX000000000VA"
 
+  - key: "preset.defaults"
+    kind: "preset.defaults"
+    title: "Use the downloaded files by default"
+    params:
+      plan: "modes.plan"
+
   - key: "pipeline.render"
     kind: "pipeline.render"
     title: "Validate the pipeline"
     params:
       preset_id: "01KX47H3MINIMAX000000000VA"
-      mode: "video"
+      plan: "modes.plan"
 
   - key: "generation.smoke"
     kind: "generation.smoke"

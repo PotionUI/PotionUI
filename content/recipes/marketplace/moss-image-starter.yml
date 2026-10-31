@@ -1,6 +1,6 @@
 schema_version: 1
 id: "moss-image-starter"
-version: 1
+version: 2
 name: "MOSS-Image Starter"
 engine: "native"
 category: "image"
@@ -26,55 +26,7 @@ plugins:
 backend:
   engine: "native"
 
-artifacts:
-  - id: "moss-image-diffusion-model"
-    kind: "diffusion_model"
-    model_type: "diffusion_model"
-    filename: "moss_image_sft_bf16.safetensors"
-    display_name: "MOSS-Image SFT (DiT, bf16)"
-    required: true
-    size_bytes: 10164655808
-    checksum:
-      algorithm: "sha256"
-      value: "f96738d8116d78b7316b57c663d8c98591ddafab7488f48e3099b7655e34ab6f"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/MOSS-Image"
-      version_id: "main@diffusion_models/moss_image_sft_bf16.safetensors"
-
-  - id: "moss-image-text-encoder"
-    kind: "text_encoder"
-    model_type: "text_encoder"
-    filename: "qwen3.5_9b_int8_convrot.safetensors"
-    display_name: "Qwen3.5-9B text encoder (int8)"
-    required: true
-    size_bytes: 9748121532
-    checksum:
-      algorithm: "sha256"
-      value: "32e3787472f708fa5f83624acbf5ef23f7fc89c439e05065ea57cfe5a97f025a"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/MOSS-Image"
-      version_id: "main@text_encoders/qwen3.5_9b_int8_convrot.safetensors"
-
-  - id: "moss-image-vae"
-    kind: "vae"
-    model_type: "vae"
-    filename: "flux2-vae.safetensors"
-    display_name: "Flux2 VAE"
-    required: true
-    size_bytes: 336211292
-    checksum:
-      algorithm: "sha256"
-      value: "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/MOSS-Image"
-      version_id: "main@vae/flux2-vae.safetensors"
-
+artifacts: []
 presets:
   - preset_id: "01M52YQH5XRAH60J82RY5NTM2V"
     path_hint: "marketplace/MOSS-Image"
@@ -111,17 +63,21 @@ steps:
     params:
       engine: "native"
 
-  - key: "artifacts.plan"
-    kind: "artifacts.plan"
-    title: "Plan required downloads"
+  - key: "modes.plan"
+    kind: "modes.plan"
+    title: "Pick modes and review downloads"
     params:
-      artifact_ids: ["moss-image-diffusion-model", "moss-image-text-encoder", "moss-image-vae"]
+      preset_id: "01M52YQH5XRAH60J82RY5NTM2V"
+      modes: "all"
+      selected: ["txt2img"]
+      locked: ["txt2img"]
+      extras: "offer"
 
   - key: "artifacts.fetch"
     kind: "artifacts.fetch"
-    title: "Download the MOSS-Image model files"
+    title: "Download the files"
     params:
-      artifact_ids: ["moss-image-diffusion-model", "moss-image-text-encoder", "moss-image-vae"]
+      plan: "modes.plan"
 
   - key: "models.index.downloads"
     kind: "models.index"
@@ -135,12 +91,18 @@ steps:
     params:
       preset_id: "01M52YQH5XRAH60J82RY5NTM2V"
 
+  - key: "preset.defaults"
+    kind: "preset.defaults"
+    title: "Use the downloaded files by default"
+    params:
+      plan: "modes.plan"
+
   - key: "pipeline.render"
     kind: "pipeline.render"
     title: "Validate the pipeline"
     params:
       preset_id: "01M52YQH5XRAH60J82RY5NTM2V"
-      mode: "txt2img"
+      plan: "modes.plan"
 
   - key: "generation.smoke"
     kind: "generation.smoke"

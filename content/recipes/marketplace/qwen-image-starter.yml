@@ -7,7 +7,7 @@
 ########
 schema_version: 1
 id: "qwen-image-starter"
-version: 1
+version: 2
 name: "Qwen-Image Starter"
 engine: "native"
 category: "image"
@@ -36,61 +36,7 @@ plugins:
 backend:
   engine: "native"
 
-artifacts:
-  - id: "qwenimage-diffusion-model"
-    kind: "diffusion_model"
-    model_type: "diffusion_model"
-    filename: "qwen_image_2512_fp8_e4m3fn.safetensors"
-    display_name: "Qwen-Image 2512 (MMDiT, fp8)"
-    required: true
-    size_bytes: 20430679144
-    checksum:
-      algorithm: "sha256"
-      value: "5dc80554d5d83390046a2f4a94ece06afb7700bf7b0aaf8bde9769793875876b"
-    # Declared by capability, never by a concrete plugin id - core resolves a
-    # download source through whichever enabled plugin advertises this
-    # capability (see plugin manifest `capabilities:`).
-    capability: "model-lookup"
-    source_host: "huggingface.co"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/Qwen-Image_ComfyUI"
-      version_id: "main@split_files/diffusion_models/qwen_image_2512_fp8_e4m3fn.safetensors"
-
-  - id: "qwenimage-text-encoder"
-    kind: "text_encoder"
-    model_type: "text_encoder"
-    filename: "qwen_2.5_vl_7b_fp8_scaled.safetensors"
-    display_name: "Qwen2.5-VL-7B text encoder (fp8-scaled)"
-    required: true
-    size_bytes: 9384670680
-    checksum:
-      algorithm: "sha256"
-      value: "cb5636d852a0ea6a9075ab1bef496c0db7aef13c02350571e388aea959c5c0b4"
-    capability: "model-lookup"
-    source_host: "huggingface.co"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/Qwen-Image_ComfyUI"
-      version_id: "main@split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"
-
-  - id: "qwenimage-vae"
-    kind: "vae"
-    model_type: "vae"
-    filename: "qwen_image_vae.safetensors"
-    display_name: "Qwen-Image VAE (Wan 2.1 causal-3D)"
-    required: true
-    size_bytes: 253806246
-    checksum:
-      algorithm: "sha256"
-      value: "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
-    capability: "model-lookup"
-    source_host: "huggingface.co"
-    provider_hint:
-      source: "huggingface"
-      model_id: "Comfy-Org/Qwen-Image_ComfyUI"
-      version_id: "main@split_files/vae/qwen_image_vae.safetensors"
-
+artifacts: []
 presets:
   - preset_id: "01K0W24A3RADXXABH16YQ7KF00"
     path_hint: "marketplace/QwenImage"
@@ -134,17 +80,21 @@ steps:
     params:
       engine: "native"
 
-  - key: "artifacts.plan"
-    kind: "artifacts.plan"
-    title: "Plan required downloads"
+  - key: "modes.plan"
+    kind: "modes.plan"
+    title: "Pick modes and review downloads"
     params:
-      artifact_ids: ["qwenimage-diffusion-model", "qwenimage-text-encoder", "qwenimage-vae"]
+      preset_id: "01K0W24A3RADXXABH16YQ7KF00"
+      modes: "all"
+      selected: ["txt2img"]
+      locked: ["txt2img"]
+      extras: "offer"
 
   - key: "artifacts.fetch"
     kind: "artifacts.fetch"
-    title: "Download the Qwen-Image model files"
+    title: "Download the files"
     params:
-      artifact_ids: ["qwenimage-diffusion-model", "qwenimage-text-encoder", "qwenimage-vae"]
+      plan: "modes.plan"
 
   - key: "models.index.downloads"
     kind: "models.index"
@@ -158,12 +108,18 @@ steps:
     params:
       preset_id: "01K0W24A3RADXXABH16YQ7KF00"
 
+  - key: "preset.defaults"
+    kind: "preset.defaults"
+    title: "Use the downloaded files by default"
+    params:
+      plan: "modes.plan"
+
   - key: "pipeline.render"
     kind: "pipeline.render"
     title: "Validate the pipeline"
     params:
       preset_id: "01K0W24A3RADXXABH16YQ7KF00"
-      mode: "txt2img"
+      plan: "modes.plan"
 
   - key: "generation.smoke"
     kind: "generation.smoke"

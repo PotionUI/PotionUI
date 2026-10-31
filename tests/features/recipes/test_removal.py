@@ -121,6 +121,7 @@ def test_files_outside_the_models_folder_and_admin_defaults_are_kept(world):
     world.place("lora", "restore.safetensors")
     world.db.overrides["OTHER"] = {"m": {"f": {"default": "restore.safetensors"}}}
     world.db.installed.add("OTHER")
+    world.loader.presets.append(preset({"m": mode([])}, preset_id="OTHER", name="Other"))
 
     water = world.removal.preview("modes-vid-1-0", "add_water")
     assert water["delete"] == []
@@ -157,7 +158,7 @@ class Broken:
         return fail
 
 
-@pytest.mark.parametrize("which", ["db", "loader"])
+@pytest.mark.parametrize("which", ["db", "loader", "unloadable"])
 def test_a_lookup_error_refuses_to_remove_anything(world, which):
     for model_type, filename in BASE:
         world.place(model_type, filename)
@@ -165,7 +166,7 @@ def test_a_lookup_error_refuses_to_remove_anything(world, which):
     world.db.installed.add("OTHER")
     if which == "db":
         world.removal.preset_db_repo = Broken()
-    else:
+    elif which == "loader":
         world.removal.preset_loader = Broken()
 
     for call in (lambda: world.removal.preview("modes-vid-1-0", "cinemagraph"), lambda: world.removal.remove("modes-vid-1-0", "cinemagraph", [cine.id])):

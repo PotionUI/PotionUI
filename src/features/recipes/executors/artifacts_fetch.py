@@ -105,6 +105,7 @@ def resolve_download_url(artifact, get_registry: Callable[[], Any]) -> Tuple[Opt
 
 
 _ACTIVE_STATUSES = ("pending", "downloading", "paused")
+_ADOPTED = "an earlier attempt"
 _TERMINAL_OK = "completed"
 _TERMINAL_BAD = ("failed", "cancelled")
 
@@ -382,7 +383,7 @@ class ArtifactsFetchExecutor:
                 )
             adopted = self._adoptable(service, index, entry, url, destination)
             if adopted is not None:
-                queued.append((entry, adopted, "an earlier attempt"))
+                queued.append((entry, adopted, _ADOPTED))
                 continue
             try:
                 download = run_sync(
@@ -407,7 +408,9 @@ class ArtifactsFetchExecutor:
         return self._wait_for_all(service, queued, context)
 
     def _cancel_unfinished(self, service, queued) -> None:
-        for _, download, _ in queued:
+        for _, download, note in queued:
+            if note == _ADOPTED:
+                continue
             try:
                 current = service.get_download(download.id)
                 if _status_of(current) in _ACTIVE_STATUSES:

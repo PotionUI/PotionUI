@@ -231,3 +231,27 @@ def test_missing_plan_fails_plainly():
     context = _context()
     context.step_outputs.clear()
     assert _executor(Queue()).execute(context).error_code == "ARTIFACTS_FETCH_NO_PLAN"
+
+
+def test_a_later_failure_never_cancels_a_download_another_attempt_started():
+    active = [_row("old-1", "a.safetensors", url="https://example.test/a.safetensors")]
+    queue = Queue(active=active, fail_on=1, script={"old-1": [("downloading", 5)]})
+    result = _executor(queue).execute(_context())
+
+    assert result.error_code == "ARTIFACT_DOWNLOAD_FAILED"
+    assert queue.cancelled == []
+
+
+def test_user_cancel_spares_adopted_downloads_and_cancels_its_own():
+    active = [_row("old-1", "a.safetensors", url="https://example.test/a.safetensors")]
+    queue = Queue(active=active, script={"old-1": [("downloading", 5)], "dl-1": [("downloading", 10)]})
+    state = {"polls": 0}
+
+    def cancelled():
+        state["polls"] += 1
+        return state["polls"] > 3
+
+    result = _executor(queue).execute(_context(cancelled=cancelled))
+
+    assert result.error_code == "RUN_CANCELLED"
+    assert queue.cancelled == ["dl-1"]

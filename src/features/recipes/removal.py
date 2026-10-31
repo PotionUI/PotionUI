@@ -125,7 +125,10 @@ class ModeFileRemoval:
                 continue
             preset = self._checked("the installed presets", lambda: self.preset_loader.load_preset_by_id(other_id))
             if preset is None:
-                continue
+                raise ModeRemovalError(
+                    UNAVAILABLE,
+                    f"Could not verify other users of these files (the installed preset '{other_id}' could not be loaded), so nothing was removed.",
+                )
             for slot in derive_mode_slots(preset).slots.values():
                 for rec in slot.recommendations:
                     used.setdefault(rec.filename.lower(), preset.name)

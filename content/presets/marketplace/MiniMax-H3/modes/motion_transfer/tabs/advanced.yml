@@ -1,0 +1,46 @@
+fields:
+  - type: "section"
+    label: "Motion guide"
+    children:
+      - name: "control_strength"
+        type: "slider"
+        label: "Follow strength"
+        default: 1.0
+        description: "How closely the moves are copied."
+        ai_hint: "Strength of the pose guide. 1 follows the moves fully. Lower values give the model more freedom and keep the picture's look better; higher values copy the moves harder."
+        configuration: {min: 0.5, max: 1.5, step: 0.05}
+
+      - name: "pose_ease_in"
+        type: "slider"
+        label: "Ease in"
+        default: 0.5
+        description: "Seconds to move from the picture's pose into the moves."
+        ai_hint: "Seconds the pose guide takes to move from the picture person's own pose into the video's moves, so the first frame matches the picture. 0 starts straight on the video's pose and can make the first frame jump."
+        configuration: {min: 0.0, max: 2.0, step: 0.1}
+
+      - name: "save_guide"
+        type: "checkbox"
+        label: "Save pose guide"
+        default: false
+        ai_hint: "Also saves the skeleton video that drives the motion to the gallery, useful to check the pose was read correctly."
+
+  - type: "section"
+    label: "Sampling"
+    children: "{{ paths.preset }}/files/form/advanced_sampling.yml"
+
+  - type: "section"
+    label: "Sparse attention"
+    formula: "sparse"
+    audience: "advanced"
+    children: "{{ paths.preset }}/files/form/advanced_sparse.yml"
+
+  - type: "section"
+    label: "Step cache (FBCache)"
+    formula: "cache"
+    audience: "advanced"
+    children: "{{ paths.preset }}/files/form/advanced_step_cache.yml"
+
+  - name: "preview"
+    type: "checkbox"
+    label: "Live preview"
+    default: true

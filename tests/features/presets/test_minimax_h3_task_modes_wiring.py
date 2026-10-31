@@ -59,7 +59,7 @@ def _final_prompts(pipes, count):
 
 def test_the_task_modes_take_the_standard_prompt(h3_template):
     assert not {"remix", "talk"} & set(h3_template.vars.get("promptless_modes", []))
-    assert h3_template.vars["optional_prompt_modes"] == ["talk", "upscale"]
+    assert h3_template.vars["optional_prompt_modes"] == ["talk", "upscale", "motion_transfer"]
 
 
 def test_upscale_without_a_prompt_encodes_an_empty_prompt(h3_template):

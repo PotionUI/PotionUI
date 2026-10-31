@@ -307,11 +307,16 @@ class Qwen25VLTokenizer:
         self._prefix_len_images = len(self._tok(QWEN25VL_IMAGE_SYSTEM)["input_ids"])
 
     def __call__(
-        self, texts: list[str], device: torch.device | str = "cpu", has_image: bool = False
+        self, texts: list[str], device: torch.device | str = "cpu", has_image: bool = False,
+        picture_labels: bool = False, num_images: int = 1,
     ) -> tuple[torch.Tensor, torch.Tensor, int]:
         if has_image:
+            markup = (
+                "".join(f"Picture {i + 1}: {QWEN25VL_VISION_MARKUP}" for i in range(num_images))
+                if picture_labels else QWEN25VL_VISION_MARKUP
+            )
             id_lists = [
-                self._tok(QWEN25VL_IMAGE_SYSTEM + QWEN25VL_VISION_MARKUP + t + QWEN3VL_SUFFIX)["input_ids"]
+                self._tok(QWEN25VL_IMAGE_SYSTEM + markup + t + QWEN3VL_SUFFIX)["input_ids"]
                 for t in texts
             ]
             ids, mask = _pad_batch(id_lists, QWEN3_PAD, 1, device)

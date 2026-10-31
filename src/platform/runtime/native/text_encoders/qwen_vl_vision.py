@@ -88,6 +88,7 @@ def preprocess_qwen_vl_image(
     patch_size: int = VISION_PATCH_SIZE,
     temporal_patch_size: int = VISION_TEMPORAL_PATCH_SIZE,
     merge_size: int = VISION_SPATIAL_MERGE_SIZE,
+    grounding_area: int = 0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Resize/normalize/patchify one image -> ``(flatten_patches, grid_thw)``.
 
@@ -108,6 +109,11 @@ def preprocess_qwen_vl_image(
     height, width, _channels = image.shape
     device = image.device
     img = image.permute(2, 0, 1).float()  # [C, H, W]
+    if grounding_area and height * width > grounding_area:
+        scale = (grounding_area / (height * width)) ** 0.5
+        height = max(1, round(height * scale))
+        width = max(1, round(width * scale))
+        img = F.interpolate(img.unsqueeze(0), size=(height, width), mode="area").squeeze(0)
 
     factor = patch_size * merge_size
     h_bar = round(height / factor) * factor

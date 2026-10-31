@@ -476,6 +476,9 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         if not match and extend <= 0:
             return width, height, fps, frames, 0
         index = _matched_clip_index(placements)
+        if (index is None or index >= len(videos)) and latent is not None and extend <= 0:
+            return (int(latent.shape[-1]) * LTX_SPATIAL_DOWNSCALE, int(latent.shape[-2]) * LTX_SPATIAL_DOWNSCALE,
+                    fps, frames, 0)
         if index is None or index >= len(videos):
             raise ValueError("generator/video_ltx: 'match_video'/'extend_seconds' need a video clip in 'media_placements'")
         clip_width, clip_height, clip_fps, clip_frames = probe_video_stream(videos[index])

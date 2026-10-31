@@ -1,0 +1,150 @@
+pipeline:
+  - name: "checkpoint_loader/sdxl"
+    id: "checkpoint_loader"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+        base: "SDXL"
+      loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+      nsfw: "{{ runtime.settings.nsfw }}"
+      clip_skip: "{{ form.clip_skip }}"
+
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      media:
+        "@loop":
+          count: "{{ form.quantity }}"
+          template:
+            type: "image"
+            path: "{{ form.source_image }}"
+
+  - name: "prompt_encoder"
+    id: "prompt_encoder"
+    input:
+      - ["text_encoder", "checkpoint_loader/sdxl", "text_encoder"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: |
+          {{ generation.prompts.first.positive }}
+
+          {% for i in range(1, 4) %}{% if form['positive_embedding_' ~ i] and form['positive_embedding_' ~ i] != '' %} positive_embedding_{{ i }}{% endif %}{% endfor %}
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: |
+          {{ generation.prompts.first.negative }}
+
+          {% for i in range(1, 4) %}{% if form['negative_embedding_' ~ i] and form['negative_embedding_' ~ i] != '' %} negative_embedding_{{ i }}{% endif %}{% endfor %}
+      positive_embeddings:
+        "@loop":
+          count: 3
+          template:
+            token: "positive_embedding_{{ loop.index }}"
+            file_path: "{{ form['positive_embedding_' ~ loop.index] }}"
+            enabled: "{{ form['positive_embedding_' ~ loop.index] and form['positive_embedding_' ~ loop.index] != '' }}"
+      negative_embeddings:
+        "@loop":
+          count: 3
+          template:
+            token: "negative_embedding_{{ loop.index }}"
+            file_path: "{{ form['negative_embedding_' ~ loop.index] }}"
+            enabled: "{{ form['negative_embedding_' ~ loop.index] and form['negative_embedding_' ~ loop.index] != '' }}"
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "seed_generator"
+    id: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - [ "seed", "seed_generator", "seed" ]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - [ "seed", "from_iotype", "seed" ]
+    configuration:
+      quantity: "{{ form.quantity }}"
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg | default(preset.vars.default_cfg) }}"]
+        - ["steps", "{{ form.steps | default(preset.vars.default_steps) }}"]
+        - ["sampler", "{{ form.sampler | default(preset.vars.default_sampler) }}"]
+        - ["scheduler", "{{ form.scheduler | default(preset.vars.default_scheduler) }}"]
+        - ["clip_skip", "{{ form.clip_skip }}"]
+        - ["denoise", "{{ form.denoise }}"]
+
+  - name: "adm_guidance/sdxl"
+    id: "adm_guidance"
+    enabled: "{{ form.adm_guidance_enabled }}"
+    input:
+      - ["model", "checkpoint_loader/sdxl", "model"]
+    configuration:
+      positive_scale: "{{ form.adm_positive_scale }}"
+      negative_scale: "{{ form.adm_negative_scale }}"
+      scaler_end: "{{ form.adm_scaler_end }}"
+
+  - name: "sag/sdxl"
+    id: "sag"
+    enabled: "{{ form.sag_enabled }}"
+    input:
+      - ["model", "checkpoint_loader/sdxl", "model"]
+    configuration:
+      scale: "{{ form.sag_scale }}"
+      sigma: "{{ form.sag_sigma }}"
+      sag_threshold: "{{ form.sag_threshold }}"
+
+  - name: "generator/sdxl"
+    id: "generator"
+    enabled: true
+    input:
+      - [ "model", "checkpoint_loader/sdxl", "model" ]
+      - [ "conditioning", "prompt_encoder", "conditioning" ]
+      - [ "seed", "seed_generator", "seed" ]
+      - [ "image", "media_loader", "image" ]
+    configuration:
+      cfg: "{{ form.cfg | default(preset.vars.default_cfg) }}"
+      steps: "{{ form.steps | default(preset.vars.default_steps) }}"
+      sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
+      scheduler: "{{ form.scheduler | default(preset.vars.default_scheduler) }}"
+      quantity: "{{ form.quantity }}"
+      denoise: "{{ form.denoise }}"
+      max_pixels: "{{ form.max_pixels | int }}"
+
+  - name: "gallery"
+    id: "gallery"
+    enabled: true
+    input:
+      - ["image", "generator/sdxl", "image"]
+      - ["seed", "seed_generator", "seed"]

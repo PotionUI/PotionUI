@@ -114,3 +114,19 @@ cases:
     checks:
       min_outputs: 1
       not_black: true
+
+  - name: "sdxl-restyle-fast"
+    mode: "restyle"
+    seed: 999
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "watercolor painting, soft warm colors"
+      denoise: 0.6
+      steps: 10
+      cfg: 4
+    models:
+      model:
+        sha256: "c9e3e68f89b8e38689e1097d4be4573cf308de4e3fd044c64ca697bdb4aa8bca"
+    checks:
+      min_outputs: 1
+      not_black: true

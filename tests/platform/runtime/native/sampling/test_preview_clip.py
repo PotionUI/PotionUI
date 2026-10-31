@@ -159,8 +159,8 @@ def run_hook(hook, total, latent):
     hook.on_start(total)
     for step in range(total):
         hook.on_step(step, total, None, None, latent)
-        if hasattr(hook, "_relay"):
-            hook._relay.drain()
+        if hasattr(hook, "_clips"):
+            hook._clips.relay.drain()
     hook.on_end()
 
 
@@ -241,3 +241,22 @@ def test_single_frames_fill_the_wait_for_the_first_clip_and_stop_after_it(monkey
     first_clip = order.index("clip")
     assert "single" not in order[first_clip:]
     assert order.count("clip") == 8
+
+
+def test_the_latent_transform_runs_once_per_clip_step(monkeypatch):
+    install_fake_decoder(monkeypatch)
+    calls = []
+
+    def transform(x0):
+        calls.append(1)
+        return x0
+
+    clips = []
+    hook = make_preview_hook(
+        WAN_SPEC, lambda image: None, decoder_path="d", emit_clip=clips.append, latent_transform=transform
+    )
+    hook.on_start(10)
+    hook.on_step(2, 10, None, None, video_latent())
+    hook._clips.relay.drain()
+    assert len(clips) == 1
+    assert len(calls) == 1

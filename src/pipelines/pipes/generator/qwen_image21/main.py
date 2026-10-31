@@ -59,7 +59,8 @@ class GeneratorQwenImage21Pipe(QwenEditMixin, FlowMatchGeneratorPipe):
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("mode", str, "txt2img", "Generation mode", required=True,
-                           choices=["txt2img", "edit", "control"]),
+                           choices=["txt2img", "edit", "inpaint", "control"]),
+            *cls.img2img_config_specs(default_denoise=1.0),
             PipeConfigSpec("control_strength", float, 1.0, "Fun ControlNet strength (control_context_scale)",
                            required=False, min_value=0.0, max_value=2.0),
             PipeConfigSpec("control_start", float, 0.0, "Fraction of the sampling where the Fun ControlNet starts",
@@ -98,6 +99,7 @@ class GeneratorQwenImage21Pipe(QwenEditMixin, FlowMatchGeneratorPipe):
             PipeInputSpec("conditioning", IOType.CONDITIONING, True, "Encoded prompt conditioning (per image)", is_array=True),
             PipeInputSpec("seed", IOType.SEED, False, "Random seeds", is_array=True),
             cls.img2img_input_spec(),
+            cls.inpaint_input_spec(),
             PipeInputSpec("control_image", IOType.IMAGE, False, "Control image for the Fun ControlNet", is_array=True),
             PipeInputSpec("inpaint_image", IOType.IMAGE, False, "Image to inpaint through the Fun ControlNet", is_array=True),
             PipeInputSpec("inpaint_mask", IOType.IMAGE, False, "Inpaint mask, white where to regenerate", is_array=True),

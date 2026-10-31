@@ -1539,6 +1539,7 @@ class NativeGenerator:
         warm_start: bool = False,
         schedule_settings: dict | None = None,
         sigmas: "Sequence[float] | torch.Tensor | None" = None,
+        latent_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Denoise from seeded noise to a clean latent (model-native space).
 
@@ -1596,6 +1597,8 @@ class NativeGenerator:
         which one wins, so ``denoise_strength`` is simply inert here, matching
         ``denoise()``'s own documented contract for this kwarg).
         """
+        if latent_mask is not None and init_latent is None:
+            raise ValueError("latent_mask needs an init_latent to preserve")
         opts = guidance_options or {}
         sigmas_tensor = _validate_explicit_sigmas(sigmas) if sigmas is not None else None
         effective_steps = int(sigmas_tensor.numel() - 1) if sigmas_tensor is not None else steps
@@ -1689,6 +1692,7 @@ class NativeGenerator:
                     step_cache_options=step_cache_options,
                     resume=resume,
                     sigmas=sigmas_tensor,
+                    latent_mask=latent_mask,
                 )
             finally:
                 self._release_dit_after_sampling()

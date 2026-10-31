@@ -137,6 +137,17 @@ The `LTX-2.5` preset ships a `transition` mode: a First picture and a Last pictu
 - The optional Transition LoRA (`valiantcat/LTX-2.3-Transition-LORA`, `ltx2.3-transition.safetensors`, 390 MB, Apache-2.0) rides `scoped_loras`. Its card names first-to-last-frame generation as a core use and asks for the trigger word `zhuanchang` at the end of the prompt; the mode appends it only when the LoRA is selected. Without the LoRA nothing is scoped and the caption is untouched.
 - The LoRA was trained on LTX-2.3. Its card does not say whether it loads on 2.5, so it stays optional; the mode works without it.
 
+### Transparent video
+
+The `LTX-2.5` preset ships a `transparent_video` mode: a clip in, the same clip with the background cut out and the transparency kept, out. It runs `Lightricks/LTX-2.5-22b-IC-LoRA-Alpha-Gen` (beta, `ltx-2.5-22b-ic-lora-alpha-gen-0.9.safetensors`, 1.31 GB, LTX-2 community licence, gated).
+
+- The LoRA is a video-to-video IC-LoRA. The clip is its only guide (an `{source: video, role: reference}` placement, empty prompt) and the generated video is a black and white alpha matte of the same length and size: white is the subject, black is background, grey is partial transparency. The mode declares `prompt: none`. Lightricks recommends the distilled checkpoint for structural IC-LoRAs, so the speed profile is Distilled or Custom.
+- Long clips run in overlapping windows (`windows: true`) like the other clip-in modes. Size is 720p or 1080p of pixel budget (`match_video`).
+- `alpha_video` then combines the original clip and the matte into a WebM (VP9, `yuva420p`) with a real alpha channel. The matte is resized to the clip, read by luminance and passed through the Advanced "Clear below" and "Solid above" levels. Pixels with alpha 0 are written black so the Library thumbnails, which are decoded without alpha, show the subject on black.
+- The browser plays the WebM with transparency in Chromium and Firefox on Linux and Windows. Safari has no VP9 alpha, so by default the pipe also writes an MP4 of the cut-out over a checkerboard (the "Also save a checkerboard preview" option), next to the WebM in the gallery. "Also save the black and white matte" adds the raw matte.
+- The WebM needs an ffmpeg with `libvpx-vp9`. The bundled `imageio-ffmpeg` build has it; a system ffmpeg without it makes the run fail with a message naming the missing encoder.
+- A PNG sequence export is not offered: the gallery has no archive output type, and hundreds of loose PNG frames would flood it.
+
 ### Latent upscalers: spatial and temporal
 
 `latent_upscaler/ltx` runs one upsample in latent space, between two generation stages. Its `mode` config picks which checkpoint it runs, and each has its own model-loader slot, because a pipeline can need both files resident at once:

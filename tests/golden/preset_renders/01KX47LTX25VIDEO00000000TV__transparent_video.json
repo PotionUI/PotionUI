@@ -1,0 +1,404 @@
+{
+  "mode": "transparent_video",
+  "pipes": [
+    {
+      "config": {
+        "auto_detect_type": {
+          "type": "bool",
+          "value": true
+        },
+        "max_file_size": {
+          "type": "int",
+          "value": 524288000
+        },
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/input_video.mp4",
+              "type": "video"
+            }
+          ]
+        },
+        "validate_files": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "loras": {
+          "type": "list",
+          "value": []
+        },
+        "model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "text_encoder.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "text_encoder.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/video_vae.safetensors"
+        },
+        "vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/video_vae.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "model_loader/ltx"
+    },
+    {
+      "config": {
+        "guidance_scale": {
+          "type": "float",
+          "value": 1.0
+        },
+        "n_prompt.input": {
+          "type": "str",
+          "value": ""
+        },
+        "n_prompt.output": {
+          "type": "str",
+          "value": ""
+        },
+        "negative_applied": {
+          "type": "NoneType",
+          "value": null
+        },
+        "p_prompt.input": {
+          "type": "str",
+          "value": ""
+        },
+        "p_prompt.output": {
+          "type": "str",
+          "value": ""
+        },
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "",
+              "positive": ""
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "seed_generator"
+    },
+    {
+      "config": {
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "dynamic_prompts_renderer",
+      "name": "dynamic_prompts_renderer"
+    },
+    {
+      "config": {
+        "from": {
+          "type": "str",
+          "value": "seed"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "from_iotype",
+      "name": "from_iotype"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/text_encoder.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/video_vae.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/effect_lora.safetensors"
+            ],
+            [],
+            [
+              "positive_prompt",
+              [
+                "golden positive prompt"
+              ]
+            ],
+            [
+              "negative_prompt",
+              [
+                "golden negative prompt"
+              ]
+            ],
+            [
+              "cfg",
+              1.0
+            ],
+            [
+              "steps",
+              8
+            ],
+            [
+              "sampler",
+              "euler_ancestral"
+            ],
+            [
+              "schedule",
+              "ltx_dynamic"
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "audio": {
+          "type": "bool",
+          "value": false
+        },
+        "cfg": {
+          "type": "float",
+          "value": 1.0
+        },
+        "decode": {
+          "type": "bool",
+          "value": true
+        },
+        "fps": {
+          "type": "float",
+          "value": 24.0
+        },
+        "manual_sigmas": {
+          "type": "str",
+          "value": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+        },
+        "match_video": {
+          "type": "bool",
+          "value": true
+        },
+        "max_pixels": {
+          "type": "int",
+          "value": 2088960
+        },
+        "media_placements": {
+          "type": "list",
+          "value": [
+            {
+              "frame": "first",
+              "index": 0,
+              "role": "reference",
+              "source": "video",
+              "strength": 1.0
+            }
+          ]
+        },
+        "preview_decoder": {
+          "type": "str",
+          "value": "/GOLDEN/models/preview_decoder.safetensors"
+        },
+        "quality_cfg": {
+          "type": "float",
+          "value": 1.0
+        },
+        "quality_modality": {
+          "type": "float",
+          "value": 3.0
+        },
+        "quality_mode": {
+          "type": "bool",
+          "value": false
+        },
+        "quality_rescale": {
+          "type": "float",
+          "value": 0.7
+        },
+        "quality_stg": {
+          "type": "float",
+          "value": 1.0
+        },
+        "quality_stg_blocks": {
+          "type": "str",
+          "value": "28"
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "sampler": {
+          "type": "str",
+          "value": "euler_ancestral"
+        },
+        "schedule": {
+          "type": "str",
+          "value": "ltx_dynamic"
+        },
+        "scoped_loras": {
+          "type": "list",
+          "value": [
+            {
+              "file_path": "/GOLDEN/models/effect_lora.safetensors",
+              "weight": 1.0
+            }
+          ]
+        },
+        "step_cache_max_skips": {
+          "type": "int",
+          "value": 3
+        },
+        "step_cache_threshold": {
+          "type": "float",
+          "value": 0.0
+        },
+        "step_cache_warmup_steps": {
+          "type": "int",
+          "value": 4
+        },
+        "steps": {
+          "type": "int",
+          "value": 8
+        },
+        "window_overlap": {
+          "type": "int",
+          "value": 24
+        },
+        "windows": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "generator",
+      "name": "generator/video_ltx"
+    },
+    {
+      "config": {
+        "black_point": {
+          "type": "float",
+          "value": 0.0
+        },
+        "crf": {
+          "type": "int",
+          "value": 24
+        },
+        "preview": {
+          "type": "bool",
+          "value": true
+        },
+        "save_matte": {
+          "type": "bool",
+          "value": false
+        },
+        "white_point": {
+          "type": "float",
+          "value": 1.0
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "alpha_video",
+      "name": "alpha_video"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01KX47LTX25VIDEO00000000TV",
+  "preset_name": "LTX-2.5"
+}

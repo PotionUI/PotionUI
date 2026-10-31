@@ -302,7 +302,7 @@ def _prompt_built_from_an_empty_prompt(template, mode):
 
 def test_the_modes_with_a_built_in_sentence_take_an_optional_prompt(ltx25_template):
     assert ltx25_template.vars["optional_prompt_modes"] == OPTIONAL_PROMPT_MODES
-    assert "promptless_modes" not in ltx25_template.vars
+    assert ltx25_template.vars["promptless_modes"] == ["transparent_video"]
     assert set(OPTIONAL_PROMPT_MODES) <= set(ltx25_template.modes)
 
 

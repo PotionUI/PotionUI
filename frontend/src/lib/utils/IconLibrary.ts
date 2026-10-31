@@ -317,6 +317,13 @@ export const iconPaths: Record<string, string | string[]> = {
 		'M10.5 12h3',
 		'm12.5 10.5 1.5 1.5-1.5 1.5'
 	],
+	'mode-transparent': [
+		'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z',
+		'M3 12h9V3',
+		'M12 21v-9h9',
+		'M7.5 7.5h.01',
+		'M16.5 16.5h.01'
+	],
 	'mode-remove-object': [
 		'm7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21',
 		'M22 21H7',

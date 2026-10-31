@@ -131,3 +131,8 @@ def test_edit_lora_recommendations_carry_pinned_hashes(krea2):
 def test_edit_lora_is_required(krea2):
     fields = {f.name: f for f in _fields(krea2.modes["edit"].forms[0].fields) if f.name}
     assert fields["edit_lora"].required is True
+
+
+def test_edit_matches_the_source_shape_by_default_and_the_toggle_turns_it_off(krea2):
+    assert _generator(_pipes(krea2))["config"]["match_source"] is True
+    assert _generator(_pipes(krea2, {"match_source": False}))["config"]["match_source"] is False

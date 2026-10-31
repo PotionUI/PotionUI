@@ -296,6 +296,10 @@
           "type": "float",
           "value": 1.0
         },
+        "match_source": {
+          "type": "bool",
+          "value": true
+        },
         "quantity": {
           "type": "int",
           "value": 1

@@ -36,6 +36,12 @@ fields:
             - { path: "{{ paths._shared }}/resolutions/flux_2k.yml", group: "2K" }
         default: "1024x1024"
 
+      - name: "match_source"
+        type: "checkbox"
+        label: "Match picture shape"
+        default: true
+        ai_hint: "Keeps the aspect ratio of the picture to edit and uses the resolution above only as the pixel budget. Turn off to render at exactly the resolution chosen."
+
   - type: "section"
     label: "Models"
     formula: "models"

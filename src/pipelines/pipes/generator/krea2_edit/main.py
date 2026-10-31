@@ -42,6 +42,8 @@ class GeneratorKrea2EditPipe(GeneratorKrea2Pipe):
                            required=False, choices=["standard", "ostris"]),
             PipeConfigSpec("ref_pixels", int, 1048576, "Pixel-area cap for a reference (ostris style)",
                            required=False, min_value=65536, max_value=4194304),
+            PipeConfigSpec("match_source", bool, False, "Take the output shape from the first source at the "
+                           "resolution's pixel area", required=False),
             PipeConfigSpec("output_pixels", int, 0, "Size the output from the first source at up to this "
                            "pixel area; 0 uses the resolution (ostris style)",
                            required=False, min_value=0, max_value=16777216),
@@ -112,10 +114,12 @@ class GeneratorKrea2EditPipe(GeneratorKrea2Pipe):
         uncond = dict(cond_model.n_embeds) if cond_model.n_embeds else None
 
         ostris = self.config.get("ref_style", "standard") == "ostris"
+        output_pixels = int(self.config.get("output_pixels", 0) or 0)
+        if output_pixels:
+            width, height = gen.snap_resolution(*area_fit_size(*sources[0].size, output_pixels))
+        elif self.config.get("match_source", False):
+            width, height = self._img2img_target_size(gen, ctx, sources[0].size)
         if ostris:
-            output_pixels = int(self.config.get("output_pixels", 0) or 0)
-            if output_pixels:
-                width, height = gen.snap_resolution(*area_fit_size(*sources[0].size, output_pixels))
             ref_pixels = int(self.config.get("ref_pixels", 1048576))
             ref_arrays = [fit_source_area(s, ref_pixels) for s in sources]
         else:

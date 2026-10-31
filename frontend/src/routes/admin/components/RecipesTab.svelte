@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/services/api/index';
@@ -47,6 +47,13 @@
 	} from './recipes/recipeFilters';
 	import RecipeFiltersPopover from './recipes/RecipeFiltersPopover.svelte';
 	import RecipeCard from './recipes/RecipeCard.svelte';
+	import RecipeModesSection from './recipes/RecipeModesSection.svelte';
+	import RecipePlanPreview from './recipes/RecipePlanPreview.svelte';
+	import ModeRemoveModal from '$lib/components/recipes/modeInstall/ModeRemoveModal.svelte';
+	import { announceModelInstalled } from '$lib/stores/modelInstalls';
+	import { toasts } from '$lib/stores/toast';
+	import type { RecipeModeRow } from '$lib/services/api/recipeModes';
+	import { isModesRecipe, modesBadge, modesDiskLine, partitionRecipes } from './recipes/recipeModesDisplay';
 	import RecipeArtifactCards from './recipes/RecipeArtifactCards.svelte';
 	import RecipeRunsList from './recipes/RecipeRunsList.svelte';
 	import RecipeStepsList from './recipes/RecipeStepsList.svelte';
@@ -84,6 +91,8 @@
 	const startError = $derived(session.error);
 	const startConflict = $derived(session.conflict);
 	let urlRestored = $state(false);
+	let previewOpen = $state(false);
+	let removeTarget = $state<RecipeModeRow | null>(null);
 
 	const sources = $derived(recipeSourceVocabulary(recipes));
 	const engines = $derived(recipeEngineVocabulary(recipes));
@@ -92,6 +101,7 @@
 	const filterCount = $derived(recipeFilters.activeCount(filters));
 	const filterChips = $derived(recipeFilters.chips(filters));
 	const detailOpen = $derived(!!selectedRecipeId);
+	const partitioned = $derived(partitionRecipes(filteredRecipes));
 
 	const selectedRecipe = $derived(recipes.find((r) => r.id === selectedRecipeId) || null);
 	const runHistory = $derived(mergeRunHistory(runs, activeRun));
@@ -163,6 +173,23 @@
 
 	function backToList() {
 		selectedRecipeId = '';
+	}
+
+	async function installModes(id: string, modes: string[] = []) {
+		if (selectedRecipeId !== id) {
+			selectedRecipeId = id;
+			await tick();
+			await tick();
+		}
+		await session.start(id, modes);
+	}
+
+	async function handleModesRemoved(freedBytes: number) {
+		removeTarget = null;
+		toasts.success(`Removed files and freed ${formatBytes(freedBytes, 1)}.`);
+		announceModelInstalled();
+		await loadRecipes(true);
+		if (selectedRecipeId) await loadDetail(selectedRecipeId);
 	}
 
 	function selectSection(next: RecipeSection) {
@@ -267,8 +294,17 @@
 	});
 </script>
 
-<div class="flex h-full flex-col">
-	<div class="flex min-h-0 flex-1 flex-col">
+{#snippet modesSection(rows: RecipeModeRow[])}
+		<RecipeModesSection
+			modes={rows}
+			disabled={starting || runInFlight}
+			onInstall={(mode) => selectedRecipe && void session.start(selectedRecipe.id, [mode.id])}
+			onRemove={(mode) => (removeTarget = mode)}
+		/>
+	{/snippet}
+
+	<div class="flex h-full flex-col">
+		<div class="flex min-h-0 flex-1 flex-col">
 		<LibraryShell
 			title="Recipes"
 			persistKey="admin-recipes-library"
@@ -329,6 +365,10 @@
 						<div class="flex h-full min-h-0 flex-col">
 							<DetailHeader title={selectedRecipe.name} icon="list-checks" backLabel="Recipes" onBack={backToList}>
 								{#snippet chips()}
+									{#if isModesRecipe(selectedRecipe)}
+										{@const modesChip = modesBadge(selectedRecipe)}
+										<Badge variant={modesChip.variant} size="sm" dot>{modesChip.label}</Badge>
+									{:else}
 									<Badge variant="info" size="sm">{selectedRecipe.engine}</Badge>
 									<Badge variant="neutral" size="sm" class="font-mono">
 										{selectedRecipe.source}{selectedRecipe.plugin_id
@@ -336,20 +376,36 @@
 											: ''}
 									</Badge>
 									<Badge variant={badge.variant} size="sm">{badge.label}</Badge>
+									{/if}
 								{/snippet}
 								{#snippet subtitle()}
-									<span class="truncate">{selectedRecipe.id}</span>
+									{#if isModesRecipe(selectedRecipe)}
+										<span class="truncate" data-recipe-modes-subtitle>
+											Sets up {selectedRecipe.presets?.[0]?.name ?? selectedRecipe.name}{modesDiskLine(selectedRecipe)
+												? ` · ${modesDiskLine(selectedRecipe)}`
+												: ''}
+										</span>
+									{:else}
+										<span class="truncate">{selectedRecipe.id}</span>
+									{/if}
 								{/snippet}
 								{#snippet actions()}
-									<Button
-										variant="primary"
-										size="sm"
-										icon="download"
-										loading={starting}
+										{#if isModesRecipe(selectedRecipe)}
+											<Button variant="secondary" size="sm" onclick={() => (previewOpen = true)}>Preview</Button>
+										{/if}
+										<Button
+											variant="primary"
+											size="sm"
+											icon="download"
+											loading={starting}
 										disabled={starting || runInFlight}
 										onclick={() => selectedRecipe && void session.start(selectedRecipe.id)}
 									>
-										{selectedRecipe.last_completed_at ? 'Install again' : 'Install models'}
+										{isModesRecipe(selectedRecipe)
+												? 'Install modes'
+												: selectedRecipe.last_completed_at
+													? 'Install again'
+													: 'Install models'}
 									</Button>
 								{/snippet}
 							</DetailHeader>
@@ -410,8 +466,10 @@
 												<div
 													class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-xs font-mono tabular-nums text-fg-subtle"
 												>
-													<span>{selectedRecipe.step_count} steps</span>
-													<span>{selectedRecipe.artifact_count} artifacts</span>
+													{#if !isModesRecipe(selectedRecipe)}
+															<span>{selectedRecipe.step_count} steps</span>
+															<span>{selectedRecipe.artifact_count} artifacts</span>
+														{/if}
 													{#if selectedRecipe.total_download_bytes != null}
 														<span>~{formatBytes(selectedRecipe.total_download_bytes)} to download</span>
 													{/if}
@@ -449,7 +507,10 @@
 
 									{#snippet main()}
 										{#if detail}
-											<DetailSection label="Run">
+												{#if detail.modes && detail.modes.length > 0 && !activeRun}
+													{@render modesSection(detail.modes)}
+												{/if}
+												<DetailSection label="Run">
 												{#if activeRun}
 													<RecipeRunProgress
 														run={activeRun}
@@ -460,8 +521,10 @@
 												{:else}
 													<div class="space-y-3">
 														<p class="text-sm text-fg-muted">
-															{selectedRecipe.total_download_bytes != null
-																? `This recipe downloads ~${formatBytes(selectedRecipe.total_download_bytes)} before it can generate.`
+															{isModesRecipe(selectedRecipe)
+									? 'Pick the modes you want and approve the download.'
+									: selectedRecipe.total_download_bytes != null
+									? `This recipe downloads ~${formatBytes(selectedRecipe.total_download_bytes)} before it can generate.`
 																: 'This recipe is ready to install.'}
 														</p>
 														<RecipeStepsList steps={detail.steps} />
@@ -469,7 +532,11 @@
 												{/if}
 											</DetailSection>
 
-											<DetailSection label="Runs">
+											{#if detail.modes && detail.modes.length > 0 && activeRun}
+													{@render modesSection(detail.modes)}
+												{/if}
+
+												<DetailSection label="Runs">
 												{#if runsLoading && runHistory.length === 0}
 													<div class="flex justify-center py-6"><Spinner size="sm" /></div>
 												{:else if runsError}
@@ -482,7 +549,7 @@
 									{/snippet}
 
 									{#snippet aside()}
-										{#if detail}
+											{#if detail && !isModesRecipe(selectedRecipe)}
 											<DetailSection label="Artifacts">
 												{#if detail.artifacts.length === 0}
 													<p class="text-sm text-fg-muted">This recipe downloads nothing.</p>
@@ -528,25 +595,66 @@
 						</EmptyState>
 					</div>
 				{:else}
-					<div class="h-full overflow-y-auto p-4">
-						<div
-							class="grid gap-3 {$libraryCardDensity === 'compact'
+					{@const gridClass = `grid gap-3 ${
+							$libraryCardDensity === 'compact'
 								? 'grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2'
-								: 'grid-cols-[repeat(auto-fill,minmax(300px,1fr))]'}"
-							role="list"
-							aria-label="Recipe catalog"
-						>
-							{#each filteredRecipes as recipe (recipe.id)}
-								<RecipeCard
-									{recipe}
-									readiness={readinessFor(recipe.id)}
-									dense={$libraryCardDensity === 'compact'}
-									onOpen={openRecipe}
-								/>
-							{/each}
+								: 'grid-cols-[repeat(auto-fill,minmax(300px,1fr))]'
+						}`}
+						<div class="h-full overflow-y-auto p-4">
+							{#if partitioned.modes.length === 0}
+								<div class={gridClass} role="list" aria-label="Recipe catalog">
+									{#each filteredRecipes as recipe (recipe.id)}
+										<RecipeCard
+											{recipe}
+											readiness={readinessFor(recipe.id)}
+											dense={$libraryCardDensity === 'compact'}
+											onOpen={openRecipe}
+										/>
+									{/each}
+								</div>
+							{:else}
+								<h3 class="mb-2 font-mono text-sm uppercase tracking-[0.07em] text-fg-subtle" data-recipe-group="modes">Modes</h3>
+								<div class={gridClass} role="list" aria-label="Mode recipes">
+									{#each partitioned.modes as recipe (recipe.id)}
+										<RecipeCard
+											{recipe}
+											readiness={readinessFor(recipe.id)}
+											dense={$libraryCardDensity === 'compact'}
+											onOpen={openRecipe}
+											onInstallModes={(id) => void installModes(id)}
+										/>
+									{/each}
+								</div>
+								{#if partitioned.starters.length > 0}
+									<h3 class="mb-2 mt-6 font-mono text-sm uppercase tracking-[0.07em] text-fg-subtle" data-recipe-group="starters">Starters</h3>
+									<div class={gridClass} role="list" aria-label="Recipe catalog">
+										{#each partitioned.starters as recipe (recipe.id)}
+											<RecipeCard
+												{recipe}
+												readiness={readinessFor(recipe.id)}
+												dense={$libraryCardDensity === 'compact'}
+												onOpen={openRecipe}
+											/>
+										{/each}
+									</div>
+								{/if}
+							{/if}
 						</div>
-					</div>
 				{/if}
 			</LibraryShell>
+		</div>
 	</div>
-</div>
+
+	{#if previewOpen && selectedRecipe}
+		<RecipePlanPreview recipeId={selectedRecipe.id} recipeName={selectedRecipe.name} onClose={() => (previewOpen = false)} />
+	{/if}
+
+	{#if removeTarget && selectedRecipe}
+		<ModeRemoveModal
+			recipeId={selectedRecipe.id}
+			modeId={removeTarget.id}
+			modeLabel={removeTarget.label}
+			onClose={() => (removeTarget = null)}
+			onRemoved={handleModesRemoved}
+		/>
+	{/if}

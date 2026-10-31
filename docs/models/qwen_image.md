@@ -33,6 +33,12 @@ The text encoder is Qwen2.5-VL-7B. The VAE is the Wan 2.1 causal-3D VAE, with pe
 
 The shipped Qwen-Image preset ships `txt2img`, `img2img`, `edit`, `camera` and `real`.
 
+### Picture layout in edit modes
+
+`edit`, `real` and `camera` read the source picture through the Qwen2.5-VL vision tower, and the layout follows the loaded checkpoint. The Edit-Plus releases (2509 and 2511) get the layout they were trained with (diffusers `QwenImageEditPlusPipeline`, ComfyUI `TextEncodeQwenImageEditPlus`): the instruction reads `Picture 1: <image>` and the picture the vision tower sees is box-filtered to at most 384 x 384 pixels in area. The original Qwen-Image-Edit release keeps its single-image layout, with no label and the picture at full size. The reference latent the DiT edits stays at about 1 MP either way. For a 1200 x 1500 photo the vision tower sees about 2,300 tokens in the single-image layout and 180 in the Plus layout.
+
+2511 is recognised by its timestep-zero marker. 2508 and 2509 share every key and shape, so the original release is recognised by the values of its `proj_out` bias, cast to fp8 e4m3 and hashed so that bf16, fp16, fp32 and fp8 copies all match. Every other checkpoint gets the Plus layout. A mode can override either half with `picture_labels` and `grounding_area` on `prompt_encoder`.
+
 ### Camera angle
 
 `camera` shows the same picture from another viewpoint. It is an `edit` run (the 2511 edit checkpoint with the vision tower loaded) with the fal Multiple-Angles LoRA applied, trained on 3,000+ Gaussian Splat renders over 96 camera positions. The mode is promptless: its three dials compose the LoRA trigger `<sks> [azimuth] [elevation] [distance]` and nothing the user types reaches the model.
@@ -41,9 +47,7 @@ The shipped Qwen-Image preset ships `txt2img`, `img2img`, `edit`, `camera` and `
 - **Tilt** -30, 0, 30 or 60 degrees (low-angle, eye-level, elevated, high-angle).
 - **Zoom** close-up, medium shot or wide shot.
 
-The LoRA is a required `camera_lora` model field with a pinned recommendation (`qwen-image-edit-2511-multiple-angles-lora.safetensors`, 281.5 MB, Apache-2.0) and loads first, at the **Angle strength** (Advanced, default 0.9, range 0 to 2; the card recommends 0.8 to 1.0, and 0 runs the mode with the LoRA off). Any LoRAs picked on the LoRA tab load after it.
-
-The picture reaches the text encoder in the Qwen-Image-Edit-Plus layout the LoRA was trained with (diffusers `QwenImageEditPlusPipeline`, ComfyUI `TextEncodeQwenImageEditPlus`): the instruction reads `Picture 1: <image>` before the trigger, and the image the vision tower sees is box-filtered down to at most 384 x 384 pixels in area (`picture_labels`, `grounding_area: 147456` on `prompt_encoder`). The reference latent the DiT edits stays at about 1 MP. The `edit` and `real` modes still send the full-size picture with no label: about 2,300 vision tokens for a 1200 x 1500 photo, against 180 in this layout. Only the 2511 checkpoints are recommended: the LoRA was trained on 2511, and dx8152's 2509 Multiple-angles LoRA uses free-text camera commands instead of this trigger, so it is not wired here.
+The LoRA is a required `camera_lora` model field with a pinned recommendation (`qwen-image-edit-2511-multiple-angles-lora.safetensors`, 281.5 MB, Apache-2.0) and loads first, at the **Angle strength** (Advanced, default 0.9, range 0 to 2; the card recommends 0.8 to 1.0, and 0 runs the mode with the LoRA off). Any LoRAs picked on the LoRA tab load after it. Only the 2511 checkpoints are recommended: the LoRA was trained on 2511, and dx8152's 2509 Multiple-angles LoRA uses free-text camera commands instead of this trigger, so it is not wired here.
 
 **Why not Qwen-Image 2.1.** Both multi-angle LoRAs target the dual-stream layout (60 blocks, width 3072, `add_*_proj` and `txt_mlp` keys). The 2.1 DiT is single-stream with 32 blocks of width 4096. Mapping the real safetensors headers onto a meta-device 2.1 DiT matched 0 of 840 (fal) and 0 of 720 (dx8152) LoRA modules, and the same headers matched all of them on the Qwen-Image DiT.
 

@@ -108,3 +108,34 @@ def test_the_edit_plus_options_are_part_of_the_cache_key():
         for extra in ({}, {"picture_labels": True}, {"grounding_area": 147456})
     }
     assert len(keys) == 3
+
+
+PLUS = {"picture_labels": True, "grounding_area": 147456}
+
+
+def test_the_model_layout_applies_when_the_mode_sets_nothing():
+    fake = _OptionRecordingEncoder()
+    enc = QwenClipTextEncoder(fake, device="cpu", vision_layout=PLUS)
+    enc.encode_prompt("turn it", "", images=[torch.rand(4, 4, 3)])
+    assert fake.options == [PLUS, PLUS]
+
+
+def test_a_mode_can_switch_the_model_layout_off():
+    fake = _OptionRecordingEncoder()
+    enc = QwenClipTextEncoder(fake, device="cpu", vision_layout=PLUS)
+    enc.encode_prompt("turn it", "", images=[torch.rand(4, 4, 3)], picture_labels=False, grounding_area=0)
+    assert fake.options == [{}, {}]
+
+
+def test_a_mode_can_switch_one_part_of_the_model_layout_off():
+    fake = _OptionRecordingEncoder()
+    enc = QwenClipTextEncoder(fake, device="cpu", vision_layout=PLUS)
+    enc.encode_prompt("turn it", "", images=[torch.rand(4, 4, 3)], picture_labels=False)
+    assert fake.options == [{"grounding_area": 147456}] * 2
+
+
+def test_the_model_layout_is_part_of_the_cache_key():
+    request = {"prompt": "turn it", "negative_prompt": "", "images": [torch.rand(4, 4, 3)]}
+    plain = QwenClipTextEncoder(_FakeEncoder(), device="cpu", model_fingerprint="qwen-te")
+    plus = QwenClipTextEncoder(_FakeEncoder(), device="cpu", model_fingerprint="qwen-te", vision_layout=PLUS)
+    assert plain._encode_fn_and_key(request)[1] != plus._encode_fn_and_key(request)[1]

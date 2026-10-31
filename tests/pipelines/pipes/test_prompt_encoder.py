@@ -141,6 +141,12 @@ class TestPictureLabelsThreadedToClip:
         pipe.process(PipeInput(input={"text_encoder": clip, "image": ["IMG"]}), lambda o: None)
         assert all(r["picture_labels"] is True and r["grounding_area"] == 147456 for r in clip.requests)
 
+    def test_explicit_off_values_reach_the_clip_so_a_mode_can_override_the_model(self):
+        clip = _FakeClip()
+        pipe = PromptEncoderPipe(config=_config(picture_labels=False, grounding_area=0))
+        pipe.process(PipeInput(input={"text_encoder": clip, "image": ["IMG"]}), lambda o: None)
+        assert clip.requests[0]["picture_labels"] is False and clip.requests[0]["grounding_area"] == 0
+
     def test_they_are_declared_config_keys(self):
         keys = {spec.name for spec in PromptEncoderPipe.configuration()}
         assert {"picture_labels", "grounding_area"} <= keys

@@ -11,7 +11,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import torch
+
 from src.pipelines.contracts import PipeInput
+from src.pipelines.pipes.model_loader.qwen import edit_layout
 from src.pipelines.pipes.model_loader.qwen.main import ModelLoaderQwenPipe
 
 
@@ -126,3 +129,43 @@ def test_runs_without_models_service():
     # would touch disk, so we only assert the branch is reachable by checking the
     # describe/progress path does not require MODELS.
     assert pipe.describe_models()  # metadata built from config, no I/O
+
+
+class _DitModels(_FakeModels):
+    def __init__(self, dit_module):
+        super().__init__()
+        self.dit_module = dit_module
+
+    def acquire(self, key, fingerprint, loader, estimated_vram_gb=None):
+        model = super().acquire(key, fingerprint, loader, estimated_vram_gb)
+        if key.startswith("native/dit/"):
+            model.module = self.dit_module
+        return model
+
+
+def _edit_dit(ref_method, bias):
+    return SimpleNamespace(config=SimpleNamespace(default_ref_method=ref_method), proj_out=SimpleNamespace(bias=bias))
+
+
+def _layout(dit_module, **over):
+    out = ModelLoaderQwenPipe(config=_config(**over)).process(
+        PipeInput(input={"MODELS": _DitModels(dit_module)}), lambda o: None,
+    )
+    return out.output["text_encoder"].vision_layout
+
+
+def test_an_edit_load_hands_the_clip_the_plus_layout_of_a_2511_checkpoint():
+    dit = _edit_dit("index_timestep_zero", torch.zeros(64, dtype=torch.bfloat16))
+    assert _layout(dit, vision=True) == {"picture_labels": True, "grounding_area": 147456}
+
+
+def test_an_edit_load_of_the_original_release_keeps_the_single_image_layout(monkeypatch):
+    bias = torch.linspace(-0.1, 0.1, 64).to(torch.bfloat16)
+    dit = _edit_dit("index", bias)
+    monkeypatch.setattr(edit_layout, "ORIGINAL_EDIT_PROJ_OUT_BIAS", frozenset({edit_layout.proj_out_bias_digest(dit)}))
+    assert _layout(dit, vision=True) == {}
+
+
+def test_a_text_only_load_hands_the_clip_no_layout():
+    dit = _edit_dit("index_timestep_zero", torch.zeros(64, dtype=torch.bfloat16))
+    assert _layout(dit) == {}

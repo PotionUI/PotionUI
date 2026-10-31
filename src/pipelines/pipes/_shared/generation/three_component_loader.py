@@ -135,6 +135,9 @@ class ThreeComponentLoaderPipe(BaseModelLoaderPipe):
     def _vision(self) -> bool:
         return bool(self.config.get("vision", False))
 
+    def _clip_kwargs(self, dit_model: NativeModel) -> Dict[str, Any]:
+        return {}
+
     def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
         self.validate()
         generation_outputs(ModelsGenerationOutput(models=self.describe_models()))
@@ -181,7 +184,9 @@ class ThreeComponentLoaderPipe(BaseModelLoaderPipe):
                 "model": self.bundle_cls(
                     dit=dit_model, te=te_model, vae=vae_model, te_cache_key=te_key, windowed_loras=windowed,
                 ),
-                "text_encoder": self.clip_cls(te_model.module, device=device, model_fingerprint=clip_fp),
+                "text_encoder": self.clip_cls(
+                    te_model.module, device=device, model_fingerprint=clip_fp, **self._clip_kwargs(dit_model),
+                ),
             })
 
         vae_model = lifecycle.acquire(vae)
@@ -196,7 +201,7 @@ class ThreeComponentLoaderPipe(BaseModelLoaderPipe):
         )
         clip = self.clip_cls(
             device=device, model_fingerprint=clip_fp,
-            te_loader=lifecycle.deferred_module(te),
+            te_loader=lifecycle.deferred_module(te), **self._clip_kwargs(dit_model),
         )
         return PipeOutput(output={"model": bundle, "text_encoder": clip})
 

@@ -1576,6 +1576,7 @@ Native MiniMax-H3 t2va/fl2va video+audio generator
 | `source_frame_count` | `INT` | no | no | Original (pre-temporal-padding) frame count of a refine's source clip, from the upstream latent_upscaler's own 'source_frame_count' output -- used to trim the padded duplicate tail frames from this pipe's decoded output before mux. Absent -> no trim |
 | `audio` | `AUDIO` | no | yes | User audio track (audio_source=file/passthrough) |
 | `source_video` | `VIDEO` | no | yes | The video 'source_video_role' extends. Fitted onto the canvas and resampled to 24 fps; its own audio, when it has any, feeds a 'continue' window's condition audio |
+| `control_video` | `VIDEO` | no | yes | Control (pose/depth/edge) video for the Fun ControlNet patch loaded with the DiT. Resampled to 24 fps and fitted onto the canvas; works together with keyframe images and ref2va references |
 | `seed` | `SEED` | no | yes | Random seeds |
 | `MODELS` | `SERVICE` | no | no | Model lifecycle service, to release the idle TE's host RAM |
 
@@ -1607,6 +1608,11 @@ Native MiniMax-H3 t2va/fl2va video+audio generator
 | `keyframe_anchors` | `list` | `[]` | no | — | — | — | Which end of the video each 'image' input anchors, positional with it: ['first'], ['last'] or ['first','last'] (fl2va). Empty with images present = image[0] as first frame, image[1] (if any) as last frame; empty with no images = t2va |
 | `audio_source` | `str` | `"generate"` | no | `generate`, `file`, `passthrough`, `reference_video` | — | — | Audio track source: generate (decode the jointly-sampled audio latents -- MiniMax-H3 always samples an audio stream, this only picks what the FINAL muxed track is), file (mux the user-supplied audio input instead), or passthrough (mux an already-decoded track from this pipe's own prior 'audio' output, e.g. a future refine stage), or reference_video (mux the first reference video's own soundtrack, e.g. keeping the original sound of a re-performed clip) |
 | `audio_refine` | `str` | `"lock"` | no | `lock`, `resample` | — | — | How a refine ('initial_latent' connected) treats the audio stream. 'lock' (default) keeps stage 1's audio and lip-sync fixed: the audio rows are seeded from 'initial_audio_latent' at a fixed near-clean timestep and held there for every step, never resampled. 'resample' lets the refine touch the audio too, the same way it touches video: the audio rows are noised to the truncated schedule's own first kept sigma and sampled normally. Only has an effect on a refine; a fresh generation ignores it. |
+| `control_context_scale` | `float` | `1.0` | no | — | 0.0 | 2.0 | Fun ControlNet strength when a 'control_video' is connected: 1 follows it fully, lower follows it more loosely, 0 switches the control branch off |
+| `control_start` | `float` | `0.0` | no | — | 0.0 | 1.0 | Fraction of the sampling steps at which the Fun ControlNet starts acting |
+| `control_end` | `float` | `1.0` | no | — | 0.0 | 1.0 | Fraction of the sampling steps at which the Fun ControlNet stops acting |
+| `control_hint_rows` | `str` | `"trained"` | no | `trained`, `non_audio` | — | — | Which rows of the packed sequence receive the control hints: 'trained' (text and generated video rows, what the branch was trained on) or 'non_audio' (also keyframe and reference rows) |
+| `control_length_from_video` | `bool` | `true` | no | — | — | — | With a 'control_video', take the clip length from it (snapped down to 17n+5 frames at 24 fps, at most 15 s) instead of 'frames' |
 | `decode` | `bool` | `true` | no | — | — | — | Decode to video; set false to emit the raw latent instead (audio is still decoded/populated either way) |
 | `decode_tile_px` | `int` | `256` | no | `0`, `256`, `512` | — | — | Spatial tile size the video VAE decodes in. 256 is the reference implementation's own tile and the only value whose frames match a reference decode exactly; 512 blends at half as many seams and 0 decodes each temporal chunk whole, both of which cost more VRAM per forward. How many tiles run as ONE batched forward is not this knob: that is sized to the free VRAM at decode time. |
 | `step_cache_threshold` | `float` | `0.0` | no | — | 0.0 | 1.0 | FBCache step-skipping: relative-change threshold below which the whole transformer forward is skipped and the previous step's output reused. 0.0 (default) is off; ~0.08 is a conservative starting point, ~0.15 more aggressive. Only pays off on runs of 15+ steps. |
@@ -2164,6 +2170,7 @@ Load a native MiniMax-H3 checkpoint set (DiT + Qwen3-VL-32B TE + video VAE + aud
 | `upscale_model` | `dict` | — | no | — | — | — | Optional MiniMax-H3 3D latent-upscaler checkpoint |
 | `loras` | `list` | `[]` | no | — | — | — | DiT LoRAs |
 | `vdn_module` | `dict` | — | no | — | — | — | Video-DeltaNet linear branch to attach to the DiT (turbo hybrid attention) |
+| `control_module` | `dict` | — | no | — | — | — | Pruned MiniMax-H3 Fun ControlNet Union patch (Comfy-Org model_patches) to attach to the DiT |
 | `dense_time_embedder` | `dict` | — | no | — | — | — | Full-checkpoint time_embedder tensors, needed only to translate an adapter's AdaLN rows onto a pruned DiT |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `dtype` | `str` | `"bfloat16"` | no | `bfloat16`, `float16`, `float32` | — | — | Compute dtype |

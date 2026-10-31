@@ -149,6 +149,20 @@ Limitations, all of them structural rather than provisional:
 
 Licensing is unchanged and covers the variant: OpenVDN's code is Apache-2.0, but the weights it redistributes and the branch and adapters trained on top of them are under the MiniMax H3 Community License, with the same territorial exclusion (EU, UK, US, South Korea) reaching the outputs as well as the weights.
 
+## Fun ControlNet (control video)
+
+The DiT can carry Alibaba PAI's MiniMax-H3 Fun ControlNet Union as a model patch, loaded by `model_loader/minimax_h3` through its `control_module` setting and fed by the generator's `control_video` input. A control video (a DWPose skeleton, depth, canny, HED, MLSD, scribble, layout or gray render) steers the movement and layout of the generated video while the soundtrack still follows the prompt: the patch never reaches the audio rows.
+
+**Files.** Only the pruned Comfy-Org repack fits a pruned DiT: `minimax_h3_fun_controlnet_union_2.0_pruned_bf16.safetensors` (8.4 GB) or `..._pruned_int8_convrot.safetensors` (4.5 GB), both under `model_patches/` in `Comfy-Org/MiniMax-H3`, plus the older 5-block v1 pair. Their AdaLN projections are rank-8 bases that read the pruned DiT's own timestep curve. Alibaba's original file needs the 33B full DiT's `time_embedder` and is refused with a pointer to the pruned patch. Detection is by block count (5 = v1, 10 = 2.0) and the file's `control_blocks_places` / `inpaint_masked_pixel_mode` metadata; a count, places or pixel-mode mismatch is rejected rather than loaded.
+
+**How it runs.** A parallel stack of control blocks (one per injection layer: `0,5,...,45` for 2.0, `0,10,...,40` for v1) runs over the same packed sequence, with the control latents in place of the generated video rows. Each control block's output goes through a zero-gated projection and is added to the main block at its layer. The control stack is interleaved with the main stack, so only one hint is alive at a time and a first-block-cache skip also skips the remaining control blocks. Control blocks always use dense attention.
+
+**Rows.** `control_hint_rows="trained"` (default) adds hints to the text and generated video rows, the rows the branch was trained on. `"non_audio"` also adds them to keyframe and reference rows. Audio rows never get hints. The branch was trained on text-to-video only, so combining it with a first-frame keyframe or `ref2va` references is supported but not validated upstream.
+
+**Length and canvas.** The clip follows the control video: its frames at 24 fps, snapped down to `17n + 5`, at most 15 s; `resolution: auto` takes the canvas aspect from it. `control_length_from_video: false` keeps `frames` instead. The control video is encoded once per request with the posterior mode, and its rows are zero-padded over the inpaint columns (motion transfer needs no mask).
+
+**Strength.** `control_context_scale` is 1.0 upstream (strongest), lower follows the control loosely, 0 switches the branch off bit-exactly. `control_start` / `control_end` limit the steps (as a fraction of the sampling) on which the hints are added. Upstream samples at 40 steps with guidance 1; whether the Turbo and FastH3 step counts hold is not established.
+
 ## Limitations
 
 - **The weights are territorially restricted.** MiniMax-H3's weights are published under the MiniMax H3 Community License, not an open-source license. Its Applicable Territory excludes the European Union, the United Kingdom, the United States and the Republic of Korea, and the exclusion extends to the model's outputs; use in those territories requires an individual authorization from MiniMax (https://platform.minimax.io/h3-license). The license additionally requires separate written authorization above US$20M annual revenue, and requires a commercial product's interface to display "MiniMax H3" prominently. PotionUI ships no H3 weights. The architecture implementation is ported from the Apache-2.0 diffusers source, which carries none of these terms.

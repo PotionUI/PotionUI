@@ -102,4 +102,6 @@ modes:
   - txt2img
   - img2img
   - enhance
+  - inpaint
+  - outpaint
   - control

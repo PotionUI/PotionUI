@@ -70,7 +70,7 @@ def _generator(pipes):
 
 
 def test_the_modes_are_declared(template):
-    assert list(template.modes.keys()) == ["txt2img", "img2img", "enhance", "control"]
+    assert list(template.modes.keys()) == ["txt2img", "img2img", "enhance", "inpaint", "outpaint", "control"]
 
 
 def test_txt2img_is_untouched(template):

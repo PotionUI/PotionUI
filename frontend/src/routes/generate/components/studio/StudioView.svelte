@@ -16,6 +16,7 @@
 	import StudioPromptSheet from './StudioPromptSheet.svelte';
 	import StudioSettingsSheet from './StudioSettingsSheet.svelte';
 	import StudioPresetSessionSheet from './StudioPresetSessionSheet.svelte';
+	import GenerationFormSeed from '../GenerationFormSeed.svelte';
 	import { chatPanelStore } from '$lib/stores/chatPanel';
 	import { modeLabel as resolveModeLabel } from '$lib/utils/modeLabel.svelte';
 
@@ -109,6 +110,10 @@
 		{onMoveToWorkbench}
 	/>
 </div>
+
+{#if openSheet !== 'settings'}
+	<GenerationFormSeed {tab} {videoDirectorActive} {onFormDataChange} />
+{/if}
 
 {#if openSheet === 'prompt'}
 	<StudioPromptSheet

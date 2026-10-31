@@ -644,6 +644,17 @@ def test_match_video_on_a_refine_takes_size_from_the_latent_and_fps_from_the_cli
     assert (ctx.extra.width, ctx.extra.height, ctx.extra.frames, ctx.extra.fps) == (192, 128, 9, 8.0)
 
 
+def test_a_refine_that_drops_the_reference_keeps_the_stage_one_size_under_match_video(tmp_path):
+    clip = _reference_clip(tmp_path, n_frames=12, size=64)
+    cfg = _pipe(resolution="768x512", frames=121, fps=25.0, match_video=True, refine_sigmas="0.4, 0.0",
+                refine_reference=False, media_placements=[{"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}])
+    pipe_input = _pipe_input(videos=[str(clip)])
+    pipe_input.input["initial_latent"] = [torch.zeros(1, 128, 2, 4, 6)]
+    ctx = cfg.build_context(pipe_input)
+
+    assert (ctx.extra.width, ctx.extra.height, ctx.extra.frames) == (192, 128, 9)
+
+
 def test_match_video_off_keeps_the_configured_geometry(tmp_path):
     clip = _reference_clip(tmp_path, n_frames=12, size=64)
     cfg = _pipe(resolution="128x128", frames=17, fps=25.0, media_placements=[{"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}])

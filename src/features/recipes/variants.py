@@ -76,6 +76,12 @@ def _format_gb(value: float) -> str:
 def assess_variant(variant: RecipeArtifactVariant, gpu: GpuProfile) -> VariantAssessment:
     if not gpu.has_gpu:
         return VariantAssessment(variant.id, supported=False, fast=False, recommended=False)
+    if not variant.precision:
+        matches = _rules_match(variant, gpu)
+        return VariantAssessment(
+            variant.id, supported=True, fast=False, recommended=matches,
+            note=None if matches else _rule_miss_note(variant, gpu),
+        )
     supported = gpu.supports(variant.precision)
     fast = gpu.is_fast(variant.precision)
     recommended = supported and _rules_match(variant, gpu)

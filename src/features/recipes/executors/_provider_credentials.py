@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.features.recipes.executors._async_bridge import run_sync
 
@@ -39,3 +39,41 @@ def credential_prompt_for_provider(registry: Any, provider_id: Optional[str]) ->
         "field_name": field_name,
         "configured": bool(current.get(field_name)),
     }
+
+
+def _sources(artifacts: List[Any]) -> List[str]:
+    return sorted({(a.provider_hint or {}).get("source") for a in artifacts if (a.provider_hint or {}).get("source")})
+
+
+def credential_prompts(get_registry: Callable[[], Any], artifacts: List[Any]) -> List[Dict[str, Any]]:
+    sources = _sources(artifacts)
+    if not sources:
+        return []
+    registry = get_registry()
+    if registry is None:
+        return []
+    prompts = []
+    for source in sources:
+        info = credential_prompt_for_provider(registry, source)
+        if info and not info["configured"]:
+            prompts.append(info)
+    return prompts
+
+
+def gated_warnings(get_registry: Callable[[], Any], artifacts: List[Any]) -> List[str]:
+    gated = [a for a in artifacts if a.gated]
+    if not gated:
+        return []
+    registry = get_registry()
+    if registry is None:
+        return []
+    warnings: List[str] = []
+    for artifact in gated:
+        info = credential_prompt_for_provider(registry, (artifact.provider_hint or {}).get("source"))
+        if not info or info["configured"]:
+            continue
+        sentence = f"{artifact.display_name or artifact.filename} is gated on {info['name']}: accept the licence"
+        if artifact.license_url:
+            sentence += f" at {artifact.license_url}"
+        warnings.append(sentence + " and add your access token in Admin -> Plugins.")
+    return warnings

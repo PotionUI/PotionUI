@@ -191,7 +191,7 @@ def test_no_plugin_registry_skips_contributions_without_error(tmp_path):
 # --- collisions ---------------------------------------------------------------
 
 
-def test_contribution_colliding_with_core_mode_is_rejected_core_stays_intact(tmp_path):
+def test_contribution_colliding_with_core_mode_is_rejected_core_stays_intact(tmp_path, caplog):
     core_root = tmp_path / "presets"
     _write_preset(core_root, "target-preset", ["txt2img"])
     plugin_dir = tmp_path / "plugin"
@@ -203,8 +203,11 @@ def test_contribution_colliding_with_core_mode_is_rejected_core_stays_intact(tmp
     manifest = _manifest("some-plugin", plugin_dir, [{"target": "target-preset", "modes_root": "contributed"}])
 
     loader = PresetTemplateLoader([str(core_root)], plugin_registry=_registry([manifest]))
-    loader.load_presets()
+    with caplog.at_level("WARNING"):
+        loader.load_presets()
 
+    assert any("some-plugin" in r.getMessage() and "txt2img" in r.getMessage() and "collides" in r.getMessage()
+               for r in caplog.records)
     target = next(p for p in loader.presets if p.id == "target-preset")
     assert target.modes["txt2img"].source_plugin is None  # core mode untouched
     assert any("some-plugin" in key for key in loader.load_errors)
@@ -388,10 +391,10 @@ def test_contribution_with_unrecognized_at_directive_is_rejected(tmp_path):
 NATIVE_KREA2_PRESET_ID = "4TK1KBQZ2XMB8ME0PTMXS1YJQP"
 
 
-def test_krea2_edit_mode_absent_when_plugin_disabled():
+def test_krea2_edit_is_a_core_mode_without_any_plugin():
     loader = PresetTemplateLoader(["content/presets"], plugin_registry=_registry([]))
     loader.load_presets()
 
     krea2 = next(p for p in loader.presets if p.id == NATIVE_KREA2_PRESET_ID)
-    assert "edit" not in krea2.modes
-    assert set(krea2.modes.keys()) == {"txt2img", "enhance"}
+    assert sorted(krea2.modes) == ["edit", "enhance", "real", "txt2img", "upscale"]
+    assert krea2.modes["edit"].source_plugin is None

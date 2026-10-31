@@ -183,9 +183,21 @@
     "label": "Motion Transfer",
     "icon": "mode-control"
   },
+  "follow_motion": {
+    "label": "Follow Motion",
+    "icon": "mode-follow-motion"
+  },
   "cinemagraph": {
     "label": "Cinemagraph",
     "icon": "mode-cinemagraph"
+  },
+  "transition": {
+    "label": "Transition",
+    "icon": "mode-transition"
+  },
+  "transparent_video": {
+    "label": "Transparent Video",
+    "icon": "mode-transparent"
   },
   "extend": {
     "label": "Extend",
@@ -202,5 +214,17 @@
   "talk": {
     "label": "Talking Video",
     "icon": "mode-talk"
+  },
+  "camera": {
+    "label": "Camera Angle",
+    "icon": "mode-camera"
+  },
+  "real": {
+    "label": "Make It Real",
+    "icon": "mode-real"
+  },
+  "long": {
+    "label": "Long Video",
+    "icon": "mode-long"
   }
 }

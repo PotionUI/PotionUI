@@ -155,3 +155,40 @@ def test_image_cache_key_none_without_model_fingerprint():
     # disabled (prompt_embed_key returns None), matching the no-image path.
     cond = enc.encode_prompt("edit it", "", images=[torch.rand(4, 4, 3)], do_classifier_free_guidance=False)
     assert isinstance(cond, ConditioningModel)
+
+
+class _VisionOptionSpy(_FakeQwen3VL):
+    def __init__(self):
+        super().__init__()
+        self.option_calls: list[dict] = []
+
+    def encode(self, texts, images=None, grounding_px=768, system_prompt=None, **options):
+        self.option_calls.append(options)
+        return super().encode(texts, images=images, grounding_px=grounding_px, system_prompt=system_prompt)
+
+
+def test_picture_labels_and_grounding_area_reach_the_encoder_only_when_set():
+    spy = _VisionOptionSpy()
+    enc = Krea2ClipTextEncoder(spy, device="cpu")
+    img = torch.rand(8, 8, 3)
+
+    enc.encode_prompt("edit it", "", images=[img], do_classifier_free_guidance=False)
+    enc.encode_prompt(
+        "edit it", "", images=[img], do_classifier_free_guidance=False,
+        picture_labels=True, grounding_area=147456,
+    )
+
+    assert spy.option_calls == [{}, {"picture_labels": True, "grounding_area": 147456}]
+
+
+def test_image_cache_key_differs_for_picture_labels_and_grounding_area(monkeypatch):
+    calls = _spy_on_prompt_embed_key(monkeypatch)
+    enc = Krea2ClipTextEncoder(_VisionOptionSpy(), device="cpu", model_fingerprint="fp")
+    same_img = torch.rand(4, 4, 3)
+    plain = {"images": [same_img], "do_classifier_free_guidance": False}
+
+    enc.encode_prompt("edit it", "", **plain)
+    enc.encode_prompt("edit it", "", picture_labels=True, **plain)
+    enc.encode_prompt("edit it", "", grounding_area=147456, **plain)
+
+    assert len({calls[0], calls[1], calls[2]}) == 3

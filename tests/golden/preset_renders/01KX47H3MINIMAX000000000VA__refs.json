@@ -217,6 +217,7 @@
                 "golden positive prompt"
               ]
             ],
+            [],
             [
               "steps",
               4
@@ -308,6 +309,10 @@
         "resolution": {
           "type": "str",
           "value": "1344x768"
+        },
+        "runtime_loras": {
+          "type": "list",
+          "value": []
         },
         "sampler": {
           "type": "str",

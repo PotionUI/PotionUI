@@ -1,0 +1,60 @@
+fields:
+  - type: "section"
+    label: "Image"
+    children:
+      - name: "source_image"
+        type: "image"
+        label: "Image"
+        required: true
+        ai_hint: "The picture to start from. The result keeps its shape and colors as far as the strength allows and follows the prompt for the rest."
+
+      - name: "denoise"
+        type: "slider"
+        formula: "speed"
+        label: "Strength"
+        default: 0.6
+        ai_hint: "How far the result may move away from your picture. 0.3 changes finish and details, 0.6 changes style and mood, 0.9 keeps only the rough layout."
+        configuration: { min: 0.05, max: 1.0, step: 0.05 }
+
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            width: "2/5"
+            full_width: true
+            configuration: { min: 1, max: 30, step: 1 }
+
+      - name: "max_pixels"
+        type: "select"
+        formula: "size"
+        label: "Working size"
+        default: 1048576
+        ai_hint: "SDXL works best around 1 megapixel. A bigger picture is shrunk to fit before it is repainted; Original size keeps it as it is and needs much more memory."
+        configuration:
+          options:
+            - { label: "Up to 1 megapixel", value: 1048576 }
+            - { label: "Up to 2 megapixels", value: 2097152 }
+            - { label: "Up to 4 megapixels", value: 4194304 }
+            - { label: "Original size", value: 0 }
+
+  - type: "section"
+    label: "Model"
+    formula: "models"
+    children:
+      - name: "model"
+        type: "model"
+        label: "Model"
+        required: true
+        ai_hint: "The checkpoint that repaints the picture. Illustrious, Pony and NoobAI checkpoints all work; the model decides the look."
+        configuration:
+          model_type: "checkpoint"
+          allow_info_modal: true
+          placeholder: "Select model..."
+          filter_tags: "@config:checkpoint_tags"

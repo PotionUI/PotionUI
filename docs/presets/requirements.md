@@ -56,7 +56,8 @@ Core ships five types (`src/features/presets/requirements/builtin.py`): `binary`
 or the first of `names:` found), `python_package` (`importlib.metadata` + a PEP 440 `version:`
 specifier), `model` (a tag name, exact sha256, exact filename, or — in a mode's `form.yml` — a `field:` or
 `any_of:` naming that mode's model fields, satisfied by any of their recommendations present in the
-depot, matched by name, case-insensitively, then by sha256; a missing mode-scoped `model` entry offers
+depot, matched by name, case-insensitively, then by sha256, or by an admin form-override default for that field
+that points at an available file; a missing mode-scoped `model` entry offers
 the `install_mode` action when the preset has an "Install modes" recipe — `tag:` matches
 the same admin `Tag` concept a `configuration: {type: model_tags}` picker filter already uses, not
 a marketplace-specific id), `vram_min_gb` (the resolved backend's physical VRAM total — see below),

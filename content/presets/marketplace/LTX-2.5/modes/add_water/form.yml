@@ -10,7 +10,7 @@ negative_prompt:
       - { field: "cfg", greater_than: 1 }
 requirements:
   - type: "model"
-    filename: "ltx-2.5-22b-ic-lora-water-simulation-0.9.safetensors"
+    field: "effect_lora"
     hint: "Download the Add water LoRA in this mode."
 fields:
   - type: "tabs"

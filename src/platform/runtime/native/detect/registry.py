@@ -582,6 +582,7 @@ _VENDORED_SPECS: list[ModelSpec] = [
         variant="z_image",
         signature={"image_model": "lumina2", "z_image_modulation": True},
         model_class="src.platform.runtime.native.arch.z_image.model:ZImageDiT",
+        model_patch_map="src.platform.runtime.native.arch.z_image.control:attach_fun_control",
         sampling_settings={
             "prediction": "const",          # flow-matching CONST velocity
             "shift": 3.0,                   # ComfyUI ZImage sampling_settings

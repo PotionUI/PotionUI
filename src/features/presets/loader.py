@@ -157,7 +157,7 @@ def discover_form_variants(mode_dir: Path) -> List[Tuple[str, Path]]:
 
 def _mode_scoped_requirements(mode_name: str, mode_template: ModeTemplate) -> List[Dict[str, Any]]:
     return [
-        {**resolve_requirement_fields(spec, mode_template), "mode": mode_name}
+        {**resolve_requirement_fields(spec, mode_template, mode_name), "mode": mode_name}
         for form in mode_template.forms
         for spec in form.requirements
     ]
@@ -926,6 +926,10 @@ class PresetTemplateLoader:
 
                 existing = target.modes.get(mode_name)
                 if existing is not None and existing.source_plugin is None:
+                    logger.warning(
+                        f"Plugin '{contribution.plugin_id}' mode '{mode_name}' collides with the core mode of "
+                        f"preset '{contribution.target_preset_id}' - skipping the plugin's mode"
+                    )
                     errors.setdefault(error_key, []).append(
                         f"collides with a core mode already declared by preset "
                         f"'{contribution.target_preset_id}' - the core mode wins, "

@@ -1,0 +1,55 @@
+fields:
+  - type: "section"
+    label: "Tiles"
+    formula: "enhance"
+    children:
+      - name: "tile_size"
+        type: "slider"
+        label: "Tile size"
+        audience: "advanced"
+        default: 1024
+        configuration:
+          min: 512
+          max: 2048
+          step: 128
+        ai_hint: "Working size of one tile in pixels. Peak memory is set by one tile, not by the output size, so a smaller tile lowers memory use on large upscales."
+
+      - name: "tile_overlap"
+        type: "slider"
+        label: "Tile overlap"
+        audience: "advanced"
+        default: 128
+        configuration:
+          min: 32
+          max: 384
+          step: 16
+        ai_hint: "Pixels shared between neighbouring tiles; the seam is feathered across them. More overlap hides seams and costs more tiles."
+
+      - name: "content_aware"
+        type: "checkbox"
+        label: "Calm flat areas"
+        audience: "advanced"
+        default: true
+        ai_hint: "Refines flat, low-texture tiles (sky, skin, mist) less, so they cannot grow details the prompt does not describe."
+
+  - type: "section"
+    label: "Sampling"
+    children:
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        audience: "advanced"
+        default: 8
+        configuration: {min: 1, max: 30, step: 1}
+        ai_hint: "Denoising steps of the full schedule per tile; only the tail that Added detail selects is run."
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG scale"
+        audience: "advanced"
+        default: 1.0
+        configuration:
+          min: 1.0
+          max: 8.0
+          step: 0.5
+        ai_hint: "1 = off, the turbo default. Raise it only with the raw checkpoint."

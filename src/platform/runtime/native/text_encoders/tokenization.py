@@ -74,6 +74,12 @@ QWEN3VL_MIN_LEN = 512
 QWEN3VL_VISION_MARKUP = "<|vision_start|><|image_pad|><|vision_end|>"
 
 
+def krea2vl_picture_prefix(system_prompt: str, num_images: int) -> tuple[str, str]:
+    opening = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n"
+    pictures = "".join(f"Picture {i + 1}: {QWEN3VL_VISION_MARKUP}" for i in range(num_images))
+    return opening, opening + pictures
+
+
 def krea2vl_image_prefix(system_prompt: str, num_images: int) -> str:
     """Build the system+user prefix for a vision-grounded Krea-2 encode: the
     system prompt, then one ``QWEN3VL_VISION_MARKUP`` block per image (scene
@@ -239,7 +245,7 @@ class Qwen3VLTokenizer:
 
     def tokenize_with_images(
         self, text: str, *, num_images: int, device: torch.device | str = "cpu",
-        system_prompt: str | None = None,
+        system_prompt: str | None = None, picture_labels: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, int]:
         """Vision-grounded template (Krea-2 edit mode): the system
         prompt (default :data:`KREA2VL_DEFAULT_SYSTEM_PROMPT`, overridable),
@@ -258,8 +264,13 @@ class Qwen3VLTokenizer:
         """
         if num_images < 1:
             raise ValueError("tokenize_with_images requires at least one image")
-        prefix = krea2vl_image_prefix(system_prompt or KREA2VL_DEFAULT_SYSTEM_PROMPT, num_images)
-        prefix_len = len(self._tok(prefix)["input_ids"])
+        system = system_prompt or KREA2VL_DEFAULT_SYSTEM_PROMPT
+        if picture_labels:
+            opening, prefix = krea2vl_picture_prefix(system, num_images)
+            prefix_len = len(self._tok(opening)["input_ids"])
+        else:
+            prefix = krea2vl_image_prefix(system, num_images)
+            prefix_len = len(self._tok(prefix)["input_ids"])
         ids = self._tok(prefix + text + QWEN3VL_SUFFIX)["input_ids"]
         ids_t, mask = _pad_batch([ids], QWEN3_PAD, 1, device)
         return ids_t, mask, prefix_len

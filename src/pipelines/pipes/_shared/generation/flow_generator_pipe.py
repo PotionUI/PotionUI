@@ -285,6 +285,10 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
         if img2img is not None:
             return img2img
 
+        inpaint = self.maybe_inpaint(gen, conditioning_obj, ctx, index, seed, progress)
+        if inpaint is not None:
+            return inpaint
+
         # gen.latent_shape_for is the single owner of the per-family VAE-latent
         # math (4D 8x/16x for Flux, 5D causal-3D for Qwen/Krea-2/Anima, ...).
         latents_shape = gen.latent_shape_for(width, height)

@@ -1,0 +1,6 @@
+fields:
+  - name: "source_image"
+    type: "image"
+    label: "Picture"
+    required: true
+    ai_hint: "The picture to upscale and add detail to. Describe it in the prompt for the best result."

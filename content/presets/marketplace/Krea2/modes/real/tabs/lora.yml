@@ -1,0 +1,53 @@
+fields:
+  - name: "real_lora"
+    type: "model"
+    formula: "models"
+    label: "Make it real LoRA"
+    required: true
+    configuration:
+      model_type: "lora"
+      placeholder: "Select a make-it-real LoRA..."
+      filter_tags: "@config:lora_tags"
+      recommendations:
+        - name: "Krea2_Anything2RealCharacters-V3.safetensors"
+          provider: "civitai"
+          ref: '{"model_id": "2808492", "version_id": "3256223"}'
+          size: "218 MB"
+          sha256: "6455a87697f0202c5490480a89976562ae524fb551877752bc3f5fa54e1858c7"
+          description: "Anything2RealCharacters V3: any 2D, anime or stylised picture to a photograph. Trained for Krea-2 Turbo."
+    ai_hint: "Required. An ai-toolkit edit LoRA trained to turn a picture into a photograph. Use 0.8 to 1.0; other style or character LoRAs can be stacked below."
+
+  - name: "real_lora_strength"
+    type: "slider"
+    label: "Strength"
+    default: 1.0
+    configuration:
+      min: 0.0
+      max: 2.0
+      step: 0.05
+
+  - name: "loras"
+    type: "lora_picker"
+    formula: "loras"
+    default: []
+    label: "Extra LoRAs"
+    ai_hint: "Optional Krea-2 style or character LoRAs stacked on top of the make-it-real LoRA to steer lighting and photographic style."
+    configuration:
+      model_type: "lora"
+      placeholder: "Select LoRAs..."
+      allow_info_modal: true
+      strength_min: -10.0
+      strength_max: 10.0
+      strength_step: 0.1
+      strength_default: 1.0
+      max_items: 10
+      filter_tags: "@config:lora_tags"
+      row_fields:
+        - name: "step_start"
+          type: "number"
+          label: "From step"
+          default: null
+        - name: "step_end"
+          type: "number"
+          label: "To step"
+          default: null

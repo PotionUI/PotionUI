@@ -62,3 +62,47 @@ cases:
     checks:
       min_outputs: 1
       not_black: true
+
+  - name: "qwen-image-21-turbo8-fast"
+    mode: "txt2img"
+    seed: 4242
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "a bakery storefront with a wooden sign reading \"Fresh Baked Daily\""
+      speed_profile: "turbo"
+      resolution: "1024x1024"
+    models:
+      diffusion_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      turbo_lora:
+        sha256: "a0b7a7634ff2f82ccbe209e16b0ba19b25e2d9e18624d89edc490503b6a75d39"
+        hf:
+          repo: "chriswritescode/Turbo8-LoRA-Qwen-Image-2.1"
+          file: "turbo8_lora_step2500.safetensors"
+    checks:
+      min_outputs: 1
+      resolution: "1024x1024"
+      not_black: true
+
+  - name: "qwen-image-21-inpaint-fast"
+    mode: "inpaint"
+    seed: 4242
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "a wooden bench"
+      speed_profile: "balanced"
+      denoise: 1.0
+    models:
+      diffusion_model:
+        sha256: "89f4158d066cc33906a199fca85634f766892dd78f49b6698dabf187ac86c4bc"
+      text_encoder:
+        sha256: "68bdc82bc1b66851162ae656225e7e2068166b603db19bd5d5a3b90eb12669a9"
+      vae:
+        sha256: "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9"
+    checks:
+      min_outputs: 1
+      not_black: true

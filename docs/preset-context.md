@@ -43,6 +43,18 @@ Keep the media items of one kind ('image', 'video' or 'audio') from a media fiel
 
 - `{{ form.media_inputs | default([], true) | media_of_kind('video') }}` → Only the video items of the media_inputs field
 
+**`text_or`** — `value | text_or(fallback: Any) -> Any`
+
+Trim the value and return it, or the fallback when it is None or only whitespace. Use it for a default caption instead of `value or 'default'`, which treats a prompt of spaces or newlines as a real prompt.
+
+- `{{ generation.prompts.first.positive | text_or('A cinematic shot') }}` → The trimmed prompt, or 'A cinematic shot' when it is blank
+
+**`long_video_parts`** — `total_seconds | long_video_parts(part_seconds: float, fps: int = 24, overlap_frames: int = 17) -> list`
+
+Frame count of every part of a chained long video: parts of part_seconds on the 17n+5 frame lattice, each continuing the one before with overlap_frames replayed, the last part sized to what remains. The list length is the number of parts.
+
+- `{{ 30 | long_video_parts(10, 24) | length }}` → 4
+
 **`default`** — `value | default(fallback: Any, boolean: bool = False) -> Any`
 
 Jinja's builtin default filter - the ONLY way to tolerate a missing value. The environment uses StrictUndefined, so any reference to a field/key that wasn't provided RAISES a build error unless it is guarded by `| default(...)`. Use it on every optional form field.
@@ -157,6 +169,7 @@ Shared option-file vocabulary referenced from any preset via `{{ paths._shared }
 | `content/presets/_shared/resolutions/flux.yml` | {'value': '1024x1024', 'ratio': [1, 1], 'description': 'Square', 'tier': 'Full'}; {'value': '1140x1472', 'ratio': [5, 6], 'description': 'Portrait', 'tier': 'Full'}; {'value': '1472x1140', 'ratio': [6, 5], 'description': 'Landscape', 'tier': 'Full'} |
 | `content/presets/_shared/resolutions/flux3.yml` | {'value': '1024x1024', 'ratio': [1, 1], 'description': 'Square', 'tier': 'Full'}; {'value': '1152x896', 'ratio': [9, 7], 'description': 'Landscape', 'tier': 'Full'}; {'value': '896x1152', 'ratio': [7, 9], 'description': 'Portrait', 'tier': 'Full'} |
 | `content/presets/_shared/resolutions/flux_2k.yml` | {'value': '2048x2048', 'ratio': [1, 1], 'description': 'Square 2K'}; {'value': '2560x1440', 'ratio': [16, 9], 'description': 'Widescreen 2K'}; {'value': '1440x2560', 'ratio': [9, 16], 'description': 'Vertical 2K'} |
+| `content/presets/_shared/resolutions/minimax_h3_480p.yml` | {'value': '832x480', 'ratio': [16, 9], 'description': 'Widescreen, Flex-trained 480p'}; {'value': '480x832', 'ratio': [9, 16], 'description': 'Vertical, Flex-trained 480p'}; {'value': '960x416', 'ratio': [21, 9], 'description': 'Ultrawide, Flex-trained 480p'} |
 | `content/presets/_shared/resolutions/minimax_h3_canvas.yml` | {'value': '1344x768', 'ratio': [16, 9], 'description': 'Widescreen (the released canvas)'}; {'value': '768x1344', 'ratio': [9, 16], 'description': 'Vertical'}; {'value': '1536x672', 'ratio': [16, 7], 'description': 'Ultrawide'} |
 | `content/presets/_shared/resolutions/minimax_h3_fast.yml` | {'value': '960x544', 'ratio': [30, 17], 'description': 'Widescreen, ~2.3x faster than 1344x768'}; {'value': '544x960', 'ratio': [17, 30], 'description': 'Vertical, faster'}; {'value': '832x480', 'ratio': [26, 15], 'description': 'Widescreen, ~0.4 MP'} |
 | `content/presets/_shared/resolutions/moss_image.yml` | {'value': '1024x1024', 'ratio': [1, 1], 'description': 'Square', 'tier': 'Full'}; {'value': '1152x896', 'ratio': [9, 7], 'description': 'Landscape', 'tier': 'Full'}; {'value': '896x1152', 'ratio': [7, 9], 'description': 'Portrait', 'tier': 'Full'} |

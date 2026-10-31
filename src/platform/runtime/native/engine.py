@@ -196,6 +196,10 @@ _FORWARD_KWARGS = (
     "ref_boost",
     "ref_boost_a",
     "ref_boost_mask",
+    "ref_position",
+    "ref_position_a",
+    "ref_timestep_zero",
+    "ref_isolated",
     "flow_map_target",
     "text_fusion",
 )
@@ -1535,6 +1539,7 @@ class NativeGenerator:
         warm_start: bool = False,
         schedule_settings: dict | None = None,
         sigmas: "Sequence[float] | torch.Tensor | None" = None,
+        latent_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Denoise from seeded noise to a clean latent (model-native space).
 
@@ -1592,6 +1597,8 @@ class NativeGenerator:
         which one wins, so ``denoise_strength`` is simply inert here, matching
         ``denoise()``'s own documented contract for this kwarg).
         """
+        if latent_mask is not None and init_latent is None:
+            raise ValueError("latent_mask needs an init_latent to preserve")
         opts = guidance_options or {}
         sigmas_tensor = _validate_explicit_sigmas(sigmas) if sigmas is not None else None
         effective_steps = int(sigmas_tensor.numel() - 1) if sigmas_tensor is not None else steps
@@ -1600,7 +1607,7 @@ class NativeGenerator:
         # the same DiT forward as the main image but aren't reflected in
         # `latents_shape` at all — fold them into the placement/budget headroom
         # `cond` and `uncond` always carry the same ref_latents (see
-        # qwen_clip.py / krea2-edit's own conditioning build), so cond alone is enough.
+        # qwen_clip.py), so cond alone is enough.
         ref_latents = cond_dict.get("ref_latents")
         # Resolution-aware placement drives phase residency (esp. whether the DiT
         # must be offloaded before decode to make room for the decode spike).
@@ -1685,6 +1692,7 @@ class NativeGenerator:
                     step_cache_options=step_cache_options,
                     resume=resume,
                     sigmas=sigmas_tensor,
+                    latent_mask=latent_mask,
                 )
             finally:
                 self._release_dit_after_sampling()

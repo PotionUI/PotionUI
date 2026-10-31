@@ -1,0 +1,17 @@
+fields:
+  - name: "input_video"
+    type: "video"
+    label: "Input Video"
+    required: true
+    description: "The clip to cut out. Up to about 40 seconds."
+
+  - name: "preview_over_checkerboard"
+    type: "checkbox"
+    label: "Also save a checkerboard preview"
+    default: true
+    description: "For players that cannot show transparency."
+
+  - name: "save_matte"
+    type: "checkbox"
+    label: "Also save the black and white matte"
+    default: false

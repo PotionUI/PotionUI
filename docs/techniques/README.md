@@ -50,6 +50,7 @@ complete index of every file in this directory.
 ## Sampling
 
 - [Samplers and Sigma Schedules](samplers-and-schedules.md) — every sampler algorithm and sigma schedule mode, with guidance on when to use each.
+- [Latent-Mask Inpainting](latent-mask-inpainting.md) — repaint a painted area or extend a canvas by pinning the kept latents to the source.
 - [Trajectory Warm-Start (Iterate Mode)](trajectory-warm-start.md) — resume a generation from a cached mid-trajectory latent instead of starting from noise.
 
 See [Models](../models/README.md) for per-family reference pages, each listing which techniques above apply to it.

@@ -150,7 +150,6 @@ def test_krea2_edit_generator_guidance_is_in_range(rendered_pipe_configs):
         merged for label, pipe_name, _pipe_id, _pipe_class, merged in rendered_pipe_configs
         if pipe_name == "generator/krea2_edit"
     ]
-    if not matches:
-        pytest.skip("krea2-edit plugin not present")
+    assert matches, "the Krea2 edit mode did not render a generator/krea2_edit pipe"
     for merged in matches:
         assert merged["guidance"] >= 1.0, merged["guidance"]

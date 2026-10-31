@@ -2,7 +2,7 @@
 type: model
 title: Krea-2
 family_key: krea2
-modes: [txt2img, enhance]
+modes: [txt2img, enhance, inpaint]
 spec:
   arch: Krea2 distilled turbo MMDiT (forked from diffusers' transformer_krea2, Apache-2.0)
   latent: 16-channel, Wan21-format causal-3D VAE latent (image-only, single frame)
@@ -34,7 +34,61 @@ The text encoder is Qwen3-VL-4B. The VAE is the Wan 2.1 causal-3D VAE verbatim â
 
 ## Presets & modes
 
-The shipped Krea-2 preset ships `txt2img` and `enhance`.
+The shipped Krea-2 preset ships `txt2img`, `enhance`, `upscale`, `edit`, `real` and `inpaint`.
+
+### Inpaint
+
+`inpaint` repaints a painted area of a picture with the ordinary Krea-2 weights, on any of the Turbo, Balanced, Quality and Base profiles. The generator runs `mode: "inpaint"`: the unpainted latents stay pinned to the source on every step, so only the painted area changes (see [Latent-Mask Inpainting](../techniques/latent-mask-inpainting.md)). *Grow* widens the painted area, the area is cropped with its surroundings, repainted and composited back with a *Feather* seam. The prompt is optional; blank asks for the surroundings continued. Strength 1.0 repaints from noise; lower keeps more of the old colours. It uses the plain `generator/krea2` path, not the reference-token edit pipe: no inpaint LoRA is needed, and the reference-boost mask of `edit` is not involved.
+
+### Upscale
+
+`upscale` enlarges an existing picture 2x, 3x or 4x and rebuilds its detail with Krea-2. It runs the family-agnostic `tiled_refiner` pipe: the picture is enlarged (an optional ESRGAN upscaler model, otherwise Lanczos), then each overlapping tile is refined by a low-denoise img2img pass and the seams are feathered. Peak memory is set by one tile (1024 px by default), not by the output size, so a 4x result refines in the same memory as a 1x one.
+
+`enhance` is the other way to refine an existing picture and is not replaced. It re-noises the whole enlarged frame and walks only the last 1 to 3 steps of Krea-2's fixed-mu 8-step schedule, which keeps the picture globally coherent but needs the whole frame resident and is marked experimental. Use `upscale` for large outputs, for low memory or when an ESRGAN model should do the enlargement; use `enhance` for a light single-pass refine at up to 2x.
+
+- **Added detail** is the per-tile denoise: Subtle 0.2, Balanced 0.3, Strong 0.45. **Calm flat areas** (content-aware) scales each tile's denoise by its texture so sky and skin cannot grow details the prompt does not describe.
+- The prompt is optional. Describing the picture keeps the added detail on target.
+- Turbo defaults: 8 steps, CFG 1, Euler. Tile size and overlap are in the Advanced tab.
+
+Not validated on GPU: the tail of Krea-2's distilled schedule under `tiled_refiner`'s denoise-truncated img2img is untested against real weights.
+
+### Make it real
+
+`real` turns an illustration, anime picture or 3D render into a photograph with an ai-toolkit edit LoRA. It rides `generator/krea2_edit` with `ref_style: ostris`, the reference scheme those LoRAs are trained on and the one the Edit mode's own LoRAs do not use:
+
+- the reference tokens are modulated at timestep 0 instead of the shared timestep (`ref_timestep_zero`, per-span modulation in `SingleStreamBlock`);
+- reference queries attend only to reference keys, text and target tokens attend to everything (`ref_isolated`, the additive `ref_isolation_bias`). The author's kv_cache mode computes the same thing by caching the reference K/V once; here the references are recomputed each step under the mask, which is slower but needs no cache path;
+- the instruction is encoded as `Picture N: <image>` per source with each image capped at 384 x 384 pixels in total (`picture_labels`, `grounding_area` on `prompt_encoder`), stripping only the system and user opening;
+- each reference is fit by area to at most 1 MP, snapped to 16 px, and keeps its own aspect with RoPE positions from the origin (`ref_pixels`, `ref_position: origin`). The output takes the source's shape at 1, 2 or 4 MP (`output_pixels`).
+
+The instruction always starts with the LoRA's trigger phrase, "transform the image to realistic photograph", followed by the optional extra detail. No negative prompt is offered. Turbo defaults: 8 steps, CFG 1, LoRA strength 1.0.
+
+Licence, checked on the Civitai model page: Krea2_Anything2RealCharacters V3 (model 2808492, version 3256223, SafeTensor, bf16, sha256 6455a876...) declares no licence text. Its creator permissions allow selling images, renting, selling and merging, and it is a Krea 2 derivative, so the Krea 2 Community License applies on top. The model card lists explicit anatomy keywords and its V1 lists a clothing-removal trigger; the mode uses only the neutral trigger and offers no way to add the others as a control.
+
+The same scheme is what other Krea-2 ai-toolkit edit LoRAs (for instance the inpaint edit LoRA) need; a mode for one of those sets `ref_style: ostris` and its own prompt.
+
+Not validated on GPU: the scheme is implemented from the published node pack, with tests for the modulation, the isolation and the layout, but no image has been compared against a ComfyUI run of the same LoRA.
+
+### Edit
+
+`edit` changes a picture from a text instruction. The source picture is VAE-encoded and prepended to the target sequence as clean in-context tokens (RoPE frame 1, a second picture at frame 2), so the model reads it through a path distinct from img2img. It needs an edit LoRA trained for that sequence; a style or character LoRA does not activate editing. Generator: `generator/krea2_edit` (`src/pipelines/pipes/generator/krea2_edit/`), derived from comfyui-krea2edit by lbouaraba (Apache-2.0).
+
+| Task | Edit LoRA | Steps | CFG | Reference fidelity | Reference placement |
+| --- | --- | --- | --- | --- | --- |
+| Edit the picture (remove, recolor, relight, restyle) | General Edit v2 | 8 (turbo) | 1 | 4 (auto) | pinned |
+| Remove or delete large areas | General Edit v2 on the raw checkpoint | about 20 | 3 | 4 | pinned |
+| Place a person | Identity Edit v2 | 8 (turbo) | 1 | 2 (auto) | beside |
+
+- **Reference fidelity** (`ref_boost`) multiplies target-to-reference attention for the last picture; the first picture takes **Scene fidelity** (`ref_boost_a`). 0 means automatic from the Task. A painted Inpaint mask on the picture the dial targets restricts the boost to that region (a face, say). The mask is resampled to its picture's size, then fitted exactly as the picture is, so it stays aligned through a Fit or Crop. `fit_ref_mask` and `fit_source_image` in `generator/krea2_edit/geometry.py` are the reusable pieces.
+- **Reference placement** (`ref_position`, `ref_position_a`) sets where each picture sits in RoPE space. Pinned (the trained layout) keeps the picture's layout; Beside shifts it right of the canvas so identity flows but the layout pin is gone, which restages a person more freely. Scene pinned with the person beside gives the most natural composites. The v2 LoRAs were trained pinned only; Beside is new. The implementation is `arch/krea2/placement.py`.
+- **Read the picture** loads the text encoder's Qwen3-VL vision tower so the instruction is encoded together with the picture ("the man on the left" resolves). It is on by default because the v2 LoRAs were trained with this dual conditioning. The recommended `qwen3vl_4b_fp8_scaled` encoder ships the tower. **Reading detail** (`grounding_px`, default 768) caps the longest side the encoder sees.
+- **Source fit** `fit` resamples the whole picture into the frame; `crop` centre-crops to the output aspect ratio and is for v1 weights.
+- Generate at 2 megapixels or less.
+- Use one edit LoRA per task. Both v2 LoRAs at 1.0 together break the image; about 0.6 each is the author's combination.
+
+Licences, checked on the model card: the v2 LoRAs ship under the Krea 2 Community License plus the author's Identity Edit V2 licence, free for non-commercial use, with commercial use requiring a licence from the author (and an enterprise licence from Krea above $1M revenue). The v1.2 LoRA is under the Krea 2 Community License only.
+
+Not validated on GPU: Beside and the fidelity defaults are taken from the author's recommended-settings tables, and the CFG above 1 removal path grounds the negative prompt through the shared prompt encoder.
 
 ## Sampling
 

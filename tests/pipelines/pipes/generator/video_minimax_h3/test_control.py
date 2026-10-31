@@ -62,10 +62,21 @@ def test_available_frames_rejects_unusable_clips(count, fps):
 
 
 @pytest.mark.parametrize("available,expected", [
-    (3, 5), (5, 5), (21, 5), (22, 22), (123, 107), (124, 124), (125, 124), (5000, MAX_WINDOW_FRAMES),
+    (3, 5), (5, 5), (6, 22), (21, 22), (22, 22), (23, 39), (120, 124), (123, 124), (124, 124), (125, 141),
+    (5000, MAX_WINDOW_FRAMES),
 ])
-def test_snap_control_frames_rounds_down_to_the_vae_lattice(available, expected):
+def test_snap_control_frames_rounds_up_to_the_vae_lattice(available, expected):
     assert snap_control_frames(available, MAX_WINDOW_FRAMES) == expected
+
+
+@pytest.mark.parametrize("seconds", [5.0, 4.0])
+def test_a_whole_driver_clip_is_never_truncated_by_the_snapped_length(seconds):
+    available = available_frames(round(seconds * 30), 30.0)
+    assert snap_control_frames(available, MAX_WINDOW_FRAMES) >= available
+
+
+def test_a_capped_length_stays_on_the_vae_lattice():
+    assert snap_control_frames(95, 100) == 90
 
 
 def test_fit_control_frames_repeats_the_tail_of_a_short_clip_and_truncates_a_long_one():
@@ -159,8 +170,8 @@ def _context(pipe, **inputs):
 def test_build_context_takes_canvas_and_length_from_the_control_video(fake_clip):
     c = _context(_pipe(resolution="auto", frames=124)).extra
     assert (c.height, c.width) == (768, 1344)
-    assert c.frames == 39
-    assert c.control_frames.shape == (39, 768, 1344, 3)
+    assert c.frames == 56
+    assert c.control_frames.shape == (56, 768, 1344, 3)
     assert c.control_columns == COLUMNS
     assert (c.control_scale, c.control_start, c.control_end, c.control_hint_rows) == (1.0, 0.0, 1.0, "trained")
 

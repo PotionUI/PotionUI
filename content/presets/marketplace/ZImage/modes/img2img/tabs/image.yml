@@ -1,0 +1,6 @@
+fields:
+  - name: "source_image"
+    type: "image"
+    label: "Picture"
+    required: true
+    ai_hint: "The picture to restyle. The result keeps its shape, up to about one megapixel."

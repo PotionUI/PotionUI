@@ -4,6 +4,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import GenerationFormPane from './GenerationFormPane.svelte';
+	import GenerationFormSeed from './GenerationFormSeed.svelte';
 	import GenerationWorkbenchPane from './GenerationWorkbenchPane.svelte';
 	import PromptSection from './PromptSection.svelte';
 	import FloatingGenerationForm from './FloatingGenerationForm.svelte';
@@ -254,6 +255,9 @@
 
 <div bind:this={panelsEl} bind:clientWidth={panelsWidth} data-testid="generation-panels-root" class="flex h-full">
 	{#if formFolded}
+		{#if !tab.formFloating}
+			<GenerationFormSeed {tab} {videoDirectorActive} {onFormDataChange} />
+		{/if}
 		<Tooltip text="Expand generation settings" kbd={$shortcutLabels['toggle_left_panel']} position="right" delay={150} wrapperClass="flex h-full flex-shrink-0">
 			<button
 				type="button"

@@ -15,10 +15,10 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     fit_source_video,
     normalize_visual_latent,
 )
+from src.platform.runtime.native.arch.minimax_h3.control import HINT_ROW_MODES
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import FPS, FRAMES_PER_CHUNK, LATENTS_PER_CHUNK
 from src.pipelines.pipes.generator.video_minimax_h3.layout import patchify_video_latents
 
-HINT_ROW_MODES = ("trained", "non_audio")
 MIN_CONTROL_FRAMES = LATENTS_PER_CHUNK
 
 

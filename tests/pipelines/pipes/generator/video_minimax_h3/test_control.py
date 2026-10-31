@@ -206,7 +206,7 @@ def test_a_control_video_works_with_a_first_frame_keyframe(fake_clip):
     assert c.control_frames is not None
 
 
-def _run(*, steps=4, quantity=1, keyframe=False, references=False, **config):
+def _run(*, steps=4, quantity=1, keyframe=False, references=False, extra_latents=0, decode=True, **config):
     forwards = []
 
     def dit_forward(*, hidden_states, audio_hidden_states, **kwargs):
@@ -231,7 +231,7 @@ def _run(*, steps=4, quantity=1, keyframe=False, references=False, **config):
         bundle=bundle, conditioning=[_fake_conditioning(3)], steps=steps,
         height=32, width=32, frames=FRAMES, num_latent_frames=LATENTS,
         latent_height=2, latent_width=2, num_audio_latents=AUDIO_LATENTS,
-        device="cpu", dtype=torch.float32, spec=bundle.spec, audio_source="generate", decode=True,
+        device="cpu", dtype=torch.float32, spec=bundle.spec, audio_source="generate", decode=decode,
         control_frames=_frames(FRAMES), control_columns=COLUMNS,
         **{k: v for k, v in config.items() if k.startswith("control_")}, **extra,
     ))
@@ -240,7 +240,10 @@ def _run(*, steps=4, quantity=1, keyframe=False, references=False, **config):
     pipe._video_resolution = (32, 32)
 
     def fake_encode(module, pixels, device, **kwargs):
-        return module.encode(pixels)
+        latent = module.encode(pixels)
+        if extra_latents:
+            latent = torch.cat([latent, latent[:, :, :extra_latents]], dim=2)
+        return latent
 
     prepared = ReferenceConditioning(
         blocks=(ReferenceBlock(kind="image"),), condition_latents=(torch.zeros(1, 24, 1, 2, 2),),
@@ -301,3 +304,25 @@ def test_a_reference_adds_condition_rows_but_the_control_rows_stay_target_only()
         assert kwargs["num_condition_video_rows"] == 1
         assert kwargs["control"].rows.shape[1] == LATENTS
         assert kwargs["video_indices"].numel() == LATENTS + 1
+
+
+def test_the_control_cache_is_empty_after_a_successful_run():
+    _, _, ctx = _run(steps=2, quantity=2)
+    assert ctx.extra.control_cache == {}
+
+
+def test_control_rows_that_do_not_match_the_generated_rows_are_refused():
+    with pytest.raises(ValueError, match="encoded to"):
+        _run(extra_latents=1)
+
+
+def test_a_control_video_is_refused_with_a_director_document(fake_clip):
+    from tests.pipelines.pipes.generator.video_minimax_h3.test_main import _director_document
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        _context(_pipe(document=_director_document(2)))
+
+
+def test_the_control_cache_is_empty_after_a_latent_only_run():
+    _, _, ctx = _run(steps=2, decode=False)
+    assert ctx.extra.control_cache == {}

@@ -237,7 +237,6 @@ from src.pipelines.pipes.generator.video_minimax_h3.schedule import (
 )
 from src.pipelines.pipes._shared.vae.minimax_h3_encode import encode_compute_dtype, encode_video
 from src.pipelines.pipes.generator.video_minimax_h3.control import (
-    HINT_ROW_MODES,
     available_frames,
     control_active,
     control_reserve_gb,
@@ -246,7 +245,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.control import (
     snap_control_frames,
     validate_control_settings,
 )
-from src.platform.runtime.native.arch.minimax_h3.control import ControlContext, control_attached
+from src.platform.runtime.native.arch.minimax_h3.control import HINT_ROW_MODES, ControlContext, control_attached
 from src.pipelines.pipes.generator.video_minimax_h3.windows import (
     DirectorPlan,
     DirectorPlanError,
@@ -2240,6 +2239,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         if not c.decode:
             if index == ctx.quantity - 1:
                 c.reference_cache.release()
+                c.control_cache.clear()
             return _raw_video_latent(video_latent, c.bundle.video_vae.module)
 
         frames_np = self._decode_video(c, video_latent)
@@ -2259,6 +2259,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         if index == ctx.quantity - 1:
             restore_dit_best_effort(c.bundle.dit, c.device)
             c.reference_cache.release()
+            c.control_cache.clear()
         return out_path
 
     def _control_rows(self, c: _MiniMaxH3Ctx) -> Tensor:

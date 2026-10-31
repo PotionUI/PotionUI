@@ -35,7 +35,7 @@ pipeline:
         input: &caption "{% set motion = ((item.positive if item is defined else generation.prompts.first.positive) or '').strip().rstrip('. ') %}CINEMAGRAPH_MOTION {{ motion or 'subtle natural motion in one part of the scene' }}. Tripod locked-off static camera, zero camera movement, everything else stays still, seamless natural loop."
         output: *caption
       n_prompt:
-        input: &negative "{{ (item.negative if item is defined else generation.prompts.first.negative) or 'camera movement, pan, tilt, zoom, parallax, whole image moving, background sliding, flicker on entire image, noisy texture, crawling texture, distorted, blurry, low quality' }}"
+        input: &negative "{{ (item.negative if item is defined else generation.prompts.first.negative) | text_or('camera movement, pan, tilt, zoom, parallax, whole image moving, background sliding, flicker on entire image, noisy texture, crawling texture, distorted, blurry, low quality') }}"
         output: *negative
       pairs:
         "@loop":

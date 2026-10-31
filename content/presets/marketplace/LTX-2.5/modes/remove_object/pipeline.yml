@@ -35,7 +35,7 @@ pipeline:
     enabled: true
     configuration:
       p_prompt:
-        input: &caption "{{ (item.positive if item is defined else generation.prompts.first.positive) or 'An empty clean plate of the exact same location with no people and no moving objects, only the static background.' }}"
+        input: &caption "{{ (item.positive if item is defined else generation.prompts.first.positive) | text_or('An empty clean plate of the exact same location with no people and no moving objects, only the static background.') }}"
         output: *caption
       n_prompt:
         input: &negative "{{ item.negative if item is defined else generation.prompts.first.negative }}"

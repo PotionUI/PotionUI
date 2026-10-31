@@ -43,6 +43,12 @@ Keep the media items of one kind ('image', 'video' or 'audio') from a media fiel
 
 - `{{ form.media_inputs | default([], true) | media_of_kind('video') }}` → Only the video items of the media_inputs field
 
+**`text_or`** — `value | text_or(fallback: Any) -> Any`
+
+Trim the value and return it, or the fallback when it is None or only whitespace. Use it for a default caption instead of `value or 'default'`, which treats a prompt of spaces or newlines as a real prompt.
+
+- `{{ generation.prompts.first.positive | text_or('A cinematic shot') }}` → The trimmed prompt, or 'A cinematic shot' when it is blank
+
 **`default`** — `value | default(fallback: Any, boolean: bool = False) -> Any`
 
 Jinja's builtin default filter - the ONLY way to tolerate a missing value. The environment uses StrictUndefined, so any reference to a field/key that wasn't provided RAISES a build error unless it is guarded by `| default(...)`. Use it on every optional form field.

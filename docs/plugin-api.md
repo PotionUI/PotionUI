@@ -1486,6 +1486,8 @@ photo filters, not tools: see [Contributing photo filters and filter ops](#contr
 | `frame` | video | image | `time` (seconds) |
 | `split` | audio | audio, many | `part_seconds` |
 | `concat` | video, 2 to 8 selected | video, one | `overlap`, `overlap_frames`, `fit`, `keep_audio` |
+| `fix_colors` | video (Effects menu) | same | `white_balance`, `contrast`, `strength` percent |
+| `cut_finder` | video | video, many | `sensitivity` 0 to 100, `min_shot_seconds` |
 
 Core ids never contain a dot. Video output keeps even dimensions and the sound; images keep their
 transparency (a JPEG that gains an alpha channel is saved as PNG).

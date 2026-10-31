@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync, mount, unmount } from 'svelte';
-import { A1111_TOOL, BOOMERANG_TOOL, CORE_TOOLS, toolDto } from './fixtures/mediaToolCatalog';
+import { A1111_TOOL, BOOMERANG_TOOL, CORE_TOOLS, FIX_COLORS_TOOL, toolDto } from './fixtures/mediaToolCatalog';
 import { settle } from './helpers/settle';
 
 const openMediaTool = vi.fn();
@@ -273,6 +273,27 @@ describe('bar content', () => {
 		expect(barIds(root)).not.toContain('effects');
 		await open(root, 'edit');
 		expect(rowIds()).toEqual(['trim', 'crop', 'resize', 'rotate', 'flip', 'speed', 'frame']);
+	});
+
+	it('lists Fix colours under Effects for a video and runs it through openMediaTool', async () => {
+		listMediaTools.mockResolvedValue([...CORE_TOOLS, A1111_TOOL, FIX_COLORS_TOOL]);
+		const props = libraryProps('video');
+		const root = await renderSettled(props);
+
+		await open(root, 'edit');
+		expect(rowIds()).not.toContain('fix_colors');
+		trigger(root, 'edit').click();
+		flushSync();
+		await settle(2);
+
+		await open(root, 'effects');
+		expect(rowIds()).toEqual(['fix_colors']);
+		expect(rows()[0].textContent).toContain('Fix colours');
+		rows()[0].click();
+		flushSync();
+
+		expect(openMediaTool).toHaveBeenCalledTimes(1);
+		expect(openMediaTool.mock.calls[0][0]).toMatchObject({ toolId: 'fix_colors', scope: 'library' });
 	});
 
 	it('gives an audio item the catalog audio tools and no Effects', async () => {

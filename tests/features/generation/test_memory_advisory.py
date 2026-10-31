@@ -455,6 +455,18 @@ def test_device_evidence_none_on_read_failure_at_a_matching_identity(monkeypatch
     assert device.provenance == "could not read this host's GPU"
 
 
+def test_device_evidence_unknown_when_the_monitor_has_no_reading_yet(monkeypatch):
+    _patch_cuda_identity(monkeypatch, {0: GPU_0})
+    monitor = types.SimpleNamespace(
+        available=True, device_identity=GPU_0,
+        get_free_vram=lambda: None,
+        get_total_vram=lambda: None,
+    )
+    device = resolve_device_evidence(_native_backend("cuda:0"), monitor)
+    assert device.kind == "unknown"
+    assert device.free_gb is None and device.total_gb is None
+
+
 # -- budget evidence ---------------------------------------------------------------
 
 def test_budget_not_configured_without_any_cap():

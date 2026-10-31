@@ -12,6 +12,8 @@ from typing import Tuple, Dict, Any, Optional
 from src.platform.observability.logger import logger
 from src.platform.util.dimensions import round_to_multiple
 
+UNKNOWN_VRAM_TILING_BUDGET_GB = 12.0
+
 
 class MemoryAdvisor:
     """
@@ -35,6 +37,11 @@ class MemoryAdvisor:
         self.settings = settings
         logger.info("[MEMORY_MANAGER] Initialized")
 
+    def _budget_or_default(self, vram_budget: Optional[float]) -> float:
+        if vram_budget is None:
+            vram_budget = self.gpu_monitor.get_vram_budget()
+        return UNKNOWN_VRAM_TILING_BUDGET_GB if vram_budget is None else vram_budget
+
     def calculate_optimal_tile_size(
         self,
         image_size: Tuple[int, int],
@@ -55,9 +62,7 @@ class MemoryAdvisor:
             Tuple[int, int]: (tile_width, tile_height)
         """
         width, height = image_size
-
-        if vram_budget is None:
-            vram_budget = self.gpu_monitor.get_vram_budget()
+        vram_budget = self._budget_or_default(vram_budget)
 
         # Check if full image fits
         full_image_vram = self.gpu_monitor.estimate_vram_usage(width, height, model_type)
@@ -144,9 +149,7 @@ class MemoryAdvisor:
             Tuple[int, int, int, int]: (tiles_x, tiles_y, tile_width, tile_height)
         """
         width, height = image_size
-
-        if vram_budget is None:
-            vram_budget = self.gpu_monitor.get_vram_budget()
+        vram_budget = self._budget_or_default(vram_budget)
 
         # Get optimal tile size
         tile_width, tile_height = self.calculate_optimal_tile_size(

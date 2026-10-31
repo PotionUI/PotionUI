@@ -62,3 +62,19 @@ class TestResolveVramLimitGb:
         result = pipe._resolve_vram_limit_gb(pipe_input)
 
         assert result == 8.0
+
+    def test_an_unknown_gpu_budget_falls_back_to_the_configured_value(self):
+        pipe = make_pipe(vram_limit_gb=24)
+        gpu_monitor = Mock()
+        gpu_monitor.get_vram_budget.return_value = None
+        pipe_input = PipeInput(input={"GPU": gpu_monitor, "MEMORY": None})
+
+        assert pipe._resolve_vram_limit_gb(pipe_input) == 24
+
+    def test_an_unknown_gpu_budget_without_config_uses_the_default_not_zero(self):
+        pipe = make_pipe(vram_limit_gb=None)
+        gpu_monitor = Mock()
+        gpu_monitor.get_vram_budget.return_value = None
+        pipe_input = PipeInput(input={"GPU": gpu_monitor, "MEMORY": None})
+
+        assert pipe._resolve_vram_limit_gb(pipe_input) == 8.0

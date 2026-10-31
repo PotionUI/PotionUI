@@ -221,6 +221,19 @@ class TestBuildRequirementContextForBackendExecutionDeviceGate:
         assert ctx.gpu_total_vram_gb == pytest.approx(24.0)
         assert ctx.gpu_unavailable_reason is None
 
+    def test_this_host_gpu_with_no_memory_reading_yet_is_unknown_not_zero(self):
+        info = RequirementBackendInfo(
+            id="a", engine="native", driver="native",
+            execution_device=ExecutionDeviceEvidence(kind="this_host_gpu", gpu_index=0, identity=_identity("x")),
+        )
+
+        ctx = build_requirement_context_for_backend(
+            _preset(), None, _FakeGpuMonitor(None, device_identity=_identity("x")), info,
+        )
+
+        assert ctx.gpu_total_vram_gb is None
+        assert ctx.gpu_unavailable_reason == "this host's GPU memory could not be read yet"
+
     def test_this_host_gpu_reads_unknown_when_indices_match_but_identity_does_not(self):
         """The device-identity gap this rework closes: NVML's enumeration
         index and a CUDA ordinal can each independently be remapped, so two

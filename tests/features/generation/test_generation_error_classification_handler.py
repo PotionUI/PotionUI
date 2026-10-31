@@ -88,6 +88,29 @@ def test_cuda_oom_produces_an_actionable_error_with_vram_numbers(mock_dependenci
     assert "Traceback" in error.detail
 
 
+def test_cuda_oom_never_reports_an_unknown_reading_as_zero_vram(mock_dependencies):
+    mock_dependencies['gpu'].available = False
+    mock_dependencies['gpu'].get_free_vram.return_value = 0
+    mock_dependencies['gpu'].get_total_vram.return_value = 0
+    manager = GenerationEngine(**mock_dependencies)
+
+    error = _run(manager, CudaOomPipe, "cuda_oom_pipe")
+
+    assert error.error_code == "cuda_oom"
+    assert "GB free of" not in error.message
+
+
+def test_cuda_oom_leaves_out_a_reading_that_is_not_available_yet(mock_dependencies):
+    mock_dependencies['gpu'].get_free_vram.return_value = None
+    mock_dependencies['gpu'].get_total_vram.return_value = None
+    manager = GenerationEngine(**mock_dependencies)
+
+    error = _run(manager, CudaOomPipe, "cuda_oom_pipe")
+
+    assert error.error_code == "cuda_oom"
+    assert "GB free of" not in error.message
+
+
 def test_host_ram_oom_produces_an_actionable_error(mock_dependencies):
     manager = GenerationEngine(**mock_dependencies)
 

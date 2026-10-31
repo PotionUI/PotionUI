@@ -428,10 +428,12 @@ async def _execute_wait_for_gpu(ctx: NodeExecutionContext) -> NodeResult:
         raise RuntimeError("action.wait_for_gpu: no GpuMonitor configured on AutomationServices")
 
     ctx.set_status("waiting")
-    while gpu_monitor.get_free_vram() < threshold_mb:
+    free_mb = gpu_monitor.get_free_vram()
+    while free_mb is None or free_mb < threshold_mb:
         await asyncio.sleep(max(0.5, poll_interval_s))
+        free_mb = gpu_monitor.get_free_vram()
 
-    return NodeResult(output={"free_vram_mb": gpu_monitor.get_free_vram(), "threshold_mb": threshold_mb})
+    return NodeResult(output={"free_vram_mb": free_mb, "threshold_mb": threshold_mb})
 
 
 _MEDIA_INDEX_PASS_TYPES = ("tags", "clip_embed", "prompt_embed")

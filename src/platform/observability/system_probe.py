@@ -11,6 +11,7 @@ from typing import Dict, Any, List, Optional
 from pynvml import *
 
 from src.platform.observability.logger import logger
+from src.platform.runtime import nvml_library
 from src.platform.runtime.system_memory import get_system_memory
 
 
@@ -40,6 +41,7 @@ class SystemMonitor:
         # methods below still consult torch.cuda for allocator stats, imported
         # locally at the point of use.
         try:
+            nvml_library.ensure_nvml_library()
             nvmlInit()
             self.gpu_handles = [nvmlDeviceGetHandleByIndex(i) for i in range(nvmlDeviceGetCount())]
             self.gpu_handle = self.gpu_handles[0]

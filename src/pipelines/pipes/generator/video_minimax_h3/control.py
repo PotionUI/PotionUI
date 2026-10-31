@@ -33,7 +33,9 @@ def available_frames(count: int, fps: float) -> int:
 def snap_control_frames(available: int, max_frames: int) -> int:
     chunks = -(-(available - LATENTS_PER_CHUNK) // FRAMES_PER_CHUNK)
     snapped = max(MIN_CONTROL_FRAMES, chunks * FRAMES_PER_CHUNK + LATENTS_PER_CHUNK)
-    return min(snapped, max_frames)
+    if snapped > max_frames:
+        snapped = max(MIN_CONTROL_FRAMES, (max_frames - LATENTS_PER_CHUNK) // FRAMES_PER_CHUNK * FRAMES_PER_CHUNK + LATENTS_PER_CHUNK)
+    return snapped
 
 
 def fit_control_frames(frames: Any, *, fps: float, height: int, width: int, num_frames: int) -> np.ndarray:

@@ -75,6 +75,10 @@ def test_a_whole_driver_clip_is_never_truncated_by_the_snapped_length(seconds):
     assert snap_control_frames(available, MAX_WINDOW_FRAMES) >= available
 
 
+def test_a_capped_length_stays_on_the_vae_lattice():
+    assert snap_control_frames(95, 100) == 90
+
+
 def test_fit_control_frames_repeats_the_tail_of_a_short_clip_and_truncates_a_long_one():
     short = fit_control_frames(_frames(10, 8, 8), fps=24.0, height=8, width=8, num_frames=14)
     assert short[:, 0, 0, 0].tolist() == list(range(10)) + [9] * 4

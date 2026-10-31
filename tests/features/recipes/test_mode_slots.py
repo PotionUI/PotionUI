@@ -108,3 +108,13 @@ def test_recipe_required_artifacts_follow_the_selected_and_locked_modes():
     assert sorted(a.id for a in artifacts) == ["effect_lora@cinemagraph", "model", "text_encoder", "video_vae"]
     assert recipe_required_artifacts(recipe, None) == []
     assert recipe_required_artifacts(SimpleNamespace(artifacts=[], steps=[]), FakeLoader()) == []
+
+
+def test_two_fields_of_one_mode_with_the_same_files_stay_separate_slots():
+    files = [rec("same.safetensors", 1)]
+    high = model_field("high_model", "diffusion_model", files)
+    low = model_field("low_model", "diffusion_model", files)
+    plan = derive_mode_slots(preset({"m": mode([high, low])}))
+
+    assert plan.modes["m"].slot_ids == ("high_model", "low_model")
+    assert plan.slots["low_model"].fields == {"m": "low_model"}

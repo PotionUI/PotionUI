@@ -554,6 +554,7 @@ class ModePlanner:
         sizes = [f["size_bytes"] for f in files]
         return {
             "preset_id": assessment.slot_plan.preset_id,
+            "engine": assessment.slot_plan.engine,
             "target": assessment.target.key,
             "target_label": assessment.target.label,
             "destination_backend_id": assessment.profile.destination_backend_id,

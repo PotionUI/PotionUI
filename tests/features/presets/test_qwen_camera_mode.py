@@ -66,12 +66,25 @@ def _prompt(template, **form_over):
     return _pipe(_process(template, **form_over), "prompt_encoder")["config"]["p_prompt"]["input"]
 
 
-@pytest.mark.parametrize("zoom", DISTANCES)
-@pytest.mark.parametrize("tilt,shot", ELEVATIONS)
 @pytest.mark.parametrize("turn,view", AZIMUTHS)
-def test_every_dial_position_composes_the_lora_trigger_prompt(qwen_template, turn, view, tilt, shot, zoom):
-    prompt = _prompt(qwen_template, camera_turn=turn, camera_tilt=tilt, camera_zoom=zoom)
-    assert prompt == f"<sks> {view} {shot} {zoom}"
+def test_every_turn_position_names_its_view(qwen_template, turn, view):
+    assert _prompt(qwen_template, camera_turn=turn, camera_tilt=0, camera_zoom="medium shot") == (
+        f"<sks> {view} eye-level shot medium shot"
+    )
+
+
+@pytest.mark.parametrize("tilt,shot", ELEVATIONS)
+def test_every_tilt_position_names_its_shot(qwen_template, tilt, shot):
+    assert _prompt(qwen_template, camera_turn=0, camera_tilt=tilt, camera_zoom="medium shot") == (
+        f"<sks> front view {shot} medium shot"
+    )
+
+
+@pytest.mark.parametrize("zoom", DISTANCES)
+def test_every_zoom_position_names_its_distance(qwen_template, zoom):
+    assert _prompt(qwen_template, camera_turn=0, camera_tilt=0, camera_zoom=zoom) == (
+        f"<sks> front view eye-level shot {zoom}"
+    )
 
 
 def test_the_default_dials_move_the_camera(qwen_template):

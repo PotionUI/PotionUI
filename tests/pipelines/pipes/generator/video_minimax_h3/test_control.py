@@ -20,6 +20,8 @@ from src.pipelines.pipes.generator.video_minimax_h3.control import (
     snap_control_frames,
     validate_control_settings,
 )
+from src.pipelines.pipes.generator.video_minimax_h3.conditioning import ReferenceConditioning, ReferenceMedia
+from src.pipelines.pipes.generator.video_minimax_h3.layout import ReferenceBlock
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import audio_latent_num_frames, video_latent_num_frames
 from src.pipelines.pipes.generator.video_minimax_h3.main import (
     MAX_WINDOW_FRAMES,
@@ -204,7 +206,7 @@ def test_a_control_video_works_with_a_first_frame_keyframe(fake_clip):
     assert c.control_frames is not None
 
 
-def _run(*, steps=4, quantity=1, keyframe=False, **config):
+def _run(*, steps=4, quantity=1, keyframe=False, references=False, **config):
     forwards = []
 
     def dit_forward(*, hidden_states, audio_hidden_states, **kwargs):
@@ -223,6 +225,8 @@ def _run(*, steps=4, quantity=1, keyframe=False, **config):
     extra = dict(
         keyframe_images=[Image.new("RGB", (32, 32))], keyframe_anchors=("first",),
     ) if keyframe else {}
+    if references:
+        extra["references"] = (ReferenceMedia(kind="image", image=Image.new("RGB", (8, 8))),)
     ctx = GeneratorContext(quantity=quantity, input_seeds=[7], extra=_MiniMaxH3Ctx(
         bundle=bundle, conditioning=[_fake_conditioning(3)], steps=steps,
         height=32, width=32, frames=FRAMES, num_latent_frames=LATENTS,
@@ -238,9 +242,14 @@ def _run(*, steps=4, quantity=1, keyframe=False, **config):
     def fake_encode(module, pixels, device, **kwargs):
         return module.encode(pixels)
 
+    prepared = ReferenceConditioning(
+        blocks=(ReferenceBlock(kind="image"),), condition_latents=(torch.zeros(1, 24, 1, 2, 2),),
+        audio_condition_latents=(), condition_rows=torch.zeros(1, 96), condition_audio_rows=None,
+    )
     with patch(f"{_MAIN}.encode_frames_to_mp4") as mock_mp4, \
             patch(f"{_MAIN}.encode_video", side_effect=fake_encode), \
-            patch(f"{_MAIN}.encode_compute_dtype", return_value=torch.float32):
+            patch(f"{_MAIN}.encode_compute_dtype", return_value=torch.float32), \
+            patch(f"{_MAIN}.prepare_reference_conditioning", return_value=prepared):
         mock_mp4.side_effect = lambda frames, path, **kw: path
         for index in range(quantity):
             pipe.generate_one(ctx, index, 7 + index, ProgressEmitter([].append, title="test"))
@@ -273,6 +282,7 @@ def test_scale_and_hint_rows_reach_the_model():
 def test_the_control_video_is_encoded_once_across_a_quantity():
     forwards, vae, _ = _run(steps=2, quantity=2)
     assert len(forwards) == 4
+    assert all("control" in kwargs for kwargs in forwards)
     assert vae.encode_frame_counts == [FRAMES]
 
 
@@ -282,3 +292,12 @@ def test_a_keyframe_adds_condition_rows_but_the_control_rows_stay_target_only():
         assert kwargs["num_condition_video_rows"] == 1
         assert kwargs["control"].rows.shape[1] == LATENTS
     assert FRAMES in vae.encode_frame_counts
+
+
+def test_a_reference_adds_condition_rows_but_the_control_rows_stay_target_only():
+    forwards, _, _ = _run(references=True)
+    assert len(forwards) == 4
+    for kwargs in forwards:
+        assert kwargs["num_condition_video_rows"] == 1
+        assert kwargs["control"].rows.shape[1] == LATENTS
+        assert kwargs["video_indices"].numel() == LATENTS + 1

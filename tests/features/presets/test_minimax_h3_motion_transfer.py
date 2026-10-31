@@ -132,7 +132,7 @@ def test_the_control_model_field_recommends_both_patches_with_checksums():
         assert entry["link"].endswith(f"/model_patches/{entry['name']}")
         assert entry["size"] and entry["description"]
     requirement = yaml.safe_load((ROOT / "modes/motion_transfer/form.yml").read_text(encoding="utf-8"))["requirements"][0]
-    assert requirement["filename"] == INT8
+    assert requirement["field"] == "control_model"
 
 
 def test_the_models_section_keeps_the_fl2va_pickers_and_the_shared_fields_in_step():

@@ -118,3 +118,11 @@ def test_two_fields_of_one_mode_with_the_same_files_stay_separate_slots():
 
     assert plan.modes["m"].slot_ids == ("high_model", "low_model")
     assert plan.slots["low_model"].fields == {"m": "low_model"}
+
+
+def test_an_optional_field_requirement_keeps_the_field_an_extra():
+    lora = model_field("style_lora", "lora", [rec("style.safetensors", 1)], required=False)
+    plan = derive_mode_slots(preset({"m": mode([lora], requirements=[{"type": "model", "field": "style_lora", "optional": True}])}))
+
+    assert plan.modes["m"].slot_ids == ()
+    assert plan.modes["m"].extra_slot_ids == ("style_lora",)

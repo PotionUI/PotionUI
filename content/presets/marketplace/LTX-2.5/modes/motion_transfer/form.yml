@@ -11,7 +11,7 @@ negative_prompt:
       - { field: "refine_cfg", greater_than: 1 }
 requirements:
   - type: "model"
-    filename: "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors"
+    field: "effect_lora"
     hint: "Download the Union-Control LoRA in this mode."
 fields:
   - type: "tabs"

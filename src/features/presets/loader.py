@@ -157,7 +157,7 @@ def discover_form_variants(mode_dir: Path) -> List[Tuple[str, Path]]:
 
 def _mode_scoped_requirements(mode_name: str, mode_template: ModeTemplate) -> List[Dict[str, Any]]:
     return [
-        {**resolve_requirement_fields(spec, mode_template), "mode": mode_name}
+        {**resolve_requirement_fields(spec, mode_template, mode_name), "mode": mode_name}
         for form in mode_template.forms
         for spec in form.requirements
     ]

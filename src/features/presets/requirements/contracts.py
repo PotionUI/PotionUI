@@ -117,6 +117,7 @@ class RequirementContext:
     # own generic detail (no backend, remote, unestablished, or a reading
     # WAS taken).
     gpu_unavailable_reason: Optional[str] = None
+    form_overrides: Optional[Dict[str, Any]] = None
 
 
 @runtime_checkable

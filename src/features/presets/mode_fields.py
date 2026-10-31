@@ -74,7 +74,7 @@ def requirement_field_names(spec: Dict[str, Any]) -> List[str]:
     return names
 
 
-def resolve_requirement_fields(spec: Dict[str, Any], mode: ModeTemplate) -> Dict[str, Any]:
+def resolve_requirement_fields(spec: Dict[str, Any], mode: ModeTemplate, mode_name: Optional[str] = None) -> Dict[str, Any]:
     names = requirement_field_names(spec)
     if spec.get("type") != "model" or not names:
         return spec
@@ -82,7 +82,12 @@ def resolve_requirement_fields(spec: Dict[str, Any], mode: ModeTemplate) -> Dict
     return {
         **spec,
         "candidates": [
-            {"field": name, "files": field_candidates(fields[name]) if name in fields else []}
+            {
+                "field": name,
+                "mode": mode_name,
+                "model_type": field_model_type(fields[name]) if name in fields else None,
+                "files": field_candidates(fields[name]) if name in fields else [],
+            }
             for name in names
         ],
     }
@@ -93,7 +98,7 @@ def mode_requirement_fields(mode: ModeTemplate) -> Dict[str, Iterable[str]]:
     groups: List[List[str]] = []
     for form in mode.forms or []:
         for spec in form.requirements or []:
-            if spec.get("type") != "model":
+            if spec.get("type") != "model" or spec.get("optional"):
                 continue
             field_name = spec.get("field")
             if isinstance(field_name, str) and field_name and field_name not in required:

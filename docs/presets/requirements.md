@@ -42,6 +42,10 @@ requirements:
     hash: "<sha256>"              # exact match against the depot
   - type: model
     filename: "lora.safetensors"  # a depot file with exactly this name
+  - type: model
+    field: "control_model"        # mode form.yml only: any recommendation of that model field
+  - type: model
+    any_of: [restore_lora, deblur_lora]   # mode form.yml only: one of these fields is enough
   - type: vram_min_gb
     gb: 16
   - type: platform
@@ -50,7 +54,10 @@ requirements:
 
 Core ships five types (`src/features/presets/requirements/builtin.py`): `binary` (`shutil.which`,
 or the first of `names:` found), `python_package` (`importlib.metadata` + a PEP 440 `version:`
-specifier), `model` (a tag name, exact sha256 or exact filename present and available in the depot — `tag:` matches
+specifier), `model` (a tag name, exact sha256, exact filename, or — in a mode's `form.yml` — a `field:` or
+`any_of:` naming that mode's model fields, satisfied by any of their recommendations present in the
+depot, matched by name, case-insensitively, then by sha256; a missing mode-scoped `model` entry offers
+the `install_mode` action when the preset has an "Install modes" recipe — `tag:` matches
 the same admin `Tag` concept a `configuration: {type: model_tags}` picker filter already uses, not
 a marketplace-specific id), `vram_min_gb` (the resolved backend's physical VRAM total — see below),
 and `platform` (`sys.platform`).

@@ -1,5 +1,6 @@
+import logging
 import math
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from src.features.recipes.dto import (
     PresetLinkedRecipeView,
@@ -11,6 +12,8 @@ from src.features.recipes.dto import (
 from src.features.recipes.schema import Recipe
 from src.platform.security.user import AccountType, User
 
+logger = logging.getLogger(__name__)
+
 READINESS_INSTALLED = "installed"
 READINESS_AVAILABLE = "available"
 
@@ -20,11 +23,48 @@ def can_run_recipes(user: Optional[User]) -> bool:
 
 
 class RecipePresetLinks:
-    def __init__(self, recipe_catalog, recipe_runner, preset_loader=None, preset_db_repo=None):
+    def __init__(self, recipe_catalog, recipe_runner, preset_loader=None, preset_db_repo=None, mode_planner=None):
         self.recipe_catalog = recipe_catalog
         self.recipe_runner = recipe_runner
         self.preset_loader = preset_loader
         self.preset_db_repo = preset_db_repo
+        self.mode_planner = mode_planner
+
+    def modes_summary(self, recipe: Recipe) -> Optional[Dict[str, Any]]:
+        if self.mode_planner is None:
+            return None
+        step = next((s for s in recipe.steps if s.kind == "modes.plan"), None)
+        if step is None:
+            return None
+        try:
+            return self.mode_planner.summary(
+                step.params.get("preset_id"),
+                selected=tuple(step.params.get("selected") or ()),
+                locked=tuple(step.params.get("locked") or ()),
+            )
+        except Exception:
+            logger.exception("Summarizing the modes of recipe '%s' failed", recipe.id)
+            return None
+
+    def install_recipe_id(self, preset_id: str) -> Optional[str]:
+        if self.recipe_catalog is None or not hasattr(self.recipe_catalog, "install_recipe_for"):
+            return None
+        recipe = self.recipe_catalog.install_recipe_for(preset_id)
+        return recipe.id if recipe is not None else None
+
+    def mode_install(self, preset_id: str, user: Optional[User]) -> Dict[str, Dict[str, Any]]:
+        if not can_run_recipes(user) or self.recipe_catalog is None or self.mode_planner is None:
+            return {}
+        recipe = self.recipe_catalog.install_recipe_for(preset_id)
+        if recipe is None:
+            return {}
+        summary = self.mode_planner.summary(preset_id)
+        if summary is None:
+            return {}
+        return {
+            mode["id"]: {"recipe_id": recipe.id, "ready": mode["ready"], "missing_bytes": mode["missing_bytes"]}
+            for mode in summary["modes"]
+        }
 
     def _installed_preset_ids(self) -> Set[str]:
         if self.preset_db_repo is None:
@@ -97,6 +137,7 @@ class RecipePresetLinks:
                     last_completed_at=self._last_completed_at(recipe.id),
                     min_vram_gb=min_vram_gb,
                     recommended_vram_gb=recommended_vram_gb,
+                    modes_summary=self.modes_summary(recipe),
                 )
             )
         return summaries
@@ -110,6 +151,7 @@ class RecipePresetLinks:
             load_errors=load_errors,
             min_vram_gb=min_vram_gb,
             recommended_vram_gb=recommended_vram_gb,
+            modes_summary=self.modes_summary(recipe),
         )
 
     def _recipe_view(self, recipe: Recipe, cache: Dict[str, PresetLinkedRecipeView]) -> PresetLinkedRecipeView:
@@ -123,7 +165,7 @@ class RecipePresetLinks:
                     if self.recipe_runner.get_latest_completed_run(recipe.id) is not None
                     else READINESS_AVAILABLE
                 ),
-                total_download_bytes=recipe_total_download_bytes(recipe),
+                total_download_bytes=(self.modes_summary(recipe) or {}).get("total_bytes", recipe_total_download_bytes(recipe)),
             )
             cache[recipe.id] = view
         return view

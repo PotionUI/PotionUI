@@ -15,6 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.features.recipes.dto import (
     GrantConsentRequest,
+    ModeRemovalRequest,
+    RecipePlanRequest,
     RecipeDetail,
     RecipeRunActionRequest,
     RecipeRunView,
@@ -23,7 +25,9 @@ from src.features.recipes.dto import (
     StepKindView,
     VariantDownloadRequest,
 )
-from src.features.recipes.records import MODE_ADMIN
+from src.features.recipes.executors.modes_plan import PRESELECT_KEY
+from src.features.recipes.records import MODE_ADMIN, RecipeRun, RecipeRunStatus
+from src.features.recipes.removal import ModeRemovalError
 from src.features.recipes.slot_variants import VariantDownloadError
 from src.features.recipes.runner import (
     ActiveRecipeRunExists,
@@ -209,6 +213,9 @@ def build_router(container: "AppContainer") -> APIRouter:
                 step_key,
                 granted_by=current_user.id,
                 selections=body.selections if body else None,
+                modes=body.modes if body else None,
+                extras=body.extras if body else None,
+                target=body.target if body else None,
             )
             runner.drive_async(run_id)
             run = runner.get_run_or_raise(run_id)
@@ -264,6 +271,7 @@ def build_router(container: "AppContainer") -> APIRouter:
                 recipe.id,
                 recipe_version=body.recipe_version or recipe.version,
                 mode=MODE_ADMIN,
+                safe_input={PRESELECT_KEY: list(body.preselect_modes)} if body.preselect_modes else None,
                 created_by=current_user.id,
                 reuse_active=False,
             )
@@ -291,5 +299,80 @@ def build_router(container: "AppContainer") -> APIRouter:
         runner.drive_async(run.id)
         run = runner.get_run_or_raise(run.id)
         return run_view(runner, _catalog(), run)
+
+    def _dry_run(recipe, body: RecipePlanRequest, user_id: str) -> Dict[str, Any]:
+        registry = _runner().executor_registry
+        if registry is None:
+            raise HTTPException(status_code=503, detail="Recipe steps are not available on this instance.")
+        run = RecipeRun(
+            id="preview",
+            recipe_id=recipe.id,
+            recipe_version=recipe.version,
+            scope="instance",
+            status=RecipeRunStatus.PENDING,
+            safe_input={PRESELECT_KEY: list(body.preselect_modes)},
+            created_by=user_id,
+            mode=MODE_ADMIN,
+        )
+        steps = registry.preview(recipe, run, target=body.target)
+        consent = next(
+            (
+                (entry["preview"] or {}).get("consent_request")
+                for entry in steps
+                if entry["kind"] == "modes.plan" and isinstance(entry["preview"], dict)
+            ),
+            None,
+        )
+        for entry in steps:
+            if isinstance(entry["preview"], dict):
+                entry["preview"] = {k: v for k, v in entry["preview"].items() if k != "consent_request"}
+        files = (consent or {}).get("artifacts") or []
+        return {
+            "recipe_id": recipe.id,
+            "steps": steps,
+            "consent_request": consent,
+            "totals": {
+                "download_bytes": (consent or {}).get("total_bytes") if consent else None,
+                "file_count": len(files),
+            },
+        }
+
+    @router.post("/{recipe_id}/plan", summary="Preview a recipe run without starting it")
+    async def plan_recipe(
+        recipe_id: str,
+        body: Optional[RecipePlanRequest] = None,
+        current_user: User = Depends(get_current_admin_user),
+    ) -> Dict[str, Any]:
+        recipe = _require_recipe(recipe_id)
+        return await asyncio.to_thread(_dry_run, recipe, body or RecipePlanRequest(), current_user.id)
+
+    def _removal_error(exc: ModeRemovalError) -> HTTPException:
+        status = {"not_found": 404, "conflict": 409, "not_local": 400, "unavailable": 503}.get(exc.code, 400)
+        return HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message})
+
+    @router.get("/{recipe_id}/modes/{mode}/removal", summary="What removing a mode's files would delete")
+    async def preview_mode_removal(
+        recipe_id: str,
+        mode: str,
+        current_user: User = Depends(get_current_admin_user),
+    ) -> Dict[str, Any]:
+        _require_recipe(recipe_id)
+        try:
+            return await asyncio.to_thread(container.mode_file_removal.preview, recipe_id, mode)
+        except ModeRemovalError as exc:
+            raise _removal_error(exc)
+
+    @router.post("/{recipe_id}/modes/{mode}/removal", summary="Delete the files only this mode uses")
+    async def remove_mode_files(
+        recipe_id: str,
+        mode: str,
+        body: ModeRemovalRequest,
+        current_user: User = Depends(get_current_admin_user),
+    ) -> Dict[str, Any]:
+        _require_recipe(recipe_id)
+        try:
+            return await asyncio.to_thread(container.mode_file_removal.remove, recipe_id, mode, body.model_ids)
+        except ModeRemovalError as exc:
+            raise _removal_error(exc)
 
     return router

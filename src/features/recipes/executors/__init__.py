@@ -22,6 +22,8 @@ from src.features.recipes.executors.deferred import DeferredStepExecutor
 from src.features.recipes.executors.generation_smoke import GenerationSmokeExecutor
 from src.features.recipes.executors.models_index import ModelsIndexExecutor
 from src.features.recipes.executors.models_index_backend import ModelsIndexBackendExecutor
+from src.features.recipes.executors.modes_plan import ModesPlanExecutor
+from src.features.recipes.executors.preset_defaults import PresetDefaultsExecutor
 from src.features.recipes.executors.pipeline_render import PipelineRenderExecutor
 from src.features.recipes.executors.plugins_ensure import PluginsEnsureExecutor
 from src.features.recipes.executors.preset_ensure import PresetEnsureExecutor
@@ -44,6 +46,8 @@ __all__ = [
     "ArtifactsPlanExecutor",
     "ArtifactsFetchExecutor",
     "GenerationSmokeExecutor",
+    "ModesPlanExecutor",
+    "PresetDefaultsExecutor",
     "DeferredStepExecutor",
     "build_default_executor_registry",
 ]
@@ -70,6 +74,8 @@ def build_default_executor_registry(
     indexing_coordinator: Optional[Any] = None,
     type_manager: Optional[Any] = None,
     digests: Optional[Any] = None,
+    mode_planner: Optional[Any] = None,
+    install_targets: Optional[Any] = None,
 ) -> RecipeExecutorRegistry:
     """Wire the built-in step executors onto a fresh registry.
 
@@ -102,8 +108,28 @@ def build_default_executor_registry(
         "artifacts.fetch": ArtifactsFetchExecutor(
             download_queue, model_repository, provider_registry_factory=provider_registry_factory,
             type_manager=type_manager, digests=digests,
+            targets=install_targets if install_targets is not None else getattr(mode_planner, "targets", None),
         ),
     }
+    if mode_planner is None:
+        from src.features.recipes.mode_plans import ModePlanner
+        from src.features.recipes.targets import InstallTargets
+
+        mode_planner = ModePlanner(
+            preset_template_loader,
+            model_repository,
+            preset_db_repo=getattr(preset_collaborators, "db_repo", None),
+            targets=install_targets or InstallTargets(backend_registry=backend_registry),
+            digests=digests,
+            type_manager=type_manager,
+            provider_registry_factory=provider_registry_factory,
+        )
+    executors["modes.plan"] = ModesPlanExecutor(mode_planner)
+    executors["preset.defaults"] = PresetDefaultsExecutor(
+        preset_template_loader,
+        getattr(preset_collaborators, "db_repo", None),
+        mode_planner.model_available,
+    )
     if generation_orchestrator is not None:
         executors["generation.smoke"] = GenerationSmokeExecutor(
             preset_template_loader,

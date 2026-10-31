@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from src.features.recipes.executors.base import StepContext, StepExecutor, StepResult
 from src.features.recipes.catalog import RecipeCatalog
@@ -80,6 +80,36 @@ class RecipeExecutorRegistry:
         registration = self.step_kind_registry.get(kind)
         return registration.executor if registration else None
 
+    def build_context(self, runner: RecipeRunner, run: RecipeRun, recipe, step) -> StepContext:
+        return StepContext(
+            run=run,
+            recipe=recipe,
+            step=step,
+            selections=runner.approved_selections(run.id),
+            step_outputs=runner.latest_step_outputs(run.id),
+        )
+
+    def preview(self, recipe, run: RecipeRun, step_outputs: Optional[Dict[str, Any]] = None, target: Optional[str] = None) -> List[Dict[str, Any]]:
+        previews = []
+        for step in recipe.steps:
+            executor = self.get_executor(step.kind)
+            preview = getattr(executor, "preview", None)
+            entry: Dict[str, Any] = {
+                "key": step.key,
+                "kind": step.kind,
+                "title": step.title,
+                "onboarding_only": step.onboarding_only,
+                "preview": None,
+            }
+            if preview is not None:
+                context = StepContext(run=run, recipe=recipe, step=step, step_outputs=dict(step_outputs or {}))
+                try:
+                    entry["preview"] = preview(context, target=target) if step.kind == "modes.plan" else preview(context)
+                except Exception as exc:
+                    entry["preview"] = {"error": str(exc)}
+            previews.append(entry)
+        return previews
+
     def list_kinds(self) -> List[StepKind]:
         """Every runnable step kind, core's first, then plugin-contributed."""
         kinds = [StepKind(kind=k, source="core") for k in sorted(self._executors)]
@@ -140,9 +170,15 @@ class RecipeExecutorRegistry:
         # `_attempt_id` stays `None` and the terminal write inserts one row.
         _attempt_id: Dict[str, Optional[str]] = {"value": None}
 
+        def _is_cancelled() -> bool:
+            current = runner.get_run(run.id)
+            return current is not None and current.status == RecipeRunStatus.CANCELLED
+
         def _report_progress(
-            progress_current=None, progress_total=None, progress_unit=None
+            progress_current=None, progress_total=None, progress_unit=None, safe_output=None
         ) -> None:
+            if _is_cancelled():
+                return
             try:
                 attempt = runner.record_step_attempt(
                     run.id,
@@ -152,6 +188,7 @@ class RecipeExecutorRegistry:
                     progress_current=progress_current,
                     progress_total=progress_total,
                     progress_unit=progress_unit,
+                    safe_output=safe_output,
                     finished=False,
                 )
                 _attempt_id["value"] = attempt.id
@@ -176,6 +213,8 @@ class RecipeExecutorRegistry:
                         step=step,
                         report_progress=_report_progress,
                         selections=runner.approved_selections(run.id),
+                        step_outputs=runner.latest_step_outputs(run.id),
+                        is_cancelled=_is_cancelled,
                     )
                 )
             except Exception as exc:  # an executor must never crash the run silently
@@ -184,6 +223,10 @@ class RecipeExecutorRegistry:
                     "STEP_EXECUTOR_ERROR",
                     f"'{step.title or step.key}' failed unexpectedly: {exc}",
                 )
+
+        if _is_cancelled():
+            runner.close_cancelled_attempt(run.id, step.key, _attempt_id["value"])
+            return runner.get_run_or_raise(run.id)
 
         if result.awaiting_consent:
             # Parked, not finished: no terminal `finished_at` on this attempt -

@@ -190,6 +190,15 @@ class ModelRepository:
 
             return model
 
+    def get_by_identity_nocase(self, model_type: str, filename: str) -> Optional[Model]:
+        with get_cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM models WHERE model_type = ? AND filename = ? COLLATE NOCASE LIMIT 1",
+                (model_type, filename),
+            )
+            row = cursor.fetchone()
+        return Model.from_row(row) if row else None
+
     def get_by_filename(self, filename: str) -> List[Model]:
         """All models with this filename, across model types (uses idx_models_filename).
 

@@ -25,6 +25,7 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from src.features.models.recommendations import validate_variant_rule
 from src.features.presets.schema import CATEGORIES
 from src.platform.runtime.gpu_profile import GPU_GENERATIONS, PRECISIONS
 
@@ -47,6 +48,8 @@ IMPLEMENTED_STEP_KINDS = frozenset(
         "artifacts.fetch",
         "generation.smoke",
         "workspace.activate",
+        "modes.plan",
+        "preset.defaults",
     }
 )
 
@@ -68,6 +71,10 @@ RECOGNIZED_STEP_KINDS = IMPLEMENTED_STEP_KINDS | DEFERRED_STEP_KINDS
 SOURCE_MARKETPLACE = "marketplace"
 SOURCE_LOCAL = "local"
 SOURCE_PLUGIN = "plugin"
+SOURCE_DERIVED = "derived"
+
+PLAN_STEP_KINDS = frozenset({"modes.plan"})
+MODES_PLAN_EXTRAS = ("offer", "skip")
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _VARIANT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -165,10 +172,12 @@ class RecipeArtifact:
         variant = self.get_variant(variant_id)
         if variant is None:
             return self
+        detail = ", ".join(dict.fromkeys(part for part in (variant.label, variant.precision) if part))
+        name = self.display_name or self.id
         return replace(
             self,
             filename=variant.filename,
-            display_name=f"{self.display_name or self.id} ({variant.label}, {variant.precision})",
+            display_name=f"{name} ({detail})" if detail and len(self.variants) > 1 else name,
             size_bytes=variant.size_bytes,
             checksum=variant.checksum,
             provider_hint=dict(variant.provider_hint),
@@ -441,6 +450,7 @@ def validate_recipe_dict(data: Any, extra_kinds: Optional[Iterable[str]] = None)
         _err(issues, "steps", "must declare at least one step")
 
     step_keys = set()
+    plan_keys: List[str] = []
     for i, entry in enumerate(steps):
         path = f"steps[{i}]"
         if not isinstance(entry, dict):
@@ -477,7 +487,9 @@ def validate_recipe_dict(data: Any, extra_kinds: Optional[Iterable[str]] = None)
         if onboarding_only is not None and not isinstance(onboarding_only, bool):
             _err(issues, path, "'onboarding_only' must be a boolean if given")
 
-        _validate_step_params(kind, params, path, issues, plugin_ids, artifact_ids, preset_ids)
+        _validate_step_params(kind, params, path, issues, plugin_ids, artifact_ids, preset_ids, plan_keys)
+        if kind in PLAN_STEP_KINDS and key:
+            plan_keys.append(key)
 
     return issues
 
@@ -521,27 +533,7 @@ def _validate_file_fields(entry: Dict[str, Any], path: str, issues: List[str]) -
 
 
 def _validate_variant_rule(rule: Any, path: str, issues: List[str]) -> None:
-    if not isinstance(rule, dict):
-        _err(issues, path, "must be a mapping")
-        return
-    unknown = sorted(set(rule) - {"min_vram_gb", "generations"})
-    if unknown:
-        _err(issues, path, f"unknown keys {unknown} (allowed: min_vram_gb, generations)")
-    if not rule:
-        _err(issues, path, "must declare 'min_vram_gb' and/or 'generations'")
-    min_vram = rule.get("min_vram_gb")
-    if min_vram is not None and (
-        isinstance(min_vram, bool) or not isinstance(min_vram, (int, float)) or min_vram < 0
-    ):
-        _err(issues, path, "'min_vram_gb' must be a non-negative number")
-    generations = rule.get("generations")
-    if generations is not None:
-        if not isinstance(generations, list) or not generations:
-            _err(issues, path, "'generations' must be a non-empty list")
-        else:
-            for generation in generations:
-                if generation not in GPU_GENERATIONS:
-                    _err(issues, path, f"unknown GPU generation {generation!r} (known: {list(GPU_GENERATIONS)})")
+    validate_variant_rule(rule, path, issues)
 
 
 def _validate_variant_slot(entry: Dict[str, Any], path: str, issues: List[str]) -> None:
@@ -609,7 +601,9 @@ def _validate_step_params(
     plugin_ids: set,
     artifact_ids: set,
     preset_ids: set,
+    plan_keys: Optional[List[str]] = None,
 ) -> None:
+    plan_keys = plan_keys or []
     """Referential-integrity checks: a step may only reference ids the recipe
     itself declares (in `plugins:`/`artifacts:`/`presets:`)."""
 
@@ -632,6 +626,11 @@ def _validate_step_params(
         base_url = params.get("base_url")
         if base_url is not None and (not isinstance(base_url, str) or not base_url.strip()):
             _err(issues, path, "'params.base_url' must be a non-empty string if given")
+
+    elif kind == "artifacts.fetch" and "plan" in params:
+        if "artifact_ids" in params:
+            _err(issues, path, "'params.plan' and 'params.artifact_ids' are mutually exclusive")
+        _validate_plan_ref(params.get("plan"), path, issues, plan_keys)
 
     elif kind in ("artifacts.plan", "artifacts.fetch"):
         ids = params.get("artifact_ids")
@@ -659,8 +658,63 @@ def _validate_step_params(
             _err(issues, path, "'params.preset_id' is required")
         elif pid not in preset_ids:
             _err(issues, path, f"params.preset_id references undeclared preset '{pid}'")
-        if not isinstance(params.get("mode"), str) or not params["mode"].strip():
+        if kind == "pipeline.render" and "plan" in params:
+            if "mode" in params:
+                _err(issues, path, "'params.plan' and 'params.mode' are mutually exclusive")
+            _validate_plan_ref(params.get("plan"), path, issues, plan_keys)
+        elif not isinstance(params.get("mode"), str) or not params["mode"].strip():
             _err(issues, path, "'params.mode' is required")
+
+    elif kind == "preset.defaults":
+        _validate_plan_ref(params.get("plan"), path, issues, plan_keys)
+
+    elif kind == "modes.plan":
+        _validate_modes_plan_params(params, path, issues, preset_ids)
+
+
+def _validate_plan_ref(plan: Any, path: str, issues: List[str], plan_keys: List[str]) -> None:
+    refs = [plan] if isinstance(plan, str) else plan
+    if not isinstance(refs, list) or not refs or not all(isinstance(r, str) and r.strip() for r in refs):
+        _err(issues, path, "'params.plan' must name an earlier modes.plan step (a step key or a list of them)")
+        return
+    for ref in refs:
+        if ref not in plan_keys:
+            _err(issues, path, f"params.plan references '{ref}', which is not an earlier modes.plan step")
+
+
+def _mode_id_list(value: Any) -> Optional[List[str]]:
+    if not isinstance(value, list) or not all(isinstance(v, str) and v.strip() for v in value):
+        return None
+    return list(value)
+
+
+def _validate_modes_plan_params(params: Dict[str, Any], path: str, issues: List[str], preset_ids: set) -> None:
+    pid = params.get("preset_id")
+    if not isinstance(pid, str) or not pid.strip():
+        _err(issues, path, "'params.preset_id' is required")
+    elif pid not in preset_ids:
+        _err(issues, path, f"params.preset_id references undeclared preset '{pid}'")
+    modes = params.get("modes", "all")
+    if modes != "all" and _mode_id_list(modes) is None:
+        _err(issues, path, "'params.modes' must be \"all\" or a list of mode ids")
+    for key in ("selected", "locked"):
+        if key in params and _mode_id_list(params[key]) is None:
+            _err(issues, path, f"'params.{key}' must be a list of mode ids")
+    selected = set(_mode_id_list(params.get("selected", [])) or [])
+    locked = set(_mode_id_list(params.get("locked", [])) or [])
+    if not locked <= selected:
+        _err(issues, path, f"params.locked must be part of params.selected (missing: {sorted(locked - selected)})")
+    listed = _mode_id_list(modes)
+    if listed is not None and not selected <= set(listed):
+        _err(issues, path, f"params.selected must be part of params.modes (missing: {sorted(selected - set(listed))})")
+    if "preselect_extras" in params and _mode_id_list(params["preselect_extras"]) is None:
+        _err(issues, path, "'params.preselect_extras' must be a list of slot ids")
+    extras = params.get("extras", "offer")
+    if extras not in MODES_PLAN_EXTRAS:
+        _err(issues, path, f"'params.extras' must be one of {list(MODES_PLAN_EXTRAS)}")
+    target = params.get("target", "auto")
+    if not isinstance(target, str) or not target.strip():
+        _err(issues, path, "'params.target' must be \"auto\" or a backend id")
 
 
 def _parse_checksum(data: Optional[Dict[str, Any]]) -> Optional[RecipeChecksum]:

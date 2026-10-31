@@ -33,6 +33,8 @@ class PipelineRenderExecutor:
         self.pipeline_builder = pipeline_builder
 
     def execute(self, context: StepContext) -> StepResult:
+        if "plan" in context.step.params:
+            return self._execute_plan(context)
         preset_id = context.step.params.get("preset_id")
         mode = context.step.params.get("mode")
         if not preset_id or not mode:
@@ -75,6 +77,40 @@ class PipelineRenderExecutor:
                 "pipe_count": len(built.pipes),
             }
         )
+
+    def _execute_plan(self, context: StepContext) -> StepResult:
+        plans = context.plans(context.step.params.get("plan"))
+        if not plans:
+            return StepResult.fail("PIPELINE_RENDER_NO_PLAN", "There is no approved install plan naming the modes to check.")
+        rendered = []
+        for plan in plans:
+            preset_template = self.preset_template_loader.load_preset_by_id(plan.get("preset_id"))
+            if preset_template is None:
+                return StepResult.fail(
+                    "PRESET_MISSING_ON_DISK",
+                    f"The preset this setup needs ('{plan.get('preset_id')}') isn't available on this installation.",
+                )
+            for mode in plan.get("modes") or []:
+                if mode not in preset_template.modes:
+                    return StepResult.fail("MODE_NOT_FOUND", f"Preset '{preset_template.name}' has no '{mode}' mode to check.")
+                try:
+                    built = self.pipeline_builder.build_pipeline(
+                        preset_template,
+                        self._build_fixture_form_data(preset_template, mode),
+                        mode=mode,
+                        user_id=context.owner_user_id,
+                    )
+                except Exception as exc:
+                    return StepResult.fail(
+                        "PIPELINE_RENDER_FAILED",
+                        (
+                            f"The '{mode}' setup for '{preset_template.name}' didn't check out: {exc} "
+                            "This usually points at a problem in the preset itself, not your setup."
+                        ),
+                        suggested_repair="Report this to the preset's maintainer, or try a different recipe.",
+                    )
+                rendered.append({"mode": mode, "pipe_count": len(built.pipes)})
+        return StepResult.ok({"modes": rendered})
 
     def _build_fixture_form_data(self, preset_template, mode: str):
         return build_fixture_form_data(

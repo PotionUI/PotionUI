@@ -69,6 +69,10 @@ from src.features.recipes.catalog import RecipeCatalog
 from src.features.model_layouts.catalog import ModelLayoutCatalog
 from src.features.recipes.preset_links import RecipePresetLinks
 from src.features.recipes.slot_variants import RecipeSlotVariants
+from src.features.recipes.mode_plans import ModePlanner
+from src.features.recipes.removal import ModeFileRemoval
+from src.features.recipes.targets import InstallTargets
+from src.features.models.availability_repository import model_availability_repo
 from src.features.phrasebook.preview_generator import PhrasebookPreviewGenerator
 from src.features.chat import ChatRuntime, ResponseProcessor
 from src.features.downloads import DownloadQueue, DownloadRepository
@@ -412,6 +416,9 @@ class AppContainer:
     model_layout_catalog: ModelLayoutCatalog
     recipe_preset_links: RecipePresetLinks
     recipe_slot_variants: RecipeSlotVariants
+    install_targets: InstallTargets
+    mode_planner: ModePlanner
+    mode_file_removal: ModeFileRemoval
     user_controller: "UserController"
 
     # Downloads
@@ -1619,11 +1626,36 @@ def build_container() -> AppContainer:
     )
     preset_lookup = functools.partial(preset_operations.get_preset, preset_collaborators)
     preset_form_schema_lookup = functools.partial(preset_operations.get_form_schema, preset_collaborators)
+    recipe_catalog.attach_presets(preset_template_loader)
+    install_targets = InstallTargets(
+        backend_registry=backend_registry,
+        model_roots=model_roots,
+        download_repository=download_repository,
+    )
+    mode_planner = ModePlanner(
+        preset_template_loader,
+        model_repository,
+        preset_db_repo=database_preset_repository,
+        targets=install_targets,
+        digests=model_index_manager.digests,
+        type_manager=model_index_manager.types,
+        availability_repository=model_availability_repo,
+    )
+    mode_file_removal = ModeFileRemoval(
+        recipe_catalog,
+        mode_planner,
+        model_repository,
+        model_locator,
+        model_roots,
+        preset_db_repo=database_preset_repository,
+        preset_loader=preset_template_loader,
+    )
     recipe_preset_links = RecipePresetLinks(
         recipe_catalog,
         recipe_runner,
         preset_loader=preset_template_loader,
         preset_db_repo=database_preset_repository,
+        mode_planner=mode_planner,
     )
     recipe_slot_variants = RecipeSlotVariants(
         recipe_catalog,
@@ -1668,6 +1700,8 @@ def build_container() -> AppContainer:
         indexing_coordinator=model_index_manager.indexing,
         type_manager=model_index_manager.types,
         digests=model_index_manager.digests,
+        mode_planner=mode_planner,
+        install_targets=install_targets,
     )
     # `workspace.activate` is the first-run wizard's own step, so setup - not
     # recipes - contributes it. Recipes mark it `onboarding_only`, so an admin

@@ -29,6 +29,7 @@ sys.path.insert(0, str(ROOT))
 from src.features.presets.loader import PresetTemplateLoader, plugin_preset_roots  # noqa: E402
 from src.features.presets.templates import PresetTemplate  # noqa: E402
 from src.features.recipes.catalog import plugin_recipe_roots  # noqa: E402
+from src.features.recipes.lint import explain_recipe, lint_recipe
 from src.features.recipes.schema import parse_recipe, validate_recipe_dict  # noqa: E402
 from src.platform.plugins.loader import PluginLoader  # noqa: E402
 from src.platform.filesystem.yaml_io import load_yaml_file
@@ -64,6 +65,7 @@ def lint_recipe_file(
     path: Path,
     preset_index: Dict[str, PresetTemplate],
     extra_kinds: Optional[Set[str]] = None,
+    warnings: Optional[List[str]] = None,
 ) -> List[str]:
     """Validate one recipe file. Returns a list of issue strings (empty = OK)."""
     try:
@@ -98,7 +100,29 @@ def lint_recipe_file(
         if mode and mode not in template.modes:
             issues.append(f"step '{step.key}': preset '{preset_id}' has no '{mode}' mode")
 
+    errors, found_warnings = lint_recipe(recipe, preset_index)
+    issues.extend(errors)
+    if warnings is not None:
+        warnings.extend(found_warnings)
     return issues
+
+
+def explain(recipe_ref: str, plugin_manifests) -> int:
+    path = Path(recipe_ref)
+    if not path.exists():
+        candidates = [Path("content/recipes/marketplace") / f"{recipe_ref}.yml", Path("content/recipes/local") / f"{recipe_ref}.yml"]
+        path = next((c for c in candidates if c.exists()), path)
+    if not path.exists():
+        print(f"No recipe file found for '{recipe_ref}'.")
+        return 1
+    data = load_yaml_file(path) or {}
+    issues = validate_recipe_dict(data, extra_kinds=plugin_step_kinds(plugin_manifests))
+    if issues:
+        print("\n".join(issues))
+        return 1
+    preset_index = load_preset_index(plugin_manifests=plugin_manifests)
+    print("\n".join(explain_recipe(parse_recipe(data, source_path=str(path)), preset_index)))
+    return 0
 
 
 def main() -> int:
@@ -107,8 +131,14 @@ def main() -> int:
     # paths are honoured as-is - plugin discovery is skipped, same reasoning
     # as preset_lint.py's --paths override.
     plugin_manifests: List = []
-    if sys.argv[1:]:
-        paths = [Path(p) for p in sys.argv[1:]]
+    args = sys.argv[1:]
+    if args and args[0] == "--explain":
+        if len(args) != 2:
+            print("Usage: python scripts/recipe_lint.py --explain <recipe-id-or-path>")
+            return 2
+        return explain(args[1], PluginLoader().discover_plugins())
+    if args:
+        paths = [Path(p) for p in args]
     else:
         plugin_manifests = PluginLoader().discover_plugins()
         paths = [Path("content/recipes/marketplace"), Path("content/recipes/local")] + [
@@ -126,12 +156,15 @@ def main() -> int:
             continue
         for recipe_file in sorted(base.glob("*.yml")):
             found_any = True
-            issues = lint_recipe_file(recipe_file, preset_index, extra_kinds)
-            if issues:
+            warnings: List[str] = []
+            issues = lint_recipe_file(recipe_file, preset_index, extra_kinds, warnings=warnings)
+            if issues or warnings:
                 total_issues += len(issues)
                 print(f"{recipe_file}:")
                 for issue in issues:
                     print(f"  - {issue}")
+                for warning in warnings:
+                    print(f"  - warning: {warning}")
             else:
                 print(f"{recipe_file}: OK")
 

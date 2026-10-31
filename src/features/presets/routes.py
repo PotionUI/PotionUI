@@ -139,6 +139,14 @@ class PresetController(BaseController):
         data = await operations.get_preset_requirements(
             self.collaborators, preset_id, backend_id=backend_id, refresh=refresh
         )
+        recipe_id = self.recipe_links.install_recipe_id(preset_id) if self.recipe_links is not None else None
+        if recipe_id:
+            for item in data.get("results") or []:
+                if item.get("type") == "model" and item.get("status") == "missing" and item.get("mode"):
+                    item["action"] = {
+                        "kind": "install_mode",
+                        "payload": {"preset_id": preset_id, "mode": item["mode"], "recipe_id": recipe_id},
+                    }
         return self.success_response(data=data)
 
     @_guarded("preset_models_failed", "Failed to list models for preset")
@@ -253,10 +261,17 @@ class PresetController(BaseController):
         return self.success_response(data=data)
 
     @_guarded("modes_get_failed", "Failed to get modes")
-    async def get_available_modes(self, preset_id: str) -> APIResponse:
+    async def get_available_modes(self, preset_id: str, current_user: Optional[User] = None) -> APIResponse:
         """Get available modes for a specific preset."""
         await operations.refresh_mode_requirements(self.collaborators, preset_id)
         data = operations.get_available_modes(self.collaborators, preset_id)
+        install = (
+            await asyncio.to_thread(self.recipe_links.mode_install, preset_id, current_user)
+            if self.recipe_links is not None and current_user is not None
+            else {}
+        )
+        for mode in data.get("modes") or []:
+            mode["install"] = install.get(mode["name"])
         return self.success_response(data=data)
 
     @_guarded("form_schema_failed", "Failed to get form schema")
@@ -475,7 +490,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("/{preset_id}/modes", response_model=APIResponse, summary="Get Preset Modes")
     async def get_preset_modes(preset_id: str, current_user=Depends(get_current_active_user)):
         """Get available generation modes (txt2img, img2img, etc.) for a specific preset."""
-        return await controller.get_available_modes(preset_id)
+        return await controller.get_available_modes(preset_id, current_user)
 
     @router.get("/{preset_id}/form", response_model=APIResponse, summary="Get Form Schema")
     async def get_preset_form_schema(preset_id: str, mode: str = None, form_name: str = None, current_user=Depends(get_current_active_user)):

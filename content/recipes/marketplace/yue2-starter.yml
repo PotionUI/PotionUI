@@ -1,6 +1,6 @@
 schema_version: 1
 id: "yue2-starter"
-version: 1
+version: 2
 name: "YuE2 Starter"
 engine: "native"
 category: "audio"
@@ -31,39 +31,7 @@ plugins:
 backend:
   engine: "native"
 
-artifacts:
-  - id: "yue2-diffusion-model"
-    kind: "diffusion_model"
-    model_type: "diffusion_model"
-    filename: "yue2_3b_bf16.safetensors"
-    display_name: "YuE2-3B AR/NAR backbone (bf16)"
-    required: true
-    size_bytes: 7261441640
-    checksum:
-      algorithm: "sha256"
-      value: "1d55c42c1a9875c34f5d736e15078449992b044e807ce2a138e6cf289a1e59e9"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "m-a-p/YuE2-3B"
-      version_id: "main@model.safetensors"
-
-  - id: "yue2-vae"
-    kind: "vae"
-    model_type: "vae"
-    filename: "yue2_vae_fp32.safetensors"
-    display_name: "YuE2 Oobleck VAE decoder (fp32)"
-    required: true
-    size_bytes: 530512720
-    checksum:
-      algorithm: "sha256"
-      value: "807ce9d5149fa27c5ad3e6582058469852e908f6c5acc8c8aa338e7ab7751346"
-    capability: "model-lookup"
-    provider_hint:
-      source: "huggingface"
-      model_id: "m-a-p/YuE2-Vae"
-      version_id: "main@model.safetensors"
-
+artifacts: []
 presets:
   - preset_id: "01KX47YUE200000000000000YU"
     path_hint: "marketplace/YuE2"
@@ -101,17 +69,21 @@ steps:
     params:
       engine: "native"
 
-  - key: "artifacts.plan"
-    kind: "artifacts.plan"
-    title: "Plan required downloads"
+  - key: "modes.plan"
+    kind: "modes.plan"
+    title: "Pick modes and review downloads"
     params:
-      artifact_ids: ["yue2-diffusion-model", "yue2-vae"]
+      preset_id: "01KX47YUE200000000000000YU"
+      modes: "all"
+      selected: ["song"]
+      locked: ["song"]
+      extras: "offer"
 
   - key: "artifacts.fetch"
     kind: "artifacts.fetch"
-    title: "Download the YuE2 model files"
+    title: "Download the files"
     params:
-      artifact_ids: ["yue2-diffusion-model", "yue2-vae"]
+      plan: "modes.plan"
 
   - key: "models.index.downloads"
     kind: "models.index"
@@ -125,12 +97,18 @@ steps:
     params:
       preset_id: "01KX47YUE200000000000000YU"
 
+  - key: "preset.defaults"
+    kind: "preset.defaults"
+    title: "Use the downloaded files by default"
+    params:
+      plan: "modes.plan"
+
   - key: "pipeline.render"
     kind: "pipeline.render"
     title: "Validate the pipeline"
     params:
       preset_id: "01KX47YUE200000000000000YU"
-      mode: "song"
+      plan: "modes.plan"
 
   - key: "generation.smoke"
     kind: "generation.smoke"

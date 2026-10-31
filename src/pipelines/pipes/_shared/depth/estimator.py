@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from src.pipelines.outputs import GenerationExecutionError
 from src.platform.assets import asset_subdir
@@ -11,6 +11,10 @@ from src.platform.runtime.depth.video_depth import (
     load_model,
     verify_weights,
 )
+
+
+MODEL_KEY = "native/depth/video_depth_small"
+ESTIMATED_VRAM_GB = 1.5
 
 
 def weights_directory(assets: Any, weights_dir: str = "") -> Path:
@@ -30,14 +34,25 @@ def weights_directory(assets: Any, weights_dir: str = "") -> Path:
     )
 
 
-def acquire_depth_estimator(assets: Any, weights_dir: str = "") -> VideoDepthEstimator:
-    import torch
+def weights_fingerprint(path: Path) -> str:
+    stat = path.stat()
+    return f"{stat.st_mtime}|{stat.st_size}"
 
+
+def acquire_depth_estimator(assets: Any, models: Optional[Any] = None, weights_dir: str = "") -> VideoDepthEstimator:
     directory = weights_directory(assets, weights_dir)
     try:
         path = verify_weights(directory)
-        model = load_model(path)
     except DepthWeightsError as error:
         raise GenerationExecutionError(f"{error}.") from error
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    return VideoDepthEstimator(model=model.to(device), device=device)
+
+    def load() -> VideoDepthEstimator:
+        return VideoDepthEstimator(model=load_model(path))
+
+    if models is None:
+        estimator = load()
+    else:
+        estimator = models.acquire(
+            key=MODEL_KEY, fingerprint=weights_fingerprint(path), loader=load, estimated_vram_gb=ESTIMATED_VRAM_GB,
+        )
+    return estimator.activate()

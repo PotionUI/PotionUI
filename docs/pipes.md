@@ -224,8 +224,8 @@ Render a driving video into a pose, depth or edge guide video; a pose guide can 
 |---|---|---|---|---|
 | `video` | `VIDEO` | yes | yes | Driving videos |
 | `image` | `IMAGE` | no | yes | Picture of the person who should perform the motion |
-| `MODELS` | `SERVICE` | no | no | Model lifecycle service for caching the pose models |
-| `ASSETS` | `SERVICE` | no | no | Asset fetcher for the pose model files |
+| `MODELS` | `SERVICE` | no | no | Model lifecycle service for caching the pose and depth models |
+| `ASSETS` | `SERVICE` | no | no | Asset fetcher for the pose and depth model files |
 
 **Outputs**
 

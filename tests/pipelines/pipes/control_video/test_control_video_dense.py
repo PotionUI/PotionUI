@@ -13,6 +13,7 @@ from src.pipelines.outputs import (
     ProgressGenerationOutput,
 )
 from src.pipelines.pipes._shared.depth import estimator as shared_depth
+from src.pipelines.pipes.control_video import main as pipe_module
 from src.pipelines.pipes.control_video.main import ControlVideoPipe
 from src.platform.runtime.depth.video_depth import WEIGHT_FILENAME, depth_to_guide
 from src.platform.runtime.native.errors import SamplingCancelled
@@ -28,13 +29,17 @@ class FakeDepth:
         self.seen = None
         self.released = False
 
-    def estimate(self, frames, output_size, progress, cancelled):
-        self.seen = (len(frames), frames[0].shape, output_size)
-        height, width = frames[0].shape[:2]
-        ramp = np.tile(np.linspace(0.0, 1.0, width, dtype=np.float16), (height, 1))
+    def iter_depth(self, frames, output_size, progress, cancelled):
+        count = 0
+        shape = None
+        for frame in frames:
+            count += 1
+            shape = frame.shape
+            height, width = frame.shape[:2]
+            yield np.tile(np.linspace(0.0, 1.0, width, dtype=np.float16), (height, 1))
+        self.seen = (count, shape, output_size)
         if progress:
-            progress(1, 1)
-        return np.stack([ramp] * len(frames))
+            progress(count)
 
     def release(self):
         self.released = True
@@ -165,7 +170,7 @@ class TestDepth:
 
     def test_the_model_is_released_even_when_it_fails(self, clip):
         depth = FakeDepth()
-        depth.estimate = lambda *args: (_ for _ in ()).throw(RuntimeError("boom"))
+        depth.iter_depth = lambda *args: (_ for _ in ()).throw(RuntimeError("boom"))
         with pytest.raises(RuntimeError, match="boom"):
             run(make(type="depth"), depth=depth, video=[clip])
         assert depth.released is True
@@ -189,7 +194,7 @@ class TestDepth:
 class TestDepthWeights:
     def test_without_an_asset_service_or_folder_it_says_so(self):
         with pytest.raises(GenerationExecutionError, match="no asset service"):
-            shared_depth.acquire_depth_estimator(None, "")
+            shared_depth.acquire_depth_estimator(None, None, "")
 
     def test_the_depot_fetch_asks_for_the_one_checkpoint(self, tmp_path):
         calls = {}
@@ -200,7 +205,7 @@ class TestDepthWeights:
                 return str(tmp_path)
 
         with pytest.raises(GenerationExecutionError, match="not found"):
-            shared_depth.acquire_depth_estimator(Assets(), "")
+            shared_depth.acquire_depth_estimator(Assets(), None, "")
         assert calls == {
             "repo": "depth-anything/Video-Depth-Anything-Small",
             "subdir": "annotators/depth-anything-video-depth-anything-small",
@@ -210,4 +215,98 @@ class TestDepthWeights:
     def test_a_corrupt_download_is_reported_by_name(self, tmp_path):
         (tmp_path / WEIGHT_FILENAME).write_bytes(b"short")
         with pytest.raises(GenerationExecutionError, match="incomplete or corrupted"):
-            shared_depth.acquire_depth_estimator(None, str(tmp_path))
+            shared_depth.acquire_depth_estimator(None, None, str(tmp_path))
+
+
+class FakeModels:
+    def __init__(self):
+        self.calls = []
+
+    def acquire(self, key, fingerprint, loader, estimated_vram_gb=None):
+        self.calls.append((key, fingerprint, estimated_vram_gb))
+        return loader()
+
+
+class TestLifecycle:
+    def test_the_depth_model_is_cached_and_budgeted_through_the_lifecycle(self, tmp_path, monkeypatch):
+        weights = tmp_path / WEIGHT_FILENAME
+        weights.write_bytes(b"w")
+        loaded = []
+
+        class Model:
+            def to(self, device):
+                loaded.append(device)
+                return self
+
+        monkeypatch.setattr(shared_depth, "verify_weights", lambda directory: weights)
+        monkeypatch.setattr(shared_depth, "load_model", lambda path: Model())
+        models = FakeModels()
+        estimator = shared_depth.acquire_depth_estimator(None, models, str(tmp_path))
+        (key, fingerprint, vram) = models.calls[0]
+        assert key == "native/depth/video_depth_small" and fingerprint and vram == 1.5
+        assert estimator.estimated_vram_gb == 1.5 and len(loaded) == 1
+
+    def test_without_the_lifecycle_the_model_is_loaded_directly(self, tmp_path, monkeypatch):
+        weights = tmp_path / WEIGHT_FILENAME
+        weights.write_bytes(b"w")
+
+        class Model:
+            def to(self, device):
+                return self
+
+        monkeypatch.setattr(shared_depth, "verify_weights", lambda directory: weights)
+        monkeypatch.setattr(shared_depth, "load_model", lambda path: Model())
+        assert shared_depth.acquire_depth_estimator(None, None, str(tmp_path)).model is not None
+
+    def test_the_pipe_hands_the_models_and_assets_services_to_the_loader(self, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(
+            pipe_module, "acquire_depth_estimator",
+            lambda assets, models, weights_dir: seen.update(assets=assets, models=models, weights=weights_dir) or FakeDepth(),
+        )
+        pipe = make(type="depth", weights_dir="/w")
+        pipe._load_depth_estimator(PipeInput(input={"ASSETS": "A", "MODELS": "M"}))
+        assert seen == {"assets": "A", "models": "M", "weights": "/w"}
+
+
+class TestBoundedMemory:
+    def test_depth_never_runs_unbounded_and_edges_keep_the_clip_length(self, clip, monkeypatch):
+        limits = []
+        real = ControlVideoPipe._frames
+
+        def spy(path, limit, max_seconds=0.0):
+            limits.append(limit)
+            return real(path, limit, max_seconds)
+
+        monkeypatch.setattr(ControlVideoPipe, "_frames", staticmethod(spy))
+        run(make(type="depth"), video=[clip])
+        run(make(type="depth", max_frames=7), video=[clip])
+        run(make(type="depth", max_frames=5000), video=[clip])
+        run(make(type="edges"), video=[clip])
+        assert limits == [1001, 7, 1001, 0]
+
+    def test_frames_flow_to_the_estimator_one_at_a_time(self, clip):
+        class Spy(FakeDepth):
+            def iter_depth(self, frames, output_size, progress, cancelled):
+                assert not isinstance(frames, (list, tuple))
+                return super().iter_depth(frames, output_size, progress, cancelled)
+
+        run(make(type="depth"), depth=Spy(), video=[clip])
+
+    def test_only_the_float16_depth_is_buffered(self, clip, monkeypatch):
+        kept = []
+        real = pipe_module.sample_depth
+
+        def spy(depth):
+            kept.append(depth.dtype)
+            return real(depth)
+
+        monkeypatch.setattr(pipe_module, "sample_depth", spy)
+        run(make(type="depth"), video=[clip])
+        assert len(kept) == FRAMES and set(kept) == {np.dtype(np.float16)}
+
+    def test_a_clip_with_no_readable_frames_fails_cleanly(self, tmp_path):
+        empty = tmp_path / "empty.mp4"
+        empty.write_bytes(b"")
+        with pytest.raises(GenerationExecutionError):
+            run(make(type="edges"), video=[str(empty)])

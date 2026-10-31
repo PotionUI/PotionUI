@@ -17,17 +17,24 @@ def ramp_depth(total, height=6, width=8, scale=1.0, shift=0.0):
     return [base * (1.0 + 0.01 * index) * scale + shift for index in range(total)]
 
 
-class TestWindows:
-    @pytest.mark.parametrize("total,expected", [(1, 32), (22, 32), (23, 54), (44, 54), (45, 76)])
-    def test_the_clip_is_padded_to_whole_windows(self, total, expected):
-        assert vd.padded_length(total) == expected
-
-    def test_windows_start_every_22_frames_and_cover_the_clip(self):
-        assert vd.window_starts(1) == [0]
-        assert vd.window_starts(45) == [0, 22, 44]
-        for total in (1, 21, 22, 23, 100):
-            starts = vd.window_starts(total)
-            assert starts[-1] + vd.INFER_LEN <= vd.padded_length(total)
+def reference_align(depth_list):
+    align_len = vd.OVERLAP - vd.INTERP_LEN
+    kf_align = list(vd.KEYFRAMES[:align_len])
+    aligned, reference = [], []
+    for frame_id in range(0, len(depth_list), vd.INFER_LEN):
+        if not aligned:
+            aligned += depth_list[: vd.INFER_LEN]
+            reference += [depth_list[frame_id + kf] for kf in kf_align]
+            continue
+        current = [depth_list[frame_id + i] for i in range(len(kf_align))]
+        scale, shift = vd.solve_scale_and_shift(np.concatenate(current), np.concatenate(reference))
+        before = aligned[-vd.INTERP_LEN:]
+        after = [np.maximum(depth_list[frame_id + i] * scale + shift, 0) for i in range(align_len, vd.OVERLAP)]
+        aligned[-vd.INTERP_LEN:] = vd.blend_frames(before, after)
+        for i in range(vd.OVERLAP, vd.INFER_LEN):
+            aligned.append(np.maximum(depth_list[frame_id + i] * scale + shift, 0))
+        reference = reference[:1] + [np.maximum(depth_list[frame_id + kf] * scale + shift, 0) for kf in kf_align[1:]]
+    return aligned
 
 
 class TestInputSize:
@@ -92,6 +99,15 @@ class TestAlignment:
         assert np.abs(aligned[25] - truth[25]).max() > 0.1
         np.testing.assert_allclose(aligned[31], truth[31] + 10.0 / 3.0, rtol=1e-3)
 
+    def test_the_aligner_matches_the_whole_clip_reference_implementation(self):
+        rng = np.random.default_rng(3)
+        windows = [rng.uniform(0.1, 2.0, (6, 8)).astype(np.float32) * (1 + index // 32) for index in range(32 * 4)]
+        expected = reference_align(windows)
+        actual = vd.align_windows(windows, len(expected))
+        assert len(actual) == len(expected) == 32 + 22 * 3
+        for got, want in zip(actual, expected):
+            np.testing.assert_allclose(got, want, rtol=1e-5, atol=1e-6)
+
     def test_the_result_never_goes_negative(self):
         windows = ramp_depth(32) + [frame * 0.2 - 5.0 for frame in ramp_depth(32)]
         assert min(float(frame.min()) for frame in vd.align_windows(windows, 54)) >= 0.0
@@ -133,33 +149,71 @@ class FakeModel:
         self.moved.append("cpu")
         return self
 
+    def to(self, device):
+        self.moved.append(device)
+        return self
+
+
+class CountingFrames:
+    def __init__(self, total, size=(28, 42)):
+        self.total = total
+        self.size = size
+        self.pulled = 0
+
+    def __iter__(self):
+        for index in range(self.total):
+            self.pulled += 1
+            yield np.full((self.size[0], self.size[1], 3), (index * 5) % 255, dtype=np.uint8)
+
 
 class TestEstimator:
     def frames(self, total, size=(28, 42)):
-        return [np.full((size[0], size[1], 3), (index * 5) % 255, dtype=np.uint8) for index in range(total)]
+        return list(CountingFrames(total, size))
 
-    def test_one_depth_map_per_frame_at_the_requested_size(self):
-        estimator = vd.VideoDepthEstimator(FakeModel(), "cpu")
-        depth = estimator.estimate(self.frames(30), (20, 12))
-        assert depth.shape == (30, 12, 20) and depth.dtype == np.float16
+    @pytest.mark.parametrize("total", [1, 5, 22, 23, 31, 32, 33, 44, 45, 66, 67])
+    def test_one_depth_map_per_frame_for_any_clip_length(self, total):
+        depth = vd.VideoDepthEstimator(FakeModel(), "cpu").estimate(self.frames(total))
+        assert depth.shape == (total, 28, 42) and depth.dtype == np.float16
 
-    def test_the_default_size_is_the_frame_size(self):
-        depth = vd.VideoDepthEstimator(FakeModel(), "cpu").estimate(self.frames(5))
-        assert depth.shape == (5, 28, 42)
+    def test_the_requested_size_is_used(self):
+        depth = vd.VideoDepthEstimator(FakeModel(), "cpu").estimate(self.frames(30), (20, 12))
+        assert depth.shape == (30, 12, 20)
 
-    def test_each_window_is_32_frames_and_inherits_ten_keyframes(self):
+    @pytest.mark.parametrize("total,windows", [(1, 1), (22, 1), (23, 2), (32, 2), (45, 3), (46, 3), (67, 4)])
+    def test_a_window_is_run_only_while_frames_remain(self, total, windows):
+        model = FakeModel()
+        vd.VideoDepthEstimator(model, "cpu").estimate(self.frames(total))
+        assert len(model.calls) == windows
+        assert all(call.shape[:2] == (1, vd.INFER_LEN) for call in model.calls)
+
+    def test_each_later_window_inherits_ten_keyframes_from_the_one_before(self):
         model = FakeModel()
         vd.VideoDepthEstimator(model, "cpu").estimate(self.frames(45))
-        assert len(model.calls) == 3
-        assert all(call.shape[:2] == (1, vd.INFER_LEN) for call in model.calls)
         first, second = model.calls[0], model.calls[1]
         for slot, keyframe in enumerate(vd.KEYFRAMES):
             assert torch.equal(second[0, slot], first[0, keyframe])
 
-    def test_progress_counts_windows(self):
+    def test_frames_are_pulled_one_window_at_a_time_and_results_stream_out(self):
+        source = CountingFrames(120)
+        stream = vd.VideoDepthEstimator(FakeModel(), "cpu").iter_depth(source)
+        first = next(stream)
+        assert first.dtype == np.float16
+        assert source.pulled == vd.INFER_LEN
+        for _ in range(vd.INFER_LEN - vd.INTERP_LEN - 1):
+            next(stream)
+        assert source.pulled == vd.INFER_LEN
+        next(stream)
+        assert source.pulled == vd.INFER_LEN + (vd.INFER_LEN - vd.OVERLAP)
+        assert sum(1 for _ in stream) + vd.INFER_LEN - vd.INTERP_LEN + 1 == 120
+
+    def test_depth_is_never_held_as_float32_beyond_a_window(self):
+        results = list(vd.VideoDepthEstimator(FakeModel(), "cpu").iter_depth(CountingFrames(90)))
+        assert {item.dtype for item in results} == {np.dtype(np.float16)}
+
+    def test_progress_reports_the_frames_read_so_far(self):
         seen = []
-        vd.VideoDepthEstimator(FakeModel(), "cpu").estimate(self.frames(45), None, lambda done, total: seen.append((done, total)))
-        assert seen == [(1, 3), (2, 3), (3, 3)]
+        vd.VideoDepthEstimator(FakeModel(), "cpu").estimate(self.frames(45), None, seen.append)
+        assert seen == [32, 45, 45]
 
     def test_cancelling_stops_before_the_next_window(self):
         model = FakeModel()
@@ -176,6 +230,20 @@ class TestEstimator:
         estimator = vd.VideoDepthEstimator(model, "cuda")
         estimator.release()
         assert model.moved == ["cpu"] and estimator.device == "cpu"
+
+    def test_unload_lets_the_lifecycle_free_the_weights(self):
+        model = FakeModel()
+        estimator = vd.VideoDepthEstimator(model, "cpu")
+        estimator.unload()
+        assert estimator.model is None and model.moved == ["cpu"]
+
+    def test_activate_picks_a_device_and_moves_the_model(self):
+        model = FakeModel()
+        vd.VideoDepthEstimator(model, "cpu").activate()
+        assert model.moved == ["cuda" if torch.cuda.is_available() else "cpu"]
+
+    def test_it_declares_a_vram_estimate_for_the_lifecycle(self):
+        assert vd.VideoDepthEstimator(FakeModel()).estimated_vram_gb > 0
 
 
 class TestWeights:

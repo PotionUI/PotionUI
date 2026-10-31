@@ -100,17 +100,15 @@ class AlphaVideoPipe(BasePipe):
             for position, matte in enumerate(mattes):
                 source = sources[min(position, len(sources) - 1)]
                 written.extend(self._cut_out(source, matte, generation_outputs, cancelled))
-        except FFmpegNotFoundError as error:
-            self._discard(written)
-            raise GenerationExecutionError(str(error)) from error
         except BaseException:
             self._discard(written)
             raise
         return PipeOutput(output={"video": written})
 
     @staticmethod
-    def _open(path: str) -> Tuple[cv2.VideoCapture, int, int, int]:
+    def _open(path: str, captures: List[cv2.VideoCapture]) -> Tuple[cv2.VideoCapture, int, int, int]:
         capture = cv2.VideoCapture(str(path))
+        captures.append(capture)
         if not capture.isOpened():
             raise GenerationExecutionError(f"Could not open the video {Path(path).name}.")
         return (
@@ -140,9 +138,10 @@ class AlphaVideoPipe(BasePipe):
         ))
 
     @staticmethod
-    def _temp(suffix: str) -> str:
+    def _temp(suffix: str, registry: List[str]) -> str:
         handle = tempfile.NamedTemporaryFile(prefix="potionui-alpha-", suffix=suffix, delete=False)
         handle.close()
+        registry.append(handle.name)
         return handle.name
 
     def _cut_out(self, source_path: str, matte_path: str, generation_outputs: Callable, cancelled: Callable) -> List[str]:
@@ -151,27 +150,33 @@ class AlphaVideoPipe(BasePipe):
         if white <= black:
             raise GenerationExecutionError("The matte white point must be above the black point.")
         limit = int(self.config.get("max_frames") or 0)
-        source, width, height, total = self._open(source_path)
-        matte, _, _, matte_total = self._open(matte_path)
-        fps = probe_effective_fps(source_path) or float(source.get(cv2.CAP_PROP_FPS) or 0.0) or DEFAULT_FPS
-        width -= width % 2
-        height -= height % 2
-        if width <= 0 or height <= 0:
-            source.release()
-            matte.release()
-            raise GenerationExecutionError("The clip has no readable picture.")
-        expected = min(total or matte_total, matte_total or total) if (total or matte_total) else 0
-        if limit:
-            expected = min(expected, limit) if expected else limit
-        step = max(1, expected // PROGRESS_STEPS)
         want_preview = as_flag(self.config.get("preview", True))
-        board = checkerboard(width, height) if want_preview else None
-        webm_path = self._temp(".webm")
-        preview_path = self._temp(".mp4") if want_preview else None
-        webm = StreamingAlphaWebmWriter(webm_path, width, height, fps, crf=int(self.config.get("crf") or 24))
-        preview = StreamingMp4Writer(preview_path, width, height, fps, crf=PREVIEW_CRF) if want_preview else None
-        count = 0
+        captures: List[cv2.VideoCapture] = []
+        temp_files: List[str] = []
+        writers: List[StreamingMp4Writer] = []
         try:
+            source, width, height, total = self._open(source_path, captures)
+            matte, _, _, matte_total = self._open(matte_path, captures)
+            fps = probe_effective_fps(source_path) or float(source.get(cv2.CAP_PROP_FPS) or 0.0) or DEFAULT_FPS
+            width -= width % 2
+            height -= height % 2
+            if width <= 0 or height <= 0:
+                raise GenerationExecutionError("The clip has no readable picture.")
+            expected = min(total or matte_total, matte_total or total) if (total or matte_total) else 0
+            if limit:
+                expected = min(expected, limit) if expected else limit
+            step = max(1, expected // PROGRESS_STEPS)
+            board = checkerboard(width, height) if want_preview else None
+            webm_path = self._temp(".webm", temp_files)
+            webm = StreamingAlphaWebmWriter(webm_path, width, height, fps, crf=int(self.config.get("crf") or 24))
+            writers.append(webm)
+            preview = None
+            preview_path = None
+            if want_preview:
+                preview_path = self._temp(".mp4", temp_files)
+                preview = StreamingMp4Writer(preview_path, width, height, fps, crf=PREVIEW_CRF)
+                writers.append(preview)
+            count = 0
             for index, (frame, shade) in enumerate(self._pairs(source, matte, limit)):
                 if cancelled():
                     raise SamplingCancelled()
@@ -185,19 +190,19 @@ class AlphaVideoPipe(BasePipe):
                     self._progress(generation_outputs, index, expected)
             if count == 0:
                 raise GenerationExecutionError("The clip and its matte share no frames.")
-            webm.close()
-            if preview is not None:
-                preview.close()
-        except BaseException:
-            webm.abort()
-            Path(webm_path).unlink(missing_ok=True)
-            if preview is not None:
-                preview.abort()
-                Path(preview_path).unlink(missing_ok=True)
+            for writer in writers:
+                writer.close()
+        except BaseException as error:
+            for writer in writers:
+                writer.abort()
+            for path in temp_files:
+                Path(path).unlink(missing_ok=True)
+            if isinstance(error, FFmpegNotFoundError):
+                raise GenerationExecutionError(str(error)) from error
             raise
         finally:
-            source.release()
-            matte.release()
+            for capture in captures:
+                capture.release()
         logger.info(f"[ALPHA_VIDEO] wrote {count} frames at {width}x{height}, {fps:.3f} fps")
         outputs = [webm_path]
         if preview_path:

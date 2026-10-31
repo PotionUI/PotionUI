@@ -7,7 +7,7 @@ import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional, Sequence, Tuple
+from typing import Callable, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
@@ -112,36 +112,46 @@ def prepare_frame(frame_rgb: np.ndarray, size: Tuple[int, int]) -> np.ndarray:
     return np.ascontiguousarray(normalised.transpose(2, 0, 1))
 
 
-def window_starts(total: int) -> List[int]:
-    step = INFER_LEN - OVERLAP
-    return list(range(0, total, step))
+ALIGN_FRAMES = KEYFRAMES[: OVERLAP - INTERP_LEN]
+NEW_FRAMES = INFER_LEN - OVERLAP
+SAMPLE_VALUES = 2048
 
 
-def padded_length(total: int) -> int:
-    step = INFER_LEN - OVERLAP
-    return total + (step - (total % step)) % step + (INFER_LEN - step)
+def _positive(frame: np.ndarray) -> np.ndarray:
+    return np.maximum(frame, 0.0)
+
+
+class WindowAligner:
+    def __init__(self) -> None:
+        self.tail: List[np.ndarray] = []
+        self.reference: List[np.ndarray] = []
+
+    def add(self, window: Sequence[np.ndarray]) -> List[np.ndarray]:
+        if not self.reference:
+            self.reference = [window[kf] for kf in ALIGN_FRAMES]
+            self.tail = list(window[INFER_LEN - INTERP_LEN:])
+            return list(window[: INFER_LEN - INTERP_LEN])
+        current = [window[i] for i in range(len(ALIGN_FRAMES))]
+        scale, shift = solve_scale_and_shift(np.concatenate(current), np.concatenate(self.reference))
+        after = [_positive(window[i] * scale + shift) for i in range(len(ALIGN_FRAMES), OVERLAP)]
+        finished = blend_frames(self.tail, after)
+        fresh = [_positive(window[i] * scale + shift) for i in range(OVERLAP, INFER_LEN)]
+        self.reference = self.reference[:1] + [_positive(window[kf] * scale + shift) for kf in ALIGN_FRAMES[1:]]
+        finished.extend(fresh[: -INTERP_LEN])
+        self.tail = fresh[-INTERP_LEN:]
+        return finished
+
+    def flush(self) -> List[np.ndarray]:
+        remaining, self.tail = self.tail, []
+        return remaining
 
 
 def align_windows(depth_list: Sequence[np.ndarray], total: int) -> List[np.ndarray]:
-    align_len = OVERLAP - INTERP_LEN
-    kf_align = KEYFRAMES[:align_len]
+    aligner = WindowAligner()
     aligned: List[np.ndarray] = []
-    reference: List[np.ndarray] = []
-    for frame_id in range(0, len(depth_list), INFER_LEN):
-        if not aligned:
-            aligned.extend(depth_list[:INFER_LEN])
-            reference.extend(depth_list[frame_id + kf] for kf in kf_align)
-            continue
-        current = [depth_list[frame_id + i] for i in range(len(kf_align))]
-        scale, shift = solve_scale_and_shift(np.concatenate(current), np.concatenate(reference))
-        before = aligned[-INTERP_LEN:]
-        after = [np.maximum(depth_list[frame_id + i] * scale + shift, 0.0) for i in range(align_len, OVERLAP)]
-        aligned[-INTERP_LEN:] = blend_frames(before, after)
-        for i in range(OVERLAP, INFER_LEN):
-            aligned.append(np.maximum(depth_list[frame_id + i] * scale + shift, 0.0))
-        reference = reference[:1]
-        for kf in kf_align[1:]:
-            reference.append(np.maximum(depth_list[frame_id + kf] * scale + shift, 0.0))
+    for start in range(0, len(depth_list), INFER_LEN):
+        aligned.extend(aligner.add(depth_list[start:start + INFER_LEN]))
+    aligned.extend(aligner.flush())
     return aligned[:total]
 
 
@@ -149,6 +159,14 @@ def align_windows(depth_list: Sequence[np.ndarray], total: int) -> List[np.ndarr
 class VideoDepthEstimator:
     model: object
     device: str = "cpu"
+    estimated_vram_gb: float = 1.5
+
+    def activate(self) -> "VideoDepthEstimator":
+        import torch
+
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model.to(self.device)
+        return self
 
     def release(self) -> None:
         import torch
@@ -158,6 +176,10 @@ class VideoDepthEstimator:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+    def unload(self) -> None:
+        self.release()
+        self.model = None
+
     def _run_window(self, window) -> np.ndarray:
         import torch
 
@@ -165,46 +187,99 @@ class VideoDepthEstimator:
             with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=self.device.startswith("cuda")):
                 return self.model(window)
 
+    def iter_depth(
+        self,
+        frames: Iterable[np.ndarray],
+        output_size: Optional[Tuple[int, int]] = None,
+        progress: Optional[Callable[[int], None]] = None,
+        cancelled: Optional[Callable[[], bool]] = None,
+    ) -> Iterator[np.ndarray]:
+        import torch
+        import torch.nn.functional as F
+
+        source = iter(frames)
+        first = next(source, None)
+        if first is None:
+            raise ValueError("No frames to estimate depth for")
+        out_w, out_h = output_size if output_size else (first.shape[1], first.shape[0])
+        size = model_input_size(first.shape[0], first.shape[1])
+        state = {"read": 1, "last": first}
+
+        def pull(count: int) -> List[np.ndarray]:
+            pulled = []
+            for _ in range(count):
+                frame = next(source, None)
+                if frame is None:
+                    frame = state["last"]
+                else:
+                    state["read"] += 1
+                    state["last"] = frame
+                pulled.append(frame)
+            return pulled
+
+        aligner = WindowAligner()
+        previous = None
+        emitted = 0
+        index = 0
+        while True:
+            if cancelled is not None and cancelled():
+                raise SamplingCancelled()
+            if previous is None:
+                batch_frames = [first] + pull(INFER_LEN - 1)
+                batch = np.stack([prepare_frame(frame, size) for frame in batch_frames])
+                window = torch.from_numpy(batch).unsqueeze(0).to(self.device)
+            else:
+                fresh = pull(INFER_LEN - OVERLAP)
+                batch = np.stack([prepare_frame(frame, size) for frame in fresh])
+                window = torch.empty((1, INFER_LEN) + batch.shape[1:], dtype=torch.float32, device=self.device)
+                window[:, :OVERLAP] = previous[:, list(KEYFRAMES)]
+                window[:, OVERLAP:] = torch.from_numpy(batch).unsqueeze(0).to(self.device)
+            depth = self._run_window(window).float()
+            resized = F.interpolate(depth.flatten(0, 1).unsqueeze(1), size=(out_h, out_w), mode="bilinear", align_corners=True)
+            maps = [resized[i, 0].cpu().numpy() for i in range(resized.shape[0])]
+            del resized, depth
+            previous = window
+            for item in aligner.add(maps):
+                if emitted < state["read"]:
+                    emitted += 1
+                    yield item.astype(np.float16)
+            index += 1
+            if progress is not None:
+                progress(state["read"])
+            if state["read"] <= NEW_FRAMES * index:
+                break
+        for item in aligner.flush():
+            if emitted < state["read"]:
+                emitted += 1
+                yield item.astype(np.float16)
+
     def estimate(
         self,
         frames: Sequence[np.ndarray],
         output_size: Optional[Tuple[int, int]] = None,
-        progress: Optional[Callable[[int, int], None]] = None,
+        progress: Optional[Callable[[int], None]] = None,
         cancelled: Optional[Callable[[], bool]] = None,
     ) -> np.ndarray:
-        import torch
-        import torch.nn.functional as F
+        return np.stack(list(self.iter_depth(frames, output_size, progress, cancelled)))
 
-        total = len(frames)
-        if total == 0:
-            raise ValueError("No frames to estimate depth for")
-        source_h, source_w = frames[0].shape[:2]
-        out_w, out_h = output_size if output_size else (source_w, source_h)
-        size = model_input_size(source_h, source_w)
-        padded = list(frames) + [frames[-1]] * (padded_length(total) - total)
-        starts = window_starts(total)
-        previous = None
-        depth_list: List[np.ndarray] = []
-        for index, start in enumerate(starts):
-            if cancelled is not None and cancelled():
-                raise SamplingCancelled()
-            batch = np.stack([prepare_frame(padded[start + i], size) for i in range(INFER_LEN)])
-            window = torch.from_numpy(batch).unsqueeze(0).to(self.device)
-            if previous is not None:
-                window[:, :OVERLAP] = previous[:, list(KEYFRAMES)]
-            depth = self._run_window(window).float()
-            resized = F.interpolate(depth.flatten(0, 1).unsqueeze(1), size=(out_h, out_w), mode="bilinear", align_corners=True)
-            depth_list.extend(resized[i, 0].cpu().numpy() for i in range(resized.shape[0]))
-            previous = window
-            if progress is not None:
-                progress(index + 1, len(starts))
-        aligned = align_windows(depth_list, total)
-        return np.stack(aligned).astype(np.float16)
+
+def depth_levels(samples: Sequence[np.ndarray], low_percentile: float = 2.0, high_percentile: float = 98.0) -> Tuple[float, float]:
+    low, high = np.percentile(np.concatenate([np.asarray(s, dtype=np.float32).ravel() for s in samples]), [low_percentile, high_percentile])
+    return float(low), float(high)
+
+
+def sample_depth(depth: np.ndarray) -> np.ndarray:
+    flat = depth.ravel()
+    stride = max(1, flat.size // SAMPLE_VALUES)
+    return flat[::stride].astype(np.float32)
+
+
+def depth_frame_to_guide(depth: np.ndarray, low: float, high: float) -> np.ndarray:
+    span = max(high - low, 1e-6)
+    scaled = np.clip((depth.astype(np.float32) - low) / span, 0.0, 1.0)
+    return np.rint(scaled * 255.0).astype(np.uint8)
 
 
 def depth_to_guide(depth: np.ndarray, low_percentile: float = 2.0, high_percentile: float = 98.0) -> np.ndarray:
-    sample = depth[:: max(1, depth.shape[0] // 64)].astype(np.float32)
-    low, high = np.percentile(sample, [low_percentile, high_percentile])
-    span = max(float(high - low), 1e-6)
-    scaled = np.clip((depth.astype(np.float32) - float(low)) / span, 0.0, 1.0)
-    return np.rint(scaled * 255.0).astype(np.uint8)
+    low, high = depth_levels([sample_depth(frame) for frame in depth], low_percentile, high_percentile)
+    return np.stack([depth_frame_to_guide(frame, low, high) for frame in depth])

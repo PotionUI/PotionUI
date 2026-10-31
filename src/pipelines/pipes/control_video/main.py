@@ -29,7 +29,12 @@ from src.pipelines.pipes._shared.media.inputs import as_flag, media_paths
 from src.pipelines.pipes._shared.media.video_encode import probe_effective_fps
 from src.pipelines.pipes._shared.depth.estimator import acquire_depth_estimator
 from src.pipelines.pipes._shared.pose.estimator import acquire_pose_estimator
-from src.platform.runtime.depth.video_depth import DepthWeightsError, VideoDepthEstimator, depth_to_guide
+from src.platform.runtime.depth.video_depth import (
+    VideoDepthEstimator,
+    depth_frame_to_guide,
+    depth_levels,
+    sample_depth,
+)
 from src.platform.runtime.guides.edges import canny_guide
 from src.platform.runtime.guides.frames import fit_frame
 from src.platform.runtime.native.errors import SamplingCancelled
@@ -49,6 +54,7 @@ GUIDE_TYPES = ["pose", "depth", "edges"]
 GUIDE_CRF = 12
 DEFAULT_FPS = 24.0
 PROGRESS_STEPS = 20
+DEPTH_MAX_FRAMES = 1001
 
 
 def _number(value: Any, cast: Callable, default: Any) -> Any:
@@ -95,8 +101,8 @@ class ControlVideoPipe(BasePipe):
         return [
             PipeInputSpec("video", IOType.VIDEO, True, "Driving videos", is_array=True),
             PipeInputSpec("image", IOType.IMAGE, False, "Picture of the person who should perform the motion", is_array=True),
-            PipeInputSpec("MODELS", IOType.SERVICE, False, "Model lifecycle service for caching the pose models", is_array=False),
-            PipeInputSpec("ASSETS", IOType.SERVICE, False, "Asset fetcher for the pose model files", is_array=False),
+            PipeInputSpec("MODELS", IOType.SERVICE, False, "Model lifecycle service for caching the pose and depth models", is_array=False),
+            PipeInputSpec("ASSETS", IOType.SERVICE, False, "Asset fetcher for the pose and depth model files", is_array=False),
         ]
 
     @classmethod
@@ -109,7 +115,9 @@ class ControlVideoPipe(BasePipe):
         )
 
     def _load_depth_estimator(self, pipe_input: PipeInput) -> VideoDepthEstimator:
-        return acquire_depth_estimator(pipe_input.input.get("ASSETS"), str(self.config.get("weights_dir") or ""))
+        return acquire_depth_estimator(
+            pipe_input.input.get("ASSETS"), pipe_input.input.get("MODELS"), str(self.config.get("weights_dir") or ""),
+        )
 
     @staticmethod
     def _frames(path: str, limit: int, max_seconds: float = 0.0) -> Tuple[Iterator[np.ndarray], Callable[[], None], Tuple[int, int, float, int]]:
@@ -284,7 +292,9 @@ class ControlVideoPipe(BasePipe):
         preview: Optional[np.ndarray] = None
         writer = StreamingMp4Writer(path, width, height, fps, crf=GUIDE_CRF)
         try:
+            written = 0
             for index, frame in enumerate(frames):
+                written += 1
                 if cancelled():
                     raise SamplingCancelled()
                 if index == count // 2:
@@ -292,6 +302,8 @@ class ControlVideoPipe(BasePipe):
                 writer.write(frame)
                 if index % step == 0:
                     self._progress(generation_outputs, progress_label, index, count)
+            if written == 0:
+                raise GenerationExecutionError("Could not read any frames from the video.")
             writer.close()
         except BaseException:
             writer.abort()
@@ -326,8 +338,12 @@ class ControlVideoPipe(BasePipe):
                 estimator.release()
         return PipeOutput(output={"video": guides})
 
-    def _read_fitted(self, video: str, guide_type: str) -> Tuple[List[np.ndarray], int, int, float]:
+    def _fitted_frames(
+        self, video: str, depth: bool,
+    ) -> Tuple[Iterator[np.ndarray], Callable[[], None], int, int, float, int]:
         limit = _number(self.config.get("max_frames"), int, 0)
+        if depth:
+            limit = min(limit, DEPTH_MAX_FRAMES) if limit else DEPTH_MAX_FRAMES
         frames, release, (video_width, video_height, fps, total) = self._frames(
             video, limit, _number(self.config.get("max_seconds"), float, 0.0),
         )
@@ -339,35 +355,39 @@ class ControlVideoPipe(BasePipe):
             multiple=_number(self.config.get("size_multiple"), int, 32),
         )
         fit = str(self.config.get("fit") or "contain")
-        try:
-            fitted = [fit_frame(frame, out_width, out_height, fit) for frame in frames]
-        finally:
-            release()
-        if not fitted:
-            raise GenerationExecutionError(f"Could not read any frames from {Path(video).name}.")
-        return fitted, out_width, out_height, fps
+        fitted = (fit_frame(frame, out_width, out_height, fit) for frame in frames)
+        return fitted, release, out_width, out_height, fps, total
 
     def _render_dense(
         self, video: str, guide_type: str, estimator: Optional[VideoDepthEstimator], generation_outputs: Callable, cancelled: Callable,
     ) -> str:
-        fitted, width, height, fps = self._read_fitted(video, guide_type)
-        count = len(fitted)
-        if guide_type == "edges":
-            low = _number(self.config.get("canny_low"), float, 100.0)
-            high = _number(self.config.get("canny_high"), float, 200.0)
-            frames = (canny_guide(frame, low, high) for frame in fitted)
-            return self._write_guide(
-                frames, count, width, height, fps, "Finding the edges", "Edge guide", generation_outputs, cancelled,
-            )
+        fitted, release, width, height, fps, total = self._fitted_frames(video, guide_type == "depth")
+        total = max(total, 1)
+        try:
+            if guide_type == "edges":
+                low = _number(self.config.get("canny_low"), float, 100.0)
+                high = _number(self.config.get("canny_high"), float, 200.0)
+                frames = (canny_guide(frame, low, high) for frame in fitted)
+                return self._write_guide(
+                    frames, total, width, height, fps, "Finding the edges", "Edge guide", generation_outputs, cancelled,
+                )
 
-        def report(done: int, windows: int) -> None:
-            self._progress(generation_outputs, "Reading the depth", done, windows)
+            def report(done: int) -> None:
+                self._progress(generation_outputs, "Reading the depth", done, total)
 
-        depth = estimator.estimate(fitted, None, report, cancelled)
-        guide = depth_to_guide(depth)
-        frames = (np.repeat(guide[index][:, :, None], 3, axis=2) for index in range(count))
+            depth_frames: List[np.ndarray] = []
+            samples: List[np.ndarray] = []
+            for depth in estimator.iter_depth(fitted, None, report, cancelled):
+                depth_frames.append(depth)
+                samples.append(sample_depth(depth))
+        finally:
+            release()
+        if not depth_frames:
+            raise GenerationExecutionError(f"Could not read any frames from {Path(video).name}.")
+        low, high = depth_levels(samples)
+        frames = (np.repeat(depth_frame_to_guide(depth, low, high)[:, :, None], 3, axis=2) for depth in depth_frames)
         return self._write_guide(
-            frames, count, width, height, fps, "Drawing the depth guide", "Depth guide", generation_outputs, cancelled,
+            frames, len(depth_frames), width, height, fps, "Drawing the depth guide", "Depth guide", generation_outputs, cancelled,
         )
 
     @staticmethod

@@ -7,6 +7,7 @@ import pytest
 
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.outputs import GenerationExecutionError, ProgressGenerationOutput
+from src.pipelines.pipes.alpha_video import main as pipe_module
 from src.pipelines.pipes.alpha_video.main import (
     AlphaVideoPipe,
     checkerboard,
@@ -234,3 +235,95 @@ class TestFailures:
     def test_progress_is_reported(self, clip, matte):
         _, emitted = run(make(), video=[clip], matte=[matte])
         assert any(isinstance(item, ProgressGenerationOutput) for item in emitted)
+
+
+class TestCleanupOnFailure:
+    @pytest.fixture
+    def scratch(self, tmp_path, monkeypatch):
+        import tempfile
+
+        root = tmp_path / "scratch"
+        root.mkdir()
+        monkeypatch.setattr(tempfile, "tempdir", str(root))
+        return root
+
+    @pytest.fixture
+    def captures(self, monkeypatch):
+        opened = []
+        real = cv2.VideoCapture
+
+        class Spy:
+            def __init__(self, path):
+                self.inner = real(path)
+                self.released = False
+                opened.append(self)
+
+            def __getattr__(self, name):
+                return getattr(self.inner, name)
+
+            def release(self):
+                self.released = True
+                self.inner.release()
+
+        monkeypatch.setattr(pipe_module.cv2, "VideoCapture", Spy)
+        return opened
+
+    def test_the_second_writer_failing_to_start_cleans_up_the_first(self, clip, matte, scratch, captures, monkeypatch):
+        started = []
+        real = pipe_module.StreamingAlphaWebmWriter
+
+        class Spy(real):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.aborted = False
+                started.append(self)
+
+            def abort(self):
+                self.aborted = True
+                super().abort()
+
+        def broken(*args, **kwargs):
+            raise RuntimeError("no encoder slot")
+
+        monkeypatch.setattr(pipe_module, "StreamingAlphaWebmWriter", Spy)
+        monkeypatch.setattr(pipe_module, "StreamingMp4Writer", broken)
+        with pytest.raises(RuntimeError, match="no encoder slot"):
+            run(make(), video=[clip], matte=[matte])
+        assert started and all(writer.aborted for writer in started)
+        assert list(scratch.iterdir()) == []
+        assert len(captures) == 2 and all(capture.released for capture in captures)
+
+    def test_the_second_writer_dying_mid_clip_cleans_up_both(self, clip, matte, scratch, captures, monkeypatch):
+        real = pipe_module.StreamingMp4Writer
+
+        class Dying(real):
+            def write(self, frame):
+                raise RuntimeError("ffmpeg died mid-encode")
+
+        monkeypatch.setattr(pipe_module, "StreamingMp4Writer", Dying)
+        with pytest.raises(RuntimeError, match="died mid-encode"):
+            run(make(), video=[clip], matte=[matte])
+        assert list(scratch.iterdir()) == []
+        assert all(capture.released for capture in captures)
+
+    def test_an_unreadable_clip_releases_what_was_opened_and_leaves_no_files(self, matte, scratch, captures, tmp_path):
+        broken = tmp_path / "broken.mp4"
+        broken.write_bytes(b"not a video")
+        with pytest.raises(GenerationExecutionError, match="Could not open"):
+            run(make(), video=[str(broken)], matte=[matte])
+        assert captures and all(capture.released for capture in captures)
+        assert list(scratch.iterdir()) == []
+
+    def test_a_missing_encoder_is_translated_once_and_leaves_no_files(self, clip, matte, scratch, captures, monkeypatch):
+        def missing(*args, **kwargs):
+            raise pipe_module.FFmpegNotFoundError("no libvpx-vp9")
+
+        monkeypatch.setattr(pipe_module, "StreamingAlphaWebmWriter", missing)
+        with pytest.raises(GenerationExecutionError, match="no libvpx-vp9"):
+            run(make(), video=[clip], matte=[matte])
+        assert list(scratch.iterdir()) == []
+        assert all(capture.released for capture in captures)
+
+    def test_captures_are_released_after_a_good_run(self, clip, matte, captures):
+        run(make(), video=[clip], matte=[matte])
+        assert len(captures) == 2 and all(capture.released for capture in captures)

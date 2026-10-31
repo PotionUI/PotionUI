@@ -592,6 +592,8 @@ class MiniMaxH3Model(NativeArchModule):
         # 5. The block stack. gate_compress (FastH3 only) reaches the main
         # blocks alone -- the token refiner's checkpoint keys never carry it.
         apply_silu = not config.pruned
+        self.control_branch = None
+        self.control_info = None
         self.blocks = nn.ModuleList([
             MiniMaxH3Block(hidden_size, config.num_attention_heads, config.attention_head_dim, config.ffn_dim,
                             config.time_embed_dim, apply_silu, config.norm_eps, config.qk_norm_eps,
@@ -618,7 +620,7 @@ class MiniMaxH3Model(NativeArchModule):
         self._pe_cache_sources: tuple[Tensor, Tensor] | None = None
 
     def lora_row_mask_target(self, stem: str) -> RowMaskTarget:
-        if stem in _AUDIO_ONLY_LINEARS or stem.startswith("time_embedder."):
+        if stem in _AUDIO_ONLY_LINEARS or stem.startswith(("time_embedder.", "control_branch.")):
             return SKIP
         parts = stem.split(".")
         if parts[0] != "blocks" or len(parts) < 3:
@@ -771,6 +773,7 @@ class MiniMaxH3Model(NativeArchModule):
                                      step_cache=None,
                                      sparse_attn: SolAttnContext | SlaAttnContext | None = None,
                                      seq_chunk_rows: int = 0, vdn_layout=None, ffn_chunk_rows: int = 0,
+                                     control_stream=None,
                                      ) -> tuple[Tensor, Tensor | None, bool]:
         """Run the block stack, optionally gated by FBCache (see
         ``sampling/step_cache.py``).
@@ -807,8 +810,12 @@ class MiniMaxH3Model(NativeArchModule):
         may_skip = step_cache is not None and not (sparse_attn is not None and sparse_attn.dense)
         probe = None
         for i, block in enumerate(self.blocks):
+            if control_stream is not None:
+                control_stream.before(i, temb, adaln_indices, rotary_emb, seq_chunk_rows, ffn_chunk_rows)
             hidden_states = block(hidden_states, temb, adaln_indices, rotary_emb, sparse_attn,
                                   seq_chunk_rows, vdn_layout, ffn_chunk_rows)
+            if control_stream is not None:
+                hidden_states = control_stream.after(i, hidden_states)
             if i == 0 and step_cache is not None:
                 probe = GroupedProbe(
                     video=hidden_states.index_select(1, generated_video_indices),
@@ -981,6 +988,16 @@ class MiniMaxH3Model(NativeArchModule):
                 )
         num_condition_video_rows = int(kwargs.pop("num_condition_video_rows", 0))
         num_condition_audio_rows = int(kwargs.pop("num_condition_audio_rows", 0))
+        control = kwargs.pop("control", None)
+        control_stream = None
+        if control is not None and control.scale != 0.0:
+            if self.control_branch is None:
+                raise ValueError("control was passed but this model carries no control branch")
+            if vdn_layout is not None:
+                raise ValueError("a control branch cannot run together with the VDN hybrid attention")
+            control_stream = self.control_branch.stream(
+                control, packed, video_indices, audio_indices, num_condition_video_rows,
+            )
         row_mask = torch.ones(seq_len, dtype=torch.bool, device=packed.device)
         row_mask[audio_indices] = False
         with lora_row_mask(row_mask):
@@ -989,6 +1006,7 @@ class MiniMaxH3Model(NativeArchModule):
                 video_indices[num_condition_video_rows:], audio_indices[num_condition_audio_rows:],
                 step_cache=step_cache, sparse_attn=sparse_attn_ctx,
                 seq_chunk_rows=seq_chunk_rows, vdn_layout=vdn_layout, ffn_chunk_rows=ffn_chunk_rows,
+                control_stream=control_stream,
             )
         if skipped:
             return step_cache.record_skip()

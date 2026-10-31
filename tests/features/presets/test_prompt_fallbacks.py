@@ -3,12 +3,11 @@ from pathlib import Path
 
 import pytest
 
-from tests.features.presets.test_ltx25_ic_lora_captions import ltx25_template, process
+from tests.features.presets.test_ltx25_ic_lora_captions import ltx25_template, process, process_images
 
-PRESET_ROOTS = [Path("content/presets"), *Path("content/plugins").glob("*/*/presets")]
-RAW_PROMPT_FALLBACK = re.compile(
-    r"(?:prompts\.first|\bitem|\bprompt)\.(?:positive|negative)\)?\s+or\s+['\"][^'\"]"
-)
+REPO_ROOT = Path(__file__).resolve().parents[3]
+PRESET_ROOTS = [REPO_ROOT / "content" / "presets", *(REPO_ROOT / "content" / "plugins").glob("*/*/presets")]
+RAW_PROMPT_FALLBACK = re.compile(r"\.(?:positive|negative)[\s)]*\bor\s+['\"][^'\"]")
 BLANKS = ["   ", "\n\n", " \n\t "]
 FALLBACK_MODES = [
     pytest.param("remove_object", {}, id="remove_object"),
@@ -34,9 +33,11 @@ def encoder_prompts(template, mode, prompt, over):
 
 
 def test_no_shipped_preset_falls_back_with_a_bare_or_on_the_prompt():
+    files = list(shipped_pipeline_files())
+    assert any(path.name == "pipeline.yml" for path in files)
     offenders = [
-        f"{path.as_posix()}:{number}"
-        for path in shipped_pipeline_files()
+        f"{path.relative_to(REPO_ROOT).as_posix()}:{number}"
+        for path in files
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
         if RAW_PROMPT_FALLBACK.search(line)
     ]
@@ -48,3 +49,15 @@ def test_no_shipped_preset_falls_back_with_a_bare_or_on_the_prompt():
 @pytest.mark.parametrize("mode, over", FALLBACK_MODES)
 def test_a_whitespace_only_prompt_renders_the_same_as_an_empty_one(ltx25_template, mode, over, blank):
     assert encoder_prompts(ltx25_template, mode, blank, over) == encoder_prompts(ltx25_template, mode, "", over)
+
+
+@pytest.mark.parametrize("blank", BLANKS)
+@pytest.mark.parametrize("mode", ["day_to_night", "cinemagraph"])
+def test_a_whitespace_only_negative_prompt_uses_the_default_negative(ltx25_template, mode, blank):
+    base = {"input_image": "/media/frame.png"}
+    blanked = process_images(ltx25_template, mode, [{"positive": "a dog", "negative": blank}], **base)
+    empty = process_images(ltx25_template, mode, [{"positive": "a dog", "negative": ""}], **base)
+
+    negative = blanked["prompt_encoder"]["config"]["n_prompt"]["output"]
+    assert negative.strip()
+    assert negative == empty["prompt_encoder"]["config"]["n_prompt"]["output"]

@@ -18,7 +18,6 @@ from src.pipelines.pipes.control_video.main import ControlVideoPipe
 from src.pipelines.pipes.generator.video_minimax_h3.conditioning import source_canvas_size
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import CANVAS_MAX_PIXELS, MAX_DURATION_S
 from src.platform.templating.processor import TemplateProcessor
-from src.platform.util.video_stream import AUDIO_PROBE_PRESENT, AUDIO_PROBE_SILENT, probe_audio_stream
 from tests.fixtures.pose_skeletons import skeleton
 from tests.platform.media_tools.media_factory import make_video
 
@@ -144,15 +143,16 @@ def test_the_models_section_keeps_the_fl2va_pickers_and_the_shared_fields_in_ste
         assert mode[name] == field
 
 
-@pytest.mark.parametrize("sound,source,audio_provider", [
-    ("generate", "generate", "pose_guide"),
-    ("none", "file", "pose_guide"),
-    ("keep", "file", "media_loader"),
-])
-def test_the_sound_options(h3_template, sound, source, audio_provider):
+@pytest.mark.parametrize("sound,source", [("generate", "generate"), ("keep", "file")])
+def test_the_sound_options(h3_template, sound, source):
     generator = _by_id(_pipes(h3_template, {"sound": sound}), "generator")
     assert generator["config"]["audio_source"] == source
-    assert ("audio", audio_provider, "video") in _wired(generator)
+    assert ("audio", "media_loader", "video") in _wired(generator)
+
+
+def test_the_sound_field_offers_generate_and_keep_only():
+    field = _named(_fields("modes/motion_transfer/tabs/generation.yml"), "sound")
+    assert [o["value"] for o in field["configuration"]["options"]] == ["generate", "keep"]
 
 
 def test_sound_defaults_to_generate(h3_template):
@@ -267,11 +267,3 @@ def test_the_canvas_follows_the_picture_never_the_video(h3_template, picture_siz
     stretch = abs(math.log((canvas_width / canvas_height) / (picture_size[0] / picture_size[1])))
     assert stretch < 32 / min(canvas_width, canvas_height)
     assert abs(math.log((canvas_width / canvas_height) / (video_size[0] / video_size[1]))) > 0.2 or video_size == picture_size
-
-
-def test_the_none_sound_option_muxes_a_guide_that_has_no_audio(h3_template, tmp_path, monkeypatch):
-    guide_config = _by_id(_pipes(h3_template, {"sound": "none"}), "pose_guide")["config"]
-    video = str(make_video(tmp_path / "dance.mp4", seconds=0.5, size=(192, 320), fps=10, audio=True))
-    assert probe_audio_stream(video).status == AUDIO_PROBE_PRESENT
-    guide = _render_guide(guide_config, video, Image.new("RGB", (1000, 1000), (120, 120, 120)), tmp_path, monkeypatch)
-    assert probe_audio_stream(guide).status == AUDIO_PROBE_SILENT

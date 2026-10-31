@@ -35,11 +35,10 @@ fields:
         label: "Sound"
         default: "generate"
         description: "What the result sounds like."
-        ai_hint: "Generate makes new sound that fits the scene. None gives a silent video. Keep the video's sound uses the sound of the Video as it is."
+        ai_hint: "Generate makes new sound that fits the scene. Keep the video's sound uses the sound of the Video as it is."
         configuration:
           options:
             - { label: "Generate", value: "generate" }
-            - { label: "None", value: "none" }
             - { label: "Keep the video's sound", value: "keep" }
 
   - type: "section"

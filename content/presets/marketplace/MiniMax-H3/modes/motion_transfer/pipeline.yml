@@ -139,7 +139,7 @@ pipeline:
       - ["seed", "seed_generator", "seed"]
       - ["control_video", "pose_guide", "video"]
       - ["{{ 'reference_images' if preset.vars.motion_identity == 'reference' else 'image' }}", "media_image", "image"]
-      - ["audio", "{{ 'media_loader' if form.sound == 'keep' else 'pose_guide' }}", "video"]
+      - ["audio", "media_loader", "video"]
     enabled: true
     configuration:
       preview_decoder: "{{ form.preview_decoder | default('') }}"

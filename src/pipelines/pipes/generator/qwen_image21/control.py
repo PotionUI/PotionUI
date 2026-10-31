@@ -7,33 +7,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from src.pipelines.pipes._shared.imaging.alpha import flatten_onto
-
-
-def first_image(value: Any) -> Optional[Image.Image]:
-    if isinstance(value, (list, tuple)):
-        value = value[0] if value else None
-    if value is None:
-        return None
-    if isinstance(value, np.ndarray):
-        value = Image.fromarray(value)
-    return value
-
-
-def control_canvas(gen: Any, width: int, height: int, guide: Optional[Image.Image]) -> tuple[int, int]:
-    if guide is None:
-        return width, height
-    gw, gh = guide.size
-    scale = (width * height / max(1, gw * gh)) ** 0.5
-    return gen.snap_resolution(max(1, round(gw * scale)), max(1, round(gh * scale)))
-
-
-def _pixels(image: Image.Image, width: int, height: int) -> torch.Tensor:
-    rgb = flatten_onto(image)
-    if rgb.size != (width, height):
-        rgb = rgb.resize((width, height), Image.BICUBIC)
-    arr = torch.from_numpy(np.asarray(rgb, dtype=np.uint8).copy()).float()
-    return arr.permute(2, 0, 1).unsqueeze(0) / 127.5 - 1.0
+from src.pipelines.pipes._shared.imaging.control_guide import control_canvas, first_image, guide_pixels
 
 
 def _regenerate(mask: Optional[Image.Image], width: int, height: int) -> torch.Tensor:
@@ -57,12 +31,12 @@ def encode_control_context(gen: Any, width: int, height: int, control_image: Opt
 
     control = zeros()
     if control_image is not None:
-        control = gen.encode_image(_pixels(control_image, width, height)).float().cpu()
+        control = gen.encode_image(guide_pixels(control_image, width, height)).float().cpu()
 
     regen = _regenerate(mask, width, height)
     inpaint = zeros()
     if inpaint_image is not None:
-        masked = _pixels(inpaint_image, width, height) * (1.0 - regen)
+        masked = guide_pixels(inpaint_image, width, height) * (1.0 - regen)
         inpaint = gen.encode_image(masked).float().cpu()
 
     keep = 1.0 - F.interpolate(regen, size=(lh, lw), mode="nearest")

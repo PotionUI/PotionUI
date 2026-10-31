@@ -19,9 +19,11 @@ def _fake_text_encoder(monkeypatch):
 class _FakeModels:
     def __init__(self):
         self.calls = []
+        self.sizes = {}
 
     def acquire(self, key, fingerprint, loader, estimated_vram_gb=None):
         self.calls.append((key, fingerprint))
+        self.sizes[key] = estimated_vram_gb
         return SimpleNamespace(module=object(), spec=None, estimated_vram_gb=1.0)
 
 
@@ -108,3 +110,21 @@ def test_without_a_control_model_the_dit_loads_without_a_patch(monkeypatch):
 def test_the_control_model_is_listed_with_the_models():
     pipe = ModelLoaderZImagePipe(config=_config(control_model=_CONTROL))
     assert ("fun_control", "z_image_fun_control") in {(m.name, m.type) for m in pipe.describe_models()}
+
+
+def test_the_control_file_adds_to_the_dit_size_estimate(tmp_path):
+    dit = tmp_path / "dit.safetensors"
+    dit.write_bytes(b"0" * 1024 * 1024)
+    control = tmp_path / "control.safetensors"
+    control.write_bytes(b"0" * 4 * 1024 * 1024)
+
+    def sizes(**over):
+        models = _FakeModels()
+        pipe = ModelLoaderZImagePipe(config=_config(
+            diffusion_model={"file_path": str(dit), "name": "dit"}, **over))
+        pipe.process(PipeInput(input={"MODELS": models}), lambda o: None)
+        return next(v for k, v in models.sizes.items() if k.startswith("native/dit/"))
+
+    plain = sizes()
+    controlled = sizes(control_model={"file_path": str(control), "name": "control"})
+    assert plain is not None and controlled > plain

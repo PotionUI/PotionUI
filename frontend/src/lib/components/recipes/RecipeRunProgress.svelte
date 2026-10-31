@@ -29,6 +29,17 @@
 	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
 	import ConsentVariantPicker from './ConsentVariantPicker.svelte';
 	import ProviderKeyDisclosure from './ProviderKeyDisclosure.svelte';
+	import ModeConsentGate from './modeInstall/ModeConsentGate.svelte';
+	import ModeInstallDownloads from './modeInstall/ModeInstallDownloads.svelte';
+	import ModeInstallDone from './modeInstall/ModeInstallDone.svelte';
+	import { modeContextOf, preselectOf, replanFor } from './modeInstall/modeInstallActions';
+	import {
+		extractApprovedPlan,
+		extractDownloadProgress,
+		extractModesConsent,
+		isModesRun
+	} from './modeInstall/modeInstallModel';
+	import type { ModesGrantBody } from '$lib/services/api/recipeModes';
 
 	/**
 	 * The live view of one recipe run: progress summary, consent gate, failure
@@ -77,6 +88,24 @@
 			: null
 	);
 	const consentRequest = $derived(consentGroup ? extractConsentRequest(consentGroup.latest) : null);
+	const modesConsent = $derived(consentGroup ? extractModesConsent(consentGroup.latest) : null);
+	const modesRun = $derived(isModesRun(run));
+	const approvedPlan = $derived(modesRun ? extractApprovedPlan(run) : null);
+	const modeContext = $derived(modesRun ? modeContextOf(run) : { presetName: '', modes: {} });
+	const downloadGroup = $derived(
+		modesRun
+			? (resolvedSteps.groups.find(
+					(g) => g.kind === 'artifacts.fetch' && g.status === 'running' && extractDownloadProgress(g.latest)
+				) ?? null)
+			: null
+	);
+	const downloadProgress = $derived(downloadGroup ? extractDownloadProgress(downloadGroup.latest) : null);
+	const modesTitle = $derived.by(() => {
+		if (!modesRun || !approvedPlan) return null;
+		const count = approvedPlan.modes.length;
+		const noun = `${count} ${count === 1 ? 'mode' : 'modes'}`;
+		return run.status === 'completed' ? `Installed ${noun}` : `Installing ${noun}`;
+	});
 
 	// The server reports plain byte counts per poll; speed/ETA are reconstructed
 	// here from two consecutive polls, one sample per step —
@@ -125,6 +154,22 @@
 
 	function errorText(err: any, fallback: string): string {
 		return getApiErrorMessage(err, fallback);
+	}
+
+	async function approveModes(body: ModesGrantBody) {
+		if (!consentGroup || consentBusy) return false;
+		consentBusy = true;
+		consentError = '';
+		try {
+			const { selections, ...extra } = body;
+			onRunUpdated(await actions.grantConsent(run.id, consentGroup.stepKey, selections, extra));
+			return true;
+		} catch (err: any) {
+			consentError = errorText(err, "Couldn't approve the download.");
+			return false;
+		} finally {
+			consentBusy = false;
+		}
 	}
 
 	async function approveConsent() {
@@ -179,7 +224,7 @@
 	{:else}
 		<div class="flex items-start justify-between gap-3">
 			<div class="min-w-0">
-				<h2 class="text-sm font-semibold text-fg">{title}</h2>
+				<h2 class="text-sm font-semibold text-fg">{modesTitle ?? title}</h2>
 				<p class="text-sm text-fg-muted mt-0.5">{runManifestProgressSummary(resolvedSteps)}</p>
 			</div>
 			<Badge variant={runBadgeVariant(run.status)}>{runStatusLabel(run.status)}</Badge>
@@ -208,7 +253,21 @@
 
 	{@render completed?.()}
 
-	{#if consentGroup && consentRequest}
+	{#if consentGroup && modesConsent}
+		<ModeConsentGate
+			request={modesConsent}
+			preselect={preselectOf(run)}
+			busy={consentBusy}
+			error={consentError}
+			cancelBusy={cancelBusy}
+			onApprove={approveModes}
+			onCancelRun={cancelRun}
+			onReplan={replanFor(run.recipe_id)}
+		/>
+		{#if cancelError}
+			<p class="text-xs text-danger">{cancelError}</p>
+		{/if}
+	{:else if consentGroup && consentRequest}
 		<div class="rounded border border-signal/30 bg-signal/5 px-3 py-3 space-y-3">
 			<div>
 				{#if !guided}
@@ -302,6 +361,21 @@
 		</div>
 	{/if}
 
+	{#if downloadProgress}
+		<ModeInstallDownloads progress={downloadProgress} cancelBusy={cancelBusy} cancelError={cancelError} onCancel={cancelRun} />
+	{/if}
+
+	{#if modesRun && run.status === 'completed' && approvedPlan}
+		<ModeInstallDone
+			presetId={approvedPlan.presetId}
+			presetName={modeContext.presetName}
+			modes={approvedPlan.modes
+				.filter((id) => modeContext.modes[id])
+				.map((id) => ({ id, label: modeContext.modes[id].label, description: modeContext.modes[id].description }))}
+			bytes={approvedPlan.bytes}
+		/>
+	{/if}
+
 	{#if run.status === 'failed'}
 		{@const failedRunStatus = run.status}
 		<Alert variant="danger" density="compact" title="Setup couldn't finish">
@@ -370,7 +444,7 @@
 						</p>
 					{/if}
 
-					{#if group.status === 'running' && percent != null}
+					{#if group.status === 'running' && percent != null && group.stepKey !== downloadGroup?.stepKey}
 						<div class="mt-2 h-1.5 bg-surface-3 rounded-sm overflow-hidden">
 							<div
 								class="h-full bg-signal-solid transition-all duration-300"
@@ -379,7 +453,7 @@
 						</div>
 					{/if}
 
-					{#if progress || percent != null}
+					{#if (progress || percent != null) && group.stepKey !== downloadGroup?.stepKey}
 						<div
 							class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-mono tabular-nums text-fg-subtle mt-1"
 						>

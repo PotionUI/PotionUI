@@ -132,6 +132,38 @@ artifacts:
       model_id: "LBH-123-AI/Minimax_h3_latent_Upscaler"
       version_id: "main@minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"
 
+  - id: "minimax-h3-fun-controlnet-int8"
+    kind: "model_patch"
+    model_type: "model_patch"
+    filename: "minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors"
+    display_name: "MiniMax-H3 Fun ControlNet Union 2.0 (pruned, int8 ConvRot, optional)"
+    required: false
+    size_bytes: 4531220608
+    checksum:
+      algorithm: "sha256"
+      value: "890af58bb350f0c2f6c409b1c67ea8f4196654297d037769b72de1e6f504c612"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/MiniMax-H3"
+      version_id: "main@model_patches/minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors"
+
+  - id: "minimax-h3-fun-controlnet-bf16"
+    kind: "model_patch"
+    model_type: "model_patch"
+    filename: "minimax_h3_fun_controlnet_union_2.0_pruned_bf16.safetensors"
+    display_name: "MiniMax-H3 Fun ControlNet Union 2.0 (pruned, bf16, optional)"
+    required: false
+    size_bytes: 8382288792
+    checksum:
+      algorithm: "sha256"
+      value: "cd48bdc11b1f1a3b934746c898d25123754b335c13d37d5c421f8373079282b4"
+    capability: "model-lookup"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/MiniMax-H3"
+      version_id: "main@model_patches/minimax_h3_fun_controlnet_union_2.0_pruned_bf16.safetensors"
+
 presets:
   - preset_id: "01KX47H3MINIMAX000000000VA"
     path_hint: "marketplace/MiniMax-H3"

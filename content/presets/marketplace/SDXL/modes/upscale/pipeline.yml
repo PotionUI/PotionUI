@@ -27,7 +27,7 @@ pipeline:
     configuration:
       p_prompt:
         input: "{{ generation.prompts.first.positive }}"
-        output: "{% if generation.prompts.first.positive %}{{ generation.prompts.first.positive }}, {% endif %}best quality, highly detailed"
+        output: "{% set p = generation.prompts.first.positive | text_or('') %}{% if p %}{{ p }}, {% endif %}best quality, highly detailed"
       n_prompt:
         input: "{{ generation.prompts.first.negative }}"
         output: "{{ generation.prompts.first.negative }}"

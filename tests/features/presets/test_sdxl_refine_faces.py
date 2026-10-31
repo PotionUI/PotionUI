@@ -103,3 +103,8 @@ def test_the_detector_pickers_follow_the_target_and_recommend_hashed_files():
     assert set(face_when) == {"fix_target"}
     assert fields["face_detector_model"]["reactions"][0]["when"]["equals"] == "hands"
     assert fields["hand_detector_model"]["reactions"][0]["when"]["equals"] == "faces"
+
+
+def test_a_whitespace_only_prompt_counts_as_empty(sdxl):
+    pipes = render(sdxl, MODE, positive="   ")
+    assert pipe(pipes, "face_encoder")["config"]["p_prompt"]["output"] == "detailed face, detailed eyes, best quality"

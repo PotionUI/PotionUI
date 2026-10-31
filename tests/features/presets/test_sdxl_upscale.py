@@ -75,3 +75,7 @@ def test_the_scale_slider_covers_two_to_four_times_and_checkpoint_hides_without_
     assert fields["model"]["required"] is True
     assert fields["model"]["reactions"][0]["when"] == {"field": "refine", "equals": False}
     assert fields["model"]["reactions"][0]["then"] == {"set_visibility": False}
+
+
+def test_a_whitespace_only_prompt_counts_as_empty(sdxl):
+    assert pipe(render(sdxl, MODE, positive="  "), "prompt_encoder")["config"]["p_prompt"]["output"] == "best quality, highly detailed"

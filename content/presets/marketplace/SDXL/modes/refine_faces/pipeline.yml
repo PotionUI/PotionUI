@@ -1,0 +1,156 @@
+pipeline:
+  - name: "checkpoint_loader/sdxl"
+    id: "checkpoint_loader"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+        base: "SDXL"
+      loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+      nsfw: "{{ runtime.settings.nsfw }}"
+      clip_skip: "{{ form.clip_skip }}"
+
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  - name: "prompt_encoder"
+    id: "face_encoder"
+    enabled: "{{ form.fix_target != 'hands' }}"
+    input:
+      - ["text_encoder", "checkpoint_loader/sdxl", "text_encoder"]
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{% if generation.prompts.first.positive %}{{ generation.prompts.first.positive }}, {% endif %}detailed face, detailed eyes, best quality"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      quantity: 1
+
+  - name: "prompt_encoder"
+    id: "hand_encoder"
+    enabled: "{{ form.fix_target != 'faces' }}"
+    input:
+      - ["text_encoder", "checkpoint_loader/sdxl", "text_encoder"]
+    configuration:
+      p_prompt:
+        input: "{{ form.hand_prompt }}"
+        output: "{{ form.hand_prompt }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      quantity: 1
+
+  - name: "seed_generator"
+    id: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: 1
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: 1
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: 1
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg }}"]
+        - ["steps", "{{ form.steps }}"]
+        - ["sampler", "{{ form.sampler }}"]
+        - ["scheduler", "{{ form.scheduler }}"]
+        - ["clip_skip", "{{ form.clip_skip }}"]
+        - ["fix_target", "{{ form.fix_target }}"]
+        - ["fix_strength", "{{ form.fix_strength }}"]
+
+  - name: "detailer/sdxl"
+    id: "face_detailer"
+    enabled: "{{ form.fix_target != 'hands' }}"
+    input:
+      - ["model", "checkpoint_loader/sdxl", "model"]
+      - ["image", "media_loader", "image"]
+      - ["conditioning", "face_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      detect: ["face"]
+      detections:
+        face:
+          type: "yolo"
+          model: "{{ form.face_detector_model | default('', true) }}"
+          enabled: true
+          strength: "{{ form.fix_strength }}"
+          confidence: "{{ form.fix_confidence }}"
+          steps: "{{ form.steps }}"
+          cfg: "{{ form.cfg }}"
+          sampler: "{{ form.sampler }}"
+          scheduler: "{{ form.scheduler }}"
+          clip_skip: "{{ form.clip_skip }}"
+          min_size_for_upscale: 256
+          upscale_factor: 1.5
+          mask_blur: "{{ form.fix_mask_blur }}"
+          padding: "{{ form.fix_padding }}"
+
+  - name: "detailer/sdxl"
+    id: "hand_detailer"
+    enabled: "{{ form.fix_target != 'faces' }}"
+    input:
+      - ["model", "checkpoint_loader/sdxl", "model"]
+      - ["image", "{% if form.fix_target == 'hands' %}media_loader{% else %}face_detailer{% endif %}", "image"]
+      - ["conditioning", "hand_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      detect: ["hand"]
+      detections:
+        hand:
+          type: "yolo"
+          model: "{{ form.hand_detector_model | default('', true) }}"
+          enabled: true
+          strength: "{{ form.fix_strength }}"
+          confidence: "{{ form.fix_confidence }}"
+          steps: "{{ form.steps }}"
+          cfg: "{{ form.cfg }}"
+          sampler: "{{ form.sampler }}"
+          scheduler: "{{ form.scheduler }}"
+          clip_skip: "{{ form.clip_skip }}"
+          mask_blur: "{{ form.fix_mask_blur }}"
+          padding: "{{ form.fix_padding }}"
+
+  - name: "gallery"
+    id: "gallery"
+    enabled: true
+    input:
+      - ["image", "{% if form.fix_target == 'faces' %}face_detailer{% else %}hand_detailer{% endif %}", "image"]
+      - ["seed", "seed_generator", "seed"]

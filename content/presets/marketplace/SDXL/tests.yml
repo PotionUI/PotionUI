@@ -77,3 +77,23 @@ cases:
       min_outputs: 1
       resolution: "1024x1024"
       not_black: true
+
+  - name: "sdxl-refine-faces-fast"
+    mode: "refine_faces"
+    seed: 999
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "smiling, detailed eyes"
+      fix_target: "both"
+      fix_strength: 0.4
+      steps: 12
+    models:
+      model:
+        sha256: "c9e3e68f89b8e38689e1097d4be4573cf308de4e3fd044c64ca697bdb4aa8bca"
+      face_detector_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      hand_detector_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true

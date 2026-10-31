@@ -2,7 +2,7 @@
 type: model
 title: SDXL
 family_key: sdxl
-modes: [txt2img, inpaint]
+modes: [txt2img, inpaint, refine_faces]
 spec:
   arch: SDXL U-Net (diffusers pipeline stack, not the native transformer engine)
   latent: 4-channel SD-VAE latent, 2D
@@ -33,6 +33,12 @@ SDXL checkpoints load via `from_single_file()` (a single safetensors file), with
 ## Presets & modes
 
 The shipped SDXL preset lives under the same directory layout as the native-engine presets — the shared "native" label refers to plugin-free in-process execution, contrasted with a remote ComfyUI backend, not to the transformer engine. A ComfyUI-backed SDXL preset also exists as an alternative.
+
+### Fix faces & hands (`refine_faces`)
+
+Takes one picture and repaints its faces and hands with the checkpoint you pick; everything else is left as it is. It reuses the `detailer/sdxl` pipe that txt2img runs after generation, as two passes: a face pass, then a hand pass on its result. **Fix** chooses faces, hands or both, **Strength** is the denoise of each repaint (0.4 by default), and the prompt box is the optional face prompt. An empty prompt falls back to `detailed face, detailed eyes, best quality`; the hands use their own **Hand description** (Advanced) instead, so a face prompt never leaks into the hands.
+
+The detectors are YOLO files picked in the `detection_bbox` pickers. The mode recommends `face_yolov8s.pt` / `face_yolov8n.pt` and `hand_yolov8s.pt` / `hand_yolov8n.pt` from `Bingsu/adetailer` (the model card declares Apache-2.0; the files are Ultralytics YOLOv8 weights, whose upstream licence is AGPL-3.0). A picker is hidden, and so not required, when its target is not selected. The detailer skips a detection whose model file is missing and logs a warning rather than failing.
 
 ## Sampling
 

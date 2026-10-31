@@ -1,0 +1,104 @@
+fields:
+  - type: "section"
+    label: "Image"
+    children:
+      - name: "source_image"
+        type: "image"
+        label: "Image"
+        required: true
+        ai_hint: "The picture to fix. Faces and hands in it are found automatically and repainted by the checkpoint you choose; everything else stays as it is."
+
+  - type: "section"
+    label: "Fix"
+    children:
+      - name: "fix_target"
+        type: "select"
+        label: "Fix"
+        default: "both"
+        ai_hint: "What to repaint. Faces repaints each detected face, Hands each detected hand, Faces and hands does both."
+        configuration:
+          options:
+            - { label: "Faces and hands", value: "both" }
+            - { label: "Faces", value: "faces" }
+            - { label: "Hands", value: "hands" }
+
+      - name: "fix_strength"
+        type: "slider"
+        label: "Strength"
+        default: 0.4
+        ai_hint: "How much the face or hand is repainted. 0.3 to 0.4 cleans it up and keeps the look; above 0.6 changes it noticeably."
+        configuration: { min: 0.1, max: 1.0, step: 0.05 }
+
+      - name: "seed"
+        type: "seed"
+        label: "Seed"
+        default: -1
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children:
+      - name: "model"
+        type: "model"
+        label: "Checkpoint"
+        required: true
+        ai_hint: "The checkpoint that repaints the faces and hands. Use the one the picture was made with for the most natural result; Illustrious, Pony and NoobAI checkpoints all work."
+        configuration:
+          model_type: "checkpoint"
+          allow_info_modal: true
+          placeholder: "Select model..."
+          filter_tags: "@config:checkpoint_tags"
+
+      - name: "face_detector_model"
+        type: "model"
+        label: "Face finder"
+        required: true
+        ai_hint: "The detector that finds faces. The recommended one is trained on photos and anime."
+        reactions:
+          - when: { field: "fix_target", equals: "hands" }
+            then: { set_visibility: false }
+          - when: { field: "fix_target", not_equals: "hands" }
+            then: { set_visibility: true }
+        configuration:
+          model_type: "detection_bbox"
+          allow_info_modal: true
+          placeholder: "Select face finder..."
+          filter_tags: "@config:detection_bbox_tags"
+          recommendations:
+            - name: "face_yolov8s.pt"
+              link: "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8s.pt"
+              size: "21.5 MB"
+              sha256: "c7237eff25787377de196961140ceaed324d859ee8de5a775d93d33a0e3fab78"
+              description: "Finds photo and anime faces."
+            - name: "face_yolov8n.pt"
+              link: "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8n.pt"
+              size: "5.9 MB"
+              sha256: "70b640f8f60b1cf0dcc72f30caf3da9495eb2fb6509da48c53374ad6806e6a9c"
+              description: "Smaller and faster, misses more small faces."
+
+      - name: "hand_detector_model"
+        type: "model"
+        label: "Hand finder"
+        required: true
+        ai_hint: "The detector that finds hands. The recommended one is trained on photos and anime."
+        reactions:
+          - when: { field: "fix_target", equals: "faces" }
+            then: { set_visibility: false }
+          - when: { field: "fix_target", not_equals: "faces" }
+            then: { set_visibility: true }
+        configuration:
+          model_type: "detection_bbox"
+          allow_info_modal: true
+          placeholder: "Select hand finder..."
+          filter_tags: "@config:detection_bbox_tags"
+          recommendations:
+            - name: "hand_yolov8s.pt"
+              link: "https://huggingface.co/Bingsu/adetailer/resolve/main/hand_yolov8s.pt"
+              size: "21.5 MB"
+              sha256: "70b540063fbc385736d8258970744a4afbc4cbf7932134bae3b24cdadeadec06"
+              description: "Finds photo and anime hands."
+            - name: "hand_yolov8n.pt"
+              link: "https://huggingface.co/Bingsu/adetailer/resolve/main/hand_yolov8n.pt"
+              size: "5.9 MB"
+              sha256: "3991202eb69e9ddcb3b9ba80cdeb41e734ffaf844403d6c9f47d515cd88c6f29"
+              description: "Smaller and faster, misses more small hands."

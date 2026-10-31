@@ -97,7 +97,7 @@ pipeline:
     enabled: true
     configuration:
       mode: "img2img"
-      denoise: "{{ {'subtle': 0.2, 'balanced': 0.35, 'strong': 0.5}[form.enhance_detail] }}"
+      denoise: "{{ {'subtle': 0.12, 'balanced': 0.2, 'strong': 0.35}[form.enhance_detail] }}"
       img2img_scale: "{{ {'1_5x': 1.5, '2x': 2.0, '3x': 3.0}[form.upscale_by] }}"
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       guidance: "{{ form.cfg | default(generation.profile.guidance) }}"

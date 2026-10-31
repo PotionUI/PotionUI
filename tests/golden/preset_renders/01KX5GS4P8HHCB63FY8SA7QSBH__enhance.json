@@ -236,7 +236,7 @@
       "config": {
         "denoise": {
           "type": "float",
-          "value": 0.35
+          "value": 0.2
         },
         "guidance": {
           "type": "float",

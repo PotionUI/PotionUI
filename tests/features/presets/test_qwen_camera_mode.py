@@ -103,10 +103,14 @@ def test_the_angle_strength_reaches_zero_for_a_lora_off_run(qwen_template):
     assert float(loras[0]["weight"]) == 0.0
 
 
-def test_the_picture_is_read_the_way_the_lora_was_trained(qwen_template):
-    config = _pipe(_process(qwen_template), "prompt_encoder")["config"]
-    assert config["picture_labels"] is True
-    assert config["grounding_area"] == 384 * 384
+@pytest.mark.parametrize("mode", ["edit", "real", "camera"])
+def test_every_edit_mode_lets_the_loaded_checkpoint_pick_the_picture_layout(mode):
+    pipeline = yaml.safe_load((PRESET_DIR / f"modes/{mode}/pipeline.yml").read_text(encoding="utf-8"))["pipeline"]
+    loader = next(p for p in pipeline if p["name"] == "model_loader/qwen")
+    encoder = next(p for p in pipeline if p["name"] == "prompt_encoder")
+    assert loader["configuration"]["vision"] is True
+    assert "picture_labels" not in encoder["configuration"]
+    assert "grounding_area" not in encoder["configuration"]
 
 
 def test_user_loras_follow_the_camera_lora(qwen_template):

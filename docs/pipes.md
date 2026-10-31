@@ -2771,8 +2771,8 @@ Encodes prompts using CLIP text encoders for SDXL
 | `prompt_helpers` | `dict` | `{}` | no | — | — | — | Prompt helper data |
 | `grounding_px` | `int` | `768` | no | — | 0 | 4096 | Longest-side cap (px) for the image sent to a vision-grounded text encoder; 0 uses native resolution |
 | `system_prompt` | `str` | — | no | — | — | — | Override the vision-grounded encoder's default system prompt |
-| `picture_labels` | `bool` | `false` | no | — | — | — | Label each source image 'Picture N:' in the instruction, the layout ai-toolkit edit LoRAs were trained on |
-| `grounding_area` | `int` | `0` | no | — | 0 | 16777216 | Cap on the pixel AREA of each image sent to a vision-grounded text encoder; 0 leaves only the longest-side cap |
+| `picture_labels` | `bool` | — | no | — | — | — | Label each source image 'Picture N:' in the instruction, the layout ai-toolkit edit LoRAs were trained on; unset follows the loaded model |
+| `grounding_area` | `int` | — | no | — | 0 | 16777216 | Cap on the pixel AREA of each image sent to a vision-grounded text encoder; 0 leaves only the longest-side cap, unset follows the loaded model |
 | `image_pixel_budget` | `float` | `0.0` | no | — | 0.0 | 16.0 | Cap the pixel AREA of each image handed to a vision-grounded text encoder, as a multiple of the output canvas area (`output_resolution`); 0 leaves the encoder's own bound in place |
 | `output_resolution` | `str` | — | no | — | — | — | Output canvas as WxH — the area `image_pixel_budget` multiplies. Inert without it |
 | `reference_video_frames` | `int` | `0` | no | — | 0 | — | Frame count of the clip being generated; a reference video is truncated to it before being presented, so that the encoder and the generator's own condition-encode cut it at the same frame. 0 (default) leaves a reference video untruncated. Inert without a `reference_video` input |

@@ -12,7 +12,7 @@ DiT fingerprint, not the TE/VAE ones).
 
 from __future__ import annotations
 
-from typing import List
+from typing import Any, Dict, List
 
 from src.pipelines.contracts import (
     IOType,
@@ -20,6 +20,7 @@ from src.pipelines.contracts import (
     PipeConfigSpec,
 )
 from src.pipelines.pipes._shared.generation.three_component_loader import ThreeComponentLoaderPipe
+from src.pipelines.pipes.model_loader.qwen.edit_layout import qwen_edit_vision_layout
 from src.pipelines.pipes.model_loader.qwen.qwen_clip import QwenClipTextEncoder
 from src.pipelines.pipes._shared.generation.config_specs import loras_config_spec
 
@@ -64,5 +65,7 @@ class ModelLoaderQwenPipe(ThreeComponentLoaderPipe):
             PipeOutputSpec("text_encoder", IOType.TEXT_ENCODER, "Qwen2.5-VL text encoder (ClipTextEncoder ABC)", is_array=False),
         ]
 
-
-
+    def _clip_kwargs(self, dit_model) -> Dict[str, Any]:
+        if not self._vision():
+            return {}
+        return {"vision_layout": qwen_edit_vision_layout(getattr(dit_model, "module", None))}

@@ -83,6 +83,10 @@ class QwenClipTextEncoder(SequentialWindowClipTextEncoder):
     # generator/qwen's DiT call receives.
     forwards_full_image_batch = True
 
+    def __init__(self, *args: Any, vision_layout: Optional[Dict[str, Any]] = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.vision_layout: Dict[str, Any] = dict(vision_layout or {})
+
     def _encode_fn_and_key(self, request: Dict[str, Any]) -> Tuple[Callable[[], Any], Optional[str]]:
         """Build the encode closure + cache key for one request.
 
@@ -108,11 +112,14 @@ class QwenClipTextEncoder(SequentialWindowClipTextEncoder):
         do_classifier_free_guidance = bool(request.get("do_classifier_free_guidance", True))
         embedding_files = request.get("embedding_files")
         images = request.get("images")
+        layout = dict(self.vision_layout)
+        layout.update({name: request[name] for name in ("picture_labels", "grounding_area")
+                       if request.get(name) is not None})
         vision_options: Dict[str, Any] = {}
-        if request.get("picture_labels"):
+        if layout.get("picture_labels"):
             vision_options["picture_labels"] = True
-        if int(request.get("grounding_area", 0) or 0):
-            vision_options["grounding_area"] = int(request["grounding_area"])
+        if int(layout.get("grounding_area") or 0):
+            vision_options["grounding_area"] = int(layout["grounding_area"])
         if embedding_files:
             logger.debug(
                 "QwenClipTextEncoder: textual-inversion embeddings are unsupported "

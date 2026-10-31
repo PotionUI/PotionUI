@@ -1,0 +1,163 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    formula: "speed"
+    children:
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        audience: "advanced"
+        default: 8
+        configuration: {min: 1, max: 100, step: 1}
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: 24, set_disabled: false }
+          - when: { field: "speed_profile", equals: "distilled" }
+            then: { set_value: 8, set_disabled: false }
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_value: 30, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - type: "row"
+        children:
+          - name: "sampler"
+            type: "sampler"
+            label: "Sampler"
+            audience: "advanced"
+            default: "euler_cfg_pp"
+            configuration:
+              family: "ltx"
+              include: ["euler", "euler_ancestral", "euler_cfg_pp", "euler_ancestral_cfg_pp"]
+            reactions:
+              - when: { field: "speed_profile", equals: "balanced" }
+                then: { set_value: "euler", set_disabled: false }
+              - when: { field: "speed_profile", equals: "distilled" }
+                then: { set_value: "euler_cfg_pp", set_disabled: false }
+              - when: { field: "speed_profile", equals: "quality" }
+                then: { set_value: "euler", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
+
+          - name: "schedule"
+            type: "schedule"
+            label: "Schedule"
+            audience: "advanced"
+            default: "shift"
+            configuration:
+              family: "ltx"
+              exclude: ["manual"]
+            reactions:
+              - when: { field: "speed_profile", equals: "balanced" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "distilled" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "quality" }
+                then: { set_value: "shift", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG Scale"
+        audience: "advanced"
+        default: 1.0
+        configuration: {min: 1.0, max: 20.0, step: 0.5}
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: 4.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "distilled" }
+            then: { set_value: 1.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_value: 3.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+  - type: "section"
+    label: "Guide"
+    children:
+      - name: "save_guide"
+        type: "checkbox"
+        label: "Save guide"
+        default: false
+        ai_hint: "Also saves the depth or edge video that drives the motion to the gallery, useful to check what the model is following."
+
+  - type: "section"
+    label: "Sigma schedule"
+    children:
+      - name: "manual_sigmas"
+        type: "textbox"
+        label: "Manual Sigmas"
+        ai_hint: "Manual override for the sigma schedule, only relevant when the Speed profile (Generation tab) is Balanced or Custom. Prefer the Distilled speed profile for the validated ComfyUI LTX-2.3 distilled-refine recipe -- only suggest hand-typing this field for a CUSTOM schedule no profile covers."
+        configuration:
+          placeholder: "Comma-separated sigma values, e.g. 1.0, 0.99375, ..., 0.0"
+        default: ""
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_visibility: true }
+          - when: { field: "speed_profile", equals: "distilled" }
+            then: { set_visibility: false }
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_visibility: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_visibility: true }
+
+  - type: "section"
+    label: "2x refine"
+    children:
+      - type: "row"
+        children:
+          - name: "refine_sampler"
+            type: "sampler"
+            formula: "enhance"
+            label: "Refine Sampler"
+            audience: "advanced"
+            default: "euler"
+            ai_hint: "Sampler for the 2x refine pass only. Euler is Lightricks' recipe."
+            configuration:
+              family: "ltx"
+              include: ["euler", "euler_ancestral", "euler_cfg_pp", "euler_ancestral_cfg_pp"]
+
+          - name: "refine_cfg"
+            type: "slider"
+            formula: "enhance"
+            label: "Refine CFG"
+            audience: "advanced"
+            default: 1.0
+            ai_hint: "Guidance for the 2x refine pass only. 1.0 is Lightricks' recipe (no negative pass); above 1.0 runs true CFG with the negative prompt on every refine step."
+            configuration: {min: 1.0, max: 20.0, step: 0.5}
+
+      - name: "upscale_refine_sigmas"
+        type: "textbox"
+        label: "Refine Sigmas"
+        audience: "advanced"
+        ai_hint: "Expert-only override for the 2x refine pass. Empty runs Lightricks' stage-2 recipe (0.909375, 0.725, 0.421875, 0.0); a lower first value re-injects less noise and keeps closer to the first pass, a higher one gives the refine more freedom."
+        configuration:
+          placeholder: "Comma-separated sigma values, first value < 1.0, e.g. 0.909375, 0.725, 0.421875, 0.0"
+        default: ""
+
+  - type: "section"
+    label: "Step cache (FBCache)"
+    formula: "cache"
+    audience: "advanced"
+    children:
+      - type: "row"
+        children:
+          - name: "step_cache_threshold"
+            type: "slider"
+            label: "Cache threshold"
+            default: 0.0
+            ai_hint: "Skips an entire transformer forward pass when the model's first block barely moved since the last actually-computed step, reusing that step's cached output -- a speed-for-fidelity trade, never a quality improvement. Suggest 0.08 (roughly 1.3x faster) when the user explicitly wants a long LTX run faster and can accept some softening and smoothed motion; 0.15 (roughly 1.8-2.2x) only if they ask for aggressive speed. Keep it at 0.0 for final renders, and for short distilled runs (under ~15 steps) where the warmup steps already cover most of the trajectory. Applies to the base generation pass only -- the upscale refine pass is not cached."
+            configuration: {min: 0.0, max: 0.3, step: 0.01}
+          - name: "step_cache_warmup_steps"
+            type: "slider"
+            label: "Warmup steps"
+            default: 4
+            ai_hint: "Leading steps forced to compute in full before any skipping is allowed -- the early steps decide the shot's composition and motion and must not be reused. Only has an effect when Cache threshold is above 0. Raise toward 6-8 if a cached run loses composition or motion, at the cost of some of the speed."
+            configuration: {min: 0, max: 12, step: 1}
+          - name: "step_cache_max_skips"
+            type: "slider"
+            label: "Max consecutive skips"
+            default: 3
+            ai_hint: "How many steps in a row the cache may skip before one is forced to recompute, capping how far the reused output can drift from the real trajectory. Only has an effect when Cache threshold is above 0. Lower to 1-2 if a cached run drifts or loses detail late in the trajectory."
+            configuration: {min: 0, max: 10, step: 1}

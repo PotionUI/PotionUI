@@ -96,8 +96,29 @@ describe('iconSvgMarkup', () => {
 describe('mode glyphs', () => {
 	const names = getAllIconNames().filter((name) => name.startsWith('mode-'));
 
-	it('registers the eighteen mode glyphs', () => {
-		expect(names).toHaveLength(18);
+	it('registers exactly these mode glyphs', () => {
+		expect([...names].sort()).toEqual([
+			'mode-add-water',
+			'mode-cinemagraph',
+			'mode-colorize',
+			'mode-combine',
+			'mode-control',
+			'mode-day-night',
+			'mode-extend',
+			'mode-layout-render',
+			'mode-person-swap',
+			'mode-refine-faces',
+			'mode-refs',
+			'mode-remix',
+			'mode-remove-object',
+			'mode-restore',
+			'mode-restyle',
+			'mode-talk',
+			'mode-text',
+			'mode-transition',
+			'mode-transparent',
+			'mode-upscale'
+		]);
 	});
 
 	it('draws each one as stroke-only paths, with no two sharing art', () => {

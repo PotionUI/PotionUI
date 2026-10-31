@@ -1,0 +1,38 @@
+prompt_label: "What happens between"
+prompt_placeholder: "the woman slowly turns into a fox as the room fades to night"
+name: "custom"
+mode_label: "Transition"
+short_description: "Two pictures in, the video between them out."
+negative_prompt:
+  applies_when:
+    logic: "OR"
+    conditions:
+      - { field: "cfg", greater_than: 1 }
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/transition/tabs/generation.yml"
+      - type: "tab"
+        label: "References"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/transition/tabs/references.yml"
+      - type: "tab"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/video/tabs/lora.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/transition/tabs/advanced.yml"

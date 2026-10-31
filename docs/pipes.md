@@ -1115,6 +1115,7 @@ Native Krea-2 instruction-based edit generator (in-context source tokens)
 | `ref_boost_a` | `float` | `1.0` | no | — | 0.0 | 1000.0 | Reference-fidelity dial for the first (scene) ref |
 | `ref_style` | `str` | `"standard"` | no | `standard`, `ostris` | — | — | Reference scheme the edit LoRA was trained with |
 | `ref_pixels` | `int` | `1048576` | no | — | 65536 | 4194304 | Pixel-area cap for a reference (ostris style) |
+| `match_source` | `bool` | `false` | no | — | — | — | Take the output shape from the first source at the resolution's pixel area |
 | `output_pixels` | `int` | `0` | no | — | 0 | 16777216 | Size the output from the first source at up to this pixel area; 0 uses the resolution (ostris style) |
 | `ref_position` | `str` | `"aligned"` | no | `aligned`, `beside`, `bag`, `origin` | — | — | Where the last (subject) ref sits relative to the output |
 | `ref_position_a` | `str` | `"aligned"` | no | `aligned`, `beside`, `bag`, `origin` | — | — | Where the first (scene) ref sits relative to the output |

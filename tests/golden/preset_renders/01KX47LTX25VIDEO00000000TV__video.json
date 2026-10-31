@@ -303,6 +303,10 @@
           "type": "float",
           "value": 3.5
         },
+        "preview_decoder": {
+          "type": "str",
+          "value": "/GOLDEN/models/preview_decoder.safetensors"
+        },
         "quality_cfg": {
           "type": "float",
           "value": 1.0

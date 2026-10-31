@@ -3628,7 +3628,7 @@ def test_build_ref2va_layout_offload_runs_only_when_placed_on_failure():
 
 # -- live preview x0 -----------------------------------------------------------
 
-def _run_generate_one_with_preview(steps: int):
+def _run_generate_one_with_preview(steps: int, config_extra=None, hook_kwargs=None):
     """Run `generate_one` with previews ON. Returns
     `(pipe, seen_forward, seen_x0, seen_previewed_steps)` where `seen_forward`
     holds the `(video rows, video timestep)` every DiT call was handed (rows
@@ -3676,6 +3676,8 @@ def _run_generate_one_with_preview(steps: int):
     real_make_preview_hook = h3_main.make_preview_hook
 
     def recording_make_preview_hook(spec, emit, **kwargs):
+        if hook_kwargs is not None:
+            hook_kwargs.append(kwargs)
         hook = real_make_preview_hook(spec, emit, **kwargs)
         assert hook is not None, "the fake 24-channel spec must resolve H3's preview factors"
         cadence_on_step, emit_callback = hook.on_step, hook._callback
@@ -3692,7 +3694,7 @@ def _run_generate_one_with_preview(steps: int):
         return hook
 
     pipe = GeneratorMinimaxH3Pipe({
-        **GeneratorMinimaxH3Pipe.get_default_config(), "preview": True, "steps": steps,
+        **GeneratorMinimaxH3Pipe.get_default_config(), "preview": True, "steps": steps, **(config_extra or {}),
     })
     pipe._audio_results = []
     progress = ProgressEmitter([].append, title="test")
@@ -3741,6 +3743,23 @@ def test_preview_cadence_and_output_survive_the_pre_update_x0():
 
     plain, _ = _run_generate_one({}, steps=steps, ctx_overrides={"decode": False})
     torch.testing.assert_close(previewed._last_result, plain._last_result, rtol=0, atol=0)
+
+
+def test_the_preview_decoder_file_reaches_the_preview_hook(tmp_path):
+    from safetensors.torch import save_file
+
+    from vendor.taehv.taehv import TAEHV
+
+    weights = tmp_path / "taeh3.safetensors"
+    save_file({k: v.contiguous() for k, v in TAEHV("taeh3").state_dict().items()}, str(weights))
+
+    kwargs: list = []
+    _run_generate_one_with_preview(4, config_extra={"preview_decoder": str(weights)}, hook_kwargs=kwargs)
+    assert [k["decoder_path"] for k in kwargs] == [str(weights)]
+
+    kwargs = []
+    _run_generate_one_with_preview(4, hook_kwargs=kwargs)
+    assert [k["decoder_path"] for k in kwargs] == [None]
 
 
 def test_the_preview_disabled_path_computes_no_x0():

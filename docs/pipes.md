@@ -671,6 +671,7 @@ Native Wan 2.2 sequential chain-video generator (SVI Pro 2.0-style continuation)
 | `i2v_low_noise_model` | `dict` | — | no | — | — | — | i2v low-noise expert DiT file (Wan 2.2 dual-expert only) |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `preview` | `bool` | `true` | no | — | — | — | Emit live latent previews to the workbench during sampling |
+| `preview_decoder` | `str` | `""` | no | — | — | — | Tiny preview decoder weights (vae_approx); blank uses the latent colour projection |
 | `cfg_zero_star` | `bool` | `true` | no | — | — | — | CFG-Zero*: rescale the uncond branch onto cond before extrapolation |
 | `zero_init_steps` | `int` | `0` | no | — | 0 | 100 | CFG-Zero*: zero velocity for the first N steps |
 | `nag_scale` | `float` | `1.0` | no | — | 1.0 | 20.0 | Normalized Attention Guidance scale (1.0 = off). Injects the negative prompt into cross-attention so it's enforced even at cfg=1.0 (single-forward speed) — set cfg to 1.0 and nag_scale to ~1.1-1.5 for the speed win; NAG stacks with true CFG if both are on. |
@@ -867,6 +868,7 @@ Native Wan image-to-video generator (concat conditioning, dual-expert)
 | `expert_boundary` | `float` | — | no | — | 0.0 | 1.0 | Dual-expert switch boundary override |
 | `expert_switch_step` | `int` | — | no | — | 0 | — | Switch high->low expert at this step (wins over expert_boundary; converted to that step's sigma) |
 | `preview` | `bool` | `true` | no | — | — | — | Emit live latent previews (frame 0) to the workbench during sampling |
+| `preview_decoder` | `str` | `""` | no | — | — | — | Tiny preview decoder weights (vae_approx); blank uses the latent colour projection |
 | `cfg_zero_star` | `bool` | `true` | no | — | — | — | CFG-Zero*: rescale the uncond branch onto cond before extrapolation (free quality correction) |
 | `zero_init_steps` | `int` | `0` | no | — | 0 | 100 | CFG-Zero*: return a zero velocity prediction for the first N steps |
 | `nag_scale` | `float` | `1.0` | no | — | 1.0 | 20.0 | Normalized Attention Guidance scale (1.0 = off). Injects the negative prompt into cross-attention so it's enforced even at cfg=1.0 (single-forward speed) — set cfg to 1.0 and nag_scale to ~1.1-1.5 for the speed win; NAG stacks with true CFG if both are on. |
@@ -1103,6 +1105,7 @@ Native Qwen-Image generator (flow matching, true CFG)
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `preview` | `bool` | `true` | no | — | — | — | Emit live latent previews to the workbench during sampling |
+| `preview_decoder` | `str` | `""` | no | — | — | — | Tiny preview decoder weights (vae_approx); blank uses the latent colour projection |
 | `schedule` | `str` | `""` | no | — | — | — | Sigma schedule key: '' (default) or 'shift' for the model's own shift-based ramp, or any key registered on the schedule registry -- 'beta', 'exponential', 'linear_quadratic', 'manual', 'ltx_dynamic' in core, plus whatever a plugin's 'schedules:' manifest root adds. GET /api/sampling/catalog lists what this instance accepts. Prefer 'manual_sigmas' below over setting this to 'manual' directly -- it also fills schedule_options for you. 'ltx_dynamic' only functions on a pipe that feeds image_seq_len into the schedule builder -- currently the LTX generator pipes. |
 | `schedule_options` | `dict` | `{}` | no | — | — | — | Schedule-specific options: beta {'alpha': 0.6, 'beta': 0.6}, exponential {'sigma_min': 1e-3}, linear_quadratic {'threshold_noise': 0.025, 'linear_steps': <int, default steps // 2>}, or ltx_dynamic {'base_shift': 0.95, 'max_shift': 2.05, 'stretch': True, 'terminal': 0.1} (LTX-2.5 defaults). Ignored when schedule is unset. |
 | `manual_sigmas` | `str` | `""` | no | — | — | — | Explicit, comma-separated, descending sigma schedule ('1.0, 0.99375, 0.9875, ..., 0.0'; ComfyUI 'ManualSigmas'-style, e.g. a distilled-LoRA refine tail -- see docs/models/ltx.md). Its length IS the step count: overrides 'steps' and any shift/schedule setting outright. Takes priority over 'schedule'/'schedule_options' when non-empty (the default '' is a no-op, byte-identical to not having this knob). |
@@ -1326,6 +1329,7 @@ Native LTX-2/2.3 text-to-video generator (video-only)
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `preview` | `bool` | `true` | no | — | — | — | Emit live latent previews (frame 0) to the workbench during sampling |
+| `preview_decoder` | `str` | `""` | no | — | — | — | Tiny preview decoder weights (vae_approx); blank uses the latent colour projection |
 | `cfg_zero_star` | `bool` | `true` | no | — | — | — | CFG-Zero*: rescale the uncond branch onto cond before extrapolation (free quality correction) |
 | `zero_init_steps` | `int` | `0` | no | — | 0 | 100 | CFG-Zero*: return a zero velocity prediction for the first N steps |
 | `nag_scale` | `float` | `1.0` | no | — | 1.0 | 20.0 | Normalized Attention Guidance scale (1.0 = off). Injects the negative prompt into cross-attention so it's enforced even at cfg=1.0 (single-forward speed) — set cfg to 1.0 and nag_scale to ~1.1-1.5 for the speed win; NAG stacks with true CFG if both are on. |
@@ -1419,6 +1423,7 @@ Native Wan text-to-video generator (dual-expert flow matching)
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `preview` | `bool` | `true` | no | — | — | — | Emit live latent previews (frame 0) to the workbench during sampling |
+| `preview_decoder` | `str` | `""` | no | — | — | — | Tiny preview decoder weights (vae_approx); blank uses the latent colour projection |
 
 ### <a id="pipe-generator-video-ltx"></a>`generator/video_ltx`
 
@@ -1472,6 +1477,7 @@ Native LTX-2/2.3 video-director generator (media conditioning, IC-LoRA reference
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `preview` | `bool` | `true` | no | — | — | — | Emit live latent previews during sampling |
+| `preview_decoder` | `str` | `""` | no | — | — | — | Tiny preview decoder weights (vae_approx); blank uses the latent colour projection |
 | `media_placements` | `list` | `[]` | no | — | — | — | Media conditioning placements: [{source: image\|video, index, frame: int\|first\|last\|end, strength, role: keyframe\|reference}]. Empty with image inputs present = image[0] as first frame (i2v) and image[1] (if any) as last frame (FLF). |
 | `audio` | `bool` | `false` | no | — | — | — | Produce an audio track |
 | `audio_source` | `str` | `"generate"` | no | `generate`, `file`, `passthrough` | — | — | Audio track source when audio=true: generate (AV DiT samples + decodes it here), file (mux the user-supplied audio input), or passthrough (mux an already-finished track from this pipe's own 'audio' output on a prior stage -- e.g. a stage-2 refine muxing stage-1's decoded audio; requires 'initial_latent' to be connected, no re-decode/re-generation) |
@@ -1549,6 +1555,7 @@ Native MiniMax-H3 t2va/fl2va video+audio generator
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `preview` | `bool` | `true` | no | — | — | — | Emit live latent previews during sampling |
+| `preview_decoder` | `str` | `""` | no | — | — | — | Tiny preview decoder weights (vae_approx); blank uses the latent colour projection |
 | `keyframe_anchors` | `list` | `[]` | no | — | — | — | Which end of the video each 'image' input anchors, positional with it: ['first'], ['last'] or ['first','last'] (fl2va). Empty with images present = image[0] as first frame, image[1] (if any) as last frame; empty with no images = t2va |
 | `audio_source` | `str` | `"generate"` | no | `generate`, `file`, `passthrough`, `reference_video` | — | — | Audio track source: generate (decode the jointly-sampled audio latents -- MiniMax-H3 always samples an audio stream, this only picks what the FINAL muxed track is), file (mux the user-supplied audio input instead), or passthrough (mux an already-decoded track from this pipe's own prior 'audio' output, e.g. a future refine stage), or reference_video (mux the first reference video's own soundtrack, e.g. keeping the original sound of a re-performed clip) |
 | `audio_refine` | `str` | `"lock"` | no | `lock`, `resample` | — | — | How a refine ('initial_latent' connected) treats the audio stream. 'lock' (default) keeps stage 1's audio and lip-sync fixed: the audio rows are seeded from 'initial_audio_latent' at a fixed near-clean timestep and held there for every step, never resampled. 'resample' lets the refine touch the audio too, the same way it touches video: the audio rows are noised to the truncated schedule's own first kept sigma and sampled normally. Only has an effect on a refine; a fresh generation ignores it. |

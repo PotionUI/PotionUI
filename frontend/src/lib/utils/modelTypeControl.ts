@@ -22,7 +22,8 @@ export const ASSIGNABLE_MODEL_TYPES: readonly string[] = [
 	'vfi',
 	'refmod',
 	'model_patch',
-	'geometry_estimation'
+	'geometry_estimation',
+	'preview_decoder'
 ];
 
 export interface ModelTypeInfo {

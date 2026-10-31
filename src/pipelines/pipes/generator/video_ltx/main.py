@@ -175,6 +175,7 @@ from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
     nag_config_specs,
     preview_config_spec,
+    preview_decoder_config_spec,
     seed_config_spec,
 )
 
@@ -364,6 +365,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             seed_config_spec(),
             device_config_spec(),
             preview_config_spec("Emit live latent previews during sampling"),
+            preview_decoder_config_spec(),
             PipeConfigSpec("media_placements", list, [],
                            "Media conditioning placements: [{source: image|video, index, frame: int|first|last|end, "
                            "strength, role: keyframe|reference}]. Empty with image inputs present = image[0] as "
@@ -929,7 +931,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                     prepared.base_tokens, prepared.n_extra, c.audio_tokens)
         hooks = [ProgressHook(on_progress), StepPlanHook(lambda i, n: {"attn": "dense"})]
         if self.config.get("preview", True):
-            preview_hook = make_preview_hook(c.spec, progress.preview, latent_transform=forward.unpack_base)
+            preview_hook = make_preview_hook(c.spec, progress.preview, latent_transform=forward.unpack_base, decoder_path=self.config.get("preview_decoder") or None)
             if preview_hook is not None:
                 hooks.append(preview_hook)
 

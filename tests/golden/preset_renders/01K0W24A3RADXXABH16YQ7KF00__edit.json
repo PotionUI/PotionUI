@@ -234,6 +234,10 @@
           "type": "str",
           "value": "edit"
         },
+        "preview_decoder": {
+          "type": "str",
+          "value": "/GOLDEN/models/preview_decoder.safetensors"
+        },
         "quantity": {
           "type": "int",
           "value": 1

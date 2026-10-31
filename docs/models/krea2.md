@@ -34,7 +34,28 @@ The text encoder is Qwen3-VL-4B. The VAE is the Wan 2.1 causal-3D VAE verbatim â
 
 ## Presets & modes
 
-The shipped Krea-2 preset ships `txt2img` and `enhance`.
+The shipped Krea-2 preset ships `txt2img`, `enhance` and `edit`.
+
+### Edit
+
+`edit` changes a picture from a text instruction. The source picture is VAE-encoded and prepended to the target sequence as clean in-context tokens (RoPE frame 1, a second picture at frame 2), so the model reads it through a path distinct from img2img. It needs an edit LoRA trained for that sequence; a style or character LoRA does not activate editing. Generator: `generator/krea2_edit` (`src/pipelines/pipes/generator/krea2_edit/`), derived from comfyui-krea2edit by lbouaraba (Apache-2.0).
+
+| Task | Edit LoRA | Steps | CFG | Reference fidelity | Reference placement |
+| --- | --- | --- | --- | --- | --- |
+| Edit the picture (remove, recolor, relight, restyle) | General Edit v2 | 8 (turbo) | 1 | 4 (auto) | pinned |
+| Remove or delete large areas | General Edit v2 on the raw checkpoint | about 20 | 3 | 4 | pinned |
+| Place a person | Identity Edit v2 | 8 (turbo) | 1 | 2 (auto) | beside |
+
+- **Reference fidelity** (`ref_boost`) multiplies target-to-reference attention for the last picture; the first picture takes **Scene fidelity** (`ref_boost_a`). 0 means automatic from the Task. A painted Inpaint mask on the picture the dial targets restricts the boost to that region (a face, say). The mask is resampled to its picture's size, then fitted exactly as the picture is, so it stays aligned through a Fit or Crop. `fit_ref_mask` and `fit_source_image` in `generator/krea2_edit/geometry.py` are the reusable pieces.
+- **Reference placement** (`ref_position`, `ref_position_a`) sets where each picture sits in RoPE space. Pinned (the trained layout) keeps the picture's layout; Beside shifts it right of the canvas so identity flows but the layout pin is gone, which restages a person more freely. Scene pinned with the person beside gives the most natural composites. The v2 LoRAs were trained pinned only; Beside is new. The implementation is `arch/krea2/placement.py`.
+- **Read the picture** loads the text encoder's Qwen3-VL vision tower so the instruction is encoded together with the picture ("the man on the left" resolves). It is on by default because the v2 LoRAs were trained with this dual conditioning. The recommended `qwen3vl_4b_fp8_scaled` encoder ships the tower. **Reading detail** (`grounding_px`, default 768) caps the longest side the encoder sees.
+- **Source fit** `fit` resamples the whole picture into the frame; `crop` centre-crops to the output aspect ratio and is for v1 weights.
+- Generate at 2 megapixels or less.
+- Use one edit LoRA per task. Both v2 LoRAs at 1.0 together break the image; about 0.6 each is the author's combination.
+
+Licences, checked on the model card: the v2 LoRAs ship under the Krea 2 Community License plus the author's Identity Edit V2 licence, free for non-commercial use, with commercial use requiring a licence from the author (and an enterprise licence from Krea above $1M revenue). The v1.2 LoRA is under the Krea 2 Community License only.
+
+Not validated on GPU: Beside and the fidelity defaults are taken from the author's recommended-settings tables, and the CFG above 1 removal path grounds the negative prompt through the shared prompt encoder.
 
 ## Sampling
 

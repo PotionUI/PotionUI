@@ -29,3 +29,27 @@ cases:
       min_outputs: 1
       resolution: "1024x1024"
       not_black: true
+
+  - name: "krea2-edit-fast"
+    mode: "edit"
+    seed: 4242
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "make the jacket red"
+      edit_task: "edit"
+      speed_profile: "turbo"
+      steps: 8
+      sampler: "euler"
+      resolution: "1024x1024"
+    models:
+      diffusion_model:
+        sha256: "eb4dd8c612cfd10f64f25b057e6e6bbcb5737c94a7372177e456dbf7579502f1"
+      text_encoder:
+        sha256: "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094"
+      vae:
+        sha256: "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
+      edit_lora:
+        sha256: "fb5315477444c8df6dea2ad347a852bd90e97ab0f9109f4100a39714a7a09356"
+    checks:
+      min_outputs: 1
+      not_black: true

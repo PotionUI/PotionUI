@@ -23,6 +23,7 @@ from src.platform.plugins.manifest import PluginManifestSchema
 from src.platform.filesystem.yaml_io import load_yaml
 
 EXTRA_PLUGIN_DIRS_ENV = "POTIONUI_EXTRA_PLUGIN_DIRS"
+GRADUATED_PLUGIN_IDS = frozenset({"krea2-edit"})
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +238,12 @@ class PluginLoader:
 
         shadowed = self._mark_shadowed(plugins)
         plugins = [m for m in plugins if m not in shadowed]
+
+        for manifest in [m for m in plugins if m.id in GRADUATED_PLUGIN_IDS]:
+            logger.warning(
+                f"Plugin '{manifest.id}' in {manifest.plugin_dir} is part of core now - skipping it; delete the directory"
+            )
+        plugins = [m for m in plugins if m.id not in GRADUATED_PLUGIN_IDS]
 
         logger.info(f"Total plugins discovered: {len(plugins)}")
         return plugins

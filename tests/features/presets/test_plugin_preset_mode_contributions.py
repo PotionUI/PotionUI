@@ -388,10 +388,10 @@ def test_contribution_with_unrecognized_at_directive_is_rejected(tmp_path):
 NATIVE_KREA2_PRESET_ID = "4TK1KBQZ2XMB8ME0PTMXS1YJQP"
 
 
-def test_krea2_edit_mode_absent_when_plugin_disabled():
+def test_krea2_edit_is_a_core_mode_without_any_plugin():
     loader = PresetTemplateLoader(["content/presets"], plugin_registry=_registry([]))
     loader.load_presets()
 
     krea2 = next(p for p in loader.presets if p.id == NATIVE_KREA2_PRESET_ID)
-    assert "edit" not in krea2.modes
-    assert set(krea2.modes.keys()) == {"txt2img", "enhance"}
+    assert set(krea2.modes.keys()) == {"txt2img", "enhance", "edit"}
+    assert krea2.modes["edit"].source_plugin is None

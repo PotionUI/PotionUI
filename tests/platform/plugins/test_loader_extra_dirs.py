@@ -137,3 +137,14 @@ def test_different_ids_from_every_root_are_all_found(roots, tmp_path):
 
 def test_without_the_variable_nothing_extra_is_scanned(roots):
     assert PluginLoader(str(roots[0]), str(roots[1])).extra_dirs == []
+
+
+def test_a_graduated_plugin_id_is_never_discovered(roots, caplog):
+    write_plugin(roots[1].parent / "local", "krea2-edit", "krea2-edit")
+    write_plugin(roots[1].parent / "local", "other", "other")
+
+    with caplog.at_level(logging.WARNING):
+        found = discover(roots)
+
+    assert [m.id for m in found] == ["other"]
+    assert any("part of core now" in record.message for record in caplog.records)

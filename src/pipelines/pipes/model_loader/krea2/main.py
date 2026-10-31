@@ -91,12 +91,6 @@ class ModelLoaderKrea2Pipe(ThreeComponentLoaderPipe):
                            "for the ordinary always-on behaviour.",
                            required=False),
             *cls.runtime_config_specs(),
-            # Opt-in vision-grounded instruction encode (Krea-2 edit
-            # mode only). Default False -- keeps the checkpoint's Qwen3-VL
-            # vision tower stripped at load, exactly as before this flag
-            # existed (a few extra GB resident once enabled, see
-            # qwen3_vl_vision.py). Only the krea2-edit plugin's pipeline
-            # should ever set this true; plain txt2img Krea-2 never does.
             PipeConfigSpec("vision", bool, False,
                            "Load the Qwen3-VL vision tower for image-grounded instruction encoding (Krea-2 edit mode)",
                            required=False),

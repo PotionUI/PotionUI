@@ -91,3 +91,4 @@ formulas:
 modes:
   - txt2img
   - enhance
+  - edit

@@ -43,10 +43,9 @@ from tests.fixtures.form_lookup import all_field_names
 
 MEDIA_TYPES = {"image", "video", "audio", "media"}
 
-# Plugins that either ship preset roots (`presets:`) or contribute a mode onto
-# someone else's preset (`preset_modes:`). Loading them is what puts the
-# comfyui-backend presets and krea2-edit's contributed `edit` mode in scope.
-PLUGIN_IDS = {"comfyui-backend", "krea2-edit", "trellis2", "stable-audio"}
+# Plugins that ship preset roots (`presets:`) or contribute a mode onto
+# someone else's preset (`preset_modes:`).
+PLUGIN_IDS = {"comfyui-backend", "trellis2", "stable-audio"}
 
 # (preset path suffix, mode, media field names expected on the References tab)
 CASES = [
@@ -144,10 +143,6 @@ def _tabs(loader, serializer, suffix, mode):
     """The tab list exactly as the form endpoint serves it, in order."""
     preset = _preset(loader, suffix)
     if mode not in preset.modes:
-        # A mode absent here (rather than the whole preset, which `_preset`
-        # already skips on) means a `preset_modes:`-contributing plugin from
-        # PLUGIN_IDS - e.g. krea2-edit's `edit` mode on the core Krea2 preset
-        # - isn't installed, same as a missing preset.
         pytest.skip(f"{suffix} has no mode {mode} (contributing plugin not present)")
     schema = serializer.process_form_fields(preset.modes[mode].forms[0], preset.id)
     container = schema["properties"].get("tabs")

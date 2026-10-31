@@ -7,6 +7,8 @@
 		marker?: string;
 		markerLabel?: string;
 		issue?: string;
+		notice?: string;
+		action?: { label: string; onclick: () => void };
 	}
 </script>
 
@@ -96,41 +98,65 @@
 		<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1.5" role="listbox" aria-label={label} id="{uid}-list">
 			{#each options as option (option.value)}
 				{@const current = option.value === value}
-				<button
-					type="button"
-					role="option"
-					aria-selected={current}
-					data-nav
-					data-autofocus={current ? '' : undefined}
-					class="picker-row mx-1.5 flex w-[calc(100%-0.75rem)] items-center gap-3 rounded px-2 py-2 text-left"
-					class:is-current={current}
-					onclick={() => choose(option.value)}
-				>
-					{#if option.icon}<Icon name={option.icon} className="w-4 h-4 flex-shrink-0 {current ? 'text-signal' : 'text-fg-muted'}" />{/if}
-					<span class="flex min-w-0 flex-1 flex-col gap-0.5">
-						<span class="flex min-w-0 items-center gap-1.5">
-							<span class="truncate text-base font-medium leading-[18px] text-fg">{option.label}</span>
-							{#if option.marker}
-								<span class="flex-shrink-0 font-mono text-sm text-fg-subtle" aria-hidden="true">{option.marker}</span>
+				<div class="relative mx-1.5 w-[calc(100%-0.75rem)]">
+					<button
+						type="button"
+						role="option"
+						aria-selected={current}
+						data-nav
+						data-autofocus={current ? '' : undefined}
+						class="picker-row flex w-full items-center gap-3 rounded px-2 py-2 text-left {option.action ? 'pr-40' : ''}"
+						class:is-current={current}
+						onclick={() => choose(option.value)}
+					>
+						{#if option.icon}<Icon name={option.icon} className="w-4 h-4 flex-shrink-0 {current ? 'text-signal' : 'text-fg-muted'}" />{/if}
+						<span class="flex min-w-0 flex-1 flex-col gap-0.5">
+							<span class="flex min-w-0 items-center gap-1.5">
+								<span class="truncate text-base font-medium leading-[18px] text-fg">{option.label}</span>
+								{#if option.marker}
+									<span class="flex-shrink-0 font-mono text-sm text-fg-subtle" aria-hidden="true">{option.marker}</span>
+								{/if}
+								{#if option.markerLabel}
+									<span class="sr-only">{option.markerLabel}</span>
+								{/if}
+							</span>
+							{#if option.description}
+								<span class="line-clamp-2 text-sm leading-4 text-fg-subtle">{option.description}</span>
 							{/if}
-							{#if option.markerLabel}
-								<span class="sr-only">{option.markerLabel}</span>
+							{#if option.issue}
+								<span class="flex min-w-0 items-center gap-1.5 text-sm leading-4 text-warning" data-option-issue>
+									<span class="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-current" aria-hidden="true"></span>
+									<span class="truncate">{option.issue}</span>
+								</span>
 							{/if}
 						</span>
-						{#if option.description}
-							<span class="line-clamp-2 text-sm leading-4 text-fg-subtle">{option.description}</span>
-						{/if}
-						{#if option.issue}
-							<span class="flex min-w-0 items-center gap-1.5 text-sm leading-4 text-warning" data-option-issue>
-								<span class="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-current" aria-hidden="true"></span>
-								<span class="truncate">{option.issue}</span>
+						{#if option.notice}
+							<span class="flex max-w-[9rem] flex-shrink-0 items-center gap-1.5 text-sm leading-4 text-fg-subtle" data-option-notice>
+								<Icon name="lock" className="h-3.5 w-3.5 flex-shrink-0" />
+								<span>{option.notice}</span>
 							</span>
 						{/if}
-					</span>
-					{#if current}
-						<Icon name="check" className="h-3.5 w-3.5 flex-shrink-0 text-signal" />
+						{#if current}
+							<Icon name="check" className="h-3.5 w-3.5 flex-shrink-0 text-signal" />
+						{/if}
+					</button>
+					{#if option.action}
+						{@const action = option.action}
+						<button
+							type="button"
+							data-nav
+							data-option-action
+							class="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5 rounded border border-line-strong bg-surface-2 px-2 py-1 font-mono text-sm tabular-nums text-fg hover:border-line-hover hover:bg-surface-3 focus-visible:ring-1 focus-visible:ring-signal/50"
+							onclick={() => {
+								open = false;
+								action.onclick();
+							}}
+						>
+							<Icon name="download" className="h-3.5 w-3.5" />
+							{action.label}
+						</button>
 					{/if}
-				</button>
+				</div>
 			{/each}
 		</div>
 	</DropdownShell>

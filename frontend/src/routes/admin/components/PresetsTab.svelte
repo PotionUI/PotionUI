@@ -33,6 +33,7 @@
 	import PresetRequirementsTab from './presets/PresetRequirementsTab.svelte';
 	import PresetCard from './presets/PresetCard.svelte';
 	import PresetRecipeSetup from './presets/PresetRecipeSetup.svelte';
+	import PresetModesList from './presets/PresetModesList.svelte';
 	import PresetFiltersPopover from './presets/PresetFiltersPopover.svelte';
 	import { PRESET_LIBRARY_SECTIONS, type PresetLibrarySection } from './presets/presetLibrarySections';
 	import {
@@ -520,6 +521,12 @@
 										<p class="text-sm text-fg-subtle">No description has been provided for this preset yet.</p>
 									{/if}
 								</DetailSection>
+
+								{#if activePreset.installed}
+									{#key activePreset.id}
+										<PresetModesList presetId={activePreset.id} />
+									{/key}
+								{/if}
 
 								<DetailSection label="Media">
 									<div class="flex flex-col sm:flex-row gap-5">

@@ -13,6 +13,8 @@
 	mount, so there is no separate "is this visible" bookkeeping here.
 -->
 <script lang="ts">
+	import { openModeInstall } from '$lib/stores/modeInstall';
+	import { isDerivedRecipeId } from '$lib/components/recipes/modeInstall/modeInstallModel';
 	import { onDestroy, onMount } from 'svelte';
 	import axios from 'axios';
 	import { logger } from '$lib/utils/logger';
@@ -514,9 +516,15 @@
 			<p class="min-w-0 flex-1 text-sm text-fg-muted">No model installed for this preset.</p>
 			<AdminOnlyMark />
 			<Tooltip text={setupRecipe.name}>
-				<Button size="xs" variant="primary" href="/admin?tab=recipes&id={encodeURIComponent(setupRecipe.id)}">
-					Set up with recipe
-				</Button>
+				{#if isDerivedRecipeId(setupRecipe.id)}
+					<Button size="xs" variant="primary" icon="download" onclick={() => openModeInstall(setupRecipe.id)}>
+						Install modes
+					</Button>
+				{:else}
+					<Button size="xs" variant="primary" href="/admin?tab=recipes&id={encodeURIComponent(setupRecipe.id)}">
+						Set up with recipe
+					</Button>
+				{/if}
 			</Tooltip>
 		{:else}
 			<p class="min-w-0 flex-1 text-sm text-fg-muted">No model installed yet. An admin can set it up.</p>

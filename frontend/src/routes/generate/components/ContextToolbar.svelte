@@ -14,6 +14,7 @@
 	import SessionControl from '$lib/components/session/SessionControl.svelte';
 	import { Kbd, Menu, Spinner } from '$lib/components/ui';
 	import { formAudienceStore } from '$lib/stores/formAudience';
+	import { authStore } from '$lib/stores/auth';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { formFoldStates, toggleFormPane } from '$lib/stores/generationLayout';
 	import { shortcutLabels } from '$lib/stores/keybindings';
@@ -86,7 +87,7 @@
 	let fitToken = 0;
 
 	let presetInfo = $derived(presets.find((preset) => preset.id === tab.selectedPreset));
-	let modeOptions = $derived(presetModeOptions(availableModes));
+	let modeOptions = $derived(presetModeOptions(availableModes, { admin: $authStore.user?.account_type === 'ADMIN' }));
 	let currentModeLabel = $derived(modeLabel(tab.selectedMode, availableModes.find((mode) => mode.id === tab.selectedMode)?.label));
 	let variants = $derived(sortVariants(availableModes.find((mode) => mode.id === tab.selectedMode)?.variants));
 	let variantOptions = $derived(variants.map((variant) => ({ value: variant.name, label: variant.label, description: variant.description })));

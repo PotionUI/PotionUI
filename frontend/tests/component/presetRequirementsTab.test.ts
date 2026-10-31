@@ -325,4 +325,37 @@ describe('PresetRequirementsTab', () => {
 			refresh: true
 		});
 	});
+
+	it('turns an install_mode action into the install sheet for that mode, not a trip to the downloader', async () => {
+		const { modeInstallRequest, closeModeInstall } = await import('../../src/lib/stores/modeInstall');
+		const { get } = await import('svelte/store');
+		vi.mocked(api.api.getPresetRequirements).mockResolvedValue(
+			mockResponse([
+				result({
+					type: 'model',
+					name: 'effect_lora',
+					status: 'missing',
+					detail: 'no recommended file is installed',
+					mode: 'cinemagraph',
+					action: {
+						kind: 'install_mode',
+						payload: { preset_id: 'preset-1', mode: 'cinemagraph', recipe_id: 'modes-ltx-2-5' }
+					}
+				})
+			])
+		);
+
+		mounted = mount();
+		await settle();
+		const install = mounted.button('Install mode');
+		expect(install).toBeTruthy();
+		expect(mounted.button('Open Downloader')).toBeUndefined();
+		install!.click();
+
+		const request = get(modeInstallRequest);
+		expect(request?.recipeId).toBe('modes-ltx-2-5');
+		expect(request?.modes).toEqual(['cinemagraph']);
+		expect(gotoMock).not.toHaveBeenCalled();
+		closeModeInstall();
+	});
 });

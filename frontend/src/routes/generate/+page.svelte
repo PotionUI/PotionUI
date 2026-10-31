@@ -889,7 +889,13 @@
 
 	onMount(async () => {
 		mounted = true;
-		unsubscribeModelInstalled = onModelInstalled(() => void modeRequirementsRecheck.run());
+		unsubscribeModelInstalled = onModelInstalled(() => {
+			void modeRequirementsRecheck.run();
+			const known = currentTab ? modesPerTab[currentTab.id] : null;
+			if (currentTab?.selectedPreset && known?.some((mode) => mode.requirements_missing?.length)) {
+				void loadModesForTab(currentTab.id, currentTab.selectedPreset, { background: true });
+			}
+		});
 
 		// One-time migration: Clear selectedMode for all tabs if no preset selected
 		tabs.forEach(tab => {
@@ -2020,7 +2026,7 @@
 						{readiness}
 						{isLoading}
 						isReloading={isReloadingPreset && tab.id === activeTabId}
-						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon, requirementsMissing: m.requirements_missing }))}
+						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon, requirementsMissing: m.requirements_missing, install: m.install }))}
 						onPresetChange={(id) => tabHandlers.handlePresetChange(id)}
 						onModeChange={(mode) => tabHandlers.handleModeChange(mode)}
 						onVariantChange={(variant) => tabHandlers.handleVariantChange(variant)}

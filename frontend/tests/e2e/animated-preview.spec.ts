@@ -39,11 +39,16 @@ async function makeSprite(page: Page, noise: number): Promise<string> {
 				sun.addColorStop(1, 'rgba(255,200,120,0)');
 				ctx.fillStyle = sun;
 				ctx.fillRect(ox, oy, w, h);
-				const blocks = Math.round(2400 * noise);
-				for (let b = 0; b < blocks; b++) {
+				const blobs = Math.round(260 * noise);
+				for (let b = 0; b < blobs; b++) {
+					const bx = ox + rand() * w;
+					const by = oy + rand() * h;
 					const v = Math.floor(rand() * 255);
-					ctx.fillStyle = `rgba(${v},${v},${v},0.35)`;
-					ctx.fillRect(ox + rand() * w, oy + rand() * h, 4, 4);
+					const blob = ctx.createRadialGradient(bx, by, 0, bx, by, 9);
+					blob.addColorStop(0, `rgba(${v},${v},${v},0.3)`);
+					blob.addColorStop(1, `rgba(${v},${v},${v},0)`);
+					ctx.fillStyle = blob;
+					ctx.fillRect(bx - 9, by - 9, 18, 18);
 				}
 			}
 			return sheet.toDataURL('image/webp', 0.7);
@@ -166,6 +171,7 @@ test.describe('desktop', () => {
 		const clipRoot = page.locator('[data-preview-clip]');
 		await expect(clipRoot).toBeVisible({ timeout: 10000 });
 		await expect(page.locator('[data-preview-chip]')).toContainText(/preview · step 3/i);
+		await expect(page.locator('.deck-detail-text').first()).toContainText('Step 4 of 30 · preview from step 3');
 		const status = page.locator('[data-preview-status]');
 		await expect(status).toContainText('Preview');
 		await expect(status).not.toContainText(/frames|KB|fps|every/i);
@@ -186,6 +192,7 @@ test.describe('desktop', () => {
 		send(statusMsg(17));
 		send(clipMessage(clearer, 15));
 		await expect(page.locator('[data-preview-chip]')).toContainText(/preview · step 15/i);
+		await expect(page.locator('.deck-detail-text').first()).toContainText('Step 17 of 30 · preview from step 15');
 		expect(
 			await page.evaluate(
 				() => (window as any).__clipCanvas === document.querySelector('[data-preview-clip] canvas')
@@ -329,6 +336,9 @@ test.describe('phone', () => {
 		ws.send(JSON.stringify(clipMessage(sprite, 15)));
 		await expect(page.locator('[data-preview-clip]')).toBeVisible({ timeout: 10000 });
 		await expect(page.locator('[data-preview-chip]')).toContainText(/preview · step 15/i);
+		const deckText = page.locator('.deck-detail-text');
+		await expect(deckText).toContainText('Step 17 of 30 · preview from step 15');
+		expect(await deckText.evaluate((el) => el.scrollWidth <= el.clientWidth), 'the deck line is not cut off').toBe(true);
 		const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 		expect(overflow, 'no horizontal page scroll').toBeLessThanOrEqual(0);
 		await screenshot(page, JOURNEY, '06-mobile-deck-390');

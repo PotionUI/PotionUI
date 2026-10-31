@@ -109,3 +109,10 @@ export function adminFormatChip(clip: PreviewClip): string {
 export function clipCadence(totalSteps: number): number {
 	return Math.max(3, Math.floor(totalSteps / 8));
 }
+
+export function deckStepText(stepCount: string | null | undefined, clipStep: number): string | null {
+	if (!stepCount || !/^\d+\/\d+$/.test(stepCount)) return null;
+	const [current, total] = stepCount.split('/');
+	if (clipStep > 0) return `Step ${current} of ${total} · preview from step ${clipStep}`;
+	return `Step ${current} / ${total}`;
+}

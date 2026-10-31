@@ -132,7 +132,7 @@
 	onmouseenter={() => (hovered = true)}
 	onmouseleave={() => (hovered = false)}
 >
-	<canvas bind:this={canvas} class="h-full w-full object-contain" aria-hidden="true"></canvas>
+	<canvas bind:this={canvas} class="h-full w-full object-contain" style="image-rendering: auto" aria-hidden="true"></canvas>
 
 	<div class="pointer-events-none absolute left-3 top-3 z-20 flex items-center gap-2" data-preview-chip>
 		<span

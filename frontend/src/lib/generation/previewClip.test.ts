@@ -3,6 +3,7 @@ import {
 	adminFormatChip,
 	adminStatusLine,
 	chipLabel,
+	deckStepText,
 	clipCadence,
 	frameOrigin,
 	framesToAdvance,
@@ -96,5 +97,20 @@ describe('labels', () => {
 		const clip = parsePreviewClip(wire)!;
 		expect(adminFormatChip(clip)).toBe('384×216 · 25 fr · 8 fps');
 		expect(adminStatusLine(clip.admin_detail!, 25)).toBe('Preview · 25 frames · new clip every 4 steps · 212 KB');
+	});
+});
+
+describe('deckStepText', () => {
+	it('keeps the plain step text without a clip', () => {
+		expect(deckStepText('17/30', 0)).toBe('Step 17 / 30');
+	});
+
+	it('names the step the showing clip was decoded at', () => {
+		expect(deckStepText('17/30', 15)).toBe('Step 17 of 30 · preview from step 15');
+	});
+
+	it('has no text without a step count', () => {
+		expect(deckStepText(null, 15)).toBeNull();
+		expect(deckStepText('sampling', 15)).toBeNull();
 	});
 });

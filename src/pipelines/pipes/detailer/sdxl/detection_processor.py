@@ -63,6 +63,12 @@ class BaseDetectionProcessor:
         # Step 1: Detect objects
         boxes = self.detector.detect(current_image)
         if not boxes:
+            generation_outputs(
+                ProgressGenerationOutput(
+                    state=f"No {self.detection_type} found",
+                    icon=Icon(self._get_icon_name()),
+                )
+            )
             return current_image
 
         # Step 2: Filter boxes by size

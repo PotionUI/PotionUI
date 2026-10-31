@@ -1,4 +1,5 @@
 from typing import List, Callable, Optional
+from PIL import Image
 
 from src.pipelines.models import Model
 from src.pipelines.contracts import BasePipe, logger
@@ -207,16 +208,19 @@ class GeneratorSDXLPipe(BasePipe):
         else:
             logger.debug("[GENERATOR SDXL] img2img mode")
 
+        max_pixels = int(self.config.get("max_pixels", 0) or 0)
+
         results = []
-        for img in images:
+        for index, img in enumerate(images):
             if is_cancelled is not None and is_cancelled():
                 self._raise_sampling_cancelled()
 
+            img = self._fit_pixels(img, max_pixels)
             width, height = img.size
 
             # Build generation input
             g_input = self._build_generation_input_img2img(
-                img, mask, width, height, seeds, conditioning
+                img, mask, width, height, seeds, conditioning, index
             )
 
             # Execute generation
@@ -324,6 +328,15 @@ class GeneratorSDXLPipe(BasePipe):
             ]
         )
 
+    @staticmethod
+    def _fit_pixels(image, max_pixels: int):
+        width, height = image.size
+        if max_pixels <= 0 or width * height <= max_pixels:
+            return image
+        scale = (max_pixels / (width * height)) ** 0.5
+        target = (max(8, int(width * scale) // 8 * 8), max(8, int(height * scale) // 8 * 8))
+        return image.resize(target, Image.LANCZOS)
+
     def _build_generation_input_img2img(
             self,
             image,
@@ -331,14 +344,15 @@ class GeneratorSDXLPipe(BasePipe):
             width: int,
             height: int,
             seeds: list,
-            conditioning: list
+            conditioning: list,
+            index: int = 0,
     ) -> GenerationInput:
         """Build GenerationInput for img2img mode"""
         return GenerationInput(
             input=[
                 GenerationInputItem(name="sampler", value=self.config.get("sampler", "DPMPP_2M"), io_type=IOType.SAMPLER),
                 GenerationInputItem(name="scheduler", value=self.config.get("scheduler", "karras"), io_type=IOType.SCHEDULER),
-                GenerationInputItem(name="seed", value=plan_seeds(seeds, int(self.config.get("seed", -1)), 1)[0], io_type=IOType.SEED),
+                GenerationInputItem(name="seed", value=plan_seeds(seeds, int(self.config.get("seed", -1)), index + 1)[index], io_type=IOType.SEED),
                 GenerationInputItem(name="resolution", value=[width, height], io_type=IOType.RESOLUTION),
                 GenerationInputItem(name="cfg", value=float(self.config.get("cfg", 6.0)), io_type=IOType.CFG),
                 GenerationInputItem(name="steps", value=self.config.get("steps", 25), io_type=IOType.STEP),
@@ -347,7 +361,7 @@ class GeneratorSDXLPipe(BasePipe):
                 GenerationInputItem(name="denoise", value=self.config.get("denoise", 0.8), io_type=IOType.DENOISE),
                 GenerationInputItem(name="mask", value=mask, io_type=IOType.MASK),
                 GenerationInputItem(name="embedding", value=self.config.get("embeddings", {}), io_type=IOType.EMBEDDING),
-                GenerationInputItem(name="conditioning", value=conditioning[0], io_type=IOType.CONDITIONING),
+                GenerationInputItem(name="conditioning", value=conditioning[index] if index < len(conditioning) else conditioning[0], io_type=IOType.CONDITIONING),
                 # Guidance rescale
                 GenerationInputItem(name="guidance_rescale", value=float(self.config.get("guidance_rescale", 0.0)), io_type=IOType.GUIDANCE_RESCALE),
             ]
@@ -510,5 +524,13 @@ class GeneratorSDXLPipe(BasePipe):
                 required=False,
                 min_value=0,
                 max_value=20
+            ),
+            PipeConfigSpec(
+                name="max_pixels",
+                param_type=int,
+                default=0,
+                description="Shrink an img2img source larger than this many pixels to fit (0 keeps its size)",
+                required=False,
+                min_value=0
             ),
         ]

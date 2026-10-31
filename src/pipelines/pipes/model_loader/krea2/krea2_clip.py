@@ -98,6 +98,13 @@ class Krea2ClipTextEncoder(SequentialWindowClipTextEncoder):
         images = request.get("images")
         grounding_px = int(request.get("grounding_px", 768))
         system_prompt = request.get("system_prompt")
+        picture_labels = bool(request.get("picture_labels", False))
+        grounding_area = int(request.get("grounding_area", 0) or 0)
+        vision_options: Dict[str, Any] = {}
+        if picture_labels:
+            vision_options["picture_labels"] = True
+        if grounding_area:
+            vision_options["grounding_area"] = grounding_area
         if embedding_files:
             logger.debug("Krea2ClipTextEncoder: textual-inversion unsupported; ignoring %d entr(y/ies)",
                          len(embedding_files))
@@ -110,10 +117,12 @@ class Krea2ClipTextEncoder(SequentialWindowClipTextEncoder):
             if image_tensors:
                 pos = self.encoder.encode(
                     [prompt], images=image_tensors, grounding_px=grounding_px, system_prompt=system_prompt,
+                    **vision_options,
                 )
                 neg: Dict[str, Any] = (
                     self.encoder.encode(
                         [negative_prompt], images=image_tensors, grounding_px=grounding_px, system_prompt=system_prompt,
+                        **vision_options,
                     )
                     if do_classifier_free_guidance
                     else {}
@@ -134,6 +143,8 @@ class Krea2ClipTextEncoder(SequentialWindowClipTextEncoder):
             # image_content_fingerprint docstring for the full hazard.
             key_parts.append(grounding_px)
             key_parts.append(system_prompt or "")
+            key_parts.append(picture_labels)
+            key_parts.append(grounding_area)
             key_parts.extend(image_content_fingerprint(img) for img in image_tensors)
         # A static tag, not `self.encoder.role`: reading the live encoder's
         # `.role` here would force the deferred `te_loader` to resolve on

@@ -92,6 +92,7 @@ from .layers import (
     TextFusionTransformer,
     _nag_active,
     ref_attn_bias,
+    ref_isolation_bias,
     temb,
 )
 from .placement import place_refs, ref_position_modes
@@ -243,7 +244,7 @@ class Krea2(NativeArchModule):
             return list(ref_latents)
         return [ref_latents]
 
-    def _pack_tokens(self, latent: Tensor, refs: list[Tensor]) -> Tensor:
+    def _pack_tokens(self, latent: Tensor, refs: list[Tensor], ref_positions: tuple[str, ...] = ()) -> Tensor:
         """Patchify the noisy target latent, prefixed by any reference latents.
 
         The one part of the stream inputs that reads latent VALUES, so it is
@@ -260,7 +261,8 @@ class Krea2(NativeArchModule):
         ref_tokens: list[Tensor] = []
         for i, ref in enumerate(refs):
             _, _, rh, rw = ref.shape
-            if rh > h or rw > w:
+            origin = i < len(ref_positions) and ref_positions[i] == "origin"
+            if (rh > h or rw > w) and not origin:
                 raise ValueError(
                     f"krea2 ref_latents[{i}] grid {(rh, rw)} exceeds the target grid "
                     f"{(h, w)} -- fit the source to at most the target resolution before "
@@ -450,7 +452,7 @@ class Krea2(NativeArchModule):
                    ref_len: int = 0, attn_bias: Tensor | None = None,
                    nag_fused: Tensor | None = None, nag: dict | None = None,
                    nag_attention_mask: Tensor | None = None,
-                   rotary: dict | None = None) -> Tensor:
+                   rotary: dict | None = None, ref_vec: Tensor | None = None) -> Tensor:
         """Core DiT pass: image projection + concat + rotary embed + block
         loop + text-prefix slice + final layer — matches diffusers'
         ``self.img_in(...)``, ``cat([encoder_hidden_states, hidden_states])``,
@@ -531,9 +533,10 @@ class Krea2(NativeArchModule):
         # FBCache: block-0's joint-sequence output is the change proxy; a skip
         # reuses the last computed output and bypasses blocks 1..N + self.last.
         probe = None
+        ref_kwargs = {"ref_vec": ref_vec, "ref_span": (txtlen, txtlen + ref_len)} if ref_vec is not None and ref_len else {}
         for i, block in enumerate(self.blocks):
             combined = block(combined, tvec, freqs, attn_mask, nag_fused=nag_fused,
-                              nag_freqs=nag_freqs, nag_mask=nag_mask, nag=nag, txt_len=txtlen)
+                              nag_freqs=nag_freqs, nag_mask=nag_mask, nag=nag, txt_len=txtlen, **ref_kwargs)
             if i == 0 and step_cache is not None:
                 probe = combined
                 if step_cache.should_skip(probe):
@@ -579,6 +582,7 @@ class Krea2(NativeArchModule):
                 ref_boost: float = 1.0, ref_boost_a: float = 1.0,
                 ref_boost_mask: Tensor | None = None,
                 ref_position: str = "aligned", ref_position_a: str = "aligned",
+                ref_timestep_zero: bool = False, ref_isolated: bool = False,
                 nag_context: Tensor | None = None, nag: dict | None = None,
                 nag_attention_mask: Tensor | None = None,
                 text_fusion: dict | None = None, **kwargs) -> Tensor:
@@ -633,10 +637,10 @@ class Krea2(NativeArchModule):
         ref_len = sum((r.shape[-2] // self.config.patch) * (r.shape[-1] // self.config.patch)
                       for r in refs)
 
-        img_tokens = self._pack_tokens(x, refs)
         ref_positions = ref_position_modes(len(refs), ref_position, ref_position_a)
         if all(mode == "aligned" for mode in ref_positions):
             ref_positions = ()
+        img_tokens = self._pack_tokens(x, refs, ref_positions)
         branch = self._branch_inputs(x, context, attention_mask, refs,
                                      nag_context, nag_attention_mask, nag, text_fusion, ref_positions)
         t_emb, tvec = self.prepare_timestep(t, x.dtype)
@@ -645,9 +649,16 @@ class Krea2(NativeArchModule):
             refs, context.shape[1], (h // p) * (w // p), ref_boost, ref_boost_a, x.device, x.dtype,
             ref_boost_mask=ref_boost_mask,
         )
+        ref_vec = None
+        if refs and ref_timestep_zero:
+            _, ref_vec = self.prepare_timestep(torch.zeros_like(t), x.dtype)
+        if refs and ref_isolated:
+            isolation = ref_isolation_bias(context.shape[1], ref_len, (h // p) * (w // p), x.device, x.dtype)
+            attn_bias = isolation if attn_bias is None else attn_bias.to(x.dtype) + isolation
         out = self.run_blocks(img_tokens, branch.fused, t_emb, tvec, branch.pos, branch.mask,
                                step_cache=kwargs.get("step_cache"), ref_len=ref_len,
                                attn_bias=attn_bias, nag_fused=branch.nag_fused, nag=nag,
-                               nag_attention_mask=nag_attention_mask, rotary=branch.rotary)
+                               nag_attention_mask=nag_attention_mask, rotary=branch.rotary,
+                               ref_vec=ref_vec)
         latent = self.unpatchify(out, h // self.config.patch, w // self.config.patch)
         return latent.unsqueeze(2) if video_5d else latent

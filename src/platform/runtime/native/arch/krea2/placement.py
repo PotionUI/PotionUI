@@ -5,7 +5,7 @@ from typing import Sequence
 
 import torch
 
-REF_POSITIONS = ("aligned", "beside", "bag")
+REF_POSITIONS = ("aligned", "beside", "bag", "origin")
 
 
 def normalize_ref_position(value: object) -> str:
@@ -35,6 +35,9 @@ def place_refs(ref_ids: Sequence[torch.Tensor], modes: Sequence[str], grid_h: in
         if mode == "beside":
             ids[..., 2] = ids[..., 2] - ids[..., 2].min() + x0
             x0 = float(ids[..., 2].max()) + 1.0
+        elif mode == "origin":
+            ids[..., 1] = ids[..., 1] - ids[..., 1].min()
+            ids[..., 2] = ids[..., 2] - ids[..., 2].min()
         elif mode == "bag":
             ids[..., 1] = (grid_h - 1) / 2.0
             ids[..., 2] = (grid_w - 1) / 2.0

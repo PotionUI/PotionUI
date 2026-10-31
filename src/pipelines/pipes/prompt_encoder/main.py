@@ -129,6 +129,11 @@ class PromptEncoderPipe(BasePipe):
                           min_value=0, max_value=4096),
             PipeConfigSpec("system_prompt", str, None, "Override the vision-grounded encoder's default "
                           "system prompt", required=False),
+            PipeConfigSpec("picture_labels", bool, False, "Label each source image 'Picture N:' in the instruction, "
+                          "the layout ai-toolkit edit LoRAs were trained on", required=False),
+            PipeConfigSpec("grounding_area", int, 0, "Cap on the pixel AREA of each image sent to a "
+                          "vision-grounded text encoder; 0 leaves only the longest-side cap", required=False,
+                          min_value=0, max_value=16777216),
             PipeConfigSpec("image_pixel_budget", float, 0.0, "Cap the pixel AREA of each image handed to a "
                           "vision-grounded text encoder, as a multiple of the output canvas area "
                           "(`output_resolution`); 0 leaves the encoder's own bound in place", required=False,
@@ -285,6 +290,7 @@ class PromptEncoderPipe(BasePipe):
             grounding_fp = (
                 f"|{self.config.get('grounding_px', 768)}|{self.config.get('system_prompt')}"
                 f"|{self._image_max_pixels()}|{self._reference_video_frames()}"
+                f"|{self.config.get('picture_labels', False)}|{self.config.get('grounding_area', 0)}"
                 if (images or references) else ""
             )
             # The fingerprint must key on the FINAL text actually sent to the
@@ -557,6 +563,10 @@ class PromptEncoderPipe(BasePipe):
                     request["images"] = [images[_] if _ < len(images) else images[-1]]
                 request["grounding_px"] = int(self.config.get("grounding_px", 768))
                 request["system_prompt"] = self.config.get("system_prompt")
+                if self.config.get("picture_labels"):
+                    request["picture_labels"] = True
+                if self.config.get("grounding_area"):
+                    request["grounding_area"] = int(self.config["grounding_area"])
                 if image_max_pixels is not None:
                     request["image_max_pixels"] = image_max_pixels
             elif references:
@@ -605,6 +615,10 @@ class PromptEncoderPipe(BasePipe):
                 ]
                 request["grounding_px"] = int(self.config.get("grounding_px", 768))
                 request["system_prompt"] = self.config.get("system_prompt")
+                if self.config.get("picture_labels"):
+                    request["picture_labels"] = True
+                if self.config.get("grounding_area"):
+                    request["grounding_area"] = int(self.config["grounding_area"])
                 if image_max_pixels is not None:
                     request["image_max_pixels"] = image_max_pixels
                 reference_video_frames = self._reference_video_frames()

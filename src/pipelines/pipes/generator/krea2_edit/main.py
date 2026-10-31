@@ -11,7 +11,12 @@ from src.pipelines.outputs import GenerationExecutionError, Icon, ImageGeneratio
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter, native_step_hooks
 from src.pipelines.pipes.generator.krea2.main import GeneratorKrea2Pipe
-from src.pipelines.pipes.generator.krea2_edit.geometry import fit_ref_mask, fit_source_image
+from src.pipelines.pipes.generator.krea2_edit.geometry import (
+    area_fit_size,
+    fit_ref_mask,
+    fit_source_area,
+    fit_source_image,
+)
 from src.platform.runtime.native.arch.krea2.placement import REF_POSITIONS
 from src.platform.runtime.native.engine import Conditioning
 
@@ -33,6 +38,13 @@ class GeneratorKrea2EditPipe(GeneratorKrea2Pipe):
                            required=False, min_value=0.0, max_value=1000.0),
             PipeConfigSpec("ref_boost_a", float, 1.0, "Reference-fidelity dial for the first (scene) ref",
                            required=False, min_value=0.0, max_value=1000.0),
+            PipeConfigSpec("ref_style", str, "standard", "Reference scheme the edit LoRA was trained with",
+                           required=False, choices=["standard", "ostris"]),
+            PipeConfigSpec("ref_pixels", int, 1048576, "Pixel-area cap for a reference (ostris style)",
+                           required=False, min_value=65536, max_value=16777216),
+            PipeConfigSpec("output_pixels", int, 0, "Size the output from the first source at up to this "
+                           "pixel area; 0 uses the resolution (ostris style)",
+                           required=False, min_value=0, max_value=16777216),
             PipeConfigSpec("ref_position", str, "aligned", "Where the last (subject) ref sits relative to the output",
                            required=False, choices=list(REF_POSITIONS)),
             PipeConfigSpec("ref_position_a", str, "aligned", "Where the first (scene) ref sits relative to the output",
@@ -99,15 +111,27 @@ class GeneratorKrea2EditPipe(GeneratorKrea2Pipe):
         cond = dict(cond_model.embeds)
         uncond = dict(cond_model.n_embeds) if cond_model.n_embeds else None
 
-        ref_latents = [gen.encode_image(fit_source_image(s, width, height, fit_mode)) for s in sources]
+        ostris = self.config.get("ref_style", "standard") == "ostris"
+        if ostris:
+            output_pixels = int(self.config.get("output_pixels", 0) or 0)
+            if output_pixels:
+                width, height = gen.snap_resolution(*area_fit_size(*sources[0].size, output_pixels))
+            ref_pixels = int(self.config.get("ref_pixels", 1048576))
+            ref_arrays = [fit_source_area(s, ref_pixels) for s in sources]
+        else:
+            ref_arrays = [fit_source_image(s, width, height, fit_mode) for s in sources]
+        ref_latents = [gen.encode_image(array) for array in ref_arrays]
         ref_value = ref_latents if len(ref_latents) > 1 else ref_latents[0]
         cond["ref_latents"] = ref_value
         cond["ref_boost"] = ref_boost
         cond["ref_boost_a"] = ref_boost_a
-        cond["ref_position"] = ref_position
-        cond["ref_position_a"] = ref_position_a
+        cond["ref_position"] = "origin" if ostris else ref_position
+        cond["ref_position_a"] = "origin" if ostris else ref_position_a
+        if ostris:
+            cond["ref_timestep_zero"] = True
+            cond["ref_isolated"] = True
 
-        last_masks = (ctx.extra.get("masks_b") or []) if images_b else (ctx.extra.get("masks") or [])
+        last_masks = [] if ostris else (ctx.extra.get("masks_b") or []) if images_b else (ctx.extra.get("masks") or [])
         ref_boost_mask = None
         if last_masks:
             ref_boost_mask = fit_ref_mask(
@@ -119,8 +143,11 @@ class GeneratorKrea2EditPipe(GeneratorKrea2Pipe):
             uncond["ref_latents"] = ref_value
             uncond["ref_boost"] = ref_boost
             uncond["ref_boost_a"] = ref_boost_a
-            uncond["ref_position"] = ref_position
-            uncond["ref_position_a"] = ref_position_a
+            uncond["ref_position"] = cond["ref_position"]
+            uncond["ref_position_a"] = cond["ref_position_a"]
+            if ostris:
+                uncond["ref_timestep_zero"] = True
+                uncond["ref_isolated"] = True
             if ref_boost_mask is not None:
                 uncond["ref_boost_mask"] = ref_boost_mask
         conditioning_obj = Conditioning(cond=cond, uncond=uncond)

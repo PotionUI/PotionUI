@@ -1045,8 +1045,11 @@ Native Krea-2 instruction-based edit generator (in-context source tokens)
 | `fit_mode` | `str` | `"fit"` | no | `fit`, `crop` | — | — | How a source fits a mismatched output AR |
 | `ref_boost` | `float` | `1.0` | no | — | 0.0 | 1000.0 | Reference-fidelity dial for the last (subject) ref |
 | `ref_boost_a` | `float` | `1.0` | no | — | 0.0 | 1000.0 | Reference-fidelity dial for the first (scene) ref |
-| `ref_position` | `str` | `"aligned"` | no | `aligned`, `beside`, `bag` | — | — | Where the last (subject) ref sits relative to the output |
-| `ref_position_a` | `str` | `"aligned"` | no | `aligned`, `beside`, `bag` | — | — | Where the first (scene) ref sits relative to the output |
+| `ref_style` | `str` | `"standard"` | no | `standard`, `ostris` | — | — | Reference scheme the edit LoRA was trained with |
+| `ref_pixels` | `int` | `1048576` | no | — | 65536 | 16777216 | Pixel-area cap for a reference (ostris style) |
+| `output_pixels` | `int` | `0` | no | — | 0 | 16777216 | Size the output from the first source at up to this pixel area; 0 uses the resolution (ostris style) |
+| `ref_position` | `str` | `"aligned"` | no | `aligned`, `beside`, `bag`, `origin` | — | — | Where the last (subject) ref sits relative to the output |
+| `ref_position_a` | `str` | `"aligned"` | no | `aligned`, `beside`, `bag`, `origin` | — | — | Where the first (scene) ref sits relative to the output |
 
 ### <a id="pipe-generator-maya"></a>`generator/maya`
 
@@ -2661,6 +2664,8 @@ Encodes prompts using CLIP text encoders for SDXL
 | `prompt_helpers` | `dict` | `{}` | no | — | — | — | Prompt helper data |
 | `grounding_px` | `int` | `768` | no | — | 0 | 4096 | Longest-side cap (px) for the image sent to a vision-grounded text encoder; 0 uses native resolution |
 | `system_prompt` | `str` | — | no | — | — | — | Override the vision-grounded encoder's default system prompt |
+| `picture_labels` | `bool` | `false` | no | — | — | — | Label each source image 'Picture N:' in the instruction, the layout ai-toolkit edit LoRAs were trained on |
+| `grounding_area` | `int` | `0` | no | — | 0 | 16777216 | Cap on the pixel AREA of each image sent to a vision-grounded text encoder; 0 leaves only the longest-side cap |
 | `image_pixel_budget` | `float` | `0.0` | no | — | 0.0 | 16.0 | Cap the pixel AREA of each image handed to a vision-grounded text encoder, as a multiple of the output canvas area (`output_resolution`); 0 leaves the encoder's own bound in place |
 | `output_resolution` | `str` | — | no | — | — | — | Output canvas as WxH — the area `image_pixel_budget` multiplies. Inert without it |
 | `reference_video_frames` | `int` | `0` | no | — | 0 | — | Frame count of the clip being generated; a reference video is truncated to it before being presented, so that the encoder and the generator's own condition-encode cut it at the same frame. 0 (default) leaves a reference video untruncated. Inert without a `reference_video` input |

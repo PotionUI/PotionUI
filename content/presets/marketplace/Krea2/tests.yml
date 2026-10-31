@@ -72,3 +72,24 @@ cases:
     checks:
       min_outputs: 1
       not_black: true
+
+  - name: "krea2-real-fast"
+    mode: "real"
+    seed: 4242
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "natural daylight"
+      steps: 8
+      output_size: "1"
+    models:
+      diffusion_model:
+        sha256: "eb4dd8c612cfd10f64f25b057e6e6bbcb5737c94a7372177e456dbf7579502f1"
+      text_encoder:
+        sha256: "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094"
+      vae:
+        sha256: "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
+      real_lora:
+        sha256: "6455a87697f0202c5490480a89976562ae524fb551877752bc3f5fa54e1858c7"
+    checks:
+      min_outputs: 1
+      not_black: true

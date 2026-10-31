@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from PIL import Image
 
 FIT_CROP_TOL = 0.08
+REF_STYLE_SNAP = 16
 
 
 def _to_uint8(t: torch.Tensor) -> np.ndarray:
@@ -66,3 +67,17 @@ def fit_ref_mask(
     if filled:
         return crop_fill(t, th, tw, mode="bilinear", antialias=False)
     return F.interpolate(t, size=(th, tw), mode="bilinear")
+
+
+def area_fit_size(width: int, height: int, max_pixels: int, snap: int = REF_STYLE_SNAP) -> tuple[int, int]:
+    scale = min(1.0, (max_pixels / (width * height)) ** 0.5) if max_pixels > 0 else 1.0
+    return max(round(width * scale / snap) * snap, snap), max(round(height * scale / snap) * snap, snap)
+
+
+def fit_source_area(image: Image.Image, max_pixels: int, snap: int = REF_STYLE_SNAP) -> np.ndarray:
+    arr = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    t = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0)
+    width, height = area_fit_size(t.shape[-1], t.shape[-2], max_pixels, snap)
+    if (height, width) != tuple(t.shape[-2:]):
+        t = F.interpolate(t, size=(height, width), mode="area")
+    return _to_uint8(t)

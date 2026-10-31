@@ -1,0 +1,35 @@
+name: "custom"
+mode_label: "Make it real"
+short_description: "Turn an illustration, render or anime picture into a photograph."
+prompt_label: "Extra detail (optional)"
+prompt_placeholder: "natural daylight, film grain, shallow depth of field"
+negative_prompt:
+  applies_when: false
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/real/tabs/generation.yml"
+      - type: "tab"
+        label: "References"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/real/tabs/references.yml"
+      - type: "tab"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/real/tabs/lora.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/real/tabs/advanced.yml"

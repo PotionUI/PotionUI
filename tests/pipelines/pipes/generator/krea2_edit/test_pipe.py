@@ -10,7 +10,12 @@ from types import SimpleNamespace
 
 from src.pipelines.contracts import PipeConfigSpec, PipeInput
 from src.pipelines.outputs import GenerationExecutionError, ImageGenerationOutput
-from src.pipelines.pipes.generator.krea2_edit.geometry import fit_ref_mask, fit_source_image
+from src.pipelines.pipes.generator.krea2_edit.geometry import (
+    area_fit_size,
+    fit_ref_mask,
+    fit_source_area,
+    fit_source_image,
+)
 from src.pipelines.pipes.generator.krea2_edit.main import GeneratorKrea2EditPipe
 
 
@@ -18,6 +23,8 @@ from src.pipelines.pipes.generator.krea2_edit.main import GeneratorKrea2EditPipe
 def pipe_module():
     return SimpleNamespace(
         fit_source_image=fit_source_image,
+        fit_source_area=fit_source_area,
+        area_fit_size=area_fit_size,
         fit_ref_mask=fit_ref_mask,
         GeneratorKrea2EditPipe=GeneratorKrea2EditPipe,
     )
@@ -50,6 +57,9 @@ class _FakeGenerator:
         self.encode_calls = []
         self.sample_calls = []
         self._ref_latent = torch.full((1, 4, 1, 8, 8), 7.0)
+
+    def snap_resolution(self, width, height):
+        return max(16, width // 16 * 16), max(16, height // 16 * 16)
 
     def encode_image(self, pixels, **kwargs):
         self.encode_calls.append(pixels)
@@ -485,3 +495,87 @@ def test_reference_placement_defaults_to_aligned(pipe_module):
     config = pipe_module.GeneratorKrea2EditPipe.get_default_config()
     assert config["ref_position"] == "aligned"
     assert config["ref_position_a"] == "aligned"
+
+
+def _ostris_extra(gen, source, **over):
+    cond_model = _FakeConditioningModel(
+        embeds={"context": torch.zeros(1, 5, 3, 16)},
+        n_embeds={"context": torch.zeros(1, 5, 3, 16)},
+    )
+    return _Ctx(_ctx_extra(gen, [cond_model], [source], **over))
+
+
+def test_ostris_style_turns_on_timestep_zero_isolated_origin_references(pipe_module):
+    gen = _FakeGenerator()
+    pipe = _make_pipe(pipe_module, ref_style="ostris", ref_position="beside", ref_boost=3.0)
+
+    pipe.generate_one(_ostris_extra(gen, Image.new("RGB", (64, 64))), index=0, seed=1, progress=_FakeProgress())
+
+    sent = gen.sample_calls[0]["conditioning"]
+    for branch in (sent.cond, sent.uncond):
+        assert branch["ref_timestep_zero"] is True
+        assert branch["ref_isolated"] is True
+        assert branch["ref_position"] == "origin"
+        assert branch["ref_position_a"] == "origin"
+
+
+def test_standard_style_never_sets_the_ostris_flags(pipe_module):
+    gen = _FakeGenerator()
+    pipe = _make_pipe(pipe_module)
+
+    pipe.generate_one(_ostris_extra(gen, Image.new("RGB", (64, 64))), index=0, seed=1, progress=_FakeProgress())
+
+    sent = gen.sample_calls[0]["conditioning"]
+    assert "ref_timestep_zero" not in sent.cond and "ref_isolated" not in sent.cond
+    assert sent.cond["ref_position"] == "aligned"
+
+
+def test_ostris_style_encodes_the_reference_at_its_own_aspect_capped_by_area(pipe_module):
+    gen = _FakeGenerator()
+    pipe = _make_pipe(pipe_module, ref_style="ostris", ref_pixels=64 * 64)
+
+    pipe.generate_one(_ostris_extra(gen, Image.new("RGB", (256, 128))), index=0, seed=1, progress=_FakeProgress())
+
+    assert gen.encode_calls[0].shape[:2] == (48, 96)
+
+
+def test_ostris_style_sizes_the_output_from_the_source_when_asked(pipe_module):
+    gen = _FakeGenerator()
+    pipe = _make_pipe(pipe_module, ref_style="ostris", output_pixels=96 * 96)
+
+    out = pipe.generate_one(_ostris_extra(gen, Image.new("RGB", (192, 96))), index=0, seed=1, progress=_FakeProgress())
+
+    assert out.resolution == (128, 64)
+    assert gen.sample_calls[0]["shape"][-2:] == (8, 16)
+
+
+def test_ostris_style_keeps_the_resolution_when_output_pixels_is_zero(pipe_module):
+    gen = _FakeGenerator()
+    pipe = _make_pipe(pipe_module, ref_style="ostris")
+
+    out = pipe.generate_one(_ostris_extra(gen, Image.new("RGB", (192, 96))), index=0, seed=1, progress=_FakeProgress())
+
+    assert out.resolution == (64, 64)
+
+
+def test_ostris_style_ignores_the_boost_mask(pipe_module):
+    gen = _FakeGenerator()
+    extra = _ostris_extra(gen, Image.new("RGB", (64, 64)))
+    extra.extra["masks"] = [Image.new("L", (64, 64), 255)]
+    pipe = _make_pipe(pipe_module, ref_style="ostris")
+
+    pipe.generate_one(extra, index=0, seed=1, progress=_FakeProgress())
+
+    assert "ref_boost_mask" not in gen.sample_calls[0]["conditioning"].cond
+
+
+def test_area_fit_never_upscales_and_snaps_to_sixteen(pipe_module):
+    assert pipe_module.area_fit_size(100, 50, 10_000_000) == (96, 48)
+    assert pipe_module.area_fit_size(2048, 1024, 512 * 512) == (720, 368)
+    assert pipe_module.area_fit_size(8, 8, 10_000) == (16, 16)
+
+
+def test_ostris_style_is_the_standard_default_off(pipe_module):
+    config = pipe_module.GeneratorKrea2EditPipe.get_default_config()
+    assert config["ref_style"] == "standard"
+    assert config["output_pixels"] == 0

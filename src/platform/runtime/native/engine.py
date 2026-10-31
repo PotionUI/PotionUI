@@ -198,6 +198,8 @@ _FORWARD_KWARGS = (
     "ref_boost_mask",
     "ref_position",
     "ref_position_a",
+    "ref_timestep_zero",
+    "ref_isolated",
     "flow_map_target",
     "text_fusion",
 )

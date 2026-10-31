@@ -27,6 +27,7 @@ from __future__ import annotations
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from src.features.models.recommendations import find_installed_model, format_size
 from src.features.models.repository import ModelRepository
 from src.features.recipes.executors._artifact_lookup import (
     find_artifact_model,
@@ -101,6 +102,34 @@ def resolve_download_url(artifact, get_registry: Callable[[], Any]) -> Tuple[Opt
     return None, "no checksum, direct source, or provider id/search match was available"
 
 
+_ACTIVE_STATUSES = ("pending", "downloading", "paused")
+_TERMINAL_OK = "completed"
+_TERMINAL_BAD = ("failed", "cancelled")
+
+
+def _status_of(download) -> str:
+    status = getattr(download, "status", None)
+    return str(getattr(status, "value", status) or "")
+
+
+class _PlanSource:
+    def __init__(self, entry: Dict[str, Any]):
+        self.id = entry.get("slot_id")
+        self.filename = entry.get("filename")
+        self.model_type = entry.get("model_type")
+        self.display_name = entry.get("display_name") or self.filename
+        self.size_bytes = entry.get("size_bytes")
+        self.provider_hint = dict(entry.get("provider_hint") or {})
+        self.checksum = _Checksum(entry.get("sha256"))
+        self.gated = bool(entry.get("gated"))
+        self.license_url = entry.get("license_url")
+
+
+class _Checksum:
+    def __init__(self, value):
+        self.value = value
+
+
 class ArtifactsFetchExecutor:
     def __init__(
         self,
@@ -109,11 +138,17 @@ class ArtifactsFetchExecutor:
         provider_registry_factory=None,
         type_manager=None,
         digests=None,
+        targets=None,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self.download_queue = download_queue
         self.model_repository = model_repository
         self._type_manager = type_manager
         self._digests = digests
+        self._targets = targets
+        self._sleep = sleep
+        self._clock = clock
         # Lazy/optional: resolving the provider registry needs async
         # discovery/init this constructor shouldn't force (see
         # `src.features.providers.registry.ensure_providers_discovered`).
@@ -121,6 +156,8 @@ class ArtifactsFetchExecutor:
         self._provider_registry_factory = provider_registry_factory
 
     def execute(self, context: StepContext) -> StepResult:
+        if "plan" in context.step.params:
+            return self._execute_plan(context)
         artifact_ids: List[str] = list(context.step.params.get("artifact_ids") or [])
         if not artifact_ids:
             return StepResult.fail(
@@ -206,6 +243,235 @@ class ArtifactsFetchExecutor:
 
     def _get_provider_registry(self):
         return resolve_provider_registry(self._provider_registry_factory)
+
+    def _plan_files(self, plans: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Optional[str], Optional[str], str]:
+        files: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        destination = None
+        target = None
+        engine = "native"
+        for plan in plans:
+            destination = destination or plan.get("destination_backend_id")
+            target = target or plan.get("target")
+            engine = plan.get("engine") or engine
+            for entry in plan.get("files") or []:
+                key = (entry.get("model_type") or "", (entry.get("filename") or "").lower())
+                files.setdefault(key, entry)
+        return list(files.values()), destination, target, engine
+
+    def _present(self, entry: Dict[str, Any]) -> bool:
+        return find_installed_model(
+            self.model_repository,
+            entry.get("model_type") or "",
+            entry.get("filename") or "",
+            sha256=entry.get("sha256"),
+            size_bytes=entry.get("size_bytes"),
+            digests=self._digests,
+            hash_candidates="never",
+            type_manager=self._type_manager,
+        ) is not None
+
+    def _disk_problem(self, files: List[Dict[str, Any]], engine: str, target: Optional[str]) -> Optional[str]:
+        if self._targets is None or not files:
+            return None
+        option, _ = self._targets.resolve(engine, target)
+        if option is None:
+            return None
+        profile = self._targets.profile(option, {f.get("model_type") or "" for f in files})
+        needed: Dict[str, int] = {}
+        volumes = {}
+        for entry in files:
+            disk = profile.disk_for(entry.get("model_type") or "")
+            if disk is None or disk.usable_bytes is None:
+                continue
+            volumes[disk.id] = disk
+            needed[disk.id] = needed.get(disk.id, 0) + (entry.get("size_bytes") or 0)
+        for disk_id, total in needed.items():
+            disk = volumes[disk_id]
+            if total > disk.usable_bytes:
+                return (
+                    f"Not enough free space on {option.label} for these files: they need {format_size(total)}, "
+                    f"but only {format_size(disk.usable_bytes)} can be used ({format_size(disk.free_bytes)} free, "
+                    f"{format_size(disk.reserve_bytes)} kept spare)."
+                )
+        return None
+
+    def _adoptable(self, service, entry: Dict[str, Any], destination: Optional[str]):
+        repo = getattr(service, "repo", None)
+        if repo is None:
+            return None
+        name = (entry.get("filename") or "").lower()
+        try:
+            from src.features.downloads.models import DownloadStatus
+
+            rows = []
+            for status in (DownloadStatus.PENDING, DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED):
+                rows.extend(repo.get_all(status=status) or [])
+        except Exception:
+            return None
+        for row in rows:
+            if (getattr(row, "filename", "") or "").lower() == name and getattr(row, "destination_backend_id", None) == destination:
+                return row
+        return None
+
+    def _execute_plan(self, context: StepContext) -> StepResult:
+        plans = context.plans(context.step.params.get("plan"))
+        if not plans:
+            return StepResult.fail("ARTIFACTS_FETCH_NO_PLAN", "There is no approved install plan to download from.")
+        files, destination, target, engine = self._plan_files(plans)
+        pending = [entry for entry in files if not self._present(entry)]
+        if not pending:
+            return StepResult.ok({"fetched": [], "files": [], "message": "Nothing left to download."})
+        service = self.download_queue
+        if service is None:
+            return StepResult.fail(
+                "NO_DOWNLOAD_MANAGER",
+                "The download queue is not wired into this instance, so these files can't be fetched automatically.",
+            )
+        problem = self._disk_problem(pending, engine, target)
+        if problem:
+            return StepResult.fail(
+                "NOT_ENOUGH_DISK",
+                problem,
+                suggested_repair="Free some space, or go back and pick fewer modes or a smaller file.",
+            )
+        queued: List[Tuple[Dict[str, Any], Any, str]] = []
+        for entry in pending:
+            if context.is_cancelled():
+                break
+            source = _PlanSource(entry)
+            adopted = self._adoptable(service, entry, destination)
+            if adopted is not None:
+                queued.append((entry, adopted, "an earlier attempt"))
+                continue
+            url, note = self._resolve_download_url(source)
+            if not url:
+                return StepResult.fail(
+                    "ARTIFACT_SOURCE_UNRESOLVED",
+                    f"Couldn't work out where to download '{source.display_name}' from ({note}).",
+                    suggested_repair=(
+                        "Download it manually via Administration -> Models, or give the recipe "
+                        "a checksum or a direct source so it can be found automatically."
+                    ),
+                )
+            try:
+                download = run_sync(
+                    service.queue_model_download(
+                        url=url,
+                        model_type=source.model_type,
+                        filename=source.filename,
+                        checksum_sha256=source.checksum.value,
+                        provider_id=source.provider_hint.get("source"),
+                        created_by=context.owner_user_id,
+                        destination_backend_id=destination,
+                    )
+                )
+            except Exception as exc:
+                return StepResult.fail(
+                    "ARTIFACT_DOWNLOAD_FAILED",
+                    f"Downloading '{source.display_name}' failed to start: {exc}",
+                )
+            queued.append((entry, download, note))
+        return self._wait_for_all(service, queued, context)
+
+    def _cancel_unfinished(self, service, queued) -> None:
+        for _, download, _ in queued:
+            try:
+                current = service.get_download(download.id)
+                if _status_of(current) in _ACTIVE_STATUSES:
+                    run_sync(service.cancel_download(download.id))
+            except Exception:
+                continue
+
+    def _wait_for_all(self, service, queued, context: StepContext) -> StepResult:
+        last_total_bytes = -1
+        last_progress_at = self._clock()
+        last_sample: Optional[Tuple[float, int]] = None
+        while True:
+            if context.is_cancelled():
+                self._cancel_unfinished(service, queued)
+                return StepResult.fail("RUN_CANCELLED", "The install was cancelled.")
+            rows = []
+            failure = None
+            for entry, download, note in queued:
+                current = service.get_download(download.id)
+                status = _status_of(current)
+                size = entry.get("size_bytes") or getattr(current, "total_bytes", None)
+                done = getattr(current, "downloaded_bytes", None) or 0
+                if status == _TERMINAL_OK and size:
+                    done = size
+                rows.append(
+                    {
+                        "slot_id": entry.get("slot_id"),
+                        "display_name": entry.get("display_name") or entry.get("filename"),
+                        "filename": entry.get("filename"),
+                        "size_bytes": size,
+                        "downloaded_bytes": done,
+                        "status": status or "pending",
+                        "download_id": download.id,
+                        "speed": getattr(current, "speed_bytes_per_sec", None),
+                        "source": note,
+                    }
+                )
+                if status in _TERMINAL_BAD and failure is None:
+                    error = getattr(current, "error_message", None)
+                    name = entry.get("display_name") or entry.get("filename")
+                    failure = (entry, f"Downloading '{name}' {status}" + (f": {error}" if error else "."))
+            downloaded = sum(r["downloaded_bytes"] or 0 for r in rows)
+            total = sum(r["size_bytes"] or 0 for r in rows) or None
+            now = self._clock()
+            speeds = [r["speed"] for r in rows if r["status"] == "downloading" and r["speed"]]
+            speed = sum(speeds) if speeds else None
+            if speed is None and last_sample is not None and now > last_sample[0]:
+                speed = max(0.0, (downloaded - last_sample[1]) / (now - last_sample[0])) or None
+            last_sample = (now, downloaded)
+            files_done = sum(1 for r in rows if r["status"] == _TERMINAL_OK)
+            view = [{k: v for k, v in r.items() if k not in ("speed", "source")} for r in rows]
+            context.report_progress(
+                progress_current=downloaded,
+                progress_total=total,
+                progress_unit="bytes",
+                safe_output={
+                    "files": view,
+                    "files_done": files_done,
+                    "files_total": len(rows),
+                    "speed_bytes_per_sec": int(speed) if speed else None,
+                    "eta_seconds": int((total - downloaded) / speed) if speed and total else None,
+                },
+            )
+            if failure is not None:
+                entry, message = failure
+                return StepResult.fail(
+                    "ARTIFACT_DOWNLOAD_FAILED",
+                    message,
+                    suggested_repair=self._auth_repair_hint(_PlanSource(entry), message),
+                )
+            if files_done == len(rows):
+                return StepResult.ok(
+                    {
+                        "fetched": [
+                            {
+                                "id": r["slot_id"],
+                                "filename": r["filename"],
+                                "display_name": r["display_name"],
+                                "download_id": r["download_id"],
+                                "source": r["source"],
+                            }
+                            for r in rows
+                        ],
+                        "files": view,
+                        "message": f"Downloaded {len(rows)} file{'s' if len(rows) != 1 else ''}.",
+                    }
+                )
+            if downloaded > last_total_bytes:
+                last_total_bytes = downloaded
+                last_progress_at = now
+            elif now - last_progress_at >= _STALL_SECONDS:
+                minutes = _STALL_SECONDS // 60
+                return StepResult.fail(
+                    "ARTIFACT_DOWNLOAD_FAILED",
+                    f"The downloads made no progress for {minutes} minutes - the connection may have stalled.",
+                )
+            self._sleep(_POLL_INTERVAL_SECONDS)
 
     def _target(self, artifact, variant_id: Optional[str], report: Optional[Callable[..., None]] = None):
         if artifact.variants and artifact.get_variant(variant_id) is None:

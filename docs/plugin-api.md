@@ -997,6 +997,44 @@ Registration makes the kind both runnable and lintable: `scripts/recipe_lint.py`
 running catalog accept recipes using it, while an unregistered kind stays an unknown-kind
 error. Disabling the plugin takes the kind away again.
 
+A step kind may implement three optional methods next to `execute`:
+
+- `validate_params(params, recipe, lint: LintContext) -> list[str]` — param checks. The running
+  catalog rejects a recipe whose steps fail them, and `scripts/recipe_lint.py` reports them (rule
+  R7). `lint.preset_index` maps preset ids to loaded presets.
+- `preview(context) -> dict` — a side-effect-free summary for the dry run
+  (`POST /api/recipes/{id}/plan`). Return `{"summary": "...", "consent_request": {...}?}`.
+- `grant(context, consent_request, grant: GrantRequest) -> dict` — called when an admin approves a
+  step parked on `awaiting(...)`. `grant` carries `selections`, `modes`, `extras` and `target`
+  from the approval body; raise `ValueError` with a plain sentence to reject it. The returned dict is
+  stored on the approving attempt, where later steps read it through
+  `context.step_outputs[step_key]` (or `context.plans(...)` for a `plan` key).
+
+`context.is_cancelled()` turns true when an admin cancels the run while the step is still running;
+a long poll loop should check it, stop its own work and return. `report_progress(...)` also takes a
+`safe_output=` dict to show richer interim state (the download step uses it for per-file rows).
+
+A `consent_request` passed to `StepResult.awaiting(...)` is rendered by the same consent sheet as
+core's own steps. These keys are understood, all optional: `artifacts` (files with `id`,
+`display_name`, `size_bytes`, `kind`, `gated`, `license_url`), `total_bytes`, `slots` (per-slot
+variant pickers), `modes` (a mode checklist), `manifest`, `disk`, `estimate`, `providers` (missing
+credential prompts), `warnings`, `checking` and `target`. See
+`src/features/recipes/mode_plans.py` for the full `modes.plan` payload.
+
+### Installing preset modes
+
+Core's `modes.plan` step takes its files from a preset's own model-field `recommendations:`
+instead of a hand-written `artifacts:` list. It offers every mode (`modes: "all"`), pre-ticks
+`selected`, keeps `locked` modes ticked (the smoke mode), offers optional files as extras
+(`extras: offer`, pre-ticked by `preselect_extras`), and parks for consent with the mode
+checklist above. Follow it with `artifacts.fetch {plan: <step key>}` (downloads in parallel,
+re-checks free disk, writes to a remote worker when that is the target), `preset.defaults
+{plan}` (fills empty or broken form-override defaults with the downloaded files) and
+`pipeline.render {plan}` (renders every chosen mode). Every native preset with downloadable
+recommendations also gets a derived `modes-<preset>` recipe with exactly these steps, and
+`python scripts/recipe_new.py <preset>` scaffolds a starter that uses them;
+`python scripts/recipe_lint.py --explain <recipe>` prints what each mode would download.
+
 ## Contributing a model layout profile
 
 A model layout profile teaches Admin → Models → Folders how one tool arranges its model

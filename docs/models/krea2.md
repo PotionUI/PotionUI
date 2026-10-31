@@ -2,7 +2,7 @@
 type: model
 title: Krea-2
 family_key: krea2
-modes: [txt2img, enhance, inpaint]
+modes: [txt2img, enhance]
 spec:
   arch: Krea2 distilled turbo MMDiT (forked from diffusers' transformer_krea2, Apache-2.0)
   latent: 16-channel, Wan21-format causal-3D VAE latent (image-only, single frame)
@@ -34,11 +34,7 @@ The text encoder is Qwen3-VL-4B. The VAE is the Wan 2.1 causal-3D VAE verbatim �
 
 ## Presets & modes
 
-The shipped Krea-2 preset ships `txt2img`, `enhance`, `upscale`, `edit`, `real` and `inpaint`.
-
-### Inpaint
-
-`inpaint` repaints a painted area of a picture with the ordinary Krea-2 weights, on any of the Turbo, Balanced, Quality and Base profiles. The generator runs `mode: "inpaint"`: the unpainted latents stay pinned to the source on every step, so only the painted area changes (see [Latent-Mask Inpainting](../techniques/latent-mask-inpainting.md)). *Grow* widens the painted area, the area is cropped with its surroundings, repainted and composited back with a *Feather* seam that fades out beyond the painted edge; the repainted area itself is never blended with the old content. The prompt is optional; blank asks for the surroundings continued. Strength 1.0 repaints from noise; lower keeps more of the old colours. Paint where a cast shadow should fall: a shadow can only be repainted inside the painted area. It uses the plain `generator/krea2` path, not the reference-token edit pipe: no inpaint LoRA is needed, and the reference-boost mask of `edit` is not involved.
+The shipped Krea-2 preset ships `txt2img`, `enhance`, `upscale`, `edit` and `real`.
 
 ### Upscale
 
@@ -106,7 +102,6 @@ Turbo/Balanced stay CFG-off (`cfg=1.0`, single forward) — byte-identical to th
 **Enhance (`refine_tail`).** Enhance walks the tail of the official fixed-mu 8-step grid: Subtle is 1 step (sigma 0.311 to 0), Balanced 2 steps (0.513, 0.311, 0) and Strong 3 steps (0.655, 0.513, 0.311, 0). Because those sigmas are the distilled checkpoint's training points, the tail always runs cfg 1.0 and `euler`, whatever the CFG Scale field or the speed profile say (the standalone `enhance` mode has no speed profile and is always treated as distilled). On the Base profile the inline Enhance instead builds the tail from a 24-step resolution-anchored dynamic-mu schedule for the actual upscaled size, starting at the grid sigma closest to the turbo tail's start and never shorter than 2 steps, and keeps the profile's CFG; it raises an error when that schedule would re-noise the image almost completely (about 3072 px and up, so 4x). Subtle is not offered at 4x: the field falls back to Balanced. Running Euler at CFG 1 over the grid's own sigmas is what clears leftover noise: Subtle, Balanced and Strong finish clean in 1 to 3 steps.
 
 The Advanced tab's **Sampler** and **Schedule** pickers (`type: "sampler"` / `type: "schedule"`, family `krea2`) share one row and are registry-driven: they list whatever this instance has registered — the core samplers and schedules plus any a plugin contributes — rather than a list written into the preset. See [Samplers and sigma schedules](../techniques/samplers-and-schedules.md). Schedule's default, `shift`, is the shift-based mu selection the table above describes; every other schedule bypasses the mu/shift math outright — `beta` and friends ignore `mu_schedule`/`fixed_mu`/`dynamic_shift` entirely, so pairing one with the Base profile has no extra effect beyond Base's own CFG change. Civitai users porting a recipe typically pair `er_sde` + Beta for photographic skin and fabric texture at the cost of losing the turbo checkpoint's tuned schedule; `euler` + `shift` stays the fastest, most-tested combination and is the right default outside a specific recipe.
-
 
 **NAG vs CFG**: `nag_scale`/`nag_tau`/`nag_alpha` (Normalized Attention Guidance) exist to give the negative prompt influence at `cfg=1.0`, when no negative-conditioned forward runs. Real CFG (`cfg>1.0`) already runs that forward pass; stacking NAG on top of it is unvalidated and likely redundant. The Turbo/Balanced-only NAG toggle resets to off when the form's speed profile switches to Quality or Base.
 

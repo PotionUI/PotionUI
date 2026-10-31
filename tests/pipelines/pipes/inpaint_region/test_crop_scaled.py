@@ -122,31 +122,3 @@ def test_composite_region_ignores_faint_stray_pixels():
 def test_crop_emits_the_mask_as_a_one_item_list_like_the_image():
     out = _run(SCALED, *_scene())
     assert out["masks"] == [out["mask"]]
-
-
-def _upscale(out):
-    region = out["crop_region"]
-    return out["image"].size[0] / (region["right"] - region["left"])
-
-
-def test_a_narrow_mask_is_not_enlarged_beyond_the_cap():
-    image, mask = _scene(h=1500, w=2000, box=(600, 900, 900, 960))
-    uncapped = _run({**SCALED, "context": 0.25}, image, mask)
-    capped = _run({**SCALED, "context": 0.25, "max_upscale": 1.5}, image, mask)
-    assert _upscale(uncapped) > 2
-    assert _upscale(capped) <= 1.5 + 0.1
-    assert capped["image"].size[0] % 16 == 0
-
-
-def test_a_picture_within_the_budget_is_used_whole_and_never_enlarged():
-    image, mask = _scene(h=1500, w=1200, box=(600, 900, 500, 560))
-    out = _run({**SCALED, "whole_image_up_to": 2097152, "max_upscale": 1.5}, image, mask)
-    region = out["crop_region"]
-    assert (region["top"], region["bottom"], region["left"], region["right"]) == (0, 1500, 0, 1200)
-    assert _upscale(out) <= 1.0
-
-
-def test_a_picture_over_the_budget_is_still_cropped():
-    image, mask = _scene(h=1500, w=2000, box=(600, 900, 900, 960))
-    out = _run({**SCALED, "whole_image_up_to": 2097152}, image, mask)
-    assert out["crop_region"]["right"] - out["crop_region"]["left"] < 2000

@@ -103,5 +103,4 @@ modes:
   - img2img
   - enhance
   - inpaint
-  - outpaint
   - control

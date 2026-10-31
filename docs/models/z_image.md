@@ -2,7 +2,7 @@
 type: model
 title: Z-Image
 family_key: z_image
-modes: [txt2img, img2img, enhance, inpaint, outpaint, control]
+modes: [txt2img, img2img, enhance, inpaint, control]
 spec:
   arch: NextDiT (Alpha-VLLM Lumina-Image-2.0 lineage), hidden dim 3840
   latent: 16-channel, Flux-format 2D VAE latent
@@ -35,12 +35,11 @@ A `z_image_modulation` flag in the checkpoint distinguishes a Z-Image checkpoint
 
 ## Presets & modes
 
-The shipped Z-Image preset ships `txt2img`, `img2img` (shown as Restyle), `enhance`, `inpaint`, `outpaint` and `control` (shown as Structure).
+The shipped Z-Image preset ships `txt2img`, `img2img` (shown as Restyle), `enhance`, `inpaint` and `control` (shown as Structure).
 
 - **Restyle** re-renders a picture with a prompt and a Strength slider. The generator runs `mode: "img2img"`, so the output takes the picture's shape (up to about one megapixel) and Strength is the fraction of the schedule walked.
 - **Enhance** upscales a picture by 1.5x, 2x or 3x and redraws it at a low strength set by *Added detail* (Subtle 0.12, Balanced 0.2, Strong 0.35), then optionally runs the face detailer on the result. It is the same `img2img` generator with `img2img_scale`, followed by `detailer/native`.
 - **Inpaint** repaints a painted area. The generator runs `mode: "inpaint"`: the unpainted latents stay pinned to the source on every step, so only the painted area changes (see [Latent-Mask Inpainting](../techniques/latent-mask-inpainting.md)). The area is grown by *Grow*, cropped with its surroundings, repainted and composited back with a *Feather* seam that fades out beyond the painted edge; the repainted area itself is never blended with the old content. The prompt is optional; blank asks for the surroundings continued. Paint where a cast shadow should fall: a shadow can only be repainted inside the painted area. Strength 1.0 repaints from noise.
-- **Outpaint** extends the canvas by pixels per side or to a target shape (16:9, 21:9, 4:3, 9:16 and so on), with the picture centred or kept at an edge. `canvas_expand` fills the new area with a blurred copy of the edge and masks it plus *Blend* pixels of the original edge; the same inpaint generator fills it. The canvas is painted at *Output size* (1, 2 or 4 MP, default 1, the model's native size), scaled back up to the full canvas, and your original pixels are pasted over it. *Blend* is how far into your picture the model looks and fades its repaint, so the new area continues it.
 - **Structure** generates a new image that keeps the pose, depth, outlines or a loose sketch of a guide picture. See below.
 
 ## Structure (Fun ControlNet Union 2.1)

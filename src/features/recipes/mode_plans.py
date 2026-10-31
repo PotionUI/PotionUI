@@ -108,12 +108,16 @@ class ModePlanner:
             return None
         return derive_mode_slots(preset, modes)
 
-    def _overrides(self, preset_id: str) -> Dict[str, Dict[str, Any]]:
+    def _overrides(self, preset_id: str, strict: bool = False) -> Dict[str, Dict[str, Any]]:
         if self.preset_db_repo is None:
+            if strict:
+                raise PlanApprovalError("The admin default files can't be checked on this instance.")
             return {}
         try:
             return self.preset_db_repo.get_preset_form_overrides(preset_id) or {}
         except Exception:
+            if strict:
+                raise
             logger.exception("Reading form overrides for '%s' failed", preset_id)
             return {}
 
@@ -236,6 +240,7 @@ class ModePlanner:
         hash_candidates: str = "background",
         probe_remote: bool = True,
         with_estimate: bool = True,
+        strict_overrides: bool = False,
     ) -> Optional[PlanAssessment]:
         preset = self.preset_loader.load_preset_by_id(preset_id) if self.preset_loader is not None else None
         if preset is None:
@@ -249,7 +254,7 @@ class ModePlanner:
             )
         model_types = {slot.model_type for slot in slot_plan.slots.values()}
         profile = self.targets.profile(option, model_types, probe_remote=probe_remote)
-        overrides = self._overrides(preset_id)
+        overrides = self._overrides(preset_id, strict=strict_overrides)
         slots = {
             slot_id: self._slot_state(slot, profile, overrides, hash_candidates)
             for slot_id, slot in slot_plan.slots.items()

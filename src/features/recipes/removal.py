@@ -15,6 +15,7 @@ ADMIN_DEFAULT = "admin_default"
 OTHER_RECIPE = "other_recipe"
 OUTSIDE = "outside_models_folder"
 NOT_ON_DISK = "not_on_disk"
+UNAVAILABLE = "unavailable"
 
 
 class ModeRemovalError(Exception):
@@ -53,10 +54,12 @@ class ModeFileRemoval:
         model_repository: Any,
         model_locator: Any,
         model_roots: Any,
-        preset_db_repo: Any = None,
-        preset_loader: Any = None,
+        preset_db_repo: Any,
+        preset_loader: Any,
         locations_repository: Any = None,
     ):
+        if preset_db_repo is None or preset_loader is None:
+            raise ValueError("Removing mode files needs the installed-preset repository and the preset loader.")
         self.recipe_catalog = recipe_catalog
         self.planner = planner
         self.model_repository = model_repository
@@ -73,13 +76,29 @@ class ModeFileRemoval:
             self._locations_repository = ModelLocationsRepository()
         return self._locations_repository
 
+    @staticmethod
+    def _checked(what: str, call):
+        try:
+            return call()
+        except ModeRemovalError:
+            raise
+        except Exception as exc:
+            logger.exception("Checking %s before removing mode files failed", what)
+            raise ModeRemovalError(
+                UNAVAILABLE, f"Could not verify other users of these files ({what} could not be read), so nothing was removed."
+            ) from exc
+
     def _assessment(self, recipe_id: str, mode_id: str) -> PlanAssessment:
-        recipe = self.recipe_catalog.get_recipe(recipe_id) if self.recipe_catalog is not None else None
+        recipe = self._checked("the recipe catalog", lambda: self.recipe_catalog.get_recipe(recipe_id))
         step = next((s for s in (recipe.steps if recipe else []) if s.kind == "modes.plan"), None)
         if step is None:
             raise ModeRemovalError("not_found", "This recipe does not install modes.")
-        assessment = self.planner.assess(
-            step.params.get("preset_id"), hash_candidates="never", probe_remote=False, with_estimate=False, target="auto",
+        assessment = self._checked(
+            "the installed files",
+            lambda: self.planner.assess(
+                step.params.get("preset_id"), hash_candidates="never", probe_remote=False, with_estimate=False,
+                target="auto", strict_overrides=True,
+            ),
         )
         if assessment is None or assessment.mode(mode_id) is None:
             raise ModeRemovalError("not_found", f"'{mode_id}' is not a mode this recipe installs.")
@@ -88,29 +107,23 @@ class ModeFileRemoval:
         return assessment
 
     def _installed_presets(self) -> List[str]:
-        if self.preset_db_repo is None:
-            return []
-        try:
-            return [p.preset_id for p in self.preset_db_repo.get_all_installed_presets()]
-        except Exception:
-            return []
+        return self._checked(
+            "the installed presets",
+            lambda: [p.preset_id for p in self.preset_db_repo.get_all_installed_presets()],
+        )
 
     def _overrides(self, preset_id: str) -> Dict[str, Any]:
-        if self.preset_db_repo is None:
-            return {}
-        try:
-            return self.preset_db_repo.get_preset_form_overrides(preset_id) or {}
-        except Exception:
-            return {}
+        return self._checked(
+            "the admin default files",
+            lambda: self.preset_db_repo.get_preset_form_overrides(preset_id) or {},
+        )
 
     def _other_preset_files(self, preset_id: str) -> Dict[str, str]:
         used: Dict[str, str] = {}
-        if self.preset_loader is None:
-            return used
         for other_id in self._installed_presets():
             if other_id == preset_id:
                 continue
-            preset = self.preset_loader.load_preset_by_id(other_id)
+            preset = self._checked("the installed presets", lambda: self.preset_loader.load_preset_by_id(other_id))
             if preset is None:
                 continue
             for slot in derive_mode_slots(preset).slots.values():
@@ -133,9 +146,11 @@ class ModeFileRemoval:
                         names.add(_basename(value))
         return names, ids
 
-    def _recipe_files(self) -> Dict[str, str]:
+    def _recipe_files(self, exclude_id: str) -> Dict[str, str]:
         files: Dict[str, str] = {}
-        for recipe in self.recipe_catalog.list_recipes() if self.recipe_catalog is not None else []:
+        for recipe in self._checked("the recipe catalog", self.recipe_catalog.list_recipes):
+            if recipe.id == exclude_id:
+                continue
             for artifact in recipe.artifacts:
                 for name in [artifact.filename] + [v.filename for v in artifact.variants]:
                     if name:
@@ -153,7 +168,7 @@ class ModeFileRemoval:
         root = self._write_root(model.model_type)
         inside: List[Tuple[Any, Path]] = []
         outside = False
-        for location in self.model_locator.locations(model.id):
+        for location in self._checked("the file locations", lambda: self.model_locator.locations(model.id)):
             if location.status != "present" or location.path is None:
                 continue
             path = Path(location.path)
@@ -173,10 +188,7 @@ class ModeFileRemoval:
         }
         other_presets = self._other_preset_files(preset_id)
         default_names, default_ids = self._default_refs(preset_id, mode_id)
-        recipe_files = {
-            name: label for name, label in self._recipe_files().items()
-            if label != getattr(self.recipe_catalog.get_recipe(recipe_id), "name", None)
-        }
+        recipe_files = self._recipe_files(recipe_id)
         delete: List[Dict[str, Any]] = []
         keep: List[Dict[str, Any]] = []
         seen: Set[str] = set()
@@ -242,6 +254,7 @@ class ModeFileRemoval:
         chosen = [entry for entry in preview["delete"] if entry["model_id"] in wanted]
         if not chosen:
             raise ModeRemovalError("conflict", "None of these files can be removed any more.")
+        stored = self._overrides(preview["preset_id"])
         deleted = []
         freed = 0
         for entry in chosen:
@@ -265,18 +278,21 @@ class ModeFileRemoval:
                     logger.exception("Dropping the location row of '%s' failed", path)
             if not removed_any:
                 continue
-            remaining = [loc for loc in self.model_locator.locations(model.id) if loc.status == "present"]
+            try:
+                remaining = [loc for loc in self.model_locator.locations(model.id) if loc.status == "present"]
+            except Exception:
+                logger.exception("Re-reading the locations of '%s' failed; its index row is kept", model.id)
+                remaining = [None]
             if not remaining:
                 self.model_repository.delete(model.id)
             deleted.append(entry)
             freed += entry["size_bytes"] or 0
-        self._clear_defaults(preview["preset_id"], mode_id, {(d["filename"] or "").lower() for d in deleted})
+        self._clear_defaults(preview["preset_id"], mode_id, stored, {(d["filename"] or "").lower() for d in deleted})
         return {"deleted": deleted, "kept": preview["keep"], "freed_bytes": freed}
 
-    def _clear_defaults(self, preset_id: str, mode_id: str, deleted_names: Set[str]) -> None:
-        if self.preset_db_repo is None or not deleted_names:
+    def _clear_defaults(self, preset_id: str, mode_id: str, stored: Dict[str, Any], deleted_names: Set[str]) -> None:
+        if not deleted_names:
             return
-        stored = self._overrides(preset_id)
         fields = stored.get(mode_id)
         if not fields:
             return

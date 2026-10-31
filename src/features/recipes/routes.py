@@ -347,7 +347,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         return await asyncio.to_thread(_dry_run, recipe, body or RecipePlanRequest(), current_user.id)
 
     def _removal_error(exc: ModeRemovalError) -> HTTPException:
-        status = {"not_found": 404, "conflict": 409, "not_local": 400}.get(exc.code, 400)
+        status = {"not_found": 404, "conflict": 409, "not_local": 400, "unavailable": 503}.get(exc.code, 400)
         return HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message})
 
     @router.get("/{recipe_id}/modes/{mode}/removal", summary="What removing a mode's files would delete")

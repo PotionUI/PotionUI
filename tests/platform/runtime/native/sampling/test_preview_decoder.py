@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import torch
 from safetensors.torch import save_file
@@ -230,3 +231,37 @@ def test_decoder_returns_to_the_cpu_when_sampling_ends(no_lifecycle, wan_file, m
     hook = make_preview_hook(WAN_SPEC, lambda image: None, every_n=1, decoder_path=wan_file)
     hook.on_end()
     assert moves == [("cpu",)]
+
+
+@pytest.mark.parametrize(
+    "total,count,expected",
+    [(0, 25, []), (5, 25, [0, 1, 2, 3, 4]), (25, 25, list(range(25))), (49, 25, list(range(0, 49, 2)))],
+)
+def test_even_frame_indices(total, count, expected):
+    assert pd.even_frame_indices(total, count) == expected
+
+
+def test_even_frame_indices_keep_both_ends_of_a_long_clip():
+    indices = pd.even_frame_indices(121, 25)
+    assert len(indices) == 25 and indices[0] == 0 and indices[-1] == 120
+    assert indices == sorted(set(indices))
+
+
+def test_preview_clip_is_capped_in_frames_and_size(decoder):
+    frames, indices = pd.decode_preview_clip(decoder, torch.randn(1, 16, 10, 6, 4), max_frames=5, max_size=24)
+    assert len(frames) == len(indices) == 5
+    assert indices[0] == 0 and indices[-1] == 4 * 10 - 4
+    for frame in frames:
+        assert frame.dtype == np.uint8 and frame.shape[2] == 3
+        assert max(frame.shape[:2]) <= 24
+
+
+def test_preview_clip_of_a_still_latent_is_one_frame(decoder):
+    frames, indices = pd.decode_preview_clip(decoder, torch.randn(1, 16, 4, 4))
+    assert len(frames) == 1 and indices == [0]
+
+
+def test_preview_clip_defaults_are_25_frames_and_384_px(decoder):
+    frames, indices = pd.decode_preview_clip(decoder, torch.randn(1, 16, 9, 8, 8))
+    assert len(frames) == 25 and len(indices) == 25
+    assert max(frames[0].shape[:2]) <= 384

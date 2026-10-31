@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Any, Mapping
 
+import numpy as np
 import torch
 from PIL import Image
 
@@ -171,3 +172,38 @@ def frame_to_image(frame: torch.Tensor, *, max_size: int) -> Image.Image:
 def spec_latent_channels(spec: Any) -> int | None:
     channels = (getattr(spec, "latent_format", None) or {}).get("latent_channels")
     return int(channels) if channels else None
+
+
+PARALLEL_DECODE_MAX_TOKENS = 8
+
+
+def even_frame_indices(total: int, count: int) -> list[int]:
+    if total <= 0:
+        return []
+    if total <= count:
+        return list(range(total))
+    return [round(i * (total - 1) / (count - 1)) for i in range(count)]
+
+
+def decode_preview_clip(
+    decoder: TAEHV,
+    x0: torch.Tensor,
+    *,
+    max_frames: int = 25,
+    max_size: int = 384,
+) -> tuple[list[np.ndarray], list[int]]:
+    latent = latent_to_ntchw(x0, decoder.latent_channels)
+    upscales = (
+        pick_space_upscales(decoder, latent.shape[-2], latent.shape[-1], max_size)
+        if any(isinstance(m, torch.nn.Upsample) for m in decoder.decoder)
+        else None
+    )
+    clip = decode_clip(
+        decoder,
+        x0,
+        parallel=latent.shape[1] <= PARALLEL_DECODE_MAX_TOKENS,
+        space_upscales=upscales,
+    )
+    indices = even_frame_indices(clip.shape[0], max_frames)
+    frames = [np.asarray(frame_to_image(clip[i], max_size=max_size)) for i in indices]
+    return frames, indices

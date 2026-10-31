@@ -1,0 +1,14 @@
+models:
+  - name: "DWPose-YOLOX-L"
+    url: "https://huggingface.co/yzd-v/DWPose/resolve/main/yolox_l.onnx"
+    file_path: "{{ path('annotators', 'yzd-v-dwpose/yolox_l.onnx') }}"
+    type: "annotator"
+    provider: "huggingface"
+    sha256: "7860ae79de6c89a3c1eb72ae9a2756c0ccfbe04b7791bb5880afabd97855a411"
+
+  - name: "DWPose-ll-ucoco-384"
+    url: "https://huggingface.co/yzd-v/DWPose/resolve/main/dw-ll_ucoco_384.onnx"
+    file_path: "{{ path('annotators', 'yzd-v-dwpose/dw-ll_ucoco_384.onnx') }}"
+    type: "annotator"
+    provider: "huggingface"
+    sha256: "724f4ff2439ed61afb86fb8a1951ec39c6220682803b4a8bd4f598cd913b1843"

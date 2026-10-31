@@ -1,0 +1,37 @@
+prompt_label: "What is in the picture"
+prompt_placeholder: "a woman in a red coat on a rainy street"
+name: "custom"
+mode_label: "Make it real"
+short_description: "Turn an illustration, render or 3D shot into a photo."
+requirements:
+  - type: "model"
+    filename: "anything2real_2601.safetensors"
+    hint: "Download the Make it real LoRA in this mode."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/real/tabs/generation.yml"
+      - type: "tab"
+        label: "Image"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/real/tabs/references.yml"
+      - type: "tab"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths._shared }}/tabs/lora.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/real/tabs/advanced.yml"

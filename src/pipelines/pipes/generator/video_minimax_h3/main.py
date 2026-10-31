@@ -235,6 +235,18 @@ from src.pipelines.pipes.generator.video_minimax_h3.schedule import (
     resolve_schedules,
     scale_noise,
 )
+from src.pipelines.pipes._shared.vae.minimax_h3_encode import encode_compute_dtype, encode_video
+from src.pipelines.pipes.generator.video_minimax_h3.control import (
+    HINT_ROW_MODES,
+    available_frames,
+    control_active,
+    control_reserve_gb,
+    encode_control_rows,
+    fit_control_frames,
+    snap_control_frames,
+    validate_control_settings,
+)
+from src.platform.runtime.native.arch.minimax_h3.control import ControlContext, control_attached
 from src.pipelines.pipes.generator.video_minimax_h3.windows import (
     DirectorPlan,
     DirectorPlanError,
@@ -897,6 +909,7 @@ class _MiniMaxH3Forward:
         sparse_attn_ctx: Optional[SolAttnContext | SlaAttnContext] = None,
         seq_chunk_rows: int = 0,
         ffn_chunk_rows: Optional[int] = None,
+        control: Optional[ControlContext] = None,
     ) -> tuple[Tensor, Tensor]:
         current_revision = self.weight_revision() if self.weight_revision is not None else None
         if self._prepared_context is None:
@@ -927,6 +940,7 @@ class _MiniMaxH3Forward:
             # Spread, not a plain `vdn_layout=None`: a DiT with no branch must
             # be called exactly as it was before VDN existed.
             **({"vdn_layout": self.vdn_layout} if self.vdn_layout is not None else {}),
+            **({"control": control} if control is not None else {}),
         )
         return video_pred[0], audio_pred[0]
 
@@ -993,6 +1007,13 @@ class _MiniMaxH3Ctx:
     # (`_release_reference_cache`) and on failure/cancellation via
     # `release_gpu` below. Never shared across requests.
     reference_cache: VisualLatentCache = field(default_factory=VisualLatentCache)
+    control_frames: Optional[np.ndarray] = None
+    control_columns: int = 0
+    control_scale: float = 1.0
+    control_start: float = 0.0
+    control_end: float = 1.0
+    control_hint_rows: str = "trained"
+    control_cache: dict = field(default_factory=dict)
 
     def release_gpu(self) -> None:
         """Picked up by `BaseGeneratorPipe._release_gpu_on_error` on a failed
@@ -1001,6 +1022,7 @@ class _MiniMaxH3Ctx:
         own docstring). The success path releases it explicitly instead (see
         `generate_one`/`_generate_director`), since that point is never
         reached on this path."""
+        self.control_cache.clear()
         self.reference_cache.release()
 
 
@@ -1078,6 +1100,24 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "sigma and sampled normally. Only has an effect on a refine; a fresh generation ignores "
                 "it.", required=False, choices=list(_VALID_AUDIO_REFINE_MODES),
             ),
+            PipeConfigSpec("control_context_scale", float, 1.0,
+                           "Fun ControlNet strength when a 'control_video' is connected: 1 follows it "
+                           "fully, lower follows it more loosely, 0 switches the control branch off",
+                           required=False, min_value=0.0, max_value=2.0),
+            PipeConfigSpec("control_start", float, 0.0,
+                           "Fraction of the sampling steps at which the Fun ControlNet starts acting",
+                           required=False, min_value=0.0, max_value=1.0),
+            PipeConfigSpec("control_end", float, 1.0,
+                           "Fraction of the sampling steps at which the Fun ControlNet stops acting",
+                           required=False, min_value=0.0, max_value=1.0),
+            PipeConfigSpec("control_hint_rows", str, "trained",
+                           "Which rows of the packed sequence receive the control hints: 'trained' "
+                           "(text and generated video rows, what the branch was trained on) or "
+                           "'non_audio' (also keyframe and reference rows)",
+                           required=False, choices=list(HINT_ROW_MODES)),
+            PipeConfigSpec("control_length_from_video", bool, True,
+                           "With a 'control_video', take the clip length from it (snapped down to "
+                           "17n+5 frames at 24 fps, at most 15 s) instead of 'frames'", required=False),
             PipeConfigSpec("decode", bool, True, "Decode to video; set false to emit the raw latent instead "
                            "(audio is still decoded/populated either way)", required=False),
             PipeConfigSpec(
@@ -1363,6 +1403,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             PipeInputSpec("source_video", IOType.VIDEO, False, "The video 'source_video_role' extends. "
                           "Fitted onto the canvas and resampled to 24 fps; its own audio, when it has "
                           "any, feeds a 'continue' window's condition audio", is_array=True),
+            PipeInputSpec("control_video", IOType.VIDEO, False, "Control (pose/depth/edge) video for the Fun "
+                          "ControlNet patch loaded with the DiT. Resampled to 24 fps and fitted onto the "
+                          "canvas; works together with keyframe images and ref2va references",
+                          is_array=True),
             PipeInputSpec("seed", IOType.SEED, False, "Random seeds", is_array=True),
             PipeInputSpec("MODELS", IOType.SERVICE, False, "Model lifecycle service, to release the idle "
                           "TE's host RAM", is_array=False),
@@ -1394,6 +1438,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         reference_audios = list(pipe_input.input.get("reference_audios") or [])
         audio_files = pipe_input.input.get("audio") or []
         source_videos = list(pipe_input.input.get("source_video") or [])
+        control_videos = list(pipe_input.input.get("control_video") or [])
         # `or []` is unusable here: a bare Tensor raises on truthiness (same
         # trap `txt2vid_ltx.build_context` documents for its own
         # `initial_latent`) -- the upstream latent_upscaler may deliver a
@@ -1545,8 +1590,27 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             audio_file = None
 
         plan = build_director_plan(self.config.get("document"), default_seed=int(self.config.get("seed", -1)))
+        control_scale = float(self.config.get("control_context_scale", 1.0))
+        control_start = float(self.config.get("control_start", 0.0))
+        control_end = float(self.config.get("control_end", 1.0))
+        control_hint_rows = str(self.config.get("control_hint_rows", "trained"))
+        if control_videos:
+            validate_control_settings(control_scale, control_start, control_end, control_hint_rows)
+            if not control_attached(getattr(bundle.dit, "module", None)):
+                raise ValueError(
+                    "generator/video_minimax_h3: a 'control_video' is connected but the DiT carries no Fun "
+                    "ControlNet -- set 'control_module' on the model loader to the pruned "
+                    "minimax_h3_fun_controlnet_union_2.0_pruned patch"
+                )
+            if initial_latents or source_role != "none" or plan is not None:
+                raise ValueError(
+                    "generator/video_minimax_h3: a 'control_video' cannot be combined with 'initial_latent', "
+                    "'source_video' or a Video Director document -- it adds hints to a single fresh generation"
+                )
         raw_references = self._load_reference_media(packed, self._reference_decode_seconds(plan, source_role, bool(initial_latents))) if packed else []
         source_frames: Optional[np.ndarray] = None
+        control_frames: Optional[np.ndarray] = None
+        raw_control: Optional[tuple] = None
         source_overlap_latents = 0
         if initial_latents:
             # A refine pass derives width/height/frames from the SEED
@@ -1599,15 +1663,20 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             # (`conditioning.fit_keyframe_to_canvas`). Documented gap, not a
             # silent behavior difference.
             raw_source = self._load_source_video(source_videos[0]) if source_role != "none" else None
+            raw_control = self._load_source_video(control_videos[0]) if control_videos else None
             resolution = str(self.config.get("resolution", "1344x768"))
             if resolution == AUTO_RESOLUTION:
-                height, width = self._auto_canvas(raw_source, raw_references)
+                height, width = self._auto_canvas(raw_source if raw_source is not None else raw_control, raw_references)
             else:
                 width, height = (int(part) for part in resolution.split("x"))
             frames = int(self.config.get("frames", 124))
             if plan is not None:
                 frames = max(window.frames for window in plan.windows)
             frames = self._length_from_reference(frames, raw_references)
+            if raw_control is not None and bool(self.config.get("control_length_from_video", True)):
+                frames = snap_control_frames(
+                    available_frames(len(raw_control[0]), raw_control[1]), MAX_WINDOW_FRAMES,
+                )
             if source_role == "continue":
                 source_overlap_latents = int(self.config.get("source_overlap_latents", 5))
                 frames += head_frames_for_latents(source_overlap_latents)
@@ -1624,6 +1693,11 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             )
             if raw_source is not None:
                 source_frames = fit_source_video(raw_source[0], fps=raw_source[1], height=height, width=width)
+            if raw_control is not None:
+                control_frames = fit_control_frames(
+                    raw_control[0], fps=raw_control[1], height=height, width=width, num_frames=frames,
+                )
+                raw_control = None
 
         spec = bundle.spec
         steps = int(self.config.get("steps", 24))
@@ -1759,6 +1833,12 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 runtime_lora_masked=runtime_lora_masked,
                 source_role=source_role, source_frames=source_frames, source_path=source_path,
                 source_has_audio=source_has_audio, source_overlap_latents=source_overlap_latents,
+                control_frames=control_frames,
+                control_columns=(
+                    int(bundle.dit.module.control_info.control_in_columns) if control_frames is not None else 0
+                ),
+                control_scale=control_scale, control_start=control_start, control_end=control_end,
+                control_hint_rows=control_hint_rows,
             ),
         )
 
@@ -2123,13 +2203,14 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         initial_audio_latent = (
             self._resolve_initial_audio_latent(c, index) if initial_latent is not None else None
         )
+        control_rows = self._control_rows(c) if c.control_frames is not None or c.control_cache else None
         video_rows, audio_rows, layout = self._sample_window(
             c, prompt_embeds=prompt_embeds, text_token_tags=text_token_tags,
             condition_rows=condition_rows, keyframe_anchors=anchors,
             num_latent_frames=c.num_latent_frames, num_audio_latents=c.num_audio_latents,
             condition_audio_rows=condition_audio_rows, steps=c.steps, generator=gen, progress=progress,
             layout=ref2va_layout, is_cancelled=ctx.is_cancelled, initial_latent=initial_latent,
-            initial_audio_latent=initial_audio_latent,
+            initial_audio_latent=initial_audio_latent, control_rows=control_rows,
         )
         if ctx.is_cancelled():
             # Sampling completed (or was mid-step cancellation lost the race
@@ -2179,6 +2260,25 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             restore_dit_best_effort(c.bundle.dit, c.device)
             c.reference_cache.release()
         return out_path
+
+    def _control_rows(self, c: _MiniMaxH3Ctx) -> Tensor:
+        cached = c.control_cache.get("rows")
+        if cached is not None:
+            return cached
+        video_vae_module = _require_h3_video_vae(c.bundle.video_vae.module)
+        _place_vae(c, c.bundle.video_vae)
+        try:
+            dtype = encode_compute_dtype(video_vae_module)
+            rows = encode_control_rows(
+                c.control_frames, lambda pixels: encode_video(video_vae_module, pixels.to(dtype=dtype), c.device),
+                patch_size=PATCH_SIZE, device=c.device, latents_mean=video_vae_module.latents_mean,
+                latents_std=video_vae_module.latents_std, columns=c.control_columns,
+            )
+        finally:
+            c.bundle.video_vae.offload()
+        c.control_cache["rows"] = rows
+        c.control_frames = None
+        return rows
 
     def _source_condition(
         self, c: _MiniMaxH3Ctx, generator: torch.Generator,
@@ -2234,7 +2334,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         progress_offset: int = 0, progress_total: Optional[int] = None, progress_state: str = "VIDEO",
         layout: Optional[PackedLayout] = None, is_cancelled: Optional[Callable[[], bool]] = None,
         initial_latent: Optional[Tensor] = None, initial_audio_latent: Optional[Tensor] = None,
-        progress_segment_id: Optional[str] = None,
+        progress_segment_id: Optional[str] = None, control_rows: Optional[Tensor] = None,
     ) -> tuple[Tensor, Tensor, PackedLayout]:
         """Sample ONE packed sequence to completion; returns the final
         `(video_rows, audio_rows, layout)` with the condition prefixes still
@@ -2373,6 +2473,15 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         dense_last_steps = sparse_attn_dense_last_steps(self.config)
         dense_start_percent = sparse_attn_start_percent(self.config)
         sparse_attn_reserve = sparse_attn_reserve_gb(sparse_attn_ctx, layout)
+        control_reserve = 0.0
+        if control_rows is not None:
+            expected_rows = int(layout.video_indices.numel()) - int(layout.num_condition_video_rows)
+            if int(control_rows.shape[1]) != expected_rows:
+                raise ValueError(
+                    f"generator/video_minimax_h3: the control video encoded to {int(control_rows.shape[1])} "
+                    f"rows but the packed sequence has {expected_rows} generated video rows"
+                )
+            control_reserve = control_reserve_gb(int(layout.position_ids.shape[0]), H3_HIDDEN_SIZE)
         seq_chunk_rows = int(self.config.get("seq_chunk_rows", 0) or 0)
         ffn_chunk_rows = (
             default_ffn_chunk_rows(int(layout.position_ids.shape[0]), H3_HIDDEN_SIZE, H3_FFN_DIM)
@@ -2448,7 +2557,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             # 0.0 unless a sparse-attention method is on: its routing and QKV
             # copies are the one piece of this generation's GPU work the
             # token-derived reserve cannot see.
-            reserve_gb=max(sparse_attn_reserve, vdn_reserve_gb(vdn_layout)),
+            reserve_gb=max(sparse_attn_reserve, vdn_reserve_gb(vdn_layout)) + control_reserve,
             fit_hint=_h3_fit_hint,
         )
         # `c.bundle.dit.device` is the wrapper's OWN placement contract (set by
@@ -2521,12 +2630,16 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     sparse_attn_ctx.dense = is_dense_step(
                         step_index, num_steps, dense_last_steps, dense_start_percent,
                     )
+                step_control = None
+                if control_rows is not None and control_active(step_index, num_steps, c.control_start, c.control_end):
+                    step_control = ControlContext(control_rows, c.control_scale, c.control_hint_rows)
                 video_pred, audio_pred = sample_forward(
                     video_rows, audio_rows, unique_timesteps.to(c.device), timestep_indices.to(c.device),
                     step_cache=None if is_final_step else step_cache,
                     sparse_attn_ctx=sparse_attn_ctx,
                     seq_chunk_rows=seq_chunk_rows,
                     ffn_chunk_rows=ffn_chunk_rows,
+                    control=step_control,
                 )
 
                 # A step the cache skipped hands back the previous step's velocity;

@@ -32,7 +32,7 @@ class RequirementAction:
     admin page for a missing/misconfigured engine. `payload` is free-form,
     interpreted by whichever frontend surface renders this action."""
 
-    kind: Literal["open_downloader", "open_backends", "open_url"]
+    kind: Literal["open_downloader", "open_backends", "open_url", "install_mode"]
     payload: Dict[str, Any] = field(default_factory=dict)
 
 

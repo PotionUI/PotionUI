@@ -49,7 +49,13 @@ const SINGLE: Record<string, Array<{ id: string }>> = {
 	vae: [{ id: 'vae-1' }]
 };
 
-function harness(options: { rows?: Record<string, Array<{ id: string }>>; schemas?: Record<string, unknown> } = {}) {
+function harness(
+	options: {
+		rows?: Record<string, Array<{ id: string }>>;
+		schemas?: Record<string, unknown>;
+		deps?: Partial<FormSeedDeps>;
+	} = {}
+) {
 	const rows = options.rows ?? SINGLE;
 	const published: Record<string, unknown>[] = [];
 	const missing: Array<{ key: string; name: string | null }> = [];
@@ -69,7 +75,8 @@ function harness(options: { rows?: Record<string, Array<{ id: string }>>; schema
 		publishMissing: (_tabId, key, entry) => {
 			missing.push({ key, name: entry?.name ?? null });
 		},
-		clearMissing: vi.fn()
+		clearMissing: vi.fn(),
+		...options.deps
 	};
 	return { deps, published, missing, searched, seed: createFormStateSeed(deps) };
 }
@@ -89,10 +96,41 @@ function target(overrides: Partial<FormSeedTarget> = {}): FormSeedTarget {
 }
 
 async function settled() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+	for (let i = 0; i < 10; i++) {
+		if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0);
+		else await new Promise((resolve) => setTimeout(resolve, 0));
+	}
+}
+
+function deferred<T>() {
+	let resolve: (value: T) => void = () => {};
+	const promise = new Promise<T>((done) => (resolve = done));
+	return { promise, resolve };
+}
+
+const CLOUD_CAPS = {
+	model_id: 'cloud-1',
+	params: [{ name: 'steps', kind: 'range' as const, minimum: 1, maximum: 30, integer: true }],
+	inputs: []
+};
+
+function cloudSchema() {
+	return {
+		properties: {
+			root: {
+				type: 'row',
+				children: [
+					modelField('diffusion_model', 'Model'),
+					{ name: 'steps', type: 'number', default: 50, capability: { model_field: 'diffusion_model', param: 'steps' } },
+					{ name: 'guidance', type: 'number', default: 3, capability: { model_field: 'diffusion_model', param: 'guidance' } }
+				]
+			}
+		}
+	};
 }
 
 afterEach(() => {
+	vi.useRealTimers();
 	forgetClearedSlots();
 });
 
@@ -240,16 +278,87 @@ describe('form state seed without a mounted form', () => {
 		expect(published).toEqual([]);
 	});
 
-	it('retries a schema request that failed', async () => {
-		const { seed, published, deps } = harness();
+	it('retries a schema request that failed after the configured delay', async () => {
+		vi.useFakeTimers();
+		const { seed, published, deps } = harness({ deps: { retryDelaysMs: [1000] } });
 		vi.mocked(deps.loadSchema).mockRejectedValueOnce(new Error('offline'));
-		const retrying = createFormStateSeed({ ...deps, retryDelaysMs: [1] });
-		seed.dispose();
-		retrying.sync(target());
-		await new Promise((resolve) => setTimeout(resolve, 20));
+		seed.sync(target());
 		await settled();
+		expect(deps.loadSchema).toHaveBeenCalledTimes(1);
+		expect(published).toEqual([]);
 
+		await vi.advanceTimersByTimeAsync(1000);
+		await settled();
 		expect(deps.loadSchema).toHaveBeenCalledTimes(2);
 		expect(published).toHaveLength(1);
+	});
+
+	it('stops retrying once every configured delay is used up', async () => {
+		vi.useFakeTimers();
+		const { seed, published, deps } = harness({ deps: { retryDelaysMs: [10, 20] } });
+		vi.mocked(deps.loadSchema).mockRejectedValue(new Error('offline'));
+		seed.sync(target());
+		await settled();
+		await vi.advanceTimersByTimeAsync(10_000);
+		await settled();
+
+		expect(deps.loadSchema).toHaveBeenCalledTimes(3);
+		expect(published).toEqual([]);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it('leaves a slot empty when its model search fails', async () => {
+		const { seed, published, missing } = harness({
+			deps: {
+				search: vi.fn(async (slot: AutopickSlot) => {
+					if (slot.name === 'vae') throw new Error('offline');
+					const models = SINGLE[slot.name];
+					return { models, total: models.length };
+				})
+			}
+		});
+		seed.sync(target());
+		await settled();
+
+		expect(published).toHaveLength(1);
+		expect(published[0]).toMatchObject({ vae: '', diffusion_model: 'model:dm-1', text_encoder: 'model:te-1' });
+		expect(missing.at(-1)).toEqual({ key: 'zimage-txt2img-', name: 'vae' });
+	});
+
+	it('applies the picked cloud model capabilities before publishing', async () => {
+		const caps = new Map<string, typeof CLOUD_CAPS>();
+		const { seed, published, deps } = harness({
+			rows: { diffusion_model: [{ id: 'cloud-1' }] },
+			schemas: { txt2img: cloudSchema() },
+			deps: {
+				loadCapabilities: vi.fn(async (modelId: string) => {
+					caps.set(modelId, CLOUD_CAPS);
+				}),
+				capabilityOf: (modelId) => caps.get(modelId)
+			}
+		});
+		seed.sync(target());
+		await settled();
+
+		expect(deps.loadCapabilities).toHaveBeenCalledWith('cloud-1');
+		expect(published).toHaveLength(1);
+		expect(published[0]).toMatchObject({ diffusion_model: 'model:cloud-1', steps: 30 });
+		expect(published[0]).not.toHaveProperty('guidance');
+	});
+
+	it('publishes the newest form data when it changes while the schema is loading', async () => {
+		const first = deferred<unknown>();
+		const { seed, published, deps } = harness();
+		vi.mocked(deps.loadSchema).mockImplementationOnce(() => first.promise);
+		const chosen = { diffusion_model: 'model:a', text_encoder: 'model:b', vae: 'model:c' };
+		seed.sync(target({ formData: { ...chosen, steps: 11 } }));
+		seed.sync(target({ formData: { ...chosen, steps: 22 } }));
+		await settled();
+		first.resolve(schemaFor());
+		await settled();
+
+		expect(published).toHaveLength(1);
+		expect(published[0]).toMatchObject({ ...chosen, steps: 22 });
+		expect(deps.search).not.toHaveBeenCalled();
 	});
 });

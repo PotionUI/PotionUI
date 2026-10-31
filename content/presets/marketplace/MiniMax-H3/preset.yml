@@ -49,6 +49,10 @@ configuration:
     type: "model_tags"
     label: "Latent upscaler tags"
     description: "Only models with any of these tags appear in the Latent Upscaler picker."
+  control_tags:
+    type: "model_tags"
+    label: "Control model tags"
+    description: "Only models with any of these tags appear in the Control model picker."
   matting_tags:
     type: "model_tags"
     label: "Matting model tags"
@@ -101,13 +105,15 @@ vars:
   # so this is a constant the pipeline reports rather than a knob.
   fps: 24
   default_frames: 124
-  optional_prompt_modes: ["talk", "upscale"]
+  optional_prompt_modes: ["talk", "upscale", "motion_transfer"]
+  motion_identity: "first_frame"
 
   prompt:
     segment_join: "paragraph"
     modes:
       remix: { segment_templates: [] }
       talk: { segment_templates: [] }
+      motion_transfer: { segment_templates: [] }
     segment_templates:
       - name: "H3 prompt document"
         description: "The three labeled fields MiniMax-H3 was trained on, in order."
@@ -398,6 +404,16 @@ llm:
         facing the camera. What the person says comes from the voice clip and the
         Words field, never from the prompt.
 
+    motion_transfer:
+      guide: |
+        Motion transfer mode: the Fun ControlNet makes the person in the Picture
+        perform the moves of the Video, so never write the three-field or
+        six-section document here; the preset writes the structured request
+        itself. The prompt is optional plain English: one or two sentences about
+        the person, the clothes and the place, matching the Picture. Describe the
+        look and the kind of action ("dancing"), never the individual moves; the
+        Video supplies those. Length follows the Video, up to 15 seconds.
+
     upscale:
       guide: |
         Utility mode -- upscales and refines an EXISTING MiniMax-H3 video, not a
@@ -526,6 +542,7 @@ modes:
   - extend
   - remix
   - talk
+  - motion_transfer
 
 media:
   cover: "public/cover-h35m40se.webm"

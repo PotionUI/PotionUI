@@ -79,6 +79,7 @@ class ControlVideoPipe(BasePipe):
             PipeConfigSpec("keyframe_interval", int, 8, "Run the person detector every this many frames", required=False, min_value=1),
             PipeConfigSpec("max_gap", int, 12, "Longest run of missing frames that is interpolated", required=False, min_value=0),
             PipeConfigSpec("max_frames", int, 0, "Only process the first N frames; 0 = all", required=False, min_value=0),
+            PipeConfigSpec("max_seconds", float, 0.0, "Only process the first N seconds of the source, whatever its frame rate; 0 = all. The smaller of this and max_frames wins", required=False, min_value=0.0),
             PipeConfigSpec("save_guide", bool, False, "Also save the guide video to the gallery", required=False),
             PipeConfigSpec("weights_dir", str, "", "Folder holding the two DWPose ONNX files; blank fetches them", required=False),
         ]
@@ -102,7 +103,7 @@ class ControlVideoPipe(BasePipe):
         )
 
     @staticmethod
-    def _frames(path: str, limit: int) -> Tuple[Iterator[np.ndarray], Callable[[], None], Tuple[int, int, float, int]]:
+    def _frames(path: str, limit: int, max_seconds: float = 0.0) -> Tuple[Iterator[np.ndarray], Callable[[], None], Tuple[int, int, float, int]]:
         capture = cv2.VideoCapture(str(path))
         if not capture.isOpened():
             raise GenerationExecutionError(f"Could not open the video {Path(path).name}.")
@@ -110,6 +111,9 @@ class ControlVideoPipe(BasePipe):
         height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
         fps = probe_effective_fps(path) or float(capture.get(cv2.CAP_PROP_FPS) or 0.0) or DEFAULT_FPS
         total = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if max_seconds > 0:
+            by_time = max(1, int(max_seconds * fps + 1e-6))
+            limit = min(limit, by_time) if limit else by_time
         if limit:
             total = min(total, limit) if total else limit
 
@@ -181,7 +185,9 @@ class ControlVideoPipe(BasePipe):
     ) -> str:
         options = self._options()
         limit = _number(self.config.get("max_frames"), int, 0)
-        frames, release, (video_width, video_height, fps, total) = self._frames(video, limit)
+        frames, release, (video_width, video_height, fps, total) = self._frames(
+            video, limit, _number(self.config.get("max_seconds"), float, 0.0),
+        )
         try:
             step = max(1, total // PROGRESS_STEPS)
 

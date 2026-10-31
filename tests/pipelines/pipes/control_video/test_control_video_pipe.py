@@ -112,7 +112,7 @@ class TestContract:
             "type": "pose", "width": 0, "height": 0, "max_pixels": 0, "size_multiple": 32, "fit": "contain",
             "match_picture": True, "ease_in": 0.0, "body": True, "hands": True, "face": True,
             "detect_resolution": 512, "line_scale": 1.0, "min_confidence": 0.3, "smoothing": 0.5,
-            "keyframe_interval": 8, "max_gap": 12, "max_frames": 0, "save_guide": False, "weights_dir": "",
+            "keyframe_interval": 8, "max_gap": 12, "max_frames": 0, "max_seconds": 0.0, "save_guide": False, "weights_dir": "",
         }
         assert specs["type"].choices == ["pose"]
 
@@ -170,6 +170,20 @@ class TestGuideVideo:
         (guide,), _ = run(make(max_frames=5), video=[clip])
         assert len(probe(guide)[0]) == 5
         Path(guide).unlink()
+
+    def test_max_seconds_trims_by_time_at_any_frame_rate(self, tmp_path):
+        fast = str(make_video(tmp_path / "fast.mp4", seconds=2.0, size=(160, 96), fps=60, audio=False))
+        slow = str(make_video(tmp_path / "slow.mp4", seconds=2.0, size=(160, 96), fps=10, audio=False))
+        (fast_guide,), _ = run(make(max_seconds=0.5), video=[fast])
+        (slow_guide,), _ = run(make(max_seconds=0.5), video=[slow])
+        assert len(probe(fast_guide)[0]) == 30
+        assert len(probe(slow_guide)[0]) == 5
+        (both,), _ = run(make(max_seconds=0.5, max_frames=12), video=[fast])
+        assert len(probe(both)[0]) == 12
+        (full,), _ = run(make(), video=[slow])
+        assert len(probe(full)[0]) == 20
+        for guide in (fast_guide, slow_guide, both, full):
+            Path(guide).unlink()
 
     def test_fit_cover_and_contain_place_the_person_differently(self, clip):
         (contain,), _ = run(make(width=96, height=96, fit="contain", smoothing=0.0), video=[clip])

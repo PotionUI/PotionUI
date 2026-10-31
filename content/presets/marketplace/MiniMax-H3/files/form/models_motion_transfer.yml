@@ -1,0 +1,123 @@
+fields:
+- name: model
+  type: model
+  label: MiniMax-H3 DiT
+  required: true
+  configuration:
+    model_type: diffusion_model
+    placeholder: minimax_h3_fl2va_pruned_fp8_scaled...
+    filter_tags: '@config:checkpoint_tags'
+    recommendations:
+    - name: minimax_h3_fl2va_pruned_fp8_scaled.safetensors
+      link: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_fp8_scaled.safetensors
+      size: 19.52 GB
+      sha256: 12944c1f7791637e7de12208aef04da82bd26b95271b1b47d817364315ade993
+      description: MiniMax-H3 first/last-frame to video+audio, pruned + fp8-scaled - the practical local checkpoint.
+    - name: minimax_h3_fl2va_pruned_int8_convrot.safetensors
+      link: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors
+      size: 19.53 GB
+      sha256: e889202c41dafb67b10d67b97f0d8541508036a6090af23425a5c2615d03c47a
+      description: MiniMax-H3 first/last-frame to video+audio, pruned + int8 ConvRot - same size class as fp8, no fp8 hardware
+        needed.
+    - name: minimax_h3_fl2va_pruned_bf16.safetensors
+      link: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_bf16.safetensors
+      size: 37.46 GB
+      sha256: a32572fb90b5508b201ec7c2eddcc184b13ddfd3c6f6d2cf06a0b46535d541b4
+      description: MiniMax-H3 first/last-frame to video+audio, pruned bf16 reference.
+- name: text_encoder
+  type: model
+  label: Text Encoder (Qwen3-VL-32B)
+  required: true
+  configuration:
+    model_type: text_encoder
+    placeholder: Select the Qwen3-VL-32B encoder...
+    filter_tags: '@config:text_encoder_tags'
+    recommendations:
+    - name: qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
+      link: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
+      size: 14.61 GB
+      sha256: 35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6
+      description: Qwen3-VL-32B encoder, nvfp4 AWQ - a third of bf16; the only tier that fits most cards.
+    - name: qwen3vl_32b_minimax_h3_int8_convrot.safetensors
+      link: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors
+      size: 25.28 GB
+      sha256: bc2ced0fbea64757fa9acddccfc0b3f4819d1dcf1da6c124d690d368be283923
+      description: Qwen3-VL-32B encoder, int8 ConvRot - middle tier, no Blackwell requirement.
+    - name: qwen3vl_32b_minimax_h3_bf16.safetensors
+      link: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_bf16.safetensors
+      size: 47.97 GB
+      sha256: 600d567f6a9629c8574e8e7041b199bdd9c59a986afa7906910a81919610607d
+      description: Qwen3-VL-32B encoder, full bf16 reference.
+- name: video_vae
+  type: model
+  label: Video VAE
+  required: true
+  configuration:
+    model_type: vae
+    placeholder: minimax_h3_video_vae...
+    filter_tags: '@config:vae_tags'
+    recommendations:
+    - name: minimax_h3_video_vae_fp16.safetensors
+      link: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors
+      size: 4.85 GB
+      sha256: 7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522
+      description: MiniMax-H3 video VAE, fp16.
+- name: audio_vae
+  type: model
+  label: Audio VAE
+  required: true
+  configuration:
+    model_type: vae
+    placeholder: minimax_h3_audio_vae...
+    filter_tags: '@config:vae_tags'
+    recommendations:
+    - name: minimax_h3_audio_vae_fp32.safetensors
+      link: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors
+      size: 577.2 MB
+      sha256: 8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48
+      description: MiniMax-H3 audio VAE, fp32 - required for the audio track.
+- name: control_model
+  type: model
+  label: Control model
+  required: true
+  ai_hint: The pruned Fun ControlNet Union 2.0 patch. int8 ConvRot is the pick for a 32 GB card; bf16 is the full-precision alternative. It is applied on top of the fl2va DiT above.
+  configuration:
+    model_type: model_patch
+    placeholder: minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot...
+    filter_tags: '@config:control_tags'
+    recommendations:
+    - name: minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors
+      link: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/model_patches/minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors
+      size: 4.53 GB
+      sha256: 890af58bb350f0c2f6c409b1c67ea8f4196654297d037769b72de1e6f504c612
+      description: MiniMax-H3 Fun ControlNet Union 2.0, pruned + int8 ConvRot - recommended for 32 GB cards.
+    - name: minimax_h3_fun_controlnet_union_2.0_pruned_bf16.safetensors
+      link: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/model_patches/minimax_h3_fun_controlnet_union_2.0_pruned_bf16.safetensors
+      size: 8.38 GB
+      sha256: cd48bdc11b1f1a3b934746c898d25123754b335c13d37d5c421f8373079282b4
+      description: MiniMax-H3 Fun ControlNet Union 2.0, pruned bf16 - full-precision alternative.
+- name: preview_decoder
+  type: model
+  label: Preview decoder
+  required: false
+  ai_hint: Optional tiny decoder that turns the live preview into a true-colour frame from the middle of the clip. Leave empty to keep the fast latent colour projection.
+  reactions:
+  - when:
+      field: preview
+      equals: false
+    then:
+      set_visibility: false
+  - when:
+      field: preview
+      equals: true
+    then:
+      set_visibility: true
+  configuration:
+    model_type: preview_decoder
+    placeholder: Select taeh3.safetensors...
+    recommendations:
+    - name: taeh3.safetensors
+      link: https://raw.githubusercontent.com/madebyollin/taehv/62f7591f59dfbb4c3c02b7a621d180a9eeaba26c/safetensors/taeh3.safetensors
+      size: 21.66 MB
+      sha256: 4fd022bfcab08772fe0536b17ea1a3bbb5625be11e397868d1c5d891863d4c13
+      description: MiniMax-H3 true-colour live preview decoder (MIT).

@@ -1,0 +1,14 @@
+fields:
+  - name: "input_image"
+    type: "image"
+    label: "Picture"
+    required: true
+    description: "Who moves, and where."
+    ai_hint: "A clear full-body picture of the person who should perform the moves. The look, clothes and background come from this picture, and the video takes its shape."
+
+  - name: "input_video"
+    type: "video"
+    label: "Video"
+    required: true
+    description: "Moves to copy. Up to 15 seconds are used."
+    ai_hint: "A video of one person moving, front-facing and well lit works best. Only the movement is copied, never the look. The result is as long as this video, up to 15 seconds."

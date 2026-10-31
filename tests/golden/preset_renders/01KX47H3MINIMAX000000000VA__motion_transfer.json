@@ -1,0 +1,434 @@
+{
+  "mode": "motion_transfer",
+  "pipes": [
+    {
+      "config": {
+        "audio_vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/audio_vae.safetensors"
+        },
+        "audio_vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/audio_vae.safetensors"
+        },
+        "control_module.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/control_model.safetensors"
+        },
+        "control_module.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/control_model.safetensors"
+        },
+        "loras": {
+          "type": "list",
+          "value": []
+        },
+        "model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "text_encoder.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "text_encoder.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "video_vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/video_vae.safetensors"
+        },
+        "video_vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/video_vae.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "model_loader",
+      "name": "model_loader/minimax_h3"
+    },
+    {
+      "config": {
+        "max_file_size": {
+          "type": "int",
+          "value": 524288000
+        },
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/input_video.mp4",
+              "type": "video"
+            }
+          ]
+        },
+        "validate_files": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/input_image.png",
+              "type": "image"
+            }
+          ]
+        },
+        "validate_files": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_image",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "ease_in": {
+          "type": "float",
+          "value": 0.5
+        },
+        "match_picture": {
+          "type": "bool",
+          "value": true
+        },
+        "max_pixels": {
+          "type": "int",
+          "value": 1032192
+        },
+        "max_seconds": {
+          "type": "int",
+          "value": 15
+        },
+        "save_guide": {
+          "type": "bool",
+          "value": false
+        },
+        "size_multiple": {
+          "type": "int",
+          "value": 32
+        },
+        "type": {
+          "type": "str",
+          "value": "pose"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "pose_guide",
+      "name": "control_video"
+    },
+    {
+      "config": {
+        "guidance_scale": {
+          "type": "float",
+          "value": 1.0
+        },
+        "p_prompt.input": {
+          "type": "str",
+          "value": "integrated_multimodal_description: [Shot 1] The shot begins from <Picture 1>. golden positive prompt\noverall_soundscape: Soft ambient sound and the sounds of the person moving.\nnon_diegetic_music: N/A"
+        },
+        "p_prompt.output": {
+          "type": "str",
+          "value": "integrated_multimodal_description: [Shot 1] The shot begins from <Picture 1>. golden positive prompt\noverall_soundscape: Soft ambient sound and the sounds of the person moving.\nnon_diegetic_music: N/A"
+        },
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "",
+              "positive": "integrated_multimodal_description: [Shot 1] The shot begins from <Picture 1>. golden positive prompt\noverall_soundscape: Soft ambient sound and the sounds of the person moving.\nnon_diegetic_music: N/A"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "seed_generator"
+    },
+    {
+      "config": {
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "dynamic_prompts_renderer",
+      "name": "dynamic_prompts_renderer"
+    },
+    {
+      "config": {
+        "from": {
+          "type": "str",
+          "value": "seed"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "from_iotype",
+      "name": "from_iotype"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/text_encoder.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/video_vae.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/audio_vae.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/control_model.safetensors"
+            ],
+            [],
+            [
+              "positive_prompt",
+              [
+                "golden positive prompt"
+              ]
+            ],
+            [
+              "steps",
+              4
+            ],
+            [
+              "speed_profile",
+              "quality"
+            ],
+            [
+              "strength",
+              1.0
+            ],
+            [
+              "sound",
+              "generate"
+            ],
+            [
+              "fps",
+              24
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "audio_source": {
+          "type": "str",
+          "value": "generate"
+        },
+        "control_context_scale": {
+          "type": "float",
+          "value": 1.0
+        },
+        "control_end": {
+          "type": "float",
+          "value": 1.0
+        },
+        "control_length_from_video": {
+          "type": "bool",
+          "value": true
+        },
+        "control_start": {
+          "type": "float",
+          "value": 0.0
+        },
+        "decode": {
+          "type": "bool",
+          "value": true
+        },
+        "frames": {
+          "type": "int",
+          "value": 360
+        },
+        "keyframe_anchors": {
+          "type": "list",
+          "value": [
+            "first"
+          ]
+        },
+        "manual_audio_sigmas": {
+          "type": "str",
+          "value": ""
+        },
+        "manual_sigmas": {
+          "type": "str",
+          "value": ""
+        },
+        "mode": {
+          "type": "str",
+          "value": "video"
+        },
+        "preview": {
+          "type": "bool",
+          "value": true
+        },
+        "preview_decoder": {
+          "type": "str",
+          "value": "/GOLDEN/models/preview_decoder.safetensors"
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "references": {
+          "type": "list",
+          "value": []
+        },
+        "resolution": {
+          "type": "str",
+          "value": "auto"
+        },
+        "sampler": {
+          "type": "str",
+          "value": "euler"
+        },
+        "scheduler": {
+          "type": "str",
+          "value": "simple"
+        },
+        "sla_block_size": {
+          "type": "int",
+          "value": 64
+        },
+        "sla_sparsity": {
+          "type": "float",
+          "value": 0.9
+        },
+        "sol_attn_tau": {
+          "type": "float",
+          "value": 1.0
+        },
+        "sparse_attn": {
+          "type": "str",
+          "value": "off"
+        },
+        "sparse_attn_dense_last_steps": {
+          "type": "int",
+          "value": 2
+        },
+        "step_cache_max_skips": {
+          "type": "int",
+          "value": 3
+        },
+        "step_cache_threshold": {
+          "type": "float",
+          "value": 0.0
+        },
+        "step_cache_warmup_steps": {
+          "type": "int",
+          "value": 4
+        },
+        "steps": {
+          "type": "int",
+          "value": 4
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "generator",
+      "name": "generator/video_minimax_h3"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01KX47H3MINIMAX000000000VA",
+  "preset_name": "MiniMax-H3"
+}

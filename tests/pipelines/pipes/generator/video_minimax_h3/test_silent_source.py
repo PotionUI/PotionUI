@@ -90,6 +90,25 @@ def test_generated_audio_source_never_probes(monkeypatch):
     assert _context(_pipe(audio_source="generate")).audio_silent is False
 
 
+def test_generate_ignores_a_provided_audio_input(monkeypatch):
+    monkeypatch.setattr(f"{_MAIN}.probe_audio_stream", lambda path: pytest.fail("probed with nothing to probe"))
+    extra = _context(_pipe(audio_source="generate"), audio=["driving.mp4"])
+    assert extra.audio_file is None
+    assert extra.audio_silent is False
+
+
+def test_generate_muxes_the_generated_track_not_the_provided_input(monkeypatch):
+    generated = AudioTrack(waveform=np.ones((2, 8), dtype=np.float32), sample_rate=16000)
+    monkeypatch.setattr(f"{_MAIN}.probe_audio_stream", lambda path: pytest.fail("probed with nothing to probe"))
+    monkeypatch.setattr(f"{_MAIN}._place_vae", lambda ctx, vae: None)
+    monkeypatch.setattr(f"{_MAIN}.decode_generated_audio", lambda *args, **kwargs: generated)
+    pipe = _pipe(audio_source="generate")
+    ctx = pipe.build_context(
+        _pipe_input(model=_fake_bundle(), conditioning=[_fake_conditioning(3)], audio=["driving.mp4"])
+    ).extra
+    assert pipe._resolve_audio(ctx, torch.zeros(1)) is generated
+
+
 def test_resolve_audio_of_a_silent_source_is_no_track():
     pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
     ctx = _MiniMaxH3Ctx(

@@ -1,0 +1,177 @@
+pipeline:
+  - name: "model_loader/minimax_h3"
+    id: "model_loader"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      video_vae:
+        file_path: "{{ form.video_vae }}"
+        name: "{{ form.video_vae }}"
+      audio_vae:
+        file_path: "{{ form.audio_vae }}"
+        name: "{{ form.audio_vae }}"
+      control_module:
+        file_path: "{{ form.control_model }}"
+        name: "{{ form.control_model }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+            audio: "{{ item.audio | default(true) }}"
+
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 524288000
+      media:
+        - type: "video"
+          path: "{{ form.input_video }}"
+
+  - name: "media_loader"
+    id: "media_image"
+    enabled: true
+    configuration:
+      validate_files: true
+      media:
+        - type: "image"
+          path: "{{ form.input_image }}"
+
+  - name: "control_video"
+    id: "pose_guide"
+    input:
+      - ["video", "media_loader", "video"]
+      - ["image", "media_image", "image"]
+    enabled: true
+    configuration:
+      type: "pose"
+      match_picture: true
+      ease_in: "{{ form.pose_ease_in }}"
+      size_multiple: 32
+      max_pixels: 1032192
+      max_seconds: 15
+      save_guide: "{{ form.save_guide }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader", "text_encoder"]
+      - ["{{ 'reference_image' if preset.vars.motion_identity == 'reference' else 'image' }}", "media_image", "image"]
+      - ["vae", "model_loader", "video_vae"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: &document |-
+          {% set prompt = ((item.positive if item is defined else generation.prompts.first.positive) | default('', true)) | trim %}{% set caption = prompt if prompt else 'A cinematic, photorealistic shot of the person from the picture dancing, full body in frame, in the same setting, lighting and clothing as the picture.' %}{% if preset.vars.motion_identity == 'reference' %}subject_definitions: <Subject 1> is the person in <Picture 1>.
+          summary: [reference generation] <Subject 1> performs the described action in the setting of <Picture 1>.
+          retention_analysis: <Subject 1> (appears in [Shot 1]): fully_preserved - face, hair, clothes and the setting match <Picture 1>.
+          detailed_description: Natural, realistic footage. [Shot 1] {{ caption }} <Subject 1> moves naturally, full body in frame.
+          overall_soundscape: Soft ambient sound and the sounds of the person moving.
+          non_diegetic_music: N/A{% else %}integrated_multimodal_description: [Shot 1] The shot begins from <Picture 1>. {{ caption }}
+          overall_soundscape: Soft ambient sound and the sounds of the person moving.
+          non_diegetic_music: N/A{% endif %}
+        output: *document
+      pairs:
+        "@loop":
+          items: "{{ generation.prompts.pairs }}"
+          template:
+            positive: *document
+            negative: ""
+      quantity: "{{ form.quantity }}"
+      guidance_scale: 1.0
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity }}"
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.video_vae }}"]
+        - ["model", "{{ form.audio_vae }}"]
+        - ["model", "{{ form.control_model }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["speed_profile", "{{ form.speed_profile }}"]
+        - ["strength", "{{ form.control_strength }}"]
+        - ["sound", "{{ form.sound }}"]
+        - ["fps", "{{ preset.vars.fps }}"]
+
+  - name: "generator/video_minimax_h3"
+    id: "generator"
+    input:
+      - ["model", "model_loader", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["control_video", "pose_guide", "video"]
+      - ["{{ 'reference_images' if preset.vars.motion_identity == 'reference' else 'image' }}", "media_image", "image"]
+      - ["audio", "media_loader", "video"]
+    enabled: true
+    configuration:
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
+      mode: "{{ 'references' if preset.vars.motion_identity == 'reference' else 'video' }}"
+      references: "{{ [form.input_image] if preset.vars.motion_identity == 'reference' else [] }}"
+      keyframe_anchors: "{{ [] if preset.vars.motion_identity == 'reference' else ['first'] }}"
+      resolution: "auto"
+      frames: "{{ (15 * preset.vars.fps) | int }}"
+      control_length_from_video: true
+      control_context_scale: "{{ form.control_strength }}"
+      control_start: 0.0
+      control_end: 1.0
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      quantity: "{{ form.quantity }}"
+      preview: "{{ form.preview }}"
+      audio_source: "{{ 'generate' if form.sound == 'generate' else 'file' }}"
+      decode: true
+      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
+      sparse_attn: "{{ form.sparse_attn }}"
+      sol_attn_tau: "{{ form.sol_attn_tau }}"
+      sla_sparsity: "{{ form.sla_sparsity }}"
+      sla_block_size: "{{ form.sla_block_size | int }}"
+      sparse_attn_dense_last_steps: "{{ form.sparse_attn_dense_last_steps }}"
+      sampler: "{{ form.sampler }}"
+      scheduler: "{{ form.scheduler }}"
+      manual_sigmas: "{{ form.manual_sigmas }}"
+      manual_audio_sigmas: "{{ form.manual_audio_sigmas }}"
+
+  - name: "gallery"
+    input:
+      - ["video", "generator", "video"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true

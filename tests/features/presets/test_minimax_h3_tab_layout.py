@@ -22,6 +22,7 @@ TABS = {
     (H3, "extend"): WITH_REFERENCES,
     (H3, "remix"): WITH_REFERENCES,
     (H3, "talk"): WITH_REFERENCES,
+    (H3, "motion_transfer"): WITH_REFERENCES,
     (FAST, "video"): ["Generation", "LoRA", "Enhance", "Advanced"],
     (FAST, "refine_faces"): WITH_REFERENCES,
     (FAST, "extend"): WITH_REFERENCES,
@@ -35,6 +36,7 @@ REFERENCE_MEDIA = {
     (H3, "extend"): {"source_video"},
     (H3, "remix"): {"source_video", "pictures"},
     (H3, "talk"): {"portrait", "voice"},
+    (H3, "motion_transfer"): {"input_image", "input_video"},
     (FAST, "refine_faces"): {"input_video"},
     (FAST, "extend"): {"source_video"},
 }

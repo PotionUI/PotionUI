@@ -243,3 +243,10 @@ def test_the_canvas_follows_the_picture_and_the_keyframe_is_cover_cropped(
 def test_the_guide_is_capped_at_the_generators_hard_frame_limit(templates, name):
     guide = _by_id(_pipes(templates[name]), "pose_guide")["config"]
     assert guide["max_frames"] == MAX_FRAMES
+
+
+@pytest.mark.parametrize("name", PRESETS)
+def test_the_preview_decoder_reaches_both_generator_passes(templates, name):
+    pipes = _pipes(templates[name], {"preview_decoder": "/models/taeltx.safetensors"})
+    for stage in ("generator_stage1", "generator"):
+        assert _by_id(pipes, stage)["config"]["preview_decoder"] == "/models/taeltx.safetensors"

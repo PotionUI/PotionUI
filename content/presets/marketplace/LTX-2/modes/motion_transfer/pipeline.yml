@@ -151,6 +151,7 @@ pipeline:
       media_placements:
         - { source: "video", index: 0, frame: "first", strength: 1.0, role: "reference" }
         - { source: "image", index: 0, frame: "first", strength: 1.0, role: "keyframe" }
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       scoped_loras:
         - file_path: "{{ form.effect_lora }}"
           weight: "{{ form.effect_strength }}"
@@ -188,6 +189,7 @@ pipeline:
       media_placements:
         - { source: "video", index: 0, frame: "first", strength: 1.0, role: "reference" }
         - { source: "image", index: 0, frame: "first", strength: 1.0, role: "keyframe" }
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       scoped_loras:
         - file_path: "{{ form.effect_lora }}"
           weight: "{{ form.effect_strength }}"

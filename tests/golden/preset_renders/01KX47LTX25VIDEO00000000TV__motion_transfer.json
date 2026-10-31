@@ -358,6 +358,10 @@
             }
           ]
         },
+        "preview_decoder": {
+          "type": "str",
+          "value": "/GOLDEN/models/preview_decoder.safetensors"
+        },
         "quality_cfg": {
           "type": "float",
           "value": 1.0
@@ -484,6 +488,10 @@
               "strength": 1.0
             }
           ]
+        },
+        "preview_decoder": {
+          "type": "str",
+          "value": "/GOLDEN/models/preview_decoder.safetensors"
         },
         "quantity": {
           "type": "int",

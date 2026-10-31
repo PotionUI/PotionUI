@@ -246,7 +246,7 @@ def test_no_tab_body_file_is_orphaned():
     # scanning for orphaned tab bodies.
     best_root_by_id: dict[str, str] = {}
     for manifest in glob.glob("content/plugins/*/*/manifest.yml"):
-        text = Path(manifest).read_text()
+        text = Path(manifest).read_text(encoding="utf-8")
         if "presets:" not in text and "preset_modes:" not in text:
             continue
         id_match = re.search(r'^id:\s*"?([\w.-]+)"?\s*$', text, re.MULTILINE)
@@ -274,7 +274,7 @@ def test_no_tab_body_file_is_orphaned():
         ):
             # `children:` is a Jinja path; only `{{ paths.preset }}` is
             # substituted, and textually (see docs/presets.md).
-            for ref in re.findall(r'children:\s*"([^"]+)"', Path(form).read_text()):
+            for ref in re.findall(r'children:\s*"([^"]+)"', Path(form).read_text(encoding="utf-8")):
                 composed.add(posixpath.normpath(ref.replace("{{ paths.preset }}", preset_dir)))
         if posixpath.normpath(tab_file) not in composed:
             orphans.append(tab_file)

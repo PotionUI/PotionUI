@@ -40,7 +40,7 @@ EXPECTED_DECODERS = {
 
 @functools.cache
 def _load(path):
-    return yaml.safe_load(Path(path).read_text())
+    return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
 
 
 def _catalog():

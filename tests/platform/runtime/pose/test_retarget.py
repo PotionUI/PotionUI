@@ -263,7 +263,7 @@ class TestRealClip:
         import json
         from pathlib import Path
 
-        data = json.loads((Path(__file__).resolve().parents[3] / "fixtures" / "pose_real_oroko.json").read_text())
+        data = json.loads((Path(__file__).resolve().parents[3] / "fixtures" / "pose_real_oroko.json").read_text(encoding="utf-8"))
         return self.padded(data["driver_body_every_6"]), self.padded(data["subject_body"]), data["subject_size"]
 
     def test_the_dancers_walk_would_leave_the_picture_without_the_frame_limit(self):

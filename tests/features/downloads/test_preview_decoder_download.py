@@ -12,7 +12,7 @@ from tests.features.downloads.fakes import FakeResponse, FakeSession
 from tests.fixtures.model_roots import make_roots
 
 CATALOG = Path(__file__).resolve().parents[3] / "src/std/models/preview_decoders.yml"
-ENTRY = next(e for e in yaml.safe_load(CATALOG.read_text())["models"] if e["url"].endswith("/taew2_1.safetensors"))
+ENTRY = next(e for e in yaml.safe_load(CATALOG.read_text(encoding="utf-8"))["models"] if e["url"].endswith("/taew2_1.safetensors"))
 CHUNKS = (b"tiny", b"decoder", b"weights")
 CONTENT = b"".join(CHUNKS)
 

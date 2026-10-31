@@ -87,6 +87,7 @@ describe('labels', () => {
 		expect(clipCadence(30)).toBe(3);
 		expect(clipCadence(80)).toBe(10);
 		expect(isBehind(15, 17, 3)).toBe(false);
+		expect(isBehind(15, 18, 3)).toBe(false);
 		expect(isBehind(15, 19, 3)).toBe(true);
 		expect(isBehind(15, 0, 3)).toBe(false);
 	});

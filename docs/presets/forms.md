@@ -318,6 +318,23 @@ docstring for why its version id is shaped that way); (4) otherwise the whole st
 `provider_model_id` with no version. Every surviving entry gains `installed: bool` (a best-effort
 filename match against the local model library, documented in `Model._is_recommendation_installed`).
 
+Every entry also accepts optional structured keys, all validated by `scripts/preset_lint.py`
+(rules P1-P6) and read by the recipes "Install modes" planner (`src/features/recipes/mode_slots.py`):
+
+| key | meaning |
+|---|---|
+| `size_bytes` | exact size; drives totals and the free-disk check. `size` text must agree within 1% |
+| `sha256` | 64 hex characters; verified after download (a `link` entry should carry one) |
+| `precision` | `bf16`, `fp16`, `fp8`, `int8` or `nvfp4`; give every entry one when a field offers two or more |
+| `recommended_for` | GPU rules, same shape as recipe variants: `[{min_vram_gb: 24}, {generations: [blackwell]}]` |
+| `default` | `true` on at most one entry: the pick when no GPU rule matches |
+| `gated` / `license_url` | the source needs an accepted licence or token; shown before download |
+
+`python scripts/recommendations_fill.py <preset>` fills `size_bytes`, `sha256`, `precision` and
+`gated` for Hugging Face entries (a `ref` or a `huggingface.co/.../resolve/...` link) from the Hub
+tree API. It reads a token from `HF_TOKEN` for gated repos (the Hub hides file hashes from
+anonymous callers there) and never downloads weights. Entries with templated names are skipped.
+
 Downloading a recommendation: `POST /api/models/downloads` body `{name, model_type, provider?,
 ref?, link?, sha256?}` → `{"download_id": "..."}` (admin-only); poll
 `GET /api/models/downloads/{download_id}` → `{"status": "pending|running|completed|failed",

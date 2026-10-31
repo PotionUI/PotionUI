@@ -369,8 +369,7 @@ class ZImageDiT(NativeArchModule):
         for i, layer in enumerate(self.layers):
             joint = layer(joint, rope, adaln_input)
             if i in injection:
-                hint = next(hints)[:, cap_len:] * control[1]
-                joint = torch.cat((joint[:, :cap_len], joint[:, cap_len:] + hint), dim=1)
+                joint = joint + next(hints) * control[1]
             if i == 0 and step_cache is not None:
                 probe = joint
                 if step_cache.should_skip(probe):

@@ -296,7 +296,7 @@ def test_the_control_image_steers_the_output():
     assert not torch.equal(first, second)
 
 
-def test_hints_reach_only_the_image_rows():
+def test_hints_reach_the_caption_rows_as_well_as_the_image_rows():
     controlled = _build(_patch_sd(), mutate=_silence_refiner)
     plain = _build()
     x, t, context, control = _inputs()
@@ -313,8 +313,32 @@ def test_hints_reach_only_the_image_rows():
     _run(plain, x, t, context)
 
     cap_len = context.shape[1] + (-context.shape[1]) % 32
-    assert torch.equal(seen["controlled"][:, :cap_len], seen["plain"][:, :cap_len])
+    assert not torch.equal(seen["controlled"][:, :cap_len], seen["plain"][:, :cap_len])
     assert not torch.equal(seen["controlled"][:, cap_len:], seen["plain"][:, cap_len:])
+
+
+def test_the_hint_added_after_a_layer_is_the_control_block_output_over_the_whole_sequence():
+    controlled = _build(_patch_sd(), mutate=_silence_refiner)
+    x, t, context, control = _inputs()
+    captured = {}
+    original = controlled.fun_control.hints
+
+    def spy(c, joint, rope, adaln_input):
+        for hint in original(c, joint, rope, adaln_input):
+            captured.setdefault("hints", []).append(hint.detach().clone())
+            yield hint
+
+    controlled.fun_control.hints = spy
+    outputs = []
+    controlled.layers[0].register_forward_hook(lambda _m, _a, out: outputs.append(out.detach().clone()))
+
+    def keep_next(_module, args):
+        captured["next"] = args[0].detach().clone()
+
+    controlled.layers[1].register_forward_pre_hook(keep_next)
+    _run(controlled, x, t, context, control_context=control)
+    torch.testing.assert_close(captured["next"], outputs[0] + captured["hints"][0])
+    assert captured["hints"][0].shape == outputs[0].shape
 
 
 def test_refiner_hints_land_on_the_image_stream_before_the_joint_stack():

@@ -9,10 +9,10 @@
 	import { tabsStore } from '$lib/stores/tabs';
 	import { tabSessionDirty } from '$lib/stores/tabSessionDirty';
 	import { tabShowsUnsavedChanges } from '$lib/tabs/tabDirty';
-	import type { Tab } from '$lib/types/tabs';
+	import { isToolTab, type GenerationTab, type Tab } from '$lib/types/tabs';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 
-	export let tab: Tab;
+	export let tab: GenerationTab;
 	export let presets: any[];
 	export let readiness: ReadinessReport | null;
 	export let isLoading: boolean;
@@ -31,6 +31,10 @@
 	$: presetVersion = presetInfo?.version;
 	$: currentModeLabel = modeLabel(tab.selectedMode, availableModes.find((m) => m.id === tab.selectedMode)?.label);
 	$: advancedFields = $formAudienceStore === 'advanced';
+
+	function tabUnsaved(t: Tab, live: Record<string, boolean>): boolean {
+		return isToolTab(t) ? (t.dirty ?? 0) > 0 : tabShowsUnsavedChanges(t, live);
+	}
 </script>
 
 <StudioSheet maxHeight="88%" ariaLabel="Preset and session" on:close={onClose}>
@@ -97,7 +101,7 @@
 							: 'bg-surface-2 text-fg-muted'}"
 						on:click={() => tabsStore.setActiveTab(t.id)}
 					>
-						{#if tabShowsUnsavedChanges(t, $tabSessionDirty)}
+						{#if tabUnsaved(t, $tabSessionDirty)}
 							<span class="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-warning-solid" aria-hidden="true"></span>
 							{t.name}<span class="sr-only">, unsaved changes</span>
 						{:else}

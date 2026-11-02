@@ -7,7 +7,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import BookTab from '$lib/components/BookTab.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { shortcutLabels } from '$lib/stores/keybindings';
+	import { get } from 'svelte/store';
 	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import NewWorkspaceModal from '$lib/components/modals/NewWorkspaceModal.svelte';
 	import { Input } from '$lib/components/ui';
@@ -18,6 +18,11 @@
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
 	import { tabSessionDirty } from '$lib/stores/tabSessionDirty';
 	import { tabShowsUnsavedChanges } from '$lib/tabs/tabDirty';
+	import { isToolTab, type Tab, type ToolTab } from '$lib/types/tabs';
+	import type { WorkspaceTab } from '$lib/types/generation';
+	import NewTabMenu from '$lib/tool-tabs/NewTabMenu.svelte';
+	import { openToolTab } from '$lib/tool-tabs/open';
+	import { toolKinds } from '$lib/tool-tabs/registry';
 
 	$: tabs = $tabsStore.tabs;
 	$: activeTabId = $tabsStore.activeTabId;
@@ -43,17 +48,31 @@
 		}
 	}
 
-	function getCurrentWorkspaceData(): WorkspaceData {
-		return {
-			tabs: tabs.map((tab) => ({
+	function workspaceTabFor(tab: Tab): WorkspaceTab {
+		if (isToolTab(tab)) {
+			return {
+				kind: 'tool',
 				name: tab.name,
 				color: tab.color || null,
-				preset_id: tab.selectedPreset,
-				mode: tab.selectedMode,
-				autoTagIds: tab.autoTagIds || [],
-				autoCollectionIds: tab.autoCollectionIds || []
-			}))
+				tool: tab.tool,
+				source: tab.source,
+				state: tab.state ?? null,
+				activeTool: tab.activeTool ?? null,
+				renamed: tab.renamed ?? false
+			};
+		}
+		return {
+			name: tab.name,
+			color: tab.color || null,
+			preset_id: tab.selectedPreset,
+			mode: tab.selectedMode,
+			autoTagIds: tab.autoTagIds || [],
+			autoCollectionIds: tab.autoCollectionIds || []
 		};
+	}
+
+	function getCurrentWorkspaceData(): WorkspaceData {
+		return { tabs: tabs.map(workspaceTabFor) };
 	}
 
 	function openCreateWorkspaceModal() {
@@ -109,43 +128,30 @@
 		const data = workspace.data;
 		if (!data?.tabs?.length) return;
 
-		// Reset tabs and recreate from workspace
 		tabsStore.reset();
-
-		// Remove the default tab and create new ones from workspace
-		for (let i = 0; i < data.tabs.length; i++) {
-			const wsTab = data.tabs[i];
-			if (i === 0) {
-				// Update the first default tab
-				const state = tabsStore;
-				let currentState: any;
-				const unsub = state.subscribe((s) => (currentState = s));
-				unsub();
-				const firstTabId = currentState.tabs[0].id;
-				tabsStore.updateTab(firstTabId, {
+		const placeholderId = get(tabsStore).tabs[0].id;
+		for (const wsTab of data.tabs) {
+			if (wsTab.kind === 'tool' && wsTab.tool) {
+				tabsStore.addToolTabWithData({
+					tool: wsTab.tool,
 					name: wsTab.name,
 					color: wsTab.color || null,
-					selectedPreset: wsTab.preset_id,
-					selectedMode: wsTab.mode,
-					autoTagIds: wsTab.autoTagIds || [],
-					autoCollectionIds: wsTab.autoCollectionIds || []
+					source: wsTab.source ?? null,
+					state: wsTab.state ?? null,
+					activeTool: wsTab.activeTool ?? null,
+					renamed: wsTab.renamed ?? false
 				});
 			} else {
-				tabsStore.addTab();
-				let currentState: any;
-				const unsub = tabsStore.subscribe((s) => (currentState = s));
-				unsub();
-				const newTabId = currentState.tabs[currentState.tabs.length - 1].id;
-				tabsStore.updateTab(newTabId, {
-					name: wsTab.name,
+				tabsStore.addTabWithData(wsTab.name, {
 					color: wsTab.color || null,
-					selectedPreset: wsTab.preset_id,
-					selectedMode: wsTab.mode,
+					selectedPreset: wsTab.preset_id ?? null,
+					selectedMode: wsTab.mode ?? null,
 					autoTagIds: wsTab.autoTagIds || [],
 					autoCollectionIds: wsTab.autoCollectionIds || []
 				});
 			}
 		}
+		tabsStore.removeTab(placeholderId);
 		activeWorkspaceId = workspace.id;
 		showWorkspaceMenu = false;
 	}
@@ -174,6 +180,23 @@
 
 	function addTab() {
 		tabsStore.addTab();
+	}
+
+	function addToolTab(tool: string) {
+		openToolTab(tool, null);
+	}
+
+	function toolIconFor(tab: ToolTab): string {
+		return $toolKinds.find((kind) => kind.tool === tab.tool)?.icon ?? 'extension';
+	}
+
+	function toolLabelFor(tab: ToolTab): string {
+		return $toolKinds.find((kind) => kind.tool === tab.tool)?.label ?? 'Tool';
+	}
+
+	function unsavedEditsLabel(tab: ToolTab): string {
+		const edits = tab.dirty ?? 0;
+		return `${edits} unsaved ${edits === 1 ? 'edit' : 'edits'}`;
 	}
 
 	function removeTab(tabId: string) {
@@ -209,7 +232,8 @@
 		try {
 			const tabsSnapshot = tabs;
 			const activeTabIdSnapshot = activeTabId;
-			const liveActiveDirty = await queryTabDirty(activeTabIdSnapshot);
+			const activeIsTool = isToolTab(tabsSnapshot.find((tab) => tab.id === activeTabIdSnapshot));
+			const liveActiveDirty = activeIsTool ? false : await queryTabDirty(activeTabIdSnapshot);
 			const dirty = workspaceHasUnsavedChanges(tabsSnapshot) || liveActiveDirty === true;
 			if (!dirty) {
 				tabsStore.reset();
@@ -233,6 +257,10 @@
 	}
 
 	async function saveAndCreateNewWorkspace() {
+		if (isToolTab(tabs.find((tab) => tab.id === activeTabId))) {
+			toasts.error('Switch to a generation tab to save its session first.');
+			return;
+		}
 		newWorkspaceSaving = true;
 		try {
 			const ok = await requestTabSave(activeTabId);
@@ -258,35 +286,44 @@
 			<!-- Left cluster: tabs + add + workspace menu, bottom-aligned within itself -->
 			<div class="flex min-w-0 flex-1 items-end self-stretch gap-0 overflow-x-auto no-scrollbar">
 				{#each tabs as tab (tab.id)}
-					<BookTab
-						id={tab.id}
-						name={tab.name}
-						color={tab.color || null}
-						isActive={tab.id === activeTabId}
-						canDelete={tabs.length > 1}
-						isGenerating={tab.generation.isGenerating}
-						unsaved={tabShowsUnsavedChanges(tab, $tabSessionDirty)}
-						on:select={(e) => setActiveTab(e.detail.id)}
-						on:rename={handleTabRename}
-						on:delete={(e) => removeTab(e.detail.id)}
-						on:drop={handleTabReorder}
-						on:colorChange={(e) => tabsStore.updateTab(e.detail.id, { color: e.detail.color })}
-					/>
+					{#if isToolTab(tab)}
+						<BookTab
+							id={tab.id}
+							name={tab.name}
+							color={tab.color || null}
+							isActive={tab.id === activeTabId}
+							canDelete={tabs.length > 1}
+							toolIcon={toolIconFor(tab)}
+							toolLabel={toolLabelFor(tab)}
+							thumbnail={tab.thumbnail ?? null}
+							progress={tab.run ? (tab.run.progress ?? 0) : null}
+							unsaved={(tab.dirty ?? 0) > 0}
+							unsavedLabel={unsavedEditsLabel(tab)}
+							on:select={(e) => setActiveTab(e.detail.id)}
+							on:rename={handleTabRename}
+							on:delete={(e) => removeTab(e.detail.id)}
+							on:drop={handleTabReorder}
+							on:colorChange={(e) => tabsStore.updateTab(e.detail.id, { color: e.detail.color })}
+						/>
+					{:else}
+						<BookTab
+							id={tab.id}
+							name={tab.name}
+							color={tab.color || null}
+							isActive={tab.id === activeTabId}
+							canDelete={tabs.length > 1}
+							isGenerating={tab.generation.isGenerating}
+							unsaved={tabShowsUnsavedChanges(tab, $tabSessionDirty)}
+							on:select={(e) => setActiveTab(e.detail.id)}
+							on:rename={handleTabRename}
+							on:delete={(e) => removeTab(e.detail.id)}
+							on:drop={handleTabReorder}
+							on:colorChange={(e) => tabsStore.updateTab(e.detail.id, { color: e.detail.color })}
+						/>
+					{/if}
 				{/each}
 
-				<!-- New Tab Button -->
-				<Tooltip text="Add new tab" kbd={$shortcutLabels['new_tab']} position="bottom" delay={150}>
-					<button
-						class="new-tab-button"
-						on:click={addTab}
-						type="button"
-						aria-label="Add new tab"
-					>
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-						</svg>
-					</button>
-				</Tooltip>
+				<NewTabMenu triggerClass="new-tab-button" onNewGeneration={addTab} onOpenTool={addToolTab} />
 
 				<!-- New Workspace Button -->
 				<Tooltip text="New workspace" position="bottom" delay={150}>
@@ -399,7 +436,7 @@
 		<p class="text-sm text-fg-muted mb-4">
 			{workspaceModalMode === 'update'
 				? 'Replace this workspace with the current tab layout. You can also rename it.'
-				: 'Save the current tab layout (names, colors, presets, modes).'}
+				: 'Save the current tab layout (names, colors, presets, modes, editor tabs).'}
 		</p>
 		<Input
 			type="text"
@@ -440,7 +477,7 @@
 		display: none;
 	}
 
-	.new-tab-button {
+	.tab-bar-container :global(.new-tab-button) {
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -458,14 +495,14 @@
 		margin-left: 0.5rem;
 	}
 
-	.new-tab-button:hover {
+	.tab-bar-container :global(.new-tab-button:hover) {
 		color: rgb(var(--fg-muted));
 		background: rgb(var(--surface-3));
 		border-color: rgb(var(--line-strong));
 		box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
 	}
 
-	.new-tab-button:active {
+	.tab-bar-container :global(.new-tab-button:active) {
 		transform: scale(0.95);
 	}
 </style>

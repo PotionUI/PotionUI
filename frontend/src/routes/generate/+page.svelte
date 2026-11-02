@@ -1,12 +1,15 @@
 <script lang="ts">
+	import { findGenerationTab, generationTabs } from '$lib/types/tabs';
 	import { modeDescription } from '$lib/utils/modeDescription';
 	import { modeUnavailableReason } from '$lib/utils/modeRequirements';
 	import { createModeRequirementsRecheck } from '$lib/utils/modeRequirementsRecheck';
 	import { onModelInstalled } from '$lib/stores/modelInstalls';
 	import { onMount, onDestroy } from 'svelte';
-	import { tabsStore, activeTab, generatingTab, isActiveTabGenerating } from '$lib/stores/tabs';
+	import { tabsStore, activeTab, activeToolTab, generatingTab, isActiveTabGenerating } from '$lib/stores/tabs';
+	import ToolTabHost from '$lib/tool-tabs/ToolTabHost.svelte';
+	import PhoneToolTabView from '$lib/tool-tabs/PhoneToolTabView.svelte';
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
-	import type { DirectorRunState, Tab } from '$lib/types/tabs';
+	import type { DirectorRunState, GenerationTab } from '$lib/types/tabs';
 	import { authStore } from '$lib/stores/auth';
 	import { submitGate, limits, limitsMeta } from '$lib/plans/store';
 	import { get } from 'svelte/store';
@@ -152,7 +155,7 @@
 		}
 	});
 
-	function directorOverlayFor(tab: Pick<Tab, 'formData'>): DirectorModelOverlay | null {
+	function directorOverlayFor(tab: Pick<GenerationTab, 'formData'>): DirectorModelOverlay | null {
 		const modelId = selectedCloudModelId(tab.formData);
 		return modelId ? directorOverlayFrom(sharedCapabilityCache.get(modelId)) : null;
 	}
@@ -234,7 +237,7 @@
 	 *  see `DirectorGenerationContext`'s own doc comment (directorInputIdentity.ts)
 	 *  on why this is required scope for the shot input identity, not an
 	 *  optional nicety. */
-	function directorGenerationContextFor(tab: Tab): DirectorGenerationContext {
+	function directorGenerationContextFor(tab: GenerationTab): DirectorGenerationContext {
 		return { presetId: tab.selectedPreset ?? null, variant: tab.selectedVariant ?? null, mode: tab.selectedMode ?? null };
 	}
 
@@ -281,7 +284,7 @@
 	 */
 	async function submitOneDirectorWireDoc(
 		tabId: string,
-		tab: Tab,
+		tab: GenerationTab,
 		doc: VideoDirectorValue,
 		caps: DirectorCapabilities,
 		wireDoc: VideoDirectorWireDoc,
@@ -333,7 +336,7 @@
 			if (response.success && response.data) {
 				const { generation_id, queue_position } = response.data;
 				const isQueued = queue_position !== null && queue_position !== undefined;
-				const liveTab = $tabsStore.tabs.find((t) => t.id === tabId) || tab;
+				const liveTab = findGenerationTab($tabsStore.tabs, tabId) || tab;
 				const runEntries = buildDirectorRunEntries(
 					shotsForDoc,
 					generation_id,
@@ -422,7 +425,7 @@
 			const cancel = () => settle('abandoned');
 			pendingDirectorShotWaiters.add(cancel);
 			unsubscribe = tabsStore.subscribe((state) => {
-				const liveTab = state.tabs.find((t) => t.id === tabId);
+				const liveTab = findGenerationTab(state.tabs, tabId);
 				if (!liveTab) {
 					settle('abandoned'); // tab closed -- no generationId will ever report here again
 					return;
@@ -460,7 +463,7 @@
 	 */
 	async function submitDirectorTimelinePlan(
 		tabId: string,
-		tab: Tab,
+		tab: GenerationTab,
 		doc: VideoDirectorValue,
 		caps: DirectorCapabilities,
 		shotsToSubmit: string[],
@@ -474,10 +477,10 @@
 			doc,
 			caps,
 			{
-				getRuns: () => $tabsStore.tabs.find((t) => t.id === tabId)?.directorRuns,
-				getOutputs: () => snapshotDirectorGenerationOutputs($tabsStore.tabs.find((t) => t.id === tabId)?.directorRuns),
+				getRuns: () => findGenerationTab($tabsStore.tabs, tabId)?.directorRuns,
+				getOutputs: () => snapshotDirectorGenerationOutputs(findGenerationTab($tabsStore.tabs, tabId)?.directorRuns),
 				submit: (shotId, predecessorFrame, predecessorRef) => {
-					const liveTab = $tabsStore.tabs.find((t) => t.id === tabId) || tab;
+					const liveTab = findGenerationTab($tabsStore.tabs, tabId) || tab;
 					const predecessorFrames = predecessorFrame ? { [shotId]: predecessorFrame } : undefined;
 					const wireDocs = buildDirectorSubmission(doc, caps, new Set([shotId]), predecessorFrames);
 					if (wireDocs.length === 0) return Promise.resolve({ ok: false, reason: 'Nothing to submit' });
@@ -518,7 +521,7 @@
 	}
 
 	async function submitVideoDirectorShots(tabId: string, shotIds: string[]): Promise<void> {
-		const tab = $tabsStore.tabs.find((t) => t.id === tabId);
+		const tab = findGenerationTab($tabsStore.tabs, tabId);
 		if (!tab || !tab.selectedPreset || shotIds.length === 0) return;
 		const caps = resolveRequestContext(presetVars[tab.selectedPreset], tab.selectedMode, directorOverlayFor(tab)).videoDirectorCaps;
 		if (!caps) return;
@@ -659,9 +662,10 @@
 	const presetVarsErrorShown = new Set<string>();
 
 	// Reactive subscriptions
-	$: tabs = $tabsStore.tabs;
-	$: activeTabId = $tabsStore.activeTabId;
+	$: tabs = generationTabs($tabsStore.tabs);
+	$: activeTabId = $activeTab.id;
 	$: currentTab = $activeTab;
+	$: toolTabActive = !!$activeToolTab;
 	$: rewriteMergedFieldMarkers(currentTab, currentTabFieldAliases);
 
 	function rewriteMergedFieldMarkers(tab: typeof currentTab, aliases: Record<string, string>) {
@@ -779,7 +783,7 @@
 	}
 
 	function scheduleDirectorEstimate(
-		tab: Tab,
+		tab: GenerationTab,
 		active: boolean,
 		caps: DirectorCapabilities | null,
 		checkedByTab: Record<string, Set<string>>,
@@ -929,6 +933,7 @@
 
 		// Register generate-context keybinding handlers
 		keybindingsStore.registerHandler('start_generation', () => {
+			if (toolTabActive) return;
 			if (canGenerate && !isGenerating) {
 				startGeneration();
 			}
@@ -937,25 +942,26 @@
 			addTab();
 		});
 		keybindingsStore.registerHandler('close_tab', () => {
-			requestCloseTab(activeTabId);
+			requestCloseTab($tabsStore.activeTabId);
 		});
 		keybindingsStore.registerHandler('toggle_left_panel', () => {
-			if (!contextToolsAvailable(currentTab)) return;
+			if (toolTabActive || !contextToolsAvailable(currentTab)) return;
 			const patch = toggleFormPane(activeTabId, !!currentTab.leftPanelCollapsed);
 			if (patch) tabsStore.updateTab(activeTabId, patch);
 		});
 		keybindingsStore.registerHandler('toggle_workbench_panel', () => {
+			if (toolTabActive) return;
 			tabsStore.updateTab(activeTabId, { workbenchCollapsed: !currentTab.workbenchCollapsed });
 		});
 		keybindingsStore.registerHandler('toggle_last_generations', () => {
 			generationPanelRef?.toggleDrawer('lastGenerations');
 		});
 		keybindingsStore.registerHandler('toggle_floating_form', () => {
-			if (!contextToolsAvailable(currentTab)) return;
+			if (toolTabActive || !contextToolsAvailable(currentTab)) return;
 			tabsStore.updateTab(activeTabId, pressFloatingForm(currentTab));
 		});
 		keybindingsStore.registerHandler('toggle_floating_workbench', () => {
-			if (!contextToolsAvailable(currentTab)) return;
+			if (toolTabActive || !contextToolsAvailable(currentTab)) return;
 			tabsStore.updateTab(activeTabId, pressFloatingWorkbench(currentTab));
 		});
 
@@ -981,7 +987,7 @@
 	});
 
 	async function restoreTabSessions() {
-		const currentTabs = $tabsStore.tabs;
+		const currentTabs = generationTabs($tabsStore.tabs);
 
 		await Promise.all(currentTabs.map(async (tab) => {
 			// tabsStore is module-scope, so SPA navigation remounts this page without
@@ -1020,7 +1026,7 @@
 							promptPanelWidth: tab.promptPanelWidth
 						});
 						const draftReady = await tabDraftSync.settled(4000);
-						const currentVariables = () => get(tabsStore).tabs.find((t) => t.id === tab.id)?.variables;
+						const currentVariables = () => findGenerationTab(get(tabsStore).tabs, tab.id)?.variables;
 						const variablesDecision = decideSessionVariables(draftReady, currentVariables());
 						const { variables: sessionVariables, ...patchWithoutVariables } = restoredPatch;
 						const appliedPatch = variablesDecision === 'replace' ? restoredPatch : patchWithoutVariables;
@@ -1101,7 +1107,7 @@
 	// live event racing it) already resolved as terminal, and no id is ever
 	// subscribed twice from two independent restore passes.
 	async function restoreGenerations() {
-		const currentTabs = $tabsStore.tabs;
+		const currentTabs = generationTabs($tabsStore.tabs);
 		let snapshot: GenerationQueueSnapshot | null = null;
 		try {
 			const response = await api.getGenerationQueue();
@@ -1241,7 +1247,7 @@
 		const request = (async () => {
 			try {
 				const response = await api.getPresetModes(presetId);
-				const currentTab = $tabsStore.tabs.find((tab) => tab.id === tabId);
+				const currentTab = findGenerationTab($tabsStore.tabs, tabId);
 				if (response.success && response.data && currentTab?.selectedPreset === presetId) {
 					const modes = response.data.modes;
 					modesPerTab[tabId] = modes;
@@ -1281,7 +1287,7 @@
 				if (!modesRetriedFor.has(requestKey)) {
 					modesRetriedFor.add(requestKey);
 					setTimeout(() => {
-						const stillOnThisPreset = $tabsStore.tabs.find((t) => t.id === tabId)?.selectedPreset === presetId;
+						const stillOnThisPreset = findGenerationTab($tabsStore.tabs, tabId)?.selectedPreset === presetId;
 						if (stillOnThisPreset) loadModesForTab(tabId, presetId);
 					}, 1500);
 				}
@@ -1364,7 +1370,7 @@
 				}
 			},
 			handleModeChange: (mode: string) => {
-				const tab = $tabsStore.tabs.find((candidate) => candidate.id === tabId);
+				const tab = findGenerationTab($tabsStore.tabs, tabId);
 				if (!tab) return;
 				const modeInfo = (modesPerTab[tabId] || []).find((m) => m.name === mode);
 				tabsStore.updateTab(tabId, {
@@ -1377,14 +1383,14 @@
 				tabsStore.updateTab(tabId, { selectedVariant: variantName });
 			},
 			handlePromptChange: (prompt: string) => {
-				const tab = $tabsStore.tabs.find((candidate) => candidate.id === tabId);
+				const tab = findGenerationTab($tabsStore.tabs, tabId);
 				if (!tab || tab.prompt === prompt) return;
 				tabsStore.updateTab(tabId, {
 					prompt
 				});
 			},
 			handlePromptSegmentsChange: (segments: any[]) => {
-				const tab = $tabsStore.tabs.find((candidate) => candidate.id === tabId);
+				const tab = findGenerationTab($tabsStore.tabs, tabId);
 				const mergedPrompt = resolvePromptSegments(segments, segmentJoinForPreset(tab?.selectedPreset));
 				tabsStore.updateTab(tabId, {
 					promptSegments: segments,
@@ -1392,14 +1398,14 @@
 				});
 			},
 			handleNegativePromptChange: (prompt: string) => {
-				const tab = $tabsStore.tabs.find((candidate) => candidate.id === tabId);
+				const tab = findGenerationTab($tabsStore.tabs, tabId);
 				if (!tab || tab.negativePrompt === prompt) return;
 				tabsStore.updateTab(tabId, {
 					negativePrompt: prompt
 				});
 			},
 			handleNegativePromptSegmentsChange: (segments: any[]) => {
-				const tab = $tabsStore.tabs.find((candidate) => candidate.id === tabId);
+				const tab = findGenerationTab($tabsStore.tabs, tabId);
 				const mergedPrompt = resolvePromptSegments(segments, segmentJoinForPreset(tab?.selectedPreset));
 				tabsStore.updateTab(tabId, {
 					negativePromptSegments: segments,
@@ -1410,7 +1416,7 @@
 	}
 
 	function handleFormDataChange(tabId: string, formData: Record<string, unknown>) {
-		const tab = $tabsStore.tabs.find((candidate) => candidate.id === tabId);
+		const tab = findGenerationTab($tabsStore.tabs, tabId);
 		if (!tab) return;
 
 		tabsStore.updateTab(tabId, formDataPublicationPatch(tab, formData));
@@ -1672,7 +1678,7 @@
 	async function startComparison(targetTabId: string, request: Parameters<typeof submitGrid>[1]) {
 		const summary = getCompareSummary(targetTabId, get(limits), get(limitsMeta)?.contactLine ?? undefined);
 		const resetRunning = () => {
-			const tab = get(tabsStore).tabs.find((t) => t.id === targetTabId);
+			const tab = findGenerationTab(get(tabsStore).tabs, targetTabId);
 			if (tab && !isGridRunning(targetTabId) && (tab.generation.queue ?? []).length === 0) {
 				tabsStore.updateTab(targetTabId, { generation: { ...tab.generation, isGenerating: false } });
 			}
@@ -1932,7 +1938,7 @@
 	{#each tabs as tab (tab.id)}
 		{@const tabHandlers = createTabHandlers(tab.id)}
 		{@const tabModes = modesPerTab[tab.id] || []}
-		{@const isActive = tab.id === activeTabId}
+		{@const isActive = tab.id === activeTabId && !toolTabActive}
 		<div class="flex-1 flex flex-col min-h-0 pb-[var(--deck-height)] md:pb-0" style="display: {isActive ? 'flex' : 'none'}">
 			{#if isActive}
 
@@ -2091,8 +2097,21 @@
 		</div>
 	{/each}
 
+	{#if $activeToolTab}
+		{#key $activeToolTab.id}
+			<div class="flex-1 min-h-0 overflow-hidden" data-testid="tool-tab-area">
+				{#if $isMobile}
+					<PhoneToolTabView tab={$activeToolTab} />
+				{:else}
+					<ToolTabHost tab={$activeToolTab} />
+				{/if}
+			</div>
+		{/key}
+	{/if}
+
 	<LimitNotice />
 
+	{#if !toolTabActive}
 	{#key currentTab.id}
 		<GenerationPanel
 			bind:this={generationPanelRef}
@@ -2133,6 +2152,7 @@
 			/>
 		</GenerationPanel>
 		{/key}
+	{/if}
 
 </div>
 

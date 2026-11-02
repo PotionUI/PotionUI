@@ -2229,14 +2229,28 @@ The component receives one prop, `host`:
 | `source` | The media the tab was opened on (`{ path, relative_path?, url?, name?, type? }`), or `null`. |
 | `state` | Your persisted JSON state, or `null` for a fresh tab. Keep it small: params and ids, never pixels. |
 | `activeTool` | The sub-tool the tab should open on, when it was opened from a shortcut. |
+| `hint` | A one-shot hint from the shortcut that opened the tab, or `null`. Call `clearHint()` once you have used it. |
 | `run` | The background run the tab is tracking (`{ runId, progress }`), so a reload can reattach. |
 | `phone` | `true` when the tab renders in the phone layout. |
 | `setState(next)` | Persist new state. It is saved with the tab and in Workspaces. |
 | `setDirty(edits)` | The number of unsaved edits. It drives the tab's warning dot and the close prompt. |
 | `setTitle(title)`, `setThumbnail(url)` | Name the tab (unless the user renamed it) and set its 20px thumbnail. |
-| `setSource(ref)`, `setActiveTool(id)`, `setRun(run)` | Update what the tab is open on and what it tracks. |
+| `setSource(ref)`, `setActiveTool(id)`, `setRun(run)`, `clearHint()` | Update what the tab is open on and what it tracks. |
 | `setActions({ undo, redo, save })` | Fill the phone top bar's Undo and Save buttons (`{ label?, disabled?, run }`; `save` also takes `progress`). |
-| `openToolTab(tool, source, { activeTool })` | Open another tool tab, following the same rules as the History and Library shortcuts. |
+| `openToolTab(tool, source, { activeTool, hint })` | Open another tool tab, following the same rules as the History and Library shortcuts. |
+
+The core editors use these `activeTool` ids, and the History and Library shortcuts open them with
+one of these set:
+
+| Tab (`tool`) | `activeTool` ids |
+|---|---|
+| Image editor (`image`) | `crop`, `resize`, `canvas`, `paint`, `mask`, `effects`, `colorKey`, `subject` |
+| Video editor (`video`) | `trim`, `split`, `crop`, `resize`, `speed`, `volume`, `effects`, `frame` |
+
+A `hint` is an object with any of `look` (an Effects look to preview), `effect` (a video effect id such
+as `film_grain` to preview), `orientation` (`rotate` or `flip`, for Crop) and `sendTo` (`{ tabId, field }`:
+the generation tab and media field the tab was opened from, so Send to a generation lists that field first).
+A hint is not persisted with the tab.
 
 Opening a tab focuses one that already holds the same item, fills an empty tab of the same kind
 next, and otherwise adds a new tab. Bitmaps your tool produces are uploaded and referenced by id;
@@ -2245,7 +2259,7 @@ the tab never stores them inline.
 ## Extending the image editor
 
 The media loader's image editor (**Edit** on a loaded image, **Draw a new image** on an empty
-field, **Edit** on History and Library items) is built on registries a plugin frontend can
+field) is built on registries a plugin frontend can
 extend through `window.__potionui.imageEditor`. Every `register*` call returns an unregister
 function. Registrations are global and survive editor sessions, so register once when your
 plugin's frontend loads.
@@ -2297,7 +2311,9 @@ const offTool = editor.registerTool({
 - **Actions** (`registerAction`): `{id, label, run(editor)}` shown in the Canvas panel; `editor`
   offers `flatten()`, `addImage(canvas, name)` and `openImage(canvas, name)`.
 - `addImage(canvas, name)` / `openImage(canvas, name)` / `isOpen()` act on the editor that is
-  currently open and return `false` when none is.
+  currently open. `addImage` returns `false` when none is. `openImage` replaces the open
+  editor's image, and with none open it uploads the canvas as a PNG and opens an Image editor
+  tab on it (History and Library **Edit** actions open that tab too), so it always returns `true`.
 
 The editor saves a flattened PNG as a new Library upload through the normal upload API, so a
 plugin never writes files itself.

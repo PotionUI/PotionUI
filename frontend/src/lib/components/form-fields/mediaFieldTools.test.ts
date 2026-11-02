@@ -88,6 +88,7 @@ describe('tools per kind', () => {
 	it('offers the edit image tool and every catalog tool for an image, and no mask without allow_inpaint', () => {
 		expect(fieldToolIds(options())).toEqual([
 			'edit',
+			'open-in-editor',
 			'crop',
 			'resize',
 			'rotate',
@@ -102,6 +103,7 @@ describe('tools per kind', () => {
 	it('puts the mask tools after the catalog tools when the field allows inpainting', () => {
 		expect(fieldToolIds(options({ allowInpaint: true }))).toEqual([
 			'edit',
+			'open-in-editor',
 			'crop',
 			'resize',
 			'rotate',
@@ -117,6 +119,7 @@ describe('tools per kind', () => {
 
 	it('offers the video tools of the catalog for a video and never the image-only ones', () => {
 		expect(fieldToolIds(options({ kind: 'video', allowInpaint: true }))).toEqual([
+			'open-in-editor',
 			'trim',
 			'crop',
 			'resize',
@@ -138,8 +141,8 @@ describe('tools per kind', () => {
 		expect(fieldCatalogTools(CATALOG, 'image').map((tool) => tool.id)).not.toContain('history-only');
 	});
 
-	it('offers only the edit image tool when the catalog has not loaded', () => {
-		expect(fieldToolIds(options({ catalogTools: [] }))).toEqual(['edit', 'full']);
+	it('offers only the edit image and open in editor tools when the catalog has not loaded', () => {
+		expect(fieldToolIds(options({ catalogTools: [] }))).toEqual(['edit', 'open-in-editor', 'full']);
 	});
 
 	it('takes the label and icon from the catalog', () => {

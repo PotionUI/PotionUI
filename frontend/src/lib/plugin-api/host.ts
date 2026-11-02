@@ -28,7 +28,8 @@ import { acquireLayer, releaseLayer } from '$lib/actions/layerStack';
 import { isEditableTarget, isTypingInField } from '$lib/utils/editableTarget';
 import { prepareRequestFromSession } from '$lib/generation/prepareRequest';
 import { createHostFetchApi, type PluginHostFetchApi } from './hostApi';
-import { createImageEditorApi, type PluginImageEditorApi } from '$lib/components/imageEditor/registries';
+import type { PluginImageEditorApi } from '$lib/components/imageEditor/registries';
+import { createHostImageEditorApi } from '$lib/tool-tabs/canvasSource';
 
 export type RendererKind = 'history.artifact' | 'workbench.file' | 'model.view' | 'chat.tool';
 
@@ -200,7 +201,7 @@ export function initHostApi(): void {
 		generation: {
 			prepareRequest: prepareRequestFromSession
 		},
-		imageEditor: createImageEditorApi()
+		imageEditor: createHostImageEditorApi()
 	};
 
 	w.__potionui = host;

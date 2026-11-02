@@ -90,6 +90,8 @@ class ArtifactsPlanExecutor:
                 "kind": chosen.kind,
                 "gated": chosen.gated,
                 "license_url": chosen.license_url,
+                "source": (chosen.provider_hint or {}).get("source"),
+                "repo_id": (chosen.provider_hint or {}).get("model_id"),
             }
             if choice.variant_id in installed:
                 found = found_as(installed[choice.variant_id], chosen.filename)

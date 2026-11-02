@@ -799,6 +799,8 @@ class ModelController(BaseController):
             "status": status,
             "progress": download.progress if status != "pending" else None,
             "error": download.error_message,
+            "gated": download.gated,
+            "gated_repo": download.gated_repo,
         })
 
 

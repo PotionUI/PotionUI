@@ -258,3 +258,14 @@ def extract_filename_from_url(url: str) -> Optional[str]:
         return derived_download_name(path_filename)
 
     return None
+
+
+def hub_repo_from_url(url: str) -> Optional[str]:
+    parsed = urlparse(url or "")
+    host = (parsed.hostname or "").lower()
+    if host != "huggingface.co" and not host.endswith(".huggingface.co"):
+        return None
+    parts = [unquote(part) for part in parsed.path.split("/") if part]
+    if len(parts) >= 3 and parts[2] in ("resolve", "blob", "raw"):
+        return f"{parts[0]}/{parts[1]}"
+    return None

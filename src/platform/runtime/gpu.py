@@ -1,3 +1,5 @@
+import sys
+
 from pynvml import *
 from dataclasses import dataclass, field
 from threading import Lock
@@ -55,28 +57,35 @@ def _nvml_text(value):
     return value.decode("utf-8") if isinstance(value, bytes) else value
 
 
-def _cuda_device_present(device_index: int) -> bool:
-    try:
-        import torch
+def _loaded_torch():
+    return sys.modules.get("torch")
 
+
+def _cuda_device_present(device_index: int) -> bool:
+    torch = _loaded_torch()
+    if torch is None:
+        return False
+    try:
         return bool(torch.cuda.is_available()) and device_index < torch.cuda.device_count()
     except Exception:
         return False
 
 
 def _cuda_initialized() -> bool:
+    torch = _loaded_torch()
+    if torch is None:
+        return False
     try:
-        import torch
-
         return bool(torch.cuda.is_initialized())
     except Exception:
         return False
 
 
 def _torch_device_identity(device_index: int) -> Optional[DeviceIdentity]:
+    torch = _loaded_torch()
+    if torch is None:
+        return None
     try:
-        import torch
-
         return DeviceIdentity(uuid=f"GPU-{torch.cuda.get_device_properties(device_index).uuid}")
     except Exception:
         return None
@@ -121,6 +130,7 @@ class GpuMonitor:
             self.source = "nvml"
         except Exception as e:
             nvml_error = e
+        self._nvml_error = nvml_error
         if self.source is None and _cuda_device_present(device_index):
             self.source = "torch"
         self.available = self.source is not None
@@ -151,6 +161,26 @@ class GpuMonitor:
                 logger.warning(f"[GPU_MANAGER] Could not get GPU name: {e}")
 
     @property
+    def available(self) -> bool:
+        if not self._available:
+            self._adopt_torch_source()
+        return self._available
+
+    @available.setter
+    def available(self, value: bool) -> None:
+        self._available = value
+
+    def _adopt_torch_source(self) -> None:
+        if self.source is not None or not _cuda_device_present(self.device_index):
+            return
+        self.source = "torch"
+        self._available = True
+        logger.warning(
+            f"[GPU_MANAGER] NVML unavailable ({self._nvml_error}); VRAM readings for "
+            f"device {self.device_index} come from torch.cuda"
+        )
+
+    @property
     def device_identity(self) -> Optional[DeviceIdentity]:
         if self._device_identity is None and self.source == "torch" and _cuda_initialized():
             self._device_identity = _torch_device_identity(self.device_index)
@@ -178,6 +208,7 @@ class GpuMonitor:
         return DeviceIdentity(uuid=uuid, pci_bus_id=pci_bus_id)
 
     def _get_memory_info(self):
+        self._adopt_torch_source()
         if self.source == "torch":
             return self._torch_memory_info()
         if self.source != "nvml":
@@ -190,9 +221,8 @@ class GpuMonitor:
         return _CappedMemInfo(total=capped_total, free=capped_free, used=info.used)
 
     def _torch_memory_info(self) -> Optional[_CappedMemInfo]:
-        import torch
-
-        if not _cuda_initialized():
+        torch = _loaded_torch()
+        if torch is None or not _cuda_initialized():
             return None
         with self.lock:
             free, total = torch.cuda.mem_get_info(self.device_index)
@@ -208,14 +238,14 @@ class GpuMonitor:
         return None if info is None else info.total // (1024 * 1024)
 
     def get_available_vram(self) -> Optional[float]:
-        import torch
+        torch = _loaded_torch()
 
         mem_info = self._get_memory_info()
         if mem_info is None:
             return None
         free_gb = mem_info.free / (1024**3)
 
-        if torch.cuda.is_available():
+        if torch is not None and torch.cuda.is_available():
             reserved_gb = torch.cuda.memory_reserved() / (1024**3)
             allocated_gb = torch.cuda.memory_allocated() / (1024**3)
             reclaimable_gb = reserved_gb - allocated_gb

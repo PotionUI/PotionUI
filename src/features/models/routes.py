@@ -284,7 +284,11 @@ class ModelController(BaseController):
         data = await operations.get_model_by_hash(self.collaborators, sha256)
         return self.success_response(data=data)
 
-    @guarded(_NOT_FOUND, Fail("get_model_failed", "Failed to get model", detail=failure_detail), admin="user")
+    @guarded(
+        {ModelNotFoundException: Fail("model_not_found", status=404)},
+        Fail("get_model_failed", "Failed to get model", detail=failure_detail),
+        admin="user",
+    )
     async def get_refmod_members(self, model_id: str, user: User = None) -> APIResponse:
         is_admin = bool(user and user.account_type == AccountType.ADMIN)
         await operations.get_model_by_id(self.collaborators, model_id, user=user, admin=is_admin)
@@ -1082,7 +1086,6 @@ def build_router(container: "AppContainer") -> APIRouter:
         model_id: str,
         current_user: User = Depends(get_current_active_user)
     ):
-        """The kind and name of every member of a RefMod, read from its header."""
         return await controller.get_refmod_members(model_id, current_user)
 
 

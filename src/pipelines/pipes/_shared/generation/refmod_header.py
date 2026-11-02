@@ -18,9 +18,6 @@ META_KEYS = ("refmod_meta", "audio_refmod_meta")
 
 
 def _read_meta(metadata: Mapping[str, str], file_path: str) -> dict[str, Any]:
-    """The upstream metadata block: one JSON string in the safetensors header
-    under `refmod_meta` (audio-only files: `audio_refmod_meta`), or, for files
-    written by older versions, a `<file>.json` sidecar next to the tensors."""
     for key in META_KEYS:
         if key in metadata:
             try:
@@ -41,9 +38,6 @@ def _read_meta(metadata: Mapping[str, str], file_path: str) -> dict[str, Any]:
 
 
 def _parse_members(meta: Mapping[str, Any], *, source: str) -> list[dict[str, Any]]:
-    """`[{"kind", "name", "tensor_key"}, ...]`: a bundle (`kind == "bundle"`,
-    tensors `ref_{i}` per `members` entry) or a single-member file (tensor
-    `latent`, kind/name at the top level)."""
     if meta.get("kind") == "bundle":
         members = meta.get("members")
         if not isinstance(members, list) or not members:

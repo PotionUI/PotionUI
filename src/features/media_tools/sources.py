@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Iterator, Optional, TYPE_CHECKING
 
 from src.features.media.records import Upload
+from src.features.media.validators import UPLOAD_PURPOSE_DERIVED
 from src.features.media_tools.dto import InputRef
 from src.platform.filesystem.storage_driver import (
     StorageKeyError,
@@ -35,7 +36,7 @@ class ResolvedInput:
 
     @property
     def is_library_item(self) -> bool:
-        return self.upload is not None
+        return self.upload is not None and self.upload.purpose != UPLOAD_PURPOSE_DERIVED
 
 
 def _not_found() -> NotFoundError:

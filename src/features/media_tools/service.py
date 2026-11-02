@@ -18,6 +18,8 @@ from pydantic import ValidationError
 
 from src.features.media_tools.dto import (
     TERMINAL_STATUSES,
+    ArtifactDTO,
+    ClipPreviewResponse,
     InputRef,
     OutputSpec,
     RunDTO,
@@ -32,6 +34,8 @@ from src.features.media_tools.jobs import (
     RunControl,
     RunOutcome,
 )
+from src.features.media.validators import UPLOAD_PURPOSE_DERIVED
+from src.features.media_tools.previews import FramePreview, PreviewCache, digest, is_preview_id
 from src.features.media_tools.publisher import MediaToolPublisher, to_item
 from src.features.media_tools.repository import MediaToolParamsRepository
 from src.features.media_tools.sources import InputResolver, ResolvedInput
@@ -49,11 +53,17 @@ from src.platform.media_tools import (
     run_chain,
     validate_params,
 )
+from src.platform.media_tools.chain import Step
+from src.platform.media_tools.fastpath import CRF_BY_QUALITY
+from src.platform.media_tools.params import bind_media, media_params
 from src.platform.media_tools.probe import has_alpha_mode
+from src.platform.media_tools.still import excerpt_steps, read_frame, render_still
+from src.platform.media_tools.types import MEDIA_KINDS, ToolMedia
 
 if TYPE_CHECKING:
     from src.features.generation.file_repository import FileRepository
     from src.features.media.media_types import MediaTypeResolver
+    from src.features.media.store import MediaStore
     from src.features.media.upload_repository import UploadRepository
     from src.features.plans.guard import LimitGuard
     from src.platform.filesystem.storage_driver import FileStorageDriver
@@ -61,7 +71,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-MAX_STEPS = 8
+MAX_STEPS = 64
 MAX_INPUTS = 50
 MAX_OUTPUTS = 500
 PREVIEW_CONCURRENCY = 2
@@ -77,6 +87,9 @@ PREVIEW_QUALITY = 80
 DEFAULT_SYNC_TIMEOUT_SECONDS = 600.0
 SAVE_PROGRESS = 0.96
 CHAIN_PROGRESS_SHARE = 0.95
+FRAME_MEDIA_TYPES = {"webp": "image/webp", "png": "image/png"}
+CLIP_SUFFIX_TYPES = {".mp4": "video/mp4", ".webm": "video/webm"}
+PREVIEW_DIR_TAG = "previews-"
 
 StepLike = Union[StepRequest, Mapping[str, Any]]
 InputLike = Union[InputRef, Mapping[str, Any]]
@@ -85,9 +98,28 @@ OutputLike = Union[OutputSpec, Mapping[str, Any], None]
 
 @dataclass
 class _Plan:
-    steps: List[Tuple[ToolSpec, dict]]
+    steps: List[Step]
     inputs: List[ResolvedInput]
     mode: str
+    attachments: dict
+    target: Optional[ResolvedInput] = None
+
+
+def _ref_key(ref: Mapping[str, Any]) -> str:
+    name = next(key for key in ("item_id", "generation_file_id") if ref.get(key))
+    return f"{name}:{ref[name]}"
+
+
+def _encode_frame(image: Image.Image, max_side: int, fmt: str) -> bytes:
+    image.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+    if image.mode not in ("RGB", "RGBA"):
+        image = image.convert("RGBA" if has_alpha_mode(image) else "RGB")
+    buffer = io.BytesIO()
+    if fmt == "png":
+        image.save(buffer, format="PNG")
+    else:
+        image.save(buffer, format="WEBP", quality=PREVIEW_QUALITY)
+    return buffer.getvalue()
 
 
 def _shared_generation_id(inputs: List[ResolvedInput]) -> Optional[str]:
@@ -145,11 +177,14 @@ def _model(cls, value, field: str):
 
 
 def _refusal(exc: MediaToolError, **extra: Any) -> InvalidInputError:
+    step_index = getattr(exc, "step_index", None)
     if isinstance(exc, InvalidToolParams):
         details = {"field": exc.field, **extra}
-        if exc.step_index is not None:
-            details["step_index"] = exc.step_index
+        if step_index is not None:
+            details["step_index"] = step_index
         return InvalidInputError("invalid_params", exc.message, **details)
+    if step_index is not None and "step_index" not in extra:
+        extra = {**extra, "step_index": step_index}
     return InvalidInputError(exc.code, exc.message, **extra)
 
 
@@ -170,8 +205,11 @@ class MediaToolService:
         thumbnail_runner: Optional[Callable[[Callable[[], None]], None]] = None,
         sweep_stale: bool = True,
         preview_wait_seconds: float = PREVIEW_WAIT_SECONDS,
+        artifact_store: Optional["MediaStore"] = None,
     ):
         self.registry = registry
+        self.upload_repo = upload_repository
+        self.artifact_store = artifact_store
         self.params_repo = params_repository
         self.resolver = InputResolver(upload_repository, file_repository, storage_driver)
         self.publisher = MediaToolPublisher(
@@ -188,6 +226,7 @@ class MediaToolService:
         self._live_scratch: set = set()
         self._preview_slots = threading.BoundedSemaphore(PREVIEW_CONCURRENCY)
         self._preview_wait = preview_wait_seconds
+        self.previews = PreviewCache(self._preview_dir)
         if sweep_stale:
             self.sweep_scratch()
 
@@ -225,8 +264,16 @@ class MediaToolService:
             removed += 1
         return removed
 
+    def _preview_dir(self) -> Path:
+        path = self.scratch_root / f"{SCRATCH_PREFIX}{PREVIEW_DIR_TAG}{uuid.uuid4().hex}"
+        path.mkdir(parents=True)
+        with self._scratch_lock:
+            self._live_scratch.add(path)
+        return path
+
     def shutdown(self, timeout: float = SHUTDOWN_WAIT_SECONDS) -> None:
         self.jobs.shutdown(timeout)
+        self.previews.clear()
         with self._scratch_lock:
             leftover = list(self._live_scratch)
         for path in leftover:
@@ -263,9 +310,12 @@ class MediaToolService:
     ) -> str:
         user_id = _user_id(user)
         plan = self._plan(user_id, steps, inputs, output)
-        if plan.mode != "replace":
+        if plan.mode == "new":
             self.publisher.precheck(user_id)
         return self.jobs.submit(user_id, self._work(user_id, plan))
+
+    def list_runs(self, user: Any) -> List[RunDTO]:
+        return self.jobs.list(_user_id(user))
 
     def get_run(self, user: Any, run_id: str) -> RunDTO:
         run = self.jobs.get(_user_id(user), run_id)
@@ -360,26 +410,222 @@ class MediaToolService:
             raise _refusal(exc) from exc
         validated = _scale_pixel_params(spec, validated, PREVIEW_OUTPUT_SIDE)
 
+        with self._preview_slot(), self._scratch() as scratch:
+            try:
+                with self.resolver.stage(resolved) as path:
+                    source = self._preview_source(resolved, path, scratch, at)
+                result = spec.impl.image(source, validated)
+            except (InvalidToolParams, UnsupportedMedia, InvalidSelection) as exc:
+                raise _refusal(exc) from exc
+            return _encode_frame(result, PREVIEW_OUTPUT_SIDE, "webp")
+
+    @contextmanager
+    def _preview_slot(self):
         if not self._preview_slots.acquire(timeout=self._preview_wait):
             raise DomainError(
                 "preview_busy", "Too many previews are rendering; try again in a moment", status_code=429
             )
         try:
-            with self._scratch() as scratch:
-                try:
-                    with self.resolver.stage(resolved) as path:
-                        source = self._preview_source(resolved, path, scratch, at)
-                    result = spec.impl.image(source, validated)
-                except (InvalidToolParams, UnsupportedMedia, InvalidSelection) as exc:
-                    raise _refusal(exc) from exc
-                result.thumbnail((PREVIEW_OUTPUT_SIDE, PREVIEW_OUTPUT_SIDE), Image.Resampling.LANCZOS)
-                if result.mode not in ("RGB", "RGBA"):
-                    result = result.convert("RGBA" if has_alpha_mode(result) else "RGB")
-                buffer = io.BytesIO()
-                result.save(buffer, format="WEBP", quality=PREVIEW_QUALITY)
-                return buffer.getvalue()
+            yield
         finally:
             self._preview_slots.release()
+
+    def preview_frame(
+        self,
+        user: Any,
+        input_ref: InputLike,
+        steps: Sequence[StepLike],
+        time_seconds: Optional[float] = None,
+        max_side: int = 1280,
+        fmt: str = "webp",
+    ) -> FramePreview:
+        user_id = _user_id(user)
+        resolved = self.resolver.resolve(user_id, _model(InputRef, input_ref, "input"))
+        if resolved.kind not in ("image", "video"):
+            raise InvalidInputError("unsupported_media", f"A {resolved.kind} file has no frames to preview")
+        at = self._preview_time(time_seconds)
+        chain = self._editor_steps(steps)
+        attachments = self._resolve_attachments(user_id, chain)
+        media_type = FRAME_MEDIA_TYPES.get(fmt)
+        if media_type is None:
+            raise InvalidInputError("invalid_params", "format must be webp or png", field="format")
+        key = digest(["frame", resolved.key, round(at, 3), int(max_side), fmt, self._chain_identity(chain, attachments)])
+        cached = self.previews.frame(user_id, key)
+        if cached is not None:
+            return cached
+
+        with self._preview_slot(), self._scratch() as scratch, ExitStack() as stack:
+            ctx = ToolContext(scratch)
+            try:
+                path = stack.enter_context(self.resolver.stage(resolved))
+                media = ctx.probe(path, resolved.kind)
+                image, snapped = read_frame(media, at, ctx)
+                bound = self._bind(chain, attachments, stack, ctx)
+                result = render_still(bound, media, image, snapped, ctx, self.previews.memo(resolved.key))
+            except (InvalidToolParams, UnsupportedMedia, InvalidSelection) as exc:
+                raise _refusal(exc) from exc
+            data = _encode_frame(result, int(max_side), fmt)
+        self.previews.store_frame(user_id, key, data, media_type)
+        return FramePreview(data=data, media_type=media_type, cached=False)
+
+    def start_clip_preview(
+        self,
+        user: Any,
+        input_ref: InputLike,
+        steps: Sequence[StepLike],
+        start_seconds: float = 0.0,
+        duration_seconds: float = 3.0,
+        height: int = 480,
+    ) -> ClipPreviewResponse:
+        user_id = _user_id(user)
+        resolved = self.resolver.resolve(user_id, _model(InputRef, input_ref, "input"))
+        if resolved.kind != "video":
+            raise InvalidInputError("unsupported_media", "Only a video has a clip preview")
+        start = self._preview_time(start_seconds)
+        chain = self._editor_steps(steps)
+        attachments = self._resolve_attachments(user_id, chain)
+        key = digest([
+            "clip", resolved.key, round(start, 3), float(duration_seconds), int(height),
+            self._chain_identity(chain, attachments),
+        ])
+        cached = self.previews.clip(user_id, key)
+        if cached is not None:
+            return ClipPreviewResponse(preview=cached)
+
+        def work(control: RunControl) -> RunOutcome:
+            with self._scratch() as scratch, ExitStack() as stack:
+                ctx = ToolContext(scratch, progress=control.report, is_cancelled=control.is_cancelled)
+                path = stack.enter_context(self.resolver.stage(resolved))
+                media = ctx.probe(path, "video")
+                bound = self._bind(chain, attachments, stack, ctx)
+                plan = excerpt_steps(
+                    bound, media, start, float(duration_seconds), int(height), CRF_BY_QUALITY["small"]
+                )
+                (produced,) = run_chain(plan, [media], ctx, validate=False)
+                if control.is_cancelled():
+                    raise ToolCancelled()
+                clip = self.previews.store_clip(
+                    user_id,
+                    key,
+                    produced.path,
+                    CLIP_SUFFIX_TYPES.get(produced.path.suffix.lower(), "video/mp4"),
+                    duration_seconds=produced.duration,
+                    width=produced.width,
+                    height=produced.height,
+                )
+                return RunOutcome(preview=clip)
+
+        return ClipPreviewResponse(run_id=self.jobs.submit(user_id, work, kind="preview"))
+
+    def preview_clip_file(self, user: Any, preview_id: str) -> Tuple[Path, str]:
+        found = self.previews.clip_file(_user_id(user), preview_id) if is_preview_id(preview_id) else None
+        if found is None:
+            raise NotFoundError("not_found", "Preview not found")
+        return found
+
+    def check_artifact(self, user: Any, size: Optional[int], content_type: Optional[str]) -> None:
+        store = self._artifacts()
+        try:
+            store.check_upload_size(_user_id(user), size, UPLOAD_PURPOSE_DERIVED, content_type or "")
+        except ValueError as exc:
+            raise InvalidInputError("upload_failed", str(exc) or "The file could not be stored") from exc
+
+    def _artifacts(self) -> "MediaStore":
+        if self.artifact_store is None:
+            raise DomainError("artifacts_unavailable", "Uploads are not available here", status_code=503)
+        return self.artifact_store
+
+    async def upload_artifact(
+        self, user: Any, data: bytes, filename: Optional[str], content_type: Optional[str]
+    ) -> ArtifactDTO:
+        store = self._artifacts()
+        user_id = _user_id(user)
+        name = _safe_stem(filename) + Path(filename or "").suffix.lower()
+        try:
+            stored = await store.upload_media(
+                file_data=data,
+                filename=name,
+                content_type=content_type,
+                user_id=user_id,
+                purpose=UPLOAD_PURPOSE_DERIVED,
+            )
+        except ValueError as exc:
+            raise InvalidInputError("upload_failed", str(exc) or "The file could not be stored") from exc
+        row = await asyncio.to_thread(self.upload_repo.get_by_filename, stored.filename, user_id)
+        if row is None:
+            raise ToolFailed("The file could not be stored")
+        return ArtifactDTO(
+            id=row.id,
+            media_type=row.media_type,
+            mime_type=row.mime_type,
+            url=f"/api/media/uploads/{row.filename}",
+            width=row.width,
+            height=row.height,
+            duration_seconds=row.duration_seconds,
+            fps=row.fps,
+            size=row.file_size,
+        )
+
+    def _editor_steps(self, steps: Sequence[StepLike]) -> List[Step]:
+        models = self._visible(steps)
+        specs = [self._spec(step.tool, index) for index, step in enumerate(models)]
+        for index, spec in enumerate(specs):
+            if spec.cardinality == "many_to_one":
+                raise InvalidInputError(
+                    "unsupported_media", f"{spec.label} has no preview", step_index=index
+                )
+        return list(zip(specs, self._validate_steps(specs, models)))
+
+    def _visible(self, steps: Sequence[StepLike]) -> List[StepRequest]:
+        models = [_model(StepRequest, step, "steps") for step in steps or []]
+        visible = [step for step in models if not step.hidden]
+        if len(visible) > MAX_STEPS:
+            raise InvalidInputError(
+                "invalid_params", f"A run needs between 1 and {MAX_STEPS} steps", field="steps"
+            )
+        return visible
+
+    @staticmethod
+    def _chain_identity(chain: List[Step], attachments: Mapping[str, ResolvedInput]) -> list:
+        return [
+            [[spec.id, spec.source, params] for spec, params in chain],
+            sorted((name, item.key) for name, item in attachments.items()),
+        ]
+
+    def _resolve_attachments(self, user_id: str, chain: List[Step]) -> dict:
+        found: dict = {}
+        for index, (spec, params) in enumerate(chain):
+            for param in media_params(spec):
+                ref = params.get(param["name"])
+                if not isinstance(ref, Mapping):
+                    continue
+                key = _ref_key(ref)
+                item = found.get(key) or self.resolver.resolve(user_id, InputRef(**ref))
+                accepts = tuple(param.get("accepts") or MEDIA_KINDS)
+                if item.kind not in accepts:
+                    raise InvalidInputError(
+                        "unsupported_media",
+                        f"{param.get('label') or param['name']} must be {' or '.join(accepts)}",
+                        field=param["name"],
+                        step_index=index,
+                    )
+                found[key] = item
+        return found
+
+    def _bind(
+        self, chain: List[Step], attachments: Mapping[str, ResolvedInput], stack: ExitStack, ctx: ToolContext
+    ) -> List[Step]:
+        staged: dict = {}
+
+        def lookup(param: dict, ref: dict) -> ToolMedia:
+            key = _ref_key(ref)
+            if key not in staged:
+                item = attachments[key]
+                path = stack.enter_context(self.resolver.stage(item))
+                staged[key] = ctx.probe(path, item.kind)
+            return staged[key]
+
+        return [(spec, bind_media(spec, params, lookup)) for spec, params in chain]
 
     @staticmethod
     def _preview_time(time_seconds: Optional[float]) -> float:
@@ -454,8 +700,8 @@ class MediaToolService:
     def _plan(
         self, user_id: str, steps: Sequence[StepLike], inputs: Sequence[InputLike], output: OutputLike
     ) -> _Plan:
-        step_models = [_model(StepRequest, step, "steps") for step in steps or []]
-        if not step_models or len(step_models) > MAX_STEPS:
+        step_models = self._visible(steps)
+        if not step_models:
             raise InvalidInputError(
                 "invalid_params", f"A run needs between 1 and {MAX_STEPS} steps", field="steps"
             )
@@ -471,10 +717,16 @@ class MediaToolService:
         self._check_media(specs, resolved)
         validated = self._validate_steps(specs, step_models)
 
-        mode = _model(OutputSpec, output if output is not None else {}, "output").mode
+        spec_out = _model(OutputSpec, output if output is not None else {}, "output")
+        mode = spec_out.mode
+        chain = list(zip(specs, validated))
+        target = None
         if mode == "replace":
             self._check_replace(specs, resolved)
-        return _Plan(steps=list(zip(specs, validated)), inputs=resolved, mode=mode)
+        elif mode == "update":
+            target = self._check_update(user_id, specs, resolved, spec_out.target_item_id)
+        attachments = self._resolve_attachments(user_id, chain)
+        return _Plan(steps=chain, inputs=resolved, mode=mode, attachments=attachments, target=target)
 
     def _check_media(self, specs: List[ToolSpec], resolved: List[ResolvedInput]) -> None:
         kinds = [item.kind for item in resolved]
@@ -528,6 +780,30 @@ class MediaToolService:
                 "Replace works on a single library item and a tool that keeps its kind",
             )
 
+    def _check_update(
+        self, user_id: str, specs: List[ToolSpec], resolved: List[ResolvedInput], target_id: Optional[str]
+    ) -> ResolvedInput:
+        if not target_id:
+            raise InvalidInputError(
+                "invalid_params", "Save needs the Library copy to update", field="target_item_id"
+            )
+        target = self.resolver.resolve(user_id, InputRef(item_id=target_id))
+        kind = resolved[0].kind
+        for spec in specs:
+            kind = spec.output_kind(kind)
+        allowed = (
+            len(resolved) == 1
+            and target.is_library_item
+            and all(spec.cardinality == "one_to_one" for spec in specs)
+            and kind == target.kind
+        )
+        if not allowed:
+            raise InvalidInputError(
+                "update_not_allowed",
+                "Save updates one Library copy with edits that keep its kind",
+            )
+        return target
+
     def _work(self, user_id: str, plan: _Plan) -> Callable[[RunControl], RunOutcome]:
         def work(control: RunControl) -> RunOutcome:
             with self._scratch() as scratch:
@@ -538,7 +814,8 @@ class MediaToolService:
                 with ExitStack() as stack:
                     paths = [stack.enter_context(self.resolver.stage(item)) for item in plan.inputs]
                     media = [ctx.probe(path, item.kind) for path, item in zip(paths, plan.inputs)]
-                    outputs = run_chain(plan.steps, media, ctx, validate=False)
+                    bound = self._bind(plan.steps, plan.attachments, stack, ctx)
+                    outputs = run_chain(bound, media, ctx, validate=False)
                     if control.is_cancelled():
                         raise ToolCancelled()
                     if len(outputs) > MAX_OUTPUTS:
@@ -554,10 +831,10 @@ class MediaToolService:
         return work
 
     def _publish(self, user_id: str, plan: _Plan, outputs: list) -> RunOutcome:
-        if plan.mode == "replace":
+        if plan.mode in ("replace", "update"):
             if len(outputs) != 1:
                 raise ToolFailed("The tool did not produce exactly one result")
-            source = plan.inputs[0]
+            source = plan.target if plan.mode == "update" else plan.inputs[0]
             updated = self.publisher.publish_replace(user_id, source.upload, source.key, outputs[0])
             return RunOutcome(items=[to_item(updated)], replaced=True)
         rows = self.publisher.publish_new(
@@ -568,13 +845,14 @@ class MediaToolService:
     def _names(self, plan: _Plan, outputs: list) -> List[Optional[str]]:
         last = plan.steps[-1][0]
         total = len(outputs)
+        fanned = any(spec.cardinality == "one_to_many" for spec, _ in plan.steps)
         names: List[Optional[str]] = []
         for index, media in enumerate(outputs):
             matched = last.cardinality == "one_to_one" and len(plan.inputs) == total
             source = plan.inputs[index] if matched else plan.inputs[0]
             stem = _safe_stem(source.original_filename)
             extension = media.path.suffix
-            if last.cardinality == "one_to_many":
+            if last.cardinality == "one_to_many" or (fanned and total > len(plan.inputs)):
                 names.append(f"{stem} — part {index + 1} of {total}{extension}")
             elif last.cardinality == "many_to_one":
                 names.append(f"{stem}{last.name_suffix or '-joined'}{extension}")

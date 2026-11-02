@@ -2,6 +2,11 @@ import type { AxiosInstance } from 'axios';
 import { api } from '$lib/services/api/index';
 import type { APIResponse } from '$lib/types/api';
 import type {
+	ClipPreviewBody,
+	ClipPreviewStart,
+	FramePreviewBody,
+	FramePreviewResult,
+	MediaToolArtifact,
 	MediaToolRun,
 	PreviewMediaToolBody,
 	StartMediaToolRunBody,
@@ -58,6 +63,37 @@ export function createMediaToolsApi(client: AxiosInstance) {
 				signal
 			});
 			return response.data;
+		},
+
+		async listMediaToolRuns(): Promise<MediaToolRun[]> {
+			const response = await client.get<APIResponse<{ runs: MediaToolRun[] }>>('/api/media-tools/runs');
+			return unwrap(response.data, 'The edits in progress could not be read').runs ?? [];
+		},
+
+		async previewFrame(body: FramePreviewBody, signal?: AbortSignal): Promise<FramePreviewResult> {
+			const response = await client.post<Blob>('/api/media-tools/preview/frame', body, {
+				responseType: 'blob',
+				signal
+			});
+			return { blob: response.data, cached: response.headers?.['x-preview-cache'] === 'hit' };
+		},
+
+		async startClipPreview(body: ClipPreviewBody): Promise<ClipPreviewStart> {
+			const response = await client.post<APIResponse<ClipPreviewStart>>(
+				'/api/media-tools/preview/clip',
+				body
+			);
+			return unwrap(response.data, 'The preview could not be started');
+		},
+
+		async uploadMediaToolArtifact(file: File): Promise<MediaToolArtifact> {
+			const formData = new FormData();
+			formData.append('file', file);
+			const response = await client.post<APIResponse<MediaToolArtifact>>(
+				'/api/media-tools/artifacts',
+				formData
+			);
+			return unwrap(response.data, 'The file could not be saved');
 		}
 	};
 }
@@ -89,4 +125,23 @@ export async function previewMediaTool(
 	signal?: AbortSignal
 ): Promise<Blob> {
 	return bound().previewMediaTool(body, signal);
+}
+
+export async function listMediaToolRuns(): Promise<MediaToolRun[]> {
+	return bound().listMediaToolRuns();
+}
+
+export async function previewFrame(
+	body: FramePreviewBody,
+	signal?: AbortSignal
+): Promise<FramePreviewResult> {
+	return bound().previewFrame(body, signal);
+}
+
+export async function startClipPreview(body: ClipPreviewBody): Promise<ClipPreviewStart> {
+	return bound().startClipPreview(body);
+}
+
+export async function uploadMediaToolArtifact(file: File): Promise<MediaToolArtifact> {
+	return bound().uploadMediaToolArtifact(file);
 }

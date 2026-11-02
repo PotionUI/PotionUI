@@ -134,7 +134,8 @@ class TestRunHappyPaths(MediaToolsTestBase):
         self.assertEqual(response.status_code, 200)
         data = response.json()["data"]
         self.assertEqual(
-            sorted(data), sorted(["run_id", "status", "progress", "label", "items", "replaced", "error"])
+            sorted(data),
+            sorted(["run_id", "kind", "status", "progress", "label", "items", "replaced", "preview", "error"]),
         )
         self.assertEqual(data["status"], "completed")
         self.assertIsNone(data["error"])
@@ -462,7 +463,7 @@ class TestRunErrors(MediaToolsTestBase):
         item = self.image_item()
 
         empty = self.refused(self.start([], [{"item_id": item.id}]), 400, "invalid_params")
-        many = self.refused(self.start([shrink()] * 9, [{"item_id": item.id}]), 400, "invalid_params")
+        many = self.refused(self.start([shrink()] * 65, [{"item_id": item.id}]), 400, "invalid_params")
 
         self.assertEqual((empty["field"], many["field"]), ("steps", "steps"))
 

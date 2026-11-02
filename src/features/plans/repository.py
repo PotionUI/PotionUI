@@ -227,8 +227,7 @@ class UsageRepository:
             )
             files = cursor.fetchone()["total"] or 0
             cursor.execute(
-                "SELECT COALESCE(SUM(file_size), 0) AS total FROM uploads "
-                "WHERE user_id = ? AND COALESCE(purpose, 'user_upload') = 'user_upload'",
+                "SELECT COALESCE(SUM(file_size), 0) AS total FROM uploads WHERE user_id = ?",
                 (user_id,),
             )
             uploads = cursor.fetchone()["total"] or 0
@@ -248,8 +247,7 @@ class UsageRepository:
                 entry["files"] += int(row["files"])
                 entry["bytes"] += int(row["bytes"] or 0)
             cursor.execute(
-                "SELECT COUNT(*) AS files, COALESCE(SUM(file_size), 0) AS bytes FROM uploads "
-                "WHERE user_id = ? AND COALESCE(purpose, 'user_upload') = 'user_upload'",
+                "SELECT COUNT(*) AS files, COALESCE(SUM(file_size), 0) AS bytes FROM uploads WHERE user_id = ?",
                 (user_id,),
             )
             row = cursor.fetchone()

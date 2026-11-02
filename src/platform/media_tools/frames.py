@@ -18,17 +18,29 @@ def decode_rgb_frames(
     *,
     fps: Optional[float] = None,
     max_frames: Optional[int] = None,
+    window: Optional[tuple[float, Optional[float]]] = None,
 ) -> tuple[Path, int]:
     chain = []
     if fps:
         chain.append(f"fps={fps:.6f}")
     chain.append(f"scale={width}:{height}:flags=area")
     dest = ctx.new_path(".rgb", stem="frames")
-    args = ["-i", str(media.path), "-an", "-sn", "-vf", ",".join(chain)]
+    args: list[str] = []
+    duration = media.duration
+    if window is not None:
+        start, end = window
+        if start > 0:
+            args += ["-ss", f"{start:.6f}"]
+        if end is not None:
+            duration = max(0.0, end - start)
+            args += ["-t", f"{duration:.6f}"]
+        elif duration is not None:
+            duration = max(0.0, duration - start)
+    args += ["-i", str(media.path), "-an", "-sn", "-vf", ",".join(chain)]
     if max_frames:
         args += ["-frames:v", str(max_frames)]
     args += ["-pix_fmt", "rgb24", "-f", "rawvideo", str(dest)]
-    ctx.ffmpeg(args, duration=media.duration)
+    ctx.ffmpeg(args, duration=duration)
     if not dest.is_file():
         raise ToolFailed("Could not read the video's frames")
     count = dest.stat().st_size // (width * height * CHANNELS)

@@ -13,6 +13,7 @@ Cardinality = Literal["one_to_one", "one_to_many", "many_to_one"]
 MEDIA_KINDS: tuple[str, ...] = ("image", "video", "audio")
 CARDINALITIES: tuple[str, ...] = ("one_to_one", "one_to_many", "many_to_one")
 DEFAULT_SCOPES: tuple[str, ...] = ("library", "history", "field")
+EDITOR_SCOPE = "editor"
 CORE_SOURCE = "core"
 
 
@@ -52,6 +53,11 @@ class ToolFailed(MediaToolError):
     code = "tool_failed"
 
 
+class EmptyOutput(ToolFailed):
+    def __init__(self, message: str = "The encoder produced an empty file"):
+        super().__init__(message)
+
+
 class FfmpegUnavailable(ToolFailed):
     code = "ffmpeg_unavailable"
 
@@ -85,6 +91,7 @@ class FilterFragment:
     duration: Optional[float] = None
     crf: Optional[int] = None
     frames: Optional[int] = None
+    copy_video: bool = False
 
 
 ProgressCallback = Callable[[float, str], None]

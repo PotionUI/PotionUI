@@ -59,6 +59,12 @@ class Speed(MediaTool):
             fragment.af = audio_filters(speed, bool(params.get("keep_pitch", True)))
         return fragment
 
+    def retime(self, clock, params: dict):
+        return clock.sped(float(params["speed"]))
+
+    def still(self, image, params: dict, frame):
+        return image
+
 
 def spec() -> ToolSpec:
     return ToolSpec(**SPEC, impl=Speed())

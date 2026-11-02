@@ -353,6 +353,11 @@ export interface MediaRef {
 	 *  `multi: true`) - other systems (e.g. a `<Picture N>` prompt binding)
 	 *  reference an item by this, so it's absent, not empty, when unset. */
 	label?: string;
+	item_id?: string;
+	generation_file_id?: string;
+	artifact_id?: string;
+	width?: number;
+	height?: number;
 }
 
 export interface PromptRelayImageSegment {

@@ -99,7 +99,7 @@
 		<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1.5" role="listbox" aria-label={label} id="{uid}-list">
 			{#each options as option (option.value)}
 				{@const current = option.value === value}
-				<div class="picker-item mx-1.5 w-[calc(100%-0.75rem)] rounded" class:is-current={current}>
+				<div class="picker-item mx-1.5 w-[calc(100%-0.75rem)] rounded">
 					<button
 						type="button"
 						role="option"
@@ -107,6 +107,7 @@
 						data-nav
 						data-autofocus={current ? '' : undefined}
 						class="picker-row flex w-full items-center gap-3 rounded px-2 pt-2 text-left {option.action ? 'pb-1' : 'pb-2'}"
+						class:is-current={current}
 						onclick={() => choose(option.value)}
 					>
 						{#if option.icon}<Icon name={option.icon} className="w-4 h-4 flex-shrink-0 {current ? 'text-signal' : 'text-fg-muted'}" />{/if}
@@ -176,13 +177,13 @@
 		background: rgb(var(--surface-3));
 	}
 
-	.picker-item.is-current {
+	.picker-item:has(.picker-row.is-current) {
 		background: rgb(var(--signal) / 0.1);
 		box-shadow: inset 2px 0 0 rgb(var(--signal));
 	}
 
-	.picker-item.is-current:hover,
-	.picker-item.is-current:has(.picker-row:focus-visible) {
+	.picker-item:has(.picker-row.is-current):hover,
+	.picker-item:has(.picker-row.is-current:focus-visible) {
 		background: rgb(var(--signal) / 0.16);
 	}
 </style>

@@ -99,6 +99,7 @@ class PluginManifest:
     # Tabs contributed to this plugin's own Admin -> Plugins detail panel:
     # [{id, label, component, order, require_role}]
     admin_tabs: List[Dict[str, Any]] = field(default_factory=list)
+    tool_tabs: List[Dict[str, Any]] = field(default_factory=list)
 
     # Quick actions and sidebar widgets
     quick_actions: List[Dict[str, Any]] = field(default_factory=list)
@@ -163,7 +164,7 @@ class PluginManifest:
 _DICT_LIST_FIELDS = tuple(
     """
     pipes presets preset_modes recipes model_layouts llm_profiles filters filter_ops
-    recipe_steps samplers schedules model_classifiers pages admin_tabs quick_actions
+    recipe_steps samplers schedules model_classifiers pages admin_tabs tool_tabs quick_actions
     sidebar_widgets settings field_types model_metadata_fields renderers contributions docs
     chat_modes resources llm_providers automation_nodes automation_templates organize_facts organize_actions limit_kinds
     prompt_importers phrasebook_ops media_tools requirement_checkers setup

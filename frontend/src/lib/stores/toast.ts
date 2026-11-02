@@ -16,12 +16,14 @@ export interface Toast {
 	duration?: number;
 	count?: number;
 	action?: ToastAction;
+	actions?: ToastAction[];
 }
 
 interface ShowOptions {
 	title?: string;
 	duration?: number;
 	action?: ToastAction;
+	actions?: ToastAction[];
 }
 
 const MAX_VISIBLE_TOASTS = 3;
@@ -75,12 +77,15 @@ function createToastStore() {
 					count: (list[idx].count ?? 1) + 1,
 					message,
 					duration,
-					action: options.action ?? list[idx].action
+					action: options.action ?? list[idx].action,
+					actions: options.actions ?? list[idx].actions
 				};
 				return next;
 			}
 			id = randomUUID();
-			return [...list, { id, type, message, title: options.title, duration, count: 1, action: options.action }];
+			const toast: Toast = { id, type, message, title: options.title, duration, count: 1, action: options.action };
+			if (options.actions?.length) toast.actions = options.actions;
+			return [...list, toast];
 		});
 		scheduleRemoval(id, duration);
 		return id;

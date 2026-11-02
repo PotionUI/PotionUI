@@ -613,6 +613,17 @@ for (const width of [1440, 390]) {
 					await expect(list.locator('[data-option-action]')).toHaveCount(0);
 					await expect(list.locator('[data-option-notice]').first()).toContainText('Not set up yet - ask an admin');
 				}
+				const rowKey = admin ? '[data-option-action]' : '[data-option-notice]';
+				const stacked = list.locator('.picker-item', { has: page.locator(rowKey) }).first();
+				const description = stacked.locator('.line-clamp-2').first();
+				const below = stacked.locator(rowKey).first();
+				const descriptionBox = (await description.boundingBox())!;
+				const belowBox = (await below.boundingBox())!;
+				const stackedBox = (await stacked.boundingBox())!;
+				expect(belowBox.y).toBeGreaterThanOrEqual(descriptionBox.y + descriptionBox.height);
+				expect(Math.abs(belowBox.x - descriptionBox.x)).toBeLessThanOrEqual(1);
+				expect(descriptionBox.width).toBeGreaterThan(stackedBox.width * 0.6);
+				expect(belowBox.x + belowBox.width).toBeLessThanOrEqual(stackedBox.x + stackedBox.width);
 				await screenshot(page, JOURNEY, `3-${audience}-${width}-dark`);
 			});
 		}

@@ -21,6 +21,6 @@ export function registerBuiltinToolKinds(): void {
 		icon: 'video',
 		accepts: ['video'],
 		order: 20,
-		load: () => import('./placeholders/VideoToolPlaceholder.svelte')
+		load: () => import('$lib/components/tool-tabs/video/VideoEditorTab.svelte')
 	});
 }

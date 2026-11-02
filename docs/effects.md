@@ -82,7 +82,8 @@ for ordinary tools, and this object for effects:
       {"name": "cell", "expr": "max(1, floor(size * min(media.width, media.height) / 1000 + 0.5))"}
     ],
     "gain": null,
-    "analysis": false
+    "analysis": false,
+    "analysis_keys": []
   }
 }
 ```
@@ -97,6 +98,11 @@ for ordinary tools, and this object for effects:
 | `derive` | Ordered list of `{name, expr}`; evaluate in order |
 | `gain` | A derive expression of `time` scaling the element volume during playback, or `null` |
 | `analysis` | `true` when the effect needs `POST /api/media-tools/effects/analysis` values before it can draw |
+| `analysis_keys` | The params the analysis depends on (fix colours: `["white_balance", "contrast"]`). Values stay valid while these params, the source and the window are unchanged, so other param changes need no new request |
+
+A tool with `group: effects` and `effect: null` is an effect without a definition folder (for example a plugin
+media tool listed in the Effects menu). It has no shader and previews through `POST /preview/frame`, like an effect
+whose `shader` is `null`.
 
 Uniform types by source:
 

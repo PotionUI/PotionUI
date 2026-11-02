@@ -200,6 +200,75 @@ class TestGetVideoDirectorToolSingleShotPrompt:
         assert payload["segments"][0]["prompt"] == "a lighthouse at dusk"
 
 
+class TestGetVideoDirectorToolSingleShotMedia:
+    @staticmethod
+    async def _payload(doc, caps):
+        form_state = make_form_state(doc, caps)
+        return json.loads((await GetVideoDirectorTool().execute(make_context(session_metadata={"form_state": form_state}))).data)
+
+    @staticmethod
+    def _timeline(mode, keyframes):
+        doc = make_timeline_doc(mode=mode)
+        doc["ui"] = {"modeless": True}
+        doc["timeline"]["fps"] = 30
+        doc["timeline"]["shots"][0]["duration"] = 8
+        doc["timeline"]["shots"][0]["keyframes"] = keyframes
+        return doc
+
+    @staticmethod
+    def _chain(mode, **seg):
+        doc = make_timeline_doc(mode=mode)
+        doc["ui"] = {"modeless": True}
+        doc["chain"] = {"fps": 16, "segments": [{"id": "chain-0", "prompt": "p", "duration": 6, **seg}]}
+        caps = make_timeline_capabilities()
+        caps["segment_routing"] = True
+        return doc, caps
+
+    @pytest.mark.asyncio
+    async def test_timeline_t2v_has_no_media_and_takes_the_shot_length(self):
+        payload = await self._payload(self._timeline("t2v", []), make_timeline_capabilities())
+        assert payload["media"] == []
+        assert payload["settings"]["duration"] == 8
+        assert payload["settings"]["fps"] == 30
+
+    @pytest.mark.asyncio
+    async def test_timeline_i2v_reads_the_start_frame_from_the_shot(self):
+        doc = self._timeline("i2v", [{"id": "kf-first", "role": "first", "start": 0, "media": {"path": "/media/start.png"}}])
+        payload = await self._payload(doc, make_timeline_capabilities())
+        assert [(m["role"], m["path"]) for m in payload["media"]] == [("first", "/media/start.png")]
+
+    @pytest.mark.asyncio
+    async def test_timeline_flf_reads_both_edges_from_the_shot(self):
+        doc = self._timeline("flf", [
+            {"id": "kf-first", "role": "first", "start": 0, "media": {"path": "/media/a.png"}},
+            {"id": "kf-last", "role": "last", "start": 8, "media": {"path": "/media/b.png"}},
+        ])
+        payload = await self._payload(doc, make_timeline_capabilities())
+        assert [(m["role"], m["path"], m["at"]) for m in payload["media"]] == [
+            ("first", "/media/a.png", 0), ("last", "/media/b.png", 8),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_chain_t2v_has_no_media_and_takes_the_segment_length(self):
+        doc, caps = self._chain("t2v", keyframe={"path": "/media/stale.png"})
+        payload = await self._payload(doc, caps)
+        assert payload["media"] == []
+        assert payload["settings"]["duration"] == 6
+        assert payload["settings"]["fps"] == 16
+
+    @pytest.mark.asyncio
+    async def test_chain_i2v_reads_the_start_frame_from_the_segment(self):
+        doc, caps = self._chain("i2v", keyframe={"path": "/media/start.png"})
+        payload = await self._payload(doc, caps)
+        assert [(m["role"], m["path"]) for m in payload["media"]] == [("first", "/media/start.png")]
+
+    @pytest.mark.asyncio
+    async def test_chain_flf_reads_both_edges_from_the_segment(self):
+        doc, caps = self._chain("flf", keyframe={"path": "/media/a.png"}, last_keyframe={"path": "/media/b.png"})
+        payload = await self._payload(doc, caps)
+        assert [(m["role"], m["path"]) for m in payload["media"]] == [("first", "/media/a.png"), ("last", "/media/b.png")]
+
+
 class TestGetVideoDirectorToolI2v:
     @pytest.mark.asyncio
     async def test_media_includes_start_image(self):

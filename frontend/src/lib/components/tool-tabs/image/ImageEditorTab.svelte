@@ -7,7 +7,7 @@
 	import { pickFromUpload } from '$lib/components/form-fields/mediaLoaderPicks';
 	import { canvasToPngFile } from '$lib/components/imageEditor/flatten';
 	import type { PaintSession, SessionSnapshot } from '$lib/components/imageEditor/session';
-	import { Button, SegmentedControl, Spinner } from '$lib/components/ui';
+	import { Button, IconButton, SegmentedControl, Spinner } from '$lib/components/ui';
 	import {
 		CanvasChip,
 		EditStack,
@@ -98,7 +98,7 @@
 	import { mediaFileStem } from '$lib/tool-tabs/sources';
 	import type { ToolTabHost } from '$lib/tool-tabs/types';
 	import { isGenerationTab, type GenerationTab, type MediaRef } from '$lib/types/tabs';
-	import { analyseImage, type Analysis, type Rect } from '$lib/tool-tabs/image/slice/detect';
+	import { analyseImage, detectPanels, type Analysis, type Rect } from '$lib/tool-tabs/image/slice/detect';
 	import { cropCanvas as sliceCrop, zipStore } from '$lib/tool-tabs/image/slice/crops';
 	import {
 		detectCells,
@@ -125,6 +125,7 @@
 		type SliceParams
 	} from '$lib/tool-tabs/image/slice/model';
 	import { referenceFieldsOf, referencePatch, referenceTargetsFor, type ReferenceField, type ReferenceTarget } from '$lib/tool-tabs/image/slice/references';
+	import { handOffToNewTab } from '$lib/tool-tabs/image/slice/handoff';
 	import { activeSlice, canMoveWithSlice, isSlice, sliceLast, withoutSlice } from '$lib/tool-tabs/image/slice/stack';
 	import SliceOptions, { type NameRow } from './slice/SliceOptions.svelte';
 	import SliceOverlay from './slice/SliceOverlay.svelte';
@@ -140,7 +141,7 @@
 	import PaintStage from './PaintStage.svelte';
 	import ResizeOptions from './ResizeOptions.svelte';
 
-	type ImageHint = { look?: string; effect?: string; orientation?: 'rotate' | 'flip'; sendTo?: { tabId: string; field: string }; detect?: boolean };
+	type ImageHint = { look?: string; effect?: string; orientation?: 'rotate' | 'flip'; sendTo?: { tabId: string; field: string }; detect?: boolean; suggestSlice?: boolean };
 	type HintedHost = ToolTabHost & { readonly hint?: ImageHint | null; clearHint?: () => void };
 
 	let { host }: { host: ToolTabHost } = $props();
@@ -211,6 +212,9 @@
 	let sliceRunId: string | null = null;
 	let sliceThumbs = $state.raw<Map<string, string>>(new Map());
 	const SLICE_COLLECTION_KEY = 'potionui_slice_collection';
+	const SLICE_HINT_KEY = 'potionui_slice_hint_dismissed';
+	let sliceSuggest = $state(false);
+	let sliceHintGone = $state(false);
 
 	onMount(() => {
 		void loadMediaToolCatalog().catch(() => undefined);
@@ -330,6 +334,25 @@
 	let sliceDestination = $derived(collections.find((entry) => entry.value === saveSlice?.collection)?.label ?? 'Library');
 	let sliceFill = $derived(sliceAnalysis && !sliceAnalysis.transparent ? { hex: hexColor(sliceAnalysis.bg), rgb: sliceAnalysis.bg.join(' ') } : null);
 	let sliceLocked = $derived(!!sliceProgress);
+
+	let sourceKey = $derived(source ? (source.item_id ?? source.generation_file_id ?? source.artifact_id ?? source.url ?? source.path ?? '') : '');
+	let sheetPanels = $state(0);
+	let suggestedPanels = $derived(sliceSuggest && !sliceHintGone && activeTool !== 'slice' && !phone && !effective.length && !pending && sheetPanels >= 3 ? sheetPanels : 0);
+
+	$effect(() => {
+		const url = sourceUrl;
+		const key = sourceKey;
+		if (!sliceSuggest || !url || untrack(() => dismissedHints()).includes(key)) return;
+		let cancelled = false;
+		loadImage(url)
+			.then((image) => {
+				if (!cancelled) sheetPanels = detectPanels(analyseImage(image)).length;
+			})
+			.catch(() => undefined);
+		return () => {
+			cancelled = true;
+		};
+	});
 
 	let resizeInput = $derived(mode === 'preview' && activeTool === 'resize' ? (outputSize(pendingHere?.tool === 'resize' ? stepsBeforeTarget : effective, sourceSize) ?? sourceSize) : null);
 	let resizeParams = $derived<ResizeParams | null>(
@@ -483,6 +506,7 @@
 	async function consumeHint(hint: ImageHint) {
 		(host as HintedHost).clearHint?.();
 		if (hint.sendTo) sendFirst = hint.sendTo;
+		if (hint.suggestSlice) sliceSuggest = true;
 		if (hint.detect) {
 			if (activeTool !== 'slice') await selectTool('slice');
 			detectWhenReady = true;
@@ -854,6 +878,30 @@
 		}
 	}
 
+	function dismissedHints(): string[] {
+		try {
+			const parsed = JSON.parse(localStorage.getItem(SLICE_HINT_KEY) ?? '[]');
+			return Array.isArray(parsed) ? parsed : [];
+		} catch {
+			return [];
+		}
+	}
+
+	function dismissSliceHint() {
+		sliceHintGone = true;
+		try {
+			localStorage.setItem(SLICE_HINT_KEY, JSON.stringify([...dismissedHints().filter((key) => key !== sourceKey), sourceKey].slice(-200)));
+		} catch {
+			return;
+		}
+	}
+
+	async function acceptSliceHint() {
+		sliceHintGone = true;
+		await selectTool('slice');
+		runDetect();
+	}
+
 	function storedCollection(): string | null {
 		try {
 			return localStorage.getItem(SLICE_COLLECTION_KEY);
@@ -978,7 +1026,18 @@
 		}
 	}
 
-	async function runSliceSave(target: ReferenceTarget | null = null) {
+	function newReferencesTab(items: readonly MediaToolItem[]) {
+		if (!items.length) return;
+		handOffToNewTab(items, `${stem} refs`, {
+			tabs: tabsStore,
+			loadSchema: loadPresetFormSchema,
+			oncommit: (tab, field, takes) =>
+				toasts.show('success', `${takes} ${takes === 1 ? 'image' : 'images'} in ${field.title}, ${tab.name}.`, { title: 'Sent as references' })
+		});
+		toasts.show('info', `Pick a preset with a references field. The ${items.length === 1 ? 'image goes' : `${items.length} images go`} into it.`, { title: 'New generation tab' });
+	}
+
+	async function runSliceSave(target: ReferenceTarget | 'new-tab' | null = null) {
 		const ref = resolvedRef;
 		if (!ref || saving) return;
 		if (!(await prepareSave())) return;
@@ -1017,6 +1076,10 @@
 			sliceItems = outcome.items;
 			sliceSavedKey = key;
 			rememberCollection(params.collection);
+			if (target === 'new-tab') {
+				newReferencesTab(outcome.items);
+				return;
+			}
 			if (target) {
 				commitReferences(target, outcome.items);
 				return;
@@ -1194,10 +1257,11 @@
 
 	function onSave(action: SaveAction) {
 		saveMenuOpen = false;
-		if (referencesOnly && action.kind === 'send') {
-			const target = referenceTargets.find((entry) => entry.id === action.target);
+		if (referencesOnly && (action.kind === 'send' || action.kind === 'new-generation')) {
+			const target = action.kind === 'send' ? referenceTargets.find((entry) => entry.id === action.target) : null;
 			referencesOnly = false;
-			if (target) commitReferences(target, sliceItems);
+			if (action.kind === 'new-generation') newReferencesTab(sliceItems);
+			else if (target) commitReferences(target, sliceItems);
 			return;
 		}
 		if (saveSlice) {
@@ -1205,6 +1269,7 @@
 			else if (action.kind === 'save-sheet') void runSave('new');
 			else if (action.kind === 'send') void runSliceSave(referenceTargets.find((entry) => entry.id === action.target) ?? null);
 			else if (action.kind === 'download') void downloadSlices();
+			else if (action.kind === 'new-generation') void runSliceSave('new-tab');
 			return;
 		}
 		if (action.kind === 'save-new') void runSave('new');
@@ -1368,6 +1433,12 @@
 {/snippet}
 
 {#snippet canvasArea()}
+	{#if suggestedPanels}
+		<div class="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-scrim-on/10 bg-scrim/70 p-[3px] text-scrim-on backdrop-blur" data-slice-suggest>
+			<Button variant="overlay" size="xs" class="h-7" icon="editor-slice" onclick={() => void acceptSliceHint()}>Slice {suggestedPanels} panels</Button>
+			<IconButton icon="close" label="Dismiss" size="xs" variant="overlay" class="h-7 w-7" onclick={dismissSliceHint} />
+		</div>
+	{/if}
 	{#if sourceError}
 		<div class="flex flex-1 items-center justify-center bg-scrim p-6 text-sm text-danger" role="alert">{sourceError}</div>
 	{:else if mode === 'paint'}
@@ -1453,7 +1524,7 @@
 				{/if}
 			{/snippet}
 			{#snippet badge()}
-				{#if rendering && !phone}
+				{#if rendering && !phone && activeTool !== 'slice'}
 					<CanvasChip><span class="inline-flex items-center gap-1.5"><Spinner size="sm" />Preview</span></CanvasChip>
 				{/if}
 			{/snippet}

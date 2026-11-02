@@ -23,7 +23,7 @@ describe('image shortcuts', () => {
 		['color_key', 'colorKey'],
 		['crop_subject', 'subject'],
 		['slice_sheet', 'slice', { detect: true }],
-		['edit-image', 'paint'],
+		['edit-image', 'paint', { suggestSlice: true }],
 		['apply-look', 'effects']
 	];
 

@@ -38,7 +38,7 @@ const IMAGE_ACTIONS: Record<string, Resolver> = {
 	color_key: fixed('colorKey'),
 	crop_subject: fixed('subject'),
 	slice_sheet: fixed('slice', { detect: true }),
-	[EDIT_ACTION]: (last) => ({ activeTool: last('image') }),
+	[EDIT_ACTION]: (last) => ({ activeTool: last('image'), hint: { suggestSlice: true } }),
 	[LOOK_ACTION]: fixed('effects')
 };
 

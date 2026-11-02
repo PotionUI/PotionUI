@@ -1,6 +1,6 @@
 import { deflateSync } from 'node:zlib';
 import { test, expect, type Locator, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
+import { expectNoBoxOverlap, loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 
 const JOURNEY = 'image-editor-slice';
 const GENERATION_ID = 'gen-e2e-sheet';
@@ -225,6 +225,19 @@ async function savedTabs(page: Page): Promise<Array<{ id: string; kind?: string;
 
 const cells = (page: Page) => page.locator('[data-slice-overlay] [data-slice-cell]');
 const kept = (page: Page) => page.locator('[data-slice-overlay] [data-slice-cell]:not([data-slice-cell="skipped"])');
+async function lightShot(page: Page, label: string) {
+	await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
+	await screenshot(page, JOURNEY, label);
+	await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+}
+
+async function badgesClear(page: Page) {
+	await expectNoBoxOverlap([
+		{ name: 'canvas badge', locator: page.locator('[data-canvas-art] > .pointer-events-none.absolute.left-3.top-3 > *') },
+		{ name: 'cell 01 number', locator: page.locator('[data-slice-cell="01"] > span') }
+	]);
+}
+
 const rail = (page: Page, tool: string) => page.locator(`[data-tool-rail] button[data-tool="${tool}"]`);
 
 async function openSheetInEditor(page: Page) {
@@ -280,7 +293,10 @@ test.describe('Slice on desktop', () => {
 		await expect(page.locator('[data-slice-drag-chip]')).toContainText(/Gutter · \d+ px/);
 		await expect(page.locator('[data-slice-magnet]')).toHaveCount(2);
 		await screenshot(page, JOURNEY, '02-grid-snapped-1440');
+		await lightShot(page, '02-grid-snapped-light-1440');
 		await page.mouse.up();
+		await badgesClear(page);
+		await expect(page.locator('[data-editor-canvas]').getByText('Preview', { exact: true })).toHaveCount(0);
 		expect(await verticalBands(page)).toEqual([Math.round((300 / WIDTH) * 100), Math.round((610 / WIDTH) * 100)]);
 
 		await page.locator('[data-slice-detect]').first().click();
@@ -314,11 +330,13 @@ test.describe('Slice on desktop', () => {
 		await expect(primary).toHaveText('Save 4 images');
 		await page.locator('[data-frame-save-menu]').click();
 		const menu = page.getByRole('menu', { name: 'More save options' });
-		await expect(menu.locator('[data-save-row]')).toHaveCount(5);
+		await expect(menu.locator('[data-save-row]')).toHaveCount(6);
+		await expect(menu.locator('[data-save-row="new-generation"]')).toContainText('Pick a preset with a references field');
 		await expect(menu.locator('[data-save-row="replace"]')).toBeDisabled();
 		await expect(menu.locator('[data-save-row="references"]')).toContainText('Hero shot');
 		await expect(menu.locator('[data-save-row="references"]')).toContainText('8 of 8 slots free');
 		await screenshot(page, JOURNEY, '05b-save-menu-1440');
+		await lightShot(page, '05b-save-menu-light-1440');
 		await page.keyboard.press('Escape');
 
 		await primary.click();
@@ -373,6 +391,51 @@ test.describe('Slice from History', () => {
 		await expect(cells(page)).toHaveCount(6, { timeout: 15000 });
 		await expect(page.locator('[data-slice-detected]')).toContainText('6 panels found');
 		await expect.poll(async () => (await savedTabs(page)).filter((tab) => tab.kind === 'tool').map((tab) => [tab.tool, tab.activeTool])).toEqual([['image', 'slice']]);
+	});
+});
+
+test.describe('Slice from E', () => {
+	test.use({ viewport: { width: 1440, height: 900 } });
+
+	test('E on a sheet offers a quiet Slice chip that opens Slice with the panels', async ({ page }) => {
+		await mockBackend(page);
+		await loginAsOwner(page);
+		await page.goto('/history');
+		const card = page.locator(`[data-generation-card][data-generation-id="${GENERATION_ID}"]`);
+		await card.locator('.media-zoom').click();
+		await expect(page.getByRole('toolbar', { name: 'Actions' })).toBeVisible();
+		await page.keyboard.press('e');
+		await expect(page).toHaveURL(/\/generate/);
+		const chip = page.locator('[data-slice-suggest]');
+		await expect(chip).toContainText('Slice 6 panels', { timeout: 15000 });
+		await screenshot(page, JOURNEY, '09-e-chip-1440');
+		await chip.getByRole('button', { name: 'Slice 6 panels' }).click();
+		await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'slice');
+		await expect(cells(page)).toHaveCount(6, { timeout: 15000 });
+		await expect(chip).toHaveCount(0);
+	});
+
+	test('the Slice chip can be dismissed and stays dismissed for that picture', async ({ page }) => {
+		await mockBackend(page);
+		await loginAsOwner(page);
+		await page.goto('/history');
+		await page.locator(`[data-generation-card][data-generation-id="${GENERATION_ID}"]`).locator('.media-zoom').click();
+		await expect(page.getByRole('toolbar', { name: 'Actions' })).toBeVisible();
+		await page.keyboard.press('e');
+		const chip = page.locator('[data-slice-suggest]');
+		await expect(chip).toBeVisible({ timeout: 15000 });
+		await chip.getByRole('button', { name: 'Dismiss' }).click();
+		await expect(chip).toHaveCount(0);
+		const dismissed = await page.evaluate(() => JSON.parse(localStorage.getItem('potionui_slice_hint_dismissed') ?? '[]'));
+		expect(dismissed).toHaveLength(1);
+		await page.locator('a[href="/history"]').first().click();
+		await page.locator(`[data-generation-card][data-generation-id="${GENERATION_ID}"]`).locator('.media-zoom').click();
+		await expect(page.getByRole('toolbar', { name: 'Actions' })).toBeVisible();
+		await page.keyboard.press('e');
+		await expect(page.locator('[data-image-editor]')).toBeVisible({ timeout: 15000 });
+		await page.waitForLoadState('networkidle');
+		await page.waitForTimeout(800);
+		await expect(chip).toHaveCount(0);
 	});
 });
 

@@ -415,7 +415,7 @@
 		box-shadow: 0 0 0 1px rgb(var(--scrim) / 0.45), inset 0 0 0 1px rgb(var(--scrim) / 0.25);
 		cursor: pointer;
 	}
-	.cell:focus-visible {
+	:global(:where(html:not([data-input='pointer']))) .cell:focus-visible {
 		outline: 2px solid rgb(var(--signal));
 	}
 	.cell.is-on {
@@ -486,10 +486,10 @@
 	.knob.is-hot .grip {
 		box-shadow: 0 0 0 2px rgb(var(--signal)), 0 2px 8px rgb(var(--scrim) / 0.5);
 	}
-	.knob:focus-visible {
+	.knob {
 		outline: none;
 	}
-	.knob:focus-visible .grip {
+	:global(:where(html:not([data-input='pointer']))) .knob:focus-visible .grip {
 		box-shadow: 0 0 0 2px rgb(var(--signal));
 	}
 	.is-phone .knob {

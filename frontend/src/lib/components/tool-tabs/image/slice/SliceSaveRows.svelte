@@ -53,9 +53,11 @@
 			<span class="h-[7px] w-[7px] flex-none rounded-full" style="background: {target.color}" aria-hidden="true"></span>
 		{/if}
 	</button>
-{:else}
-	<p class="px-2.5 py-1.5 text-sm text-fg-subtle" data-save-row="references-empty">Open a generation tab with a references field to send these straight to it.</p>
 {/each}
+<button type="button" role="menuitem" class={row} onclick={() => onchoose({ kind: 'new-generation' })} data-save-row="new-generation">
+	<Icon name="plus" className={icon} />
+	<span class="min-w-0 flex-1">New generation tab…<span class={sub}>Pick a preset with a references field</span></span>
+</button>
 {#if !referencesOnly}
 	<div class="my-1 h-px bg-line" role="separator"></div>
 	<button type="button" role="menuitem" class={row} onclick={() => onchoose({ kind: 'download' })} data-save-row="download">

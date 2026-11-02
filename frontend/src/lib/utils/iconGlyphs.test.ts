@@ -161,6 +161,7 @@ describe('editor glyphs', () => {
 			'editor-rotate-right',
 			'editor-save',
 			'editor-send',
+			'editor-slice',
 			'editor-speed',
 			'editor-split',
 			'editor-subject',

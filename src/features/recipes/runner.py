@@ -287,6 +287,32 @@ class RecipeRunner:
             finished=finished,
         )
 
+    def record_cancelled_attempt(
+        self,
+        run_id: str,
+        step_key: str,
+        *,
+        attempt_id: Optional[str] = None,
+        safe_output: Optional[Dict[str, Any]] = None,
+        error_code: Optional[str] = None,
+        safe_error_detail: Optional[str] = None,
+    ) -> RecipeRun:
+        run = self.get_run_or_raise(run_id)
+        if run.status != RecipeRunStatus.CANCELLED:
+            raise IllegalRecipeRunTransition(run.status, RecipeRunStatus.CANCELLED)
+        fields: Dict[str, Any] = {
+            "safe_output": redact_safe_dict(safe_output) if safe_output else None,
+            "error_code": error_code,
+            "safe_error_detail": safe_error_detail,
+            "finished": True,
+        }
+        updated = None
+        if attempt_id is not None:
+            updated = self.repo.update_attempt(attempt_id, status=RecipeStepStatus.CANCELLED, **fields)
+        if updated is None:
+            self.repo.insert_attempt(run_id, step_key, RecipeStepStatus.CANCELLED, **fields)
+        return run
+
     # --- actions (routes call this) ---------------------------------------
 
     def apply_action(self, run_id: str, action: str) -> RecipeRun:
@@ -376,7 +402,13 @@ class RecipeRunner:
         steps_run = 0
         while run.status in (RecipeRunStatus.PENDING, RecipeRunStatus.RUNNING) and steps_run < max_steps:
             before = run.current_step
-            run = self.execute_current_step(run_id)
+            try:
+                run = self.execute_current_step(run_id)
+            except RecipeRunError:
+                run = self.get_run_or_raise(run_id)
+                if run.status != RecipeRunStatus.CANCELLED:
+                    raise
+                break
             steps_run += 1
             # A step that neither changed status nor advanced current_step
             # would spin forever (defensive; execute() always does one or the

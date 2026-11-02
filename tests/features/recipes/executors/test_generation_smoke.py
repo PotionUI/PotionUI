@@ -488,6 +488,40 @@ def test_a_finished_generation_is_not_cancelled():
     assert orchestrator.cancelled == []
 
 
+def _cancelled_after(checks):
+    seen = []
+
+    def is_cancelled():
+        seen.append(None)
+        return len(seen) > checks
+
+    return is_cancelled
+
+
+def test_cancelling_the_run_cancels_its_smoke_generation():
+    orchestrator = NeverCompletingOrchestrator()
+    context = _context(_recipe())
+    context.is_cancelled = _cancelled_after(1)
+
+    result = _executor(orchestrator).execute(context)
+
+    assert orchestrator.cancelled == ["gen-1"]
+    assert result.success is False
+    assert result.error_code == "GENERATION_SMOKE_CANCELLED"
+    assert result.safe_output == {"generation_id": "gen-1"}
+
+
+def test_a_generation_that_already_finished_is_not_cancelled_by_the_run_cancel():
+    orchestrator = FakeOrchestrator()
+    context = _context(_recipe())
+    context.is_cancelled = lambda: True
+
+    result = _executor(orchestrator).execute(context)
+
+    assert orchestrator.cancelled == []
+    assert result.success is True
+
+
 @pytest.fixture
 def app_loop():
     import threading
@@ -512,6 +546,22 @@ def test_the_generation_starts_on_the_app_loop_when_one_is_running(app_loop):
 
     assert result.success is True
     assert orchestrator.loops == [app_loop]
+
+
+def test_cancelling_the_run_cancels_the_generation_on_the_app_loop(app_loop):
+    orchestrator = NeverCompletingOrchestrator()
+    executor = GenerationSmokeExecutor(
+        FakePresetLoader(FakePresetTemplate()), object(), orchestrator, FakeFileRepository(),
+        app_loop=lambda: app_loop,
+    )
+    context = _context(_recipe())
+    context.is_cancelled = _cancelled_after(1)
+
+    result = executor.execute(context)
+
+    assert orchestrator.loops == [app_loop]
+    assert orchestrator.cancelled == ["gen-1"]
+    assert result.error_code == "GENERATION_SMOKE_CANCELLED"
 
 
 def test_the_generation_runs_on_its_own_loop_when_the_app_loop_is_not_up_yet():

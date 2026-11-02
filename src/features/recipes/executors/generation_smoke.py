@@ -129,6 +129,7 @@ class GenerationSmokeExecutor:
                     prompt=smoke.prompt if smoke else "",
                     negative_prompt=smoke.negative_prompt if smoke else "",
                     report_progress=context.report_progress,
+                    is_cancelled=context.is_cancelled,
                     timeout_seconds=smoke.timeout_seconds if smoke else DEFAULT_SMOKE_TIMEOUT_SECONDS,
                 ),
                 loop=self.app_loop() if self.app_loop is not None else None,
@@ -141,6 +142,14 @@ class GenerationSmokeExecutor:
                     "Make sure a backend for this preset's engine is running and reachable, "
                     "then retry this step."
                 ),
+            )
+
+        if outcome.get("run_cancelled"):
+            return StepResult(
+                success=False,
+                safe_output={"generation_id": outcome["generation_id"]},
+                error_code="GENERATION_SMOKE_CANCELLED",
+                safe_error_detail="The test generation was stopped because this setup was cancelled.",
             )
 
         if outcome["state"] != "completed" or outcome["output_count"] < 1:
@@ -194,6 +203,7 @@ class GenerationSmokeExecutor:
         prompt: str,
         negative_prompt: str,
         report_progress=None,
+        is_cancelled=None,
         timeout_seconds: int = DEFAULT_SMOKE_TIMEOUT_SECONDS,
     ) -> Dict[str, Any]:
         from src.features.generation.dto import GenerationRequest, PromptPair
@@ -258,7 +268,9 @@ class GenerationSmokeExecutor:
         generation_id = result.get("generation_id")
 
         try:
-            await asyncio.wait_for(self._wait_for_completion(done_event, generation_id), timeout=timeout_seconds)
+            run_cancelled = await asyncio.wait_for(
+                self._wait_for_completion(done_event, generation_id, is_cancelled), timeout=timeout_seconds
+            )
         except asyncio.TimeoutError:
             await self._abandon(generation_id)
             return {
@@ -266,6 +278,17 @@ class GenerationSmokeExecutor:
                 "state": "failed",
                 "output_count": output_count,
                 "error": f"timed out waiting for completion after {timeout_seconds}s",
+            }
+
+        if run_cancelled:
+            logger.info(f"generation.smoke: the setup run was cancelled, cancelling generation {generation_id}")
+            await self._abandon(generation_id)
+            return {
+                "generation_id": generation_id,
+                "state": "cancelled",
+                "output_count": output_count,
+                "error": None,
+                "run_cancelled": True,
             }
 
         status = await self._status_dict(generation_id)
@@ -288,15 +311,19 @@ class GenerationSmokeExecutor:
         except Exception as exc:
             logger.warning(f"generation.smoke: cancelling generation {generation_id} failed: {exc}")
 
-    async def _wait_for_completion(self, done_event: asyncio.Event, generation_id: Optional[str]) -> None:
+    async def _wait_for_completion(
+        self, done_event: asyncio.Event, generation_id: Optional[str], is_cancelled=None
+    ) -> bool:
         while True:
             if done_event.is_set():
-                return
+                return False
             if await self._terminal_state(generation_id) in _TERMINAL_STATES:
-                return
+                return False
+            if is_cancelled is not None and is_cancelled():
+                return True
             try:
                 await asyncio.wait_for(done_event.wait(), timeout=0.5)
-                return
+                return False
             except asyncio.TimeoutError:
                 continue
 

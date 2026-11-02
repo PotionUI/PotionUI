@@ -74,3 +74,18 @@ application loop runs, the step starts the generation on a loop of its own.
 Cancelling a running generation that its backend no longer knows and whose output bridge is gone
 (its loop has closed) marks it cancelled and releases its queue slot, instead of leaving it running
 forever with the backend held. A generation whose bridge is still alive is left to finish.
+
+## Cancelling a run during its test generation
+
+Cancelling a recipe run while its test generation is running cancels that generation through the
+orchestrator's normal cancel path. The step returns `GENERATION_SMOKE_CANCELLED` with the
+generation's id, its attempt is closed as cancelled with a finish time, and the run's drive thread
+ends without an error. Progress the generation reports after the cancel is dropped. A generation
+that has already finished when the cancel is seen is not cancelled, and its outputs are kept; the
+attempt is still closed as cancelled, since the run is.
+
+Every step gets the same check: `StepContext.is_cancelled()` turns true once the run is cancelled.
+A step that starts long work of its own, a plugin step kind included
+(`from src.plugin_api.recipes import StepContext`), should poll it and stop that work when it
+does. Whatever such a step returns after the cancel, its attempt is recorded as cancelled, and a
+cancel that lands between two steps stops the run before the next one.

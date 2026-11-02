@@ -121,7 +121,7 @@ class TestSliceRun(SliceBase):
         self.assertIsNone(self.service.last_params(self.user_id, "slice"))
 
 
-class TestProvenance(SliceBase):
+class TestSliceProvenance(SliceBase):
     def test_each_item_records_its_source_and_rect(self):
         sheet = self.sheet_item()
 
@@ -161,7 +161,7 @@ class TestProvenance(SliceBase):
         self.assertIsNone(self.upload_repo.get_by_id(run.items[0].id, self.user_id).provenance)
 
 
-class TestCollection(SliceBase):
+class TestSliceCollection(SliceBase):
     def test_every_output_joins_the_collection(self):
         sheet = self.sheet_item()
         collection = self.library_collection()
@@ -214,7 +214,7 @@ class TestCollection(SliceBase):
         self.refused(response, 400, "invalid_params")
 
 
-class TestRefusals(SliceBase):
+class TestSliceRefusals(SliceBase):
     def test_replace_and_update_are_refused_with_a_clear_message(self):
         sheet = self.sheet_item()
 
@@ -311,7 +311,7 @@ class TestRefusals(SliceBase):
         self.assertEqual(len(self.upload_rows()), 1)
 
 
-class TestCancel(SliceBase):
+class TestSliceCancel(SliceBase):
     def test_cancelling_between_cells_publishes_nothing(self):
         sheet = self.sheet_item()
         entered, release = threading.Event(), threading.Event()
@@ -340,7 +340,7 @@ class TestCancel(SliceBase):
         self.assertEqual(self.scratch_entries(), [])
 
 
-class TestAuthorization(SliceBase):
+class TestSliceAuthorization(SliceBase):
     def test_another_users_sheet_is_a_404(self):
         theirs = self.sheet_item("theirs.png", user_id=self.other_user_id)
 

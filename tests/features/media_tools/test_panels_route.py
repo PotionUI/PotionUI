@@ -6,7 +6,7 @@ from tests.features.media_tools.test_slice_service import BG, SliceBase
 URL = "/api/media-tools/analyse/panels"
 
 
-class TestDetectPanels(SliceBase):
+class TestDetectPanelsRoute(SliceBase):
     def grid_sheet(self, name="grid.png", size=(600, 400)):
         image = Image.new("RGB", size, BG)
         for left in (20, 220, 420):

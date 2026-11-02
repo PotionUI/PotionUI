@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
@@ -7,11 +8,11 @@ import { dispatchGenerationMessage } from '$lib/stores/generation';
 // side effect, which registers the workbench_update handler under test.
 
 function defaultTabId(): string {
-	return get(tabsStore).tabs[0].id;
+	return generationTabs(get(tabsStore).tabs)[0].id;
 }
 
 function seedCurrentGeneration(tabId: string, generationId: string) {
-	const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+	const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 	tabsStore.updateTab(tabId, {
 		generation: {
 			...tab.generation,
@@ -21,7 +22,7 @@ function seedCurrentGeneration(tabId: string, generationId: string) {
 }
 
 function currentGeneration(tabId: string): any {
-	return get(tabsStore).tabs.find((t) => t.id === tabId)!.generation.currentGeneration;
+	return generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!.generation.currentGeneration;
 }
 
 describe('workbench_update message handler - mesh', () => {

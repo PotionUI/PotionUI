@@ -623,7 +623,56 @@ def test_get_frontend_extensions_excludes_disabled_plugins(mock_plugin_repo, moc
     result = operations.get_frontend_extensions(mock_plugin_repo, mock_plugin_registry)
 
     # Assert
-    assert result == {"renderers": [], "contributions": [], "revisions": {}}
+    assert result == {"renderers": [], "contributions": [], "tool_tabs": [], "revisions": {}}
+
+
+def test_get_frontend_extensions_serves_tool_tabs_with_namespaced_tool(mock_plugin_repo, mock_plugin_registry, sample_plugin):
+    mock_plugin_repo.get_enabled_plugins.return_value = [sample_plugin]
+    manifest = PluginManifest(
+        id="test-plugin-1",
+        name="Test Plugin",
+        version="1.0.0",
+        description="A test plugin",
+        author="Test Author",
+        plugin_type="frontend-only",
+        tool_tabs=[
+            {
+                "id": "stamp",
+                "label": "Stamp tool",
+                "icon": "brush",
+                "accepts": ["image"],
+                "handles": ["image.crop"],
+                "component": "frontend/dist/StampToolTab.js",
+            },
+            {"id": "bare", "label": "Bare tool", "component": "BareToolTab.js"},
+        ],
+    )
+    mock_plugin_registry.get_plugin.return_value = manifest
+
+    result = operations.get_frontend_extensions(mock_plugin_repo, mock_plugin_registry)
+
+    assert result["tool_tabs"] == [
+        {
+            "plugin_id": "test-plugin-1",
+            "id": "stamp",
+            "tool": "test-plugin-1.stamp",
+            "label": "Stamp tool",
+            "icon": "brush",
+            "accepts": ["image"],
+            "handles": ["image.crop"],
+            "component": "StampToolTab.js",
+        },
+        {
+            "plugin_id": "test-plugin-1",
+            "id": "bare",
+            "tool": "test-plugin-1.bare",
+            "label": "Bare tool",
+            "icon": None,
+            "accepts": [],
+            "handles": [],
+            "component": "BareToolTab.js",
+        },
+    ]
 
 
 def test_get_frontend_extensions_sorts_contributions_by_order(mock_plugin_repo, mock_plugin_registry, sample_plugin):

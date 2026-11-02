@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { modeDescription } from '$lib/utils/modeDescription';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 	import type DynamicForm from '$lib/components/DynamicForm.svelte';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
@@ -18,9 +18,10 @@
 	import StudioPresetSessionSheet from './StudioPresetSessionSheet.svelte';
 	import GenerationFormSeed from '../GenerationFormSeed.svelte';
 	import { chatPanelStore } from '$lib/stores/chatPanel';
+	import TabsSheet from '$lib/tool-tabs/TabsSheet.svelte';
 	import { modeLabel as resolveModeLabel } from '$lib/utils/modeLabel.svelte';
 
-	export let tab: Tab;
+	export let tab: GenerationTab;
 	export let tabHandlers: {
 		handlePresetChange: (presetId: string) => void;
 		handleModeChange: (mode: string) => void;
@@ -63,7 +64,7 @@
 		return () => observer.disconnect();
 	});
 
-	type SheetName = 'prompt' | 'settings' | 'preset';
+	type SheetName = 'prompt' | 'settings' | 'preset' | 'tabs';
 	let openSheet: SheetName | null = null;
 	function closeSheet() {
 		openSheet = null;
@@ -98,6 +99,7 @@
 		{presetName}
 		{modeLabel}
 		onOpenPresetSheet={() => (openSheet = 'preset')}
+		onOpenTabsSheet={() => (openSheet = 'tabs')}
 		onOpenChatSheet={() => chatPanelStore.open()}
 	/>
 
@@ -143,6 +145,8 @@
 		{dynamicFormRefs}
 		onClose={closeSheet}
 	/>
+{:else if openSheet === 'tabs'}
+	<TabsSheet onClose={closeSheet} />
 {:else if openSheet === 'preset'}
 	<StudioPresetSessionSheet
 		{tab}

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 vi.mock('$lib/services/api', () => ({
@@ -27,7 +28,7 @@ function mountBar() {
 
 function tabIds(): string[] {
 	let ids: string[] = [];
-	const unsub = tabsStore.subscribe((s) => (ids = s.tabs.map((t) => t.id)));
+	const unsub = tabsStore.subscribe((s) => (ids = generationTabs(s.tabs).map((t) => t.id)));
 	unsub();
 	return ids;
 }
@@ -242,14 +243,14 @@ describe('guarded tab close', () => {
 
 function publishForm(id: string, formData: Record<string, unknown>) {
 	let tab: never = undefined as never;
-	const unsub = tabsStore.subscribe((s) => (tab = s.tabs.find((t) => t.id === id) as never));
+	const unsub = tabsStore.subscribe((s) => (tab = generationTabs(s.tabs).find((t) => t.id === id) as never));
 	unsub();
 	tabsStore.updateTab(id, { selectedPreset: 'some-preset', ...formDataPublicationPatch(tab, formData) });
 }
 
 function tabsStoreGeneration(id: string) {
 	let generation: Record<string, unknown> = {};
-	const unsub = tabsStore.subscribe((s) => (generation = { ...s.tabs.find((t) => t.id === id)!.generation }));
+	const unsub = tabsStore.subscribe((s) => (generation = { ...generationTabs(s.tabs).find((t) => t.id === id)!.generation }));
 	unsub();
 	return generation;
 }

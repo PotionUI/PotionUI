@@ -1,4 +1,4 @@
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 import { rewriteMergedMarkers } from '$lib/form/mergeFrom';
 
 export const PROMPT_STATE_KEYS = [
@@ -12,7 +12,7 @@ export const PROMPT_STATE_KEYS = [
 	'musicDirector'
 ] as const;
 
-export function tabMergedMarkerUpdates(tab: Partial<Tab>, aliases: Record<string, string>): Partial<Tab> | null {
+export function tabMergedMarkerUpdates(tab: Partial<GenerationTab>, aliases: Record<string, string>): Partial<GenerationTab> | null {
 	if (!Object.keys(aliases).length) return null;
 	const updates: Record<string, unknown> = {};
 	for (const key of PROMPT_STATE_KEYS) {
@@ -21,5 +21,5 @@ export function tabMergedMarkerUpdates(tab: Partial<Tab>, aliases: Record<string
 		const next = rewriteMergedMarkers(value, aliases);
 		if (next !== value) updates[key] = next;
 	}
-	return Object.keys(updates).length ? (updates as Partial<Tab>) : null;
+	return Object.keys(updates).length ? (updates as Partial<GenerationTab>) : null;
 }

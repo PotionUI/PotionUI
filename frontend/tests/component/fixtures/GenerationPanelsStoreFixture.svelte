@@ -1,10 +1,11 @@
 <script lang="ts">
+	import { generationTabs } from '$lib/types/tabs';
 	import { tabsStore } from '$lib/stores/tabs';
 	import GenerationPanels from '../../../src/routes/generate/components/GenerationPanels.svelte';
 
 	export let tabId: string;
 
-	$: tab = $tabsStore.tabs.find((candidate) => candidate.id === tabId)!;
+	$: tab = generationTabs($tabsStore.tabs).find((candidate) => candidate.id === tabId)!;
 
 	const noop = () => {};
 </script>

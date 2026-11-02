@@ -5,7 +5,7 @@
 	import type { VariableRoll } from '$lib/utils/variableDefs';
 	import type { Segment } from '$lib/types/segments';
 	import { activeLoraTriggersForTab } from '$lib/stores/activeLoraTriggers';
-	import type { Tab, DirectorRunState } from '$lib/types/tabs';
+	import type { GenerationTab, DirectorRunState } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import type { VariablesMap, VariableDef } from '$lib/utils/variableDefs';
@@ -78,7 +78,7 @@
 		promptCopy = NO_PROMPT_COPY,
 		spacingClass = 'mt-4'
 	}: {
-		tab: Tab;
+		tab: GenerationTab;
 		tabHandlers: TabHandlers;
 		promptRelayActive: boolean;
 		videoDirectorActive?: boolean;

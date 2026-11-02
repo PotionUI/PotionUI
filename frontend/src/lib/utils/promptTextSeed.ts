@@ -1,8 +1,8 @@
-import type { PromptTabData, Tab } from '$lib/types/tabs';
+import type { PromptTabData, GenerationTab } from '$lib/types/tabs';
 import type { Segment } from '$lib/types/segments';
 import { isPristinePlaceholderList, toEditorSegment } from '$lib/utils/richSegments';
 
-type PromptFields = Pick<Tab, 'prompt' | 'negativePrompt' | 'promptSegments' | 'negativePromptSegments'>;
+type PromptFields = Pick<GenerationTab, 'prompt' | 'negativePrompt' | 'promptSegments' | 'negativePromptSegments'>;
 
 function seedSide(text: string | undefined, segments: Segment[] | undefined, id: string): Segment[] | null {
 	const list = segments ?? [];

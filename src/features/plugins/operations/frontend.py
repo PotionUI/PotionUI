@@ -151,6 +151,7 @@ def get_frontend_extensions(repo: PluginRepository, registry: PluginRegistry) ->
     revisions: Dict[str, str] = {}
     renderers: List[Dict[str, Any]] = []
     contributions: List[Dict[str, Any]] = []
+    tool_tabs: List[Dict[str, Any]] = []
     enabled_db_plugins = repo.get_enabled_plugins()
 
     for plugin in enabled_db_plugins:
@@ -181,8 +182,33 @@ def get_frontend_extensions(repo: PluginRepository, registry: PluginRegistry) ->
                 "frame": contribution_def.get("frame", "shell"),
             })
 
+        for tool_tab_def in manifest.tool_tabs:
+            tool_tabs.append(_tool_tab_entry(manifest.id, tool_tab_def))
+
     contributions.sort(key=lambda c: c["order"])
-    return {"renderers": renderers, "contributions": contributions, "revisions": revisions}
+    return {
+        "renderers": renderers,
+        "contributions": contributions,
+        "tool_tabs": tool_tabs,
+        "revisions": revisions,
+    }
+
+
+def _tool_tab_entry(plugin_id: str, tool_tab_def: Dict[str, Any]) -> Dict[str, Any]:
+    component = str(tool_tab_def.get("component") or "")
+    prefix = "frontend/dist/"
+    if component.startswith(prefix):
+        component = component[len(prefix):]
+    return {
+        "plugin_id": plugin_id,
+        "id": tool_tab_def.get("id"),
+        "tool": f"{plugin_id}.{tool_tab_def.get('id')}",
+        "label": tool_tab_def.get("label"),
+        "icon": tool_tab_def.get("icon"),
+        "accepts": list(tool_tab_def.get("accepts") or []),
+        "handles": list(tool_tab_def.get("handles") or []),
+        "component": component,
+    }
 
 
 def get_hooks_catalog() -> List[Dict[str, Any]]:

@@ -1,18 +1,18 @@
 import type { RichSegment } from '$lib/types/segments';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 import { applySegmentList } from '$lib/utils/richSegments';
 import { resolvePromptSegments } from '$lib/utils/promptSegments';
 import { mergeVariables } from '$lib/utils/variablesTransfer';
 import type { VariablesMap } from '$lib/utils/variableDefs';
 
 export interface UseInGenerateUpdate {
-	updates: Partial<Tab>;
+	updates: Partial<GenerationTab>;
 	importedVariables: number;
 	message: string;
 }
 
 export function buildUseInGenerateUpdate(
-	tab: Pick<Tab, 'promptSegments' | 'negativePromptSegments' | 'variables'>,
+	tab: Pick<GenerationTab, 'promptSegments' | 'negativePromptSegments' | 'variables'>,
 	segments: RichSegment[],
 	variables: VariablesMap | null | undefined,
 	usageHint: string,
@@ -22,7 +22,7 @@ export function buildUseInGenerateUpdate(
 	const currentList = (isNegative ? tab.negativePromptSegments : tab.promptSegments) ?? [];
 	const nextList = applySegmentList(currentList, segments, 'replace');
 	const resolved = resolvePromptSegments(nextList);
-	const updates: Partial<Tab> = isNegative
+	const updates: Partial<GenerationTab> = isNegative
 		? { negativePromptSegments: nextList, negativePrompt: resolved, sourcePromptId }
 		: { promptSegments: nextList, prompt: resolved, sourcePromptId };
 	const importedVariables = variables ? Object.keys(variables).length : 0;

@@ -3,6 +3,7 @@
 // stable-subscription fixture below, which drives a REAL WebSocketService
 // (its comparisons against `WebSocket.OPEN` etc. need the global jsdom
 // provides) rather than a hand-rolled stand-in.
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
@@ -26,11 +27,11 @@ import {
 } from '$lib/generation/messages/generationOutputs';
 
 function defaultTabId(): string {
-	return get(tabsStore).tabs[0].id;
+	return generationTabs(get(tabsStore).tabs)[0].id;
 }
 
 function currentTab(tabId: string) {
-	return get(tabsStore).tabs.find((t) => t.id === tabId)!;
+	return generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 }
 
 function seedDirectorRun(

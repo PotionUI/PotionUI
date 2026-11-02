@@ -59,7 +59,8 @@ import type {
 	SessionVersionDetail,
 	SessionVersionSummary
 } from '$lib/types/api';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab, Tab } from '$lib/types/tabs';
+import { findGenerationTab } from '$lib/types/tabs';
 import type { VariablesMap } from '$lib/utils/variableDefs';
 import type { GenerationLayoutMode } from '$lib/stores/generationLayout';
 import { resolveVariant } from '$lib/utils/variants';
@@ -209,7 +210,7 @@ export interface SessionControllerApi {
 
 export interface SessionControllerTabs {
 	subscribe(run: (value: { tabs: Tab[] }) => void): () => void;
-	updateTab(tabId: string, updates: Partial<Tab>): void;
+	updateTab(tabId: string, updates: Partial<GenerationTab>): void;
 }
 
 export interface SessionControllerStorage {
@@ -338,10 +339,10 @@ const defaultTimers: SessionControllerTimers = {
 	clearTimeout: (id) => clearTimeout(id)
 };
 
-function tabDataUnchangedForDerivation(a: Tab | undefined, b: Tab | undefined): boolean {
+function tabDataUnchangedForDerivation(a: GenerationTab | undefined, b: GenerationTab | undefined): boolean {
 	if (a === b) return true;
 	if (!a || !b) return false;
-	for (const key of new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof Tab>) {
+	for (const key of new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof GenerationTab>) {
 		if (key === 'generation') continue;
 		if (a[key] !== b[key]) return false;
 	}
@@ -365,7 +366,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	let destroyed = false;
 
 	let tabs: Tab[] = [];
-	let currentTabData: Tab | undefined;
+	let currentTabData: GenerationTab | undefined;
 
 	let sessions: Session[] = [];
 	let selectedSessionId = '';
@@ -515,8 +516,8 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		if (!destroyed) store.set(snapshot());
 	}
 
-	function readTab(): Tab | undefined {
-		return tabs.find((tab) => tab.id === ctx.tabId);
+	function readTab(): GenerationTab | undefined {
+		return findGenerationTab(tabs, ctx.tabId);
 	}
 
 	const collectedBeforeFormPublished = new WeakSet<object>();
@@ -966,7 +967,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		const restoredPatch = buildSessionRestoreTabPatch(modeData, {
 			promptPanelWidth: currentTabData?.promptPanelWidth
 		});
-		const reloadPatch: Partial<Tab> = {
+		const reloadPatch: Partial<GenerationTab> = {
 			formReloadGeneration: (currentTabData?.formReloadGeneration ?? 0) + 1,
 			...(options.reload
 				? {

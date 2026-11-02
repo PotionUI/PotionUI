@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 
@@ -22,11 +23,11 @@ import {
 // side effect, which registers the generation_complete handler under test.
 
 function defaultTabId(): string {
-	return get(tabsStore).tabs[0].id;
+	return generationTabs(get(tabsStore).tabs)[0].id;
 }
 
 function setCurrentGeneration(tabId: string, currentGeneration: any) {
-	const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+	const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 	tabsStore.updateTab(tabId, { generation: { ...tab.generation, currentGeneration } });
 }
 

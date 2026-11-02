@@ -20,6 +20,7 @@
 	title={copy?.title ?? 'Close tab?'}
 	message={copy?.message ?? ''}
 	variant="danger"
+	confirmLabel={copy?.confirmLabel ?? 'Confirm'}
 	on:confirm={confirmCloseTab}
 	on:cancel={cancelCloseTab}
 />

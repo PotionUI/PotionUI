@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import { flushSync } from 'svelte';
@@ -58,7 +59,7 @@ let extraTabIds: string[] = [];
 let mounted: { target: HTMLElement; component: { $set: (p: object) => void; $destroy: () => void } } | undefined;
 
 function tab() {
-	return get(tabsStore).tabs.find((t) => t.id === tabId)!;
+	return generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 }
 
 function mountWorkspace() {

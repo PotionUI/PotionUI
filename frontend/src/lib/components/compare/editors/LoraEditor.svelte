@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { findGenerationTab } from '$lib/types/tabs';
 	import ModelPickerDropdown from './ModelPickerDropdown.svelte';
 	import NumberValuesInput from './NumberValuesInput.svelte';
 	import { tabsStore } from '$lib/stores/tabs';
@@ -23,7 +24,7 @@
 
 	type Row = { model: string; strength?: number };
 
-	let tab = $derived($tabsStore.tabs.find((entry) => entry.id === tabId));
+	let tab = $derived(findGenerationTab($tabsStore.tabs, tabId));
 	let rows = $derived.by(() => {
 		const raw = tab?.formData?.[candidate.field];
 		return (Array.isArray(raw) ? raw : []).filter((row): row is Row => !!row && typeof row.model === 'string');

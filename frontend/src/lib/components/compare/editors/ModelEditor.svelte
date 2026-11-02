@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { findGenerationTab } from '$lib/types/tabs';
 	import Icon from '$lib/components/Icon.svelte';
 	import ModelPickerDropdown from './ModelPickerDropdown.svelte';
 	import { tabsStore } from '$lib/stores/tabs';
@@ -19,7 +20,7 @@
 	} = $props();
 
 	let values = $derived(axis?.values ?? []);
-	let presetId = $derived($tabsStore.tabs.find((tab) => tab.id === tabId)?.selectedPreset ?? '');
+	let presetId = $derived(findGenerationTab($tabsStore.tabs, tabId)?.selectedPreset ?? '');
 	let chosen = $derived(new Set(values.map((entry) => String(entry.value))));
 	let paths = $state<Record<string, string>>({});
 

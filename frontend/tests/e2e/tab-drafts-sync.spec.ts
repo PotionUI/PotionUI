@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route, type WebSocketRoute } from '@playwright/test';
-import { loginAsOwner, scopedStorageKey, screenshot } from './helpers';
+import { loginAsOwner, scopedStorageKey, screenshot, addGenerationTab } from './helpers';
 import { installAndSelectImagePreset } from './presetPreamble';
 
 const JOURNEY = 'tab-drafts-sync';
@@ -195,7 +195,7 @@ test('edits sync, reload rehydrates, offline outbox flushes, closing a tab delet
 	await expect(modal.getByLabel('Variable value').first()).toHaveValue('watercolor');
 	await modal.getByRole('button', { name: 'Done' }).click();
 
-	await page.getByRole('button', { name: 'Add new tab' }).click();
+	await addGenerationTab(page);
 	await page.locator('button.book-tab', { hasText: 'Generation 1' }).locator('.close-button').click({ force: true });
 	const confirm = page.getByRole('button', { name: 'Confirm', exact: true });
 	if (await confirm.isVisible().catch(() => false)) await confirm.click();
@@ -353,7 +353,7 @@ test('closing a tab with unsaved variables warns first and Cancel keeps the draf
 	await expect.poll(() => server.posts.length, { timeout: 10000 }).toBeGreaterThan(0);
 	const tabId = server.posts[0].tabId;
 
-	await page.getByRole('button', { name: 'Add new tab' }).click();
+	await addGenerationTab(page);
 	await page.locator('button.book-tab', { hasText: 'Generation 1' }).locator('.close-button').click({ force: true });
 	const warning = page.getByText("This tab's variables aren't saved anywhere else.");
 	await expect(warning).toBeVisible({ timeout: 10000 });

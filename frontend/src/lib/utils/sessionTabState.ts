@@ -1,5 +1,5 @@
 import type { ModeBasedSessionData } from '$lib/services/api';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 import { DEFAULT_PROMPT_PANEL_WIDTH } from '$lib/stores/generationLayout';
 import { mergeCachedModesIntoSessionData } from '$lib/utils/modeState';
 import { compareHasContent } from '$lib/generation/compare/axisValues';
@@ -10,7 +10,7 @@ import { compareHasContent } from '$lib/generation/compare/axisValues';
  * saved baseline that the pill compares against after it is remounted.
  */
 export function collectTabSessionData(
-	tab: Tab | undefined,
+	tab: GenerationTab | undefined,
 	currentMode: string | null | undefined,
 	savedSessionData: ModeBasedSessionData = {},
 	presetVersion?: string
@@ -139,7 +139,7 @@ export function normalizeSessionBaselineFormData(
 
 export function formDataPublicationPatch(
 	tab: Pick<
-		Tab,
+		GenerationTab,
 		| 'sessionBaselineAwaitingFormNormalization'
 		| 'selectedSessionId'
 		| 'selectedMode'
@@ -147,7 +147,7 @@ export function formDataPublicationPatch(
 		| 'formPublished'
 	>,
 	formData: Record<string, unknown>
-): Partial<Tab> {
+): Partial<GenerationTab> {
 	const baseline = tab.formPublished ? {} : { formBaselineSignature: JSON.stringify(formData) };
 	if (tab.sessionBaselineAwaitingFormNormalization && tab.selectedSessionId && tab.selectedMode) {
 		return {

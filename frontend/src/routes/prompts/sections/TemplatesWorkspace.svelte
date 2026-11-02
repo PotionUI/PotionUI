@@ -32,6 +32,7 @@
 		toRichSegment
 	} from '$lib/utils/richSegments';
 	import { tabsStore, activeTab } from '$lib/stores/tabs';
+	import { ensureGenerationTabActive } from '$lib/tool-tabs/open';
 	import { libraryTabVariables } from '$lib/prompts/libraryTabVariables';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
@@ -197,6 +198,7 @@
 	}
 
 	function applyToActiveTab(payload: Pick<SegmentTemplate, 'id' | 'name' | 'segments'>) {
+		ensureGenerationTabActive();
 		const tab = get(activeTab);
 		if (!tab) {
 			toasts.error('Open a Generate tab first');

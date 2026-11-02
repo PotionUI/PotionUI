@@ -7,6 +7,7 @@
 	export let presetName: string | undefined = undefined;
 	export let modeLabel: string | undefined = undefined;
 	export let onOpenPresetSheet: () => void;
+	export let onOpenTabsSheet: () => void;
 	export let onOpenChatSheet: () => void;
 
 	$: unsaved = !!$activeTab && tabShowsUnsavedChanges($activeTab, $tabSessionDirty);
@@ -20,7 +21,7 @@
 		type="button"
 		class="pointer-events-auto flex flex-shrink-0 items-center gap-1.5 rounded-full border border-line-strong bg-surface-1/85 px-2.5 py-1.5 text-sm font-medium text-fg backdrop-blur-sm"
 		aria-label={unsaved ? 'Open tabs, unsaved changes' : 'Open tabs'}
-		on:click={onOpenPresetSheet}
+		on:click={onOpenTabsSheet}
 	>
 		{tabName}
 		{#if unsaved}

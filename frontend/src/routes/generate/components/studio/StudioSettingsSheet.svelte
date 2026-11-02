@@ -2,9 +2,9 @@
 	import StudioSheet from '$lib/components/StudioSheet.svelte';
 	import GenerationFormPane from '../GenerationFormPane.svelte';
 	import type DynamicForm from '$lib/components/DynamicForm.svelte';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 
-	export let tab: Tab;
+	export let tab: GenerationTab;
 	export let presetName: string | undefined = undefined;
 	export let modeLabel: string | undefined = undefined;
 	export let videoDirectorActive: boolean;

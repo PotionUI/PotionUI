@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab, ToolTab } from '$lib/types/tabs';
 import { describeTabClose, tabHasUnsavedVariables } from './closeConfirm';
 
-function tab(overrides: Partial<Tab> = {}, queue: Tab['generation']['queue'] = [], isGenerating = false): Tab {
+function tab(overrides: Partial<GenerationTab> = {}, queue: GenerationTab['generation']['queue'] = [], isGenerating = false): GenerationTab {
 	return {
 		id: 'tab-a',
 		name: 'Fox study',
@@ -15,9 +15,9 @@ function tab(overrides: Partial<Tab> = {}, queue: Tab['generation']['queue'] = [
 		negativePromptSegments: [],
 		formData: {},
 		variables: {},
-		generation: { isGenerating, queue } as Tab['generation'],
+		generation: { isGenerating, queue } as GenerationTab['generation'],
 		...overrides
-	} as Tab;
+	} as GenerationTab;
 }
 
 describe('describeTabClose', () => {
@@ -70,5 +70,30 @@ describe('unsaved variables close warning', () => {
 
 	it('stays quiet for a tab applied from a saved prompt', () => {
 		expect(tabHasUnsavedVariables(tab({ variables: mood, sourcePromptId: 'p1' }))).toBe(false);
+	});
+});
+
+describe('closing a tool tab', () => {
+	const toolTab = (dirty: number): ToolTab => ({
+		kind: 'tool',
+		id: 'tool-a',
+		name: 'observatory-dusk',
+		tool: 'image',
+		source: null,
+		state: null,
+		dirty
+	});
+
+	it('asks to discard the unsaved edits, counting them', () => {
+		expect(describeTabClose(toolTab(2))).toEqual({
+			title: 'Discard 2 unsaved edits?',
+			message: '“observatory-dusk” will be closed.',
+			confirmLabel: 'Discard and close'
+		});
+		expect(describeTabClose(toolTab(1)).title).toBe('Discard 1 unsaved edit?');
+	});
+
+	it('uses the plain close prompt when nothing is unsaved', () => {
+		expect(describeTabClose(toolTab(0))).toEqual({ title: 'Close tab?', message: '“observatory-dusk” will be closed.' });
 	});
 });

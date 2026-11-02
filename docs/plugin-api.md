@@ -2191,6 +2191,57 @@ yourself, and you should never call anything on `gen` beyond this surface — ev
 `src.plugin_api` exists to keep you out of. If your pipe genuinely needs another `NativeGenerator`
 operation, that is a gap in this surface — ask for it, the same as any other plugin_api gap.
 
+## Contributing a tool tab
+
+A tool tab is a whole Generate tab owned by one tool, next to the core Image editor and Video
+editor tabs. It has no form pane, Workbench or deck: the tab area is your component. Declare it
+in `manifest.yml`:
+
+```yaml
+tool_tabs:
+  - id: stamp
+    label: Stamp tool
+    icon: brush
+    accepts: [image]
+    handles: []
+    component: StampToolTab.svelte
+```
+
+| Key | Meaning |
+|---|---|
+| `id` | Lowercase slug, unique within the plugin. The tab's tool kind is `<plugin id>.<id>`. |
+| `label` | Shown in the "+" menu under "From plugins", in the phone Tabs sheet and as the default tab name. |
+| `icon` | An app icon name (`brush`, `sliders`, `film`, ...). Defaults to `extension`. |
+| `accepts` | Media kinds (`image`, `video`, `audio`) the tool can open. |
+| `handles` | Edit actions the tool claims, for the History and Library shortcuts. |
+| `component` | The compiled component under `frontend/dist/` (a `frontend/dist/` prefix is accepted). |
+
+The entries are served with the other manifest-declared extensions
+(`GET /api/plugins/frontend-extensions`, key `tool_tabs`) for enabled plugins only, and the
+frontend registers them through the same refresh that loads renderers and field types. A tab whose
+plugin is later disabled stays open and says the tool is not available.
+
+The component receives one prop, `host`:
+
+| Member | What it is |
+|---|---|
+| `tabId`, `tool` | The tab's id and its tool kind. |
+| `source` | The media the tab was opened on (`{ path, relative_path?, url?, name?, type? }`), or `null`. |
+| `state` | Your persisted JSON state, or `null` for a fresh tab. Keep it small: params and ids, never pixels. |
+| `activeTool` | The sub-tool the tab should open on, when it was opened from a shortcut. |
+| `run` | The background run the tab is tracking (`{ runId, progress }`), so a reload can reattach. |
+| `phone` | `true` when the tab renders in the phone layout. |
+| `setState(next)` | Persist new state. It is saved with the tab and in Workspaces. |
+| `setDirty(edits)` | The number of unsaved edits. It drives the tab's warning dot and the close prompt. |
+| `setTitle(title)`, `setThumbnail(url)` | Name the tab (unless the user renamed it) and set its 20px thumbnail. |
+| `setSource(ref)`, `setActiveTool(id)`, `setRun(run)` | Update what the tab is open on and what it tracks. |
+| `setActions({ undo, redo, save })` | Fill the phone top bar's Undo and Save buttons (`{ label?, disabled?, run }`; `save` also takes `progress`). |
+| `openToolTab(tool, source, { activeTool })` | Open another tool tab, following the same rules as the History and Library shortcuts. |
+
+Opening a tab focuses one that already holds the same item, fills an empty tab of the same kind
+next, and otherwise adds a new tab. Bitmaps your tool produces are uploaded and referenced by id;
+the tab never stores them inline.
+
 ## Extending the image editor
 
 The media loader's image editor (**Edit** on a loaded image, **Draw a new image** on an empty
@@ -2519,7 +2570,7 @@ shipped as a file: copy what you need from `@xyflow/svelte/dist/style.css` into 
 ## Building your plugin's frontend
 
 Every plugin frontend (a `pages[].component`, a `field_types[].component`, an
-`admin_tabs[].component`, ...) compiles through the single shared toolchain in
+`admin_tabs[].component`, a `tool_tabs[].component`, ...) compiles through the single shared toolchain in
 `content/plugins/package.json` (esbuild + esbuild-svelte, pinned to the frontend's Svelte
 major), driven by `scripts/build-plugins.mjs`:
 

@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, afterEach, beforeEach, vi, onTestFinished } from 'vitest';
 import { mount, unmount, flushSync, tick } from 'svelte';
 import { get } from 'svelte/store';
@@ -148,7 +149,7 @@ let stopTabSync: (() => void) | null = null;
 let liveProps: ReturnType<typeof reactiveProps> | null = null;
 
 function tab() {
-	return get(tabsStore).tabs.find((t) => t.id === tabId)!;
+	return generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 }
 
 function measure(next: Record<string, Box>) {

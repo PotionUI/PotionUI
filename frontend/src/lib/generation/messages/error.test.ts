@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 
@@ -18,11 +19,11 @@ import { isGenerationOutputsRetired, resetGenerationOutputsRetirementForTests } 
 // handler under test.
 
 function defaultTabId(): string {
-	return get(tabsStore).tabs[0].id;
+	return generationTabs(get(tabsStore).tabs)[0].id;
 }
 
 function setCurrentGeneration(tabId: string, currentGeneration: any) {
-	const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+	const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 	tabsStore.updateTab(tabId, { generation: { ...tab.generation, currentGeneration } });
 }
 
@@ -89,7 +90,7 @@ describe('generation_error message handler — failure payloads', () => {
 	});
 
 	function failedGeneration(tabId: string) {
-		return get(tabsStore).tabs.find((t) => t.id === tabId)!.generation.currentGeneration as any;
+		return generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!.generation.currentGeneration as any;
 	}
 
 	it('shows a regular user the safe message with the hint and error id', () => {
@@ -164,7 +165,7 @@ describe('generation_cancelled cancel notice', () => {
 	});
 
 	function noticeOf(tabId: string) {
-		return get(tabsStore).tabs.find((t) => t.id === tabId)!.generation.cancelNotice;
+		return generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!.generation.cancelNotice;
 	}
 
 	it('keeps the notice the backend sends on the cancelled message', () => {
@@ -177,7 +178,7 @@ describe('generation_cancelled cancel notice', () => {
 		);
 
 		expect(noticeOf(tabId)).toBe(NOTICE);
-		expect(get(tabsStore).tabs.find((t) => t.id === tabId)!.generation.isGenerating).toBe(false);
+		expect(generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!.generation.isGenerating).toBe(false);
 	});
 
 	it('has no notice when the cancel was confirmed', () => {
@@ -218,7 +219,7 @@ describe('generation_cancelled cancel notice', () => {
 
 	function ownTab(tabId: string, id: string) {
 		setCurrentGeneration(tabId, { generation_id: id });
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		tabsStore.updateTab(tabId, { activeGenerationId: id, generation: { ...tab.generation, isGenerating: true } });
 	}
 
@@ -258,7 +259,7 @@ describe('generation_cancelled cancel notice', () => {
 
 	it('does not attach a completion notice to a generation that was not the one cancelled', () => {
 		const tabId = defaultTabId();
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		tabsStore.updateTab(tabId, {
 			activeGenerationId: 'gen-z',
 			generation: {

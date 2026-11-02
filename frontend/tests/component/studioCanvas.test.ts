@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { flushSync } from 'svelte';
-import type { GenerationState, Tab } from '$lib/types/tabs';
+import type { GenerationState, GenerationTab } from '$lib/types/tabs';
 
 vi.mock('$lib/generation/compare/compareApi', () => ({
 	postGrid: vi.fn(),
@@ -49,7 +49,7 @@ function mount(tabId: string, gen: GenerationState): HTMLElement {
 	component = createClassComponent({
 		component: StudioCanvas as never,
 		target,
-		props: { tab: { id: tabId, name: 'Tab', generation: gen } as unknown as Tab }
+		props: { tab: { id: tabId, name: 'Tab', generation: gen } as unknown as GenerationTab }
 	});
 	flushSync();
 	return target;

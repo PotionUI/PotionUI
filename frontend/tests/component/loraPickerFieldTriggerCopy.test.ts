@@ -4,6 +4,7 @@
 // must NOT insert it into the active tab's prompt - with multiple prompt
 // segments, inserting into the last/active segment is misleading about which
 // segment actually receives the word.
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 
@@ -98,7 +99,7 @@ describe('LoraPickerField trigger chip click', () => {
 		// with an empty prompt - exactly the setup where the old insert-on-click
 		// behavior would silently append into that tab's prompt.
 		const activeTabId = get(tabsStore).activeTabId;
-		const promptBefore = get(tabsStore).tabs.find((t) => t.id === activeTabId)?.prompt;
+		const promptBefore = generationTabs(get(tabsStore).tabs).find((t) => t.id === activeTabId)?.prompt;
 
 		mounted = mountField({
 			value: [{ model: 'model:MDL-A', strength: 1 }],
@@ -116,7 +117,7 @@ describe('LoraPickerField trigger chip click', () => {
 
 		expect(writeText).toHaveBeenCalledWith('mytrigger');
 
-		const promptAfter = get(tabsStore).tabs.find((t) => t.id === activeTabId)?.prompt;
+		const promptAfter = generationTabs(get(tabsStore).tabs).find((t) => t.id === activeTabId)?.prompt;
 		expect(promptAfter, 'active tab prompt left untouched').toBe(promptBefore);
 
 		// Feedback is the chip itself swapping to "Copied" - no toast on success.

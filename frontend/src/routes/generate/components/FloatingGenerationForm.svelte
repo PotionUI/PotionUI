@@ -7,7 +7,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import GenerationFormPane from './GenerationFormPane.svelte';
 	import type DynamicForm from '$lib/components/DynamicForm.svelte';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 
 	// The "quick" (Q) floating form: the same GenerationFormPane the inline
 	// left panel renders, shown as a modal overlay instead. Mounted only
@@ -24,7 +24,7 @@
 		width,
 		closeShortcut = undefined
 	}: {
-		tab: Tab;
+		tab: GenerationTab;
 		presetName: string | undefined;
 		videoDirectorActive?: boolean;
 		dynamicFormRefs: Record<string, DynamicForm>;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 import {
 	collectTabSessionData,
 	isSessionGoneError,
@@ -12,8 +12,9 @@ import {
 } from './sessionTabState';
 import { toPersistedTab } from '$lib/stores/tabPersistence';
 
-function tab(overrides: Partial<Tab> = {}): Tab {
+function tab(overrides: Partial<GenerationTab> = {}): GenerationTab {
 	return {
+		kind: 'generation',
 		id: 'tab-a',
 		name: 'Tab A',
 		selectedPreset: 'preset-a',

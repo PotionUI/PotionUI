@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 // jsdom is needed only for the real-WebSocketService fixtures below.
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
@@ -20,11 +21,11 @@ import {
 } from './cancelRetirement';
 
 function defaultTabId(): string {
-	return get(tabsStore).tabs[0].id;
+	return generationTabs(get(tabsStore).tabs)[0].id;
 }
 
 function currentTab(tabId: string) {
-	return get(tabsStore).tabs.find((t) => t.id === tabId)!;
+	return generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 }
 
 function seedDirectorRun(tabId: string, shotId: string, run: DirectorRunState, links: Record<string, string[]>) {

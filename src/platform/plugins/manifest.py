@@ -355,6 +355,25 @@ class PageSpec(BaseModel):
     icon: Optional[str] = None
 
 
+class ToolTabSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    label: str
+    component: str
+    icon: Optional[str] = None
+    accepts: List[Literal["image", "video", "audio"]] = Field(default_factory=list)
+    handles: List[str] = Field(default_factory=list)
+
+    @field_validator("component")
+    @classmethod
+    def _component_stays_in_dist(cls, value: str) -> str:
+        parts = value.split("/")
+        if not value or "\\" in value or value.startswith("/") or ":" in value or ".." in parts:
+            raise ValueError("component must be a relative path inside frontend/dist")
+        return value
+
+
 class SidebarItemSpec(BaseModel):
     """A sidebar entry: `sidebar[]`."""
 
@@ -916,6 +935,7 @@ class PluginManifestSchema(BaseModel):
     # Tabs this plugin contributes to its own Admin -> Plugins detail panel,
     # alongside the core Overview/Settings tabs - see AdminTabSpec.
     admin_tabs: List[AdminTabSpec] = Field(default_factory=list)
+    tool_tabs: List[ToolTabSpec] = Field(default_factory=list)
     quick_actions: List[QuickActionSpec] = Field(default_factory=list)
     sidebar_widgets: List[SidebarWidgetSpec] = Field(default_factory=list)
     settings: List[SettingSpec] = Field(default_factory=list)
@@ -965,6 +985,15 @@ class PluginManifestSchema(BaseModel):
             if op.id in seen:
                 raise ValueError(f"filter_ops id '{op.id}' is declared twice")
             seen.add(op.id)
+        return self
+
+    @model_validator(mode="after")
+    def _tool_tab_ids_are_unique(self) -> "PluginManifestSchema":
+        seen = set()
+        for tab in self.tool_tabs:
+            if tab.id in seen:
+                raise ValueError(f"tool_tabs id '{tab.id}' is declared twice")
+            seen.add(tab.id)
         return self
 
     @model_validator(mode="after")

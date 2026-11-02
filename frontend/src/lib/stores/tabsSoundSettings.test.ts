@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 
@@ -39,7 +40,7 @@ describe('tabsStore generation-sound settings', () => {
 		tabsStore.addTab();
 
 		const state = get(tabsStore);
-		const newTab = state.tabs[state.tabs.length - 1];
+		const newTab = generationTabs(state.tabs)[generationTabs(state.tabs).length - 1];
 		expect(newTab.soundOnComplete).toBe(false);
 		expect(newTab.soundOnError).toBe(true);
 	});
@@ -48,7 +49,7 @@ describe('tabsStore generation-sound settings', () => {
 		tabsStore.addTab();
 
 		const state = get(tabsStore);
-		const newTab = state.tabs[state.tabs.length - 1];
+		const newTab = generationTabs(state.tabs)[generationTabs(state.tabs).length - 1];
 		expect(newTab.soundOnComplete).toBe(true);
 		expect(newTab.soundOnError).toBe(true);
 	});
@@ -64,7 +65,7 @@ describe('tabsStore generation-sound settings', () => {
 
 		const state = get(tabsStore);
 		expect(state.tabs).toHaveLength(3);
-		expect(state.tabs.every((t) => t.soundOnComplete === false && t.soundOnError === false)).toBe(true);
-		expect(state.tabs.find((t) => t.id === firstId)?.name).toBe('Kept name');
+		expect(generationTabs(state.tabs).every((t) => t.soundOnComplete === false && t.soundOnError === false)).toBe(true);
+		expect(generationTabs(state.tabs).find((t) => t.id === firstId)?.name).toBe('Kept name');
 	});
 });

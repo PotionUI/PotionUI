@@ -1,0 +1,13 @@
+id: tool-tab-fixture
+name: Tool Tab Fixture
+version: 1.0.0
+description: Declares one tool tab so the manifest, loader and frontend catalog can be tested.
+author: PotionUI
+type: frontend-only
+tool_tabs:
+  - id: stamp
+    label: Stamp tool
+    icon: brush
+    accepts: [image]
+    handles: [image.crop]
+    component: frontend/dist/StampToolTab.js

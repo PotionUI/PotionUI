@@ -1,4 +1,4 @@
-import type { MediaRef, Tab } from '$lib/types/tabs';
+import type { MediaRef, GenerationTab } from '$lib/types/tabs';
 import type { DirectorMediaValue, VideoDirectorValue } from '$lib/types/videoDirector';
 import { mediaPathPreviewUrl } from '$lib/components/form-fields/mediaLoaderPreview';
 import { resolveDirectorMediaDisplay } from '$lib/utils/videoDirector';
@@ -151,7 +151,7 @@ function collectDirectorImages(
 	});
 }
 
-export function collectFormImages(tab: Tab | null | undefined): FormImageEntry[] {
+export function collectFormImages(tab: GenerationTab | null | undefined): FormImageEntry[] {
 	const state: CollectState = { entries: [], seen: new Set() };
 	if (!tab) return state.entries;
 

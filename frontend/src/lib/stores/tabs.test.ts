@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore, activeTab } from './tabs';
@@ -20,7 +21,7 @@ describe('tabsStore tab ids', () => {
 			tabsStore.addTab();
 		}
 
-		const ids = get(tabsStore).tabs.map((t) => t.id);
+		const ids = generationTabs(get(tabsStore).tabs).map((t) => t.id);
 		expect(new Set(ids).size).toBe(ids.length);
 	});
 
@@ -33,7 +34,7 @@ describe('tabsStore tab ids', () => {
 	it('keeps at least one tab when removing the last remaining tab', () => {
 		const state = get(tabsStore);
 		tabsStore.removeTab(state.tabs[0].id);
-		expect(get(tabsStore).tabs.length).toBe(1);
+		expect(generationTabs(get(tabsStore).tabs).length).toBe(1);
 	});
 
 	it('addTabWithData creates and activates a tab with the given fields', () => {
@@ -45,7 +46,7 @@ describe('tabsStore tab ids', () => {
 		});
 		const state = get(tabsStore);
 		expect(state.activeTabId).toBe(id);
-		const tab = state.tabs.find(t => t.id === id);
+		const tab = generationTabs(state.tabs).find(t => t.id === id);
 		expect(tab?.selectedPreset).toBe('native/SDXL/realistic');
 		expect(tab?.formData).toEqual({ steps: 30, seed: 123 });
 		expect(tab?.promptSegments).toEqual([{ id: 's1', content: 'a cat' }]);
@@ -65,7 +66,7 @@ describe('tabsStore notification fan-out', () => {
 	}
 
 	it('a no-op updateTab notifies neither tabsStore nor activeTab', () => {
-		const tab = get(tabsStore).tabs[0];
+		const tab = generationTabs(get(tabsStore).tabs)[0];
 		const root = countNotifications(tabsStore);
 		const active = countNotifications(activeTab);
 
@@ -80,7 +81,7 @@ describe('tabsStore notification fan-out', () => {
 	it('a background tab progress update notifies tabsStore but not activeTab', () => {
 		tabsStore.addTab();
 		const state = get(tabsStore);
-		const backgroundTab = state.tabs.find((t) => t.id !== state.activeTabId)!;
+		const backgroundTab = generationTabs(state.tabs).find((t) => t.id !== state.activeTabId)!;
 		const root = countNotifications(tabsStore);
 		const active = countNotifications(activeTab);
 
@@ -96,7 +97,7 @@ describe('tabsStore notification fan-out', () => {
 
 	it('an active tab progress update notifies both tabsStore and activeTab', () => {
 		const state = get(tabsStore);
-		const activeTabData = state.tabs.find((t) => t.id === state.activeTabId)!;
+		const activeTabData = generationTabs(state.tabs).find((t) => t.id === state.activeTabId)!;
 		const root = countNotifications(tabsStore);
 		const active = countNotifications(activeTab);
 
@@ -141,7 +142,7 @@ describe('tabsStore persistence scheduling', () => {
 
 	it('does not write to localStorage for a progress-only update', async () => {
 		const { freshTabsStore, setItemSpy } = await freshBrowserTabsStore();
-		const tab = get(freshTabsStore).tabs[0];
+		const tab = generationTabs(get(freshTabsStore).tabs)[0];
 
 		freshTabsStore.updateTab(tab.id, {
 			generation: { ...tab.generation, isGenerating: true, currentProgress: { percent: 10 } as never }
@@ -153,7 +154,7 @@ describe('tabsStore persistence scheduling', () => {
 
 	it('writes once for a persisted-field change', async () => {
 		const { freshTabsStore, setItemSpy } = await freshBrowserTabsStore();
-		const tab = get(freshTabsStore).tabs[0];
+		const tab = generationTabs(get(freshTabsStore).tabs)[0];
 
 		freshTabsStore.updateTab(tab.id, { name: 'Renamed' });
 		vi.advanceTimersByTime(600);
@@ -176,7 +177,7 @@ describe('tabsStore persistence scheduling', () => {
 
 		it('saves a pending edit on pagehide and does not save it again when the timer fires', async () => {
 			const { freshTabsStore, setItemSpy } = await freshBrowserTabsStore();
-			const tab = get(freshTabsStore).tabs[0];
+			const tab = generationTabs(get(freshTabsStore).tabs)[0];
 
 			freshTabsStore.updateTab(tab.id, { name: 'Typed just now' });
 			fakeWindow.dispatchEvent(new Event('pagehide'));
@@ -191,7 +192,7 @@ describe('tabsStore persistence scheduling', () => {
 
 		it('saves a pending edit when the page becomes hidden', async () => {
 			const { freshTabsStore, setItemSpy } = await freshBrowserTabsStore();
-			const tab = get(freshTabsStore).tabs[0];
+			const tab = generationTabs(get(freshTabsStore).tabs)[0];
 
 			freshTabsStore.updateTab(tab.id, { name: 'Typed just now' });
 			fakeDocument.visibilityState = 'hidden';
@@ -214,7 +215,7 @@ describe('tabsStore persistence scheduling', () => {
 
 		it('does not save twice when both events fire for one edit', async () => {
 			const { freshTabsStore, setItemSpy } = await freshBrowserTabsStore();
-			const tab = get(freshTabsStore).tabs[0];
+			const tab = generationTabs(get(freshTabsStore).tabs)[0];
 
 			freshTabsStore.updateTab(tab.id, { name: 'Typed just now' });
 			fakeDocument.visibilityState = 'hidden';
@@ -227,12 +228,12 @@ describe('tabsStore persistence scheduling', () => {
 
 	it('a burst of progress ticks does not delay a real change past its own debounce window', async () => {
 		const { freshTabsStore, setItemSpy } = await freshBrowserTabsStore();
-		const tab = get(freshTabsStore).tabs[0];
+		const tab = generationTabs(get(freshTabsStore).tabs)[0];
 
 		freshTabsStore.updateTab(tab.id, { name: 'Renamed' });
 		for (let i = 0; i < 10; i++) {
 			vi.advanceTimersByTime(100);
-			const live = get(freshTabsStore).tabs[0];
+			const live = generationTabs(get(freshTabsStore).tabs)[0];
 			freshTabsStore.updateTab(tab.id, {
 				generation: { ...live.generation, currentProgress: { percent: i } as never }
 			});
@@ -314,7 +315,7 @@ describe('removeTab retires the closed tab\'s abandoned generations', () => {
 	it('retires every generation the closed tab uniquely claimed via activeGenerationId, queue and directorRunLinks', () => {
 		const unsubscribe = vi.fn();
 		setGenerationUnsubscribeHandler(unsubscribe);
-		const tab = get(tabsStore).tabs[0];
+		const tab = generationTabs(get(tabsStore).tabs)[0];
 		const closingTabId = tabsStore.addTabWithData('Closing', {
 			activeGenerationId: 'gen-active',
 			generation: {
@@ -354,7 +355,7 @@ describe('removeTab retires the closed tab\'s abandoned generations', () => {
 
 		tabsStore.removeTab(state.tabs[0].id);
 
-		expect(get(tabsStore).tabs.length).toBe(1);
+		expect(generationTabs(get(tabsStore).tabs).length).toBe(1);
 		expect(unsubscribe).not.toHaveBeenCalled();
 	});
 });
@@ -396,7 +397,7 @@ describe('restoring a tab persisted with the removed Flow-view fields', () => {
 			const { tabsStore: freshTabsStore } = await import('./tabs');
 			const state = get(freshTabsStore);
 
-			const tab = state.tabs.find((t) => t.id === 'legacy-1');
+			const tab = generationTabs(state.tabs).find((t) => t.id === 'legacy-1');
 			expect(tab).toBeDefined();
 			expect((tab as any).editorView).toBeUndefined();
 			expect((tab as any).flowAppearance).toBeUndefined();
@@ -437,7 +438,7 @@ describe('restoring a tab persisted with the removed Flow-view fields', () => {
 		try {
 			const { tabsStore: freshTabsStore } = await import('./tabs');
 			const state = get(freshTabsStore);
-			const tab = state.tabs.find((t) => t.id === 'folded-1');
+			const tab = generationTabs(state.tabs).find((t) => t.id === 'folded-1');
 			expect(tab?.workbenchCollapsed).toBe(true);
 		} finally {
 			vi.doUnmock('$app/environment');
@@ -450,8 +451,8 @@ describe('tabsStore form publication marker', () => {
 	beforeEach(() => tabsStore.reset());
 
 	it('resets when the preset, mode or variant changes and survives other updates', () => {
-		const id = get(tabsStore).tabs[0].id;
-		const read = () => get(tabsStore).tabs[0].formPublished;
+		const id = generationTabs(get(tabsStore).tabs)[0].id;
+		const read = () => generationTabs(get(tabsStore).tabs)[0].formPublished;
 
 		tabsStore.updateTab(id, { selectedPreset: 'p1', selectedMode: 'm1', formPublished: true });
 		expect(read()).toBe(true);
@@ -478,7 +479,7 @@ describe('form baseline reset', () => {
 
 	it('clears the form baseline when the preset, mode or variant changes but not otherwise', () => {
 		const id = get(tabsStore).activeTabId;
-		const baseline = () => get(tabsStore).tabs.find((t) => t.id === id)!.formBaselineSignature;
+		const baseline = () => generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!.formBaselineSignature;
 		tabsStore.updateTab(id, { selectedPreset: 'p1', formPublished: true, formBaselineSignature: '{"a":1}' });
 		expect(baseline()).toBe('{"a":1}');
 		tabsStore.updateTab(id, { prompt: 'x' });

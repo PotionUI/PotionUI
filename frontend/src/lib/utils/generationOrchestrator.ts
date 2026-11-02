@@ -1,6 +1,6 @@
 import { richTextToPlainText } from '$lib/utils/richTextUtils';
 import type { SegmentInput } from '$lib/services/api/index';
-import type { Tab, ImageData, VideoData, MeshData } from '$lib/types/tabs';
+import type { GenerationTab, ImageData, VideoData, MeshData } from '$lib/types/tabs';
 import type { AudioData } from '$lib/types/audio';
 import type { Segment } from '$lib/types/segments';
 import { applySegmentAffixes, flattenRichSegments, type SegmentJoin } from '$lib/utils/richSegments';
@@ -62,7 +62,7 @@ export function buildSegmentInput(
  * prompt tab's segments with its `prompt_index`) into the `SegmentInput[]` that is
  * attached to the generation request. Pure and unit-testable.
  */
-export function buildSegmentsPayload(tab: Tab, batchPrompts: boolean): SegmentInput[] {
+export function buildSegmentsPayload(tab: GenerationTab, batchPrompts: boolean): SegmentInput[] {
 	const out: SegmentInput[] = [];
 	const sent = batchPrompts ? promptList(tab) : promptList(tab).slice(0, 1);
 
@@ -90,7 +90,7 @@ export interface VariablesPayloadResult {
  * Called from generate/+page.svelte, the one place actually wired to the
  * Generate button, so there's a single source of truth for the wire shape.
  */
-export function buildVariablesPayload(tab: Tab, options?: VariablesForSubmitOptions): VariablesPayloadResult {
+export function buildVariablesPayload(tab: GenerationTab, options?: VariablesForSubmitOptions): VariablesPayloadResult {
 	const { wireMap, rolls } = buildVariablesForSubmit(tab.variables, options);
 	return {
 		variables: Object.keys(wireMap).length > 0 ? wireMap : undefined,

@@ -1,10 +1,10 @@
 <script lang="ts">
-	import type { Tab, PipeArtifact } from '$lib/types/tabs';
+	import type { GenerationTab, PipeArtifact } from '$lib/types/tabs';
 	import { Card } from '$lib/components/ui';
 	import type { ModelFileData } from '$lib/generation/artifacts/modelFile';
 	import ModelFileArtifact from './artifacts/ModelFileArtifact.svelte';
 
-	let { tab }: { tab: Tab } = $props();
+	let { tab }: { tab: GenerationTab } = $props();
 
 	let modelFiles = $derived(
 		(tab.generation.artifacts ?? []).filter(

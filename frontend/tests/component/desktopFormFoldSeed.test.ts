@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { settle } from './helpers/settle';
@@ -62,7 +63,7 @@ let host: ReturnType<typeof mount> | undefined;
 let target: HTMLElement | undefined;
 
 function readTab() {
-	return get(tabsStore).tabs.find((tab) => tab.id === tabId)!;
+	return generationTabs(get(tabsStore).tabs).find((tab) => tab.id === tabId)!;
 }
 
 function mountPanels(patch: Record<string, unknown>) {

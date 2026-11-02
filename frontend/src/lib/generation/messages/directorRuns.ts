@@ -19,13 +19,13 @@
 // `existing.generationId === generationId` before touching a run, so a
 // belated event from the SUPERSEDED generation can't clobber the shot's
 // newer run.
-import type { Tab, DirectorRunState } from '$lib/types/tabs';
+import type { GenerationTab, DirectorRunState } from '$lib/types/tabs';
 
 /** The shot id(s) `generationId` covers, or `null` when this generation
  *  isn't a Video Director run at all (the overwhelmingly common case -- most
  *  generations carry no Director document). */
 export function directorShotIdsFor(
-	tab: Pick<Tab, 'directorRunLinks'>,
+	tab: Pick<GenerationTab, 'directorRunLinks'>,
 	generationId: string | undefined
 ): string[] | null {
 	if (!generationId) return null;
@@ -34,7 +34,7 @@ export function directorShotIdsFor(
 }
 
 export function withDirectorRunGenerating(
-	tab: Pick<Tab, 'directorRuns'>,
+	tab: Pick<GenerationTab, 'directorRuns'>,
 	shotIds: string[],
 	progress: number | null,
 	generationId: string | undefined
@@ -56,7 +56,7 @@ export function withDirectorRunGenerating(
  *  'done' resolution; an omitted/null value leaves whatever a prior
  *  `gallery_update` already set untouched (never clobbers it back to null). */
 export function withDirectorRunTerminal(
-	tab: Pick<Tab, 'directorRuns'>,
+	tab: Pick<GenerationTab, 'directorRuns'>,
 	shotIds: string[],
 	status: 'done' | 'failed',
 	posterUrl: string | null,
@@ -118,7 +118,7 @@ const SKIPPED_TEXT = 'Not made because an earlier shot did not finish.';
 export const CANCELLED_TEXT = 'Stopped before it finished.';
 
 export function withDirectorShotUpdate(
-	tab: Pick<Tab, 'directorRuns'>,
+	tab: Pick<GenerationTab, 'directorRuns'>,
 	update: DirectorShotUpdate,
 	finishedAt: number,
 	generationId: string | undefined
@@ -176,7 +176,7 @@ export function withDirectorShotUpdate(
  *  Only ever sets `posterUrl`, never a status -- that's `generation_status`/
  *  `generation_complete`'s job. */
 export function withDirectorRunPoster(
-	tab: Pick<Tab, 'directorRuns'>,
+	tab: Pick<GenerationTab, 'directorRuns'>,
 	shotIds: string[],
 	posterUrl: string,
 	generationId: string | undefined
@@ -195,7 +195,7 @@ export function withDirectorRunPoster(
  *  accumulate stale entries on the tab forever (harmless for a run that
  *  matched above, dead weight for one superseded by a resubmission). */
 export function withoutDirectorRunLink(
-	tab: Pick<Tab, 'directorRunLinks'>,
+	tab: Pick<GenerationTab, 'directorRunLinks'>,
 	generationId: string | undefined
 ): Record<string, string[]> {
 	const links = { ...(tab.directorRunLinks || {}) };

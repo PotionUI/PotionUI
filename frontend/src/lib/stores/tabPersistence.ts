@@ -1,6 +1,7 @@
 import { browser } from '$app/environment';
-import type { Tab } from '$lib/types/tabs';
-import type { PersistedTab, PersistedTabsState } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
+import type { PersistedGenerationTab, PersistedTab, PersistedTabsState, PersistedToolTab, Tab, ToolTab } from '$lib/types/tabs';
+import { isToolTab } from '$lib/types/tabs';
 import { TABS_STORAGE_KEY } from '$lib/types/tabs';
 import { scopedStorage } from '$lib/stores/identityScopedStorage';
 import { randomUUID } from '$lib/utils/uuid';
@@ -30,9 +31,31 @@ function sanitizeForPersistence(value: unknown): unknown {
 	return value;
 }
 
-/** Kept pure so persistence omissions are covered without a browser. */
-export function toPersistedTab(t: Tab): PersistedTab {
+function toPersistedToolTab(t: ToolTab): PersistedToolTab {
+	const thumbnail = t.thumbnail && !DATA_URI_RE.test(t.thumbnail) && !t.thumbnail.startsWith('blob:') ? t.thumbnail : null;
 	return {
+		kind: 'tool',
+		id: t.id,
+		name: t.name,
+		color: t.color ?? null,
+		tool: t.tool,
+		source: t.source,
+		state: sanitizeForPersistence(t.state ?? null),
+		run: t.run ?? null,
+		activeTool: t.activeTool ?? null,
+		dirty: t.dirty ?? 0,
+		thumbnail,
+		renamed: t.renamed ?? false
+	};
+}
+
+export function toPersistedTab(t: GenerationTab): PersistedGenerationTab;
+export function toPersistedTab(t: ToolTab): PersistedToolTab;
+export function toPersistedTab(t: Tab): PersistedTab;
+export function toPersistedTab(t: Tab): PersistedTab {
+	if (isToolTab(t)) return toPersistedToolTab(t);
+	return {
+		kind: 'generation',
 		id: t.id,
 		name: t.name,
 		selectedPreset: t.selectedPreset,
@@ -53,7 +76,7 @@ export function toPersistedTab(t: Tab): PersistedTab {
 		positiveSegmentsCollapsed: t.positiveSegmentsCollapsed,
 		negativeSegmentsCollapsed: t.negativeSegmentsCollapsed,
 		sectionCollapsed: t.sectionCollapsed,
-		compare: t.compare ? (sanitizeForPersistence(t.compare) as Tab['compare']) : undefined,
+		compare: t.compare ? (sanitizeForPersistence(t.compare) as GenerationTab['compare']) : undefined,
 		compareGridId: t.compareGridId ?? null,
 		workbenchMaxHeight: t.workbenchMaxHeight,
 		workbenchFloatingWidth: t.workbenchFloatingWidth,
@@ -75,22 +98,24 @@ export function toPersistedTab(t: Tab): PersistedTab {
 		directorRuns: t.directorRuns,
 		directorRunLinks: t.directorRunLinks,
 		formData: sanitizeForPersistence(t.formData) as Record<string, unknown>,
-		modeStateByMode: sanitizeForPersistence(t.modeStateByMode) as Tab['modeStateByMode'],
+		modeStateByMode: sanitizeForPersistence(t.modeStateByMode) as GenerationTab['modeStateByMode'],
 		seed: t.seed
 	};
 }
 
-export function saveTabsToLocalStorage(tabs: Tab[], activeTabId: string): void {
+export function saveTabsToLocalStorage(tabs: Tab[], activeTabId: string, lastGenerationTabId?: string): void {
 	if (!browser) return;
 	try {
 		const persisted: PersistedTabsState = {
 			tabs: tabs.map((tab) => {
+				if (isToolTab(tab)) return toPersistedTab(tab);
 				const persistedTab = toPersistedTab(tab);
 				return tabDraftOutbox.retainedLegacyIds().has(tab.id)
 					? { ...persistedTab, variables: tab.variables }
 					: persistedTab;
 			}),
-			activeTabId
+			activeTabId,
+			...(lastGenerationTabId ? { lastGenerationTabId } : {})
 		};
 		scopedStorage.set(TABS_STORAGE_KEY, JSON.stringify(persisted));
 	} catch {
@@ -129,7 +154,7 @@ function migrateLegacyTabIds(parsed: PersistedTabsState): { state: PersistedTabs
 	}));
 	const activeTabId = idMap.get(parsed.activeTabId) ?? parsed.activeTabId;
 
-	return { state: { tabs, activeTabId }, changed: true };
+	return { state: { ...parsed, tabs, activeTabId }, changed: true };
 }
 
 export function loadTabsFromLocalStorage(): PersistedTabsState | null {

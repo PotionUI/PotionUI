@@ -5,7 +5,7 @@
 	import { formulaLists, formulasKey, getFormulaDeclaration, loadFormulas } from '$lib/stores/formulas';
 	import { sideDrawer } from '$lib/stores/sideDrawer';
 	import type { FormulaDeclaration } from '$lib/formulas/types';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 
 	let {
 		tab,
@@ -15,7 +15,7 @@
 		onApplied,
 		layout
 	}: {
-		tab: Tab;
+		tab: GenerationTab;
 		presetName: string;
 		presetVersion: string;
 		modeLabel: string;

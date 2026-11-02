@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 	import { NO_PROMPT_COPY, type PromptCopy } from '$lib/utils/promptModeCopy';
 	import {
 		downloadExtensionFor,
@@ -15,7 +15,7 @@
 	import { findAttachedMediaThumb } from './studioDockMedia';
 	import TagSelector from '$lib/components/TagSelector.svelte';
 
-	export let tab: Tab;
+	export let tab: GenerationTab;
 	export let promptPreviewText: string;
 	export let promptlessActive: boolean = false;
 	export let promptCopy: PromptCopy = NO_PROMPT_COPY;

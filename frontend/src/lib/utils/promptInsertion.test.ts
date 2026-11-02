@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
@@ -14,7 +15,7 @@ describe('insertTriggerIntoActivePrompt', () => {
 		const result = insertTriggerIntoActivePrompt('masterpiece');
 		expect(result).toBe('inserted');
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === activeTabId())!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === activeTabId())!;
 		expect(tab.prompt).toBe('masterpiece');
 	});
 
@@ -28,7 +29,7 @@ describe('insertTriggerIntoActivePrompt', () => {
 		const result = insertTriggerIntoActivePrompt('best quality');
 		expect(result).toBe('inserted');
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === id)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!;
 		expect(tab.prompt).toBe('a cat, best quality');
 	});
 
@@ -42,16 +43,32 @@ describe('insertTriggerIntoActivePrompt', () => {
 		const result = insertTriggerIntoActivePrompt('masterpiece');
 		expect(result).toBe('duplicate');
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === id)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!;
 		expect(tab.prompt).toBe('a cat, Masterpiece');
 	});
 
-	it('returns unavailable when there is no active tab', () => {
+	it('keeps targeting the active tab when asked to switch to a tab that does not exist', () => {
 		tabsStore.reset();
+		const id = activeTabId();
 		tabsStore.setActiveTab('does-not-exist');
 
-		const result = insertTriggerIntoActivePrompt('masterpiece');
-		expect(result).toBe('unavailable');
+		expect(activeTabId()).toBe(id);
+		expect(insertTriggerIntoActivePrompt('masterpiece')).toBe('inserted');
+		expect(generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!.prompt).toBe('masterpiece');
+	});
+
+	it('inserts into the last generation tab while a tool tab is up, leaving the tool tab alone', () => {
+		tabsStore.reset();
+		const generationId = activeTabId();
+		const toolId = tabsStore.openToolTab('image', { path: '/m/dusk.png' });
+		const toolBefore = get(tabsStore).tabs.find((t) => t.id === toolId);
+
+		expect(insertTriggerIntoActivePrompt('masterpiece')).toBe('inserted');
+
+		const state = get(tabsStore);
+		expect(state.activeTabId).toBe(toolId);
+		expect(state.tabs.find((t) => t.id === toolId)).toBe(toolBefore);
+		expect(generationTabs(state.tabs).find((t) => t.id === generationId)!.prompt).toBe('masterpiece');
 	});
 
 	it('inserts into the active prompt of a multi-prompt tab and leaves the others alone', () => {
@@ -67,7 +84,7 @@ describe('insertTriggerIntoActivePrompt', () => {
 
 		const result = insertTriggerIntoActivePrompt('masterpiece');
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === id)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!;
 		expect(result).toBe('inserted');
 		expect(tab.promptTabs![1].prompt).toBe('a dog, masterpiece');
 		expect(tab.promptTabs![0]).toEqual(first);

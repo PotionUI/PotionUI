@@ -1,3 +1,4 @@
+import { findGenerationTab } from '$lib/types/tabs';
 import { derived, get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
 import {
@@ -16,12 +17,12 @@ import type { SectionCollapsedContext } from '$lib/form/sectionCollapsedContext'
  */
 export function createSectionCollapsedController(tabId: string): SectionCollapsedContext {
 	function currentTab() {
-		return get(tabsStore).tabs.find((t) => t.id === tabId);
+		return findGenerationTab(get(tabsStore).tabs, tabId);
 	}
 
 	return {
 		folded: derived(tabsStore, ($tabs) => {
-			const tab = $tabs.tabs.find((t) => t.id === tabId);
+			const tab = findGenerationTab($tabs.tabs, tabId);
 			return foldedForScope(tab?.sectionCollapsed, tab?.selectedPreset, tab?.selectedMode);
 		}),
 		set(fieldPath: string, collapsed: boolean): void {

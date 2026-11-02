@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import { flushSync } from 'svelte';
@@ -33,7 +34,7 @@ const FIXTURE_MESSAGE = {
 };
 
 function currentTab(tabId: string) {
-	const tab = get(tabsStore).tabs.find((t) => t.id === tabId);
+	const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId);
 	if (!tab) throw new Error('tab missing');
 	return tab;
 }

@@ -1,6 +1,7 @@
 import type { ModeBasedSessionData, SessionData } from '$lib/types/api';
 import { jsonEqual } from '$lib/utils/equal';
-import type { ModeState, Tab } from '$lib/types/tabs';
+import type { ModeState, GenerationTab, Tab } from '$lib/types/tabs';
+import { isToolTab } from '$lib/types/tabs';
 import { captureModeState } from '$lib/utils/modeState';
 import { seedPromptTabs, seedSegmentsFromText } from '$lib/utils/promptTextSeed';
 
@@ -41,7 +42,7 @@ function modeContentDiffers(saved: SessionData | undefined, current: ModeState):
 	return !jsonEqual(normalizeModeContent(saved), normalizeModeContent(current));
 }
 
-export function tabHasUnsavedSessionChanges(tab: Tab): boolean {
+export function tabHasUnsavedSessionChanges(tab: GenerationTab): boolean {
 	if (!tab.selectedSessionId) return false;
 	if (tab.savedSessionSignature === undefined) return false;
 	if (tab.savedSessionSignature === null) return true;
@@ -67,7 +68,7 @@ export function tabHasUnsavedSessionChanges(tab: Tab): boolean {
 }
 
 export function anyTabHasUnsavedSessionChanges(tabs: Tab[]): boolean {
-	return tabs.some(tabHasUnsavedSessionChanges);
+	return tabs.some((tab) => (isToolTab(tab) ? (tab.dirty ?? 0) > 0 : tabHasUnsavedSessionChanges(tab)));
 }
 
 export interface BeforeUnloadLike {

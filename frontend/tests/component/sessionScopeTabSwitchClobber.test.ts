@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import type { Segment } from '$lib/types/segments';
@@ -105,7 +106,7 @@ describe('SessionScope survives a tab-switch destroy/recreate round trip', () =>
 
 		expect(api.getSessionById).not.toHaveBeenCalled();
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId);
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId);
 		expect(tab?.promptSegments).toEqual(EDITED_SEGMENTS);
 
 		expect(mounted.target.querySelector('button[aria-label="Save session"]')).not.toBeNull();
@@ -136,7 +137,7 @@ describe('SessionScope survives a tab-switch round trip after loading (not savin
 
 		expect(vi.mocked(api.getSessionById).mock.calls.map((c) => c[0])).toContain(SESSION_ID);
 
-		let tab = get(tabsStore).tabs.find((t) => t.id === tabId);
+		let tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId);
 		expect(tab?.promptSegments).toEqual(ORIGINAL_SEGMENTS);
 		expect(tab?.selectedSessionId).toBe(SESSION_ID);
 		expect(tab?.sessionBaselineAwaitingFormNormalization).toBe(true);
@@ -151,7 +152,7 @@ describe('SessionScope survives a tab-switch round trip after loading (not savin
 
 		expect(api.getSessionById).not.toHaveBeenCalled();
 
-		tab = get(tabsStore).tabs.find((t) => t.id === tabId);
+		tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId);
 		expect(tab?.promptSegments).toEqual(EDITED_SEGMENTS);
 
 		expect(mounted.target.querySelector('button[aria-label="Save session"]')).not.toBeNull();

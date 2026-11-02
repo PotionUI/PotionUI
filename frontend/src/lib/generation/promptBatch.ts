@@ -1,4 +1,4 @@
-import type { PromptTabData, Tab } from '$lib/types/tabs';
+import type { PromptTabData, GenerationTab } from '$lib/types/tabs';
 import { resolvePromptSegments } from '$lib/utils/promptSegments';
 import { ensureSegmentList } from '$lib/utils/richSegments';
 import { randomUUID } from '$lib/utils/uuid';
@@ -6,12 +6,12 @@ import { randomUUID } from '$lib/utils/uuid';
 export const MAX_BATCH_IMAGES = 20;
 
 export type PromptFields = Pick<
-	Tab,
+	GenerationTab,
 	'prompt' | 'negativePrompt' | 'promptSegments' | 'negativePromptSegments' | 'promptTabs' | 'activePromptTab'
 >;
 
 export type PromptListPatch = Pick<
-	Tab,
+	GenerationTab,
 	'prompt' | 'negativePrompt' | 'promptSegments' | 'negativePromptSegments' | 'promptTabs' | 'activePromptTab'
 >;
 
@@ -61,12 +61,12 @@ function workingPrompt(tab: PromptFields): PromptTabData {
 	};
 }
 
-export function promptCount(tab: Pick<Tab, 'promptTabs'>): number {
+export function promptCount(tab: Pick<GenerationTab, 'promptTabs'>): number {
 	const tabs = tab.promptTabs;
 	return tabs && tabs.length > 1 ? tabs.length : 1;
 }
 
-export function activePromptIndex(tab: Pick<Tab, 'promptTabs' | 'activePromptTab'>): number {
+export function activePromptIndex(tab: Pick<GenerationTab, 'promptTabs' | 'activePromptTab'>): number {
 	const count = promptCount(tab);
 	const raw = Math.floor(Number(tab.activePromptTab ?? 0));
 	if (!Number.isFinite(raw)) return 0;

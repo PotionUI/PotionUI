@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import { get } from 'svelte/store';
@@ -212,7 +213,7 @@ describe('RecipeRunProgress with a modes run', () => {
 		expect(target.querySelector('[data-mode-access-heading]')!.textContent).toContain('The new modes are open to anyone who already has the preset.');
 		(card.querySelector('[data-try-mode="motion"] button') as HTMLButtonElement).click();
 		expect(addTab).toHaveBeenCalledWith('Motion transfer', { selectedPreset: 'p1', selectedMode: 'motion' });
-		expect(get(tabsStore).tabs.some((tab) => tab.selectedMode === 'motion')).toBe(true);
+		expect(generationTabs(get(tabsStore).tabs).some((tab) => tab.selectedMode === 'motion')).toBe(true);
 	});
 });
 

@@ -9,7 +9,7 @@ import {
 	mapGenerationFiles
 } from './generationOrchestrator';
 import type { Segment, ChipData } from '$lib/types/segments';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 import { tabsStore, activeTab } from '$lib/stores/tabs';
 
 function chip(
@@ -34,7 +34,7 @@ function segment(partial: Partial<Segment> & { id: string }): Segment {
 }
 
 // Minimal Tab factory — only the fields buildSegmentsPayload reads matter.
-function makeTab(partial: Partial<Tab>): Tab {
+function makeTab(partial: Partial<GenerationTab>): GenerationTab {
 	return {
 		id: 't1',
 		name: 'Tab',
@@ -47,7 +47,7 @@ function makeTab(partial: Partial<Tab>): Tab {
 		workbenchMaxHeight: '',
 		leftPanelWidth: 0,
 		...partial
-	} as Tab;
+	} as GenerationTab;
 }
 
 describe('resolveSegmentText', () => {

@@ -3,6 +3,8 @@
  * These types mirror the backend generation data structures.
  */
 
+import type { MediaRef } from '$lib/types/tabs';
+
 export interface GenerationParamModel {
 	name: string;
 	type: string;
@@ -24,8 +26,14 @@ export interface WorkspaceData {
 }
 
 export interface WorkspaceTab {
+	kind?: 'generation' | 'tool';
 	name: string;
 	color?: string | null;
+	tool?: string;
+	source?: MediaRef | null;
+	state?: unknown;
+	activeTool?: string | null;
+	renamed?: boolean;
 	preset_id?: string | null;
 	mode?: string | null;
 	autoTagIds?: string[];

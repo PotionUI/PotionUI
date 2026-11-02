@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, addGenerationTab } from './helpers';
 
 const JOURNEY = 'workspaces-save-and-load';
 
@@ -22,7 +22,7 @@ test('workspace save + pick round-trip restores tabs', async ({ page }) => {
 	await expect(page.getByText('Generation 1', { exact: true })).toBeVisible();
 
 	// Add a second tab so the saved workspace has more than one to restore.
-	await page.getByRole('button', { name: 'Add new tab' }).click();
+	await addGenerationTab(page);
 	await expect(page.getByText('Generation 2', { exact: true })).toBeVisible();
 
 	await screenshot(page, JOURNEY, 'two-tabs-before-save');

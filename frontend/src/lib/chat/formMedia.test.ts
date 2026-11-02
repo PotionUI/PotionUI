@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { collectFormImages } from './formMedia';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 
-function baseTab(overrides: Partial<Tab> = {}): Tab {
+function baseTab(overrides: Partial<GenerationTab> = {}): GenerationTab {
 	return {
 		id: 't1',
 		name: 'Tab 1',
@@ -12,7 +12,7 @@ function baseTab(overrides: Partial<Tab> = {}): Tab {
 		negativePrompt: '',
 		formData: {},
 		...overrides
-	} as Tab;
+	} as GenerationTab;
 }
 
 describe('collectFormImages', () => {

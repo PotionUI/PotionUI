@@ -1,5 +1,7 @@
 import type { Component } from 'svelte';
-import type { MediaRef, RunRef } from '$lib/types/tabs';
+import type { MediaRef, RunRef, ToolTabHint } from '$lib/types/tabs';
+
+export type { ToolTabHint };
 
 export type CoreToolKind = 'image' | 'video';
 
@@ -9,6 +11,7 @@ export type ToolMediaKind = 'image' | 'video' | 'audio';
 
 export interface ToolTabOpenOptions {
 	activeTool?: string | null;
+	hint?: ToolTabHint | null;
 }
 
 export interface ToolTabAction {
@@ -34,6 +37,7 @@ export interface ToolTabHost<State = unknown> {
 	readonly state: State | null;
 	readonly activeTool: string | null;
 	readonly run: RunRef | null;
+	readonly hint: ToolTabHint | null;
 	readonly phone: boolean;
 	setState(next: State | null): void;
 	setDirty(edits: number): void;
@@ -42,6 +46,7 @@ export interface ToolTabHost<State = unknown> {
 	setSource(source: MediaRef | null): void;
 	setActiveTool(activeTool: string | null): void;
 	setRun(run: RunRef | null): void;
+	clearHint(): void;
 	setActions(actions: ToolTabActions | null): void;
 	openToolTab(tool: string, source: MediaRef | null, options?: ToolTabOpenOptions): string;
 }

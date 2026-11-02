@@ -55,9 +55,10 @@ The component gets one prop, `host: ToolTabHost` (`types.ts`):
 | `setTitle(title)` | Rename the tab unless the user already renamed it |
 | `setThumbnail(url)` | Tab thumbnail |
 | `setSource(ref)` | Load media into an empty tab (pickers, drops, pastes) |
+| `hint`, `clearHint()` | One-shot hint from the shortcut that opened the tab (`look`, `effect`, `orientation`, `sendTo`); not persisted |
 | `setActiveTool(id)`, `setRun(run)` | Keep the sub-tool and the background run in the tab |
 | `setActions({ undo, redo, save })` | Fill the phone top bar's Undo / Redo / Save; `save.progress` shows the render % |
-| `openToolTab(tool, source, { activeTool })` | Open another tool tab (for example a video frame in the Image editor) |
+| `openToolTab(tool, source, { activeTool, hint })` | Open another tool tab (for example a video frame in the Image editor) |
 
 ## Opening tabs
 
@@ -75,6 +76,16 @@ fresh one, and `lastGenerationTabId` in the state is the tab `activeTab` returns
 is up. `ensureGenerationTabActive()` (`open.ts`) switches to it before anything writes generation
 settings. Tool state and thumbnails are saved to localStorage with the tabs, so keep state to
 params and ids; `data:` and `blob:` thumbnails are not persisted.
+
+## Shortcuts from History, Library and the media field
+
+`shortcuts.ts` maps an action id (a media tool id, `edit-image`, `apply-look` or `look:<id>`) and a media
+kind to `{ tool, activeTool, hint }`; `planShortcut` groups a selection by editor kind. `openShortcut.ts`
+opens the tabs (`openToolShortcut`, one tab per item, the first active, then `/generate`) and opens the
+field's media with `sendTo` set (`openFieldInEditor`). `toolIds.ts` holds the `activeTool` ids of the
+two core editors; `lastTool.ts` remembers the last one used per kind (`E` opens it, Paint then Trim by
+default). `canvasSource.ts` opens a canvas from a plugin in the Image editor. `TabFooter.svelte` is the
+menu footer that names the tab a menu opens.
 
 ## Files
 

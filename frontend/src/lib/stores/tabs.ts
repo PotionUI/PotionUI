@@ -1,5 +1,5 @@
 import { writable, derived, type Readable } from 'svelte/store';
-import type { GenerationTab, GenerationState, MediaRef, PersistedGenerationTab, PersistedToolTab, Tab, ToolTab } from '$lib/types/tabs';
+import type { GenerationTab, GenerationState, MediaRef, PersistedGenerationTab, PersistedToolTab, Tab, ToolTab, ToolTabHint } from '$lib/types/tabs';
 import { isGenerationTab, isToolTab } from '$lib/types/tabs';
 import { findToolTabFor, mediaFileStem, planToolTabOpen } from '$lib/tool-tabs/sources';
 import { toolLabel } from '$lib/tool-tabs/registry';
@@ -120,6 +120,7 @@ function restoreToolTab(id: string, p: PersistedToolTab): ToolTab {
 
 export interface OpenToolTabOptions {
 	activeTool?: string | null;
+	hint?: ToolTabHint | null;
 	activate?: boolean;
 }
 
@@ -497,12 +498,13 @@ function createTabsStore() {
 			update((state) => {
 				const plan = planToolTabOpen(state.tabs, state.activeTabId, tool, source);
 				const activeTool = options.activeTool ?? null;
+				const hint = options.hint ?? null;
 				const activate = options.activate !== false;
 				if (plan.action === 'focus') {
 					openedId = plan.tabId;
 					const tabs = state.tabs.map((tab) =>
-						tab.id === plan.tabId && isToolTab(tab) && activeTool && tab.activeTool !== activeTool
-							? { ...tab, activeTool }
+						tab.id === plan.tabId && isToolTab(tab) && ((activeTool && tab.activeTool !== activeTool) || hint)
+							? { ...tab, activeTool: activeTool ?? tab.activeTool ?? null, hint }
 							: tab
 					);
 					return { ...state, tabs, activeTabId: activate ? plan.tabId : state.activeTabId };
@@ -519,13 +521,14 @@ function createTabsStore() {
 									run: null,
 									thumbnail: null,
 									activeTool: activeTool ?? tab.activeTool ?? null,
+									hint,
 									name: tab.renamed ? tab.name : (mediaFileStem(source) ?? tab.name)
 								}
 							: tab
 					);
 					return { ...state, tabs, activeTabId: activate ? plan.tabId : state.activeTabId };
 				}
-				const appended = appendToolTab(state, { tool, source, activeTool }, activate);
+				const appended = appendToolTab(state, { tool, source, activeTool, hint }, activate);
 				openedId = appended.id;
 				return appended.state;
 			});

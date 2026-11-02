@@ -719,3 +719,34 @@ def test_plain_refs_keeps_every_refmod_whatever_the_prompt_cites(h3_template, tm
     encoder = next(p for p in pipes if p["name"] == "prompt_encoder" and p["id"] != "prompt_encoder_director")["config"]
     assert not encoder.get("reference_selections")
     assert [entry["file_path"] for entry in encoder["reference_mods"]] == [face]
+
+
+@pytest.mark.parametrize("rows", [[], [{"strength": 0.0}]], ids=["removed", "strength-0"])
+def test_a_shot_citing_a_refmod_the_form_no_longer_carries_is_refused_by_name(h3_template, refs_director_capabilities, tmp_path, rows):
+    from src.features.prompt.reference_pool import refmod_members_resolver
+    from src.features.video_director import VideoDirectorValidationError
+
+    face = _refmod_file(tmp_path, "face", ["image"])
+    form = {"references": _REFERENCES, "reference_mods": [{"model": face, "copies": 1, **row} for row in rows]}
+    with pytest.raises(VideoDirectorValidationError, match=f"removed from this field \\({face}\\)"):
+        _director_document(refs_director_capabilities, str(tmp_path), [
+            {"id": "seg-0", "prompt": f"@[reference_mods:{face}] walks in", "frames": 124},
+            {"id": "seg-1", "prompt": "an empty street", "frames": 124},
+        ], form, h3_template.prompt_resources["refs"], refmod_members_resolver(None))
+
+
+def test_upstream_stacked_pictures_and_picture_bundles_enter_the_shot_with_their_header_kinds(h3_template, refs_director_capabilities, tmp_path):
+    from src.features.prompt.reference_pool import refmod_members_resolver
+
+    cast = _refmod_file(tmp_path, "cast", ["image", "image"])
+    stack = _refmod_file(tmp_path, "stack", ["video"])
+    form = {"references": [{"path": "/media/woman.png", "type": "image"}],
+            "reference_mods": [{"model": cast, "strength": 1.0}, {"model": stack, "strength": 1.0}]}
+    document = _director_document(refs_director_capabilities, str(tmp_path), [
+        {"id": "seg-0", "prompt": f"@[reference_mods:{cast}] meet", "frames": 124},
+        {"id": "seg-1", "prompt": f"@[references:/media/woman.png] in @[reference_mods:{stack}]", "frames": 124},
+    ], form, h3_template.prompt_resources["refs"], refmod_members_resolver(None))
+    assert [segment["reference_indices"] for segment in document["segments"]] == [[1, 2], [0, 3]]
+    assert [segment["prompt"] for segment in document["segments"]] == [
+        "<Picture 1> <Picture 2> meet", "<Picture 1> in <Video 1>",
+    ]

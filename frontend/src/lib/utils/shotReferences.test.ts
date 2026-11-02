@@ -4,7 +4,9 @@ import type { Segment } from '$lib/types/segments';
 import type { PromptResourceSpec } from './promptResources';
 import {
 	shotNeedsReferenceHint,
+	shotReferenceCounts,
 	shotReferenceOverview,
+	shotReferencePool,
 	shotResourceNumbering,
 	withMarkerAppendedToShot
 } from './shotReferences';
@@ -261,7 +263,7 @@ describe('refmod rows', () => {
 		]);
 		const { used, unused } = shotReferenceOverview(doc, refModCaps, 's1', refModForm, refModSpecs, directory);
 		const mod = used.find((e) => e.field === 'reference_mods');
-		expect(mod).toMatchObject({ itemKey: 'model:01X', name: 'Face', badge: 'Picture', handle: null, count: 1 });
+		expect(mod).toMatchObject({ itemKey: 'model:01X', name: 'Face', badge: 'Picture', handle: 'Picture 2', count: 1 });
 		expect(used.find((e) => e.itemKey === '/pool/c.png')?.handle).toBe('Picture 1');
 		expect(unused.some((e) => e.itemKey === 'model:01Z')).toBe(false);
 		const numbering = shotResourceNumbering(doc, refModCaps, 's1', refModForm, refModSpecs);
@@ -301,5 +303,73 @@ describe('shotNeedsReferenceHint', () => {
 		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, chainCaps, 's1', {}, specs))).toBe(false);
 		const form = { reference_mods: [{ model: 'model:01Z', strength: 0 }] };
 		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, refModCaps, 's1', form, refModSpecs))).toBe(false);
+	});
+});
+
+
+describe('the shot reference pool matches what the backend conditions on', () => {
+	const pictureOnly = {
+		references: [{ path: '/pool/a.png', type: 'image' }],
+		reference_mods: [{ model: 'model:01X', strength: 1 }]
+	};
+	const mixedDirectory = {
+		'01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] },
+		'01B': { name: 'Cast', members: [{ kind: 'image' as const, name: 'hero' }, { kind: 'image' as const, name: 'villain' }] },
+		'01S': { name: 'Stack', members: [{ kind: 'video' as const, name: null }] }
+	};
+	const context = { specs: refModSpecs, directory: mixedDirectory };
+
+	it('puts each RefMod member and copy after the native references of its kind, dropping strength 0', () => {
+		const form = {
+			...formData,
+			reference_mods: [
+				{ model: 'model:01S', strength: 1 },
+				{ model: 'model:01B', strength: 0.5, copies: 2 },
+				{ model: 'model:01X', strength: 0 }
+			]
+		};
+		const pool = shotReferencePool(refModCaps, form, context).map((unit) => `${unit.itemKey}:${unit.kind}`);
+		expect(pool).toEqual([
+			'/pool/a.png:image', '/pool/b.png:image', '/pool/c.png:image',
+			'model:01B:image', 'model:01B:image', 'model:01B:image', 'model:01B:image',
+			'/pool/v.mp4:video', 'model:01S:video',
+			'/pool/t.wav:audio'
+		]);
+	});
+
+	it('reads 2 of 2 for a cited picture and a cited picture RefMod, not 2 of 1', () => {
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[references:/pool/a.png] and @[reference_mods:model:01X]' }])]);
+		expect(shotReferenceCounts(doc, refModCaps, 's1', pictureOnly, context)).toEqual({ used: 2, total: 2 });
+	});
+
+	it('reads 1 of 1 for a lone cited picture RefMod, not 1 of 0', () => {
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[reference_mods:model:01X]' }])]);
+		const form = { reference_mods: [{ model: 'model:01X', strength: 1 }] };
+		expect(shotReferenceCounts(doc, refModCaps, 's1', form, context)).toEqual({ used: 1, total: 1 });
+	});
+
+	it('counts every member of a cited bundle against the full pool', () => {
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[reference_mods:model:01B]' }])]);
+		const form = { references: [{ path: '/pool/a.png', type: 'image' }], reference_mods: [{ model: 'model:01B', strength: 1 }, { model: 'model:01S', strength: 1 }] };
+		expect(shotReferenceCounts(doc, refModCaps, 's1', form, context)).toEqual({ used: 2, total: 4 });
+	});
+
+	it('gives a cited RefMod the labels the shot numbers it with, after the cited natives of its kind', () => {
+		const doc = chainDoc([
+			segment('s1', [{ id: 'p', content: '@[references:/pool/a.png] @[reference_mods:model:01B] @[reference_mods:model:01S]' }])
+		]);
+		const form = { references: [{ path: '/pool/a.png', type: 'image' }], reference_mods: [{ model: 'model:01B', strength: 1 }, { model: 'model:01S', strength: 1 }] };
+		const { used } = shotReferenceOverview(doc, refModCaps, 's1', form, refModSpecs, mixedDirectory);
+		expect(used.map((entry) => [entry.itemKey, entry.handle])).toEqual([
+			['/pool/a.png', 'Picture 1'],
+			['model:01B', 'Picture 2 · Picture 3'],
+			['model:01S', 'Video 1']
+		]);
+	});
+
+	it('leaves an uncited RefMod without a label', () => {
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[references:/pool/a.png]' }])]);
+		const { unused } = shotReferenceOverview(doc, refModCaps, 's1', pictureOnly, refModSpecs, mixedDirectory);
+		expect(unused.map((entry) => [entry.itemKey, entry.handle])).toEqual([['model:01X', null]]);
 	});
 });

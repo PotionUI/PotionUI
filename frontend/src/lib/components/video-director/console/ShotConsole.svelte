@@ -68,6 +68,8 @@
 	import ShotStage from './ShotStage.svelte';
 	import JoinConnector from './JoinConnector.svelte';
 	import OverridesDisclosure from './OverridesDisclosure.svelte';
+	import { loadRefMods, refModDirectory } from '$lib/stores/refModDirectory';
+	import { refModIds } from '$lib/utils/refMods';
 
 	let {
 		value,
@@ -202,7 +204,15 @@
 	let checked: Set<string> = $state(new Set());
 
 	let generationContext = $derived({ presetId: presetId || null, variant: selectedVariant, mode: selectedMode });
-	let model = $derived(deriveConsoleModel(doc, capabilities, { activeShotId: activeShotId ?? null }, formData, runs, checked, generationContext));
+	$effect(() => {
+		loadRefMods(refModIds(promptResources, formData));
+	});
+	let model = $derived(
+		deriveConsoleModel(doc, capabilities, { activeShotId: activeShotId ?? null }, formData, runs, checked, generationContext, {
+			specs: promptResources,
+			directory: $refModDirectory
+		})
+	);
 	// The MAX affordance's target -- null hides it entirely (no cap of either
 	// kind); shared by every shot card since it depends only on the doc/caps,
 	// not on which shot is active.

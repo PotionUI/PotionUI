@@ -2,7 +2,7 @@
 	import type { VideoDirectorValue, DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import { collectFormMediaOptions, formMediaOptionKeys } from '$lib/utils/videoDirector';
-	import { shotReferenceOverview, withMarkerAppendedToShot, type ShotReferenceEntry } from '$lib/utils/shotReferences';
+	import { shotReferenceCounts, shotReferenceOverview, withMarkerAppendedToShot, type ShotReferenceEntry } from '$lib/utils/shotReferences';
 	import { refModIds } from '$lib/utils/refMods';
 	import { loadRefMods, refModDirectory } from '$lib/stores/refModDirectory';
 	import Icon from '$lib/components/Icon.svelte';
@@ -33,6 +33,7 @@
 		loadRefMods(refModIds(promptResources, formData));
 	});
 	let overview = $derived(shotReferenceOverview(doc, caps, shotId, formData, promptResources, $refModDirectory));
+	let counts = $derived(shotReferenceCounts(doc, caps, shotId, formData, { specs: promptResources, directory: $refModDirectory }));
 	let poolSize = $derived(overview.used.length + overview.unused.length);
 
 	const WAVE_BARS = [30, 55, 80, 45, 95, 60, 35, 70, 90, 50, 25, 65, 85, 40, 60, 30];
@@ -90,7 +91,7 @@
 			<StageCard>
 				{#snippet title()}
 					<span class="text-xs font-semibold text-fg">Used in this shot</span>
-					<span class="font-mono text-xs tabular-nums text-fg-subtle">{overview.used.length} of {poolSize}</span>
+					<span class="font-mono text-xs tabular-nums text-fg-subtle">{counts.used} of {counts.total}</span>
 				{/snippet}
 				{#if overview.used.length === 0}
 					<p class="text-xs leading-5 text-fg-muted" data-testid="shot-references-empty">

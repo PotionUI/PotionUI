@@ -396,3 +396,9 @@ def test_a_plain_prompt_refmod_that_cannot_be_read_says_why():
 def test_describe_leaves_refmod_resources_out_of_the_native_item_list():
     lines = describe_prompt_resources(MOD_RESOURCES, MOD_FORM)
     assert not any("reference_mods" in line for line in lines)
+
+
+def test_a_plain_prompt_citing_a_refmod_that_cannot_be_matched_fails_the_submission():
+    pair = PromptPair(positive="a lighthouse with @[reference_mods:model:gone]", negative="")
+    with pytest.raises(FormBindingError, match="removed from this field \\(model:gone\\)"):
+        resolve_prompt_pairs([pair], MOD_RESOURCES, MOD_FORM, MOD_MEMBERS.__getitem__)

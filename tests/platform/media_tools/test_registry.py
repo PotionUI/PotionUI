@@ -8,7 +8,7 @@ from tests.platform.media_tools.fake_tools import make_spec
 
 CORE_IDS = [
     "trim", "crop", "resize", "rotate", "flip", "speed",
-    "fit_canvas", "color_key", "crop_subject", "frame", "split", "concat", "fix_colors", "cut_finder",
+    "fit_canvas", "color_key", "crop_subject", "frame", "split", "concat", "fix_colors", "film_grain", "cut_finder",
 ]
 
 
@@ -24,7 +24,7 @@ def test_core_registers_exactly_the_contract_tools_in_menu_order():
     register_core_tools(registry)
 
     assert [spec.id for spec in registry.list()] == CORE_IDS
-    assert len(CORE_MODULES) == 14
+    assert len(CORE_MODULES) == 15
     assert all(spec.source == "core" and "." not in spec.id for spec in registry.list())
 
 
@@ -42,8 +42,10 @@ def test_core_specs_follow_the_contract_table():
     assert by_id["frame"].produces == "image" and by_id["frame"].editor == "frame"
     assert by_id["split"].cardinality == "one_to_many" and by_id["split"].editor == "split"
     assert by_id["fix_colors"].accepts == ("video",) and by_id["fix_colors"].group == "effects"
+    assert by_id["film_grain"].accepts == ("video",) and by_id["film_grain"].group == "effects"
+    assert by_id["film_grain"].cardinality == "one_to_one" and not by_id["film_grain"].preview
     assert by_id["cut_finder"].accepts == ("video",) and by_id["cut_finder"].cardinality == "one_to_many"
-    assert all(spec.group == "edit" for spec in by_id.values() if spec.id != "fix_colors")
+    assert all(spec.group == "edit" for spec in by_id.values() if spec.id not in ("fix_colors", "film_grain"))
     assert by_id["concat"].cardinality == "many_to_one" and by_id["concat"].selection == {"min": 2, "max": 8}
     assert all(spec.scopes == ("library", "history", "field") for spec in by_id.values())
     assert all(spec.impl is not None for spec in by_id.values())
@@ -64,6 +66,7 @@ def test_core_param_names_are_the_contract_names():
         "split": ["part_seconds"],
         "concat": ["overlap", "overlap_frames", "fit", "keep_audio"],
         "fix_colors": ["white_balance", "contrast", "strength"],
+        "film_grain": ["amount", "size", "color", "seed"],
         "cut_finder": ["sensitivity", "min_shot_seconds"],
     }
 
@@ -103,7 +106,7 @@ def test_unregister_source_removes_only_that_sources_tools():
 
     assert removed == 2
     assert registry.get("a.one") is None and registry.get("b.one") is not None
-    assert len(registry.list()) == 15
+    assert len(registry.list()) == len(CORE_MODULES) + 1
     assert registry.unregister_source("a") == 0
     assert registry.sources() == {"core", "b"}
 

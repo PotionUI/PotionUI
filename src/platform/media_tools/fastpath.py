@@ -154,7 +154,7 @@ def lossless_audio_args(media: ToolMedia, suffix: str) -> list[str]:
     return []
 
 
-def _audio_codec_args(suffix: str, reencode: bool) -> list[str]:
+def audio_codec_args(suffix: str, reencode: bool) -> list[str]:
     if not reencode:
         return ["-c:a", "copy"]
     if suffix in OPUS_SUFFIXES:
@@ -194,7 +194,7 @@ def build_timed_args(media: ToolMedia, plan: MergedPlan, out_path: Path) -> list
         args += ["-vn"]
         if plan.af:
             args += ["-af", ",".join(plan.af)]
-        args += lossless_audio_args(media, suffix) or _audio_codec_args(suffix, True)
+        args += lossless_audio_args(media, suffix) or audio_codec_args(suffix, True)
         args += [str(out_path)]
         return args
 
@@ -209,7 +209,7 @@ def build_timed_args(media: ToolMedia, plan: MergedPlan, out_path: Path) -> list
         args += ["-map", "0:a:0?"]
         if plan.af and media.has_audio is not False:
             args += ["-af", ",".join(plan.af)]
-        args += _audio_codec_args(suffix, reencode_audio)
+        args += audio_codec_args(suffix, reencode_audio)
     if video_filters:
         args += ["-vf", ",".join(video_filters)]
     if plan.frames is not None:

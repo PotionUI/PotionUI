@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import yaml
 
 from src.platform.media_tools import MediaToolRegistry, validate_params
-from src.platform.media_tools.ops import register_core_tools
+from src.platform.media_tools.ops import CORE_MODULES, register_core_tools
 from src.platform.plugins.registry import PluginRegistry, PluginState
 
 LOOP_MODULE = """
@@ -148,7 +148,7 @@ class TestPluginMediaToolRegistration(unittest.TestCase):
 
         self.assertIsNone(self.media_tools.get("boomerang.loop"))
         self.assertEqual({spec.id for spec in self.media_tools.list()}, core_ids)
-        self.assertEqual(len(core_ids), 12)
+        self.assertEqual(len(core_ids), len(CORE_MODULES))
 
     def test_reenable_registers_again(self):
         self._create_plugin("boomerang", [self._loop_entry()], {"tools/loop.py": LOOP_MODULE})

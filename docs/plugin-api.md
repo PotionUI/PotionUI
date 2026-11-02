@@ -1501,12 +1501,13 @@ Disabling the plugin removes its tools from `GET /api/phrasebook/batch-ops` imme
 ## Media tools
 
 A **media tool** is one declaration of something that edits media: trim a clip, resize an image, loop
-a video. Core ships twelve; a plugin adds its own. The Tools menu on the Library and History pages, a
+a video. Core ships fifteen; a plugin adds its own. The Tools menu on the Library and History pages, a
 media field's toolbar, presets, PotionAI chat and automation all read the same catalog, so a plugin tool
 shows up in every one of them as soon as the plugin is enabled and disappears when it is disabled.
-Tools change shape or time (trim, crop, resize, rotate, flip, speed, split, frame, concat, fit canvas,
-crop to subject, colour key) and run deterministically with no model. Looks (grain, VHS, grades) are
-photo filters, not tools: see [Contributing photo filters and filter ops](#contributing-photo-filters-and-filter-ops).
+Tools change shape, time or pixels (trim, crop, resize, rotate, flip, speed, split, frame, concat, fit canvas,
+crop to subject, colour key, fix colours, film grain) and run deterministically with no model. Looks on
+still images (grain, VHS, grades) are photo filters, not tools: see
+[Contributing photo filters and filter ops](#contributing-photo-filters-and-filter-ops).
 
 ### Core tools
 
@@ -1525,10 +1526,18 @@ photo filters, not tools: see [Contributing photo filters and filter ops](#contr
 | `split` | audio | audio, many | `part_seconds` |
 | `concat` | video, 2 to 8 selected | video, one | `overlap`, `overlap_frames`, `fit`, `keep_audio` |
 | `fix_colors` | video (Effects menu) | same | `white_balance`, `contrast`, `strength` percent |
+| `film_grain` | video (Effects menu) | same | `amount` 0 to 100 percent, `size` 0.5 to 3, `color`, `seed` |
 | `cut_finder` | video | video, many | `sensitivity` 0 to 100, `min_shot_seconds` |
 
 Core ids never contain a dot. Video output keeps even dimensions and the sound; images keep their
 transparency (a JPEG that gains an alpha channel is saved as PNG).
+
+`film_grain` draws new grain on every frame, so the grain moves like film stock instead of sitting on the
+picture as a fixed overlay. The same `seed` on the same clip gives the same grain; `amount` 0 only
+re-encodes. It uses the grain math of the `film_grain` image pipe (`src/platform/imaging/film_grain.py`) and
+streams one frame at a time through ffmpeg, so a long clip is never held in memory. Frame count, frame rate,
+size and the audio track are kept, and Save as new and Replace original behave as for the other video tools.
+It is an effect only: no preset adds it as a final step.
 
 ### From chat, MCP and automation
 

@@ -197,77 +197,72 @@ async function stackRows(page: Page) {
 	);
 }
 
+const ORIGINAL = 'original:00Original640×480·PNG';
+const CROP = '01Crop1:1·480×480';
+const REEL = '02ReelIntensity100';
+
+async function start(page: Page, seed = false): Promise<Log> {
+	const log = await mockEditor(page);
+	await loginAsOwner(page);
+	if (seed) await seedGenerationTab(page);
+	await page.goto('/generate');
+	await expect(page.locator('.tab-bar-container')).toBeVisible({ timeout: 15000 });
+	return log;
+}
+
+async function openDusk(page: Page, shoot = false) {
+	const empty = await openEditorOnDusk(page);
+	if (shoot) await screenshot(page, JOURNEY, '06-empty-1440');
+	await empty.locator('[data-recent-history] button').first().click();
+	await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop');
+	await expect(page.locator('[data-crop-overlay]')).toBeVisible();
+}
+
+async function cropSquare(page: Page, shoot = false) {
+	await page.locator('[data-crop-aspects] button', { hasText: '1:1' }).click();
+	await expect(page.locator('[data-crop-output]')).toHaveText('480×480');
+	await expect(rail(page, 'crop').locator('[data-tool-pending]')).toBeVisible();
+	if (shoot) await screenshot(page, JOURNEY, '02-crop-1440');
+	await page.locator('[data-options-apply]').click();
+	await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, `current:${CROP}`]);
+}
+
+async function applyReel(page: Page, shoot = false) {
+	await rail(page, 'effects').click();
+	await expect(page.locator('[data-look="reel"]')).toBeVisible({ timeout: 15000 });
+	await page.locator('[data-look="reel"]').click();
+	await expect(page.locator('[data-stack-row="pending"]')).toContainText('Reel');
+	await page.locator('[data-frame-compare]').click();
+	await expect(page.locator('[data-canvas-divider]')).toBeVisible();
+	await expect(page.locator('[data-editor-before]')).toBeVisible();
+	if (shoot) await screenshot(page, JOURNEY, '03-effects-compare-1440');
+	await page.locator('[data-options-apply]').click();
+	await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, `applied:${CROP}`, `current:${REEL}`]);
+}
+
 test.describe('the Image editor tab on desktop', () => {
 	test.use({ viewport: { width: 1440, height: 900 } });
 
-	test('crop, a look, undo, hide, save, replace rules, send to a generation and a reload', async ({ page }) => {
-		const log = await mockEditor(page);
-		await loginAsOwner(page);
-		await seedGenerationTab(page);
-		await page.goto('/generate');
-		await expect(page.locator('.tab-bar-container')).toBeVisible({ timeout: 15000 });
-		await expect(page.locator('.generation-panel')).toBeVisible();
-
-		const empty = await openEditorOnDusk(page);
-		await screenshot(page, JOURNEY, '06-empty-1440');
-		await empty.locator('[data-recent-history] button').first().click();
-
-		const editor = page.locator('[data-image-editor]');
-		await expect(editor).toHaveAttribute('data-tool', 'crop');
+	test('crop and a look, undo and redo, hide a step, then save as new and save the copy', async ({ page }) => {
+		const log = await start(page);
+		await openDusk(page, true);
 		await expect(bookTab(page, 'observatory-dusk')).toBeVisible();
 		await expect(page.locator('[data-frame-file]')).toHaveText('observatory-dusk.png');
-		await expect(page.locator('[data-crop-overlay]')).toBeVisible();
-
-		await page.locator('[data-crop-aspects] button', { hasText: '1:1' }).click();
-		await expect(page.locator('[data-crop-output]')).toHaveText('480×480');
-		await expect(rail(page, 'crop').locator('[data-tool-pending]')).toBeVisible();
-		await screenshot(page, JOURNEY, '02-crop-1440');
-		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => stackRows(page)).toEqual([
-			'original:00Original640×480·PNG',
-			'current:01Crop1:1·480×480'
-		]);
-
-		await rail(page, 'effects').click();
-		await expect(page.locator('[data-look="reel"]')).toBeVisible({ timeout: 15000 });
-		await page.locator('[data-look="reel"]').click();
-		await expect(page.locator('[data-stack-row="pending"]')).toContainText('Reel');
-		await page.locator('[data-frame-compare]').click();
-		await expect(page.locator('[data-canvas-divider]')).toBeVisible();
-		await expect(page.locator('[data-editor-before]')).toBeVisible();
-		await screenshot(page, JOURNEY, '03-effects-compare-1440');
-		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => stackRows(page)).toEqual([
-			'original:00Original640×480·PNG',
-			'applied:01Crop1:1·480×480',
-			'current:02ReelIntensity100'
-		]);
+		await cropSquare(page, true);
+		await applyReel(page, true);
 		await expect(bookTab(page, 'observatory-dusk').getByTestId('tab-unsaved')).toBeVisible();
 
 		await page.locator('[data-frame-undo]').click();
-		await expect.poll(() => stackRows(page)).toEqual([
-			'original:00Original640×480·PNG',
-			'current:01Crop1:1·480×480',
-			'undone:02ReelUndone'
-		]);
+		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, `current:${CROP}`, 'undone:02ReelUndone']);
 		await page.locator('[data-frame-undo]').hover();
 		await screenshot(page, JOURNEY, '04-edit-stack-1440');
 		await page.keyboard.press('Control+Shift+Z');
-		await expect.poll(() => stackRows(page)).toEqual([
-			'original:00Original640×480·PNG',
-			'applied:01Crop1:1·480×480',
-			'current:02ReelIntensity100'
-		]);
+		await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, `applied:${CROP}`, `current:${REEL}`]);
 
 		await page.locator('[data-stack-hide="s1"]').click();
 		await expect(page.locator('[data-stack-row="s1"]')).toHaveAttribute('data-hidden', 'true');
-
 		await page.locator('[data-frame-save-menu]').click();
-		const replaceRow = page.locator('[data-save-row="replace"]');
-		await expect(replaceRow).toBeDisabled();
-		await expect(replaceRow).toContainText('Files from History stay as generated');
-		await expect(page.locator('[data-save-row="send"]')).toHaveCount(1);
-		await expect(page.locator('[data-save-row="send"]')).toContainText('Reference image');
+		await expect(page.locator('[data-save-row="replace"]')).toBeDisabled();
 		await screenshot(page, JOURNEY, '05-save-menu-1440');
 		await page.keyboard.press('Escape');
 
@@ -297,26 +292,38 @@ test.describe('the Image editor tab on desktop', () => {
 			inputs: [{ generation_file_id: String(FILE_ID) }],
 			output: { mode: 'update', target_item_id: 'copy-run-1' }
 		});
+	});
 
+	test('Send to a generation lands the edit in that tab field and switches to it', async ({ page }) => {
+		const log = await start(page, true);
+		await openDusk(page);
+		await cropSquare(page);
 		await page.locator('[data-frame-save-menu]').click();
-		await page.locator('[data-save-row="send"]').click();
-		await expect(page.locator('.generation-panel')).toBeVisible();
+		const send = page.locator('[data-save-row="send"]');
+		await expect(send).toHaveCount(1);
+		await expect(send).toContainText('Reference image');
+		await send.click();
 		await expect(page.getByTestId('tool-tab-host')).toHaveCount(0);
 		await expect(bookTab(page, 'Portrait study')).toHaveClass(/active/);
+		expect(log.uploads).toBe(1);
 		const field = page.locator('[data-field-name="image"]').first();
 		await expect(field).toContainText('observatory-dusk-edit.png');
 		await expect(field.locator('img[src*="sent-1.png"]').first()).toBeVisible();
 		await screenshot(page, JOURNEY, 'sent-to-generation-1440');
+	});
 
-		await bookTab(page, 'observatory-dusk').click();
-		await expect(page.locator('[data-image-editor]')).toBeVisible();
+	test('the stack and the saved copy survive a reload, and a catalog tool previews through the server', async ({ page }) => {
+		const log = await start(page);
+		await openDusk(page);
+		await cropSquare(page);
+		await applyReel(page);
+		await page.locator('[data-frame-save]').click();
+		await expect.poll(() => log.runs.length).toBe(1);
+		await expect(page.locator('[data-frame-save]')).toHaveText(/^\s*Save\s*$/);
+
 		await page.reload();
 		await expect(bookTab(page, 'observatory-dusk')).toBeVisible({ timeout: 15000 });
-		await expect.poll(() => stackRows(page), { timeout: 15000 }).toEqual([
-			'original:00Original640×480·PNG',
-			'applied:01Crop1:1·480×480',
-			'current:02ReelIntensity100'
-		]);
+		await expect.poll(() => stackRows(page), { timeout: 15000 }).toEqual([ORIGINAL, `applied:${CROP}`, `current:${REEL}`]);
 		await expect(page.locator('[data-frame-save]')).toHaveText(/^\s*Save\s*$/);
 
 		await rail(page, 'colorKey').click();

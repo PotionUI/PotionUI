@@ -4,6 +4,7 @@ import { apply, beginEdit, createStack, move, canMove, toggleHidden, appliedStep
 import {
 	PayloadError,
 	inputRef,
+	sizeAfter,
 	inputSizes,
 	outputSize,
 	payloadGaps,
@@ -114,6 +115,24 @@ describe('stack to run steps', () => {
 		stack = toggleHidden(stack, stack.steps[0].id);
 		expect(payloadGaps(appliedSteps(stack), { source: SOURCE })).toEqual([]);
 		expect(runSteps(appliedSteps(stack), { source: SOURCE })).toEqual([{ tool: 'paint_layer', params: {}, hidden: true }]);
+	});
+
+	it('sends a hidden crop after an unknown size as a hidden placeholder without throwing', () => {
+		let stack = push(createStack(), catalogDraft('subject', { margin: 0 }));
+		stack = push(stack, crop43());
+		stack = toggleHidden(stack, stack.steps[1].id);
+		expect(runSteps(appliedSteps(stack), { source: SOURCE })).toEqual([
+			{ tool: 'crop_subject', params: { margin: 0 } },
+			{ tool: 'crop', params: {}, hidden: true }
+		]);
+	});
+
+	it('takes the canvas size from its width and height, and keeps the input size when they are missing', () => {
+		const canvas = (values: Record<string, unknown>) => apply(beginEdit(createStack(), catalogDraft('canvas', values))).steps[0];
+		expect(sizeAfter(canvas({ width: 1200, height: 800 }), SOURCE)).toEqual({ width: 1200, height: 800 });
+		expect(sizeAfter(canvas({ width: 0, height: 800 }), SOURCE)).toEqual(SOURCE);
+		expect(sizeAfter(canvas({}), null)).toBeNull();
+		expect(sizeAfter(apply(beginEdit(createStack(), catalogDraft('subject', {}))).steps[0], SOURCE)).toBeNull();
 	});
 
 	it('maps catalog tools by id and keeps their values', () => {

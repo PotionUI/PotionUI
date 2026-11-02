@@ -863,6 +863,9 @@ class MiniMaxH3VideoVAE(NativeArchModule):
         num_tokens = latent_frames + self.token_drop
         pad_tokens = (-num_tokens) % self.tokens_chunk_size
         num_chunks = (num_tokens + pad_tokens) // self.tokens_chunk_size - int(self.token_drop > 0)
+        if num_chunks < 1:
+            pad_tokens += self.tokens_chunk_size
+            num_chunks += 1
         return num_chunks, pad_tokens
 
     def _decode(self, z: torch.Tensor) -> torch.Tensor:

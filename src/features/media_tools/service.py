@@ -20,6 +20,7 @@ from src.features.media_tools.dto import (
     TERMINAL_STATUSES,
     ArtifactDTO,
     ClipPreviewResponse,
+    EffectAnalysisResponse,
     InputRef,
     OutputSpec,
     RunDTO,
@@ -54,10 +55,13 @@ from src.platform.media_tools import (
     validate_params,
 )
 from src.platform.media_tools.chain import Step
+from src.platform.media_tools.effects.spec import EffectSpec
+from src.platform.media_tools.effects.tool import ANALYSIS_KEY, EffectTool
 from src.platform.media_tools.fastpath import CRF_BY_QUALITY
 from src.platform.media_tools.params import bind_media, media_params
 from src.platform.media_tools.probe import has_alpha_mode
 from src.platform.media_tools.still import excerpt_steps, read_frame, render_still
+from src.platform.media_tools.timeline import Clock, StepContext
 from src.platform.media_tools.types import MEDIA_KINDS, ToolMedia
 
 if TYPE_CHECKING:
@@ -90,6 +94,7 @@ CHAIN_PROGRESS_SHARE = 0.95
 FRAME_MEDIA_TYPES = {"webp": "image/webp", "png": "image/png"}
 CLIP_SUFFIX_TYPES = {".mp4": "video/mp4", ".webm": "video/webm"}
 PREVIEW_DIR_TAG = "previews-"
+EFFECT_SHADER_URL = "/api/media-tools/effects/{tool_id}/shader"
 
 StepLike = Union[StepRequest, Mapping[str, Any]]
 InputLike = Union[InputRef, Mapping[str, Any]]
@@ -165,6 +170,27 @@ def _scale_pixel_params(spec: ToolSpec, params: Mapping[str, Any], side: int) ->
             value = max(value, float(param["min"]))
         scaled[name] = int(round(value)) if param["type"] == "integer" else value
     return scaled
+
+
+def _effect_of(spec: Optional[ToolSpec]) -> Optional[EffectSpec]:
+    return spec.impl.effect if spec is not None and isinstance(spec.impl, EffectTool) else None
+
+
+def effect_block(effect: EffectSpec) -> dict:
+    etag = effect.shader_etag()
+    return {
+        "group": effect.group,
+        "time": effect.time,
+        "shader": {"url": EFFECT_SHADER_URL.format(tool_id=effect.tool_id), "etag": etag} if etag else None,
+        "uniforms": effect.uniforms(),
+        "textures": [
+            {"uniform": texture.uniform, "from": texture.source, "kind": texture.kind} for texture in effect.textures
+        ],
+        "derive": [{"name": name, "expr": expression.source} for name, expression in effect.derive],
+        "gain": effect.gain.source if effect.gain is not None else None,
+        "analysis": effect.analysis is not None,
+        "analysis_keys": list(effect.analysis.keys) if effect.analysis is not None else [],
+    }
 
 
 def _model(cls, value, field: str):
@@ -284,10 +310,66 @@ class MediaToolService:
     ) -> List[ToolDTO]:
         specs = self.registry.list(kind=kind or None, scope=scope or None)
         remembered = self.params_repo.get_many(_user_id(user), [spec.id for spec in specs])
-        return [
-            ToolDTO(**spec.to_dict(), runnable=spec.impl is not None, last_params=remembered.get(spec.id))
-            for spec in specs
-        ]
+        tools = []
+        for spec in specs:
+            effect = _effect_of(spec)
+            tools.append(ToolDTO(
+                **spec.to_dict(),
+                runnable=spec.impl is not None,
+                last_params=remembered.get(spec.id),
+                effect=effect_block(effect) if effect is not None else None,
+            ))
+        return tools
+
+    def effect_shader(self, tool_id: str) -> Tuple[str, str]:
+        effect = _effect_of(self.registry.get(tool_id))
+        if effect is None or effect.shader is None:
+            raise NotFoundError("not_found", "Effect shader not found")
+        return effect.shader, effect.shader_etag()
+
+    def effect_analysis(
+        self, user: Any, input_ref: InputLike, steps: Sequence[StepLike], step_index: int
+    ) -> EffectAnalysisResponse:
+        user_id = _user_id(user)
+        models = [_model(StepRequest, step, "steps") for step in steps or []]
+        if len(models) > MAX_STEPS:
+            raise InvalidInputError("invalid_params", f"A stack has at most {MAX_STEPS} steps", field="steps")
+        if not 0 <= step_index < len(models) or models[step_index].hidden:
+            raise InvalidInputError("invalid_params", "step_index must name a visible step", field="step_index")
+        chain = self._editor_steps(models[: step_index + 1])
+        target, params = chain[-1]
+        effect = _effect_of(target)
+        if effect is None or effect.analysis is None:
+            raise InvalidInputError("invalid_params", f"{target.label} has nothing to measure", field="step_index")
+        resolved = self.resolver.resolve(user_id, _model(InputRef, input_ref, "input"))
+        if resolved.kind != "video":
+            raise InvalidInputError("unsupported_media", "Only a video can be measured")
+        attachments = self._resolve_attachments(user_id, chain)
+        memo = self.previews.memo(resolved.key)
+        computed = []
+
+        def remember(key: tuple, compute: Callable[[], Any]) -> Any:
+            def measure() -> Any:
+                computed.append(key)
+                return compute()
+
+            return memo(key, measure)
+
+        with self._preview_slot(), self._scratch() as scratch, ExitStack() as stack:
+            ctx = ToolContext(scratch)
+            try:
+                path = stack.enter_context(self.resolver.stage(resolved))
+                media = ctx.probe(path, "video")
+                bound = self._bind(chain, attachments, stack, ctx)
+                clock = Clock(length=media.duration)
+                for spec, step_params in bound:
+                    clock = spec.impl.retime(clock, step_params)
+                prepared = target.impl.prepare(
+                    bound[-1][1], StepContext(source=media, clock=clock, ctx=ctx, memo=remember)
+                )
+            except (InvalidToolParams, UnsupportedMedia, InvalidSelection) as exc:
+                raise _refusal(exc) from exc
+        return EffectAnalysisResponse(values=prepared[ANALYSIS_KEY], cached=not computed)
 
     def last_params(self, user: Any, tool_id: str) -> Optional[dict]:
         return self.params_repo.get(_user_id(user), tool_id)

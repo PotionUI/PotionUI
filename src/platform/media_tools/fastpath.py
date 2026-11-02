@@ -39,6 +39,21 @@ OPAQUE_ONLY_IMAGE_SUFFIXES = (".jpg", ".jpeg", ".bmp")
 LOSSY_IMAGE_QUALITY = 95
 EVEN_CROP = "crop=trunc(iw/2)*2:trunc(ih/2)*2"
 SQUARE_PIXELS = "setsar=1"
+YUV_MATRIX = "bt709"
+RGB_IN = ("scale=in_color_matrix=auto:in_range=auto", "format=gbrp")
+RGB_OUT = f"scale=out_color_matrix={YUV_MATRIX}:out_range=tv"
+COLOR_TAGS = (
+    "-colorspace", YUV_MATRIX, "-color_primaries", YUV_MATRIX, "-color_trc", YUV_MATRIX, "-color_range", "tv",
+)
+
+
+@dataclass
+class StageGroup:
+    at: int
+    stages: list
+    width: Optional[int] = None
+    height: Optional[int] = None
+    duration: Optional[float] = None
 
 
 @dataclass
@@ -54,6 +69,12 @@ class MergedPlan:
     height: Optional[int] = None
     duration: Optional[float] = None
     copy_video: bool = False
+    rgb: bool = False
+    groups: list[StageGroup] = field(default_factory=list)
+
+    def segments(self) -> list[list[str]]:
+        cuts = [0, *(group.at for group in self.groups), len(self.vf)]
+        return [self.vf[low:high] for low, high in zip(cuts, cuts[1:])]
 
 
 def advance_media(media: ToolMedia, fragment: FilterFragment) -> ToolMedia:
@@ -98,6 +119,11 @@ def merge_fragments(media: ToolMedia, fragments: Sequence[FilterFragment]) -> Me
                 video_trim, audio_trim = _trim_filters(start, fragment.end)
                 plan.vf.extend(video_trim)
                 plan.af.extend(audio_trim)
+        if (fragment.rgb or fragment.stage is not None) and not plan.rgb:
+            plan.vf.extend(RGB_IN)
+            plan.rgb = True
+        if fragment.stage is not None:
+            _add_stage(plan, fragment.stage, current)
         plan.vf.extend(fragment.vf)
         plan.af.extend(fragment.af)
         plan.drop_audio = plan.drop_audio or fragment.drop_audio
@@ -111,6 +137,16 @@ def merge_fragments(media: ToolMedia, fragments: Sequence[FilterFragment]) -> Me
     return plan
 
 
+def _add_stage(plan: MergedPlan, stage, media: ToolMedia) -> None:
+    last = plan.groups[-1] if plan.groups else None
+    if last is not None and last.at == len(plan.vf):
+        last.stages.append(stage)
+        return
+    plan.groups.append(StageGroup(
+        at=len(plan.vf), stages=[stage], width=media.width, height=media.height, duration=media.duration,
+    ))
+
+
 def video_output_suffix(media: ToolMedia) -> str:
     suffix = media.path.suffix.lower()
     return suffix if suffix in VIDEO_OUTPUT_SUFFIXES else FALLBACK_VIDEO_SUFFIX
@@ -121,7 +157,7 @@ def audio_output_suffix(media: ToolMedia) -> str:
     return suffix if suffix in AUDIO_OUTPUT_SUFFIXES else FALLBACK_AUDIO_SUFFIX
 
 
-def _seek_args(plan: MergedPlan) -> list[str]:
+def seek_args(plan: MergedPlan) -> list[str]:
     args: list[str] = []
     if plan.seek_start:
         args += ["-ss", f"{plan.seek_start:.6f}"]
@@ -183,14 +219,9 @@ def video_encoder_args(suffix: str, crf: Optional[int]) -> list[str]:
 
 def build_timed_args(media: ToolMedia, plan: MergedPlan, out_path: Path) -> list[str]:
     suffix = out_path.suffix.lower()
-    args = _seek_args(plan)
+    args = seek_args(plan)
     args += ["-i", str(media.path)]
-    reencode_audio = (
-        bool(plan.af)
-        or plan.seek_start is not None
-        or plan.seek_end is not None
-        or suffix != media.path.suffix.lower()
-    )
+    reencode_audio = reencodes_audio(media, plan, suffix)
 
     if media.kind == "audio":
         args += ["-vn"]
@@ -203,25 +234,46 @@ def build_timed_args(media: ToolMedia, plan: MergedPlan, out_path: Path) -> list
     if plan.copy_video and suffix == media.path.suffix.lower():
         return args + _copied_video_args(media, plan, suffix, reencode_audio) + [str(out_path)]
 
-    video_filters = list(plan.vf)
-    even = plan.width is not None and plan.height is not None and plan.width % 2 == 0 and plan.height % 2 == 0
-    if not even:
-        video_filters.extend([EVEN_CROP, SQUARE_PIXELS])
+    video_filters = output_filters(plan, plan.vf)
     args += ["-map", "0:v:0"]
-    if plan.drop_audio:
-        args += ["-an"]
-    else:
-        args += ["-map", "0:a:0?"]
-        if plan.af and media.has_audio is not False:
-            args += ["-af", ",".join(plan.af)]
-        args += audio_codec_args(suffix, reencode_audio)
+    args += audio_map_args(media, plan, "0:a:0?", suffix, reencode_audio)
     if video_filters:
         args += ["-vf", ",".join(video_filters)]
+    if plan.rgb:
+        args += list(COLOR_TAGS)
     if plan.frames is not None:
         args += ["-fps_mode", "passthrough", "-frames:v", str(plan.frames)]
     args += video_encoder_args(suffix, plan.crf)
     args += [str(out_path)]
     return args
+
+
+def output_filters(plan: MergedPlan, filters: Sequence[str]) -> list[str]:
+    video_filters = list(filters)
+    if plan.rgb:
+        video_filters.append(RGB_OUT)
+    even = plan.width is not None and plan.height is not None and plan.width % 2 == 0 and plan.height % 2 == 0
+    if not even:
+        video_filters.extend([EVEN_CROP, SQUARE_PIXELS])
+    return video_filters
+
+
+def audio_map_args(media: ToolMedia, plan: MergedPlan, stream: str, suffix: str, reencode: bool) -> list[str]:
+    if plan.drop_audio:
+        return ["-an"]
+    args = ["-map", stream]
+    if plan.af and media.has_audio is not False:
+        args += ["-af", ",".join(plan.af)]
+    return args + audio_codec_args(suffix, reencode)
+
+
+def reencodes_audio(media: ToolMedia, plan: MergedPlan, suffix: str) -> bool:
+    return (
+        bool(plan.af)
+        or plan.seek_start is not None
+        or plan.seek_end is not None
+        or suffix != media.path.suffix.lower()
+    )
 
 
 def _copied_video_args(media: ToolMedia, plan: MergedPlan, suffix: str, reencode_audio: bool) -> list[str]:
@@ -256,6 +308,10 @@ def run_fragments(media: ToolMedia, fragments: Sequence[FilterFragment], ctx: To
     plan = merge_fragments(media, fragments)
     suffix = audio_output_suffix(media) if media.kind == "audio" else video_output_suffix(media)
     out_path = ctx.new_path(suffix, stem=media.path.stem[:40] or "out")
+    if plan.groups:
+        from src.platform.media_tools.streaming import stream_segments
+
+        return stream_segments(media, plan, ctx, out_path)
     return encode_to(ctx, build_timed_args(media, plan, out_path), out_path, media.kind, plan.duration)
 
 

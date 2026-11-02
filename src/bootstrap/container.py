@@ -103,6 +103,7 @@ from src.platform.plugins.limit_kinds import (
     limit_kind_registry as _shared_limit_kind_registry,
 )
 from src.platform.media_tools import MediaToolRegistry
+from src.platform.media_tools.effects.runtime import EffectRuntime, LifecycleGpuPolicy
 from src.platform.media_tools.ops import register_core_tools as register_core_media_tools
 from src.features.fields.builtin import register_builtin_fields
 from src.features.presets.requirements.builtin import register_builtin_requirement_checkers
@@ -690,7 +691,8 @@ def build_container() -> AppContainer:
     # first so a plugin colliding with a builtin fails plugin enable.
 
     media_tool_registry = MediaToolRegistry()
-    register_core_media_tools(media_tool_registry)
+    effects_runtime = EffectRuntime()
+    register_core_media_tools(media_tool_registry, effects_runtime)
 
     tool_registry = ToolRegistry()
     _rr._global_tool_registry = tool_registry
@@ -828,6 +830,7 @@ def build_container() -> AppContainer:
     system_monitor = SystemMonitor()
     memory_advisor = MemoryAdvisor(gpu_monitor=gpu_monitor, settings=settings)
     model_lifecycle = ModelLifecycle(gpu_monitor=gpu_monitor, settings=settings, roots=model_roots)
+    effects_runtime.use_gpu_policy(LifecycleGpuPolicy(model_lifecycle))
     pipe_catalog = PipeCatalog("src/pipelines/pipes", "pipes/custom", plugin_registry=plugin_registry)
     pipe_install_runner = PipeInstallRunner(pipe_catalog, PipeInstaller(pipe_catalog))
     from src.features.user_groups.repository import UserGroupRepository

@@ -52,6 +52,17 @@ class ClipPreviewRequest(BaseModel):
     height: int = Field(480, ge=16, le=2160)
 
 
+class EffectAnalysisRequest(BaseModel):
+    input: InputRef
+    steps: List[StepRequest] = Field(default_factory=list)
+    step_index: int = Field(0, ge=0)
+
+
+class EffectAnalysisResponse(BaseModel):
+    values: Dict[str, float]
+    cached: bool = False
+
+
 class PreviewClip(BaseModel):
     id: str
     url: str
@@ -97,6 +108,7 @@ class ToolDTO(BaseModel):
     group: str = "edit"
     runnable: bool = True
     last_params: Optional[Dict[str, Any]] = None
+    effect: Optional[Dict[str, Any]] = None
 
 
 class CatalogResponse(BaseModel):

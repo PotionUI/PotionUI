@@ -29,13 +29,14 @@ class TestCatalog(MediaToolsTestBase):
             sorted([
                 "id", "label", "icon", "accepts", "produces", "cardinality", "params", "requires",
                 "selection", "scopes", "editor", "preview", "component", "source", "description",
-                "last_params", "runnable", "group",
+                "last_params", "runnable", "group", "effect",
             ]),
         )
         self.assertEqual(entry["accepts"], ["image"])
         self.assertEqual(entry["source"], "core")
         self.assertTrue(entry["preview"])
         self.assertIsNone(entry["last_params"])
+        self.assertIsNone(entry["effect"])
         self.assertNotIn("impl", entry)
 
     def test_runnable_is_true_for_python_tools_and_false_for_component_only_tools(self):

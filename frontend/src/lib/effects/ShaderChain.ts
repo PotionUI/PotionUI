@@ -48,6 +48,21 @@ interface PendingFrame {
 
 const MAX_PENDING = 4;
 
+let webgl2: boolean | null = null;
+
+export function supportsWebGL2(): boolean {
+	if (webgl2 !== null) return webgl2;
+	if (typeof document === 'undefined' || typeof WebGL2RenderingContext === 'undefined') return (webgl2 = false);
+	try {
+		const gl = document.createElement('canvas').getContext('webgl2');
+		webgl2 = !!gl;
+		gl?.getExtension('WEBGL_lose_context')?.loseContext();
+	} catch {
+		webgl2 = false;
+	}
+	return webgl2;
+}
+
 export function frameTime(pass: Pick<EffectPass, 'timeOps'>, frame: ChainFrame): { time: number; duration: number; index: number } {
 	const time = sourceToOutput(frame.mediaTime, frame.sourceDuration, pass.timeOps);
 	const duration = outputDuration(frame.sourceDuration, pass.timeOps);
@@ -100,6 +115,10 @@ export class ShaderChain {
 			powerPreference: 'low-power'
 		});
 		return gl ? new ShaderChain(canvas, gl, hooks) : null;
+	}
+
+	get timed(): boolean {
+		return !!this.timer;
 	}
 
 	get isLost(): boolean {

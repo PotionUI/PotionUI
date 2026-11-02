@@ -128,6 +128,11 @@ describe('the pass chain', () => {
 		const measured = { gain_r: 1.12, gain_g: 0.97, gain_b: 0.91, black: 0.04, white: 0.93 };
 		const [ready] = effectPasses(steps, { analysis: (key: string) => (key === analysisKey(steps, 1) ? measured : null) });
 		expect(ready.identity).toBe(false);
+		const stale = plan([steps[0], { tool: 'fix_colors', params: { strength: 80 } }], { stale: (tool: string) => (tool === 'fix_colors' ? measured : null) });
+		expect(stale.analysis).toHaveLength(1);
+		expect(stale.measuring).toEqual([]);
+		expect((stale.passes[1] as EffectPass).identity).toBe(false);
+		expect(analysisKey(steps, 1, ['white_balance'])).toBe(analysisKey([steps[0], { tool: 'fix_colors', params: { strength: 1 } }], 1, ['white_balance']));
 		expect(ready.values.r).toBeCloseTo(1.048, 9);
 		expect(ready.values.hi).toBeCloseTo(0.972, 9);
 		expect(ready.uniforms.map((uniform) => uniform.name)).toEqual(expect.arrayContaining(['white_balance', 'strength', 'r', 'lo', 'gain_r']));

@@ -73,7 +73,8 @@ export interface PlanInput {
 	effects: ReadonlyMap<string, EffectTool>;
 	cap: number;
 	unavailable?: ReadonlySet<string>;
-	analysis?: (key: string, index: number) => Record<string, number> | null;
+	analysis?: (key: string) => Record<string, number> | null;
+	stale?: (tool: string, index: number) => Record<string, number> | null;
 }
 
 export function compose(outer: Affine, inner: Affine): Affine {
@@ -104,8 +105,10 @@ function evenRound(value: number): number {
 	return Math.max(2, Math.round(value / 2) * 2);
 }
 
-export function analysisKey(steps: readonly MediaToolStep[], index: number): string {
-	return JSON.stringify(steps.slice(0, index + 1));
+export function analysisKey(steps: readonly MediaToolStep[], index: number, keys: readonly string[] | null = null): string {
+	const step = steps[index];
+	const params = keys ? Object.fromEntries(keys.map((key) => [key, step.params?.[key] ?? null])) : step.params;
+	return JSON.stringify([steps.slice(0, index), step.tool, params]);
 }
 
 export function planChain(input: PlanInput): ChainPlan {
@@ -189,12 +192,11 @@ export function planChain(input: PlanInput): ChainPlan {
 		const values = effectParams(effect, params);
 		let measured: Record<string, number> | null = {};
 		if (effect.block.analysis) {
-			const key = analysisKey(input.steps, index);
-			measured = input.analysis?.(key, index) ?? null;
-			if (!measured) {
-				analysis.push({ index, tool: step.tool, key, steps: input.steps.slice(0, index + 1).map((entry) => ({ ...entry })) });
-				measuring.push(effect.block.group);
-			}
+			const key = analysisKey(input.steps, index, effect.block.analysisKeys);
+			const fresh = input.analysis?.(key) ?? null;
+			if (!fresh) analysis.push({ index, tool: step.tool, key, steps: input.steps.slice(0, index + 1).map((entry) => ({ ...entry })) });
+			measured = fresh ?? input.stale?.(step.tool, index) ?? null;
+			if (!measured) measuring.push(effect.block.group);
 		}
 		const media = { width: passSize.width, height: passSize.height, duration, fps: source.fps };
 		const env: Record<string, DeriveValue> = { ...paramEnv(effect.params, values), ...(measured ?? {}), media };

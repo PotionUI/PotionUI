@@ -3,15 +3,8 @@
 	import { Badge, Button, Kbd } from '$lib/components/ui';
 	import ToolForm from '$lib/media-tools/ToolForm.svelte';
 	import { CROP_ASPECTS, mirrorCropRect, rotateCropRect, turn } from '$lib/media/editors/cropGeometry';
-	import {
-		FIX_PARAMS,
-		GRAIN_AMOUNT_PARAMS,
-		GRAIN_PARAMS,
-		REPLACE_PARAMS,
-		SPEED_PARAMS,
-		resizeParams,
-		volumeParams
-	} from '$lib/tool-tabs/video/params';
+	import { REPLACE_PARAMS, SPEED_PARAMS, resizeParams, volumeParams } from '$lib/tool-tabs/video/params';
+	import type { EffectGroup } from '$lib/effects/catalog';
 	import { formatEditorTime, parseEditorTime } from '$lib/tool-tabs/video/videoState';
 	import {
 		fixed2,
@@ -23,13 +16,13 @@
 		type VideoParams
 	} from '$lib/tool-tabs/video/videoSteps';
 
-	type EffectId = 'film_grain' | 'fix_colors';
-
 	let {
 		tool,
 		op,
 		params,
-		effect = 'film_grain',
+		effect = null,
+		effects = [],
+		showClip = false,
 		clip,
 		playhead,
 		outputLength,
@@ -52,7 +45,9 @@
 		tool: RailToolId;
 		op: VideoOp | null;
 		params: VideoParams;
-		effect?: EffectId;
+		effect?: string | null;
+		effects?: EffectGroup[];
+		showClip?: boolean;
 		clip: ClipInfo;
 		playhead: number;
 		outputLength: number;
@@ -64,7 +59,7 @@
 		busy?: string | null;
 		onparams: (op: VideoOp, params: VideoParams) => void;
 		onaspect: (key: string) => void;
-		oneffect: (effect: EffectId) => void;
+		oneffect: (effect: string) => void;
 		onsetin: () => void;
 		onsetout: () => void;
 		onpreview: () => void;
@@ -77,6 +72,8 @@
 
 	let trim = $derived(op === 'trim' ? readTrim(params) : { start: 0, end: clip.duration });
 	let crop = $derived(op === 'crop' ? readCrop(params) : null);
+	let effectList = $derived(effects.flatMap((group) => group.effects));
+	let activeCard = $derived(effectList.find((entry) => entry.id === effect) ?? null);
 
 	function set(name: string, value: unknown) {
 		if (!op) return;
@@ -227,46 +224,53 @@
 	</div>
 	<ToolForm params={REPLACE_PARAMS} values={params} onChange={set} />
 {:else if tool === 'effects'}
-	{#if phone}
-		{#if effect === 'film_grain'}
-			<ToolForm params={GRAIN_AMOUNT_PARAMS} values={params} onChange={(name, value) => onparams('film_grain', { ...params, [name]: value })} />
-		{:else}
-			<ToolForm params={FIX_PARAMS.slice(2)} values={params} onChange={(name, value) => onparams('fix_colors', { ...params, [name]: value })} />
-		{/if}
-		<div class="grid grid-cols-2 gap-2">
-			{@render previewButton()}
-			<Button variant="secondary" size="sm" class="h-8" icon={effect === 'film_grain' ? 'wand' : 'editor-effects'} onclick={() => oneffect(effect === 'film_grain' ? 'fix_colors' : 'film_grain')}>
-				{effect === 'film_grain' ? 'Fix colours' : 'Film grain'}
-			</Button>
+	{#if !effectList.length}
+		<p class="text-sm text-fg-muted" data-effects-empty>No effects are available.</p>
+	{:else if phone}
+		<div class="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5" role="group" aria-label="Effects" data-effect-strip>
+			{#each effectList as card (card.id)}
+				<Button variant="secondary" size="sm" class="h-8 flex-none" icon={card.icon} pressed={effect === card.id} onclick={() => oneffect(card.id)} attrs={{ 'data-effect-chip': card.id }}>{card.label}</Button>
+			{/each}
 		</div>
+		{#if activeCard && op}
+			<ToolForm params={activeCard.params} values={params} onChange={set} />
+		{/if}
+		{#if showClip}
+			{@render previewButton()}
+		{/if}
 	{:else}
-		{#each [{ id: 'film_grain', label: 'Film grain', icon: 'editor-effects' }, { id: 'fix_colors', label: 'Fix colours', icon: 'wand' }] as const as card (card.id)}
-			{@const open = effect === card.id}
-			<div class="rounded-lg border {open ? 'border-signal/50 bg-surface-2' : 'border-line bg-surface-1'}" data-effect-card={card.id} data-open={open || undefined}>
-				<button
-					type="button"
-					class="flex h-10 w-full items-center gap-2 px-3 text-left text-base text-fg"
-					aria-expanded={open}
-					onclick={() => oneffect(card.id)}
-				>
-					<Icon name={card.icon} className="h-3.5 w-3.5 flex-none text-fg-muted" />
-					<span class="min-w-0 flex-1 truncate">{card.label}</span>
-					{#if open}
-						<Badge variant="signal" size="sm">Preview</Badge>
-					{:else}
-						<Icon name="plus" className="h-3.5 w-3.5 text-fg-muted" />
-					{/if}
-				</button>
-				{#if open}
-					<div class="flex flex-col gap-3 px-3 pb-3">
-						{#if card.id === 'film_grain'}
-							<ToolForm params={GRAIN_PARAMS} values={params} onChange={(name, value) => onparams('film_grain', { ...params, [name]: name === 'size' ? Number(value) : value })} />
-							<span class="self-end font-mono text-sm uppercase tabular-nums text-fg-subtle" data-grain-seed>Seed {Number(params.seed ?? 0)}</span>
-						{:else}
-							<ToolForm params={FIX_PARAMS} values={params} onChange={(name, value) => onparams('fix_colors', { ...params, [name]: value })} />
+		{#each effects as group (group.id)}
+			<div class="flex flex-col gap-1.5" data-effect-group={group.id}>
+				<span class={sectionLabel}>{group.label}</span>
+				{#each group.effects as card (card.id)}
+					{@const open = effect === card.id}
+					<div class="rounded-lg border {open ? 'border-signal/50 bg-surface-2' : 'border-line bg-surface-1'}" data-effect-card={card.id} data-open={open || undefined}>
+						<button
+							type="button"
+							class="flex h-10 w-full items-center gap-2 px-3 text-left text-base text-fg"
+							aria-expanded={open}
+							onclick={() => oneffect(card.id)}
+						>
+							<Icon name={card.icon} className="h-3.5 w-3.5 flex-none text-fg-muted" />
+							<span class="min-w-0 flex-1 truncate">{card.label}</span>
+							{#if open}
+								<Badge variant="signal" size="sm">Preview</Badge>
+							{:else}
+								<Icon name="plus" className="h-3.5 w-3.5 text-fg-muted" />
+							{/if}
+						</button>
+						{#if open}
+							<div class="flex flex-col gap-3 px-3 pb-3">
+								{#if card.description}
+									<p class="text-sm text-fg-muted" data-effect-description>{card.description}</p>
+								{/if}
+								{#if card.params.length}
+									<ToolForm params={card.params} values={params} onChange={(name, value) => onparams(card.id, { ...params, [name]: value })} />
+								{/if}
+							</div>
 						{/if}
 					</div>
-				{/if}
+				{/each}
 			</div>
 		{/each}
 		<div class="flex h-10 items-center gap-2 rounded-lg border border-line px-3 text-base text-fg-disabled" aria-disabled="true" data-effect-later>
@@ -274,7 +278,9 @@
 			<span class="flex-1">Looks</span>
 			<span class="font-mono text-sm uppercase tracking-[0.08em]">Later</span>
 		</div>
-		{@render previewButton()}
+		{#if showClip}
+			{@render previewButton()}
+		{/if}
 	{/if}
 {:else if tool === 'frame'}
 	<div class="flex flex-col gap-2">

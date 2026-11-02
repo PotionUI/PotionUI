@@ -27,6 +27,7 @@ export interface EffectBlock {
 	derive: Record<string, string>;
 	gain: string | null;
 	analysis: boolean;
+	analysisKeys: string[] | null;
 }
 
 export interface EffectTool {
@@ -106,7 +107,8 @@ export function readEffectBlock(tool: Pick<ToolDTO, 'group' | 'effect'>): Effect
 		textures: Array.isArray(raw.textures) ? (raw.textures as EffectTexture[]) : [],
 		derive: readDerive(raw.derive),
 		gain: typeof raw.gain === 'string' && raw.gain.trim() ? raw.gain : null,
-		analysis: raw.analysis === true
+		analysis: raw.analysis === true || !!record(raw.analysis),
+		analysisKeys: Array.isArray(record(raw.analysis)?.keys) ? (record(raw.analysis)!.keys as unknown[]).map(String) : null
 	};
 }
 

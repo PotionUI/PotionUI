@@ -108,3 +108,9 @@ ends.
 The two MiniMax-H3 smokes generate 1 s of video, because they run on a Video Director document (see
 above). Their `smoke.form` sets no `frames`, which would not be read; the timeouts were measured on
 that 1 s clip.
+
+`tests/features/recipes/test_shipped_recipes_lint.py` runs the recipe lint over every shipped
+recipe, the core tree and every plugin's `recipes:` root, so a timeout out of range fails the
+backend suite and not only the release gate. It also pins the four timeouts above, and fails a
+recipe whose smoke runs on a Video Director document while its `smoke.form` sets `frames`,
+`duration` or `num_frames`.

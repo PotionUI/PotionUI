@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 
 from src.platform.media_tools import probe, run_chain
-from src.platform.media_tools.ops import cut_finder, fix_colors
+from src.platform.media_tools.ops import cut_finder
+from tests.platform.media_tools.effects.support import effect_spec
 from tests.platform.media_tools.media_factory import run_ffmpeg
 
 pytestmark = pytest.mark.usefixtures("need_ffmpeg")
@@ -73,7 +74,7 @@ def test_a_fade_to_black_finds_no_cut(fade, ctx):
 def test_fix_colors_makes_a_cast_clip_more_neutral_and_stays_a_valid_video(cast, ctx, tmp_path):
     before = channel_means(cast.path, tmp_path)
 
-    [fixed] = run_chain([(fix_colors.spec(), {"white_balance": True, "contrast": False, "strength": 100})], [cast], ctx)
+    [fixed] = run_chain([(effect_spec("fix_colors"), {"white_balance": True, "contrast": False, "strength": 100})], [cast], ctx)
 
     after = channel_means(fixed.path, tmp_path)
     assert fixed.kind == "video" and fixed.width == cast.width and fixed.duration == pytest.approx(cast.duration, abs=0.2)

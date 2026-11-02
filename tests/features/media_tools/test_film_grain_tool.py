@@ -26,7 +26,7 @@ class TestFilmGrainCatalog(FilmGrainToolTestBase):
         entry = self.entry(kind="video", scope="library")
 
         self.assertEqual(entry["label"], "Film grain")
-        self.assertEqual(entry["accepts"], ["video"])
+        self.assertEqual(entry["accepts"], ["video", "image"])
         self.assertEqual(entry["group"], "effects")
         self.assertEqual(entry["cardinality"], "one_to_one")
         self.assertTrue(entry["runnable"])
@@ -34,11 +34,11 @@ class TestFilmGrainCatalog(FilmGrainToolTestBase):
         self.assertEqual(list(by_name), ["amount", "size", "color", "seed"])
         self.assertEqual((by_name["amount"]["min"], by_name["amount"]["max"], by_name["amount"]["default"]), (0, 100, 30))
         self.assertEqual((by_name["size"]["min"], by_name["size"]["max"], by_name["size"]["default"]), (1, 3, 1.5))
-        self.assertIs(by_name["color"]["default"], True)
+        self.assertIs(by_name["color"]["default"], False)
         self.assertTrue(all(param["description"] for param in entry["params"]))
 
-    def test_images_and_audio_are_not_offered_the_tool(self):
-        self.assertIsNone(self.entry(kind="image"))
+    def test_images_are_offered_the_tool_and_audio_is_not(self):
+        self.assertIsNotNone(self.entry(kind="image"))
         self.assertIsNone(self.entry(kind="audio"))
         self.assertIsNotNone(self.entry(scope="history"))
 
@@ -91,8 +91,17 @@ class TestFilmGrainRuns(FilmGrainToolTestBase):
         self.assertEqual(self.error_of(response)["error"], "invalid_params")
         self.assertEqual(self.error_of(response)["field"], "amount")
 
-    def test_an_image_is_refused(self):
+    def test_an_image_gets_grain_through_the_image_path(self):
         item = self.image_item()
+
+        run = self.finish([GRAIN], [{"item_id": item.id}])
+
+        self.assertEqual(run.status, "completed", run.error)
+        self.assertEqual(run.items[0].media_type, "image")
+        self.assertTrue(run.items[0].original_filename.endswith("-grain.png"))
+
+    def test_audio_is_refused(self):
+        item = self.audio_item()
 
         response = self.start([GRAIN], [{"item_id": item.id}])
 

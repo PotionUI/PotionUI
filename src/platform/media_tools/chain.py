@@ -12,6 +12,7 @@ from src.platform.media_tools.fastpath import (
 )
 from src.platform.media_tools.params import validate_params
 from src.platform.media_tools.probe import has_alpha_mode
+from src.platform.media_tools.timeline import Clock, StepContext
 from src.platform.media_tools.types import (
     FilterFragment,
     InvalidSelection,
@@ -61,10 +62,11 @@ def _guard(ctx: ToolContext) -> None:
 
 
 def _fuse_timed(
-    steps: Sequence[Step], start: int, media: ToolMedia
+    steps: Sequence[Step], start: int, media: ToolMedia, ctx: ToolContext
 ) -> tuple[list[FilterFragment], int]:
     fragments: list[FilterFragment] = []
     virtual = media
+    clock = Clock(length=media.duration)
     index = start
     while index < len(steps):
         spec, params = steps[index]
@@ -77,6 +79,8 @@ def _fuse_timed(
                 check_requires(spec, virtual)
             except UnsupportedMedia:
                 break
+        clock = spec.impl.retime(clock, params)
+        params = spec.impl.prepare(params, StepContext(source=media, clock=clock, ctx=ctx.quiet()))
         fragment = spec.impl.video_filter(virtual, params)
         if fragment is None:
             break
@@ -128,7 +132,7 @@ def _run_item(steps: Sequence[Step], media: ToolMedia, ctx: ToolContext) -> list
 
         if spec.cardinality == "one_to_one":
             if current.kind in ("video", "audio"):
-                fragments, consumed = _fuse_timed(steps, position, current)
+                fragments, consumed = _fuse_timed(steps, position, current, ctx)
                 if consumed:
                     stage = ctx.scoped(position / total, (position + consumed) / total)
                     stage.progress(0.0, spec.label)

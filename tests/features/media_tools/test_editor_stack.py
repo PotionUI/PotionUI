@@ -176,7 +176,8 @@ class TestVideoStack(EditorStackTestBase):
         )
         fractions = [fraction for fraction, _ in seen]
         self.assertEqual(fractions, sorted(fractions))
-        self.assertIn("Film grain", {label for _, label in seen})
+        self.assertIn("Trim", {label for _, label in seen})
+        self.assertNotIn("Film grain", {label for _, label in seen})
         self.assertIn("Saving", {label for _, label in seen})
         self.assertEqual(run.progress, 1.0)
 

@@ -68,6 +68,8 @@ export interface ToolDTO {
 	component: string | null;
 	runnable: boolean;
 	group?: 'edit' | 'effects' | 'audio';
+	description?: string;
+	effect?: Record<string, unknown> | null;
 	source: string;
 	last_params: Record<string, unknown> | null;
 }
@@ -142,6 +144,12 @@ export interface MediaToolSource {
 
 export function isTerminalStatus(status: MediaToolRunStatus): boolean {
 	return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+export interface EffectAnalysisBody {
+	input: MediaToolInputRef;
+	steps: MediaToolStep[];
+	step_index: number;
 }
 
 export interface FramePreviewBody {

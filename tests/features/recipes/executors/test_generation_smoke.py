@@ -2,6 +2,7 @@
 (see the executor's own docstring). Fixture-form construction is monkeypatched
 out; it's exercised for real by `test_pipeline_render.py`'s shared helper."""
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -361,3 +362,72 @@ def test_default_model_repository_is_lazily_constructed():
     executor = GenerationSmokeExecutor(FakePresetLoader(None), object(), FakeOrchestrator())
 
     assert executor.model_repository is not None
+
+
+class NeverCompletingOrchestrator(FakeOrchestrator):
+    async def start_generation(self, request, user_id, output_callback):
+        return {"generation_id": "gen-1"}
+
+    async def get_generation_status(self, generation_id):
+        return {"status": "running"}
+
+
+def _spy_on_the_completion_wait(monkeypatch, *, expire=False):
+    seen = []
+    real_wait_for = asyncio.wait_for
+
+    async def spy(awaitable, timeout=None):
+        if timeout is not None and timeout >= 1:
+            seen.append(timeout)
+            if expire:
+                awaitable.close()
+                raise asyncio.TimeoutError
+        return await real_wait_for(awaitable, timeout=timeout)
+
+    monkeypatch.setattr(asyncio, "wait_for", spy)
+    return seen
+
+
+def _executor(orchestrator=None):
+    return GenerationSmokeExecutor(
+        FakePresetLoader(FakePresetTemplate()), object(), orchestrator or FakeOrchestrator(), FakeFileRepository()
+    )
+
+
+def test_the_wait_is_300_seconds_when_the_recipe_gives_no_timeout(monkeypatch):
+    seen = _spy_on_the_completion_wait(monkeypatch)
+
+    result = _executor().execute(_context(_recipe()))
+
+    assert result.success is True
+    assert seen == [300]
+
+
+def test_the_recipe_timeout_is_what_the_step_waits_for(monkeypatch):
+    seen = _spy_on_the_completion_wait(monkeypatch)
+    recipe = _recipe(RecipeSmokeRef(preset_id="p1", mode="txt2img", timeout_seconds=600))
+
+    result = _executor().execute(_context(recipe))
+
+    assert result.success is True
+    assert seen == [600]
+
+
+def test_the_timeout_failure_names_the_recipe_timeout(monkeypatch):
+    _spy_on_the_completion_wait(monkeypatch, expire=True)
+    recipe = _recipe(RecipeSmokeRef(preset_id="p1", mode="txt2img", timeout_seconds=900))
+
+    result = _executor(NeverCompletingOrchestrator()).execute(_context(recipe))
+
+    assert result.success is False
+    assert result.error_code == "GENERATION_SMOKE_FAILED"
+    assert "timed out waiting for completion after 900s" in result.safe_error_detail
+
+
+def test_a_generation_that_never_finishes_fails_once_the_recipe_timeout_elapses():
+    recipe = _recipe(RecipeSmokeRef(preset_id="p1", mode="txt2img", timeout_seconds=1))
+
+    result = _executor(NeverCompletingOrchestrator()).execute(_context(recipe))
+
+    assert result.success is False
+    assert "timed out waiting for completion after 1s" in result.safe_error_detail

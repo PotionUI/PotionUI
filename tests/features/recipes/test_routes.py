@@ -6,6 +6,7 @@ rather than merely reporting that it would.
 """
 
 import time
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
 
@@ -261,8 +262,22 @@ def test_detail_lists_steps_artifacts_presets_and_smoke(file_db):
     assert body["presets"] == [
         {"id": "PRESET1", "name": "Demo Preset", "cover_url": None, "installed": False}
     ]
-    assert body["smoke"] == {"preset_id": "PRESET1", "mode": "txt2img"}
+    assert body["smoke"] == {"preset_id": "PRESET1", "mode": "txt2img", "timeout_seconds": 300}
     assert body["load_errors"] == ["something odd"]
+
+
+def test_detail_reports_the_recipe_smoke_timeout(file_db):
+    recipe = replace(_recipe(), smoke=RecipeSmokeRef(preset_id="PRESET1", mode="txt2img", timeout_seconds=600))
+    client, _ = _client(
+        _user(AccountType.ADMIN),
+        recipes=[recipe],
+        preset_loader=_preset_loader({"PRESET1": SimpleNamespace(name="Demo Preset", media=None)}),
+        preset_db_repo=_preset_db_repo([]),
+    )
+
+    body = client.get("/api/recipes/demo").json()
+
+    assert body["smoke"] == {"preset_id": "PRESET1", "mode": "txt2img", "timeout_seconds": 600}
 
 
 def test_linked_preset_missing_from_disk_is_left_out(file_db):

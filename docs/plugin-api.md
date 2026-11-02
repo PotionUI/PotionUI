@@ -1698,6 +1698,8 @@ directory afterwards, whatever happens.
   `ffmpeg` is the one cancellable runner: it adds `-y`, parses `-progress` into `ctx.progress` when you
   pass the expected output `duration`, kills the process when the run is cancelled and raises on a failure
   without ever exposing stderr or server paths. Use it instead of `subprocess` so cancel works.
+- **`ToolFailed(message)`** ends the run as failed with `message` shown to the user, and **`ToolCancelled()`**
+  ends it as cancelled; raise it when `ctx.is_cancelled()` turns true during a long loop.
 - **`check_params(params)`** is an optional override for rules that span parameters (`end` must be greater
   than `start`); raise `InvalidToolParams(field, message)`.
 - **`validate_params(spec, params)`** is what the API, presets and chat all call before running; it applies

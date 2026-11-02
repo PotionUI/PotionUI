@@ -138,6 +138,7 @@ export interface MediaTool {
 	lookId?: string;
 	componentProps?: Record<string, unknown>;
 	note?: string;
+	after?: string;
 }
 
 export const MEDIA_TOOL_CATEGORIES: MediaToolCategory[] = [
@@ -172,8 +173,30 @@ export function registerMediaToolCategory(category: MediaToolCategory): void {
 
 /** Every registered tool, in registration order - optionally narrowed to the
  * tools offered on `scope`. */
+export function orderTools(list: readonly MediaTool[]): MediaTool[] {
+	const ids = new Set(list.map((tool) => tool.id));
+	const out = list.filter((tool) => !tool.after || !ids.has(tool.after) || tool.after === tool.id);
+	let pending = list.filter((tool) => !out.includes(tool));
+	while (pending.length) {
+		const before = pending.length;
+		pending = pending.filter((tool) => {
+			const at = out.findIndex((placed) => placed.id === tool.after);
+			if (at < 0) return true;
+			let end = at + 1;
+			while (end < out.length && out[end].after === tool.after) end += 1;
+			out.splice(end, 0, tool);
+			return false;
+		});
+		if (pending.length === before) {
+			out.push(...pending);
+			break;
+		}
+	}
+	return out;
+}
+
 export function listTools(scope?: MediaToolScope): MediaTool[] {
-	const all = [...tools.values()];
+	const all = orderTools([...tools.values()]);
 	return scope ? all.filter((tool) => tool.scopes.includes(scope)) : all;
 }
 
@@ -322,7 +345,7 @@ export function listToolGroups(ctx: MediaToolContext): MediaToolGroup[] {
 	const groups = new Map<string, MediaToolGroup>();
 	let invented = 0;
 
-	for (const tool of tools.values()) {
+	for (const tool of orderTools([...tools.values()])) {
 		if (!tool.scopes.includes(ctx.scope)) continue;
 
 		let group = groups.get(tool.category);

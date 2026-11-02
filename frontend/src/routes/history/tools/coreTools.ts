@@ -93,6 +93,7 @@ export function registerCoreHistoryTools(): void {
 		scopes: ['history', 'library'],
 		selection: { min: 1 },
 		kinds: ['image'],
+		after: 'fit_canvas',
 		applies: sliceSheetAvailability
 	});
 

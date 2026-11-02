@@ -2,7 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import Icon from '../Icon.svelte';
 
-	type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
+	type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'overlay';
 	type Size = 'xs' | 'sm' | 'md' | 'lg';
 
 	let {
@@ -58,8 +58,11 @@
 		primary: 'bg-accent text-accent-contrast hover:bg-accent-hover active:bg-accent-active',
 		secondary: 'bg-surface-3 text-fg hover:bg-line-hover',
 		ghost: 'text-fg-muted hover:text-fg hover:bg-surface-3/50',
-		danger: 'bg-danger-solid text-white hover:bg-danger-solid/90'
+		danger: 'bg-danger-solid text-white hover:bg-danger-solid/90',
+		overlay: 'bg-scrim/60 text-scrim-on backdrop-blur-sm hover:bg-scrim/80'
 	};
+
+	let pressedClasses = $derived(variant === 'overlay' ? 'bg-scrim-on/15 text-scrim-on' : 'bg-signal/10 text-signal');
 
 	const iconSizeClasses: Record<Size, string> = {
 		xs: 'w-3.5 h-3.5',
@@ -70,7 +73,7 @@
 
 	let isDisabled = $derived(disabled || loading);
 	let classes = $derived(
-		`inline-flex items-center justify-center gap-1.5 rounded transition-colors duration-100 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap ${sizeClasses[size]} ${pressed ? 'bg-signal/10 text-signal' : variantClasses[variant]} ${className}`
+		`inline-flex items-center justify-center gap-1.5 rounded transition-colors duration-100 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap ${sizeClasses[size]} ${pressed ? pressedClasses : variantClasses[variant]} ${className}`
 	);
 </script>
 

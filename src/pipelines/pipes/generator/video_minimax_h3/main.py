@@ -135,7 +135,7 @@ from src.platform.runtime.native.sla_attn import SlaAttnContext, build_sla_attn_
 from src.platform.runtime.native.sla_attn import estimate_transient_gb as sla_estimate_transient_gb
 from src.platform.runtime.native.sol_attn import SolAttnContext, build_sol_attn_context, sol_attn_disabled_reason
 from src.platform.runtime.native.sol_attn import estimate_transient_gb as sol_estimate_transient_gb
-from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows, effective_mlp_chunk_rows
+from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows
 from src.platform.runtime.native.arch.minimax_h3.vdn import (
     VdnLayout,
     estimate_vdn_transient_gb,
@@ -2581,13 +2581,16 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             video_tokens=video_rows.shape[0] + layout.text_indices.numel(), audio_tokens=audio_rows.shape[0],
             own_models=(c.bundle.dit, c.bundle.video_vae, c.bundle.audio_vae),
             inner_dim=H3_INNER_DIM, ffn_dim=H3_FFN_DIM,
-            ffn_chunk_rows=effective_mlp_chunk_rows(seq_chunk_rows, ffn_chunk_rows),
+            ffn_chunk_rows=ffn_chunk_rows,
             # 0.0 unless a sparse-attention method is on: its routing and QKV
             # copies are the one piece of this generation's GPU work the
             # token-derived reserve cannot see.
             reserve_gb=max(sparse_attn_reserve, vdn_reserve_gb(vdn_layout)) + control_reserve,
             fit_hint=_h3_fit_hint,
+            seq_chunk_rows=seq_chunk_rows,
+            seq_chunking=sparse_attn_ctx is None and vdn_layout is None,
         )
+        seq_chunk_rows = placement.seq_chunk_rows
         # `c.bundle.dit.device` is the wrapper's OWN placement contract (set by
         # `move_to`/the streamer's `apply` even under partial residency --
         # engine.py keeps it as the intended compute device regardless of

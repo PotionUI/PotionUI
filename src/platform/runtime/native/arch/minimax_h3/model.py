@@ -283,24 +283,19 @@ class MiniMaxH3Attention(nn.Module):
                     [_dispatch_attention(qc, kT, vT, heads=self.heads, backend=SDPA) for qc in qT.split(chunk, dim=2)],
                     dim=2,
                 )
-            out = out.transpose(1, 2).reshape(b, s, -1)
+            out = out.transpose(1, 2)
         if seq_chunk_rows and seq_chunk_rows < s:
-            # One prepared operand for the whole loop (see prepared_linear):
-            # a quantised out_proj otherwise re-dequantises (or, with the fp8
-            # GEMM gate on, re-stages) the SAME weight on every chunk, even
-            # though nothing about it changes between chunks -- only the
-            # chunk-dependent input quantisation/output branch repeats.
-            # Released the moment the `with` block exits, before the caller's
-            # next op runs.
+            result = None
             with self.out_proj.prepared_linear(out) as proj:
-                chunks = []
-                start = 0
-                for c in out.split(seq_chunk_rows, dim=1):
-                    with lora_row_window(start, c.shape[1]):
-                        chunks.append(proj(c))
-                    start += c.shape[1]
-                return torch.cat(chunks, dim=1)
-        return self.out_proj(out)
+                for start in range(0, s, seq_chunk_rows):
+                    n = min(seq_chunk_rows, s - start)
+                    with lora_row_window(start, n):
+                        rows = proj(out[:, start:start + n].reshape(b, n, -1))
+                    if result is None:
+                        result = rows.new_empty(b, s, rows.shape[-1])
+                    result[:, start:start + n] = rows
+            return result
+        return self.out_proj(out.reshape(b, s, -1))
 
     def _chunked_qkv(self, x: Tensor, rotary_emb: tuple[Tensor, Tensor] | None,
                       chunk_rows: int) -> tuple[Tensor, Tensor, Tensor]:

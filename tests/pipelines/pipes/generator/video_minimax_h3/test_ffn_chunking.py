@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
@@ -27,7 +27,8 @@ def _run(monkeypatch, config_overrides: dict) -> tuple[dict, list]:
         return real_call(self, *args, **kwargs)
 
     monkeypatch.setattr(h3_main._MiniMaxH3Forward, "__call__", recording_call)
-    with patch(f"{_MAIN}.place_dit_for_sequence") as placement:
+    with patch(f"{_MAIN}.place_dit_for_sequence",
+               side_effect=lambda *a, **k: MagicMock(seq_chunk_rows=k.get("seq_chunk_rows", 0))) as placement:
         _run_generate_one(config_overrides, steps=2, ctx_overrides=_BIG_LAYOUT)
     calls = [call.kwargs for call in placement.call_args_list]
     assert len(calls) == 1
@@ -47,7 +48,8 @@ def test_the_default_rows_reach_both_the_placement_and_every_forward(monkeypatch
     placement, seen = _run(monkeypatch, {})
     rows = _default_rows(placement)
     assert rows == math.ceil((placement["video_tokens"] + placement["audio_tokens"]) / 6)
-    assert placement["ffn_chunk_rows"] == rows
+    assert placement["ffn_chunk_rows"] == rows and placement["seq_chunk_rows"] == 0
+    assert placement["seq_chunking"] is True
     assert seen == [(0, rows)] * 2
 
 
@@ -59,15 +61,32 @@ def test_turning_ffn_chunking_off_chunks_nothing_and_reserves_the_whole_ffn(monk
 
 
 @pytest.mark.parametrize("ffn_chunking", [True, False])
-def test_a_narrower_seq_chunk_width_is_what_the_placement_reserves(monkeypatch, ffn_chunking):
+def test_a_configured_seq_chunk_width_reaches_the_placement_and_every_forward(monkeypatch, ffn_chunking):
     placement, seen = _run(monkeypatch, {"seq_chunk_rows": 50, "ffn_chunking": ffn_chunking})
-    assert placement["ffn_chunk_rows"] == 50
+    assert placement["seq_chunk_rows"] == 50
+    assert placement["ffn_chunk_rows"] == (_default_rows(placement) if ffn_chunking else 0)
     assert all(seq_rows == 50 for seq_rows, _ in seen)
+
+
+def test_a_seq_chunk_width_the_placement_picks_reaches_every_forward(monkeypatch):
+    monkeypatch.setattr(model_module, "_FFN_CHUNK_MIN_ROWS", 1)
+    seen: list = []
+    real_call = h3_main._MiniMaxH3Forward.__call__
+
+    def recording_call(self, *args, **kwargs):
+        seen.append(kwargs.get("seq_chunk_rows"))
+        return real_call(self, *args, **kwargs)
+
+    monkeypatch.setattr(h3_main._MiniMaxH3Forward, "__call__", recording_call)
+    with patch(f"{_MAIN}.place_dit_for_sequence", return_value=MagicMock(seq_chunk_rows=7)):
+        _run_generate_one({}, steps=2, ctx_overrides=_BIG_LAYOUT)
+    assert seen == [7, 7]
 
 
 def test_a_wider_seq_chunk_width_leaves_the_default_ffn_chunk_in_the_reserve(monkeypatch):
     placement, _seen = _run(monkeypatch, {"seq_chunk_rows": 10_000})
     assert placement["ffn_chunk_rows"] == _default_rows(placement)
+    assert placement["seq_chunk_rows"] == 10_000
 
 
 def test_the_forward_wrapper_hands_its_ffn_chunk_rows_to_the_dit():

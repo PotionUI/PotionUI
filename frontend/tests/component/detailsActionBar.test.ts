@@ -5,12 +5,14 @@ import { A1111_TOOL, BOOMERANG_TOOL, CORE_TOOLS, FIX_COLORS_TOOL, toolDto } from
 import { settle } from './helpers/settle';
 
 const openMediaTool = vi.fn();
-const openPaintEditor = vi.fn();
+const openToolShortcut = vi.fn();
 const listMediaTools = vi.fn();
 
 vi.mock('$lib/media-tools/open', () => ({
-	openMediaTool: (...args: unknown[]) => openMediaTool(...args),
-	openPaintEditor: (...args: unknown[]) => openPaintEditor(...args)
+	openMediaTool: (...args: unknown[]) => openMediaTool(...args)
+}));
+vi.mock('$lib/tool-tabs/openShortcut', () => ({
+	openToolShortcut: (...args: unknown[]) => openToolShortcut(...args)
 }));
 vi.mock('$lib/services/api/mediaTools', () => ({ listMediaTools: (...args: unknown[]) => listMediaTools(...args) }));
 vi.mock('$lib/stores/toast', () => ({
@@ -26,9 +28,6 @@ vi.mock('$lib/services/api/index', () => ({
 			{ id: 't2', name: 'Sea', type: 'GENERATION' }
 		])
 	}
-}));
-vi.mock('$lib/media/editors/MediaEditors.svelte', async () => ({
-	default: (await import('./fixtures/MediaEditorsStub.svelte')).default
 }));
 vi.mock('$lib/components/plugins/PluginSlot.svelte', async () => ({
 	default: (await import('./fixtures/PluginSlotStub.svelte')).default
@@ -212,7 +211,8 @@ beforeEach(() => {
 	});
 	recentLooks.set([]);
 	openMediaTool.mockReset();
-	openPaintEditor.mockReset();
+	openToolShortcut.mockReset();
+	openToolShortcut.mockReturnValue(true);
 	listMediaTools.mockReset();
 	listMediaTools.mockResolvedValue([...CORE_TOOLS, A1111_TOOL]);
 	resetMediaToolCatalog();
@@ -272,10 +272,10 @@ describe('bar content', () => {
 
 		expect(barIds(root)).not.toContain('effects');
 		await open(root, 'edit');
-		expect(rowIds()).toEqual(['trim', 'crop', 'resize', 'rotate', 'flip', 'speed', 'frame']);
+		expect(rowIds()).toEqual(['trim', 'crop', 'resize', 'rotate', 'flip', 'speed', 'frame', 'edit-image']);
 	});
 
-	it('lists Fix colours under Effects for a video and runs it through openMediaTool', async () => {
+	it('lists Fix colours under Effects for a video and opens it in the Video editor', async () => {
 		listMediaTools.mockResolvedValue([...CORE_TOOLS, A1111_TOOL, FIX_COLORS_TOOL]);
 		const props = libraryProps('video');
 		const root = await renderSettled(props);
@@ -292,8 +292,8 @@ describe('bar content', () => {
 		rows()[0].click();
 		flushSync();
 
-		expect(openMediaTool).toHaveBeenCalledTimes(1);
-		expect(openMediaTool.mock.calls[0][0]).toMatchObject({ toolId: 'fix_colors', scope: 'library' });
+		expect(openMediaTool).not.toHaveBeenCalled();
+		expect(openToolShortcut).toHaveBeenCalledWith('fix_colors', props.items);
 	});
 
 	it('gives an audio item the catalog audio tools and no Effects', async () => {
@@ -352,8 +352,9 @@ describe('bar content', () => {
 });
 
 describe('Edit and Effects menus', () => {
-	it('lists the image Edit tools with Edit image last, and runs a catalog tool through openMediaTool', async () => {
-		const props = historyProps();
+	it('lists the image Edit tools with Open in Image editor last, and opens a tool in an Image editor tab', async () => {
+		const onOpenedInTab = vi.fn();
+		const props = historyProps('image', { onOpenedInTab });
 		const root = await renderSettled(props);
 		await open(root, 'edit');
 
@@ -370,23 +371,64 @@ describe('Edit and Effects menus', () => {
 		rows()[0].click();
 		flushSync();
 
-		expect(openMediaTool).toHaveBeenCalledTimes(1);
-		expect(openMediaTool.mock.calls[0][0]).toMatchObject({
-			toolId: 'crop',
-			scope: 'history',
-			context: props.context
-		});
-		expect(openMediaTool.mock.calls[0][0].announce).toBeDefined();
+		expect(openMediaTool).not.toHaveBeenCalled();
+		expect(openToolShortcut).toHaveBeenCalledWith('crop', props.context.items);
+		expect(onOpenedInTab).toHaveBeenCalledTimes(1);
 		expect(menu()).toBeNull();
 	});
 
-	it('does not announce a Library run', async () => {
-		const root = await renderSettled(libraryProps());
+	it('does not close the details when no tab could be opened', async () => {
+		openToolShortcut.mockReturnValue(false);
+		const onOpenedInTab = vi.fn();
+		const root = await renderSettled(libraryProps('image', { onOpenedInTab }));
 		await open(root, 'edit');
 		rows()[0].click();
 
+		expect(onOpenedInTab).not.toHaveBeenCalled();
+	});
+
+	it('does not announce a Library run of a tool that stays a dialog', async () => {
+		const root = await renderSettled(libraryProps('audio'));
+		await open(root, 'edit');
+		rows()[0].click();
+
+		expect(openToolShortcut).not.toHaveBeenCalled();
 		expect(openMediaTool.mock.calls[0][0].announce).toBeUndefined();
 		expect(openMediaTool.mock.calls[0][0].scope).toBe('library');
+	});
+
+	it('marks the rows that open a tab with the opens-elsewhere glyph and names the tab in the footer', async () => {
+		const root = await renderSettled(historyProps());
+		await open(root, 'edit');
+
+		const marked = rows().filter((row) => row.querySelector('[data-opens-elsewhere]'));
+		expect(marked.map((row) => row.dataset.barRow)).toEqual([
+			'crop',
+			'resize',
+			'rotate',
+			'flip',
+			'fit_canvas',
+			'color_key',
+			'crop_subject'
+		]);
+		expect(rows().find((row) => row.dataset.barRow === 'edit-image')!.querySelector('kbd')).not.toBeNull();
+		const footer = document.body.querySelector('[data-bar-menu] [data-tab-footer]')!;
+		expect(footer.textContent).toContain('Image editor tab');
+	});
+
+	it('names the Video editor in the footer of a video', async () => {
+		const root = await renderSettled(libraryProps('video'));
+		await open(root, 'edit');
+
+		expect(document.body.querySelector('[data-bar-menu] [data-tab-footer]')!.textContent).toContain('Video editor tab');
+	});
+
+	it('shows no footer or glyph for audio, which still runs in a dialog', async () => {
+		const root = await renderSettled(libraryProps('audio'));
+		await open(root, 'edit');
+
+		expect(document.body.querySelector('[data-tab-footer]')).toBeNull();
+		expect(document.body.querySelector('[data-opens-elsewhere]')).toBeNull();
 	});
 
 	it('disables Crop to subject for an image known to be opaque, with its reason', async () => {
@@ -414,7 +456,7 @@ describe('Edit and Effects menus', () => {
 		await open(root, 'edit');
 
 		expect(rowIds().at(-1)).toBe('boomerang.loop');
-		expect(dividers()).toBe(1);
+		expect(dividers()).toBe(2);
 		expect(rows().at(-1)!.textContent).toContain('Plugin');
 		expect(rows().at(-1)!.textContent).toContain('Boomerang');
 	});
@@ -450,8 +492,16 @@ describe('Edit and Effects menus', () => {
 });
 
 describe('running things', () => {
-	it('hands the tool the generated file with its generation file id', async () => {
+	it('hands the tab the generated file with its generation file id', async () => {
 		const root = await renderSettled(historyProps());
+		await open(root, 'edit');
+		rows()[0].click();
+
+		expect(openToolShortcut.mock.calls[0][1][0]).toMatchObject({ generationId: 'g1', generationFileId: '4' });
+	});
+
+	it('hands a dialog tool the generated file with its generation file id', async () => {
+		const root = await renderSettled(historyProps('audio'));
 		await open(root, 'edit');
 		rows()[0].click();
 
@@ -460,12 +510,12 @@ describe('running things', () => {
 
 	it('passes what a tool produced back to the page', async () => {
 		const onResult = vi.fn();
-		const root = await renderSettled(libraryProps('image', { onResult }));
+		const root = await renderSettled(libraryProps('audio', { onResult }));
 		await open(root, 'edit');
 		rows()[1].click();
 
-		const produced = [{ id: 'new-1', filename: 'photo-resized.png' }];
-		const info = { toolId: 'resize', replaced: false };
+		const produced = [{ id: 'new-1', filename: 'clip-faster.wav' }];
+		const info = { toolId: 'speed', replaced: false };
 		await openMediaTool.mock.calls[0][0].onResult(produced, info);
 
 		expect(onResult).toHaveBeenCalledWith(produced, info);
@@ -520,8 +570,16 @@ describe('key hints', () => {
 		expect(lastInstance!.triggerShortcut('z')).toBe(false);
 	});
 
-	it('E does nothing for a video, where Edit image is not offered', async () => {
-		await renderSettled(historyProps('video'));
+	it('E opens the Video editor for a video', async () => {
+		const props = historyProps('video');
+		await renderSettled(props);
+
+		expect(lastInstance!.triggerShortcut('e')).toBe(true);
+		expect(openToolShortcut).toHaveBeenCalledWith('edit-image', props.context.items);
+	});
+
+	it('E does nothing for audio, which has no editor tab', async () => {
+		await renderSettled(historyProps('audio'));
 
 		expect(lastInstance!.triggerShortcut('e')).toBe(false);
 	});
@@ -582,47 +640,36 @@ describe('menu details', () => {
 });
 
 describe('image editor entry points', () => {
-	const stub = () => document.body.querySelector('[data-editor-stub]');
-
-	it('opens the paint editor from Edit image', async () => {
-		const root = await renderSettled(libraryProps());
+	it('opens an Image editor tab from Open in Image editor', async () => {
+		const props = libraryProps();
+		const root = await renderSettled(props);
 		await open(root, 'edit');
 		rows().find((row) => row.dataset.barRow === 'edit-image')!.click();
 		flushSync();
 
-		expect(stub()?.getAttribute('data-kind')).toBe('paint');
-		expect(stub()?.getAttribute('data-initial-tool')).toBe('');
+		expect(openToolShortcut).toHaveBeenCalledWith('edit-image', props.items);
+		expect(openMediaTool).not.toHaveBeenCalled();
 	});
 
-	it('opens the editor on Filters from Apply a look', async () => {
-		const root = await renderSettled(libraryProps());
+	it('opens the Effects tool from Apply a look', async () => {
+		const props = libraryProps();
+		const root = await renderSettled(props);
 		await open(root, 'effects');
 		rows()[0].click();
 		flushSync();
 
-		expect(stub()?.getAttribute('data-initial-tool')).toBe('filters');
-		expect(stub()?.getAttribute('data-has-initial-filter')).toBe('false');
+		expect(openToolShortcut).toHaveBeenCalledWith('apply-look', props.items);
 	});
 
-	it('opens the editor on the look that was clicked, keeping a colon in the id', async () => {
+	it('opens the look that was clicked, keeping a colon in the id', async () => {
 		recentLooks.set([{ id: 'retro-tape:vhs', name: 'VHS', group: 'Retro Tape' }]);
-		const root = await renderSettled(libraryProps());
+		const props = libraryProps();
+		const root = await renderSettled(props);
 		await open(root, 'effects');
 		rows()[1].click();
 		flushSync();
 
-		expect(stub()?.getAttribute('data-initial-filter')).toBe('retro-tape:vhs');
-	});
-
-	it('reports editing while the editor is open', async () => {
-		const onEditingChange = vi.fn();
-		const root = await renderSettled(libraryProps('image', { onEditingChange }));
-		await open(root, 'edit');
-		rows().find((row) => row.dataset.barRow === 'edit-image')!.click();
-		flushSync();
-		await settle(2);
-
-		expect(onEditingChange).toHaveBeenLastCalledWith(true);
+		expect(openToolShortcut).toHaveBeenCalledWith('look:retro-tape:vhs', props.items);
 	});
 });
 

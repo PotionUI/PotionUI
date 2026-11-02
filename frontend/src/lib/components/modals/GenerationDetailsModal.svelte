@@ -553,8 +553,6 @@
 
 	let showPublishModal = false;
 
-	let toolEditing = false;
-
 	$: rowContext =
 		activeGeneration && currentFile ? buildHistoryEntryContext(activeGeneration, currentFile, null) : null;
 	$: rowItems = rowContext?.items ?? [];
@@ -700,7 +698,6 @@
 	{isOpen}
 	{title}
 	sizeClass="md:w-[85vw] md:h-[85vh]"
-	closeable={!toolEditing}
 	on:close={handleClose}
 >
 	<svelte:fragment slot="headerIcon">
@@ -787,7 +784,7 @@
 						{moreActions}
 						pluginContext={pluginActionContext}
 						onLaunch={handleLaunch}
-						onEditingChange={(editing) => (toolEditing = editing)}
+						onOpenedInTab={handleClose}
 					/>
 				{/if}
 			<div data-details-stage class="relative min-h-0 flex-1 overflow-hidden bg-black">

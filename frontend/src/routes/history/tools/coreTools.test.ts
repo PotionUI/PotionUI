@@ -76,22 +76,19 @@ describe('core history tools', () => {
 		const history = entryFor('edit-image', ['a']);
 		expect(history.category.id).toBe('compose');
 		expect(history.tool.scopes).toEqual(['history', 'library']);
-		expect(history.tool.label).toBe('Edit image');
+		expect(history.tool.label).toBe('Open in editor');
 	});
 
-	it('offers edit image for exactly one image on the history page', () => {
+	it('offers the editor for one or many items on the history page', () => {
 		expect(entryFor('edit-image', ['a']).availability).toEqual({ enabled: true });
-		expect(entryFor('edit-image', ['a', 'b']).availability).toEqual({
-			enabled: false,
-			reason: 'Select exactly 1 image'
-		});
+		expect(entryFor('edit-image', ['a', 'b']).availability).toEqual({ enabled: true });
 		expect(entryFor('edit-image', []).availability).toEqual({
 			enabled: false,
-			reason: 'Select 1 image'
+			reason: 'Select an image or a video'
 		});
 	});
 
-	it('offers edit image for exactly one image on the library page', () => {
+	it('offers the editor for images and videos on the library page, not for audio', () => {
 		const item = (id: string, media_type: string) =>
 			({ id, filename: `${id}.png`, media_type, url: `/u/${id}.png` }) as never;
 		const entry = (items: never[]) =>
@@ -100,10 +97,11 @@ describe('core history tools', () => {
 				.find(({ tool }) => tool.id === 'edit-image');
 
 		expect(entry([item('a', 'image')])?.availability).toEqual({ enabled: true });
-		expect(entry([item('a', 'image'), item('b', 'image')])?.availability.enabled).toBe(false);
-		expect(entry([item('v', 'video')])?.availability).toEqual({
+		expect(entry([item('a', 'image'), item('b', 'image')])?.availability.enabled).toBe(true);
+		expect(entry([item('v', 'video')])?.availability).toEqual({ enabled: true });
+		expect(entry([item('s', 'audio')])?.availability).toEqual({
 			enabled: false,
-			reason: 'Only images can be edited'
+			reason: 'Only images and videos can be edited'
 		});
 	});
 
@@ -114,12 +112,9 @@ describe('core history tools', () => {
 		expect(entry.tool.label).toBe('Apply a look…');
 	});
 
-	it('offers a look for exactly one image', () => {
+	it('offers a look for one or many images', () => {
 		expect(entryFor('apply-look', ['a']).availability).toEqual({ enabled: true });
-		expect(entryFor('apply-look', ['a', 'b']).availability).toEqual({
-			enabled: false,
-			reason: 'Select one image'
-		});
+		expect(entryFor('apply-look', ['a', 'b']).availability).toEqual({ enabled: true });
 	});
 
 	it('hides Apply a look for video, audio and an empty selection', () => {

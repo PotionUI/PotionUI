@@ -37,13 +37,13 @@ beforeEach(() => {
 describe('buildRowModel', () => {
 	it('lists the core Edit tools of a video in catalog order, then plugin tools last', () => {
 		const model = buildRowModel(buildRowContext('library', [item('video')]));
-		expect(ids(model.edit)).toEqual(['trim', 'crop', 'resize', 'rotate', 'flip', 'speed', 'frame', 'boomerang.loop']);
+		expect(ids(model.edit)).toEqual(['trim', 'crop', 'resize', 'rotate', 'flip', 'speed', 'frame', 'edit-image', 'boomerang.loop']);
 		expect(model.edit.map((entry) => entry.plugin ?? false)).toEqual([
-			false, false, false, false, false, false, false, true
+			false, false, false, false, false, false, false, false, true
 		]);
 	});
 
-	it('adds Edit image after the core tools for an image', () => {
+	it('adds Open in Image editor after the core tools for an image', () => {
 		const model = buildRowModel(buildRowContext('library', [item('image')]));
 		expect(ids(model.edit)).toEqual([
 			'crop',

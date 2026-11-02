@@ -48,8 +48,8 @@ const generation = {
 function historyContext() {
 	return {
 		scope: 'history' as const,
-		items: [generation],
-		kinds: new Set(['image' as const]),
+		items: [{ ...generation, kind: 'audio' as const }],
+		kinds: new Set(['audio' as const]),
 		collectionId: null,
 		generations: [],
 		generationIds: ['gen-1'],
@@ -120,7 +120,7 @@ describe('a tool run from History', () => {
 
 	it('says nothing on success through the Tools menu path, and hands the result to the page', async () => {
 		const onResult = vi.fn();
-		pickTool(mediaToolFromCatalog(CORE_TOOLS.find((tool) => tool.id === 'rotate')!), historyContext(), {
+		pickTool(mediaToolFromCatalog(CORE_TOOLS.find((tool) => tool.id === 'speed')!), historyContext(), {
 			mount: vi.fn(),
 			onResult
 		});

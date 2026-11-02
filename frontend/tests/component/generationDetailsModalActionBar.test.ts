@@ -4,7 +4,7 @@ import { A1111_TOOL, BOOMERANG_TOOL, CORE_TOOLS } from './fixtures/mediaToolCata
 import { settle } from './helpers/settle';
 
 const openMediaTool = vi.fn();
-const openPaintEditor = vi.fn();
+const openToolShortcut = vi.fn();
 const listMediaTools = vi.fn();
 const toastShow = vi.fn();
 const goto = vi.fn();
@@ -13,13 +13,12 @@ vi.mock('$lib/components/plugins/PluginSlot.svelte', async () => ({
 	default: (await import('./fixtures/PluginSlotStub.svelte')).default
 }));
 vi.mock('$lib/media-tools/open', () => ({
-	openMediaTool: (...args: unknown[]) => openMediaTool(...args),
-	openPaintEditor: (...args: unknown[]) => openPaintEditor(...args)
+	openMediaTool: (...args: unknown[]) => openMediaTool(...args)
+}));
+vi.mock('$lib/tool-tabs/openShortcut', () => ({
+	openToolShortcut: (...args: unknown[]) => openToolShortcut(...args)
 }));
 vi.mock('$lib/services/api/mediaTools', () => ({ listMediaTools: (...args: unknown[]) => listMediaTools(...args) }));
-vi.mock('$lib/media/editors/MediaEditors.svelte', async () => ({
-	default: (await import('./fixtures/MediaEditorsStub.svelte')).default
-}));
 vi.mock('$lib/components/workbench/renderers/MeshPreview.svelte', async () => ({
 	default: (await import('./fixtures/MeshPreviewStub.svelte')).default
 }));
@@ -138,7 +137,8 @@ const corner = () => document.body.querySelector<HTMLElement>('[data-stage-meta]
 
 beforeEach(() => {
 	openMediaTool.mockReset();
-	openPaintEditor.mockReset();
+	openToolShortcut.mockReset();
+	openToolShortcut.mockReturnValue(true);
 	toastShow.mockReset();
 	goto.mockReset();
 	listMediaTools.mockReset();
@@ -174,7 +174,7 @@ describe('GenerationDetailsModal action bar', () => {
 		expect(document.body.querySelector('[data-stage-toolbar]')).toBeNull();
 	});
 
-	it('lets History crop, resize and edit a generated image', async () => {
+	it('lets History crop, resize and open a generated image in the Image editor', async () => {
 		await open(generation('image'));
 
 		expect(await menuLabels('edit')).toEqual([
@@ -185,11 +185,11 @@ describe('GenerationDetailsModal action bar', () => {
 			'Fit canvas',
 			'Color key',
 			'Crop to subject',
-			'Edit image'
+			'Open in Image editor'
 		]);
 	});
 
-	it('lets History trim, crop, resize and take a frame from a generated clip', async () => {
+	it('lets History trim, crop, resize and open a frame of a generated clip', async () => {
 		await open(generation('video'));
 
 		expect(await menuLabels('edit')).toEqual([
@@ -199,7 +199,8 @@ describe('GenerationDetailsModal action bar', () => {
 			'Rotate',
 			'Flip',
 			'Speed',
-			'Frame',
+			'Open frame in Image editor',
+			'Open in Video editor',
 			'Boomerang'
 		]);
 	});
@@ -325,16 +326,39 @@ describe('GenerationDetailsModal generation actions', () => {
 });
 
 describe('GenerationDetailsModal running a tool', () => {
-	it('opens a tool on the generated file with its generation file id', async () => {
-		await open(generation('image'));
+	it('opens an Image editor tab on the generated file with its generation file id, and closes the details', async () => {
+		const onClose = vi.fn();
+		await open(generation('image'), { onClose });
 
 		await pick('edit', 'Crop');
 
+		expect(openMediaTool).not.toHaveBeenCalled();
+		expect(openToolShortcut).toHaveBeenCalledTimes(1);
+		const [action, items] = openToolShortcut.mock.calls[0];
+		expect(action).toBe('crop');
+		expect(items).toHaveLength(1);
+		expect(items[0]).toMatchObject({ generationId: 'gen-row', generationFileId: '42', kind: 'image' });
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
+	it('opens a Video editor tab for a generated clip', async () => {
+		await open(generation('video'));
+
+		await pick('edit', 'Trim');
+
+		expect(openToolShortcut.mock.calls[0][0]).toBe('trim');
+		expect(openToolShortcut.mock.calls[0][1][0]).toMatchObject({ kind: 'video', generationFileId: '42' });
+	});
+
+	it('opens a tool on generated audio on the generated file with its generation file id', async () => {
+		await open(generation('audio'));
+
+		await pick('edit', 'Trim');
+
 		const call = openMediaTool.mock.calls[0][0];
-		expect(call.toolId).toBe('crop');
+		expect(call.toolId).toBe('trim');
 		expect(call.scope).toBe('history');
-		expect(call.items).toHaveLength(1);
-		expect(call.items[0]).toMatchObject({ generationId: 'gen-row', generationFileId: '42', kind: 'image' });
+		expect(call.items[0]).toMatchObject({ generationId: 'gen-row', generationFileId: '42', kind: 'audio' });
 	});
 
 	it('runs the A1111 export on the generation it shows', async () => {
@@ -350,8 +374,8 @@ describe('GenerationDetailsModal running a tool', () => {
 	it('closes the details before it opens the tool when the History page can bring them back, with quiet success', async () => {
 		const unregister = registerDetailsReturn(vi.fn());
 		const onClose = vi.fn();
-		await open(generation('image'), { onClose });
-		await pick('edit', 'Resize');
+		await open(generation('audio'), { onClose });
+		await pick('edit', 'Trim');
 
 		expect(onClose).toHaveBeenCalledTimes(1);
 		expect(openMediaTool.mock.calls[0][0].announce.quietSuccess).toBe(true);
@@ -361,34 +385,38 @@ describe('GenerationDetailsModal running a tool', () => {
 
 	it('leaves the details open when no History page is there to bring them back', async () => {
 		const onClose = vi.fn();
-		await open(generation('image'), { onClose });
-		await pick('edit', 'Resize');
+		await open(generation('audio'), { onClose });
+		await pick('edit', 'Trim');
 
 		expect(onClose).not.toHaveBeenCalled();
 		expect(openMediaTool).toHaveBeenCalledTimes(1);
 	});
 
-	it('closes the details and opens the detached editor for Edit image', async () => {
-		const unregister = registerDetailsReturn(vi.fn());
+	it('closes the details and opens an Image editor tab for Open in Image editor', async () => {
 		const onClose = vi.fn();
 		await open(generation('image'), { onClose });
 
-		await pick('edit', 'Edit image');
-		unregister();
+		await pick('edit', 'Open in Image editor');
 
 		expect(onClose).toHaveBeenCalledTimes(1);
-		const options = openPaintEditor.mock.calls[0][0];
-		expect(options.request.kind).toBe('paint');
-		expect(options.request.source.url).toContain('gen-row');
-		expect(options.scope).toBe('history');
+		expect(openToolShortcut.mock.calls[0][0]).toBe('edit-image');
+		expect(openToolShortcut.mock.calls[0][1][0].url).toContain('gen-row');
 	});
 
-	it('opens the editor on the Filters tool for Apply a look', async () => {
+	it('opens the Effects tool of the Image editor for Apply a look', async () => {
 		await open(generation('image'));
 
 		await pick('effects', 'Apply a look…');
 
-		expect(openPaintEditor.mock.calls[0][0].request.initialTool).toBe('filters');
+		expect(openToolShortcut.mock.calls[0][0]).toBe('apply-look');
+	});
+
+	it('opens a frame of a clip in the Video editor on Frame', async () => {
+		await open(generation('video'));
+
+		await pick('edit', 'Open frame in Image editor');
+
+		expect(openToolShortcut.mock.calls[0][0]).toBe('frame');
 	});
 });
 
@@ -420,15 +448,14 @@ describe('GenerationDetailsModal letter shortcuts', () => {
 		flushSync();
 	};
 
-	it('E opens the image editor, as the Edit image hint says', async () => {
-		const unregister = registerDetailsReturn(vi.fn());
+	it('E opens the Image editor tab, as the hint says', async () => {
 		const onClose = vi.fn();
 		await open(generation('image'), { onClose });
 
 		press('e');
-		unregister();
 
-		expect(openPaintEditor).toHaveBeenCalledTimes(1);
+		expect(openToolShortcut).toHaveBeenCalledTimes(1);
+		expect(openToolShortcut.mock.calls[0][0]).toBe('edit-image');
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 
@@ -453,12 +480,21 @@ describe('GenerationDetailsModal letter shortcuts', () => {
 		toggle.mockRestore();
 	});
 
-	it('does nothing for E on a video, which has no Edit image', async () => {
+	it('E opens the Video editor tab for a video', async () => {
 		await open(generation('video'));
 
 		press('e');
 
-		expect(openPaintEditor).not.toHaveBeenCalled();
+		expect(openToolShortcut.mock.calls[0][0]).toBe('edit-image');
+		expect(openToolShortcut.mock.calls[0][1][0].kind).toBe('video');
+	});
+
+	it('does nothing for E on audio, which has no editor tab', async () => {
+		await open(generation('audio'));
+
+		press('e');
+
+		expect(openToolShortcut).not.toHaveBeenCalled();
 	});
 
 	it('does nothing while typing in a field', async () => {
@@ -469,7 +505,7 @@ describe('GenerationDetailsModal letter shortcuts', () => {
 
 		press('e', input);
 
-		expect(openPaintEditor).not.toHaveBeenCalled();
+		expect(openToolShortcut).not.toHaveBeenCalled();
 	});
 
 	it('does nothing while a bar menu is open above the details', async () => {
@@ -480,7 +516,7 @@ describe('GenerationDetailsModal letter shortcuts', () => {
 
 		press('e');
 
-		expect(openPaintEditor).not.toHaveBeenCalled();
+		expect(openToolShortcut).not.toHaveBeenCalled();
 	});
 
 	it('does nothing while another dialog is open above the details', async () => {
@@ -490,7 +526,7 @@ describe('GenerationDetailsModal letter shortcuts', () => {
 
 		press('e');
 
-		expect(openPaintEditor).not.toHaveBeenCalled();
+		expect(openToolShortcut).not.toHaveBeenCalled();
 	});
 
 	it('does nothing with a modifier held', async () => {
@@ -498,7 +534,7 @@ describe('GenerationDetailsModal letter shortcuts', () => {
 
 		press('e', window, { ctrlKey: true });
 
-		expect(openPaintEditor).not.toHaveBeenCalled();
+		expect(openToolShortcut).not.toHaveBeenCalled();
 	});
 
 	it('does not let the key through to the page behind', async () => {
@@ -539,14 +575,14 @@ describe('GenerationDetailsModal scroll on the way back', () => {
 
 	async function launchAndCome(scrolled: number, comeBack: boolean) {
 		const unregister = registerDetailsReturn(vi.fn());
-		await open(generation('image'));
+		await open(generation('audio'));
 		panel().scrollTop = scrolled;
-		await pick('edit', 'Resize');
+		await pick('edit', 'Trim');
 		destroy?.();
 		destroy = undefined;
 		document.body.innerHTML = '';
 		if (comeBack) returnToDetails({ generationId: 'gen-row', fileIndex: 0 });
-		await open(generation('image'));
+		await open(generation('audio'));
 		unregister();
 	}
 

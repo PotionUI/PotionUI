@@ -9,6 +9,8 @@
 	import menuNav from '$lib/actions/menuNav';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 	import { isTypingInField } from '$lib/utils/editableTarget';
+	import TabFooter from '$lib/tool-tabs/TabFooter.svelte';
+	import { shortcutTargets, uniqueTargets } from '$lib/tool-tabs/shortcuts';
 	import { retryMediaToolCatalog } from '$lib/tools/pluginTools';
 	import {
 		toolLabel,
@@ -178,6 +180,12 @@
 		if (submenu === 'edit' || submenu === 'effects') return submenuTools[submenu];
 		return topGroups.flatMap((group) => group.tools);
 	}
+
+	function opensTabs(tool: MediaTool) {
+		return scope !== 'field' && ctx && tool.source === 'core' ? shortcutTargets(tool.id, ctx.items) : null;
+	}
+
+	let footerTargets = $derived(uniqueTargets(visibleEntries().map((entry) => opensTabs(entry.tool))));
 
 	function acceleratorTarget(key: string): MediaTool | null {
 		for (const { tool, availability } of visibleEntries()) {
@@ -402,6 +410,10 @@
 				<Icon name="chevron-right" className="w-3.5 h-3.5 flex-shrink-0 text-fg-subtle" />
 			{:else if availability.enabled && tool.shortcut && !sheet}
 				<Kbd keys={shortcutKeys(tool.shortcut)} />
+			{:else if opensTabs(tool)}
+				<span class="shrink-0 text-fg-subtle" data-opens-elsewhere>
+					<Icon name="external-link" className="w-3.5 h-3.5" />
+				</span>
 			{/if}
 		</button>
 	</Tooltip>
@@ -441,6 +453,7 @@
 				{@render toolButton(entry)}
 			{/each}
 		</div>
+		<TabFooter targets={footerTargets} count={ctx?.items.length ?? 1} />
 	{:else}
 		{#if header}
 			<span
@@ -516,6 +529,8 @@
 				{/each}
 			</div>
 		{/each}
+
+		<TabFooter targets={footerTargets} count={ctx?.items.length ?? 1} />
 
 		{#if groups.length === 0}
 			<p class="px-3 py-2 text-sm text-fg-subtle">No tools for this selection.</p>

@@ -21,6 +21,7 @@ from src.features.prompt_enhancement import operations as enhancement_operations
 from src.features.prompt_enhancement.media import encode_media
 from src.features.prompt_enhancement.operations import PromptWriteRefused
 from src.platform.plugins.runtime_registries import get_container
+from src.platform.security.user import AccountType
 
 
 @dataclass
@@ -193,6 +194,10 @@ async def write_prompt_for_preset(
 ) -> Dict[str, Any]:
     container = get_container()
     collaborators = container.prompt_enhancement_manager
+    user = container.user_repository.get_by_id(user_id)
+    is_admin = user is not None and user.account_type == AccountType.ADMIN
+    if preset_id and not enhancement_operations.preset_visible(collaborators, user_id, preset_id, is_admin):
+        raise PromptWriteRefused("preset_not_available", "The preset this prompt is for is not available to you.")
     config = enhancement_operations.writer_config(collaborators, user_id, llm_id, vision=bool(media))
     images = await encode_media(container.settings.get_file_storage_directory(), media)
     form_state = {"preset": preset_id, "mode": mode, "form_data": dict(form_data or {})} if preset_id else None
@@ -203,6 +208,7 @@ async def write_prompt_for_preset(
         llm_id=config.id,
         form_state=form_state,
         images=images,
+        is_admin=is_admin,
     )
 
 

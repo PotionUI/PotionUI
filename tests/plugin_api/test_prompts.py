@@ -174,9 +174,22 @@ def _writer_container(tmp_path, supports_vision=True):
 
     from src.features.prompt_enhancement.collaborators import PromptEnhancementCollaborators
 
+    from src.platform.security.user import AccountType
+
+    preset = SimpleNamespace(id="p", name="Preset P", short_description=None, description=None, llm={})
+    presets = SimpleNamespace(
+        file_repo=SimpleNamespace(find_preset_by_id=lambda preset_id: preset if preset_id == "p" else None),
+        db_repo=SimpleNamespace(get_available_preset_ids_for_user=lambda user_id: ["p"] if user_id == "user-1" else []),
+    )
+    users = {
+        "user-1": SimpleNamespace(account_type=AccountType.USER),
+        "user-2": SimpleNamespace(account_type=AccountType.USER),
+        "admin-1": SimpleNamespace(account_type=AccountType.ADMIN),
+    }
     container = SimpleNamespace(
-        prompt_enhancement_manager=PromptEnhancementCollaborators(llm_service=Llm()),
+        prompt_enhancement_manager=PromptEnhancementCollaborators(llm_service=Llm(), preset_collaborators=presets),
         settings=SimpleNamespace(get_file_storage_directory=lambda: str(tmp_path)),
+        user_repository=SimpleNamespace(get_by_id=users.get),
     )
     return container, calls
 
@@ -216,3 +229,29 @@ def test_prompt_writer_status_reads_the_default_llm(tmp_path):
         status = prompt_writer_status("user-1")
     assert status["available"] is True
     assert status["vision"] is False
+
+
+@pytest.mark.asyncio
+async def test_write_prompt_for_preset_refuses_a_preset_the_user_cannot_see(tmp_path):
+    from src.plugin_api.prompts import PromptWriteRefused, write_prompt_for_preset
+
+    container, calls = _writer_container(tmp_path)
+    with patch("src.plugin_api.prompts.get_container", return_value=container), \
+         patch("src.plugin_api.prompts.encode_media", AsyncMock(side_effect=AssertionError("read media"))):
+        with pytest.raises(PromptWriteRefused) as caught:
+            await write_prompt_for_preset(
+                "user-2", "Describe it", preset_id="p", media=[{"value": "uploads/a.png", "media_type": "image"}],
+            )
+    assert caught.value.code == "preset_not_available"
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_write_prompt_for_preset_lets_an_admin_use_any_preset(tmp_path):
+    from src.plugin_api.prompts import write_prompt_for_preset
+
+    container, calls = _writer_container(tmp_path)
+    with patch("src.plugin_api.prompts.get_container", return_value=container):
+        result = await write_prompt_for_preset("admin-1", "Describe it", preset_id="p")
+    assert result["text"] == "written prompt"
+    assert "Target preset: Preset P" in calls[0][0].parts[0].text

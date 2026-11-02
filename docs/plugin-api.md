@@ -1430,8 +1430,14 @@ of those with vision support. It returns `{"text", "model_id", "llm_id"}`.
 It raises `PromptWriteRefused` (with a `code` and a message you can show) when the user
 has no language model (`no_llm`), the requested model is turned off (`llm_disabled`), media
 is given and no usable model has vision (`vision_not_supported`, raised before any file is read),
-a file cannot be read (`media_unreadable`, `media_unsupported`), the instruction is blank
-(`no_instruction`) or the reply is empty (`empty_reply`). Transport failures of the
+the user cannot see the preset under the same rule as the presets routes (admins see every
+preset, others their directly or group-assigned ones; `preset_not_available`, raised before
+any grounding or file is read), a file path is absolute, climbs with `..` or resolves outside
+the storage root (`media_outside_storage`), an image is over 5 MB (`media_too_large`), more
+than 4 files are given in one call (`too_much_media`), a file cannot be read
+(`media_unreadable`, `media_unsupported`), the instruction is blank (`no_instruction`) or the
+reply is empty (`empty_reply`). The instruction is cut to 4000 characters, the preset guide
+to 3000, and each video gives at most 3 frames. Transport failures of the
 language model propagate as they are. `prompt_writer_status(user_id, llm_id=None)`
 reports `{"available", "vision", "name", "code", "message"}` for that user without calling
 the model, so a plugin can warn before it runs anything.

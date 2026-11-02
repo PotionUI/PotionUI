@@ -33,7 +33,7 @@ async def test_videos_become_downscaled_frames(tmp_path, monkeypatch):
 
     monkeypatch.setattr(gate, "extract_video_frames", frames)
     encoded = await media.encode_media(str(tmp_path), [{"value": "generations/v.mp4", "media_type": "video"}])
-    assert seen["args"] == (str(tmp_path / "generations" / "v.mp4"), media.FRAMES_PER_VIDEO)
+    assert seen["args"] == (str((tmp_path / "generations" / "v.mp4").resolve()), media.FRAMES_PER_VIDEO)
     sizes = [Image.open(BytesIO(base64.b64decode(item))).size for item in encoded]
     assert sizes == [(1024, 512), (640, 480)]
 
@@ -67,3 +67,42 @@ async def test_bad_media_is_refused(tmp_path, item, code, message):
         await media.encode_media(str(tmp_path), [item])
     assert caught.value.code == code
     assert str(caught.value) == message
+
+
+@pytest.mark.asyncio
+async def test_extra_video_frames_are_dropped(tmp_path, monkeypatch):
+    import src.features.content_safety.gate as gate
+
+    monkeypatch.setattr(gate, "extract_video_frames", lambda path, count: [Image.new("RGB", (8, 8)) for _ in range(count + 4)])
+    encoded = await media.encode_media(str(tmp_path), [{"value": "v.mp4", "media_type": "video"}])
+    assert len(encoded) == media.FRAMES_PER_VIDEO
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["/etc/passwd", "../outside.png", "uploads/../../outside.png", "uploads/escape.png"])
+async def test_paths_outside_the_storage_root_are_refused(tmp_path, value):
+    root = tmp_path / "storage"
+    (root / "uploads").mkdir(parents=True)
+    save_image(tmp_path / "outside.png")
+    (root / "uploads" / "escape.png").symlink_to(tmp_path / "outside.png")
+    with pytest.raises(PromptWriteRefused) as caught:
+        await media.encode_media(str(root), [{"value": value, "media_type": "image"}])
+    assert caught.value.code == "media_outside_storage"
+    assert str(caught.value) == "File 1 is not in the media storage."
+
+
+@pytest.mark.asyncio
+async def test_an_image_over_five_megabytes_is_refused(tmp_path):
+    (tmp_path / "big.png").write_bytes(b"\0" * (media.MAX_IMAGE_BYTES + 1))
+    with pytest.raises(PromptWriteRefused) as caught:
+        await media.encode_media(str(tmp_path), [{"value": "big.png", "media_type": "image"}])
+    assert caught.value.code == "media_too_large"
+
+
+@pytest.mark.asyncio
+async def test_more_files_than_the_cap_are_refused_before_reading(tmp_path):
+    items = [{"value": f"missing-{n}.png", "media_type": "image"} for n in range(media.MAX_MEDIA_PER_CALL + 1)]
+    with pytest.raises(PromptWriteRefused) as caught:
+        await media.encode_media(str(tmp_path), items)
+    assert caught.value.code == "too_much_media"
+    assert media.MAX_MEDIA_PER_CALL == 4

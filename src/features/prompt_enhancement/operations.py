@@ -505,6 +505,7 @@ WRITE_SYSTEM_MESSAGE = (
 )
 
 MAX_INSTRUCTION_CHARS = 4000
+MAX_GUIDE_CHARS = 3000
 
 
 class PromptWriteRefused(ValueError):
@@ -591,10 +592,14 @@ async def write_prompt(
     form_state: Optional[dict] = None,
     images: Sequence[str] = (),
     settings: Optional[Settings] = None,
+    is_admin: bool = False,
 ) -> Dict[str, Any]:
     instruction = (instruction or "").strip()
     if not instruction:
         raise PromptWriteRefused("no_instruction", "Say what the prompt should be.")
+    preset_id = (form_state or {}).get("preset")
+    if preset_id and not preset_visible(collaborators, user_id, preset_id, is_admin):
+        raise PromptWriteRefused("preset_not_available", "The preset this prompt is for is not available to you.")
     images = tuple(image for image in images if image)
     config = writer_config(collaborators, user_id, llm_id, vision=bool(images))
     context = await _gather_writing_context(collaborators, user_id, instruction[:MAX_INSTRUCTION_CHARS], form_state)
@@ -608,6 +613,13 @@ async def write_prompt(
     if not text:
         raise PromptWriteRefused("empty_reply", f"The language model {config.name} returned no prompt.")
     return {"text": text, "model_id": context.get("model_id"), "llm_id": config.id}
+
+
+def preset_visible(collaborators: PromptEnhancementCollaborators, user_id: str, preset_id: str, is_admin: bool) -> bool:
+    if is_admin or collaborators.preset_collaborators is None:
+        return True
+    available = collaborators.preset_collaborators.db_repo.get_available_preset_ids_for_user(user_id) or []
+    return preset_id in available
 
 
 async def _gather_writing_context(
@@ -669,7 +681,7 @@ def _build_writing_prompt(instruction: str, context: Dict[str, Any], image_count
     if context.get("preset_summary"):
         parts.append(context["preset_summary"])
     if context.get("preset_guide"):
-        parts.append(f"House style guide for this preset:\n{context['preset_guide'][:3000]}")
+        parts.append(f"House style guide for this preset:\n{context['preset_guide'][:MAX_GUIDE_CHARS]}")
     grounding = _format_model_grounding(context.get("model_info"))
     if grounding:
         parts.append(grounding)

@@ -48,12 +48,29 @@ class Presets:
         return self.preset if self.preset and self.preset.id == preset_id else None
 
 
-def collaborators(llm, preset=None, prompt_db=None):
+def collaborators(llm, preset=None, prompt_db=None, assigned=("flux",), model_index=None):
     return PromptEnhancementCollaborators(
         llm_service=llm,
         prompt_database=prompt_db,
-        preset_collaborators=SimpleNamespace(file_repo=Presets(preset)) if preset else None,
+        model_index_manager=model_index,
+        preset_collaborators=SimpleNamespace(
+            file_repo=Presets(preset),
+            db_repo=SimpleNamespace(get_available_preset_ids_for_user=lambda user_id: list(assigned)),
+        )
+        if preset
+        else None,
     )
+
+
+class ModelIndex:
+    def __init__(self, models):
+        self.models = models
+        self.model_repo = SimpleNamespace(get_by_id=self.get_by_id)
+        self.locator = SimpleNamespace(model_for_path=lambda path: None)
+
+    def get_by_id(self, model_id, **kwargs):
+        data = self.models.get(model_id)
+        return SimpleNamespace(to_dict=lambda **kw: dict(data)) if data else None
 
 
 def flux_preset():
@@ -109,7 +126,7 @@ async def test_mode_guide_replaces_the_preset_guide():
 
 
 @pytest.mark.asyncio
-async def test_model_exemplars_join_the_context_when_a_model_is_selected(monkeypatch):
+async def test_model_exemplars_join_the_context_when_a_model_is_selected():
     llm = FakeLLM()
     searches = []
 
@@ -119,16 +136,19 @@ async def test_model_exemplars_join_the_context_when_a_model_is_selected(monkeyp
             return [SimpleNamespace(id="a", prompt="approved fox prompt", source_url=None, metadata={})]
         return [SimpleNamespace(id="c", prompt="community fox prompt", source_url="u")]
 
-    monkeypatch.setattr(operations, "resolve_active_model_id", lambda form_state, index: "m-9")
-    monkeypatch.setattr(operations, "_gather_model_grounding", lambda c, f: {"filename": "flux.safetensors", "tags": ["photo"]})
+    index = ModelIndex({"m-9": {"id": "m-9", "filename": "flux.safetensors", "description": "Photoreal base", "tags": ["photo"]}})
     await operations.write_prompt(
-        collaborators(llm, prompt_db=SimpleNamespace(search=search)), "u-1", "A fox", form_state={"form_data": {}},
+        collaborators(llm, prompt_db=SimpleNamespace(search=search), model_index=index),
+        "u-1",
+        "A fox",
+        form_state={"form_data": {"model": "model:m-9", "steps": 20}},
     )
     text = sent_text(llm.calls[0])
     assert "[user-approved] approved fox prompt" in text
     assert "[community] community fox prompt" in text
     assert "Generation model: flux.safetensors" in text
-    assert all(call["model_id"] == "m-9" for call in searches)
+    assert "Photoreal base" in text
+    assert [call["model_id"] for call in searches] == ["m-9", "m-9"]
 
 
 @pytest.mark.asyncio
@@ -256,3 +276,39 @@ def test_writer_status_reports_vision_and_absence():
     missing = operations.writer_status(collaborators(FakeLLM(repository=Repository())), "u-1")
     assert missing["available"] is False
     assert missing["code"] == "no_llm"
+
+
+@pytest.mark.asyncio
+async def test_a_preset_the_user_cannot_see_is_refused_before_anything_is_read():
+    llm = FakeLLM()
+    preset = flux_preset()
+    looked = []
+    collab = collaborators(llm, preset, assigned=())
+    original = collab.preset_collaborators.file_repo.find_preset_by_id
+    collab.preset_collaborators.file_repo.find_preset_by_id = lambda preset_id: looked.append(preset_id) or original(preset_id)
+    with pytest.raises(PromptWriteRefused) as caught:
+        await operations.write_prompt(collab, "u-1", "A fox", form_state={"preset": "flux", "mode": "txt2img"})
+    assert caught.value.code == "preset_not_available"
+    assert looked == [] and llm.calls == []
+
+
+@pytest.mark.asyncio
+async def test_an_admin_sees_presets_that_are_not_assigned():
+    llm = FakeLLM()
+    await operations.write_prompt(
+        collaborators(llm, flux_preset(), assigned=()), "u-1", "A fox", form_state={"preset": "flux"}, is_admin=True,
+    )
+    assert "Target preset: Flux Dev" in sent_text(llm.calls[0])
+
+
+@pytest.mark.asyncio
+async def test_a_long_instruction_and_guide_are_cut_to_their_caps():
+    llm = FakeLLM()
+    preset = flux_preset()
+    preset.llm = {"guide": "g" * (operations.MAX_GUIDE_CHARS + 500)}
+    await operations.write_prompt(
+        collaborators(llm, preset), "u-1", "i" * (operations.MAX_INSTRUCTION_CHARS + 500), form_state={"preset": "flux"},
+    )
+    text = sent_text(llm.calls[0])
+    assert "g" * operations.MAX_GUIDE_CHARS in text and "g" * (operations.MAX_GUIDE_CHARS + 1) not in text
+    assert "i" * operations.MAX_INSTRUCTION_CHARS in text and "i" * (operations.MAX_INSTRUCTION_CHARS + 1) not in text

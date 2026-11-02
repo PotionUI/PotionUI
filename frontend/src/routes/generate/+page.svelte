@@ -945,7 +945,8 @@
 			requestCloseTab($tabsStore.activeTabId);
 		});
 		keybindingsStore.registerHandler('toggle_left_panel', () => {
-			if (toolTabActive || !contextToolsAvailable(currentTab)) return;
+			if (!contextToolsAvailable(currentTab)) return;
+			if (toolTabActive) return;
 			const patch = toggleFormPane(activeTabId, !!currentTab.leftPanelCollapsed);
 			if (patch) tabsStore.updateTab(activeTabId, patch);
 		});
@@ -957,11 +958,13 @@
 			generationPanelRef?.toggleDrawer('lastGenerations');
 		});
 		keybindingsStore.registerHandler('toggle_floating_form', () => {
-			if (toolTabActive || !contextToolsAvailable(currentTab)) return;
+			if (!contextToolsAvailable(currentTab)) return;
+			if (toolTabActive) return;
 			tabsStore.updateTab(activeTabId, pressFloatingForm(currentTab));
 		});
 		keybindingsStore.registerHandler('toggle_floating_workbench', () => {
-			if (toolTabActive || !contextToolsAvailable(currentTab)) return;
+			if (!contextToolsAvailable(currentTab)) return;
+			if (toolTabActive) return;
 			tabsStore.updateTab(activeTabId, pressFloatingWorkbench(currentTab));
 		});
 

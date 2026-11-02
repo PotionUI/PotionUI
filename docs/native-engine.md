@@ -241,7 +241,7 @@ Tier fallback (sizes unknown) and the low-VRAM regime each tier lands in:
 
 Video DiTs are placed per sampling call by `dit_placement.place_dit_for_sequence`, which keeps
 `free − reserve` GB of weights resident and streams the rest. For `S` tokens (video plus audio) and
-attention width `d` (4096 for LTX):
+attention width `d` (4096 for LTX, 7168 for MiniMax-H3):
 
 ```
 reserve_gb = max(0.5, 1.15 × (S × B(d) + quant_scratch(S) + LoRA terms) / 2^30)
@@ -249,19 +249,19 @@ B(d)       = 6·d·2 (attention transient) + 3·(d/2)·4 (RoPE fp32 build) + 2·
            = 90,112 bytes/token for LTX
 ```
 
-`quant_scratch(S)` is the widest activation quantiser any fast-path linear runs:
+`quant_scratch(S)` is the widest activation quantiser any fast-path linear runs. Both GEMM fast paths
+quantise their input in row chunks against one tensor-wide scale (`kernels/row_chunks.py`), so the
+scratch is `per_element · k · min(S, rows(k))` bytes, with `rows(k) = ⌊2²⁶ / k⌋` rounded down to the
+128-row scale tile: 12 bytes per element for nvfp4, 5 for fp8. For a 16,384-wide input that is at
+most 0.75 GiB (nvfp4) whatever the sequence length. If a chunk still runs out of memory, the layer
+retries with half the rows, down to 128, and only then dequantizes that one call. int8 and int8
+ConvRot layers always dequantize, so they quantise no activations.
 
-- **nvfp4** quantises in row chunks against one tensor-wide scale (`kernels/nvfp4_linear.py`), so
-  its scratch is `12 · k · min(S, rows(k))` bytes, with `rows(k) = ⌊2²⁶ / k⌋` rounded down to the
-  128-row scale tile. For LTX's widest input (`k = 16384`, 4096 rows) that is at most 0.75 GiB,
-  whatever the sequence length. If a chunk still runs out of memory, the layer retries with half the
-  rows, down to 128, and only then dequantizes that one call.
-- **fp8** quantises the whole input at once: `5 · k · S` bytes.
-
-| LTX tokens | Reserve before (nvfp4 per token) | Reserve now |
-|---|---|---|
-| 21,780 | 6.69 GB | 2.97 GB |
-| 87,120 | 26.75 GB | 9.27 GB |
+| Family | Tokens | Reserve before (per-token quant copy) | Reserve now |
+|---|---|---|---|
+| LTX | 21,780 | 6.69 GB | 2.97 GB |
+| LTX | 87,120 | 26.75 GB | 9.27 GB |
+| MiniMax-H3 (nvfp4) | 145,793 + 754 | 51.75 GB | 25.61 GB |
 
 All of the above is unit-testable without a GPU: the fit math, the deterministic layer split, the
 fp8 quant equivalence, and the eviction accounting are pure functions (`tests/core/native/memory/`,

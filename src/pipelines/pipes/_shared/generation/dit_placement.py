@@ -98,10 +98,10 @@ from src.platform.runtime.native.kernels import (
     QuantFormat,
     fast_path,
     nvfp4_dequant_table_bytes,
+    activation_quant_chunk_rows,
     nvfp4_path_summary,
     partition_output_branch_deltas,
 )
-from src.platform.runtime.native.kernels.nvfp4_linear import nvfp4_quant_chunk_rows
 from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
     free_vram_gb,
@@ -316,17 +316,24 @@ _ACTIVATION_QUANT_BYTES_PER_ELEMENT = {
 }
 
 
+@dataclass(frozen=True, order=True)
+class QuantWidth:
+    per_element: int
+    in_features: int
+    chunk_rows: int | None = None
+
+    def bytes_for(self, tokens: int) -> int:
+        rows = tokens if self.chunk_rows is None else min(tokens, self.chunk_rows)
+        return self.per_element * self.in_features * rows
+
+
 @dataclass(frozen=True)
 class QuantScratch:
-    widths: tuple[tuple[int, int, int], ...] = ()
+    widths: tuple[QuantWidth, ...] = ()
 
     def bytes_for(self, tokens: int) -> int:
         tokens = max(0, int(tokens))
-        return max(
-            (per_element * in_features * (min(tokens, chunk_rows) if chunk_rows else tokens)
-             for per_element, in_features, chunk_rows in self.widths),
-            default=0,
-        )
+        return max((width.bytes_for(tokens) for width in self.widths), default=0)
 
 
 _NO_QUANT_SCRATCH = QuantScratch()
@@ -391,8 +398,10 @@ def _dit_quant_scratch(dit: Any) -> QuantScratch:
         path = fast_path(m)
         if path is None or path.kind is FastPathKind.DEQUANT:
             continue
-        chunk_rows = nvfp4_quant_chunk_rows(m.in_features) if path.quant_format is QuantFormat.NVFP4 else 0
-        widths.add((_ACTIVATION_QUANT_BYTES_PER_ELEMENT[path.quant_format], m.in_features, chunk_rows))
+        widths.add(QuantWidth(
+            _ACTIVATION_QUANT_BYTES_PER_ELEMENT[path.quant_format], m.in_features,
+            activation_quant_chunk_rows(m.in_features),
+        ))
     return QuantScratch(tuple(sorted(widths)))
 
 
@@ -971,3 +980,15 @@ def _log_decision(decision: DitPlacementDecision, device: str) -> None:
         decision.audio_tokens, decision.activation_reserve_gb, decision.extra_reserve_gb, decision.weight_budget_gb,
         decision.lora_active,
     )
+
+
+def hand_off_dit(dit: Any, device: str, *, needs_room: bool = False) -> bool:
+    profiler = get_profiler()
+    if dit is None or getattr(dit, "module", None) is None:
+        return False
+    if not needs_room and dit_is_fully_resident(dit, device):
+        profiler.mark("dit_handoff.kept")
+        return True
+    dit.offload()
+    profiler.mark("dit_handoff.offloaded")
+    return False

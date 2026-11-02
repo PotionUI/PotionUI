@@ -37,7 +37,8 @@ from src.platform.runtime.native.kernels.lora_math import _add_lora_output_branc
 from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows
 from src.platform.runtime.native.kernels import Fp8ScaledLinear, FastPathKind, fast_path, fp8_ops, gemm
 from src.platform.runtime.native.kernels.fp8_linear import _quantize_fp8_dynamic
-from src.platform.runtime.native.kernels.nvfp4_linear import Nvfp4Linear, nvfp4_quant_chunk_rows
+from src.platform.runtime.native.kernels import activation_quant_chunk_rows
+from src.platform.runtime.native.kernels.nvfp4_linear import Nvfp4Linear
 from src.platform.runtime.native.memory.partial import plan_residency_split
 from src.pipelines.pipes._shared.generation.dit_placement import (
     _ACTIVATION_RESERVE_FLOOR_GB,
@@ -51,9 +52,11 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     DitLoraProfile,
     DitPlacementDecision,
     QuantScratch,
+    QuantWidth,
     SamplingOutOfMemory,
     estimate_activation_reserve_gb,
     guard_sampling_oom,
+    hand_off_dit,
     place_dit_for_sequence,
     sequence_fit,
 )
@@ -1948,7 +1951,7 @@ _NVFP4_CHUNK_SCRATCH_GB = 12 * 16384 * 4096 / 1024 ** 3
     (87_120, 8.41, 9.27),
 ])
 def test_the_ltx_reserve_charges_one_nvfp4_quant_chunk_not_a_per_token_quant_copy(tokens, plain_gb, nvfp4_gb):
-    scratch = QuantScratch(((12, 16384, 4096), (12, 4096, 16384)))
+    scratch = QuantScratch((QuantWidth(12, 16384, 4096), QuantWidth(12, 4096, 16384)))
     plain = estimate_activation_reserve_gb(tokens)
     quant = estimate_activation_reserve_gb(tokens, quant_scratch=scratch)
     assert plain == pytest.approx(plain_gb, abs=0.01)
@@ -1956,23 +1959,58 @@ def test_the_ltx_reserve_charges_one_nvfp4_quant_chunk_not_a_per_token_quant_cop
     assert quant - plain == pytest.approx(_NVFP4_CHUNK_SCRATCH_GB * 1.15, rel=1e-9)
 
 
-def test_an_nvfp4_quant_chunk_never_charges_more_rows_than_the_sequence_has():
-    scratch = QuantScratch(((12, 16384, 4096),))
+def test_a_quant_chunk_never_charges_more_rows_than_the_sequence_has():
+    scratch = QuantScratch((QuantWidth(12, 16384, 4096),))
     assert scratch.bytes_for(1000) == 12 * 16384 * 1000
     assert scratch.bytes_for(4096) == scratch.bytes_for(87_120) == 12 * 16384 * 4096
 
 
-def test_an_fp8_quant_copy_still_scales_with_every_token():
-    scratch = QuantScratch(((5, 16384, 0),))
+def test_an_unchunked_quant_width_scales_with_every_token():
+    scratch = QuantScratch((QuantWidth(5, 16384, None),))
     assert scratch.bytes_for(87_120) == 5 * 16384 * 87_120
 
 
 def test_the_nvfp4_chunk_the_reserve_charges_is_the_chunk_the_kernel_runs(machine):
     machine(nvfp4=True)
     dit = _dit_with(_quant_linear(4096, nvfp4=True), _quant_linear(16384, nvfp4=True))
-    assert _dit_quant_scratch(dit) == QuantScratch(((12, 4096, nvfp4_quant_chunk_rows(4096)),
-                                                    (12, 16384, nvfp4_quant_chunk_rows(16384))))
-    assert _dit_quant_scratch(dit).bytes_for(87_120) == 12 * 16384 * nvfp4_quant_chunk_rows(16384)
+    assert _dit_quant_scratch(dit) == QuantScratch((QuantWidth(12, 4096, activation_quant_chunk_rows(4096)),
+                                                    QuantWidth(12, 16384, activation_quant_chunk_rows(16384))))
+    assert _dit_quant_scratch(dit).bytes_for(87_120) == 12 * 16384 * activation_quant_chunk_rows(16384)
+
+
+def test_the_fp8_chunk_the_reserve_charges_is_the_chunk_the_kernel_runs(machine):
+    machine(fp8=True)
+    dit = _dit_with(_quant_linear(16384, fp8=True))
+    assert _dit_quant_scratch(dit) == QuantScratch((QuantWidth(5, 16384, activation_quant_chunk_rows(16384)),))
+    assert _dit_quant_scratch(dit).bytes_for(146_547) == 5 * 16384 * 4096
+
+
+_H3_KW = {"inner_dim": 7168, "ffn_dim": 14336, "ffn_chunk_rows": 24_425}
+_H3_NVFP4 = QuantScratch(tuple(
+    QuantWidth(12, k, activation_quant_chunk_rows(k)) for k in (5376, 7168, 14336)
+))
+
+
+@pytest.mark.parametrize("video_tokens, audio_tokens, plain_gb, nvfp4_gb", [
+    (145_793, 754, 24.75, 25.61),
+    (60_000, 300, 10.18, 11.05),
+])
+def test_the_h3_reserve_charges_one_nvfp4_quant_chunk(video_tokens, audio_tokens, plain_gb, nvfp4_gb):
+    plain = estimate_activation_reserve_gb(video_tokens, audio_tokens, **_H3_KW)
+    quant = estimate_activation_reserve_gb(video_tokens, audio_tokens, quant_scratch=_H3_NVFP4, **_H3_KW)
+    assert plain == pytest.approx(plain_gb, abs=0.01)
+    assert quant == pytest.approx(nvfp4_gb, abs=0.01)
+    per_token_charge = estimate_activation_reserve_gb(
+        video_tokens, audio_tokens, quant_scratch=QuantScratch((QuantWidth(12, 14336, None),)), **_H3_KW)
+    assert quant < per_token_charge
+
+
+def test_the_profiled_h3_clip_reserve_drops_from_the_per_token_charge():
+    old = estimate_activation_reserve_gb(
+        145_793, 754, quant_scratch=QuantScratch((QuantWidth(12, 14336, None),)), **_H3_KW)
+    new = estimate_activation_reserve_gb(145_793, 754, quant_scratch=_H3_NVFP4, **_H3_KW)
+    assert old == pytest.approx(51.75, abs=0.01)
+    assert new == pytest.approx(25.61, abs=0.01)
 
 
 def _cuda_placement_reserve(monkeypatch, layer, *, free_gb=26.0):
@@ -2083,3 +2121,46 @@ def test_placement_and_the_window_fit_count_the_scale_tables_dequant_layers_will
     assert decision.dit_weight_gb == pytest.approx(tables_gb, abs=1e-15)
     assert fit.weight_gb == pytest.approx(tables_gb, abs=1e-15)
     assert (tables_gb > 0) is not nvfp4_matmul
+
+
+class _HandoffDit:
+    def __init__(self, device="cuda:0", streamer=None, module="module"):
+        self.device = device
+        self.module = module
+        self._streamer = streamer
+        self.offloads = 0
+
+    def offload(self):
+        self.offloads += 1
+        self.device = "cpu"
+
+
+def _hand_off(dit, **kwargs):
+    marks = []
+    profiler = SimpleNamespace(mark=lambda event, **fields: marks.append(event))
+    with patch(f"{_MOD}.get_profiler", return_value=profiler):
+        kept = hand_off_dit(dit, "cuda", **kwargs)
+    return kept, marks
+
+
+def test_a_handoff_leaves_a_fully_resident_dit_for_the_next_stage_to_place():
+    dit = _HandoffDit()
+    assert _hand_off(dit) == (True, ["dit_handoff.kept"])
+    assert dit.offloads == 0 and dit.device == "cuda:0"
+
+
+def test_a_handoff_offloads_a_dit_whose_room_the_stage_still_needs():
+    dit = _HandoffDit()
+    assert _hand_off(dit, needs_room=True) == (False, ["dit_handoff.offloaded"])
+    assert dit.offloads == 1
+
+
+def test_a_handoff_offloads_a_streamed_dit():
+    dit = _HandoffDit(streamer=SimpleNamespace(active=True))
+    assert _hand_off(dit) == (False, ["dit_handoff.offloaded"])
+    assert dit.offloads == 1
+
+
+def test_a_handoff_without_a_dit_does_nothing():
+    assert _hand_off(None) == (False, [])
+    assert _hand_off(_HandoffDit(module=None)) == (False, [])

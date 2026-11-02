@@ -90,22 +90,42 @@ async function mockEditorApi(page: Page): Promise<Mocks> {
 	return mocks;
 }
 
-async function openEditor(page: Page) {
+const LABELS: Record<string, string> = { trim: 'Trim', film_grain: 'Film grain', mute: 'Mute' };
+const TRIM: [string, Json] = ['trim', { start: 0.5, end: 1.5 }];
+const GRAIN: [string, Json] = ['film_grain', { amount: 30, size: 2, color: false, seed: 7 }];
+
+function seeded(steps: Array<[string, Json]>, tool = 'trim'): Json {
+	const list = steps.map(([op, params], i) => ({ id: `s${i + 1}`, tool: op, icon: 'editor-effects', label: LABELS[op] ?? op, summary: '', params, hidden: false }));
+	return {
+		v: 1,
+		stack: { v: 1, steps: list, cursor: list.length, pending: null, seq: list.length },
+		tool,
+		playhead: 0.8,
+		loop: true,
+		savedSignature: '[]',
+		saved: null,
+		renderSignature: null,
+		renderMode: null,
+		renderStartedAt: null
+	};
+}
+
+async function openEditor(page: Page, state: Json | null = null) {
 	await loginAsOwner(page);
 	await page.goto('/generate');
 	await expect(page.locator('.tab-bar-container:visible, .studio-topbar:visible').first()).toBeVisible({ timeout: 15000 });
 	const key = await scopedStorageKey(page, 'potionui_tabs_state');
 	await page.evaluate(
-		({ k, source }) => {
+		({ k, source, state }) => {
 			const saved = JSON.parse(localStorage.getItem(k) ?? 'null') ?? { tabs: [], activeTabId: '' };
 			const generation = saved.tabs.find((tab: { kind?: string }) => tab.kind !== 'tool');
-			const tool = { id: 'video-tab-1', kind: 'tool', tool: 'video', name: 'observatory-timelapse', color: null, source, state: null, run: null, activeTool: 'trim', dirty: 0 };
+			const tool = { id: 'video-tab-1', kind: 'tool', tool: 'video', name: 'observatory-timelapse', color: null, source, state, run: null, activeTool: state ? state.tool : 'trim', dirty: 0 };
 			saved.tabs = [...saved.tabs.filter((tab: { kind?: string }) => tab.kind !== 'tool'), tool];
 			saved.activeTabId = tool.id;
 			if (generation) saved.lastGenerationTabId = generation.id;
 			localStorage.setItem(k, JSON.stringify(saved));
 		},
-		{ k: key, source: SOURCE }
+		{ k: key, source: SOURCE, state }
 	);
 	await page.reload();
 	const editor = page.getByTestId('video-editor');
@@ -128,8 +148,8 @@ const seconds = (text: string | null) => {
 test.describe('the Video editor tab on desktop', () => {
 	test.use({ viewport: { width: 1440, height: 900 } });
 
-	test('trims, previews effects, saves as one run with progress and Cancel, reattaches after a reload and hands a frame to the Image editor', async ({ page }) => {
-		const mocks = await mockEditorApi(page);
+	test('trims with the white handles and with I and O at the playhead', async ({ page }) => {
+		await mockEditorApi(page);
 		const editor = await openEditor(page);
 		await expect(bookTab(page, 'observatory-timelapse')).toBeVisible();
 		await expect(editor.locator('[data-tool-rail="rail"] [data-tool="trim"]')).toHaveAttribute('aria-pressed', 'true');
@@ -137,8 +157,7 @@ test.describe('the Video editor tab on desktop', () => {
 
 		const geo = await trackGeometry(page);
 		expect(geo.duration).toBeGreaterThan(0.5);
-		const inHandle = editor.locator('[data-scrub-handle="in"]');
-		const inBox = (await inHandle.boundingBox())!;
+		const inBox = (await editor.locator('[data-scrub-handle="in"]').boundingBox())!;
 		await page.mouse.move(inBox.x + inBox.width / 2, geo.y);
 		await page.mouse.down();
 		await page.mouse.move(geo.x(geo.duration * 0.2), geo.y, { steps: 4 });
@@ -159,16 +178,21 @@ test.describe('the Video editor tab on desktop', () => {
 		await screenshot(page, JOURNEY, 'trim-1440');
 		await page.keyboard.press('Enter');
 		await expect(editor.getByRole('button', { name: /Reopen Trim/ })).toBeVisible();
+	});
 
+	test('previews film grain on the paused frame, compares before and after, and plays Preview 3 s', async ({ page }) => {
+		const mocks = await mockEditorApi(page);
+		const editor = await openEditor(page, seeded([TRIM]));
 		await editor.locator('[data-tool="effects"]').click();
 		await expect(editor.locator('[data-effect-card="film_grain"][data-open]')).toBeVisible();
 		await expect(editor.locator('[data-effect-later]')).toContainText('Later');
+		expect(mocks.frames).toHaveLength(0);
 		await editor.locator('[data-options-apply]').click();
-		await expect.poll(() => mocks.frames.length, { timeout: 5000 }).toBeGreaterThan(0);
-		const frameRequest = mocks.frames[mocks.frames.length - 1] as { steps: Array<{ tool: string }>; time_seconds: number; input: Json };
+		await expect.poll(() => mocks.frames.length, { timeout: 5000 }).toBe(1);
+		const frameRequest = mocks.frames[0] as { steps: Array<{ tool: string }>; time_seconds: number; input: Json };
 		expect(frameRequest.input).toEqual({ item_id: 'item-1' });
 		expect(frameRequest.steps.map((step) => step.tool)).toEqual(['trim', 'film_grain']);
-		expect(typeof frameRequest.time_seconds).toBe('number');
+		expect(frameRequest.time_seconds).toBeCloseTo(0.8, 2);
 		await expect(editor.locator('[data-video-frame-preview]')).toBeVisible();
 
 		await page.keyboard.press('\\');
@@ -184,17 +208,26 @@ test.describe('the Video editor tab on desktop', () => {
 		expect((mocks.clips[0].steps as Array<{ tool: string }>).map((step) => step.tool)).toEqual(['trim', 'film_grain']);
 		await editor.locator('[data-close-clip-preview]').click();
 		await expect(editor.locator('[data-video-clip-preview]')).toHaveCount(0);
+	});
 
-		await editor.locator('[data-frame-save]').click();
+	test('saves the stack as one run with progress, Cancel keeps the edits, and the next save updates the copy', async ({ page }) => {
+		const mocks = await mockEditorApi(page);
+		const editor = await openEditor(page, seeded([TRIM, GRAIN], 'effects'));
+		await editor.locator('[data-frame-save]').dblclick();
 		const saving = editor.locator('[data-frame-saving]');
 		await expect(saving).toContainText('42%');
 		await expect(editor.locator('[data-render-card="panel"]')).toContainText('Saving as new');
 		await expect(bookTab(page, 'observatory-timelapse').getByTestId('tab-progress')).toHaveText('42%');
 		await screenshot(page, JOURNEY, 'save-render-1440');
-		expect(mocks.runs[0]).toMatchObject({ inputs: [{ item_id: 'item-1' }], output: { mode: 'new' } });
-		const firstSteps = (mocks.runs[0].steps as Array<{ tool: string; params: Json }>);
-		expect(firstSteps.map((step) => step.tool)).toEqual(['trim', 'film_grain']);
-		expect(firstSteps[0].params.start).toBeCloseTo(inPoint, 1);
+		expect(mocks.runs).toHaveLength(1);
+		expect(mocks.runs[0]).toEqual({
+			steps: [
+				{ tool: 'trim', params: { start: 0.5, end: 1.5 } },
+				{ tool: 'film_grain', params: { amount: 30, size: 2, color: false, seed: 7 } }
+			],
+			inputs: [{ item_id: 'item-1' }],
+			output: { mode: 'new' }
+		});
 
 		await editor.locator('[data-frame-cancel-save]').click();
 		await expect(saving).toHaveCount(0);
@@ -214,28 +247,44 @@ test.describe('the Video editor tab on desktop', () => {
 		await editor.locator('[data-tool="mute"]').click();
 		await editor.locator('[data-options-apply]').click();
 		await expect(bookTab(page, 'observatory-timelapse').getByTestId('tab-unsaved')).toBeVisible();
-		mocks.runState['run-3'] = { status: 'running', progress: 0.3 };
+		mocks.runState['run-3'] = { status: 'completed', progress: 1 };
 		await editor.locator('[data-frame-save]').click();
-		await expect(saving).toContainText('30%');
+		await expect.poll(() => mocks.runs.length).toBe(3);
 		expect(mocks.runs[2]).toMatchObject({ output: { mode: 'update', target_item_id: 'saved-run-2' } });
 		expect((mocks.runs[2].steps as Array<{ tool: string }>).map((step) => step.tool)).toEqual(['trim', 'film_grain', 'mute']);
+	});
+
+	test('reattaches to a render in flight after a reload', async ({ page }) => {
+		const mocks = await mockEditorApi(page);
+		const editor = await openEditor(page, seeded([TRIM]));
+		mocks.runState['run-1'] = { status: 'running', progress: 0.3 };
+		await editor.locator('[data-frame-save]').click();
+		await expect(editor.locator('[data-frame-saving]')).toContainText('30%');
 
 		await page.reload();
 		const again = page.getByTestId('video-editor');
 		await expect(again).toHaveAttribute('data-ready', 'true', { timeout: 15000 });
 		await expect(again.locator('[data-frame-saving]')).toContainText('30%');
 		await expect(again.locator('[data-render-card="panel"]')).toBeVisible();
-		mocks.runState['run-3'] = { status: 'completed', progress: 1 };
+		mocks.runState['run-1'] = { status: 'completed', progress: 1 };
 		await expect(again.locator('[data-frame-saving]')).toHaveCount(0, { timeout: 5000 });
+		await expect(again.locator('[data-frame-save]')).toHaveText(/^\s*Save\s*$/);
 		await expect(bookTab(page, 'observatory-timelapse').getByTestId('tab-unsaved')).toHaveCount(0);
+		expect(mocks.runs).toHaveLength(1);
+	});
 
-		await again.locator('[data-tool="frame"]').click();
-		await again.locator('[data-frame-action="open"]').click();
+	test('opens the paused frame with its edits in an Image editor tab', async ({ page }) => {
+		const mocks = await mockEditorApi(page);
+		const editor = await openEditor(page, seeded([TRIM, GRAIN], 'frame'));
+		await expect(editor.locator('[data-tool="frame"]')).toHaveAttribute('aria-pressed', 'true');
+		await editor.locator('[data-frame-action="open"]').click();
 		await expect(page.getByTestId('tool-tab-host')).toHaveAttribute('data-tool', 'image', { timeout: 5000 });
 		expect(mocks.artifacts).toBe(1);
-		expect((mocks.frames[mocks.frames.length - 1] as Json).format).toBe('png');
+		const frame = mocks.frames.find((body) => body.format === 'png') as { steps: Array<{ tool: string }>; max_side: number };
+		expect(frame.steps.map((step) => step.tool)).toEqual(['trim', 'film_grain']);
 		await expect(bookTab(page, /observatory-timelapse-frame/)).toBeVisible();
 	});
+
 	test('previews crop, speed and mute live in the browser and saves a split as new items', async ({ page }) => {
 		const mocks = await mockEditorApi(page);
 		const editor = await openEditor(page);

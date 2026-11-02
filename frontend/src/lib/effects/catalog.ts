@@ -115,7 +115,7 @@ export function readEffectBlock(tool: Pick<ToolDTO, 'group' | 'effect'>): Effect
 }
 
 function acceptsVideo(tool: ToolDTO): boolean {
-	return (tool.accepts as string[]).includes('video') && (tool.scopes.length === 0 || tool.scopes.includes('editor'));
+	return (tool.accepts as string[]).includes('video');
 }
 
 export function effectTools(catalog: readonly ToolDTO[]): EffectTool[] {

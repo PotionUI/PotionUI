@@ -63,7 +63,7 @@ function effectTool(overrides: Partial<ToolDTO> & { id: string }): ToolDTO {
 		params: [],
 		requires: {},
 		selection: null,
-		scopes: [],
+		scopes: ['library', 'history', 'field'],
 		editor: null,
 		preview: false,
 		component: null,

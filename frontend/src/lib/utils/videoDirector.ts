@@ -2401,17 +2401,31 @@ export function applyDirectorOperations(
 
 export const SIMPLE_DIRECTOR_SEGMENT_ID = 'seg-1';
 
+function singleShotPromptTarget(value: VideoDirectorValue, caps: DirectorCapabilities): { id: string; shotId?: string } | null {
+	if (caps.segmentRouting) {
+		const seg = value.chain.segments[0];
+		return seg ? { id: seg.id } : null;
+	}
+	const shot = value.timeline.shots[0];
+	return shot ? { id: shot.segments[0]?.id ?? DEFAULT_TIMELINE_SEGMENT_ID, shotId: shot.id } : null;
+}
+
 export function resolveDirectorSegmentTarget(
-	value: VideoDirectorValue,
+	rawValue: VideoDirectorValue,
 	caps: DirectorCapabilities,
 	action: { segmentId: string; segmentIndex: number; shotId?: string }
 ): { id: string; shotId?: string } | null {
+	const value = toModelessDirectorValue(rawValue, caps);
 	const pick = <T extends { id: string }>(list: T[]): T | null => {
 		const byId = list.find((s) => s.id === action.segmentId);
 		if (byId) return byId;
 		return action.segmentIndex >= 0 && action.segmentIndex < list.length ? list[action.segmentIndex] : null;
 	};
-	if (value.mode !== 'director') return pick([{ id: SIMPLE_DIRECTOR_SEGMENT_ID }]);
+	if (deriveDirectorMode(value, caps) !== 'director') {
+		const shot = singleShotPromptTarget(value, caps);
+		if (!shot || (action.shotId && shot.shotId && action.shotId !== shot.shotId)) return null;
+		return action.segmentId === SIMPLE_DIRECTOR_SEGMENT_ID || action.segmentId === shot.id || action.segmentIndex === 0 ? shot : null;
+	}
 	if (caps.segmentRouting) return pick(value.chain.segments);
 	if (action.shotId) {
 		const shot = value.timeline.shots.find((s) => s.id === action.shotId);
@@ -2422,13 +2436,13 @@ export function resolveDirectorSegmentTarget(
 }
 
 export function applyDirectorSegmentPrompt(
-	value: VideoDirectorValue,
+	rawValue: VideoDirectorValue,
 	caps: DirectorCapabilities,
 	action: { segmentId: string; segmentIndex: number; content: string; shotId?: string }
 ): VideoDirectorValue | null {
+	const value = toModelessDirectorValue(rawValue, caps);
 	const target = resolveDirectorSegmentTarget(value, caps, action);
 	if (!target) return null;
-	if (value.mode !== 'director') return applySetPrompt(value, action.content);
 	const segment = { id: target.id, prompt: action.content };
 	return applyDirectorOperations(
 		value,

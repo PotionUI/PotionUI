@@ -138,6 +138,16 @@ def _media_ref_path(value: Any, form_data: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _single_shot_prompt(doc: Dict[str, Any], capabilities: Dict[str, Any]) -> str:
+    if capabilities.get("segment_routing"):
+        chain_segments = (doc.get("chain") or {}).get("segments") or []
+        return (chain_segments[0].get("prompt") or "") if chain_segments else ""
+    timeline = doc.get("timeline") or {}
+    shots = timeline.get("shots") if "shots" in timeline else [timeline]
+    beats = ((shots or [{}])[0].get("segments") or [])
+    return (beats[0].get("text") or "") if beats else ""
+
+
 def _flatten(doc: Dict[str, Any], capabilities: Dict[str, Any], form_data: Dict[str, Any]) -> Dict[str, Any]:
     """Collapse the editor's per-mode `simple`/`timeline`/`chain` storage into a
     single wire-shaped read model. Mirrors the editor->wire mapping in
@@ -240,7 +250,7 @@ def _flatten(doc: Dict[str, Any], capabilities: Dict[str, Any], form_data: Dict[
         fps = simple.get("fps")
         duration = simple.get("duration")
         segments.append({
-            "id": "seg-1", "prompt": global_prompt, "negative_prompt": negative_prompt,
+            "id": "seg-1", "prompt": _single_shot_prompt(doc, capabilities), "negative_prompt": negative_prompt,
             "start": 0, "end": duration, "frames": None,
             "seed": None, "steps": None, "cfg": None,
         })

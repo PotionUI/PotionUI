@@ -31,7 +31,7 @@ import {
 	dereferenceFormMediaRefs
 } from './videoDirector';
 import { parseToolActions } from './markdown';
-import type { ChainSegment, DirectorTimelineShot, VideoDirectorValue, VideoDirectorWireDoc } from '$lib/types/videoDirector';
+import type { ChainSegment, DirectorCapabilities, DirectorTimelineShot, VideoDirectorValue, VideoDirectorWireDoc } from '$lib/types/videoDirector';
 import type { MediaRef } from '$lib/types/tabs';
 
 // The `director` mode is capability-shaped. Two fixtures mirror the two real
@@ -2449,30 +2449,67 @@ describe('applyDirectorSegmentPrompt', () => {
 	const caps = parseDirectorCapabilities(RAW_CAPS)!; // LTX-style timeline director
 	const wanCaps = parseDirectorCapabilities(WAN_RAW_CAPS)!; // Wan-style routed chain
 
-	describe('single-shot modes target the global prompt the editor shows', () => {
-		it.each([
-			['LTX t2v', 't2v', RAW_CAPS],
-			['Wan i2v with segment routing', 'i2v', WAN_RAW_CAPS]
-		])('%s: the reported malformed tag applies to the global prompt', (_label, mode, raw) => {
-			const modeCaps = parseDirectorCapabilities(raw)!;
-			const v = normalizeDirectorValue(
-				{ mode, global_prompt: 'a cat', chain: { fps: 16, segments: [{ id: 'c1', prompt: 'hidden chain prompt' }] } },
-				modeCaps
-			);
-			const [action] = parseToolActions('<tool_action update_director_segment segment_id="seg-1">a dog running').actions;
-			const next = applyDirectorSegmentPrompt(v, modeCaps, action);
-			expect(next).not.toBeNull();
-			expect(next!.global_prompt).toBe('a dog running');
-			expect(next!.chain).toEqual(v.chain);
-			expect(next!.timeline).toEqual(v.timeline);
-			expect(resolveDirectorSegmentTarget(v, modeCaps, action)).toEqual({ id: 'seg-1' });
+	describe('a single-shot document takes the version in its own shot Prompt, never the Global prompt', () => {
+		const img = { path: '/a.png' };
+		const chainShot = (extra: Record<string, unknown> = {}) => ({
+			global_prompt: 'film look',
+			chain: { fps: 24, segments: [{ id: 'c1', prompt: 'old shot', duration: 5, ...extra }] }
+		});
+		const timelineShot = (keyframes: unknown[] = [], segments: unknown[] = [{ id: 'b1', start: 0, end: 5, text: 'old shot' }]) => ({
+			global_prompt: 'film look',
+			timeline: { fps: 24, shots: [{ id: 'shot-1', duration: 5, segments, keyframes }] }
+		});
+		const firstKf = { id: 'kf-first', start: 0, role: 'first', strength: 1, media: img };
+		const lastKf = { id: 'kf-last', start: 5, role: 'last', strength: 1, media: img };
+		const shotPrompt = (v: VideoDirectorValue, c: DirectorCapabilities) =>
+			c.segmentRouting ? v.chain.segments[0].prompt : v.timeline.shots[0].segments[0]?.text;
+
+		const cases: [string, DirectorCapabilities, Record<string, unknown>, string][] = [
+			['LTX t2v', parseDirectorCapabilities(RAW_CAPS)!, timelineShot(), 't2v'],
+			['LTX i2v', parseDirectorCapabilities(RAW_CAPS)!, timelineShot([firstKf]), 'i2v'],
+			['LTX flf', parseDirectorCapabilities(RAW_CAPS)!, timelineShot([firstKf, lastKf]), 'flf'],
+			['LTX t2v with no beat yet', parseDirectorCapabilities(RAW_CAPS)!, timelineShot([], []), 't2v'],
+			['Wan t2v', parseDirectorCapabilities(WAN_RAW_CAPS)!, chainShot(), 't2v'],
+			['Wan i2v', parseDirectorCapabilities(WAN_RAW_CAPS)!, chainShot({ keyframe: img }), 'i2v'],
+			['H3 video', resolveDirectorCapabilities(H3_REFS_PRESET_RAW, 'video')!, chainShot(), 't2v'],
+			['H3 refs', resolveDirectorCapabilities(H3_REFS_PRESET_RAW, 'refs')!, chainShot(), 't2v']
+		];
+
+		it.each(cases)('%s', (_label, modeCaps, raw, mode) => {
+			const v = toModelessDirectorValue(normalizeDirectorValue({ ...raw, mode }, modeCaps), modeCaps);
+			expect(deriveDirectorMode(v, modeCaps)).toBe(mode);
+			for (const tag of [
+				'<tool_action type="update_director_segment" segment_index="0" segment_id="seg-1">new shot prompt</tool_action>',
+				'<tool_action update_director_segment segment_id="seg-1">new shot prompt'
+			]) {
+				const [action] = parseToolActions(tag).actions;
+				const next = applyDirectorSegmentPrompt(v, modeCaps, action);
+				expect(next).not.toBeNull();
+				expect(shotPrompt(next!, modeCaps)).toBe('new shot prompt');
+				expect(next!.global_prompt).toBe('film look');
+				expect(next!.global_prompt_segments).toEqual(v.global_prompt_segments);
+				expect(deriveDirectorMode(next!, modeCaps)).toBe(mode);
+				const target = resolveDirectorSegmentTarget(v, modeCaps, action)!;
+				expect(target.id).toBe(modeCaps.segmentRouting ? 'c1' : next!.timeline.shots[0].segments[0].id);
+			}
+		});
+
+		it('a modeless LTX shot with no beat gets one full-length beat carrying the version', () => {
+			const ltx = parseDirectorCapabilities(RAW_CAPS)!;
+			const base = normalizeDirectorValue({ ...timelineShot([], []), mode: 't2v' }, ltx);
+			const v: VideoDirectorValue = { ...base, ui: { ...base.ui, modeless: true }, timeline: { ...base.timeline, shots: [{ ...base.timeline.shots[0], segments: [] }] } };
+			const next = applyDirectorSegmentPrompt(v, ltx, { segmentId: 'seg-1', segmentIndex: -1, content: 'new shot prompt' })!;
+			expect(next.timeline.shots[0].segments).toEqual([
+				expect.objectContaining({ id: 'timeline-0', start: 0, end: 5, text: 'new shot prompt' })
+			]);
+			expect(next.global_prompt).toBe('film look');
 		});
 
 		it('an id that is not the single shot and no index resolves nothing', () => {
-			const v = normalizeDirectorValue({ mode: 't2v', global_prompt: 'a cat' }, caps);
+			const v = normalizeDirectorValue({ ...chainShot(), mode: 't2v' }, wanCaps);
 			const action = { segmentId: 'seg-2', segmentIndex: -1, content: 'x' };
-			expect(applyDirectorSegmentPrompt(v, caps, action)).toBeNull();
-			expect(resolveDirectorSegmentTarget(v, caps, action)).toBeNull();
+			expect(applyDirectorSegmentPrompt(v, wanCaps, action)).toBeNull();
+			expect(resolveDirectorSegmentTarget(v, wanCaps, action)).toBeNull();
 		});
 	});
 

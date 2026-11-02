@@ -31,6 +31,8 @@ class FramePreview:
     data: bytes
     media_type: str
     cached: bool
+    width: int = 0
+    height: int = 0
 
 
 @dataclass
@@ -49,7 +51,7 @@ class PreviewCache:
         clip_entries: int = CLIP_CACHE_ENTRIES,
     ):
         self._lock = threading.Lock()
-        self._frames: "OrderedDict[Tuple[str, str], Tuple[bytes, str]]" = OrderedDict()
+        self._frames: "OrderedDict[Tuple[str, str], Tuple[bytes, str, int, int]]" = OrderedDict()
         self._frame_bytes = 0
         self._frame_budget = frame_bytes
         self._frame_entries = frame_entries
@@ -67,21 +69,23 @@ class PreviewCache:
             if found is None:
                 return None
             self._frames.move_to_end((user_id, key))
-            return FramePreview(data=found[0], media_type=found[1], cached=True)
+            return FramePreview(data=found[0], media_type=found[1], cached=True, width=found[2], height=found[3])
 
-    def store_frame(self, user_id: str, key: str, data: bytes, media_type: str) -> None:
+    def store_frame(
+        self, user_id: str, key: str, data: bytes, media_type: str, width: int = 0, height: int = 0
+    ) -> None:
         if len(data) > self._frame_budget:
             return
         with self._lock:
             previous = self._frames.pop((user_id, key), None)
             if previous is not None:
                 self._frame_bytes -= len(previous[0])
-            self._frames[(user_id, key)] = (data, media_type)
+            self._frames[(user_id, key)] = (data, media_type, width, height)
             self._frame_bytes += len(data)
             while self._frames and (
                 self._frame_bytes > self._frame_budget or len(self._frames) > self._frame_entries
             ):
-                _, (evicted, _) = self._frames.popitem(last=False)
+                _, (evicted, *_) = self._frames.popitem(last=False)
                 self._frame_bytes -= len(evicted)
 
     def memo(self, scope: str) -> Callable[[tuple, Callable[[], Any]], Any]:

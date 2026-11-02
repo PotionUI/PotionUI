@@ -31,6 +31,7 @@
 		beforeLabel = 'Before',
 		afterLabel = 'After',
 		phone = false,
+		checker = false,
 		padding,
 		spaceHeld,
 		hint,
@@ -48,6 +49,7 @@
 		beforeLabel?: string;
 		afterLabel?: string;
 		phone?: boolean;
+		checker?: boolean;
 		padding?: number;
 		spaceHeld?: boolean;
 		hint?: Snippet | null;
@@ -200,9 +202,9 @@
 		style="left: {art.left}px; top: {art.top}px; width: {art.width}px; height: {art.height}px;"
 		data-canvas-art
 	>
-		<div class="absolute inset-0">{@render layer()}</div>
+		<div class="absolute inset-0 {checker ? 'alpha-checker' : ''}" data-canvas-layer>{@render layer()}</div>
 		{#if compare && before}
-			<div class="absolute inset-0" style="clip-path: inset(0 {100 - splitPct}% 0 0);" data-canvas-before>
+			<div class="absolute inset-0 {checker ? 'alpha-checker' : ''}" style="clip-path: inset(0 {100 - splitPct}% 0 0);" data-canvas-before>
 				{@render before()}
 			</div>
 		{/if}

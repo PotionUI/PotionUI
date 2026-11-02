@@ -29,10 +29,15 @@
 	let tint: Rgb = [255, 255, 255];
 	let tintCss = 'white';
 
+	function surface(): CanvasRenderingContext2D | null {
+		return canvas?.getContext('2d', { willReadFrequently: true }) ?? null;
+	}
+
 	onMount(async () => {
 		if (!canvas) return;
 		canvas.width = Math.max(1, Math.round(width));
 		canvas.height = Math.max(1, Math.round(height));
+		surface();
 		const signal = getComputedStyle(document.documentElement).getPropertyValue('--signal');
 		tint = parseRgb(signal, tint);
 		tintCss = `rgb(${tint.join(' ')})`;
@@ -40,7 +45,7 @@
 	});
 
 	async function restore(url: string) {
-		const context = canvas?.getContext('2d');
+		const context = surface();
 		if (!canvas || !context) return;
 		try {
 			const image = await loadImage(url);
@@ -64,7 +69,7 @@
 	}
 
 	function stroke(to: { x: number; y: number }) {
-		const context = canvas?.getContext('2d');
+		const context = surface();
 		if (!context || !canvas) return;
 		const scale = canvas.width / Math.max(1, canvas.getBoundingClientRect().width);
 		drawSegment(context, last ?? to, to, { size: brush * scale, color: tintCss, erase });
@@ -96,7 +101,7 @@
 	}
 
 	export function hasStrokes(): boolean {
-		const context = canvas?.getContext('2d');
+		const context = surface();
 		if (!canvas || !context) return false;
 		const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
 		for (let i = 3; i < data.length; i += 4) if (data[i] > 0) return true;
@@ -104,12 +109,12 @@
 	}
 
 	export function clear() {
-		const context = canvas?.getContext('2d');
+		const context = surface();
 		if (canvas && context) context.clearRect(0, 0, canvas.width, canvas.height);
 	}
 
 	export async function exportMask(name: string): Promise<File | null> {
-		const context = canvas?.getContext('2d');
+		const context = surface();
 		if (!canvas || !context) return null;
 		const data = context.getImageData(0, 0, canvas.width, canvas.height);
 		const out = document.createElement('canvas');

@@ -168,12 +168,15 @@
 				{#snippet body()}
 					<span class="w-[18px] flex-none font-mono text-sm tabular-nums text-fg-subtle">{pad(row.index)}</span>
 					{#if row.key === 'original'}
-						<span
-							class="grid h-7 w-7 flex-none place-items-center rounded bg-surface-2 bg-cover bg-center text-fg-muted"
-							style={original.thumb ? `background-image: url(${JSON.stringify(original.thumb)})` : undefined}
-						>
-							{#if !original.thumb}<Icon name="image" className="h-3.5 w-3.5" />{/if}
-						</span>
+						{#if original.thumb}
+							<span class="alpha-checker relative h-7 w-7 flex-none overflow-hidden rounded" data-stack-thumb>
+								<span class="absolute inset-0 bg-cover bg-center" style={`background-image: url(${JSON.stringify(original.thumb)})`}></span>
+							</span>
+						{:else}
+							<span class="grid h-7 w-7 flex-none place-items-center rounded bg-surface-2 text-fg-muted">
+								<Icon name="image" className="h-3.5 w-3.5" />
+							</span>
+						{/if}
 					{:else}
 						<span class="grid h-7 w-7 flex-none place-items-center rounded bg-surface-2 text-fg-muted {row.hidden ? 'opacity-[0.45]' : ''}">
 							<Icon name={step?.icon ?? 'sliders'} className="h-3.5 w-3.5" />

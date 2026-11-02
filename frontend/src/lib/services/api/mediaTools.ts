@@ -76,7 +76,10 @@ export function createMediaToolsApi(client: AxiosInstance) {
 				responseType: 'blob',
 				signal
 			});
-			return { blob: response.data, cached: response.headers?.['x-preview-cache'] === 'hit' };
+			const width = Number(response.headers?.['x-frame-width']);
+			const height = Number(response.headers?.['x-frame-height']);
+			const size = width > 0 && height > 0 ? { width, height } : undefined;
+			return { blob: response.data, cached: response.headers?.['x-preview-cache'] === 'hit', ...(size ? { size } : {}) };
 		},
 
 		async startClipPreview(body: ClipPreviewBody): Promise<ClipPreviewStart> {

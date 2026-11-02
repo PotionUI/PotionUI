@@ -4,7 +4,7 @@ export function canvasFromImage(image: HTMLImageElement): HTMLCanvasElement {
 	const canvas = document.createElement('canvas');
 	canvas.width = image.naturalWidth;
 	canvas.height = image.naturalHeight;
-	const context = canvas.getContext('2d');
+	const context = canvas.getContext('2d', { willReadFrequently: true });
 	if (!context) throw new Error('This browser could not open a drawing surface.');
 	context.drawImage(image, 0, 0);
 	return canvas;

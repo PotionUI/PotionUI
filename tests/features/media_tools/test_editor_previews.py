@@ -72,6 +72,15 @@ class TestFramePreview(PreviewTestBase):
         response = self.frame({"item_id": item.id}, [{"tool": "rot", "params": {}}], max_side=20)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(self.picture(response).size, (15, 20))
+        self.assertEqual((response.headers["x-frame-width"], response.headers["x-frame-height"]), ("30", "40"))
+
+    def test_a_cached_frame_still_reports_the_full_output_size(self):
+        item = self.image_item(size=(40, 30))
+        self.frame({"item_id": item.id}, [], max_side=16)
+        again = self.frame({"item_id": item.id}, [], max_side=16)
+        self.assertEqual(again.headers["x-preview-cache"], "hit")
+        self.assertEqual(self.picture(again).size, (16, 12))
+        self.assertEqual((again.headers["x-frame-width"], again.headers["x-frame-height"]), ("40", "30"))
 
     def test_a_tool_without_a_frame_path_is_refused_with_its_step(self):
         clip = self.video_item(seconds=1.0)

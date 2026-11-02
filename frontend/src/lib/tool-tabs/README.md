@@ -96,4 +96,3 @@ menu footer that names the tab a menu opens.
 - `types.ts`: the contract. `registry.ts`, `builtin.ts`, `pluginToolTabs.ts`: tool kinds. `sources.ts`: the open rules.
 - `ToolTabHost.svelte`: mounts the active tool. `PhoneToolTabView.svelte`: phone top bar + host.
 - `NewTabMenu.svelte`: the "+" menu. `TabsSheet.svelte`: the phone Tabs sheet.
-- `placeholders/`: the source-or-empty placeholders the editor lanes replace.

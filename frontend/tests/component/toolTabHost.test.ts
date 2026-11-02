@@ -6,6 +6,7 @@ const { default: ToolTabHost } = await import('$lib/tool-tabs/ToolTabHost.svelte
 const { isToolTab } = await import('$lib/types/tabs');
 const { get } = await import('svelte/store');
 const { registerToolKind } = await import('$lib/tool-tabs/registry');
+const { default: ProbeToolTab } = await import('./fixtures/ProbeToolTab.svelte');
 const { extensionRegistrations } = await import('$lib/plugin-api/extensionRefresh');
 
 let app: Record<string, unknown> | undefined;
@@ -30,20 +31,38 @@ function mountActiveTool() {
 	return target;
 }
 
+const PROBE = 'acme.probe' as const;
+
+function registerProbe(load = vi.fn(async () => ProbeToolTab)) {
+	const definition = { tool: PROBE, label: 'Probe', icon: 'brush', accepts: ['image' as const], pluginId: 'acme', load };
+	return { load, definition, off: registerToolKind(definition) };
+}
+
 describe('ToolTabHost', () => {
-	it('mounts the Image editor placeholder with its empty state', async () => {
-		tabsStore.openToolTab('image', null);
-		const target = mountActiveTool();
-		await settle();
-		expect(target.querySelector('[data-testid="tool-tab-empty"]')?.textContent).toContain('Open a picture to edit');
+	it('mounts the registered tool component with its empty state', async () => {
+		const { off } = registerProbe();
+		try {
+			tabsStore.openToolTab(PROBE, null);
+			const target = mountActiveTool();
+			await settle();
+			expect(target.querySelector('[data-testid="tool-tab-host"]')?.getAttribute('data-tool')).toBe(PROBE);
+			expect(target.querySelector('[data-testid="probe-empty"]')?.textContent).toContain('Nothing opened');
+		} finally {
+			off();
+		}
 	});
 
 	it('shows the source and names the tab after it', async () => {
-		const id = tabsStore.openToolTab('image', { path: '/m/fox.png', url: '/m/fox.png' });
-		const target = mountActiveTool();
-		await settle();
-		expect(target.querySelector('[data-testid="tool-tab-source"]')?.getAttribute('src')).toBe('/m/fox.png');
-		expect(get(tabsStore).tabs.find((tab) => tab.id === id)).toMatchObject({ name: 'fox', thumbnail: '/m/fox.png' });
+		const { off } = registerProbe();
+		try {
+			const id = tabsStore.openToolTab(PROBE, { path: '/m/fox.png', url: '/m/fox.png' });
+			const target = mountActiveTool();
+			await settle();
+			expect(target.querySelector('[data-testid="probe-source"]')?.getAttribute('src')).toBe('/m/fox.png');
+			expect(get(tabsStore).tabs.find((tab) => tab.id === id)).toMatchObject({ name: 'fox', thumbnail: '/m/fox.png' });
+		} finally {
+			off();
+		}
 	});
 
 	it('says the tool is not available when no kind is registered', async () => {
@@ -51,17 +70,16 @@ describe('ToolTabHost', () => {
 		const target = mountActiveTool();
 		await settle();
 		expect(target.querySelector('[data-testid="tool-tab-unavailable"]')).not.toBeNull();
+		expect(target.querySelector('[data-testid="probe-tool"]')).toBeNull();
 	});
 
 	it('resolves the tool component once and keeps it mounted across registration refreshes', async () => {
-		const load = vi.fn(() => import('$lib/tool-tabs/placeholders/ImageToolPlaceholder.svelte'));
-		const definition = { tool: 'acme.once' as const, label: 'Once', icon: 'brush', accepts: [], pluginId: 'acme', load };
-		const off = registerToolKind(definition);
+		const { load, definition, off } = registerProbe();
 		try {
-			tabsStore.openToolTab('acme.once', null);
+			tabsStore.openToolTab(PROBE, null);
 			const target = mountActiveTool();
 			await settle();
-			const mounted = target.querySelector('[data-testid="tool-tab-placeholder"]');
+			const mounted = target.querySelector('[data-testid="probe-tool"]');
 			expect(mounted).not.toBeNull();
 			expect(load).toHaveBeenCalledTimes(1);
 
@@ -70,7 +88,7 @@ describe('ToolTabHost', () => {
 			await settle();
 
 			expect(load).toHaveBeenCalledTimes(1);
-			expect(target.querySelector('[data-testid="tool-tab-placeholder"]')).toBe(mounted);
+			expect(target.querySelector('[data-testid="probe-tool"]')).toBe(mounted);
 		} finally {
 			off();
 		}

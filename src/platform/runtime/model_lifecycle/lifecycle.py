@@ -786,6 +786,18 @@ class ModelLifecycle:
         get_profiler().mark("models.evict", key=key, freed_gb=freed_gb, unloaded=unloaded)
         return unloaded
 
+    def evict_value(self, value_id: int) -> Optional[bool]:
+        with self._lock:
+            for key, entry in self._entries.items():
+                if value_id in (id(entry.value), id(getattr(entry.value, "module", None))):
+                    break
+            else:
+                return None
+            if entry.leased_by:
+                return None
+            del entry
+            return self._evict_entry(key)
+
     def invalidate(self, key: Optional[str] = None) -> None:
         """Evict a single key, or everything when key is None.
 

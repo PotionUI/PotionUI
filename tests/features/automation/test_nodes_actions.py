@@ -770,184 +770,206 @@ def _backend_services(quick_actions=None, lifecycle=None) -> AutomationServices:
     )
 
 
+class _Ram:
+    def __init__(self, available_gb):
+        self.available_gb = available_gb
+
+    def read(self):
+        from src.platform.runtime.system_memory import SystemMemory
+        return SystemMemory(total=64 * 1024 ** 3, available=int(self.available_gb * 1024 ** 3))
+
+
+class _Component:
+    def __init__(self, name, size_gb, ram, log):
+        self.name = name
+        self.estimated_vram_gb = size_gb
+        self.device = "cuda:0"
+        self.module = object()
+        self._ram = ram
+        self._log = log
+
+    def offload(self):
+        self._ram.available_gb -= self.estimated_vram_gb
+        self.device = "cpu"
+        self._log.append(("offload", self.name))
+
+    def unload(self):
+        self.module = None
+        self._log.append(("unload", self.name))
+
+
 class TestExecuteBackendAction(unittest.IsolatedAsyncioTestCase):
 
-    async def test_clear_vram_offloads_gpu_residents_without_evicting_cache(self):
-        from unittest.mock import patch
-        from src.features.automation.nodes.actions import _execute_backend_action
-        from src.platform.runtime.native.memory.residency import OffloadResult
+    def setUp(self):
+        from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
+        from src.platform.runtime.native.memory.residency import GpuResidencyRegistry
+        from src.platform.runtime.system_memory import SystemMemory
 
-        lifecycle = MagicMock()
-        lifecycle.leased_values.return_value = []
-        lifecycle.cached_values.return_value = []
-        services = _backend_services(lifecycle=lifecycle)
-        residency_registry = MagicMock()
-        residency_registry.offload_all.return_value = OffloadResult(["dit", "vae"], freed_gb=13.4)
-
-        with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_registry",
-            return_value=residency_registry,
+        self.log = []
+        self.ram = _Ram(0.0)
+        self.registry = GpuResidencyRegistry()
+        self.lifecycle = ModelLifecycle(gpu_monitor=None, settings=None)
+        roomy = SystemMemory(total=1024 * 1024 ** 3, available=1000 * 1024 ** 3)
+        for patcher in (
+            patch("src.platform.runtime.native.memory.residency.get_residency_registry",
+                  return_value=self.registry),
+            patch("src.platform.runtime.native.memory.residency.get_system_memory", self.ram.read),
+            patch("src.platform.runtime.model_lifecycle.lifecycle.get_system_memory", return_value=roomy),
+            patch.object(self.lifecycle, "cleanup"),
+            patch.object(self.lifecycle, "invalidate"),
         ):
-            result = await _execute_backend_action(_ctx(
-                config={"backend": "native", "action": "clear-vram"}, services=services,
-            ))
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
-        residency_registry.offload_all.assert_called_once_with("cuda", exclude=[])
-        lifecycle.cleanup.assert_called_once_with(aggressive=False)
-        lifecycle.invalidate.assert_not_called()
+    def _load(self, name, size_gb, *, register=True):
+        component = self.lifecycle.acquire(
+            name, "fp", lambda: _Component(name, size_gb, self.ram, self.log), estimated_vram_gb=size_gb,
+        )
+        if register:
+            self.registry.note_resident(component, "cuda:0", size_gb)
+
+    async def _clear_vram(self, **config):
+        from src.features.automation.nodes.actions import _execute_backend_action
+
+        services = _backend_services(lifecycle=self.lifecycle)
+        services.backend_config_store.get_backend.return_value.device = "cuda:0"
+        return await _execute_backend_action(_ctx(
+            config={"backend": "native", "action": "clear-vram", **config}, services=services,
+        ))
+
+    async def test_default_mode_offloads_while_ram_has_room(self):
+        self.ram.available_gb = 100.0
+        self._load("dit", 20.0)
+        self._load("vae", 4.0)
+
+        result = await self._clear_vram()
+
+        self.assertEqual(self.log, [("offload", "dit"), ("offload", "vae")])
+        self.lifecycle.cleanup.assert_called_once_with(aggressive=False)
+        self.lifecycle.invalidate.assert_not_called()
+        self.assertTrue(self.lifecycle.is_cached("dit"))
         self.assertEqual(result.output["backend_id"], "native")
         self.assertEqual(result.output["action_id"], "clear-vram")
         self.assertEqual(result.output["label"], "Clear VRAM")
         self.assertTrue(result.output["success"])
         self.assertEqual(result.output["status"], "cleared")
+        self.assertEqual(result.output["mode"], "offload_or_unload")
         self.assertEqual(result.output["offloaded_count"], 2)
-        self.assertEqual(result.output["freed_gb"], 13.4)
+        self.assertEqual(result.output["offloaded_gb"], 24.0)
+        self.assertEqual(result.output["unloaded_count"], 0)
+        self.assertEqual(result.output["freed_gb"], 24.0)
+
+    async def test_default_mode_unloads_when_ram_is_full(self):
+        self.ram.available_gb = 4.0
+        self._load("dit", 20.0)
+
+        result = await self._clear_vram()
+
+        self.assertEqual(self.log, [("unload", "dit")])
+        self.assertFalse(self.lifecycle.is_cached("dit"))
+        self.assertEqual(result.output["mode"], "offload_or_unload")
+        self.assertEqual(result.output["offloaded_count"], 0)
+        self.assertEqual(result.output["unloaded_count"], 1)
+        self.assertEqual(result.output["unloaded_gb"], 20.0)
+        self.assertEqual(result.output["freed_gb"], 20.0)
+
+    async def test_offload_or_unload_mode_reports_both_when_ram_fills_midway(self):
+        self.ram.available_gb = 20.0
+        self._load("small", 6.0)
+        self._load("big", 10.0, register=False)
+
+        result = await self._clear_vram(mode="offload_or_unload")
+
+        self.assertEqual(self.log, [("offload", "big"), ("unload", "small")])
+        self.assertEqual(result.output["offloaded_count"], 1)
+        self.assertEqual(result.output["offloaded_gb"], 10.0)
+        self.assertEqual(result.output["unloaded_count"], 1)
+        self.assertEqual(result.output["unloaded_gb"], 6.0)
         self.assertEqual(result.output["failed_count"], 0)
+        self.assertEqual(result.output["failed_gb"], 0.0)
+        self.assertEqual(result.output["freed_gb"], 16.0)
+
+    async def test_offload_mode_offloads_even_when_ram_is_full(self):
+        self.ram.available_gb = 0.0
+        self._load("dit", 20.0)
+
+        result = await self._clear_vram(mode="offload")
+
+        self.assertEqual(self.log, [("offload", "dit")])
+        self.assertEqual(result.output["mode"], "offload")
+        self.assertEqual(result.output["offloaded_count"], 1)
+        self.assertEqual(result.output["unloaded_count"], 0)
+
+    async def test_unload_mode_unloads_even_when_ram_has_room(self):
+        self.ram.available_gb = 1000.0
+        self._load("dit", 20.0)
+
+        result = await self._clear_vram(mode="unload")
+
+        self.assertEqual(self.log, [("unload", "dit")])
+        self.assertEqual(result.output["mode"], "unload")
+        self.assertEqual(result.output["offloaded_count"], 0)
+        self.assertEqual(result.output["unloaded_count"], 1)
+
+    async def test_clear_vram_reports_failed_components_left_in_vram(self):
+        self.ram.available_gb = 0.0
+        held = self.lifecycle.acquire(
+            "dit", "fp", lambda: _Component("dit", 12.0, self.ram, self.log), estimated_vram_gb=12.0,
+        )
+        self.registry.note_resident(held, "cuda:0", 12.0)
+
+        result = await self._clear_vram()
+
+        self.assertEqual(self.log, [])
+        self.assertEqual(result.output["failed_count"], 1)
+        self.assertEqual(result.output["failed_gb"], 12.0)
+        self.assertEqual(result.output["freed_gb"], 0.0)
 
     async def test_clear_vram_reports_zero_when_nothing_resident(self):
-        from unittest.mock import patch
-        from src.features.automation.nodes.actions import _execute_backend_action
-        from src.platform.runtime.native.memory.residency import OffloadResult
-
-        lifecycle = MagicMock()
-        lifecycle.leased_values.return_value = []
-        lifecycle.cached_values.return_value = []
-        services = _backend_services(lifecycle=lifecycle)
-        residency_registry = MagicMock()
-        residency_registry.offload_all.return_value = OffloadResult()
-
-        with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_registry",
-            return_value=residency_registry,
-        ):
-            result = await _execute_backend_action(_ctx(
-                config={"backend": "native", "action": "clear-vram"}, services=services,
-            ))
+        result = await self._clear_vram()
 
         self.assertEqual(result.output["offloaded_count"], 0)
+        self.assertEqual(result.output["unloaded_count"], 0)
         self.assertEqual(result.output["freed_gb"], 0.0)
         self.assertEqual(result.output["failed_count"], 0)
 
-    async def test_clear_vram_sweeps_unregistered_gpu_resident_cache_entries(self):
-        """Registration-gap-proof fallback: a cached model that ended up
-        GPU-resident WITHOUT registering with GpuResidencyRegistry (a future
-        placement path that forgot to) is still offloaded, via
-        `cached_values()` rather than the residency ledger."""
-        from unittest.mock import patch
-        from src.features.automation.nodes.actions import _execute_backend_action
-        from src.platform.runtime.native.memory.residency import OffloadResult
+    async def test_clear_vram_never_touches_leased_entries_in_any_mode(self):
+        self.lifecycle.begin_lease("gen-1")
+        try:
+            self._load("busy-dit", 9.0)
+            self._load("busy-straggler", 3.0, register=False)
+            for mode in ("offload", "offload_or_unload", "unload"):
+                result = await self._clear_vram(mode=mode)
+                self.assertEqual(result.output["offloaded_count"], 0)
+                self.assertEqual(result.output["unloaded_count"], 0)
+            self.assertEqual(self.log, [])
+            self.assertTrue(self.lifecycle.is_cached("busy-dit"))
+            self.assertTrue(self.lifecycle.is_cached("busy-straggler"))
+        finally:
+            self.lifecycle.end_lease("gen-1")
 
-        class FakeCachedModel:
-            def __init__(self, device, estimated_vram_gb):
-                self.device = device
-                self.estimated_vram_gb = estimated_vram_gb
-                self.offloaded = False
+    async def test_clear_vram_rejects_an_unknown_mode(self):
+        with self.assertRaises(RuntimeError):
+            await self._clear_vram(mode="vaporise")
 
-            def offload(self):
-                self.offloaded = True
-                self.device = "cpu"
+    def test_mode_select_matches_the_modes_and_shows_only_for_clear_vram(self):
+        from src.features.automation.nodes.actions import register
+        from src.platform.plugins.automation_nodes import NodeTypeRegistry
+        from src.platform.runtime.native.memory.residency import ClearVramMode
 
-        unregistered_gpu = FakeCachedModel("cuda:0", 6.0)
-        cpu_resident = FakeCachedModel("cpu", 4.0)
+        registry = NodeTypeRegistry()
+        register(registry)
+        schema = {field["name"]: field for field in registry.get("action.backend_action").config_schema}
+        mode = schema["mode"]
 
-        lifecycle = MagicMock()
-        lifecycle.leased_values.return_value = []
-        lifecycle.cached_values.return_value = [unregistered_gpu, cpu_resident]
-        services = _backend_services(lifecycle=lifecycle)
-        residency_registry = MagicMock()
-        residency_registry.offload_all.return_value = OffloadResult()
-
-        with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_registry",
-            return_value=residency_registry,
-        ):
-            result = await _execute_backend_action(_ctx(
-                config={"backend": "native", "action": "clear-vram"}, services=services,
-            ))
-
-        self.assertTrue(unregistered_gpu.offloaded)
-        self.assertFalse(cpu_resident.offloaded)
-        self.assertEqual(result.output["offloaded_count"], 1)
-        self.assertEqual(result.output["freed_gb"], 6.0)
-        self.assertEqual(result.output["failed_count"], 0)
-
-    async def test_clear_vram_sweep_skips_leased_gpu_resident_entries(self):
-        """A leased cache entry (an in-flight generation) must never be
-        yanked, even by the fallback sweep."""
-        from unittest.mock import patch
-        from src.features.automation.nodes.actions import _execute_backend_action
-        from src.platform.runtime.native.memory.residency import OffloadResult
-
-        class FakeCachedModel:
-            def __init__(self, device, estimated_vram_gb):
-                self.device = device
-                self.estimated_vram_gb = estimated_vram_gb
-                self.offloaded = False
-
-            def offload(self):
-                self.offloaded = True
-                self.device = "cpu"
-
-        leased_gpu = FakeCachedModel("cuda:0", 9.0)
-
-        lifecycle = MagicMock()
-        lifecycle.leased_values.return_value = [leased_gpu]
-        lifecycle.cached_values.return_value = [leased_gpu]
-        services = _backend_services(lifecycle=lifecycle)
-        residency_registry = MagicMock()
-        residency_registry.offload_all.return_value = OffloadResult()
-
-        with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_registry",
-            return_value=residency_registry,
-        ):
-            result = await _execute_backend_action(_ctx(
-                config={"backend": "native", "action": "clear-vram"}, services=services,
-            ))
-
-        residency_registry.offload_all.assert_called_once_with("cuda", exclude=[leased_gpu])
-        self.assertFalse(leased_gpu.offloaded)
-        self.assertEqual(result.output["offloaded_count"], 0)
-
-    async def test_clear_vram_sweep_does_not_double_count_already_offloaded(self):
-        """A cached model the residency-ledger sweep already offloaded reads
-        back as CPU-resident by the time the lifecycle sweep runs, so it must
-        not be counted (or offloaded) a second time."""
-        from unittest.mock import patch
-        from src.features.automation.nodes.actions import _execute_backend_action
-        from src.platform.runtime.native.memory.residency import OffloadResult
-
-        class FakeCachedModel:
-            def __init__(self, device, estimated_vram_gb):
-                self.device = device
-                self.estimated_vram_gb = estimated_vram_gb
-                self.offload_calls = 0
-
-            def offload(self):
-                self.offload_calls += 1
-                self.device = "cpu"
-
-        # Simulate: offload_all already moved this one to cpu.
-        already_offloaded = FakeCachedModel("cpu", 12.0)
-
-        lifecycle = MagicMock()
-        lifecycle.leased_values.return_value = []
-        lifecycle.cached_values.return_value = [already_offloaded]
-        services = _backend_services(lifecycle=lifecycle)
-        residency_registry = MagicMock()
-        residency_registry.offload_all.return_value = OffloadResult([already_offloaded], freed_gb=12.0)
-
-        with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_registry",
-            return_value=residency_registry,
-        ):
-            result = await _execute_backend_action(_ctx(
-                config={"backend": "native", "action": "clear-vram"}, services=services,
-            ))
-
-        self.assertEqual(already_offloaded.offload_calls, 0)
-        self.assertEqual(result.output["offloaded_count"], 1)
-        self.assertEqual(result.output["freed_gb"], 12.0)
+        self.assertEqual({option["value"] for option in mode["options"]}, {m.value for m in ClearVramMode})
+        self.assertEqual(mode["default"], ClearVramMode.OFFLOAD_OR_UNLOAD.value)
+        self.assertFalse(mode["visible"])
+        self.assertEqual(
+            [(r["when"], r["then"]) for r in mode["reactions"]],
+            [({"field": "action", "equals": "clear-vram"}, {"set_visibility": True}),
+             ({"field": "action", "not_equals": "clear-vram"}, {"set_visibility": False})],
+        )
 
     async def test_clear_cache_invalidates_lifecycle_cache(self):
         from src.features.automation.nodes.actions import _execute_backend_action

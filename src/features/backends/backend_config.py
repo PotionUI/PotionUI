@@ -324,9 +324,9 @@ class NativeBackendConfig(NativeEngineFlagsMixin, BaseBackendConfig):
                 "endpoint": f"/api/backends/{self.id}/actions/clear-vram",
                 "method": "POST",
                 "confirm": (
-                    "Clear app VRAM? This offloads all resident model weights off the GPU. "
-                    "The RAM cache stays warm, so the next generation re-uploads instead of "
-                    "reloading from disk."
+                    "Clear app VRAM? Resident model weights move off the GPU into RAM, "
+                    "so the next generation re-uploads instead of reloading from disk. "
+                    "Models that don't fit in free RAM are unloaded instead."
                 ),
                 "danger": False,
                 "poll_health_after": False,

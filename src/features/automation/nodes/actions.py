@@ -735,9 +735,8 @@ async def _execute_backend_action(ctx: NodeExecutionContext) -> NodeResult:
     """Perform one of a backend's self-declared quick actions.
 
     Runs the same operation the admin quick-action endpoint runs, by calling the
-    manager directly (not HTTP-to-self): `clear-vram` offloads GPU-resident
-    models to host RAM (the RAM cache stays warm); `clear-cache` additionally
-    invalidates the native model-lifecycle cache (drops RAM, trims the host
+    manager directly (not HTTP-to-self): `clear-vram` frees VRAM per its mode;
+    `clear-cache` additionally invalidates the native model-lifecycle cache (drops RAM, trims the host
     allocator); `restart-backend` schedules the same in-place process restart
     as POST /api/admin/restart.
 
@@ -769,27 +768,34 @@ async def _execute_backend_action(ctx: NodeExecutionContext) -> NodeResult:
     label = declared[action_id].get("label", action_id)
 
     if action_id == _CLEAR_VRAM:
-        from src.platform.runtime.native.memory.residency import clear_vram
+        from src.platform.runtime.native.memory.residency import ClearVramMode, clear_vram
 
         lifecycle = ctx.services.model_lifecycle
         if lifecycle is None:
             raise RuntimeError(
                 "action.backend_action: no ModelLifecycle configured for the clear-vram action"
             )
+        raw_mode = ctx.config.get("mode") or ClearVramMode.OFFLOAD_OR_UNLOAD
+        try:
+            mode = ClearVramMode(raw_mode)
+        except ValueError:
+            raise RuntimeError(f"action.backend_action: unknown clear-vram mode '{raw_mode}'") from None
         device = getattr(backend, "device", "cuda")
-        result = clear_vram(device, lifecycle)
-        lifecycle.cleanup(aggressive=False)  # gc + cuda.empty_cache(), no eviction/trim
+        result = clear_vram(device, lifecycle, mode)
+        lifecycle.cleanup(aggressive=False)
         logger.info(
-            f"action.backend_action: cleared VRAM for backend '{backend_id}' - "
-            f"offloaded {result.offloaded_count} component(s), ~{result.freed_gb:.2f}GB"
-            + (f" ({result.swept_count} via lifecycle-cache sweep)" if result.swept_count else "")
-            + (f", {result.failed_count} failed" if result.failed_count else "")
+            f"action.backend_action: cleared VRAM for backend '{backend_id}' ({mode.value}) - "
+            f"offloaded {result.offloaded_count} (~{result.offloaded_gb:.2f}GB), "
+            f"unloaded {result.unloaded_count} (~{result.unloaded_gb:.2f}GB), "
+            f"failed {result.failed_count} (~{result.failed_gb:.2f}GB)"
         )
         return NodeResult(output={
             "backend_id": backend_id, "action_id": action_id, "label": label,
-            "success": True, "status": "cleared",
-            "offloaded_count": result.offloaded_count, "freed_gb": round(result.freed_gb, 2),
-            "failed_count": result.failed_count,
+            "success": True, "status": "cleared", "mode": mode.value,
+            "offloaded_count": result.offloaded_count, "offloaded_gb": round(result.offloaded_gb, 2),
+            "unloaded_count": result.unloaded_count, "unloaded_gb": round(result.unloaded_gb, 2),
+            "failed_count": result.failed_count, "failed_gb": round(result.failed_gb, 2),
+            "freed_gb": round(result.freed_gb, 2),
         })
 
     if action_id == _CLEAR_CACHE:
@@ -1088,6 +1094,18 @@ def register(registry=node_type_registry) -> None:
         config_schema=[
             {"name": "backend", "type": "select", "title": "Backend", "options_provider": _backend_options},
             {"name": "action", "type": "select", "title": "Action", "options_provider": _backend_action_options},
+            {"name": "mode", "type": "select", "title": "Mode", "default": "offload_or_unload",
+             "description": "Where the models go when they leave VRAM.",
+             "options": [
+                 {"label": "Offload if RAM allows, otherwise unload", "value": "offload_or_unload"},
+                 {"label": "Offload to RAM", "value": "offload"},
+                 {"label": "Unload", "value": "unload"},
+             ],
+             "visible": False,
+             "reactions": [
+                 {"when": {"field": "action", "equals": _CLEAR_VRAM}, "then": {"set_visibility": True}},
+                 {"when": {"field": "action", "not_equals": _CLEAR_VRAM}, "then": {"set_visibility": False}},
+             ]},
         ],
         outputs=(
             NodeField("backend_id", "string", "Backend ID", "Backend the action ran against.", "native"),
@@ -1095,10 +1113,16 @@ def register(registry=node_type_registry) -> None:
             NodeField("label", "string", "Label", "Human-readable action label.", "Clear VRAM"),
             NodeField("success", "boolean", "Success", "True when the action was performed.", True),
             NodeField("status", "string", "Status", "Short outcome: e.g. 'cleared' or 'restarting'.", "cleared"),
+            NodeField("mode", "string", "Mode", "clear-vram only: the mode it ran in.", "offload_or_unload"),
             NodeField("offloaded_count", "number", "Offloaded",
-                      "clear-vram only: GPU-resident components actually offloaded (0 if nothing was resident).", 0),
+                      "clear-vram only: components moved from VRAM to RAM.", 0),
+            NodeField("offloaded_gb", "number", "Offloaded (GB)", "clear-vram only: GB moved to RAM.", 0.0),
+            NodeField("unloaded_count", "number", "Unloaded",
+                      "clear-vram only: components unloaded from the cache.", 0),
+            NodeField("unloaded_gb", "number", "Unloaded (GB)", "clear-vram only: GB unloaded.", 0.0),
+            NodeField("failed_count", "number", "Failed", "clear-vram only: components left in VRAM.", 0),
+            NodeField("failed_gb", "number", "Failed (GB)", "clear-vram only: GB left in VRAM.", 0.0),
             NodeField("freed_gb", "number", "Freed (GB)", "clear-vram only: estimated VRAM freed.", 0.0),
-            NodeField("failed_count", "number", "Failed", "clear-vram only: components that failed to offload.", 0),
         ),
         requires_admin=True,
         execute=_execute_backend_action,

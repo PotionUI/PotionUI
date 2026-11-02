@@ -1,6 +1,39 @@
 import type { Analysis } from './detect';
 import { outputSize, type Cell, type SliceOutput } from './model';
 
+export interface Box {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
+export interface CropPlan {
+	width: number;
+	height: number;
+	src: Box;
+	dst: Box;
+}
+
+export function cropPlan(
+	an: Analysis | null,
+	cell: Cell,
+	output: SliceOutput,
+	logical: { width: number; height: number },
+	source: { width: number; height: number },
+	maxSide: number
+): CropPlan {
+	const size = outputSize(an, cell, output, logical);
+	const scale = Math.min(1, maxSide / Math.max(size.width, size.height));
+	const width = Math.max(1, Math.round(size.width * scale));
+	const height = Math.max(1, Math.round(size.height * scale));
+	const r = size.rect;
+	const src = { x: r.x0 * source.width, y: r.y0 * source.height, width: (r.x1 - r.x0) * source.width, height: (r.y1 - r.y0) * source.height };
+	const dw = (r.x1 - r.x0) * logical.width * scale;
+	const dh = (r.y1 - r.y0) * logical.height * scale;
+	return { width, height, src, dst: { x: (width - dw) / 2, y: (height - dh) / 2, width: dw, height: dh } };
+}
+
 export function cropCanvas(
 	source: HTMLCanvasElement,
 	an: Analysis | null,
@@ -9,24 +42,17 @@ export function cropCanvas(
 	logical: { width: number; height: number },
 	maxSide: number
 ): HTMLCanvasElement {
-	const size = outputSize(an, cell, output, logical);
-	const scale = Math.min(1, maxSide / Math.max(size.width, size.height));
-	const perLogical = source.width / Math.max(1, logical.width);
+	const plan = cropPlan(an, cell, output, logical, source, maxSide);
 	const canvas = document.createElement('canvas');
-	canvas.width = Math.max(1, Math.round(size.width * scale));
-	canvas.height = Math.max(1, Math.round(size.height * scale));
+	canvas.width = plan.width;
+	canvas.height = plan.height;
 	const context = canvas.getContext('2d');
 	if (!context) return canvas;
 	if (an && !an.transparent) {
 		context.fillStyle = `rgb(${an.bg.join(',')})`;
 		context.fillRect(0, 0, canvas.width, canvas.height);
 	}
-	const r = size.rect;
-	const sw = (r.x1 - r.x0) * source.width;
-	const sh = (r.y1 - r.y0) * source.height;
-	const dw = (sw / perLogical) * scale;
-	const dh = (sh / perLogical) * scale;
-	context.drawImage(source, r.x0 * source.width, r.y0 * source.height, sw, sh, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
+	context.drawImage(source, plan.src.x, plan.src.y, plan.src.width, plan.src.height, plan.dst.x, plan.dst.y, plan.dst.width, plan.dst.height);
 	return canvas;
 }
 
@@ -46,6 +72,8 @@ export function crc32(bytes: Uint8Array): number {
 	return (crc ^ 0xffffffff) >>> 0;
 }
 
+const UTF8_NAMES = 0x0800;
+
 export function zipStore(files: readonly { name: string; data: Uint8Array }[]): Uint8Array {
 	const encoder = new TextEncoder();
 	const chunks: Uint8Array[] = [];
@@ -58,6 +86,7 @@ export function zipStore(files: readonly { name: string; data: Uint8Array }[]): 
 		const view = new DataView(local.buffer);
 		view.setUint32(0, 0x04034b50, true);
 		view.setUint16(4, 20, true);
+		view.setUint16(6, UTF8_NAMES, true);
 		view.setUint16(8, 0, true);
 		view.setUint32(14, crc, true);
 		view.setUint32(18, file.data.length, true);
@@ -69,6 +98,7 @@ export function zipStore(files: readonly { name: string; data: Uint8Array }[]): 
 		cv.setUint32(0, 0x02014b50, true);
 		cv.setUint16(4, 20, true);
 		cv.setUint16(6, 20, true);
+		cv.setUint16(8, UTF8_NAMES, true);
 		cv.setUint32(16, crc, true);
 		cv.setUint32(20, file.data.length, true);
 		cv.setUint32(24, file.data.length, true);

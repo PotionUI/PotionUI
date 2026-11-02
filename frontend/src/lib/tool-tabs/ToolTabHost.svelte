@@ -42,9 +42,11 @@
 
 	let component = $derived(loaded && loaded.definition === kind ? loaded.component : null);
 
+	let tabId = $derived(tab.id);
+
 	$effect(() => {
-		const tabId = tab.id;
-		return () => setToolTabActions(tabId, null);
+		const id = tabId;
+		return () => setToolTabActions(id, null);
 	});
 </script>
 

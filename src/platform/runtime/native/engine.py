@@ -36,11 +36,11 @@ import numpy as np
 import torch
 
 from .cache_identity import identity_usable, tensor_identity
-from .base import load_into_module, release_derived_caches, release_module_storage
+from .base import NativeArchModule, load_into_module, release_derived_caches, release_module_storage
 from .detect.registry import ModelSpec, match_model_spec
 from .detect.unet_detect import detect_unet_config
 from .errors import HostMemoryExhaustedError, NativeEngineUnsupportedError
-from .io.quant_formats import FP8_DTYPES
+from .io.quant_formats import FP8_DTYPES, describe_quant_layers
 from .io.safetensors_loader import load_torch_file, load_torch_file_prefixed, load_torch_file_stripped
 from .io.state_dict_utils import weight_dtype
 from .memory.device_plan import DevicePlan, make_device_plan
@@ -61,7 +61,7 @@ from .memory.tiering import (
     ref_latents_headroom_gb,
     sampling_headroom_gb,
 )
-from .ops.dtype import is_mixed_precision, pick_dtypes
+from .ops.dtype import align_half_storage, is_mixed_precision, parse_dtype, pick_dtypes, warn_below_reference
 from .ops.fp8_quant import estimate_fp8_gb, quantize_state_dict_to_fp8, should_quantize_fp8
 from .kernels import (
     QUANT_FP8_SCALED,
@@ -831,7 +831,10 @@ class NativeEngineLoader:
 
     # -- per-kind ----------------------------------------------------------
 
-    def _load_dit(self, path: str | Path, model_patch: str | Path | None = None) -> NativeModel:
+    def _load_dit(
+        self, path: str | Path, model_patch: str | Path | None = None,
+        compute_dtype: str | torch.dtype | None = None,
+    ) -> NativeModel:
         sd, metadata = load_torch_file_stripped(path, device="cpu")
         get_profiler().mark("load.dit.read", est_gb=_estimated_gb(sd))
 
@@ -868,8 +871,15 @@ class NativeEngineLoader:
             sd, spec, quant_format, sd_dtype, est_gb,
         )
 
-        _, compute_dtype = pick_dtypes(sd_dtype, self.device, self.vram_gb)
+        compute_dtype = parse_dtype(compute_dtype)
+        if compute_dtype is None:
+            _, compute_dtype = pick_dtypes(sd_dtype, self.device, self.vram_gb)
+        reference_dtype = parse_dtype(spec.reference_dtype)
+        if align_half_storage(sd, compute_dtype, reference_dtype):
+            sd_dtype = weight_dtype(sd)
+        warn_below_reference(f"{spec.family}/{spec.variant}", reference_dtype, compute_dtype)
         storage_dtype = sd_dtype or compute_dtype
+        quant_layers = describe_quant_layers(sd) if quant_format else None
 
         ops = self._ops_for("dit", est_gb, storage_dtype, compute_dtype, quant_format, sd)
         # Build empty on the meta device so a multi-GB DiT never allocates real
@@ -878,7 +888,12 @@ class NativeEngineLoader:
         with torch.device("meta"):
             module = spec.resolve_model_class().from_config(config, ops)
         load_into_module(module, sd, spec)
-        get_profiler().mark("load.dit.built", est_gb=est_gb, quant_format=quant_format)
+        if isinstance(module, NativeArchModule):
+            module.compute_dtype = compute_dtype
+        get_profiler().mark(
+            "load.dit.built", est_gb=est_gb, quant_format=quant_format, quant_layers=quant_layers,
+            compute_dtype=str(compute_dtype).removeprefix("torch."),
+        )
 
         logger.debug("loaded DiT %s/%s (%.2fGB, quant=%s)", spec.family, spec.variant, est_gb, quant_format)
         return NativeModel(

@@ -68,6 +68,7 @@ from torch import Tensor
 from ...kernels import SDPA, attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...cache_identity import identity_usable, tensor_identity
+from ...ops.dtype import warn_below_reference
 from ...ops.embedding import sinusoidal_embedding
 from ...lora.row_mask import FULL, ROWS, SKIP, RowMaskTarget, lora_row_mask, lora_row_window
 from ...sampling.step_cache import GroupedProbe
@@ -541,6 +542,8 @@ class PreparedTextContext:
 class MiniMaxH3Model(NativeArchModule):
     """MiniMax-H3 packed-sequence DiT (construction + load path + forward)."""
 
+    _fp16_stream_warned = False
+
     def __init__(self, config: MiniMaxH3Config, operations, dtype=None, device=None) -> None:
         super().__init__()
         self.config = config
@@ -673,9 +676,12 @@ class MiniMaxH3Model(NativeArchModule):
         audio_embeds = self.audio_patch_proj(_cast_to(audio_hidden_states, self.audio_patch_proj))
         return video_embeds, audio_embeds
 
-    def _prepare_context(self, encoder_hidden_states: Tensor) -> Tensor:
+    def _stream_dtype(self) -> torch.dtype:
+        return self.compute_dtype or self.condition_proj.weight.dtype
+
+    def _prepare_context(self, encoder_hidden_states: Tensor, dtype: torch.dtype | None = None) -> Tensor:
         text_embeds = self.condition_proj(_cast_to(encoder_hidden_states, self.condition_proj))
-        return self.token_refiner(text_embeds)
+        return self.token_refiner(text_embeds.to(dtype or self._stream_dtype()))
 
     def prepare_text_context(self, encoder_hidden_states: Tensor, weight_revision: Any = None) -> "PreparedTextContext":
         """Run ``condition_proj`` + ``token_refiner`` once and hand back a
@@ -937,7 +943,7 @@ class MiniMaxH3Model(NativeArchModule):
         weight_revision = kwargs.pop("weight_revision", None)
         compute_dtype = kwargs.pop("compute_dtype", None)
         if compute_dtype is None:
-            compute_dtype = self.condition_proj.weight.dtype
+            compute_dtype = self._stream_dtype()
         compute_device = kwargs.pop("compute_device", None)
         if compute_device is None:
             compute_device = self.condition_proj.weight.device
@@ -946,11 +952,13 @@ class MiniMaxH3Model(NativeArchModule):
         ):
             text_embeds = prepared_context.text_embeds
         else:
-            text_embeds = self._prepare_context(encoder_hidden_states)
+            text_embeds = self._prepare_context(encoder_hidden_states, compute_dtype)
 
         # The text stream sets the packed buffer's dtype (matches diffusers'
         # own contract for this scatter).
         hidden_dtype = text_embeds.dtype
+        if not self._fp16_stream_warned:
+            self._fp16_stream_warned = warn_below_reference("MiniMax-H3 block stack", torch.bfloat16, hidden_dtype)
         packed = text_embeds.new_zeros((text_embeds.shape[0], seq_len, self.config.hidden_size))
         packed = packed.index_copy(1, text_indices, text_embeds)
         packed = packed.index_copy(1, video_indices, video_embeds.to(hidden_dtype))

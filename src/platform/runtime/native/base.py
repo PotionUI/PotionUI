@@ -39,6 +39,8 @@ class NativeArchModule(nn.Module, ABC):
     construction rather than silently at load time.
     """
 
+    compute_dtype: torch.dtype | None = None
+
     @classmethod
     @abstractmethod
     def from_config(cls, config: dict[str, Any], operations: Any) -> "NativeArchModule":

@@ -126,6 +126,7 @@ from src.features.cloud.director import director_overlay
 from src.platform.security.user_ref import cloud_user_ref
 from src.features.generation.output_types import output_type_registry
 from src.features.forms.binding import bind_form, FormBindingError
+from src.features.prompt.reference_pool import RefModMembersResolver, refmod_members_resolver
 from src.features.prompt.resources import mode_prompt_resources, resolve_generation_prompts
 from src.features.generation.memory_advisory import (
     _WEIGHT_LOAD_MARGIN,
@@ -207,6 +208,7 @@ def _prepare_director_form_data(
     user_id: Optional[str],
     settings: Settings,
     model_overlay: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
+    refmod_members: Optional[RefModMembersResolver] = None,
 ) -> Dict[str, Any]:
     """Pure Video/Music Director canonicalization, shared by `start_generation`
     and `GenerationOrchestrator.preview_memory` so a preview's active loader
@@ -256,6 +258,7 @@ def _prepare_director_form_data(
 
         normalized_doc = normalize_video_director(
             raw_doc, capabilities, storage_dir, form_data, mode_prompt_resources(preset_template, mode),
+            refmod_members=refmod_members,
         )
 
         # A capability-declared `timing` block names a sibling FORM FIELD --
@@ -755,6 +758,11 @@ class GenerationOrchestrator:
             **cloud_args,
         )
 
+    def _refmod_members(self) -> Optional[RefModMembersResolver]:
+        if self.model_locator is None:
+            return None
+        return refmod_members_resolver(self.model_locator)
+
     def _director_model_overlay(self, preset_template) -> Optional[Callable[[Any], Optional[Dict[str, Any]]]]:
         capabilities = self.cloud_capabilities
         if capabilities is None or preset_template.engine != CLOUD_ENGINE:
@@ -837,6 +845,7 @@ class GenerationOrchestrator:
             prepared_form_data = _prepare_director_form_data(
                 preset_template, mode, bound.values, user_id, self.settings,
                 model_overlay=self._director_model_overlay(preset_template),
+                refmod_members=self._refmod_members(),
             )
             built = self.pipeline_builder.build_pipeline(
                 preset_id=preset_template,
@@ -1149,6 +1158,7 @@ class GenerationOrchestrator:
                 request.form_data = _prepare_director_form_data(
                     preset_template, mode, request.form_data, user_id, self.settings,
                     model_overlay=self._director_model_overlay(preset_template),
+                    refmod_members=self._refmod_members(),
                 )
 
             # LTX two-stage upscale geometry: fail fast, before the (expensive)
@@ -1253,6 +1263,7 @@ class GenerationOrchestrator:
                 getattr(request, 'prompts', None),
                 getattr(request, 'segments', None),
                 request.form_data or {},
+                self._refmod_members(),
             )
 
             # Rewrite each model reference into the engine-native string the selected

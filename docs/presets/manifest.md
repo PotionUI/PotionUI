@@ -219,6 +219,15 @@ mapped once per kind (MiniMax-H3's `references` holds images, videos and audio):
 covers only that kind's items, and `@` is the item's position among the field's items of that
 kind. The marker carries no kind; it comes from the item's `type`, else its file extension.
 
+An entry with `source: "refmod"` maps a `lora_picker` field of RefMods (`model_type: refmod`)
+instead of a media picker. Map it once per member kind, with the same tokens as the native
+references (MiniMax-H3 maps `reference_mods` as image, video and audio). A RefMod row's item key
+is its `model` value, and a row at strength 0 cannot be cited. Citing a RefMod cites every member
+of the file, once per copy, and the marker becomes every member's token (`<Picture 3> <Audio 2>`),
+numbered after every native item of that kind, which is where the generator packs it. Member
+kinds come from the file's header (`GET /api/models/{id}/refmod-members`); a missing or
+unreadable file fails the submission naming it. One field cannot mix both sources.
+
 A segment stores a reference as the marker `@[<field>:<item key>]` in its `content`, plus an
 entry in its `resources` map (beside `chips`), keyed by the editor's marker id:
 `{"field": "references", "item_key": "storage/uploads/cat.png"}`. The item key is the item's

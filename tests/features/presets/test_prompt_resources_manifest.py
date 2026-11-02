@@ -18,6 +18,10 @@ _BASE = {
 
 _FORM = """name: "custom"
 fields:
+  - name: "reference_mods"
+    type: "lora_picker"
+    configuration:
+      model_type: "refmod"
   - name: "references"
     type: "image"
     configuration:
@@ -116,6 +120,28 @@ class TestPromptResourcesSchema:
         assert errors == []
         assert [entry.kind for entry in manifest.prompt_resources["refs"]] == ["image", "video", "audio"]
 
+    def test_a_refmod_source_is_accepted_per_kind(self):
+        manifest, errors = _manifest({"refs": [
+            {"field": "reference_mods", "source": "refmod", "kind": "image", "token": "<Picture @>"},
+            {"field": "reference_mods", "source": "refmod", "kind": "audio", "token": "<Audio @>"},
+        ]})
+        assert errors == []
+        assert {entry.source for entry in manifest.prompt_resources["refs"]} == {"refmod"}
+
+    def test_one_field_cannot_mix_media_and_refmod_sources(self):
+        manifest, errors = _manifest({"refs": [
+            {"field": "references", "kind": "image", "token": "<Picture @>"},
+            {"field": "references", "source": "refmod", "kind": "audio", "token": "<Audio @>"},
+        ]})
+        assert manifest is None
+        assert any("mixes source 'media' with 'refmod'" in error for error in errors)
+
+    def test_an_unknown_source_is_rejected(self):
+        manifest, _ = _manifest({"refs": [
+            {"field": "references", "source": "lora", "kind": "image", "token": "<Picture @>"},
+        ]})
+        assert manifest is None
+
     def test_unknown_entry_key_is_rejected(self):
         manifest, _ = _manifest({"refs": [
             {"field": "references", "kind": "image", "token": "<Picture @>", "index": 1},
@@ -162,6 +188,34 @@ class TestPromptResourcesLint:
         assert len(errors) == 1
         assert "accepts ['image', 'video']" in errors[0]
         assert "kind 'audio'" in errors[0]
+
+    def test_a_refmod_source_on_a_lora_picker_is_clean(self, tmp_path):
+        _write_preset(tmp_path, """  refs:
+    - field: "reference_mods"
+      source: "refmod"
+      kind: "image"
+      token: "<Picture @>"
+""")
+        assert _resource_errors(tmp_path) == []
+
+    def test_a_refmod_source_on_a_media_field_is_error(self, tmp_path):
+        _write_preset(tmp_path, """  refs:
+    - field: "references"
+      source: "refmod"
+      kind: "image"
+      token: "<Picture @>"
+""")
+        errors = _resource_errors(tmp_path)
+        assert len(errors) == 1
+        assert "a 'refmod' source needs a lora_picker field" in errors[0]
+
+    def test_a_lora_picker_without_a_refmod_source_is_still_error(self, tmp_path):
+        _write_preset(tmp_path, """  refs:
+    - field: "reference_mods"
+      kind: "image"
+      token: "<Picture @>"
+""")
+        assert "only media picker fields" in _resource_errors(tmp_path)[0]
 
     def test_unknown_field_is_error(self, tmp_path):
         _write_preset(tmp_path, """  refs:
@@ -230,6 +284,9 @@ class TestShippedPromptResources:
             {"field": "references", "kind": "image", "label": "Pictures", "token": "<Picture @>"},
             {"field": "references", "kind": "video", "label": "Videos", "token": "<Video @>"},
             {"field": "references", "kind": "audio", "label": "Audio", "token": "<Audio @>"},
+            {"field": "reference_mods", "source": "refmod", "kind": "image", "label": "RefMods", "token": "<Picture @>"},
+            {"field": "reference_mods", "source": "refmod", "kind": "video", "label": "RefMods", "token": "<Video @>"},
+            {"field": "reference_mods", "source": "refmod", "kind": "audio", "label": "RefMods", "token": "<Audio @>"},
         ]}
 
     def test_qwen_image21_combine_uses_the_encoder_image_label(self, shipped_presets):

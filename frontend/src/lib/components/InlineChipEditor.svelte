@@ -37,7 +37,9 @@
 		type PromptResourceSpec,
 		type ResourceRef
 	} from '$lib/utils/promptResources';
-	import { resourceMenuEntries } from '$lib/utils/resourceMenuEntries';
+	import { refModMenuEntries, resourceMenuEntries } from '$lib/utils/resourceMenuEntries';
+	import { isRefModSpec, refModIds, refModName as refModDisplayName } from '$lib/utils/refMods';
+	import { loadRefMods, refModDirectory } from '$lib/stores/refModDirectory';
 	import { countChoiceGroups } from '$lib/utils/choiceGroups';
 	import {
 		detectVariableTrigger,
@@ -339,13 +341,20 @@
 
 	function resourceGroupDescription(spec: PromptResourceSpec, values: Record<string, unknown>): string {
 		const count = resourceItemCount(spec, values);
-		if (count === 0) return `No ${kindLabel(spec.kind).toLowerCase()}s added yet`;
+		if (count === 0) return isRefModSpec(spec) ? 'No RefMods selected yet' : `No ${kindLabel(spec.kind).toLowerCase()}s added yet`;
 		return `${count} available`;
 	}
 
+	$: loadRefMods(refModIds(promptResources, resourceFieldValues));
+
+	$: menuSpecs = promptResources.filter(
+		(spec, index) =>
+			promptResources.findIndex((other) => resourceGroupKey(promptResources, other) === resourceGroupKey(promptResources, spec)) === index
+	);
+
 	$: resourceGroupCategories = resourceGroupField
 		? []
-		: (promptResources
+		: (menuSpecs
 				.filter((spec) => {
 					const query = resourceQuery.trim().toLowerCase();
 					if (!query) return true;
@@ -360,7 +369,7 @@
 					updated_at: ''
 				})) as DropdownAutocompleteCategory[]);
 
-	$: resourceGroupCategoriesAlways = promptResources
+	$: resourceGroupCategoriesAlways = menuSpecs
 		.filter((spec) => {
 			const query = resourceQuery.trim().toLowerCase();
 			if (!query) return true;
@@ -386,10 +395,16 @@
 		: null;
 
 	$: resourceItemSuggestions = activeResourceSpec
-		? (resourceMenuEntries(
-				specItems(promptResources, activeResourceSpec, resourceFieldValues[activeResourceSpec.field]),
-				activeResourceSpec.kind
-			)
+		? ((isRefModSpec(activeResourceSpec)
+			? refModMenuEntries(
+					specItems(promptResources, activeResourceSpec, resourceFieldValues[activeResourceSpec.field]),
+					$refModDirectory
+				)
+			: resourceMenuEntries(
+					specItems(promptResources, activeResourceSpec, resourceFieldValues[activeResourceSpec.field]),
+					activeResourceSpec.kind
+				)
+		)
 				.map((entry) => ({
 					id: entry.id,
 					category_id: activeResourceSpec!.field,
@@ -2070,6 +2085,7 @@
 					position: state.position,
 					item,
 					fieldLabel: resourceFieldLabels[ref.field],
+					displayName: state.spec && isRefModSpec(state.spec) ? refModDisplayName(ref.item_key, $refModDirectory) : null,
 					disabled: isDisabled,
 					onRemove: () => handleResourceRemove(el),
 					onSwitch: () => openResourceSwitcher(el, state.spec ? resourceGroupKey(promptResources, state.spec) : ref.field),
@@ -2426,12 +2442,12 @@
 	}
 
 	function hashPromptResourceSpecs(specs: PromptResourceSpec[]): string {
-		return specs.map((spec) => `${spec.field}:${spec.kind}:${spec.token}`).sort().join('|');
+		return specs.map((spec) => `${spec.field}:${spec.kind}:${spec.token}:${spec.source ?? ''}`).sort().join('|');
 	}
 
 	let lastResourceFieldValuesHash: string | null = null;
 	$: {
-		const currentHash = `${hashResourceFieldValues(resourceFieldValues)}::${hashPromptResourceSpecs(promptResources)}`;
+		const currentHash = `${hashResourceFieldValues(resourceFieldValues)}::${hashPromptResourceSpecs(promptResources)}::${Object.entries($refModDirectory).map(([id, info]) => `${id}=${info.name ?? ''}`).join('|')}`;
 		if (editorRef && !isInternalUpdate) {
 			const step = stepVariablesHash(currentHash, lastResourceFieldValuesHash);
 			lastResourceFieldValuesHash = step.nextHash;

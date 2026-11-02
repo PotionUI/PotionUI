@@ -771,6 +771,7 @@ class PromptResourceSpec(BaseModel):
 
     field: str
     kind: Literal["image", "video", "audio"]
+    source: Optional[Literal["refmod"]] = None
     label: Optional[str] = None
     token: str
 
@@ -793,7 +794,14 @@ def _validate_prompt_resources(prompt_resources: Dict[str, List[PromptResourceSp
             problems.append("prompt_resources keys must be non-empty mode names")
             continue
         seen = set()
+        sources: Dict[str, str] = {}
         for entry in entries:
+            source = entry.source or "media"
+            if sources.setdefault(entry.field, source) != source:
+                problems.append(
+                    f"prompt_resources.{mode}: field '{entry.field}' mixes source '{sources[entry.field]}' "
+                    f"with '{source}'; every entry of one field needs the same source"
+                )
             pair = (entry.field, entry.kind)
             if pair in seen:
                 problems.append(

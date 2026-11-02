@@ -119,6 +119,7 @@ class TestNormalizationWiring:
             '/storage',
             {'video_director': canonical},
             [],
+            refmod_members=None,
         )
         assert request.form_data['video_director'] == canonical
 
@@ -571,3 +572,23 @@ class TestDirectorPromptExpansion:
         result = orchestrator._expand_prompts_per_image('gen1', request, prompts)
 
         assert result[0]['positive'] == 'a moody shot'
+
+
+def test_the_director_reads_refmod_members_through_the_model_locator(orchestrator, tmp_path):
+    import json
+
+    import torch
+    from safetensors.torch import save_file
+
+    path = tmp_path / "face.safetensors"
+    save_file({"latent": torch.zeros(1, 24, 1, 2, 2)}, str(path), metadata={"refmod_meta": json.dumps({"kind": "image"})})
+    orchestrator.model_locator = Mock()
+    orchestrator.model_locator.path_for_model.return_value = path
+
+    assert list(orchestrator._refmod_members()("model:01FACE")) == ["image"]
+    orchestrator.model_locator.path_for_model.assert_called_once_with("01FACE")
+
+
+def test_without_a_model_locator_the_director_gets_no_refmod_reader(orchestrator):
+    orchestrator.model_locator = None
+    assert orchestrator._refmod_members() is None

@@ -28,6 +28,9 @@
 	import { resolvePromptSegments } from '$lib/utils/promptSegments';
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
+	import { NO_REFERENCES_HINT, shotNeedsReferenceHint, shotReferenceOverview } from '$lib/utils/shotReferences';
+	import { refModIds } from '$lib/utils/refMods';
+	import { loadRefMods, refModDirectory } from '$lib/stores/refModDirectory';
 	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 
 	const presetSegmentTemplates =
@@ -71,6 +74,14 @@
 	let timelineShot = $derived(caps.segmentRouting ? undefined : doc.timeline.shots.find((s) => s.id === timelineShotId));
 	let resolvedPromptText = $derived(
 		directorShotWirePrompt(doc.global_prompt, resolvePromptSegments(model.promptSegments), model.routing, model.isFirst)
+	);
+
+	$effect(() => {
+		loadRefMods(refModIds(promptResources, resourceFieldValues));
+	});
+	let showReferenceHint = $derived(
+		caps.references === 'per_shot' &&
+			shotNeedsReferenceHint(shotReferenceOverview(doc, caps, timelineShotId, resourceFieldValues, promptResources, $refModDirectory))
 	);
 
 	function updatePromptSegments(segments: Segment[]) {
@@ -132,6 +143,9 @@
 		{promptSyntax}
 		on:segmentsChange={(e) => updatePromptSegments(e.detail)}
 	/>
+	{#if showReferenceHint}
+		<p class="text-xs leading-5 text-fg-subtle" data-testid="shot-no-references-hint">{NO_REFERENCES_HINT}</p>
+	{/if}
 	<ResolvedPromptPreview
 		prompt={resolvedPromptText}
 		negativePrompt={doc.negative_prompt}

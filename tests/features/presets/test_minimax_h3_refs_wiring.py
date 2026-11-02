@@ -12,7 +12,7 @@ Mirrors tests/features/presets/test_minimax_h3_sol_attn_wiring.py.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 import yaml
@@ -358,7 +358,7 @@ def test_the_video_director_is_wired_into_this_mode(h3_template):
     assert vd["preset_modes"] == ["video", "refs"]
     override = vd["preset_mode_overrides"]["refs"]
     assert override["references"] == "per_shot"
-    assert override["reference_fields"] == ["references"]
+    assert override["reference_fields"] == ["references", "reference_mods"]
     director = override["modes"]["director"]
     assert "continuation" in director and director["continuation"] is None
 
@@ -374,7 +374,7 @@ def refs_director_capabilities(h3_template):
     return apply_preset_mode_overlay(base, "refs")
 
 
-def _director_document(capabilities, storage_dir, segments, form_data=None, prompt_resources=None):
+def _director_document(capabilities, storage_dir, segments, form_data=None, prompt_resources=None, refmod_members=None):
     return normalize_video_director({
         "schema_version": 1,
         "mode": "director",
@@ -382,7 +382,7 @@ def _director_document(capabilities, storage_dir, segments, form_data=None, prom
         "segments": segments,
         "media": [],
         "audio": [],
-    }, capabilities, storage_dir, form_data or {}, prompt_resources)
+    }, capabilities, storage_dir, form_data or {}, prompt_resources, refmod_members=refmod_members)
 
 
 def test_a_director_request_in_refs_mode_gets_one_conditioning_per_shot(h3_template, refs_director_capabilities, tmp_path):
@@ -599,3 +599,123 @@ def test_the_reference_mod_picker_offers_copies_starting_at_one(h3_template):
     assert copies["default"] == 1
     assert copies["configuration"]["min"] == 1
     assert copies["configuration"]["max"] == 12
+
+
+def _refmod_file(tmp_path, name, kinds):
+    import json
+
+    import torch
+    from safetensors.torch import save_file
+
+    tensors = {
+        f"ref_{index}": torch.zeros(1, 32, 2, 4) if kind == "audio" else torch.zeros(1, 24, 1, 2, 2)
+        for index, kind in enumerate(kinds)
+    }
+    meta = {"kind": "bundle", "name": name, "members": [{"kind": kind, "name": f"{name}-{index}"} for index, kind in enumerate(kinds)]}
+    path = str(tmp_path / f"{name}.safetensors")
+    save_file(tensors, path, metadata={"refmod_meta": json.dumps(meta)})
+    return path
+
+
+def test_refs_prompt_resources_declare_the_refmod_picker_as_a_refmod_source(h3_template, refs_director_capabilities):
+    mods = [entry for entry in h3_template.prompt_resources["refs"] if entry["field"] == "reference_mods"]
+    assert {entry["kind"] for entry in mods} == {"image", "video", "audio"}
+    assert {entry["source"] for entry in mods} == {"refmod"}
+    assert refs_director_capabilities["reference_fields"] == ["references", "reference_mods"]
+
+
+def test_a_shot_citing_a_refmod_selects_all_its_members_and_copies(h3_template, refs_director_capabilities, tmp_path):
+    from src.features.prompt.reference_pool import refmod_members_resolver
+
+    pair = _refmod_file(tmp_path, "pair", ["image", "audio"])
+    references = [{"path": "/media/woman.png", "type": "image"}, {"path": "/media/walk.mp4", "type": "video"}]
+    mods = [{"model": pair, "strength": 1.0, "copies": 2}]
+    form = {"references": references, "reference_mods": mods}
+    document = _director_document(refs_director_capabilities, str(tmp_path), [
+        {"id": "seg-0", "prompt": f"@[references:/media/walk.mp4] as @[reference_mods:{pair}]", "frames": 124},
+        {"id": "seg-1", "prompt": "@[references:/media/woman.png] alone", "frames": 124},
+        {"id": "seg-2", "prompt": "an empty street", "frames": 124},
+    ], form, h3_template.prompt_resources["refs"], refmod_members_resolver(None))
+
+    assert [segment["reference_indices"] for segment in document["segments"]] == [[1, 2, 3, 4, 5], [0], []]
+    pipes = _process(h3_template, {**form, "video_director": document})
+    encoder = _pipe(pipes, "prompt_encoder", "prompt_encoder_director")
+    assert encoder["config"]["reference_selections"] == [[1, 2, 3, 4, 5], [0], []]
+    assert [pair_["positive"] for pair_ in encoder["config"]["pairs"]] == [
+        "<Video 1> as <Picture 1> <Picture 2> <Audio 1> <Audio 2>", "<Picture 1> alone", "an empty street",
+    ]
+    generator = _pipe(pipes, "generator/video_minimax_h3")["config"]
+    assert [segment["reference_indices"] for segment in generator["document"]["segments"]] == [[1, 2, 3, 4, 5], [0], []]
+    assert [entry["file_path"] for entry in generator["reference_mods"]] == [pair]
+
+
+def test_the_director_selection_lines_up_with_the_generators_packed_references(h3_template, refs_director_capabilities, tmp_path):
+    from src.features.prompt.reference_pool import refmod_members_resolver
+    from src.pipelines.pipes._shared.generation.refmods import load_refmods
+    from src.pipelines.pipes._shared.generation.reference_order import pack_references
+
+    face = _refmod_file(tmp_path, "face", ["image"])
+    references = [{"path": "/media/woman.png", "type": "image"}, {"path": "/media/walk.mp4", "type": "video"}]
+    mods = [{"model": face, "strength": 1.0, "copies": 1}]
+    form = {"references": references, "reference_mods": mods}
+    document = _director_document(refs_director_capabilities, str(tmp_path), [
+        {"id": "seg-0", "prompt": "@[references:/media/walk.mp4] only", "frames": 124},
+        {"id": "seg-1", "prompt": f"@[reference_mods:{face}] only", "frames": 124},
+    ], form, h3_template.prompt_resources["refs"], refmod_members_resolver(None))
+    generator = _pipe(_process(h3_template, {**form, "video_director": document}), "generator/video_minimax_h3")["config"]
+    loaded_mods = load_refmods(generator["reference_mods"])
+    packed = pack_references(["woman"], ["walk"], [], mods=loaded_mods)
+    selected = [[packed[i][1] for i in segment["reference_indices"]] for segment in generator["document"]["segments"]]
+    assert selected == [["walk"], [loaded_mods[0]]]
+
+
+def test_an_unreadable_refmod_fails_a_director_request_by_name(h3_template, refs_director_capabilities, tmp_path):
+    from src.features.prompt.reference_pool import refmod_members_resolver
+    from src.features.video_director import VideoDirectorValidationError
+
+    gone = str(tmp_path / "gone.safetensors")
+    with pytest.raises(VideoDirectorValidationError, match="gone.safetensors"):
+        _director_document(refs_director_capabilities, str(tmp_path), [
+            {"id": "seg-0", "prompt": "a quiet street", "frames": 124},
+        ], {"references": _REFERENCES, "reference_mods": [{"model": gone, "strength": 1.0}]},
+            h3_template.prompt_resources["refs"], refmod_members_resolver(None))
+
+
+def test_the_director_encoder_presents_a_cited_refmod_at_the_label_the_prompt_names(h3_template, refs_director_capabilities, tmp_path):
+    from src.features.prompt.reference_pool import refmod_members_resolver
+
+    face = _refmod_file(tmp_path, "face", ["image"])
+    references = [{"path": "/media/a.png", "type": "image"}, {"path": "/media/b.png", "type": "image"}]
+    form = {"references": references, "reference_mods": [{"model": face, "strength": 1.0, "copies": 1}]}
+    document = _director_document(refs_director_capabilities, str(tmp_path), [
+        {"id": "seg-0", "prompt": f"@[references:/media/b.png] meets @[reference_mods:{face}]", "frames": 124},
+    ], form, h3_template.prompt_resources["refs"], refmod_members_resolver(None))
+    config = _pipe(_process(h3_template, {**form, "video_director": document}), "prompt_encoder", "prompt_encoder_director")["config"]
+
+    captured = []
+
+    class _StubClip:
+        def encode_prompts(self, requests):
+            captured.extend(requests)
+            return [Mock(embeds={"context": Mock(), "token_tags": Mock()}) for _ in requests]
+
+    with patch("src.pipelines.pipes.prompt_encoder.main._decode_refmod_media", lambda mod, vae: f"decoded:{mod.name}"):
+        PromptEncoderPipe(config).process(PipeInput(input={
+            "text_encoder": _StubClip(), "reference_image": ["A", "B"], "reference_video": [], "reference_audio": [],
+            "vae": Mock(), "MODELS": None,
+        }), lambda output: None)
+
+    (request,) = captured
+    assert request["prompt"] == "<Picture 1> meets <Picture 2>"
+    assert [entry["media"] for entry in request["references"]] == ["B", "decoded:face-0"]
+
+
+def test_plain_refs_keeps_every_refmod_whatever_the_prompt_cites(h3_template, tmp_path):
+    face = _refmod_file(tmp_path, "face", ["image"])
+    pipes = _process(h3_template, {"reference_mods": [{"model": face, "strength": 1.0, "copies": 1}]})
+    generator = _pipe(pipes, "generator/video_minimax_h3")["config"]
+    assert generator["document"] is None
+    assert [entry["file_path"] for entry in generator["reference_mods"]] == [face]
+    encoder = next(p for p in pipes if p["name"] == "prompt_encoder" and p["id"] != "prompt_encoder_director")["config"]
+    assert not encoder.get("reference_selections")
+    assert [entry["file_path"] for entry in encoder["reference_mods"]] == [face]

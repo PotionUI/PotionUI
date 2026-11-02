@@ -20,6 +20,7 @@ from src.pipelines.pipes._shared.generation.refmods import (
     apply_strength,
     load_refmods,
 )
+from src.pipelines.pipes._shared.generation.refmod_header import RefModMember, read_refmod_members
 
 
 def _visual_tensor(t: int = 1, h: int = 4, w: int = 4) -> torch.Tensor:
@@ -366,3 +367,50 @@ def test_copies_above_the_cap_are_refused_before_the_file_is_read(tmp_path, monk
     monkeypatch.setattr(refmods, "_load_bundle", never)
     with pytest.raises(ValueError, match="copies must be a whole number from 1 to 12"):
         load_refmods([{"file_path": str(tmp_path / "x.safetensors"), "strength": 1.0, "copies": copies}])
+
+
+def test_read_members_lists_every_member_kind_and_name_from_the_header(tmp_path):
+    path = _single_image_bundle(tmp_path, "hdr")
+    assert read_refmod_members(path) == (
+        RefModMember(kind="image", name="hdr-img"), RefModMember(kind="audio", name="hdr-aud"),
+    )
+
+
+def test_read_members_is_cached_until_the_file_changes(tmp_path, monkeypatch):
+    path = _single_image_bundle(tmp_path, "cached")
+    import src.pipelines.pipes._shared.generation.refmod_header as refmod_header
+
+    opened = []
+    real_reader = refmod_header.read_safetensors_header
+    monkeypatch.setattr(refmod_header, "read_safetensors_header", lambda p: opened.append(p) or real_reader(p))
+    read_refmod_members(path)
+    read_refmod_members(path)
+    assert len(opened) == 1
+    _write_bundle(tmp_path / "cached.safetensors", {"latent": _visual_tensor(), "pad": _visual_tensor(h=2)}, {"kind": "video"})
+    assert read_refmod_members(path) == (RefModMember(kind="video", name=None),)
+    assert len(opened) == 2
+
+
+def test_read_members_of_a_missing_file_is_a_clear_error(tmp_path):
+    with pytest.raises(ValueError, match="cannot be read"):
+        read_refmod_members(str(tmp_path / "gone.safetensors"))
+
+
+def test_read_members_of_a_file_that_is_not_safetensors_is_a_clear_error(tmp_path):
+    path = tmp_path / "junk.safetensors"
+    path.write_bytes(b"not a safetensors file")
+    with pytest.raises(ValueError, match="not a readable safetensors file"):
+        read_refmod_members(str(path))
+
+
+def test_read_members_of_a_non_refmod_file_is_a_clear_error(tmp_path):
+    path = str(tmp_path / "plain.safetensors")
+    save_file({"w": torch.zeros(2)}, path)
+    with pytest.raises(ValueError, match="not a RefMod file"):
+        read_refmod_members(path)
+
+
+def test_read_members_rejects_an_unknown_member_kind(tmp_path):
+    path = _write_bundle(tmp_path / "odd.safetensors", {"latent": _visual_tensor()}, {"kind": "depth"})
+    with pytest.raises(ValueError, match="'depth'"):
+        read_refmod_members(path)

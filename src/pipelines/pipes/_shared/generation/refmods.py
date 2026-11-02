@@ -52,8 +52,6 @@ importing back from the former would cycle.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
@@ -61,13 +59,19 @@ import torch
 import torch.nn.functional as F
 from safetensors import safe_open
 
+from src.pipelines.pipes._shared.generation.refmod_header import (
+    MAX_COPIES,
+    MAX_PACKED_REFERENCES,
+    _parse_members,
+    _read_meta,
+    refmod_copies,
+)
+
 Tensor = torch.Tensor
 
 VIDEO_LATENT_CHANNELS = 24
 AUDIO_LATENT_CHANNELS = 32
 AUDIO_CHANNELS = 2
-MAX_PACKED_REFERENCES = 12
-MAX_COPIES = MAX_PACKED_REFERENCES
 
 
 @dataclass(frozen=True)
@@ -131,52 +135,6 @@ def _validate_visual_latent(raw: Tensor, *, kind: str, source: str, member_index
     return raw
 
 
-META_KEYS = ("refmod_meta", "audio_refmod_meta")
-
-
-def _read_meta(metadata: Mapping[str, str], file_path: str) -> dict[str, Any]:
-    """The upstream metadata block: one JSON string in the safetensors header
-    under `refmod_meta` (audio-only files: `audio_refmod_meta`), or, for files
-    written by older versions, a `<file>.json` sidecar next to the tensors."""
-    for key in META_KEYS:
-        if key in metadata:
-            try:
-                meta = json.loads(metadata[key])
-            except (TypeError, ValueError) as error:
-                raise ValueError(f"RefMod {file_path!r}: header {key!r} is not valid JSON") from error
-            break
-    else:
-        sidecar = Path(file_path).with_suffix(".json")
-        if not sidecar.is_file():
-            raise ValueError(
-                f"RefMod {file_path!r}: no {META_KEYS[0]!r} header and no {sidecar.name} sidecar -- not a RefMod file"
-            )
-        meta = json.loads(sidecar.read_text(encoding="utf-8"))
-    if not isinstance(meta, dict):
-        raise ValueError(f"RefMod {file_path!r}: metadata block must be a JSON object")
-    return meta
-
-
-def _parse_members(meta: Mapping[str, Any], *, source: str) -> list[dict[str, Any]]:
-    """`[{"kind", "name", "tensor_key"}, ...]`: a bundle (`kind == "bundle"`,
-    tensors `ref_{i}` per `members` entry) or a single-member file (tensor
-    `latent`, kind/name at the top level)."""
-    if meta.get("kind") == "bundle":
-        members = meta.get("members")
-        if not isinstance(members, list) or not members:
-            raise ValueError(f"RefMod bundle {source!r}: 'members' must be a non-empty list")
-        parsed = []
-        for index, member in enumerate(members):
-            if not isinstance(member, dict) or "kind" not in member:
-                raise ValueError(f"RefMod bundle {source!r}: member {index} is missing its 'kind'")
-            parsed.append({"kind": member["kind"], "name": member.get("name"), "tensor_key": f"ref_{index}"})
-        return parsed
-    kind = meta.get("kind")
-    if kind is None:
-        raise ValueError(f"RefMod {source!r}: metadata has no 'kind'")
-    return [{"kind": kind, "name": meta.get("name"), "tensor_key": "latent"}]
-
-
 def _load_bundle(file_path: str, strength: float) -> list[RefMod]:
     with safe_open(file_path, framework="pt") as handle:
         keys = set(handle.keys())
@@ -225,7 +183,7 @@ def load_refmods(entries: Sequence[Mapping[str, Any]] | None) -> list[RefMod]:
         strength = float(entry.get("strength", 1.0))
         if strength <= 0:
             continue
-        copies = _copies(entry.get("copies"), file_path)
+        copies = refmod_copies(entry.get("copies"), file_path)
         members = _load_bundle(file_path, strength)
         remaining = MAX_PACKED_REFERENCES - len(mods)
         if len(members) * copies > remaining:
@@ -235,17 +193,3 @@ def load_refmods(entries: Sequence[Mapping[str, Any]] | None) -> list[RefMod]:
             )
         mods.extend(members * copies)
     return mods
-
-
-def _copies(value: Any, file_path: str) -> int:
-    if value is None or value == "":
-        return 1
-    try:
-        copies = float(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"RefMod {file_path!r}: copies must be a whole number, got {value!r}") from error
-    if not copies.is_integer() or not 1 <= copies <= MAX_COPIES:
-        raise ValueError(
-            f"RefMod {file_path!r}: copies must be a whole number from 1 to {MAX_COPIES}, got {value!r}"
-        )
-    return int(copies)

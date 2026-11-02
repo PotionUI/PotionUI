@@ -53,6 +53,7 @@ from src.platform.media_tools import (
     run_chain,
     validate_params,
 )
+from src.platform.media_tools.chain import Step
 from src.platform.media_tools.fastpath import CRF_BY_QUALITY
 from src.platform.media_tools.params import bind_media, media_params
 from src.platform.media_tools.probe import has_alpha_mode
@@ -90,8 +91,6 @@ FRAME_MEDIA_TYPES = {"webp": "image/webp", "png": "image/png"}
 CLIP_SUFFIX_TYPES = {".mp4": "video/mp4", ".webm": "video/webm"}
 PREVIEW_DIR_TAG = "previews-"
 
-Step = Tuple[ToolSpec, dict]
-
 StepLike = Union[StepRequest, Mapping[str, Any]]
 InputLike = Union[InputRef, Mapping[str, Any]]
 OutputLike = Union[OutputSpec, Mapping[str, Any], None]
@@ -99,10 +98,10 @@ OutputLike = Union[OutputSpec, Mapping[str, Any], None]
 
 @dataclass
 class _Plan:
-    steps: List[Tuple[ToolSpec, dict]]
+    steps: List[Step]
     inputs: List[ResolvedInput]
     mode: str
-    attachments: Optional[dict] = None
+    attachments: dict
     target: Optional[ResolvedInput] = None
 
 
@@ -411,24 +410,23 @@ class MediaToolService:
             raise _refusal(exc) from exc
         validated = _scale_pixel_params(spec, validated, PREVIEW_OUTPUT_SIDE)
 
+        with self._preview_slot(), self._scratch() as scratch:
+            try:
+                with self.resolver.stage(resolved) as path:
+                    source = self._preview_source(resolved, path, scratch, at)
+                result = spec.impl.image(source, validated)
+            except (InvalidToolParams, UnsupportedMedia, InvalidSelection) as exc:
+                raise _refusal(exc) from exc
+            return _encode_frame(result, PREVIEW_OUTPUT_SIDE, "webp")
+
+    @contextmanager
+    def _preview_slot(self):
         if not self._preview_slots.acquire(timeout=self._preview_wait):
             raise DomainError(
                 "preview_busy", "Too many previews are rendering; try again in a moment", status_code=429
             )
         try:
-            with self._scratch() as scratch:
-                try:
-                    with self.resolver.stage(resolved) as path:
-                        source = self._preview_source(resolved, path, scratch, at)
-                    result = spec.impl.image(source, validated)
-                except (InvalidToolParams, UnsupportedMedia, InvalidSelection) as exc:
-                    raise _refusal(exc) from exc
-                result.thumbnail((PREVIEW_OUTPUT_SIDE, PREVIEW_OUTPUT_SIDE), Image.Resampling.LANCZOS)
-                if result.mode not in ("RGB", "RGBA"):
-                    result = result.convert("RGBA" if has_alpha_mode(result) else "RGB")
-                buffer = io.BytesIO()
-                result.save(buffer, format="WEBP", quality=PREVIEW_QUALITY)
-                return buffer.getvalue()
+            yield
         finally:
             self._preview_slots.release()
 
@@ -456,24 +454,17 @@ class MediaToolService:
         if cached is not None:
             return cached
 
-        if not self._preview_slots.acquire(timeout=self._preview_wait):
-            raise DomainError(
-                "preview_busy", "Too many previews are rendering; try again in a moment", status_code=429
-            )
-        try:
-            with self._scratch() as scratch, ExitStack() as stack:
-                ctx = ToolContext(scratch)
-                try:
-                    path = stack.enter_context(self.resolver.stage(resolved))
-                    media = ctx.probe(path, resolved.kind)
-                    image, snapped = read_frame(media, at, ctx)
-                    bound = self._bind(chain, attachments, stack, ctx)
-                    result = render_still(bound, media, image, snapped, ctx, self.previews.memo(resolved.key))
-                except (InvalidToolParams, UnsupportedMedia, InvalidSelection) as exc:
-                    raise _refusal(exc) from exc
-                data = _encode_frame(result, int(max_side), fmt)
-        finally:
-            self._preview_slots.release()
+        with self._preview_slot(), self._scratch() as scratch, ExitStack() as stack:
+            ctx = ToolContext(scratch)
+            try:
+                path = stack.enter_context(self.resolver.stage(resolved))
+                media = ctx.probe(path, resolved.kind)
+                image, snapped = read_frame(media, at, ctx)
+                bound = self._bind(chain, attachments, stack, ctx)
+                result = render_still(bound, media, image, snapped, ctx, self.previews.memo(resolved.key))
+            except (InvalidToolParams, UnsupportedMedia, InvalidSelection) as exc:
+                raise _refusal(exc) from exc
+            data = _encode_frame(result, int(max_side), fmt)
         self.previews.store_frame(user_id, key, data, media_type)
         return FramePreview(data=data, media_type=media_type, cached=False)
 
@@ -532,15 +523,26 @@ class MediaToolService:
             raise NotFoundError("not_found", "Preview not found")
         return found
 
+    def check_artifact(self, user: Any, size: Optional[int], content_type: Optional[str]) -> None:
+        store = self._artifacts()
+        try:
+            store.check_upload_size(_user_id(user), size, UPLOAD_PURPOSE_DERIVED, content_type or "")
+        except ValueError as exc:
+            raise InvalidInputError("upload_failed", str(exc) or "The file could not be stored") from exc
+
+    def _artifacts(self) -> "MediaStore":
+        if self.artifact_store is None:
+            raise DomainError("artifacts_unavailable", "Uploads are not available here", status_code=503)
+        return self.artifact_store
+
     async def upload_artifact(
         self, user: Any, data: bytes, filename: Optional[str], content_type: Optional[str]
     ) -> ArtifactDTO:
-        if self.artifact_store is None:
-            raise DomainError("artifacts_unavailable", "Uploads are not available here", status_code=503)
+        store = self._artifacts()
         user_id = _user_id(user)
         name = _safe_stem(filename) + Path(filename or "").suffix.lower()
         try:
-            stored = await self.artifact_store.upload_media(
+            stored = await store.upload_media(
                 file_data=data,
                 filename=name,
                 content_type=content_type,
@@ -812,7 +814,7 @@ class MediaToolService:
                 with ExitStack() as stack:
                     paths = [stack.enter_context(self.resolver.stage(item)) for item in plan.inputs]
                     media = [ctx.probe(path, item.kind) for path, item in zip(paths, plan.inputs)]
-                    bound = self._bind(plan.steps, plan.attachments or {}, stack, ctx)
+                    bound = self._bind(plan.steps, plan.attachments, stack, ctx)
                     outputs = run_chain(bound, media, ctx, validate=False)
                     if control.is_cancelled():
                         raise ToolCancelled()

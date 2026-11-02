@@ -1,13 +1,14 @@
 import io
-import uuid
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
 from src.features.media.records import Upload
+from src.features.media.store import MediaStore
 from src.features.media.validators import UPLOAD_PURPOSE_DERIVED
 from src.features.media_tools.routes import MediaToolController, build_router
 from src.features.media_tools.service import MediaToolService
@@ -15,26 +16,24 @@ from src.features.media.media_types import MediaTypeResolver
 from src.platform.media_tools import MediaTool, ToolCancelled, ToolSpec
 from src.platform.media_tools.ops import register_core_tools
 from src.platform.security.current_user import require_media_viewer
-from tests.features.media_tools.support import MediaToolsTestBase
+from tests.features.media_tools.support import FakeGuard, MediaToolsTestBase
 from tests.platform.media_tools.media_factory import make_audio
 
 
-class FakeArtifactStore:
-    def __init__(self, base):
-        self.base = base
+class EditorGuard(FakeGuard):
+    def check_items(self, request):
+        self.check(request)
 
-    async def upload_media(self, file_data, filename, content_type, user_id=None, purpose="user_upload"):
-        kind = (content_type or "").split("/")[0]
-        if kind not in ("image", "video", "audio"):
-            raise ValueError("Only image, video, and audio files are allowed")
-        name = f"{uuid.uuid4().hex}{Path(filename).suffix}"
-        path = self.base.uploads_dir / name
-        path.write_bytes(file_data)
-        self.base.upload_repo.create(Upload(
-            user_id=user_id, filename=name, original_filename=filename, media_type=kind,
-            mime_type=content_type, file_size=len(file_data), purpose=purpose,
-        ))
-        return SimpleNamespace(filename=name, path=str(path.resolve()))
+
+def artifact_store(base):
+    plugins = Mock()
+    plugins.execute_hook = Mock(side_effect=lambda hook, initial_data: (SimpleNamespace(data=initial_data), True))
+    return MediaStore(
+        file_resolver=Mock(), image_processor=Mock(), media_type_resolver=MediaTypeResolver(),
+        file_repository=Mock(), generation_repository=Mock(), settings=Mock(), file_service=Mock(),
+        plugin_registry=plugins, upload_repository=base.upload_repo, storage_driver=base.driver,
+        limit_guard=base.guard,
+    )
 
 
 class VideoBlock(MediaTool):
@@ -55,6 +54,10 @@ class VideoBlock(MediaTool):
 class EditorTestBase(MediaToolsTestBase):
     def setUp(self):
         super().setUp()
+        self.guard = EditorGuard()
+        self.service = self.make_service(self.driver)
+        self.client.close()
+        self.client = self.make_client(self.service)
         register_core_tools(self.registry)
         self.registry.register(ToolSpec(id="vblock", label="Hold", accepts=("video",), impl=VideoBlock(self.gate)))
 
@@ -69,7 +72,7 @@ class EditorTestBase(MediaToolsTestBase):
             limit_guard=self.guard,
             jobs=self.jobs,
             scratch_root=self.scratch_root,
-            artifact_store=FakeArtifactStore(self),
+            artifact_store=artifact_store(self),
             thumbnail_runner=lambda work: None,
         )
 

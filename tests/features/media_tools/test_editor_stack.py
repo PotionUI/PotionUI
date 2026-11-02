@@ -1,7 +1,9 @@
 import io
+from unittest.mock import patch
 
 from PIL import Image
 
+from src.features.media import validators
 from src.platform.media_tools import probe
 from tests.features.media_tools.editor_support import EditorTestBase
 from tests.features.media_tools.support import needs_ffmpeg
@@ -65,10 +67,15 @@ class TestStackOrderAndHiddenSteps(EditorStackTestBase):
         run = self.save_ok([step("shrink", hidden=True, size=9999), step("shrink", size=8)], {"item_id": item.id})
         self.assertEqual(self.size_of(run.items[0].id), (8, 8))
 
-    def test_a_long_stack_runs(self):
+    def test_sixty_four_visible_steps_run_and_hidden_ones_do_not_count(self):
         item = self.image_item(size=(40, 30))
-        run = self.save_ok([step("rot")] * 12, {"item_id": item.id})
+        run = self.save_ok([step("rot")] * 64 + [step("rot", hidden=True)] * 5, {"item_id": item.id})
         self.assertEqual(self.size_of(run.items[0].id), (40, 30))
+
+    def test_sixty_five_visible_steps_are_refused(self):
+        item = self.image_item()
+        detail = self.refused(self.save([step("rot")] * 65, {"item_id": item.id}), 400, "invalid_params")
+        self.assertEqual(detail["field"], "steps")
 
 
 class TestSaveModes(EditorStackTestBase):
@@ -282,6 +289,39 @@ class TestArtifacts(EditorStackTestBase):
         row = self.upload_repo.get_by_id(data["id"], self.user_id)
         self.assertEqual((row.purpose, row.media_type), ("derived_artifact", "image"))
         self.assertTrue(data["url"].startswith("/api/media/uploads/"))
+
+    def upload(self, name, data, content_type="image/png"):
+        return self.client.post("/api/media-tools/artifacts", files={"file": (name, data, content_type)})
+
+    def test_a_hostile_name_is_stored_flat_under_the_uploads(self):
+        for name in ("../../evil.png", "..\\..\\evil.png", "/etc/passwd.png", "noext"):
+            response = self.upload(name, self.png_bytes((4, 4), (len(name), 0, 0, 255)))
+            self.assertEqual(response.status_code, 200, response.text)
+            row = self.upload_repo.get_by_id(response.json()["data"]["id"], self.user_id)
+            for text in (row.filename, row.original_filename):
+                self.assertNotIn("/", text)
+                self.assertNotIn("\\", text)
+            self.assertNotIn("..", row.filename)
+            self.assertTrue((self.uploads_dir / row.filename).is_file())
+
+    def test_an_oversize_file_is_refused_before_it_is_read(self):
+        with patch.object(validators, "DERIVED_ARTIFACT_MAX_BYTES", 64), patch.object(
+            self.service, "upload_artifact", wraps=self.service.upload_artifact
+        ) as stored:
+            response = self.upload("big.png", b"x" * 65)
+        self.refused(response, 400, "upload_failed")
+        stored.assert_not_called()
+        self.assertEqual(self.upload_rows(), [])
+
+    def test_a_declared_type_that_is_not_media_is_refused(self):
+        self.refused(self.upload("layer.png", self.png_bytes((4, 4), (1, 1, 1, 255)), "application/json"), 400, "upload_failed")
+
+    def test_an_upload_over_the_quota_answers_403_and_stores_nothing(self):
+        self.guard.refuse_admit = True
+        response = self.upload("layer.png", self.png_bytes((4, 4), (1, 1, 1, 255)))
+        self.assertEqual(response.status_code, 403, response.text)
+        self.assertEqual(self.upload_rows(), [])
+        self.assertEqual(self.stored_files(), [])
 
     def test_a_file_that_is_not_media_is_refused(self):
         response = self.client.post(

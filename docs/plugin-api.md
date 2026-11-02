@@ -1590,7 +1590,10 @@ a file path in a response.
   is `{run_id: null, preview}` at once; otherwise poll the run and read `preview` when it completes, or cancel it.
   Fades and the replacement track's offset count from the start of the piece, not of the whole clip.
 - **Helper uploads** (`derived_artifact`) hold what an editor makes or receives: a paint layer, a mask, a dropped file,
-  a replacement track. Use the returned `id` as a run input or in a `media` parameter. They stay out of the Library.
+  a replacement track. Use the returned `id` as a run input or in a `media` parameter. They stay out of the Library but
+  count toward the plan's storage and per-file limits. They must be an image, audio or video file of at most 512 MB.
+  The announced size is checked before the body is read and the bytes are checked again after. The same rules apply
+  to `POST /api/media/upload` with `purpose=derived_artifact`.
 
 ### From chat, MCP and automation
 

@@ -107,6 +107,9 @@ class MediaToolController(BaseController):
 
     @guarded(_TOOL_ERRORS, Fail("upload_failed", "Failed to store the file", 400))
     async def upload_artifact(self, file: UploadFile, current_user) -> APIResponse:
+        await asyncio.to_thread(
+            self.service.check_artifact, current_user, getattr(file, "size", None), file.content_type
+        )
         data = await file.read()
         artifact = await self.service.upload_artifact(current_user, data, file.filename, file.content_type)
         return self.success_response(data=artifact.model_dump())

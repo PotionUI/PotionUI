@@ -183,12 +183,14 @@ async def test_the_media_upload_refuses_a_big_file_before_dedupe_or_any_write(se
     driver.put_bytes.assert_not_called()
 
 
-def test_only_library_uploads_are_held_to_the_file_limit(seed, plans, tmp_path):
+def test_library_and_helper_uploads_are_held_to_the_file_limit(seed, plans, tmp_path):
     seed.user("u1")
     limit_files(plans, 2)
     store, driver = media_store(tmp_path, plans.guard)
 
-    store.check_upload_size("u1", 3, "derived_artifact")
+    store.check_upload_size("u1", 2, "derived_artifact", "image/png")
+    with pytest.raises(LimitExceeded):
+        store.check_upload_size("u1", 3, "derived_artifact", "image/png")
     store.check_upload_size("u1", None, "user_upload")
     store.check_upload_size("u1", 2, "user_upload")
     with pytest.raises(LimitExceeded):

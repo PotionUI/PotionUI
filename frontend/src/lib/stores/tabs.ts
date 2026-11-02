@@ -389,7 +389,7 @@ function createTabsStore() {
 		},
 
 		setActiveTab: (tabId: string) => {
-			update((state) => ({ ...state, activeTabId: tabId }));
+			update((state) => (state.tabs.some((tab) => tab.id === tabId) ? { ...state, activeTabId: tabId } : state));
 		},
 
 		// Tab updates

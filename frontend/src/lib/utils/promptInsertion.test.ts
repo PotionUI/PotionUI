@@ -47,12 +47,28 @@ describe('insertTriggerIntoActivePrompt', () => {
 		expect(tab.prompt).toBe('a cat, Masterpiece');
 	});
 
-	it('returns unavailable when there is no active tab', () => {
+	it('keeps targeting the active tab when asked to switch to a tab that does not exist', () => {
 		tabsStore.reset();
+		const id = activeTabId();
 		tabsStore.setActiveTab('does-not-exist');
 
-		const result = insertTriggerIntoActivePrompt('masterpiece');
-		expect(result).toBe('unavailable');
+		expect(activeTabId()).toBe(id);
+		expect(insertTriggerIntoActivePrompt('masterpiece')).toBe('inserted');
+		expect(generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!.prompt).toBe('masterpiece');
+	});
+
+	it('inserts into the last generation tab while a tool tab is up, leaving the tool tab alone', () => {
+		tabsStore.reset();
+		const generationId = activeTabId();
+		const toolId = tabsStore.openToolTab('image', { path: '/m/dusk.png' });
+		const toolBefore = get(tabsStore).tabs.find((t) => t.id === toolId);
+
+		expect(insertTriggerIntoActivePrompt('masterpiece')).toBe('inserted');
+
+		const state = get(tabsStore);
+		expect(state.activeTabId).toBe(toolId);
+		expect(state.tabs.find((t) => t.id === toolId)).toBe(toolBefore);
+		expect(generationTabs(state.tabs).find((t) => t.id === generationId)!.prompt).toBe('masterpiece');
 	});
 
 	it('inserts into the active prompt of a multi-prompt tab and leaves the others alone', () => {

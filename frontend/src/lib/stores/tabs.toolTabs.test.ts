@@ -197,6 +197,12 @@ describe('the generation tab invariant', () => {
 		expect(after.lastGenerationTabId).toBe(fresh.id);
 	});
 
+	it('ignores a switch to a tab that does not exist', () => {
+		const toolId = tabsStore.openToolTab('image', dusk);
+		tabsStore.setActiveTab('does-not-exist');
+		expect(state().activeTabId).toBe(toolId);
+	});
+
 	it('refuses to close the only tab', () => {
 		const only = state().tabs[0].id;
 		tabsStore.removeTab(only);

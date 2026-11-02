@@ -1,6 +1,5 @@
-import { findGenerationTab } from '$lib/types/tabs';
 import { get } from 'svelte/store';
-import { tabsStore } from '$lib/stores/tabs';
+import { activeTab, tabsStore } from '$lib/stores/tabs';
 import { combineSegmentsToString } from '$lib/utils/generationOrchestrator';
 import { randomUUID } from '$lib/utils/uuid';
 import type { Segment } from '$lib/types/segments';
@@ -11,19 +10,14 @@ export type InsertTriggerResult = 'inserted' | 'duplicate' | 'unavailable';
  * Insert a LoRA trigger word into the active tab's positive prompt.
  *
  * Returns:
- * - 'unavailable' when there is no active tab, or the tab is in prompt-relay
- *   mode (`tab.promptRelay` present - relay tabs don't have a single flat
- *   prompt to append to).
  * - 'duplicate' when the trigger (case-insensitive) is already present in
  *   the combined prompt text.
  * - 'inserted' when the trigger was appended to the last content segment
  *   (or a new segment was created if there were none).
  */
 export function insertTriggerIntoActivePrompt(trigger: string): InsertTriggerResult {
-	const state = get(tabsStore);
-	const tab = findGenerationTab(state.tabs, state.activeTabId);
+	const tab = get(activeTab);
 
-	if (!tab) return 'unavailable';
 	if (tab.promptRelay) return 'unavailable';
 
 	const segments: Segment[] = tab.promptSegments || [];

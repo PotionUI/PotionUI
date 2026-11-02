@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { page } from '$app/stores';
-import { keybindingsStore } from '$lib/stores/keybindings';
+import { keybindingsStore, type KeybindingAction } from '$lib/stores/keybindings';
 import { isTypingInField } from '$lib/utils/editableTarget';
 
 let initialized = false;
@@ -57,25 +57,23 @@ function normalizeKey(e: KeyboardEvent): { key: string; modifiers: string } {
 	return { key, modifiers };
 }
 
-function handleKeydown(e: KeyboardEvent) {
-	if (suppressGlobal || e.defaultPrevented) return;
-	if (shouldIgnoreEvent(e)) return;
+export function globalBindingFor(e: KeyboardEvent): KeybindingAction | null {
+	if (suppressGlobal || shouldIgnoreEvent(e)) return null;
 
 	const { key, modifiers } = normalizeKey(e);
-	const state = get(keybindingsStore);
-	const currentPath = get(page).url.pathname;
-	const currentContext = getContext(currentPath);
+	const candidates = get(keybindingsStore).bindings.filter(
+		(b) => b.enabled && b.handler && b.key?.toLowerCase() === key && (b.modifiers || '') === modifiers
+	);
+	if (!candidates.length) return null;
+	const currentContext = getContext(get(page).url.pathname);
+	return candidates.find((b) => b.context === 'global' || b.context === currentContext) ?? null;
+}
 
-	const match = state.bindings.find((b) => {
-		if (!b.enabled || !b.key || !b.handler) return false;
-		if (b.key.toLowerCase() !== key) return false;
-		if ((b.modifiers || '') !== modifiers) return false;
-		return b.context === 'global' || b.context === currentContext;
-	});
-
-	if (match && match.handler) {
-		e.preventDefault();
-		e.stopPropagation();
-		match.handler();
-	}
+function handleKeydown(e: KeyboardEvent) {
+	if (e.defaultPrevented) return;
+	const match = globalBindingFor(e);
+	if (!match?.handler) return;
+	e.preventDefault();
+	e.stopPropagation();
+	match.handler();
 }

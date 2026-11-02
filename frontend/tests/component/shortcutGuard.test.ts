@@ -3,7 +3,9 @@ import { flushSync, tick } from 'svelte';
 import { createClassComponent } from 'svelte/legacy';
 import { api } from '$lib/services/api/index';
 import { keybindingsStore } from '$lib/stores/keybindings';
-import { init, destroy } from '$lib/services/keyboard';
+import { init, destroy, globalBindingFor, suppressKeyboard, resumeKeyboard } from '$lib/services/keyboard';
+import { page } from '$app/stores';
+import type { Writable } from 'svelte/store';
 import { isEditableTarget, isTypingInField } from '$lib/utils/editableTarget';
 import { handleDrawerKeydown } from '$lib/components/drawer/drawerBehavior';
 import portal from '$lib/actions/portal';
@@ -134,6 +136,33 @@ describe('global shortcuts outside fields', () => {
 	it('ignores keys that belong to an IME composition', () => {
 		press(document.body, 't', { isComposing: true });
 		expect(fired).toEqual([]);
+	});
+
+	it('globalBindingFor names the binding the dispatcher runs for a key', () => {
+		const key = (k: string, init: KeyboardEventInit = {}) => new KeyboardEvent('keydown', { key: k, ...init });
+		expect(globalBindingFor(key('c'))?.actionId).toBe('open_chat');
+		expect(globalBindingFor(key('g'))?.actionId).toBe('start_generation');
+		expect(globalBindingFor(key('k', { ctrlKey: true }))?.actionId).toBe('search_everything');
+		expect(globalBindingFor(key('m'))).toBeNull();
+		expect(globalBindingFor(key('c', { altKey: true }))).toBeNull();
+	});
+
+	it('globalBindingFor leaves page-context letters off other pages and while shortcuts are suppressed', () => {
+		const c = new KeyboardEvent('keydown', { key: 'c' });
+		const g = new KeyboardEvent('keydown', { key: 'g' });
+		const route = page as unknown as Writable<{ url: URL }>;
+		route.update((p) => ({ ...p, url: new URL('http://localhost/library') }));
+		onTestFinished(() => route.update((p) => ({ ...p, url: new URL('http://localhost/generate') })));
+		expect(globalBindingFor(g)).toBeNull();
+		expect(globalBindingFor(c)?.actionId).toBe('open_chat');
+		suppressKeyboard();
+		onTestFinished(resumeKeyboard);
+		expect(globalBindingFor(c)).toBeNull();
+	});
+
+	it('globalBindingFor skips a binding whose handler is gone', () => {
+		keybindingsStore.unregisterHandler('open_chat');
+		expect(globalBindingFor(new KeyboardEvent('keydown', { key: 'c' }))).toBeNull();
 	});
 });
 

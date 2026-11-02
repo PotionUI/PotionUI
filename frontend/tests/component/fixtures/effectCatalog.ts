@@ -133,7 +133,8 @@ export const FIX_TOOL = effectTool({
 			hi: '1 - (1 - white) * k'
 		},
 		gain: null,
-		analysis: true
+		analysis: true,
+		analysis_keys: ['white_balance', 'contrast']
 	}
 });
 

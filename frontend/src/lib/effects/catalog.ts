@@ -110,7 +110,7 @@ export function readEffectBlock(tool: Pick<ToolDTO, 'group' | 'effect'>): Effect
 		derive: readDerive(raw.derive),
 		gain: typeof raw.gain === 'string' && raw.gain.trim() ? raw.gain : null,
 		analysis: raw.analysis === true || !!record(raw.analysis),
-		analysisKeys: Array.isArray(record(raw.analysis)?.keys) ? (record(raw.analysis)!.keys as unknown[]).map(String) : null
+		analysisKeys: Array.isArray(raw.analysis_keys) && raw.analysis_keys.length ? raw.analysis_keys.map(String) : null
 	};
 }
 

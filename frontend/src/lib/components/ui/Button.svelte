@@ -21,6 +21,7 @@
 		ariaExpanded,
 		ariaHaspopup,
 		ariaLabel,
+		pressed,
 		tabindex,
 		attrs,
 		children
@@ -40,6 +41,7 @@
 		ariaExpanded?: boolean;
 		ariaHaspopup?: 'dialog' | 'menu' | 'listbox' | 'true';
 		ariaLabel?: string;
+		pressed?: boolean;
 		tabindex?: number;
 		attrs?: Record<string, string | number | boolean | undefined>;
 		children?: Snippet;
@@ -68,7 +70,7 @@
 
 	let isDisabled = $derived(disabled || loading);
 	let classes = $derived(
-		`inline-flex items-center justify-center gap-1.5 rounded transition-colors duration-100 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap ${sizeClasses[size]} ${variantClasses[variant]} ${className}`
+		`inline-flex items-center justify-center gap-1.5 rounded transition-colors duration-100 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap ${sizeClasses[size]} ${pressed ? 'bg-signal/10 text-signal' : variantClasses[variant]} ${className}`
 	);
 </script>
 
@@ -86,6 +88,7 @@
 		aria-expanded={ariaExpanded}
 		aria-haspopup={ariaHaspopup}
 		aria-label={ariaLabel}
+		aria-pressed={pressed}
 		{tabindex}
 		data-autofocus={initialFocus ? '' : undefined}
 		{...attrs}

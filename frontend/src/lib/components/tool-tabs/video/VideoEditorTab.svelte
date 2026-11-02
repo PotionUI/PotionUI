@@ -52,6 +52,8 @@
 		cancelMediaToolRun,
 		getMediaToolRun,
 		listMediaToolRuns,
+		effectAnalysis,
+		effectShader,
 		previewFrame,
 		startClipPreview,
 		startMediaToolRun,
@@ -70,6 +72,7 @@
 		fixed2,
 		hasPixelEffects,
 		hasSplit,
+		isEffectOp,
 		isNoop,
 		isRailToolId,
 		isVideoOp,
@@ -85,6 +88,13 @@
 		type VideoParams
 	} from '$lib/tool-tabs/video/videoSteps';
 	import { keptRange } from '$lib/tool-tabs/video/timeMap';
+	import { loadMediaToolCatalog, mediaToolCatalog } from '$lib/media-tools/catalog';
+	import { effectGroups, effectTools, type EffectTool } from '$lib/effects/catalog';
+	import { planChain, type AnalysisNeed, type ChainPlan } from '$lib/effects/plan';
+	import { liveState } from '$lib/effects/liveMode';
+	import { PREVIEW_CAPS } from '$lib/effects/budget';
+	import { supportsWebGL2 } from '$lib/effects/ShaderChain';
+	import LivePreview from './LivePreview.svelte';
 	import {
 		EMPTY_SIGNATURE,
 		directInputRef,
@@ -108,7 +118,6 @@
 	import VideoToolOptions from './VideoToolOptions.svelte';
 	import CropOverlay from './CropOverlay.svelte';
 
-	type EffectId = 'film_grain' | 'fix_colors';
 	type OpenHint = { effect?: string; sendTo?: { tabId: string; field: string } } | null | undefined;
 	type HintedHost = ToolTabHost & { hint?: OpenHint; clearHint?: () => void };
 	type RefWithMeta = MediaRef & { metadata?: { width?: number | null; height?: number | null; duration_seconds?: number | null; fps?: number | null } };
@@ -129,7 +138,6 @@
 	const hostApi = untrack(() => host);
 	const tabId = hostApi.tabId;
 	const initial = readVideoState(untrack(() => host.state));
-	const grainSeed = Math.floor(Math.random() * 9_999_999);
 	const runApi: RenderRunApi = { get: getMediaToolRun, list: listMediaToolRuns };
 	const toolLabels: Record<RailToolId, string> = {
 		trim: 'Trim',
@@ -149,7 +157,17 @@
 
 	let edits = $state.raw<EditStackState<VideoParams>>(initial.stack);
 	let tool = $state<RailToolId>(isRailToolId(untrack(() => host.activeTool)) ? (untrack(() => host.activeTool) as RailToolId) : (initial.tool ?? 'trim'));
-	let activeEffect = $state<EffectId>('film_grain');
+	let activeEffect = $state<string | null>(null);
+	let split = $state(0.5);
+	let webgl2 = $state(false);
+	let contextLosses = $state(0);
+	let previewCap = $state<number>(PREVIEW_CAPS[0]);
+	let unavailable = $state.raw<ReadonlySet<string>>(new Set());
+	let shaderTexts = $state.raw<ReadonlyMap<string, string>>(new Map());
+	let measured = $state.raw<ReadonlyMap<string, Record<string, number>>>(new Map());
+	const shaderLoading = new Set<string>();
+	const analysisLoading = new Set<string>();
+	const lastMeasured = new Map<string, Record<string, number>>();
 	let aspect = $state('free');
 	let playhead = $state(initial.playhead);
 	let storedPlayhead = $state(initial.playhead);
@@ -197,17 +215,22 @@
 	let clip = $derived<ClipInfo>(meta ?? { width: 1280, height: 720, duration: 0 });
 	let duration = $derived(clip.duration);
 
+	let effectList = $derived<EffectTool[]>(effectTools($mediaToolCatalog));
+	let effectMap = $derived(new Map(effectList.map((entry) => [entry.id, entry])));
+	let groups = $derived(effectGroups(effectList));
 	let pending = $derived(edits.pending);
 	let preview = $derived(previewSteps(edits));
 	let effective = $derived(effectiveSteps(edits));
-	let saveCompiled = $derived(compileSteps(effective, clip));
+	let stackEffect = $derived(effective.findLast((entry) => effectMap.has(entry.tool))?.tool ?? null);
+	let currentEffect = $derived(activeEffect && (effectMap.has(activeEffect) || !effectList.length) ? activeEffect : (stackEffect ?? groups[0]?.effects[0]?.id ?? null));
+	let saveCompiled = $derived(compileSteps(effective, clip, { effects: effectMap }));
 	let signature = $derived(ready ? stepsSignature(saveCompiled.steps) : savedSignature);
-	let previewCompiled = $derived(compileSteps(preview, clip, { skipSplit: true }));
-	let beforeCompiled = $derived(compileSteps(beforeSteps(edits), clip, { skipSplit: true }));
+	let previewCompiled = $derived(compileSteps(preview, clip, { skipSplit: true, effects: effectMap }));
+	let beforeCompiled = $derived(compileSteps(beforeSteps(edits), clip, { skipSplit: true, effects: effectMap }));
 	let effectivePlayback = $derived(playbackPreview(effective, clip));
 	let base = $derived(keptRange(duration, effectivePlayback.ops));
 
-	let panelOp = $derived<VideoOp | null>(tool === 'effects' ? activeEffect : tool === 'replace' ? 'replace_audio' : tool === 'frame' ? null : tool);
+	let panelOp = $derived<VideoOp | null>(tool === 'effects' ? currentEffect : tool === 'replace' ? 'replace_audio' : tool === 'frame' ? null : tool);
 	let panelParams = $derived.by<VideoParams>(() => {
 		if (!panelOp) return {};
 		if (pending && pending.tool === panelOp) return pending.params;
@@ -220,6 +243,10 @@
 			: preview
 	);
 	let playback = $derived(playbackPreview(playbackSteps, clip));
+	let liveCompiled = $derived(compileSteps(playbackSteps, clip, { skipSplit: true, effects: effectMap }));
+	let afterPlan = $derived<ChainPlan | null>(ready ? planFor(liveCompiled.steps) : null);
+	let live = $derived(liveState({ webgl2, contextLosses, plan: afterPlan, steppedDown: previewCap < PREVIEW_CAPS[0], playing }));
+	let beforePlan = $derived<ChainPlan | null>(live.mode === 'live' && compare ? planFor(beforeCompiled.steps) : null);
 	let range = $derived(keptRange(duration, playback.ops));
 	let scrubIn = $derived(tool === 'trim' && panelOp === 'trim' ? Number(panelParams.start ?? range.start) : range.start);
 	let scrubOut = $derived(tool === 'trim' && panelOp === 'trim' ? Number(panelParams.end ?? range.end) : range.end);
@@ -235,9 +262,9 @@
 	let dirty = $derived(ready ? dirtyCount(signature, savedSignature, visibleCount) : 0);
 	let canSave = $derived(ready && !!inputRef && hasEdits);
 	let canApply = $derived(!!panelOp && ready && (tool === 'mute' || !!pending?.target || !isNoop(panelOp, panelParams, clip, base)));
-	let wantFrame = $derived(ready && !!inputRef && !playing && tool !== 'crop' && !clipPreview && hasPixelEffects(previewCompiled.steps));
+	let wantFrame = $derived(ready && !!inputRef && !playing && tool !== 'crop' && !clipPreview && live.serverPaused && hasPixelEffects(previewCompiled.steps));
 	let frameKey = $derived(wantFrame ? JSON.stringify([previewCompiled.steps, Math.round(playhead * 1000)]) : null);
-	let beforeKey = $derived(compare && ready && !!inputRef && !playing && !clipPreview ? JSON.stringify([beforeCompiled.steps, Math.round(playhead * 1000)]) : null);
+	let beforeKey = $derived(compare && ready && !!inputRef && !playing && !clipPreview && !live.canvas ? JSON.stringify([beforeCompiled.steps, Math.round(playhead * 1000)]) : null);
 	let showAfterFrame = $derived(!!afterFrame && afterFrame.key === frameKey);
 	let previewSignature = $derived(JSON.stringify(previewCompiled.steps));
 	let sizeOptions = $derived(resizeOptions(compileSteps(beforeSteps(edits), clip).chain.size));
@@ -261,8 +288,41 @@
 	function defaultsFor(op: VideoOp): VideoParams {
 		if (op === 'trim') return { start: base.start, end: base.end };
 		if (op === 'split') return { at: Math.round(Math.max(base.start, Math.min(base.end, playhead)) * 1000) / 1000 };
-		if (op === 'film_grain') return { ...defaultParams('film_grain', clip), seed: grainSeed };
-		return defaultParams(op, clip);
+		return defaultParams(op, clip, 0, effectMap);
+	}
+
+	function planFor(steps: Parameters<typeof planChain>[0]['steps']): ChainPlan {
+		return planChain({
+			steps,
+			source: { width: clip.width, height: clip.height, duration: clip.duration, fps },
+			effects: effectMap,
+			cap: previewCap,
+			unavailable,
+			analysis: (key) => measured.get(key) ?? null,
+			stale: (toolId, index) => lastMeasured.get(`${toolId}:${index}`) ?? null
+		});
+	}
+
+	function markUnavailable(toolId: string) {
+		if (unavailable.has(toolId)) return;
+		unavailable = new Set([...unavailable, toolId]);
+	}
+
+	function measure(need: AnalysisNeed) {
+		if (!inputRef || analysisLoading.has(need.key)) return;
+		analysisLoading.add(need.key);
+		const input = inputRef;
+		void effectAnalysis({ input, steps: need.steps, step_index: need.index })
+			.then((values) => {
+				if (destroyed) return;
+				lastMeasured.set(`${need.tool}:${need.index}`, values);
+				measured = new Map(measured).set(need.key, values);
+			})
+			.catch((error) => {
+				logger.error('The clip could not be measured:', error);
+				if (!destroyed) markUnavailable(need.tool);
+			})
+			.finally(() => analysisLoading.delete(need.key));
 	}
 
 	function foldPending(state: EditStackState<VideoParams>): EditStackState<VideoParams> {
@@ -273,7 +333,7 @@
 	}
 
 	function setParams(op: VideoOp, params: VideoParams) {
-		const draft = draftFor(op, params);
+		const draft = draftFor(op, params, effectMap);
 		edits = pending && pending.tool === op ? updatePending(edits, draft) : beginEdit(foldPending(edits), draft);
 	}
 
@@ -285,15 +345,15 @@
 		closeClipPreview();
 	}
 
-	function selectEffect(next: EffectId) {
-		if (next === activeEffect) return;
+	function selectEffect(next: string) {
+		if (next === currentEffect) return;
 		edits = foldPending(edits);
 		activeEffect = next;
 	}
 
 	function applyCurrent() {
 		if (!panelOp || !canApply) return;
-		const next = pending && pending.tool === panelOp ? edits : beginEdit(edits, draftFor(panelOp, panelParams));
+		const next = pending && pending.tool === panelOp ? edits : beginEdit(edits, draftFor(panelOp, panelParams, effectMap));
 		edits = apply(next);
 		compare = false;
 	}
@@ -317,7 +377,7 @@
 		const rail = railToolOf(step.tool);
 		edits = reopen(edits, id);
 		if (rail) tool = rail;
-		if (step.tool === 'film_grain' || step.tool === 'fix_colors') activeEffect = step.tool;
+		if (rail === 'effects') activeEffect = step.tool;
 	}
 
 	function doUndo() {
@@ -530,7 +590,7 @@
 	async function startRender(mode: MediaToolSaveMode, then?: (run: MediaToolRun) => void) {
 		if (!inputRef || !ready || render || starting) return;
 		edits = foldPending(edits);
-		const compiled = compileSteps(effectiveSteps(edits), clip);
+		const compiled = compileSteps(effectiveSteps(edits), clip, { effects: effectMap });
 		if (compiled.steps.length === 0) return;
 		const finalMode: MediaToolSaveMode = mode === 'update' && (!saved || hasSplit(compiled.steps)) ? 'new' : mode;
 		const output: { mode: MediaToolSaveMode; target_item_id?: string } = { mode: finalMode };
@@ -921,7 +981,7 @@
 		const hint = (host as HintedHost).hint;
 		if (!hint) return;
 		untrack(() => {
-			if (hint.effect === 'film_grain' || hint.effect === 'fix_colors') {
+			if (hint.effect && isEffectOp(hint.effect)) {
 				if (tool !== 'effects') selectTool('effects');
 				selectEffect(hint.effect);
 			}
@@ -942,7 +1002,37 @@
 		});
 	});
 
+	$effect(() => {
+		const plans = [afterPlan, beforePlan];
+		for (const plan of plans) {
+			for (const pass of plan?.passes ?? []) {
+				if (pass.kind !== 'effect' || shaderTexts.has(pass.shaderUrl) || shaderLoading.has(pass.shaderUrl)) continue;
+				const url = pass.shaderUrl;
+				const toolId = pass.tool;
+				shaderLoading.add(url);
+				void effectShader(url)
+					.then((text) => {
+						if (!destroyed) shaderTexts = new Map(untrack(() => shaderTexts)).set(url, text);
+					})
+					.catch((error) => {
+						logger.error('The effect preview could not be loaded:', error);
+						if (!destroyed) untrack(() => markUnavailable(toolId));
+					})
+					.finally(() => shaderLoading.delete(url));
+			}
+		}
+	});
+
+	$effect(() => {
+		const needs = [...(afterPlan?.analysis ?? []), ...(beforePlan?.analysis ?? [])];
+		if (!needs.length || !inputRef) return;
+		const timer = setTimeout(() => untrack(() => needs.forEach(measure)), 150);
+		return () => clearTimeout(timer);
+	});
+
 	onMount(() => {
+		webgl2 = supportsWebGL2();
+		void loadMediaToolCatalog();
 		const run = untrack(() => host.run);
 		if (run?.runId) void reattach(run.runId);
 	});
@@ -1062,8 +1152,10 @@
 					mediaWidth={displaySize.width}
 					mediaHeight={displaySize.height}
 					bind:viewport
+					bind:split
 					{compare}
 					{phone}
+					before={live.canvas ? undefined : beforeLayer}
 					afterLabel="After · {formatEditorTime(playhead)}"
 					hint={tool === 'trim' ? trimHint : wantFrame ? effectsHint : undefined}
 				>
@@ -1084,18 +1176,30 @@
 									data-video-element
 								><track kind="captions" /></video>
 							</div>
+							{#if live.mode === 'live' && afterPlan}
+								<LivePreview
+									{video}
+									after={afterPlan}
+									before={beforePlan}
+									{compare}
+									{split}
+									{fps}
+									duration={clip.duration}
+									sources={shaderTexts}
+									baseGain={playback.gain}
+									visible={live.canvas}
+									onunsupported={() => (webgl2 = false)}
+									onfailed={markUnavailable}
+									onlost={() => (contextLosses += 1)}
+									oncap={(cap) => (previewCap = cap)}
+									onslow={markUnavailable}
+								/>
+							{/if}
 							{#if showAfterFrame && afterFrame}
 								<img src={afterFrame.url} alt="" class="absolute inset-0 h-full w-full object-fill" data-video-frame-preview />
 							{/if}
 							{#if clipPreview?.state === 'ready' && clipPreview.url}
 								<video src={clipPreview.url} class="absolute inset-0 h-full w-full bg-scrim object-contain" autoplay loop muted={playback.muted || playbackMuted} playsinline data-video-clip-preview><track kind="captions" /></video>
-							{/if}
-						</div>
-					{/snippet}
-					{#snippet before()}
-						<div class="absolute inset-0 bg-scrim">
-							{#if beforeFrame && beforeFrame.key === beforeKey}
-								<img src={beforeFrame.url} alt="" class="h-full w-full object-fill" data-video-before />
 							{/if}
 						</div>
 					{/snippet}
@@ -1123,8 +1227,15 @@
 							<CanvasChip>This clip could not be played</CanvasChip>
 						{:else if !ready}
 							<CanvasChip>Loading clip…</CanvasChip>
-						{:else if !playing}
-							<CanvasChip>Paused · {formatEditorTime(playhead)}</CanvasChip>
+						{:else if !playing || live.chips.length}
+							<span class="inline-flex flex-wrap items-center gap-1.5" data-live-chips>
+								{#if !playing}
+									<CanvasChip>Paused · {formatEditorTime(playhead)}</CanvasChip>
+								{/if}
+								{#each live.chips as chip (chip)}
+									<CanvasChip>{chip}</CanvasChip>
+								{/each}
+							</span>
 						{/if}
 					{/snippet}
 				</EditorCanvas>
@@ -1201,7 +1312,9 @@
 								{tool}
 								op={panelOp}
 								params={panelParams}
-								effect={activeEffect}
+								effect={currentEffect}
+								effects={groups}
+								showClip={live.showClip}
 								{clip}
 								{playhead}
 								{outputLength}
@@ -1264,6 +1377,14 @@
 		{/if}
 	</div>
 {/if}
+
+{#snippet beforeLayer()}
+	<div class="absolute inset-0 bg-scrim">
+		{#if beforeFrame && beforeFrame.key === beforeKey}
+			<img src={beforeFrame.url} alt="" class="h-full w-full object-fill" data-video-before />
+		{/if}
+	</div>
+{/snippet}
 
 {#snippet trimHint()}
 	<CanvasChip caps={false}>K</CanvasChip>play / pause

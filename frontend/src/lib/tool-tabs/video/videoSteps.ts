@@ -12,19 +12,17 @@ import {
 	type Rotation
 } from '$lib/media/editors/cropGeometry';
 import { evenRound } from '$lib/media/editors/mediaSizeOptions';
+import { humanize, normalizeOptions } from '$lib/media-tools/params';
+import { effectDefaults, effectParams, type EffectTool } from '$lib/effects/catalog';
 import { outputDuration, safeSpeed, sourceToOutput, type TimeOp } from './timeMap';
 
-export type VideoOp =
-	| 'trim'
-	| 'split'
-	| 'crop'
-	| 'resize'
-	| 'speed'
-	| 'mute'
-	| 'volume'
-	| 'replace_audio'
-	| 'film_grain'
-	| 'fix_colors';
+export type BuiltinOp = 'trim' | 'split' | 'crop' | 'resize' | 'speed' | 'mute' | 'volume' | 'replace_audio';
+
+export type VideoOp = BuiltinOp | (string & {});
+
+export type EffectLookup = ReadonlyMap<string, EffectTool>;
+
+const NO_EFFECTS: EffectLookup = new Map();
 
 export type RailToolId = 'trim' | 'split' | 'crop' | 'resize' | 'speed' | 'mute' | 'volume' | 'replace' | 'effects' | 'frame';
 
@@ -71,19 +69,6 @@ export interface ReplaceParams {
 	loop: boolean;
 }
 
-export interface GrainParams {
-	amount: number;
-	size: number;
-	color: boolean;
-	seed: number;
-}
-
-export interface FixParams {
-	white_balance: boolean;
-	contrast: boolean;
-	strength: number;
-}
-
 export type VideoParams = Record<string, unknown>;
 
 export type VideoStep = EditStep<VideoParams>;
@@ -94,7 +79,7 @@ export interface ClipInfo {
 	duration: number;
 }
 
-export const OP_LABELS: Record<VideoOp, string> = {
+export const OP_LABELS: Record<BuiltinOp, string> = {
 	trim: 'Trim',
 	split: 'Split',
 	crop: 'Crop',
@@ -102,12 +87,10 @@ export const OP_LABELS: Record<VideoOp, string> = {
 	speed: 'Speed',
 	mute: 'Mute',
 	volume: 'Volume',
-	replace_audio: 'Replace audio',
-	film_grain: 'Film grain',
-	fix_colors: 'Fix colours'
+	replace_audio: 'Replace audio'
 };
 
-export const OP_ICONS: Record<VideoOp, string> = {
+export const OP_ICONS: Record<BuiltinOp, string> = {
 	trim: 'editor-trim',
 	split: 'editor-split',
 	crop: 'editor-crop',
@@ -115,12 +98,12 @@ export const OP_ICONS: Record<VideoOp, string> = {
 	speed: 'editor-speed',
 	mute: 'editor-mute',
 	volume: 'editor-volume',
-	replace_audio: 'editor-music',
-	film_grain: 'editor-effects',
-	fix_colors: 'editor-effects'
+	replace_audio: 'editor-music'
 };
 
-export const OP_LANES: Partial<Record<VideoOp, string>> = {
+const COMPILED_BUILTINS = new Set(['trim', 'split', 'rotate', 'flip', 'crop', 'resize', 'speed', 'mute', 'volume', 'replace_audio']);
+
+export const OP_LANES: Partial<Record<BuiltinOp, string>> = {
 	trim: 'time',
 	speed: 'time',
 	split: 'time',
@@ -159,14 +142,30 @@ export function isRailToolId(value: unknown): value is RailToolId {
 	return typeof value === 'string' && (RAIL_TOOL_IDS as string[]).includes(value);
 }
 
+export function isBuiltinOp(value: unknown): value is BuiltinOp {
+	return typeof value === 'string' && Object.hasOwn(OP_LABELS, value);
+}
+
+export function isEffectOp(value: unknown): value is string {
+	return typeof value === 'string' && value.length > 0 && !isBuiltinOp(value) && !isRailToolId(value) && !COMPILED_BUILTINS.has(value);
+}
+
 export function railToolOf(op: string): RailToolId | null {
-	if (op === 'film_grain' || op === 'fix_colors') return 'effects';
 	if (op === 'replace_audio') return 'replace';
-	return isRailToolId(op) ? op : null;
+	if (isRailToolId(op)) return op;
+	return isEffectOp(op) ? 'effects' : null;
 }
 
 export function isVideoOp(value: unknown): value is VideoOp {
-	return typeof value === 'string' && value in OP_LABELS;
+	return isBuiltinOp(value) || isEffectOp(value);
+}
+
+export function opLabel(op: VideoOp, effects: EffectLookup = NO_EFFECTS): string {
+	return isBuiltinOp(op) ? OP_LABELS[op] : (effects.get(op)?.label ?? humanize(op.split('.').pop() ?? op));
+}
+
+export function opIcon(op: VideoOp, effects: EffectLookup = NO_EFFECTS): string {
+	return isBuiltinOp(op) ? OP_ICONS[op] : (effects.get(op)?.icon ?? 'editor-effects');
 }
 
 function num(value: unknown, fallback: number): number {
@@ -220,7 +219,7 @@ export function volumeGain(params: VolumeParams): number {
 	return params.unit === 'db' ? 10 ** (params.db / 20) : params.percent / 100;
 }
 
-export function defaultParams(op: VideoOp, clip: ClipInfo, at = 0): VideoParams {
+export function defaultParams(op: VideoOp, clip: ClipInfo, at = 0, effects: EffectLookup = NO_EFFECTS): VideoParams {
 	switch (op) {
 		case 'trim':
 			return { start: 0, end: clip.duration };
@@ -240,14 +239,33 @@ export function defaultParams(op: VideoOp, clip: ClipInfo, at = 0): VideoParams 
 			return { unit: 'percent', percent: 100, db: 0, fade_in: 0, fade_out: 0 };
 		case 'replace_audio':
 			return { audio: null, name: '', start: 0, loop: true };
-		case 'film_grain':
-			return { amount: 30, size: 2, color: false, seed: Math.floor(Math.random() * 9_999_999) };
-		case 'fix_colors':
-			return { white_balance: true, contrast: true, strength: 100 };
 	}
+	const effect = effects.get(op);
+	return effect ? effectDefaults(effect) : {};
 }
 
-export function summarize(op: VideoOp, params: VideoParams): string {
+function effectSummary(effect: EffectTool | undefined, params: VideoParams): string {
+	if (!effect) return '';
+	const values = effectParams(effect, params);
+	const parts: string[] = [];
+	for (const param of effect.params) {
+		const value = values[param.name];
+		const label = param.label ?? humanize(param.name);
+		if (param.type === 'checkbox') {
+			if (value === true) parts.push(label.toLowerCase());
+		} else if (param.type === 'float' || param.type === 'integer') {
+			if (typeof value === 'number') parts.push(`${label} ${Math.round(value * 100) / 100}${param.unit && param.unit.length <= 2 ? param.unit : ''}`);
+		} else if (param.type === 'select') {
+			const option = normalizeOptions(param).find((entry) => entry.value === value);
+			if (option) parts.push(`${label} ${option.label}`.trim());
+		}
+		if (parts.length >= 3) break;
+	}
+	const text = parts.join(' · ');
+	return text ? text.charAt(0).toUpperCase() + text.slice(1) : '';
+}
+
+export function summarize(op: VideoOp, params: VideoParams, effects: EffectLookup = NO_EFFECTS): string {
 	switch (op) {
 		case 'trim': {
 			const trim = readTrim(params);
@@ -285,26 +303,19 @@ export function summarize(op: VideoOp, params: VideoParams): string {
 			if (params.loop !== false) parts.push('loop');
 			return parts.join(' · ');
 		}
-		case 'film_grain':
-			return `Amount ${Math.round(num(params.amount, 30))} · size ${num(params.size, 2)}`;
-		case 'fix_colors': {
-			const parts = [`Strength ${Math.round(num(params.strength, 100))}%`];
-			if (params.white_balance !== false) parts.push('white balance');
-			if (params.contrast !== false) parts.push('contrast');
-			return parts.join(' · ');
-		}
 	}
+	return effectSummary(effects.get(op), params);
 }
 
-export function draftFor(op: VideoOp, params: VideoParams): StepDraft<VideoParams> {
+export function draftFor(op: VideoOp, params: VideoParams, effects: EffectLookup = NO_EFFECTS): StepDraft<VideoParams> {
 	const draft: StepDraft<VideoParams> = {
 		tool: op,
-		icon: OP_ICONS[op],
-		label: OP_LABELS[op],
-		summary: summarize(op, params),
+		icon: opIcon(op, effects),
+		label: opLabel(op, effects),
+		summary: summarize(op, params, effects),
 		params
 	};
-	const lane = OP_LANES[op];
+	const lane = isBuiltinOp(op) ? OP_LANES[op] : undefined;
 	if (lane) draft.lane = lane;
 	return draft;
 }
@@ -317,6 +328,7 @@ export interface ChainState {
 
 export interface CompileOptions {
 	skipSplit?: boolean;
+	effects?: EffectLookup;
 }
 
 function shortEdgeResize(size: PixelSize, short: number): { params: Record<string, number>; size: PixelSize } {
@@ -400,27 +412,10 @@ export function compileSteps(
 				});
 				break;
 			}
-			case 'film_grain':
-				out.push({
-					tool: 'film_grain',
-					params: {
-						amount: num(params.amount, 30),
-						size: num(params.size, 2),
-						color: params.color === true,
-						seed: Math.max(0, Math.trunc(num(params.seed, 0)))
-					}
-				});
-				break;
-			case 'fix_colors':
-				out.push({
-					tool: 'fix_colors',
-					params: {
-						white_balance: params.white_balance !== false,
-						contrast: params.contrast !== false,
-						strength: num(params.strength, 100)
-					}
-				});
-				break;
+			default: {
+				const effect = options.effects?.get(step.tool);
+				out.push({ tool: step.tool, params: effect ? effectParams(effect, params) : { ...params } });
+			}
 		}
 	}
 	return { steps: out, chain: { ops, size, duration: outputDuration(clip.duration, ops) } };
@@ -435,7 +430,7 @@ export function hasSplit(steps: readonly MediaToolStep[]): boolean {
 }
 
 export function hasPixelEffects(steps: readonly MediaToolStep[]): boolean {
-	return steps.some((step) => step.tool === 'film_grain' || step.tool === 'fix_colors');
+	return steps.some((step) => !COMPILED_BUILTINS.has(step.tool));
 }
 
 export interface PlaybackPreview {

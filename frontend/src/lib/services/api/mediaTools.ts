@@ -4,6 +4,7 @@ import type { APIResponse } from '$lib/types/api';
 import type {
 	ClipPreviewBody,
 	ClipPreviewStart,
+	EffectAnalysisBody,
 	FramePreviewBody,
 	FramePreviewResult,
 	MediaToolArtifact,
@@ -94,6 +95,21 @@ export function createMediaToolsApi(client: AxiosInstance) {
 				formData
 			);
 			return unwrap(response.data, 'The file could not be saved');
+		},
+
+		async effectShader(url: string, signal?: AbortSignal): Promise<string> {
+			const response = await client.get<string>(url, { responseType: 'text', transformResponse: (data) => data, signal });
+			if (typeof response.data !== 'string') throw new Error('The effect preview could not be loaded');
+			return response.data;
+		},
+
+		async effectAnalysis(body: EffectAnalysisBody, signal?: AbortSignal): Promise<Record<string, number>> {
+			const response = await client.post<APIResponse<{ values: Record<string, number> }>>(
+				'/api/media-tools/effects/analysis',
+				body,
+				{ signal }
+			);
+			return unwrap(response.data, 'The clip could not be measured').values ?? {};
 		}
 	};
 }
@@ -144,4 +160,12 @@ export async function startClipPreview(body: ClipPreviewBody): Promise<ClipPrevi
 
 export async function uploadMediaToolArtifact(file: File): Promise<MediaToolArtifact> {
 	return bound().uploadMediaToolArtifact(file);
+}
+
+export async function effectShader(url: string, signal?: AbortSignal): Promise<string> {
+	return bound().effectShader(url, signal);
+}
+
+export async function effectAnalysis(body: EffectAnalysisBody, signal?: AbortSignal): Promise<Record<string, number>> {
+	return bound().effectAnalysis(body, signal);
 }

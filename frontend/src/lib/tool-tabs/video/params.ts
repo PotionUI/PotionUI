@@ -1,30 +1,6 @@
 import type { ToolParam } from '$lib/media-tools/types';
 import { deriveMediaSizeOptions } from '$lib/media/editors/mediaSizeOptions';
 
-export const GRAIN_PARAMS: ToolParam[] = [
-	{ name: 'amount', type: 'float', label: 'Amount', min: 0, max: 100, step: 1, default: 30 },
-	{
-		name: 'size',
-		type: 'select',
-		label: 'Size',
-		default: 2,
-		options: [
-			{ label: '1', value: 1 },
-			{ label: '2', value: 2 },
-			{ label: '3', value: 3 }
-		]
-	},
-	{ name: 'color', type: 'checkbox', label: 'Colour grain', default: false }
-];
-
-export const GRAIN_AMOUNT_PARAMS: ToolParam[] = [GRAIN_PARAMS[0]];
-
-export const FIX_PARAMS: ToolParam[] = [
-	{ name: 'white_balance', type: 'checkbox', label: 'White balance', default: true },
-	{ name: 'contrast', type: 'checkbox', label: 'Normalise contrast', default: true },
-	{ name: 'strength', type: 'float', label: 'Strength', min: 0, max: 100, step: 5, unit: '%', default: 100 }
-];
-
 export function volumeParams(duration: number): ToolParam[] {
 	const fadeMax = Math.max(0.5, Math.min(10, Math.floor(duration * 10) / 10));
 	return [

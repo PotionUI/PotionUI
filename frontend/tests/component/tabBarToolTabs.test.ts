@@ -53,7 +53,7 @@ afterEach(async () => {
 });
 
 describe('the + menu', () => {
-	it('opens a menu instead of adding a tab, listing generation, the editors and an empty plugin group', async () => {
+	it('opens a menu instead of adding a tab, listing generation and the editors only', async () => {
 		await openMenu();
 		expect(get(tabsStore).tabs).toHaveLength(1);
 		expect(plusButton().getAttribute('aria-expanded')).toBe('true');
@@ -62,10 +62,7 @@ describe('the + menu', () => {
 			'Image editor',
 			'Video editor'
 		]);
-		expect(menu()!.textContent).toContain('From plugins');
-		const empty = menu()!.querySelector('[data-testid="no-plugin-tools"]')!;
-		expect(empty.textContent).toContain('No plugin tools yet');
-		expect(empty.getAttribute('role')).toBeNull();
+		expect(menu()!.textContent).not.toMatch(/plugin/i);
 	});
 
 	it('New generation adds a generation tab', async () => {
@@ -91,13 +88,28 @@ describe('the + menu', () => {
 		expect(thumbs).toHaveLength(1);
 	});
 
-	it('lists plugin tool kinds under From plugins', async () => {
-		const off = registerToolKind({ tool: 'acme.stamp', label: 'Stamp tool', icon: 'brush', accepts: ['image'], pluginId: 'acme' });
+	it('lists plugin tool kinds as plain rows right after the editors, with no plugin wording', async () => {
+		const off = registerToolKind({
+			tool: 'acme.stamp',
+			label: 'Stamp tool',
+			description: 'Stamp shapes onto a picture',
+			icon: 'brush',
+			accepts: ['image'],
+			pluginId: 'acme'
+		});
 		try {
 			await openMenu();
-			expect(menu()!.querySelector('[data-testid="no-plugin-tools"]')).toBeNull();
+			expect(rows().map((r) => r.querySelector('.text-fg')?.textContent?.trim())).toEqual([
+				'New generation',
+				'Image editor',
+				'Video editor',
+				'Stamp tool'
+			]);
 			const row = rows().find((r) => r.dataset.tool === 'acme.stamp')!;
-			expect(row.textContent).toContain('Stamp tool');
+			expect(row.className).toBe(rows().find((r) => r.dataset.tool === 'video')!.className);
+			expect(row.textContent).toContain('Stamp shapes onto a picture');
+			expect(menu()!.textContent).not.toMatch(/plugin/i);
+			expect(menu()!.querySelector('svg')).not.toBeNull();
 			row.click();
 			await settle();
 			expect(get(tabsStore).tabs.find(isToolTab)?.tool).toBe('acme.stamp');

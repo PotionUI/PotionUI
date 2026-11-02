@@ -74,7 +74,7 @@ describe('plugin tool tabs', () => {
 		expect(resolvePluginComponent).toHaveBeenCalledWith('acme', 'StampToolTab.js');
 	});
 
-	it('registers under "From plugins" and disposes cleanly, keeping one definition per identity', () => {
+	it('registers a plugin kind and disposes cleanly, keeping one definition per identity', () => {
 		const descriptor = describePluginToolTab(entry, 'rev-1')!;
 		descriptor.register();
 		const registered = getToolKind('acme.stamp');

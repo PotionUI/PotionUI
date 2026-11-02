@@ -2210,7 +2210,7 @@ tool_tabs:
 | Key | Meaning |
 |---|---|
 | `id` | Lowercase slug, unique within the plugin. The tab's tool kind is `<plugin id>.<id>`. |
-| `label` | Shown in the "+" menu under "From plugins", in the phone Tabs sheet and as the default tab name. |
+| `label` | Shown in the "+" menu after the Image and Video editors, in the phone Tabs sheet and as the default tab name. |
 | `icon` | An app icon name (`brush`, `sliders`, `film`, ...). Defaults to `extension`. |
 | `accepts` | Media kinds (`image`, `video`, `audio`) the tool can open. |
 | `handles` | Edit actions the tool claims, for the History and Library shortcuts. |

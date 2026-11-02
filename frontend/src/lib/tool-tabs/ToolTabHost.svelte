@@ -64,7 +64,7 @@
 			<div class="flex max-w-sm flex-col items-center rounded-lg border border-line bg-surface-1 px-8 py-10 text-center" data-testid="tool-tab-unavailable">
 				<Icon name="extension" className="mb-3 h-8 w-8 text-fg-subtle" strokeWidth={1.5} />
 				<h2 class="text-sm font-semibold text-fg">This tool isn't available</h2>
-				<p class="mt-1 text-sm text-fg-muted">The plugin that adds it is off or was removed. The tab keeps its edits until you close it.</p>
+				<p class="mt-1 text-sm text-fg-muted">It was turned off or removed. The tab keeps its edits until you close it.</p>
 			</div>
 		</div>
 	{:else}

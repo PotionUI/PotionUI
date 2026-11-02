@@ -66,22 +66,23 @@ describe('the phone Tabs sheet', () => {
 		expect(document.body.querySelectorAll('button[aria-label^="Close "]')).toHaveLength(3);
 	});
 
-	it('offers Generation, Image editor and Video editor, then plugin kinds', async () => {
+	it('offers Generation, Image editor and Video editor, then plugin kinds as plain buttons', async () => {
 		const off = registerToolKind({ tool: 'acme.stamp', label: 'Stamp tool', icon: 'brush', accepts: ['image'], pluginId: 'acme' });
 		try {
 			mountSheet();
 			await settle();
 			expect(newButtons().map((b) => b.textContent?.trim())).toEqual(['Generation', 'Image editor', 'Video editor', 'Stamp tool']);
-			expect(document.body.textContent).not.toContain('Tools that plugins add show up here too.');
+			expect(document.body.textContent).not.toMatch(/plugin/i);
 		} finally {
 			off();
 		}
 	});
 
-	it('says where plugin tools will appear when there are none', async () => {
+	it('says nothing about plugins when there are none', async () => {
 		mountSheet();
 		await settle();
-		expect(document.body.textContent).toContain('Tools that plugins add show up here too.');
+		expect(newButtons().map((b) => b.textContent?.trim())).toEqual(['Generation', 'Image editor', 'Video editor']);
+		expect(document.body.textContent).not.toMatch(/plugin/i);
 	});
 
 	it('opens an empty Image editor tab and closes', async () => {

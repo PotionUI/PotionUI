@@ -570,3 +570,31 @@ def test_the_refs_mode_has_its_own_llm_guide(h3_template):
     # the prompt against these numbers, and they are per-picker positions.
     for label in ("<Picture 1>", "<Video 1>", "<Audio 1>"):
         assert label in guide
+
+
+def _reference_mods_configs(pipes) -> list:
+    return [pipe["config"]["reference_mods"] for pipe in pipes if "reference_mods" in (pipe.get("config") or {})]
+
+
+def test_reference_mod_copies_reach_every_consumer(h3_template):
+    pipes = _process(h3_template, {"reference_mods": [
+        {"model": "/models/refmods/hero.safetensors", "strength": 0.5, "copies": 3},
+        {"model": "/models/refmods/set.safetensors", "strength": 1.0},
+    ]})
+    configs = _reference_mods_configs(pipes)
+    assert len(configs) >= 2
+    assert _pipe(pipes, "generator/video_minimax_h3")["config"]["reference_mods"] in configs
+    assert any(pipe["name"] == "prompt_encoder" and "reference_mods" in pipe["config"] for pipe in pipes)
+    for entries in configs:
+        assert [int(entry["copies"]) for entry in entries] == [3, 1]
+        assert [entry["file_path"] for entry in entries] == [
+            "/models/refmods/hero.safetensors", "/models/refmods/set.safetensors",
+        ]
+
+
+def test_the_reference_mod_picker_offers_copies_starting_at_one(h3_template):
+    field = _named_field(h3_template, "references", "reference_mods")
+    copies = next(row for row in field["configuration"]["row_fields"] if row["name"] == "copies")
+    assert copies["type"] == "number"
+    assert copies["default"] == 1
+    assert copies["configuration"]["min"] == 1

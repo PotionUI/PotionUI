@@ -223,5 +223,17 @@ def load_refmods(entries: Sequence[Mapping[str, Any]] | None) -> list[RefMod]:
         strength = float(entry.get("strength", 1.0))
         if strength <= 0:
             continue
-        mods.extend(_load_bundle(file_path, strength))
+        mods.extend(_load_bundle(file_path, strength) * _copies(entry.get("copies"), file_path))
     return mods
+
+
+def _copies(value: Any, file_path: str) -> int:
+    if value is None or value == "":
+        return 1
+    try:
+        copies = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"RefMod {file_path!r}: copies must be a whole number, got {value!r}") from error
+    if not copies.is_integer() or copies < 1:
+        raise ValueError(f"RefMod {file_path!r}: copies must be a whole number of at least 1, got {value!r}")
+    return int(copies)

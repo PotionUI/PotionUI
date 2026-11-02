@@ -245,3 +245,80 @@ def test_missing_tensor_for_a_declared_member_is_a_clear_error(tmp_path):
     )
     with pytest.raises(ValueError, match="ref_1"):
         load_refmods([{"file_path": path, "strength": 1.0}])
+
+
+def _single_image_bundle(tmp_path, name: str = "b") -> str:
+    return _write_bundle(
+        tmp_path / f"{name}.safetensors", {"ref_0": _visual_tensor(), "ref_1": _audio_tensor()},
+        {
+            "kind": "bundle", "name": name,
+            "members": [{"kind": "image", "name": f"{name}-img"}, {"kind": "audio", "name": f"{name}-aud"}],
+        },
+    )
+
+
+def test_copies_repeat_the_whole_entry_in_member_order(tmp_path):
+    path = _single_image_bundle(tmp_path)
+    mods = load_refmods([{"file_path": path, "strength": 1.0, "copies": 3}])
+    assert [m.name for m in mods] == ["b-img", "b-aud"] * 3
+    torch.testing.assert_close(mods[4].latent, mods[0].latent, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("copies", [None, "", 1, "1", 1.0])
+def test_missing_or_single_copies_load_the_entry_once(tmp_path, copies):
+    path = _single_image_bundle(tmp_path)
+    assert len(load_refmods([{"file_path": path, "strength": 1.0, "copies": copies}])) == 2
+
+
+def test_copies_given_as_text_from_a_template_are_read_as_a_count(tmp_path):
+    path = _single_image_bundle(tmp_path)
+    assert len(load_refmods([{"file_path": path, "strength": 1.0, "copies": "2"}])) == 4
+
+
+def test_copies_stay_in_their_entry_position(tmp_path):
+    first = _single_image_bundle(tmp_path, "a")
+    second = _single_image_bundle(tmp_path, "c")
+    mods = load_refmods([
+        {"file_path": first, "strength": 1.0, "copies": 2},
+        {"file_path": second, "strength": 1.0},
+    ])
+    assert [m.name for m in mods] == ["a-img", "a-aud", "a-img", "a-aud", "c-img", "c-aud"]
+
+
+def test_copies_carry_the_entry_strength(tmp_path):
+    path = _single_image_bundle(tmp_path)
+    mods = load_refmods([{"file_path": path, "strength": 0.5, "copies": 2}])
+    torch.testing.assert_close(mods[2].latent, apply_strength(_visual_tensor(), 0.5), rtol=0, atol=0)
+    assert {m.strength for m in mods} == {0.5}
+
+
+def test_a_dropped_entry_contributes_no_copies(tmp_path):
+    path = _single_image_bundle(tmp_path)
+    assert load_refmods([{"file_path": path, "strength": 0.0, "copies": 4}]) == []
+
+
+@pytest.mark.parametrize("copies", [0, -1, 1.5, "two"])
+def test_invalid_copies_are_a_clear_error(tmp_path, copies):
+    path = _single_image_bundle(tmp_path)
+    with pytest.raises(ValueError, match="copies"):
+        load_refmods([{"file_path": path, "strength": 1.0, "copies": copies}])
+
+
+def test_copies_count_toward_the_per_kind_reference_limit(tmp_path):
+    from src.pipelines.pipes._shared.generation.reference_order import pack_references
+    from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
+        MAX_IMAGE_REFERENCES,
+        ReferenceMedia,
+        validate_references,
+    )
+
+    path = _write_bundle(
+        tmp_path / "img.safetensors", {"ref_0": _visual_tensor()},
+        {"kind": "bundle", "name": "img", "members": [{"kind": "image", "name": "img"}]},
+    )
+    mods = load_refmods([{"file_path": path, "strength": 1.0, "copies": MAX_IMAGE_REFERENCES + 1}])
+    packed = pack_references([], [], [], mods=mods)
+    assert len(packed) == MAX_IMAGE_REFERENCES + 1
+    references = [ReferenceMedia(kind="image", latent=mod.latent) for mod in mods]
+    with pytest.raises(ValueError, match=f"at most {MAX_IMAGE_REFERENCES} image references"):
+        validate_references(references)

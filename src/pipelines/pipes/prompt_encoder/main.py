@@ -158,7 +158,7 @@ class PromptEncoderPipe(BasePipe):
                           required=False),
             PipeConfigSpec("reference_mods", list, [], "MiniMax-H3 RefMod bundles (`_shared.generation."
                           "refmods`), mirrored from the generator pipe's own 'reference_mods' -- a list of "
-                          "`{file_path, strength}` dicts. Packed by the SAME `pack_references` call, after "
+                          "`{file_path, strength, copies}` dicts. Packed by the SAME `pack_references` call, after "
                           "every native reference of a mod's own kind, so its presentation label numbers "
                           "the same as the generator's reference block. An image or video mod is VAE-"
                           "decoded to pixels via the 'vae' input before being presented; an audio mod "

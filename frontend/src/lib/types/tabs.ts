@@ -404,6 +404,8 @@ export interface ToolTabHint {
 	effect?: string;
 	orientation?: 'rotate' | 'flip';
 	sendTo?: { tabId: string; field: string };
+	detect?: boolean;
+	suggestSlice?: boolean;
 }
 
 export interface ToolTab extends TabBase {

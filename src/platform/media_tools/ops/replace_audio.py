@@ -21,7 +21,7 @@ from src.platform.media_tools.types import (
 SPEC = dict(
     id="replace_audio",
     label="Replace audio",
-    icon="audio",
+    icon="editor-music",
     accepts=("video",),
     produces="same",
     cardinality="one_to_one",

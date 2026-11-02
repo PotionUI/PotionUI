@@ -79,3 +79,32 @@ export function libraryItemMetaParts(item: LibraryItemLike): string[] {
 	}
 	return parts;
 }
+
+export interface SliceOrigin {
+	sourceName: string;
+	index: number;
+	count: number;
+	sourceItemId: string | null;
+	generationFileId: string | null;
+}
+
+export function sliceOrigin(provenance: unknown): SliceOrigin | null {
+	const slice = provenance && typeof provenance === 'object' ? (provenance as Record<string, unknown>).slice : null;
+	if (!slice || typeof slice !== 'object') return null;
+	const record = slice as Record<string, unknown>;
+	const index = typeof record.index === 'number' && Number.isInteger(record.index) && record.index >= 0 ? record.index : null;
+	if (index === null) return null;
+	const count = typeof record.count === 'number' && record.count > index ? record.count : index + 1;
+	const name = typeof record.source_name === 'string' && record.source_name.trim() ? record.source_name.trim() : 'a sheet';
+	return {
+		sourceName: name.replace(/\.[a-z0-9]{2,5}$/i, ''),
+		index,
+		count,
+		sourceItemId: typeof record.source_item_id === 'string' ? record.source_item_id : null,
+		generationFileId: record.generation_file_id !== undefined && record.generation_file_id !== null ? String(record.generation_file_id) : null
+	};
+}
+
+export function sliceOriginLabel(origin: SliceOrigin): string {
+	return `From ${origin.sourceName} · cell ${origin.index + 1} of ${origin.count}`;
+}

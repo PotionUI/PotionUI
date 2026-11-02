@@ -306,6 +306,7 @@ describe('the Edit and Effects groups', () => {
 			'rotate',
 			'flip',
 			'fit_canvas',
+			'slice_sheet',
 			'color_key',
 			'crop_subject'
 		]);

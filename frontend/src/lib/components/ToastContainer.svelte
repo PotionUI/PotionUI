@@ -71,16 +71,28 @@
 					<p class="text-[12.5px] font-medium leading-snug text-fg">{toastDisplayTitle(toast)}</p>
 				{/if}
 				{#if showsMessage(toast)}
-					<p class="mt-px text-xs leading-[1.4] text-fg-muted whitespace-pre-line">{toast.message}</p>
+					<p class="mt-px text-sm leading-[1.4] text-fg-muted whitespace-pre-line">{toast.message}</p>
 				{/if}
-				{#if toast.action}
+				{#if toast.action || toast.actions?.length}
 					<div class="mt-2 flex items-center gap-2">
-						<button
-							class="rounded px-[9px] py-[3px] text-[11px] font-medium bg-accent text-accent-contrast"
-							onclick={toast.action.onClick}
-						>
-							{toast.action.label}
-						</button>
+						{#if toast.action}
+							<button
+								class="whitespace-nowrap rounded px-[9px] py-[3px] text-sm font-medium bg-accent text-accent-contrast"
+								onclick={toast.action.onClick}
+								data-toast-action
+							>
+								{toast.action.label}
+							</button>
+						{/if}
+						{#each toast.actions ?? [] as action (action.label)}
+							<button
+								class="whitespace-nowrap rounded border border-line-strong bg-surface-3 px-[9px] py-[2px] text-sm font-medium text-fg hover:border-line-hover"
+								onclick={action.onClick}
+								data-toast-action
+							>
+								{action.label}
+							</button>
+						{/each}
 					</div>
 				{/if}
 				{#if toast.duration && toast.duration > 0}
@@ -102,7 +114,7 @@
 
 	{#if capped.overflowCount > 0}
 		<div
-			class="pointer-events-auto self-end rounded border border-line-strong bg-surface-1 px-2 py-[3px] font-mono text-[10px] tracking-[0.04em] text-fg-subtle"
+			class="pointer-events-auto self-end rounded border border-line-strong bg-surface-1 px-2 py-[3px] font-mono text-sm tracking-[0.04em] text-fg-subtle"
 		>
 			+{capped.overflowCount} more
 		</div>

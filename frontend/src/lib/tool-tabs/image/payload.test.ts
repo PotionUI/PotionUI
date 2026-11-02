@@ -172,6 +172,7 @@ describe('stack to run steps', () => {
 		expect(runBody(steps, { item_id: 'lib-1' }, 'new')).toEqual({ steps, inputs: [{ item_id: 'lib-1' }], output: { mode: 'new' } });
 		expect(runBody(steps, { generation_file_id: '7' }, 'update', 'copy-1').output).toEqual({ mode: 'update', target_item_id: 'copy-1' });
 		expect(runBody(steps, { item_id: 'lib-1' }, 'replace').output).toEqual({ mode: 'replace' });
+		expect(runBody(steps, { item_id: 'lib-1' }, 'new', null, 'col-9').output).toEqual({ mode: 'new', collection_id: 'col-9' });
 	});
 });
 
@@ -236,7 +237,7 @@ describe('rail', () => {
 		expect(editorCatalogTools(catalog).map((entry) => entry.id)).toEqual(['pixel.sort']);
 		const rail = imageRail(catalog);
 		expect(rail.map((group) => [group.label, group.tools.map((entry) => entry.label)])).toEqual([
-			['Shape', ['Crop', 'Resize', 'Canvas']],
+			['Shape', ['Crop', 'Resize', 'Canvas', 'Slice']],
 			['Paint', ['Paint', 'Mask']],
 			['Look', ['Effects']],
 			['Tools', ['Color key', 'Subject', 'Pixel sort']]

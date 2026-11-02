@@ -30,6 +30,8 @@
 		downloadFormat,
 		copyLabel,
 		saving = null,
+		saveLabel = null,
+		menuRows,
 		phone = false,
 		saveMenuOpen = $bindable(false),
 		moreItems = [],
@@ -60,6 +62,8 @@
 		downloadFormat?: string;
 		copyLabel?: string;
 		saving?: SavingProgress | null;
+		saveLabel?: string | null;
+		menuRows?: Snippet<[(action: SaveAction) => void]>;
 		phone?: boolean;
 		saveMenuOpen?: boolean;
 		moreItems?: MenuItem[];
@@ -72,7 +76,7 @@
 		onmore?: (id: string) => void;
 	} = $props();
 
-	let primaryLabel = $derived(saved ? 'Save' : 'Save as new');
+	let primaryLabel = $derived(saveLabel ?? (saved ? 'Save' : 'Save as new'));
 	let percent = $derived(saving ? Math.max(0, Math.min(100, Math.round(saving.percent))) : 0);
 	let undoText = $derived(undoLabel ? `Undo ${undoLabel}` : 'Undo');
 	let redoText = $derived(redoLabel ? `Redo ${redoLabel}` : 'Redo');
@@ -88,16 +92,20 @@
 </script>
 
 {#snippet rows(pick: (action: SaveAction) => void)}
-	<SaveMenuRows
-		{saved}
-		{replace}
-		{sendTargets}
-		{newGeneration}
-		{newGenerationHint}
-		{downloadFormat}
-		{copyLabel}
-		onchoose={pick}
-	/>
+	{#if menuRows}
+		{@render menuRows(pick)}
+	{:else}
+		<SaveMenuRows
+			{saved}
+			{replace}
+			{sendTargets}
+			{newGeneration}
+			{newGenerationHint}
+			{downloadFormat}
+			{copyLabel}
+			onchoose={pick}
+		/>
+	{/if}
 {/snippet}
 
 {#snippet history()}
@@ -137,7 +145,7 @@
 				onclick={() => (saveMenuOpen = true)}
 				attrs={{ 'data-frame-save': '' }}
 			>
-				Save<Icon name="chevron-down" className="h-3.5 w-3.5" />
+				{saveLabel ?? 'Save'}<Icon name="chevron-down" className="h-3.5 w-3.5" />
 			</Button>
 		{/if}
 	</div>
@@ -191,6 +199,7 @@
 				class="inline-flex h-8 flex-none items-center gap-2 rounded border border-line-strong bg-surface-2 px-2.5"
 				data-frame-saving
 			>
+				{#if saving.caption}<span class="whitespace-nowrap text-sm text-fg" data-frame-saving-caption>{saving.caption}</span>{/if}
 				<TickProgress percent={saving.percent} label={saving.label ?? 'Saving'} />
 				<span class="font-mono text-sm tabular-nums text-fg">{percent}%</span>
 			</span>

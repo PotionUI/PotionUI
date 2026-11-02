@@ -16,7 +16,9 @@ import { adjustRecipeStep, type CropParams, type EffectParams, type PaintParams,
 export const FULL_SIDE = 8192;
 export const PREVIEW_SIDE = 1600;
 
-const CLIENT_TOOLS = new Set(['crop', 'resize', 'paint', 'effects']);
+const CLIENT_TOOLS = new Set(['crop', 'resize', 'paint', 'effects', 'slice']);
+
+const drawn = (step: Pick<EditStep, 'tool' | 'hidden'>) => !step.hidden && step.tool !== 'slice';
 
 export function isClientStep(step: Pick<EditStep, 'tool'>): boolean {
 	return CLIENT_TOOLS.has(step.tool);
@@ -190,7 +192,7 @@ function waitFor<T>(promise: Promise<T>, signal: AbortSignal | undefined, onAbor
 }
 
 export function stepsKey(steps: readonly EditStep[]): string {
-	return JSON.stringify(steps.filter((step) => !step.hidden).map((step) => [step.tool, step.params]));
+	return JSON.stringify(steps.filter(drawn).map((step) => [step.tool, step.params]));
 }
 
 export function sourceKey(source: RenderSource): string {
@@ -256,7 +258,7 @@ export class ImageRenderer {
 
 	async render(steps: readonly EditStep[], options: RenderOptions = {}): Promise<Rendered> {
 		const maxSide = options.maxSide ?? PREVIEW_SIDE;
-		const visible = steps.filter((step) => !step.hidden);
+		const visible = steps.filter(drawn);
 		let serverAt = -1;
 		visible.forEach((step, i) => {
 			if (!isClientStep(step)) serverAt = i;

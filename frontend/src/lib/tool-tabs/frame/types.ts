@@ -34,11 +34,13 @@ export interface ReplaceOption {
 export interface SavingProgress {
 	percent: number;
 	label?: string;
+	caption?: string;
 }
 
 export type SaveAction =
 	| { kind: 'save' }
 	| { kind: 'save-new' }
+	| { kind: 'save-sheet' }
 	| { kind: 'replace' }
 	| { kind: 'send'; target: string }
 	| { kind: 'new-generation' }

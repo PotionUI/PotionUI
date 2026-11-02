@@ -244,6 +244,25 @@ describe('listTools', () => {
 	});
 });
 
+describe('tool order', () => {
+	it('places a tool right after the one it names, whatever the registration order', () => {
+		registerMediaTool(tool('slice_sheet', 'edit', { after: 'fit_canvas' }));
+		registerMediaTool(tool('crop', 'edit'));
+		registerMediaTool(tool('fit_canvas', 'edit'));
+		registerMediaTool(tool('color_key', 'edit'));
+
+		expect(listTools().map((t) => t.id)).toEqual(['crop', 'fit_canvas', 'slice_sheet', 'color_key']);
+		expect(listToolGroups(emptyContext)[0].tools.map((entry) => entry.tool.id)).toEqual(['crop', 'fit_canvas', 'slice_sheet', 'color_key']);
+	});
+
+	it('keeps a tool whose anchor is missing at its registration spot', () => {
+		registerMediaTool(tool('slice_sheet', 'edit', { after: 'gone' }));
+		registerMediaTool(tool('crop', 'edit'));
+
+		expect(listTools().map((t) => t.id)).toEqual(['slice_sheet', 'crop']);
+	});
+});
+
 describe('listToolGroups', () => {
 	it('orders the declared categories and omits the empty ones', () => {
 		registerMediaTool(tool('export-zip', 'export'));

@@ -35,6 +35,14 @@ describe('lastToolFor', () => {
 		expect(JSON.parse(store.get(LAST_TOOL_STORAGE_KEY)!)).toEqual({ image: 'effects', video: 'speed' });
 	});
 
+	it('never remembers Slice, so E does not open a photo on a terminal tool', () => {
+		rememberTool('image', 'effects');
+		rememberTool('image', 'slice');
+		expect(lastToolFor('image')).toBe('effects');
+		store.set(LAST_TOOL_STORAGE_KEY, JSON.stringify({ image: 'slice' }));
+		expect(lastToolFor('image')).toBe('paint');
+	});
+
 	it('ignores a tool the editor does not have and a plugin tab', () => {
 		rememberTool('image', 'trim');
 		rememberTool('video', 'paint');

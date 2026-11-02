@@ -30,6 +30,7 @@ export interface LibraryItem {
 	is_favorite?: boolean;
 	has_alpha?: boolean | null;
 	source_generation_id?: string | null;
+	provenance?: Record<string, unknown> | null;
 }
 
 export interface LibraryItemTag {

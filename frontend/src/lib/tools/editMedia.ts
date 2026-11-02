@@ -19,3 +19,8 @@ export function applyLookAvailability(ctx: MediaToolContext): MediaToolAvailabil
 	}
 	return { enabled: true };
 }
+
+export function sliceSheetAvailability(ctx: MediaToolContext): MediaToolAvailability {
+	if (ctx.items.length === 0 || ctx.items.some((item) => item.kind !== 'image')) return { enabled: false, hidden: true };
+	return { enabled: true };
+}

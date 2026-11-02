@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { onDestroy, onMount, untrack } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import Icon from '$lib/components/Icon.svelte';
 	import SliderField from '$lib/components/form-fields/SliderField.svelte';
 	import { pickFromUpload } from '$lib/components/form-fields/mediaLoaderPicks';
 	import { canvasToPngFile } from '$lib/components/imageEditor/flatten';
 	import type { PaintSession, SessionSnapshot } from '$lib/components/imageEditor/session';
-	import { Button, SegmentedControl, Spinner } from '$lib/components/ui';
+	import { Button, IconButton, SegmentedControl, Spinner } from '$lib/components/ui';
 	import {
 		CanvasChip,
 		EditStack,
@@ -87,6 +88,7 @@
 		lookDraft,
 		paintDraft,
 		resizeDraft,
+		sliceDraft,
 		toolMeta,
 		type CatalogParams,
 		type CropParams,
@@ -97,6 +99,39 @@
 	import { mediaFileStem } from '$lib/tool-tabs/sources';
 	import type { ToolTabHost } from '$lib/tool-tabs/types';
 	import { isGenerationTab, type GenerationTab, type MediaRef } from '$lib/types/tabs';
+	import { analyseImage, detectPanels, type Analysis, type Rect } from '$lib/tool-tabs/image/slice/detect';
+	import { cropCanvas as sliceCrop, zipStore } from '$lib/tool-tabs/image/slice/crops';
+	import {
+		detectCells,
+		emptyHistory,
+		emptySlice,
+		gridCells,
+		hexColor,
+		kept,
+		maxOverlap,
+		mergeCells,
+		numbering,
+		outputNames,
+		outputSize as cellOutputSize,
+		record,
+		redoSlice,
+		renameCell,
+		reorderKept,
+		splitCell,
+		toggleSkip,
+		deleteCell,
+		undoSlice,
+		type Cell,
+		type SliceHistory,
+		type SliceParams
+	} from '$lib/tool-tabs/image/slice/model';
+	import { referenceFieldsOf, referencePatch, referenceTargetsFor, type ReferenceField, type ReferenceTarget } from '$lib/tool-tabs/image/slice/references';
+	import { handOffToNewTab } from '$lib/tool-tabs/image/slice/handoff';
+	import { activeSlice, canMoveWithSlice, isSlice, sliceLast, withoutSlice } from '$lib/tool-tabs/image/slice/stack';
+	import SliceOptions, { type NameRow } from './slice/SliceOptions.svelte';
+	import SliceOverlay from './slice/SliceOverlay.svelte';
+	import SliceSaveRows from './slice/SliceSaveRows.svelte';
+	import SliceStrip, { type StripItem } from './slice/SliceStrip.svelte';
 	import CatalogToolOptions from './CatalogToolOptions.svelte';
 	import CropOptions, { aspectLabel, IMAGE_ASPECTS } from './CropOptions.svelte';
 	import CropOverlay from './CropOverlay.svelte';
@@ -107,7 +142,7 @@
 	import PaintStage from './PaintStage.svelte';
 	import ResizeOptions from './ResizeOptions.svelte';
 
-	type ImageHint = { look?: string; effect?: string; orientation?: 'rotate' | 'flip'; sendTo?: { tabId: string; field: string } };
+	type ImageHint = { look?: string; effect?: string; orientation?: 'rotate' | 'flip'; sendTo?: { tabId: string; field: string }; detect?: boolean; suggestSlice?: boolean };
 	type HintedHost = ToolTabHost & { readonly hint?: ImageHint | null; clearHint?: () => void };
 
 	let { host }: { host: ToolTabHost } = $props();
@@ -118,7 +153,7 @@
 	}
 
 	const initial = untrack(() => readImageState(host.state, knownTool(host.activeTool)));
-	let stack = $state.raw<EditStackState<unknown>>(initial.stack);
+	let stack = $state.raw<EditStackState<unknown>>(sliceLast(initial.stack));
 	let activeTool = $state<string | null>(knownTool(initial.activeTool));
 	let sendFirst = $state.raw<{ tabId: string; field: string } | null>(null);
 	let viewport = $state(initial.viewport);
@@ -163,6 +198,25 @@
 
 	let presetNames = $state<Record<string, string>>({});
 	let fieldsByTab = $state<Record<string, ImageField[]>>({});
+	let refFieldsByTab = $state<Record<string, ReferenceField[]>>({});
+
+	let sliceHistory = $state.raw<SliceHistory>(emptyHistory());
+	let sliceSelected = $state<string[]>([]);
+	let sliceTab = $state<'layout' | 'output'>('layout');
+	let sliceAdding = $state(false);
+	let sliceProgress = $state<{ done: number; total: number } | null>(null);
+	let sliceSavedKey = $state<string | null>(null);
+	let sliceItems = $state.raw<MediaToolItem[]>([]);
+	let referencesOnly = $state(false);
+	let detectWhenReady = $state(false);
+	let collections = $state<{ value: string; label: string }[]>([]);
+	let collectionsLoaded = false;
+	let sliceRunId: string | null = null;
+	let sliceThumbs = $state.raw<Map<string, string>>(new Map());
+	const SLICE_COLLECTION_KEY = 'potionui_slice_collection';
+	const SLICE_HINT_KEY = 'potionui_slice_hint_dismissed';
+	let sliceSuggest = $state(false);
+	let sliceHintGone = $state(false);
 
 	onMount(() => {
 		void loadMediaToolCatalog().catch(() => undefined);
@@ -202,7 +256,7 @@
 	);
 
 	let cropParams = $derived<CropParams>((pendingHere?.tool === 'crop' ? (pendingHere.params as CropParams) : null) ?? { plan: EMPTY_IMAGE_PLAN, aspect: 'free' });
-	let catalogTool = $derived(activeTool && !['crop', 'resize', 'paint', 'mask', 'effects'].includes(activeTool) ? catalog.find((tool) => tool.id === (CATALOG_TOOL[activeTool!] ?? activeTool)) ?? null : null);
+	let catalogTool = $derived(activeTool && !['crop', 'resize', 'paint', 'mask', 'effects', 'slice'].includes(activeTool) ? catalog.find((tool) => tool.id === (CATALOG_TOOL[activeTool!] ?? activeTool)) ?? null : null);
 	let catalogValues = $derived<Record<string, unknown>>(
 		pendingHere && catalogTool ? ((pendingHere.params as CatalogParams).values ?? {}) : catalogTool ? initialValues(catalogTool) : {}
 	);
@@ -212,6 +266,95 @@
 	let beforeList = $derived(mode === 'preview' && compare ? (pending ? beforeSteps(stack) : []) : null);
 	let thumbList = $derived(activeTool === 'effects' ? (pending ? beforeSteps(stack) : effective) : null);
 	let paintList = $derived(mode === 'paint' ? (pendingHere?.tool === 'paint' ? stepsBeforeTarget : effective) : null);
+
+	let appliedSlice = $derived(appliedSteps(stack).find(isSlice) ?? null);
+	let sliceParams = $derived<SliceParams>(
+		(pendingHere?.tool === 'slice' ? (pendingHere.params as SliceParams) : null) ??
+			(activeTool === 'slice' && appliedSlice ? (appliedSlice.params as SliceParams) : null) ??
+			{ ...emptySlice(stem), collection: collections.some((entry) => entry.value === storedCollection()) ? storedCollection() : null }
+	);
+	let sliceInStack = $derived(activeSlice(stack));
+	let saveSlice = $derived.by<SliceParams | null>(() => {
+		if (!sliceInStack) return null;
+		const params = (sliceInStack.pending ? stack.pending!.params : sliceInStack.step!.params) as SliceParams;
+		return kept(params.cells).length ? params : null;
+	});
+	let sliceCount = $derived(saveSlice ? kept(saveSlice.cells).length : 0);
+	let sliceKey = $derived(saveSlice ? JSON.stringify([kept(saveSlice.cells), saveSlice.output, saveSlice.pattern, saveSlice.collection]) : null);
+	let sliceSaved = $derived(!!sliceKey && sliceKey === sliceSavedKey);
+	let sliceLogical = $derived(mainRender?.size ?? sourceSize ?? { width: 1, height: 1 });
+	let sliceAnalysis = $derived.by<Analysis | null>(() => {
+		if (activeTool !== 'slice' || !mainRender) return null;
+		try {
+			return analyseImage(mainRender.canvas, sliceParams.output.tolerance);
+		} catch {
+			return null;
+		}
+	});
+	let sliceNumbers = $derived(numbering(sliceParams.cells));
+	let sliceNames = $derived(outputNames(sliceParams.cells, sliceParams.pattern, sliceParams.sheet || stem));
+	let sliceSizes = $derived(new Map(sliceParams.cells.map((cell) => [cell.id, cellOutputSize(sliceAnalysis, cell, sliceParams.output, sliceLogical)])));
+	let sliceStates = $derived.by(() => {
+		const map = new Map<string, 'done' | 'saving' | 'queued'>();
+		const list = kept(sliceParams.cells);
+		if (sliceProgress) list.forEach((cell, i) => map.set(cell.id, i < sliceProgress!.done ? 'done' : i === sliceProgress!.done ? 'saving' : 'queued'));
+		else if (sliceSaved) list.forEach((cell) => map.set(cell.id, 'done'));
+		return map;
+	});
+	let slicePadding = $derived.by(() => {
+		if (sliceTab !== 'output' || !sliceParams.output.padding || !sliceSelected.length) return null;
+		const map = new Map<string, Rect>();
+		const px = sliceParams.output.padding / Math.max(1, sliceLogical.width);
+		const py = sliceParams.output.padding / Math.max(1, sliceLogical.height);
+		for (const id of sliceSelected) {
+			const size = sliceSizes.get(id);
+			if (size) map.set(id, { x0: size.rect.x0 - px, y0: size.rect.y0 - py, x1: size.rect.x1 + px, y1: size.rect.y1 + py });
+		}
+		return map;
+	});
+	let sliceNameRows = $derived<NameRow[]>(
+		[...kept(sliceParams.cells), ...sliceParams.cells.filter((cell) => cell.skip)].map((cell) => ({
+			id: cell.id,
+			n: sliceNumbers.get(cell.id) ?? '—',
+			name: sliceNames.get(cell.id) ?? '',
+			typed: !!cell.name,
+			thumb: sliceThumbs.get(cell.id) ?? null,
+			skip: !!cell.skip
+		}))
+	);
+	let sliceStrip = $derived<StripItem[]>(
+		kept(sliceParams.cells).map((cell) => ({
+			id: cell.id,
+			n: sliceNumbers.get(cell.id) ?? '',
+			thumb: sliceThumbs.get(cell.id) ?? null,
+			width: sliceSizes.get(cell.id)?.width ?? 1,
+			height: sliceSizes.get(cell.id)?.height ?? 1,
+			state: sliceStates.get(cell.id) ?? null
+		}))
+	);
+	let sliceSkipped = $derived(sliceParams.cells.filter((cell) => cell.skip).map((cell) => ({ id: cell.id, thumb: sliceThumbs.get(cell.id) ?? null })));
+	let sliceDestination = $derived(collections.find((entry) => entry.value === saveSlice?.collection)?.label ?? 'Library');
+	let sliceFill = $derived(sliceAnalysis && !sliceAnalysis.transparent ? { hex: hexColor(sliceAnalysis.bg), rgb: sliceAnalysis.bg.join(' ') } : null);
+	let sliceLocked = $derived(!!sliceProgress);
+
+	let sourceKey = $derived(source ? (source.item_id ?? source.generation_file_id ?? source.artifact_id ?? source.url ?? source.path ?? '') : '');
+	let sheetPanels = $state(0);
+	let suggestedPanels = $derived(sliceSuggest && !sliceHintGone && activeTool !== 'slice' && !phone && !effective.length && !pending && sheetPanels >= 3 ? sheetPanels : 0);
+
+	$effect(() => {
+		const url = sourceUrl;
+		const key = sourceKey;
+		if (!sliceSuggest || !url || untrack(() => dismissedHints()).includes(key)) return;
+		let cancelled = false;
+		loadImage(url)
+			.then((image) => {
+				if (!cancelled) sheetPanels = detectPanels(analyseImage(image)).length;
+			})
+			.catch(() => undefined);
+		return () => {
+			cancelled = true;
+		};
+	});
 
 	let resizeInput = $derived(mode === 'preview' && activeTool === 'resize' ? (outputSize(pendingHere?.tool === 'resize' ? stepsBeforeTarget : effective, sourceSize) ?? sourceSize) : null);
 	let resizeParams = $derived<ResizeParams | null>(
@@ -226,14 +369,19 @@
 	let outputDims = $derived(outputSize(effective, sourceSize));
 
 	let paintUndo = $derived(mode === 'paint' && paintState?.canUndo ? paintState : null);
-	let undoText = $derived(paintUndo ? (paintUndo.undoLabel ?? 'stroke') : undoLabel(stack));
-	let canUndoNow = $derived(!!paintUndo || canUndo(stack));
-	let canRedoNow = $derived(mode === 'paint' && paintState?.canRedo ? true : canRedo(stack));
-	let redoText = $derived(mode === 'paint' && paintState?.canRedo ? (paintState.redoLabel ?? 'stroke') : redoLabel(stack));
-	let canSave = $derived(!!source && !!resolvedRef && !saving && !busy && (effective.length > 0 || !!pending || mode === 'paint'));
+	let sliceUndo = $derived(activeTool === 'slice' && sliceHistory.past.length ? sliceHistory.labels[sliceHistory.labels.length - 1] || 'slice edit' : null);
+	let sliceRedo = $derived(activeTool === 'slice' && sliceHistory.future.length ? sliceHistory.futureLabels[0] || 'slice edit' : null);
+	let undoText = $derived(paintUndo ? (paintUndo.undoLabel ?? 'stroke') : (sliceUndo ?? undoLabel(stack)));
+	let canUndoNow = $derived(!!paintUndo || !!sliceUndo || canUndo(stack));
+	let canRedoNow = $derived(mode === 'paint' && paintState?.canRedo ? true : !!sliceRedo || canRedo(stack));
+	let redoText = $derived(mode === 'paint' && paintState?.canRedo ? (paintState.redoLabel ?? 'stroke') : (sliceRedo ?? redoLabel(stack)));
+	let canSave = $derived(
+		!!source && !!resolvedRef && !saving && !busy && (referencesOnly || !(saveSlice && sliceSaved)) && (effective.length > 0 || !!pending || mode === 'paint')
+	);
 
 	let generationTabs = $derived($tabsStore.tabs.filter(isGenerationTab));
 	let tabFormKey = $derived(generationTabs.map((tab) => `${tab.id}|${tab.selectedPreset}|${tab.selectedMode}|${tab.selectedVariant ?? ''}`).join(','));
+	let referenceTargets = $derived<ReferenceTarget[]>(referenceTargetsFor(generationTabs, refFieldsByTab, presetNames, sliceCount || sliceItems.length));
 	let sendTargets = $derived(sendTargetsFor(generationTabs, fieldsByTab, presetNames, !!liveMaskNow, sendFirst));
 
 	let sourceInfo = $derived(
@@ -295,6 +443,55 @@
 	});
 
 	$effect(() => {
+		const next = sliceLast(stack);
+		if (next !== stack) stack = next;
+	});
+
+	$effect(() => {
+		if (!saveMenuOpen && referencesOnly) referencesOnly = false;
+	});
+
+	$effect(() => {
+		if (activeTool !== 'slice' || collectionsLoaded) return;
+		collectionsLoaded = true;
+		void api
+			.listCollections('library')
+			.then((response) => {
+				if (response.success && response.data) collections = response.data.collections.map((entry) => ({ value: entry.id, label: entry.name }));
+			})
+			.catch(() => undefined);
+	});
+
+	$effect(() => {
+		if (!detectWhenReady || activeTool !== 'slice' || !sliceAnalysis) return;
+		untrack(() => {
+			detectWhenReady = false;
+			runDetect();
+		});
+	});
+
+	$effect(() => {
+		const canvas = mainRender?.canvas ?? null;
+		const an = sliceAnalysis;
+		const cells = sliceParams.cells;
+		const output = sliceParams.output;
+		const logical = sliceLogical;
+		if (activeTool !== 'slice' || !canvas || !cells.length) return;
+		const timer = setTimeout(() => {
+			const next = new Map<string, string>();
+			for (const cell of cells) {
+				try {
+					next.set(cell.id, sliceCrop(canvas, an, cell, output, logical, 160).toDataURL('image/png'));
+				} catch {
+					continue;
+				}
+			}
+			sliceThumbs = next;
+		}, 120);
+		return () => clearTimeout(timer);
+	});
+
+	$effect(() => {
 		const wanted = knownTool(host.activeTool);
 		untrack(() => {
 			if (wanted && wanted !== activeTool) void selectTool(wanted);
@@ -311,6 +508,12 @@
 	async function consumeHint(hint: ImageHint) {
 		(host as HintedHost).clearHint?.();
 		if (hint.sendTo) sendFirst = hint.sendTo;
+		if (hint.suggestSlice) sliceSuggest = true;
+		if (hint.detect) {
+			if (activeTool !== 'slice') await selectTool('slice');
+			detectWhenReady = true;
+			return;
+		}
 		if (hint.orientation) {
 			if (activeTool !== 'crop') await selectTool('crop');
 			const plan = hint.orientation === 'rotate' ? { ...EMPTY_IMAGE_PLAN, rotation: 90 as const } : { ...EMPTY_IMAGE_PLAN, flipHorizontal: true };
@@ -380,7 +583,7 @@
 		const actions = {
 			undo: { label: undoText ? `Undo ${undoText}` : 'Undo', disabled: !canUndoNow, run: doUndo },
 			redo: { label: redoText ? `Redo ${redoText}` : 'Redo', disabled: !canRedoNow, run: doRedo },
-			save: { label: 'Save', disabled: !canSave, run: () => (saveMenuOpen = true) }
+			save: { label: saveSlice ? (sliceSaved ? 'Saved' : `Save ${sliceCount}`) : 'Save', disabled: !canSave, run: () => (saveMenuOpen = true) }
 		};
 		untrack(() => host.setActions(actions));
 	});
@@ -392,7 +595,10 @@
 			if (!tab.selectedPreset || !tab.selectedMode) continue;
 			const id = tab.id;
 			loadPresetFormSchema(tab.selectedPreset, tab.selectedMode, tab.selectedVariant ?? undefined)
-				.then((schema) => (fieldsByTab = { ...fieldsByTab, [id]: imageFieldsOf(schema) }))
+				.then((schema) => {
+					fieldsByTab = { ...fieldsByTab, [id]: imageFieldsOf(schema) };
+					refFieldsByTab = { ...refFieldsByTab, [id]: referenceFieldsOf(schema) };
+				})
 				.catch(() => undefined);
 		}
 	});
@@ -477,6 +683,11 @@
 			return cropDraft(crop, aspectLabel(crop.aspect), planOutputSize(plan, input)) as StepDraft<unknown>;
 		}
 		if (tool === 'resize') return resizeDraft(params as ResizeParams) as StepDraft<unknown>;
+		if (tool === 'slice') {
+			const slice = params as SliceParams;
+			if (!slice.cells.length && !pending?.target) return null;
+			return sliceDraft(slice) as StepDraft<unknown>;
+		}
 		if (tool === 'effects') {
 			const effect = params as EffectParams;
 			if (effect.kind === 'look') return lookDraft(effect) as StepDraft<unknown>;
@@ -544,10 +755,18 @@
 		}
 	}
 
+	function landSlice() {
+		if (pending?.tool !== 'slice') return;
+		if ((pending.params as SliceParams).cells.length) return;
+		stack = pending.target ? remove(discardPending(stack), pending.target) : discardPending(stack);
+	}
+
 	async function leaveTool(): Promise<boolean> {
 		if (mode === 'paint') return landPaint();
 		if (mode === 'mask') return landMask();
-		if (pending) stack = apply(stack);
+		landSlice();
+		sliceAdding = false;
+		if (stack.pending) stack = sliceLast(apply(stack));
 		return true;
 	}
 
@@ -559,6 +778,8 @@
 		compare = false;
 		activeTool = id;
 		host.setActiveTool(id);
+		const existing = id === 'slice' ? appliedSteps(stack).find(isSlice) : null;
+		if (existing) stack = reopen(stack, existing.id);
 	}
 
 	async function reopenStep(id: string) {
@@ -576,6 +797,14 @@
 			paintSession.undo();
 			return;
 		}
+		if (sliceUndo && !sliceLocked) {
+			const back = undoSlice(sliceHistory, sliceParams);
+			if (back) {
+				sliceHistory = back.history;
+				writeSlice(back.params);
+				return;
+			}
+		}
 		stack = undo(stack);
 	}
 
@@ -584,7 +813,107 @@
 			paintSession.redo();
 			return;
 		}
+		if (sliceRedo && !sliceLocked) {
+			const forward = redoSlice(sliceHistory, sliceParams);
+			if (forward) {
+				sliceHistory = forward.history;
+				writeSlice(forward.params);
+				return;
+			}
+		}
 		stack = redo(stack);
+	}
+
+	function writeSlice(next: SliceParams) {
+		notice = null;
+		if (!pending && appliedSlice) stack = reopen(stack, appliedSlice.id);
+		setDraft('slice', next);
+	}
+
+	function setSlice(next: SliceParams, label?: string) {
+		if (sliceLocked) return;
+		if (label) sliceHistory = record(sliceHistory, sliceParams, label);
+		writeSlice({ ...next, sheet: next.sheet || stem });
+	}
+
+	function setCells(cells: Cell[], label?: string) {
+		setSlice({ ...sliceParams, cells }, label);
+	}
+
+	function setGrid(cols: number, rows: number) {
+		const c = Math.max(1, Math.min(12, Math.round(cols)));
+		const r = Math.max(1, Math.min(12, Math.round(rows)));
+		sliceSelected = [];
+		setSlice({ ...sliceParams, cells: gridCells(sliceAnalysis, c, r, sliceParams.layout.snap), layout: { ...sliceParams.layout, preset: `${c}x${r}`, cols: c, rows: r, detected: null } }, 'grid');
+	}
+
+	function runDetect() {
+		if (!sliceAnalysis) {
+			detectWhenReady = true;
+			return;
+		}
+		const result = detectCells(sliceAnalysis, sliceParams.layout.preset ? sliceParams.cells : []);
+		sliceSelected = [];
+		const merged = result.cells.find((cell) => cell.merged);
+		if (merged) sliceSelected = [merged.id];
+		setSlice({ ...sliceParams, cells: result.cells, layout: { ...sliceParams.layout, preset: null, detected: result.summary } }, 'detect');
+	}
+
+	function sliceCellAction(kind: 'split' | 'skip' | 'delete' | 'merge') {
+		const cells = sliceParams.cells;
+		const id = sliceSelected[0];
+		if (kind === 'merge' && sliceSelected.length > 1) {
+			setCells(mergeCells(cells, sliceSelected), 'merge');
+			sliceSelected = [sliceSelected[0]];
+		} else if (!id) return;
+		else if (kind === 'split') {
+			setCells(splitCell(cells, id, sliceAnalysis), 'split');
+			sliceSelected = [];
+		} else if (kind === 'skip') setCells(toggleSkip(cells, id), 'skip');
+		else if (kind === 'delete') {
+			setCells(deleteCell(cells, id), 'delete');
+			sliceSelected = [];
+		}
+	}
+
+	function dismissedHints(): string[] {
+		try {
+			const parsed = JSON.parse(localStorage.getItem(SLICE_HINT_KEY) ?? '[]');
+			return Array.isArray(parsed) ? parsed : [];
+		} catch {
+			return [];
+		}
+	}
+
+	function dismissSliceHint() {
+		sliceHintGone = true;
+		try {
+			localStorage.setItem(SLICE_HINT_KEY, JSON.stringify([...dismissedHints().filter((key) => key !== sourceKey), sourceKey].slice(-200)));
+		} catch {
+			return;
+		}
+	}
+
+	async function acceptSliceHint() {
+		sliceHintGone = true;
+		await selectTool('slice');
+		runDetect();
+	}
+
+	function storedCollection(): string | null {
+		try {
+			return localStorage.getItem(SLICE_COLLECTION_KEY);
+		} catch {
+			return null;
+		}
+	}
+
+	function rememberCollection(id: string | null) {
+		try {
+			if (id) localStorage.setItem(SLICE_COLLECTION_KEY, id);
+		} catch {
+			return;
+		}
 	}
 
 	async function applyTool() {
@@ -598,7 +927,9 @@
 			return;
 		}
 		if (!pending && catalogTool && activeTool) stack = beginEdit(stack, catalogDraft(activeTool, catalogValues, catalog) as StepDraft<unknown>);
-		if (stack.pending) stack = apply(stack);
+		landSlice();
+		sliceAdding = false;
+		if (stack.pending) stack = sliceLast(apply(stack));
 	}
 
 	function resetTool() {
@@ -613,6 +944,11 @@
 			paintKey += 1;
 			if (pending?.tool === 'paint' && !pending.target) stack = discardPending(stack);
 			return;
+		}
+		if (activeTool === 'slice') {
+			sliceSelected = [];
+			sliceAdding = false;
+			if (pending?.tool === 'slice') sliceHistory = record(sliceHistory, sliceParams, 'reset');
 		}
 		if (pending) stack = discardPending(stack);
 	}
@@ -633,7 +969,7 @@
 		const ref = resolvedRef;
 		if (!ref || saving) return;
 		if (!(await prepareSave())) return;
-		const steps = appliedSteps(stack);
+		const steps = withoutSlice(appliedSteps(stack));
 		if (!steps.some((step) => !step.hidden)) {
 			notice = 'There are no visible edits to save.';
 			return;
@@ -685,6 +1021,157 @@
 			stop?.();
 			saving = null;
 			host.setRun(null);
+		}
+	}
+
+	function newReferencesTab(items: readonly MediaToolItem[]) {
+		if (!items.length) return;
+		handOffToNewTab(items, `${stem} refs`, {
+			tabs: tabsStore,
+			loadSchema: loadPresetFormSchema,
+			oncommit: (tab, field, takes) =>
+				toasts.show('success', `${takes} ${takes === 1 ? 'image' : 'images'} in ${field.title}, ${tab.name}.`, { title: 'Sent as references' })
+		});
+		toasts.show('info', `Pick a preset with a references field. The ${items.length === 1 ? 'image goes' : `${items.length} images go`} into it.`, { title: 'New generation tab' });
+	}
+
+	async function runSliceSave(target: ReferenceTarget | 'new-tab' | null = null) {
+		const ref = resolvedRef;
+		if (!ref || saving) return;
+		if (!(await prepareSave())) return;
+		const steps = appliedSteps(stack);
+		const step = steps.find((candidate) => isSlice(candidate) && !candidate.hidden);
+		const params = step ? (step.params as SliceParams) : null;
+		const total = params ? kept(params.cells).length : 0;
+		if (!params || !total) return;
+		const key = JSON.stringify([kept(params.cells), params.output, params.pattern, params.collection]);
+		const caption = `Saving ${total} ${total === 1 ? 'image' : 'images'}`;
+		saving = { percent: 0, label: caption, caption };
+		sliceProgress = { done: 0, total };
+		let stop: (() => void) | null = null;
+		try {
+			const payload = await renderer.payload(steps);
+			const handle = await mediaToolRuns.start({
+				keys: [`tool-tab:${host.tabId}`],
+				toolId: 'slice',
+				label: 'Slice',
+				body: runBody(payload, ref, 'new', null, params.collection)
+			});
+			sliceRunId = handle.runId;
+			host.setRun({ runId: handle.runId, progress: 0 });
+			stop = mediaToolRuns.subscribe((runs) => {
+				const run = Object.values(runs).find((entry) => entry.runId === handle.runId);
+				if (!run) return;
+				saving = { percent: run.progress * 100, label: caption, caption };
+				sliceProgress = { done: Math.min(total, Math.floor(run.progress * total)), total };
+				host.setRun({ runId: handle.runId, progress: run.progress * 100 });
+			});
+			const outcome = await handle.done;
+			if (outcome.status !== 'completed') {
+				announceOutcome(outcome);
+				return;
+			}
+			sliceItems = outcome.items;
+			sliceSavedKey = key;
+			rememberCollection(params.collection);
+			if (target === 'new-tab') {
+				newReferencesTab(outcome.items);
+				return;
+			}
+			if (target) {
+				commitReferences(target, outcome.items);
+				return;
+			}
+			const where = collections.find((entry) => entry.value === params.collection)?.label;
+			const count = outcome.items.length;
+			toasts.show('success', where ? `Filed in ${where}. The sheet is kept.` : 'The sheet is kept.', {
+				title: `Saved ${count} ${count === 1 ? 'image' : 'images'} to Library`,
+				duration: 8000,
+				action: { label: 'Open in Library', onClick: () => void goto('/library') },
+				actions: [{ label: 'Use as references', onClick: useAsReferences }]
+			});
+		} catch (error) {
+			toasts.show('error', describeMediaToolFailure(error), { title: 'Save failed' });
+		} finally {
+			stop?.();
+			saving = null;
+			sliceProgress = null;
+			sliceRunId = null;
+			host.setRun(null);
+		}
+	}
+
+	function cancelSave() {
+		if (sliceRunId) void mediaToolRuns.cancelRun(sliceRunId);
+	}
+
+	function useAsReferences() {
+		if (!sliceItems.length) return;
+		const targets = referenceTargetsFor(get(tabsStore).tabs.filter(isGenerationTab), refFieldsByTab, presetNames, sliceItems.length);
+		if (targets.length === 1) {
+			commitReferences(targets[0], sliceItems);
+			return;
+		}
+		if (!targets.length) {
+			toasts.show('info', 'Open a generation tab with a references field, then try again.', { title: 'No references field' });
+			return;
+		}
+		referencesOnly = true;
+		saveMenuOpen = true;
+	}
+
+	function commitReferences(target: ReferenceTarget, items: readonly MediaToolItem[]) {
+		const tab = get(tabsStore).tabs.find((candidate): candidate is GenerationTab => candidate.id === target.tabId && isGenerationTab(candidate));
+		if (!tab) {
+			toasts.show('error', 'That generation tab is closed.', { title: 'Send failed' });
+			return;
+		}
+		const fresh = referenceTargetsFor([tab], refFieldsByTab, presetNames, items.length).find((entry) => entry.id === target.id);
+		const takes = fresh ? fresh.takes : 0;
+		if (!takes) {
+			toasts.show('error', `${target.field.title} has no free slots.`, { title: 'Send failed' });
+			return;
+		}
+		tabsStore.updateTab(tab.id, {
+			formData: { ...tab.formData, [target.field.name]: referencePatch(tab.formData?.[target.field.name], items, takes) },
+			formReloadGeneration: (tab.formReloadGeneration ?? 0) + 1
+		});
+		untrack(flushWrite);
+		tabsStore.setActiveTab(tab.id);
+		const note = takes < items.length ? ` The first ${takes} went in; all ${items.length} are in Library.` : '';
+		toasts.show('success', `${takes} ${takes === 1 ? 'image' : 'images'} in ${target.field.title}, ${tab.name}.${note}`, { title: 'Sent as references' });
+	}
+
+	async function downloadSlices() {
+		if (!(await prepareSave())) return;
+		const params = saveSlice;
+		if (!params) return;
+		busy = true;
+		try {
+			const rendered = await renderFull();
+			const an = analyseImage(rendered.canvas, params.output.tolerance);
+			const names = outputNames(params.cells, params.pattern, params.sheet || stem);
+			const files: { name: string; data: Uint8Array }[] = [];
+			const used = new Set<string>();
+			for (const cell of kept(params.cells)) {
+				const canvas = sliceCrop(rendered.canvas, an, cell, params.output, rendered.size, FULL_SIDE);
+				const file = await canvasToPngFile(canvas, 'cell.png');
+				let name = names.get(cell.id) ?? cell.id;
+				for (let n = 2; used.has(name); n++) name = `${names.get(cell.id)}-${n}`;
+				used.add(name);
+				files.push({ name: `${name}.png`, data: new Uint8Array(await file.arrayBuffer()) });
+			}
+			const blob = new Blob([zipStore(files) as Uint8Array<ArrayBuffer>], { type: 'application/zip' });
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = `${stem}-slices.zip`;
+			link.click();
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
+		} catch (error) {
+			toasts.show('error', describeMediaToolFailure(error), { title: 'Download failed' });
+		} finally {
+			busy = false;
 		}
 	}
 
@@ -768,6 +1255,21 @@
 
 	function onSave(action: SaveAction) {
 		saveMenuOpen = false;
+		if (referencesOnly && (action.kind === 'send' || action.kind === 'new-generation')) {
+			const target = action.kind === 'send' ? referenceTargets.find((entry) => entry.id === action.target) : null;
+			referencesOnly = false;
+			if (action.kind === 'new-generation') newReferencesTab(sliceItems);
+			else if (target) commitReferences(target, sliceItems);
+			return;
+		}
+		if (saveSlice) {
+			if (action.kind === 'save-new' || action.kind === 'save') void runSliceSave();
+			else if (action.kind === 'save-sheet') void runSave('new');
+			else if (action.kind === 'send') void runSliceSave(referenceTargets.find((entry) => entry.id === action.target) ?? null);
+			else if (action.kind === 'download') void downloadSlices();
+			else if (action.kind === 'new-generation') void runSliceSave('new-tab');
+			return;
+		}
 		if (action.kind === 'save-new') void runSave('new');
 		else if (action.kind === 'save') void runSave(saved ? 'update' : 'new');
 		else if (action.kind === 'replace') {
@@ -779,7 +1281,8 @@
 
 	function primarySave() {
 		if (!canSave) return;
-		void runSave(saved ? 'update' : 'new');
+		if (saveSlice) void runSliceSave();
+		else void runSave(saved ? 'update' : 'new');
 	}
 
 	function openSource(next: MediaRef) {
@@ -819,7 +1322,7 @@
 	let optionsTitle = $derived(activeTool ? toolMeta(activeTool, catalog).label : 'Tools');
 	let optionsIcon = $derived(activeTool ? toolMeta(activeTool, catalog).icon : 'sliders');
 	let applyLabel = $derived(
-		activeTool === 'crop' ? 'Apply crop' : activeTool === 'effects' ? (effectParams?.kind === 'look' ? 'Apply look' : 'Apply') : activeTool === 'mask' ? 'Save mask' : activeTool === 'paint' ? 'Apply paint' : 'Apply'
+		activeTool === 'crop' ? 'Apply crop' : activeTool === 'slice' ? 'Apply slice' : activeTool === 'effects' ? (effectParams?.kind === 'look' ? 'Apply look' : 'Apply') : activeTool === 'mask' ? 'Save mask' : activeTool === 'paint' ? 'Apply paint' : 'Apply'
 	);
 	let canApply = $derived(
 		!busy &&
@@ -827,7 +1330,9 @@
 				? !!paintState?.ready
 				: mode === 'mask'
 					? maskDirty
-					: !!pendingHere || !!catalogTool)
+					: activeTool === 'slice'
+						? pendingHere?.tool === 'slice' && !sliceLocked
+						: !!pendingHere || !!catalogTool)
 	);
 	let pendingTools = $derived([...(pending ? [pending.tool] : []), ...(mode === 'paint' && paintState?.dirty ? ['paint'] : []), ...(maskDirty ? ['mask'] : [])]);
 	let originalSummary = $derived(sourceSize ? `${sourceSize.width}×${sourceSize.height} · ${extension}` : extension);
@@ -881,6 +1386,41 @@
 		{#if !phone}
 			<p class="text-sm text-fg-muted">The mask is not an edit step. It travels with Send to a generation as the field's inpaint mask.</p>
 		{/if}
+	{:else if activeTool === 'slice'}
+		<SliceOptions
+			params={sliceParams}
+			names={sliceNameRows}
+			{collections}
+			fill={sliceFill}
+			transparent={!!sliceAnalysis?.transparent}
+			{phone}
+			locked={sliceLocked}
+			adding={sliceAdding}
+			selected={sliceSelected}
+			selectedNumber={sliceSelected[0] ? (sliceNumbers.get(sliceSelected[0]) ?? null) : null}
+			overlap={maxOverlap(sliceParams.cells) > 0.5}
+			bind:tab={sliceTab}
+			onpreset={setGrid}
+			ondetect={runDetect}
+			onsnap={(snap) => setSlice({ ...sliceParams, layout: { ...sliceParams.layout, snap } }, snap ? 'snap on' : 'snap off')}
+			onoutput={(patch) => setSlice({ ...sliceParams, output: { ...sliceParams.output, ...patch } }, 'output')}
+			onpattern={(pattern) => setSlice({ ...sliceParams, pattern }, 'pattern')}
+			onrename={(id, name) => setCells(renameCell(sliceParams.cells, id, name === sliceNames.get(id) ? '' : name), 'rename')}
+			onskip={(id) => setCells(toggleSkip(sliceParams.cells, id), 'skip')}
+			oncollection={(collection) => setSlice({ ...sliceParams, collection }, 'collection')}
+			onadd={() => (sliceAdding = !sliceAdding)}
+			onclear={() => {
+				sliceSelected = [];
+				setSlice({ ...sliceParams, cells: [], layout: { ...sliceParams.layout, preset: null, detected: null } }, 'clear');
+			}}
+			oncell={sliceCellAction}
+		/>
+		{#if !sliceParams.cells.length && !phone}
+			<div class="flex items-start gap-2 rounded bg-surface-2 px-2.5 py-2 text-sm text-fg-muted" data-slice-intro>
+				<Icon name="info" className="mt-px h-3.5 w-3.5 flex-none" />
+				<span>Each cell becomes its own Library image. Lines snap to the empty gutters between panels.</span>
+			</div>
+		{/if}
 	{:else if catalogTool || (activeTool && !isCoreTool(activeTool))}
 		<CatalogToolOptions tool={catalogTool} values={catalogValues} note={activeTool === 'subject' ? 'Needs a picture with transparency, for example after Color key.' : null} onchange={(next) => setDraft(activeTool!, { values: next })} />
 	{:else if !activeTool}
@@ -891,6 +1431,12 @@
 {/snippet}
 
 {#snippet canvasArea()}
+	{#if suggestedPanels}
+		<div class="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-scrim-on/10 bg-scrim/70 p-[3px] text-scrim-on backdrop-blur" data-slice-suggest>
+			<Button variant="overlay" size="xs" class="h-7" icon="editor-slice" onclick={() => void acceptSliceHint()}>Slice {suggestedPanels} panels</Button>
+			<IconButton icon="close" label="Dismiss" size="xs" variant="overlay" class="h-7 w-7" onclick={dismissSliceHint} />
+		</div>
+	{/if}
 	{#if sourceError}
 		<div class="flex flex-1 items-center justify-center bg-scrim p-6 text-sm text-danger" role="alert">{sourceError}</div>
 	{:else if mode === 'paint'}
@@ -931,6 +1477,23 @@
 						label="{planOutputSize(cropParams.plan, cropInput ?? cropFrame).width} × {planOutputSize(cropParams.plan, cropInput ?? cropFrame).height} · {aspectLabel(cropParams.aspect)}"
 						onchange={(rect) => setDraft('crop', { ...cropParams, plan: { ...cropParams.plan, rect } })}
 					/>
+				{:else if activeTool === 'slice' && mainRender}
+					<SliceOverlay
+						cells={sliceParams.cells}
+						an={sliceAnalysis}
+						size={sliceLogical}
+						selected={sliceSelected}
+						snap={sliceParams.layout.snap}
+						{phone}
+						locked={sliceLocked}
+						adding={sliceAdding}
+						padding={slicePadding}
+						states={sliceStates}
+						loupeSrc={phone ? sourceUrl : null}
+						onchange={(cells, label) => setCells(cells, label)}
+						onselect={(ids) => (sliceSelected = ids)}
+						onadded={() => (sliceAdding = false)}
+					/>
 				{:else if mode === 'mask' && mainRender}
 					{#key `${mask?.path ?? ''}:${mainRender.canvas.width}x${mainRender.canvas.height}`}
 						<MaskLayer
@@ -947,8 +1510,19 @@
 					{/key}
 				{/if}
 			{/snippet}
+			{#snippet hint()}
+				{#if activeTool !== 'slice'}
+					<CanvasChip caps={false}>Space</CanvasChip>drag to pan
+				{:else if !sliceParams.cells.length}
+					Detect panels or pick a grid
+				{:else if sliceAdding}
+					Drag on the picture to add a box
+				{:else}
+					<CanvasChip caps={false}>Alt</CanvasChip>drag places freely<CanvasChip caps={false}>Space</CanvasChip>pans
+				{/if}
+			{/snippet}
 			{#snippet badge()}
-				{#if rendering && !phone}
+				{#if rendering && !phone && activeTool !== 'slice'}
 					<CanvasChip><span class="inline-flex items-center gap-1.5"><Spinner size="sm" />Preview</span></CanvasChip>
 				{/if}
 			{/snippet}
@@ -974,13 +1548,28 @@
 		onseek={(cursor) => (stack = seek(stack, cursor))}
 		ontogglehidden={(id) => (stack = toggleHidden(stack, id))}
 		onremove={(id) => (stack = remove(stack, id))}
-		onmove={(id, to) => (stack = move(stack, id, to, IMAGE_PINNED_LANES))}
+		onmove={(id, to) => {
+			if (canMoveWithSlice(stack, id, to)) stack = move(stack, id, to, IMAGE_PINNED_LANES);
+		}}
 		onundo={doUndo}
 		onredo={doRedo}
 		onmore={(id) => {
 			if (id === 'clear') stack = createStack();
 		}}
-	/>
+	>
+		{#snippet notes()}
+			{#if (sliceInStack || appliedSlice) && !phone}
+				<div class="mx-2 mb-2.5 mt-1 flex flex-none items-start gap-2 rounded bg-surface-2 px-2.5 py-2 text-sm text-fg-muted" data-stack-note="slice">
+					<Icon name="info" className="mt-px h-3.5 w-3.5 flex-none" />
+					<span>Slice is always last. Edits you add go above it and apply to every cell.</span>
+				</div>
+			{/if}
+		{/snippet}
+	</EditStack>
+{/snippet}
+
+{#snippet sliceRows(pick: (action: SaveAction) => void)}
+	<SliceSaveRows count={sliceCount || sliceItems.length} destination={sliceDestination} targets={referenceTargets} {referencesOnly} canSaveSheet={withoutSlice(effective).length > 0} onchoose={pick} />
 {/snippet}
 
 {#snippet saveRows(pick: (action: SaveAction) => void)}
@@ -1032,7 +1621,11 @@
 								<span class="truncate font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">{fileName}</span>
 							{/snippet}
 							<div role="menu" aria-label="Save" class="flex flex-col">
-								{@render saveRows(onSave)}
+								{#if saveSlice || referencesOnly}
+									{@render sliceRows(onSave)}
+								{:else}
+									{@render saveRows(onSave)}
+								{/if}
 							</div>
 						</FrameSheet>
 					{/if}
@@ -1053,11 +1646,14 @@
 						{sendTargets}
 						downloadFormat="PNG"
 						{saving}
+						saveLabel={saveSlice ? (sliceSaved ? 'Saved' : `Save ${sliceCount} ${sliceCount === 1 ? 'image' : 'images'}`) : null}
+						menuRows={saveSlice || referencesOnly ? sliceRows : undefined}
 						bind:saveMenuOpen
 						onundo={doUndo}
 						onredo={doRedo}
 						oncompare={(next) => (compare = next)}
 						onsave={onSave}
+						oncancelsave={cancelSave}
 					/>
 				{/if}
 			{/snippet}
@@ -1066,6 +1662,19 @@
 			{/snippet}
 			{#snippet canvas()}
 				{@render canvasArea()}
+			{/snippet}
+			{#snippet below()}
+				{#if activeTool === 'slice' && sliceParams.cells.length}
+					<SliceStrip
+						items={sliceStrip}
+						skipped={sliceSkipped}
+						{phone}
+						locked={sliceLocked}
+						destination={sliceDestination}
+						onrestore={(id) => setCells(toggleSkip(sliceParams.cells, id), 'keep')}
+						onreorder={(id, to) => setCells(reorderKept(sliceParams.cells, id, to), 'reorder')}
+					/>
+				{/if}
 			{/snippet}
 			{#snippet options()}
 				<OptionsPanel

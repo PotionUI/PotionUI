@@ -8,7 +8,7 @@ from src.platform.media_tools.types import FilterFragment, ToolMedia, ToolSpec
 SPEC = dict(
     id="mute",
     label="Mute",
-    icon="audio",
+    icon="editor-mute",
     accepts=("video",),
     produces="same",
     cardinality="one_to_one",

@@ -2,13 +2,15 @@ import type { ImageEditPlan } from '$lib/media/editors/imageEditPlan';
 import type { ToolDTO } from '$lib/media-tools/types';
 import type { EditStep, LanePair, StepDraft } from '$lib/tool-tabs/frame/editStack';
 import type { RailGroup } from '$lib/tool-tabs/frame/types';
+import { sliceSummary, type SliceParams } from './slice/model';
 
 export const GEOMETRY_LANE = 'geometry';
 export const PAINT_LANE = 'paint';
+export const OUTPUT_LANE = 'output';
 
 export const IMAGE_PINNED_LANES: readonly LanePair[] = [[PAINT_LANE, GEOMETRY_LANE]];
 
-export type CoreImageTool = 'crop' | 'resize' | 'canvas' | 'paint' | 'mask' | 'effects' | 'colorKey' | 'subject';
+export type CoreImageTool = 'crop' | 'resize' | 'canvas' | 'slice' | 'paint' | 'mask' | 'effects' | 'colorKey' | 'subject';
 
 export interface CropParams {
 	plan: ImageEditPlan;
@@ -53,12 +55,13 @@ export const CATALOG_TOOL: Record<string, string> = {
 	subject: 'crop_subject'
 };
 
-const HANDLED_CATALOG_IDS = new Set(['crop', 'resize', 'rotate', 'flip', 'fit_canvas', 'color_key', 'crop_subject', 'paint_layer']);
+const HANDLED_CATALOG_IDS = new Set(['crop', 'resize', 'rotate', 'flip', 'fit_canvas', 'color_key', 'crop_subject', 'paint_layer', 'slice']);
 
 const CORE_TOOLS: Record<CoreImageTool, { label: string; icon: string; lane?: string }> = {
 	crop: { label: 'Crop', icon: 'editor-crop', lane: GEOMETRY_LANE },
 	resize: { label: 'Resize', icon: 'editor-resize', lane: GEOMETRY_LANE },
 	canvas: { label: 'Canvas', icon: 'editor-canvas', lane: GEOMETRY_LANE },
+	slice: { label: 'Slice', icon: 'editor-slice', lane: OUTPUT_LANE },
 	paint: { label: 'Paint', icon: 'editor-paint', lane: PAINT_LANE },
 	mask: { label: 'Mask', icon: 'editor-mask' },
 	effects: { label: 'Effects', icon: 'editor-effects' },
@@ -99,7 +102,7 @@ export function editorCatalogTools(catalog: readonly ToolDTO[]): ToolDTO[] {
 export function imageRail(catalog: readonly ToolDTO[] = []): RailGroup[] {
 	const rail = (id: CoreImageTool) => ({ id, label: CORE_TOOLS[id].label, icon: CORE_TOOLS[id].icon });
 	return [
-		{ id: 'shape', label: 'Shape', tools: [rail('crop'), rail('resize'), rail('canvas')] },
+		{ id: 'shape', label: 'Shape', tools: [rail('crop'), rail('resize'), rail('canvas'), rail('slice')] },
 		{ id: 'paint', label: 'Paint', tools: [rail('paint'), rail('mask')] },
 		{ id: 'look', label: 'Look', tools: [rail('effects')] },
 		{
@@ -131,6 +134,10 @@ export function resizeDraft(params: ResizeParams): StepDraft<ResizeParams> {
 
 export function paintDraft(params: PaintParams, size: { width: number; height: number }): StepDraft<PaintParams> {
 	return draft('paint', `Paint · ${pluralLayers(params.layers)}`, `${size.width}×${size.height}`, params);
+}
+
+export function sliceDraft(params: SliceParams): StepDraft<SliceParams> {
+	return draft('slice', 'Slice', sliceSummary(params), params);
 }
 
 export function lookDraft(params: LookParams): StepDraft<LookParams> {

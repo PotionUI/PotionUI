@@ -26,6 +26,7 @@ import {
 	DEFAULT_MAX_KEYFRAMES
 } from '$lib/utils/videoDirector';
 import { sortByStart, neighborBounds, trimSegmentLeft, trimSegmentRight, clamp } from '../timelineCore';
+import { isRefModRow } from '$lib/utils/refMods';
 import { kindLabel, mediaFieldItems, mediaItemKey, resourceMarkerRegex } from '$lib/utils/promptResources';
 import { kindOfMediaItem } from '$lib/components/form-fields/mediaLoaderKind';
 
@@ -246,7 +247,7 @@ export function referenceNameResolver(
 		if (!caps.referenceFields.includes(field)) return null;
 		const items = mediaFieldItems(formData?.[field]);
 		const index = items.findIndex((item) => mediaItemKey(item) === itemKey);
-		if (index === -1) return null;
+		if (index === -1 || isRefModRow(items[index])) return null;
 		const name = itemFileName(items[index]);
 		if (name) return markerLabel(name);
 		const kind = kindOfMediaItem(items[index]) ?? 'image';

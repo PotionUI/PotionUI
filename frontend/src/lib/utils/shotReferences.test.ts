@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest';
 import type { ChainSegment, DirectorCapabilities, VideoDirectorValue } from '$lib/types/videoDirector';
 import type { Segment } from '$lib/types/segments';
 import type { PromptResourceSpec } from './promptResources';
-import { shotReferenceOverview, shotResourceNumbering, withMarkerAppendedToShot } from './shotReferences';
+import {
+	shotNeedsReferenceHint,
+	shotReferenceOverview,
+	shotResourceNumbering,
+	withMarkerAppendedToShot
+} from './shotReferences';
 
 const specs: PromptResourceSpec[] = [
 	{ field: 'references', kind: 'image', label: 'Pictures', token: '<Picture @>' },
@@ -228,5 +233,73 @@ describe('shotResourceNumbering positionIfAdded', () => {
 		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[references:/pool/a.png]' }])]);
 		const numbering = shotResourceNumbering(doc, chainCaps, 's1', formData, specs);
 		expect(numbering.positionIfAdded?.('references', '/pool/c.png')).toBe(2);
+	});
+});
+
+const refModSpecs: PromptResourceSpec[] = [
+	...specs,
+	{ field: 'reference_mods', kind: 'image', label: 'RefMods', token: '<Picture @>', source: 'refmod' },
+	{ field: 'reference_mods', kind: 'video', label: 'RefMods', token: '<Video @>', source: 'refmod' }
+];
+const refModCaps = {
+	...chainCaps,
+	referenceFields: ['references', 'reference_videos', 'reference_audios', 'reference_mods']
+} as unknown as DirectorCapabilities;
+const refModForm = {
+	...formData,
+	reference_mods: [
+		{ model: 'model:01X', strength: 1, copies: 1 },
+		{ model: 'model:01Z', strength: 0, copies: 1 }
+	]
+};
+const directory = { '01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] } };
+
+describe('refmod rows', () => {
+	it('lists a refmod by name with a badge and leaves native numbering alone', () => {
+		const doc = chainDoc([
+			segment('s1', [{ id: 'p', content: '@[reference_mods:model:01X] with @[references:/pool/c.png]' }])
+		]);
+		const { used, unused } = shotReferenceOverview(doc, refModCaps, 's1', refModForm, refModSpecs, directory);
+		const mod = used.find((e) => e.field === 'reference_mods');
+		expect(mod).toMatchObject({ itemKey: 'model:01X', name: 'Face', badge: 'Picture', handle: null, count: 1 });
+		expect(used.find((e) => e.itemKey === '/pool/c.png')?.handle).toBe('Picture 1');
+		expect(unused.some((e) => e.itemKey === 'model:01Z')).toBe(false);
+		const numbering = shotResourceNumbering(doc, refModCaps, 's1', refModForm, refModSpecs);
+		expect(numbering.positionFor('reference_mods', 'model:01X')).toBeNull();
+		expect(numbering.positionFor('references', '/pool/c.png')).toBe(1);
+	});
+
+	it('offers an uncited refmod for insertion with a marker', () => {
+		const doc = chainDoc([segment('s1', [])]);
+		const { unused } = shotReferenceOverview(doc, refModCaps, 's1', refModForm, refModSpecs, directory);
+		const mod = unused.find((e) => e.field === 'reference_mods');
+		expect(mod?.marker).toBe('@[reference_mods:model:01X]');
+		const next = withMarkerAppendedToShot(doc, refModCaps, 's1', mod!.marker);
+		expect(next.chain.segments[0].prompt_segments[0].content).toBe('@[reference_mods:model:01X]');
+	});
+});
+
+describe('shotNeedsReferenceHint', () => {
+	it('shows when references exist but none are cited', () => {
+		const doc = chainDoc([segment('s1', [])]);
+		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, chainCaps, 's1', formData, specs))).toBe(true);
+	});
+
+	it('shows for a pool made only of a citeable refmod', () => {
+		const doc = chainDoc([segment('s1', [])]);
+		const form = { reference_mods: [{ model: 'model:01X', strength: 1 }] };
+		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, refModCaps, 's1', form, refModSpecs, directory))).toBe(true);
+	});
+
+	it('hides once a reference is cited', () => {
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[reference_mods:model:01X]' }])]);
+		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, refModCaps, 's1', refModForm, refModSpecs, directory))).toBe(false);
+	});
+
+	it('hides with an empty pool or only a zero-strength refmod', () => {
+		const doc = chainDoc([segment('s1', [])]);
+		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, chainCaps, 's1', {}, specs))).toBe(false);
+		const form = { reference_mods: [{ model: 'model:01Z', strength: 0 }] };
+		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, refModCaps, 's1', form, refModSpecs))).toBe(false);
 	});
 });

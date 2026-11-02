@@ -11,6 +11,7 @@ import {
 	type PromptResourceSpec
 } from './promptResources';
 import { kindOfMediaItem } from '$lib/components/form-fields/mediaLoaderKind';
+import { citeableRefModRows, refModBadge, refModFields, refModId, refModName, refModPrimaryKind, type RefModDirectory } from './refMods';
 import { countResourceReferences, resourceUseCount, type UsageSegment } from './promptResourceUsage';
 import { resolvePromptSegments } from './promptSegments';
 import type { ResourceNumbering } from './resourceNumbering';
@@ -24,6 +25,7 @@ export interface ShotReferenceEntry {
 	count: number;
 	handle: string | null;
 	marker: string;
+	badge: string | null;
 }
 
 export interface ShotReferenceOverview {
@@ -92,7 +94,9 @@ export function shotResourcePositions(
 	const positions = new Map<string, number>();
 	const perKind: Partial<Record<PromptResourceKind, number>> = {};
 	const seen = new Set<string>();
+	const refMods = refModFields(specs);
 	for (const field of caps.referenceFields) {
+		if (refMods.has(field)) continue;
 		for (const item of mediaFieldItems(formData?.[field])) {
 			const itemKey = mediaItemKey(item);
 			if (!itemKey) continue;
@@ -133,20 +137,39 @@ export function shotReferenceOverview(
 	caps: DirectorCapabilities,
 	shotId: string,
 	formData: Record<string, unknown> | null | undefined,
-	specs: readonly PromptResourceSpec[]
+	specs: readonly PromptResourceSpec[],
+	refModDirectory: RefModDirectory = {}
 ): ShotReferenceOverview {
 	const counts = countResourceReferences(shotReferenceSegmentGroups(doc, caps, shotId));
 	const positions = shotResourcePositions(doc, caps, shotId, formData, specs);
 	const used: ShotReferenceEntry[] = [];
 	const unused: ShotReferenceEntry[] = [];
 	const seen = new Set<string>();
+	const refMods = refModFields(specs);
 	for (const field of caps.referenceFields) {
-		for (const item of mediaFieldItems(formData?.[field])) {
+		const isRefMod = refMods.has(field);
+		for (const item of isRefMod ? citeableRefModRows(formData?.[field]) : mediaFieldItems(formData?.[field])) {
 			const itemKey = mediaItemKey(item);
 			if (!itemKey) continue;
 			const identity = resourceIdentity(field, itemKey);
 			if (seen.has(identity)) continue;
 			seen.add(identity);
+			if (isRefMod) {
+				const info = refModDirectory[refModId(itemKey)];
+				const refModEntry: ShotReferenceEntry = {
+					field,
+					itemKey,
+					kind: refModPrimaryKind(info),
+					name: refModName(itemKey, refModDirectory),
+					url: null,
+					count: resourceUseCount(counts, field, itemKey),
+					handle: null,
+					marker: encodeResourceMarker(field, itemKey),
+					badge: refModBadge(info)
+				};
+				(refModEntry.count > 0 ? used : unused).push(refModEntry);
+				continue;
+			}
 			const { kind, spec } = itemSpec(specs, field, item);
 			const count = resourceUseCount(counts, field, itemKey);
 			const position = positions.get(identity) ?? null;
@@ -158,7 +181,8 @@ export function shotReferenceOverview(
 				url: itemUrl(item),
 				count,
 				handle: position !== null && spec ? resourceHandleLabel(spec, position) : null,
-				marker: encodeResourceMarker(field, itemKey)
+				marker: encodeResourceMarker(field, itemKey),
+				badge: null
 			};
 			if (count > 0) {
 				used.push(entry);
@@ -168,6 +192,12 @@ export function shotReferenceOverview(
 		}
 	}
 	return { used, unused };
+}
+
+export const NO_REFERENCES_HINT = 'This shot uses no references. Type @ to add one.';
+
+export function shotNeedsReferenceHint(overview: ShotReferenceOverview): boolean {
+	return overview.used.length === 0 && overview.unused.length > 0;
 }
 
 export function withMarkerAppendedToShot(

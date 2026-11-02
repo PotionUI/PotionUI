@@ -378,3 +378,66 @@ class TestFetchModelInfoWait:
         assert response.data["status"] == "running"
         provider_info.run_provider_fetch.assert_not_awaited()
         assert len(background.tasks) == 1
+
+
+class TestRefModMembersEndpoint:
+    @pytest.fixture
+    def collaborators(self):
+        return Mock()
+
+    @pytest.fixture
+    def controller(self, collaborators):
+        return ModelController(collaborators, Mock(), Mock())
+
+    @pytest.fixture
+    def user(self):
+        user = Mock(spec=User)
+        user.id = "user-a"
+        user.account_type = AccountType.USER
+        return user
+
+    @pytest.fixture(autouse=True)
+    def visible_model(self, monkeypatch):
+        async def get_model_by_id(collaborators, model_id, user=None, admin=False):
+            if model_id == "missing":
+                from src.features.models.exceptions import ModelNotFoundException
+                raise ModelNotFoundException(f"Model '{model_id}' not found")
+            return {"model": {"id": model_id}}
+        monkeypatch.setattr("src.features.models.routes.operations.get_model_by_id", get_model_by_id)
+
+    @pytest.mark.asyncio
+    async def test_lists_each_member_kind_and_name(self, controller, collaborators, user, tmp_path):
+        import json
+
+        import torch
+        from safetensors.torch import save_file
+
+        path = tmp_path / "pair.safetensors"
+        meta = {"kind": "bundle", "members": [{"kind": "image", "name": "face"}, {"kind": "audio", "name": "voice"}]}
+        save_file({"ref_0": torch.zeros(1)}, str(path), metadata={"refmod_meta": json.dumps(meta)})
+        collaborators.locator.path_for_model.return_value = path
+
+        result = await controller.get_refmod_members("01PAIR", user)
+
+        assert result.success is True
+        assert result.data == {"members": [{"kind": "image", "name": "face"}, {"kind": "audio", "name": "voice"}]}
+        collaborators.locator.path_for_model.assert_called_once_with("01PAIR")
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_file_is_a_422_without_the_server_path(self, controller, collaborators, user, tmp_path):
+        collaborators.locator.path_for_model.return_value = tmp_path / "gone.safetensors"
+
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as raised:
+            await controller.get_refmod_members("01GONE", user)
+
+        assert raised.value.status_code == 422
+        assert raised.value.detail["error"] == "refmod_unreadable"
+        assert str(tmp_path) not in str(raised.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_a_model_the_user_cannot_see_is_not_found(self, controller, user):
+        result = await controller.get_refmod_members("missing", user)
+        assert result.success is False
+        assert result.error == "model_not_found"

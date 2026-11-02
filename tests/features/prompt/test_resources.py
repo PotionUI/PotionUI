@@ -349,3 +349,50 @@ class TestMergedFieldMarkers:
 
         assert pairs[0].positive == "<Video 1> near <Picture 1>"
         assert segments[0].text == "<Video 1>"
+
+
+MOD_RESOURCES = [
+    {"field": "references", "kind": "image", "token": "<Picture @>"},
+    {"field": "references", "kind": "audio", "token": "<Audio @>"},
+    {"field": "reference_mods", "source": "refmod", "kind": "image", "token": "<Picture @>"},
+    {"field": "reference_mods", "source": "refmod", "kind": "audio", "token": "<Audio @>"},
+]
+MOD_FORM = {
+    "references": [_upload("storage/uploads/a.png"), _upload("storage/uploads/b.png")],
+    "reference_mods": [
+        {"model": "model:face", "strength": 1.0, "copies": 1},
+        {"model": "model:pair", "strength": 1.0, "copies": 2},
+        {"model": "model:off", "strength": 0.0, "copies": 1},
+    ],
+}
+MOD_MEMBERS = {"model:face": ["image"], "model:pair": ["image", "audio"], "model:off": ["image"]}
+
+
+def test_a_plain_prompt_refmod_names_every_member_after_all_native_references_of_its_kind():
+    text, problems = resolve_prompt_resources(
+        "@[reference_mods:model:pair] beside @[references:storage/uploads/b.png]", MOD_RESOURCES, MOD_FORM,
+        MOD_MEMBERS.__getitem__,
+    )
+    assert problems == {}
+    assert text == "<Picture 4> <Picture 5> <Audio 1> <Audio 2> beside <Picture 2>"
+
+
+def test_a_plain_prompt_refmod_at_zero_strength_is_a_removed_item():
+    text, problems = resolve_prompt_resources(
+        "@[reference_mods:model:off]", MOD_RESOURCES, MOD_FORM, MOD_MEMBERS.__getitem__,
+    )
+    assert text == "@[reference_mods:model:off]"
+    assert "removed from this field (model:off)" in problems["reference_mods"][0]
+
+
+def test_a_plain_prompt_refmod_that_cannot_be_read_says_why():
+    def members(key):
+        raise ValueError(f"the RefMod {key} is not available: no present location")
+
+    _text, problems = resolve_prompt_resources("@[reference_mods:model:face]", MOD_RESOURCES, MOD_FORM, members)
+    assert problems["reference_mods"] == ["reference_mods: the RefMod model:face is not available: no present location"]
+
+
+def test_describe_leaves_refmod_resources_out_of_the_native_item_list():
+    lines = describe_prompt_resources(MOD_RESOURCES, MOD_FORM)
+    assert not any("reference_mods" in line for line in lines)

@@ -809,6 +809,14 @@ class PresetLinter:
                         f"{loc}: field '{entry.field}' is not a field of any '{mode_name}' form",
                     ))
                     continue
+                if entry.source == "refmod":
+                    if types != {"lora_picker"}:
+                        issues.append(LintIssue(
+                            "error", preset_str,
+                            f"{loc}: field '{entry.field}' has type {sorted(types)}; a 'refmod' source "
+                            f"needs a lora_picker field",
+                        ))
+                    continue
                 non_media = sorted(t for t in types if t not in _PROMPT_RESOURCE_FIELD_TYPES)
                 if non_media:
                     issues.append(LintIssue(

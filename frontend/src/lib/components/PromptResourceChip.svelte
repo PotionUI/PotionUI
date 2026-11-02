@@ -10,6 +10,7 @@
 	export let position: number | null = null;
 	export let item: unknown = undefined;
 	export let fieldLabel: string | undefined = undefined;
+	export let displayName: string | null = null;
 	export let disabled: boolean = false;
 	export let onRemove: (() => void) | undefined = undefined;
 	export let onSwitch: (() => void) | undefined = undefined;
@@ -29,7 +30,8 @@
 			onSwitch?.();
 		}
 	}
-	$: displayLabel = spec && position !== null ? resourceHandleLabel(spec, position) : field;
+	$: displayLabel =
+		spec && position !== null ? (spec.source === 'refmod' && displayName ? displayName : resourceHandleLabel(spec, position)) : field;
 	$: resolvedFieldLabel = fieldLabel || field;
 	$: itemUrl = item && typeof item === 'object' && typeof (item as Record<string, unknown>).url === 'string'
 		? ((item as Record<string, unknown>).url as string)
@@ -43,7 +45,9 @@
 		? spec
 			? `Removed from ${resolvedFieldLabel}`
 			: `${resolvedFieldLabel} can no longer be referenced here`
-		: `${kindLabel(spec!.kind)} · ${itemName}`;
+		: spec!.source === 'refmod'
+			? `RefMod · ${displayName || itemName}`
+			: `${kindLabel(spec!.kind)} · ${itemName}`;
 </script>
 
 {#if variant === 'segment-composer'}

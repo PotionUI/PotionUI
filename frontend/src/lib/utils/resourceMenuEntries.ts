@@ -1,3 +1,4 @@
+import { refModBadge, refModName, refModId, refModPrimaryKind, type RefModDirectory } from './refMods';
 import { kindLabel, mediaItemKey, type PromptResourceKind } from './promptResources';
 
 export interface ResourceMenuEntry {
@@ -32,6 +33,24 @@ export function resourceMenuEntries(items: readonly unknown[], kind: PromptResou
 			value: kindLabel(kind),
 			kind,
 			url: typeof url === 'string' ? url : undefined,
+			order
+		});
+	});
+	return entries;
+}
+
+export function refModMenuEntries(rows: readonly unknown[], directory: RefModDirectory): ResourceMenuEntry[] {
+	const entries: ResourceMenuEntry[] = [];
+	rows.forEach((row, order) => {
+		const id = mediaItemKey(row);
+		if (!id) return;
+		const info = directory[refModId(id)];
+		entries.push({
+			id,
+			label: refModName(id, directory),
+			value: refModBadge(info),
+			kind: refModPrimaryKind(info),
+			url: undefined,
 			order
 		});
 	});

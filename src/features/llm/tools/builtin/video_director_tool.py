@@ -138,6 +138,35 @@ def _media_ref_path(value: Any, form_data: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _edge_media(keyframes: List[Dict[str, Any]], role: str) -> Any:
+    return next((k.get("media") for k in keyframes if k.get("role") == role), None)
+
+
+def _single_shot(doc: Dict[str, Any], capabilities: Dict[str, Any]) -> Dict[str, Any]:
+    simple = doc.get("simple") or {}
+    if capabilities.get("segment_routing"):
+        chain = doc.get("chain") or {}
+        seg = ((chain.get("segments") or []) + [{}])[0]
+        shot = {"prompt": seg.get("prompt"), "duration": seg.get("duration"), "fps": chain.get("fps"),
+                "leading": seg.get("keyframe"), "trailing": seg.get("last_keyframe")}
+    else:
+        timeline = doc.get("timeline") or {}
+        first_shot = (((timeline.get("shots") if "shots" in timeline else [timeline]) or []) + [{}])[0]
+        beats = first_shot.get("segments") or []
+        keyframes = first_shot.get("keyframes") or []
+        shot = {"prompt": beats[0].get("text") if beats else None, "duration": first_shot.get("duration"),
+                "fps": timeline.get("fps"), "leading": _edge_media(keyframes, "first"),
+                "trailing": _edge_media(keyframes, "last")}
+    modeless = bool((doc.get("ui") or {}).get("modeless"))
+    return {
+        "prompt": shot["prompt"] or "",
+        "duration": shot["duration"] if modeless and shot["duration"] is not None else simple.get("duration"),
+        "fps": shot["fps"] if modeless and shot["fps"] is not None else simple.get("fps"),
+        "leading": shot["leading"] or simple.get("start_image") or simple.get("first_frame"),
+        "trailing": shot["trailing"] or simple.get("last_frame"),
+    }
+
+
 def _flatten(doc: Dict[str, Any], capabilities: Dict[str, Any], form_data: Dict[str, Any]) -> Dict[str, Any]:
     """Collapse the editor's per-mode `simple`/`timeline`/`chain` storage into a
     single wire-shaped read model. Mirrors the editor->wire mapping in
@@ -236,25 +265,20 @@ def _flatten(doc: Dict[str, Any], capabilities: Dict[str, Any], form_data: Dict[
                     })
             audio.extend(_flatten_audio(shot.get("audio"), form_data, shot_id=shot_id))
     else:
-        simple = doc.get("simple") or {}
-        fps = simple.get("fps")
-        duration = simple.get("duration")
+        shot = _single_shot(doc, capabilities)
+        fps = shot["fps"]
+        duration = shot["duration"]
         segments.append({
-            "id": "seg-1", "prompt": global_prompt, "negative_prompt": negative_prompt,
+            "id": "seg-1", "prompt": shot["prompt"], "negative_prompt": negative_prompt,
             "start": 0, "end": duration, "frames": None,
             "seed": None, "steps": None, "cfg": None,
         })
-        if mode == "i2v":
-            start_image_path = _media_ref_path(simple.get("start_image"), form_data)
-            if start_image_path:
-                media.append({"id": "m-1", "role": "first", "segment_id": "seg-1", "at": 0, "strength": 1.0, "path": start_image_path})
-        elif mode == "flf":
-            first_frame_path = _media_ref_path(simple.get("first_frame"), form_data)
-            last_frame_path = _media_ref_path(simple.get("last_frame"), form_data)
-            if first_frame_path:
-                media.append({"id": "m-1", "role": "first", "segment_id": "seg-1", "at": 0, "strength": 1.0, "path": first_frame_path})
-            if last_frame_path:
-                media.append({"id": "m-2", "role": "last", "segment_id": "seg-1", "at": duration, "strength": 1.0, "path": last_frame_path})
+        leading_path = _media_ref_path(shot["leading"], form_data) if mode in ("i2v", "flf") else None
+        trailing_path = _media_ref_path(shot["trailing"], form_data) if mode == "flf" else None
+        if leading_path:
+            media.append({"id": "m-1", "role": "first", "segment_id": "seg-1", "at": 0, "strength": 1.0, "path": leading_path})
+        if trailing_path:
+            media.append({"id": "m-2", "role": "last", "segment_id": "seg-1", "at": duration, "strength": 1.0, "path": trailing_path})
 
     return {
         "mode": mode,

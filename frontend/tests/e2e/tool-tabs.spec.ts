@@ -146,8 +146,8 @@ test.describe('tool tabs on desktop', () => {
 		await page.reload();
 		await expect(bookTab(page, 'Hero shot')).toBeVisible({ timeout: 15000 });
 		await expect(page.getByTestId('tool-tab-host')).toHaveAttribute('data-tool', 'image');
-		await expect(page.getByTestId('tool-tab-source')).toBeVisible();
-		await expect.poll(() => page.getByTestId('tool-tab-source').evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+		await expect(page.locator('[data-editor-layer]')).toBeVisible({ timeout: 15000 });
+		await expect.poll(() => page.locator('[data-editor-layer]').evaluate((canvas) => (canvas as HTMLCanvasElement).width)).toBeGreaterThan(1);
 		await expect(bookTab(page, 'Hero shot').locator('[data-testid="tab-tool-thumb"] img')).toHaveAttribute('src', DUSK_URL);
 		await screenshot(page, JOURNEY, 'image-editor-source-1440');
 		await expect(bookTab(page, 'Hero shot').getByTestId('tab-unsaved')).toBeVisible();

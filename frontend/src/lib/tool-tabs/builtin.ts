@@ -12,7 +12,7 @@ export function registerBuiltinToolKinds(): void {
 		icon: 'sliders-horizontal',
 		accepts: ['image'],
 		order: 10,
-		load: () => import('./placeholders/ImageToolPlaceholder.svelte')
+		load: () => import('$lib/components/tool-tabs/image/ImageEditorTab.svelte')
 	});
 	registerToolKind({
 		tool: 'video',
@@ -21,6 +21,6 @@ export function registerBuiltinToolKinds(): void {
 		icon: 'video',
 		accepts: ['video'],
 		order: 20,
-		load: () => import('./placeholders/VideoToolPlaceholder.svelte')
+		load: () => import('$lib/components/tool-tabs/video/VideoEditorTab.svelte')
 	});
 }

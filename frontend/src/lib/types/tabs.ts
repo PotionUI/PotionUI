@@ -355,6 +355,9 @@ export interface MediaRef {
 	label?: string;
 	item_id?: string;
 	generation_file_id?: string;
+	artifact_id?: string;
+	width?: number;
+	height?: number;
 }
 
 export interface PromptRelayImageSegment {

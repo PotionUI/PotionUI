@@ -39,3 +39,25 @@ smoke:
   mode: "video"
   timeout_seconds: 600
 ```
+
+## The form of the test generation
+
+The `generation.smoke` and `pipeline.render` steps build the same form. It starts from the
+defaults of the mode's default form, the recipe's `form` values are laid over them, and the result
+goes through `bind_form` like a form sent from the Generate page.
+
+- **Reactions run as they do in the UI.** A field whose value is set by another field's reactions,
+  such as the steps and CFG a speed profile chooses, is left to `bind_form` unless the recipe sets
+  it. A smoke form with `speed_profile: "fast"` alone therefore runs the fast profile's steps and
+  CFG, not the static defaults of the form. A value the recipe sets always wins over a reaction.
+- **Video Director presets get a Video Director document.** When the mode shows the Video Director
+  with a text-to-video sub-mode (Wan, LTX-2, LTX-2.5, MiniMax-H3, MiniMax-H3-Fast), the form gets a
+  one-segment `t2v` document: the shortest duration the preset allows (1 s for the shipped
+  presets), the form's resolution and seed, no media, and the recipe's smoke `prompt` as the segment
+  prompt (a neutral prompt for `pipeline.render`). `pipeline.render` normalizes that document the
+  way a real generation does. Without it, the Wan, LTX-2 and LTX-2.5 pipelines fail on
+  `form.video_director`, and the MiniMax-H3 ones fall back to the form's `frames`. A recipe can
+  still pass a document of its own as `form.video_director`; it is kept as given.
+- **The clip length comes from that document.** These pipelines read the duration of the Video
+  Director document before any `frames` field, so a `frames`, `duration` or `num_frames` value in
+  the smoke `form` of such a recipe is never read.

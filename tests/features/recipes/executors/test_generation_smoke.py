@@ -355,6 +355,23 @@ def test_model_repository_and_recipe_are_passed_to_form_building(monkeypatch):
     assert captured["selections"] == {"dit": "nvfp4"}
 
 
+def test_smoke_prompt_is_passed_to_form_building(monkeypatch):
+    captured = {}
+
+    def _capture(*args, **kwargs):
+        captured.update(kwargs)
+        return {"seed": 1}
+
+    monkeypatch.setattr(generation_smoke, "build_fixture_form_data", _capture)
+
+    template = FakePresetTemplate()
+    executor = GenerationSmokeExecutor(FakePresetLoader(template), object(), FakeOrchestrator(), FakeFileRepository(), object())
+    recipe = _recipe(RecipeSmokeRef(preset_id="p1", mode="txt2img", prompt="a red kite over dunes"))
+    executor.execute(_context(recipe))
+
+    assert captured["prompt"] == "a red kite over dunes"
+
+
 def test_default_model_repository_is_lazily_constructed():
     """No `model_repository` passed - the constructor must fall back to the
     real singleton (mirrors `file_repository`'s existing default) rather than

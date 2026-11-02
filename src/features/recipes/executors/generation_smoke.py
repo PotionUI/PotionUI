@@ -96,6 +96,7 @@ class GenerationSmokeExecutor:
                 recipe=context.recipe,
                 model_repository=self.model_repository,
                 selections=context.selections,
+                prompt=smoke.prompt if smoke else None,
             )
         except RequiredModelMissing as exc:
             return StepResult.fail(

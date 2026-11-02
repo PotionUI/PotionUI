@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-from PIL import Image
 
 from src.platform.imaging.film_grain import apply_film_grain
 from src.platform.media_tools.base import MediaTool
@@ -38,7 +37,7 @@ SPEC = dict(
             "label": "Size",
             "description": "How coarse the grain is",
             "default": 1.5,
-            "min": 0.5,
+            "min": 1,
             "max": 3,
             "step": 0.1,
         },
@@ -79,8 +78,8 @@ class FilmGrain(MediaTool):
         def grain(frame: np.ndarray) -> np.ndarray:
             if intensity <= 0:
                 return frame
-            result = apply_film_grain(
-                Image.fromarray(frame),
+            return apply_film_grain(
+                frame,
                 intensity=intensity,
                 grain_size=size,
                 shadows_bias=SHADOWS_BIAS,
@@ -88,8 +87,8 @@ class FilmGrain(MediaTool):
                 monochromatic=monochromatic,
                 blur_amount=0.0,
                 rng=rng,
+                fast=True,
             )
-            return np.asarray(result)
 
         return stream_video_frames(media, ctx, grain)
 

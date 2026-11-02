@@ -23,8 +23,59 @@ def create_grain_layer(size: tuple, intensity: float, grain_size: float, rng: An
     return noise
 
 
+LUMINANCE_LEVELS = 3 * 255 + 1
+UNIFORM_BYTE_MEAN = 127.5
+SPREAD_SAMPLES = 16384
+
+
+def grain_mask(luminance: np.ndarray, shadows_bias: float, highlights_protect: float) -> np.ndarray:
+    shadows_mask = 1 - (luminance ** (1 - shadows_bias))
+    highlights_mask = 1 - (1 - luminance) ** (1 - highlights_protect)
+    return shadows_mask * highlights_mask
+
+
+def _grain_fast(
+    frame: np.ndarray,
+    intensity: float,
+    grain_size: float,
+    shadows_bias: float,
+    highlights_protect: float,
+    monochromatic: bool,
+    rng: Any,
+) -> np.ndarray:
+    import cv2
+
+    if not isinstance(rng, np.random.Generator):
+        rng = np.random.default_rng()
+    height, width = frame.shape[:2]
+    channels = 1 if monochromatic else 3
+    scale = min(1.0, 1 / grain_size)
+    low = (max(1, int(height * scale)), max(1, int(width * scale)), channels)
+
+    noise = rng.integers(0, 256, low, dtype=np.uint8)
+    if low[:2] != (height, width):
+        noise = cv2.resize(noise, (width, height), interpolation=cv2.INTER_LINEAR)
+    noise = noise.astype(np.float32).reshape(height, width, channels)
+    noise -= UNIFORM_BYTE_MEAN
+
+    stride = max(1, int((height * width / SPREAD_SAMPLES) ** 0.5))
+    spread = float(noise[::stride, ::stride].std())
+    gain = intensity * 255 / spread if spread > 0 else 0.0
+
+    levels = np.arange(LUMINANCE_LEVELS, dtype=np.float32) / (LUMINANCE_LEVELS - 1)
+    lut = (grain_mask(levels, shadows_bias, highlights_protect) * gain).astype(np.float32)
+    total = frame[..., 0].astype(np.uint16)
+    total += frame[..., 1]
+    total += frame[..., 2]
+    noise *= np.take(lut, total)[..., None]
+
+    if channels == 1:
+        noise = cv2.cvtColor(noise.reshape(height, width), cv2.COLOR_GRAY2RGB)
+    return cv2.add(frame, noise, dtype=cv2.CV_8U)
+
+
 def apply_film_grain(
-    image: Image.Image,
+    image: Image.Image | np.ndarray,
     *,
     intensity: float,
     grain_size: float,
@@ -33,7 +84,20 @@ def apply_film_grain(
     monochromatic: bool,
     blur_amount: float,
     rng: Any = np.random,
-) -> Image.Image:
+    fast: bool = False,
+) -> Image.Image | np.ndarray:
+    if fast:
+        is_image = isinstance(image, Image.Image)
+        grained = _grain_fast(
+            np.asarray(image), intensity, grain_size, shadows_bias, highlights_protect, monochromatic, rng,
+        )
+        if not is_image and blur_amount <= 0:
+            return grained
+        result_image = Image.fromarray(grained)
+        if blur_amount > 0:
+            result_image = result_image.filter(ImageFilter.GaussianBlur(radius=blur_amount))
+        return result_image if is_image else np.asarray(result_image)
+
     img_array = np.array(image).astype(float) / 255
     height, width = img_array.shape[:2]
 
@@ -50,10 +114,7 @@ def apply_film_grain(
 
     luminance = np.mean(img_array, axis=2)
 
-    shadows_mask = 1 - (luminance ** (1 - shadows_bias))
-    highlights_mask = 1 - (1 - luminance) ** (1 - highlights_protect)
-
-    final_mask = shadows_mask * highlights_mask
+    final_mask = grain_mask(luminance, shadows_bias, highlights_protect)
     final_mask = np.stack([final_mask] * 3, axis=-1)
     grain = grain * final_mask
 

@@ -33,7 +33,7 @@ class TestFilmGrainCatalog(FilmGrainToolTestBase):
         by_name = {param["name"]: param for param in entry["params"]}
         self.assertEqual(list(by_name), ["amount", "size", "color", "seed"])
         self.assertEqual((by_name["amount"]["min"], by_name["amount"]["max"], by_name["amount"]["default"]), (0, 100, 30))
-        self.assertEqual((by_name["size"]["min"], by_name["size"]["max"], by_name["size"]["default"]), (0.5, 3, 1.5))
+        self.assertEqual((by_name["size"]["min"], by_name["size"]["max"], by_name["size"]["default"]), (1, 3, 1.5))
         self.assertIs(by_name["color"]["default"], True)
         self.assertTrue(all(param["description"] for param in entry["params"]))
 

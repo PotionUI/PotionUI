@@ -1526,7 +1526,7 @@ still images (grain, VHS, grades) are photo filters, not tools: see
 | `split` | audio | audio, many | `part_seconds` |
 | `concat` | video, 2 to 8 selected | video, one | `overlap`, `overlap_frames`, `fit`, `keep_audio` |
 | `fix_colors` | video (Effects menu) | same | `white_balance`, `contrast`, `strength` percent |
-| `film_grain` | video (Effects menu) | same | `amount` 0 to 100 percent, `size` 0.5 to 3, `color`, `seed` |
+| `film_grain` | video (Effects menu) | same | `amount` 0 to 100 percent, `size` 1 to 3, `color`, `seed` |
 | `cut_finder` | video | video, many | `sensitivity` 0 to 100, `min_shot_seconds` |
 
 Core ids never contain a dot. Video output keeps even dimensions and the sound; images keep their
@@ -1534,8 +1534,9 @@ transparency (a JPEG that gains an alpha channel is saved as PNG).
 
 `film_grain` draws new grain on every frame, so the grain moves like film stock instead of sitting on the
 picture as a fixed overlay. The same `seed` on the same clip gives the same grain; `amount` 0 only
-re-encodes. It uses the grain math of the `film_grain` image pipe (`src/platform/imaging/film_grain.py`) and
-streams one frame at a time through ffmpeg, so a long clip is never held in memory. Frame count, frame rate,
+re-encodes. It uses the grain math of the `film_grain` image pipe (`src/platform/imaging/film_grain.py`, in its float32
+`fast` mode, about 35 ms per 1080p frame on two threads) and streams one frame at a time through ffmpeg, so a
+long clip is never held in memory. Size 1 is pixel-sized grain; finer grain would be invisible. Frame count, frame rate,
 size and the audio track are kept, and Save as new and Replace original behave as for the other video tools.
 It is an effect only: no preset adds it as a final step.
 

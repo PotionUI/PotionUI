@@ -53,7 +53,7 @@ def test_spec_is_a_video_effect_with_bounded_documented_params():
 
 @pytest.mark.parametrize(
     "params",
-    [{"amount": 101}, {"amount": -1}, {"size": 0.1}, {"size": 3.5}, {"seed": -1}, {"color": "maybe"}, {"unknown": 1}],
+    [{"amount": 101}, {"amount": -1}, {"size": 0.5}, {"size": 3.5}, {"seed": -1}, {"color": "maybe"}, {"unknown": 1}],
 )
 def test_out_of_bounds_params_are_refused(params):
     with pytest.raises(InvalidToolParams):
@@ -152,7 +152,7 @@ def test_a_larger_size_makes_a_coarser_grain(clip, tmp_path):
         deviation = luma - luma.mean(axis=(1, 2), keepdims=True)
         return np.corrcoef(deviation[:, :, :-1].ravel(), deviation[:, :, 1:].ravel())[0, 1]
 
-    assert neighbour_agreement(3.0) > neighbour_agreement(0.5) + 0.2
+    assert neighbour_agreement(3.0) > neighbour_agreement(1.0) + 0.2
 
 
 def test_odd_dimensions_are_cropped_to_even(tmp_path, ctx):

@@ -58,7 +58,26 @@ def _restart_process(argv: list) -> None:
         subprocess.Popen(argv, close_fds=True, creationflags=creationflags)
         os._exit(0)
         return
+    _close_descriptors_on_exec()
     os.execv(argv[0], argv)
+
+
+def _open_descriptors() -> list:
+    for directory in ("/proc/self/fd", "/dev/fd"):
+        try:
+            return [int(name) for name in os.listdir(directory)]
+        except (OSError, ValueError):
+            continue
+    return []
+
+
+def _close_descriptors_on_exec() -> None:
+    for fd in _open_descriptors():
+        if fd > 2:
+            try:
+                os.set_inheritable(fd, False)
+            except OSError:
+                pass
 
 
 def schedule_app_restart(delay: float = 0.5) -> None:

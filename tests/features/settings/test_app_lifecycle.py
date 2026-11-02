@@ -14,6 +14,7 @@ import sys
 from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock
 
+from src.features.settings import app_lifecycle
 from src.features.settings.app_lifecycle import _restart_process, restart_argv
 
 
@@ -55,6 +56,7 @@ def test_spec_without_a_name_falls_back_to_argv(monkeypatch):
 
 def test_posix_restart_execs_in_place(monkeypatch):
     monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(app_lifecycle, "_open_descriptors", lambda: [])
     mock_execv = Mock()
     monkeypatch.setattr(os, "execv", mock_execv)
     argv = [sys.executable, "api.py"]
@@ -62,6 +64,33 @@ def test_posix_restart_execs_in_place(monkeypatch):
     _restart_process(argv)
 
     mock_execv.assert_called_once_with(argv[0], argv)
+
+
+def test_posix_restart_closes_every_inherited_descriptor_but_stdio_on_exec(monkeypatch):
+    calls = []
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(app_lifecycle, "_open_descriptors", lambda: [0, 1, 2, 7, 9, 11])
+
+    def set_inheritable(fd, inheritable):
+        if fd == 9:
+            raise OSError("closed meanwhile")
+        calls.append((fd, inheritable))
+
+    monkeypatch.setattr(os, "set_inheritable", set_inheritable)
+    monkeypatch.setattr(os, "execv", lambda *args: calls.append(("execv", args[0])))
+
+    _restart_process([sys.executable, "api.py"])
+
+    assert calls == [(7, False), (11, False), ("execv", sys.executable)]
+
+
+def test_open_descriptors_falls_back_to_none(monkeypatch):
+    def listdir(path):
+        raise FileNotFoundError(path)
+
+    monkeypatch.setattr(os, "listdir", listdir)
+
+    assert app_lifecycle._open_descriptors() == []
 
 
 def test_windows_restart_spawns_detached_child_and_exits(monkeypatch):

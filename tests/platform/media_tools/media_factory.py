@@ -4,6 +4,7 @@ import re
 import subprocess
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 from src.platform.util.video_transcode import find_ffmpeg
@@ -28,6 +29,22 @@ def video_frame_count(path: Path) -> int:
         text=True,
     )
     return int(re.findall(r"frame=\s*(\d+)", result.stderr)[-1])
+
+
+def video_stream_line(path: Path) -> str:
+    result = subprocess.run(
+        [find_ffmpeg(), "-hide_banner", "-nostdin", "-i", str(path)], capture_output=True, text=True,
+    )
+    return next(line for line in result.stderr.splitlines() if "Video:" in line)
+
+
+def decode_video_rgb(path: Path, width: int, height: int) -> np.ndarray:
+    command = [
+        find_ffmpeg(), "-hide_banner", "-nostdin", "-loglevel", "error", "-i", str(path),
+        "-map", "0:v:0", "-pix_fmt", "rgb24", "-f", "rawvideo", "-",
+    ]
+    raw = subprocess.run(command, capture_output=True, check=True).stdout
+    return np.frombuffer(raw, dtype=np.uint8).reshape(-1, height, width, 3).astype(np.float64)
 
 
 def make_video(

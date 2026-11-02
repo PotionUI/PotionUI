@@ -14,6 +14,7 @@ from src.platform.media_tools.ops import (
     split,
     concat,
     fix_colors,
+    film_grain,
     cut_finder,
 )
 from src.platform.media_tools.registry import MediaToolRegistry
@@ -33,6 +34,7 @@ CORE_MODULES = (
     split,
     concat,
     fix_colors,
+    film_grain,
     cut_finder,
 )
 

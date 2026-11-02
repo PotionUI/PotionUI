@@ -8,6 +8,7 @@ import type {
 	MediaToolInputRef,
 	MediaToolItem,
 	MediaToolOutputMode,
+	MediaToolRunSummary,
 	MediaToolSource,
 	MediaToolStep
 } from './types';
@@ -32,8 +33,25 @@ export function announceStart(label: string, mode: MediaToolOutputMode) {
 	});
 }
 
+export function summaryOf(outcome: MediaToolRunOutcome): MediaToolRunSummary | null {
+	return outcome.status === 'completed' && outcome.items.length === 0 && outcome.summary ? outcome.summary : null;
+}
+
+export function announceSummary(summary: MediaToolRunSummary) {
+	const link = summary.links[0];
+	toasts.show('success', summary.message, {
+		title: 'Done',
+		action: link ? { label: link.label, onClick: () => void goto(link.href) } : undefined
+	});
+}
+
 export function announceOutcome(outcome: MediaToolRunOutcome, options: AnnounceOptions = {}, quietSuccess = false) {
 	if (outcome.status === 'completed') {
+		const summary = summaryOf(outcome);
+		if (summary) {
+			announceSummary(summary);
+			return;
+		}
 		if (quietSuccess) return;
 		if (outcome.replaced) {
 			toasts.show('success', `${nameOf(outcome.items[0])} was updated.`, { title: 'Original replaced' });
@@ -87,6 +105,9 @@ export async function executeMediaTool(options: ExecuteOptions): Promise<RunHand
 		if (outcome.status === 'failed') rememberToolParams(options.steps[0].tool, options.steps[0].params);
 		if (setting !== false) {
 			announceOutcome(outcome, typeof setting === 'object' ? { ...setting, label: options.label } : {}, !full);
+		} else {
+			const summary = summaryOf(outcome);
+			if (summary) announceSummary(summary);
 		}
 		return outcome;
 	});

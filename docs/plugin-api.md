@@ -1572,7 +1572,7 @@ a file path in a response.
 | `GET /api/media-tools/previews/{id}` | | the preview clip (cookie or bearer, so a `<video>` can play it) |
 | `POST /api/media-tools/artifacts` | multipart `file` | `{id, media_type, mime_type, url, width, height, duration_seconds, fps, size}` |
 
-- A `run` is `{run_id, kind: run / preview, status, progress 0..1, label, items, replaced, preview, error}`. Poll it by
+- A `run` is `{run_id, kind: run / preview, status, progress 0..1, label, items, replaced, preview, error, summary}`. Poll it by
   id for progress; a reload reattaches through the stored id or the run list.
 - **Saving a stack** runs it as one background run. Hidden steps are skipped and never validated; up to 64 visible steps
   run in order. `mode: new` makes Library items, `mode: update` with `target_item_id` replaces the file of the copy a
@@ -1698,6 +1698,10 @@ directory afterwards, whatever happens.
   `ffmpeg` is the one cancellable runner: it adds `-y`, parses `-progress` into `ctx.progress` when you
   pass the expected output `duration`, kills the process when the run is cancelled and raises on a failure
   without ever exposing stderr or server paths. Use it instead of `subprocess` so cancel works.
+- **`ctx.summarize(message, links=())`** lets the last step of a run finish with no media: return `[]` after
+  calling it and the run completes with nothing added to the Library, showing `message` (and the first
+  `(label, href)` link, an app path such as `/models`) in place of the Library notice. The run's
+  `summary` is `{message, links: [{label, href}]}`.
 - **`ToolFailed(message)`** ends the run as failed with `message` shown to the user, and **`ToolCancelled()`**
   ends it as cancelled; raise it when `ctx.is_cancelled()` turns true during a long loop.
 - **`check_params(params)`** is an optional override for rules that span parameters (`end` must be greater
@@ -1779,7 +1783,7 @@ Successful JSON responses use the usual `{success, data}` envelope. A refusal an
   `replace` swaps the thumbnails together with the file and deletes the old ones. If another run replaced the
   same item first, the later run fails with `conflict` and publishes nothing. A run that would create more
   than 500 files fails with `too_many_outputs` before anything is published.
-- `GET /api/media-tools/runs/{run_id}` returns `{run_id, status, progress, label, items, replaced, error}`.
+- `GET /api/media-tools/runs/{run_id}` returns `{run_id, status, progress, label, items, replaced, error, summary}`.
   `status` is `queued`, `running`, `completed`, `failed` or `cancelled`; `items` are the resulting Library
   items; a failed run carries `error: {code, message}` (a tool's `requires` check ends the run with
   `unsupported_media`). An unknown run id, or another user's, is a 404.

@@ -12,6 +12,7 @@ import {
 	type MediaToolSaveMode,
 	type MediaToolRun,
 	type MediaToolRunStatus,
+	type MediaToolRunSummary,
 	type StartMediaToolRunBody
 } from './types';
 
@@ -35,7 +36,7 @@ export interface MediaToolRunState {
 }
 
 export type MediaToolRunOutcome =
-	| { status: 'completed'; items: MediaToolItem[]; replaced: boolean }
+	| { status: 'completed'; items: MediaToolItem[]; replaced: boolean; summary?: MediaToolRunSummary }
 	| { status: 'failed'; message: string; code: string | null }
 	| { status: 'cancelled' };
 
@@ -173,7 +174,12 @@ export function createMediaToolRuns(api: RunsApi = defaultApi): MediaToolRunsSto
 		record.status = run.status;
 		record.message = run.label || null;
 		if (run.status === 'completed') {
-			finish(record, { status: 'completed', items: run.items ?? [], replaced: run.replaced === true });
+			finish(record, {
+				status: 'completed',
+				items: run.items ?? [],
+				replaced: run.replaced === true,
+				...(run.summary ? { summary: run.summary } : {})
+			});
 		} else if (run.status === 'failed') {
 			finish(record, {
 				status: 'failed',

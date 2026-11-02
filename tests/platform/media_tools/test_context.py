@@ -144,3 +144,20 @@ def test_a_context_has_no_user_unless_given_one(tmp_path):
 def test_scoped_contexts_keep_the_user_id(tmp_path):
     context = ToolContext(tmp_path, user_id="user-7")
     assert context.scoped(0.2, 0.4).scoped(0.0, 0.5).user_id == "user-7"
+
+
+def test_a_summary_set_in_a_scoped_context_is_the_run_s_summary(tmp_path):
+    context = ToolContext(tmp_path)
+    assert context.summary is None
+    context.scoped(0.5, 1.0).summarize("Saved hero", [("Open", "/models")])
+    assert context.summary.message == "Saved hero"
+    assert context.summary.links[0].href == "/models"
+
+
+@pytest.mark.parametrize(
+    ("message", "links"),
+    [("", ()), ("Saved", [("Open", "https://example.com")]), ("Saved", [("Open", "//evil")]), ("Saved", [(" ", "/x")])],
+)
+def test_a_summary_needs_a_message_and_links_inside_the_app(tmp_path, message, links):
+    with pytest.raises(ValueError):
+        ToolContext(tmp_path).summarize(message, links)

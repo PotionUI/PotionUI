@@ -26,6 +26,7 @@ from src.features.media_tools.dto import (
     RunDTO,
     RunError,
     RunResult,
+    RunSummaryDTO,
     StepRequest,
     ToolDTO,
 )
@@ -741,6 +742,7 @@ class MediaToolService:
             error=run.error,
             status=run.status,
             run_id=run_id,
+            summary=run.summary,
         )
 
     def _spec(self, tool: str, index: Optional[int] = None) -> ToolSpec:
@@ -903,8 +905,11 @@ class MediaToolService:
                             "too_many_outputs",
                             f"This run would create {len(outputs)} files; the limit is {MAX_OUTPUTS}",
                         )
-                    control.report(SAVE_PROGRESS, "Saving")
-                    outcome = self._publish(user_id, plan, outputs)
+                    if not outputs and base.summary is not None:
+                        outcome = RunOutcome(summary=RunSummaryDTO.of(base.summary))
+                    else:
+                        control.report(SAVE_PROGRESS, "Saving")
+                        outcome = self._publish(user_id, plan, outputs)
                 self._remember(user_id, plan)
                 return outcome
 

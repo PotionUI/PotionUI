@@ -135,7 +135,7 @@ class TestRunHappyPaths(MediaToolsTestBase):
         data = response.json()["data"]
         self.assertEqual(
             sorted(data),
-            sorted(["run_id", "kind", "status", "progress", "label", "items", "replaced", "preview", "error"]),
+            sorted(["run_id", "kind", "status", "progress", "label", "items", "replaced", "preview", "error", "summary"]),
         )
         self.assertEqual(data["status"], "completed")
         self.assertIsNone(data["error"])

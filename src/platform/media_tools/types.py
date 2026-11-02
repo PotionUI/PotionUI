@@ -97,6 +97,28 @@ class FilterFragment:
 ProgressCallback = Callable[[float, str], None]
 
 
+@dataclass(frozen=True)
+class ResultLink:
+    label: str
+    href: str
+
+    def __post_init__(self) -> None:
+        if not self.label.strip():
+            raise ValueError("A result link needs a label")
+        if not self.href.startswith("/") or self.href.startswith("//"):
+            raise ValueError("A result link must be a path inside the app")
+
+
+@dataclass(frozen=True)
+class RunSummary:
+    message: str
+    links: tuple[ResultLink, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.message.strip():
+            raise ValueError("A result summary needs a message")
+
+
 @dataclass
 class ToolSpec:
     id: str
@@ -160,6 +182,7 @@ class ToolContext:
         user_id: Optional[str] = None,
         _window: tuple[float, float] = (0.0, 1.0),
         _counter: Optional[list[int]] = None,
+        _summary: Optional[list[Optional["RunSummary"]]] = None,
     ):
         from src.platform.media_tools.ffmpeg import FfmpegRunner
         from src.platform.media_tools.probe import probe as default_probe
@@ -170,6 +193,7 @@ class ToolContext:
         self.runner = runner if runner is not None else FfmpegRunner()
         self._prober = prober or default_probe
         self.user_id = user_id
+        self._summary = _summary if _summary is not None else [None]
         self._window = _window
         self._counter = _counter if _counter is not None else [0]
 
@@ -183,6 +207,15 @@ class ToolContext:
         low, high = self._window
         clamped = min(1.0, max(0.0, float(fraction)))
         self._progress(low + (high - low) * clamped, label)
+
+    @property
+    def summary(self) -> Optional[RunSummary]:
+        return self._summary[0]
+
+    def summarize(self, message: str, links: Sequence[tuple[str, str]] = ()) -> RunSummary:
+        summary = RunSummary(message, tuple(ResultLink(label, href) for label, href in links))
+        self._summary[0] = summary
+        return summary
 
     def is_cancelled(self) -> bool:
         return bool(self._is_cancelled and self._is_cancelled())
@@ -215,4 +248,5 @@ class ToolContext:
             user_id=self.user_id,
             _window=(outer_low + span * low, outer_low + span * high),
             _counter=self._counter,
+            _summary=self._summary,
         )

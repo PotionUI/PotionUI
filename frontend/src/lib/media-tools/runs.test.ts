@@ -177,6 +177,19 @@ describe('finishing', () => {
 		expect(getRun).not.toHaveBeenCalled();
 	});
 
+	it('hands back the run summary when the run saved no items', async () => {
+		const { api, get: getRun } = fakeApi();
+		const summary = { message: 'Saved hero.', links: [] };
+		getRun.mockResolvedValue(run({ status: 'completed', progress: 1, items: [], replaced: false, summary }));
+		const runs = createMediaToolRuns(api);
+		const handle = await runs.start(OPTIONS);
+
+		await vi.advanceTimersByTimeAsync(0);
+
+		await expect(handle.done).resolves.toEqual({ status: 'completed', items: [], replaced: false, summary });
+		runs.destroy();
+	});
+
 	it('reports whether the original was replaced', async () => {
 		const { api, get: getRun } = fakeApi();
 		getRun.mockResolvedValue(run({ status: 'completed', items: [], replaced: true }));

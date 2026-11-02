@@ -29,7 +29,7 @@
 	import { resolvePromptSegments } from '$lib/utils/promptSegments';
 	import { deriveConsoleModel, type ConsoleHeader as ConsoleHeaderModel } from './consoleModel';
 	import { deriveShotRail, railTimeFromFraction, shotRailIsInteractive } from './shotRailModel';
-	import type { ConsoleSelection } from './consoleSelection';
+	import { resolveConsoleSelection, type ConsoleSelection } from './consoleSelection';
 	import {
 		deriveRailModel,
 		withChainKeyframeAt,
@@ -233,8 +233,9 @@
 	// gets no default -- nothing selected there is a real, meaningful state.
 	$effect(() => {
 		if (!effectiveActiveShotId) return;
-		if (selection && selection.shotId === effectiveActiveShotId) return;
-		if (capabilities.segmentRouting) selection = { shotId: effectiveActiveShotId, kind: 'beat', id: effectiveActiveShotId };
+		const rail = deriveShotRail(doc, capabilities, effectiveActiveShotId, formData);
+		const next = resolveConsoleSelection(selection, effectiveActiveShotId, rail, capabilities.segmentRouting);
+		if (next !== selection) selection = next;
 	});
 	// The three mirror effects here (`onChange` above, header and checked
 	// below) call their callback under `untrack`: the callbacks arrive through

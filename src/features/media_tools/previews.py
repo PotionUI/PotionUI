@@ -6,7 +6,7 @@ import uuid
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Set, Tuple
 
 from src.features.media_tools.dto import PreviewClip
 
@@ -59,6 +59,7 @@ class PreviewCache:
         self._clip_entries = clip_entries
         self._clip_dir_factory = clip_dir_factory
         self._clip_dir: Optional[Path] = None
+        self._undeleted: Set[Path] = set()
 
     def frame(self, user_id: str, key: str) -> Optional[FramePreview]:
         with self._lock:
@@ -113,6 +114,7 @@ class PreviewCache:
             found = self._clips.get(slot) if slot else None
             if found is None or found.user_id != user_id or not found.path.is_file():
                 return None
+            self._clips.move_to_end(slot)
             return found.path, found.dto.mime_type
 
     def store_clip(
@@ -120,6 +122,7 @@ class PreviewCache:
     ) -> PreviewClip:
         preview_id = uuid.uuid4().hex
         with self._lock:
+            self._retry_deletes()
             directory = self._directory()
             dest = directory / f"{preview_id}{produced.suffix.lower()}"
             shutil.move(str(produced), str(dest))
@@ -136,10 +139,15 @@ class PreviewCache:
                 self._forget(evicted)
             return dto
 
+    def pending_deletes(self) -> Set[Path]:
+        with self._lock:
+            return set(self._undeleted)
+
     def clear(self) -> None:
         with self._lock:
             for clip in self._clips.values():
-                clip.path.unlink(missing_ok=True)
+                self._delete(clip.path)
+            self._retry_deletes()
             self._clips.clear()
             self._clip_ids.clear()
             self._frames.clear()
@@ -148,7 +156,21 @@ class PreviewCache:
 
     def _forget(self, clip: _Clip) -> None:
         self._clip_ids.pop(clip.dto.id, None)
-        clip.path.unlink(missing_ok=True)
+        self._delete(clip.path)
+
+    def _delete(self, path: Path) -> None:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            self._undeleted.add(path)
+
+    def _retry_deletes(self) -> None:
+        for path in list(self._undeleted):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                continue
+            self._undeleted.discard(path)
 
     def _directory(self) -> Path:
         if self._clip_dir is None or not self._clip_dir.is_dir():

@@ -7,8 +7,8 @@ from typing import Any, Callable, Optional, Sequence
 from PIL import Image
 
 from src.platform.media_tools.base import MediaTool
-from src.platform.media_tools.chain import check_accepts, check_requires
-from src.platform.media_tools.fastpath import prepare_image
+from src.platform.media_tools.chain import Step, check_accepts, check_requires
+from src.platform.media_tools.fastpath import encode_to, prepare_image
 from src.platform.media_tools.types import (
     FilterFragment,
     MediaToolError,
@@ -26,7 +26,6 @@ SCALE_ID = "preview_scale"
 PREVIEW_SUFFIX = ".mp4"
 PREVIEW_AUDIO_BITRATE = "128k"
 
-Step = tuple[ToolSpec, dict]
 Memo = Callable[[tuple, Callable[[], Any]], Any]
 
 
@@ -187,14 +186,7 @@ class _Scale(MediaTool):
             "-vf", f"{size},setsar=1", "-c:v", "libx264", "-preset", "veryfast", "-crf", str(self.crf),
             "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out_path),
         ]
-        try:
-            ctx.ffmpeg(args, duration=media.duration)
-        except BaseException:
-            out_path.unlink(missing_ok=True)
-            raise
-        if not out_path.is_file() or out_path.stat().st_size == 0:
-            raise ToolFailed("The encoder produced an empty file")
-        return ctx.probe(out_path, "video")
+        return encode_to(ctx, args, out_path, "video", media.duration)
 
 
 def excerpt_window(

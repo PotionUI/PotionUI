@@ -9,9 +9,9 @@ from PIL import Image, ImageOps
 
 from src.platform.media_tools.probe import has_alpha_mode
 from src.platform.media_tools.types import (
+    EmptyOutput,
     FilterFragment,
     ToolContext,
-    ToolFailed,
     ToolMedia,
     UnsupportedMedia,
 )
@@ -239,18 +239,24 @@ def _copied_video_args(media: ToolMedia, plan: MergedPlan, suffix: str, reencode
     return args
 
 
+def encode_to(
+    ctx: ToolContext, args: Sequence[str], out_path: Path, kind: str, duration: Optional[float] = None
+) -> ToolMedia:
+    try:
+        ctx.ffmpeg(list(args), duration=duration)
+        if not out_path.is_file() or out_path.stat().st_size == 0:
+            raise EmptyOutput()
+        return ctx.probe(out_path, kind)
+    except BaseException:
+        out_path.unlink(missing_ok=True)
+        raise
+
+
 def run_fragments(media: ToolMedia, fragments: Sequence[FilterFragment], ctx: ToolContext) -> ToolMedia:
     plan = merge_fragments(media, fragments)
     suffix = audio_output_suffix(media) if media.kind == "audio" else video_output_suffix(media)
     out_path = ctx.new_path(suffix, stem=media.path.stem[:40] or "out")
-    try:
-        ctx.ffmpeg(build_timed_args(media, plan, out_path), duration=plan.duration)
-    except BaseException:
-        out_path.unlink(missing_ok=True)
-        raise
-    if not out_path.is_file() or out_path.stat().st_size == 0:
-        raise ToolFailed("The encoder produced an empty file")
-    return ctx.probe(out_path, media.kind)
+    return encode_to(ctx, build_timed_args(media, plan, out_path), out_path, media.kind, plan.duration)
 
 
 def prepare_image(path: Path) -> Image.Image:

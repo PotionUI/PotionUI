@@ -4,6 +4,7 @@ from src.platform.media_tools.base import MediaTool
 from src.platform.media_tools.fastpath import (
     FASTSTART_SUFFIXES,
     audio_codec_args,
+    encode_to,
     video_encoder_args,
     video_output_suffix,
 )
@@ -100,14 +101,7 @@ class ReplaceAudio(MediaTool):
             args += video_encoder_args(suffix, None)
         args += audio_codec_args(suffix, True)
         args += ["-t", f"{media.duration:.6f}", str(out_path)]
-        try:
-            ctx.ffmpeg(args, duration=media.duration)
-        except BaseException:
-            out_path.unlink(missing_ok=True)
-            raise
-        if not out_path.is_file() or out_path.stat().st_size == 0:
-            raise ToolFailed("The encoder produced an empty file")
-        return ctx.probe(out_path, "video")
+        return encode_to(ctx, args, out_path, "video", media.duration)
 
 
 def spec() -> ToolSpec:

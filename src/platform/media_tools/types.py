@@ -53,6 +53,11 @@ class ToolFailed(MediaToolError):
     code = "tool_failed"
 
 
+class EmptyOutput(ToolFailed):
+    def __init__(self, message: str = "The encoder produced an empty file"):
+        super().__init__(message)
+
+
 class FfmpegUnavailable(ToolFailed):
     code = "ffmpeg_unavailable"
 

@@ -91,6 +91,35 @@ class TestFramePreview(PreviewTestBase):
         )
         self.assertEqual((detail["step_index"], detail["field"]), (1, "amount"))
 
+    def test_more_than_sixty_four_visible_steps_are_refused(self):
+        item = self.image_item(size=(40, 30))
+        rot = {"tool": "rot", "params": {}}
+        hidden = {**rot, "hidden": True}
+        self.assertEqual(self.frame({"item_id": item.id}, [rot] * 64 + [hidden] * 3).status_code, 200)
+        detail = self.refused(self.frame({"item_id": item.id}, [rot] * 65), 400, "invalid_params")
+        self.assertEqual(detail["field"], "steps")
+        video = self.video_item(seconds=1.0)
+        detail = self.refused(self.clip({"item_id": video.id}, [rot] * 65), 400, "invalid_params")
+        self.assertEqual(detail["field"], "steps")
+
+    def test_a_frame_preview_with_no_free_slot_answers_busy(self):
+        clip = self.video_item(seconds=1.0)
+        self.service._preview_wait = 0.05
+        held = [self.service._preview_slots.acquire(timeout=1) for _ in range(2)]
+        try:
+            self.refused(self.frame({"item_id": clip.id}, [GRAIN]), 429, "preview_busy")
+        finally:
+            for _ in held:
+                self.service._preview_slots.release()
+
+    def test_a_failed_frame_preview_gives_its_slot_back(self):
+        clip = self.video_item(seconds=1.0)
+        self.service._preview_wait = 0.05
+        failing = [{"tool": "frame", "params": {}}]
+        for _ in range(3):
+            self.refused(self.frame({"item_id": clip.id}, failing), 400, "unsupported_media")
+        self.assertEqual(self.frame({"item_id": clip.id}, [GRAIN]).status_code, 200)
+
     def test_audio_has_no_frame(self):
         tone = self.tone_item()
         self.refused(self.frame({"item_id": tone.id}, []), 400, "unsupported_media")

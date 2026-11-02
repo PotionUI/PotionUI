@@ -14,7 +14,7 @@ function press(key: string, init: KeyboardEventInit = {}, target: EventTarget = 
 
 function render(props: Record<string, unknown> = {}) {
 	const calls: string[] = [];
-	const view = mountComponent(FrameHost, { log: (entry: string) => calls.push(entry), ...props });
+	const view = mountComponent<Record<string, unknown>>(FrameHost, { log: (entry: string) => calls.push(entry), ...props });
 	const q = <T extends Element = HTMLElement>(sel: string) => view.target.querySelector<T>(sel);
 	return { calls, view, q };
 }

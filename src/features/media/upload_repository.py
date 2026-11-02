@@ -6,6 +6,7 @@ without an owner to check against, because the whole point of this table is
 that a user's upload library only ever shows (or deletes) their own files.
 """
 
+import json
 from typing import List, Optional
 
 from src.features.media.records import Upload
@@ -27,8 +28,8 @@ class UploadRepository:
                     id, user_id, filename, original_filename, media_type, mime_type,
                     width, height, duration_seconds, fps, file_size, purpose,
                     thumbnail_small, thumbnail_medium, thumbnail_large, thumbnail_profile,
-                    content_hash, has_alpha, source_generation_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    content_hash, has_alpha, source_generation_id, provenance
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 upload.id,
                 upload.user_id,
@@ -49,6 +50,7 @@ class UploadRepository:
                 upload.content_hash,
                 None if upload.has_alpha is None else int(upload.has_alpha),
                 upload.source_generation_id,
+                json.dumps(upload.provenance) if upload.provenance else None,
             ))
 
             cursor.execute("SELECT * FROM uploads WHERE id = ?", (upload.id,))

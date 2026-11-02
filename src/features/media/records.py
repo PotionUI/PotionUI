@@ -8,6 +8,7 @@ has no generation to belong to and is written by `MediaStore.upload_media`
 rather than the pipe/output path.
 """
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -17,6 +18,16 @@ from src.platform.database.rows import dt_column, row_get
 
 def _alpha_from_row(value) -> Optional[bool]:
     return None if value is None else bool(value)
+
+
+def _provenance_from_row(value) -> Optional[dict]:
+    if not value:
+        return None
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 @dataclass
@@ -54,6 +65,7 @@ class Upload:
     is_favorite: bool = False
     has_alpha: Optional[bool] = None
     source_generation_id: Optional[str] = None
+    provenance: Optional[dict] = None
 
     @classmethod
     def from_row(cls, row) -> 'Upload':
@@ -80,4 +92,5 @@ class Upload:
             is_favorite=bool(row_get(row, 'is_favorite')),
             has_alpha=_alpha_from_row(row_get(row, 'has_alpha')),
             source_generation_id=row_get(row, 'source_generation_id'),
+            provenance=_provenance_from_row(row_get(row, 'provenance')),
         )

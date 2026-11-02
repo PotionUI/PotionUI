@@ -23,6 +23,7 @@ from src.features.media_tools.dto import (
     EffectAnalysisResponse,
     InputRef,
     OutputSpec,
+    PanelsRequest,
     RunDTO,
     RunError,
     RunResult,
@@ -57,6 +58,8 @@ from src.platform.media_tools import (
 from src.platform.media_tools.chain import Step
 from src.platform.media_tools.effects.spec import EffectSpec
 from src.platform.media_tools.effects.tool import ANALYSIS_KEY, EffectTool
+from src.platform.media_tools.ops.slice import MAX_SOURCE_PIXELS, cell_names, parse_cells
+from src.platform.media_tools.panels import ANALYSIS_SIDE, MAX_GRID_SIDE, detect
 from src.platform.media_tools.fastpath import CRF_BY_QUALITY
 from src.platform.media_tools.params import bind_media, media_params
 from src.platform.media_tools.probe import has_alpha_mode
@@ -65,6 +68,7 @@ from src.platform.media_tools.timeline import Clock, StepContext
 from src.platform.media_tools.types import MEDIA_KINDS, ToolMedia
 
 if TYPE_CHECKING:
+    from src.features.collections.repository import CollectionRepository
     from src.features.generation.file_repository import FileRepository
     from src.features.media.media_types import MediaTypeResolver
     from src.features.media.store import MediaStore
@@ -83,6 +87,8 @@ PREVIEW_WAIT_SECONDS = 5.0
 PREVIEW_TIME_TOLERANCE = 0.05
 PREVIEW_END_BACKOFF_SECONDS = 0.5
 PIXEL_UNIT = "px"
+SLICE_TOOL = "slice"
+LIBRARY_SCOPE = "library"
 SCRATCH_PREFIX = "media-tool-"
 STALE_SCRATCH_SECONDS = 6 * 3600.0
 PREVIEW_SOURCE_SIDE = 1024
@@ -108,6 +114,7 @@ class _Plan:
     mode: str
     attachments: dict
     target: Optional[ResolvedInput] = None
+    collection_id: Optional[str] = None
 
 
 def _ref_key(ref: Mapping[str, Any]) -> str:
@@ -232,8 +239,10 @@ class MediaToolService:
         sweep_stale: bool = True,
         preview_wait_seconds: float = PREVIEW_WAIT_SECONDS,
         artifact_store: Optional["MediaStore"] = None,
+        collection_repository: Optional["CollectionRepository"] = None,
     ):
         self.registry = registry
+        self.collection_repo = collection_repository
         self.upload_repo = upload_repository
         self.artifact_store = artifact_store
         self.params_repo = params_repository
@@ -646,9 +655,53 @@ class MediaToolService:
             size=row.file_size,
         )
 
+    def detect_panels(self, user: Any, request: PanelsRequest) -> dict:
+        options = _model(PanelsRequest, request, "input")
+        resolved = self.resolver.resolve(_user_id(user), options.input)
+        if resolved.kind != "image":
+            raise InvalidInputError("unsupported_media", f"A {resolved.kind} file has no panels to detect")
+        grid = self._grid(options.grid)
+        with self._preview_slot(), self.resolver.stage(resolved) as path:
+            image, size = self._panel_source(path)
+            return detect(image, options.tolerance, grid, size)
+
+    @staticmethod
+    def _grid(grid: Optional[Sequence[int]]) -> Optional[Tuple[int, int]]:
+        if grid is None:
+            return None
+        columns, rows = int(grid[0]), int(grid[1])
+        if not (1 <= columns <= MAX_GRID_SIDE and 1 <= rows <= MAX_GRID_SIDE):
+            raise InvalidInputError(
+                "invalid_params", f"The grid needs 1 to {MAX_GRID_SIDE} columns and rows", field="grid"
+            )
+        return columns, rows
+
+    @staticmethod
+    def _panel_source(path: Path) -> Tuple[Image.Image, Tuple[int, int]]:
+        try:
+            with Image.open(path) as opened:
+                if opened.width * opened.height > MAX_SOURCE_PIXELS:
+                    raise InvalidInputError("invalid_params", "The picture is too large to analyse", field="input")
+                image = ImageOps.exif_transpose(opened) or opened
+                image.load()
+                size = image.size
+                image = image.convert("RGBA")
+        except (Image.DecompressionBombError, Image.UnidentifiedImageError, OSError) as exc:
+            raise InvalidInputError("unsupported_media", "The picture could not be read") from exc
+        image.thumbnail((ANALYSIS_SIDE, ANALYSIS_SIDE), Image.Resampling.BOX)
+        return image, size
+
+    def _check_slice_last(self, specs: List[ToolSpec]) -> None:
+        for index, spec in enumerate(specs[:-1]):
+            if spec.id == SLICE_TOOL:
+                raise InvalidInputError(
+                    "invalid_params", "Slice must be the last step", field="steps", step_index=index
+                )
+
     def _editor_steps(self, steps: Sequence[StepLike]) -> List[Step]:
         models = self._visible(steps)
         specs = [self._spec(step.tool, index) for index, step in enumerate(models)]
+        self._check_slice_last(specs)
         for index, spec in enumerate(specs):
             if spec.cardinality == "many_to_one":
                 raise InvalidInputError(
@@ -786,6 +839,7 @@ class MediaToolService:
                 "invalid_params", f"A run needs between 1 and {MAX_STEPS} steps", field="steps"
             )
         specs = [self._spec(step.tool, index) for index, step in enumerate(step_models)]
+        self._check_slice_last(specs)
 
         refs = [_model(InputRef, ref, "inputs") for ref in inputs or []]
         if not refs or len(refs) > MAX_INPUTS:
@@ -801,12 +855,38 @@ class MediaToolService:
         mode = spec_out.mode
         chain = list(zip(specs, validated))
         target = None
+        collection_id = self._check_collection(user_id, spec_out)
+        if mode != "new" and any(spec.id == SLICE_TOOL for spec in specs):
+            raise InvalidInputError("replace_not_allowed", "Slicing makes new items")
         if mode == "replace":
             self._check_replace(specs, resolved)
         elif mode == "update":
             target = self._check_update(user_id, specs, resolved, spec_out.target_item_id)
         attachments = self._resolve_attachments(user_id, chain)
-        return _Plan(steps=chain, inputs=resolved, mode=mode, attachments=attachments, target=target)
+        return _Plan(
+            steps=chain,
+            inputs=resolved,
+            mode=mode,
+            attachments=attachments,
+            target=target,
+            collection_id=collection_id,
+        )
+
+    def _check_collection(self, user_id: str, spec_out: OutputSpec) -> Optional[str]:
+        if not spec_out.collection_id:
+            return None
+        if spec_out.mode != "new":
+            raise InvalidInputError(
+                "invalid_params", "A collection needs a run that makes new items", field="collection_id"
+            )
+        found = (
+            self.collection_repo.get_by_id(spec_out.collection_id, LIBRARY_SCOPE, user_id)
+            if self.collection_repo is not None
+            else None
+        )
+        if found is None:
+            raise NotFoundError("not_found", "Collection not found")
+        return spec_out.collection_id
 
     def _check_media(self, specs: List[ToolSpec], resolved: List[ResolvedInput]) -> None:
         kinds = [item.kind for item in resolved]
@@ -918,14 +998,56 @@ class MediaToolService:
             updated = self.publisher.publish_replace(user_id, source.upload, source.key, outputs[0])
             return RunOutcome(items=[to_item(updated)], replaced=True)
         rows = self.publisher.publish_new(
-            user_id, outputs, self._names(plan, outputs), _shared_generation_id(plan.inputs)
+            user_id,
+            outputs,
+            self._names(plan, outputs),
+            _shared_generation_id(plan.inputs),
+            self._provenance(plan, outputs),
         )
+        self._file_into_collection(user_id, plan, rows)
         return RunOutcome(items=[to_item(row) for row in rows], replaced=False)
+
+    def _file_into_collection(self, user_id: str, plan: _Plan, rows: list) -> None:
+        if not plan.collection_id or self.collection_repo is None:
+            return
+        try:
+            self.collection_repo.add_upload_members(
+                plan.collection_id, [row.id for row in rows], user_id, LIBRARY_SCOPE
+            )
+        except Exception:
+            logger.exception("Could not file media tool outputs into collection %s", plan.collection_id)
+
+    @staticmethod
+    def _provenance(plan: _Plan, outputs: list) -> Optional[List[Optional[dict]]]:
+        spec, params = plan.steps[-1]
+        if spec.id != SLICE_TOOL or len(plan.inputs) != 1:
+            return None
+        source = plan.inputs[0]
+        origin = (
+            {"source_item_id": source.upload.id}
+            if source.upload is not None
+            else {"generation_file_id": source.generation_file_id}
+        )
+        cells = parse_cells(params["rects"])
+        return [
+            {
+                "slice": {
+                    **origin,
+                    "source_name": source.original_filename,
+                    "index": index,
+                    "count": len(cells),
+                    "rect": cell.rect(),
+                }
+            }
+            for index, cell in enumerate(cells[: len(outputs)])
+        ]
 
     def _names(self, plan: _Plan, outputs: list) -> List[Optional[str]]:
         last = plan.steps[-1][0]
         total = len(outputs)
         fanned = any(spec.cardinality == "one_to_many" for spec, _ in plan.steps)
+        if last.id == SLICE_TOOL and len(plan.inputs) == 1:
+            return self._slice_names(plan, outputs)
         names: List[Optional[str]] = []
         for index, media in enumerate(outputs):
             matched = last.cardinality == "one_to_one" and len(plan.inputs) == total
@@ -940,10 +1062,32 @@ class MediaToolService:
                 names.append(f"{stem}{last.name_suffix}{extension}")
         return names
 
+    @staticmethod
+    def _slice_names(plan: _Plan, outputs: list) -> List[Optional[str]]:
+        spec, params = plan.steps[-1]
+        stem = _safe_stem(plan.inputs[0].original_filename)
+        typed = cell_names(params)
+        used: set = set()
+        names: List[Optional[str]] = []
+        for index, media in enumerate(outputs):
+            extension = media.path.suffix
+            base = typed[index] if index < len(typed) and typed[index] else f"{stem}{spec.name_suffix}-{index + 1:02d}"
+            if base.lower().endswith(extension.lower()):
+                base = base[: -len(extension)] if extension else base
+            candidate, number = f"{base}{extension}", 1
+            while candidate.lower() in used:
+                number += 1
+                candidate = f"{base}-{number}{extension}"
+            used.add(candidate.lower())
+            names.append(candidate)
+        return names
+
     def _remember(self, user_id: str, plan: _Plan) -> None:
         if len(plan.steps) != 1:
             return
         spec, params = plan.steps[0]
+        if any(param.get("type") == "json" for param in spec.params):
+            return
         try:
             self.params_repo.save(user_id, spec.id, params)
         except Exception:

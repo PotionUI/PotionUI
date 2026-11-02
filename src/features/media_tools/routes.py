@@ -9,6 +9,7 @@ from src.features.media_tools.dto import (
     ClipPreviewRequest,
     EffectAnalysisRequest,
     FramePreviewRequest,
+    PanelsRequest,
     PreviewRequest,
     RunListResponse,
     StartRunRequest,
@@ -73,6 +74,11 @@ class MediaToolController(BaseController):
     async def list_runs(self, current_user) -> APIResponse:
         runs = await asyncio.to_thread(self.service.list_runs, current_user)
         return self.success_response(data=RunListResponse(runs=runs).model_dump())
+
+    @guarded(_TOOL_ERRORS, Fail("media_tool_analysis_failed", "Failed to detect the panels", 500))
+    async def detect_panels(self, request: PanelsRequest, current_user) -> APIResponse:
+        found = await asyncio.to_thread(self.service.detect_panels, current_user, request)
+        return self.success_response(data=found)
 
     @guarded(_TOOL_ERRORS, Fail("media_tool_preview_failed", "Failed to render the preview", 500))
     async def preview_frame(self, request: FramePreviewRequest, current_user) -> Response:
@@ -168,6 +174,12 @@ def build_router(container: "AppContainer") -> APIRouter:
         run_id: str, current_user=Depends(get_current_active_user)
     ) -> APIResponse:
         return await controller.cancel_run(run_id, current_user)
+
+    @router.post("/api/media-tools/analyse/panels", response_model=APIResponse, summary="Detect Panels In A Picture")
+    async def detect_media_tool_panels(
+        request: PanelsRequest, current_user=Depends(get_current_active_user)
+    ) -> APIResponse:
+        return await controller.detect_panels(request, current_user)
 
     @router.post("/api/media-tools/preview", response_model=None, summary="Preview A Media Tool")
     async def preview_media_tool(

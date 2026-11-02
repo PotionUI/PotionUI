@@ -145,7 +145,7 @@ class TestRunHappyPaths(MediaToolsTestBase):
             sorted([
                 "id", "filename", "original_filename", "media_type", "mime_type", "url", "width",
                 "height", "duration_seconds", "fps", "size", "created_at",
-                "thumbnail_small", "thumbnail_medium", "thumbnail_large", "source_generation_id",
+                "thumbnail_small", "thumbnail_medium", "thumbnail_large", "source_generation_id", "provenance",
             ]),
         )
 

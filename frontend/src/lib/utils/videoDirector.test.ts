@@ -20,6 +20,7 @@ import {
 	chainKeyframeWindow,
 	applyDirectorOperations,
 	applyDirectorSegmentPrompt,
+	resolveDirectorSegmentTarget,
 	applySetPrompt,
 	applySetNegativePrompt,
 	isFormMediaRef,
@@ -29,6 +30,7 @@ import {
 	formMediaOptionKeys,
 	dereferenceFormMediaRefs
 } from './videoDirector';
+import { parseToolActions } from './markdown';
 import type { ChainSegment, DirectorTimelineShot, VideoDirectorValue, VideoDirectorWireDoc } from '$lib/types/videoDirector';
 import type { MediaRef } from '$lib/types/tabs';
 
@@ -2447,6 +2449,60 @@ describe('applyDirectorSegmentPrompt', () => {
 	const caps = parseDirectorCapabilities(RAW_CAPS)!; // LTX-style timeline director
 	const wanCaps = parseDirectorCapabilities(WAN_RAW_CAPS)!; // Wan-style routed chain
 
+	describe('single-shot modes target the global prompt the editor shows', () => {
+		it.each([
+			['LTX t2v', 't2v', RAW_CAPS],
+			['Wan i2v with segment routing', 'i2v', WAN_RAW_CAPS]
+		])('%s: the reported malformed tag applies to the global prompt', (_label, mode, raw) => {
+			const modeCaps = parseDirectorCapabilities(raw)!;
+			const v = normalizeDirectorValue(
+				{ mode, global_prompt: 'a cat', chain: { fps: 16, segments: [{ id: 'c1', prompt: 'hidden chain prompt' }] } },
+				modeCaps
+			);
+			const [action] = parseToolActions('<tool_action update_director_segment segment_id="seg-1">a dog running').actions;
+			const next = applyDirectorSegmentPrompt(v, modeCaps, action);
+			expect(next).not.toBeNull();
+			expect(next!.global_prompt).toBe('a dog running');
+			expect(next!.chain).toEqual(v.chain);
+			expect(next!.timeline).toEqual(v.timeline);
+			expect(resolveDirectorSegmentTarget(v, modeCaps, action)).toEqual({ id: 'seg-1' });
+		});
+
+		it('an id that is not the single shot and no index resolves nothing', () => {
+			const v = normalizeDirectorValue({ mode: 't2v', global_prompt: 'a cat' }, caps);
+			const action = { segmentId: 'seg-2', segmentIndex: -1, content: 'x' };
+			expect(applyDirectorSegmentPrompt(v, caps, action)).toBeNull();
+			expect(resolveDirectorSegmentTarget(v, caps, action)).toBeNull();
+		});
+	});
+
+	it('the reported tag in director mode updates the chain shot it names', () => {
+		const v = normalizeDirectorValue(
+			{ mode: 'director', chain: { fps: 16, segments: [{ id: 'c1', prompt: 'a' }, { id: 'c2', prompt: 'b' }] } },
+			wanCaps
+		);
+		const [action] = parseToolActions("<tool_action update_director_segment segment_id='c2'>a dog running").actions;
+		const next = applyDirectorSegmentPrompt(v, wanCaps, action);
+		expect(next!.chain.segments.map((s) => s.prompt)).toEqual(['a', 'a dog running']);
+		expect(resolveDirectorSegmentTarget(v, wanCaps, action)).toEqual(expect.objectContaining({ id: 'c2' }));
+	});
+
+	it('resolves a timeline beat together with its shot for the applied marker', () => {
+		const v: VideoDirectorValue = {
+			...normalizeDirectorValue({}, caps),
+			mode: 'director',
+			timeline: {
+				fps: 24,
+				shots: [
+					{ id: 'shot-1', duration: 3, continue_from_previous: false, segments: [{ id: 's1', start: 0, end: 3, text: 'first', prompt_segments: [] }], keyframes: [], audio: [], ic_lora: [] },
+					{ id: 'shot-2', duration: 3, continue_from_previous: false, segments: [{ id: 's2', start: 0, end: 3, text: 'second', prompt_segments: [] }], keyframes: [], audio: [], ic_lora: [] }
+				]
+			}
+		};
+		expect(resolveDirectorSegmentTarget(v, caps, { segmentId: 's2', segmentIndex: -1 })).toEqual({ id: 's2', shotId: 'shot-2' });
+		expect(resolveDirectorSegmentTarget(v, caps, { segmentId: 'nope', segmentIndex: 0, shotId: 'shot-2' })).toEqual({ id: 's2', shotId: 'shot-2' });
+	});
+
 	it('id match: replaces the prompt on a chain segment, preserving duration/loras/keyframe', () => {
 		const v = normalizeDirectorValue(
 			{
@@ -2477,7 +2533,7 @@ describe('applyDirectorSegmentPrompt', () => {
 
 	it('id match: replaces the prompt on a timeline segment, preserving start/end', () => {
 		const v = normalizeDirectorValue(
-			{ timeline: { duration: 10, segments: [{ id: 's1', start: 2, end: 6, text: 'old text' }] } },
+			{ mode: 'director', timeline: { duration: 10, segments: [{ id: 's1', start: 2, end: 6, text: 'old text' }] } },
 			caps
 		);
 		const next = applyDirectorSegmentPrompt(v, caps, { segmentId: 's1', segmentIndex: 0, content: 'new text' });
@@ -2541,7 +2597,10 @@ describe('applyDirectorSegmentPrompt', () => {
 	});
 
 	it('index miss (out of range) with an id miss also returns null on the timeline list', () => {
-		const v = normalizeDirectorValue({ timeline: { duration: 10, segments: [{ id: 's1', start: 0, end: 10, text: 'a' }] } }, caps);
+		const v = normalizeDirectorValue(
+			{ mode: 'director', timeline: { duration: 10, segments: [{ id: 's1', start: 0, end: 10, text: 'a' }] } },
+			caps
+		);
 		const next = applyDirectorSegmentPrompt(v, caps, { segmentId: 'nope', segmentIndex: -1, content: 'ignored' });
 		expect(next).toBeNull();
 	});

@@ -91,7 +91,8 @@
 		parseDirectorCapabilities,
 		resolveDirectorRaw,
 		normalizeDirectorValue,
-		applyDirectorSegmentPrompt
+		applyDirectorSegmentPrompt,
+		resolveDirectorSegmentTarget
 	} from '$lib/utils/videoDirector';
 	import { applyModelOverlay, directorOverlayFrom, selectedCloudModelId } from '$lib/utils/cloudDirector';
 	import { sharedCapabilityCache } from '$lib/form/capabilityTracker';
@@ -1172,24 +1173,11 @@
 		if (action.type === 'update_director_segment') {
 			if (!videoDirectorActive || !videoDirectorCaps) return;
 			const doc = normalizeDirectorValue(tab.videoDirector, videoDirectorCaps);
-			// Resolve id-first/index-fallback against the SAME pre-apply list
-			// applyDirectorSegmentPrompt targets, so the applied-marker lands on
-			// the segment it actually wrote to. Timeline routing (W2): once the
-			// tag names a shot, resolve strictly within that shot's own beat
-			// list (a beat id is only unique WITHIN its shot); otherwise flatten
-			// every shot's beats in shot order, same as
-			// applyDirectorSegmentPrompt's own fallback.
-			const list: { id: string }[] = videoDirectorCaps.segmentRouting
-				? doc.chain.segments
-				: action.shotId
-					? (doc.timeline.shots.find((shot) => shot.id === action.shotId)?.segments ?? [])
-					: doc.timeline.shots.flatMap((shot) => shot.segments);
-			const byId = list.findIndex((s) => s.id === action.segmentId);
-			const idx = byId !== -1 ? byId : action.segmentIndex >= 0 && action.segmentIndex < list.length ? action.segmentIndex : -1;
+			const target = resolveDirectorSegmentTarget(doc, videoDirectorCaps, action);
 			const next = applyDirectorSegmentPrompt(doc, videoDirectorCaps, action);
-			if (!next || idx === -1) return;
+			if (!next || !target) return;
 			tabsStore.updateTab(tab.id, { videoDirector: next });
-			appliedSegmentActions.set(list[idx].id, messageId, actionIndex);
+			appliedSegmentActions.set(target.id, messageId, actionIndex);
 			return;
 		}
 

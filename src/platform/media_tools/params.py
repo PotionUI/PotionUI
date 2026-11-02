@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from src.platform.media_tools.conditions import when_matches
-from src.platform.media_tools.types import InvalidToolParams, ToolSpec
+from src.platform.media_tools.types import InvalidToolParams, ToolMedia, ToolSpec
 
-PARAM_TYPES = frozenset({"integer", "float", "select", "checkbox", "color", "string", "anchor"})
+PARAM_TYPES = frozenset({"integer", "float", "select", "checkbox", "color", "string", "anchor", "media"})
+MEDIA_PARAM = "media"
+MEDIA_REF_KEYS = ("item_id", "generation_file_id")
 ANCHORS = (
     "center", "top", "bottom", "left", "right",
     "top_left", "top_right", "bottom_left", "bottom_right",
@@ -15,6 +17,7 @@ ANCHORS = (
 TRANSPARENT = "transparent"
 
 _HEX_COLOR_RE = re.compile(r"^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+_REF_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _TRUE = frozenset({"true", "1", "yes", "on"})
 _FALSE = frozenset({"false", "0", "no", "off", ""})
 _MISSING = object()
@@ -138,6 +141,35 @@ def _coerce_anchor(param: dict, value: Any) -> str:
     raise _fail(param, f"{_label(param)} must be one of: {', '.join(ANCHORS)}")
 
 
+def _coerce_media(param: dict, value: Any) -> Any:
+    if isinstance(value, ToolMedia):
+        return value
+    if isinstance(value, str):
+        value = {"item_id": value}
+    if not isinstance(value, dict) or set(value) - set(MEDIA_REF_KEYS):
+        raise _fail(param, f"{_label(param)} must name one Library item")
+    named = [key for key in MEDIA_REF_KEYS if value.get(key)]
+    if len(named) != 1:
+        raise _fail(param, f"{_label(param)} must name one Library item")
+    identifier = str(value[named[0]]).strip()
+    if not _REF_ID_RE.match(identifier):
+        raise _fail(param, f"{_label(param)} must name one Library item")
+    return {named[0]: identifier}
+
+
+def media_params(spec: ToolSpec) -> list[dict]:
+    return [param for param in spec.params if param.get("type") == MEDIA_PARAM]
+
+
+def bind_media(spec: ToolSpec, params: dict, lookup: Callable[[dict, dict], ToolMedia]) -> dict:
+    bound = dict(params)
+    for param in media_params(spec):
+        value = bound.get(param["name"])
+        if isinstance(value, dict):
+            bound[param["name"]] = lookup(param, value)
+    return bound
+
+
 def coerce_value(param: dict, value: Any) -> Any:
     kind = param.get("type")
     if kind == "integer":
@@ -158,6 +190,8 @@ def coerce_value(param: dict, value: Any) -> Any:
         return _coerce_string(param, value)
     if kind == "anchor":
         return _coerce_anchor(param, value)
+    if kind == MEDIA_PARAM:
+        return _coerce_media(param, value)
     return value
 
 

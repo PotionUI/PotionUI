@@ -55,7 +55,12 @@ from src.features.media.upload_thumbnails import (
     render_video_thumbnails,
     run_in_background,
 )
-from src.features.media.validators import UPLOAD_PURPOSE_USER, validate_upload_purpose_policy
+from src.features.media.validators import (
+    UPLOAD_PURPOSE_DERIVED,
+    UPLOAD_PURPOSE_USER,
+    validate_derived_artifact,
+    validate_upload_purpose_policy,
+)
 from src.features.media.dto import (
     MediaResult,
     UploadResult,
@@ -459,8 +464,16 @@ class MediaStore:
 
     # ========== Upload ==========
 
-    def check_upload_size(self, user_id: Optional[str], size: Optional[int], purpose: str = UPLOAD_PURPOSE_USER) -> None:
-        if self.limit_guard is None or not user_id or purpose != UPLOAD_PURPOSE_USER or not isinstance(size, int):
+    def check_upload_size(
+        self,
+        user_id: Optional[str],
+        size: Optional[int],
+        purpose: str = UPLOAD_PURPOSE_USER,
+        content_type: Optional[str] = None,
+    ) -> None:
+        if validate_upload_purpose_policy(purpose) == UPLOAD_PURPOSE_DERIVED:
+            validate_derived_artifact(size, content_type)
+        if self.limit_guard is None or not user_id or not isinstance(size, int):
             return
         self.limit_guard.check_items(AdmissionRequest(point="upload", user_id=user_id, incoming_bytes=size))
 
@@ -491,7 +504,7 @@ class MediaStore:
             ValueError: If upload fails, is blocked, or `purpose` is unknown
         """
         purpose = validate_upload_purpose_policy(purpose)
-        await asyncio.to_thread(self.check_upload_size, user_id, len(file_data), purpose)
+        await asyncio.to_thread(self.check_upload_size, user_id, len(file_data), purpose, content_type or "")
 
         # Validate content type
         if not self.media_types.is_valid_media_type(content_type):
@@ -517,7 +530,7 @@ class MediaStore:
             if existing and self.storage_driver.exists(self._upload_key(existing.filename)):
                 return self._upload_result_from_existing(existing)
 
-        if self.limit_guard is not None and user_id and purpose == UPLOAD_PURPOSE_USER:
+        if self.limit_guard is not None and user_id:
             await asyncio.to_thread(
                 self.limit_guard.admit,
                 AdmissionRequest(point="upload", user_id=user_id, incoming_bytes=len(file_data)),

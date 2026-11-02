@@ -81,6 +81,8 @@ def head_tail_window(
 
 
 class Trim(MediaTool):
+    window_only = True
+
     def check_params(self, params: dict) -> None:
         start = params.get("start") or 0.0
         end = params.get("end")
@@ -90,6 +92,12 @@ class Trim(MediaTool):
     def video_filter(self, media: ToolMedia, params: dict) -> Optional[FilterFragment]:
         start, end = validated_window(float(params.get("start") or 0.0), float(params["end"]), media.duration)
         return FilterFragment(start=start, end=end, duration=end - start)
+
+    def retime(self, clock, params: dict):
+        return clock.trimmed(float(params.get("start") or 0.0), float(params["end"]))
+
+    def still(self, image, params: dict, frame):
+        return image
 
 
 def spec() -> ToolSpec:

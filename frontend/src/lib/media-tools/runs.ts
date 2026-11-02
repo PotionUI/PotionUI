@@ -9,7 +9,7 @@ import {
 import {
 	isTerminalStatus,
 	type MediaToolItem,
-	type MediaToolOutputMode,
+	type MediaToolSaveMode,
 	type MediaToolRun,
 	type MediaToolRunStatus,
 	type StartMediaToolRunBody
@@ -30,7 +30,7 @@ export interface MediaToolRunState {
 	progress: number;
 	status: MediaToolRunStatus;
 	message: string | null;
-	outputMode: MediaToolOutputMode;
+	outputMode: MediaToolSaveMode;
 	cancelling: boolean;
 }
 
@@ -62,7 +62,7 @@ interface RunRecord {
 	toolId: string;
 	label: string;
 	keys: string[];
-	outputMode: MediaToolOutputMode;
+	outputMode: MediaToolSaveMode;
 	startedAt: number;
 	progress: number;
 	status: MediaToolRunStatus;

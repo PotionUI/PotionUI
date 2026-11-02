@@ -238,6 +238,23 @@ function selectedFirst(tab: Fields): Fields {
 }
 
 describe('segment actions on another prompt', () => {
+	it('applies a malformed update tag that names only the segment id and an unquoted prompt', async () => {
+		const two = await addPrompt(single(), 'Night', 'a village at night');
+		const [action] = parseToolActions("<tool_action update_segment prompt=0 segment_id='s1'>a harbour at noon").actions;
+
+		expect(action).toMatchObject({ type: 'update_segment', segmentIndex: -1, segmentId: 's1', promptIndex: 0 });
+		const result = await applySegmentActionToPrompt(two, action.promptIndex!, action);
+		const next = merge(two, result!.patch);
+
+		expect(next.promptTabs![0].prompt).toBe('a harbour at noon');
+		expect(next.prompt).toBe('a village at night');
+	});
+
+	it('parses a bare add_prompt with a single-quoted name and no closing tag', () => {
+		const { actions } = parseToolActions("<tool_action add_prompt name='Night'>a village at night\n\nWant more?");
+		expect(actions).toEqual([{ type: 'add_prompt', segmentIndex: -1, segmentId: '', name: 'Night', content: 'a village at night' }]);
+	});
+
 	it('updates a segment of a non-active prompt and leaves the active one alone', async () => {
 		const two = await addPrompt(single(), 'Night', 'a village at night');
 		const nightSegmentId = two.promptTabs![1].promptSegments[0].id;

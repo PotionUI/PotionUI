@@ -547,6 +547,14 @@ _HOW_TO_EDIT = (
 )
 
 
+def flatten_active_document(form_state: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not video_director_active(form_state):
+        return None
+    vd = form_state["video_director"]
+    capabilities = apply_preset_mode_overlay(vd.get("capabilities") or {}, form_state.get("mode"))
+    return _flatten(vd.get("doc") or {}, capabilities, form_state.get("form_data") or {})
+
+
 class GetVideoDirectorTool(BaseTool):
     """Reads the Video Director document currently loaded on the user's form."""
 
@@ -604,9 +612,8 @@ class GetVideoDirectorTool(BaseTool):
                 ),
             )
 
-        doc = vd.get("doc") or {}
         capabilities = apply_preset_mode_overlay(vd.get("capabilities") or {}, form_state.get("mode"))
-        flat = _flatten(doc, capabilities, form_state.get("form_data") or {})
+        flat = flatten_active_document(form_state)
 
         result = {
             "mode": flat["mode"],

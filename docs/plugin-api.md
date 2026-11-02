@@ -1501,11 +1501,12 @@ Disabling the plugin removes its tools from `GET /api/phrasebook/batch-ops` imme
 ## Media tools
 
 A **media tool** is one declaration of something that edits media: trim a clip, resize an image, loop
-a video. Core ships fifteen; a plugin adds its own. The Tools menu on the Library and History pages, a
+a video. Core ships nineteen; a plugin adds its own. The Tools menu on the Library and History pages, a
 media field's toolbar, presets, PotionAI chat and automation all read the same catalog, so a plugin tool
 shows up in every one of them as soon as the plugin is enabled and disappears when it is disabled.
-Tools change shape, time or pixels (trim, crop, resize, rotate, flip, speed, split, frame, concat, fit canvas,
-crop to subject, colour key, fix colours, film grain) and run deterministically with no model. Looks on
+Tools change shape, time, sound or pixels (trim, crop, resize, rotate, flip, speed, split, frame, concat, fit canvas,
+crop to subject, colour key, fix colours, film grain, mute, volume, replace audio, paint layer) and run
+deterministically with no model. Looks on
 still images (grain, VHS, grades) are photo filters, not tools: see
 [Contributing photo filters and filter ops](#contributing-photo-filters-and-filter-ops).
 
@@ -1523,14 +1524,28 @@ still images (grain, VHS, grades) are photo filters, not tools: see
 | `color_key` | image | same | `key_mode`, `key_color`, `tolerance`, `softness`, `despill`, `feather` |
 | `crop_subject` | image with transparency | same | `margin`, `alpha_threshold` |
 | `frame` | video | image | `time` (seconds) |
-| `split` | audio | audio, many | `part_seconds` |
+| `split` | audio, video | same, many | `mode` every / at, `part_seconds`, `at` (seconds) |
 | `concat` | video, 2 to 8 selected | video, one | `overlap`, `overlap_frames`, `fit`, `keep_audio` |
 | `fix_colors` | video (Effects menu) | same | `white_balance`, `contrast`, `strength` percent |
 | `film_grain` | video (Effects menu) | same | `amount` 0 to 100 percent, `size` 1 to 3, `color`, `seed` |
 | `cut_finder` | video | video, many | `sensitivity` 0 to 100, `min_shot_seconds` |
+| `mute` | video with sound | same | none |
+| `volume` | video, audio with sound | same | `unit` percent / db, `percent` 0 to 400, `db` -60 to 20, `fade_in`, `fade_out` (seconds) |
+| `replace_audio` | video (editor only) | same | `audio` (media), `start` (seconds into the track), `loop` |
+| `paint_layer` | image (editor only) | same | `layer` (media, a transparent PNG) |
 
 Core ids never contain a dot. Video output keeps even dimensions and the sound; images keep their
 transparency (a JPEG that gains an alpha channel is saved as PNG).
+
+`mute`, `volume` and `replace_audio` copy the video stream when they run alone; next to a picture or timing edit they
+share that edit's single encode. `replace_audio` keeps the video's length: the track starts `start` seconds in and, with
+`loop`, repeats until the picture ends. `split` with `mode: at` cuts at one time point into two items; video parts are
+re-encoded so the cut lands on the exact frame. Tools whose `scopes` are only `editor` (`replace_audio`, `paint_layer`)
+are left out of the Library and History menus because they need a file picked in the editor.
+
+A `media` parameter names another file: `{"item_id": "..."}` (a Library item or a helper upload) or
+`{"generation_file_id": "..."}`; a bare string is read as an `item_id`. The run checks that the caller owns it and that
+its kind is one of the parameter's `accepts`, then hands the tool a staged `ToolMedia` in its place.
 
 `film_grain` draws new grain on every frame, so the grain moves like film stock instead of sitting on the
 picture as a fixed overlay. The same `seed` on the same clip gives the same grain; `amount` 0 only
@@ -1539,6 +1554,46 @@ re-encodes. It uses the grain math of the `film_grain` image pipe (`src/platform
 long clip is never held in memory. Size 1 is pixel-sized grain; finer grain would be invisible. Frame count, frame rate,
 size and the audio track are kept, and Save as new and Replace original behave as for the other video tools.
 It is an effect only: no preset adds it as a final step.
+
+### The editor API
+
+The Image and Video editor tabs keep a stack of steps, `{tool, params, hidden?}`, and talk to these endpoints. Every
+one needs a signed-in user, answers 404 for a source, helper file, run or preview owned by someone else, and never puts
+a file path in a response.
+
+| Method and path | Body | Answer |
+|---|---|---|
+| `POST /api/media-tools/runs` | `{steps, inputs: [ref], output: {mode, target_item_id?}}` | 202 `{run_id}` |
+| `GET /api/media-tools/runs` | | `{runs: [run]}`, my runs still held (queued, running, or finished in the last 10 minutes) |
+| `GET /api/media-tools/runs/{id}` | | `run` |
+| `DELETE /api/media-tools/runs/{id}` | | `run`, cancelled |
+| `POST /api/media-tools/preview/frame` | `{input: ref, steps, time_seconds?, max_side? 1280, format? webp / png}` | the image; header `X-Preview-Cache: hit / miss` |
+| `POST /api/media-tools/preview/clip` | `{input: ref, steps, start_seconds? 0, duration_seconds? 3, height? 480}` | 202 `{run_id, preview}` |
+| `GET /api/media-tools/previews/{id}` | | the preview clip (cookie or bearer, so a `<video>` can play it) |
+| `POST /api/media-tools/artifacts` | multipart `file` | `{id, media_type, mime_type, url, width, height, duration_seconds, fps, size}` |
+
+- A `run` is `{run_id, kind: run / preview, status, progress 0..1, label, items, replaced, preview, error}`. Poll it by
+  id for progress; a reload reattaches through the stored id or the run list.
+- **Saving a stack** runs it as one background run. Hidden steps are skipped and never validated; up to 64 visible steps
+  run in order. `mode: new` makes Library items, `mode: update` with `target_item_id` replaces the file of the copy a
+  first save made (one input, no split, same kind), and `mode: replace` replaces a Library source; a History source or a
+  helper upload is refused with `replace_not_allowed`. A stack with `split` saves its parts as separate items named
+  "part 1 of 2".
+- **Frame preview** renders one frame of a video, or the image, through the stack with each tool's frame path, the same
+  code the full render uses: `film_grain` seeds each frame's grain by its frame number, so the paused frame shows the
+  grain the render will put there, and `fix_colors` estimates over the trimmed range of the source. `time_seconds` is on
+  the source clip; trim and speed steps map it to the frame the render would show. Sound and timing steps leave the
+  picture alone. A tool with no frame path (`frame`, `concat`, most plugin tools) is refused with its `step_index`.
+  Answers are cached per user, source, time, stack and size.
+- **Clip preview** cuts `duration_seconds` from `start_seconds` (source time, clamped inside the trim), runs the stack on
+  that piece and scales it to `height` as an MP4. A split step is left out. When the same request is cached the answer
+  is `{run_id: null, preview}` at once; otherwise poll the run and read `preview` when it completes, or cancel it.
+  Fades and the replacement track's offset count from the start of the piece, not of the whole clip.
+- **Helper uploads** (`derived_artifact`) hold what an editor makes or receives: a paint layer, a mask, a dropped file,
+  a replacement track. Use the returned `id` as a run input or in a `media` parameter. They stay out of the Library but
+  count toward the plan's storage and per-file limits. They must be an image, audio or video file of at most 512 MB.
+  The announced size is checked before the body is read and the bytes are checked again after. The same rules apply
+  to `POST /api/media/upload` with `purpose=derived_artifact`.
 
 ### From chat, MCP and automation
 

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import itertools
+
 import numpy as np
+from PIL import Image
 
 from src.platform.imaging.film_grain import apply_film_grain
 from src.platform.media_tools.base import MediaTool
@@ -61,6 +64,23 @@ SPEC = dict(
 )
 
 
+def grain_frame(frame: np.ndarray, params: dict, index: int) -> np.ndarray:
+    intensity = float(params.get("amount", 30.0)) / 100.0
+    if intensity <= 0:
+        return frame
+    return apply_film_grain(
+        frame,
+        intensity=intensity,
+        grain_size=float(params.get("size", 1.5)),
+        shadows_bias=SHADOWS_BIAS,
+        highlights_protect=HIGHLIGHTS_PROTECT,
+        monochromatic=not bool(params.get("color", True)),
+        blur_amount=0.0,
+        rng=np.random.default_rng([int(params.get("seed") or 0), index]),
+        fast=True,
+    )
+
+
 class FilmGrain(MediaTool):
     def run(self, inputs: list[ToolMedia], params: dict, ctx: ToolContext) -> list[ToolMedia]:
         count = len(inputs)
@@ -69,26 +89,15 @@ class FilmGrain(MediaTool):
             for index, media in enumerate(inputs)
         ]
 
+    def still(self, image: Image.Image, params: dict, frame) -> Image.Image:
+        rgb = np.ascontiguousarray(np.asarray(image.convert("RGB")))
+        return Image.fromarray(grain_frame(rgb, params, frame.index))
+
     def _grain(self, media: ToolMedia, params: dict, ctx: ToolContext) -> ToolMedia:
-        intensity = float(params.get("amount", 30.0)) / 100.0
-        size = float(params.get("size", 1.5))
-        monochromatic = not bool(params.get("color", True))
-        rng = np.random.default_rng(int(params.get("seed") or 0))
+        counter = itertools.count()
 
         def grain(frame: np.ndarray) -> np.ndarray:
-            if intensity <= 0:
-                return frame
-            return apply_film_grain(
-                frame,
-                intensity=intensity,
-                grain_size=size,
-                shadows_bias=SHADOWS_BIAS,
-                highlights_protect=HIGHLIGHTS_PROTECT,
-                monochromatic=monochromatic,
-                blur_amount=0.0,
-                rng=rng,
-                fast=True,
-            )
+            return grain_frame(frame, params, next(counter))
 
         return stream_video_frames(media, ctx, grain)
 

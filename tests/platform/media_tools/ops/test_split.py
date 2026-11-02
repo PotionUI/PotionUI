@@ -16,7 +16,7 @@ from src.platform.media_tools import (
 )
 from src.platform.media_tools.ops import split, trim
 from src.platform.media_tools.ops.split import MAX_SPLIT_PARTS
-from tests.platform.media_tools.media_factory import make_audio, make_video
+from tests.platform.media_tools.media_factory import make_audio, make_image, make_video, video_frame_count
 from tests.platform.media_tools.ops.time_helpers import files_under, slow_context
 
 pytestmark = pytest.mark.usefixtures("need_ffmpeg")
@@ -116,10 +116,10 @@ class TestRefusals:
         parts = run_split(probe(tone), ctx, 0.1)
         assert len(parts) >= MAX_SPLIT_PARTS - 2
 
-    def test_video_is_not_accepted(self, tmp_path, ctx):
-        video = probe(make_video(tmp_path / "clip.mp4", seconds=2.0))
+    def test_an_image_is_not_accepted(self, tmp_path, ctx):
+        image = probe(make_image(tmp_path / "pic.png", (8, 8)))
         with pytest.raises(UnsupportedMedia):
-            run_split(video, ctx, 0.5)
+            run_split(image, ctx, 0.5)
 
 
 class TestCancel:
@@ -142,5 +142,40 @@ class TestCancel:
 def test_spec_is_one_to_many_audio():
     spec = split.spec()
     assert spec.cardinality == "one_to_many"
-    assert spec.accepts == ("audio",)
-    assert spec.produces == "audio"
+    assert spec.accepts == ("audio", "video")
+    assert spec.produces == "same"
+
+
+class TestAtATime:
+    def test_a_video_splits_into_two_parts_whose_durations_add_up(self, tmp_path, ctx):
+        video = probe(make_video(tmp_path / "clip.mp4", seconds=2.0, size=(32, 32), fps=10))
+        first, second = run_chain([(split.spec(), {"mode": "at", "at": 0.8})], [video], ctx)
+        assert (first.kind, second.kind) == ("video", "video")
+        assert first.duration == pytest.approx(0.8, abs=0.11)
+        assert second.duration == pytest.approx(1.2, abs=0.11)
+        assert first.duration + second.duration == pytest.approx(2.0, abs=0.15)
+        assert video_frame_count(first.path) + video_frame_count(second.path) == 20
+        assert first.has_audio and second.has_audio
+
+    def test_a_video_splits_every_few_seconds(self, tmp_path, ctx):
+        video = probe(make_video(tmp_path / "clip.mp4", seconds=2.0, size=(32, 32), fps=10))
+        parts = run_split(video, ctx, 0.8)
+        assert len(parts) == 3
+        assert sum(video_frame_count(part.path) for part in parts) == 20
+
+    def test_audio_splits_at_a_time(self, audio, ctx):
+        first, second = run_chain([(split.spec(), {"mode": "at", "at": 0.5})], [audio], ctx)
+        assert first.duration == pytest.approx(0.5, abs=0.01)
+        assert second.duration == pytest.approx(1.5, abs=0.01)
+        assert [part.path.suffix for part in (first, second)] == [".wav", ".wav"]
+
+    @pytest.mark.parametrize("at", [0.0, 2.0, 5.0])
+    def test_a_point_outside_the_media_is_refused(self, audio, ctx, at):
+        with pytest.raises(InvalidToolParams) as caught:
+            run_chain([(split.spec(), {"mode": "at", "at": at})], [audio], ctx)
+        assert caught.value.field == "at"
+
+    def test_the_at_mode_needs_a_point(self):
+        with pytest.raises(InvalidToolParams) as caught:
+            validate_params(split.spec(), {"mode": "at"})
+        assert caught.value.field == "at"

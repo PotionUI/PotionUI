@@ -16,6 +16,10 @@ from src.platform.media_tools.ops import (
     fix_colors,
     film_grain,
     cut_finder,
+    mute,
+    volume,
+    replace_audio,
+    paint_layer,
 )
 from src.platform.media_tools.registry import MediaToolRegistry
 from src.platform.media_tools.types import ToolSpec
@@ -36,6 +40,10 @@ CORE_MODULES = (
     fix_colors,
     film_grain,
     cut_finder,
+    mute,
+    volume,
+    replace_audio,
+    paint_layer,
 )
 
 

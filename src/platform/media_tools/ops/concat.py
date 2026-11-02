@@ -4,10 +4,10 @@ from pathlib import Path
 from typing import Sequence
 
 from src.platform.media_tools.base import MediaTool
+from src.platform.media_tools.fastpath import encode_to
 from src.platform.media_tools.types import (
     InvalidToolParams,
     ToolContext,
-    ToolFailed,
     ToolMedia,
     ToolSpec,
     UnsupportedMedia,
@@ -220,17 +220,13 @@ def join_clips(
     check_layout(lengths, fades)
 
     out_path = ctx.new_path(".mp4", stem="joined")
-    try:
-        ctx.ffmpeg(
-            concat_args(clips, out_path, crossfades=fades, audio=audio, fit=fit, trims=windows, canvas=canvas),
-            duration=sum(lengths) - sum(fades),
-        )
-        if not out_path.is_file() or out_path.stat().st_size == 0:
-            raise ToolFailed("The encoder produced an empty file")
-        return ctx.probe(out_path, "video")
-    except BaseException:
-        out_path.unlink(missing_ok=True)
-        raise
+    return encode_to(
+        ctx,
+        concat_args(clips, out_path, crossfades=fades, audio=audio, fit=fit, trims=windows, canvas=canvas),
+        out_path,
+        "video",
+        sum(lengths) - sum(fades),
+    )
 
 
 class Concat(MediaTool):

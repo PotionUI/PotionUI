@@ -9,9 +9,9 @@ from PIL import Image, ImageOps
 
 from src.platform.media_tools.probe import has_alpha_mode
 from src.platform.media_tools.types import (
+    EmptyOutput,
     FilterFragment,
     ToolContext,
-    ToolFailed,
     ToolMedia,
     UnsupportedMedia,
 )
@@ -53,6 +53,7 @@ class MergedPlan:
     width: Optional[int] = None
     height: Optional[int] = None
     duration: Optional[float] = None
+    copy_video: bool = False
 
 
 def advance_media(media: ToolMedia, fragment: FilterFragment) -> ToolMedia:
@@ -106,6 +107,7 @@ def merge_fragments(media: ToolMedia, fragments: Sequence[FilterFragment]) -> Me
             plan.frames = fragment.frames if plan.frames is None else min(plan.frames, fragment.frames)
         current = advance_media(current, fragment)
     plan.width, plan.height, plan.duration = current.width, current.height, current.duration
+    plan.copy_video = bool(fragments) and all(fragment.copy_video for fragment in fragments)
     return plan
 
 
@@ -198,6 +200,9 @@ def build_timed_args(media: ToolMedia, plan: MergedPlan, out_path: Path) -> list
         args += [str(out_path)]
         return args
 
+    if plan.copy_video and suffix == media.path.suffix.lower():
+        return args + _copied_video_args(media, plan, suffix, reencode_audio) + [str(out_path)]
+
     video_filters = list(plan.vf)
     even = plan.width is not None and plan.height is not None and plan.width % 2 == 0 and plan.height % 2 == 0
     if not even:
@@ -219,18 +224,39 @@ def build_timed_args(media: ToolMedia, plan: MergedPlan, out_path: Path) -> list
     return args
 
 
+def _copied_video_args(media: ToolMedia, plan: MergedPlan, suffix: str, reencode_audio: bool) -> list[str]:
+    args = ["-map", "0:v:0"]
+    if plan.drop_audio:
+        args += ["-an"]
+    else:
+        args += ["-map", "0:a:0?"]
+        if plan.af and media.has_audio is not False:
+            args += ["-af", ",".join(plan.af)]
+        args += audio_codec_args(suffix, reencode_audio)
+    args += ["-c:v", "copy"]
+    if suffix in FASTSTART_SUFFIXES:
+        args += ["-movflags", "+faststart"]
+    return args
+
+
+def encode_to(
+    ctx: ToolContext, args: Sequence[str], out_path: Path, kind: str, duration: Optional[float] = None
+) -> ToolMedia:
+    try:
+        ctx.ffmpeg(list(args), duration=duration)
+        if not out_path.is_file() or out_path.stat().st_size == 0:
+            raise EmptyOutput()
+        return ctx.probe(out_path, kind)
+    except BaseException:
+        out_path.unlink(missing_ok=True)
+        raise
+
+
 def run_fragments(media: ToolMedia, fragments: Sequence[FilterFragment], ctx: ToolContext) -> ToolMedia:
     plan = merge_fragments(media, fragments)
     suffix = audio_output_suffix(media) if media.kind == "audio" else video_output_suffix(media)
     out_path = ctx.new_path(suffix, stem=media.path.stem[:40] or "out")
-    try:
-        ctx.ffmpeg(build_timed_args(media, plan, out_path), duration=plan.duration)
-    except BaseException:
-        out_path.unlink(missing_ok=True)
-        raise
-    if not out_path.is_file() or out_path.stat().st_size == 0:
-        raise ToolFailed("The encoder produced an empty file")
-    return ctx.probe(out_path, media.kind)
+    return encode_to(ctx, build_timed_args(media, plan, out_path), out_path, media.kind, plan.duration)
 
 
 def prepare_image(path: Path) -> Image.Image:

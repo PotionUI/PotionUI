@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from src.platform.media_tools.base import MediaTool
+from src.platform.media_tools.fastpath import encode_to
 from src.platform.media_tools.types import (
+    EmptyOutput,
     InvalidToolParams,
     ToolContext,
     ToolFailed,
@@ -26,10 +28,6 @@ SPEC = dict(
 )
 
 
-def _written(path) -> bool:
-    return path.is_file() and path.stat().st_size > 0
-
-
 class Frame(MediaTool):
     def run(self, inputs: list[ToolMedia], params: dict, ctx: ToolContext) -> list[ToolMedia]:
         return [self._extract(media, float(params.get("time") or 0.0), ctx) for media in inputs]
@@ -45,22 +43,12 @@ class Frame(MediaTool):
                 f"The frame time ({time:g}s) is past the end of the video ({media.duration:.3f}s)",
             )
         out_path = ctx.new_path(".png", stem=media.path.stem[:40] or "frame")
+        source = str(media.path)
         try:
-            ctx.ffmpeg(
-                ["-ss", f"{time:.6f}", "-i", str(media.path), "-frames:v", "1", str(out_path)],
-            )
-            if not _written(out_path):
-                out_path.unlink(missing_ok=True)
-                lookback = max(0.0, media.duration - LAST_FRAME_LOOKBACK_SECONDS)
-                ctx.ffmpeg(
-                    ["-ss", f"{lookback:.6f}", "-i", str(media.path), "-update", "1", str(out_path)],
-                )
-            if not _written(out_path):
-                raise ToolFailed("The encoder produced an empty file")
-            return ctx.probe(out_path, "image")
-        except BaseException:
-            out_path.unlink(missing_ok=True)
-            raise
+            return encode_to(ctx, ["-ss", f"{time:.6f}", "-i", source, "-frames:v", "1", str(out_path)], out_path, "image")
+        except EmptyOutput:
+            lookback = max(0.0, media.duration - LAST_FRAME_LOOKBACK_SECONDS)
+            return encode_to(ctx, ["-ss", f"{lookback:.6f}", "-i", source, "-update", "1", str(out_path)], out_path, "image")
 
 
 def spec() -> ToolSpec:

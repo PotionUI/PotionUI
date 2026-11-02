@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { apply, beginEdit, createStack, effectiveSteps, toggleHidden, type EditStackState } from '$lib/tool-tabs/frame/editStack';
+import { apply, appliedSteps, beginEdit, createStack, effectiveSteps, toggleHidden, type EditStackState } from '$lib/tool-tabs/frame/editStack';
 import { compileSteps, draftFor, hasPixelEffects, isNoop, playbackPreview, railToolOf, summarize, type VideoOp, type VideoParams } from './videoSteps';
 
 const clip = { width: 1920, height: 1080, duration: 8 };
@@ -27,7 +27,7 @@ describe('the stack as a runs payload', () => {
 	it('skips hidden steps', () => {
 		let state = stackOf(['trim', { start: 1, end: 5 }], ['mute', {}], ['fix_colors', { white_balance: true, contrast: false, strength: 60 }]);
 		state = toggleHidden(state, state.steps[1].id);
-		const tools = compileSteps(effectiveSteps(state), clip).steps.map((step) => step.tool);
+		const tools = compileSteps(appliedSteps(state), clip).steps.map((step) => step.tool);
 		expect(tools).toEqual(['trim', 'fix_colors']);
 	});
 

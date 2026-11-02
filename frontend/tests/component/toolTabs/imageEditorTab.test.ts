@@ -47,6 +47,7 @@ function render(overrides: Partial<ToolTabHost> = {}) {
 		state: null,
 		activeTool: null,
 		run: null,
+		hint: null,
 		phone: false,
 		setState: (next) => calls.state.push(next),
 		setDirty: (count) => calls.dirty.push(count),
@@ -55,6 +56,7 @@ function render(overrides: Partial<ToolTabHost> = {}) {
 		setSource: () => undefined,
 		setActiveTool: (tool) => calls.tool.push(tool),
 		setRun: () => undefined,
+		clearHint: () => undefined,
 		setActions: (actions) => calls.actions.push(actions),
 		openToolTab: () => 'tab-2',
 		...overrides

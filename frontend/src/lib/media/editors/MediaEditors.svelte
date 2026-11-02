@@ -365,8 +365,6 @@
 				source={request.source}
 				draw={request.draw ?? null}
 				hasMask={existingMaskUrl !== null}
-				initialTool={request.initialTool ?? null}
-				initialFilter={request.initialFilter ?? null}
 				{busy}
 				failureMessage={failure}
 				{onClose}

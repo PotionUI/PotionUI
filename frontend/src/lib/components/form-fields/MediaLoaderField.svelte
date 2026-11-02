@@ -42,6 +42,7 @@
 		nudgeInGroup
 	} from './mediaFieldGroups';
 	import { FIELD_TOOL_EDITORS, fieldToolGroupsFor, matchToolShortcut } from './mediaFieldTools';
+	import { openFieldInEditor } from '$lib/tool-tabs/openShortcut';
 	import type { MediaSource } from './mediaFieldSources';
 	import MediaDropzone from './MediaDropzone.svelte';
 	import MediaFieldEditors from './MediaFieldEditors.svelte';
@@ -722,6 +723,9 @@
 			return;
 		}
 		switch (tool.id) {
+			case 'open-in-editor':
+				if (kind === 'image' || kind === 'video') openFieldInEditor(kind, item, name);
+				break;
 			case 'clear-mask':
 				clearMask();
 				break;

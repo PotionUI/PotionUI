@@ -6,7 +6,7 @@ const show = vi.fn();
 vi.mock('$app/navigation', () => ({ goto: (...args: unknown[]) => goto(...args) }));
 vi.mock('$lib/stores/toast', () => ({ toasts: { show: (...args: unknown[]) => show(...args) } }));
 
-import { decideLanding, editorResultItems, landOnHistoryResult, pluralNoun, type LandingEnv } from './historyResult';
+import { decideLanding, landOnHistoryResult, pluralNoun, type LandingEnv } from './historyResult';
 import { libraryModalRequest, closeLibraryResultModal } from '$lib/library/landing';
 import { takePendingFresh } from '$lib/library/freshHandoff';
 
@@ -112,14 +112,5 @@ describe('pluralNoun', () => {
 		expect(pluralNoun([item('a', 'image')])).toBe('images');
 		expect(pluralNoun([item('a', 'audio')])).toBe('tracks');
 		expect(pluralNoun([item('a', 'image'), item('b', 'video')])).toBe('items');
-	});
-});
-
-describe('editorResultItems', () => {
-	it('reads one item, several items and nothing', () => {
-		const one = { id: 'a' } as never;
-		expect(editorResultItems({ type: 'item', item: one, replaced: false } as never)).toEqual([one]);
-		expect(editorResultItems({ type: 'items', items: [one, one] } as never)).toEqual([one, one]);
-		expect(editorResultItems({ type: 'mask' } as never)).toEqual([]);
 	});
 });

@@ -13,13 +13,14 @@ class StubResizeObserver {
 vi.stubGlobal('ResizeObserver', StubResizeObserver);
 
 const openMediaTool = vi.fn();
+const openToolShortcut = vi.fn();
 const listMediaTools = vi.fn();
 const startRuleFrom = vi.fn();
 
 vi.mock('$lib/media-tools/open', () => ({ openMediaTool: (...args: unknown[]) => openMediaTool(...args) }));
 vi.mock('$lib/services/api/mediaTools', () => ({ listMediaTools: (...args: unknown[]) => listMediaTools(...args) }));
-vi.mock('$lib/media/editors/MediaEditors.svelte', async () => ({
-	default: (await import('./fixtures/MediaEditorsStub.svelte')).default
+vi.mock('$lib/tool-tabs/openShortcut', () => ({
+	openToolShortcut: (...args: unknown[]) => openToolShortcut(...args)
 }));
 vi.mock('$lib/organize/handoff', () => ({ startRuleFrom: (...args: unknown[]) => startRuleFrom(...args) }));
 vi.mock('$lib/services/api/index', () => ({
@@ -146,6 +147,8 @@ beforeEach(() => {
 	resetDom();
 	libraryStore.reset();
 	openMediaTool.mockReset();
+	openToolShortcut.mockReset();
+	openToolShortcut.mockReturnValue(true);
 	startRuleFrom.mockReset();
 	listMediaTools.mockReset();
 	listMediaTools.mockResolvedValue([...CORE_TOOLS, BOOMERANG_TOOL]);
@@ -165,7 +168,7 @@ describe('LibraryItemModal action bar', () => {
 			'Fit canvas',
 			'Color key',
 			'Crop to subject',
-			'Edit image'
+			'Open in Image editor'
 		]);
 
 		resetDom();
@@ -178,7 +181,8 @@ describe('LibraryItemModal action bar', () => {
 			'Rotate',
 			'Flip',
 			'Speed',
-			'Frame',
+			'Open frame in Image editor',
+			'Open in Video editor',
 			'Boomerang'
 		]);
 
@@ -265,113 +269,118 @@ describe('LibraryItemModal action bar', () => {
 });
 
 describe('LibraryItemModal running a tool', () => {
-	it('opens the tool on the row it is showing', async () => {
-		const target = mount(image);
+	it('opens an Image editor tab on the row it is showing and closes the modal', async () => {
+		const onClose = vi.fn();
+		mount(image, { onClose });
 		await settle();
 
 		await pickTool('Crop');
 
+		expect(openMediaTool).not.toHaveBeenCalled();
+		expect(openToolShortcut).toHaveBeenCalledTimes(1);
+		expect(openToolShortcut.mock.calls[0][0]).toBe('crop');
+		expect(openToolShortcut.mock.calls[0][1]).toEqual([
+			expect.objectContaining({ id: 'row-1', itemId: 'row-1', kind: 'image' })
+		]);
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
+	it('opens a Video editor tab on a clip', async () => {
+		mount(clip);
+		await settle();
+
+		await pickTool('Trim');
+
+		expect(openToolShortcut.mock.calls[0][0]).toBe('trim');
+		expect(openToolShortcut.mock.calls[0][1][0]).toMatchObject({ itemId: 'row-2', kind: 'video' });
+	});
+
+	it('opens the tool on the row it is showing for a track, which has no editor tab', async () => {
+		mount(track);
+		await settle();
+
+		await pickTool('Trim');
+
+		expect(openToolShortcut).not.toHaveBeenCalled();
 		const call = openMediaTool.mock.calls[0][0];
-		expect(call.toolId).toBe('crop');
+		expect(call.toolId).toBe('trim');
 		expect(call.scope).toBe('library');
-		expect(call.items).toEqual([expect.objectContaining({ id: 'row-1', itemId: 'row-1', kind: 'image' })]);
+		expect(call.items).toEqual([expect.objectContaining({ id: 'row-3', itemId: 'row-3', kind: 'audio' })]);
 	});
 
 	it('folds a saved-as-new result into the library next to its source, marked new', async () => {
 		libraryStore.reset();
-		await libraryStoreLoad([image, clip]);
-		const target = mount(image);
+		await libraryStoreLoad([track, clip]);
+		mount(track);
 		await settle();
-		await pickTool('Resize');
+		await pickTool('Speed');
 
 		await openMediaTool.mock.calls[0][0].onResult(
 			[
 				{
 					id: 'row-9',
-					filename: 'resized-uuid.png',
-					original_filename: 'portrait-resized.png',
-					media_type: 'image',
-					url: '/api/media/uploads/resized-uuid.png'
+					filename: 'faster-uuid.wav',
+					original_filename: 'vo-faster.wav',
+					media_type: 'audio',
+					url: '/api/media/uploads/faster-uuid.wav'
 				}
 			],
-			{ toolId: 'resize', replaced: false }
+			{ toolId: 'speed', replaced: false }
 		);
 
-		expect(state().items.map((entry: { id: string }) => entry.id)).toEqual(['row-9', 'row-1', 'row-2']);
+		expect(state().items.map((entry: { id: string }) => entry.id)).toEqual(['row-9', 'row-3', 'row-2']);
 		expect(state().freshIds).toEqual(['row-9']);
 	});
 
 	it('patches the open preview onto the replaced file, keeping the row and its tags', async () => {
-		const tagged = { ...image, tags: [{ id: 'tag-1', name: 'keepers' }] };
-		const target = mount(tagged);
+		const tagged = { ...track, tags: [{ id: 'tag-1', name: 'keepers' }] };
+		mount(tagged);
 		await settle();
-		await pickTool('Resize');
+		await pickTool('Speed');
 
 		await openMediaTool.mock.calls[0][0].onResult(
 			[
 				{
-					id: 'row-1',
-					filename: 'edited-uuid.png',
-					media_type: 'image',
-					url: '/api/media/uploads/edited-uuid.png',
-					width: 1024,
-					height: 1024
+					id: 'row-3',
+					filename: 'edited-uuid.wav',
+					media_type: 'audio',
+					url: '/api/media/uploads/edited-uuid.wav',
+					duration_seconds: 16
 				}
 			],
-			{ toolId: 'resize', replaced: true }
+			{ toolId: 'speed', replaced: true }
 		);
 
-		expect(state().selectedItem.url).toBe('/api/media/uploads/edited-uuid.png');
-		expect(state().selectedItem.id).toBe('row-1');
+		expect(state().selectedItem.url).toBe('/api/media/uploads/edited-uuid.wav');
+		expect(state().selectedItem.id).toBe('row-3');
 		expect(state().selectedItem.tags).toEqual([{ id: 'tag-1', name: 'keepers' }]);
 		expect(state().freshIds).toEqual([]);
 	});
 
 	it('tells the store whether the run replaced the row, rather than leaving it to guess', async () => {
 		const apply = vi.spyOn(libraryStore, 'applyToolResult');
-		const target = mount(image);
+		mount(track);
 		await settle();
-		await pickTool('Resize');
-		const produced = [{ id: 'row-1', filename: 'x.png', media_type: 'image', url: '/x.png' }];
+		await pickTool('Speed');
+		const produced = [{ id: 'row-3', filename: 'x.wav', media_type: 'audio', url: '/x.wav' }];
 
-		await openMediaTool.mock.calls[0][0].onResult(produced, { toolId: 'resize', replaced: true });
-		await openMediaTool.mock.calls[0][0].onResult(produced, { toolId: 'resize', replaced: false });
+		await openMediaTool.mock.calls[0][0].onResult(produced, { toolId: 'speed', replaced: true });
+		await openMediaTool.mock.calls[0][0].onResult(produced, { toolId: 'speed', replaced: false });
 
-		expect(apply.mock.calls[0]).toEqual([produced, ['row-1'], { replaced: true }]);
-		expect(apply.mock.calls[1]).toEqual([produced, ['row-1'], { replaced: false }]);
+		expect(apply.mock.calls[0]).toEqual([produced, ['row-3'], { replaced: true }]);
+		expect(apply.mock.calls[1]).toEqual([produced, ['row-3'], { replaced: false }]);
 		apply.mockRestore();
 	});
 
-	it('opens the image editor for Edit image without leaving the modal', async () => {
-		const target = mount(image);
-		await settle();
-
-		await pickTool('Edit image');
-		await settle();
-
-		expect(document.body.querySelector('[data-editor-stub]')?.getAttribute('data-kind')).toBe('paint');
-		expect(openMediaTool).not.toHaveBeenCalled();
-	});
-});
-
-describe('LibraryItemModal closing', () => {
-	it('stays open on Escape while the image editor is open, and closes once it is shut', async () => {
+	it('opens the Image editor tab for Open in Image editor and closes the modal', async () => {
 		const onClose = vi.fn();
-		const target = mount(image, { onClose });
+		mount(image, { onClose });
 		await settle();
-		const escape = () =>
-			window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
 
-		await pickTool('Edit image');
-		await settle();
-		escape();
-		await settle();
-		expect(onClose).not.toHaveBeenCalled();
+		await pickTool('Open in Image editor');
 
-		document.body.querySelector<HTMLButtonElement>('[data-stub-close]')!.click();
-		await settle();
-		escape();
-		await settle();
+		expect(openToolShortcut.mock.calls[0][0]).toBe('edit-image');
+		expect(openMediaTool).not.toHaveBeenCalled();
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 });
@@ -390,14 +399,16 @@ describe('LibraryItemModal letter shortcuts', () => {
 		target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }));
 	};
 
-	it('E opens the image editor, as the Edit image hint says', async () => {
-		mount(image);
+	it('E opens the Image editor tab, as the hint says', async () => {
+		const onClose = vi.fn();
+		mount(image, { onClose });
 		await settle();
 
 		press('e');
 		await settle();
 
-		expect(document.body.querySelector('[data-editor-stub]')?.getAttribute('data-kind')).toBe('paint');
+		expect(openToolShortcut.mock.calls[0][0]).toBe('edit-image');
+		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 
 	it('D downloads the file', async () => {
@@ -422,14 +433,24 @@ describe('LibraryItemModal letter shortcuts', () => {
 		toggle.mockRestore();
 	});
 
-	it('does nothing for E on a clip', async () => {
+	it('E opens the Video editor tab for a clip', async () => {
 		mount(clip);
 		await settle();
 
 		press('e');
 		await settle();
 
-		expect(document.body.querySelector('[data-editor-stub]')).toBeNull();
+		expect(openToolShortcut.mock.calls[0][1][0]).toMatchObject({ kind: 'video' });
+	});
+
+	it('does nothing for E on a track', async () => {
+		mount(track);
+		await settle();
+
+		press('e');
+		await settle();
+
+		expect(openToolShortcut).not.toHaveBeenCalled();
 	});
 
 	it('does nothing while typing in a field', async () => {
@@ -442,7 +463,7 @@ describe('LibraryItemModal letter shortcuts', () => {
 		press('e', input);
 		await settle();
 
-		expect(document.body.querySelector('[data-editor-stub]')).toBeNull();
+		expect(openToolShortcut).not.toHaveBeenCalled();
 	});
 
 	it('does nothing while a bar menu is open above the details', async () => {
@@ -453,7 +474,7 @@ describe('LibraryItemModal letter shortcuts', () => {
 		press('e');
 		await settle();
 
-		expect(document.body.querySelector('[data-editor-stub]')).toBeNull();
+		expect(openToolShortcut).not.toHaveBeenCalled();
 	});
 
 	it('does nothing while the delete dialog is open above the details', async () => {
@@ -466,6 +487,6 @@ describe('LibraryItemModal letter shortcuts', () => {
 		await settle();
 		unregisterDismissLayer(layer);
 
-		expect(document.body.querySelector('[data-editor-stub]')).toBeNull();
+		expect(openToolShortcut).not.toHaveBeenCalled();
 	});
 });

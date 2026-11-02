@@ -399,6 +399,13 @@ export interface RunRef {
 	progress?: number | null;
 }
 
+export interface ToolTabHint {
+	look?: string;
+	effect?: string;
+	orientation?: 'rotate' | 'flip';
+	sendTo?: { tabId: string; field: string };
+}
+
 export interface ToolTab extends TabBase {
 	kind: 'tool';
 	tool: string;
@@ -406,6 +413,7 @@ export interface ToolTab extends TabBase {
 	state: unknown;
 	run?: RunRef | null;
 	activeTool?: string | null;
+	hint?: ToolTabHint | null;
 	dirty?: number;
 	thumbnail?: string | null;
 	renamed?: boolean;

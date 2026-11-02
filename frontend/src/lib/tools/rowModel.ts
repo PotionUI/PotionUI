@@ -1,12 +1,15 @@
 import type { RecentLook } from '$lib/filters/recentLooks';
-import { applyLookAvailability, editImageAvailability } from './editImage';
+import { shortcutTargets } from '$lib/tool-tabs/shortcuts';
+import type { EditorKind } from '$lib/tool-tabs/toolIds';
+import { applyLookAvailability, editMediaAvailability, editMediaLabel } from './editMedia';
 import {
 	listToolGroups,
 	type MediaTool,
 	type MediaToolAvailability,
 	type MediaToolContext,
 	type MediaToolItem,
-	type MediaToolScope
+	type MediaToolScope,
+	toolLabel
 } from './tools';
 
 export type RowToolAction = 'catalog' | 'edit-image' | 'apply-look';
@@ -23,6 +26,7 @@ export interface RowTool {
 	pluginId?: string;
 	lookId?: string;
 	tool?: MediaTool;
+	opens: EditorKind[] | null;
 }
 
 export interface RowModel {
@@ -48,18 +52,24 @@ export function buildRowContext(
 	};
 }
 
-function catalogEntry(tool: MediaTool, availability: MediaToolAvailability): RowTool {
+function opensFor(id: string, source: 'core' | 'plugin', ctx: MediaToolContext): EditorKind[] | null {
+	return source === 'core' ? shortcutTargets(id, ctx.items) : null;
+}
+
+function catalogEntry(tool: MediaTool, availability: MediaToolAvailability, ctx: MediaToolContext): RowTool {
+	const opens = opensFor(tool.id, tool.source, ctx);
 	return {
 		id: tool.id,
-		label: tool.label,
+		label: toolLabel(tool, ctx),
 		icon: tool.icon,
 		action: 'catalog',
 		enabled: availability.enabled,
 		reason: availability.reason ?? '',
-		note: tool.note ?? '',
+		note: opens ? '' : (tool.note ?? ''),
 		plugin: tool.source === 'plugin',
 		pluginId: tool.pluginId,
-		tool
+		tool,
+		opens
 	};
 }
 
@@ -77,7 +87,7 @@ export function buildRowModel(ctx: MediaToolContext, looks: readonly RecentLook[
 		for (const { tool, availability } of group.tools) {
 			if (availability.hidden) continue;
 			if (group.category.id === 'effects' && !tool.catalogToolId) continue;
-			const entry = catalogEntry(tool, availability);
+			const entry = catalogEntry(tool, availability, ctx);
 			if (group.category.id === 'effects') catalogEffects.push(entry);
 			else if (group.category.id === 'edit') (entry.plugin ? pluginEdit : core).push(entry);
 			else if (tool.icon === DOWNLOAD_ICON && tool.catalogToolId) downloads.push(entry);
@@ -86,16 +96,18 @@ export function buildRowModel(ctx: MediaToolContext, looks: readonly RecentLook[
 	}
 
 	const edit = [...core];
-	const editImage = editImageAvailability(ctx);
-	if (ctx.items.length > 0 && ctx.items.every((item) => item.kind === 'image')) {
+	const editMedia = editMediaAvailability(ctx);
+	const leadKind = ctx.items[0]?.kind;
+	if ((leadKind === 'image' || leadKind === 'video') && ctx.items.every((item) => item.kind === leadKind)) {
 		edit.push({
 			id: 'edit-image',
-			label: 'Edit image',
-			icon: 'paint-brush',
+			label: editMediaLabel(ctx),
+			icon: leadKind === 'video' ? 'video' : 'sliders',
 			action: 'edit-image',
-			enabled: editImage.enabled,
-			reason: editImage.reason ?? '',
-			note: ''
+			enabled: editMedia.enabled,
+			reason: editMedia.reason ?? '',
+			note: '',
+			opens: shortcutTargets('edit-image', ctx.items)
 		});
 	}
 	edit.push(...pluginEdit);
@@ -111,7 +123,8 @@ export function buildRowModel(ctx: MediaToolContext, looks: readonly RecentLook[
 					action: 'apply-look',
 					enabled: look.enabled,
 					reason: look.reason ?? '',
-					note: ''
+					note: '',
+					opens: shortcutTargets('apply-look', ctx.items)
 				},
 				...looks.map(
 					(recent): RowTool => ({
@@ -122,7 +135,8 @@ export function buildRowModel(ctx: MediaToolContext, looks: readonly RecentLook[
 						enabled: look.enabled,
 						reason: look.reason ?? '',
 						note: recent.group,
-						lookId: recent.id
+						lookId: recent.id,
+						opens: shortcutTargets(`look:${recent.id}`, ctx.items)
 					})
 				)
 			];

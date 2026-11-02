@@ -84,6 +84,7 @@
 			open={activeMenu === 'tools'}
 			scope="library"
 			groups={toolGroups}
+			ctx={toolContext}
 			onToggle={() => toggleMenu('tools')}
 			onClose={closeMenus}
 			onPick={(tool) => onToolSelect(tool, toolContext)}

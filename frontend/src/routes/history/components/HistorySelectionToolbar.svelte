@@ -131,6 +131,7 @@
 			open={activeMenu === 'tools'}
 			scope="history"
 			groups={toolGroups}
+			ctx={toolContext}
 			onToggle={() => toggleMenu('tools')}
 			onClose={closeMenus}
 			onPick={(tool) => onToolSelect(tool, toolContext)}

@@ -1,5 +1,6 @@
 import { hasIcon } from '$lib/utils/IconLibrary';
 import { isRunnable, selectionBounds, toolAvailability } from '$lib/media-tools/catalog';
+import { isFoldedShortcut, planShortcut, shortcutLabel } from '$lib/tool-tabs/shortcuts';
 import type { MediaToolSource, ToolDTO } from '$lib/media-tools/types';
 import {
 	registerMediaTool,
@@ -46,6 +47,17 @@ function nounFor(ctx: MediaToolContext): string {
 	return ctx.scope === 'history' ? 'generations' : 'items';
 }
 
+function tabAvailability(tool: ToolDTO, ctx: MediaToolContext): MediaToolAvailability | null {
+	if (ctx.scope === 'field' || tool.source !== 'core') return null;
+	if (isFoldedShortcut(tool.id, ctx.items)) return { enabled: false, hidden: true };
+	if (!planShortcut(tool.id, ctx.items) || ctx.items.some((item) => !(tool.accepts as string[]).includes(item.kind))) return null;
+	for (const item of ctx.items) {
+		const result = toolAvailability(tool, selectionSources([item]));
+		if (!result.enabled) return { enabled: false, reason: result.reason };
+	}
+	return { enabled: true };
+}
+
 export function catalogAvailability(tool: ToolDTO, ctx: MediaToolContext): MediaToolAvailability {
 	if (!tool.accepts.some((kind) => ctx.kinds.has(kind))) return { enabled: false, hidden: true };
 
@@ -90,7 +102,8 @@ export function mediaToolFromCatalog(tool: ToolDTO): MediaTool {
 		pluginId: tool.source === 'core' ? undefined : tool.source,
 		builtInEditor: !!tool.editor,
 		note: toolNote(tool) || undefined,
-		applies: (ctx) => catalogAvailability(tool, ctx)
+		labelFor: (ctx) => (ctx.scope === 'field' || tool.source !== 'core' ? null : shortcutLabel(tool.id, ctx.items)) ?? tool.label,
+		applies: (ctx) => tabAvailability(tool, ctx) ?? catalogAvailability(tool, ctx)
 	};
 }
 

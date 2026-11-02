@@ -5,14 +5,12 @@ import { CORE_TOOLS } from './fixtures/mediaToolCatalog';
 import { settle } from './helpers/settle';
 
 const openMediaTool = vi.fn();
-const openPaintEditor = vi.fn();
 const goto = vi.fn().mockResolvedValue(undefined);
 const returned = vi.fn();
 const listMediaTools = vi.fn();
 
 vi.mock('$lib/media-tools/open', () => ({
-	openMediaTool: (...args: unknown[]) => openMediaTool(...args),
-	openPaintEditor: (...args: unknown[]) => openPaintEditor(...args)
+	openMediaTool: (...args: unknown[]) => openMediaTool(...args)
 }));
 vi.mock('$app/navigation', () => ({ goto: (...args: unknown[]) => goto(...args) }));
 vi.mock('$lib/services/api/mediaTools', () => ({ listMediaTools: (...args: unknown[]) => listMediaTools(...args) }));
@@ -25,9 +23,6 @@ vi.mock('$lib/services/api/index', () => ({
 }));
 vi.mock('$lib/components/plugins/PluginSlot.svelte', async () => ({
 	default: (await import('./fixtures/PluginSlotStub.svelte')).default
-}));
-vi.mock('$lib/media/editors/MediaEditors.svelte', async () => ({
-	default: (await import('./fixtures/MediaEditorsStub.svelte')).default
 }));
 
 const { default: DetailsActionBar } = await import('$lib/media-tools/DetailsActionBar.svelte');
@@ -44,14 +39,11 @@ registerEntryTools();
 
 const video = {
 	id: 'row-1',
-	kind: 'video' as const,
-	url: '/api/media/uploads/clip.mp4',
-	filename: 'clip.mp4',
-	width: 640,
-	height: 480,
+	kind: 'audio' as const,
+	url: '/api/media/uploads/clip.wav',
+	filename: 'clip.wav',
 	itemId: 'row-1'
 };
-const image = { ...video, kind: 'image' as const, url: '/api/media/uploads/a.png', filename: 'a.png' };
 
 let cleanup: (() => void) | undefined;
 
@@ -82,7 +74,6 @@ function pick(_root: ParentNode, text: string): HTMLButtonElement {
 
 beforeEach(() => {
 	openMediaTool.mockReset();
-	openPaintEditor.mockReset();
 	goto.mockClear();
 	takePendingFresh();
 	closeLibraryResultModal();
@@ -184,37 +175,6 @@ describe('the bar on History', () => {
 		expect(openMediaTool.mock.calls[1][0]).toMatchObject({ toolId: 'trim', scope: 'history' });
 	});
 
-	it('closes the details and opens the detached editor for Edit image, then opens the Library modal for its result', async () => {
-		const onLaunch = vi.fn();
-		const root = await render({ scope: 'history', items: [{ ...image, generationId: 'g3', paramIndex: 1 }], onLaunch });
-
-		pick(root, 'Edit image').click();
-		await settle(3);
-
-		expect(onLaunch).toHaveBeenCalledTimes(1);
-		expect(openPaintEditor).toHaveBeenCalledTimes(1);
-		const options = openPaintEditor.mock.calls[0][0];
-		expect(options).toMatchObject({ scope: 'history' });
-		expect(options.announce.quietSuccess).toBe(true);
-		expect(options.request.kind).toBe('paint');
-		expect(document.body.querySelector('[data-editor-stub]')).toBeNull();
-
-		await options.onResult({ type: 'item', item: { id: 'lib-4', filename: 'x.png', media_type: 'image', url: '/x' }, replaced: false });
-		expect(get(libraryModalRequest)?.item.id).toBe('lib-4');
-		expect(get(libraryModalRequest)?.source).toEqual({ generationId: 'g3', fileIndex: 1 });
-	});
-
-	it('reopens the details when the editor closes without a result', async () => {
-		const unregister = registerDetailsReturn(returned);
-		const root = await render({ scope: 'history', items: [{ ...image, generationId: 'g3', paramIndex: 1 }] });
-		pick(root, 'Edit image').click();
-
-		openPaintEditor.mock.calls[0][0].onClose();
-
-		expect(returned).toHaveBeenCalledWith({ generationId: 'g3', fileIndex: 1 });
-		unregister();
-	});
-
 	it('opens the Library modal only when nothing else is in the way, and otherwise toasts with Open', async () => {
 		const root = await render({ scope: 'history' });
 		pick(root, 'Trim').click();
@@ -240,19 +200,5 @@ describe('the bar on the Library', () => {
 
 		expect(openMediaTool.mock.calls[0][0].scope).toBe('library');
 		expect(openMediaTool.mock.calls[0][0].announce).toBeUndefined();
-	});
-
-	it('posts the one plain toast, with no link, for an image saved from the editor on the Library', async () => {
-		const root = await render({ scope: 'library', items: [image] });
-		pick(root, 'Edit image').click();
-		flushSync();
-
-		document.body.querySelector<HTMLButtonElement>('[data-stub-result]')!.click();
-		await settle();
-
-		const saved = get(toasts);
-		expect(saved).toHaveLength(1);
-		expect(saved[0].message).toBe('Saved to your library as a new image');
-		expect(saved[0].action).toBeUndefined();
 	});
 });

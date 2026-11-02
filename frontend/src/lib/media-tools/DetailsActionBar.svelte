@@ -25,27 +25,26 @@
 </script>
 
 <script lang="ts">
-	import { onMount, tick, untrack } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import TagSelector from '$lib/components/TagSelector.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import { Button, Kbd } from '$lib/components/ui';
 	import { getIconPath } from '$lib/utils/IconLibrary';
-	import MediaEditors from '$lib/media/editors/MediaEditors.svelte';
-	import type { MediaEditorRequest, MediaEditorResult } from '$lib/media/editors/types';
+	import TabFooter from '$lib/tool-tabs/TabFooter.svelte';
+	import { openToolShortcut } from '$lib/tool-tabs/openShortcut';
+	import { uniqueTargets } from '$lib/tool-tabs/shortcuts';
 	import { recentLooks } from '$lib/filters/recentLooks';
-	import { editImageRequest } from '$lib/tools/editImage';
 	import { loadPluginMediaTools, mediaToolRegistrations } from '$lib/tools/pluginTools';
 	import { buildRowContext, buildRowModel, type RowTool } from '$lib/tools/rowModel';
 	import type { MediaToolContext, MediaToolItem as RowItem } from '$lib/tools/tools';
-	import { editorResultItems, landOnHistoryResult } from '$lib/tools/historyResult';
+	import { landOnHistoryResult } from '$lib/tools/historyResult';
 	import { returnToDetails } from '$lib/tools/detailsReturn';
 	import { trackLaunch } from '$lib/tools/launchTracker';
 	import type { LandingSource } from '$lib/library/landing';
-	import { applyLibraryPaintResult } from '$lib/tools/paintResult';
 	import type { MediaToolItem as ToolResultItem } from './types';
-	import { openMediaTool, openPaintEditor, type MediaToolResultInfo } from './open';
+	import { openMediaTool, type MediaToolResultInfo } from './open';
 	import { foldedIds } from './barLayout';
 	import BarMenu from './BarMenu.svelte';
 
@@ -61,6 +60,7 @@
 		loading?: boolean;
 		on?: boolean;
 		count?: number;
+		opens?: boolean;
 		run: () => void;
 	}
 
@@ -77,7 +77,7 @@
 		pluginContext = null,
 		onResult,
 		onLaunch,
-		onEditingChange
+		onOpenedInTab
 	}: {
 		items: RowItem[];
 		scope: 'history' | 'library';
@@ -91,7 +91,7 @@
 		pluginContext?: Record<string, unknown> | null;
 		onResult?: (items: ToolResultItem[], info: MediaToolResultInfo) => void;
 		onLaunch?: () => void;
-		onEditingChange?: (editing: boolean) => void;
+		onOpenedInTab?: () => void;
 	} = $props();
 
 	const starPath = getIconPath('star') as string;
@@ -99,7 +99,6 @@
 
 	let barEl = $state<HTMLElement>();
 	let ghostEl = $state<HTMLElement>();
-	let paintRequest = $state<MediaEditorRequest | null>(null);
 	let editOpen = $state(false);
 	let effectsOpen = $state(false);
 	let downloadOpen = $state(false);
@@ -149,11 +148,6 @@
 	]);
 
 	let currentId = $derived(visibleIds.includes(activeId) ? activeId : (visibleIds[0] ?? 'more'));
-
-	$effect(() => {
-		const editing = paintRequest !== null;
-		untrack(() => onEditingChange?.(editing));
-	});
 
 	onMount(() => {
 		void loadPluginMediaTools();
@@ -220,33 +214,12 @@
 		};
 	}
 
-	function openPaint(initialTool: string | null, initialFilter: string | null = null) {
-		const request = editImageRequest(toolContext);
-		if (!request) return;
-		const next = !initialTool
-			? request
-			: initialFilter
-				? { ...request, initialTool, initialFilter }
-				: { ...request, initialTool };
-		if (scope === 'history') {
-			onLaunch?.();
-			const hooks = historyHooks();
-			openPaintEditor({
-				request: next,
-				scope: 'history',
-				announce: { quietSuccess: true, retry: () => openPaint(initialTool, initialFilter) },
-				onClose: hooks.onClose,
-				onResult: (result) => void hooks.land(editorResultItems(result))
-			});
-			return;
-		}
-		paintRequest = next;
-	}
-
 	function run(entry: RowTool) {
 		if (!entry.enabled) return;
-		if (entry.action === 'edit-image') return openPaint(null);
-		if (entry.action === 'apply-look') return openPaint('filters', entry.lookId ?? null);
+		if (entry.opens && openToolShortcut(entry.id, toolContext.items)) {
+			onOpenedInTab?.();
+			return;
+		}
 		const toolId = entry.tool?.catalogToolId;
 		if (!toolId) return;
 		if (scope !== 'history') {
@@ -273,13 +246,6 @@
 				onResult?.(results, info);
 			}
 		});
-	}
-
-	function handlePaintResult(result: MediaEditorResult) {
-		return applyLibraryPaintResult(
-			result,
-			items.map((item) => item.id)
-		);
 	}
 
 	export function triggerShortcut(key: string): boolean {
@@ -367,6 +333,7 @@
 			sub: subline(entry),
 			plugin: entry.plugin,
 			disabled: !entry.enabled,
+			opens: !!entry.opens,
 			run: () => run(entry)
 		};
 	}
@@ -514,6 +481,8 @@
 			<Icon name="check" className="h-3.5 w-3.5 shrink-0 text-signal" />
 		{:else if row.kbd && !sheet}
 			<Kbd keys={row.kbd} />
+		{:else if row.opens}
+			<span class="shrink-0 text-fg-subtle" data-opens-elsewhere><Icon name="external-link" className="h-3.5 w-3.5" /></span>
 		{/if}
 	</button>
 {/snippet}
@@ -526,6 +495,7 @@
 		{/if}
 		{@render menuRow({ ...toolRow(entry), kbd: entry.action === 'edit-image' ? 'E' : undefined }, close)}
 	{/each}
+	<TabFooter targets={uniqueTargets(entries.map((entry) => entry.opens))} count={items.length} />
 {/snippet}
 
 {#snippet ghost()}
@@ -797,9 +767,3 @@
 		</div>
 	</div>
 {/if}
-
-<MediaEditors
-	request={paintRequest}
-	onClose={() => (paintRequest = null)}
-	onResult={handlePaintResult}
-/>

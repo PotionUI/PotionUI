@@ -88,7 +88,6 @@
 		if (!ok) toasts.error('Could not update the favorite');
 	}
 
-	let toolEditing = false;
 	let detailsRoot: HTMLElement | undefined;
 	let actionBar: DetailsActionBar | undefined;
 
@@ -150,7 +149,7 @@
 
 <svelte:window on:keydown|capture={handleKeyDown} />
 
-<BaseModal isOpen={true} size="xl" title={displayName} closeable={!toolEditing} on:close={onClose}>
+<BaseModal isOpen={true} size="xl" title={displayName} on:close={onClose}>
 	<div bind:this={detailsRoot} data-details-window>
 	<DetailsActionBar
 		bind:this={actionBar}
@@ -163,7 +162,7 @@
 		{moreActions}
 		{dangerActions}
 		onResult={handleToolResult}
-		onEditingChange={(editing) => (toolEditing = editing)}
+		onOpenedInTab={onClose}
 	/>
 	{#if backLink}
 		<div class="flex items-center gap-2 px-4 pt-3 md:px-6" data-back-to-generation>

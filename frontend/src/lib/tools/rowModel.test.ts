@@ -37,13 +37,13 @@ beforeEach(() => {
 describe('buildRowModel', () => {
 	it('lists the core Edit tools of a video in catalog order, then plugin tools last', () => {
 		const model = buildRowModel(buildRowContext('library', [item('video')]));
-		expect(ids(model.edit)).toEqual(['trim', 'crop', 'resize', 'rotate', 'flip', 'speed', 'frame', 'boomerang.loop']);
+		expect(ids(model.edit)).toEqual(['trim', 'crop', 'resize', 'rotate', 'flip', 'speed', 'frame', 'edit-image', 'boomerang.loop']);
 		expect(model.edit.map((entry) => entry.plugin ?? false)).toEqual([
-			false, false, false, false, false, false, false, true
+			false, false, false, false, false, false, false, false, true
 		]);
 	});
 
-	it('adds Edit image after the core tools for an image', () => {
+	it('adds Open in Image editor after the core tools for an image', () => {
 		const model = buildRowModel(buildRowContext('library', [item('image')]));
 		expect(ids(model.edit)).toEqual([
 			'crop',
@@ -117,9 +117,14 @@ describe('buildRowModel', () => {
 		expect(model).toEqual({ edit: [], effects: [], downloads: [], plugins: [] });
 	});
 
-	it('carries the note a tool shows under its label', () => {
-		const model = buildRowModel(buildRowContext('library', [item('video')]));
-		expect(model.edit.find((entry) => entry.id === 'frame')?.note).toBe('Saves one image');
+	it('carries the note of a tool that runs in a dialog and drops it for a row that opens a tab', () => {
+		const frame = (kind: 'video' | 'audio') =>
+			buildRowModel(buildRowContext('library', [item(kind)])).edit.find((entry) => entry.id === 'frame');
+
+		expect(frame('video')?.note).toBe('');
+		expect(frame('video')?.opens).toEqual(['video']);
+		expect(frame('video')?.label).toBe('Open frame in Image editor');
+		expect(buildRowModel(buildRowContext('library', [item('audio')])).edit.find((entry) => entry.id === 'speed')?.note).toBe('');
 	});
 });
 

@@ -46,7 +46,6 @@ describe('recent look tools', () => {
 		expect(noir.tool.label).toBe('NOIR');
 		expect(noir.tool.note).toBe('Black and white');
 		expect(noir.tool.lookId).toBe('noir');
-		expect(noir.tool.componentProps).toEqual({ lookId: 'noir' });
 	});
 
 	it('is offered on both pages and for images only', () => {
@@ -67,12 +66,11 @@ describe('recent look tools', () => {
 		expect(effectsFor([image('a'), item('v', 'video')])).toEqual([]);
 	});
 
-	it('disables them with the reason when more than one image is selected', () => {
+	it('stay enabled when several images are selected', () => {
 		syncRecentLookTools([look('noir')]);
 
 		const rows = effectsFor([image('a'), image('b')]);
-		expect(rows.map((row) => row.availability.enabled)).toEqual([false, false]);
-		expect(rows[1].availability.reason).toBe('Select one image');
+		expect(rows.map((row) => row.availability.enabled)).toEqual([true, true]);
 	});
 
 	it('replaces the previous list instead of adding to it', () => {

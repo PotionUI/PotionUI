@@ -320,7 +320,7 @@ test.describe('Tools menu, Edit and Effects', () => {
 		expect(await groupLabels(page)).not.toContain('Effects');
 		await openSubmenu(page, 'edit');
 		await expect(menu(page).locator('[data-tool="concat"] [data-tool-sub]')).toHaveText('Select 2 to 8 items');
-		await expect(menu(page).locator('[data-tool="frame"] [data-tool-sub]')).toHaveText('Saves one image');
+		await expect(menu(page).locator('[data-tool="frame"] [data-tool-sub]')).toHaveCount(0);
 		await screenshot(page, JOURNEY, 'library-video-edit-submenu-1440');
 	});
 
@@ -347,21 +347,15 @@ test.describe('Tools menu, Edit and Effects', () => {
 		await screenshot(page, JOURNEY, 'history-video-menu-1440');
 	});
 
-	test('Apply a look opens the image editor on the Filters tool', async ({ page }) => {
-		test.setTimeout(120000);
+	test('Apply a look opens an Image editor tab on Effects', async ({ page }) => {
 		await openLibraryMenu(page, 'harbour.png');
 
 		await openSubmenu(page, 'effects');
+		await expect(menu(page).locator('[data-tab-footer]')).toContainText('Image editor tab');
 		await menu(page).locator('[data-tool="apply-look"]').click();
 
-		const dialog = page.getByRole('dialog', { name: 'Edit image' });
-		await expect(dialog).toBeVisible();
-		await expect(dialog.getByRole('button', { name: 'Filters', exact: true }).first()).toHaveAttribute(
-			'aria-pressed',
-			'true',
-			{ timeout: 20000 }
-		);
-		await expect(dialog.getByRole('radiogroup', { name: 'Filters' })).toBeVisible();
+		await expect(page).toHaveURL(/\/generate/);
+		await expect(page.getByTestId('tool-tab-host')).toHaveAttribute('data-tool', 'image');
 		await screenshot(page, JOURNEY, 'apply-look-1440');
 	});
 });
@@ -397,8 +391,7 @@ test.describe('recent looks', () => {
 		expect(await toolsOf(page, 'Effects')).toEqual(['apply-look', 'look:noir', 'look:ember', 'look:honey']);
 	});
 
-	test('opens the image editor on the look that was clicked', async ({ page }) => {
-		test.setTimeout(120000);
+	test('opens an Image editor tab for the look that was clicked', async ({ page }) => {
 		await page.addInitScript(() => {
 			localStorage.setItem(
 				'potionui-recent-looks',
@@ -411,15 +404,8 @@ test.describe('recent looks', () => {
 		await openSubmenu(page, 'effects');
 		await menu(page).locator('[data-tool="look:ember"]').click();
 
-		const dialog = page.getByRole('dialog', { name: 'Edit image' });
-		await expect(dialog).toBeVisible();
-		await expect(dialog.getByRole('button', { name: 'Filters', exact: true }).first()).toHaveAttribute(
-			'aria-pressed',
-			'true',
-			{ timeout: 20000 }
-		);
-		await expect(dialog.getByTestId('filter-name')).toHaveText('Ember', { timeout: 20000 });
-		await expect(dialog.getByRole('button', { name: 'Apply', exact: true })).toBeFocused();
+		await expect(page).toHaveURL(/\/generate/);
+		await expect(page.getByTestId('tool-tab-host')).toHaveAttribute('data-tool', 'image');
 		await screenshot(page, JOURNEY, 'recent-look-editor-1440');
 	});
 
@@ -575,7 +561,7 @@ test.describe('Edit and Effects submenus', () => {
 		await expect(menu(page)).toHaveCount(0);
 	});
 
-	test('walks a submenu with the arrow keys and runs the focused tool with Enter', async ({ page }) => {
+	test('walks a submenu with the arrow keys and opens the focused tool with Enter', async ({ page }) => {
 		await openLibraryMenu(page, 'harbour.png');
 		await menu(page).locator('[data-submenu-row="edit"]').focus();
 		await page.keyboard.press('ArrowRight');
@@ -586,7 +572,8 @@ test.describe('Edit and Effects submenus', () => {
 		await expect(menu(page).locator('[data-tool="rotate"]')).toBeFocused();
 		await page.keyboard.press('Enter');
 
-		await expect(page.getByRole('dialog', { name: /Rotate/ })).toBeVisible();
+		await expect(page).toHaveURL(/\/generate/);
+		await expect(page.getByTestId('tool-tab-host')).toHaveAttribute('data-tool', 'image');
 	});
 
 	test('keeps Analyze, Compose and Export below the two rows, unchanged', async ({ page }) => {
@@ -748,14 +735,14 @@ test.describe('details action bar', () => {
 			'Fit canvas',
 			'Color key',
 			'Crop to subject',
-			'Edit image'
+			'Open in Image editor'
 		]);
 		await expect(edit.locator('[data-bar-row="crop_subject"]')).toHaveAttribute('aria-disabled', 'true');
 		await expect(edit.locator('[data-bar-row="crop_subject"]')).toContainText('Needs a transparent image');
 		await screenshot(page, JOURNEY, 'library-details-edit-1440');
 	});
 
-	test('Library details: Effects offers Apply a look, and Edit image opens the editor', async ({ page }) => {
+	test('Library details: Effects offers Apply a look, and Open in Image editor opens a tab', async ({ page }) => {
 		await page.goto('/library');
 		await page.locator('[data-library-card]').filter({ hasText: 'harbour.png' }).locator('.media-zoom').click();
 
@@ -765,8 +752,9 @@ test.describe('details action bar', () => {
 		await expect(effects).toHaveCount(0);
 
 		const edit = await openBarMenu(page, 'Edit');
-		await edit.getByRole('menuitem', { name: /Edit image/ }).click();
-		await expect(page.getByRole('dialog', { name: 'Edit image' })).toBeVisible();
+		await edit.getByRole('menuitem', { name: /Open in Image editor/ }).click();
+		await expect(page).toHaveURL(/\/generate/);
+		await expect(page.getByTestId('tool-tab-host')).toHaveAttribute('data-tool', 'image');
 	});
 
 	test('Library details: More holds Open in new tab, then Delete in danger style', async ({ page }) => {
@@ -823,7 +811,16 @@ test.describe('details action bar', () => {
 		const dialog = page.getByRole('dialog', { name: 'Generation Details' });
 		await expect(barItems(dialog)).not.toContainText([/^\s*Effects/]);
 		const edit = await openBarMenu(page, 'Edit');
-		expect(await rowLabels(edit)).toEqual(['Trim', 'Crop', 'Resize', 'Rotate', 'Flip', 'Speed', 'Frame']);
+		expect(await rowLabels(edit)).toEqual([
+			'Trim',
+			'Crop',
+			'Resize',
+			'Rotate',
+			'Flip',
+			'Speed',
+			'Open frame in Image editor',
+			'Open in Video editor'
+		]);
 	});
 
 	test('History details: on a narrow window Download, Copy to Library and Reuse settings fold into More', async ({
@@ -848,6 +845,15 @@ test.describe('details action bar', () => {
 	});
 });
 
+async function offerDespeckle(page: Page) {
+	const despeckle = tool('despeckle', 'Despeckle', {
+		accepts: ['image', 'video'],
+		preview: true,
+		params: [{ name: 'degrees', type: 'select', label: 'Degrees', default: '90', options: ['90', '180', '270'] }]
+	});
+	await page.route(/\/api\/media-tools(\?.*)?$/, (route) => json(route, { tools: [...CATALOG, despeckle] }));
+}
+
 test.describe('running a tool', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
@@ -859,14 +865,15 @@ test.describe('running a tool', () => {
 	}) => {
 		test.setTimeout(120000);
 		const backend = await mockBackend(page);
+		await offerDespeckle(page);
 		await page.goto('/library');
 		const card = page.locator('[data-library-card]').filter({ hasText: 'harbour.png' });
 		await card.hover();
 		await card.getByRole('button', { name: 'Item actions' }).click();
 		await openSubmenu(page, 'edit');
-		await menu(page).locator('[data-tool="rotate"]').click();
+		await menu(page).locator('[data-tool="despeckle"]').click();
 
-		const dialog = page.getByRole('dialog', { name: /Rotate/ });
+		const dialog = page.getByRole('dialog', { name: /Despeckle/ });
 		await expect(dialog).toBeVisible();
 		await dialog.getByRole('button', { name: 'Apply' }).click();
 
@@ -893,13 +900,14 @@ test.describe('running a tool', () => {
 
 	test('cancelling from the card stops the run', async ({ page }) => {
 		const backend = await mockBackend(page);
+		await offerDespeckle(page);
 		await page.goto('/library');
 		const card = page.locator('[data-library-card]').filter({ hasText: 'harbour.png' });
 		await card.hover();
 		await card.getByRole('button', { name: 'Item actions' }).click();
 		await openSubmenu(page, 'edit');
-		await menu(page).locator('[data-tool="rotate"]').click();
-		await page.getByRole('dialog', { name: /Rotate/ }).getByRole('button', { name: 'Apply' }).click();
+		await menu(page).locator('[data-tool="despeckle"]').click();
+		await page.getByRole('dialog', { name: /Despeckle/ }).getByRole('button', { name: 'Apply' }).click();
 
 		await card.locator('[data-tool-run]').getByRole('button', { name: /Cancel/ }).click();
 
@@ -910,13 +918,14 @@ test.describe('running a tool', () => {
 	test('a run started from the History card menu opens the result in a Library modal over History', async ({ page }) => {
 		test.setTimeout(120000);
 		const backend = await mockBackend(page);
+		await offerDespeckle(page);
 		await page.goto('/history');
 		const card = page.locator('[data-generation-card]').first();
 		await card.hover();
 		await card.getByRole('button', { name: 'Item actions' }).click();
 		await openSubmenu(page, 'edit');
-		await menu(page).locator('[data-tool="rotate"]').click();
-		const dialog = page.getByRole('dialog', { name: /Rotate/ });
+		await menu(page).locator('[data-tool="despeckle"]').click();
+		const dialog = page.getByRole('dialog', { name: /Despeckle/ });
 		await expect(dialog).toContainText('Saves a copy to your Library. The generation is not changed.');
 		await dialog.getByRole('button', { name: 'Apply' }).click();
 
@@ -948,12 +957,13 @@ test.describe('running a tool', () => {
 	}) => {
 		test.setTimeout(120000);
 		const backend = await mockBackend(page);
+		await offerDespeckle(page);
 		const details = await openDetailsOf(page, 'gen-1');
 
 		await page.getByRole('toolbar', { name: 'Actions' }).getByRole('button', { name: 'Edit' }).click();
-		await page.getByRole('menuitem', { name: /Rotate/ }).click();
+		await page.getByRole('menuitem', { name: /Despeckle/ }).click();
 		await expect(details).toHaveCount(0);
-		const dialog = page.getByRole('dialog', { name: /Rotate/ });
+		const dialog = page.getByRole('dialog', { name: /Despeckle/ });
 		await dialog.getByRole('button', { name: 'Apply' }).click();
 
 		backend.runs.finish = true;
@@ -972,11 +982,12 @@ test.describe('running a tool', () => {
 	test('History details: browser Back closes the result modal and reopens the details', async ({ page }) => {
 		test.setTimeout(120000);
 		const backend = await mockBackend(page);
+		await offerDespeckle(page);
 		const details = await openDetailsOf(page, 'gen-1');
 
 		await page.getByRole('toolbar', { name: 'Actions' }).getByRole('button', { name: 'Edit' }).click();
-		await page.getByRole('menuitem', { name: /Rotate/ }).click();
-		await page.getByRole('dialog', { name: /Rotate/ }).getByRole('button', { name: 'Apply' }).click();
+		await page.getByRole('menuitem', { name: /Despeckle/ }).click();
+		await page.getByRole('dialog', { name: /Despeckle/ }).getByRole('button', { name: 'Apply' }).click();
 		backend.runs.finish = true;
 		const result = page.getByRole('dialog', { name: 'harbour-rotated.png' });
 		await expect(result).toBeVisible({ timeout: 15000 });
@@ -991,12 +1002,13 @@ test.describe('running a tool', () => {
 	test('History details: Cancel in the tool dialog reopens the details on the same generation', async ({ page }) => {
 		test.setTimeout(120000);
 		await mockBackend(page);
+		await offerDespeckle(page);
 		const details = await openDetailsOf(page, 'gen-1');
 
 		await page.getByRole('toolbar', { name: 'Actions' }).getByRole('button', { name: 'Edit' }).click();
-		await page.getByRole('menuitem', { name: /Rotate/ }).click();
+		await page.getByRole('menuitem', { name: /Despeckle/ }).click();
 		await expect(details).toHaveCount(0);
-		await page.getByRole('dialog', { name: /Rotate/ }).getByRole('button', { name: 'Cancel' }).click();
+		await page.getByRole('dialog', { name: /Despeckle/ }).getByRole('button', { name: 'Cancel' }).click();
 
 		await expect(details).toBeVisible();
 		await expect(details.locator('code').first()).toHaveText('gen-1');
@@ -1005,29 +1017,31 @@ test.describe('running a tool', () => {
 	test('History details: a failed run reopens the details and offers Try again', async ({ page }) => {
 		test.setTimeout(120000);
 		const backend = await mockBackend(page);
+		await offerDespeckle(page);
 		const details = await openDetailsOf(page, 'gen-1');
 
 		await page.getByRole('toolbar', { name: 'Actions' }).getByRole('button', { name: 'Edit' }).click();
-		await page.getByRole('menuitem', { name: /Rotate/ }).click();
-		await page.getByRole('dialog', { name: /Rotate/ }).getByRole('button', { name: 'Apply' }).click();
+		await page.getByRole('menuitem', { name: /Despeckle/ }).click();
+		await page.getByRole('dialog', { name: /Despeckle/ }).getByRole('button', { name: 'Apply' }).click();
 		backend.runs.fail = true;
 
-		const toast = page.getByRole('status').filter({ hasText: 'Rotate failed. Your settings are kept.' });
+		const toast = page.getByRole('status').filter({ hasText: 'Despeckle failed. Your settings are kept.' });
 		await expect(toast).toBeVisible({ timeout: 15000 });
 		await expect(details).toBeVisible();
 		await toast.getByRole('button', { name: 'Try again' }).click();
-		await expect(page.getByRole('dialog', { name: /Rotate/ })).toBeVisible();
+		await expect(page.getByRole('dialog', { name: /Despeckle/ })).toBeVisible();
 	});
 
 	test('a tool opened from the History card menu does not reopen anything when it is cancelled', async ({ page }) => {
 		await mockBackend(page);
+		await offerDespeckle(page);
 		await page.goto('/history');
 		const card = page.locator('[data-generation-card]').first();
 		await card.hover();
 		await card.getByRole('button', { name: 'Item actions' }).click();
 		await openSubmenu(page, 'edit');
-		await menu(page).locator('[data-tool="rotate"]').click();
-		await page.getByRole('dialog', { name: /Rotate/ }).getByRole('button', { name: 'Cancel' }).click();
+		await menu(page).locator('[data-tool="despeckle"]').click();
+		await page.getByRole('dialog', { name: /Despeckle/ }).getByRole('button', { name: 'Cancel' }).click();
 
 		await expect(page.getByRole('dialog')).toHaveCount(0);
 	});
@@ -1036,6 +1050,7 @@ test.describe('running a tool', () => {
 		page
 	}) => {
 		await mockBackend(page);
+		await offerDespeckle(page);
 		await page.goto('/library?item=lib-new');
 		await expect(page.getByRole('dialog', { name: 'harbour-rotated.png' })).toBeVisible({ timeout: 15000 });
 		await page.keyboard.press('Escape');

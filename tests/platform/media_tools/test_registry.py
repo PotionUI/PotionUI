@@ -9,9 +9,9 @@ from tests.platform.media_tools.fake_tools import make_spec
 CORE_IDS = [
     "trim", "crop", "resize", "rotate", "flip", "speed",
     "fit_canvas", "color_key", "crop_subject", "frame", "split", "concat", "fix_colors", "film_grain", "cut_finder",
-    "mute", "volume", "replace_audio", "paint_layer",
+    "mute", "volume", "replace_audio", "paint_layer", "slice",
 ]
-EDITOR_ONLY = ("replace_audio", "paint_layer")
+EDITOR_ONLY = ("replace_audio", "paint_layer", "slice")
 AUDIO_GROUP = ("mute", "volume", "replace_audio")
 
 
@@ -27,7 +27,7 @@ def test_core_registers_exactly_the_contract_tools_in_menu_order():
     register_core_tools(registry)
 
     assert [spec.id for spec in registry.list()] == CORE_IDS
-    assert len(CORE_MODULES) == 19
+    assert len(CORE_MODULES) == 20
     assert all(spec.source == "core" and "." not in spec.id for spec in registry.list())
 
 
@@ -53,6 +53,7 @@ def test_core_specs_follow_the_contract_table():
     assert by_id["fix_colors"].accepts == ("video",) and by_id["fix_colors"].group == "effects"
     assert by_id["film_grain"].accepts == ("video",) and by_id["film_grain"].group == "effects"
     assert by_id["film_grain"].cardinality == "one_to_one" and not by_id["film_grain"].preview
+    assert by_id["slice"].accepts == ("image",) and by_id["slice"].cardinality == "one_to_many"
     assert by_id["cut_finder"].accepts == ("video",) and by_id["cut_finder"].cardinality == "one_to_many"
     assert all(
         spec.group == "edit"
@@ -87,6 +88,7 @@ def test_core_param_names_are_the_contract_names():
         "volume": ["unit", "percent", "db", "fade_in", "fade_out"],
         "replace_audio": ["audio", "start", "loop"],
         "paint_layer": ["layer"],
+        "slice": ["rects", "trim", "tolerance", "padding", "aspect", "fill"],
     }
 
     assert {spec.id: [p["name"] for p in spec.params] for spec in core_specs()} == expected

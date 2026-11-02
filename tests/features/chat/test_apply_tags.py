@@ -68,6 +68,7 @@ def simple():
     '<tool_action type="update_director_segment" segment_index="0">a dog running</tool_action>',
     '<tool_action update_director_segment>a dog running</tool_action>',
     '<tool_action type="UPDATE_DIRECTOR_SEGMENT" segment_id="seg-1">a dog running</tool_action>',
+    "<tool_action type='update_director_segment' segment_index='0' segment_id='seg-1'>a dog running</tool_action>",
 ])
 def test_malformed_director_tag_becomes_canonical(simple, raw):
     assert normalize_apply_tags(raw, simple) == CANONICAL_SEG1 + "a dog running</tool_action>"

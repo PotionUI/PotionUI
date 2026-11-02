@@ -37,6 +37,7 @@ from src.platform.runtime.model_headers import (
 __all__ = [
     "WellKnownModelMetadataField",
     "get_model_provider_info",
+    "index_model_file",
     "model_type_dirs",
     "model_write_dir",
     "resolve_model_file",
@@ -88,6 +89,10 @@ def model_type_dirs(model_type: str) -> List[Path]:
 
 def model_write_dir(model_type: str) -> Path:
     return get_container().model_roots.write_dir(model_type).path
+
+
+def index_model_file(path: "str | Path") -> Dict[str, Any]:
+    return get_container().model_index_manager.indexing.index_path(str(path))
 
 
 def resolve_model_file(model_id: str) -> Path:

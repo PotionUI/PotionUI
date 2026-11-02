@@ -60,7 +60,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Backends** — contributing an engine | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate` |
 | **Cloud** — contributing a hosted-model provider | `.cloud`, `.cloud_testing` | `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `valid_specs`, `load_catalog_file`, `encode_media`, `decode_inline`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS`, `fake_director_specs`, `fake_video_bytes`, `TINY_PNG`, `bind_plugin_backend` |
 | **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
-| **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks` |
+| **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks`, `load_native_component(path, kind)` (one component file, such as a `vae`, loaded on the CPU by the engine's own loader and returned as its wrapper: `.module`, `move_to(device)`, `unload()`) |
 | **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem`, `lint_preset_dir`, `PRESET_MEDIA_MAX_BYTES` and `PRESET_COVER_VIDEO_MAX_BYTES` (the byte budgets the preset linter warns above for any preset media file and for a video cover), `downscale_and_save_webp`, `describe_preset` (an installed preset's name, `vars` and modes, each with its default form and every form's fields as `type` + `required` + `multi`; `None` when not installed), `PresetDescription`, `ModeDescription`, `FieldDescription`, `bind_director_media(request, role, media, segment_id=None, promote=False)` (puts a resolved image, from `resolve_media_ref`, into a single-shot Video Director document as its `first` or `last` frame, keeping the rest of the document; with `promote=True` a first frame turns a text-only shot into a start-image shot and a last frame turns a start-image shot into a first-and-last shot; raises `DirectorBindingError` with a `code`), `RequirementBackendInfo` (the resolved backend a `RequirementContext` carries: `id`, `engine`, `driver`, `config`) |
 | **Forms** — the field types core ships | `.forms` | `core_field_type_names()` (the names of every core non-container field type, e.g. to validate a `field_type` a form-building tool is handed) |
 | **Generation** — submitting, following and reading generations | `.generation` | `submit_generation`, `cancel_generation`, `generation_state`, `list_generation_files`, `resolve_media_ref`, `get_session_snapshot`, `GenerationRequest`, `MediaRefError`, `SessionNotFoundError`, `IdempotencyKeyConflict` |
@@ -1692,7 +1692,8 @@ directory afterwards, whatever happens.
 
 - **`ToolMedia`** is a frozen dataclass: `path`, `kind` (`image` | `video` | `audio`), `width`, `height`,
   `duration`, `fps`, `has_audio`, `has_alpha`. Everything except `path` and `kind` may be `None`.
-- **`ToolContext`** gives you `scratch_dir`, `new_path(suffix)` for a fresh output path,
+- **`ToolContext`** gives you `scratch_dir`, `user_id` (the user the run belongs to, `None` outside a
+  Library or History run), `new_path(suffix)` for a fresh output path,
   `progress(fraction, label="")`, `is_cancelled()`, `probe(path)` and `ffmpeg(args, duration=None)`.
   `ffmpeg` is the one cancellable runner: it adds `-y`, parses `-progress` into `ctx.progress` when you
   pass the expected output `duration`, kills the process when the run is cancelled and raises on a failure
@@ -1807,6 +1808,7 @@ model_type_dirs("lora")          # -> every online root's bound directory for th
 model_write_dir("lora")          # -> the directory a new download for this type lands in
 resolve_model_file(model_id)     # -> the winning present copy's absolute Path, or raises
 model_for_path(path)             # -> that model's catalog dict (or None), from a filesystem path
+index_model_file(path)           # -> {model_id, indexed, duplicate_of, warning} after cataloguing a file the plugin wrote
 ```
 
 `resolve_model_file` raises `src.features.models.locator.ModelFileUnavailable` (not importable

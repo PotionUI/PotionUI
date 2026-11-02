@@ -157,6 +157,7 @@ class ToolContext:
         is_cancelled: Optional[Callable[[], bool]] = None,
         runner: Any = None,
         prober: Optional[Callable[[Path], ToolMedia]] = None,
+        user_id: Optional[str] = None,
         _window: tuple[float, float] = (0.0, 1.0),
         _counter: Optional[list[int]] = None,
     ):
@@ -168,6 +169,7 @@ class ToolContext:
         self._is_cancelled = is_cancelled
         self.runner = runner if runner is not None else FfmpegRunner()
         self._prober = prober or default_probe
+        self.user_id = user_id
         self._window = _window
         self._counter = _counter if _counter is not None else [0]
 
@@ -210,6 +212,7 @@ class ToolContext:
             is_cancelled=self._is_cancelled,
             runner=self.runner,
             prober=self._prober,
+            user_id=self.user_id,
             _window=(outer_low + span * low, outer_low + span * high),
             _counter=self._counter,
         )

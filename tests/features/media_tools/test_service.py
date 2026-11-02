@@ -34,6 +34,24 @@ class TestServiceApi(MediaToolsTestBase):
     def user(self):
         return self.make_user(self.user_id)
 
+    def test_a_run_hands_its_tool_the_running_user_id(self):
+        from unittest.mock import patch
+        from tests.features.media_tools.support import Stack
+
+        seen = []
+        original = Stack.run
+
+        def recording(tool, inputs, params, ctx):
+            seen.append(ctx.user_id)
+            return original(tool, inputs, params, ctx)
+
+        first, second = self.image_item(), self.image_item(name="two.png")
+        with patch.object(Stack, "run", recording):
+            run = self.finish([{"tool": "stack"}], [{"item_id": first.id}, {"item_id": second.id}])
+
+        self.assertEqual(run.status, "completed")
+        self.assertEqual(seen, [self.user_id])
+
     def test_catalog_returns_tool_dtos_with_remembered_params(self):
         item = self.image_item()
         self.finish([{"tool": "shrink", "params": {"size": 9}}], [{"item_id": item.id}])

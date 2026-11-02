@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 from src.features.models.records import Model
 from src.plugin_api.models import (
     get_model_provider_info,
+    index_model_file,
     model_for_path,
     model_type_dirs,
     model_write_dir,
@@ -154,3 +155,15 @@ def test_the_classifier_registry_view_is_read_only():
     view = HeaderView("safetensors", {"a": TensorInfo("F16", (1,))})
     assert model_classifier_registry.classify(view) is None
     assert FamilyMatch("x").family == "x"
+
+
+def test_index_model_file_indexes_one_path_through_the_indexing_coordinator(tmp_path):
+    outcome = {"model_id": "m-1", "indexed": True, "duplicate_of": None, "warning": None}
+    indexing = Mock(index_path=Mock(return_value=outcome))
+    container = SimpleNamespace(model_index_manager=SimpleNamespace(indexing=indexing))
+
+    with patch("src.plugin_api.models.get_container", return_value=container):
+        result = index_model_file(tmp_path / "file.safetensors")
+
+    assert result == outcome
+    indexing.index_path.assert_called_once_with(str(tmp_path / "file.safetensors"))

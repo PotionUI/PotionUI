@@ -278,6 +278,7 @@ from src.plugin_api.models import (
     WellKnownModelMetadataField,
     assign_model_to_user,
     get_model_provider_info,
+    index_model_file,
     model_for_path,
     model_for_sha256,
     model_type_dirs,
@@ -439,6 +440,7 @@ __all__ = [
     "NativeGeneratorHandle",
     "ProgressEmitter",
     "native_step_hooks",
+    "load_native_component",
     # Presets and generation
     "DirectorBindingError",
     "FieldDescription",
@@ -505,6 +507,7 @@ __all__ = [
     # Model metadata fields, a model's marketplace provider link, and acting on catalog models
     "WellKnownModelMetadataField",
     "get_model_provider_info",
+    "index_model_file",
     "MODEL_DIRECTORY_ALIASES",
     "model_for_path",
     "model_for_sha256",
@@ -551,6 +554,7 @@ _TORCH_BACKED_EXPORTS = {
     "NativeGeneratorHandle": "src.plugin_api.native",
     "ProgressEmitter": "src.plugin_api.native",
     "native_step_hooks": "src.plugin_api.native",
+    "load_native_component": "src.plugin_api.native",
     "BackgroundMattingModel": "src.plugin_api.media",
     "SamplingCancelled": "src.plugin_api.sampling",
     "sample_euler": "src.plugin_api.sampling",

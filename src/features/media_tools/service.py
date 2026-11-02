@@ -888,7 +888,7 @@ class MediaToolService:
         def work(control: RunControl) -> RunOutcome:
             with self._scratch() as scratch:
                 base = ToolContext(
-                    scratch, progress=control.report, is_cancelled=control.is_cancelled
+                    scratch, progress=control.report, is_cancelled=control.is_cancelled, user_id=user_id
                 )
                 ctx = base.scoped(0.0, CHAIN_PROGRESS_SHARE)
                 with ExitStack() as stack:

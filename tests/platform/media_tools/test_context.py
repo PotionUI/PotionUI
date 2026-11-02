@@ -135,3 +135,12 @@ def test_default_scopes_and_unknown_defaults():
     assert spec.scopes == ("library", "history", "field")
     assert spec.source == "core" and spec.editor is None and spec.preview is False
     assert MediaToolRegistry().list() == []
+
+
+def test_a_context_has_no_user_unless_given_one(tmp_path):
+    assert ToolContext(tmp_path).user_id is None
+
+
+def test_scoped_contexts_keep_the_user_id(tmp_path):
+    context = ToolContext(tmp_path, user_id="user-7")
+    assert context.scoped(0.2, 0.4).scoped(0.0, 0.5).user_id == "user-7"

@@ -99,6 +99,24 @@ def test_generator_context_and_progress_helpers_are_the_real_shared_ones():
 
 def test_every_native_export_is_reachable_from_the_plugin_api_top_level():
     for name in ("Conditioning", "GeneratorContext", "GeneratorKrea2Pipe",
-                 "NativeGeneratorHandle", "ProgressEmitter", "native_step_hooks"):
+                 "NativeGeneratorHandle", "ProgressEmitter", "native_step_hooks", "load_native_component"):
         assert hasattr(plugin_api, name), f"src.plugin_api is missing {name}"
         assert name in plugin_api.__all__
+
+
+def test_load_native_component_loads_one_file_on_the_cpu_through_the_engine_loader(monkeypatch):
+    from src.plugin_api import native
+
+    calls = []
+
+    class FakeLoader:
+        def __init__(self, device="cpu", **kwargs):
+            calls.append(("init", device))
+
+        def load(self, path, kind, **kwargs):
+            calls.append(("load", path, kind))
+            return "component"
+
+    monkeypatch.setattr(native, "NativeEngineLoader", FakeLoader)
+    assert native.load_native_component("/models/vae/video.safetensors", "vae") == "component"
+    assert calls == [("init", "cpu"), ("load", "/models/vae/video.safetensors", "vae")]

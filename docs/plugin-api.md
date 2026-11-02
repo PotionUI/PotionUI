@@ -1422,18 +1422,19 @@ grounding the chat's prompt enhancement uses: the preset's `llm.guide` (or the m
 guide), its name and description, the model selected in `form_data` with its prompting
 guidance, and the user's approved and community prompts for that model. `media` is a list
 of `{"value", "media_type"}` entries as `src.plugin_api.generation.resolve_media_ref`
-returns them; images are sent as they are and each video as a few frames. `llm_id`
-defaults to the server's default language model. It returns `{"text", "model_id",
-"llm_id"}`.
+returns them; images are sent as they are and each video as a few frames. Without an
+`llm_id` it uses a language model the user can use, the way chat does: the server default
+when one is set, otherwise the user's assigned models, and when media is given the first
+of those with vision support. It returns `{"text", "model_id", "llm_id"}`.
 
-It raises `PromptWriteRefused` (with a `code` and a message you can show) when no
-language model is set up (`no_llm`), the model is turned off (`llm_disabled`), media is
-given to a model without vision (`vision_not_supported`, raised before any file is read),
+It raises `PromptWriteRefused` (with a `code` and a message you can show) when the user
+has no language model (`no_llm`), the requested model is turned off (`llm_disabled`), media
+is given and no usable model has vision (`vision_not_supported`, raised before any file is read),
 a file cannot be read (`media_unreadable`, `media_unsupported`), the instruction is blank
 (`no_instruction`) or the reply is empty (`empty_reply`). Transport failures of the
-language model propagate as they are. `prompt_writer_status(llm_id=None)` reports
-`{"available", "vision", "name", "code", "message"}` without calling the model, so a
-plugin can warn before it runs anything.
+language model propagate as they are. `prompt_writer_status(user_id, llm_id=None)`
+reports `{"available", "vision", "name", "code", "message"}` for that user without calling
+the model, so a plugin can warn before it runs anything.
 
 ## Contributing a phrasebook batch tool
 

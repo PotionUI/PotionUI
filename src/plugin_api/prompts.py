@@ -177,8 +177,8 @@ async def import_prompts_for_user(
     return {"created": created, "skipped_duplicates": skipped_duplicates}
 
 
-def prompt_writer_status(llm_id: Optional[str] = None) -> Dict[str, Any]:
-    return enhancement_operations.writer_status(get_container().prompt_enhancement_manager, llm_id)
+def prompt_writer_status(user_id: str, llm_id: Optional[str] = None) -> Dict[str, Any]:
+    return enhancement_operations.writer_status(get_container().prompt_enhancement_manager, user_id, llm_id)
 
 
 async def write_prompt_for_preset(
@@ -193,15 +193,14 @@ async def write_prompt_for_preset(
 ) -> Dict[str, Any]:
     container = get_container()
     collaborators = container.prompt_enhancement_manager
-    if media:
-        enhancement_operations.require_vision(enhancement_operations.writer_config(collaborators, llm_id))
+    config = enhancement_operations.writer_config(collaborators, user_id, llm_id, vision=bool(media))
     images = await encode_media(container.settings.get_file_storage_directory(), media)
     form_state = {"preset": preset_id, "mode": mode, "form_data": dict(form_data or {})} if preset_id else None
     return await enhancement_operations.write_prompt(
         collaborators,
         user_id,
         instruction,
-        llm_id=llm_id,
+        llm_id=config.id,
         form_state=form_state,
         images=images,
     )

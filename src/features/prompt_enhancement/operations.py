@@ -513,32 +513,73 @@ class PromptWriteRefused(ValueError):
         self.code = code
 
 
-def writer_config(collaborators: PromptEnhancementCollaborators, llm_id: Optional[str] = None):
+def _usable_configs(collaborators: PromptEnhancementCollaborators, user_id: str, llm_id: Optional[str]) -> List[Any]:
     repository = getattr(collaborators.llm_service, "repository", None)
     if repository is None:
-        raise PromptWriteRefused("no_llm", "No language model is set up on this server.")
-    config = repository.get_configuration(llm_id) if llm_id else repository.get_default_configuration()
-    if config is None:
-        raise PromptWriteRefused("no_llm", "No language model is set up on this server.")
-    if not getattr(config, "enabled", True):
-        raise PromptWriteRefused("llm_disabled", f"The language model {config.name} is turned off.")
-    return config
+        return []
+    if llm_id:
+        config = repository.get_configuration(llm_id)
+        if config is not None and not getattr(config, "enabled", True):
+            raise PromptWriteRefused("llm_disabled", f"The language model {config.name} is turned off.")
+        return [config] if config is not None else []
+    found: Dict[str, Any] = {}
+    default = repository.get_default_configuration()
+    if default is not None:
+        found[default.id] = default
+    assigned = [repository.get_configuration(config_id) for config_id in repository.get_user_llm_assignments(user_id)]
+    for config in sorted((item for item in assigned if item is not None), key=lambda item: (item.name or "", item.id)):
+        found.setdefault(config.id, config)
+    return [config for config in found.values() if getattr(config, "enabled", True)]
 
 
-def writer_status(collaborators: PromptEnhancementCollaborators, llm_id: Optional[str] = None) -> Dict[str, Any]:
-    try:
-        config = writer_config(collaborators, llm_id)
-    except PromptWriteRefused as refused:
-        return {"available": False, "vision": False, "name": None, "code": refused.code, "message": str(refused)}
-    return {"available": True, "vision": bool(config.supports_vision), "name": config.name, "code": None, "message": None}
-
-
-def require_vision(config: Any) -> None:
-    if not config.supports_vision:
+def writer_config(
+    collaborators: PromptEnhancementCollaborators,
+    user_id: str,
+    llm_id: Optional[str] = None,
+    vision: bool = False,
+):
+    configs = _usable_configs(collaborators, user_id, llm_id)
+    if not configs:
+        raise PromptWriteRefused("no_llm", "No language model is available to you. Ask an admin to set one up for you.")
+    if not vision:
+        return configs[0]
+    seeing = next((config for config in configs if config.supports_vision), None)
+    if seeing is None:
+        if len(configs) == 1:
+            raise PromptWriteRefused(
+                "vision_not_supported",
+                f"The language model {configs[0].name} cannot look at images. Ask an admin for one with vision support.",
+            )
         raise PromptWriteRefused(
             "vision_not_supported",
-            f"The language model {config.name} cannot look at images. Choose one with vision support.",
+            "None of the language models you can use can look at images. Ask an admin for one with vision support.",
         )
+    return seeing
+
+
+def writer_status(
+    collaborators: PromptEnhancementCollaborators, user_id: str, llm_id: Optional[str] = None
+) -> Dict[str, Any]:
+    try:
+        configs = _usable_configs(collaborators, user_id, llm_id)
+    except PromptWriteRefused as refused:
+        return {"available": False, "vision": False, "name": None, "code": refused.code, "message": str(refused)}
+    if not configs:
+        return {
+            "available": False,
+            "vision": False,
+            "name": None,
+            "code": "no_llm",
+            "message": "No language model is available to you. Ask an admin to set one up for you.",
+        }
+    seeing = next((config for config in configs if config.supports_vision), None)
+    return {
+        "available": True,
+        "vision": seeing is not None,
+        "name": (seeing or configs[0]).name,
+        "code": None,
+        "message": None,
+    }
 
 
 async def write_prompt(
@@ -554,10 +595,8 @@ async def write_prompt(
     instruction = (instruction or "").strip()
     if not instruction:
         raise PromptWriteRefused("no_instruction", "Say what the prompt should be.")
-    config = writer_config(collaborators, llm_id)
     images = tuple(image for image in images if image)
-    if images:
-        require_vision(config)
+    config = writer_config(collaborators, user_id, llm_id, vision=bool(images))
     context = await _gather_writing_context(collaborators, user_id, instruction[:MAX_INSTRUCTION_CHARS], form_state)
     response = await collaborators.llm_service.complete(
         config.id,

@@ -14,15 +14,19 @@ def config(**overrides):
 
 
 class Repository:
-    def __init__(self, configs=None, default=None):
+    def __init__(self, configs=None, default=None, assigned=()):
         self.configs = {item.id: item for item in configs or []}
         self.default = default
+        self.assigned = {"u-1": list(assigned)}
 
     def get_configuration(self, llm_id):
         return self.configs.get(llm_id)
 
     def get_default_configuration(self):
         return self.configs.get(self.default) if self.default else None
+
+    def get_user_llm_assignments(self, user_id):
+        return self.assigned.get(user_id, [])
 
 
 class FakeLLM:
@@ -149,6 +153,37 @@ async def test_images_need_a_vision_model():
 
 
 @pytest.mark.asyncio
+async def test_without_a_default_the_users_assigned_model_writes():
+    llm = FakeLLM(repository=Repository([config(id="b", name="Beta"), config(id="a", name="Alpha")], assigned=["b", "a"]))
+    result = await operations.write_prompt(collaborators(llm), "u-1", "A fox")
+    assert result["llm_id"] == "a"
+
+
+@pytest.mark.asyncio
+async def test_images_go_to_a_model_that_can_see_them():
+    configs = [config(id="a", name="Alpha", supports_vision=False), config(id="b", name="Beta", supports_vision=True)]
+    llm = FakeLLM(repository=Repository(configs, default="a", assigned=["b"]))
+    result = await operations.write_prompt(collaborators(llm), "u-1", "Describe it", images=["aGVsbG8="])
+    assert result["llm_id"] == "b"
+    text_only = await operations.write_prompt(collaborators(llm), "u-1", "A fox")
+    assert text_only["llm_id"] == "a"
+
+
+@pytest.mark.asyncio
+async def test_no_seeing_model_among_several_is_refused():
+    configs = [config(id="a", name="Alpha", supports_vision=False), config(id="b", name="Beta", supports_vision=False)]
+    llm = FakeLLM(repository=Repository(configs, assigned=["a", "b"]))
+    with pytest.raises(PromptWriteRefused) as caught:
+        await operations.write_prompt(collaborators(llm), "u-1", "Describe it", images=["aGVsbG8="])
+    assert str(caught.value).startswith("None of the language models you can use can look at images.")
+
+
+def test_disabled_assigned_models_are_skipped():
+    llm = FakeLLM(repository=Repository([config(id="a", enabled=False), config(id="b", name="Beta")], assigned=["a", "b"]))
+    assert operations.writer_config(collaborators(llm), "u-1").id == "b"
+
+
+@pytest.mark.asyncio
 async def test_text_only_works_without_vision():
     llm = FakeLLM(repository=Repository([config(supports_vision=False)], default="llm-1"))
     result = await operations.write_prompt(collaborators(llm), "u-1", "A fox at dawn")
@@ -160,13 +195,22 @@ async def test_text_only_works_without_vision():
     ("repository", "code"),
     [
         (Repository(), "no_llm"),
-        (Repository([config(enabled=False)], default="llm-1"), "llm_disabled"),
+        (Repository([config(enabled=False)], default="llm-1"), "no_llm"),
     ],
 )
 async def test_missing_or_disabled_llm_is_refused(repository, code):
     with pytest.raises(PromptWriteRefused) as caught:
         await operations.write_prompt(collaborators(FakeLLM(repository=repository)), "u-1", "A fox")
     assert caught.value.code == code
+
+
+@pytest.mark.asyncio
+async def test_an_explicit_disabled_llm_is_named():
+    llm = FakeLLM(repository=Repository([config(enabled=False, name="Old")]))
+    with pytest.raises(PromptWriteRefused) as caught:
+        await operations.write_prompt(collaborators(llm), "u-1", "A fox", llm_id="llm-1")
+    assert caught.value.code == "llm_disabled"
+    assert str(caught.value) == "The language model Old is turned off."
 
 
 @pytest.mark.asyncio
@@ -207,8 +251,8 @@ async def test_an_empty_reply_is_refused():
 
 
 def test_writer_status_reports_vision_and_absence():
-    vision = operations.writer_status(collaborators(FakeLLM()))
+    vision = operations.writer_status(collaborators(FakeLLM()), "u-1")
     assert vision == {"available": True, "vision": True, "name": "Writer", "code": None, "message": None}
-    missing = operations.writer_status(collaborators(FakeLLM(repository=Repository())))
+    missing = operations.writer_status(collaborators(FakeLLM(repository=Repository())), "u-1")
     assert missing["available"] is False
     assert missing["code"] == "no_llm"

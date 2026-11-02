@@ -162,7 +162,11 @@ def _writer_container(tmp_path, supports_vision=True):
     config = SimpleNamespace(id="llm-1", name="Writer", supports_vision=supports_vision, enabled=True)
 
     class Llm:
-        repository = SimpleNamespace(get_configuration=lambda llm_id: None, get_default_configuration=lambda: config)
+        repository = SimpleNamespace(
+            get_configuration=lambda llm_id: config if llm_id == "llm-1" else None,
+            get_default_configuration=lambda: config,
+            get_user_llm_assignments=lambda user_id: [],
+        )
 
         async def complete(self, llm_id, messages, *, system=None, settings=None, tools=()):
             calls.append(messages)
@@ -209,6 +213,6 @@ def test_prompt_writer_status_reads_the_default_llm(tmp_path):
 
     container, _ = _writer_container(tmp_path, supports_vision=False)
     with patch("src.plugin_api.prompts.get_container", return_value=container):
-        status = prompt_writer_status()
+        status = prompt_writer_status("user-1")
     assert status["available"] is True
     assert status["vision"] is False

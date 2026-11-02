@@ -37,6 +37,7 @@ const IMAGE_ACTIONS: Record<string, Resolver> = {
 	fit_canvas: fixed('canvas'),
 	color_key: fixed('colorKey'),
 	crop_subject: fixed('subject'),
+	slice_sheet: fixed('slice', { detect: true }),
 	[EDIT_ACTION]: (last) => ({ activeTool: last('image') }),
 	[LOOK_ACTION]: fixed('effects')
 };
@@ -98,6 +99,8 @@ export function shortcutTargets(actionId: string, items: readonly { kind: string
 	const plan = planShortcut(actionId, items);
 	return plan ? plan.map((group) => group.tool) : null;
 }
+
+export const SLICE_ACTION = 'slice_sheet';
 
 const LABELS: Record<string, string> = { frame: 'Open frame in Image editor', volume: 'Audio' };
 

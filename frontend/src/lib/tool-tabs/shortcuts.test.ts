@@ -22,6 +22,7 @@ describe('image shortcuts', () => {
 		['fit_canvas', 'canvas'],
 		['color_key', 'colorKey'],
 		['crop_subject', 'subject'],
+		['slice_sheet', 'slice', { detect: true }],
 		['edit-image', 'paint'],
 		['apply-look', 'effects']
 	];

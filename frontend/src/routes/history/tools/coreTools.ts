@@ -5,7 +5,8 @@ import { registerEntryTools } from '$lib/tools/entryTools';
 import HistoryCompareModal from '../components/HistoryCompareModal.svelte';
 import HistoryExportZipModal from '../components/HistoryExportZipModal.svelte';
 import HistoryStitchModal from '../components/HistoryStitchModal.svelte';
-import { applyLookAvailability, editMediaAvailability, editMediaLabel } from '$lib/tools/editMedia';
+import { applyLookAvailability, editMediaAvailability, editMediaLabel, sliceSheetAvailability } from '$lib/tools/editMedia';
+import { SLICE_ACTION } from '$lib/tool-tabs/shortcuts';
 import { syncRecentLookTools } from './recentLookTools';
 
 let registered = false;
@@ -80,6 +81,19 @@ export function registerCoreHistoryTools(): void {
 		kinds: ['image', 'video'],
 		labelFor: editMediaLabel,
 		applies: editMediaAvailability
+	});
+
+	registerMediaTool({
+		id: SLICE_ACTION,
+		label: 'Slice into references',
+		description: 'Cut a sheet into separate images',
+		icon: 'editor-slice',
+		category: 'edit',
+		source: 'core',
+		scopes: ['history', 'library'],
+		selection: { min: 1 },
+		kinds: ['image'],
+		applies: sliceSheetAvailability
 	});
 
 	registerMediaTool({

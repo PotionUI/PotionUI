@@ -425,6 +425,15 @@ export const iconPaths: Record<string, string | string[]> = {
 		'M4 4h16v16H4z',
 		'M8 8h8v8H8z'
 	],
+	'editor-slice': [
+		'M3 4.5A1.5 1.5 0 0 1 4.5 3H10v7H3z',
+		'M14 3h5.5A1.5 1.5 0 0 1 21 4.5V10h-7z',
+		'M3 14h7v7H4.5A1.5 1.5 0 0 1 3 19.5z',
+		'M14 14h7v5.5a1.5 1.5 0 0 1-1.5 1.5H14z'
+	],
+	magnet: ['M5 4h4v7a3 3 0 0 0 6 0V4h4v7a7 7 0 0 1-14 0z', 'M5 8h4', 'M15 8h4'],
+	'cell-merge': ['M3 5h18v14H3z', 'M8 12h8', 'M13 9l3 3-3 3', 'M11 9l-3 3 3 3'],
+	'cell-split': ['M3 5h7v14H3z', 'M14 5h7v14h-7z'],
 	'editor-paint': 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z',
 	'editor-mask': [
 		'M12 3a9 9 0 100 18 9 9 0 000-18z',

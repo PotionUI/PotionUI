@@ -89,3 +89,22 @@ A step that starts long work of its own, a plugin step kind included
 (`from src.plugin_api.recipes import StepContext`), should poll it and stop that work when it
 does. Whatever such a step returns after the cancel, its attempt is recorded as cancelled, and a
 cancel that lands between two steps stops the run before the next one.
+
+## Timeouts of the shipped recipes
+
+Four core recipes declare more than the default. The times were measured on one RTX 4070 Ti
+(12 GB), under Docker Desktop on WSL2, from a cold start (nothing loaded):
+
+| Recipe | `timeout_seconds` | Why |
+|---|---|---|
+| `ltx25-starter` | 600 | The first run loads the 20 GB int8 DiT and the 15 GB Gemma 4 encoder. It finished in 5 min 57 s, one second after the step had given up at 300 s (20 October 2026). |
+| `wan22-starter` | 600 | Loading the two 14B experts and the UMT5 encoder on a 12 GB card takes most of five minutes on its own. The value comes from another recipe that installs the same preset and runs the same 6-step clip (171 s once the experts are in memory); it was not measured on this recipe. |
+| `minimax-h3-starter` | 400 | 214 s: 92 s of loading, about 140 s to the end of DiT placement, 69 s for the 4 steps and the decode, a 6,739 MB engine peak (23 October 2026). |
+| `minimax-h3-fast-starter` | 400 | 268 s: 61 s of loading, 93 s of DiT placement, about 13 s per step, a 7,338 MB engine peak (23 October 2026). |
+
+A longer timeout costs nothing on a faster machine: the step returns as soon as its generation
+ends.
+
+The two MiniMax-H3 smokes generate 1 s of video, because they run on a Video Director document (see
+above). Their `smoke.form` sets no `frames`, which would not be read; the timeouts were measured on
+that 1 s clip.

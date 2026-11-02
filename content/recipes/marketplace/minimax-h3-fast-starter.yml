@@ -126,14 +126,14 @@ presets:
 smoke:
   preset_id: "01KX47H3FASTH30000000000VA"
   mode: "video"
+  timeout_seconds: 400
   prompt: "a paper boat drifting down a rain-filled gutter, close-up, soft afternoon light, the sound of running water"
   seed: 12345
-  # Matches content/presets/marketplace/MiniMax-H3-Fast/tests.yml's own
-  # "minimax-h3-fast-t2va-fast" case verbatim: fastest canvas in this preset's
-  # own resolution list, shortest clip, the preset's fixed 8-step profile.
+  # The canvas and steps of content/presets/marketplace/MiniMax-H3-Fast/
+  # tests.yml's own "minimax-h3-fast-t2va-fast" case: fastest canvas in this
+  # preset's own resolution list, the preset's fixed 8-step profile.
   form:
     resolution: "768x768"
-    frames: 124
     steps: 8
 
 steps:

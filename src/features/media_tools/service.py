@@ -332,8 +332,6 @@ class MediaToolService:
     ) -> EffectAnalysisResponse:
         user_id = _user_id(user)
         models = [_model(StepRequest, step, "steps") for step in steps or []]
-        if len(models) > MAX_STEPS:
-            raise InvalidInputError("invalid_params", f"A stack has at most {MAX_STEPS} steps", field="steps")
         if not 0 <= step_index < len(models) or models[step_index].hidden:
             raise InvalidInputError("invalid_params", "step_index must name a visible step", field="step_index")
         chain = self._editor_steps(models[: step_index + 1])

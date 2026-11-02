@@ -25,10 +25,14 @@ def _no_gpu() -> bool:
     return False
 
 
-@lru_cache(maxsize=4)
+_PROBED: dict[str, frozenset[str]] = {}
+
+
 def ffmpeg_filters(binary: Optional[str]) -> frozenset[str]:
     if not binary:
         return frozenset()
+    if binary in _PROBED:
+        return _PROBED[binary]
     try:
         completed = subprocess.run(
             [binary, "-hide_banner", "-filters"],
@@ -38,7 +42,10 @@ def ffmpeg_filters(binary: Optional[str]) -> frozenset[str]:
     except (OSError, subprocess.SubprocessError):
         logger.warning("Could not list the filters of %s", binary)
         return frozenset()
-    return parse_filters(completed.stdout)
+    names = parse_filters(completed.stdout) if completed.returncode == 0 else frozenset()
+    if names:
+        _PROBED[binary] = names
+    return names
 
 
 def parse_filters(text: str) -> frozenset[str]:

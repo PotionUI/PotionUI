@@ -264,3 +264,29 @@ def test_only_effects_with_a_python_candidate_and_no_analysis_edit_images(tmp_pa
     assert not analysed(tmp_path / "c").has_image_path()
     with pytest.raises(UnsupportedMedia):
         analysed(tmp_path / "d").image(Image.new("RGB", (4, 4)), {"strength": 50})
+
+
+def test_a_failed_filter_probe_is_retried_and_a_good_one_is_kept(monkeypatch):
+    import subprocess
+
+    from src.platform.media_tools.effects import runtime as runtime_module
+
+    calls = []
+    listing = " TSC colorlevels       V->V       Adjust the color levels.\n"
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        if len(calls) == 1:
+            raise OSError("busy")
+        if len(calls) == 2:
+            return subprocess.CompletedProcess(command, 1, stdout="", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout=listing, stderr="")
+
+    monkeypatch.setattr(runtime_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(runtime_module, "_PROBED", {})
+
+    assert runtime_module.ffmpeg_filters("/opt/ffmpeg") == frozenset()
+    assert runtime_module.ffmpeg_filters("/opt/ffmpeg") == frozenset()
+    assert runtime_module.ffmpeg_filters("/opt/ffmpeg") == frozenset({"colorlevels"})
+    assert runtime_module.ffmpeg_filters("/opt/ffmpeg") == frozenset({"colorlevels"})
+    assert len(calls) == 3

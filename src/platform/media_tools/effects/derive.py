@@ -10,6 +10,7 @@ from typing import Any, Callable, Iterable, Mapping
 MAX_SOURCE_CHARS = 2000
 MAX_STRING_CHARS = 64
 MAX_EXPONENT = 1024.0
+MAX_DEPTH = 64
 
 
 class DeriveError(ValueError):
@@ -155,6 +156,22 @@ _ORDER: dict[type, Callable[[Any, Any], bool]] = {
 }
 
 
+def _syntax(text: str) -> ast.Expression:
+    return ast.parse(text, mode="eval")
+
+
+def _depth(tree: ast.AST) -> int:
+    deepest = 0
+    pending = [(tree, 1)]
+    while pending:
+        node, depth = pending.pop()
+        deepest = max(deepest, depth)
+        if deepest > MAX_DEPTH:
+            return deepest
+        pending.extend((child, depth + 1) for child in ast.iter_child_nodes(node))
+    return deepest
+
+
 @dataclass(frozen=True)
 class Expression:
     source: str
@@ -171,9 +188,11 @@ def parse_derive(source: Any) -> Expression:
     if not text or len(text) > MAX_SOURCE_CHARS:
         raise DeriveError("an expression must be between 1 and 2000 characters")
     try:
-        tree = ast.parse(text, mode="eval")
-    except SyntaxError:
+        tree = _syntax(text)
+    except (SyntaxError, RecursionError, MemoryError, ValueError):
         raise DeriveError(f"'{text}' is not a valid expression") from None
+    if _depth(tree) > MAX_DEPTH:
+        raise DeriveError(f"an expression may nest at most {MAX_DEPTH} levels")
     for node in ast.walk(tree):
         if not isinstance(node, _NODES):
             raise DeriveError(f"'{type(node).__name__}' is not allowed in an expression")
@@ -275,6 +294,8 @@ def evaluate(expression: Expression | str, env: Mapping[str, Any]) -> Any:
         raise
     except (ArithmeticError, TypeError, ValueError) as exc:
         raise DeriveError(f"'{parsed.source}' could not be evaluated: {exc}") from None
+    except (RecursionError, MemoryError):
+        raise DeriveError(f"'{parsed.source}' is too deep to evaluate") from None
     _real(value)
     if isinstance(value, Mapping):
         raise DeriveError(f"'{parsed.source}' must give a number, a flag or a word")

@@ -132,12 +132,12 @@
 			<span class="font-mono text-sm tabular-nums text-fg-subtle" data-stack-count>{applied}{undone ? ` + ${undone} undone` : ''}</span>
 			<span class="flex-1"></span>
 			{#if moreItems.length}
-				<Menu label="Edit stack options" items={moreItems} onselect={(id) => onmore?.(id)} />
+				<Menu label="Edit stack options" icon="chat-more" items={moreItems} onselect={(id) => onmore?.(id)} />
 			{/if}
 		</div>
 	{/if}
 
-	<div class="min-h-0 flex-1 {sheet ? '' : 'overflow-y-auto px-2 pb-2'}" role="list" data-stack-rows>
+	<div class="min-h-0 flex-initial {sheet ? '' : 'overflow-y-auto px-2 pb-2'}" role="list" data-stack-rows>
 		{#each rows as row (row.key)}
 			{@const step = row.step ?? row.pending}
 			{@const dragging = drag?.id === row.key}
@@ -236,7 +236,7 @@
 		{/each}
 	</div>
 
-	{#if undone && !stack.pending}
+	{#if undone && !stack.pending && !sheet}
 		<div class="mx-2 mb-2.5 mt-1 flex flex-none items-start gap-2 rounded bg-surface-2 px-2.5 py-2 text-sm text-fg-muted" data-stack-note="undone">
 			<Icon name="info" className="mt-px h-3.5 w-3.5 flex-none" />
 			<span>Showing step {pad(applied)}. Redo brings {redoLabel(stack)} back; a new edit drops it.</span>

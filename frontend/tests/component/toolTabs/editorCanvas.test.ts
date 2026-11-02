@@ -123,7 +123,7 @@ describe('EditorCanvas zoom', () => {
 	it('shows the Space hint on desktop', () => {
 		const { q } = render();
 		const hint = q('[data-canvas-hint]')!;
-		expect(text(hint.querySelector('kbd'))).toBe('Space');
+		expect(text(hint.querySelector('[data-canvas-chip]'))).toBe('Space');
 		expect(text(hint)).toContain('drag to pan');
 	});
 });

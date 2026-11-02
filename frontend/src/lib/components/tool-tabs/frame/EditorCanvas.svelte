@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, IconButton, Kbd } from '$lib/components/ui';
+	import { Button, IconButton } from '$lib/components/ui';
 	import { getFrameContext } from '$lib/tool-tabs/frame/context';
 	import {
 		ZOOM_STEP,
@@ -243,24 +243,24 @@
 
 	{#if !phone}
 		<div
-			class="absolute bottom-3.5 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-line bg-surface-1/90 p-[3px] shadow-floating backdrop-blur"
+			class="absolute bottom-3.5 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-scrim-on/10 bg-scrim/70 p-[3px] text-scrim-on backdrop-blur"
 			role="group"
 			aria-label="Zoom"
 			data-canvas-zoom
 		>
-			<IconButton icon="minus" label="Zoom out" size="xs" class="h-7 w-7" disabled={!canZoomOut} onclick={() => (viewport = zoomCentered(view, 1 / ZOOM_STEP, stage))} />
-			<span class="min-w-[52px] text-center font-mono text-sm tabular-nums text-fg" aria-live="polite" data-canvas-zoom-value>{zoomPercent(view)}%</span>
-			<IconButton icon="plus" label="Zoom in" size="xs" class="h-7 w-7" disabled={!canZoomIn} onclick={() => (viewport = zoomCentered(view, ZOOM_STEP, stage))} />
-			<span class="mx-[3px] h-4 w-px bg-line-strong" aria-hidden="true"></span>
-			<Button variant={viewport.fit ? 'secondary' : 'ghost'} size="xs" class="h-7 font-mono" onclick={() => (viewport = fitViewport())} attrs={{ 'data-canvas-fit': '', 'aria-pressed': viewport.fit }}>Fit</Button>
-			<Button variant={isActualSize(viewport) ? 'secondary' : 'ghost'} size="xs" class="h-7 font-mono" onclick={() => (viewport = actualSize(stage, media))} attrs={{ 'data-canvas-actual': '', 'aria-pressed': isActualSize(viewport) }}>1:1</Button>
+			<IconButton icon="minus" label="Zoom out" size="xs" variant="overlay" class="h-7 w-7" disabled={!canZoomOut} onclick={() => (viewport = zoomCentered(view, 1 / ZOOM_STEP, stage))} />
+			<span class="min-w-[52px] text-center font-mono text-sm tabular-nums" aria-live="polite" data-canvas-zoom-value>{zoomPercent(view)}%</span>
+			<IconButton icon="plus" label="Zoom in" size="xs" variant="overlay" class="h-7 w-7" disabled={!canZoomIn} onclick={() => (viewport = zoomCentered(view, ZOOM_STEP, stage))} />
+			<span class="mx-[3px] h-4 w-px bg-scrim-on/15" aria-hidden="true"></span>
+			<Button variant="overlay" size="xs" class="h-7 font-mono" pressed={viewport.fit} onclick={() => (viewport = fitViewport())} attrs={{ 'data-canvas-fit': '' }}>Fit</Button>
+			<Button variant="overlay" size="xs" class="h-7 font-mono" pressed={isActualSize(viewport)} onclick={() => (viewport = actualSize(stage, media))} attrs={{ 'data-canvas-actual': '' }}>1:1</Button>
 		</div>
 		{#if hint !== null}
 			<div class="pointer-events-none absolute bottom-[18px] right-3.5 flex items-center gap-2 font-mono text-sm text-scrim-on/70" data-canvas-hint>
 				{#if hint}
 					{@render hint()}
 				{:else}
-					<Kbd keys="Space" />drag to pan
+					<CanvasChip caps={false}>Space</CanvasChip>drag to pan
 				{/if}
 			</div>
 		{/if}

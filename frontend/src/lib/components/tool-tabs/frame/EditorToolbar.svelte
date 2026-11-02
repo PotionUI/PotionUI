@@ -233,7 +233,7 @@
 			</span>
 		{/if}
 		{#if moreItems.length}
-			<Menu label="More" items={moreItems} onselect={(id) => onmore?.(id)} />
+			<Menu label="More" icon="chat-more" items={moreItems} onselect={(id) => onmore?.(id)} />
 		{/if}
 	</div>
 {/if}

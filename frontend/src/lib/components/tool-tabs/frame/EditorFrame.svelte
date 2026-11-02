@@ -111,7 +111,7 @@
 				{#if stack}
 					<button
 						type="button"
-						class="pointer-events-auto inline-flex h-7 items-center gap-1 rounded bg-surface-1/90 px-2 font-mono text-sm tabular-nums text-fg backdrop-blur"
+						class="pointer-events-auto inline-flex h-7 items-center gap-1 rounded bg-scrim/70 px-2 font-mono text-sm tabular-nums text-scrim-on backdrop-blur"
 						aria-haspopup="dialog"
 						aria-expanded={stackOpen}
 						onclick={() => (stackOpen = true)}
@@ -129,7 +129,7 @@
 						type="button"
 						class="pointer-events-auto inline-flex h-7 touch-none select-none items-center gap-1 rounded px-2 font-mono text-sm backdrop-blur {compare
 							? 'bg-signal/10 text-signal'
-							: 'bg-surface-1/90 text-fg'}"
+							: 'bg-scrim/70 text-scrim-on'}"
 						aria-label="Hold to compare with before"
 						aria-pressed={compare}
 						onpointerdown={() => hold(true)}

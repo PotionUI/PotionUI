@@ -61,7 +61,7 @@
 		const target = active;
 		Array.from(root.querySelectorAll<HTMLElement>('button[data-tool]'))
 			.find((button) => button.dataset.tool === target)
-			?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+			?.scrollIntoView({ block: 'nearest', inline: 'center' });
 	});
 </script>
 

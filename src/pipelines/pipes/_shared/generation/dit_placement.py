@@ -98,6 +98,7 @@ from src.platform.runtime.native.kernels import (
     QuantFormat,
     fast_path,
     nvfp4_dequant_table_bytes,
+    activation_quant_chunk_rows,
     nvfp4_path_summary,
     partition_output_branch_deltas,
 )
@@ -314,6 +315,29 @@ _ACTIVATION_QUANT_BYTES_PER_ELEMENT = {
     QuantFormat.FP8: _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
 }
 
+
+@dataclass(frozen=True, order=True)
+class QuantWidth:
+    per_element: int
+    in_features: int
+    chunk_rows: int | None = None
+
+    def bytes_for(self, tokens: int) -> int:
+        rows = tokens if self.chunk_rows is None else min(tokens, self.chunk_rows)
+        return self.per_element * self.in_features * rows
+
+
+@dataclass(frozen=True)
+class QuantScratch:
+    widths: tuple[QuantWidth, ...] = ()
+
+    def bytes_for(self, tokens: int) -> int:
+        tokens = max(0, int(tokens))
+        return max((width.bytes_for(tokens) for width in self.widths), default=0)
+
+
+_NO_QUANT_SCRATCH = QuantScratch()
+
 # Multiplicative safety margin over the raw per-token estimate -- covers
 # allocator fragmentation, cuBLAS/cuDNN workspace, and any minor uncounted
 # term. Multiplicative (not a flat add) so it scales with S instead of
@@ -328,7 +352,7 @@ _ACTIVATION_RESERVE_FLOOR_GB = 0.5
 def estimate_activation_reserve_gb(
     video_tokens: int, audio_tokens: int = 0, *, lora: DitLoraProfile = _NO_LORA,
     inner_dim: int = _LTX_INNER_DIM, ffn_dim: int | None = None, ffn_chunk_rows: int = 0,
-    quant_activation_bytes_per_token: int = 0,
+    quant_scratch: QuantScratch = _NO_QUANT_SCRATCH,
 ) -> float:
     """Estimate the DiT-forward activation VRAM reserve for one sampling step.
 
@@ -359,23 +383,26 @@ def estimate_activation_reserve_gb(
     """
     s = max(0, int(video_tokens)) + max(0, int(audio_tokens))
     bytes_per_token = lora.output_buffer_bytes_per_token
-    bytes_per_token += max(0, int(quant_activation_bytes_per_token))
     activation_bytes = _activation_bytes(s, inner_dim, ffn_dim, max(0, int(ffn_chunk_rows)))
-    raw_gb = (activation_bytes + s * bytes_per_token + lora.weight_side_bytes) / _BYTES_PER_GB
+    flat_bytes = quant_scratch.bytes_for(s) + lora.weight_side_bytes
+    raw_gb = (activation_bytes + s * bytes_per_token + flat_bytes) / _BYTES_PER_GB
     return max(_ACTIVATION_RESERVE_FLOOR_GB, raw_gb * _ACTIVATION_SAFETY_MARGIN)
 
 
-def _dit_quant_activation_bytes_per_token(dit: Any) -> int:
+def _dit_quant_scratch(dit: Any) -> QuantScratch:
     walk = getattr(getattr(dit, "module", None), "modules", None)
     if not callable(walk):
-        return 0
-    widest = 0
+        return _NO_QUANT_SCRATCH
+    widths = set()
     for m in walk():
         path = fast_path(m)
         if path is None or path.kind is FastPathKind.DEQUANT:
             continue
-        widest = max(widest, _ACTIVATION_QUANT_BYTES_PER_ELEMENT[path.quant_format] * m.in_features)
-    return widest
+        widths.add(QuantWidth(
+            _ACTIVATION_QUANT_BYTES_PER_ELEMENT[path.quant_format], m.in_features,
+            activation_quant_chunk_rows(m.in_features),
+        ))
+    return QuantScratch(tuple(sorted(widths)))
 
 
 def _dit_lora_profile(dit: Any) -> DitLoraProfile:
@@ -474,12 +501,11 @@ class SequenceFit:
     weight_gb: float
     free_gb: float
     lora: DitLoraProfile
-    quant_activation_bytes_per_token: int
+    quant_scratch: QuantScratch
 
     def reserve_gb(self, video_tokens: int, audio_tokens: int = 0) -> float:
         return estimate_activation_reserve_gb(
-            video_tokens, audio_tokens, lora=self.lora,
-            quant_activation_bytes_per_token=self.quant_activation_bytes_per_token,
+            video_tokens, audio_tokens, lora=self.lora, quant_scratch=self.quant_scratch,
         )
 
     def resident(self, video_tokens: int, audio_tokens: int = 0) -> bool:
@@ -497,7 +523,7 @@ def sequence_fit(dit: Any, device: str) -> "SequenceFit | None":
     weight_gb = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + lora.delta_gb + _dit_dequant_table_gb(dit)
     if dit_is_fully_resident(dit, device):
         free += weight_gb
-    return SequenceFit(weight_gb, free, lora, _dit_quant_activation_bytes_per_token(dit))
+    return SequenceFit(weight_gb, free, lora, _dit_quant_scratch(dit))
 
 @dataclass(frozen=True)
 class DitPlacementDecision:
@@ -600,7 +626,7 @@ def place_dit_for_sequence(
     activation_reserve = estimate_activation_reserve_gb(
         video_tokens, audio_tokens, lora=lora, inner_dim=inner_dim, ffn_dim=ffn_dim,
         ffn_chunk_rows=ffn_chunk_rows,
-        quant_activation_bytes_per_token=_dit_quant_activation_bytes_per_token(dit),
+        quant_scratch=_dit_quant_scratch(dit),
     )
     extra_reserve = max(0.0, float(reserve_gb))
     total_reserve = activation_reserve + extra_reserve
@@ -954,3 +980,15 @@ def _log_decision(decision: DitPlacementDecision, device: str) -> None:
         decision.audio_tokens, decision.activation_reserve_gb, decision.extra_reserve_gb, decision.weight_budget_gb,
         decision.lora_active,
     )
+
+
+def hand_off_dit(dit: Any, device: str, *, needs_room: bool = False) -> bool:
+    profiler = get_profiler()
+    if dit is None or getattr(dit, "module", None) is None:
+        return False
+    if not needs_room and dit_is_fully_resident(dit, device):
+        profiler.mark("dit_handoff.kept")
+        return True
+    dit.offload()
+    profiler.mark("dit_handoff.offloaded")
+    return False

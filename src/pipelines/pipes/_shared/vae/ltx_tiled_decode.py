@@ -251,7 +251,15 @@ def min_decode_gb(vae_module: Any, latent: torch.Tensor) -> float:
     )
 
 
-def decode_fits_beside(vae: Any, latent: torch.Tensor, free_gb: Optional[float]) -> bool:
+def decode_plan(vae_module: Any, latent: torch.Tensor, budget_gb: float) -> Dict[str, int] | None:
+    if estimate_whole_clip_decode_gb(vae_module, latent) <= budget_gb:
+        return None
+    return auto_decode_tile_sizes(vae_module, latent, budget_gb)
+
+
+def decode_fits_beside(
+    vae: Any, latent: torch.Tensor, free_gb: Optional[float], *, beside_gb: float = 0.0,
+) -> bool:
     module = vae.module
     if free_gb is None or not supports_diffusion_tiled_decode(module):
         return False
@@ -259,11 +267,17 @@ def decode_fits_beside(vae: Any, latent: torch.Tensor, free_gb: Optional[float])
     vae_gb = 0.0 if resident else float(getattr(vae, "estimated_vram_gb", None) or 0.0)
     need_gb = min_decode_gb(module, latent)
     budget_gb = (free_gb - vae_gb) * DECODE_VRAM_BUDGET_FRACTION
+    fits = need_gb <= budget_gb
+    same_tiles = True
+    if fits and beside_gb > 0.0:
+        freed_budget_gb = budget_gb + beside_gb * DECODE_VRAM_BUDGET_FRACTION
+        same_tiles = decode_plan(module, latent, budget_gb) == decode_plan(module, latent, freed_budget_gb)
     get_profiler().mark(
         "ltx.decode_beside", free_gb=round(free_gb, 2), vae_gb=round(vae_gb, 2),
-        need_gb=round(need_gb, 3), budget_gb=round(budget_gb, 2), fits=need_gb <= budget_gb,
+        need_gb=round(need_gb, 3), budget_gb=round(budget_gb, 2), beside_gb=round(beside_gb, 2),
+        same_tiles=same_tiles, fits=fits and same_tiles,
     )
-    return need_gb <= budget_gb
+    return fits and same_tiles
 
 
 def decode_with_oom_retry(

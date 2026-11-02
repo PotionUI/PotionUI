@@ -35,6 +35,7 @@ from .linear import (
 )
 from .lora_math import invalidate_lora_fused_cache, log_lora_path_summary, partition_output_branch_deltas
 from .operations import QUANT_FP8_SCALED, detect_quant_format, fp8_ops, pick_operations
+from .row_chunks import QUANT_TILE_ROWS, activation_quant_chunk_rows
 
 __all__ = [
     "BACKEND_PRIORITY",
@@ -44,6 +45,7 @@ __all__ = [
     "SAGE3",
     "SDPA",
     "SPARGE",
+    "QUANT_TILE_ROWS",
     "Capabilities",
     "DeviceCapabilities",
     "FastPath",
@@ -51,6 +53,7 @@ __all__ = [
     "GemmSupport",
     "GpuGeneration",
     "QuantFormat",
+    "activation_quant_chunk_rows",
     "attention",
     "available_backends",
     "capabilities",

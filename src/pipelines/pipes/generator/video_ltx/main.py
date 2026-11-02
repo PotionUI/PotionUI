@@ -115,6 +115,7 @@ from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorP
 from src.pipelines.pipes._shared.generation.dit_placement import (
     dit_is_fully_resident,
     guard_sampling_oom,
+    hand_off_dit,
     place_dit_for_sequence,
     sequence_fit,
 )
@@ -803,7 +804,10 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
     def _decode_fits_beside_dit(self, c: _VideoLtxCtx, video_latent: Tensor) -> bool:
         if c.audio_mode == "generate" or not dit_is_fully_resident(c.bundle.dit, c.device):
             return False
-        return decode_fits_beside(c.bundle.vae, video_latent, effective_free_vram_gb(c.device))
+        return decode_fits_beside(
+            c.bundle.vae, video_latent, effective_free_vram_gb(c.device),
+            beside_gb=float(getattr(c.bundle.dit, "estimated_vram_gb", None) or 0.0),
+        )
 
     def _generate(self, ctx: GeneratorContext, c: _VideoLtxCtx, index: int, seed: int, progress,
                   frames_only: bool = False, window: Tuple[int, int] = (0, 1)) -> Any:
@@ -968,9 +972,12 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             )
         video_latent = forward.unpack_base(x)
         decode = bool(self.config.get("decode", True))
-        keep_dit = (frames_only or decode) and self._decode_fits_beside_dit(c, video_latent)
-        if not keep_dit:
-            c.bundle.dit.offload()
+        if frames_only or decode:
+            keep_dit = self._decode_fits_beside_dit(c, video_latent)
+            if not keep_dit:
+                c.bundle.dit.offload()
+        else:
+            keep_dit = hand_off_dit(c.bundle.dit, c.device, needs_room=c.audio_mode == "generate")
         clear_gpu_memory()
         keep_resident = (c.bundle.dit,) if keep_dit else ()
 
@@ -993,12 +1000,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         self._audio_results.append(audio_track)
 
         if not decode:
-            # Hand the raw latent to a downstream latent_upscaler/refine stage --
-            # no VAE decode/mp4-encode round trip (audio, above, already ran).
-            # See txt2vid_ltx's identical branch for the restore_dit_best_effort
-            # reasoning.
-            if index == ctx.quantity - 1:
-                restore_dit_best_effort(c.bundle.dit, c.device)
             return video_latent
 
         frames_np = decode_ltx_video(c.bundle.vae, c.device, video_latent, seed, keep_resident=keep_resident)

@@ -10,12 +10,8 @@ from src.platform.runtime.native.io.quant_formats import (
     nvfp4_activation_amax,
     quantize_nvfp4_dynamic,
 )
-from src.platform.runtime.native.kernels import nvfp4_linear
-from src.platform.runtime.native.kernels.nvfp4_linear import (
-    NVFP4_QUANT_TILE_ROWS,
-    nvfp4_quant_chunk_rows,
-    reset_nvfp4_fast_path_rejection_log,
-)
+from src.platform.runtime.native.kernels import QUANT_TILE_ROWS, activation_quant_chunk_rows, nvfp4_linear, row_chunks
+from src.platform.runtime.native.kernels.nvfp4_linear import reset_nvfp4_fast_path_rejection_log
 
 from .test_nvfp4_linear_matmul import _nvfp4_layer
 
@@ -58,11 +54,11 @@ def _quant_calls(oom_above_rows=None):
     return calls, quantize
 
 
-def _forward(lin, x, *, chunk_elements, oom_above_rows=None):
+def _forward(lin, x, *, chunk_elements, oom_above_rows=None, scaled_mm=_reference_scaled_mm):
     calls, quantize = _quant_calls(oom_above_rows)
-    with patch.object(nvfp4_linear, "NVFP4_QUANT_CHUNK_ELEMENTS", chunk_elements), \
+    with patch.object(row_chunks, "QUANT_CHUNK_ELEMENTS", chunk_elements), \
          patch.object(nvfp4_linear, "quantize_nvfp4_dynamic", side_effect=quantize), \
-         patch("torch.nn.functional.scaled_mm", side_effect=_reference_scaled_mm):
+         patch("torch.nn.functional.scaled_mm", side_effect=scaled_mm):
         return lin._forward_nvfp4_scaled_mm(x), calls
 
 
@@ -71,11 +67,11 @@ def _warnings(caplog):
 
 
 def test_chunk_rows_bound_the_quantiser_scratch_and_stay_on_the_scale_tile_grid():
-    assert nvfp4_quant_chunk_rows(16384) == 4096
-    assert nvfp4_quant_chunk_rows(4096) == 16384
-    assert nvfp4_quant_chunk_rows(5120) % NVFP4_QUANT_TILE_ROWS == 0
-    assert nvfp4_quant_chunk_rows(5120) * 5120 <= nvfp4_linear.NVFP4_QUANT_CHUNK_ELEMENTS
-    assert nvfp4_quant_chunk_rows(1 << 30) == NVFP4_QUANT_TILE_ROWS
+    assert activation_quant_chunk_rows(16384) == 4096
+    assert activation_quant_chunk_rows(4096) == 16384
+    assert activation_quant_chunk_rows(5120) % QUANT_TILE_ROWS == 0
+    assert activation_quant_chunk_rows(5120) * 5120 <= row_chunks.QUANT_CHUNK_ELEMENTS
+    assert activation_quant_chunk_rows(1 << 30) == QUANT_TILE_ROWS
 
 
 def test_the_global_amax_is_the_amax_the_whole_tensor_quantiser_uses():
@@ -142,3 +138,74 @@ def test_a_non_oom_quantiser_error_falls_back_without_retrying():
          patch("torch.nn.functional.scaled_mm", side_effect=AssertionError("must not run")):
         assert lin._forward_nvfp4_scaled_mm(_activations(512)) is None
     assert calls == [512]
+
+
+def test_an_output_buffer_oom_falls_back_after_one_quant_call_without_halving(caplog):
+    lin = _nvfp4_layer(in_f=_IN, out_f=_OUT)
+    x = _activations(1024)
+    real_empty = torch.empty
+    out_allocs = []
+
+    def empty(*args, **kwargs):
+        if tuple(args[0]) == (1024, _OUT):
+            out_allocs.append(args[0])
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory (output)")
+        return real_empty(*args, **kwargs)
+
+    with caplog.at_level("WARNING"), patch("torch.empty", side_effect=empty):
+        out, calls = _forward(lin, x, chunk_elements=1 << 20, oom_above_rows=1023)
+    assert out is None
+    assert calls == [1024] and len(out_allocs) == 1
+    warnings = _warnings(caplog)
+    assert len(warnings) == 1 and "output allocation failed (OutOfMemoryError)" in warnings[0]
+
+
+def test_a_scaled_mm_oom_retries_once_at_half_the_rows(caplog):
+    lin = _nvfp4_layer(in_f=_IN, out_f=_OUT)
+    x = _activations(1024)
+    expected, _ = _forward(lin, x, chunk_elements=1 << 20)
+    attempts = []
+
+    def flaky(*args, **kwargs):
+        attempts.append(args[0].shape[0])
+        if len(attempts) == 1:
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory (gemm)")
+        return _reference_scaled_mm(*args, **kwargs)
+
+    with caplog.at_level("WARNING"):
+        out, calls = _forward(lin, x, chunk_elements=1 << 20, scaled_mm=flaky)
+    assert calls == [1024, 512, 512]
+    assert attempts == [1024, 512, 512]
+    assert torch.equal(out, expected)
+    assert _warnings(caplog) == []
+
+
+def test_a_failed_activation_amax_never_retries_smaller_chunks(caplog):
+    lin = _nvfp4_layer(in_f=_IN, out_f=_OUT)
+    amax_calls = []
+
+    def failing_amax(x2d):
+        amax_calls.append(x2d.shape[0])
+        raise torch.cuda.OutOfMemoryError("CUDA out of memory (amax)")
+
+    with caplog.at_level("WARNING"), patch.object(nvfp4_linear, "nvfp4_activation_amax", side_effect=failing_amax):
+        out, calls = _forward(lin, _activations(1024), chunk_elements=256 * _IN)
+    assert out is None
+    assert amax_calls == [1024] and calls == []
+    assert "activation scale failed (OutOfMemoryError)" in _warnings(caplog)[0]
+
+
+def test_the_activation_amax_is_computed_once_across_oom_retries():
+    lin = _nvfp4_layer(in_f=_IN, out_f=_OUT)
+    amax_calls = []
+    real = nvfp4_linear.nvfp4_activation_amax
+
+    def counting_amax(x2d):
+        amax_calls.append(x2d.shape[0])
+        return real(x2d)
+
+    with patch.object(nvfp4_linear, "nvfp4_activation_amax", side_effect=counting_amax):
+        out, calls = _forward(lin, _activations(1024), chunk_elements=512 * _IN, oom_above_rows=128)
+    assert out is not None
+    assert calls[0] == 512 and calls[1] == 256 and calls[2] == 128
+    assert amax_calls == [1024]

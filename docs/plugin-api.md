@@ -1413,6 +1413,35 @@ off in the background and can hand you a registry that isn't ready yet.
 Disabling the plugin removes its importer(s) from `GET /api/prompts/importers`
 immediately; prompts already imported are unaffected.
 
+## Writing a prompt for a preset
+
+`src.plugin_api.prompts.write_prompt_for_preset(user_id, instruction, *, preset_id=None,
+mode=None, form_data=None, media=(), llm_id=None)` asks a language model to write one
+prompt that follows `instruction`, in the style of the preset it is for. It is the same
+grounding the chat's prompt enhancement uses: the preset's `llm.guide` (or the mode's
+guide), its name and description, the model selected in `form_data` with its prompting
+guidance, and the user's approved and community prompts for that model. `media` is a list
+of `{"value", "media_type"}` entries as `src.plugin_api.generation.resolve_media_ref`
+returns them; images are sent as they are and each video as a few frames. Without an
+`llm_id` it uses a language model the user can use, the way chat does: the server default
+when one is set, otherwise the user's assigned models, and when media is given the first
+of those with vision support. It returns `{"text", "model_id", "llm_id"}`.
+
+It raises `PromptWriteRefused` (with a `code` and a message you can show) when the user
+has no language model (`no_llm`), the requested model is turned off (`llm_disabled`), media
+is given and no usable model has vision (`vision_not_supported`, raised before any file is read),
+the user cannot see the preset under the same rule as the presets routes (admins see every
+preset, others their directly or group-assigned ones; `preset_not_available`, raised before
+any grounding or file is read), a file path is absolute, climbs with `..` or resolves outside
+the storage root (`media_outside_storage`), an image is over 5 MB (`media_too_large`), more
+than 4 files are given in one call (`too_much_media`), a file cannot be read
+(`media_unreadable`, `media_unsupported`), the instruction is blank (`no_instruction`) or the
+reply is empty (`empty_reply`). The instruction is cut to 4000 characters, the preset guide
+to 3000, and each video gives at most 3 frames. Transport failures of the
+language model propagate as they are. `prompt_writer_status(user_id, llm_id=None)`
+reports `{"available", "vision", "name", "code", "message"}` for that user without calling
+the model, so a plugin can warn before it runs anything.
+
 ## Contributing a phrasebook batch tool
 
 The Phrasebook's Find & replace view lets a user select values and run a tool over them.

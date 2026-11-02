@@ -1,3 +1,4 @@
+import { gatedPageUrl } from '$lib/models/gatedLink';
 import type {
 	ModeConsentDisk,
 	ModeConsentMode,
@@ -221,7 +222,7 @@ export function gatedNotice(request: ModeConsentRequest, state: ModeInstallState
 		if (!variant?.gated) continue;
 		const name = slot.used_by.length === 1 ? modeLabelFor(request, slot.used_by[0]) : slot.label;
 		if (!labels.includes(name)) labels.push(name);
-		licenseUrl = licenseUrl ?? variant.license_url;
+		licenseUrl = licenseUrl ?? gatedPageUrl(variant);
 	}
 	return labels.length > 0 ? { labels, licenseUrl } : null;
 }

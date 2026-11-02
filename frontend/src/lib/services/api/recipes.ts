@@ -81,6 +81,8 @@ export interface RecipeArtifact {
 	/** Requires an accepted licence / access token before the source will serve it. */
 	gated: boolean;
 	license_url: string | null;
+	source?: string | null;
+	repo_id?: string | null;
 }
 
 export interface RecipeSmoke {

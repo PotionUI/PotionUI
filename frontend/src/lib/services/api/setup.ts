@@ -165,6 +165,8 @@ export interface SetupConsentArtifact {
 	kind: string;
 	gated: boolean;
 	license_url: string | null;
+	source?: string | null;
+	repo_id?: string | null;
 }
 
 /** A provider that would serve one or more of the pending downloads and

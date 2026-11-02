@@ -534,7 +534,9 @@ describe('extractConsentRequest', () => {
 					size_bytes: 123,
 					kind: 'checkpoint',
 					gated: false,
-					license_url: null
+					license_url: null,
+					source: null,
+					repo_id: null
 				}
 			],
 			total_bytes: 123
@@ -569,7 +571,7 @@ describe('extractConsentRequest', () => {
 			})
 		);
 		expect(result?.artifacts).toEqual([
-			{ id: 'ok', display_name: 'Fine', size_bytes: null, kind: '', gated: false, license_url: null }
+			{ id: 'ok', display_name: 'Fine', size_bytes: null, kind: '', gated: false, license_url: null, source: null, repo_id: null }
 		]);
 	});
 
@@ -735,7 +737,9 @@ describe('extractConsentRequest', () => {
 					size_bytes: 123,
 					kind: 'checkpoint',
 					gated: false,
-					license_url: null
+					license_url: null,
+					source: null,
+					repo_id: null
 				}
 			],
 			total_bytes: 123

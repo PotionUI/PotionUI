@@ -428,12 +428,16 @@ export type ModelRecommendation = {
 	description?: string;
 	size?: string;
 	installed: boolean;
+	gated?: boolean;
+	license_url?: string | null;
 } & ModelRecommendationSource;
 
 export interface ModelDownloadStatus {
 	status: 'pending' | 'running' | 'completed' | 'failed';
 	progress: number | null;
 	error: string | null;
+	gated?: boolean;
+	gated_repo?: string | null;
 }
 
 // Session Management Types

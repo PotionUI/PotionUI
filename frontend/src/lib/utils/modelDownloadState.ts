@@ -5,13 +5,17 @@ export interface ModelDownloadState {
 	downloadId: string | null;
 	progress: number | null;
 	error: string | null;
+	gated: boolean;
+	gatedRepo: string | null;
 }
 
 export const initialModelDownloadState: ModelDownloadState = {
 	phase: 'idle',
 	downloadId: null,
 	progress: null,
-	error: null
+	error: null,
+	gated: false,
+	gatedRepo: null
 };
 
 export type ModelDownloadEvent =
@@ -23,6 +27,8 @@ export type ModelDownloadEvent =
 			status: 'pending' | 'running' | 'completed' | 'failed';
 			progress: number | null;
 			error: string | null;
+			gated?: boolean;
+			gatedRepo?: string | null;
 	  }
 	| { type: 'error'; message: string }
 	| { type: 'reset' };
@@ -34,17 +40,24 @@ export function reduceModelDownloadState(
 ): ModelDownloadState {
 	switch (event.type) {
 		case 'start':
-			return { phase: 'starting', downloadId: null, progress: null, error: null };
+			return { ...initialModelDownloadState, phase: 'starting' };
 		case 'started':
-			return { phase: 'polling', downloadId: event.downloadId, progress: 0, error: null };
+			return { ...initialModelDownloadState, phase: 'polling', downloadId: event.downloadId, progress: 0 };
 		case 'forbidden':
-			return { phase: 'forbidden', downloadId: null, progress: null, error: null };
+			return { ...initialModelDownloadState, phase: 'forbidden' };
 		case 'poll':
 			if (event.status === 'completed') {
 				return { ...state, phase: 'completed', progress: 1, error: null };
 			}
 			if (event.status === 'failed') {
-				return { ...state, phase: 'failed', progress: event.progress, error: event.error || 'Download failed' };
+				return {
+					...state,
+					phase: 'failed',
+					progress: event.progress,
+					error: event.error || 'Download failed',
+					gated: event.gated === true,
+					gatedRepo: event.gatedRepo ?? null
+				};
 			}
 			return { ...state, phase: 'polling', progress: event.progress };
 		case 'error':

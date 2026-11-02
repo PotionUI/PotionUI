@@ -1,4 +1,5 @@
 <script lang="ts">
+	import GatedModelLink from '$lib/components/models/GatedModelLink.svelte';
 	import { untrack } from 'svelte';
 	import { Alert, Badge } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
@@ -306,7 +307,7 @@
 					</p>
 					<div class="mt-1 flex gap-3 text-sm">
 						{#if gated.licenseUrl}
-							<a href={gated.licenseUrl} target="_blank" rel="noreferrer" class="text-signal hover:underline">Open licence</a>
+							<GatedModelLink source={{ license_url: gated.licenseUrl }} class="text-sm" />
 						{/if}
 						{#if current.providers.length > 0}
 							<button type="button" class="text-signal hover:underline" onclick={() => (tokenOpen = !tokenOpen)}>

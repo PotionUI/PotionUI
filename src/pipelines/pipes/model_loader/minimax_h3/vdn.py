@@ -52,6 +52,7 @@ from src.platform.runtime.native.lora.adaln_translate import (
     AffineFit,
     adaln_curve_timesteps,
     apply_bias_deltas,
+    bias_diff_deltas,
     dense_silu_grid,
     fit_affine_grid,
     translate_adaln_lora,
@@ -298,6 +299,13 @@ def apply_loras_with_adaln_translation(
                 "[%s] %s: translated %d dense AdaLN target(s) onto the pruned projection "
                 "(fit residual %.4f)", log_tag, Path(path).name, len(stems), fit.residual,
             )
+        diffs, diff_keys = bias_diff_deltas(lora_sd, module)
+        if diffs:
+            lora_sd = {k: v for k, v in lora_sd.items() if k not in diff_keys}
+            if not lora.get("audio", True):
+                diffs = confine_bias_deltas(module, diffs)
+            bias_deltas.append((diffs, lora["weight"]))
+            logger.info("[%s] %s: %d bias diff(s) added to their biases", log_tag, Path(path).name, len(diff_keys))
         stack.append((lora_sd, lora["weight"]))
 
     file_paths = [lora["file_path"] for lora in loras]

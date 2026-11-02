@@ -204,7 +204,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
         control_path = _path_of(self.config.get("control_module"))
 
         def load_dit() -> NativeModel:
-            model = loader.load(model_path, "diffusion_model")
+            model = loader.load(model_path, "diffusion_model", compute_dtype=dtype)
             # Attached before the adapters so an adapter that targets the
             # branch's own Linears resolves against the final module tree.
             if control_path and vdn_path:

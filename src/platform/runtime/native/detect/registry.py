@@ -57,6 +57,7 @@ class ModelSpec:
     # names. None means the checkpoint keys are already this arch's names.
     state_dict_map: str | None = None
     model_patch_map: str | None = None
+    reference_dtype: str | None = None
 
     def matches(self, config: dict[str, Any]) -> bool:
         """True when every key/value in ``signature`` is present in ``config``."""
@@ -667,6 +668,7 @@ _VENDORED_SPECS: list[ModelSpec] = [
         # other fp8-capable spec here carries.
         expected_unexpected_keys={"*.comfy_quant", *_SIDECAR_GLOBS},
         memory_cost_gb=20.0,
+        reference_dtype="bfloat16",
     ),
     # MiniMax-Music3 flow-matching DiT + fused condition encoder (text-to-music
     # only -- see the preset's `vars.music_director` contract). ``latent_channels``
@@ -710,6 +712,7 @@ _VENDORED_SPECS: list[ModelSpec] = [
         latent_format={"latent_channels": 64, "format": "yue2", "temporal": True, "modality": "audio"},
         expected_unexpected_keys={"latent_pos_embed.pe", *_SIDECAR_GLOBS},
         memory_cost_gb=7.0,
+        reference_dtype="bfloat16",
     ),
     ModelSpec(
         family="seedvr2",

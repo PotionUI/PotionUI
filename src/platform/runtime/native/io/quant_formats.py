@@ -45,6 +45,27 @@ def extract_convrot_config(layer_conf: dict, layer_name: str = "") -> tuple[bool
     return convrot, _CONVROT_DEFAULT_GROUPSIZE
 
 
+def describe_quant_layers(sd: dict[str, torch.Tensor]) -> str | None:
+    labels: set[str] = set()
+    blobs = {bytes(t.tolist()) for k, t in sd.items() if k.endswith(".comfy_quant")}
+    for raw in blobs:
+        conf = parse_comfy_quant(torch.tensor(list(raw), dtype=torch.uint8))
+        if conf is None:
+            continue
+        label = str(conf.get("format", "unknown"))
+        if label == COMFY_QUANT_INT8_TENSORWISE:
+            convrot, groupsize = extract_convrot_config(conf)
+            if convrot:
+                label = f"{label}+convrot{groupsize}"
+        labels.add(label)
+    if not labels:
+        labels = {
+            str(t.dtype).removeprefix("torch.")
+            for k, t in sd.items() if k.endswith(".weight") and t.dtype in FP8_DTYPES
+        }
+    return ",".join(sorted(labels)) or None
+
+
 def reject_ambiguous_int8(
     weight: torch.Tensor | None, scale: torch.Tensor | None, layer_name: str,
 ) -> None:

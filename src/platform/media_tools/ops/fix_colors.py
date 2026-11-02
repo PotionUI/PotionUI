@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from src.platform.imaging.color_fix import ColorFix, estimate_fix, ffmpeg_filters
+from typing import Optional
+
+import numpy as np
+from PIL import Image
+
+from src.platform.imaging.color_fix import ColorFix, apply_fix, estimate_fix, ffmpeg_filters
 from src.platform.media_tools.base import MediaTool
 from src.platform.media_tools.fastpath import run_fragments
 from src.platform.media_tools.frames import decode_rgb_frames, load_rgb_frames
@@ -40,6 +45,32 @@ def sample_rate_for(duration: float | None) -> float:
     return min(SAMPLE_RATE, MAX_SAMPLES / duration)
 
 
+def estimate(
+    media: ToolMedia,
+    params: dict,
+    ctx: ToolContext,
+    rate: float,
+    window: Optional[tuple[float, Optional[float]]] = None,
+) -> ColorFix:
+    path, frame_count = decode_rgb_frames(
+        media,
+        ctx,
+        SAMPLE_WIDTH,
+        SAMPLE_HEIGHT,
+        fps=rate,
+        max_frames=MAX_SAMPLES,
+        window=window,
+    )
+    try:
+        return estimate_fix(
+            load_rgb_frames(path, frame_count, SAMPLE_WIDTH, SAMPLE_HEIGHT),
+            white_balance=bool(params.get("white_balance", True)),
+            contrast=bool(params.get("contrast", True)),
+        )
+    finally:
+        path.unlink(missing_ok=True)
+
+
 class FixColors(MediaTool):
     def check_params(self, params: dict) -> None:
         if not params.get("white_balance", True) and not params.get("contrast", True):
@@ -54,24 +85,20 @@ class FixColors(MediaTool):
         ]
 
     def _fix(self, media: ToolMedia, params: dict, ctx: ToolContext) -> ToolMedia:
-        path, frame_count = decode_rgb_frames(
-            media,
-            ctx.scoped(0.0, 0.2),
-            SAMPLE_WIDTH,
-            SAMPLE_HEIGHT,
-            fps=sample_rate_for(media.duration),
-            max_frames=MAX_SAMPLES,
-        )
-        try:
-            fix = estimate_fix(
-                load_rgb_frames(path, frame_count, SAMPLE_WIDTH, SAMPLE_HEIGHT),
-                white_balance=bool(params.get("white_balance", True)),
-                contrast=bool(params.get("contrast", True)),
-            )
-        finally:
-            path.unlink(missing_ok=True)
+        fix = estimate(media, params, ctx.scoped(0.0, 0.2), sample_rate_for(media.duration))
         fix = fix.with_strength(float(params.get("strength", 100.0)) / 100.0)
         return self._render(media, fix, ctx.scoped(0.2, 1.0))
+
+    def still(self, image: Image.Image, params: dict, frame) -> Image.Image:
+        self.check_params(params)
+        window = frame.clock.source_window()
+        length = frame.clock.length if frame.clock.length is not None else frame.source.duration
+        rate = sample_rate_for(length) / frame.clock.rate
+        key = ("fix_colors", bool(params.get("white_balance", True)), bool(params.get("contrast", True)), window)
+        fix = frame.memo(key, lambda: estimate(frame.source, params, frame.ctx, rate, window))
+        fix = fix.with_strength(float(params.get("strength", 100.0)) / 100.0)
+        rgb = np.asarray(image.convert("RGB"))
+        return Image.fromarray(apply_fix(rgb, fix))
 
     def _render(self, media: ToolMedia, fix: ColorFix, ctx: ToolContext) -> ToolMedia:
         return run_fragments(media, [FilterFragment(vf=ffmpeg_filters(fix))], ctx)

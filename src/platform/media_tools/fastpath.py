@@ -53,6 +53,7 @@ class MergedPlan:
     width: Optional[int] = None
     height: Optional[int] = None
     duration: Optional[float] = None
+    copy_video: bool = False
 
 
 def advance_media(media: ToolMedia, fragment: FilterFragment) -> ToolMedia:
@@ -106,6 +107,12 @@ def merge_fragments(media: ToolMedia, fragments: Sequence[FilterFragment]) -> Me
             plan.frames = fragment.frames if plan.frames is None else min(plan.frames, fragment.frames)
         current = advance_media(current, fragment)
     plan.width, plan.height, plan.duration = current.width, current.height, current.duration
+    plan.copy_video = (
+        bool(fragments)
+        and all(fragment.copy_video for fragment in fragments)
+        and plan.seek_start is None
+        and plan.seek_end is None
+    )
     return plan
 
 
@@ -198,6 +205,9 @@ def build_timed_args(media: ToolMedia, plan: MergedPlan, out_path: Path) -> list
         args += [str(out_path)]
         return args
 
+    if plan.copy_video and suffix == media.path.suffix.lower():
+        return args + _copied_video_args(media, plan, suffix, reencode_audio) + [str(out_path)]
+
     video_filters = list(plan.vf)
     even = plan.width is not None and plan.height is not None and plan.width % 2 == 0 and plan.height % 2 == 0
     if not even:
@@ -216,6 +226,21 @@ def build_timed_args(media: ToolMedia, plan: MergedPlan, out_path: Path) -> list
         args += ["-fps_mode", "passthrough", "-frames:v", str(plan.frames)]
     args += video_encoder_args(suffix, plan.crf)
     args += [str(out_path)]
+    return args
+
+
+def _copied_video_args(media: ToolMedia, plan: MergedPlan, suffix: str, reencode_audio: bool) -> list[str]:
+    args = ["-map", "0:v:0"]
+    if plan.drop_audio:
+        args += ["-an"]
+    else:
+        args += ["-map", "0:a:0?"]
+        if plan.af and media.has_audio is not False:
+            args += ["-af", ",".join(plan.af)]
+        args += audio_codec_args(suffix, reencode_audio)
+    args += ["-c:v", "copy"]
+    if suffix in FASTSTART_SUFFIXES:
+        args += ["-movflags", "+faststart"]
     return args
 
 

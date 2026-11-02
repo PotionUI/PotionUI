@@ -11,6 +11,7 @@ from src.platform.settings.runtime_flags import runtime_flag
 from ..io.quant_formats import (
     NVFP4_BLOCK,
     dequant_values,
+    nvfp4_activation_amax,
     precompute_nvfp4_scale,
     quantize_nvfp4_dynamic,
     scale_values,
@@ -34,6 +35,28 @@ logger = logging.getLogger(__name__)
 
 NVFP4_MATMUL_FLAG = "native_nvfp4_matmul"
 NVFP4_MATMUL_OFF_REASON = "the 'nvfp4 fast multiply' setting (Admin → Backends → Optimizations) is off"
+
+
+NVFP4_QUANT_CHUNK_ELEMENTS = 1 << 26
+NVFP4_QUANT_TILE_ROWS = 128
+
+
+def nvfp4_quant_chunk_rows(in_features: int) -> int:
+    rows = NVFP4_QUANT_CHUNK_ELEMENTS // max(1, int(in_features))
+    return max(NVFP4_QUANT_TILE_ROWS, rows // NVFP4_QUANT_TILE_ROWS * NVFP4_QUANT_TILE_ROWS)
+
+
+def _smaller_chunk_rows(rows: int, total_rows: int) -> int | None:
+    half = min(rows, total_rows) // 2 // NVFP4_QUANT_TILE_ROWS * NVFP4_QUANT_TILE_ROWS
+    return half if half >= NVFP4_QUANT_TILE_ROWS else None
+
+
+class _Nvfp4GemmFailed(Exception):
+    def __init__(self, reason: str, cause: BaseException, *, smaller_chunks_help: bool = True) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.cause = cause
+        self.retry_smaller = smaller_chunks_help and isinstance(cause, torch.cuda.OutOfMemoryError)
 
 
 def _nvfp4_matmul_enabled() -> bool:
@@ -221,31 +244,22 @@ class Nvfp4Linear(Fp8ScaledLinear):
         if not x2d.is_contiguous():
             x2d = x2d.contiguous()
 
-        try:
-            x_packed, x_block, x_global = quantize_nvfp4_dynamic(x2d)
-        except Exception as exc:
-            logger.debug("nvfp4 matmul: activation quant failed; using dequant path", exc_info=True)
-            _log_nvfp4_fast_path_rejection(f"activation quant failed ({type(exc).__name__})", str(exc)[:300])
-            return None
-
         weight_packed = self.nvfp4_packed if self.nvfp4_packed.is_contiguous() else self.nvfp4_packed.contiguous()
-        mat_a = x_packed.view(torch.float4_e2m1fn_x2)
         mat_b = weight_packed.view(torch.float4_e2m1fn_x2).t()
         bias = self.bias.to(device=device, dtype=input.dtype) if self.bias is not None else None
 
-        try:
-            out = F.scaled_mm(
-                mat_a, mat_b,
-                [x_block.contiguous(), x_global], [F.ScalingType.BlockWise1x16, F.ScalingType.TensorWise],
-                [w_block.contiguous(), w_global], [F.ScalingType.BlockWise1x16, F.ScalingType.TensorWise],
-                swizzle_a=[F.SwizzleType.SWIZZLE_32_4_4, F.SwizzleType.NO_SWIZZLE],
-                swizzle_b=[F.SwizzleType.SWIZZLE_32_4_4, F.SwizzleType.NO_SWIZZLE],
-                output_dtype=input.dtype,
-            )
-        except (RuntimeError, torch.cuda.OutOfMemoryError) as exc:
-            logger.debug("nvfp4 matmul: _scaled_mm_v2 rejected operands; using dequant path", exc_info=True)
-            _log_nvfp4_fast_path_rejection(f"scaled_mm rejected operands ({type(exc).__name__})", str(exc)[:300])
-            return None
+        rows = nvfp4_quant_chunk_rows(x2d.shape[1])
+        while True:
+            try:
+                out = self._nvfp4_gemm_in_chunks(x2d, mat_b, (w_block.contiguous(), w_global), rows)
+                break
+            except _Nvfp4GemmFailed as failed:
+                smaller = _smaller_chunk_rows(rows, x2d.shape[0]) if failed.retry_smaller else None
+                if smaller is None:
+                    logger.debug("nvfp4 matmul: %s; using dequant path", failed.reason, exc_info=failed.cause)
+                    _log_nvfp4_fast_path_rejection(failed.reason, str(failed.cause)[:300])
+                    return None
+                rows = smaller
         if self.lora_deltas:
             if _lora_fused_enabled():
                 _note_lora_path(self, _with_lokr("fused-fast", self.lora_deltas))
@@ -256,3 +270,41 @@ class Nvfp4Linear(Fp8ScaledLinear):
         if bias is not None:
             out = out + bias
         return out.reshape(*orig_shape[:-1], -1)
+
+    def _nvfp4_gemm_in_chunks(
+        self, x2d: torch.Tensor, mat_b: torch.Tensor, w_scales: tuple[torch.Tensor, torch.Tensor], rows: int,
+    ) -> torch.Tensor:
+        total = x2d.shape[0]
+        if rows >= total:
+            return self._nvfp4_gemm(x2d, mat_b, w_scales, None)
+        try:
+            amax = nvfp4_activation_amax(x2d)
+        except Exception as exc:
+            raise _Nvfp4GemmFailed(f"activation quant failed ({type(exc).__name__})", exc) from exc
+        try:
+            out = torch.empty((total, self.out_features), dtype=x2d.dtype, device=x2d.device)
+        except torch.cuda.OutOfMemoryError as exc:
+            raise _Nvfp4GemmFailed("output allocation failed (OutOfMemoryError)", exc, smaller_chunks_help=False) from exc
+        for start in range(0, total, rows):
+            out[start:start + rows] = self._nvfp4_gemm(x2d[start:start + rows], mat_b, w_scales, amax)
+        return out
+
+    def _nvfp4_gemm(
+        self, x2d: torch.Tensor, mat_b: torch.Tensor, w_scales: tuple[torch.Tensor, torch.Tensor],
+        tensor_amax: torch.Tensor | None,
+    ) -> torch.Tensor:
+        try:
+            x_packed, x_block, x_global = quantize_nvfp4_dynamic(x2d, tensor_amax=tensor_amax)
+        except Exception as exc:
+            raise _Nvfp4GemmFailed(f"activation quant failed ({type(exc).__name__})", exc) from exc
+        try:
+            return F.scaled_mm(
+                x_packed.view(torch.float4_e2m1fn_x2), mat_b,
+                [x_block.contiguous(), x_global], [F.ScalingType.BlockWise1x16, F.ScalingType.TensorWise],
+                [w_scales[0], w_scales[1]], [F.ScalingType.BlockWise1x16, F.ScalingType.TensorWise],
+                swizzle_a=[F.SwizzleType.SWIZZLE_32_4_4, F.SwizzleType.NO_SWIZZLE],
+                swizzle_b=[F.SwizzleType.SWIZZLE_32_4_4, F.SwizzleType.NO_SWIZZLE],
+                output_dtype=x2d.dtype,
+            )
+        except (RuntimeError, torch.cuda.OutOfMemoryError) as exc:
+            raise _Nvfp4GemmFailed(f"scaled_mm rejected operands ({type(exc).__name__})", exc) from exc

@@ -61,3 +61,16 @@ goes through `bind_form` like a form sent from the Generate page.
 - **The clip length comes from that document.** These pipelines read the duration of the Video
   Director document before any `frames` field, so a `frames`, `duration` or `num_frames` value in
   the smoke `form` of such a recipe is never read.
+
+## When the test generation runs too long
+
+The step starts its generation on the application's event loop, the one that serves the API, so
+the generation's output bridge lives as long as the application and not as long as the step. When
+the timeout elapses, the step cancels the generation it gave up on through the orchestrator's
+normal cancel path, and the backend is free for the next generation. A failed cancel is logged and
+the step still reports its timeout. Outside the application (a script, a test), where no
+application loop runs, the step starts the generation on a loop of its own.
+
+Cancelling a running generation that its backend no longer knows and whose output bridge is gone
+(its loop has closed) marks it cancelled and releases its queue slot, instead of leaving it running
+forever with the backend held. A generation whose bridge is still alive is left to finish.

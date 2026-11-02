@@ -44,10 +44,13 @@ class FakeOrchestrator:
     def __init__(self, images=1, error=None):
         self.images = images
         self.error = error
+        self.cancelled = []
+        self.loops = []
 
     async def start_generation(self, request, user_id, output_callback):
         from src.pipelines.outputs import ErrorGenerationOutput, ImageGenerationOutput
 
+        self.loops.append(asyncio.get_running_loop())
         if self.error:
             await output_callback("gen-1", ErrorGenerationOutput(error=self.error))
         else:
@@ -58,6 +61,10 @@ class FakeOrchestrator:
 
     async def get_generation_status(self, generation_id):
         return {"status": "failed" if self.error else "completed"}
+
+    async def cancel_generation(self, generation_id):
+        self.cancelled.append(generation_id)
+        return True
 
 
 def _context(recipe):
@@ -383,6 +390,7 @@ def test_default_model_repository_is_lazily_constructed():
 
 class NeverCompletingOrchestrator(FakeOrchestrator):
     async def start_generation(self, request, user_id, output_callback):
+        self.loops.append(asyncio.get_running_loop())
         return {"generation_id": "gen-1"}
 
     async def get_generation_status(self, generation_id):
@@ -448,3 +456,72 @@ def test_a_generation_that_never_finishes_fails_once_the_recipe_timeout_elapses(
 
     assert result.success is False
     assert "timed out waiting for completion after 1s" in result.safe_error_detail
+
+
+def test_a_generation_left_behind_by_the_timeout_is_cancelled():
+    recipe = _recipe(RecipeSmokeRef(preset_id="p1", mode="txt2img", timeout_seconds=1))
+    orchestrator = NeverCompletingOrchestrator()
+
+    _executor(orchestrator).execute(_context(recipe))
+
+    assert orchestrator.cancelled == ["gen-1"]
+
+
+def test_a_cancel_that_fails_after_the_timeout_still_reports_the_timeout():
+    class CancelRefusingOrchestrator(NeverCompletingOrchestrator):
+        async def cancel_generation(self, generation_id):
+            raise RuntimeError("backend gone")
+
+    recipe = _recipe(RecipeSmokeRef(preset_id="p1", mode="txt2img", timeout_seconds=1))
+
+    result = _executor(CancelRefusingOrchestrator()).execute(_context(recipe))
+
+    assert result.success is False
+    assert "timed out waiting for completion after 1s" in result.safe_error_detail
+
+
+def test_a_finished_generation_is_not_cancelled():
+    orchestrator = FakeOrchestrator()
+
+    _executor(orchestrator).execute(_context(_recipe()))
+
+    assert orchestrator.cancelled == []
+
+
+@pytest.fixture
+def app_loop():
+    import threading
+
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    yield loop
+    loop.call_soon_threadsafe(loop.stop)
+    thread.join(5)
+    loop.close()
+
+
+def test_the_generation_starts_on_the_app_loop_when_one_is_running(app_loop):
+    orchestrator = FakeOrchestrator()
+    executor = GenerationSmokeExecutor(
+        FakePresetLoader(FakePresetTemplate()), object(), orchestrator, FakeFileRepository(),
+        app_loop=lambda: app_loop,
+    )
+
+    result = executor.execute(_context(_recipe()))
+
+    assert result.success is True
+    assert orchestrator.loops == [app_loop]
+
+
+def test_the_generation_runs_on_its_own_loop_when_the_app_loop_is_not_up_yet():
+    orchestrator = FakeOrchestrator()
+    executor = GenerationSmokeExecutor(
+        FakePresetLoader(FakePresetTemplate()), object(), orchestrator, FakeFileRepository(),
+        app_loop=lambda: None,
+    )
+
+    result = executor.execute(_context(_recipe()))
+
+    assert result.success is True
+    assert len(orchestrator.loops) == 1

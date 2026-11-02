@@ -28,8 +28,9 @@ whose recipe artifact isn't indexed yet fails the step up front via
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from src.features.presets.loader import PresetTemplateLoader
 from src.features.recipes.executors._async_bridge import run_sync
@@ -37,6 +38,8 @@ from src.features.recipes.executors._fixture_form import RequiredModelMissing, b
 from src.features.recipes.executors.base import StepContext, StepResult
 from src.features.recipes.schema import DEFAULT_SMOKE_TIMEOUT_SECONDS
 from src.platform.templating import TemplateProcessor
+
+logger = logging.getLogger(__name__)
 
 _TERMINAL_STATES = {"completed", "failed", "cancelled"}
 
@@ -49,10 +52,12 @@ class GenerationSmokeExecutor:
         generation_orchestrator: Any,
         file_repository: Any = None,
         model_repository: Any = None,
+        app_loop: Optional[Callable[[], Optional[asyncio.AbstractEventLoop]]] = None,
     ):
         self.preset_template_loader = preset_template_loader
         self.template_processor = template_processor
         self.orchestrator = generation_orchestrator
+        self.app_loop = app_loop
         if file_repository is None:
             from src.features.generation.file_repository import FileRepository
 
@@ -125,7 +130,8 @@ class GenerationSmokeExecutor:
                     negative_prompt=smoke.negative_prompt if smoke else "",
                     report_progress=context.report_progress,
                     timeout_seconds=smoke.timeout_seconds if smoke else DEFAULT_SMOKE_TIMEOUT_SECONDS,
-                )
+                ),
+                loop=self.app_loop() if self.app_loop is not None else None,
             )
         except Exception as exc:
             return StepResult.fail(
@@ -254,6 +260,7 @@ class GenerationSmokeExecutor:
         try:
             await asyncio.wait_for(self._wait_for_completion(done_event, generation_id), timeout=timeout_seconds)
         except asyncio.TimeoutError:
+            await self._abandon(generation_id)
             return {
                 "generation_id": generation_id,
                 "state": "failed",
@@ -272,6 +279,14 @@ class GenerationSmokeExecutor:
             "output_count": output_count,
             "error": error,
         }
+
+    async def _abandon(self, generation_id: Optional[str]) -> None:
+        if generation_id is None:
+            return
+        try:
+            await self.orchestrator.cancel_generation(generation_id)
+        except Exception as exc:
+            logger.warning(f"generation.smoke: cancelling generation {generation_id} failed: {exc}")
 
     async def _wait_for_completion(self, done_event: asyncio.Event, generation_id: Optional[str]) -> None:
         while True:

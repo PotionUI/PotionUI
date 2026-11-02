@@ -192,3 +192,21 @@ def test_a_director_window_citing_a_refmod_carries_exactly_its_rows():
 
 def test_a_director_window_citing_nothing_carries_no_reference_rows():
     assert _window_condition_rows([_picture((250, 10, 10)), _refmod(3)], ()).shape[0] == 0
+
+
+def _stacked_pictures_refmod(seed):
+    latent = torch.randn(1, 24, 3, 4, 4, generator=torch.Generator().manual_seed(seed)) * 3
+    return ReferenceMedia(kind="video", latent=latent)
+
+
+def test_a_stacked_pictures_refmod_steers_the_generated_video(tiny_dit):
+    first = _generate(tiny_dit, [_picture((250, 10, 10)), _stacked_pictures_refmod(3)])
+    second = _generate(tiny_dit, [_picture((250, 10, 10)), _stacked_pictures_refmod(4)])
+    assert _relative(second, first) > 0.02
+
+
+def test_a_director_window_citing_a_stacked_pictures_refmod_carries_every_frame_of_it():
+    picture, stack = _picture((250, 10, 10)), _stacked_pictures_refmod(3)
+    cited = _window_condition_rows([picture, stack], (1,))
+    assert cited.shape[0] == 3 * 2 * 2
+    assert torch.equal(cited, _window_condition_rows([stack], (0,)))

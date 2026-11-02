@@ -75,6 +75,17 @@ export function refModName(modelRef: string, directory: RefModDirectory): string
 	return directory[id]?.name || id;
 }
 
+export function refModMemberKinds(info: RefModInfo | undefined): PromptResourceKind[] {
+	const members = info?.members ?? [];
+	return members.length > 0 ? members.map((member) => member.kind) : ['image'];
+}
+
+export function refModCopies(row: unknown): number {
+	const raw = row && typeof row === 'object' ? (row as Record<string, unknown>).copies : undefined;
+	const value = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() ? Number(raw) : 1;
+	return Number.isInteger(value) && value >= 1 ? value : 1;
+}
+
 export function refModPrimaryKind(info: RefModInfo | undefined): PromptResourceKind {
 	return refModKinds(info)[0] ?? 'image';
 }

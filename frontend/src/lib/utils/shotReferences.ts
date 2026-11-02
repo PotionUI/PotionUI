@@ -4,6 +4,7 @@ import {
 	deriveResourcesFromText,
 	encodeResourceMarker,
 	findResourceSpec,
+	kindLabel,
 	mediaFieldItems,
 	mediaItemKey,
 	resourceHandleLabel,
@@ -11,7 +12,17 @@ import {
 	type PromptResourceSpec
 } from './promptResources';
 import { kindOfMediaItem } from '$lib/components/form-fields/mediaLoaderKind';
-import { citeableRefModRows, refModBadge, refModFields, refModId, refModName, refModPrimaryKind, type RefModDirectory } from './refMods';
+import {
+	citeableRefModRows,
+	refModBadge,
+	refModCopies,
+	refModFields,
+	refModId,
+	refModMemberKinds,
+	refModName,
+	refModPrimaryKind,
+	type RefModDirectory
+} from './refMods';
 import { countResourceReferences, resourceUseCount, type UsageSegment } from './promptResourceUsage';
 import { resolvePromptSegments } from './promptSegments';
 import type { ResourceNumbering } from './resourceNumbering';
@@ -132,6 +143,84 @@ export function shotResourceNumbering(
 	};
 }
 
+export interface ShotReferenceContext {
+	specs: readonly PromptResourceSpec[];
+	directory: RefModDirectory;
+}
+
+export interface ShotReferenceUnit {
+	field: string;
+	itemKey: string;
+	kind: PromptResourceKind;
+}
+
+export interface ShotReferenceCounts {
+	used: number;
+	total: number;
+}
+
+const KIND_RANK: readonly PromptResourceKind[] = ['image', 'video', 'audio'];
+
+export function shotReferencePool(
+	caps: DirectorCapabilities,
+	formData: Record<string, unknown> | null | undefined,
+	context: ShotReferenceContext
+): ShotReferenceUnit[] {
+	const refMods = refModFields(context.specs);
+	const natives: ShotReferenceUnit[] = [];
+	const mods: ShotReferenceUnit[] = [];
+	for (const field of caps.referenceFields) {
+		if (refMods.has(field)) {
+			for (const row of citeableRefModRows(formData?.[field])) {
+				const kinds = refModMemberKinds(context.directory[refModId(row.model)]);
+				for (let copy = 0; copy < refModCopies(row); copy++) {
+					for (const kind of kinds) mods.push({ field, itemKey: row.model, kind });
+				}
+			}
+			continue;
+		}
+		for (const item of mediaFieldItems(formData?.[field])) {
+			const itemKey = mediaItemKey(item);
+			if (itemKey) natives.push({ field, itemKey, kind: itemSpec(context.specs, field, item).kind });
+		}
+	}
+	return [...natives, ...mods].sort((a, b) => KIND_RANK.indexOf(a.kind) - KIND_RANK.indexOf(b.kind));
+}
+
+function citedUnits(
+	doc: VideoDirectorValue,
+	caps: DirectorCapabilities,
+	shotId: string,
+	pool: readonly ShotReferenceUnit[]
+): ShotReferenceUnit[] {
+	const counts = countResourceReferences(shotReferenceSegmentGroups(doc, caps, shotId));
+	return pool.filter((unit) => resourceUseCount(counts, unit.field, unit.itemKey) > 0);
+}
+
+export function shotReferenceCounts(
+	doc: VideoDirectorValue,
+	caps: DirectorCapabilities,
+	shotId: string,
+	formData: Record<string, unknown> | null | undefined,
+	context: ShotReferenceContext
+): ShotReferenceCounts {
+	const pool = shotReferencePool(caps, formData, context);
+	return { used: citedUnits(doc, caps, shotId, pool).length, total: pool.length };
+}
+
+function refModHandles(cited: readonly ShotReferenceUnit[], refModFieldNames: ReadonlySet<string>): Map<string, string> {
+	const perKind: Partial<Record<PromptResourceKind, number>> = {};
+	const labels = new Map<string, string[]>();
+	for (const unit of cited) {
+		const position = (perKind[unit.kind] ?? 0) + 1;
+		perKind[unit.kind] = position;
+		if (!refModFieldNames.has(unit.field)) continue;
+		const identity = resourceIdentity(unit.field, unit.itemKey);
+		labels.set(identity, [...(labels.get(identity) ?? []), `${kindLabel(unit.kind)} ${position}`]);
+	}
+	return new Map([...labels].map(([identity, list]) => [identity, list.join(' · ')]));
+}
+
 export function shotReferenceOverview(
 	doc: VideoDirectorValue,
 	caps: DirectorCapabilities,
@@ -146,6 +235,8 @@ export function shotReferenceOverview(
 	const unused: ShotReferenceEntry[] = [];
 	const seen = new Set<string>();
 	const refMods = refModFields(specs);
+	const context = { specs, directory: refModDirectory };
+	const handles = refModHandles(citedUnits(doc, caps, shotId, shotReferencePool(caps, formData, context)), refMods);
 	for (const field of caps.referenceFields) {
 		const isRefMod = refMods.has(field);
 		for (const item of isRefMod ? citeableRefModRows(formData?.[field]) : mediaFieldItems(formData?.[field])) {
@@ -163,7 +254,7 @@ export function shotReferenceOverview(
 					name: refModName(itemKey, refModDirectory),
 					url: null,
 					count: resourceUseCount(counts, field, itemKey),
-					handle: null,
+					handle: handles.get(identity) ?? null,
 					marker: encodeResourceMarker(field, itemKey),
 					badge: refModBadge(info)
 				};

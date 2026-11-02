@@ -414,3 +414,26 @@ def test_read_members_rejects_an_unknown_member_kind(tmp_path):
     path = _write_bundle(tmp_path / "odd.safetensors", {"latent": _visual_tensor()}, {"kind": "depth"})
     with pytest.raises(ValueError, match="'depth'"):
         read_refmod_members(path)
+
+
+@pytest.mark.parametrize("meta, tensors, kinds", [
+    (
+        {"kind": "image", "name": "face", "latent_t": 1, "source": "image", "mode": "encode", "pool": "full-res 64x64px"},
+        {"latent": (1, 24, 1, 4, 4)}, ["image"],
+    ),
+    (
+        {"kind": "video", "name": "stack", "latent_t": 3, "source": "stack", "tags": "3 img, 0 vid", "mode": "encode"},
+        {"latent": (1, 24, 3, 4, 4)}, ["video"],
+    ),
+    (
+        {"_format_version": 5, "kind": "bundle", "name": "cast", "members": [
+            {"_format_version": 4, "kind": "image", "name": "hero", "source": "image"},
+            {"_format_version": 4, "kind": "image", "name": "villain", "source": "image"},
+        ]},
+        {"ref_0": (1, 24, 1, 4, 4), "ref_1": (1, 24, 1, 2, 4)}, ["image", "image"],
+    ),
+], ids=["one-picture", "stacked-pictures", "picture-bundle"])
+def test_upstream_picture_mods_read_with_the_kind_their_header_declares(tmp_path, meta, tensors, kinds):
+    path = _write_bundle(tmp_path / f"{meta['name']}.safetensors", {k: torch.zeros(v) for k, v in tensors.items()}, meta)
+    assert [member.kind for member in read_refmod_members(path)] == kinds
+    assert [mod.kind for mod in load_refmods([{"file_path": path, "strength": 1.0}])] == kinds

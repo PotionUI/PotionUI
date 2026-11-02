@@ -1,3 +1,5 @@
+import type { ShotRailModel } from './shotRailModel';
+
 // Shot Console selection -- COMPONENT state (owned by ShotConsole.svelte),
 // never a module-scope store. `railSelection.ts` (the Stage & Rail rework's
 // own selection store) is being deleted for exactly this reason: a
@@ -22,4 +24,22 @@ export function consoleSelectionMatches(selection: ConsoleSelection, shotId: str
  * to a different shot's rail). */
 export function consoleSelectionBelongsToShot(selection: ConsoleSelection, shotId: string): boolean {
 	return selection != null && selection.shotId === shotId;
+}
+
+function selectionOnRail(selection: NonNullable<ConsoleSelection>, rail: ShotRailModel, segmentRouting: boolean): boolean {
+	if (selection.kind === 'beat') {
+		return (segmentRouting && selection.id === selection.shotId) || !!rail.lanes.prompt?.beats.some((b) => b.id === selection.id);
+	}
+	if (selection.kind === 'keyframe') return !!rail.lanes.keyframes?.marks.some((m) => m.id === selection.id);
+	return !!rail.lanes.audio?.clips.some((c) => c.id === selection.id);
+}
+
+export function resolveConsoleSelection(
+	selection: ConsoleSelection,
+	shotId: string,
+	rail: ShotRailModel,
+	segmentRouting: boolean
+): ConsoleSelection {
+	if (selection && selection.shotId === shotId && selectionOnRail(selection, rail, segmentRouting)) return selection;
+	return segmentRouting ? { shotId, kind: 'beat', id: shotId } : null;
 }

@@ -499,3 +499,22 @@ class TestPathologicalPayloads:
         value, problem = rescue.decode_payload("[" * 3000)
         assert value == "[" * 3000
         assert problem is not None
+
+
+class TestToolActionAttributeScan:
+    def test_scan_reports_each_value_with_the_quote_it_used(self):
+        scanned = rescue.scan_tool_action_attributes(
+            ' update_director_segment segment_id=seg-1 segment_index=\'0\' shot_id="s" ops=[1, 2]'
+        )
+        assert scanned == [
+            ("segment_id", "seg-1", ""),
+            ("segment_index", "0", "'"),
+            ("shot_id", "s", '"'),
+            ("ops", "[1, 2]", ""),
+        ]
+
+    def test_leading_word_is_a_bare_name_never_an_attribute_key(self):
+        assert rescue.tool_action_leading_word(' update_director_segment segment_id="x"') == "update_director_segment"
+        assert rescue.tool_action_leading_word(' type="update_segment"') is None
+        assert rescue.tool_action_leading_word(" type = 'x'") is None
+        assert rescue.tool_action_leading_word("") is None

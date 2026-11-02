@@ -24,8 +24,8 @@ _TOOLS = (
     "## Tools\n\n"
     "Call tools yourself when you need live facts; answer directly when you already "
     "know. Use only the tools you were given, and never claim a change no tool made. "
-    "Make every tool call a real one: a call written as <tool_action> markup, a code "
-    "fence or JSON in your reply does not run.\n"
+    "Make every tool call a real one: a call written as text, a code fence or JSON in "
+    "your reply does not run, and a <tool_action> tag never calls a tool.\n"
 )
 
 _CONDITIONS = (
@@ -113,8 +113,9 @@ DEFAULT_TOOLS_SYSTEM_PROMPT_TEMPLATE = (
     "settings, the shared Direction prompt) is user-only.\n"
     "{{/if}}"
     "This tag is ONLY for offering prompt versions to pick from: one tag per version, "
-    "plain replacement text, no JSON. The user applies it; never print the text bare or "
-    "claim you changed the prompt.\n"
+    "plain replacement text, no JSON. Copy the tag exactly: type=\"...\", both "
+    "segment_index and segment_id, and a closing </tool_action>. The user applies it; "
+    "never print the text bare or claim you changed the prompt.\n"
     "{{/ifany}}"
     "{{#if prompt_batch_actions}}"
     "\n## Prompt batch\n\n"

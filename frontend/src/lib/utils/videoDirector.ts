@@ -2399,60 +2399,40 @@ export function applyDirectorOperations(
 	}, value);
 }
 
-/**
- * Applies an LLM-proposed `<tool_action type="update_director_segment">` --
- * a full-prompt replacement for one director shot -- onto an already-
- * normalized value. Targets whichever list the current mode actually reads
- * (`caps.segmentRouting` routes to `chain.segments`, a beat id resolved
- * against every timeline shot's own beat list otherwise -- this caller has no
- * shot of its own to name, see below), resolving id-first then index-fallback
- * like `locateSegmentIndex` in `promptSegments.ts` (segments can be reordered
- * between the tool call and the user clicking Apply). Returns null when
- * neither resolves -- callers must treat that as a no-op, and this must
- * never append a new segment the way a raw `upsert_segment` op would for an
- * unknown id. Delegates to `applyDirectorOperations` so duration/loras/
- * keyframe/start/end on the resolved segment are preserved untouched.
- */
+export const SIMPLE_DIRECTOR_SEGMENT_ID = 'seg-1';
+
+export function resolveDirectorSegmentTarget(
+	value: VideoDirectorValue,
+	caps: DirectorCapabilities,
+	action: { segmentId: string; segmentIndex: number; shotId?: string }
+): { id: string; shotId?: string } | null {
+	const pick = <T extends { id: string }>(list: T[]): T | null => {
+		const byId = list.find((s) => s.id === action.segmentId);
+		if (byId) return byId;
+		return action.segmentIndex >= 0 && action.segmentIndex < list.length ? list[action.segmentIndex] : null;
+	};
+	if (value.mode !== 'director') return pick([{ id: SIMPLE_DIRECTOR_SEGMENT_ID }]);
+	if (caps.segmentRouting) return pick(value.chain.segments);
+	if (action.shotId) {
+		const shot = value.timeline.shots.find((s) => s.id === action.shotId);
+		const beat = shot ? pick(shot.segments) : null;
+		return shot && beat ? { id: beat.id, shotId: shot.id } : null;
+	}
+	return pick(value.timeline.shots.flatMap((shot) => shot.segments.map((s) => ({ id: s.id, shotId: shot.id }))));
+}
+
 export function applyDirectorSegmentPrompt(
 	value: VideoDirectorValue,
 	caps: DirectorCapabilities,
 	action: { segmentId: string; segmentIndex: number; content: string; shotId?: string }
 ): VideoDirectorValue | null {
-	if (caps.segmentRouting) {
-		const segments = value.chain.segments;
-		const byId = segments.findIndex((s) => s.id === action.segmentId);
-		const idx = byId !== -1 ? byId : action.segmentIndex >= 0 && action.segmentIndex < segments.length ? action.segmentIndex : -1;
-		if (idx === -1) return null;
-		return applyDirectorOperations(value, [{ op: 'upsert_segment', segment: { id: segments[idx].id, prompt: action.content } }], caps);
-	}
-	// A beat id is only unique WITHIN its own shot (mintId scopes to one
-	// shot's list). `action.shotId` (the tag's own `shot_id` attribute, parsed
-	// in markdown.ts's parseToolActions) is authoritative once given -- the
-	// backend tool's system prompt requires the LLM to carry it once the
-	// document has 2+ shots. Fall back to flattening every shot's beats (in
-	// shot order) and resolving id-first/index-fallback, same as chain
-	// routing, for the single-shot case (where `shotId` is legitimately
-	// absent -- there's nothing ambiguous to name) or an older caller that
-	// predates the attribute.
-	if (action.shotId) {
-		const shot = value.timeline.shots.find((s) => s.id === action.shotId);
-		if (!shot) return null;
-		const byId = shot.segments.findIndex((s) => s.id === action.segmentId);
-		const idx = byId !== -1 ? byId : action.segmentIndex >= 0 && action.segmentIndex < shot.segments.length ? action.segmentIndex : -1;
-		if (idx === -1) return null;
-		return applyDirectorOperations(
-			value,
-			[{ op: 'upsert_segment', segment: { id: shot.segments[idx].id, prompt: action.content }, shot_id: shot.id }],
-			caps
-		);
-	}
-	const flat = value.timeline.shots.flatMap((shot) => shot.segments.map((s) => ({ shotId: shot.id, id: s.id })));
-	const byId = flat.findIndex((s) => s.id === action.segmentId);
-	const target = byId !== -1 ? flat[byId] : action.segmentIndex >= 0 && action.segmentIndex < flat.length ? flat[action.segmentIndex] : null;
+	const target = resolveDirectorSegmentTarget(value, caps, action);
 	if (!target) return null;
+	if (value.mode !== 'director') return applySetPrompt(value, action.content);
+	const segment = { id: target.id, prompt: action.content };
 	return applyDirectorOperations(
 		value,
-		[{ op: 'upsert_segment', segment: { id: target.id, prompt: action.content }, shot_id: target.shotId }],
+		[caps.segmentRouting ? { op: 'upsert_segment', segment } : { op: 'upsert_segment', segment, shot_id: target.shotId }],
 		caps
 	);
 }

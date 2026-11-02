@@ -254,6 +254,10 @@
     },
     {
       "config": {
+        "audio_sigma_shift": {
+          "type": "float",
+          "value": 3.0
+        },
         "audio_source": {
           "type": "str",
           "value": "generate"
@@ -423,6 +427,10 @@
         "steps": {
           "type": "int",
           "value": 4
+        },
+        "video_sigma_shift": {
+          "type": "float",
+          "value": 12.0
         }
       },
       "enabled": {

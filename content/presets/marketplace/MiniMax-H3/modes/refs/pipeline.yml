@@ -381,6 +381,8 @@ pipeline:
       # pipeline it did before these two controls existed.
       sampler: "{{ generation.profile.sampler | default(form.sampler) }}"
       scheduler: "{{ generation.profile.schedule | default(form.scheduler) }}"
+      video_sigma_shift: "{{ generation.profile.shift | default(form.video_sigma_shift) }}"
+      audio_sigma_shift: "{{ form.audio_sigma_shift }}"
       # Blank (the default) leaves the schedules computed from `steps` above;
       # a filled-in list owns the step count outright, profile included, and
       # is refused outright alongside a non-simple `scheduler`.

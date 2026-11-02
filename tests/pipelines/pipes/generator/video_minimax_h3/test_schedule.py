@@ -271,6 +271,40 @@ def test_video_sigma_shift_changes_only_the_video_stream_schedule():
     torch.testing.assert_close(audio_default.sigmas, audio_alt.sigmas, rtol=0, atol=0)
 
 
+def test_beta57_grid_is_the_beta_half_point_seven_quantile_of_the_uniform_knots():
+    from scipy.special import betainc
+
+    grid = build_t_grid(8, "beta57")
+    assert grid.tolist() == pytest.approx(
+        [1.0, 0.889398, 0.719286, 0.535685, 0.361084, 0.210908, 0.096177, 0.024407, 0.0], abs=1e-6,
+    )
+    assert betainc(0.5, 0.7, grid.double().numpy()).tolist() == pytest.approx(
+        [1.0 - i / 8 for i in range(9)], abs=1e-6,
+    )
+    assert bool((grid[1:] < grid[:-1]).all())
+
+
+def test_beta57_eight_steps_at_shift_twelve_and_three_shifts_each_stream_off_the_same_knots():
+    video, audio = resolve_schedules(8, scheduler="beta57", video_shift=12.0, audio_shift=3.0)
+    knots = build_t_grid(8, "beta57").tolist()
+    assert video.sigmas.tolist() == pytest.approx([12 * t / (1 + 11 * t) for t in knots], abs=1e-6)
+    assert audio.sigmas.tolist() == pytest.approx([3 * t / (1 + 2 * t) for t in knots], abs=1e-6)
+    assert video.timesteps.numel() == audio.timesteps.numel() == 8
+
+
+def test_audio_shift_changes_only_the_audio_stream_schedule():
+    default_video, default_audio = resolve_schedules(8)
+    video, audio = resolve_schedules(8, audio_shift=2.0)
+    torch.testing.assert_close(video.sigmas, default_video.sigmas, rtol=0, atol=0)
+    assert not torch.allclose(audio.sigmas, default_audio.sigmas)
+    torch.testing.assert_close(audio.sigmas, build_sigma_schedule(8, 2.0).sigmas, rtol=0, atol=0)
+
+
+def test_audio_shift_also_shapes_the_audio_side_a_manual_video_grid_fills_in():
+    _, audio = resolve_schedules(4, manual_video="1.0, 0.9, 0.6, 0.3, 0.0", audio_shift=2.0)
+    torch.testing.assert_close(audio.sigmas, build_sigma_schedule(4, 2.0).sigmas, rtol=0, atol=0)
+
+
 def test_scale_noise_matches_the_data_ward_forward_process():
     sample = torch.tensor([1.0, -2.0, 0.5])
     noise = torch.tensor([0.2, 0.4, -0.6])

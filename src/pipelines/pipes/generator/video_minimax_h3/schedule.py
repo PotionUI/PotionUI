@@ -50,7 +50,8 @@ KEYFRAME_NOISE_AUG = 0.999
 
 SIMPLE_SCHEDULER = "simple"
 BETA_SCHEDULER = "beta"
-SCHEDULERS = (SIMPLE_SCHEDULER, BETA_SCHEDULER)
+BETA57_SCHEDULER = "beta57"
+SCHEDULERS = (SIMPLE_SCHEDULER, BETA_SCHEDULER, BETA57_SCHEDULER)
 
 # The beta scheduler's shape parameters. Both below 1 makes the density
 # U-shaped, so its quantile function clusters knots at BOTH ends of the
@@ -58,6 +59,7 @@ SCHEDULERS = (SIMPLE_SCHEDULER, BETA_SCHEDULER)
 # detail (low sigma), fewer in the middle.
 BETA_ALPHA = 0.6
 BETA_BETA = 0.6
+BETA_SHAPES = {BETA_SCHEDULER: (BETA_ALPHA, BETA_BETA), BETA57_SCHEDULER: (0.5, 0.7)}
 
 
 @dataclass(frozen=True)
@@ -115,11 +117,12 @@ def build_t_grid(num_inference_steps: int, scheduler: str = SIMPLE_SCHEDULER, *,
     grid_points = int(total_steps) + 1
     if scheduler == SIMPLE_SCHEDULER:
         grid = torch.linspace(1.0, 0.0, grid_points, dtype=torch.float32)
-    elif scheduler == BETA_SCHEDULER:
+    elif scheduler in BETA_SHAPES:
         from scipy.stats import beta as beta_distribution
 
+        alpha, beta = BETA_SHAPES[scheduler]
         quantiles = torch.linspace(1.0, 0.0, grid_points, dtype=torch.float64)
-        knots = beta_distribution.ppf(quantiles.numpy(), BETA_ALPHA, BETA_BETA)
+        knots = beta_distribution.ppf(quantiles.numpy(), alpha, beta)
         grid = torch.from_numpy(knots).to(torch.float32)
     else:
         raise ValueError(f"scheduler must be one of {SCHEDULERS}, got {scheduler!r}")
@@ -191,7 +194,8 @@ def parse_manual_sigmas(raw: str, *, label: str = "manual sigmas") -> MiniMaxH3S
 
 def resolve_schedules(
     num_inference_steps: int, manual_video: str = "", manual_audio: str = "",
-    scheduler: str = SIMPLE_SCHEDULER, *, video_shift: float = VIDEO_SHIFT, denoise: float = 1.0,
+    scheduler: str = SIMPLE_SCHEDULER, *, video_shift: float = VIDEO_SHIFT, audio_shift: float = AUDIO_SHIFT,
+    denoise: float = 1.0,
 ) -> tuple[MiniMaxH3Sigmas, MiniMaxH3Sigmas]:
     """The pair of schedules one generation runs on, either computed from
     `num_inference_steps` under `scheduler` (both empty strings -- the
@@ -228,11 +232,11 @@ def resolve_schedules(
 
     if video is None and audio is None:
         video = build_sigma_schedule(num_inference_steps, video_shift, scheduler, denoise=denoise)
-        audio = build_sigma_schedule(num_inference_steps, AUDIO_SHIFT, scheduler, denoise=denoise)
+        audio = build_sigma_schedule(num_inference_steps, audio_shift, scheduler, denoise=denoise)
     elif video is None:
         video = build_sigma_schedule(int(audio.timesteps.numel()), video_shift, scheduler, denoise=denoise)
     elif audio is None:
-        audio = build_sigma_schedule(int(video.timesteps.numel()), AUDIO_SHIFT, scheduler, denoise=denoise)
+        audio = build_sigma_schedule(int(video.timesteps.numel()), audio_shift, scheduler, denoise=denoise)
 
     if video.timesteps.numel() != audio.timesteps.numel():
         raise ValueError(

@@ -62,7 +62,9 @@ fields:
           uniform grid and the right answer unless asked otherwise. Beta pulls
           knots toward both ends — more steps on early composition and on the
           final detail, fewer in the middle — which tends to help short runs
-          and pairs with DPM++ 2M in the community recipe. Both video and audio
+          and pairs with DPM++ 2M in the community recipe. Beta57 leans the
+          knots toward the clean end for more detail steps; the community's
+          8-step recipe pairs it with Euler. Both video and audio
           are derived from the same knots either way. Cannot be combined with
           this tab's manual sigmas; that combination is refused rather than
           silently ignored.
@@ -75,6 +77,35 @@ fields:
           options:
             - { label: "Simple (reference)", value: "simple" }
             - { label: "Beta", value: "beta" }
+            - { label: "Beta57", value: "beta57" }
+  - type: "row"
+    children:
+      - name: "video_sigma_shift"
+        type: "slider"
+        formula: "speed"
+        label: "Video shift"
+        audience: "advanced"
+        default: 12.0
+        ai_hint: "How hard the picture's noise curve leans toward high noise. 12 is the released model's own; leave it there unless the user names another value. Ignored while manual sigmas are set."
+        reactions:
+          - when: { field: "speed_profile", equals: "flex" }
+            then: { set_visibility: false }
+          - when: { field: "speed_profile", not_equals: "flex" }
+            then: { set_visibility: true }
+        configuration: {min: 0.5, max: 50.0, step: 0.5}
+      - name: "audio_sigma_shift"
+        type: "slider"
+        formula: "speed"
+        label: "Audio shift"
+        audience: "advanced"
+        default: 3.0
+        ai_hint: "The same knob for the soundtrack's own noise curve. 3 is the released model's own; leave it there unless the user names another value. Ignored while manual sigmas are set."
+        reactions:
+          - when: { field: "speed_profile", equals: "flex" }
+            then: { set_visibility: false }
+          - when: { field: "speed_profile", not_equals: "flex" }
+            then: { set_visibility: true }
+        configuration: {min: 0.5, max: 50.0, step: 0.5}
       - name: "manual_sigmas"
         type: "textbox"
         label: "Manual sigmas (video)"

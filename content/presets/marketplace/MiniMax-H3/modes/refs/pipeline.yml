@@ -185,6 +185,7 @@ pipeline:
           template:
             file_path: "{{ item.model }}"
             strength: "{{ item.strength }}"
+            copies: "{{ item.copies | default(1, true) }}"
 
   #############
   ## Prompt encoder, director mode: ONE conditioning per shot, presenting the
@@ -238,6 +239,7 @@ pipeline:
           template:
             file_path: "{{ item.model }}"
             strength: "{{ item.strength }}"
+            copies: "{{ item.copies | default(1, true) }}"
 
   #############
   ## Seed generator
@@ -342,6 +344,7 @@ pipeline:
           template:
             file_path: "{{ item.model }}"
             strength: "{{ item.strength }}"
+            copies: "{{ item.copies | default(1, true) }}"
       # The profile supplies the baseline; the visible Steps slider (baked to
       # the profile's exact value by the reactions in tabs/generation.yml) is
       # what actually wins once a profile is selected.

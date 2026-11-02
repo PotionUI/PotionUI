@@ -105,6 +105,16 @@ export interface MediaToolRunError {
 	message: string;
 }
 
+export interface MediaToolResultLink {
+	label: string;
+	href: string;
+}
+
+export interface MediaToolRunSummary {
+	message: string;
+	links: MediaToolResultLink[];
+}
+
 export interface MediaToolRun {
 	run_id: string;
 	kind?: 'run' | 'preview';
@@ -115,6 +125,7 @@ export interface MediaToolRun {
 	replaced: boolean;
 	preview?: MediaToolPreviewClip | null;
 	error: MediaToolRunError | null;
+	summary?: MediaToolRunSummary | null;
 }
 
 export interface PreviewMediaToolBody {

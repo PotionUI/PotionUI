@@ -66,6 +66,8 @@ Tensor = torch.Tensor
 VIDEO_LATENT_CHANNELS = 24
 AUDIO_LATENT_CHANNELS = 32
 AUDIO_CHANNELS = 2
+MAX_PACKED_REFERENCES = 12
+MAX_COPIES = MAX_PACKED_REFERENCES
 
 
 @dataclass(frozen=True)
@@ -223,5 +225,27 @@ def load_refmods(entries: Sequence[Mapping[str, Any]] | None) -> list[RefMod]:
         strength = float(entry.get("strength", 1.0))
         if strength <= 0:
             continue
-        mods.extend(_load_bundle(file_path, strength))
+        copies = _copies(entry.get("copies"), file_path)
+        members = _load_bundle(file_path, strength)
+        remaining = MAX_PACKED_REFERENCES - len(mods)
+        if len(members) * copies > remaining:
+            raise ValueError(
+                f"RefMod {file_path!r}: {len(members)} member(s) x {copies} copies is more than the "
+                f"{remaining} reference(s) left of the {MAX_PACKED_REFERENCES} allowed"
+            )
+        mods.extend(members * copies)
     return mods
+
+
+def _copies(value: Any, file_path: str) -> int:
+    if value is None or value == "":
+        return 1
+    try:
+        copies = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"RefMod {file_path!r}: copies must be a whole number, got {value!r}") from error
+    if not copies.is_integer() or not 1 <= copies <= MAX_COPIES:
+        raise ValueError(
+            f"RefMod {file_path!r}: copies must be a whole number from 1 to {MAX_COPIES}, got {value!r}"
+        )
+    return int(copies)

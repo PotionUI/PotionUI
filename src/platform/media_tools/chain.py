@@ -119,6 +119,10 @@ def _run_images(
     return ctx.probe(written, "image"), index - start
 
 
+def _ends_with_summary(ctx: ToolContext, index: int, total: int) -> bool:
+    return ctx.summary is not None and index == total - 1
+
+
 def _run_item(steps: Sequence[Step], media: ToolMedia, ctx: ToolContext) -> list[ToolMedia]:
     total = len(steps)
     position = 0
@@ -153,6 +157,8 @@ def _run_item(steps: Sequence[Step], media: ToolMedia, ctx: ToolContext) -> list
         stage.progress(0.0, spec.label)
         outputs = tool.run([current], params, stage)
         stage.progress(1.0, spec.label)
+        if not outputs and _ends_with_summary(ctx, position, total):
+            return []
         if spec.cardinality == "one_to_many":
             results: list[ToolMedia] = []
             for output in outputs:
@@ -203,6 +209,8 @@ def run_chain(
             stage.progress(0.0, spec.label)
             outputs = _tool(spec).run(list(current), params, stage)
             stage.progress(1.0, spec.label)
+            if not outputs and _ends_with_summary(ctx, index, total):
+                return []
             if len(outputs) != 1:
                 raise ToolFailed(f"{spec.label} did not produce exactly one result")
             current = outputs

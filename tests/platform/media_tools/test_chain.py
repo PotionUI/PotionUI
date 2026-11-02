@@ -392,3 +392,47 @@ def test_progress_is_monotonic_and_finishes_at_one(video, tmp_path):
     assert fractions[-1] == 1.0
     assert all(0.0 <= fraction <= 1.0 for fraction in fractions)
     assert {"Mirror", "Copy", "Crop"} <= {label for _, label in seen}
+
+
+class _Summarizes:
+    def __init__(self, summarize=True):
+        self.summarize = summarize
+
+    def run(self, inputs, params, ctx):
+        if self.summarize:
+            ctx.summarize(f"Saved {len(inputs)} file(s) elsewhere", [("Open", "/models?id=m-1")])
+        return []
+
+
+def _summary_spec(tool_id, impl, cardinality):
+    from src.platform.media_tools import MediaTool
+
+    class Tool(MediaTool):
+        def run(self, inputs, params, ctx):
+            return impl.run(inputs, params, ctx)
+
+    return fakes.make_spec(tool_id, Tool(), accepts=("image",), cardinality=cardinality, selection={"min": 1})
+
+
+@pytest.mark.parametrize("cardinality", ["many_to_one", "one_to_one"])
+def test_a_last_step_that_summarises_may_finish_without_media(tmp_path, cardinality):
+    ctx = ToolContext(tmp_path / "s")
+    images = [probe(make_image(tmp_path / f"i{n}.png", (40, 30))) for n in range(2)]
+    spec = _summary_spec("keep", _Summarizes(), cardinality)
+    assert run_chain([(spec, {})], images, ctx) == []
+    assert ctx.summary.message.startswith("Saved")
+    assert [(link.label, link.href) for link in ctx.summary.links] == [("Open", "/models?id=m-1")]
+
+
+def test_a_step_with_no_media_and_no_summary_still_fails(tmp_path):
+    ctx = ToolContext(tmp_path / "s")
+    image = probe(make_image(tmp_path / "i.png", (40, 30)))
+    with pytest.raises(ToolFailed, match="exactly one result"):
+        run_chain([(_summary_spec("keep", _Summarizes(False), "many_to_one"), {})], [image], ctx)
+
+
+def test_a_summary_cannot_end_the_chain_early(tmp_path):
+    ctx = ToolContext(tmp_path / "s")
+    image = probe(make_image(tmp_path / "i.png", (40, 30)))
+    with pytest.raises(ToolFailed, match="exactly one result"):
+        run_chain([(_summary_spec("keep", _Summarizes(), "many_to_one"), {}), (TINT, {})], [image], ctx)

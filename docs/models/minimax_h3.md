@@ -59,13 +59,14 @@ In the Video Director (`refs` mode's `per_shot` capability), a shot's references
 
 ### RefMods
 
-A RefMod ([ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod)) is a `.safetensors` bundle of tiny, already-VAE-encoded H3 reference latents, built outside PotionUI — in ComfyUI, or with that repo's `extract_mod.py` — and dropped into `models/refmods/`. Because it skips the encode step, it is cheap to add even several at a time. A bundle can carry image, video and/or audio members; each member joins the same packed sequence as the native pickers above, numbered *after* that kind's native references — a RefMod's image member is `<Picture 4>` when three native images already precede it. Per-file strength runs 0–1: 1 is full conditioning, a lower value blurs/weakens the member (never adds noise), and 0 drops it — same as unchecking it. A RefMod satisfies the "at least one reference" rule on its own.
+A RefMod ([ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod)) is a `.safetensors` bundle of tiny, already-VAE-encoded H3 reference latents, built outside PotionUI — in ComfyUI, or with that repo's `extract_mod.py` — and dropped into `models/refmods/`. Because it skips the encode step, it is cheap to add even several at a time. A bundle can carry image, video and/or audio members; each member joins the same packed sequence as the native pickers above, numbered *after* that kind's native references — a RefMod's image member is `<Picture 4>` when three native images already precede it. Per-file strength runs 0–1: 1 is full conditioning, a lower value blurs/weakens the member (never adds noise), and 0 drops it — same as unchecking it. A RefMod satisfies the "at least one reference" rule on its own. Copies repeats a file's members in place: each copy is one more reference of its kind, so it counts toward the per-kind and total reference limits and costs its tokens again.
 
 | Reference images | RefMods | Resulting labels |
 |---|---|---|
 | 2 native images | — | `<Picture 1>`, `<Picture 2>` |
 | 2 native images | 1 bundle, image member, strength 1.0 | `<Picture 1>`, `<Picture 2>`, `<Picture 3>` (blend) |
 | 0 native images | 1 bundle, image member, strength 0 | member dropped — no `<Picture>` label |
+| 1 native image | 1 bundle, image member, 2 copies | `<Picture 1>`, `<Picture 2>`, `<Picture 3>` |
 
 A keyframe is used twice. It goes through the text encoder's vision tower, so it appears in the prompt presentation as a `<Picture i>: ` block; and it is VAE-encoded into condition rows prepended to the packed sequence and pinned to a fixed timestep, rather than blended into the target latent behind a mask the way LTX conditions. Both consumers read one media-loader node in the preset, so they cannot disagree about which images they got or in what order. The keyframes are a fixed set shared by every output of a request rather than one source image per output, which the clip adapter signals with `forwards_full_image_batch` so `prompt_encoder` forwards the whole list to each request instead of indexing into it.
 

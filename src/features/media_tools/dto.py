@@ -151,6 +151,25 @@ class RunError(BaseModel):
     message: str
 
 
+class ResultLinkDTO(BaseModel):
+    label: str
+    href: str
+
+
+class RunSummaryDTO(BaseModel):
+    message: str
+    links: List[ResultLinkDTO] = Field(default_factory=list)
+
+    @classmethod
+    def of(cls, summary: Any) -> Optional["RunSummaryDTO"]:
+        if summary is None:
+            return None
+        return cls(
+            message=summary.message,
+            links=[ResultLinkDTO(label=link.label, href=link.href) for link in summary.links],
+        )
+
+
 class RunDTO(BaseModel):
     run_id: str
     kind: Literal["run", "preview"] = "run"
@@ -161,6 +180,7 @@ class RunDTO(BaseModel):
     replaced: bool = False
     preview: Optional[PreviewClip] = None
     error: Optional[RunError] = None
+    summary: Optional[RunSummaryDTO] = None
 
 
 class RunListResponse(BaseModel):
@@ -174,6 +194,7 @@ class RunResult:
     error: Optional[RunError] = None
     status: str = "completed"
     run_id: str = ""
+    summary: Optional[RunSummaryDTO] = None
 
     @property
     def ok(self) -> bool:

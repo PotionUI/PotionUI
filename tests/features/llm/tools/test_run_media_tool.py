@@ -419,6 +419,19 @@ class TestLongResults(RunMediaToolCase):
         self.assertEqual(data["items"][-1]["id"], "p19")
         self.assertLess(len(result.data), 8000)
 
+    def test_a_run_that_saved_elsewhere_reports_its_own_summary(self):
+        from src.features.media_tools.dto import RunResult, RunSummaryDTO
+
+        class SavesElsewhere:
+            async def run_sync(self, *args, **kwargs):
+                return RunResult(items=[], run_id="r", summary=RunSummaryDTO(message="Saved hero to the model folder"))
+
+        context = ToolContext(user_id=self.user_id, media_tool_service=SavesElsewhere())
+        result = asyncio.run(self.tool.execute(context, steps=[{"tool": "splittwo"}], items=[{"item_id": "x"}]))
+
+        data = json.loads(result.data)
+        self.assertEqual((data["count"], data["message"]), (0, "Saved hero to the model folder"))
+
     def test_a_short_result_reports_its_count_and_is_not_marked_truncated(self):
         item = self.image_item()
 

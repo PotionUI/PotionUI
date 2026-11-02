@@ -1352,7 +1352,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             PipeConfigSpec(
                 "reference_mods", list, [],
                 "RefMod bundles (`_shared.generation.refmods`, ported from the community "
-                "ComfyUI-MiniMaxH3Mod project): a list of `{file_path, strength}` dicts, each a "
+                "ComfyUI-MiniMaxH3Mod project): a list of `{file_path, strength, copies}` dicts, each a "
                 "`.safetensors` file of one or more PRE-ENCODED reference latents (image, video "
                 "and/or audio members). Loaded and strength-mixed here, then packed by "
                 "`pack_references` AFTER every native reference of a mod's own kind -- an image mod "

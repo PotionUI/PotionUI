@@ -60,7 +60,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Backends** — contributing an engine | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate` |
 | **Cloud** — contributing a hosted-model provider | `.cloud`, `.cloud_testing` | `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `valid_specs`, `load_catalog_file`, `encode_media`, `decode_inline`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS`, `fake_director_specs`, `fake_video_bytes`, `TINY_PNG`, `bind_plugin_backend` |
 | **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
-| **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks` |
+| **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks`, `load_native_component(path, kind)` (one component file, such as a `vae`, loaded on the CPU by the engine's own loader and returned as its wrapper: `.module`, `move_to(device)`, `unload()`) |
 | **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem`, `lint_preset_dir`, `PRESET_MEDIA_MAX_BYTES` and `PRESET_COVER_VIDEO_MAX_BYTES` (the byte budgets the preset linter warns above for any preset media file and for a video cover), `downscale_and_save_webp`, `describe_preset` (an installed preset's name, `vars` and modes, each with its default form and every form's fields as `type` + `required` + `multi`; `None` when not installed), `PresetDescription`, `ModeDescription`, `FieldDescription`, `bind_director_media(request, role, media, segment_id=None, promote=False)` (puts a resolved image, from `resolve_media_ref`, into a single-shot Video Director document as its `first` or `last` frame, keeping the rest of the document; with `promote=True` a first frame turns a text-only shot into a start-image shot and a last frame turns a start-image shot into a first-and-last shot; raises `DirectorBindingError` with a `code`), `RequirementBackendInfo` (the resolved backend a `RequirementContext` carries: `id`, `engine`, `driver`, `config`) |
 | **Forms** — the field types core ships | `.forms` | `core_field_type_names()` (the names of every core non-container field type, e.g. to validate a `field_type` a form-building tool is handed) |
 | **Generation** — submitting, following and reading generations | `.generation` | `submit_generation`, `cancel_generation`, `generation_state`, `list_generation_files`, `resolve_media_ref`, `get_session_snapshot`, `GenerationRequest`, `MediaRefError`, `SessionNotFoundError`, `IdempotencyKeyConflict` |
@@ -1568,7 +1568,7 @@ a file path in a response.
 | `GET /api/media-tools/effects/{tool_id}/shader` | | the effect's preview shader as `text/plain`, with an `ETag` |
 | `POST /api/media-tools/effects/analysis` | `{input: ref, steps, step_index}` | `{values, cached}`, an effect's measured values |
 
-- A `run` is `{run_id, kind: run / preview, status, progress 0..1, label, items, replaced, preview, error}`. Poll it by
+- A `run` is `{run_id, kind: run / preview, status, progress 0..1, label, items, replaced, preview, error, summary}`. Poll it by
   id for progress; a reload reattaches through the stored id or the run list.
 - **Saving a stack** runs it as one background run. Hidden steps are skipped and never validated; up to 64 visible steps
   run in order. `mode: new` makes Library items, `mode: update` with `target_item_id` replaces the file of the copy a
@@ -1688,11 +1688,19 @@ directory afterwards, whatever happens.
 
 - **`ToolMedia`** is a frozen dataclass: `path`, `kind` (`image` | `video` | `audio`), `width`, `height`,
   `duration`, `fps`, `has_audio`, `has_alpha`. Everything except `path` and `kind` may be `None`.
-- **`ToolContext`** gives you `scratch_dir`, `new_path(suffix)` for a fresh output path,
+- **`ToolContext`** gives you `scratch_dir`, `user_id` (the user the run belongs to, `None` outside a
+  Library or History run), `new_path(suffix)` for a fresh output path,
   `progress(fraction, label="")`, `is_cancelled()`, `probe(path)` and `ffmpeg(args, duration=None)`.
   `ffmpeg` is the one cancellable runner: it adds `-y`, parses `-progress` into `ctx.progress` when you
   pass the expected output `duration`, kills the process when the run is cancelled and raises on a failure
   without ever exposing stderr or server paths. Use it instead of `subprocess` so cancel works.
+- **`ctx.summarize(message, links=())`** lets the last step of a run finish with no media: return `[]` after
+  calling it and the run completes with nothing added to the Library, showing `message` (and the first
+  `(label, href)` link: a path inside the app such as `/models`, with no backslash, whitespace or control
+  character) in place of the Library notice. The run's
+  `summary` is `{message, links: [{label, href}]}`.
+- **`ToolFailed(message)`** ends the run as failed with `message` shown to the user, and **`ToolCancelled()`**
+  ends it as cancelled; raise it when `ctx.is_cancelled()` turns true during a long loop.
 - **`check_params(params)`** is an optional override for rules that span parameters (`end` must be greater
   than `start`); raise `InvalidToolParams(field, message)`.
 - **`validate_params(spec, params)`** is what the API, presets and chat all call before running; it applies
@@ -1772,7 +1780,7 @@ Successful JSON responses use the usual `{success, data}` envelope. A refusal an
   `replace` swaps the thumbnails together with the file and deletes the old ones. If another run replaced the
   same item first, the later run fails with `conflict` and publishes nothing. A run that would create more
   than 500 files fails with `too_many_outputs` before anything is published.
-- `GET /api/media-tools/runs/{run_id}` returns `{run_id, status, progress, label, items, replaced, error}`.
+- `GET /api/media-tools/runs/{run_id}` returns `{run_id, status, progress, label, items, replaced, error, summary}`.
   `status` is `queued`, `running`, `completed`, `failed` or `cancelled`; `items` are the resulting Library
   items; a failed run carries `error: {code, message}` (a tool's `requires` check ends the run with
   `unsupported_media`). An unknown run id, or another user's, is a 404.
@@ -1803,6 +1811,7 @@ model_type_dirs("lora")          # -> every online root's bound directory for th
 model_write_dir("lora")          # -> the directory a new download for this type lands in
 resolve_model_file(model_id)     # -> the winning present copy's absolute Path, or raises
 model_for_path(path)             # -> that model's catalog dict (or None), from a filesystem path
+index_model_file(path, user_id=None)  # -> {model_id, indexed, duplicate_of, warning}; catalogues a file the plugin wrote
 ```
 
 `resolve_model_file` raises `src.features.models.locator.ModelFileUnavailable` (not importable
@@ -1811,6 +1820,9 @@ model has no present copy on any online root; the error names the root when the 
 exist but its root is offline. `model_type_dirs`/`model_write_dir` can raise
 `src.platform.filesystem.model_roots.ModelRootError` subclasses when no root is bound for that
 type, is read-only, or is offline — same caveat.
+
+`index_model_file` takes only an existing file inside a folder some model type writes to (a `ValueError` otherwise),
+and with `user_id` assigns the new model, or the catalog model it duplicates, to that user.
 
 `MODEL_DIRECTORY_ALIASES` and `type_for_folder_name(name)` are for a plugin that speaks another
 tool's folder vocabulary (a ComfyUI-style `loras`/`checkpoints`/… folder name) and needs the

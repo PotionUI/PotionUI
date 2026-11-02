@@ -3231,7 +3231,7 @@ def test_the_default_sampler_is_euler(monkeypatch):
 
 @pytest.mark.parametrize("key,value", [
     ("sampler", "res_multistep"), ("sampler", "dpmpp_2m"), ("sampler", "sa_solver"),
-    ("sampler", "er_sde"), ("scheduler", "beta"),
+    ("sampler", "er_sde"), ("scheduler", "beta"), ("scheduler", "beta57"), ("audio_sigma_shift", 2.0),
 ])
 def test_build_context_carries_the_solver_knobs_off_the_pipe_config(key, value):
     """The half of the chain `generate_one` cannot see: the pipe config is what
@@ -3246,6 +3246,31 @@ def test_build_context_defaults_the_solver_knobs_to_the_reference_pair():
     pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
     ctx = pipe.build_context(_pipe_input(model=_fake_bundle(), conditioning=[_fake_conditioning(3)]))
     assert (ctx.extra.sampler, ctx.extra.scheduler) == ("euler", "simple")
+
+
+@pytest.mark.parametrize("video_shift,audio_shift", ((12.0, 3.0), (6.0, 2.0)))
+def test_the_eight_step_beta57_recipe_walks_beta57_knots_at_each_streams_own_shift(
+    video_shift, audio_shift, monkeypatch,
+):
+    from scipy.special import betaincinv
+
+    built = _recording_steppers(monkeypatch)
+    _run_generate_one({}, steps=8, ctx_overrides={
+        "sampler": "euler", "scheduler": "beta57",
+        "video_sigma_shift": video_shift, "audio_sigma_shift": audio_shift,
+    })
+
+    knots = [float(betaincinv(0.5, 0.7, 1.0 - i / 8)) for i in range(8)]
+    assert [name for name, _, _ in built] == ["euler", "euler"]
+    walked = [[sigma for _, sigma, _ in record] for _, _, record in built]
+    assert walked[0] == pytest.approx([video_shift * t / (1 + (video_shift - 1) * t) for t in knots], abs=1e-5)
+    assert walked[1] == pytest.approx([audio_shift * t / (1 + (audio_shift - 1) * t) for t in knots], abs=1e-5)
+
+
+def test_build_context_defaults_the_audio_shift_to_the_released_three():
+    pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
+    ctx = pipe.build_context(_pipe_input(model=_fake_bundle(), conditioning=[_fake_conditioning(3)]))
+    assert ctx.extra.audio_sigma_shift == pytest.approx(AUDIO_SHIFT) == pytest.approx(3.0)
 
 
 def test_each_stream_gets_its_own_stepper_walking_its_own_sigmas(monkeypatch):

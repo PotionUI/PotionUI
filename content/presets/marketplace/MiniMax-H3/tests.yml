@@ -64,6 +64,34 @@ cases:
       min_outputs: 1
       not_black: true
 
+  - name: "minimax-h3-custom-8step-beta57-fast"
+    mode: "video"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "a paper boat drifting down a rain-filled gutter, close-up, soft afternoon light, the sound of running water"
+      resolution: "832x480"
+      frames: 124
+      speed_profile: "custom"
+      steps: 8
+      sampler: "euler"
+      scheduler: "beta57"
+      video_sigma_shift: 12.0
+      audio_sigma_shift: 3.0
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      audio_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true
+
   # ref2va: the reference mode. TWO placeholders here, not one -- besides the
   # reference image itself, `model` has to resolve to the ref2va DiT partition,
   # a DIFFERENT file from the one the cases above pin. Nothing in the stack can

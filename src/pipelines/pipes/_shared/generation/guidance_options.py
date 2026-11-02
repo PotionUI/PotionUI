@@ -104,7 +104,7 @@ def schedule_settings_config_specs() -> List[PipeConfigSpec]:
         PipeConfigSpec(
             "schedule", str, "",
             "Sigma schedule key: '' (default) or 'shift' for the model's own shift-based "
-            "ramp, or any key registered on the schedule registry -- 'beta', "
+            "ramp, or any key registered on the schedule registry -- 'beta', 'beta57', "
             "'exponential', 'linear_quadratic', 'manual', 'ltx_dynamic' in core, plus "
             "whatever a plugin's 'schedules:' manifest root adds. GET /api/sampling/catalog "
             "lists what this instance accepts. Prefer 'manual_sigmas' below over setting "

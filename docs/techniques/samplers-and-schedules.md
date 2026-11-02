@@ -104,7 +104,7 @@ generator to stay reproducible; PotionUI wires this automatically from the gener
 
 ## Sigma schedules
 
-Four schedule modes are available via `schedule_settings.schedule`:
+Five schedule modes are available via `schedule_settings.schedule`:
 
 - **Shift-based (default, `schedule` unset or `"shift"`)** — the original per-family schedule:
   either a constant shift value, or (for families like Flux1 that declare `base_shift`/`max_shift`)
@@ -112,6 +112,10 @@ Four schedule modes are available via `schedule_settings.schedule`:
   selection existed.
 - **`beta`** — Beta-CDF spacing of the sigmas. Options: `alpha`, `beta` (both default `0.6`, both
   must be > 0).
+- **`beta57`** — the RES4LYF `beta57` recipe: ComfyUI's beta scheduler at alpha `0.5`, beta `0.7`.
+  The Beta quantiles space the unshifted `t` grid and the model's own shift is applied on top, as
+  ComfyUI does by indexing into the model's shifted sigma table. Leans steps toward the low-noise
+  end. No options.
 - **`exponential`** — geometric spacing. Options: `sigma_min` (default `1e-3`, must be in `(0, 1)`).
 - **`linear_quadratic`** — a linear-then-quadratic ramp (LTX lineage). Options: `threshold_noise`
   (default `0.025`), `linear_steps` (default half the step count).

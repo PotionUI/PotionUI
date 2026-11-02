@@ -35,6 +35,7 @@ EXPECTED_SAMPLERS = [
 EXPECTED_SCHEDULES = [
     ("shift", "Model default", ("*",), False, False, ()),
     ("beta", "Beta", ("*",), False, False, ("alpha", "beta")),
+    ("beta57", "Beta57", ("*",), False, False, ()),
     ("exponential", "Exponential", ("*",), False, False, ("sigma_min",)),
     ("linear_quadratic", "Linear-quadratic", ("*",), False, False, ("threshold_noise", "linear_steps")),
     ("manual", "Manual sigmas", ("*",), True, False, ("sigmas",)),

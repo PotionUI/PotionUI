@@ -308,7 +308,9 @@ class TestShippedDeclarations:
         groups = _by_id(resolve_formula_groups(h3, "video"))
 
         assert list(groups) == ["speed", "size", "loras", "cache", "sparse", "enhance", "models"]
-        assert groups["speed"].fields == ["speed_profile", "steps", "sampler", "scheduler"]
+        assert groups["speed"].fields == [
+            "speed_profile", "steps", "sampler", "scheduler", "video_sigma_shift", "audio_sigma_shift",
+        ]
         assert groups["size"].fields == ["resolution"]
         assert groups["models"].preselect is False
         assert groups["models"].fields == ["model", "text_encoder", "video_vae", "audio_vae", "flex_adapter", "preview_decoder", "upscale_model"]
@@ -318,7 +320,9 @@ class TestShippedDeclarations:
     def test_minimax_h3_refs_gets_the_shared_advanced_tab_groups(self, h3):
         groups = _by_id(resolve_formula_groups(h3, "refs"))
 
-        assert groups["speed"].fields == ["speed_profile", "steps", "sampler", "scheduler"]
+        assert groups["speed"].fields == [
+            "speed_profile", "steps", "sampler", "scheduler", "video_sigma_shift", "audio_sigma_shift",
+        ]
         assert "sparse" in groups and "cache" in groups
         assert "references" not in {name for group in groups.values() for name in group.fields}
 

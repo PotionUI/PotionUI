@@ -226,6 +226,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.layout import (
 )
 from src.pipelines.pipes.generator.video_minimax_h3.samplers import LCM, SAMPLERS, make_stepper
 from src.pipelines.pipes.generator.video_minimax_h3.schedule import (
+    AUDIO_SHIFT,
     KEYFRAME_NOISE_AUG,
     SCHEDULERS,
     SIMPLE_SCHEDULER,
@@ -996,6 +997,7 @@ class _MiniMaxH3Ctx:
     source_frame_count: Optional[int] = None
     denoise: float = 1.0
     video_sigma_shift: float = VIDEO_SHIFT
+    audio_sigma_shift: float = AUDIO_SHIFT
     runtime_lora_stack: list = field(default_factory=list)
     runtime_lora_masked: list = field(default_factory=list)
     source_role: str = "none"
@@ -1235,8 +1237,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "scheduler", str, SIMPLE_SCHEDULER,
                 "Where the schedule places its knots. 'simple' is the reference uniform grid; "
                 "'beta' pushes it through a Beta(0.6, 0.6) quantile function, which clusters "
-                "knots at both ends of the trajectory. The video (shift 12) and audio (shift 3) "
-                "schedules are both derived from the SAME knots, so the two streams stay paired "
+                "knots at both ends of the trajectory; 'beta57' uses Beta(0.5, 0.7), which leans "
+                "them toward the clean end. The video ('video_sigma_shift') and audio "
+                "('audio_sigma_shift') schedules are both derived from the SAME knots, so the two streams stay paired "
                 "whichever scheduler runs. Cannot be combined with a manual sigma grid.",
                 required=False, choices=list(SCHEDULERS),
             ),
@@ -1272,6 +1275,12 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "released checkpoint's own -- see 'manual_sigmas'). A refine pass over an "
                 "already-upsampled latent typically runs at a lower shift (e.g. 9) than a fresh "
                 "generation; the audio stream's own shift (3.0) is a separate, unaffected knob.",
+                required=False, min_value=0.1, max_value=50.0,
+            ),
+            PipeConfigSpec(
+                "audio_sigma_shift", float, AUDIO_SHIFT,
+                f"Audio stream's exponential-shift constant (default {AUDIO_SHIFT:g}, the released "
+                "checkpoint's own). Independent of 'video_sigma_shift'; both streams keep the same knots.",
                 required=False, min_value=0.1, max_value=50.0,
             ),
             PipeConfigSpec(
@@ -1725,6 +1734,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         device = self.config.get("device", "cuda")
         decode = bool(self.config.get("decode", True))
         video_sigma_shift = float(self.config.get("video_sigma_shift", VIDEO_SHIFT))
+        audio_sigma_shift = float(self.config.get("audio_sigma_shift", AUDIO_SHIFT))
 
         director_images = list(pipe_input.input.get("director_image") or [])
         if plan is not None:
@@ -1753,7 +1763,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         scheduler = str(self.config.get("scheduler", SIMPLE_SCHEDULER))
         video_schedule, _ = resolve_schedules(
             steps, manual_video=manual_sigmas, manual_audio=manual_audio_sigmas, scheduler=scheduler,
-            video_shift=video_sigma_shift, denoise=denoise,
+            video_shift=video_sigma_shift, audio_shift=audio_sigma_shift, denoise=denoise,
         )
         effective_steps = int(video_schedule.timesteps.numel())
 
@@ -1848,7 +1858,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 initial_latents=initial_latents,
                 initial_audio_latents=initial_audio_latents, audio_refine=audio_refine,
                 source_frame_count=int(source_frame_count) if source_frame_count else None,
-                denoise=denoise, video_sigma_shift=video_sigma_shift,
+                denoise=denoise, video_sigma_shift=video_sigma_shift, audio_sigma_shift=audio_sigma_shift,
                 runtime_lora_stack=runtime_lora_stack,
                 runtime_lora_masked=runtime_lora_masked,
                 source_role=source_role, source_frames=source_frames, source_path=source_path,
@@ -2435,7 +2445,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         # schedule has to exist before that draw is even shaped.
         video_schedule, audio_schedule = resolve_schedules(
             steps, manual_video=c.manual_sigmas, manual_audio=c.manual_audio_sigmas, scheduler=c.scheduler,
-            video_shift=c.video_sigma_shift, denoise=c.denoise,
+            video_shift=c.video_sigma_shift, audio_shift=c.audio_sigma_shift, denoise=c.denoise,
         )
         num_steps = int(video_schedule.timesteps.numel())
 
@@ -2896,7 +2906,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         video_schedule, _ = resolve_schedules(
             window.steps if window.steps is not None else c.steps,
             manual_video=c.manual_sigmas, manual_audio=c.manual_audio_sigmas, scheduler=c.scheduler,
-            video_shift=c.video_sigma_shift, denoise=c.denoise,
+            video_shift=c.video_sigma_shift, audio_shift=c.audio_sigma_shift, denoise=c.denoise,
         )
         return int(video_schedule.timesteps.numel())
 

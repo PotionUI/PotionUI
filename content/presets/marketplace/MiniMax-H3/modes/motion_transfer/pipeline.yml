@@ -167,6 +167,8 @@ pipeline:
       sparse_attn_dense_last_steps: "{{ form.sparse_attn_dense_last_steps }}"
       sampler: "{{ form.sampler }}"
       scheduler: "{{ form.scheduler }}"
+      video_sigma_shift: "{{ form.video_sigma_shift }}"
+      audio_sigma_shift: "{{ form.audio_sigma_shift }}"
       manual_sigmas: "{{ form.manual_sigmas }}"
       manual_audio_sigmas: "{{ form.manual_audio_sigmas }}"
 

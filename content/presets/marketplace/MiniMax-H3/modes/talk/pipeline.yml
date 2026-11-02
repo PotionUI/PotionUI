@@ -144,6 +144,8 @@ pipeline:
       sparse_attn_dense_last_steps: "{{ form.sparse_attn_dense_last_steps }}"
       sampler: "{{ generation.profile.sampler | default(form.sampler) }}"
       scheduler: "{{ generation.profile.schedule | default(form.scheduler) }}"
+      video_sigma_shift: "{{ generation.profile.shift | default(form.video_sigma_shift) }}"
+      audio_sigma_shift: "{{ form.audio_sigma_shift }}"
       manual_sigmas: "{{ (generation.profile.extra | default({})).manual_sigmas | default(form.manual_sigmas) }}"
       manual_audio_sigmas: "{{ (generation.profile.extra | default({})).manual_audio_sigmas | default(form.manual_audio_sigmas) }}"
       runtime_loras:

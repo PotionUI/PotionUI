@@ -409,6 +409,18 @@ def _build_beta_schedule(ctx: ScheduleContext) -> Tensor:
     return _beta_sigmas(ctx.steps, alpha, beta_param)
 
 
+BETA57_ALPHA = 0.5
+BETA57_BETA = 0.7
+
+
+def _build_beta57_schedule(ctx: ScheduleContext) -> Tensor:
+    t = _beta_sigmas(ctx.steps, BETA57_ALPHA, BETA57_BETA)
+    return _shift_curve(
+        t, shift=ctx.shift, base_shift=ctx.base_shift, max_shift=ctx.max_shift,
+        dynamic_shift=ctx.dynamic_shift, fixed_mu=ctx.fixed_mu, image_seq_len=ctx.image_seq_len,
+    )
+
+
 def _build_exponential_schedule(ctx: ScheduleContext) -> Tensor:
     sigma_min = float(ctx.options.get("sigma_min", 1e-3))
     # S17: sigma_min must sit strictly inside (0, 1) -- >= 1 yields an ASCENDING

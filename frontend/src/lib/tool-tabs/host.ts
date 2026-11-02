@@ -1,7 +1,6 @@
 import { tabsStore } from '$lib/stores/tabs';
 import type { MediaRef, RunRef, ToolTab } from '$lib/types/tabs';
 import { setToolTabActions } from './actions';
-import { openToolTab } from './open';
 import type { ToolTabActions, ToolTabHost, ToolTabOpenOptions } from './types';
 
 export function createToolTabHost(tab: ToolTab, phone: boolean): ToolTabHost {
@@ -23,6 +22,6 @@ export function createToolTabHost(tab: ToolTab, phone: boolean): ToolTabHost {
 		setRun: (run: RunRef | null) => tabsStore.updateToolTab(tabId, { run }),
 		setActions: (actions: ToolTabActions | null) => setToolTabActions(tabId, actions),
 		openToolTab: (tool: string, source: MediaRef | null, options?: ToolTabOpenOptions) =>
-			openToolTab(tool, source, options)
+			tabsStore.openToolTab(tool, source, { activeTool: options?.activeTool ?? null })
 	};
 }

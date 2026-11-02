@@ -99,6 +99,27 @@ test.describe('tool tabs on desktop', () => {
 		await expect(bookTab(page, 'Image editor').getByTestId('tab-tool-thumb')).toBeVisible();
 		await screenshot(page, JOURNEY, 'image-editor-empty-1440');
 
+		const generationRequests: string[] = [];
+		page.on('request', (request) => {
+			if (request.method() === 'POST' && /\/api\/generations?(\/|$|\?)/.test(new URL(request.url()).pathname)) generationRequests.push(request.url());
+		});
+		const panelFlags = async () => {
+			const k = await scopedStorageKey(page, 'potionui_tabs_state');
+			return page.evaluate((storageKey) => {
+				const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{"tabs":[]}');
+				const generation = saved.tabs.find((tab: { kind?: string }) => tab.kind !== 'tool') ?? {};
+				return { left: !!generation.leftPanelCollapsed, workbench: !!generation.workbenchCollapsed };
+			}, k);
+		};
+		const before = await panelFlags();
+		await host.click({ position: { x: 40, y: 300 } });
+		for (const key of ['g', 'f', 'e']) await page.keyboard.press(key);
+		await page.waitForTimeout(800);
+		expect(generationRequests).toEqual([]);
+		expect(await panelFlags()).toEqual(before);
+		await expect(host).toHaveAttribute('data-tool', 'image');
+		await expect(page.locator('.generation-panel')).toHaveCount(0);
+
 		await bookTab(page, 'Image editor').dblclick();
 		const input = page.locator('.book-tab input.tab-input');
 		await input.fill('Hero shot');

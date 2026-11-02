@@ -9,7 +9,6 @@
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import { isToolTab, type Tab } from '$lib/types/tabs';
 	import { coreToolKinds, pluginToolKinds, toolKinds } from './registry';
-	import { openToolTab } from './open';
 	import type { ToolKindDefinition } from './types';
 
 	export let onClose: () => void;
@@ -61,7 +60,7 @@
 	}
 
 	function newTool(tool: string) {
-		openToolTab(tool, null);
+		tabsStore.openToolTab(tool, null);
 		onClose();
 	}
 </script>

@@ -21,7 +21,6 @@
 	import { isToolTab, type Tab, type ToolTab } from '$lib/types/tabs';
 	import type { WorkspaceTab } from '$lib/types/generation';
 	import NewTabMenu from '$lib/tool-tabs/NewTabMenu.svelte';
-	import { openToolTab } from '$lib/tool-tabs/open';
 	import { toolKinds } from '$lib/tool-tabs/registry';
 
 	$: tabs = $tabsStore.tabs;
@@ -183,7 +182,7 @@
 	}
 
 	function addToolTab(tool: string) {
-		openToolTab(tool, null);
+		tabsStore.openToolTab(tool, null);
 	}
 
 	function toolIconFor(tab: ToolTab): string {

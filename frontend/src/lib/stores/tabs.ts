@@ -2,6 +2,10 @@ import { writable, derived, type Readable } from 'svelte/store';
 import type { GenerationTab, GenerationState, MediaRef, PersistedGenerationTab, PersistedToolTab, Tab, ToolTab } from '$lib/types/tabs';
 import { isGenerationTab, isToolTab } from '$lib/types/tabs';
 import { findToolTabFor, mediaFileStem, planToolTabOpen } from '$lib/tool-tabs/sources';
+import { toolLabel } from '$lib/tool-tabs/registry';
+import { registerBuiltinToolKinds } from '$lib/tool-tabs/builtin';
+
+registerBuiltinToolKinds();
 import { saveTabsToLocalStorage, loadTabsFromLocalStorage } from './tabPersistence';
 import { debounce } from '$lib/utils/time';
 import { DEFAULT_PROMPT_PANEL_WIDTH } from './generationLayout';
@@ -116,7 +120,6 @@ function restoreToolTab(id: string, p: PersistedToolTab): ToolTab {
 
 export interface OpenToolTabOptions {
 	activeTool?: string | null;
-	name?: string;
 	activate?: boolean;
 }
 
@@ -127,13 +130,46 @@ const TAB_BASE_KEYS = ['name', 'color'] as const;
 export interface TabsState {
 	tabs: Tab[];
 	activeTabId: string;
+	lastGenerationTabId: string;
+}
+
+export function normalizeTabsState(state: TabsState): TabsState {
+	let tabs = state.tabs;
+	if (!tabs.some(isGenerationTab)) {
+		tabs = [...tabs, createDefaultTab(generateTabId(), 'Generation 1')];
+	}
+	const activeTabId = tabs.some((tab) => tab.id === state.activeTabId) ? state.activeTabId : tabs[0].id;
+	const active = tabs.find((tab) => tab.id === activeTabId);
+	const last = tabs.find((tab) => tab.id === state.lastGenerationTabId);
+	const lastGenerationTabId = isGenerationTab(active)
+		? active.id
+		: isGenerationTab(last)
+			? last.id
+			: tabs.find(isGenerationTab)!.id;
+	if (tabs === state.tabs && activeTabId === state.activeTabId && lastGenerationTabId === state.lastGenerationTabId) {
+		return state;
+	}
+	return { ...state, tabs, activeTabId, lastGenerationTabId };
+}
+
+function appendToolTab(state: TabsState, data: ToolTabUpdate & { tool: string }, activate: boolean): { state: TabsState; id: string } {
+	const id = generateTabId();
+	const source = data.source ?? null;
+	const tab: ToolTab = {
+		...createToolTab(id, data.tool, source, toolLabel(data.tool), data.activeTool ?? null),
+		...data,
+		kind: 'tool',
+		id
+	};
+	return { state: { ...state, tabs: [...state.tabs, tab], activeTabId: activate ? id : state.activeTabId }, id };
 }
 
 function createEqualityAwareStore(initialValue: TabsState) {
-	let current = initialValue;
-	const base = writable(initialValue);
+	let current = normalizeTabsState(initialValue);
+	const base = writable(current);
 
-	function set(newValue: TabsState) {
+	function set(next: TabsState) {
+		const newValue = normalizeTabsState(next);
 		if (newValue === current) return;
 		current = newValue;
 		base.set(newValue);
@@ -160,6 +196,7 @@ function tabPersistenceFieldsChanged(a: Tab, b: Tab): boolean {
 
 function tabsRelevantToPersistenceChanged(prev: TabsState, next: TabsState): boolean {
 	if (prev.activeTabId !== next.activeTabId) return true;
+	if (prev.lastGenerationTabId !== next.lastGenerationTabId) return true;
 	if (prev.tabs.length !== next.tabs.length) return true;
 	for (let i = 0; i < next.tabs.length; i++) {
 		const prevTab = prev.tabs[i];
@@ -244,21 +281,22 @@ function createTabsStore() {
 
 	const { subscribe, set, update } = createEqualityAwareStore({
 		tabs: initialTabs,
-		activeTabId: initialActiveTabId
+		activeTabId: initialActiveTabId,
+		lastGenerationTabId: persisted?.lastGenerationTabId ?? ''
 	});
 
 	// Debounced save to localStorage (500ms delay)
 	let savePending = false;
-	const debouncedSave = debounce((tabs: Tab[], activeTabId: string) => {
+	const debouncedSave = debounce((state: TabsState) => {
 		savePending = false;
-		saveTabsToLocalStorage(tabs, activeTabId);
+		saveTabsToLocalStorage(state.tabs, state.activeTabId, state.lastGenerationTabId);
 	}, 500);
 
 	function flushPendingSave() {
 		if (!savePending) return;
 		savePending = false;
 		debouncedSave.cancel();
-		subscribe((state) => saveTabsToLocalStorage(state.tabs, state.activeTabId))();
+		subscribe((state) => saveTabsToLocalStorage(state.tabs, state.activeTabId, state.lastGenerationTabId))();
 	}
 
 	if (typeof window !== 'undefined' && typeof document !== 'undefined') {
@@ -274,14 +312,14 @@ function createTabsStore() {
 		if (lastPersistedState && !tabsRelevantToPersistenceChanged(lastPersistedState, state)) return;
 		lastPersistedState = state;
 		savePending = true;
-		debouncedSave(state.tabs, state.activeTabId);
+		debouncedSave(state);
 	});
 
 	const tabsStoreApi = {
 		subscribe,
 
 		persistNow: () => {
-			subscribe((state) => saveTabsToLocalStorage(state.tabs, state.activeTabId))();
+			subscribe((state) => saveTabsToLocalStorage(state.tabs, state.activeTabId, state.lastGenerationTabId))();
 		},
 
 		// Tab management
@@ -316,7 +354,6 @@ function createTabsStore() {
 				const closedTab = state.tabs.find((t) => t.id === tabId);
 				const newTabs = state.tabs.filter((t) => t.id !== tabId);
 				if (newTabs.length === 0) {
-					// Always keep at least one tab
 					return state;
 				}
 
@@ -420,11 +457,11 @@ function createTabsStore() {
 		},
 
 		addToolTabWithData: (data: ToolTabUpdate & { tool: string }): string => {
-			const newId = generateTabId();
+			let newId = '';
 			update((state) => {
-				const base = createToolTab(newId, data.tool, data.source ?? null, data.name ?? data.tool, data.activeTool ?? null);
-				const newTab: ToolTab = { ...base, ...data, kind: 'tool', id: newId };
-				return { tabs: [...state.tabs, newTab], activeTabId: newId };
+				const appended = appendToolTab(state, data, true);
+				newId = appended.id;
+				return appended.state;
 			});
 			return newId;
 		},
@@ -468,7 +505,7 @@ function createTabsStore() {
 							? { ...tab, activeTool }
 							: tab
 					);
-					return { tabs, activeTabId: activate ? plan.tabId : state.activeTabId };
+					return { ...state, tabs, activeTabId: activate ? plan.tabId : state.activeTabId };
 				}
 				if (plan.action === 'fill') {
 					openedId = plan.tabId;
@@ -486,14 +523,11 @@ function createTabsStore() {
 								}
 							: tab
 					);
-					return { tabs, activeTabId: activate ? plan.tabId : state.activeTabId };
+					return { ...state, tabs, activeTabId: activate ? plan.tabId : state.activeTabId };
 				}
-				openedId = generateTabId();
-				const newTab = createToolTab(openedId, tool, source, options.name ?? tool, activeTool);
-				return {
-					tabs: [...state.tabs, newTab],
-					activeTabId: activate ? openedId : state.activeTabId
-				};
+				const appended = appendToolTab(state, { tool, source, activeTool }, activate);
+				openedId = appended.id;
+				return appended.state;
 			});
 			return openedId;
 		},
@@ -558,7 +592,8 @@ function createTabsStore() {
 			const id = generateTabId();
 			set({
 				tabs: [createDefaultTab(id, 'Generation 1')],
-				activeTabId: id
+				activeTabId: id,
+				lastGenerationTabId: id
 			});
 		}
 	};
@@ -587,22 +622,12 @@ export const activeToolTab = selectorStore(($store): ToolTab | null => {
 	return isToolTab(tab) ? tab : null;
 });
 
-const detachedGenerationTab = createDefaultTab('', 'Generation');
-let lastGenerationTabId: string | null = null;
-
-export function generationViewTab(state: TabsState, lastId: string | null): GenerationTab {
-	const active = state.tabs.find((t) => t.id === state.activeTabId);
-	if (isGenerationTab(active)) return active;
-	const last = lastId ? state.tabs.find((t) => t.id === lastId) : undefined;
-	if (isGenerationTab(last)) return last;
-	return state.tabs.find(isGenerationTab) ?? detachedGenerationTab;
+export function generationViewTab(state: TabsState): GenerationTab {
+	const last = state.tabs.find((t) => t.id === state.lastGenerationTabId);
+	return isGenerationTab(last) ? last : state.tabs.find(isGenerationTab)!;
 }
 
-export const activeTab = selectorStore(($store): GenerationTab => {
-	const tab = generationViewTab($store, lastGenerationTabId);
-	if (tab !== detachedGenerationTab) lastGenerationTabId = tab.id;
-	return tab;
-});
+export const activeTab = selectorStore(generationViewTab);
 
 // The generation queue lets many tabs have in-flight work simultaneously, so
 // there is no longer a single exclusive "generating tab" lock (the old

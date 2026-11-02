@@ -35,14 +35,13 @@ export function planToolTabOpen(
 	tabs: Tab[],
 	activeTabId: string,
 	tool: string,
-	source: MediaRef | null,
-	claimed: ReadonlySet<string> = new Set()
+	source: MediaRef | null
 ): ToolTabOpenPlan {
 	const existing = findToolTabFor(tabs, source, tool);
 	if (existing) return { action: 'focus', tabId: existing.id };
 	if (!source) return { action: 'new' };
 	const empty = tabs.filter(
-		(tab): tab is ToolTab => isToolTab(tab) && tab.tool === tool && !tab.source && !claimed.has(tab.id)
+		(tab): tab is ToolTab => isToolTab(tab) && tab.tool === tool && !tab.source && !(tab.dirty ?? 0) && tab.state == null
 	);
 	if (empty.length === 0) return { action: 'new' };
 	const preferred = empty.find((tab) => tab.id === activeTabId) ?? empty[0];

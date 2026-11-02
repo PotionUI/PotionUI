@@ -24,7 +24,7 @@ describe('openToolTab', () => {
 	beforeEach(() => tabsStore.reset());
 
 	it('adds an active, empty tool tab named after the tool when there is no source', () => {
-		const id = tabsStore.openToolTab('image', null, { name: 'Image editor' });
+		const id = tabsStore.openToolTab('image', null);
 		const tab = tabById(id);
 		expect(isToolTab(tab)).toBe(true);
 		expect(tab).toMatchObject({ kind: 'tool', tool: 'image', source: null, state: null, dirty: 0, name: 'Image editor' });
@@ -33,7 +33,7 @@ describe('openToolTab', () => {
 	});
 
 	it('names a tab opened on an item after the file stem', () => {
-		const id = tabsStore.openToolTab('image', dusk, { name: 'Image editor', activeTool: 'crop' });
+		const id = tabsStore.openToolTab('image', dusk, { activeTool: 'crop' });
 		expect(tabById(id)).toMatchObject({ name: 'observatory-dusk', source: dusk, activeTool: 'crop' });
 	});
 
@@ -57,8 +57,8 @@ describe('openToolTab', () => {
 	});
 
 	it('loads the item into an empty editor tab of the same kind, preferring the active one', () => {
-		const emptyA = tabsStore.openToolTab('image', null, { name: 'Image editor' });
-		const emptyB = tabsStore.openToolTab('image', null, { name: 'Image editor' });
+		const emptyA = tabsStore.openToolTab('image', null);
+		const emptyB = tabsStore.openToolTab('image', null);
 		tabsStore.setActiveTab(emptyB);
 
 		const id = tabsStore.openToolTab('image', fox);
@@ -69,15 +69,25 @@ describe('openToolTab', () => {
 		expect(tabById(emptyA)).toMatchObject({ source: null });
 	});
 
+	it('does not fill a sourceless tab that already holds edits or state', () => {
+		const dirty = tabsStore.openToolTab('image', null);
+		tabsStore.updateToolTab(dirty, { dirty: 1 });
+		const stateful = tabsStore.openToolTab('image', null);
+		tabsStore.updateToolTab(stateful, { state: { steps: [] } });
+		const id = tabsStore.openToolTab('image', fox);
+		expect([dirty, stateful]).not.toContain(id);
+		expect(toolTabs()).toHaveLength(3);
+	});
+
 	it('never fills an empty tab of another kind', () => {
-		const emptyVideo = tabsStore.openToolTab('video', null, { name: 'Video editor' });
+		const emptyVideo = tabsStore.openToolTab('video', null);
 		const id = tabsStore.openToolTab('image', fox);
 		expect(id).not.toBe(emptyVideo);
 		expect(tabById(emptyVideo)).toMatchObject({ source: null });
 	});
 
 	it('keeps a renamed tab name when it is filled', () => {
-		const empty = tabsStore.openToolTab('image', null, { name: 'Image editor' });
+		const empty = tabsStore.openToolTab('image', null);
 		tabsStore.renameTab(empty, 'Hero shot');
 		tabsStore.openToolTab('image', fox);
 		expect(tabById(empty)).toMatchObject({ name: 'Hero shot', renamed: true, source: fox });
@@ -131,7 +141,7 @@ describe('tool tabs and generation-only helpers', () => {
 	});
 
 	it('setToolTabTitle does not override a name the user chose', () => {
-		const id = tabsStore.openToolTab('image', null, { name: 'Image editor' });
+		const id = tabsStore.openToolTab('image', null);
 		tabsStore.setToolTabTitle(id, 'fox');
 		expect(tabById(id)?.name).toBe('fox');
 		tabsStore.renameTab(id, 'Mine');
@@ -167,6 +177,75 @@ describe('tool tabs and generation-only helpers', () => {
 		tabsStore.removeTab(id);
 		expect(toolTabs()).toHaveLength(0);
 		expect(state().activeTabId).toBe(state().tabs[0].id);
+	});
+});
+
+describe('the generation tab invariant', () => {
+	beforeEach(() => tabsStore.reset());
+
+	it('replaces the last generation tab with a fresh one when it closes next to a tool tab, keeping the tool tab active', () => {
+		const generationId = state().tabs[0].id;
+		const toolId = tabsStore.openToolTab('image', dusk);
+		tabsStore.removeTab(generationId);
+		const after = state();
+		expect(after.activeTabId).toBe(toolId);
+		expect(after.tabs.map((tab) => tab.kind)).toEqual(['tool', 'generation']);
+		const fresh = after.tabs[1] as GenerationTab;
+		expect(fresh.id).not.toBe(generationId);
+		expect(fresh.name).toBe('Generation 1');
+		expect(get(activeTab).id).toBe(fresh.id);
+		expect(after.lastGenerationTabId).toBe(fresh.id);
+	});
+
+	it('refuses to close the only tab', () => {
+		const only = state().tabs[0].id;
+		tabsStore.removeTab(only);
+		expect(state().tabs.map((tab) => tab.id)).toEqual([only]);
+	});
+
+	it('tracks the last active generation tab in the state through every switch', () => {
+		const first = state().tabs[0].id;
+		tabsStore.addTab();
+		const second = state().activeTabId;
+		expect(state().lastGenerationTabId).toBe(second);
+		const toolId = tabsStore.openToolTab('video', clip);
+		expect(state().lastGenerationTabId).toBe(second);
+		tabsStore.setActiveTab(first);
+		expect(state().lastGenerationTabId).toBe(first);
+		tabsStore.setActiveTab(toolId);
+		expect(get(activeTab).id).toBe(first);
+		tabsStore.removeTab(first);
+		expect(state().lastGenerationTabId).toBe(second);
+	});
+
+	it('points at the new generation tab after a reset', () => {
+		tabsStore.openToolTab('image', dusk);
+		tabsStore.reset();
+		const { tabs, lastGenerationTabId } = state();
+		expect(tabs).toHaveLength(1);
+		expect(lastGenerationTabId).toBe(tabs[0].id);
+		expect(get(activeTab).id).toBe(tabs[0].id);
+	});
+
+	it('keeps a real generation tab after a workspace load that holds only tool tabs, and after a mixed one', () => {
+		tabsStore.reset();
+		const placeholder = state().tabs[0].id;
+		tabsStore.addToolTabWithData({ tool: 'image', name: 'Hero', source: dusk });
+		tabsStore.removeTab(placeholder);
+		const onlyTools = state();
+		expect(onlyTools.tabs.map((tab) => tab.kind)).toEqual(['tool', 'generation']);
+		expect(onlyTools.lastGenerationTabId).toBe(onlyTools.tabs[1].id);
+
+		tabsStore.reset();
+		const placeholder2 = state().tabs[0].id;
+		const generation = tabsStore.addTabWithData('Portrait', { selectedPreset: 'p' });
+		const tool = tabsStore.addToolTabWithData({ tool: 'video', name: 'Clip', source: clip });
+		tabsStore.removeTab(placeholder2);
+		const mixed = state();
+		expect(mixed.tabs.map((tab) => tab.id)).toEqual([generation, tool]);
+		expect(mixed.activeTabId).toBe(tool);
+		expect(mixed.lastGenerationTabId).toBe(generation);
+		expect(get(activeTab).id).toBe(generation);
 	});
 });
 
@@ -217,6 +296,29 @@ describe('tool tab persistence', () => {
 		});
 	});
 
+	it('drops blob: thumbnails, which are dead after a reload', () => {
+		const tab: ToolTab = { kind: 'tool', id: 't2', name: 'x', tool: 'image', source: null, state: null, thumbnail: 'blob:http://x/1' };
+		expect(toPersistedTab(tab).thumbnail).toBeNull();
+		expect(toPersistedTab({ ...tab, thumbnail: '/m/x.png' }).thumbnail).toBe('/m/x.png');
+	});
+
+	it('remembers which generation tab was last active across a reload', async () => {
+		vi.doMock('$app/environment', () => ({ browser: true }));
+		vi.resetModules();
+		const first = await import('./tabs');
+		first.tabsStore.addTab();
+		const second = get(first.tabsStore).activeTabId;
+		first.tabsStore.setActiveTab(get(first.tabsStore).tabs[0].id);
+		first.tabsStore.setActiveTab(second);
+		first.tabsStore.openToolTab('image', dusk);
+		first.tabsStore.persistNow();
+
+		vi.resetModules();
+		const reloaded = await import('./tabs');
+		expect(get(reloaded.tabsStore).lastGenerationTabId).toBe(second);
+		expect(get(reloaded.activeTab).id).toBe(second);
+	});
+
 	it('round-trips tool tabs next to generation tabs through a reload', async () => {
 		vi.doMock('$app/environment', () => ({ browser: true }));
 		vi.resetModules();
@@ -230,6 +332,7 @@ describe('tool tab persistence', () => {
 		const second = await import('./tabs');
 		const restored = get(second.tabsStore);
 		expect(restored.activeTabId).toBe(toolId);
+		expect(restored.lastGenerationTabId).toBe(restored.tabs[0].id);
 		expect(restored.tabs.map((tab) => tab.kind)).toEqual(['generation', 'tool']);
 		expect(restored.tabs[1]).toMatchObject({
 			id: toolId,
@@ -242,6 +345,27 @@ describe('tool tab persistence', () => {
 			activeTool: 'effects',
 			dirty: 2
 		});
+	});
+
+	it('restores the last generation tab and adds one when only tool tabs were saved', async () => {
+		localStorage.setItem(
+			`${TABS_STORAGE_KEY}::anon`,
+			JSON.stringify({
+				tabs: [
+					{ kind: 'tool', id: 'tool-1', name: 'dusk', tool: 'image', source: dusk, state: null },
+					{ kind: 'tool', id: 'tool-2', name: 'clip', tool: 'video', source: clip, state: null }
+				],
+				activeTabId: 'tool-2',
+				lastGenerationTabId: 'gone'
+			})
+		);
+		vi.doMock('$app/environment', () => ({ browser: true }));
+		vi.resetModules();
+		const fresh = await import('./tabs');
+		const restored = get(fresh.tabsStore);
+		expect(restored.tabs.map((tab) => tab.kind)).toEqual(['tool', 'tool', 'generation']);
+		expect(restored.activeTabId).toBe('tool-2');
+		expect(get(fresh.activeTab).id).toBe(restored.tabs[2].id);
 	});
 
 	it('loads a persisted tab with no kind as a generation tab', async () => {

@@ -32,7 +32,7 @@ function sanitizeForPersistence(value: unknown): unknown {
 }
 
 function toPersistedToolTab(t: ToolTab): PersistedToolTab {
-	const thumbnail = t.thumbnail && !DATA_URI_RE.test(t.thumbnail) ? t.thumbnail : null;
+	const thumbnail = t.thumbnail && !DATA_URI_RE.test(t.thumbnail) && !t.thumbnail.startsWith('blob:') ? t.thumbnail : null;
 	return {
 		kind: 'tool',
 		id: t.id,
@@ -103,7 +103,7 @@ export function toPersistedTab(t: Tab): PersistedTab {
 	};
 }
 
-export function saveTabsToLocalStorage(tabs: Tab[], activeTabId: string): void {
+export function saveTabsToLocalStorage(tabs: Tab[], activeTabId: string, lastGenerationTabId?: string): void {
 	if (!browser) return;
 	try {
 		const persisted: PersistedTabsState = {
@@ -114,7 +114,8 @@ export function saveTabsToLocalStorage(tabs: Tab[], activeTabId: string): void {
 					? { ...persistedTab, variables: tab.variables }
 					: persistedTab;
 			}),
-			activeTabId
+			activeTabId,
+			...(lastGenerationTabId ? { lastGenerationTabId } : {})
 		};
 		scopedStorage.set(TABS_STORAGE_KEY, JSON.stringify(persisted));
 	} catch {
@@ -153,7 +154,7 @@ function migrateLegacyTabIds(parsed: PersistedTabsState): { state: PersistedTabs
 	}));
 	const activeTabId = idMap.get(parsed.activeTabId) ?? parsed.activeTabId;
 
-	return { state: { tabs, activeTabId }, changed: true };
+	return { state: { ...parsed, tabs, activeTabId }, changed: true };
 }
 
 export function loadTabsFromLocalStorage(): PersistedTabsState | null {

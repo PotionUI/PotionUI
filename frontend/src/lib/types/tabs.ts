@@ -106,6 +106,7 @@ export type PersistedTab = PersistedGenerationTab | PersistedToolTab;
 export interface PersistedTabsState {
 	tabs: PersistedTab[];
 	activeTabId: string;
+	lastGenerationTabId?: string;
 }
 
 /**

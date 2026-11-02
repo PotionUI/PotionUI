@@ -7,7 +7,6 @@ vi.mock('$lib/stores/presetsCatalog', () => ({
 
 const { tabsStore } = await import('$lib/stores/tabs');
 const { registerToolKind } = await import('$lib/tool-tabs/registry');
-await import('$lib/tool-tabs/open');
 const { default: TabsSheet } = await import('$lib/tool-tabs/TabsSheet.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { isToolTab } = await import('$lib/types/tabs');

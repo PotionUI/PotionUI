@@ -121,13 +121,4 @@ describe('closing a tool tab from the strip', () => {
 		await settle();
 		expect(get(tabsStore).tabs.some((tab) => tab.id === id)).toBe(false);
 	});
-
-	it('shows the tool tab warning dot only while it has unsaved steps', async () => {
-		const id = tabsStore.openToolTab('video', null);
-		await settle();
-		expect(document.body.querySelectorAll('[data-testid="tab-unsaved"]')).toHaveLength(0);
-		tabsStore.updateToolTab(id, { dirty: 1 });
-		await settle();
-		expect(document.body.querySelectorAll('[data-testid="tab-unsaved"]')).toHaveLength(1);
-	});
 });

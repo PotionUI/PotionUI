@@ -61,18 +61,24 @@ The component gets one prop, `host: ToolTabHost` (`types.ts`):
 
 ## Opening tabs
 
-`openToolTab(tool, source, { activeTool })` and `openToolTabs(tool, sources)` in `open.ts`:
+`tabsStore.openToolTab(tool, source, { activeTool })`, `tabsStore.openToolTabs(tool, sources)` and
+`tabsStore.findToolTabFor(source, tool?)` are the one public API:
 
 - the item is already open in that tool: its tab gets focus and `activeTool` switches;
-- an empty tab of that tool exists: the item loads into it (the active one first);
-- otherwise a new tab opens. N items open N tabs with the first one active.
+- an untouched empty tab of that tool exists (no source, no edits, no state): the item loads into
+  it, the active one first;
+- otherwise a new tab opens, named after the file stem or the tool's label. N items open N tabs
+  with the first one active.
 
-`findToolTabFor(source, tool?)` returns the tab open on an item. `ensureGenerationTabActive()`
-switches to (or creates) a generation tab before anything writes generation settings.
+The store always holds at least one generation tab: closing the last one next to a tool tab adds a
+fresh one, and `lastGenerationTabId` in the state is the tab `activeTab` returns while a tool tab
+is up. `ensureGenerationTabActive()` (`open.ts`) switches to it before anything writes generation
+settings. Tool state and thumbnails are saved to localStorage with the tabs, so keep state to
+params and ids; `data:` and `blob:` thumbnails are not persisted.
 
 ## Files
 
-- `types.ts`: the contract. `registry.ts`, `builtin.ts`, `pluginToolTabs.ts`: tool kinds.
+- `types.ts`: the contract. `registry.ts`, `builtin.ts`, `pluginToolTabs.ts`: tool kinds. `sources.ts`: the open rules.
 - `ToolTabHost.svelte`: mounts the active tool. `PhoneToolTabView.svelte`: phone top bar + host.
 - `NewTabMenu.svelte`: the "+" menu. `TabsSheet.svelte`: the phone Tabs sheet.
 - `placeholders/`: the source-or-empty placeholders the editor lanes replace.

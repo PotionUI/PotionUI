@@ -9,6 +9,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from src.platform.security.failure_text import failure_detail
 from src.features.chat import projection
+from src.features.chat.apply_tags import ApplyTargets, normalize_apply_tags
 from src.features.chat.decisions import rejections_for_reply
 from src.features.chat.dto import MessageResponse, SessionResponse, SendMessageResponse
 from src.features.chat.exceptions import (
@@ -486,7 +487,8 @@ class ConversationRunner:
         usage = outcome.usage if outcome.model_generated else None
         steps = list(outcome.steps)
         cleaned_content, parsed_content = self._m.response_processor.process(
-            projection.segment_text(steps), mode=session.mode,
+            normalize_apply_tags(projection.segment_text(steps), ApplyTargets.from_context(context_metadata)),
+            mode=session.mode,
         )
 
         extra: Dict[str, Any] = {

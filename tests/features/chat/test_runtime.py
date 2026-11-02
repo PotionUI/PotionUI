@@ -2403,7 +2403,7 @@ class TestToolCallFormatGuidance:
 
         rendered = registry.resolve_system_prompt(mode, "hints", allowed_names=["get_form_state"])
 
-        assert "a call written as <tool_action> markup" in rendered
+        assert "a <tool_action> tag never calls a tool" in rendered
         assert "{{" not in rendered
 
     def test_native_client_injects_concrete_tool_call_example(self):

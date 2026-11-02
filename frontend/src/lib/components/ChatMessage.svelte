@@ -261,12 +261,14 @@
 	};
 	let memoizedContent: string | undefined;
 	let memoizedVariableChips: Record<string, string> | undefined;
+	let memoizedStreaming: boolean | undefined;
 	$: {
 		if (role === 'assistant') {
-			if (displayContent !== memoizedContent || variableChips !== memoizedVariableChips) {
+			if (displayContent !== memoizedContent || variableChips !== memoizedVariableChips || isStreaming !== memoizedStreaming) {
 				memoizedContent = displayContent;
 				memoizedVariableChips = variableChips;
-				markdownResult = processMarkdownWithActions(displayContent, { variableChips });
+				memoizedStreaming = isStreaming;
+				markdownResult = processMarkdownWithActions(displayContent, { variableChips }, isStreaming);
 			}
 		} else if (memoizedContent !== undefined) {
 			memoizedContent = undefined;

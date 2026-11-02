@@ -39,6 +39,7 @@ _TOOL_ACTION_RE = re.compile(r"<tool_action\b((?:<\|[^|>]*\|>|[^>])*)>?", re.DOT
 _TOOL_ACTION_CLOSE_RE = re.compile(r"</tool_action\s*>", re.IGNORECASE)
 _ATTR_NAME_RE = re.compile(r"(\w[\w-]*)\s*=\s*")
 _BARE_VALUE_RE = re.compile(r"\S*")
+_LEADING_WORD_RE = re.compile(r"\s*([A-Za-z_][\w-]*)(?![\w-])(?!\s*=)")
 # A quote character the model wrapped in special-token delimiters.
 _MANGLED_QUOTE_RE = re.compile(r"<\|(['\"])\|>")
 # A complete string literal, either quoting style, escapes honoured.
@@ -276,21 +277,16 @@ def _scan_balanced(text: str, start: int) -> str:
     return text[start:]
 
 
-def _parse_attributes(text: str) -> Tuple[Optional[str], Dict[str, Any], List[str]]:
-    """The tag's attributes. A value may be quoted, or — as a local model
-    writes it — an unquoted `[...]`/`{...}` payload, which is read to its
-    matching close rather than to the next space."""
-    type_name: Optional[str] = None
-    attrs: Dict[str, Any] = {}
-    problems: List[str] = []
+def scan_tool_action_attributes(text: str) -> List[Tuple[str, str, str]]:
+    found: List[Tuple[str, str, str]] = []
     pos = 0
     while True:
         match = _ATTR_NAME_RE.search(text, pos)
         if not match:
-            return type_name, attrs, problems
+            return found
         key, start = match.group(1), match.end()
         if start >= len(text):
-            return type_name, attrs, problems
+            return found
 
         opening = text[start]
         if opening in ("'", '"'):
@@ -300,10 +296,31 @@ def _parse_attributes(text: str) -> Tuple[Optional[str], Dict[str, Any], List[st
         elif opening in _BRACKETS:
             raw = _scan_balanced(text, start)
             pos = start + len(raw)
+            opening = ""
         else:
             bare = _BARE_VALUE_RE.match(text, start)
             raw, pos = bare.group(0), bare.end()
+            opening = ""
+        found.append((key, raw, opening))
 
+
+def tool_action_leading_word(text: str) -> Optional[str]:
+    match = _LEADING_WORD_RE.match(text)
+    return match.group(1) if match else None
+
+
+def iter_tool_action_opens(content: str, pos: int = 0):
+    return _TOOL_ACTION_RE.finditer(content, pos)
+
+
+def _parse_attributes(text: str) -> Tuple[Optional[str], Dict[str, Any], List[str]]:
+    """The tag's attributes. A value may be quoted, or — as a local model
+    writes it — an unquoted `[...]`/`{...}` payload, which is read to its
+    matching close rather than to the next space."""
+    type_name: Optional[str] = None
+    attrs: Dict[str, Any] = {}
+    problems: List[str] = []
+    for key, raw, _opening in scan_tool_action_attributes(text):
         if key == "type":
             type_name = raw
             continue
@@ -311,6 +328,7 @@ def _parse_attributes(text: str) -> Tuple[Optional[str], Dict[str, Any], List[st
         attrs[key] = decoded
         if problem:
             problems.append(f"'{key}' could not be read: {problem}")
+    return type_name, attrs, problems
 
 
 def _detect_tool_action(content: str, registered: Set[str], out: List[NearMiss]) -> None:

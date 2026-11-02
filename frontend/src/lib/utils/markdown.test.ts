@@ -290,9 +290,83 @@ describe('parseToolActions / processMarkdownWithActions', () => {
 		expect(cleanedText).not.toContain('```');
 	});
 
-	it('still requires both index and id on update_segment', () => {
-		const text = '<tool_action type="update_segment" segment_id="a">x</tool_action>';
+	it('accepts update_segment addressed by id alone or index alone', () => {
+		const text =
+			'<tool_action type="update_segment" segment_id="a">x</tool_action>' +
+			'<tool_action type="update_segment" segment_index="2">y</tool_action>';
+		expect(parseToolActions(text).actions).toEqual([
+			{ type: 'update_segment', segmentIndex: -1, segmentId: 'a', content: 'x' },
+			{ type: 'update_segment', segmentIndex: 2, segmentId: '', content: 'y' }
+		]);
+	});
+
+	it('still drops update_segment with neither index nor id', () => {
+		const text = '<tool_action type="update_segment">x</tool_action>';
 		expect(parseToolActions(text).actions).toEqual([]);
+	});
+
+	describe('malformed Apply tags', () => {
+		const director = (segmentIndex: number, segmentId: string, content = 'a dog running') => ({
+			type: 'update_director_segment',
+			segmentIndex,
+			segmentId,
+			content
+		});
+
+		it.each([
+			['a bare action name', '<tool_action update_director_segment segment_id="seg-1">a dog running</tool_action>'],
+			['unquoted values', '<tool_action type=update_director_segment segment_id=seg-1>a dog running</tool_action>'],
+			['single quotes', "<tool_action type='update_director_segment' segment_id='seg-1'>a dog running</tool_action>"],
+			['curly quotes', '<tool_action type=\u201cupdate_director_segment\u201d segment_id=\u201cseg-1\u201d>a dog running</tool_action>'],
+			['no closing tag', '<tool_action update_director_segment segment_id="seg-1">a dog running'],
+			['an upper-case type', '<tool_action type="Update_Director_Segment" segment_id="seg-1">a dog running</tool_action>'],
+			['segment_id only', '<tool_action type="update_director_segment" segment_id="seg-1">a dog running</tool_action>']
+		])('renders an action for %s', (_label, text) => {
+			const { cleanedText, actions } = parseToolActions(text);
+			expect(cleanedText).toBe('');
+			expect(actions).toEqual([director(-1, 'seg-1')]);
+		});
+
+		it('keeps an id that matches no segment for the apply step to reject', () => {
+			const { actions } = parseToolActions('<tool_action update_director_segment segment_id="ghost">x</tool_action>');
+			expect(actions).toEqual([director(-1, 'ghost', 'x')]);
+		});
+
+		it('closes an unclosed tag at the paragraph break and keeps the prose after it', () => {
+			const { cleanedText, actions } = parseToolActions(
+				'Try this:\n<tool_action update_director_segment segment_id="seg-1">\na dog\nrunning\n\nWant another?'
+			);
+			expect(actions).toEqual([director(-1, 'seg-1', 'a dog\nrunning')]);
+			expect(cleanedText).toBe('Try this:\n\n\nWant another?');
+		});
+
+		it('closes an unclosed tag before the next tag', () => {
+			const { actions } = parseToolActions(
+				'<tool_action update_director_segment segment_id="seg-1">one <tool_action type="update_director_segment" segment_index="0" segment_id="seg-1">two</tool_action>'
+			);
+			expect(actions).toEqual([director(-1, 'seg-1', 'one'), director(0, 'seg-1', 'two')]);
+		});
+
+		it('lets a closing tag after a paragraph break end the block', () => {
+			const { actions } = parseToolActions('<tool_action update_segment segment_id="a">one\n\ntwo</tool_action>');
+			expect(actions).toEqual([{ type: 'update_segment', segmentIndex: -1, segmentId: 'a', content: 'one\n\ntwo' }]);
+		});
+
+		it('reads an unquoted self-closing delete', () => {
+			const { actions } = parseToolActions('<tool_action delete_segment segment_id=seg-9/></tool_action>');
+			expect(actions).toEqual([{ type: 'delete_segment', segmentIndex: -1, segmentId: 'seg-9', content: '' }]);
+		});
+
+		it('leaves a bare word that is not an Apply action as text', () => {
+			const text = '<tool_action launch_rocket segment_id="x">go</tool_action>';
+			expect(parseToolActions(text)).toEqual({ cleanedText: text, actions: [] });
+		});
+
+		it('waits for a trailing unclosed tag while the reply is still streaming', () => {
+			const text = 'Sure.\n\n<tool_action update_director_segment segment_id="seg-1">a dog run';
+			expect(parseToolActions(text, true).actions).toEqual([]);
+			expect(parseToolActions(text).actions).toEqual([director(-1, 'seg-1', 'a dog run')]);
+		});
 	});
 
 	it('combines tool action parsing with markdown rendering', () => {

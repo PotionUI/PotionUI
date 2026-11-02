@@ -71,6 +71,24 @@ describe('Generate mode picker doors', () => {
 		expect(request?.modes).toEqual(['layout']);
 	});
 
+	it('stacks the Install button after the description, outside the option button', () => {
+		openPicker(true);
+		const row = Array.from(document.body.querySelectorAll('[role="option"]')).find((b) => b.textContent?.includes('Cinemagraph'))!;
+		const action = document.body.querySelector('[data-option-action]') as HTMLElement;
+		expect(row.contains(action)).toBe(false);
+		expect(row.parentElement).toBe(action.closest('.picker-item'));
+		expect(row.textContent).toContain('Make a still image loop');
+		expect(row.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
+	it('stacks the lock note under the description inside the same text column', () => {
+		openPicker(false);
+		const notice = document.body.querySelector('[data-option-notice]') as HTMLElement;
+		const description = Array.from(notice.parentElement!.children).find((child) => child.textContent === 'Make a still image loop')!;
+		expect(description).toBeTruthy();
+		expect(description.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
 	it('does not select the mode when its Install button is used', async () => {
 		const onchange = vi.fn();
 		const target = document.body.appendChild(document.createElement('div'));

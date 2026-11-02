@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, scopedStorageKey, screenshot } from './helpers';
 import { solidPng } from './mediaToolMocks';
+import { EFFECT_CATALOG } from '../component/fixtures/effectCatalog';
 
 const JOURNEY = 'video-editor-tab';
 const CLIP = readFileSync(fileURLToPath(new URL('./fixtures/preset-cover.webm', import.meta.url)));
@@ -50,6 +51,7 @@ async function mockEditorApi(page: Page): Promise<Mocks> {
 			? route.fulfill({ status: 200, contentType: 'image/png', body: FRAME })
 			: route.fulfill({ status: 200, contentType: 'video/webm', body: CLIP })
 	);
+	await page.route(/\/api\/media-tools(\?.*)?$/, (route) => (route.request().method() === 'GET' ? json(route, { tools: EFFECT_CATALOG }) : route.fallback()));
 	await page.route('**/api/media-tools/**', async (route) => {
 		const request = route.request();
 		const path = new URL(request.url()).pathname;
@@ -115,8 +117,10 @@ async function openEditor(page: Page, state: Json | null = null) {
 	await page.goto('/generate');
 	await expect(page.locator('.tab-bar-container:visible, .studio-topbar:visible').first()).toBeVisible({ timeout: 15000 });
 	const key = await scopedStorageKey(page, 'potionui_tabs_state');
-	await page.evaluate(
+	await page.addInitScript(
 		({ k, source, state }) => {
+			if (sessionStorage.getItem('e2e-video-seeded')) return;
+			sessionStorage.setItem('e2e-video-seeded', '1');
 			const saved = JSON.parse(localStorage.getItem(k) ?? 'null') ?? { tabs: [], activeTabId: '' };
 			const generation = saved.tabs.find((tab: { kind?: string }) => tab.kind !== 'tool');
 			const tool = { id: 'video-tab-1', kind: 'tool', tool: 'video', name: 'observatory-timelapse', color: null, source, state, run: null, activeTool: state ? state.tool : 'trim', dirty: 0 };
@@ -180,10 +184,17 @@ test.describe('the Video editor tab on desktop', () => {
 		await expect(editor.getByRole('button', { name: /Reopen Trim/ })).toBeVisible();
 	});
 
-	test('previews film grain on the paused frame, compares before and after, and plays Preview 3 s', async ({ page }) => {
+	test('without WebGL2 previews film grain on the paused frame, compares before and after, and plays Preview 3 s', async ({ page }) => {
+		await page.addInitScript(() => {
+			const original = HTMLCanvasElement.prototype.getContext;
+			HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, kind: string, ...rest: unknown[]) {
+				return kind === 'webgl2' ? null : (original as (...args: unknown[]) => unknown).call(this, kind, ...rest);
+			} as typeof original;
+		});
 		const mocks = await mockEditorApi(page);
 		const editor = await openEditor(page, seeded([TRIM]));
 		await editor.locator('[data-tool="effects"]').click();
+		await editor.locator('[data-effect-card="film_grain"] button').first().click();
 		await expect(editor.locator('[data-effect-card="film_grain"][data-open]')).toBeVisible();
 		await expect(editor.locator('[data-effect-later]')).toContainText('Later');
 		expect(mocks.frames).toHaveLength(0);

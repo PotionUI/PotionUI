@@ -6,11 +6,11 @@ import { filterCatalog, loadCube, loadFilterCatalog } from '$lib/filters/catalog
 import { sharedExtensions } from '$lib/filters/extensions';
 import { renderRecipe, type FilterRecipe } from '$lib/filters/render';
 import { planOutputSize } from '$lib/media/editors/imageEditPlan';
-import { displaySize } from '$lib/media/editors/cropGeometry';
+import { blockedUploadMessage } from '$lib/plans/uploadLimit';
 import { previewFrame, uploadMediaToolArtifact } from '$lib/services/api/mediaTools';
 import type { MediaToolInputRef } from '$lib/media-tools/types';
 import type { EditStep } from '$lib/tool-tabs/frame/editStack';
-import { inputSizes, outputSize, payloadGaps, resizeOutput, runSteps, type PixelSize } from './payload';
+import { outputSize, payloadGaps, resizeOutput, runSteps, type PixelSize } from './payload';
 import { adjustRecipeStep, type CropParams, type EffectParams, type PaintParams, type ResizeParams } from './steps';
 
 export const FULL_SIDE = 8192;
@@ -156,19 +156,91 @@ export async function applyClientStep(rendered: Rendered, step: EditStep, maxSid
 	}
 }
 
+export function abortError(): DOMException {
+	return new DOMException('Aborted', 'AbortError');
+}
+
+export function isAbort(error: unknown): boolean {
+	return (error as { name?: string } | null)?.name === 'AbortError';
+}
+
+function waitFor<T>(promise: Promise<T>, signal: AbortSignal | undefined, onAbort: () => void): Promise<T> {
+	if (!signal) return promise;
+	if (signal.aborted) {
+		onAbort();
+		return Promise.reject(abortError());
+	}
+	return new Promise<T>((resolve, reject) => {
+		const abort = () => {
+			onAbort();
+			reject(abortError());
+		};
+		signal.addEventListener('abort', abort, { once: true });
+		promise.then(
+			(value) => {
+				signal.removeEventListener('abort', abort);
+				resolve(value);
+			},
+			(error) => {
+				signal.removeEventListener('abort', abort);
+				reject(error);
+			}
+		);
+	});
+}
+
+export function stepsKey(steps: readonly EditStep[]): string {
+	return JSON.stringify(steps.filter((step) => !step.hidden).map((step) => [step.tool, step.params]));
+}
+
+export function sourceKey(source: RenderSource): string {
+	return JSON.stringify([source.url, source.ref, source.size.width, source.size.height]);
+}
+
+export function bakeIsCapped(size: PixelSize | null): boolean {
+	return !!size && Math.max(size.width, size.height) > FULL_SIDE;
+}
+
+interface PrefixEntry {
+	promise: Promise<Rendered>;
+	controller: AbortController;
+	waiters: number;
+	settled: boolean;
+}
+
+const MAX_PREFIXES = 8;
+
 export class ImageRenderer {
 	private bakes = new Map<string, Promise<string>>();
 	private sources = new Map<string, Promise<HTMLCanvasElement>>();
+	private prefixes = new Map<string, PrefixEntry>();
 
 	constructor(private source: RenderSource) {}
 
 	setSource(source: RenderSource): void {
+		if (sourceKey(source) === sourceKey(this.source)) {
+			this.source = source;
+			return;
+		}
 		if (source.url !== this.source.url) this.sources.clear();
+		this.bakes.clear();
+		this.dropPrefixes();
 		this.source = source;
+	}
+
+	reset(): void {
+		this.sources.clear();
+		this.bakes.clear();
+		this.dropPrefixes();
 	}
 
 	get ref(): MediaToolInputRef | null {
 		return this.source.ref;
+	}
+
+	private dropPrefixes(): void {
+		for (const entry of this.prefixes.values()) if (!entry.settled) entry.controller.abort();
+		this.prefixes.clear();
 	}
 
 	private original(): Promise<HTMLCanvasElement> {
@@ -191,16 +263,43 @@ export class ImageRenderer {
 		});
 		let rendered: Rendered;
 		if (serverAt >= 0) {
-			rendered = await this.server(visible.slice(0, serverAt + 1), maxSide, options.signal);
+			rendered = await this.prefix(visible.slice(0, serverAt + 1), maxSide, options.signal);
 		} else {
-			const original = await this.original();
+			const original = await waitFor(this.original(), options.signal, () => undefined);
 			rendered = { canvas: scaled(original, fitSide(this.source.size, maxSide)), size: this.source.size };
 		}
 		for (const step of visible.slice(serverAt + 1)) {
-			if (options.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+			if (options.signal?.aborted) throw abortError();
 			rendered = await applyClientStep(rendered, step, maxSide);
 		}
 		return rendered;
+	}
+
+	private prefix(steps: readonly EditStep[], maxSide: number, signal?: AbortSignal): Promise<Rendered> {
+		const key = `${sourceKey(this.source)}|${maxSide}|${stepsKey(steps)}`;
+		let entry = this.prefixes.get(key);
+		if (!entry) {
+			const controller = new AbortController();
+			const created: PrefixEntry = { promise: this.server(steps, maxSide, controller.signal), controller, waiters: 0, settled: false };
+			created.promise.then(
+				() => (created.settled = true),
+				() => {
+					created.settled = true;
+					if (this.prefixes.get(key) === created) this.prefixes.delete(key);
+				}
+			);
+			this.prefixes.set(key, created);
+			while (this.prefixes.size > MAX_PREFIXES) this.prefixes.delete(this.prefixes.keys().next().value!);
+			entry = created;
+		}
+		const held = entry;
+		held.waiters += 1;
+		return waitFor(held.promise, signal, () => {
+			held.waiters -= 1;
+			if (held.waiters > 0 || held.settled) return;
+			held.controller.abort();
+			if (this.prefixes.get(key) === held) this.prefixes.delete(key);
+		});
 	}
 
 	async payload(steps: readonly EditStep[]): Promise<ReturnType<typeof runSteps>> {
@@ -221,11 +320,13 @@ export class ImageRenderer {
 	}
 
 	bake(steps: readonly EditStep[]): Promise<string> {
-		const key = JSON.stringify(steps.filter((step) => !step.hidden).map((step) => [step.tool, step.params]));
+		const key = `${sourceKey(this.source)}|${stepsKey(steps)}`;
 		let pending = this.bakes.get(key);
 		if (!pending) {
 			pending = this.renderBake(steps);
-			pending.catch(() => this.bakes.delete(key));
+			pending.catch(() => {
+				if (this.bakes.get(key) === pending) this.bakes.delete(key);
+			});
 			this.bakes.set(key, pending);
 		}
 		return pending;
@@ -235,7 +336,10 @@ export class ImageRenderer {
 		const last = steps[steps.length - 1];
 		const base = await this.render(steps.slice(0, -1), { maxSide: FULL_SIDE });
 		const out = await effectCanvas(base.canvas, last.params as EffectParams);
-		const artifact = await uploadMediaToolArtifact(await canvasToPngFile(out, 'look.png'));
+		const file = await canvasToPngFile(out, 'look.png');
+		const blocked = blockedUploadMessage([file]);
+		if (blocked) throw new Error(blocked);
+		const artifact = await uploadMediaToolArtifact(file);
 		return artifact.id;
 	}
 
@@ -249,12 +353,4 @@ export class ImageRenderer {
 		const size = known ?? { width: canvas.width, height: canvas.height };
 		return { canvas: known ? canvas : scaled(canvas, fitSide(size, maxSide)), size };
 	}
-}
-
-export function cropInputSize(steps: readonly EditStep[], index: number, source: PixelSize): PixelSize | null {
-	return inputSizes(steps, source)[index] ?? null;
-}
-
-export function orientedSize(size: PixelSize, params: CropParams): PixelSize {
-	return displaySize(size, params.plan.rotation);
 }

@@ -70,7 +70,7 @@
 	import { fitViewport } from '$lib/tool-tabs/frame/viewport';
 	import { geometryKey, liveMask, maskIsStale, sendPatch, type MaskChannel } from '$lib/tool-tabs/image/mask';
 	import { inputRef, outputSize, replaceOption, runBody, sourceOrigin, type PixelSize, type SourceOrigin } from '$lib/tool-tabs/image/payload';
-	import { FULL_SIDE, ImageRenderer, orient, type Rendered } from '$lib/tool-tabs/image/render';
+	import { FULL_SIDE, ImageRenderer, bakeIsCapped, isAbort, orient, stepsKey, type Rendered } from '$lib/tool-tabs/image/render';
 	import { imageFieldsOf, sendTargetsFor, type ImageField } from '$lib/tool-tabs/image/sendTargets';
 	import { artifactRef, pastedImage } from '$lib/tool-tabs/image/sourceRefs';
 	import { readImageState, stackSignature, unsavedEdits, writeImageState, type SavedCopy } from '$lib/tool-tabs/image/state';
@@ -389,18 +389,21 @@
 		}
 	});
 
-	function stepsKey(steps: readonly EditStep[], maxSide: number): string {
-		return JSON.stringify([sourceUrl, !!resolvedRef, maxSide, steps.filter((step) => !step.hidden).map((step) => [step.tool, step.params])]);
+	function renderKey(steps: readonly EditStep[], maxSide: number): string {
+		return JSON.stringify([sourceUrl, resolvedRef, maxSide, stepsKey(steps)]);
 	}
 
-	function cachedRender(steps: readonly EditStep[], maxSide?: number): Promise<Rendered> {
-		const key = stepsKey(steps, maxSide ?? 0);
+	function cachedRender(steps: readonly EditStep[], maxSide: number | undefined, signal: AbortSignal): Promise<Rendered> {
+		const key = renderKey(steps, maxSide ?? 0);
 		let found = renders.get(key);
 		if (!found) {
-			found = renderer.render(steps, maxSide ? { maxSide } : {});
-			found.catch(() => renders.delete(key));
-			renders.set(key, found);
+			const created = renderer.render(steps, maxSide ? { maxSide, signal } : { signal });
+			created.catch(() => {
+				if (renders.get(key) === created) renders.delete(key);
+			});
+			renders.set(key, created);
 			if (renders.size > 12) renders.delete(renders.keys().next().value!);
+			found = created;
 		}
 		return found;
 	}
@@ -414,25 +417,31 @@
 			return;
 		}
 		renderer.setSource({ url, size, ref });
-		let cancelled = false;
+		const controller = new AbortController();
 		if (primary) rendering = true;
-		const timer = setTimeout(() => {
-			cachedRender(list, maxSide)
+		const run = (retries: number) => {
+			cachedRender(list, maxSide, controller.signal)
 				.then((value) => {
-					if (cancelled) return;
+					if (controller.signal.aborted) return;
 					assign(value);
 					if (primary) renderError = null;
+					if (primary) rendering = false;
 				})
 				.catch((error: unknown) => {
-					if (cancelled || !primary) return;
-					renderError = error instanceof Error ? error.message : 'The preview could not be drawn.';
-				})
-				.finally(() => {
-					if (!cancelled && primary) rendering = false;
+					if (controller.signal.aborted) return;
+					if (isAbort(error) && retries > 0) {
+						run(retries - 1);
+						return;
+					}
+					if (primary) {
+						renderError = error instanceof Error ? error.message : 'The preview could not be drawn.';
+						rendering = false;
+					}
 				});
-		}, 60);
+		};
+		const timer = setTimeout(() => run(2), 60);
 		return () => {
-			cancelled = true;
+			controller.abort();
 			clearTimeout(timer);
 		};
 	}
@@ -652,6 +661,7 @@
 				mask = null;
 				sourceVersion += 1;
 				renders.clear();
+				renderer.reset();
 				announceOutcome(outcome);
 			} else if (saveMode === 'update') {
 				saved = { itemId: saved?.itemId ?? outcome.items[0]?.id ?? '', signature };
@@ -832,6 +842,9 @@
 		<ResizeOptions params={resizeParams} input={resizeInput} {phone} onchange={(next) => setDraft('resize', next)} />
 	{:else if activeTool === 'effects'}
 		<EffectsOptions params={effectParams} base={thumbRender?.canvas ?? null} {phone} onchange={(next) => setDraft('effects', next)} />
+		{#if bakeIsCapped(outputDims) && !phone}
+			<p class="text-sm text-warning" data-bake-cap>Looks on pictures over {FULL_SIDE} px are drawn at {FULL_SIDE} px on the long side and scaled back up when saved.</p>
+		{/if}
 	{:else if activeTool === 'paint'}
 		{#if paintSession && paintState}
 			<PaintOptions session={paintSession} state={paintState} {phone} />
@@ -916,7 +929,9 @@
 							existing={liveMaskNow?.url ?? null}
 							brush={maskBrush}
 							erase={maskErase}
-							onstroke={() => (maskDirty = true)}
+							onstroke={(painted) => {
+								if (painted) maskDirty = true;
+							}}
 						/>
 					{/key}
 				{/if}

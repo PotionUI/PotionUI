@@ -1,10 +1,10 @@
 import type { GenerationHistoryItem, ImportBundleReuse } from '$lib/types/history';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 import { clearedModeStateByMode } from '$lib/utils/modeState';
 
 export interface HistoryReuseResult {
 	/** Partial tab data to hand to `tabsStore.addTabWithData`. */
-	tabData: Partial<Tab>;
+	tabData: Partial<GenerationTab>;
 }
 
 /** Common fields `buildHistoryReuseTabData` and `buildImportBundleTabData`
@@ -34,7 +34,7 @@ function buildReuseTabData(source: ReusableSettings): HistoryReuseResult {
 		...(source.seed !== undefined && source.seed !== null ? { seed: source.seed } : {})
 	};
 
-	const tabData: Partial<Tab> = {
+	const tabData: Partial<GenerationTab> = {
 		selectedPreset: source.preset_id ?? null,
 		selectedMode: mode,
 		selectedVariant: source.form_name ?? null,
@@ -106,12 +106,12 @@ export interface ActiveTabReuseResult extends HistoryReuseResult {
  *  mode/variant) pick up a preset change here the same way. */
 export function buildActiveTabReuseUpdate(
 	generation: GenerationHistoryItem,
-	currentTab: Pick<Tab, 'selectedPreset'>
+	currentTab: Pick<GenerationTab, 'selectedPreset'>
 ): ActiveTabReuseResult {
 	const { tabData } = buildHistoryReuseTabData(generation);
 	const presetChanged = (tabData.selectedPreset ?? null) !== (currentTab.selectedPreset ?? null);
 
-	const resetFields: Partial<Tab> = {
+	const resetFields: Partial<GenerationTab> = {
 		selectedSessionId: null,
 		savedSessionSignature: null,
 		sessionBaselineAwaitingFormNormalization: false,

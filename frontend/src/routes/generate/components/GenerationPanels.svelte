@@ -26,14 +26,14 @@
 	import { closeFloatingForm } from '$lib/generation/floatingForm';
 	import { closeFloatingWorkbench } from '$lib/generation/floatingWorkbench';
 	import { PANE_HANDLE_STRIP, PANE_HANDLE_GRIP } from '$lib/generation/paneHandle';
-	import type { Tab, DirectorRunState } from '$lib/types/tabs';
+	import type { GenerationTab, DirectorRunState } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import { NO_PROMPT_COPY, type PromptCopy } from '$lib/utils/promptModeCopy';
 	import type { PresetInfo, PresetStyle } from '$lib/services/api/index';
 
-	export let tab: Tab;
+	export let tab: GenerationTab;
 	export let tabHandlers: any;
 	export let promptRelayActive: boolean;
 	export let videoDirectorActive: boolean = false;

@@ -1,13 +1,14 @@
 import { get, writable } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
 import { tabHasUnsavedWork } from '$lib/utils/newWorkspace';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab, Tab, ToolTab } from '$lib/types/tabs';
+import { isToolTab } from '$lib/types/tabs';
 
 const pending = writable<string | null>(null);
 
 export const pendingTabClose = { subscribe: pending.subscribe };
 
-export function tabIsRunning(tab: Tab): boolean {
+export function tabIsRunning(tab: GenerationTab): boolean {
 	return tab.generation.isGenerating || (tab.generation.queue?.length ?? 0) > 0;
 }
 
@@ -27,11 +28,23 @@ export function cancelCloseTab(): void {
 	pending.set(null);
 }
 
-export function tabHasUnsavedVariables(tab: Tab): boolean {
+export function tabHasUnsavedVariables(tab: GenerationTab): boolean {
 	return Object.keys(tab.variables ?? {}).length > 0 && !tab.selectedSessionId && !tab.sourcePromptId;
 }
 
-export function describeTabClose(tab: Tab): { title: string; message: string } {
+function describeToolTabClose(tab: ToolTab): { title: string; message: string; confirmLabel?: string } {
+	const edits = tab.dirty ?? 0;
+	const lines = [`“${tab.name}” will be closed.`];
+	if (edits === 0) return { title: 'Close tab?', message: lines.join('\n') };
+	return {
+		title: `Discard ${edits} unsaved ${edits === 1 ? 'edit' : 'edits'}?`,
+		message: lines.join('\n'),
+		confirmLabel: 'Discard and close'
+	};
+}
+
+export function describeTabClose(tab: Tab): { title: string; message: string; confirmLabel?: string } {
+	if (isToolTab(tab)) return describeToolTabClose(tab);
 	const lines = [`“${tab.name}” will be closed.`];
 	if (tabIsRunning(tab)) lines.push('It has a generation running or queued.');
 	if (tabHasUnsavedWork(tab)) lines.push('It has unsaved changes.');

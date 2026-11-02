@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { dispatchGenerationMessage } from '$lib/stores/generation';
@@ -5,7 +6,7 @@ import { tabsStore } from '$lib/stores/tabs';
 import { resetGenerationOutputsRetirementForTests } from './generationOutputs';
 
 function dispatch(imageUrls: Record<string, unknown>[]) {
-	const tab = get(tabsStore).tabs[0];
+	const tab = generationTabs(get(tabsStore).tabs)[0];
 	tabsStore.updateTab(tab.id, {
 		generation: {
 			...tab.generation,
@@ -24,7 +25,7 @@ function dispatch(imageUrls: Record<string, unknown>[]) {
 		} as any,
 		{ unsubscribe: vi.fn() }
 	);
-	return get(tabsStore).tabs.find((t) => t.id === tab.id)!.generation.batchImages;
+	return generationTabs(get(tabsStore).tabs).find((t) => t.id === tab.id)!.generation.batchImages;
 }
 
 describe('gallery_update output label', () => {
@@ -44,7 +45,7 @@ describe('gallery_update output label', () => {
 	});
 
 	it('gives an image without a metadata entry no label', () => {
-		const tab = get(tabsStore).tabs[0];
+		const tab = generationTabs(get(tabsStore).tabs)[0];
 		tabsStore.updateTab(tab.id, {
 			generation: {
 				...tab.generation,
@@ -63,7 +64,7 @@ describe('gallery_update output label', () => {
 			} as any,
 			{ unsubscribe: vi.fn() }
 		);
-		const images = get(tabsStore).tabs.find((t) => t.id === tab.id)!.generation.batchImages;
+		const images = generationTabs(get(tabsStore).tabs).find((t) => t.id === tab.id)!.generation.batchImages;
 
 		expect(images).toHaveLength(1);
 		expect(images[0].label).toBeNull();

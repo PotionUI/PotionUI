@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import { flushSync } from 'svelte';
@@ -59,7 +60,7 @@ afterEach(() => {
 function mountPanels(patch: Record<string, unknown>) {
 	const noop = () => {};
 	const id = tabsStore.addTabWithData('Empty layouts', { selectedPreset: 'preset', selectedMode: 'image', ...patch });
-	const tab = get(tabsStore).tabs.find((candidate) => candidate.id === id)!;
+	const tab = generationTabs(get(tabsStore).tabs).find((candidate) => candidate.id === id)!;
 	component = createClassComponent({
 		component: GenerationPanels as never,
 		target: host,
@@ -181,7 +182,7 @@ describe('workbench siblings next to the empty state', () => {
 		for (const name of ['group/workbench', '[&:has(~*)]:min-h-[var(--workbench-stage)]']) expect(root().classList.contains(name)).toBe(true);
 		expect(empties()[0].querySelector('.select-none')!.classList.contains('group-[:has(~*)]/workbench:h-[min(100%,var(--workbench-region))]')).toBe(true);
 		expect(stageHeight()).toBeUndefined();
-		const before = get(tabsStore).tabs.find((candidate) => candidate.id === id)!.generation;
+		const before = generationTabs(get(tabsStore).tabs).find((candidate) => candidate.id === id)!.generation;
 		tabsStore.updateTab(id, {
 			generation: { ...before, isGenerating: true, currentGeneration: { id: 'run-1', status: 'running', current_image: '/api/media/previews/run-1.png' } } as never
 		});
@@ -200,7 +201,7 @@ describe('workbench siblings next to the empty state', () => {
 		expect(empties()[0].style.height).toBe('600px');
 		expect(root().getAttribute('style')).toBeNull();
 		expect(follows(root(), artifacts())).toBe(true);
-		const before = get(tabsStore).tabs.find((candidate) => candidate.id === id)!.generation;
+		const before = generationTabs(get(tabsStore).tabs).find((candidate) => candidate.id === id)!.generation;
 		tabsStore.updateTab(id, {
 			generation: { ...before, isGenerating: true, currentGeneration: { id: 'run-1', status: 'running', current_image: '/api/media/previews/run-1.png' } } as never
 		});

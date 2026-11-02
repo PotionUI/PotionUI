@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
@@ -5,11 +6,11 @@ import { dispatchGenerationMessage } from '$lib/stores/generation';
 import { resetGenerationOutputsRetirementForTests } from './generationOutputs';
 
 function tabId(): string {
-	return get(tabsStore).tabs[0].id;
+	return generationTabs(get(tabsStore).tabs)[0].id;
 }
 
 function seed(id: string, extra: Record<string, unknown> = {}) {
-	const tab = get(tabsStore).tabs.find((t) => t.id === tabId())!;
+	const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId())!;
 	tabsStore.updateTab(tabId(), {
 		activeGenerationId: id,
 		generation: {
@@ -20,7 +21,7 @@ function seed(id: string, extra: Record<string, unknown> = {}) {
 }
 
 function current(): any {
-	return get(tabsStore).tabs.find((t) => t.id === tabId())!.generation.currentGeneration;
+	return generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId())!.generation.currentGeneration;
 }
 
 function dispatch(message: Record<string, unknown>) {
@@ -83,14 +84,14 @@ describe('content policy generation messages', () => {
 				{ original: '/api/media/generations/gen-4/1.png' }
 			]
 		});
-		const batch = get(tabsStore).tabs[0].generation.batchImages as any[];
+		const batch = generationTabs(get(tabsStore).tabs)[0].generation.batchImages as any[];
 		expect(batch.map((i) => i.content_flagged)).toEqual([true, false]);
 	});
 
 	it('a suppressed gallery_update adds no images but marks the placeholder', () => {
 		seed('gen-5');
 		dispatch({ type: 'gallery_update', generation_id: 'gen-5', preview_suppressed: true, images: ['AAAA'] });
-		expect(get(tabsStore).tabs[0].generation.batchImages ?? []).toEqual([]);
+		expect(generationTabs(get(tabsStore).tabs)[0].generation.batchImages ?? []).toEqual([]);
 		expect(current().preview_suppressed).toBe(true);
 	});
 

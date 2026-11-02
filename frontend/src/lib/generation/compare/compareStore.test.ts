@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 
@@ -101,7 +102,7 @@ async function startGrid() {
 beforeEach(() => {
 	tabsStore.reset();
 	resetCompareStoreForTests();
-	tabId = get(tabsStore).tabs[0].id;
+	tabId = generationTabs(get(tabsStore).tabs)[0].id;
 	tabsStore.updateTab(tabId, { selectedPreset: 'native/Krea2' });
 	vi.mocked(api.postGrid).mockReset();
 	vi.mocked(api.fetchGrid).mockReset();
@@ -194,7 +195,7 @@ describe('live grid and message mapping', () => {
 		);
 		if (!result.ok) return;
 		expect(result.generationIds).toHaveLength(12);
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.generation.queue).toHaveLength(12);
 		expect(tab.generation.isGenerating).toBe(true);
 		expect(tab.compareGridId).toBe('grid-1');
@@ -326,7 +327,7 @@ describe('live grid and message mapping', () => {
 		});
 		const result = await submitGrid(tabId, {} as never);
 		expect(result).toMatchObject({ ok: false, reason: 'refused', shortfall: { needed: 12, remaining: 5 } });
-		expect(get(tabsStore).tabs.find((t) => t.id === tabId)!.generation.queue).toHaveLength(0);
+		expect(generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!.generation.queue).toHaveLength(0);
 	});
 });
 
@@ -385,7 +386,7 @@ describe('run handlers and the workbench grid', () => {
 describe('persistence', () => {
 	it('round-trips through the persisted tab, the session payload and the restore patch', () => {
 		setCompare(tabId, { armed: true, x: sampler, y: scheduler, lockSeed: false });
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 
 		const persisted = JSON.parse(JSON.stringify(toPersistedTab(tab)));
 		expect(persisted.compare).toMatchObject({ armed: true, lockSeed: false });
@@ -404,7 +405,7 @@ describe('persistence', () => {
 	});
 
 	it('leaves a session without a comparison out of the payload', () => {
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(collectTabSessionData(tab, 'txt2img').txt2img.compare).toBeUndefined();
 	});
 

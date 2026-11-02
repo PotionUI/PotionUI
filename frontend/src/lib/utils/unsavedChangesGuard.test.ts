@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab, ToolTab } from '$lib/types/tabs';
 import {
 	anyTabHasUnsavedSessionChanges,
 	handleBeforeUnload,
 	tabHasUnsavedSessionChanges
 } from './unsavedChangesGuard';
 
-function tab(overrides: Partial<Tab> = {}): Tab {
+function tab(overrides: Partial<GenerationTab> = {}): GenerationTab {
 	return {
+		kind: 'generation',
 		id: 'tab-a',
 		name: 'Tab A',
 		selectedPreset: 'preset-a',
@@ -186,5 +187,16 @@ describe('handleBeforeUnload', () => {
 		]);
 		expect(event.preventDefault).toHaveBeenCalledTimes(1);
 		expect(event.returnValue).toBe('');
+	});
+});
+
+describe('tool tabs and the unload guard', () => {
+	const toolTab = (dirty: number): ToolTab => ({ kind: 'tool', id: `tool-${dirty}`, name: 'dusk', tool: 'image', source: null, state: null, dirty });
+
+	it('treats unsaved editor steps as unsaved changes', () => {
+		expect(anyTabHasUnsavedSessionChanges([tab({ selectedSessionId: null }), toolTab(0)])).toBe(false);
+		const event = { preventDefault: vi.fn(), returnValue: '' };
+		handleBeforeUnload(event, [tab({ selectedSessionId: null }), toolTab(3)]);
+		expect(event.preventDefault).toHaveBeenCalledTimes(1);
 	});
 });

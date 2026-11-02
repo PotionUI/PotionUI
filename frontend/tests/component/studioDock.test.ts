@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { flushSync } from 'svelte';
-import type { GenerationState, Tab } from '$lib/types/tabs';
+import type { GenerationState, GenerationTab } from '$lib/types/tabs';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -44,8 +44,8 @@ function finished(count: number, overrides: Partial<GenerationState> = {}): Gene
 	});
 }
 
-function tabWith(gen: GenerationState, formData: Record<string, unknown> = {}): Tab {
-	return { id: 'tab-1', name: 'Tab', formData, generation: gen } as unknown as Tab;
+function tabWith(gen: GenerationState, formData: Record<string, unknown> = {}): GenerationTab {
+	return { id: 'tab-1', name: 'Tab', formData, generation: gen } as unknown as GenerationTab;
 }
 
 type Mounted = { target: HTMLElement; set: (props: Record<string, unknown>) => void; destroy: () => void };

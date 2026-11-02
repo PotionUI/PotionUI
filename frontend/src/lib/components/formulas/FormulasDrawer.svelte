@@ -31,7 +31,7 @@
 	import { tabsStore } from '$lib/stores/tabs';
 	import { fullDateTime } from '$lib/session/sessionDrawerModel';
 	import { parseServerDate } from '$lib/utils/relativeTime';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 
 	const KEEP_OPEN_KEY = 'formulas-drawer-keep-open';
 
@@ -44,7 +44,7 @@
 		onClose,
 		onApplied
 	}: {
-		tab: Tab;
+		tab: GenerationTab;
 		declaration: FormulaDeclaration;
 		presetName: string;
 		presetVersion: string;

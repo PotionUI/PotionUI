@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import { settle } from './helpers/settle';
@@ -46,7 +47,7 @@ function clickButton(label: RegExp | string) {
 }
 
 function currentTab() {
-	return get(tabsStore).tabs.find((tab) => tab.id === tabId)!;
+	return generationTabs(get(tabsStore).tabs).find((tab) => tab.id === tabId)!;
 }
 
 beforeEach(async () => {

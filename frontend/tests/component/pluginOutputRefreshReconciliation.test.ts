@@ -6,6 +6,7 @@
 // registrations wholesale deleted a live plugin's rendered output whenever
 // anything else about the plugin set changed. These drive the real
 // `refreshPluginExtensions()` against a mounted workbench pane.
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { settle } from './helpers/settle';
 
@@ -108,11 +109,11 @@ let target: HTMLElement;
 let component: { $destroy: () => void; $set: (props: Record<string, unknown>) => void } | undefined;
 
 function tabAt(index: number) {
-	return get(tabsStore).tabs[index];
+	return generationTabs(get(tabsStore).tabs)[index];
 }
 
 function startRun(tabId: string, generationId: string) {
-	const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+	const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 	tabsStore.updateTab(tabId, {
 		activeGenerationId: generationId,
 		generation: {
@@ -131,7 +132,7 @@ function sendOutput(generationId: string, label: string) {
 }
 
 function mountPane(tabId: string) {
-	const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+	const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 	component = createClassComponent({
 		component: GenerationWorkbenchPane as never,
 		target,
@@ -148,7 +149,7 @@ function mountPane(tabId: string) {
 }
 
 function showTab(tabId: string) {
-	component!.$set({ tab: get(tabsStore).tabs.find((t) => t.id === tabId)! });
+	component!.$set({ tab: generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)! });
 }
 
 function renderedOutputs(): string[] {

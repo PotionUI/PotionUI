@@ -26,7 +26,7 @@
 // that media is real and already known; a generation with nothing cached yet
 // starts genuinely blank. The events that follow it (progress, gallery
 // output, ...) fill it in exactly as they would for any other owner.
-import type { Tab, GenerationState, QueuedGeneration } from '$lib/types/tabs';
+import type { GenerationTab, GenerationState, QueuedGeneration } from '$lib/types/tabs';
 import { peekGenerationOutputs, leadOutputPatch } from './generationOutputs';
 
 /** Every generation id `tab` currently claims: the one it owns as its shared
@@ -37,7 +37,7 @@ import { peekGenerationOutputs, leadOutputPatch } from './generationOutputs';
  *  This is the full set that loses `tab` as a consumer the moment it closes
  *  -- see `tabsStore.removeTab`'s resource retirement. */
 export function tabClaimedGenerationIds(
-	tab: Pick<Tab, 'activeGenerationId' | 'generation' | 'directorRunLinks'>
+	tab: Pick<GenerationTab, 'activeGenerationId' | 'generation' | 'directorRunLinks'>
 ): Set<string> {
 	const ids = new Set<string>();
 	if (tab.activeGenerationId) ids.add(tab.activeGenerationId);
@@ -47,7 +47,7 @@ export function tabClaimedGenerationIds(
 }
 
 export function isTabsCurrentGeneration(
-	tab: Pick<Tab, 'activeGenerationId' | 'generation'>,
+	tab: Pick<GenerationTab, 'activeGenerationId' | 'generation'>,
 	generationId: string | undefined
 ): boolean {
 	if (!generationId) return false;
@@ -71,7 +71,7 @@ export function withoutQueueEntry(
 /** A tab with no live owner: nothing currently occupies `activeGenerationId`,
  *  and whatever `currentGeneration` is left over (if any) is already
  *  terminal -- a stale 'completed'/'failed' snapshot, not a run in flight. */
-export function isOrphanedTab(tab: Pick<Tab, 'activeGenerationId' | 'generation'>): boolean {
+export function isOrphanedTab(tab: Pick<GenerationTab, 'activeGenerationId' | 'generation'>): boolean {
 	if (tab.activeGenerationId) return false;
 	const status = tab.generation.currentGeneration?.status;
 	return !status || status === 'completed' || status === 'failed';
@@ -149,7 +149,7 @@ export function beginGenerationOwnership(
  *  message's own reported status instead, since a 'pending' queue_update
  *  must never adopt (see `queueUpdate.ts`). */
 export function resolveOwnership(
-	tab: Pick<Tab, 'activeGenerationId' | 'generation'>,
+	tab: Pick<GenerationTab, 'activeGenerationId' | 'generation'>,
 	generationId: string | undefined
 ): { isOwner: boolean; adopted: ReturnType<typeof beginGenerationOwnership> | null } {
 	if (!generationId) return { isOwner: false, adopted: null };

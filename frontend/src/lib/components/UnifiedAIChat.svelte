@@ -13,6 +13,7 @@
 	import Logo from '$lib/components/brand/Logo.svelte';
 	import { buildUploadedMediaItem } from '$lib/components/form-fields/mediaLoaderUpload';
 	import { activeTab, tabsStore } from '$lib/stores/tabs';
+	import { generationTabs } from '$lib/types/tabs';
 	import { loraSelectionsForTab } from '$lib/stores/loraPickerSelections';
 	import { page } from '$app/stores';
 	import { chatSession } from '$lib/stores/chatSession';
@@ -267,7 +268,7 @@
 	}
 
 	// All available tabs for pin dropdown
-	$: allTabs = $tabsStore.tabs || [];
+	$: allTabs = generationTabs($tabsStore.tabs || []);
 
 	// Safety: clear stale pinnedTabId when it no longer references a valid tab
 	$: if (pinnedTabId && allTabs.length > 0 && !allTabs.find((t: any) => t.id === pinnedTabId)) {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 import { formDataPublicationPatch } from '$lib/utils/sessionTabState';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 import type { Session } from '$lib/types/api';
 import {
 	createSessionController,
@@ -48,13 +48,13 @@ async function settle() {
 	for (let i = 0; i < 20; i++) await Promise.resolve();
 }
 
-function createFakeTabs(seed: Partial<Tab>) {
-	let tabs: Tab[] = [{ id: TAB_ID, ...seed } as Tab];
-	const subscribers = new Set<(value: { tabs: Tab[] }) => void>();
+function createFakeTabs(seed: Partial<GenerationTab>) {
+	let tabs: GenerationTab[] = [{ id: TAB_ID, ...seed } as GenerationTab];
+	const subscribers = new Set<(value: { tabs: GenerationTab[] }) => void>();
 	/** Only the controller's own writes; a test's `edit` is not recorded. */
-	const writes: Array<Partial<Tab>> = [];
+	const writes: Array<Partial<GenerationTab>> = [];
 
-	function emit(patch: Partial<Tab>) {
+	function emit(patch: Partial<GenerationTab>) {
 		tabs = tabs.map((tab) => (tab.id === TAB_ID ? { ...tab, ...patch } : tab));
 		for (const subscriber of subscribers) subscriber({ tabs });
 	}
@@ -65,15 +65,15 @@ function createFakeTabs(seed: Partial<Tab>) {
 			return tabs[0];
 		},
 		/** A change made outside the controller (the live draft being edited). */
-		edit(patch: Partial<Tab>) {
+		edit(patch: Partial<GenerationTab>) {
 			emit(patch);
 		},
-		subscribe(run: (value: { tabs: Tab[] }) => void) {
+		subscribe(run: (value: { tabs: GenerationTab[] }) => void) {
 			subscribers.add(run);
 			run({ tabs });
 			return () => subscribers.delete(run);
 		},
-		updateTab(_tabId: string, patch: Partial<Tab>) {
+		updateTab(_tabId: string, patch: Partial<GenerationTab>) {
 			writes.push(patch);
 			emit(patch);
 		}
@@ -150,7 +150,7 @@ function createFakeApi() {
 	};
 }
 
-function createHarness(options: { tab?: Partial<Tab>; storage?: Record<string, string>; drafts?: { replaceVariables: (tabId: string, variables: never) => void } } = {}) {
+function createHarness(options: { tab?: Partial<GenerationTab>; storage?: Record<string, string>; drafts?: { replaceVariables: (tabId: string, variables: never) => void } } = {}) {
 	const api = createFakeApi();
 	const tabs = createFakeTabs(options.tab ?? {});
 	const timers = createFakeTimers();
@@ -185,7 +185,7 @@ function context(overrides: Record<string, unknown> = {}) {
 	} as never;
 }
 
-function baselineWrites(writes: Array<Partial<Tab>>) {
+function baselineWrites(writes: Array<Partial<GenerationTab>>) {
 	return writes.filter((write) => 'savedSessionSignature' in write);
 }
 
@@ -193,7 +193,7 @@ let harness: ReturnType<typeof createHarness>;
 let controller: SessionController;
 
 function draft(content: string) {
-	return { promptSegments: [{ id: 's', content }] } as Partial<Tab>;
+	return { promptSegments: [{ id: 's', content }] } as Partial<GenerationTab>;
 }
 
 /** Boots a controller already bound to a tab whose live draft differs from the
@@ -206,7 +206,7 @@ async function bootWithDirtySession(options: { storage?: Record<string, string> 
 			selectedSessionId: SESSION_A,
 			savedSessionSignature: JSON.stringify({ [MODE]: { prompt: 'the saved baseline' } }),
 			promptSegments: [{ id: 's', content: 'live edit' }]
-		} as Partial<Tab>,
+		} as Partial<GenerationTab>,
 		storage: options.storage
 	});
 	harness.api.getSessionsForPreset.mockResolvedValue({
@@ -224,7 +224,7 @@ async function bootWithDirtySession(options: { storage?: Record<string, string> 
  *  under test are the only thing touching the selection. */
 async function bootWithoutSession() {
 	harness = createHarness({
-		tab: { selectedPreset: PRESET_ID, selectedMode: MODE } as Partial<Tab>
+		tab: { selectedPreset: PRESET_ID, selectedMode: MODE } as Partial<GenerationTab>
 	});
 	harness.api.getSessionsForPreset.mockResolvedValue({
 		success: true,
@@ -382,7 +382,7 @@ describe('createSessionController', () => {
 		expect(harness.api.updateSession).toHaveBeenCalledTimes(1);
 
 		// Still dirty (the draft moved again), so the next tick saves again.
-		harness.tabs.edit({ promptSegments: [{ id: 's', content: 'edited again' }] } as Partial<Tab>);
+		harness.tabs.edit({ promptSegments: [{ id: 's', content: 'edited again' }] } as Partial<GenerationTab>);
 		await settle();
 		harness.timers.advance(5000);
 		await settle();
@@ -453,7 +453,7 @@ describe('createSessionController', () => {
 				selectedMode: MODE,
 				selectedSessionId: SESSION_A,
 				savedSessionSignature: null
-			} as Partial<Tab>
+			} as Partial<GenerationTab>
 		});
 		harness.api.getSessionsForPreset
 			.mockRejectedValueOnce(new Error('backend down'))
@@ -814,7 +814,7 @@ describe('createSessionController', () => {
 		it('replaces the tab draft with the loaded session variables in one call', async () => {
 			const replaceVariables = vi.fn();
 			harness = createHarness({
-				tab: { selectedPreset: PRESET_ID, selectedMode: MODE } as Partial<Tab>,
+				tab: { selectedPreset: PRESET_ID, selectedMode: MODE } as Partial<GenerationTab>,
 				drafts: { replaceVariables }
 			});
 			const variables = { mood: { type: 'text', value: 'noir' } };
@@ -837,7 +837,7 @@ describe('createSessionController', () => {
 		it('replaces with an empty map when the loaded session has no variables', async () => {
 			const replaceVariables = vi.fn();
 			harness = createHarness({
-				tab: { selectedPreset: PRESET_ID, selectedMode: MODE } as Partial<Tab>,
+				tab: { selectedPreset: PRESET_ID, selectedMode: MODE } as Partial<GenerationTab>,
 				drafts: { replaceVariables }
 			});
 			harness.api.getSessionsForPreset.mockResolvedValue({
@@ -863,7 +863,7 @@ describe('createSessionController', () => {
 		const savedForm = { steps: 20, sampler: 'euler' };
 		const savedMode = { promptSegments: savedSegments, variables: savedVariables, formData: savedForm, seed: 7 };
 
-		async function bootEditedSession(tab: Partial<Tab> = {}, saved: Record<string, unknown> = savedMode, storage: Record<string, string> = {}) {
+		async function bootEditedSession(tab: Partial<GenerationTab> = {}, saved: Record<string, unknown> = savedMode, storage: Record<string, string> = {}) {
 			const replaceVariables = vi.fn();
 			const session = makeSession(SESSION_A, { data: { [MODE]: saved } as never });
 			harness = createHarness({
@@ -877,7 +877,7 @@ describe('createSessionController', () => {
 					formData: { steps: 35, sampler: 'dpmpp' },
 					seed: 99,
 					...tab
-				} as Partial<Tab>,
+				} as Partial<GenerationTab>,
 				drafts: { replaceVariables },
 				storage
 			});
@@ -1131,7 +1131,7 @@ describe('createSessionController', () => {
 
 			expect(await controller.quickSave()).toBe(true);
 			expect(harness.api.updateSession).toHaveBeenCalledTimes(1);
-			harness.tabs.edit({ promptSegments: [{ id: 's1', content: 'edited again' }] } as Partial<Tab>);
+			harness.tabs.edit({ promptSegments: [{ id: 's1', content: 'edited again' }] } as Partial<GenerationTab>);
 			await settle();
 			harness.timers.advance(5000);
 			await settle();
@@ -1148,7 +1148,7 @@ describe('createSessionController', () => {
 			await controller.select(SESSION_B);
 			await settle();
 
-			harness.tabs.edit({ promptSegments: [{ id: 'b', content: 'edit on b' }] } as Partial<Tab>);
+			harness.tabs.edit({ promptSegments: [{ id: 'b', content: 'edit on b' }] } as Partial<GenerationTab>);
 			await settle();
 			expect(await controller.quickSave()).toBe(true);
 			expect(harness.api.updateSession).toHaveBeenCalledWith(SESSION_B, expect.anything());
@@ -1634,7 +1634,7 @@ describe('createSessionController', () => {
 		const pending = deferred<{ success: boolean; data: Session }>();
 		harness.api.getSessionById.mockReturnValue(pending.promise as never);
 
-		harness.tabs.edit({ selectedSessionId: SESSION_B } as Partial<Tab>);
+		harness.tabs.edit({ selectedSessionId: SESSION_B } as Partial<GenerationTab>);
 		await settle();
 		expect(harness.api.getSessionById).toHaveBeenCalledWith(SESSION_B);
 
@@ -1655,7 +1655,7 @@ describe('createSessionController', () => {
 		const pending = deferred<{ success: boolean; data: Session }>();
 		harness.api.getSessionById.mockReturnValue(pending.promise as never);
 
-		harness.tabs.edit({ selectedSessionId: SESSION_B } as Partial<Tab>);
+		harness.tabs.edit({ selectedSessionId: SESSION_B } as Partial<GenerationTab>);
 		await settle();
 
 		harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [] });

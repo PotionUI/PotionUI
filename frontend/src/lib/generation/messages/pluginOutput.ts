@@ -2,6 +2,7 @@ import { get } from 'svelte/store';
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
 import { pluginOwner } from '$lib/registries/registry';
 import { tabsStore } from '$lib/stores/tabs';
+import { generationTabs } from '$lib/types/tabs';
 
 /**
  * Registers a `generationMessageRegistry` handler for a plugin-declared
@@ -44,7 +45,7 @@ export function unregisterPluginOutputHandler(messageType: string, pluginId: str
  * `extensionRefresh`'s disposer a real teardown.
  */
 function dropStoredOutputs(messageType: string, pluginId: string): void {
-	for (const tab of get(tabsStore).tabs) {
+	for (const tab of generationTabs(get(tabsStore).tabs)) {
 		const outputs = tab.generation.pluginOutputs;
 		if (outputs?.[messageType]?.pluginId !== pluginId) continue;
 

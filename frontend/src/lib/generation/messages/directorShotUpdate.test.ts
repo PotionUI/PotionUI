@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
@@ -18,8 +19,8 @@ function baseRun(overrides: Partial<DirectorRunState> = {}): DirectorRunState {
 }
 
 function seedThreeShots(): string {
-	const tabId = get(tabsStore).tabs[0].id;
-	const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+	const tabId = generationTabs(get(tabsStore).tabs)[0].id;
+	const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 	tabsStore.updateTab(tabId, {
 		directorRuns: { a: baseRun(), b: baseRun(), c: baseRun() },
 		directorRunLinks: { 'gen-1': ['a', 'b', 'c'] },
@@ -33,7 +34,7 @@ function send(message: Record<string, unknown>) {
 }
 
 function runs(tabId: string) {
-	return get(tabsStore).tabs.find((t) => t.id === tabId)!.directorRuns!;
+	return generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!.directorRuns!;
 }
 
 describe('parseDirectorShotUpdate', () => {
@@ -121,7 +122,7 @@ describe('withDirectorShotUpdate', () => {
 
 describe('a multi-shot run through the message handlers', () => {
 	beforeEach(() => {
-		const first = get(tabsStore).tabs[0].id;
+		const first = generationTabs(get(tabsStore).tabs)[0].id;
 		tabsStore.updateTab(first, { directorRuns: {}, directorRunLinks: {} });
 	});
 

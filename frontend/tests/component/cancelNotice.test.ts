@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 
@@ -9,7 +10,7 @@ const { createClassComponent } = await import('svelte/legacy');
 const NOTICE = 'Stopped waiting. The provider may still finish this job and bill it.';
 
 function currentTab() {
-	return get(tabsStore).tabs[0];
+	return generationTabs(get(tabsStore).tabs)[0];
 }
 
 function mountNotice() {

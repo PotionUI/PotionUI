@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { settle } from './helpers/settle';
 
@@ -54,7 +55,7 @@ let host: ReturnType<typeof mount> | undefined;
 let target: HTMLElement;
 
 function tab() {
-	return get(tabsStore).tabs.find((candidate) => candidate.id === tabId)!;
+	return generationTabs(get(tabsStore).tabs).find((candidate) => candidate.id === tabId)!;
 }
 
 function field(name: string) {

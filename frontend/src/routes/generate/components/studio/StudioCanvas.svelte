@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 	import type { AudioTrack } from '$lib/types/audio';
 	import {
 		isAudioFileType,
@@ -23,7 +23,7 @@
 	import GridWorkbench from '$lib/components/compare/view/GridWorkbench.svelte';
 	import { compareRevision, readWorkbenchGrid } from '$lib/generation/compare/compareStore.svelte';
 
-	export let tab: Tab;
+	export let tab: GenerationTab;
 
 	$: generation = tab.generation;
 	$: compareGrid = readWorkbenchGrid($compareRevision, tab.id);

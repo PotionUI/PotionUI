@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { generationTabs } from '$lib/types/tabs';
 	import tooltip from '$lib/actions/tooltip';
 	import { logger } from '$lib/utils/logger';
 	import { getContext, onDestroy, onMount } from 'svelte';
@@ -213,7 +214,7 @@
 	}
 
 	// Active prompt text (for trigger chip "already used" state)
-	$: activePromptText = promptTextForTab($tabsStore.tabs, activeTabId);
+	$: activePromptText = promptTextForTab(generationTabs($tabsStore.tabs), activeTabId);
 
 	// --- Add / search panel state ---
 	let showSearch = false;

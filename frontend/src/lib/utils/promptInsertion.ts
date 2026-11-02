@@ -1,3 +1,4 @@
+import { findGenerationTab } from '$lib/types/tabs';
 import { get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
 import { combineSegmentsToString } from '$lib/utils/generationOrchestrator';
@@ -20,7 +21,7 @@ export type InsertTriggerResult = 'inserted' | 'duplicate' | 'unavailable';
  */
 export function insertTriggerIntoActivePrompt(trigger: string): InsertTriggerResult {
 	const state = get(tabsStore);
-	const tab = state.tabs.find((t) => t.id === state.activeTabId);
+	const tab = findGenerationTab(state.tabs, state.activeTabId);
 
 	if (!tab) return 'unavailable';
 	if (tab.promptRelay) return 'unavailable';

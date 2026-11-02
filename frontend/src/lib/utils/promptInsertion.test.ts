@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
@@ -14,7 +15,7 @@ describe('insertTriggerIntoActivePrompt', () => {
 		const result = insertTriggerIntoActivePrompt('masterpiece');
 		expect(result).toBe('inserted');
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === activeTabId())!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === activeTabId())!;
 		expect(tab.prompt).toBe('masterpiece');
 	});
 
@@ -28,7 +29,7 @@ describe('insertTriggerIntoActivePrompt', () => {
 		const result = insertTriggerIntoActivePrompt('best quality');
 		expect(result).toBe('inserted');
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === id)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!;
 		expect(tab.prompt).toBe('a cat, best quality');
 	});
 
@@ -42,7 +43,7 @@ describe('insertTriggerIntoActivePrompt', () => {
 		const result = insertTriggerIntoActivePrompt('masterpiece');
 		expect(result).toBe('duplicate');
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === id)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!;
 		expect(tab.prompt).toBe('a cat, Masterpiece');
 	});
 
@@ -67,7 +68,7 @@ describe('insertTriggerIntoActivePrompt', () => {
 
 		const result = insertTriggerIntoActivePrompt('masterpiece');
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === id)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!;
 		expect(result).toBe('inserted');
 		expect(tab.promptTabs![1].prompt).toBe('a dog, masterpiece');
 		expect(tab.promptTabs![0]).toEqual(first);

@@ -16,13 +16,13 @@
 // snapshot — a save captures every mode the tab actually visited, not just
 // whichever one was active when Save was clicked. No Svelte imports.
 
-import type { ModeState, Tab } from '$lib/types/tabs';
+import type { ModeState, GenerationTab } from '$lib/types/tabs';
 import type { ModeBasedSessionData, SessionData } from '$lib/types/api';
 import { ensureSegmentList } from '$lib/utils/richSegments';
 
 export function captureModeState(
 	tab: Pick<
-		Tab,
+		GenerationTab,
 		'prompt' | 'negativePrompt' | 'promptSegments' | 'negativePromptSegments' | 'promptTabs' | 'activePromptTab' | 'formData' | 'videoDirector' | 'musicDirector'
 	>
 ): ModeState {
@@ -61,7 +61,7 @@ export function emptyModeState(): ModeState {
  * atomic — `formData`/`promptSegments` change in the same tick `mode` does,
  * so `DynamicForm` never renders one mode's schema against another's data.
  */
-export function buildModeSwitchPatch(tab: Tab, fromMode: string | null, toMode: string): Partial<Tab> {
+export function buildModeSwitchPatch(tab: GenerationTab, fromMode: string | null, toMode: string): Partial<GenerationTab> {
 	if (fromMode === toMode) return {};
 
 	const modeStateByMode = { ...(tab.modeStateByMode || {}) };

@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { settle } from './helpers/settle';
@@ -59,7 +60,7 @@ const SCHEMAS: Record<string, unknown> = { txt2img: schemaFor(8), img2img: schem
 const MODELS: Record<string, string> = { diffusion_model: 'dm-1', text_encoder: 'te-1', vae: 'vae-1' };
 
 function readTab(tabId: string) {
-	return get(tabsStore).tabs.find((tab) => tab.id === tabId)!;
+	return generationTabs(get(tabsStore).tabs).find((tab) => tab.id === tabId)!;
 }
 
 let tabId = '';

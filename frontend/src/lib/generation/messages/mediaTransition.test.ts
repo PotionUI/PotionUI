@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { dispatchGenerationMessage } from '$lib/stores/generation';
@@ -5,7 +6,7 @@ import { tabsStore } from '$lib/stores/tabs';
 import { resetGenerationOutputsRetirementForTests } from './generationOutputs';
 
 function seedGeneration() {
-	const tab = get(tabsStore).tabs[0];
+	const tab = generationTabs(get(tabsStore).tabs)[0];
 	tabsStore.updateTab(tab.id, {
 		generation: {
 			...tab.generation,
@@ -46,7 +47,7 @@ describe('workbench media transitions', () => {
 			{ unsubscribe: vi.fn() }
 		);
 
-		const generation = get(tabsStore).tabs.find((tab) => tab.id === tabId)!.generation;
+		const generation = generationTabs(get(tabsStore).tabs).find((tab) => tab.id === tabId)!.generation;
 		expect(generation.currentGeneration).toMatchObject({
 			file_type: 'video',
 			current_video: '/api/media/generations/gen-video/final.mp4',
@@ -71,7 +72,7 @@ describe('workbench media transitions', () => {
 			{ unsubscribe }
 		);
 
-		let generation = get(tabsStore).tabs.find((tab) => tab.id === tabId)!.generation;
+		let generation = generationTabs(get(tabsStore).tabs).find((tab) => tab.id === tabId)!.generation;
 		expect(generation.batchVideos).toHaveLength(1);
 		expect(generation.workbenchTotal).toBe(1);
 
@@ -79,7 +80,7 @@ describe('workbench media transitions', () => {
 			{ type: 'generation_complete', data: { id: 'gen-video' } } as any,
 			{ unsubscribe }
 		);
-		generation = get(tabsStore).tabs.find((tab) => tab.id === tabId)!.generation;
+		generation = generationTabs(get(tabsStore).tabs).find((tab) => tab.id === tabId)!.generation;
 		expect(generation.currentGeneration).toMatchObject({
 			status: 'completed',
 			file_type: 'video',
@@ -107,7 +108,7 @@ describe('workbench media transitions', () => {
 			{ unsubscribe }
 		);
 
-		let generation = get(tabsStore).tabs.find((tab) => tab.id === tabId)!.generation;
+		let generation = generationTabs(get(tabsStore).tabs).find((tab) => tab.id === tabId)!.generation;
 		expect(generation.batchImages.map((i: any) => i.originalUrl)).toEqual([
 			'/api/media/generations/gen-video/0.png',
 			'/api/media/generations/gen-video/1.png'
@@ -118,7 +119,7 @@ describe('workbench media transitions', () => {
 			{ type: 'generation_complete', data: { id: 'gen-video' } } as any,
 			{ unsubscribe }
 		);
-		generation = get(tabsStore).tabs.find((tab) => tab.id === tabId)!.generation;
+		generation = generationTabs(get(tabsStore).tabs).find((tab) => tab.id === tabId)!.generation;
 		expect(generation.workbenchIndex).toBe(1);
 		expect(generation.currentGeneration).toMatchObject({
 			status: 'completed',

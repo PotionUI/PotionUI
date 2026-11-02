@@ -1,6 +1,6 @@
 import type { GenerationRequest, PromptPair } from '$lib/services/api';
 import type { Segment } from '$lib/types/segments';
-import type { PromptTabData, Tab } from '$lib/types/tabs';
+import type { PromptTabData, GenerationTab } from '$lib/types/tabs';
 import type { DirectorCapabilities, VideoDirectorValue } from '$lib/types/videoDirector';
 import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 import { conditionReadersFor } from '$lib/utils/conditionTags';
@@ -17,7 +17,7 @@ import { activePromptIndex, firstEmptyPrompt, promptList } from '$lib/generation
 import type { DirectorModelOverlay } from '$lib/utils/cloudDirector';
 
 export type RequestTab = Pick<
-	Tab,
+	GenerationTab,
 	| 'selectedPreset'
 	| 'selectedMode'
 	| 'selectedVariant'
@@ -95,7 +95,7 @@ export function buildGenerationRequest(tab: RequestTab, options: BuildRequestOpt
 		tab_id: options.tabId,
 		source_prompt_id: tab.sourcePromptId ?? undefined,
 		prompt_state: promptStateFor(tab, options),
-		segments: buildSegmentsPayload(tab as Tab, options.batchPrompts === true)
+		segments: buildSegmentsPayload(tab as GenerationTab, options.batchPrompts === true)
 	};
 }
 
@@ -263,7 +263,7 @@ export function prepareRequest(options: PrepareRequestOptions): PreparedRequest 
 
 	const readers = conditionReadersFor(promptsArray.flatMap((p) => [p.positive, p.negative]));
 	const independent = applyIndependentUsages(promptsArray, tab.variables, readers);
-	const variablesResult = buildVariablesPayload(tab as Tab, {
+	const variablesResult = buildVariablesPayload(tab as GenerationTab, {
 		random: options.random,
 		now: options.now,
 		usageCounts: independent.usageCounts,

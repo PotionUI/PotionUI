@@ -1,8 +1,9 @@
+import { generationTabs } from '$lib/types/tabs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
 import type { Segment } from '$lib/types/segments';
-import type { PromptTabData, Tab } from '$lib/types/tabs';
+import type { PromptTabData, GenerationTab } from '$lib/types/tabs';
 import {
 	LOCKED_BATCH_COPY,
 	MAX_BATCH_IMAGES,
@@ -26,7 +27,7 @@ import {
 } from './promptBatch';
 
 type PromptFieldsTab = Pick<
-	Tab,
+	GenerationTab,
 	'prompt' | 'negativePrompt' | 'promptSegments' | 'negativePromptSegments' | 'promptTabs' | 'activePromptTab'
 >;
 
@@ -261,12 +262,12 @@ describe('active prompt mirroring', () => {
 
 		it('keeps the selected prompt in step with every writer of the working fields', () => {
 			const id = get(tabsStore).activeTabId;
-			const first = get(tabsStore).tabs[0];
+			const first = generationTabs(get(tabsStore).tabs)[0];
 			tabsStore.updateTab(id, { ...singleTab(), ...addPrompt({ ...first, ...singleTab() }) });
 
 			tabsStore.updateTab(id, { prompt: 'typed later', promptSegments: [segment('t', 'typed later')] });
 
-			const tab = get(tabsStore).tabs[0];
+			const tab = generationTabs(get(tabsStore).tabs)[0];
 			expect(entries(tab)[1].prompt).toBe('typed later');
 			expect(entries(tab)[0].prompt).toBe('a fox');
 		});

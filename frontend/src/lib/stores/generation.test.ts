@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from './tabs';
@@ -12,12 +13,12 @@ import {
 // Tab ids are crypto.randomUUID() (not the literal 'tab-1' of older builds), so
 // every test resolves the default tab's id from the store rather than assuming it.
 function defaultTabId(): string {
-	return get(tabsStore).tabs[0].id;
+	return generationTabs(get(tabsStore).tabs)[0].id;
 }
 
 function setCurrentGeneration(tabId: string, currentGeneration: any) {
 	const state = get(tabsStore);
-	const tab = state.tabs.find((t) => t.id === tabId)!;
+	const tab = generationTabs(state.tabs).find((t) => t.id === tabId)!;
 	tabsStore.updateTab(tabId, {
 		generation: { ...tab.generation, currentGeneration }
 	});
@@ -49,7 +50,7 @@ describe('findTabByGenerationId', () => {
 	it('finds a tab by a queued (non-current) generation in generation.queue', () => {
 		const tabId = defaultTabId();
 		const state = get(tabsStore);
-		const tab = state.tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(state.tabs).find((t) => t.id === tabId)!;
 		tabsStore.updateTab(tabId, {
 			generation: {
 				...tab.generation,
@@ -72,7 +73,7 @@ describe('dispatchGenerationMessage', () => {
 			{ unsubscribe: vi.fn() }
 		);
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.generation.currentProgress).toMatchObject({ type: 'generation_status', progress: 0.5 });
 	});
 
@@ -88,7 +89,7 @@ describe('dispatchGenerationMessage', () => {
 		status(0.5, 'EDIT');
 		status(null, 'Loading (2 of 2)');
 
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.generation.currentProgress).toMatchObject({ progress: 0.5, current_step: 'Loading (2 of 2)' });
 	});
 
@@ -103,7 +104,7 @@ describe('dispatchGenerationMessage', () => {
 		);
 
 		expect(unsubscribe).toHaveBeenCalledWith('gen-2');
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.generation.isGenerating).toBe(false);
 	});
 
@@ -118,7 +119,7 @@ describe('dispatchGenerationMessage', () => {
 		);
 
 		expect(unsubscribe).toHaveBeenCalledWith('gen-3');
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.generation.currentGeneration).toMatchObject({ status: 'failed', message: 'boom' });
 	});
 
@@ -138,7 +139,7 @@ describe('dispatchGenerationMessage', () => {
 		);
 
 		expect(unsubscribe).toHaveBeenCalledWith('gen-5');
-		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		expect(tab.generation.currentGeneration).toMatchObject({
 			status: 'failed',
 			message: 'Model failed to load',

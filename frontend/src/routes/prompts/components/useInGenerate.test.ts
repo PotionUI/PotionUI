@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RichSegment } from '$lib/types/segments';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 import type { VariablesMap } from '$lib/utils/variableDefs';
 import { buildUseInGenerateUpdate } from './useInGenerate';
 
@@ -37,8 +37,8 @@ describe('buildUseInGenerateUpdate', () => {
 
 	it('replaces the old segments, keeps the other list and merges variables into a non-empty tab', () => {
 		const tab = {
-			promptSegments: [segment('old one'), segment('old two')] as unknown as Tab['promptSegments'],
-			negativePromptSegments: [segment('keep me')] as unknown as Tab['negativePromptSegments'],
+			promptSegments: [segment('old one'), segment('old two')] as unknown as GenerationTab['promptSegments'],
+			negativePromptSegments: [segment('keep me')] as unknown as GenerationTab['negativePromptSegments'],
 			variables: { colour: { type: 'text', values: ['red'] } } as unknown as VariablesMap
 		};
 		const incoming = { mood: { type: 'text', values: ['calm'] } } as unknown as VariablesMap;

@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import { flushSync } from 'svelte';
@@ -86,7 +87,7 @@ function mountPanels(patch: Record<string, unknown> = {}, width = PANELS) {
 	flushSync();
 }
 
-const tab = () => get(tabsStore).tabs.find((candidate) => candidate.id === tabId)!;
+const tab = () => generationTabs(get(tabsStore).tabs).find((candidate) => candidate.id === tabId)!;
 const handle = () => host.querySelector<HTMLButtonElement>('[data-testid="prompts-workbench-handle"]')!;
 const formHandle = () => host.querySelector<HTMLButtonElement>('button[aria-label="Collapse generation settings"]')!;
 const tokens = (classes: string) => classes.split(/\s+/).filter(Boolean);

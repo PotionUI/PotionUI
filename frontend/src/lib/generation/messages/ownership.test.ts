@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 
@@ -18,7 +19,7 @@ import { resetGenerationOutputsRetirementForTests } from './generationOutputs';
 // side effect, which registers every handler under test.
 
 function defaultTabId(): string {
-	return get(tabsStore).tabs[0].id;
+	return generationTabs(get(tabsStore).tabs)[0].id;
 }
 
 /** Seeds a tab with A as its owning/current generation and B enqueued
@@ -26,7 +27,7 @@ function defaultTabId(): string {
  *  both land in `generation.queue`, only A occupies `activeGenerationId`/
  *  `currentGeneration`). */
 function seedRunningWithQueuedSecond(tabId: string) {
-	const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+	const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 	tabsStore.updateTab(tabId, {
 		activeGenerationId: 'gen-a',
 		generation: {
@@ -46,7 +47,7 @@ function seedRunningWithQueuedSecond(tabId: string) {
  *  activeGenerationId" rule: B is the tab's current display even though A,
  *  submitted earlier, is still confirmed running in the background. */
 function seedNewestSubmissionOverOlderRunning(tabId: string) {
-	const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+	const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 	tabsStore.updateTab(tabId, {
 		activeGenerationId: 'gen-b',
 		generation: {
@@ -62,7 +63,7 @@ function seedNewestSubmissionOverOlderRunning(tabId: string) {
 }
 
 function currentTab(tabId: string) {
-	return get(tabsStore).tabs.find((t) => t.id === tabId)!;
+	return generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 }
 
 describe('tabClaimedGenerationIds', () => {
@@ -249,7 +250,7 @@ describe('generation message ownership — A running, B queued in the same tab',
 
 	it('cancelling the only submission with nothing else queued clears the display (else null)', () => {
 		const tabId = defaultTabId();
-		const tab0 = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		const tab0 = generationTabs(get(tabsStore).tabs).find((t) => t.id === tabId)!;
 		tabsStore.updateTab(tabId, {
 			activeGenerationId: 'gen-a',
 			generation: {
@@ -356,18 +357,18 @@ describe('a new generation taking over the display', () => {
 	});
 
 	it('clears the previous cancel notice', () => {
-		const tabId = get(tabsStore).tabs[0].id;
-		const tab = get(tabsStore).tabs[0];
+		const tabId = generationTabs(get(tabsStore).tabs)[0].id;
+		const tab = generationTabs(get(tabsStore).tabs)[0];
 		tabsStore.updateTab(tabId, { generation: { ...tab.generation, cancelNotice: 'Stopped waiting.' } });
 
 		const adopted = beginGenerationOwnership('gen-next');
-		const latest = get(tabsStore).tabs[0];
+		const latest = generationTabs(get(tabsStore).tabs)[0];
 		tabsStore.updateTab(tabId, {
 			activeGenerationId: adopted.activeGenerationId,
 			generation: { ...latest.generation, ...adopted.generation }
 		});
 
-		expect(get(tabsStore).tabs[0].generation.cancelNotice).toBeNull();
+		expect(generationTabs(get(tabsStore).tabs)[0].generation.cancelNotice).toBeNull();
 	});
 
 	it('forgets which generation was last cancelled', () => {

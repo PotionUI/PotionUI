@@ -23,7 +23,8 @@ export type GenerationLayoutMode = 'two' | 'three';
 // exists (`tabs.ts`'s `createTabsStore`), so a tab with a `selectedSessionId`
 // still gets overwritten by the server's copy once `restoreTabSessions` runs
 // — these fields are only load-bearing for the unsaved-tab path.
-export interface PersistedTab {
+export interface PersistedGenerationTab {
+	kind?: 'generation';
 	id: string;
 	name: string;
 	selectedPreset: string | null;
@@ -84,6 +85,23 @@ export interface PersistedTab {
 	directorRuns?: Record<string, DirectorRunState>;
 	directorRunLinks?: DirectorRunLinks;
 }
+
+export interface PersistedToolTab {
+	kind: 'tool';
+	id: string;
+	name: string;
+	color?: string | null;
+	tool: string;
+	source: MediaRef | null;
+	state: unknown;
+	run?: RunRef | null;
+	activeTool?: string | null;
+	dirty?: number;
+	thumbnail?: string | null;
+	renamed?: boolean;
+}
+
+export type PersistedTab = PersistedGenerationTab | PersistedToolTab;
 
 export interface PersistedTabsState {
 	tabs: PersistedTab[];
@@ -364,9 +382,31 @@ export interface PromptRelayValue {
 	timeline: PromptRelayTimeline;
 }
 
-export interface Tab {
+export interface TabBase {
 	id: string;
 	name: string;
+	color?: string | null;
+}
+
+export interface RunRef {
+	runId: string;
+	progress?: number | null;
+}
+
+export interface ToolTab extends TabBase {
+	kind: 'tool';
+	tool: string;
+	source: MediaRef | null;
+	state: unknown;
+	run?: RunRef | null;
+	activeTool?: string | null;
+	dirty?: number;
+	thumbnail?: string | null;
+	renamed?: boolean;
+}
+
+export interface GenerationTab extends TabBase {
+	kind: 'generation';
 	selectedPreset: string | null;
 	selectedMode: string | null;
 	/** Name of the selected mode's preset variant (form). Also persisted to
@@ -507,4 +547,24 @@ export interface Tab {
 	soundOnComplete?: boolean;
 	soundOnError?: boolean;
 	color?: string | null;
+}
+
+export type Tab = GenerationTab | ToolTab;
+
+export function isToolTab(tab: Tab | null | undefined): tab is ToolTab {
+	return !!tab && tab.kind === 'tool';
+}
+
+export function isGenerationTab(tab: Tab | null | undefined): tab is GenerationTab {
+	return !!tab && tab.kind !== 'tool';
+}
+
+export function generationTabs(tabs: readonly Tab[]): GenerationTab[] {
+	return tabs.filter(isGenerationTab);
+}
+
+export function findGenerationTab(tabs: readonly Tab[], id: string | null | undefined): GenerationTab | undefined {
+	if (!id) return undefined;
+	const tab = tabs.find((candidate) => candidate.id === id);
+	return isGenerationTab(tab) ? tab : undefined;
 }

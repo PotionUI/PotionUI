@@ -1,12 +1,14 @@
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab, Tab } from '$lib/types/tabs';
+import { isToolTab } from '$lib/types/tabs';
 import { tabHasUnsavedSessionChanges } from '$lib/utils/unsavedChangesGuard';
 
-function formDiffersFromBaseline(tab: Tab): boolean {
+function formDiffersFromBaseline(tab: GenerationTab): boolean {
 	if (!tab.formPublished || tab.formBaselineSignature === undefined) return false;
 	return JSON.stringify(tab.formData ?? {}) !== tab.formBaselineSignature;
 }
 
 export function tabHasUnsavedWork(tab: Tab): boolean {
+	if (isToolTab(tab)) return (tab.dirty ?? 0) > 0;
 	if (tab.selectedSessionId) return tabHasUnsavedSessionChanges(tab);
 	return !!(
 		tab.prompt?.trim() ||

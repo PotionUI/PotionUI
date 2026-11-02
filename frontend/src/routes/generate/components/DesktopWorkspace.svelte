@@ -1,12 +1,12 @@
 <script lang="ts">
 	import SessionScope from '$lib/components/session/SessionScope.svelte';
 	import ContextToolbar from './ContextToolbar.svelte';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 	import type { PresetInfo } from '$lib/services/api/index';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import type { PresetModeChoice } from '$lib/utils/presetModeOptions';
 
-	export let tab: Tab;
+	export let tab: GenerationTab;
 	export let presets: PresetInfo[] = [];
 	export let readiness: ReadinessReport | null = null;
 	export let isLoading = false;

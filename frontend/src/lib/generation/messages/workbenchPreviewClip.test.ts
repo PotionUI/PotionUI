@@ -1,3 +1,4 @@
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
@@ -5,18 +6,18 @@ import { dispatchGenerationMessage } from '$lib/stores/generation';
 import { MessageCoalescer } from '$lib/generation/messageCoalescer';
 
 function tabId(): string {
-	return get(tabsStore).tabs[0].id;
+	return generationTabs(get(tabsStore).tabs)[0].id;
 }
 
 function seed(id: string, generationId: string) {
-	const tab = get(tabsStore).tabs.find((t) => t.id === id)!;
+	const tab = generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!;
 	tabsStore.updateTab(id, {
 		generation: { ...tab.generation, currentGeneration: { id: generationId, generation_id: generationId, status: 'running' } }
 	});
 }
 
 function current(id: string): any {
-	return get(tabsStore).tabs.find((t) => t.id === id)!.generation.currentGeneration;
+	return generationTabs(get(tabsStore).tabs).find((t) => t.id === id)!.generation.currentGeneration;
 }
 
 function clipMessage(generationId: string, step: number, extra: Record<string, unknown> = {}) {

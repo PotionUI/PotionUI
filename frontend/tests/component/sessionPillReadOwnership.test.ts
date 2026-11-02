@@ -8,6 +8,7 @@
 // screen. This mounts the real SessionPill and drives the pick through
 // SessionControl's menu, so the stale completion is exercised through the
 // presenter the user actually sees.
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import { settle } from './helpers/settle';
@@ -128,7 +129,7 @@ describe('SessionPill session-read ownership', () => {
 
 		expect(mounted.sessionName()).not.toContain(`Session ${PICKED}`);
 		expect(mounted.sessionName()).toContain('No saved session');
-		const tab = get(tabsStore).tabs.find((entry) => entry.id === tabId);
+		const tab = generationTabs(get(tabsStore).tabs).find((entry) => entry.id === tabId);
 		expect(tab?.selectedSessionId).toBeFalsy();
 	});
 });

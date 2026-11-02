@@ -1,14 +1,14 @@
 <script lang="ts">
 	import StudioSheet from '$lib/components/StudioSheet.svelte';
 	import PromptSection from '../PromptSection.svelte';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import { NO_PROMPT_COPY, type PromptCopy } from '$lib/utils/promptModeCopy';
 	import type { PresetStyle } from '$lib/services/api/index';
 
-	export let tab: Tab;
+	export let tab: GenerationTab;
 	export let tabHandlers: {
 		handlePromptChange: (prompt: string) => void;
 		handlePromptSegmentsChange: (segments: any[]) => void;

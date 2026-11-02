@@ -5,14 +5,14 @@
 	import { loadCloudCapabilities, loadPresetFormSchema, searchAutopickSlot } from '$lib/form/formSources';
 	import { sharedCapabilityCache } from '$lib/form/capabilityTracker';
 	import { clearMissingModel, publishMissingModel } from '$lib/generation/requiredModelField';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 
 	let {
 		tab,
 		videoDirectorActive = false,
 		onFormDataChange
 	}: {
-		tab: Tab;
+		tab: GenerationTab;
 		videoDirectorActive?: boolean;
 		onFormDataChange: (data: Record<string, unknown>) => void;
 	} = $props();

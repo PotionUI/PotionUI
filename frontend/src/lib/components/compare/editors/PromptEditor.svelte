@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { findGenerationTab } from '$lib/types/tabs';
 	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { tabsStore } from '$lib/stores/tabs';
@@ -25,7 +26,7 @@
 	);
 
 	let promptText = $derived.by(() => {
-		const tab = $tabsStore.tabs.find((entry) => entry.id === tabId);
+		const tab = findGenerationTab($tabsStore.tabs, tabId);
 		if (!tab) return '';
 		const segments = (tab.promptSegments ?? []).filter((segment) => segment.enabled !== false);
 		return segments.length > 0 ? segments.map((segment) => segment.content ?? '').join('\n') : (tab.prompt ?? '');

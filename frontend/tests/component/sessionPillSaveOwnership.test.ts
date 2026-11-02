@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { generationTabs } from '$lib/types/tabs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import { flushSync } from 'svelte';
@@ -105,7 +106,7 @@ function mountPill(tabId: string) {
 }
 
 function tabState(id: string) {
-	return get(tabsStore).tabs.find((t) => t.id === id);
+	return generationTabs(get(tabsStore).tabs).find((t) => t.id === id);
 }
 
 let mounted: ReturnType<typeof mountPill> | undefined;

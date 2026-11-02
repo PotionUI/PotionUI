@@ -1,5 +1,5 @@
 import type { ActiveGrid, CompareAxis, GridCell } from '../compareStore.svelte';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 import { applyPromptReplacement } from '../axisValues';
 import { PROMPT_AXIS_FIELD, PROMPT_AXIS_LABEL } from '../types';
 
@@ -192,10 +192,10 @@ export function cellFormPatch(grid: Pick<ActiveGrid, 'config'>, cell: Pick<GridC
 }
 
 export function cellTabUpdates(
-	tab: Pick<Tab, 'formData' | 'prompt' | 'promptSegments'>,
+	tab: Pick<GenerationTab, 'formData' | 'prompt' | 'promptSegments'>,
 	result: CellFormPatch
-): Partial<Tab> {
-	const updates: Partial<Tab> = { formData: { ...(tab.formData ?? {}), ...result.patch } };
+): Partial<GenerationTab> {
+	const updates: Partial<GenerationTab> = { formData: { ...(tab.formData ?? {}), ...result.patch } };
 	if (result.prompt) {
 		updates.prompt = applyPromptReplacement(tab.prompt ?? '', result.prompt);
 		updates.promptSegments = (tab.promptSegments ?? []).map((segment) =>

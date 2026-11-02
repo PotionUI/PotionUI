@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { migrateLegacyTabIds, isLegacyTabId } from './tabPersistence';
-import type { PersistedTabsState, Tab } from '$lib/types/tabs';
+import type { PersistedGenerationTab, PersistedTabsState, GenerationTab } from '$lib/types/tabs';
 
 // vitest runs with `environment: 'node'` (vite.config.ts), so `$app/environment`'s
 // `browser` is false and saveTabsToLocalStorage/loadTabsFromLocalStorage no-op —
@@ -9,7 +9,7 @@ import type { PersistedTabsState, Tab } from '$lib/types/tabs';
 // serialize/restore round trip can actually be exercised.
 vi.mock('$app/environment', () => ({ browser: true }));
 
-function persistedTab(overrides: Partial<PersistedTabsState['tabs'][number]> & { id: string }) {
+function persistedTab(overrides: Partial<PersistedGenerationTab> & { id: string }): PersistedGenerationTab {
 	return {
 		name: 'Generation 1',
 		selectedPreset: null,
@@ -64,7 +64,7 @@ describe('migrateLegacyTabIds', () => {
 
 		// Every other field survives untouched.
 		expect(migrated.tabs[0].name).toBe('Browser A');
-		expect(migrated.tabs[0].selectedPreset).toBe('native/SDXL/realistic');
+		expect((migrated.tabs[0] as PersistedGenerationTab).selectedPreset).toBe('native/SDXL/realistic');
 		expect(migrated.tabs[1].name).toBe('Browser B');
 		expect((migrated.tabs[1] as any).color).toBe('blue');
 
@@ -97,7 +97,7 @@ describe('saveTabsToLocalStorage / loadTabsFromLocalStorage', () => {
 		};
 	});
 
-	function fakeTab(overrides: Partial<Tab> = {}): Tab {
+	function fakeTab(overrides: Partial<GenerationTab> = {}): GenerationTab {
 		return {
 			id: 't1',
 			name: 'Generation 1',
@@ -122,7 +122,7 @@ describe('saveTabsToLocalStorage / loadTabsFromLocalStorage', () => {
 			autoCollectionIds: [],
 			color: null,
 			...overrides
-		} as Tab;
+		} as GenerationTab;
 	}
 
 	it('round-trips an unsaved tab\'s content fields through localStorage', async () => {
@@ -133,7 +133,7 @@ describe('saveTabsToLocalStorage / loadTabsFromLocalStorage', () => {
 		const restored = loadTabsFromLocalStorage();
 
 		expect(restored).not.toBeNull();
-		const restoredTab = restored!.tabs[0];
+		const restoredTab = (restored!.tabs[0] as PersistedGenerationTab);
 		expect(restoredTab.prompt).toBe('a cat');
 		expect(restoredTab.negativePrompt).toBe('blurry');
 		expect(restoredTab.promptSegments).toEqual([{ id: 's1', content: 'a cat' }]);
@@ -156,12 +156,12 @@ describe('saveTabsToLocalStorage / loadTabsFromLocalStorage', () => {
 		saveTabsToLocalStorage([tab], tab.id);
 		const restored = loadTabsFromLocalStorage();
 
-		const formData = restored!.tabs[0].formData as any;
+		const formData = (restored!.tabs[0] as PersistedGenerationTab).formData as any;
 		expect(formData.label).toBe('ok');
 		expect(formData.maskPreview).toBeNull();
 		expect(formData.nested.thumb).toBeNull();
 
-		expect(restored!.tabs[0]).not.toHaveProperty('variables');
+		expect((restored!.tabs[0] as PersistedGenerationTab)).not.toHaveProperty('variables');
 	});
 
 	it('round-trips directorRuns, including a predecessorRef, through localStorage', async () => {
@@ -192,7 +192,7 @@ describe('saveTabsToLocalStorage / loadTabsFromLocalStorage', () => {
 		saveTabsToLocalStorage([tab], tab.id);
 		const restored = loadTabsFromLocalStorage();
 
-		const runs = restored!.tabs[0].directorRuns as any;
+		const runs = (restored!.tabs[0] as PersistedGenerationTab).directorRuns as any;
 		expect(runs.s1.predecessorRef).toBeNull();
 		expect(runs.s2.predecessorRef).toEqual({ generationId: 'gen-1', outputKey: 's1' });
 		expect(runs.s2.inputsHash).toBe('div1:{"own":{}}');
@@ -217,7 +217,7 @@ describe('saveTabsToLocalStorage / loadTabsFromLocalStorage', () => {
 		saveTabsToLocalStorage([tab], tab.id);
 		const restored = loadTabsFromLocalStorage();
 
-		const runs = restored!.tabs[0].directorRuns as any;
+		const runs = (restored!.tabs[0] as PersistedGenerationTab).directorRuns as any;
 		expect(runs.s1.status).toBe('done');
 		expect(runs.s1.predecessorRef).toBeUndefined();
 	});
@@ -233,7 +233,7 @@ describe('saveTabsToLocalStorage / loadTabsFromLocalStorage', () => {
 		saveTabsToLocalStorage([tab], tab.id);
 		const restored = loadTabsFromLocalStorage();
 
-		expect((restored!.tabs[0].formData as any).image).toEqual({
+		expect(((restored!.tabs[0] as PersistedGenerationTab).formData as any).image).toEqual({
 			path: '/media/uploads/a.png',
 			url: 'https://example.com/a.png'
 		});

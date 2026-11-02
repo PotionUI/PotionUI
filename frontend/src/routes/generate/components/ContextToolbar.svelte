@@ -2,7 +2,7 @@
 	import { tick, untrack } from 'svelte';
 	import type { FieldLabels } from '$lib/session/sessionDrawerModel';
 	import type { SessionPanelActions, SessionPanelState } from '$lib/session/sessionDialogs';
-	import type { Tab } from '$lib/types/tabs';
+	import type { GenerationTab } from '$lib/types/tabs';
 	import type { PresetInfo } from '$lib/services/api/index';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import Icon from '$lib/components/Icon.svelte';
@@ -62,7 +62,7 @@
 		onReload,
 		onFormulaApplied = undefined
 	}: {
-		tab: Tab;
+		tab: GenerationTab;
 		presets?: PresetInfo[];
 		readiness?: ReadinessReport | null;
 		isLoading?: boolean;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Segment } from '$lib/types/segments';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 import { parseToolActions } from '$lib/utils/markdown';
 import { selectPrompt } from '$lib/generation/promptBatch';
 import {
@@ -11,7 +11,7 @@ import {
 } from './promptActions';
 
 type Fields = Pick<
-	Tab,
+	GenerationTab,
 	'prompt' | 'negativePrompt' | 'promptSegments' | 'negativePromptSegments' | 'promptTabs' | 'activePromptTab'
 >;
 

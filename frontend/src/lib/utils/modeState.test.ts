@@ -7,11 +7,12 @@ import {
 	modeStateFromSessionData,
 	seedModeStateFromSessionData
 } from './modeState';
-import type { Tab } from '$lib/types/tabs';
+import type { GenerationTab } from '$lib/types/tabs';
 import type { ModeBasedSessionData } from '$lib/types/api';
 
-function makeTab(overrides: Partial<Tab> = {}): Tab {
+function makeTab(overrides: Partial<GenerationTab> = {}): GenerationTab {
 	return {
+		kind: 'generation',
 		id: 't1',
 		name: 'Generation 1',
 		selectedPreset: 'native/Wan/default',
@@ -330,7 +331,7 @@ describe('two-mode session round trip', () => {
 		// img2img's data goes straight onto the live fields, txt2img seeds the cache.
 		const loadedTab = makeTab({ selectedMode: 'img2img' });
 		const activeModeData = saved.img2img;
-		const restoredTab: Tab = {
+		const restoredTab: GenerationTab = {
 			...loadedTab,
 			prompt: activeModeData.prompt || '',
 			promptSegments: activeModeData.promptSegments || [],

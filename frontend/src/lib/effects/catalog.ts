@@ -10,6 +10,7 @@ export type UniformType = 'float' | 'int' | 'bool' | 'vec2' | 'vec3';
 export interface EffectUniform {
 	name: string;
 	type: UniformType;
+	key?: string;
 }
 
 export interface EffectTexture {
@@ -90,7 +91,8 @@ function readUniforms(value: unknown): EffectUniform[] {
 		const item = record(entry);
 		if (!item || typeof item.name !== 'string' || !NAME.test(item.name.replace(/^u_/, ''))) return [];
 		if (typeof item.type !== 'string' || !UNIFORM_TYPES.includes(item.type)) return [];
-		return [{ name: item.name.replace(/^u_/, ''), type: item.type as UniformType }];
+		const name = item.name.replace(/^u_/, '');
+		return [{ name, type: item.type as UniformType, key: typeof item.key === 'string' ? item.key : name }];
 	});
 }
 

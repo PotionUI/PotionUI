@@ -91,18 +91,18 @@ export const GRAIN_TOOL = effectTool({
 		time: 'frame',
 		shader: { url: '/api/media-tools/effects/film_grain/shader', etag: 'grain-1' },
 		uniforms: [
-			{ name: 'amount', type: 'float' },
-			{ name: 'size', type: 'float' },
-			{ name: 'color', type: 'bool' },
-			{ name: 'seed', type: 'int' },
-			{ name: 'strength', type: 'float' },
-			{ name: 'cell', type: 'float' }
+			{ name: 'u_amount', type: 'float', from: 'param', key: 'amount' },
+			{ name: 'u_size', type: 'float', from: 'param', key: 'size' },
+			{ name: 'u_color', type: 'bool', from: 'param', key: 'color' },
+			{ name: 'u_seed', type: 'int', from: 'param', key: 'seed' },
+			{ name: 'u_strength', type: 'float', from: 'derive', key: 'strength' },
+			{ name: 'u_cell', type: 'float', from: 'derive', key: 'cell' }
 		],
 		textures: [],
-		derive: {
-			strength: 'amount / 100 * 0.14 * 255',
-			cell: 'max(1, floor(size * min(media.width, media.height) / 1000 + 0.5))'
-		},
+		derive: [
+			{ name: 'strength', expr: 'amount / 100 * 0.14 * 255' },
+			{ name: 'cell', expr: 'max(1, floor(size * min(media.width, media.height) / 1000 + 0.5))' }
+		],
 		gain: null,
 		analysis: false
 	}

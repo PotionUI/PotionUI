@@ -274,7 +274,7 @@ export class ShaderChain {
 		this.set(program, 'u_fps', 'float', frame.fps);
 		this.set(program, 'u_duration', 'float', at.duration);
 		for (const uniform of pass.uniforms) {
-			const value = pass.values[uniform.name];
+			const value = pass.values[uniform.key ?? uniform.name];
 			if (value !== undefined) this.set(program, `u_${uniform.name}`, uniform.type, value);
 		}
 		gl.drawArrays(gl.TRIANGLES, 0, 3);

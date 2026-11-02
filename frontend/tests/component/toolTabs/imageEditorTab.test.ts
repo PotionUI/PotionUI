@@ -113,7 +113,6 @@ describe('ImageEditorTab', () => {
 		flushSync();
 		expect(rows(all)).toEqual(['original', 'current', 'undone']);
 		expect(lastActions()?.redo?.label).toBe('Redo Reel');
-		vi.advanceTimersByTime(200);
 		const written = calls.state[calls.state.length - 1] as { stack: { cursor: number } };
 		expect(written.stack.cursor).toBe(1);
 		expect(calls.dirty[calls.dirty.length - 1]).toBe(1);

@@ -344,15 +344,21 @@
 		host.setState(next);
 	}
 
+	let lastContent = JSON.stringify(writeImageState({ ...initial, viewport: fitViewport() }));
+
 	$effect(() => {
 		const payload = writeImageState({ stack, activeTool, viewport, mask, saved });
 		const json = JSON.stringify(payload);
 		if (json === lastWritten) return;
 		lastWritten = json;
+		const content = JSON.stringify(writeImageState({ stack, activeTool, viewport: fitViewport(), mask, saved }));
+		const viewOnly = content === lastContent;
+		lastContent = content;
 		untrack(() => {
 			pendingWrite = payload;
 			if (writeTimer) clearTimeout(writeTimer);
-			writeTimer = setTimeout(flushWrite, 150);
+			if (viewOnly) writeTimer = setTimeout(flushWrite, 150);
+			else flushWrite();
 		});
 	});
 
@@ -830,7 +836,14 @@
 	let stackMore = $derived(applied.length ? [{ id: 'clear', label: 'Remove all edits', icon: 'trash' }] : []);
 </script>
 
-<svelte:window onpaste={onPaste} />
+<svelte:window
+	onpaste={onPaste}
+	onpagehide={() => {
+		if (!pendingWrite) return;
+		flushWrite();
+		tabsStore.persistNow();
+	}}
+/>
 
 {#snippet optionsBody()}
 	{#if notice}

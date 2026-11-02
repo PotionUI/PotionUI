@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyLookAvailability, editMediaAvailability, editMediaLabel } from './editMedia';
+import { applyLookAvailability, editMediaAvailability, editMediaLabel, sliceSheetAvailability } from './editMedia';
 import { buildFieldToolContext, buildLibraryToolContext } from './tools';
 
 const item = (kind: 'image' | 'video' | 'audio' | 'mesh', id: string = kind) => ({
@@ -52,5 +52,15 @@ describe('applyLookAvailability', () => {
 		expect(applyLookAvailability(ctx(item('video')))).toEqual({ enabled: false, hidden: true });
 		expect(applyLookAvailability(ctx(item('image'), item('video')))).toEqual({ enabled: false, hidden: true });
 		expect(applyLookAvailability(ctx())).toEqual({ enabled: false, hidden: true });
+	});
+});
+
+describe('sliceSheetAvailability', () => {
+	const ctx = (kinds: string[]) => ({ items: kinds.map((kind, i) => ({ id: `i${i}`, kind })) }) as unknown as Parameters<typeof sliceSheetAvailability>[0];
+
+	it('offers Slice into references for images only', () => {
+		expect(sliceSheetAvailability(ctx(['image', 'image']))).toEqual({ enabled: true });
+		expect(sliceSheetAvailability(ctx(['image', 'video']))).toEqual({ enabled: false, hidden: true });
+		expect(sliceSheetAvailability(ctx([]))).toEqual({ enabled: false, hidden: true });
 	});
 });

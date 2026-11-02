@@ -77,7 +77,7 @@
 					<div class="mt-2 flex items-center gap-2">
 						{#if toast.action}
 							<button
-								class="rounded px-[9px] py-[3px] text-sm font-medium bg-accent text-accent-contrast"
+								class="whitespace-nowrap rounded px-[9px] py-[3px] text-sm font-medium bg-accent text-accent-contrast"
 								onclick={toast.action.onClick}
 								data-toast-action
 							>
@@ -86,7 +86,7 @@
 						{/if}
 						{#each toast.actions ?? [] as action (action.label)}
 							<button
-								class="rounded border border-line-strong bg-surface-3 px-[9px] py-[2px] text-sm font-medium text-fg hover:border-line-hover"
+								class="whitespace-nowrap rounded border border-line-strong bg-surface-3 px-[9px] py-[2px] text-sm font-medium text-fg hover:border-line-hover"
 								onclick={action.onClick}
 								data-toast-action
 							>

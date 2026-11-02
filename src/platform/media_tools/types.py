@@ -92,6 +92,8 @@ class FilterFragment:
     crf: Optional[int] = None
     frames: Optional[int] = None
     copy_video: bool = False
+    rgb: bool = False
+    stage: Any = None
 
 
 ProgressCallback = Callable[[float, str], None]
@@ -200,6 +202,15 @@ class ToolContext:
         self.scratch_dir.mkdir(parents=True, exist_ok=True)
         self._counter[0] += 1
         return self.scratch_dir / f"{stem}-{self._counter[0]:03d}{suffix.lower()}"
+
+    def quiet(self) -> "ToolContext":
+        return ToolContext(
+            self.scratch_dir,
+            is_cancelled=self._is_cancelled,
+            runner=self.runner,
+            prober=self._prober,
+            _counter=self._counter,
+        )
 
     def scoped(self, low: float, high: float) -> "ToolContext":
         outer_low, outer_high = self._window

@@ -297,7 +297,7 @@ def test_a_dropped_entry_contributes_no_copies(tmp_path):
     assert load_refmods([{"file_path": path, "strength": 0.0, "copies": 4}]) == []
 
 
-@pytest.mark.parametrize("copies", [0, -1, 1.5, "two"])
+@pytest.mark.parametrize("copies", [0, -1, 1.5, "two", 13, 1e9])
 def test_invalid_copies_are_a_clear_error(tmp_path, copies):
     path = _single_image_bundle(tmp_path)
     with pytest.raises(ValueError, match="copies"):
@@ -322,3 +322,47 @@ def test_copies_count_toward_the_per_kind_reference_limit(tmp_path):
     references = [ReferenceMedia(kind="image", latent=mod.latent) for mod in mods]
     with pytest.raises(ValueError, match=f"at most {MAX_IMAGE_REFERENCES} image references"):
         validate_references(references)
+
+
+def test_the_copies_cap_is_the_h3_total_reference_limit():
+    from src.pipelines.pipes._shared.generation.refmods import MAX_COPIES, MAX_PACKED_REFERENCES
+    from src.pipelines.pipes.generator.video_minimax_h3.conditioning import MAX_REFERENCES
+
+    assert MAX_COPIES == MAX_PACKED_REFERENCES == MAX_REFERENCES
+
+
+def test_copies_past_the_remaining_budget_are_refused_before_they_are_expanded(tmp_path, monkeypatch):
+    from src.pipelines.pipes._shared.generation import refmods
+
+    path = _single_image_bundle(tmp_path)
+    expanded = []
+    real_list = list
+
+    class Members(real_list):
+        def __mul__(self, count):
+            expanded.append(count)
+            return real_list.__mul__(self, count)
+
+    real_load = refmods._load_bundle
+    monkeypatch.setattr(refmods, "_load_bundle", lambda *a: Members(real_load(*a)))
+    with pytest.raises(ValueError, match=r"2 member\(s\) x 7 copies is more than the 12 reference\(s\) left"):
+        load_refmods([{"file_path": path, "strength": 1.0, "copies": 7}])
+    assert expanded == []
+    with pytest.raises(ValueError, match="left of the 12 allowed"):
+        load_refmods([
+            {"file_path": path, "strength": 1.0, "copies": 5},
+            {"file_path": path, "strength": 1.0, "copies": 2},
+        ])
+    assert len(load_refmods([{"file_path": path, "strength": 1.0, "copies": 6}])) == 12
+
+
+@pytest.mark.parametrize("copies", [13, 1e9, "1000000000"])
+def test_copies_above_the_cap_are_refused_before_the_file_is_read(tmp_path, monkeypatch, copies):
+    from src.pipelines.pipes._shared.generation import refmods
+
+    def never(*args):
+        raise AssertionError("the file was read")
+
+    monkeypatch.setattr(refmods, "_load_bundle", never)
+    with pytest.raises(ValueError, match="copies must be a whole number from 1 to 12"):
+        load_refmods([{"file_path": str(tmp_path / "x.safetensors"), "strength": 1.0, "copies": copies}])

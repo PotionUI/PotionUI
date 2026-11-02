@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Sequence
+from urllib.parse import urljoin, urlsplit
 
 if TYPE_CHECKING:
     from src.platform.media_tools.base import MediaTool
@@ -97,6 +98,21 @@ class FilterFragment:
 ProgressCallback = Callable[[float, str], None]
 
 
+_LINK_ORIGIN = "https://app.invalid"
+
+
+def _is_app_path(href: str) -> bool:
+    if not href.startswith("/") or href.startswith("//"):
+        return False
+    if any(ch == "\\" or ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in href):
+        return False
+    parts = urlsplit(href)
+    if parts.scheme or parts.netloc:
+        return False
+    joined = urlsplit(urljoin(_LINK_ORIGIN + "/", href))
+    return f"{joined.scheme}://{joined.netloc}" == _LINK_ORIGIN
+
+
 @dataclass(frozen=True)
 class ResultLink:
     label: str
@@ -105,7 +121,7 @@ class ResultLink:
     def __post_init__(self) -> None:
         if not self.label.strip():
             raise ValueError("A result link needs a label")
-        if not self.href.startswith("/") or self.href.startswith("//"):
+        if not _is_app_path(self.href):
             raise ValueError("A result link must be a path inside the app")
 
 

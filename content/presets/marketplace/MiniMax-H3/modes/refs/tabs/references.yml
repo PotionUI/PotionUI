@@ -32,7 +32,7 @@ fields:
           label: "Copies"
           default: 1
           description: "More copies, stronger pull."
-          configuration: {min: 1, step: 1}
+          configuration: {min: 1, max: 12, step: 1}
 
   - name: "reference_pixel_budget"
     type: "select"

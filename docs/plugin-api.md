@@ -1700,7 +1700,8 @@ directory afterwards, whatever happens.
   without ever exposing stderr or server paths. Use it instead of `subprocess` so cancel works.
 - **`ctx.summarize(message, links=())`** lets the last step of a run finish with no media: return `[]` after
   calling it and the run completes with nothing added to the Library, showing `message` (and the first
-  `(label, href)` link, an app path such as `/models`) in place of the Library notice. The run's
+  `(label, href)` link: a path inside the app such as `/models`, with no backslash, whitespace or control
+  character) in place of the Library notice. The run's
   `summary` is `{message, links: [{label, href}]}`.
 - **`ToolFailed(message)`** ends the run as failed with `message` shown to the user, and **`ToolCancelled()`**
   ends it as cancelled; raise it when `ctx.is_cancelled()` turns true during a long loop.
@@ -1814,7 +1815,7 @@ model_type_dirs("lora")          # -> every online root's bound directory for th
 model_write_dir("lora")          # -> the directory a new download for this type lands in
 resolve_model_file(model_id)     # -> the winning present copy's absolute Path, or raises
 model_for_path(path)             # -> that model's catalog dict (or None), from a filesystem path
-index_model_file(path)           # -> {model_id, indexed, duplicate_of, warning} after cataloguing a file the plugin wrote
+index_model_file(path, user_id=None)  # -> {model_id, indexed, duplicate_of, warning}; catalogues a file the plugin wrote
 ```
 
 `resolve_model_file` raises `src.features.models.locator.ModelFileUnavailable` (not importable
@@ -1823,6 +1824,9 @@ model has no present copy on any online root; the error names the root when the 
 exist but its root is offline. `model_type_dirs`/`model_write_dir` can raise
 `src.platform.filesystem.model_roots.ModelRootError` subclasses when no root is bound for that
 type, is read-only, or is offline — same caveat.
+
+`index_model_file` takes only an existing file inside a folder some model type writes to (a `ValueError` otherwise),
+and with `user_id` assigns the new model, or the catalog model it duplicates, to that user.
 
 `MODEL_DIRECTORY_ALIASES` and `type_for_folder_name(name)` are for a plugin that speaks another
 tool's folder vocabulary (a ComfyUI-style `loras`/`checkpoints`/… folder name) and needs the

@@ -598,3 +598,4 @@ def test_the_reference_mod_picker_offers_copies_starting_at_one(h3_template):
     assert copies["type"] == "number"
     assert copies["default"] == 1
     assert copies["configuration"]["min"] == 1
+    assert copies["configuration"]["max"] == 12

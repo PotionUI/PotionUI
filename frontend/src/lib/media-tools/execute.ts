@@ -37,8 +37,17 @@ export function summaryOf(outcome: MediaToolRunOutcome): MediaToolRunSummary | n
 	return outcome.status === 'completed' && outcome.items.length === 0 && outcome.summary ? outcome.summary : null;
 }
 
+export function isAppLink(href: string): boolean {
+	const origin = typeof window !== 'undefined' && window.location ? window.location.origin : 'http://app.invalid';
+	try {
+		return new URL(href, origin).origin === origin;
+	} catch {
+		return false;
+	}
+}
+
 export function announceSummary(summary: MediaToolRunSummary) {
-	const link = summary.links[0];
+	const link = summary.links.find((candidate) => isAppLink(candidate.href));
 	toasts.show('success', summary.message, {
 		title: 'Done',
 		action: link ? { label: link.label, onClick: () => void goto(link.href) } : undefined

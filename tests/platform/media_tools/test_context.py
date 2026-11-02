@@ -156,8 +156,23 @@ def test_a_summary_set_in_a_scoped_context_is_the_run_s_summary(tmp_path):
 
 @pytest.mark.parametrize(
     ("message", "links"),
-    [("", ()), ("Saved", [("Open", "https://example.com")]), ("Saved", [("Open", "//evil")]), ("Saved", [(" ", "/x")])],
+    [
+        ("", ()),
+        ("Saved", [(" ", "/x")]),
+        ("Saved", [("Open", "/\\evil.com")]),
+        ("Saved", [("Open", "/\t/evil.com")]),
+        ("Saved", [("Open", "javascript:alert(1)")]),
+        ("Saved", [("Open", "https://x")]),
+        ("Saved", [("Open", "//x")]),
+        ("Saved", [("Open", "/a b")]),
+        ("Saved", [("Open", "/a\x00b")]),
+    ],
 )
 def test_a_summary_needs_a_message_and_links_inside_the_app(tmp_path, message, links):
     with pytest.raises(ValueError):
         ToolContext(tmp_path).summarize(message, links)
+
+
+@pytest.mark.parametrize("href", ["/models", "/models/m-1", "/models?model=m-1&tab=info", "/library#new"])
+def test_app_paths_are_accepted_as_result_links(tmp_path, href):
+    assert ToolContext(tmp_path).summarize("Saved", [("Open", href)]).links[0].href == href

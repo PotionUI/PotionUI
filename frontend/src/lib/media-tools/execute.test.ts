@@ -223,6 +223,13 @@ describe('a run that saved somewhere other than the Library', () => {
 		expect(toastMessages()).toEqual(['Done|Saved hero to the model folder.']);
 	});
 
+	it.each(['/\\evil.com', 'https://x', '//x', 'javascript:alert(1)'])('drops a link that leaves the app: %s', (href) => {
+		announceOutcome({ status: 'completed', items: [], replaced: false, summary: { message: 'Saved.', links: [{ label: 'Open', href }] } });
+		const [toast] = get(toasts);
+		expect(toast.message).toBe('Saved.');
+		expect(toast.action).toBeUndefined();
+	});
+
 	it('keeps the Library message when the run also made items', () => {
 		announceOutcome({ status: 'completed', items: [item], replaced: false, summary });
 		expect(toastMessages()).toEqual(['Saved as new|clip-speed.mp4 is in your library.']);

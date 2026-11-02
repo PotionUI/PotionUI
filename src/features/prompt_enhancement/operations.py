@@ -10,7 +10,7 @@ import json
 import logging
 import re
 from dataclasses import replace
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, Sequence
 
 from src.features.llm.harness.adapter import Settings
 from src.features.llm.harness.build import user_message
@@ -494,6 +494,164 @@ def _format_exemplars(context: Dict[str, Any]) -> str:
         "Examples of prompts this model responds well to — match their level of detail "
         "and vocabulary, but write a NEW scene:\n" + "\n\n".join(blocks)
     )
+
+
+WRITE_SYSTEM_MESSAGE = (
+    "You write prompts for an AI image and video generation model. Follow the user's "
+    "instruction exactly. When images are attached, look at them closely and ground the "
+    "prompt in what they show. Write in the vocabulary and structure the target model "
+    "responds to, following its house style guide and examples when they are given. "
+    "Reply with ONLY the prompt text: no preamble, no quotes, no labels, no markdown."
+)
+
+MAX_INSTRUCTION_CHARS = 4000
+
+
+class PromptWriteRefused(ValueError):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+def writer_config(collaborators: PromptEnhancementCollaborators, llm_id: Optional[str] = None):
+    repository = getattr(collaborators.llm_service, "repository", None)
+    if repository is None:
+        raise PromptWriteRefused("no_llm", "No language model is set up on this server.")
+    config = repository.get_configuration(llm_id) if llm_id else repository.get_default_configuration()
+    if config is None:
+        raise PromptWriteRefused("no_llm", "No language model is set up on this server.")
+    if not getattr(config, "enabled", True):
+        raise PromptWriteRefused("llm_disabled", f"The language model {config.name} is turned off.")
+    return config
+
+
+def writer_status(collaborators: PromptEnhancementCollaborators, llm_id: Optional[str] = None) -> Dict[str, Any]:
+    try:
+        config = writer_config(collaborators, llm_id)
+    except PromptWriteRefused as refused:
+        return {"available": False, "vision": False, "name": None, "code": refused.code, "message": str(refused)}
+    return {"available": True, "vision": bool(config.supports_vision), "name": config.name, "code": None, "message": None}
+
+
+def require_vision(config: Any) -> None:
+    if not config.supports_vision:
+        raise PromptWriteRefused(
+            "vision_not_supported",
+            f"The language model {config.name} cannot look at images. Choose one with vision support.",
+        )
+
+
+async def write_prompt(
+    collaborators: PromptEnhancementCollaborators,
+    user_id: str,
+    instruction: str,
+    *,
+    llm_id: Optional[str] = None,
+    form_state: Optional[dict] = None,
+    images: Sequence[str] = (),
+    settings: Optional[Settings] = None,
+) -> Dict[str, Any]:
+    instruction = (instruction or "").strip()
+    if not instruction:
+        raise PromptWriteRefused("no_instruction", "Say what the prompt should be.")
+    config = writer_config(collaborators, llm_id)
+    images = tuple(image for image in images if image)
+    if images:
+        require_vision(config)
+    context = await _gather_writing_context(collaborators, user_id, instruction[:MAX_INSTRUCTION_CHARS], form_state)
+    response = await collaborators.llm_service.complete(
+        config.id,
+        [user_message(_build_writing_prompt(instruction[:MAX_INSTRUCTION_CHARS], context, len(images)), images=images)],
+        system=WRITE_SYSTEM_MESSAGE,
+        settings=settings or Settings(temperature=0.7, max_tokens=800, reasoning=False),
+    )
+    text = _clean_written(response.text)
+    if not text:
+        raise PromptWriteRefused("empty_reply", f"The language model {config.name} returned no prompt.")
+    return {"text": text, "model_id": context.get("model_id"), "llm_id": config.id}
+
+
+async def _gather_writing_context(
+    collaborators: PromptEnhancementCollaborators,
+    user_id: str,
+    instruction: str,
+    form_state: Optional[dict],
+) -> Dict[str, Any]:
+    model_id = resolve_active_model_id(form_state, collaborators.model_index_manager)
+    approved: List[Any] = []
+    community: List[Any] = []
+    if collaborators.prompt_database and model_id:
+        approved = await _search_prompts(
+            collaborators, user_id, [instruction], model_id,
+            limit_per_query=MAX_APPROVED_EXEMPLARS,
+            total_cap=MAX_APPROVED_EXEMPLARS,
+            source_provider=APPROVED_SOURCE_PROVIDER,
+            mode="generation",
+        )
+        community = await _search_prompts(
+            collaborators, user_id, [instruction], model_id,
+            limit_per_query=MAX_COMMUNITY_EXEMPLARS,
+            total_cap=MAX_COMMUNITY_EXEMPLARS,
+            exclude=approved,
+        )
+    return {
+        "model_id": model_id,
+        "model_info": _gather_model_grounding(collaborators, form_state),
+        "preset_guide": _gather_preset_guide(collaborators, form_state),
+        "preset_summary": _gather_preset_summary(collaborators, form_state),
+        "approved": approved,
+        "community": community,
+    }
+
+
+def _gather_preset_summary(
+    collaborators: PromptEnhancementCollaborators, form_state: Optional[dict]
+) -> Optional[str]:
+    if not form_state or not collaborators.preset_collaborators or not form_state.get("preset"):
+        return None
+    try:
+        preset = collaborators.preset_collaborators.file_repo.find_preset_by_id(form_state["preset"])
+    except Exception:
+        return None
+    if not preset:
+        return None
+    lines = [f"Target preset: {preset.name}"]
+    mode = form_state.get("mode")
+    if mode:
+        lines.append(f"Mode: {mode}")
+    description = getattr(preset, "short_description", None) or getattr(preset, "description", None)
+    if description:
+        lines.append(f"About this preset: {str(description)[:1000]}")
+    return "\n".join(lines)
+
+
+def _build_writing_prompt(instruction: str, context: Dict[str, Any], image_count: int) -> str:
+    parts: List[str] = []
+    if context.get("preset_summary"):
+        parts.append(context["preset_summary"])
+    if context.get("preset_guide"):
+        parts.append(f"House style guide for this preset:\n{context['preset_guide'][:3000]}")
+    grounding = _format_model_grounding(context.get("model_info"))
+    if grounding:
+        parts.append(grounding)
+    examples = _format_exemplars(context)
+    if examples:
+        parts.append(examples)
+    if image_count:
+        parts.append(f"{image_count} image{'s are' if image_count > 1 else ' is'} attached.")
+    parts.append(f"Instruction:\n{instruction}\n\nWrite the prompt now. Output ONLY the prompt text.")
+    return "\n\n".join(parts)
+
+
+def _clean_written(text: str) -> str:
+    cleaned = (text or "").strip()
+    fenced = re.fullmatch(r"```[a-zA-Z]*\s*(.*?)\s*```", cleaned, flags=re.DOTALL)
+    if fenced:
+        cleaned = fenced.group(1).strip()
+    cleaned = re.sub(r"^(?:positive\s+)?prompt\s*:\s*", "", cleaned, flags=re.IGNORECASE)
+    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in "\"'":
+        cleaned = cleaned[1:-1].strip()
+    return cleaned
 
 
 # ------------------------------------------------------------------

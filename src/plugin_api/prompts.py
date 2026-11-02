@@ -14,9 +14,12 @@ and return a `PromptImportOutcome` summarizing what happened.
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Set
 
 from src.features.prompt_database import operations
+from src.features.prompt_enhancement import operations as enhancement_operations
+from src.features.prompt_enhancement.media import encode_media
+from src.features.prompt_enhancement.operations import PromptWriteRefused
 from src.platform.plugins.runtime_registries import get_container
 
 
@@ -174,10 +177,43 @@ async def import_prompts_for_user(
     return {"created": created, "skipped_duplicates": skipped_duplicates}
 
 
+def prompt_writer_status(llm_id: Optional[str] = None) -> Dict[str, Any]:
+    return enhancement_operations.writer_status(get_container().prompt_enhancement_manager, llm_id)
+
+
+async def write_prompt_for_preset(
+    user_id: str,
+    instruction: str,
+    *,
+    preset_id: Optional[str] = None,
+    mode: Optional[str] = None,
+    form_data: Optional[Mapping[str, Any]] = None,
+    media: Sequence[Mapping[str, Any]] = (),
+    llm_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    container = get_container()
+    collaborators = container.prompt_enhancement_manager
+    if media:
+        enhancement_operations.require_vision(enhancement_operations.writer_config(collaborators, llm_id))
+    images = await encode_media(container.settings.get_file_storage_directory(), media)
+    form_state = {"preset": preset_id, "mode": mode, "form_data": dict(form_data or {})} if preset_id else None
+    return await enhancement_operations.write_prompt(
+        collaborators,
+        user_id,
+        instruction,
+        llm_id=llm_id,
+        form_state=form_state,
+        images=images,
+    )
+
+
 __all__ = [
     "PromptImportOutcome",
     "PromptImporter",
+    "PromptWriteRefused",
     "create_prompt_for_user",
     "find_prompt_source_ids",
     "import_prompts_for_user",
+    "prompt_writer_status",
+    "write_prompt_for_preset",
 ]

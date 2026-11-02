@@ -1413,6 +1413,28 @@ off in the background and can hand you a registry that isn't ready yet.
 Disabling the plugin removes its importer(s) from `GET /api/prompts/importers`
 immediately; prompts already imported are unaffected.
 
+## Writing a prompt for a preset
+
+`src.plugin_api.prompts.write_prompt_for_preset(user_id, instruction, *, preset_id=None,
+mode=None, form_data=None, media=(), llm_id=None)` asks a language model to write one
+prompt that follows `instruction`, in the style of the preset it is for. It is the same
+grounding the chat's prompt enhancement uses: the preset's `llm.guide` (or the mode's
+guide), its name and description, the model selected in `form_data` with its prompting
+guidance, and the user's approved and community prompts for that model. `media` is a list
+of `{"value", "media_type"}` entries as `src.plugin_api.generation.resolve_media_ref`
+returns them; images are sent as they are and each video as a few frames. `llm_id`
+defaults to the server's default language model. It returns `{"text", "model_id",
+"llm_id"}`.
+
+It raises `PromptWriteRefused` (with a `code` and a message you can show) when no
+language model is set up (`no_llm`), the model is turned off (`llm_disabled`), media is
+given to a model without vision (`vision_not_supported`, raised before any file is read),
+a file cannot be read (`media_unreadable`, `media_unsupported`), the instruction is blank
+(`no_instruction`) or the reply is empty (`empty_reply`). Transport failures of the
+language model propagate as they are. `prompt_writer_status(llm_id=None)` reports
+`{"available", "vision", "name", "code", "message"}` without calling the model, so a
+plugin can warn before it runs anything.
+
 ## Contributing a phrasebook batch tool
 
 The Phrasebook's Find & replace view lets a user select values and run a tool over them.

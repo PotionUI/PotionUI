@@ -151,3 +151,64 @@ async def test_import_prompts_for_user_empty_entries_is_a_no_op():
 
     assert result == {"created": 0, "skipped_duplicates": 0}
     mock_get_container.assert_not_called()
+
+
+def _writer_container(tmp_path, supports_vision=True):
+    from PIL import Image
+
+    (tmp_path / "uploads").mkdir(exist_ok=True)
+    Image.new("RGB", (8, 8)).save(tmp_path / "uploads" / "a.png")
+    calls = []
+    config = SimpleNamespace(id="llm-1", name="Writer", supports_vision=supports_vision, enabled=True)
+
+    class Llm:
+        repository = SimpleNamespace(get_configuration=lambda llm_id: None, get_default_configuration=lambda: config)
+
+        async def complete(self, llm_id, messages, *, system=None, settings=None, tools=()):
+            calls.append(messages)
+            return SimpleNamespace(text="written prompt")
+
+    from src.features.prompt_enhancement.collaborators import PromptEnhancementCollaborators
+
+    container = SimpleNamespace(
+        prompt_enhancement_manager=PromptEnhancementCollaborators(llm_service=Llm()),
+        settings=SimpleNamespace(get_file_storage_directory=lambda: str(tmp_path)),
+    )
+    return container, calls
+
+
+@pytest.mark.asyncio
+async def test_write_prompt_for_preset_sends_the_stored_image(tmp_path):
+    from src.plugin_api.prompts import write_prompt_for_preset
+
+    container, calls = _writer_container(tmp_path)
+    with patch("src.plugin_api.prompts.get_container", return_value=container):
+        result = await write_prompt_for_preset(
+            "user-1", "Describe it", preset_id="p", mode="txt2img", media=[{"value": "uploads/a.png", "media_type": "image"}],
+        )
+    assert result["text"] == "written prompt"
+    parts = calls[0][0].parts
+    assert [type(part).__name__ for part in parts] == ["TextPart", "ImagePart"]
+
+
+@pytest.mark.asyncio
+async def test_write_prompt_for_preset_refuses_media_before_reading_it(tmp_path):
+    from src.plugin_api.prompts import PromptWriteRefused, write_prompt_for_preset
+
+    container, calls = _writer_container(tmp_path, supports_vision=False)
+    with patch("src.plugin_api.prompts.get_container", return_value=container), \
+         patch("src.plugin_api.prompts.encode_media", AsyncMock(side_effect=AssertionError("read media"))):
+        with pytest.raises(PromptWriteRefused) as caught:
+            await write_prompt_for_preset("user-1", "Describe it", media=[{"value": "uploads/a.png", "media_type": "image"}])
+    assert caught.value.code == "vision_not_supported"
+    assert calls == []
+
+
+def test_prompt_writer_status_reads_the_default_llm(tmp_path):
+    from src.plugin_api.prompts import prompt_writer_status
+
+    container, _ = _writer_container(tmp_path, supports_vision=False)
+    with patch("src.plugin_api.prompts.get_container", return_value=container):
+        status = prompt_writer_status()
+    assert status["available"] is True
+    assert status["vision"] is False

@@ -133,3 +133,48 @@ describe('mode glyphs', () => {
 		expect(new Set(names.map(art)).size).toBe(names.length);
 	});
 });
+
+describe('editor glyphs', () => {
+	const names = getAllIconNames().filter((name) => name.startsWith('editor-'));
+
+	it('registers exactly these editor glyphs', () => {
+		expect([...names].sort()).toEqual([
+			'editor-camera',
+			'editor-canvas',
+			'editor-color-key',
+			'editor-compare',
+			'editor-crop',
+			'editor-effects',
+			'editor-eye',
+			'editor-eye-off',
+			'editor-flip-v',
+			'editor-frame',
+			'editor-layers',
+			'editor-mask',
+			'editor-music',
+			'editor-mute',
+			'editor-paint',
+			'editor-redo',
+			'editor-replace',
+			'editor-resize',
+			'editor-rotate-left',
+			'editor-rotate-right',
+			'editor-save',
+			'editor-send',
+			'editor-speed',
+			'editor-split',
+			'editor-subject',
+			'editor-trim',
+			'editor-undo',
+			'editor-volume'
+		]);
+	});
+
+	it('draws each one as stroke-only paths, with no two sharing art', () => {
+		for (const name of names) {
+			expect([getIconPath(name)].flat().length, name).toBeGreaterThan(0);
+			expect(getFilledIconPaths(name), name).toEqual([]);
+		}
+		expect(new Set(names.map(art)).size).toBe(names.length);
+	});
+});

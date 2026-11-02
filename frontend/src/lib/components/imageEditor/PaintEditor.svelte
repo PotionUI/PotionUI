@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount, tick } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import EditorShell from '$lib/media/editors/EditorShell.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button, Kbd } from '$lib/components/ui';
@@ -10,7 +10,6 @@
 	import type { EditorCommitFn, MediaEditorSource } from '$lib/media/editors/types';
 	import CanvasPanel from './CanvasPanel.svelte';
 	import type { DrawConfig } from './drawConfig';
-	import { preselectLook } from '$lib/filters/preselect';
 	import { defaultExportStem, exportFileName } from './exportName';
 	import { PAINT_ICONS } from './icons';
 	import FilterStrip from './FilterStrip.svelte';
@@ -28,8 +27,6 @@
 	export let source: MediaEditorSource | null = null;
 	export let draw: DrawConfig | null = null;
 	export let hasMask: boolean = false;
-	export let initialTool: string | null = null;
-	export let initialFilter: string | null = null;
 	export let busy: boolean = false;
 	export let failureMessage: string | null = null;
 	export let onClose: () => void;
@@ -40,7 +37,6 @@
 	const session = new PaintSession();
 	const modifier = primaryModifier();
 
-	let focusApply = false;
 	let stageHost: HTMLDivElement;
 	let stageCanvas: HTMLCanvasElement;
 	let overlayCanvas: HTMLCanvasElement;
@@ -126,20 +122,10 @@
 			} else if (source) {
 				await session.openSource(source.url, source.fileName);
 			}
-			if (initialTool) session.setTool(initialTool);
-			if (initialTool === 'filters' && initialFilter) {
-				focusApply = await preselectLook(session, initialFilter);
-			}
 		} catch {
 			loadError = 'This image could not be opened for editing.';
 		}
 		state = session.snapshot();
-		if (focusApply) {
-			await tick();
-			requestAnimationFrame(() =>
-				document.querySelector<HTMLButtonElement>('[data-filter-apply] button:not([disabled])')?.focus()
-			);
-		}
 	});
 
 	onDestroy(() => {

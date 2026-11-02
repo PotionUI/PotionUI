@@ -194,7 +194,7 @@ test.describe('Edit shortcuts on desktop', () => {
 		await expect(dialog).toHaveCount(0);
 		await expect(page).toHaveURL(/\/generate/);
 		await expect(host(page)).toHaveAttribute('data-tool', 'image');
-		await expect(page.getByTestId('tool-tab-source')).toBeVisible();
+		await expect(host(page).locator('img, canvas').first()).toBeVisible();
 		await expect.poll(async () => (await savedToolTabs(page)).map((tab) => [tab.tool, tab.activeTool])).toEqual([['image', 'crop']]);
 		const [saved] = await savedToolTabs(page);
 		expect(saved.source?.url).toContain('/api/media/generations/gen-1/');
@@ -335,7 +335,7 @@ test.describe('Edit shortcuts on desktop', () => {
 		await pickFieldTool(page, field, 'open-in-editor');
 
 		await expect(host(page)).toHaveAttribute('data-tool', 'image');
-		await expect(page.getByTestId('tool-tab-source')).toBeVisible();
+		await expect(host(page).locator('img, canvas').first()).toBeVisible();
 		await expect.poll(async () => (await savedToolTabs(page)).map((tab) => [tab.tool, tab.activeTool])).toEqual([['image', 'paint']]);
 		expect((await savedToolTabs(page))[0].source?.name).toBe('sample.png');
 		await expect(bookTab(page, 'sample')).toBeVisible();

@@ -110,7 +110,7 @@ for (const viewport of VIEWPORTS) {
 
 			await expect(page).toHaveURL(/\/generate/);
 			await expect(page.getByTestId('tool-tab-host')).toHaveAttribute('data-tool', 'image');
-			await expect(page.getByTestId('tool-tab-source')).toBeVisible();
+			await expect(page.getByTestId('tool-tab-host').locator('img, canvas').first()).toBeVisible();
 		});
 
 		test('opens an Image editor tab from the Library Tools menu', async ({ page }) => {
@@ -124,7 +124,7 @@ for (const viewport of VIEWPORTS) {
 			await item.click();
 
 			await expect(page).toHaveURL(/\/generate/);
-			await expect(page.getByTestId('tool-tab-source')).toBeVisible();
+			await expect(page.getByTestId('tool-tab-host').locator('img, canvas').first()).toBeVisible();
 		});
 	});
 }

@@ -148,7 +148,7 @@
 	) as Record<RailToolId, string>;
 
 	let edits = $state.raw<EditStackState<VideoParams>>(initial.stack);
-	let tool = $state<RailToolId>(initial.tool ?? (isRailToolId(untrack(() => host.activeTool)) ? (untrack(() => host.activeTool) as RailToolId) : 'trim'));
+	let tool = $state<RailToolId>(isRailToolId(untrack(() => host.activeTool)) ? (untrack(() => host.activeTool) as RailToolId) : (initial.tool ?? 'trim'));
 	let activeEffect = $state<EffectId>('film_grain');
 	let aspect = $state('free');
 	let playhead = $state(initial.playhead);

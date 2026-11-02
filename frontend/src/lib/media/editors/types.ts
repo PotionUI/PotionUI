@@ -99,8 +99,6 @@ export interface MediaEditorRequest {
 	 * tile as soon as the user reorders while the editor is open.
 	 */
 	itemIndex: number | null;
-	initialTool?: string;
-	initialFilter?: string;
 }
 
 /**

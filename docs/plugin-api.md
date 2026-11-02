@@ -1526,8 +1526,6 @@ still images (grain, VHS, grades) are photo filters, not tools: see
 | `frame` | video | image | `time` (seconds) |
 | `split` | audio, video | same, many | `mode` every / at, `part_seconds`, `at` (seconds) |
 | `concat` | video, 2 to 8 selected | video, one | `overlap`, `overlap_frames`, `fit`, `keep_audio` |
-| `fix_colors` | video (Effects menu) | same | `white_balance`, `contrast`, `strength` percent |
-| `film_grain` | video (Effects menu) | same | `amount` 0 to 100 percent, `size` 1 to 3, `color`, `seed` |
 | `cut_finder` | video | video, many | `sensitivity` 0 to 100, `min_shot_seconds` |
 | `mute` | video with sound | same | none |
 | `volume` | video, audio with sound | same | `unit` percent / db, `percent` 0 to 400, `db` -60 to 20, `fade_in`, `fade_out` (seconds) |
@@ -1547,13 +1545,9 @@ A `media` parameter names another file: `{"item_id": "..."}` (a Library item or 
 `{"generation_file_id": "..."}`; a bare string is read as an `item_id`. The run checks that the caller owns it and that
 its kind is one of the parameter's `accepts`, then hands the tool a staged `ToolMedia` in its place.
 
-`film_grain` draws new grain on every frame, so the grain moves like film stock instead of sitting on the
-picture as a fixed overlay. The same `seed` on the same clip gives the same grain; `amount` 0 only
-re-encodes. It uses the grain math of the `film_grain` image pipe (`src/platform/imaging/film_grain.py`, in its float32
-`fast` mode, about 35 ms per 1080p frame on two threads) and streams one frame at a time through ffmpeg, so a
-long clip is never held in memory. Size 1 is pixel-sized grain; finer grain would be invisible. Frame count, frame rate,
-size and the audio track are kept, and Save as new and Replace original behave as for the other video tools.
-It is an effect only: no preset adds it as a final step.
+The Effects menu (`group: effects`) lists **effects**: tools defined by an `effect.yml` folder, with a live preview
+shader and ffmpeg, torch or numpy renders. Film grain (`film_grain`) and Fix colours (`fix_colors`) are the core ones.
+Their contract, the catalog `effect` block and the shader and analysis endpoints are in [Video Effects](effects.md).
 
 ### The editor API
 
@@ -1571,6 +1565,8 @@ a file path in a response.
 | `POST /api/media-tools/preview/clip` | `{input: ref, steps, start_seconds? 0, duration_seconds? 3, height? 480}` | 202 `{run_id, preview}` |
 | `GET /api/media-tools/previews/{id}` | | the preview clip (cookie or bearer, so a `<video>` can play it) |
 | `POST /api/media-tools/artifacts` | multipart `file` | `{id, media_type, mime_type, url, width, height, duration_seconds, fps, size}` |
+| `GET /api/media-tools/effects/{tool_id}/shader` | | the effect's preview shader as `text/plain`, with an `ETag` |
+| `POST /api/media-tools/effects/analysis` | `{input: ref, steps, step_index}` | `{values, cached}`, an effect's measured values |
 
 - A `run` is `{run_id, kind: run / preview, status, progress 0..1, label, items, replaced, preview, error}`. Poll it by
   id for progress; a reload reattaches through the stored id or the run list.
@@ -1580,8 +1576,8 @@ a file path in a response.
   helper upload is refused with `replace_not_allowed`. A stack with `split` saves its parts as separate items named
   "part 1 of 2".
 - **Frame preview** renders one frame of a video, or the image, through the stack with each tool's frame path, the same
-  code the full render uses: `film_grain` seeds each frame's grain by its frame number, so the paused frame shows the
-  grain the render will put there, and `fix_colors` estimates over the trimmed range of the source. `time_seconds` is on
+  code the full render uses: `film_grain` seeds each frame's grain by a hash of its frame number, so the paused frame shows
+  the grain the render will put there, and `fix_colors` measures the trimmed range of the source. `time_seconds` is on
   the source clip; trim and speed steps map it to the frame the render would show. Sound and timing steps leave the
   picture alone. A tool with no frame path (`frame`, `concat`, most plugin tools) is refused with its `step_index`.
   Answers are cached per user, source, time, stack and size.

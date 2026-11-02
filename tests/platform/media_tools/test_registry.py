@@ -8,9 +8,10 @@ from tests.platform.media_tools.fake_tools import make_spec
 
 CORE_IDS = [
     "trim", "crop", "resize", "rotate", "flip", "speed",
-    "fit_canvas", "color_key", "crop_subject", "frame", "split", "concat", "fix_colors", "film_grain", "cut_finder",
-    "mute", "volume", "replace_audio", "paint_layer",
+    "fit_canvas", "color_key", "crop_subject", "frame", "split", "concat", "cut_finder",
+    "mute", "volume", "replace_audio", "paint_layer", "film_grain", "fix_colors",
 ]
+EFFECT_IDS = ("film_grain", "fix_colors")
 EDITOR_ONLY = ("replace_audio", "paint_layer")
 AUDIO_GROUP = ("mute", "volume", "replace_audio")
 
@@ -27,7 +28,7 @@ def test_core_registers_exactly_the_contract_tools_in_menu_order():
     register_core_tools(registry)
 
     assert [spec.id for spec in registry.list()] == CORE_IDS
-    assert len(CORE_MODULES) == 19
+    assert len(CORE_MODULES) == 17
     assert all(spec.source == "core" and "." not in spec.id for spec in registry.list())
 
 
@@ -50,14 +51,11 @@ def test_core_specs_follow_the_contract_table():
     assert by_id["replace_audio"].accepts == ("video",) and by_id["paint_layer"].accepts == ("image",)
     assert all(by_id[tool].group == "audio" for tool in AUDIO_GROUP)
     assert all(by_id[tool].scopes == ("editor",) for tool in EDITOR_ONLY)
-    assert by_id["fix_colors"].accepts == ("video",) and by_id["fix_colors"].group == "effects"
-    assert by_id["film_grain"].accepts == ("video",) and by_id["film_grain"].group == "effects"
-    assert by_id["film_grain"].cardinality == "one_to_one" and not by_id["film_grain"].preview
     assert by_id["cut_finder"].accepts == ("video",) and by_id["cut_finder"].cardinality == "one_to_many"
     assert all(
         spec.group == "edit"
         for spec in by_id.values()
-        if spec.id not in ("fix_colors", "film_grain", *AUDIO_GROUP)
+        if spec.id not in AUDIO_GROUP
     )
     assert by_id["concat"].cardinality == "many_to_one" and by_id["concat"].selection == {"min": 2, "max": 8}
     assert all(
@@ -80,8 +78,6 @@ def test_core_param_names_are_the_contract_names():
         "frame": ["time"],
         "split": ["mode", "part_seconds", "at"],
         "concat": ["overlap", "overlap_frames", "fit", "keep_audio"],
-        "fix_colors": ["white_balance", "contrast", "strength"],
-        "film_grain": ["amount", "size", "color", "seed"],
         "cut_finder": ["sensitivity", "min_shot_seconds"],
         "mute": [],
         "volume": ["unit", "percent", "db", "fade_in", "fade_out"],
@@ -90,6 +86,19 @@ def test_core_param_names_are_the_contract_names():
     }
 
     assert {spec.id: [p["name"] for p in spec.params] for spec in core_specs()} == expected
+
+
+def test_core_effects_register_as_effect_tools_with_their_contract_params():
+    registry = MediaToolRegistry()
+    register_core_tools(registry)
+    by_id = {spec.id: spec for spec in registry.list() if spec.id in EFFECT_IDS}
+
+    assert by_id["fix_colors"].accepts == ("video",) and by_id["fix_colors"].group == "effects"
+    assert by_id["film_grain"].accepts == ("video", "image") and by_id["film_grain"].group == "effects"
+    assert by_id["film_grain"].cardinality == "one_to_one" and not by_id["film_grain"].preview
+    assert [p["name"] for p in by_id["fix_colors"].params] == ["white_balance", "contrast", "strength"]
+    assert [p["name"] for p in by_id["film_grain"].params] == ["amount", "size", "color", "seed"]
+    assert all(spec.scopes == ("library", "history", "field") for spec in by_id.values())
 
 
 def test_list_filters_by_kind_and_scope():
@@ -127,7 +136,7 @@ def test_unregister_source_removes_only_that_sources_tools():
 
     assert removed == 2
     assert registry.get("a.one") is None and registry.get("b.one") is not None
-    assert len(registry.list()) == len(CORE_MODULES) + 1
+    assert len(registry.list()) == len(CORE_IDS) + 1
     assert registry.unregister_source("a") == 0
     assert registry.sources() == {"core", "b"}
 

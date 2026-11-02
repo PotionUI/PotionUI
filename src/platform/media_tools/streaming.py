@@ -262,20 +262,3 @@ def stream_segments(media: ToolMedia, plan: MergedPlan, ctx: ToolContext, out_pa
     if not out_path.is_file() or out_path.stat().st_size == 0:
         raise ToolFailed("The encoder produced an empty file")
     return ctx.probe(out_path, media.kind)
-
-
-class _EachFrame:
-    def __init__(self, transform: Callable[[np.ndarray], np.ndarray]):
-        self.transform = transform
-
-    def apply(self, frames: np.ndarray, indices, fps, duration) -> np.ndarray:
-        return np.stack([np.ascontiguousarray(self.transform(frame), dtype=np.uint8) for frame in frames])
-
-
-def stream_video_frames(
-    media: ToolMedia, ctx: ToolContext, transform: Callable[[np.ndarray], np.ndarray], *, crf: int = CRF_BY_QUALITY["high"]
-) -> ToolMedia:
-    from src.platform.media_tools.fastpath import run_fragments
-    from src.platform.media_tools.types import FilterFragment
-
-    return run_fragments(media, [FilterFragment(stage=_EachFrame(transform), crf=crf)], ctx)

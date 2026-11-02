@@ -5,8 +5,9 @@ import pytest
 from PIL import Image
 
 from src.platform.media_tools import UnsupportedMedia, probe, run_chain
-from src.platform.media_tools.ops import concat, crop, film_grain, fix_colors, mute, paint_layer, speed, trim, volume
+from src.platform.media_tools.ops import concat, crop, mute, paint_layer, speed, trim, volume
 from src.platform.media_tools.still import Clock, excerpt_steps, excerpt_window, read_frame, render_still
+from tests.platform.media_tools.effects.support import effect_spec
 from tests.platform.media_tools.media_factory import decode_video_rgb, make_image, run_ffmpeg, video_frame_count
 
 FPS = 10
@@ -65,7 +66,7 @@ class TestClock:
 class TestStillMatchesTheRender:
     def test_grain_on_a_frame_matches_that_frame_of_the_full_render(self, tmp_path, ctx):
         media = make_clip(tmp_path / "clip.mp4", still=True)
-        steps = [(film_grain.spec(), GRAIN)]
+        steps = [(effect_spec("film_grain"), GRAIN)]
         frames = rendered(steps, media, ctx)
         plain = still_of([], media, 0.4, ctx)
         grain = still_of(steps, media, 0.4, ctx) - plain
@@ -75,7 +76,7 @@ class TestStillMatchesTheRender:
 
     def test_grain_after_a_trim_uses_the_trimmed_frame_numbering(self, tmp_path, ctx):
         media = make_clip(tmp_path / "clip.mp4", still=True)
-        steps = [(trim.spec(), {"start": 0.3, "end": 0.9}), (film_grain.spec(), GRAIN)]
+        steps = [(trim.spec(), {"start": 0.3, "end": 0.9}), (effect_spec("film_grain"), GRAIN)]
         frames = rendered(steps, media, ctx)
         plain = still_of([], media, 0.6, ctx)
         grain = still_of(steps, media, 0.6, ctx) - plain
@@ -84,7 +85,7 @@ class TestStillMatchesTheRender:
 
     def test_fix_colours_on_a_frame_matches_the_full_render(self, tmp_path, ctx):
         media = make_clip(tmp_path / "cast.mp4", tint="rr=0.6:gg=0.9:bb=1.0")
-        steps = [(fix_colors.spec(), {"white_balance": True, "contrast": True, "strength": 100})]
+        steps = [(effect_spec("fix_colors"), {"white_balance": True, "contrast": True, "strength": 100})]
         frames = rendered(steps, media, ctx)
         still = still_of(steps, media, 0.5, ctx)
         source = still_of([], media, 0.5, ctx)
@@ -93,7 +94,7 @@ class TestStillMatchesTheRender:
 
     def test_a_crop_then_grain_matches_in_size_and_look(self, tmp_path, ctx):
         media = make_clip(tmp_path / "clip.mp4")
-        steps = [(crop.spec(), {"x": 8, "y": 8, "width": 16, "height": 16}), (film_grain.spec(), GRAIN)]
+        steps = [(crop.spec(), {"x": 8, "y": 8, "width": 16, "height": 16}), (effect_spec("film_grain"), GRAIN)]
         frames = rendered(steps, media, ctx)
         still = still_of(steps, media, 0.2, ctx)
         assert still.shape == frames[2].shape == (16, 16, 3)
@@ -155,7 +156,7 @@ class TestExcerpt:
 
     def test_a_short_preview_has_the_asked_length_and_height(self, tmp_path, ctx):
         media = make_clip(tmp_path / "clip.mp4", seconds=3.0, size=(64, 48))
-        steps = [(trim.spec(), {"start": 0.5, "end": 3.0}), (film_grain.spec(), GRAIN)]
+        steps = [(trim.spec(), {"start": 0.5, "end": 3.0}), (effect_spec("film_grain"), GRAIN)]
         plan = excerpt_steps(steps, media, 1.0, 1.0, 24, 28)
         assert [spec.id for spec, _ in plan] == ["preview_excerpt", "film_grain", "preview_scale"]
         (result,) = run_chain(plan, [media], ctx, validate=False)

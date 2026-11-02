@@ -41,3 +41,25 @@ export function sendPatch(
 		[`${field}__origin`]: undefined
 	};
 }
+
+export type Rgb = [number, number, number];
+
+export function parseRgb(raw: string, fallback: Rgb = [255, 255, 255]): Rgb {
+	const parts = raw.trim().split(/[\s,/]+/).map(Number);
+	if (parts.length < 3 || parts.slice(0, 3).some((value) => !Number.isFinite(value))) return fallback;
+	return [parts[0], parts[1], parts[2]];
+}
+
+export function maskOverlay(pixels: Uint8ClampedArray, tint: Rgb, cutoff = 128): { data: Uint8ClampedArray; lit: number } {
+	const data = new Uint8ClampedArray(pixels.length);
+	let lit = 0;
+	for (let i = 0; i < pixels.length; i += 4) {
+		if (pixels[i] <= cutoff) continue;
+		data[i] = tint[0];
+		data[i + 1] = tint[1];
+		data[i + 2] = tint[2];
+		data[i + 3] = 255;
+		lit += 1;
+	}
+	return { data, lit };
+}

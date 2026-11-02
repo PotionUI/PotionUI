@@ -3,6 +3,7 @@
 	import { canvasPoint, drawSegment } from '$lib/components/imageEditor/raster/brush';
 	import { loadImage } from '$lib/media/editors/loadImage';
 	import { canvasToPngFile } from '$lib/components/imageEditor/flatten';
+	import { maskOverlay, parseRgb, type Rgb } from '$lib/tool-tabs/image/mask';
 
 	let {
 		width,
@@ -19,20 +20,22 @@
 		brush?: number;
 		erase?: boolean;
 		disabled?: boolean;
-		onstroke?: (hasStrokes: boolean) => void;
+		onstroke?: (painted: boolean) => void;
 	} = $props();
 
 	let canvas = $state<HTMLCanvasElement>();
 	let painting = false;
 	let last: { x: number; y: number } | null = null;
-	let tint = 'white';
+	let tint: Rgb = [255, 255, 255];
+	let tintCss = 'white';
 
 	onMount(async () => {
 		if (!canvas) return;
 		canvas.width = Math.max(1, Math.round(width));
 		canvas.height = Math.max(1, Math.round(height));
-		const signal = getComputedStyle(document.documentElement).getPropertyValue('--signal').trim();
-		if (signal) tint = `rgb(${signal})`;
+		const signal = getComputedStyle(document.documentElement).getPropertyValue('--signal');
+		tint = parseRgb(signal, tint);
+		tintCss = `rgb(${tint.join(' ')})`;
 		if (existing) await restore(existing);
 	});
 
@@ -47,12 +50,9 @@
 			const scratchContext = scratch.getContext('2d');
 			if (!scratchContext) return;
 			scratchContext.drawImage(image, 0, 0, scratch.width, scratch.height);
-			const data = scratchContext.getImageData(0, 0, scratch.width, scratch.height);
-			context.fillStyle = tint;
-			for (let i = 0, p = 0; i < data.data.length; i += 4, p += 1) {
-				if (data.data[i] > 128) context.fillRect(p % scratch.width, Math.floor(p / scratch.width), 1, 1);
-			}
-			onstroke?.(true);
+			const source = scratchContext.getImageData(0, 0, scratch.width, scratch.height);
+			const { data } = maskOverlay(source.data, tint);
+			context.putImageData(new ImageData(data as Uint8ClampedArray<ArrayBuffer>, scratch.width, scratch.height), 0, 0);
 		} catch {
 			return;
 		}
@@ -67,7 +67,7 @@
 		const context = canvas?.getContext('2d');
 		if (!context || !canvas) return;
 		const scale = canvas.width / Math.max(1, canvas.getBoundingClientRect().width);
-		drawSegment(context, last ?? to, to, { size: brush * scale, color: tint, erase });
+		drawSegment(context, last ?? to, to, { size: brush * scale, color: tintCss, erase });
 		last = to;
 	}
 
@@ -92,7 +92,7 @@
 		if (!painting) return;
 		painting = false;
 		last = null;
-		onstroke?.(hasStrokes());
+		onstroke?.(true);
 	}
 
 	export function hasStrokes(): boolean {
@@ -106,7 +106,6 @@
 	export function clear() {
 		const context = canvas?.getContext('2d');
 		if (canvas && context) context.clearRect(0, 0, canvas.width, canvas.height);
-		onstroke?.(false);
 	}
 
 	export async function exportMask(name: string): Promise<File | null> {

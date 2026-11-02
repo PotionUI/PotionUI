@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { EMPTY_IMAGE_PLAN } from '$lib/media/editors/imageEditPlan';
-import { apply, appliedSteps, beginEdit, createStack, toggleHidden } from '$lib/tool-tabs/frame/editStack';
-import { geometryKey, liveMask, maskIsStale, readMask, sendPatch } from './mask';
+import { apply, appliedSteps, beginEdit, createStack, reopen, toggleHidden, undo, updatePending } from '$lib/tool-tabs/frame/editStack';
+import { geometryKey, liveMask, maskIsStale, maskOverlay, parseRgb, readMask, sendPatch } from './mask';
 import { cropDraft, lookDraft, paintDraft } from './steps';
 
 function cropped() {
@@ -28,6 +28,13 @@ describe('mask channel', () => {
 		const stack = cropped();
 		const mask = { path: 'uploads/mask-1.png', url: '/m.png', geometry: geometryKey(appliedSteps(stack)) };
 		expect(liveMask(mask, appliedSteps(toggleHidden(stack, stack.steps[0].id)))).toBeNull();
+		expect(liveMask(mask, appliedSteps(undo(stack)))).toBeNull();
+		const moved = apply(
+			updatePending(reopen(stack, stack.steps[0].id), {
+				params: { plan: { ...EMPTY_IMAGE_PLAN, rect: { x: 0.25, y: 0, width: 0.5, height: 0.5 } }, aspect: 'free' }
+			})
+		);
+		expect(liveMask(mask, appliedSteps(moved))).toBeNull();
 		expect(liveMask(mask, [])).toBeNull();
 		expect(maskIsStale(mask, [])).toBe(true);
 		expect(maskIsStale(null, [])).toBe(false);
@@ -43,6 +50,16 @@ describe('mask channel', () => {
 		});
 		expect(sendPatch('image', item, mask, false).image_inpaint_mask).toBeUndefined();
 		expect(sendPatch('image', item, null, true).image_inpaint_mask).toBeUndefined();
+	});
+
+	it('tints lit mask pixels opaque and leaves the rest transparent', () => {
+		const source = new Uint8ClampedArray([255, 255, 255, 255, 0, 0, 0, 255, 129, 129, 129, 255, 128, 128, 128, 255]);
+		const { data, lit } = maskOverlay(source, [10, 20, 30]);
+		expect(lit).toBe(2);
+		expect(Array.from(data)).toEqual([10, 20, 30, 255, 0, 0, 0, 0, 10, 20, 30, 255, 0, 0, 0, 0]);
+		expect(parseRgb(' 77 154 255')).toEqual([77, 154, 255]);
+		expect(parseRgb('77, 154, 255')).toEqual([77, 154, 255]);
+		expect(parseRgb('', [1, 2, 3])).toEqual([1, 2, 3]);
 	});
 
 	it('reads back only a complete persisted mask', () => {

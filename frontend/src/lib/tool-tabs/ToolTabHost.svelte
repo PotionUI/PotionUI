@@ -14,7 +14,7 @@
 	let kind = $derived($kindStore);
 	let host = $derived(createToolTabHost(tab, phone));
 
-	let loaded = $state<{ definition: ToolKindDefinition; component: ToolTabComponent | null } | null>(null);
+	let loaded = $state.raw<{ definition: ToolKindDefinition; component: ToolTabComponent | null } | null>(null);
 	let failed = $state(false);
 
 	$effect(() => {

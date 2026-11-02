@@ -94,6 +94,7 @@ describe('the phone Tabs sheet', () => {
 		const opened = state.tabs.find((tab) => tab.id === state.activeTabId)!;
 		expect(isToolTab(opened) && opened.tool === 'image' && opened.source === null).toBe(true);
 		expect(onClose).toHaveBeenCalled();
+		expect(rowTexts().at(-1)).toBe('Image editor Image editor · empty');
 	});
 
 	it('switches to a tab when its row is pressed', async () => {

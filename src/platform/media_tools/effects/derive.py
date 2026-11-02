@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import math
 import operator
+import sys
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Mapping
 
@@ -15,72 +16,98 @@ class DeriveError(ValueError):
     pass
 
 
-def _finite(value: float) -> float:
-    if not math.isfinite(value):
+def _real(value: Any) -> Any:
+    if isinstance(value, complex):
+        raise DeriveError("the expression does not give a real number")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise DeriveError("the expression does not give a finite number")
+    if isinstance(value, int) and not isinstance(value, bool) and abs(value) > sys.float_info.max:
         raise DeriveError("the expression does not give a finite number")
     return value
 
 
-def _number(value: Any) -> float:
-    if isinstance(value, bool):
-        return int(value)
+def _number(value: Any) -> Any:
     if isinstance(value, (int, float)):
         return value
     raise DeriveError(f"a {type(value).__name__} is not a number")
 
 
-def _floor(value: Any) -> int:
-    return math.floor(_finite(float(_number(value))))
+def _arity(name: str, values: tuple, low: int, high: int) -> None:
+    if not low <= len(values) <= high:
+        count = low if low == high else f"{low} to {high}"
+        raise DeriveError(f"{name} takes {count} values")
 
 
-def _round(value: Any) -> int:
-    return math.floor(_finite(float(_number(value))) + 0.5)
-
-
-def _sqrt(value: Any) -> float:
-    number = float(_number(value))
-    if number < 0:
-        raise DeriveError("sqrt of a negative number")
-    return math.sqrt(number)
-
-
-def _pow(base: Any, exponent: Any) -> float:
-    left, right = float(_number(base)), float(_number(exponent))
+def _pow(base: Any, exponent: Any) -> Any:
+    left, right = _number(base), _number(exponent)
     if abs(right) > MAX_EXPONENT:
         raise DeriveError("the exponent is too large")
-    if left == 0 and right < 0:
-        raise DeriveError("zero cannot be raised to a negative power")
     try:
-        result = math.pow(left, right)
-    except (OverflowError, ValueError):
+        return _real(left ** right)
+    except (OverflowError, ZeroDivisionError):
         raise DeriveError("the power is out of range") from None
-    return _finite(result)
 
 
-def _clamp(value: Any, low: Any, high: Any) -> Any:
-    return max(_number(low), min(_number(high), _number(value)))
+def _ordered(values: tuple) -> tuple:
+    if all(isinstance(value, str) for value in values):
+        return values
+    return tuple(_number(value) for value in values)
 
 
-def _extremum(pick: Callable) -> Callable:
+def _min(*values: Any) -> Any:
+    _arity("min", values, 2, 16)
+    return min(_ordered(values))
+
+
+def _max(*values: Any) -> Any:
+    _arity("max", values, 2, 16)
+    return max(_ordered(values))
+
+
+def _clamp(*values: Any) -> Any:
+    _arity("clamp", values, 3, 3)
+    value, low, high = (_number(value) for value in values)
+    return max(low, min(high, value))
+
+
+def _round(*values: Any) -> Any:
+    _arity("round", values, 1, 2)
+    number = _number(values[0])
+    if len(values) == 1:
+        return round(_real(float(number)) if isinstance(number, float) else number)
+    digits = values[1]
+    if isinstance(digits, bool) or not isinstance(digits, int):
+        raise DeriveError("round takes a whole number of digits")
+    return round(number, digits)
+
+
+def _unary(name: str, function: Callable[[Any], Any]) -> Callable:
     def apply(*values: Any) -> Any:
-        if not values:
-            raise DeriveError("min and max need at least one value")
-        return pick(_number(value) for value in values)
+        _arity(name, values, 1, 1)
+        try:
+            return function(_number(values[0]))
+        except (ValueError, OverflowError):
+            raise DeriveError(f"{name} is out of range") from None
 
     return apply
 
 
-FUNCTIONS: dict[str, tuple[Callable, int, int]] = {
-    "min": (_extremum(min), 1, 16),
-    "max": (_extremum(max), 1, 16),
-    "clamp": (_clamp, 3, 3),
-    "abs": (lambda value: abs(_number(value)), 1, 1),
-    "floor": (_floor, 1, 1),
-    "round": (_round, 1, 1),
-    "sqrt": (_sqrt, 1, 1),
-    "sin": (lambda value: math.sin(_number(value)), 1, 1),
-    "cos": (lambda value: math.cos(_number(value)), 1, 1),
-    "pow": (_pow, 2, 2),
+def _pow_function(*values: Any) -> Any:
+    _arity("pow", values, 2, 2)
+    return _pow(*values)
+
+
+FUNCTIONS: dict[str, Callable] = {
+    "min": _min,
+    "max": _max,
+    "clamp": _clamp,
+    "abs": _unary("abs", abs),
+    "floor": _unary("floor", lambda value: math.floor(_real(value))),
+    "round": _round,
+    "sqrt": _unary("sqrt", math.sqrt),
+    "sin": _unary("sin", math.sin),
+    "cos": _unary("cos", math.cos),
+    "pow": _pow_function,
 }
 CONSTANTS = {"pi": math.pi}
 RESERVED = frozenset({"media", "time", "pi", *FUNCTIONS})
@@ -92,20 +119,28 @@ _NODES = (
 )
 
 
+def _add(left: Any, right: Any) -> Any:
+    if isinstance(left, str) and isinstance(right, str):
+        if len(left) + len(right) > MAX_STRING_CHARS:
+            raise DeriveError("a text value is too long")
+        return left + right
+    return _number(left) + _number(right)
+
+
 def _divide(left: Any, right: Any) -> float:
     if _number(right) == 0:
         raise DeriveError("division by zero")
-    return _number(left) / _number(right)
+    return _number(left) / right
 
 
 def _modulo(left: Any, right: Any) -> Any:
     if _number(right) == 0:
         raise DeriveError("modulo by zero")
-    return _number(left) % _number(right)
+    return _number(left) % right
 
 
 _BINARY: dict[type, Callable[[Any, Any], Any]] = {
-    ast.Add: lambda a, b: _number(a) + _number(b),
+    ast.Add: _add,
     ast.Sub: lambda a, b: _number(a) - _number(b),
     ast.Mult: lambda a, b: _number(a) * _number(b),
     ast.Div: _divide,
@@ -145,17 +180,10 @@ def parse_derive(source: Any) -> Expression:
         if isinstance(node, ast.Call):
             if not isinstance(node.func, ast.Name) or node.func.id not in FUNCTIONS or node.keywords:
                 raise DeriveError("only the listed functions can be called")
-            _, low, high = FUNCTIONS[node.func.id]
-            if not low <= len(node.args) <= high:
-                raise DeriveError(f"{node.func.id} takes {low if low == high else f'{low} to {high}'} values")
+            if any(isinstance(argument, ast.Starred) for argument in node.args):
+                raise DeriveError("only the listed functions can be called")
         if isinstance(node, ast.Attribute) and not isinstance(node.value, ast.Name):
             raise DeriveError("only one level of attributes is allowed")
-        if isinstance(node, (ast.Attribute, ast.Name)):
-            name = node.attr if isinstance(node, ast.Attribute) else node.id
-            if name.startswith("_"):
-                raise DeriveError("names cannot start with an underscore")
-        if isinstance(node, ast.Compare) and len(node.ops) != 1:
-            raise DeriveError("compare two values at a time")
         if isinstance(node, ast.Constant):
             if not isinstance(node.value, (int, float, str, bool)):
                 raise DeriveError("unsupported literal")
@@ -174,22 +202,39 @@ def _equal(left: Any, right: Any) -> bool:
     return _number(left) == _number(right)
 
 
+def _order(comparison: ast.cmpop, left: Any, right: Any) -> bool:
+    if isinstance(comparison, ast.Eq):
+        return _equal(left, right)
+    if isinstance(comparison, ast.NotEq):
+        return not _equal(left, right)
+    if isinstance(left, str) != isinstance(right, str):
+        raise DeriveError("text and numbers cannot be ordered")
+    if not isinstance(left, str):
+        _number(left), _number(right)
+    return _ORDER[type(comparison)](left, right)
+
+
+def _lookup(scope: Mapping[str, Any], name: str, label: str) -> Any:
+    if name.startswith("_") or name not in scope:
+        raise DeriveError(f"unknown value '{label}'")
+    return scope[name]
+
+
 def _evaluate(node: ast.AST, env: Mapping[str, Any]) -> Any:
     if isinstance(node, ast.Expression):
         return _evaluate(node.body, env)
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
-        if node.id in env:
-            return env[node.id]
-        if node.id in CONSTANTS:
+        if node.id not in env and node.id in CONSTANTS:
             return CONSTANTS[node.id]
-        raise DeriveError(f"unknown name '{node.id}'")
+        return _lookup(env, node.id, node.id)
     if isinstance(node, ast.Attribute):
         owner = _evaluate(node.value, env)
-        if not isinstance(owner, Mapping) or node.attr not in owner:
-            raise DeriveError(f"unknown value '{node.value.id}.{node.attr}'")
-        return owner[node.attr]
+        label = f"{node.value.id}.{node.attr}"
+        if not isinstance(owner, Mapping):
+            raise DeriveError(f"unknown value '{label}'")
+        return _lookup(owner, node.attr, label)
     if isinstance(node, ast.UnaryOp):
         operand = _evaluate(node.operand, env)
         if isinstance(node.op, ast.Not):
@@ -199,23 +244,26 @@ def _evaluate(node: ast.AST, env: Mapping[str, Any]) -> Any:
     if isinstance(node, ast.BinOp):
         return _BINARY[type(node.op)](_evaluate(node.left, env), _evaluate(node.right, env))
     if isinstance(node, ast.BoolOp):
-        if isinstance(node.op, ast.And):
-            return all(_truthy(_evaluate(value, env)) for value in node.values)
-        return any(_truthy(_evaluate(value, env)) for value in node.values)
+        stop = not isinstance(node.op, ast.And)
+        value = None
+        for operand in node.values:
+            value = _evaluate(operand, env)
+            if _truthy(value) is stop:
+                return value
+        return value
     if isinstance(node, ast.Compare):
-        left, right = _evaluate(node.left, env), _evaluate(node.comparators[0], env)
-        comparison = node.ops[0]
-        if isinstance(comparison, ast.Eq):
-            return _equal(left, right)
-        if isinstance(comparison, ast.NotEq):
-            return not _equal(left, right)
-        return _ORDER[type(comparison)](_number(left), _number(right))
+        left = _evaluate(node.left, env)
+        for comparison, operand in zip(node.ops, node.comparators):
+            right = _evaluate(operand, env)
+            if not _order(comparison, left, right):
+                return False
+            left = right
+        return True
     if isinstance(node, ast.IfExp):
         branch = node.body if _truthy(_evaluate(node.test, env)) else node.orelse
         return _evaluate(branch, env)
     if isinstance(node, ast.Call):
-        function = FUNCTIONS[node.func.id][0]
-        return function(*(_evaluate(argument, env) for argument in node.args))
+        return FUNCTIONS[node.func.id](*(_evaluate(argument, env) for argument in node.args))
     raise DeriveError(f"'{type(node).__name__}' is not allowed in an expression")
 
 
@@ -227,8 +275,7 @@ def evaluate(expression: Expression | str, env: Mapping[str, Any]) -> Any:
         raise
     except (ArithmeticError, TypeError, ValueError) as exc:
         raise DeriveError(f"'{parsed.source}' could not be evaluated: {exc}") from None
-    if isinstance(value, float):
-        _finite(value)
+    _real(value)
     if isinstance(value, Mapping):
         raise DeriveError(f"'{parsed.source}' must give a number, a flag or a word")
     return value

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import math
+from pathlib import Path
 
 import pytest
 
@@ -25,9 +27,11 @@ ENV = {
         ("2 ** 3 ** 2", 512),
         ("-1 % 3", 2),
         ("7 % -3", -2),
-        ("round(2.5)", 3),
+        ("round(2.5)", 2),
+        ("round(3.5)", 4),
         ("round(-2.5)", -2),
-        ("round(0.49999)", 0),
+        ("round(2.675, 2)", 2.67),
+        ("round(1350, -2)", 1400),
         ("floor(-0.5)", -1),
         ("clamp(5, 0, 1)", 1),
         ("clamp(-5, 0, 1)", 0),
@@ -44,6 +48,8 @@ ENV = {
         ("on + 1", 2),
         ("anchor.x + anchor.y", 0.5),
         ("max(1, 2, 3)", 3),
+        ("0 < amount < 100", True),
+        ("'a' < 'b'", True),
         ("1e3", 1000.0),
     ],
 )
@@ -51,9 +57,19 @@ def test_the_language_evaluates_like_the_spec(source, expected):
     assert evaluate(source, ENV) == pytest.approx(expected)
 
 
-def test_logic_returns_booleans_not_operands():
-    assert evaluate("amount and size", ENV) is True
-    assert evaluate("0 or ''", ENV) is False
+def test_logic_returns_the_deciding_operand_like_python():
+    assert evaluate("amount and size", ENV) == 1.5
+    assert evaluate("0 or ''", ENV) == ""
+    assert evaluate("not amount", ENV) is False
+    assert evaluate("0 and missing", ENV) == 0
+
+
+def test_text_joins_and_compares_but_never_mixes_with_numbers():
+    assert evaluate("'ab' + 'cd'", ENV) == "abcd"
+    assert evaluate("easing == 1", ENV) is False
+    for source in ("easing + 1", "easing < 1", "max('a', 1)"):
+        with pytest.raises(DeriveError):
+            evaluate(source, ENV)
 
 
 @pytest.mark.parametrize(
@@ -61,7 +77,6 @@ def test_logic_returns_booleans_not_operands():
     [
         "__import__('os')",
         "open('x')",
-        "amount.__class__",
         "media.width.real",
         "[1, 2]",
         "{'a': 1}",
@@ -71,18 +86,15 @@ def test_logic_returns_booleans_not_operands():
         "f'{amount}'",
         "amount if True",
         "min(amount, key=1)",
-        "0 < amount < 100",
+        "min(*amount)",
         "amount is None",
         "1 in media",
         "amount << 2",
         "amount // 2",
-        "_secret",
         "None",
         "b'x'",
         "x := 1",
         "'" + "a" * 100 + "'",
-        "clamp(1, 2)",
-        "max()",
         "",
         "a" * 2001,
     ],
@@ -105,6 +117,17 @@ def test_anything_outside_the_whitelist_is_refused(source):
         "easing + 1",
         "floor(pow(10, 300) * pow(10, 300))",
         "media",
+        "(-8) ** 0.5",
+        "1e400",
+        "10 ** 400",
+        "_secret",
+        "media.__proto__",
+        "amount.__class__",
+        "constructor",
+        "clamp(1, 2)",
+        "min(1)",
+        "max()",
+        "round(1.5, 'a')",
     ],
 )
 def test_runtime_errors_are_derive_errors(source):
@@ -127,3 +150,40 @@ def test_a_failing_entry_names_itself():
 
 def test_names_lists_the_values_an_expression_reads_without_functions():
     assert parse_derive("max(amount, media.width) + k").names() == {"amount", "media", "k"}
+
+
+GOLDENS = json.loads((Path(__file__).resolve().parents[3] / "fixtures" / "effects" / "derive" / "cases.json").read_text())
+
+
+def _same(got, expected):
+    if isinstance(got, (bool, str)) or isinstance(expected, (bool, str)):
+        return type(got) is type(expected) and got == expected
+    return abs(got - expected) <= GOLDENS["tolerance"] * max(1.0, abs(expected))
+
+
+@pytest.mark.parametrize("case", GOLDENS["expressions"], ids=lambda case: case["expr"])
+def test_the_shared_goldens_agree_with_the_browser_parser(case):
+    try:
+        parsed = parse_derive(case["expr"])
+    except DeriveError:
+        assert case.get("error") == "parse"
+        return
+    try:
+        value = evaluate(parsed, case.get("env", {}))
+    except DeriveError:
+        assert case.get("error") == "eval"
+        return
+    assert "error" not in case and _same(value, case["value"])
+
+
+@pytest.mark.parametrize("block", GOLDENS["blocks"], ids=lambda block: block["name"])
+def test_the_shared_derive_blocks_agree_with_the_browser_parser(block):
+    values = evaluate_all([(name, parse_derive(source)) for name, source in block["derive"].items()], block["env"])
+
+    assert all(_same(values[name], expected) for name, expected in block["values"].items())
+
+
+def test_underscore_names_are_never_read_even_when_present():
+    for source in ("_hidden", "media._hidden"):
+        with pytest.raises(DeriveError, match="unknown value"):
+            evaluate(source, {"_hidden": 1, "media": {"_hidden": 1}})

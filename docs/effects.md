@@ -165,26 +165,36 @@ user, source, window and the effect's `analysis.keys`.
 
 ## The derive language
 
-A Python expression subset, evaluated by `src/platform/media_tools/effects/derive.py` and by the browser's
-parser. Both must agree on every rule here.
+A Python expression subset with Python's semantics, evaluated by `src/platform/media_tools/effects/derive.py` and by
+the browser's parser. The shared goldens in `tests/fixtures/effects/derive/cases.json` pin both: every expression,
+value and error phase (`parse` or `eval`) there must agree.
 
 | Element | Rule |
 |---|---|
 | Literals | numbers (`1`, `0.5`, `1e3`), strings in single or double quotes, `True`, `False` |
 | Names | params, earlier derive entries, analysis values, `media`, `pi`; `time` only in `preview.gain` |
 | Attributes | one level: `media.width`, `media.height`, `media.fps`, `media.duration`; an anchor's `.x` and `.y` |
-| Arithmetic | `+ - * / ** %` and unary `-` `+`, with Python precedence (`-2 ** 2` is `-4`, `**` is right-associative) |
-| `/` | true division; dividing by zero is an error |
-| `%` | floored: the result takes the divisor's sign (`-1 % 3` is `2`); modulo by zero is an error |
-| Comparisons | `== != < <= > >=`, one operator per comparison (no `a < b < c`); strings compare with `==` / `!=` |
-| Logic | `and`, `or`, `not`, returning booleans; falsy values are `0`, `""` and `False` |
+| Arithmetic | `+ - * / ** %` and unary `-` `+`, with Python precedence (`-2 ** 2` is `-4`, `**` is right-associative); `+` also joins two strings |
+| `/`, `%` | true division and floored modulo (`-1 % 3` is `2`); by zero is an error |
+| Comparisons | `== != < <= > >=`, chained like Python (`0 < x < 1`); strings order among themselves; `==` between a string and a number is `False` |
+| Logic | `and` / `or` return the deciding operand like Python (`0 or 5` is `5`); `not` returns a boolean |
 | Conditional | `a if c else b` |
-| Functions | `min(a, b, …)`, `max(a, b, …)`, `clamp(v, lo, hi)`, `abs`, `floor`, `round`, `sqrt`, `sin`, `cos`, `pow(a, b)` |
-| `round(x)` | `floor(x + 0.5)` (half up, like `Math.round`), not banker's rounding |
-| Errors | a non-finite result, `sqrt` of a negative number, an unknown name or attribute |
+| Functions | `min(a, b, …)` and `max(a, b, …)` (two or more values, all numbers or all strings), `clamp(v, lo, hi)`, `abs`, `floor`, `round(x)` / `round(x, digits)`, `sqrt`, `sin`, `cos`, `pow(a, b)` |
+| `round` | Python's: half to even (`round(2.5)` is `2`), `round(2.675, 2)` is `2.67` |
+| Errors (`eval`) | a result that is not a finite real (`(-8) ** 0.5`, `1e400`), `sqrt` of a negative number, an unknown name or attribute, any name starting with `_` (`media.__proto__`), a wrong number of function arguments, text mixed with numbers |
+| Errors (`parse`) | anything outside the grammar: subscripts, lambdas, calls to other functions, keyword arguments, two-level attributes |
 
 Booleans count as `0` / `1` in arithmetic. The `media` values are those at the effect's place in the stack:
 the frame size entering the step, the source frame rate, and the output duration at that step.
+
+### Frame size in derive
+
+`media.width` and `media.height` are the real frame size on the server and the preview pass size in the browser,
+which is capped at 1920 on the long side and may step down to 1280 or 960. An effect must therefore stay
+scale-invariant: anything spatial is written relative to the frame (grain's `cell` is `size * min(w, h) / 1000`,
+a vignette's falloff is relative to the diagonal), so the preview at a reduced size looks like the full render. A
+quantity that rounds to whole pixels (grain's `cell`) can differ by a pixel between the two sizes; that is the
+expected preview drift, and the parity goldens are computed at the parity `media` size, where both agree exactly.
 
 ## Templates
 

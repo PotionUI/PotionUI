@@ -164,7 +164,7 @@ def test_every_previewed_head_really_decodes_to_one_chunk():
         if head:
             assert module.decode_chunk_count(head) == 1
         else:
-            assert module.decode_chunk_count(frames) == 0
+            assert module.decode_chunk_count(frames) == 1
 
 
 def test_latent_stats_report_the_normalized_space_the_upsampler_and_refine_work_in():

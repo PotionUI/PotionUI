@@ -55,6 +55,24 @@ describe('the stack as a runs payload', () => {
 		expect(chain.size).toEqual({ width: 360, height: 640 });
 	});
 
+	it('sends the full params of the audio, colour and split steps', () => {
+		const state = stackOf(
+			['volume', { unit: 'db', percent: 100, db: -6, fade_in: 0.5, fade_out: 0 }],
+			['replace_audio', { audio: { item_id: 'song-1' }, name: 'song.mp3', start: 2, loop: false }],
+			['mute', {}],
+			['fix_colors', { white_balance: false, contrast: true, strength: 60 }],
+			['split', { at: 3 }]
+		);
+		expect(compileSteps(effectiveSteps(state), clip).steps).toEqual([
+			{ tool: 'volume', params: { unit: 'db', db: -6, fade_in: 0.5, fade_out: 0 } },
+			{ tool: 'replace_audio', params: { audio: { item_id: 'song-1' }, start: 2, loop: false } },
+			{ tool: 'mute', params: {} },
+			{ tool: 'fix_colors', params: { white_balance: false, contrast: true, strength: 60 } },
+			{ tool: 'split', params: { mode: 'at', at: 3 } }
+		]);
+		expect(compileSteps(effectiveSteps(state), clip, { skipSplit: true }).steps.map((step) => step.tool)).not.toContain('split');
+	});
+
 	it('leaves out a replace step with no track and a split outside the clip', () => {
 		const state = stackOf(['replace_audio', { audio: null, name: '', start: 0, loop: true }], ['split', { at: 9 }]);
 		expect(compileSteps(effectiveSteps(state), clip).steps).toEqual([]);

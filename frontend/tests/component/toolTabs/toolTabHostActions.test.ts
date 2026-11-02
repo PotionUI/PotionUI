@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe('ToolTabHost actions', () => {
-	it('keeps the phone top bar actions while the same tab updates, and drops them for another tab', async () => {
+	it('keeps the phone top bar actions while the same tab updates and clears them once the host moves to another tab', async () => {
 		const off = registerToolKind({ tool: 'acme.actions', label: 'Actions', icon: 'brush', accepts: [], pluginId: 'acme', component: ActionsToolFixture as never });
 		try {
 			const id = tabsStore.openToolTab('acme.actions', null);
@@ -35,9 +35,13 @@ describe('ToolTabHost actions', () => {
 			await settle();
 			expect(get(toolTabActions(id))?.save?.label).toBe('Save');
 
-			view.destroy();
+			const other = tabsStore.openToolTab('acme.actions', { path: '/m/other.png', url: '/m/other.png' });
+			expect(other).not.toBe(id);
+			view.rerender({ tab: get(tabsStore).tabs.find((entry) => entry.id === other && isToolTab(entry))! });
 			await settle();
 			expect(get(toolTabActions(id))).toBeNull();
+
+			view.destroy();
 		} finally {
 			off();
 		}

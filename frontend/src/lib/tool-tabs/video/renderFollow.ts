@@ -11,6 +11,7 @@ interface Entry {
 	controller: AbortController;
 	listener: RenderListener | null;
 	fallback: (run: MediaToolRun) => void;
+	alive: () => boolean;
 }
 
 const entries = new Map<string, Entry>();
@@ -25,21 +26,29 @@ export function followRender(
 	runId: string,
 	api: RenderRunApi,
 	listener: RenderListener,
-	fallback: (run: MediaToolRun) => void
+	fallback: (run: MediaToolRun) => void,
+	alive: () => boolean = () => true
 ): void {
 	const current = entries.get(tabId);
 	if (current && current.runId === runId) {
 		current.listener = listener;
 		current.fallback = fallback;
+		current.alive = alive;
 		return;
 	}
 	current?.controller.abort();
-	const entry: Entry = { runId, controller: new AbortController(), listener, fallback };
+	const entry: Entry = { runId, controller: new AbortController(), listener, fallback, alive };
 	entries.set(tabId, entry);
 	void trackRun(runId, {
 		api,
 		signal: entry.controller.signal,
-		onProgress: (run) => entry.listener?.progress(run)
+		onProgress: (run) => {
+			if (!entry.alive()) {
+				if (entries.get(tabId) === entry) stopRender(tabId);
+				return;
+			}
+			entry.listener?.progress(run);
+		}
 	}).then((run) => {
 		if (entries.get(tabId) !== entry) return;
 		entries.delete(tabId);

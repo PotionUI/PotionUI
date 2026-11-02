@@ -99,7 +99,8 @@
 	import { loadPeaks, runStrip, stripTimes } from '$lib/tool-tabs/video/stripScheduler';
 	import { createFrameGrabber } from '$lib/tool-tabs/video/frameGrabber';
 	import { abortableWait, findRun, percentOf, secondsLeft, trackRun, type RenderRunApi } from '$lib/tool-tabs/video/renderRun';
-	import { detachRender, followRender, isFollowing, settleRender, type RenderListener } from '$lib/tool-tabs/video/renderFollow';
+	import { detachRender, followRender, isFollowing, settleRender, stopRender, type RenderListener } from '$lib/tool-tabs/video/renderFollow';
+	import { requestFrame } from '$lib/tool-tabs/video/frameRequest';
 	import { resizeOptions } from '$lib/tool-tabs/video/params';
 	import { buildSendTargets, videoFieldsOf, withFieldValue, type VideoField, type VideoSendTarget } from '$lib/tool-tabs/video/sendTargets';
 	import ScrubBar from './ScrubBar.svelte';
@@ -181,6 +182,7 @@
 	let preferredSend = $state<string | null>(null);
 	let audioInput = $state<HTMLInputElement | null>(null);
 	let afterRender: ((run: MediaToolRun) => void) | null = null;
+	let starting = $state(false);
 	let clipController: AbortController | null = null;
 	const clipCache = new Map<string, string>();
 	let raf = 0;
@@ -433,7 +435,10 @@
 		clipPreview = { key, sig: previewSignature, state: 'rendering', url: null, runId: null };
 		try {
 			const started = await startClipPreview({ input: inputRef, steps, start_seconds: Math.round(start * 1000) / 1000, duration_seconds: 3, height: 480 });
-			if (controller.signal.aborted) return;
+			if (controller.signal.aborted) {
+				if (started.run_id) void cancelMediaToolRun(started.run_id).catch(() => undefined);
+				return;
+			}
 			let previewUrl = started.preview?.url ?? null;
 			if (!previewUrl && started.run_id) {
 				clipPreview = { key, sig: clipPreview?.sig ?? previewSignature, state: 'rendering', url: null, runId: started.run_id };
@@ -514,18 +519,23 @@
 		}
 	};
 
+	function tabAlive(): boolean {
+		return get(tabsStore).tabs.some((entry) => entry.id === tabId);
+	}
+
 	function follow(runId: string) {
-		followRender(tabId, runId, runApi, listener, fallbackSettle);
+		followRender(tabId, runId, runApi, listener, fallbackSettle, tabAlive);
 	}
 
 	async function startRender(mode: MediaToolSaveMode, then?: (run: MediaToolRun) => void) {
-		if (!inputRef || !ready || render) return;
+		if (!inputRef || !ready || render || starting) return;
 		edits = foldPending(edits);
 		const compiled = compileSteps(effectiveSteps(edits), clip);
 		if (compiled.steps.length === 0) return;
 		const finalMode: MediaToolSaveMode = mode === 'update' && (!saved || hasSplit(compiled.steps)) ? 'new' : mode;
 		const output: { mode: MediaToolSaveMode; target_item_id?: string } = { mode: finalMode };
 		if (finalMode === 'update' && saved) output.target_item_id = saved.itemId;
+		starting = true;
 		try {
 			const { run_id: runId } = await startMediaToolRun({ steps: compiled.steps, inputs: [inputRef], output });
 			render = {
@@ -545,6 +555,8 @@
 		} catch (error) {
 			logger.error('The video render could not start:', error);
 			toasts.show('error', error instanceof Error ? error.message : 'The render could not start', { title: 'Save failed' });
+		} finally {
+			starting = false;
 		}
 	}
 
@@ -606,6 +618,10 @@
 
 	function withOutput(use: (value: { url: string; field: Record<string, unknown> }) => void) {
 		if (!source?.url) return;
+		if (render || starting) {
+			toasts.show('info', 'Wait for the current save to finish.', { title: 'Saving' });
+			return;
+		}
 		if (signature === EMPTY_SIGNATURE && !pendingMeaningful) {
 			use({ url: source.url, field: sourceValue() });
 			return;
@@ -663,7 +679,7 @@
 	}
 
 	function primarySave() {
-		if (!canSave || render) return;
+		if (!canSave || render || starting) return;
 		onSave(saved && !splitting ? { kind: 'save' } : { kind: 'save-new' });
 	}
 
@@ -824,22 +840,16 @@
 		const input = inputRef;
 		const time = Math.round(playhead * 1000) / 1000;
 		const list = untrack(steps);
-		const controller = new AbortController();
-		const timer = setTimeout(async () => {
-			try {
-				const result = await previewFrame({ input, steps: list as never, time_seconds: time, max_side: 1280, format: 'webp' }, controller.signal);
-				if (controller.signal.aborted || destroyed) return;
-				const previous = current();
-				assign({ key, url: URL.createObjectURL(result.blob) });
-				if (previous) URL.revokeObjectURL(previous.url);
-			} catch (error) {
-				if (!controller.signal.aborted) logger.error('Frame preview failed:', error);
-			}
-		}, 250);
-		return () => {
-			clearTimeout(timer);
-			controller.abort();
-		};
+		return requestFrame({
+			key,
+			load: async (signal) => (await previewFrame({ input, steps: list as never, time_seconds: time, max_side: 1280, format: 'webp' }, signal)).blob,
+			current,
+			assign: (slot) => {
+				if (destroyed) URL.revokeObjectURL(slot.url);
+				else assign(slot);
+			},
+			onError: (error) => logger.error('Frame preview failed:', error)
+		});
 	}
 
 	$effect(() => {
@@ -941,6 +951,7 @@
 		destroyed = true;
 		cancelAnimationFrame(raf);
 		detachRender(tabId, listener);
+		if (!tabAlive()) stopRender(tabId);
 		clipController?.abort();
 		if (afterFrame) URL.revokeObjectURL(afterFrame.url);
 		if (beforeFrame) URL.revokeObjectURL(beforeFrame.url);

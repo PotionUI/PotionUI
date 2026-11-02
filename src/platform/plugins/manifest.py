@@ -365,6 +365,14 @@ class ToolTabSpec(BaseModel):
     accepts: List[Literal["image", "video", "audio"]] = Field(default_factory=list)
     handles: List[str] = Field(default_factory=list)
 
+    @field_validator("component")
+    @classmethod
+    def _component_stays_in_dist(cls, value: str) -> str:
+        parts = value.split("/")
+        if not value or "\\" in value or value.startswith("/") or ":" in value or ".." in parts:
+            raise ValueError("component must be a relative path inside frontend/dist")
+        return value
+
 
 class SidebarItemSpec(BaseModel):
     """A sidebar entry: `sidebar[]`."""

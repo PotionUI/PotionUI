@@ -16,9 +16,9 @@ const entry = {
 	tool: 'acme.stamp',
 	label: 'Stamp tool',
 	icon: 'brush',
-	accepts: ['image', 'mesh'] as never,
+	accepts: ['image'] as never,
 	handles: ['image.crop'],
-	component: 'frontend/dist/StampToolTab.js'
+	component: 'StampToolTab.js'
 };
 
 describe('tool kind registry', () => {
@@ -52,7 +52,7 @@ describe('tool kind registry', () => {
 });
 
 describe('plugin tool tabs', () => {
-	it('maps a catalog entry to a namespaced kind, dropping unknown media kinds', () => {
+	it('maps a served catalog entry to a kind as served', () => {
 		expect(toolKindFromPluginEntry(entry)).toMatchObject({
 			tool: 'acme.stamp',
 			label: 'Stamp tool',
@@ -63,12 +63,12 @@ describe('plugin tool tabs', () => {
 		});
 	});
 
-	it('rejects an entry whose tool is not <plugin>.<id> or that has no component', () => {
-		expect(toolKindFromPluginEntry({ ...entry, tool: 'other.stamp' })).toBeNull();
+	it('skips an entry with no tool or no component', () => {
+		expect(toolKindFromPluginEntry({ ...entry, tool: '' })).toBeNull();
 		expect(toolKindFromPluginEntry({ ...entry, component: '' })).toBeNull();
 	});
 
-	it('loads the component from the plugin dist without the frontend/dist prefix', async () => {
+	it('loads the served component from the plugin dist', async () => {
 		const definition = toolKindFromPluginEntry(entry)!;
 		await resolveToolComponent(definition);
 		expect(resolvePluginComponent).toHaveBeenCalledWith('acme', 'StampToolTab.js');

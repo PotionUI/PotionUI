@@ -59,6 +59,17 @@ class TestToolTabsSchema(unittest.TestCase):
         with self.assertRaises(ValidationError):
             PluginManifestSchema.model_validate(_manifest(tool_tabs=[_tool_tab(id="Stamp.Tool")]))
 
+    def test_component_outside_dist_is_rejected(self):
+        for component in ["../other/Secret.js", "frontend/../../Secret.js", "/abs/Tool.js", "dist\\Tool.js", "C:/Tool.js", ""]:
+            with self.subTest(component=component), self.assertRaises(ValidationError):
+                PluginManifestSchema.model_validate(_manifest(tool_tabs=[_tool_tab(component=component)]))
+
+    def test_component_under_dist_is_accepted(self):
+        schema = PluginManifestSchema.model_validate(
+            _manifest(tool_tabs=[_tool_tab(component="frontend/dist/tools/Stamp.js")])
+        )
+        self.assertEqual(schema.tool_tabs[0].component, "frontend/dist/tools/Stamp.js")
+
     def test_duplicate_ids_are_rejected(self):
         with self.assertRaises(ValidationError):
             PluginManifestSchema.model_validate(_manifest(tool_tabs=[_tool_tab(), _tool_tab(label="Again")]))

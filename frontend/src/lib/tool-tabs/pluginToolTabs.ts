@@ -1,9 +1,7 @@
 import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 import { pluginOwner } from '$lib/registries/registry';
 import { registerToolKind } from './registry';
-import type { PluginToolTabEntry, ToolKind, ToolKindDefinition, ToolMediaKind } from './types';
-
-const MEDIA_KINDS: ReadonlySet<string> = new Set(['image', 'video', 'audio']);
+import type { PluginToolTabEntry, ToolKind, ToolKindDefinition } from './types';
 
 export interface PluginToolTabDescriptor {
 	id: string;
@@ -11,25 +9,16 @@ export interface PluginToolTabDescriptor {
 	dispose: () => void;
 }
 
-export function pluginToolKindId(entry: Pick<PluginToolTabEntry, 'plugin_id' | 'id' | 'tool'>): ToolKind | null {
-	if (!entry.plugin_id || !entry.id) return null;
-	const expected = `${entry.plugin_id}.${entry.id}`;
-	if (entry.tool && entry.tool !== expected) return null;
-	return expected as ToolKind;
-}
-
 export function toolKindFromPluginEntry(entry: PluginToolTabEntry): ToolKindDefinition | null {
-	const tool = pluginToolKindId(entry);
-	if (!tool || !entry.component || !entry.label) return null;
-	const asset = entry.component.replace(/^frontend\/dist\//, '');
+	if (!entry.plugin_id || !entry.tool || !entry.component || !entry.label) return null;
 	return {
-		tool,
+		tool: entry.tool as ToolKind,
 		label: entry.label,
 		icon: entry.icon || 'extension',
-		accepts: (entry.accepts ?? []).filter((kind): kind is ToolMediaKind => MEDIA_KINDS.has(kind)),
+		accepts: entry.accepts ?? [],
 		handles: entry.handles ?? [],
 		pluginId: entry.plugin_id,
-		load: () => resolvePluginComponent(entry.plugin_id, asset)
+		load: () => resolvePluginComponent(entry.plugin_id, entry.component)
 	};
 }
 

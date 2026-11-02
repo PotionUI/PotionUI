@@ -155,7 +155,7 @@ class TestGetVideoDirectorToolT2v:
         assert payload["global_prompt"] == "a storm over the ocean"
         assert payload["negative_prompt"] == "blurry"
         assert len(payload["segments"]) == 1
-        assert payload["segments"][0]["prompt"] == "a storm over the ocean"
+        assert payload["segments"][0]["prompt"] == ""
         assert payload["media"] == []
         assert "capabilities" in payload
         assert payload["capabilities"]["allowed_modes"] == ["t2v", "i2v", "flf", "director"]
@@ -174,6 +174,30 @@ class TestGetVideoDirectorToolT2v:
         payload = json.loads(result.data)
         assert payload["settings"]["fps"] == 24
         assert payload["settings"]["duration"] == 5
+
+
+class TestGetVideoDirectorToolSingleShotPrompt:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode", ["t2v", "i2v", "flf"])
+    async def test_timeline_single_shot_reports_its_own_beat_prompt_not_the_global_prompt(self, mode):
+        doc = make_timeline_doc(mode=mode)
+        doc["timeline"]["shots"][0]["segments"] = [{"id": "b1", "start": 0, "end": 10, "text": "a lighthouse at dusk"}]
+        form_state = make_form_state(doc, make_timeline_capabilities())
+        payload = json.loads((await GetVideoDirectorTool().execute(make_context(session_metadata={"form_state": form_state}))).data)
+        assert payload["segments"][0]["id"] == "seg-1"
+        assert payload["segments"][0]["prompt"] == "a lighthouse at dusk"
+        assert payload["global_prompt"] == "a storm over the ocean"
+
+    @pytest.mark.asyncio
+    async def test_chain_single_shot_reports_its_own_segment_prompt(self):
+        doc = make_timeline_doc(mode="t2v")
+        doc["chain"]["segments"] = [{"id": "chain-0", "prompt": "a lighthouse at dusk", "duration": 5}]
+        caps = make_timeline_capabilities()
+        caps["segment_routing"] = True
+        form_state = make_form_state(doc, caps)
+        payload = json.loads((await GetVideoDirectorTool().execute(make_context(session_metadata={"form_state": form_state}))).data)
+        assert payload["segments"][0]["id"] == "seg-1"
+        assert payload["segments"][0]["prompt"] == "a lighthouse at dusk"
 
 
 class TestGetVideoDirectorToolI2v:

@@ -77,7 +77,8 @@ class TestDetectPanelsRoute(SliceBase):
     def test_a_video_has_no_panels(self):
         response = self.detect(self.video_item())
 
-        self.refused(response, 400, "unsupported_media")
+        detail = self.refused(response, 400, "unsupported_media")
+        self.assertIn("no panels", detail["message"])
 
     def test_an_oversized_picture_is_refused_without_a_path(self):
         sheet = self.grid_sheet()

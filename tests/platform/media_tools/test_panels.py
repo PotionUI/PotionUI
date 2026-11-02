@@ -108,8 +108,27 @@ def test_a_panel_split_by_a_thin_line_is_merged_back():
 
 def test_reading_order_groups_rows_then_orders_by_left():
     image = Image.new("RGB", (600, 400), (240, 230, 210))
-    image.paste((30, 60, 120), (320, 22, 580, 190))
-    image.paste((30, 60, 120), (20, 20, 300, 190))
+    image.paste((30, 60, 120), (320, 20, 580, 190))
+    image.paste((30, 60, 120), (20, 26, 300, 190))
     image.paste((30, 60, 120), (20, 220, 580, 380))
     found = panels.detect(image)["panels"]
     assert [round(panel["x"] * 600) for panel in found] == [20, 320, 20]
+
+
+def test_a_gap_narrower_than_the_minimum_gutter_is_not_a_gutter():
+    image = Image.new("RGB", (600, 400), (240, 230, 210))
+    image.paste((30, 60, 120), (20, 20, 299, 380))
+    image.paste((30, 60, 120), (301, 20, 580, 380))
+    analysis = panels.analyse(image)
+    inner = [band for band in panels.bands(analysis, "x", (20, 20, 580, 380)) if not band.edge]
+    assert analysis.min_gutter > 2
+    assert inner == []
+
+
+def test_a_gap_at_the_minimum_gutter_is_a_gutter():
+    image = Image.new("RGB", (600, 400), (240, 230, 210))
+    image.paste((30, 60, 120), (20, 20, 290, 380))
+    image.paste((30, 60, 120), (300, 20, 580, 380))
+    analysis = panels.analyse(image)
+    inner = [band for band in panels.bands(analysis, "x", (20, 20, 580, 380)) if not band.edge]
+    assert [(band.a, band.b) for band in inner] == [(290, 300)]

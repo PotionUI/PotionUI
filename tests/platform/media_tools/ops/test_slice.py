@@ -124,6 +124,7 @@ class TestRun:
         run(source, ctx, [cell(0, 0, 0.5, 1), cell(0.5, 0, 0.5, 1)])
         labels = [label for _, label in seen if label.startswith("Cell")]
         assert "Cell 1 of 2" in labels and "Cell 2 of 2" in labels
+        assert (0.0, "Cell 1 of 2") in seen and (0.5, "Cell 2 of 2") in seen and (1.0, "Cell 2 of 2") in seen
         fractions = [fraction for fraction, label in seen if label.startswith("Cell")]
         assert fractions == sorted(fractions)
         assert 0.5 in fractions

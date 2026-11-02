@@ -47,7 +47,7 @@ SPEC = dict(
     cardinality="one_to_many",
     editor="slice",
     name_suffix="-cell",
-    description="Cut a sheet into separate images. The last step of a stack",
+    description="Cut a sheet into images; must be last",
     selection={"min": 1, "max": 1},
     scopes=(EDITOR_SCOPE,),
     params=[
@@ -55,7 +55,7 @@ SPEC = dict(
             "name": "rects",
             "type": "json",
             "label": "Cells",
-            "description": f"Up to {MAX_SLICE_CELLS} cells [{{x, y, w, h, name?}}] as 0..1 fractions, in output order",
+            "description": f"1-{MAX_SLICE_CELLS} cells [{{x,y,w,h,name?}}], 0..1 fractions",
         },
         {"name": "trim", "type": "checkbox", "label": "Trim background", "default": False},
         {
@@ -80,7 +80,7 @@ SPEC = dict(
             "type": "string",
             "label": "Fill",
             "default": AUTO,
-            "description": "auto, transparent or #RRGGBB",
+            "description": "auto|transparent|#RRGGBB",
         },
     ],
 )

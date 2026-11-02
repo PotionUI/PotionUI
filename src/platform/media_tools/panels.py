@@ -142,10 +142,11 @@ def _near(first: Box, second: Box, reach: int) -> bool:
 
 def _attach_specks(analysis: Analysis, leaves: list[Box]) -> list[Box]:
     total = analysis.width * analysis.height
-    big = [box for box in leaves if (box[2] - box[0]) * (box[3] - box[1]) / total >= MIN_PANEL_AREA]
-    for box in leaves:
-        if box in big:
-            continue
+    def is_big(box: Box) -> bool:
+        return (box[2] - box[0]) * (box[3] - box[1]) / total >= MIN_PANEL_AREA
+
+    big = [box for box in leaves if is_big(box)]
+    for box in [box for box in leaves if not is_big(box)]:
         reach = 2 * analysis.min_gutter
         hosts = [index for index, host in enumerate(big) if _near(box, host, reach)]
         if hosts:

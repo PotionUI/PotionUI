@@ -921,13 +921,11 @@ class MediaStore:
         # `delete_generation_outputs` has no directory to scan - it deletes
         # exactly the keys it's given, so every file plus its thumbnails
         # (not tracked as their own `files` rows) has to be enumerated here.
-        relative_paths = []
-        for file_record in self.generation_repo.get_files(generation_id):
-            relative_paths.append(file_record.file_path)
-            base_key = Path(file_record.file_path).parent
-            for thumbnail in (file_record.thumbnail_small, file_record.thumbnail_medium, file_record.thumbnail_large):
-                if thumbnail:
-                    relative_paths.append((base_key / thumbnail).as_posix())
+        relative_paths = [
+            key
+            for file_record in self.generation_repo.releasable_files(generation_id)
+            for key in file_record.storage_keys()
+        ]
 
         deleted, failed = self.file_service.delete_generation_outputs(relative_paths)
 

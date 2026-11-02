@@ -340,6 +340,7 @@ class TestDelete:
     def setup_method(self):
         """Set up test fixtures."""
         self.mock_repo = Mock()
+        self.mock_repo.releasable_files.return_value = []
         self.mock_file_service = Mock()
         self.mock_file_service.delete_generation_outputs.return_value = (0, 0)
         self.mock_plugins = Mock()
@@ -427,6 +428,7 @@ class TestBulkDelete:
     def setup_method(self):
         """Set up test fixtures."""
         self.mock_repo = Mock()
+        self.mock_repo.releasable_files.return_value = []
         self.mock_file_service = Mock()
         self.mock_file_service.delete_generation_outputs.return_value = (0, 0)
         self.mock_plugins = Mock()

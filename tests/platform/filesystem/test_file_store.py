@@ -421,7 +421,50 @@ class TestFileService:
 
         assert deleted == 1
         assert failed == 1
-    
+
+    def test_delete_generation_outputs_removes_the_emptied_generation_folders(self):
+        date_dir = self.file_service.generations_dir / "2026-10-28"
+        gen_dir = date_dir / self.test_generation_id
+        (gen_dir / "thumbnails").mkdir(parents=True)
+        (gen_dir / "1.mp4").write_bytes(b"video")
+        (gen_dir / "thumbnails" / "1_medium.jpg").write_bytes(b"jpg")
+        (gen_dir / "thumbnails" / "1_medium_animated.webp").write_bytes(b"webp")
+        neighbour = date_dir / "neighbour"
+        neighbour.mkdir()
+        (neighbour / "1.png").write_bytes(b"png")
+        prefix = f"generations/2026-10-28/{self.test_generation_id}"
+
+        deleted, failed = self.file_service.delete_generation_outputs(
+            [f"{prefix}/1.mp4", f"{prefix}/thumbnails/1_medium.jpg", f"{prefix}/thumbnails/1_medium_animated.webp"]
+        )
+
+        assert (deleted, failed) == (3, 0)
+        assert not gen_dir.exists()
+        assert date_dir.is_dir()
+        assert (neighbour / "1.png").is_file()
+
+    def test_delete_generation_outputs_keeps_a_folder_that_still_holds_a_file(self):
+        gen_dir = self.file_service.generations_dir / "2026-10-28" / self.test_generation_id
+        (gen_dir / "thumbnails").mkdir(parents=True)
+        (gen_dir / "1.png").write_bytes(b"png")
+        (gen_dir / "thumbnails" / "1_small.webp").write_bytes(b"webp")
+        kept = gen_dir / "2.png"
+        kept.write_bytes(b"kept")
+        prefix = f"generations/2026-10-28/{self.test_generation_id}"
+
+        self.file_service.delete_generation_outputs([f"{prefix}/1.png", f"{prefix}/thumbnails/1_small.webp"])
+
+        assert not (gen_dir / "thumbnails").exists()
+        assert kept.is_file()
+
+    def test_delete_generation_outputs_never_removes_a_folder_outside_a_generation(self):
+        stray = self.file_service.generations_dir / "loose.png"
+        stray.write_bytes(b"png")
+
+        self.file_service.delete_generation_outputs(["generations/loose.png"])
+
+        assert self.file_service.generations_dir.is_dir()
+
 
 class TestFileServiceIntegration:
     """Integration tests for FileStore with realistic workflows."""

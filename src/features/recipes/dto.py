@@ -457,6 +457,8 @@ class RecipeArtifactView(BaseModel):
     required: bool = True
     gated: bool = False
     license_url: Optional[str] = None
+    source: Optional[str] = None
+    repo_id: Optional[str] = None
     variants: List[RecipeArtifactVariantView] = Field(default_factory=list)
 
 
@@ -530,6 +532,8 @@ class RecipeDetail(RecipeSummary):
                     required=a.required,
                     gated=a.gated,
                     license_url=a.license_url,
+                    source=(a.provider_hint or {}).get("source"),
+                    repo_id=(a.provider_hint or {}).get("model_id"),
                     variants=[
                         RecipeArtifactVariantView(
                             id=v.id,

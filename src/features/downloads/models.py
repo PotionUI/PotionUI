@@ -57,6 +57,8 @@ class Download:
     revision: Optional[str] = None  # hf_repo parents: the pinned revision, if any
     destination_backend_id: Optional[str] = None  # None = local disk; set = a native.remote worker's depot
     filename_supplied: bool = True
+    gated: bool = False
+    gated_repo: Optional[str] = None
     created_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -86,6 +88,8 @@ class Download:
             revision=row['revision'],
             destination_backend_id=row['destination_backend_id'],
             filename_supplied=bool(row['filename_supplied']),
+            gated=bool(row['gated']),
+            gated_repo=row['gated_repo'],
             created_at=dt_column(row['created_at']),
             started_at=dt_column(row['started_at']),
             completed_at=dt_column(row['completed_at']),
@@ -115,6 +119,8 @@ class Download:
             'revision': self.revision,
             'destination_backend_id': self.destination_backend_id,
             'filename_supplied': self.filename_supplied,
+            'gated': self.gated,
+            'gated_repo': self.gated_repo,
             'created_at': dt_iso(self.created_at),
             'started_at': dt_iso(self.started_at),
             'completed_at': dt_iso(self.completed_at),

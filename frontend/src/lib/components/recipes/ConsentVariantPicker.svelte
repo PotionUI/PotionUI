@@ -1,4 +1,5 @@
 <script lang="ts">
+	import GatedModelLink from '$lib/components/models/GatedModelLink.svelte';
 	import type { SetupConsentGpuProfile, SetupConsentSlot } from '$lib/services/api/setup';
 	import { Badge } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -86,16 +87,7 @@
 					{#if variant.gated}
 						<span class="flex items-center gap-1 text-sm text-warning shrink-0">
 							<span>Licence required</span>
-							{#if variant.license_url}
-								<a
-									href={variant.license_url}
-									target="_blank"
-									rel="noreferrer"
-									class="underline decoration-dotted"
-								>
-									licence
-								</a>
-							{/if}
+							<GatedModelLink source={variant} />
 						</span>
 					{/if}
 				</div>
@@ -158,17 +150,7 @@
 							{#if variant.gated}
 								<div class="flex items-center gap-1 text-sm text-warning">
 									<span>Licence required</span>
-									{#if variant.license_url}
-										<a
-											href={variant.license_url}
-											target="_blank"
-											rel="noreferrer"
-											class="underline decoration-dotted"
-											onclick={(event) => event.stopPropagation()}
-										>
-											licence
-										</a>
-									{/if}
+									<GatedModelLink source={variant} />
 								</div>
 							{/if}
 						</div>

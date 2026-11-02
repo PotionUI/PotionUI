@@ -1,4 +1,5 @@
 <script lang="ts">
+	import GatedModelLink from '$lib/components/models/GatedModelLink.svelte';
 	import type { Snippet } from 'svelte';
 	import { getApiErrorMessage } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
@@ -301,16 +302,7 @@
 								{/if}
 								{#if artifact.gated}
 									<Badge variant="warning" size="sm">gated</Badge>
-									{#if artifact.license_url}
-										<a
-											href={artifact.license_url}
-											target="_blank"
-											rel="noreferrer"
-											class="text-xs text-signal hover:underline shrink-0"
-										>
-											licence
-										</a>
-									{/if}
+									<GatedModelLink source={artifact} />
 								{/if}
 							</span>
 							{#if artifact.size_bytes != null}

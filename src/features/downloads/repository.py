@@ -271,6 +271,14 @@ class DownloadRepository:
                 """, (status.value, error_message, download_id))
             return cursor.rowcount > 0
 
+    def mark_gated(self, download_id: str, repo: Optional[str]) -> bool:
+        with get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE downloads SET gated = 1, gated_repo = ? WHERE id = ?",
+                (repo, download_id),
+            )
+            return cursor.rowcount > 0
+
     def reset_for_retry(self, download_id: str) -> bool:
         """Reset a terminal (failed/cancelled/completed) download back to
         pending for a re-fetch - clears bytes/progress/speed/error so a stale
@@ -279,7 +287,8 @@ class DownloadRepository:
             cursor.execute("""
                 UPDATE downloads
                 SET status = 'pending', progress = 0.0, downloaded_bytes = 0,
-                    speed_bytes_per_sec = NULL, error_message = NULL
+                    speed_bytes_per_sec = NULL, error_message = NULL,
+                    gated = 0, gated_repo = NULL
                 WHERE id = ?
             """, (download_id,))
             return cursor.rowcount > 0
@@ -354,6 +363,10 @@ class DownloadRepository:
         self.update_total_bytes(group_id, total)
         if status_changed:
             self.update_status(group_id, new_status, error)
+            if new_status == DownloadStatus.FAILED:
+                gated_child = next((c for c in children if c.gated), None)
+                if gated_child is not None:
+                    self.mark_gated(group_id, gated_child.gated_repo)
 
         return self.get_by_id(group_id), status_changed
 

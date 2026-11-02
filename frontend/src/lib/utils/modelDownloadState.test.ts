@@ -12,7 +12,7 @@ describe('reduceModelDownloadState', () => {
 		expect(state.phase).toBe('starting');
 
 		state = reduceModelDownloadState(state, { type: 'started', downloadId: 'dl-1' });
-		expect(state).toEqual({ phase: 'polling', downloadId: 'dl-1', progress: 0, error: null });
+		expect(state).toEqual({ phase: 'polling', downloadId: 'dl-1', progress: 0, error: null, gated: false, gatedRepo: null });
 
 		state = reduceModelDownloadState(state, { type: 'poll', status: 'running', progress: 0.4, error: null });
 		expect(state.phase).toBe('polling');
@@ -53,5 +53,33 @@ describe('reduceModelDownloadState', () => {
 		for (const phase of ['idle', 'starting', 'completed', 'failed', 'forbidden'] as const) {
 			expect(shouldContinuePolling(phase)).toBe(false);
 		}
+	});
+});
+
+describe('reduceModelDownloadState gated failures', () => {
+	it('carries the gated flag and repo from a failed poll and clears them on restart', () => {
+		const failed = reduceModelDownloadState(initialModelDownloadState, {
+			type: 'poll',
+			status: 'failed',
+			progress: null,
+			error: 'denied',
+			gated: true,
+			gatedRepo: 'org/name'
+		});
+		expect(failed.gated).toBe(true);
+		expect(failed.gatedRepo).toBe('org/name');
+		const restarted = reduceModelDownloadState(failed, { type: 'start' });
+		expect(restarted.gated).toBe(false);
+		expect(restarted.gatedRepo).toBeNull();
+	});
+
+	it('leaves an ordinary failure ungated', () => {
+		const failed = reduceModelDownloadState(initialModelDownloadState, {
+			type: 'poll',
+			status: 'failed',
+			progress: null,
+			error: 'boom'
+		});
+		expect(failed.gated).toBe(false);
 	});
 });

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import GatedModelLink from '$lib/components/models/GatedModelLink.svelte';
 	import type { RecipeArtifact } from '$lib/services/api/recipes';
 	import { formatBytes } from '$lib/utils/format';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -21,16 +22,7 @@
 				</Tooltip>
 				{#if artifact.gated}
 					<Badge variant="warning" size="sm" class="shrink-0">gated</Badge>
-					{#if artifact.license_url}
-						<a
-							href={artifact.license_url}
-							target="_blank"
-							rel="noreferrer"
-							class="text-xs text-signal hover:underline shrink-0"
-						>
-							licence
-						</a>
-					{/if}
+					<GatedModelLink source={artifact} />
 				{/if}
 			</div>
 			<div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs tabular-nums text-fg-subtle">

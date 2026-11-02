@@ -34,6 +34,7 @@ from src.features.downloads.utils import (
     extract_filename_from_url,
     safe_download_name,
     derived_download_name,
+    hub_repo_from_url,
     verify_file_target,
 )
 from src.platform.websocket.download_connection_hub import DownloadConnectionHub
@@ -503,12 +504,16 @@ class DownloadWorker:
             logger.warning(f"Download failed for {download.filename} (authentication): {error_message}")
 
             self.repo.update_status(download_id, DownloadStatus.FAILED, error_message)
+            gated_repo = self._gated_repo(download)
+            self.repo.mark_gated(download_id, gated_repo)
 
             await self.conn.send_download_status(
                 download_id,
                 'failed',
                 download.filename,
-                error_message=error_message
+                error_message=error_message,
+                gated=True,
+                gated_repo=gated_repo
             )
 
             await self.conn.send_notification(
@@ -611,6 +616,13 @@ class DownloadWorker:
             if parent is not None and parent.repo_id:
                 return parent.repo_id
         return download.repo_id or download.filename
+
+    def _gated_repo(self, download: Download) -> Optional[str]:
+        if download.group_id:
+            parent = self.repo.get_by_id(download.group_id)
+            if parent is not None and parent.repo_id:
+                return parent.repo_id
+        return download.repo_id or hub_repo_from_url(download.url)
 
     def _auth_failure_message(self, download: Download, status: int, provider) -> str:
         """An actionable message for a 401/403 on a download - names what

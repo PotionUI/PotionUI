@@ -65,8 +65,8 @@ export class SlotVariantDownloads {
 					this.#poll(variantId, downloadId);
 					return;
 				}
-				const { status, progress, error } = response.data;
-				this.#apply(variantId, { type: 'poll', status, progress, error });
+				const { status, progress, error, gated, gated_repo } = response.data;
+				this.#apply(variantId, { type: 'poll', status, progress, error, gated, gatedRepo: gated_repo });
 				if (status === 'completed') {
 					delete this.#timers[variantId];
 					this.#onCompleted();

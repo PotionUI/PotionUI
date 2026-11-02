@@ -338,6 +338,39 @@ class TestAuthFailureFastPath:
         assert "gated" in failed_calls[0].args[2]
 
     @pytest.mark.asyncio
+    async def test_auth_failure_flags_the_download_as_gated_with_its_repo(self, worker, mock_repository):
+        download = Download(
+            id='dl-g', type=DownloadType.MODEL, filename='tokenizer.json',
+            url='https://huggingface.co/google/gemma-3-12b-it/resolve/main/tokenizer.json',
+        )
+        mock_repository.get_by_id.return_value = download
+
+        async def fake_download_file(self, dl):
+            raise DownloadAuthenticationException("denied")
+
+        with patch.object(DownloadWorker, "_download_file", fake_download_file):
+            await worker._process_download('dl-g')
+
+        mock_repository.mark_gated.assert_called_once_with('dl-g', 'google/gemma-3-12b-it')
+
+    @pytest.mark.asyncio
+    async def test_non_auth_failure_is_not_flagged_as_gated(self, worker, mock_repository):
+        download = Download(
+            id='dl-n', type=DownloadType.MODEL, filename='m.safetensors',
+            url='https://example.com/m.safetensors',
+        )
+        mock_repository.get_by_id.return_value = download
+        mock_repository.increment_retry.return_value = 99
+
+        async def fake_download_file(self, dl):
+            raise Exception("boom")
+
+        with patch.object(DownloadWorker, "_download_file", fake_download_file):
+            await worker._process_download('dl-n')
+
+        mock_repository.mark_gated.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_generic_failure_still_uses_retry_budget(self, worker, mock_repository):
         """Sanity check the pre-existing retry path for non-auth failures is untouched."""
         download = Download(

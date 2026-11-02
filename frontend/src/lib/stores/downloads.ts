@@ -48,6 +48,8 @@ export interface Download {
 	retry_count: number;
 	group_id?: string | null;
 	repo_id?: string | null;
+	gated?: boolean;
+	gated_repo?: string | null;
 	created_at: string | null;
 	started_at: string | null;
 	completed_at: string | null;
@@ -362,7 +364,9 @@ function createDownloadStore() {
 					if (token !== sessionToken) return;
 					const patch: Partial<Download> = {
 						status: update.status as DownloadStatus,
-						error_message: update.error || null
+						error_message: update.error || null,
+						gated: update.gated === true,
+						gated_repo: update.gated_repo ?? null
 					};
 					touchId(update.download_id, { patch, countsAffected: true });
 					downloads.update((currentDownloads) =>
@@ -792,12 +796,12 @@ function createDownloadStore() {
 				if (data.success) {
 					if (token === sessionToken) {
 						touchId(downloadId, {
-						patch: { status: 'pending', error_message: null },
+						patch: { status: 'pending', error_message: null, gated: false, gated_repo: null },
 						countsAffected: true
 					});
 						downloads.update((d) =>
 							d.map((dl) =>
-								dl.id === downloadId ? { ...dl, status: 'pending', error_message: null } : dl
+								dl.id === downloadId ? { ...dl, status: 'pending', error_message: null, gated: false, gated_repo: null } : dl
 							)
 						);
 					}

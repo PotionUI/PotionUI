@@ -516,7 +516,9 @@ export function extractConsentRequest(
 			size_bytes: typeof a.size_bytes === 'number' ? a.size_bytes : null,
 			kind: typeof a.kind === 'string' ? a.kind : '',
 			gated: a.gated === true,
-			license_url: typeof a.license_url === 'string' ? a.license_url : null
+			license_url: typeof a.license_url === 'string' ? a.license_url : null,
+			source: typeof a.source === 'string' ? a.source : null,
+			repo_id: typeof a.repo_id === 'string' ? a.repo_id : null
 		}));
 
 	const totalBytes = typeof raw.total_bytes === 'number' ? raw.total_bytes : null;

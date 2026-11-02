@@ -498,6 +498,8 @@ class ModePlanner:
                     "kind": entry["model_type"],
                     "gated": entry["gated"],
                     "license_url": entry["license_url"],
+                    "source": entry["provider_hint"].get("source"),
+                    "repo_id": entry["provider_hint"].get("model_id"),
                 }
                 for entry in default_files
             ],

@@ -120,8 +120,23 @@ def test_missing_artifact_parks_awaiting_consent_with_request_payload():
             "kind": "checkpoint",
             "gated": False,
             "license_url": None,
+            "source": None,
+            "repo_id": None,
         }
     ]
+
+
+def test_consent_artifact_carries_its_hub_repo():
+    artifact = _artifact(
+        "ckpt", provider_hint={"source": "huggingface", "model_id": "org/name"}, gated=True
+    )
+    executor = ArtifactsPlanExecutor(FakeModelRepository(present=set()), gpu_profile_provider=GpuProfile)
+
+    result = executor.execute(_context(_recipe([artifact]), ["ckpt"]))
+
+    entry = result.consent_request["artifacts"][0]
+    assert entry["source"] == "huggingface"
+    assert entry["repo_id"] == "org/name"
 
 
 def test_unknown_artifact_id_fails_misconfigured():

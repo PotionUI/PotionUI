@@ -2245,7 +2245,7 @@ one of these set:
 | Tab (`tool`) | `activeTool` ids |
 |---|---|
 | Image editor (`image`) | `crop`, `resize`, `canvas`, `paint`, `mask`, `effects`, `colorKey`, `subject` |
-| Video editor (`video`) | `trim`, `split`, `crop`, `resize`, `speed`, `volume`, `effects`, `frame` |
+| Video editor (`video`) | `trim`, `split`, `crop`, `resize`, `speed`, `mute`, `volume`, `replace`, `effects`, `frame` |
 
 A `hint` is an object with any of `look` (an Effects look to preview), `effect` (a video effect id such
 as `film_grain` to preview), `orientation` (`rotate` or `flip`, for Crop) and `sendTo` (`{ tabId, field }`:

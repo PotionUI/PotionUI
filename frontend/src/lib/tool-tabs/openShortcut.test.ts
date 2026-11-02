@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 
 const goto = vi.fn();
@@ -35,8 +35,12 @@ beforeEach(() => {
 	tabsStore.reset();
 });
 
+afterEach(async () => {
+	await new Promise((resolve) => setTimeout(resolve, 5));
+});
+
 describe('openToolShortcut', () => {
-	it('opens an Image editor tab on the item with the tool active, and goes to Generate', () => {
+	it('opens an Image editor tab on the item with the tool active, and goes to Generate once the caller has closed its dialog', async () => {
 		const opened = openToolShortcut('crop', [media('image', 'a', { itemId: 'a' })]);
 
 		expect(opened).toBe(true);
@@ -47,7 +51,8 @@ describe('openToolShortcut', () => {
 			source: { url: '/api/media/uploads/a', item_id: 'a', type: 'image' }
 		});
 		expect(activeId()).toBe(toolTabs()[0].id);
-		expect(goto).toHaveBeenCalledWith('/generate');
+		expect(goto).not.toHaveBeenCalled();
+		await vi.waitFor(() => expect(goto).toHaveBeenCalledWith('/generate'));
 	});
 
 	it('opens a Video editor tab for a clip', () => {
@@ -81,19 +86,21 @@ describe('openToolShortcut', () => {
 		]);
 	});
 
-	it('does nothing for a selection with no shortcut', () => {
+	it('does nothing for a selection with no shortcut', async () => {
 		expect(openToolShortcut('trim', [media('audio', 's')])).toBe(false);
 		expect(openToolShortcut('concat', [media('video', 'v')])).toBe(false);
 		expect(openToolShortcut('crop', [])).toBe(false);
 
+		await new Promise((resolve) => setTimeout(resolve, 5));
 		expect(toolTabs()).toHaveLength(0);
 		expect(goto).not.toHaveBeenCalled();
 	});
 
-	it('does not navigate when Generate is already open', () => {
+	it('does not navigate when Generate is already open', async () => {
 		vi.stubGlobal('window', { location: { pathname: '/generate' } });
 
 		openToolShortcut('crop', [media('image', 'a')]);
+		await new Promise((resolve) => setTimeout(resolve, 5));
 
 		expect(goto).not.toHaveBeenCalled();
 		expect(toolTabs()).toHaveLength(1);

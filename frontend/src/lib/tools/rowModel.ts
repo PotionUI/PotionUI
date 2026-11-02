@@ -57,6 +57,7 @@ function opensFor(id: string, source: 'core' | 'plugin', ctx: MediaToolContext):
 }
 
 function catalogEntry(tool: MediaTool, availability: MediaToolAvailability, ctx: MediaToolContext): RowTool {
+	const opens = opensFor(tool.id, tool.source, ctx);
 	return {
 		id: tool.id,
 		label: toolLabel(tool, ctx),
@@ -64,11 +65,11 @@ function catalogEntry(tool: MediaTool, availability: MediaToolAvailability, ctx:
 		action: 'catalog',
 		enabled: availability.enabled,
 		reason: availability.reason ?? '',
-		note: tool.note ?? '',
+		note: opens ? '' : (tool.note ?? ''),
 		plugin: tool.source === 'plugin',
 		pluginId: tool.pluginId,
 		tool,
-		opens: opensFor(tool.id, tool.source, ctx)
+		opens
 	};
 }
 

@@ -5,6 +5,11 @@ import type { MediaRef } from '$lib/types/tabs';
 import { lastToolFor, rememberTool } from './lastTool';
 import { mediaRefForItem, planShortcut, type ShortcutItem } from './shortcuts';
 
+function goToGenerate(): void {
+	if (typeof window === 'undefined' || window.location.pathname.startsWith('/generate')) return;
+	setTimeout(() => void goto('/generate'), 0);
+}
+
 export function openToolShortcut(actionId: string, items: readonly ShortcutItem[]): boolean {
 	const plan = planShortcut(actionId, items);
 	if (!plan) return false;
@@ -19,9 +24,7 @@ export function openToolShortcut(actionId: string, items: readonly ShortcutItem[
 		);
 	}
 	if (ids[0]) tabsStore.setActiveTab(ids[0]);
-	if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/generate')) {
-		void goto('/generate');
-	}
+	goToGenerate();
 	return true;
 }
 

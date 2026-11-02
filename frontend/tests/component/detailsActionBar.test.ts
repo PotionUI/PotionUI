@@ -421,6 +421,9 @@ describe('Edit and Effects menus', () => {
 		await open(root, 'edit');
 
 		expect(document.body.querySelector('[data-bar-menu] [data-tab-footer]')!.textContent).toContain('Video editor tab');
+		const frame = rows().find((row) => row.dataset.barRow === 'frame')!;
+		expect(frame.querySelector('[data-bar-row-label]')!.textContent).toBe('Open frame in Image editor');
+		expect(frame.querySelector('[data-bar-row-sub]')).toBeNull();
 	});
 
 	it('shows no footer or glyph for audio, which still runs in a dialog', async () => {

@@ -1,6 +1,6 @@
 export const IMAGE_TOOL_IDS = ['crop', 'resize', 'canvas', 'paint', 'mask', 'effects', 'colorKey', 'subject'] as const;
 
-export const VIDEO_TOOL_IDS = ['trim', 'split', 'crop', 'resize', 'speed', 'volume', 'effects', 'frame'] as const;
+export const VIDEO_TOOL_IDS = ['trim', 'split', 'crop', 'resize', 'speed', 'mute', 'volume', 'replace', 'effects', 'frame'] as const;
 
 export type ImageToolId = (typeof IMAGE_TOOL_IDS)[number];
 

@@ -294,7 +294,7 @@ describe('Tools menu: Edit and Effects on both pages', () => {
 			'frame',
 			'concat'
 		]);
-		expect(byLabel(groups, 'Edit')!.subs.frame).toBe('Saves one image');
+		expect(byLabel(groups, 'Edit')!.subs.frame).toBe('');
 		expect(byLabel(groups, 'Edit')!.subs.concat).toBe('Select 2 to 8 items');
 		expect(byLabel(groups, 'Effects')).toBeUndefined();
 	});
@@ -498,7 +498,7 @@ describe('card menu: the same submenus', () => {
 		const card = await reopened(() => libraryCardMenu('video'));
 
 		expect(byLabel(card, 'Edit')!.tools).toEqual(byLabel(bar, 'Edit')!.tools.filter((id) => id !== 'concat'));
-		expect(byLabel(card, 'Edit')!.subs.frame).toBe('Saves one image');
+		expect(byLabel(card, 'Edit')!.subs.frame).toBe('');
 	});
 
 	it('shows recent looks in the Effects submenu of a card, on both pages', async () => {

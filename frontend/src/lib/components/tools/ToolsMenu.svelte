@@ -377,7 +377,7 @@
 	{@const tool = entry.tool}
 	{@const availability = entry.availability}
 	{@const inlineReason = scope === 'field' && !availability.enabled}
-	{@const subline = availability.enabled ? (tool.note ?? '') : inlineReason ? '' : (availability.reason ?? '')}
+	{@const subline = availability.enabled ? (tool.catalogToolId && opensTabs(tool) ? '' : (tool.note ?? '')) : inlineReason ? '' : (availability.reason ?? '')}
 	{@const hint = subline ? '' : hintFor(tool, availability.enabled, availability.reason)}
 	<Tooltip text={inlineReason ? '' : hint} position="right" wrapperClass="flex w-full">
 		<button

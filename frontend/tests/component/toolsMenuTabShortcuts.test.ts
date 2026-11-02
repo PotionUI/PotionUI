@@ -26,9 +26,14 @@ const entry = (id: string, extra: Partial<MediaTool> = {}) => ({ tool: tool(id, 
 const groups = (): MediaToolGroup[] => [
 	{
 		category: { id: 'edit', label: 'Edit', order: -20 },
-		tools: [entry('crop'), entry('resize'), entry('trim'), entry('boomerang.loop', { source: 'plugin' })]
+		tools: [
+			entry('crop'),
+			entry('resize'),
+			entry('trim', { note: 'Saves one clip', catalogToolId: 'trim' }),
+			entry('boomerang.loop', { source: 'plugin', note: 'Boomerang' })
+		]
 	},
-	{ category: { id: 'effects', label: 'Effects', order: -10 }, tools: [entry('apply-look', { category: 'effects' })] },
+	{ category: { id: 'effects', label: 'Effects', order: -10 }, tools: [entry('apply-look', { category: 'effects' }), entry('look:noir', { category: 'effects', note: 'Black and white' })] },
 	{
 		category: { id: 'compose', label: 'Compose', order: 20 },
 		tools: [entry('stitch', { category: 'compose' }), entry('edit-image', { category: 'compose', shortcut: 'E' })]
@@ -110,6 +115,21 @@ describe('tools that open an editor tab', () => {
 		expect(footer()!.textContent).toContain('this clip');
 	});
 
+	it('drops the save note of a row that opens a tab, and keeps it for a row that does not', async () => {
+		render([media('video', 'v')]);
+		await openSubmenu('edit');
+
+		expect(tool$('trim').querySelector('[data-tool-sub]')).toBeNull();
+		expect(tool$('boomerang.loop').querySelector('[data-tool-sub]')!.textContent).toBe('Boomerang');
+	});
+
+	it('keeps the group note of a recent look', async () => {
+		render([media('image', 'a')]);
+		await openSubmenu('effects');
+
+		expect(tool$('look:noir').querySelector('[data-tool-sub]')!.textContent).toBe('Black and white');
+	});
+
 	it('says one tab per item for a selection of several', async () => {
 		render([media('image', 'a'), media('image', 'b'), media('image', 'c')]);
 		await openSubmenu('edit');
@@ -121,7 +141,7 @@ describe('tools that open an editor tab', () => {
 		render([media('image', 'a')]);
 		await openSubmenu('effects');
 
-		expect(glyphs()).toEqual(['apply-look']);
+		expect(glyphs()).toEqual(['apply-look', 'look:noir']);
 		expect(footer()!.textContent).toContain('Image editor tab');
 	});
 

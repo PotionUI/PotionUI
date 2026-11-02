@@ -8,6 +8,7 @@ import type {
 } from '$lib/media-tools/types';
 import type { EditStep } from '$lib/tool-tabs/frame/editStack';
 import type { MediaRef } from '$lib/types/tabs';
+import { sliceStepParams, type SliceParams } from './slice/model';
 import { catalogToolId, type CatalogParams, type CropParams, type PaintParams, type ResizeParams } from './steps';
 
 export interface PixelSize {
@@ -91,6 +92,8 @@ export function stepPayload(step: EditStep, input: PixelSize | null, baked?: str
 		case 'effects':
 			if (!baked) throw new PayloadError({ kind: 'bake', step: step.id });
 			return [{ tool: 'paint_layer', params: { layer: layerRef(baked) } }];
+		case 'slice':
+			return [{ tool: 'slice', params: sliceStepParams(step.params as SliceParams) }];
 		default:
 			return [{ tool: catalogToolId(step.tool), params: { ...((step.params as CatalogParams)?.values ?? {}) } }];
 	}
@@ -138,10 +141,12 @@ export function runBody(
 	steps: MediaToolStep[],
 	input: MediaToolInputRef,
 	mode: MediaToolSaveMode,
-	targetItemId?: string | null
+	targetItemId?: string | null,
+	collectionId?: string | null
 ): StartMediaToolRunBody {
 	const output: StartMediaToolRunBody['output'] = { mode };
 	if (mode === 'update' && targetItemId) output.target_item_id = targetItemId;
+	if (collectionId) output.collection_id = collectionId;
 	return { steps, inputs: [input], output };
 }
 

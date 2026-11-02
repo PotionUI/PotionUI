@@ -93,7 +93,7 @@ export type MediaToolSaveMode = MediaToolOutputMode | 'update';
 export interface StartMediaToolRunBody {
 	steps: MediaToolStep[];
 	inputs: MediaToolInputRef[];
-	output: { mode: MediaToolSaveMode; target_item_id?: string };
+	output: { mode: MediaToolSaveMode; target_item_id?: string; collection_id?: string };
 }
 
 export type MediaToolRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';

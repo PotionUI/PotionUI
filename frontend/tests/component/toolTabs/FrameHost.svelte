@@ -41,6 +41,7 @@
 		<div data-host-options>
 			<input data-host-input />
 			<button type="button" data-host-button>Pick</button>
+			<input type="checkbox" aria-label="Keep pitch" data-host-checkbox />
 		</div>
 	{/snippet}
 	{#snippet stack(variant)}<div data-host-stack={variant}>stack {variant}</div>{/snippet}

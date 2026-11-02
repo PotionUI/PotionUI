@@ -4,6 +4,8 @@
 	import { Button, IconButton } from '$lib/components/ui';
 	import { getFrameContext } from '$lib/tool-tabs/frame/context';
 	import {
+		MAX_ZOOM,
+		MIN_ZOOM,
 		ZOOM_STEP,
 		actualSize,
 		fitViewport,
@@ -178,8 +180,8 @@
 		event.preventDefault();
 	}
 
-	let canZoomIn = $derived(view.zoom < 16);
-	let canZoomOut = $derived(view.zoom > 0.05);
+	let canZoomIn = $derived(view.zoom < MAX_ZOOM);
+	let canZoomOut = $derived(view.zoom > MIN_ZOOM);
 </script>
 
 <div

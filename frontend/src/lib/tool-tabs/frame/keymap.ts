@@ -38,7 +38,7 @@ export function resolveFrameKey(event: FrameKey): FrameAction | null {
 	return null;
 }
 
-const ACTIVATES_ON_KEY = 'button, a[href], summary, select, [role="button"], [role="menuitem"], [role="tab"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"]';
+const ACTIVATES_ON_KEY = 'button, a[href], summary, select, input[type="checkbox"], input[type="radio"], input[type="button"], input[type="submit"], input[type="reset"], input[type="file"], input[type="color"], [role="button"], [role="menuitem"], [role="tab"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"]';
 
 export function targetActivatesOn(target: EventTarget | null): boolean {
 	return typeof Element !== 'undefined' && target instanceof Element && target.closest(ACTIVATES_ON_KEY) !== null;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { targetActivatesOn } from '$lib/tool-tabs/frame/keymap';
 import { flushSync } from 'svelte';
 import { mountComponent } from '../helpers/mount';
 
@@ -141,5 +142,73 @@ describe('EditorFrame keymap', () => {
 		flushSync();
 		press('z', { ctrlKey: true });
 		expect(calls).toEqual([]);
+	});
+
+	it('leaves Space and Enter to a focused button or native checkbox', () => {
+		const { calls, q } = render();
+		const button = q<HTMLButtonElement>('[data-host-button]')!;
+		const box = q<HTMLInputElement>('[data-host-checkbox]')!;
+		const canvas = q('[data-editor-canvas]')!;
+		for (const target of [button, box]) {
+			target.focus();
+			expect(press(' ', {}, target).defaultPrevented).toBe(false);
+			expect(press('Enter', {}, target).defaultPrevented).toBe(false);
+		}
+		expect(canvas.className).not.toContain('cursor-grab');
+		expect(calls).toEqual([]);
+	});
+
+	it('drops pan mode when the tab stops being active while Space is held', () => {
+		const { q, view } = render();
+		press(' ');
+		expect(q('[data-editor-canvas]')!.className).toContain('cursor-grab');
+		view.rerender({ active: false });
+		expect(q('[data-editor-canvas]')!.className).not.toContain('cursor-grab');
+	});
+
+	it('removes its window listeners when unmounted', () => {
+		const { calls, view } = render();
+		view.destroy();
+		const event = press('z', { ctrlKey: true });
+		expect(calls).toEqual([]);
+		expect(event.defaultPrevented).toBe(false);
+	});
+});
+
+describe('targetActivatesOn', () => {
+	const cases: Array<[string, boolean]> = [
+		['<button type="button">x</button>', true],
+		['<a href="/x">x</a>', true],
+		['<a>x</a>', false],
+		['<select><option>x</option></select>', true],
+		['<summary>x</summary>', true],
+		['<input type="checkbox">', true],
+		['<input type="radio">', true],
+		['<input type="button">', true],
+		['<input type="submit">', true],
+		['<input type="reset">', true],
+		['<input type="file">', true],
+		['<input type="color">', true],
+		['<input type="text">', false],
+		['<input type="range">', false],
+		['<div role="button">x</div>', true],
+		['<div role="menuitem">x</div>', true],
+		['<div role="tab">x</div>', true],
+		['<div role="switch">x</div>', true],
+		['<div>x</div>', false]
+	];
+
+	it.each(cases)('%s activates on its own key: %s', (html, expected) => {
+		const host = document.createElement('div');
+		host.innerHTML = html;
+		expect(targetActivatesOn(host.firstElementChild)).toBe(expected);
+	});
+
+	it('looks through to the control around a nested target and ignores non-elements', () => {
+		const host = document.createElement('div');
+		host.innerHTML = '<button><span>x</span></button>';
+		expect(targetActivatesOn(host.querySelector('span'))).toBe(true);
+		expect(targetActivatesOn(null)).toBe(false);
+		expect(targetActivatesOn(window)).toBe(false);
 	});
 });

@@ -186,3 +186,23 @@ describe('EditorToolbar on a phone', () => {
 		expect(text(q('[data-frame-saving]'))).toBe('42%');
 	});
 });
+
+describe('EditorToolbar more menu', () => {
+	it('hides the more menu without items', () => {
+		const { q } = render();
+		expect(q('[aria-label="More"]')).toBeNull();
+	});
+
+	it('lists the extra items and reports the chosen one', async () => {
+		const picked: string[] = [];
+		const { q } = render({ moreItems: [{ id: 'reveal', label: 'Show source' }], onmore: (id: string) => picked.push(id) });
+		q<HTMLButtonElement>('[aria-label="More"]')!.click();
+		flushSync();
+		await tick();
+		const item = document.querySelector<HTMLButtonElement>('[role="menu"] [role="menuitem"]')!;
+		expect(text(item)).toBe('Show source');
+		item.click();
+		flushSync();
+		expect(picked).toEqual(['reveal']);
+	});
+});

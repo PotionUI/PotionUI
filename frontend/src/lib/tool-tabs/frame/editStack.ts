@@ -89,7 +89,8 @@ export function reopen<P>(state: EditStackState<P>, id: string): EditStackState<
 		target: step.id
 	};
 	if (step.lane) pending.lane = step.lane;
-	return { ...state, pending };
+	const steps = step.hidden ? state.steps.map((s) => (s.id === id ? { ...s, hidden: false } : s)) : state.steps;
+	return { ...state, steps, pending };
 }
 
 export function discardPending<P>(state: EditStackState<P>): EditStackState<P> {

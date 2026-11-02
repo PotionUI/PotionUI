@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { flushSync } from 'svelte';
+import { flushSync, tick } from 'svelte';
 import { mountComponent } from '../helpers/mount';
 import {
 	apply,
@@ -170,5 +170,25 @@ describe('EditStack as a phone sheet', () => {
 		expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['Undo Crop', 'Redo Resize']);
 		buttons.forEach((b) => b.click());
 		expect(calls).toEqual(['undo', 'redo']);
+	});
+});
+
+describe('EditStack options menu', () => {
+	it('hides the menu without items', () => {
+		const { q } = render(build(crop));
+		expect(q('[aria-label="Edit stack options"]')).toBeNull();
+	});
+
+	it('lists the extra items and reports the chosen one', async () => {
+		const picked: string[] = [];
+		const { q } = render(build(crop), { moreItems: [{ id: 'clear', label: 'Clear edits' }], onmore: (id: string) => picked.push(id) });
+		q<HTMLButtonElement>('[aria-label="Edit stack options"]')!.click();
+		flushSync();
+		await tick();
+		const item = document.querySelector<HTMLButtonElement>('[role="menu"] [role="menuitem"]')!;
+		expect(text(item)).toBe('Clear edits');
+		item.click();
+		flushSync();
+		expect(picked).toEqual(['clear']);
 	});
 });

@@ -168,9 +168,16 @@ describe('reopening a step', () => {
 		expect(state.seq).toBe(base.seq);
 	});
 
-	it('keeps the hidden flag of the step it updates', () => {
-		const state = apply(reopen(toggleHidden(applyAll(crop), 's1'), 's1'));
-		expect(state.steps[0].hidden).toBe(true);
+	it('unhides a hidden step it reopens so the preview shows the draft', () => {
+		const reopened = updatePending(reopen(toggleHidden(applyAll(crop, resize), 's1'), 's1'), { summary: '1:1' });
+		expect(reopened.steps[0].hidden).toBe(false);
+		expect(previewSteps(reopened).map((step) => step.summary)).toEqual(['1:1', '1536×1152']);
+		expect(apply(reopened).steps[0]).toMatchObject({ hidden: false, summary: '1:1' });
+	});
+
+	it('keeps the steps untouched when reopening a visible step', () => {
+		const state = applyAll(crop);
+		expect(reopen(state, 's1').steps).toBe(state.steps);
 	});
 
 	it('refuses undone or unknown steps', () => {

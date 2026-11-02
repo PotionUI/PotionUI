@@ -20,6 +20,8 @@ export interface Viewport extends View {
 	fit: boolean;
 }
 
+export { MIN_ZOOM, MAX_ZOOM };
+
 export const ZOOM_STEP = 1.25;
 
 export function fitViewport(): Viewport {

@@ -54,6 +54,7 @@ def to_item(upload: Upload) -> MediaToolItem:
         thumbnail_medium=_thumbnail_url(upload, "medium"),
         thumbnail_large=_thumbnail_url(upload, "large"),
         source_generation_id=upload.source_generation_id,
+        provenance=upload.provenance,
     )
 
 
@@ -98,6 +99,7 @@ class MediaToolPublisher:
         outputs: Sequence[ToolMedia],
         names: Sequence[Optional[str]],
         source_generation_id: Optional[str] = None,
+        provenance: Optional[Sequence[Optional[dict]]] = None,
     ) -> list[Upload]:
         profile = load_thumbnail_profile(self.settings)
         stored: list[str] = []
@@ -110,11 +112,14 @@ class MediaToolPublisher:
                 stored.append(key)
             sizes = tuple(self.storage_driver.size(key) or 0 for key in stored)
             self._admit(user_id, sum(sizes), sizes)
-            for key, media, name, size in zip(stored, outputs, names, sizes):
+            marks = list(provenance) if provenance is not None else [None] * len(stored)
+            for key, media, name, size, mark in zip(stored, outputs, names, sizes, marks):
                 paths = self._image_thumbnails(profile, media, Path(key).stem)
                 thumbnails |= paths_to_keys(paths, False)
                 created.append(
-                    self.upload_repo.create(self._row(user_id, key, media, name, size, paths, profile, source_generation_id))
+                    self.upload_repo.create(
+                        self._row(user_id, key, media, name, size, paths, profile, source_generation_id, mark)
+                    )
                 )
         except Exception:
             for row in created:
@@ -231,6 +236,7 @@ class MediaToolPublisher:
         thumbnail_paths: Dict[str, str],
         profile,
         source_generation_id: Optional[str] = None,
+        provenance: Optional[dict] = None,
     ) -> Upload:
         return Upload(
             user_id=user_id,
@@ -250,6 +256,7 @@ class MediaToolPublisher:
             content_hash=file_digest(media.path),
             has_alpha=media.has_alpha,
             source_generation_id=source_generation_id,
+            provenance=provenance,
         )
 
     def _forget_row(self, row: Upload, user_id: str) -> None:

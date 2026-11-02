@@ -7,7 +7,7 @@ from typing import Any, Callable, Optional
 from src.platform.media_tools.conditions import when_matches
 from src.platform.media_tools.types import InvalidToolParams, ToolMedia, ToolSpec
 
-PARAM_TYPES = frozenset({"integer", "float", "select", "checkbox", "color", "string", "anchor", "media"})
+PARAM_TYPES = frozenset({"integer", "float", "select", "checkbox", "color", "string", "anchor", "media", "json"})
 MEDIA_PARAM = "media"
 MEDIA_REF_KEYS = ("item_id", "generation_file_id")
 ANCHORS = (

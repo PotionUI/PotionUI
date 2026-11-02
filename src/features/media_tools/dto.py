@@ -21,6 +21,7 @@ class InputRef(BaseModel):
 class OutputSpec(BaseModel):
     mode: Literal["new", "replace", "update"] = "new"
     target_item_id: Optional[str] = None
+    collection_id: Optional[str] = None
 
 
 class StartRunRequest(BaseModel):
@@ -34,6 +35,12 @@ class PreviewRequest(BaseModel):
     params: Dict[str, Any] = Field(default_factory=dict)
     input: InputRef
     time_seconds: Optional[float] = None
+
+
+class PanelsRequest(BaseModel):
+    input: InputRef
+    tolerance: int = Field(12, ge=0, le=64)
+    grid: Optional[List[int]] = Field(None, min_length=2, max_length=2)
 
 
 class FramePreviewRequest(BaseModel):
@@ -124,6 +131,7 @@ class MediaToolItem(BaseModel):
     thumbnail_medium: Optional[str] = None
     thumbnail_large: Optional[str] = None
     source_generation_id: Optional[str] = None
+    provenance: Optional[Dict[str, Any]] = None
 
 
 class RunError(BaseModel):

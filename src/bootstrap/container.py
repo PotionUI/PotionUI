@@ -1555,6 +1555,7 @@ def build_container() -> AppContainer:
         storage_driver=storage_driver,
         limit_guard=limit_guard,
         artifact_store=media_store,
+        collection_repository=collection_repository,
     )
     media_tool_controller = MediaToolController(media_tool_service)
     automation_services.media_tool_service = media_tool_service

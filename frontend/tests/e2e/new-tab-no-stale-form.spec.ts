@@ -73,6 +73,9 @@ test.describe('a new generation tab never shows another tab form', () => {
 				await expect(page.locator('[data-field-name]').first()).toBeVisible({ timeout: 30000 });
 			}
 
+			await page.getByRole('button', { name: 'Add new tab' }).click();
+			await expect(page.getByRole('menuitem', { name: /New generation/ })).toBeVisible();
+
 			await page.evaluate(() => {
 				const w = window as unknown as { __visibleFieldFrames: number[]; __stopFrames: boolean; __clickFrame: number };
 				w.__visibleFieldFrames = [];
@@ -95,7 +98,7 @@ test.describe('a new generation tab never shows another tab form', () => {
 				requestAnimationFrame(tick);
 			});
 
-			await page.getByRole('button', { name: 'Add new tab' }).click();
+			await page.getByRole('menuitem', { name: /New generation/ }).click();
 			await expect(page.getByText('Generation 2').first()).toBeVisible();
 			await page.waitForTimeout(4500);
 

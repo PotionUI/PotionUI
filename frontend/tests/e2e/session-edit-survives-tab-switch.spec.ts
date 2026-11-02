@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { loginAsOwner, screenshot, addGenerationTab } from './helpers';
 import { installAndSelectImagePreset } from './presetPreamble';
 
 const JOURNEY = 'session-edit-survives-tab-switch';
@@ -78,7 +78,7 @@ test('an unsaved session edit survives switching to another tab and back', async
 	await screenshot(page, JOURNEY, '01-edited-unsaved');
 
 	// --- Add a second tab, then switch back to the original one.
-	await page.locator('button[aria-label="Add new tab"]').click();
+	await addGenerationTab(page);
 
 	await page.locator('.book-tab').filter({ hasText: 'Generation 1' }).click();
 

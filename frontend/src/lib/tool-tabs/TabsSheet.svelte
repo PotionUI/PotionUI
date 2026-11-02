@@ -8,7 +8,7 @@
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import { isToolTab, type Tab } from '$lib/types/tabs';
-	import { coreToolKinds, pluginToolKinds, toolKinds } from './registry';
+	import { toolKinds } from './registry';
 	import type { ToolKindDefinition } from './types';
 
 	export let onClose: () => void;
@@ -128,22 +128,13 @@
 				<Icon name="sparkles" className="h-4 w-4" />
 				<span>Generation</span>
 			</button>
-			{#each $coreToolKinds as kind (kind.tool)}
-				<button type="button" class="new-kind" data-tool={kind.tool} onclick={() => newTool(kind.tool)}>
-					<Icon name={kind.icon} className="h-4 w-4" />
-					<span>{kind.label}</span>
-				</button>
-			{/each}
-			{#each $pluginToolKinds as kind (kind.tool)}
+			{#each $toolKinds as kind (kind.tool)}
 				<button type="button" class="new-kind" data-tool={kind.tool} onclick={() => newTool(kind.tool)}>
 					<Icon name={kind.icon} className="h-4 w-4" />
 					<span class="truncate">{kind.label}</span>
 				</button>
 			{/each}
 		</div>
-		{#if $pluginToolKinds.length === 0}
-			<p class="mt-3 text-sm text-fg-muted">Tools that plugins add show up here too.</p>
-		{/if}
 	</div>
 </StudioSheet>
 

@@ -86,7 +86,7 @@ test.describe('tool tabs on desktop', () => {
 		const menu = page.getByRole('menu', { name: 'New tab' });
 		await expect(menu).toBeVisible();
 		await expect(menu.getByRole('menuitem')).toHaveText([/New generation/, /Image editor/, /Video editor/]);
-		await expect(menu.getByTestId('no-plugin-tools')).toContainText('No plugin tools yet');
+		await expect(menu).not.toContainText(/plugin/i);
 		await screenshot(page, JOURNEY, 'plus-menu-1440');
 
 		await menu.getByRole('menuitem', { name: /Image editor/ }).click();
@@ -184,13 +184,15 @@ test.describe('tool tabs on desktop', () => {
 		await expect(page.getByTestId('tool-tab-host')).toHaveCount(0);
 	});
 
-	test('a plugin tool tab is listed under From plugins and mounts the plugin component', async ({ page }) => {
+	test('a plugin tool tab is listed as a plain row after the editors and mounts the plugin component', async ({ page }) => {
 		await mockFixturePlugin(page);
 		await openGenerate(page);
 
 		await page.getByRole('button', { name: 'Add new tab' }).click();
 		const menu = page.getByRole('menu', { name: 'New tab' });
-		await expect(menu.getByTestId('no-plugin-tools')).toHaveCount(0);
+		await expect(menu.getByRole('menuitem')).toHaveText([/New generation/, /Image editor/, /Video editor/, /Stamp tool/]);
+		await expect(menu).not.toContainText(/plugin/i);
+		await screenshot(page, JOURNEY, 'plus-menu-plugin-1440');
 		await menu.getByRole('menuitem', { name: /Stamp tool/ }).click();
 
 		const stamp = page.getByTestId('stamp-tool');
@@ -219,7 +221,7 @@ test.describe('tool tabs on a phone', () => {
 		await expect(sheet).toBeVisible();
 		await expect(sheet.getByTestId('tabs-sheet-row')).toHaveCount(1);
 		await expect(sheet.getByTestId('tabs-sheet-new').getByRole('button')).toHaveText(['Generation', 'Image editor', 'Video editor']);
-		await expect(sheet).toContainText('Tools that plugins add show up here too.');
+		await expect(sheet).not.toContainText(/plugin/i);
 		await screenshot(page, JOURNEY, 'tabs-sheet-generation-390');
 
 		await sheet.getByRole('button', { name: 'Image editor' }).click();

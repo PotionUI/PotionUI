@@ -42,6 +42,10 @@ registerToolKind({
 `builtin.ts`; the Image and Video editor lanes replace only the `load` there. Plugin kinds come from
 the manifest's `tool_tabs:` section (see `docs/plugin-api.md`) through `pluginToolTabs.ts`.
 
+The "+" menu (`NewTabMenu.svelte`) and the phone Tabs sheet's "New tab" list render `toolKinds` as one
+flat list: the core kinds first, then the plugin kinds, all as ordinary rows with their own label,
+description and icon. Nothing in them names a plugin, groups by origin or shows an empty plugin row.
+
 ## The component contract
 
 The component gets one prop, `host: ToolTabHost` (`types.ts`):

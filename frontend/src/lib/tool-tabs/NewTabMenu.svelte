@@ -4,7 +4,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { shortcutLabels } from '$lib/stores/keybindings';
-	import { coreToolKinds, pluginToolKinds } from './registry';
+	import { toolKinds } from './registry';
 
 	let {
 		onNewGeneration,
@@ -49,7 +49,7 @@
 			</span>
 			{#if newTabKeys}<Kbd keys={newTabKeys} />{/if}
 		</button>
-		{#each $coreToolKinds as kind (kind.tool)}
+		{#each $toolKinds as kind (kind.tool)}
 			<button type="button" role="menuitem" class="menu-row" data-tool={kind.tool} onclick={() => pick(close, () => onOpenTool(kind.tool))}>
 				<Icon name={kind.icon} className="mt-0.5 h-4 w-4 flex-shrink-0 text-fg-muted" />
 				<span class="min-w-0 flex-1">
@@ -57,25 +57,6 @@
 					{#if kind.description}<span class="block text-sm text-fg-subtle">{kind.description}</span>{/if}
 				</span>
 			</button>
-		{/each}
-		<div class="my-1 h-px bg-line" role="separator"></div>
-		<div class="px-2.5 pb-1 pt-1.5 font-mono text-xs uppercase tracking-wider text-fg-subtle" role="presentation">From plugins</div>
-		{#each $pluginToolKinds as kind (kind.tool)}
-			<button type="button" role="menuitem" class="menu-row" data-tool={kind.tool} onclick={() => pick(close, () => onOpenTool(kind.tool))}>
-				<Icon name={kind.icon} className="mt-0.5 h-4 w-4 flex-shrink-0 text-fg-muted" />
-				<span class="min-w-0 flex-1">
-					<span class="block text-sm text-fg">{kind.label}</span>
-					{#if kind.description}<span class="block text-sm text-fg-subtle">{kind.description}</span>{/if}
-				</span>
-			</button>
-		{:else}
-			<div class="menu-row is-empty" aria-disabled="true" data-testid="no-plugin-tools">
-				<Icon name="extension" className="mt-0.5 h-4 w-4 flex-shrink-0" />
-				<span class="min-w-0 flex-1">
-					<span class="block text-sm">No plugin tools yet</span>
-					<span class="block text-sm">Plugins can add their own tool tabs here</span>
-				</span>
-			</div>
 		{/each}
 		{#if newTabKeys}
 			<div class="my-1 h-px bg-line" role="separator"></div>
@@ -102,11 +83,5 @@
 	button.menu-row:focus-visible {
 		background: rgb(var(--surface-3));
 		outline: none;
-	}
-
-	.menu-row.is-empty {
-		color: rgb(var(--fg-subtle));
-		opacity: 0.7;
-		cursor: default;
 	}
 </style>

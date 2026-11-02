@@ -2,10 +2,12 @@ import logging
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 import json
+import sqlite3
 from src.features.llm.records import LLMConfiguration
 from src.features.llm.ttl_cache import TTLCache
 from src.platform.database.rows import now_utc
 from src.platform.security.secrets import get_secret_cipher, SecretDecryptionError
+from src.platform.settings.records import SettingValueType
 from src.platform.settings.repository import SettingRepository
 from src.platform.util.ids import generate_ulid
 from src.platform.database import get_cursor
@@ -15,6 +17,7 @@ from src.platform.database import get_cursor
 # few seconds of staleness is an easy win; writes below invalidate it directly
 # so admin edits still land on the very next call.
 _CONFIG_CACHE_TTL_SECONDS = 5.0
+_DEFAULT_PROVIDER_KEY = 'llm_default_provider'
 
 class LLMConfig(BaseModel):
     """Pydantic model for API compatibility"""
@@ -183,7 +186,7 @@ class LLMRepository:
     def _load_default_provider(self):
         """Load default provider from configuration"""
         try:
-            setting = SettingRepository().get_setting_by_key('llm_default_provider')
+            setting = SettingRepository().get_setting_by_key(_DEFAULT_PROVIDER_KEY)
             if setting:
                 self._default_provider = setting.get_typed_value()
         except Exception:
@@ -322,16 +325,23 @@ class LLMRepository:
 
     def set_default_provider(self, config_id: str) -> bool:
         """Set the default LLM provider"""
-        try:
-            if not self.config_repo.exists(config_id):
-                return False
-
-            # Update the default provider in configurations
-            self.config_repo.set('llm_default_provider', config_id, 'Default LLM provider configuration')
-            self._default_provider = config_id
-            return True
-        except Exception:
+        if not self.config_repo.exists(config_id):
             return False
+
+        settings = SettingRepository()
+        try:
+            if not settings.update_setting_value_by_key(_DEFAULT_PROVIDER_KEY, config_id):
+                settings.create_setting(
+                    key=_DEFAULT_PROVIDER_KEY,
+                    value=config_id,
+                    value_type=SettingValueType.STRING,
+                    description='Default LLM provider configuration',
+                )
+        except sqlite3.Error:
+            logging.getLogger(__name__).exception("Failed to persist the default LLM provider")
+            return False
+        self._default_provider = config_id
+        return True
 
     # User LLM assignment methods
     def assign_llm_to_user(self, user_id: str, llm_config_id: str) -> bool:

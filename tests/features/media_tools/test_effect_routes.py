@@ -101,7 +101,43 @@ class TestEffectShader(EffectRoutesTestBase):
         self.assertEqual(response.status_code, 401)
 
 
+class TestEffectShaderLookup(EffectRoutesTestBase):
+
+    def test_path_like_ids_are_not_found_and_lookup_only_reads_the_registry(self):
+        from unittest.mock import patch
+
+        from src.platform.http.errors import NotFoundError
+
+        seen = []
+        original = self.registry.get
+
+        def spy(tool_id):
+            seen.append(tool_id)
+            return original(tool_id)
+
+        ids = ["../x", "a/b", "a\\b", "../../src/platform/media_tools/effects/builtin/film_grain/preview.frag"]
+        with patch.object(self.registry, "get", side_effect=spy), patch("pathlib.Path.read_text") as read:
+            for tool_id in ids:
+                with self.assertRaises(NotFoundError):
+                    self.service.effect_shader(tool_id)
+            text, etag = self.service.effect_shader("film_grain")
+
+        self.assertEqual(seen, [*ids, "film_grain"])
+        read.assert_not_called()
+        self.assertIn("vec4 effect", text)
+        self.assertTrue(etag.startswith('"'))
+
+
 class TestEffectAnalysisRefusals(EffectRoutesTestBase):
+
+    def test_a_stack_longer_than_the_step_limit_is_refused(self):
+        item = self.image_item()
+
+        response = self.analyse({"item_id": item.id}, [FIX] * 65, 64)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.error_of(response)["error"], "invalid_params")
+        self.assertEqual(self.error_of(response)["field"], "steps")
 
     def test_a_session_is_required(self):
         response = self.anonymous().post(ANALYSIS_URL, json={"input": {"item_id": "x"}, "steps": [FIX], "step_index": 0})

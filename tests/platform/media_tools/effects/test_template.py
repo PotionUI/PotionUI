@@ -230,3 +230,13 @@ def test_a_compiled_graph_with_commas_and_expressions_runs_in_ffmpeg():
     )
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_expr_names_that_double_at_every_level_stop_at_16_kb():
+    names = [f"m{index}" for index in range(16)]
+    expr = {name: f"{{{following}}} + {{{following}}}" for name, following in zip(names, names[1:])}
+    expr[names[-1]] = "1"
+    data = {"expr": expr, "vf": [{"gblur": {"sigma": "{m0}"}}]}
+
+    with pytest.raises(TemplateError, match="expanded expr"):
+        compiled(data)

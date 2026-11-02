@@ -187,3 +187,50 @@ def test_underscore_names_are_never_read_even_when_present():
     for source in ("_hidden", "media._hidden"):
         with pytest.raises(DeriveError, match="unknown value"):
             evaluate(source, {"_hidden": 1, "media": {"_hidden": 1}})
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "-" * 1999 + "1",
+        "not " * 400 + "1",
+        "(" * 300 + "1" + ")" * 300,
+        "abs(" * 200 + "1" + ")" * 200,
+        "1 if " * 120 + "1" + " else 1" * 120,
+        "2 ** " * 300 + "1",
+    ],
+)
+def test_deep_nesting_under_the_length_cap_is_a_derive_error(source):
+    assert len(source) <= 2000
+    with pytest.raises(DeriveError):
+        parse_derive(source)
+
+
+def test_a_moderately_nested_expression_still_parses():
+    assert evaluate("-" * 30 + "1", ENV) == 1
+
+
+def test_evaluating_a_tree_deeper_than_the_stack_is_a_derive_error():
+    import ast
+
+    from src.platform.media_tools.effects.derive import Expression
+
+    node = ast.Constant(1)
+    for _ in range(20000):
+        node = ast.UnaryOp(op=ast.USub(), operand=node)
+
+    with pytest.raises(DeriveError, match="too deep"):
+        evaluate(Expression("deep", ast.Expression(body=node)), ENV)
+
+
+@pytest.mark.parametrize("error", [RecursionError, MemoryError])
+def test_a_parser_that_runs_out_of_stack_or_memory_is_a_derive_error(monkeypatch, error):
+    from src.platform.media_tools.effects import derive
+
+    def exhausted(*args, **kwargs):
+        raise error()
+
+    monkeypatch.setattr(derive, "_syntax", exhausted)
+
+    with pytest.raises(DeriveError, match="not a valid expression"):
+        parse_derive("1 + 1")

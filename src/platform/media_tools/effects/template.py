@@ -265,6 +265,8 @@ def substitute(text: str, values: Mapping[str, Any], macros: Mapping[str, str], 
         expanded = _PLACEHOLDER.sub(resolve, text)
         if expanded == text:
             return text
+        if len(expanded) > MAX_STEP_CHARS:
+            raise TemplateError("the expanded expr is longer than 16 KB")
         text = expanded
     raise TemplateError("expr names refer to each other in a loop")
 

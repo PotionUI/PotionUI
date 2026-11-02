@@ -4,7 +4,9 @@ import {
 	libraryItemDisplayName,
 	libraryItemGridSrc,
 	libraryItemIcon,
-	libraryItemMetaParts
+	libraryItemMetaParts,
+	sliceOrigin,
+	sliceOriginLabel
 } from './libraryItemMeta';
 
 describe('libraryItemDisplayName', () => {
@@ -97,5 +99,20 @@ describe('libraryItemGridSrc', () => {
 		expect(libraryItemGridSrc({ url: '/api/media/uploads/abc.png' })).toBe(
 			'/api/media/uploads/abc.png'
 		);
+	});
+});
+
+describe('sliceOrigin', () => {
+	it('reads the slice provenance into a one-based cell label', () => {
+		const origin = sliceOrigin({ slice: { source_item_id: 'lib-9', source_name: 'mira-sheet.png', index: 2, count: 5, rect: { x: 0, y: 0, w: 0.5, h: 0.5 } } });
+		expect(origin).toMatchObject({ sourceName: 'mira-sheet', index: 2, count: 5, sourceItemId: 'lib-9', generationFileId: null });
+		expect(sliceOriginLabel(origin!)).toBe('From mira-sheet · cell 3 of 5');
+	});
+
+	it('keeps a History source id and ignores anything that is not a slice', () => {
+		expect(sliceOrigin({ slice: { generation_file_id: 41, index: 0, count: 2 } })?.generationFileId).toBe('41');
+		expect(sliceOrigin(null)).toBeNull();
+		expect(sliceOrigin({ other: {} })).toBeNull();
+		expect(sliceOrigin({ slice: { index: -1 } })).toBeNull();
 	});
 });

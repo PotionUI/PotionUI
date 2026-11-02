@@ -7,7 +7,7 @@
 	import { Badge } from '$lib/components/ui';
 	import { libraryStore, LIBRARY_TAG_TYPE } from '$lib/stores/library';
 	import { formatBytes, formatSeconds } from '$lib/utils/format';
-	import { libraryItemDisplayName, libraryItemIcon } from '$lib/library/libraryItemMeta';
+	import { libraryItemDisplayName, libraryItemIcon, sliceOrigin, sliceOriginLabel } from '$lib/library/libraryItemMeta';
 	import { plainLetter, windowOwnsKeys } from '$lib/utils/shortcutGuard';
 	import DetailsActionBar, { type BarAction } from '$lib/media-tools/DetailsActionBar.svelte';
 	import { buildLibraryToolContext } from '$lib/tools/tools';
@@ -51,6 +51,7 @@
 	}
 
 	$: displayName = libraryItemDisplayName(item);
+	$: slicedFrom = sliceOrigin(item.provenance);
 	$: kind = (item.media_type ?? '').toLowerCase();
 	$: selectedTagIds = item.tags.map((tag) => tag.id);
 	$: audioTracks = [{ type: 'mixed' as const, url: item.url, duration: item.duration_seconds }];
@@ -230,7 +231,13 @@
 			</dl>
 		{/if}
 
-		<ProvenanceLine itemType="upload" itemId={item.id} />
+		{#if slicedFrom}
+			<p class="flex items-center gap-1.5 text-sm text-fg-muted" data-slice-origin>
+				<Icon name="editor-slice" className="h-3.5 w-3.5 flex-none" />
+				<span class="min-w-0 truncate">{sliceOriginLabel(slicedFrom)}</span>
+			</p>
+		{/if}
+				<ProvenanceLine itemType="upload" itemId={item.id} />
 	</div>
 	</div>
 </BaseModal>

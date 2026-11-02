@@ -17,7 +17,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
+from src.pipelines.pipes._shared.generation.dit_restore import hand_off_dit, restore_dit_best_effort
 
 _MOD = "src.pipelines.pipes._shared.generation.dit_restore"
 
@@ -163,3 +163,47 @@ def test_exception_in_move_to_never_propagates():
         restore_dit_best_effort(dit, "cuda")  # must not raise
     assert calls[0][0] == "dit_restore.error"
     assert "simulated OOM" in calls[0][1]["error"]
+
+
+class _HandoffDit:
+    def __init__(self, device="cuda:0", streamer=None, module="module"):
+        self.device = device
+        self.module = module
+        self._streamer = streamer
+        self.offloads = 0
+
+    def offload(self):
+        self.offloads += 1
+        self.device = "cpu"
+
+
+def _hand_off(dit, **kwargs):
+    profiler, calls = _fake_profiler()
+    with patch(f"{_MOD}.get_profiler", return_value=profiler):
+        kept = hand_off_dit(dit, "cuda", **kwargs)
+    return kept, calls
+
+
+def test_a_handoff_leaves_a_fully_resident_dit_for_the_next_stage_to_place():
+    dit = _HandoffDit()
+    kept, calls = _hand_off(dit)
+    assert kept is True and dit.offloads == 0 and dit.device == "cuda:0"
+    assert calls == [("dit_restore.skip", {"reason": "handoff_kept_resident"})]
+
+
+def test_a_handoff_offloads_a_dit_whose_room_the_stage_still_needs():
+    dit = _HandoffDit()
+    kept, calls = _hand_off(dit, needs_room=True)
+    assert kept is False and dit.offloads == 1
+    assert calls == [("dit_restore.skip", {"reason": "handoff_offloaded"})]
+
+
+def test_a_handoff_offloads_a_streamed_dit():
+    dit = _HandoffDit(streamer=_streamer(True))
+    kept, _ = _hand_off(dit)
+    assert kept is False and dit.offloads == 1
+
+
+def test_a_handoff_without_a_dit_does_nothing():
+    assert _hand_off(None)[0] is False
+    assert _hand_off(_HandoffDit(module=None))[0] is False

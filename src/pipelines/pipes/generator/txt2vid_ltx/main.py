@@ -14,7 +14,7 @@ from src.pipelines.outputs import Icon
 from src.platform.runtime.device import clear_gpu_memory
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
 from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
-from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
+from src.pipelines.pipes._shared.generation.dit_restore import hand_off_dit, restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.freeinit import freeinit_blend, freeinit_config_specs, resolve_freeinit
 from src.pipelines.pipes._shared.generation.guidance_options import (
     apg_settings_config_specs,
@@ -469,19 +469,13 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
                 fresh_noise = torch.randn(shape, generator=gen, device=c.device, dtype=c.dtype)
                 init_noise = freeinit_blend(latent, renoise_noise, fresh_noise, cutoff=fi_cutoff, order=fi_order)
 
-        c.bundle.dit.offload()
-        clear_gpu_memory()
-
         decode = bool(self.config.get("decode", True))
+        if decode:
+            c.bundle.dit.offload()
+        else:
+            hand_off_dit(c.bundle.dit, c.device)
+        clear_gpu_memory()
         if not decode:
-            # Stage 1: hand the raw latent to a downstream
-            # latent_upscaler/refine stage -- no VAE decode/mp4-encode round
-            # trip. `restore_dit_best_effort` still runs below (harmless: the
-            # very next pipe in the chain is usually this SAME generator
-            # again for stage 2, which will just find the DiT already
-            # resident via `place_dit_for_sequence`).
-            if index == ctx.quantity - 1:
-                restore_dit_best_effort(c.bundle.dit, c.device)
             return latent
 
         frames = decode_ltx_video(c.vae, c.device, latent, seed)

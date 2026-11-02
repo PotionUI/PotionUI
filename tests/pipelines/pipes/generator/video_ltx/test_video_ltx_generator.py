@@ -987,7 +987,7 @@ def _run_one_decode(monkeypatch, *, fits, resident=True, audio_source=None):
     decodes = []
     checked = []
 
-    def fake_fits(vae, latent, free_gb):
+    def fake_fits(vae, latent, free_gb, beside_gb=0.0):
         checked.append(free_gb)
         return fits
 

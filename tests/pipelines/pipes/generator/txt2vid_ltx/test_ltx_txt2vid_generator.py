@@ -593,6 +593,26 @@ def test_restore_not_called_between_seeds_of_a_single_invocation(mock_restore):
     mock_restore.assert_called_once()
 
 
+@pytest.mark.parametrize("resident, offloads", [(True, []), (False, ["dit"])])
+@patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise", lambda mf, latents, c, u, **k: latents)
+@patch("src.pipelines.pipes.generator.txt2vid_ltx.main.restore_dit_best_effort")
+def test_a_latent_handoff_never_restores_and_only_offloads_a_dit_that_is_not_fully_resident(
+        mock_restore, resident, offloads):
+    bundle = _bundle()
+    seen = []
+    bundle.dit.offload = lambda: seen.append("dit")
+    pipe_input = PipeInput(input={
+        "model": bundle,
+        "conditioning": [SimpleNamespace(embeds={"context": torch.ones(1, 4, 8)}, n_embeds=None)],
+        "seed": [5],
+    })
+    with patch("src.pipelines.pipes._shared.generation.dit_restore.dit_is_fully_resident",
+               lambda dit, device: resident):
+        _pipe(decode=False, device="cpu").process(pipe_input, lambda o: None)
+    mock_restore.assert_not_called()
+    assert seen == offloads
+
+
 def test_decode_video_no_mean_std_unnormalization():
     """LTX's VAE un-normalizes internally -- unlike Wan there is no separate
     latent mean/std step in _decode_video."""

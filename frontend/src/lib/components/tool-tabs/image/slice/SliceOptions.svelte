@@ -275,7 +275,7 @@
 					{@const isOn = selected.includes(row.id)}
 					<li class="flex h-10 items-center gap-2 {isOn ? 'rounded bg-signal/[0.08]' : ''}" data-slice-name-row={row.skip ? 'skipped' : row.n}>
 						<span class="w-[18px] flex-none font-mono text-sm tabular-nums {isOn ? 'text-signal' : 'text-fg-subtle'}">{row.skip ? '—' : row.n}</span>
-						<span class="h-8 w-8 flex-none rounded bg-surface-2 bg-cover bg-center {row.skip ? 'opacity-40 grayscale' : ''}" style={row.thumb ? `background-image:url(${row.thumb})` : ''}></span>
+						<span class="alpha-checker h-8 w-8 flex-none overflow-hidden rounded {row.skip ? 'opacity-40 grayscale' : ''}" data-slice-name-thumb>{#if row.thumb}<img src={row.thumb} alt="" class="h-full w-full object-cover" />{/if}</span>
 						<Input
 							value={row.skip ? '' : row.name}
 							placeholder={row.skip ? 'Skipped' : ''}

@@ -1,71 +1,13 @@
-import { deflateSync } from 'node:zlib';
 import { test, expect, type Locator, type Page, type Route } from '@playwright/test';
 import { expectNoBoxOverlap, loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
+import { HEIGHT, WIDTH, sheetPng } from './sliceSheet';
 
 const JOURNEY = 'image-editor-slice';
 const GENERATION_ID = 'gen-e2e-sheet';
 const FILE_ID = 701;
-const WIDTH = 960;
-const HEIGHT = 640;
 const SOURCE_FILE = `outputs/2026-11-02/${GENERATION_ID}/mira-sheet.png`;
 
 type Json = Record<string, unknown>;
-
-const PANELS: [number, number, number, number, [number, number, number]][] = [
-	[24, 24, 300, 300, [60, 90, 150]],
-	[318, 24, 610, 300, [70, 140, 120]],
-	[644, 24, 936, 300, [120, 90, 160]],
-	[24, 330, 610, 616, [210, 140, 110]],
-	[644, 330, 936, 460, [170, 120, 80]],
-	[644, 482, 936, 616, [240, 240, 238]]
-];
-
-const CRC = (() => {
-	const table = new Uint32Array(256);
-	for (let n = 0; n < 256; n++) {
-		let c = n;
-		for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-		table[n] = c >>> 0;
-	}
-	return table;
-})();
-
-function crc32(bytes: Buffer): number {
-	let crc = 0xffffffff;
-	for (const byte of bytes) crc = CRC[(crc ^ byte) & 0xff] ^ (crc >>> 8);
-	return (crc ^ 0xffffffff) >>> 0;
-}
-
-function chunk(type: string, data: Buffer): Buffer {
-	const length = Buffer.alloc(4);
-	length.writeUInt32BE(data.length, 0);
-	const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
-	const crc = Buffer.alloc(4);
-	crc.writeUInt32BE(crc32(body), 0);
-	return Buffer.concat([length, body, crc]);
-}
-
-function sheetPng(): Buffer {
-	const rows: Buffer[] = [];
-	for (let y = 0; y < HEIGHT; y++) {
-		const row = Buffer.alloc(1 + WIDTH * 3);
-		for (let x = 0; x < WIDTH; x++) {
-			const panel = PANELS.find(([x0, y0, x1, y1]) => x >= x0 && x < x1 && y >= y0 && y < y1);
-			const [r, g, b] = panel ? panel[4] : [234, 229, 221];
-			const shade = panel && (x + y) % 40 < 6 ? 30 : 0;
-			row[1 + x * 3] = Math.max(0, r - shade);
-			row[2 + x * 3] = Math.max(0, g - shade);
-			row[3 + x * 3] = Math.max(0, b - shade);
-		}
-		rows.push(row);
-	}
-	const header = Buffer.alloc(13);
-	header.writeUInt32BE(WIDTH, 0);
-	header.writeUInt32BE(HEIGHT, 4);
-	header[8] = 8;
-	header[9] = 2;
-	return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header), chunk('IDAT', deflateSync(Buffer.concat(rows))), chunk('IEND', Buffer.alloc(0))]);
-}
 
 const SHEET = sheetPng();
 const SHEET_URL = `data:image/png;base64,${SHEET.toString('base64')}`;

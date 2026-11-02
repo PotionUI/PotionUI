@@ -102,7 +102,7 @@
 				data-strip-id={item.id}
 			>
 				<div
-					class="relative overflow-hidden rounded border bg-surface-2 {lifted === item.id ? 'border-signal shadow-floating' : 'border-line-strong'} {saving || saved || locked ? '' : 'cursor-grab touch-none'}"
+					class="alpha-checker relative overflow-hidden rounded border {lifted === item.id ? 'border-signal shadow-floating' : 'border-line-strong'} {saving || saved || locked ? '' : 'cursor-grab touch-none'}"
 					style="height:{h}px"
 					role="button"
 					tabindex={locked ? -1 : 0}

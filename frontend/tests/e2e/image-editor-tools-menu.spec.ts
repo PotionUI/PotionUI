@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, screenshot } from './helpers';
-import { expectEditorReady, fixturePng, strokeAcross } from './imageEditorHelpers';
+import { fixturePng } from './imageEditorHelpers';
 
 const JOURNEY = 'image-editor-tools-menu';
 
@@ -86,29 +86,6 @@ async function mockMedia(page: Page) {
 	);
 }
 
-async function editAndSave(page: Page, lands = false) {
-	const dialog = page.getByRole('dialog', { name: 'Edit image' });
-	await expect(dialog).toBeVisible();
-	const canvas = dialog.getByLabel('Drawing canvas');
-	await expectEditorReady(canvas);
-	await strokeAcross(page, canvas, [0.2, 0.5], [0.8, 0.5]);
-	await expect(dialog.getByRole('button', { name: /^Undo Brush stroke/ })).toBeEnabled();
-	await dialog.getByRole('button', { name: /Save as new/ }).click();
-	const popover = page.getByRole('group', { name: 'Save as new upload' });
-	await expect(popover).toBeVisible();
-	const [saved] = await Promise.all([
-		page.waitForResponse((r) => r.url().includes('/api/media/upload') && r.request().method() === 'POST'),
-		popover.getByRole('button', { name: 'Save and use' }).click()
-	]);
-	expect(saved.ok()).toBeTruthy();
-	await expect(dialog).toBeHidden({ timeout: 15000 });
-	if (lands) {
-		await expect(page.locator('[data-back-to-generation]')).toBeVisible({ timeout: 15000 });
-		await expect(page).toHaveURL(/\/history/);
-	}
-	else await expect(page.getByText('Saved to your library as a new image')).toBeVisible();
-}
-
 for (const viewport of VIEWPORTS) {
 	test.describe(`at ${viewport.name}`, () => {
 		test.beforeEach(async ({ page }) => {
@@ -117,8 +94,7 @@ for (const viewport of VIEWPORTS) {
 			await mockMedia(page);
 		});
 
-		test('edits a single image from the History Tools menu', async ({ page }) => {
-			test.setTimeout(240000);
+		test('opens one Image editor tab per image from the History Tools menu', async ({ page }) => {
 			await page.goto('/history');
 			const selectors = page.getByRole('button', { name: 'Select generation' });
 			await expect(selectors).toHaveCount(2);
@@ -127,22 +103,17 @@ for (const viewport of VIEWPORTS) {
 			await page.locator('[data-tools-trigger]').first().click();
 			const item = page.locator('[data-tools-menu] [data-tool="edit-image"]');
 			await expect(item).toBeVisible();
-			await expect(item).toHaveAttribute('aria-disabled', 'true');
-			await screenshot(page, JOURNEY, `history-disabled-${viewport.name}`);
-			await page.keyboard.press('Escape');
-			await selectors.nth(1).click();
-
-			await selectors.nth(0).click();
-			await page.locator('[data-tools-trigger]').first().click();
 			await expect(item).toHaveAttribute('aria-disabled', 'false');
+			await expect(item).toContainText('Open in Image editor');
 			await screenshot(page, JOURNEY, `history-enabled-${viewport.name}`);
 			await item.click();
 
-			await editAndSave(page, true);
+			await expect(page).toHaveURL(/\/generate/);
+			await expect(page.getByTestId('tool-tab-host')).toHaveAttribute('data-tool', 'image');
+			await expect(page.getByTestId('tool-tab-source')).toBeVisible();
 		});
 
-		test('edits a single image from the Library Tools menu', async ({ page }) => {
-			test.setTimeout(240000);
+		test('opens an Image editor tab from the Library Tools menu', async ({ page }) => {
 			await page.goto('/library');
 			await page.getByRole('button', { name: 'Select item' }).first().click();
 			await page.locator('[data-tools-trigger]').first().click();
@@ -152,7 +123,8 @@ for (const viewport of VIEWPORTS) {
 			await screenshot(page, JOURNEY, `library-enabled-${viewport.name}`);
 			await item.click();
 
-			await editAndSave(page);
+			await expect(page).toHaveURL(/\/generate/);
+			await expect(page.getByTestId('tool-tab-source')).toBeVisible();
 		});
 	});
 }

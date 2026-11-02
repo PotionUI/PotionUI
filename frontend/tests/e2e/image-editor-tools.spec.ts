@@ -333,7 +333,7 @@ for (const size of SIZES) {
 	});
 }
 
-test('offers Edit in the library item view', async ({ page }) => {
+test('offers Open in Image editor in the library item view', async ({ page }) => {
 	test.setTimeout(240000);
 	await page.setViewportSize({ width: 1440, height: 900 });
 	await loginAsOwner(page);
@@ -343,7 +343,8 @@ test('offers Edit in the library item view', async ({ page }) => {
 	const bar = page.getByRole('toolbar', { name: 'Actions' });
 	await expect(bar).toBeVisible({ timeout: 15000 });
 	await bar.getByRole('button', { name: 'Edit' }).click();
-	await page.getByRole('menuitem', { name: /Edit image/ }).click();
-	await expect(page.getByRole('dialog', { name: 'Edit image' })).toBeVisible();
+	await page.getByRole('menuitem', { name: /Open in Image editor/ }).click();
+	await expect(page).toHaveURL(/\/generate/);
+	await expect(page.getByTestId('tool-tab-host')).toHaveAttribute('data-tool', 'image');
 	await screenshot(page, JOURNEY, 'library-edit');
 });

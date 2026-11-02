@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, screenshot } from './helpers';
-import { expectEditorReady, fixturePng } from './imageEditorHelpers';
+import { fixturePng } from './imageEditorHelpers';
 
 const JOURNEY = 'entry-tools-menu';
 
@@ -86,7 +86,7 @@ test.describe('per-entry tools menu', () => {
 		await mockMedia(page);
 	});
 
-	test('runs Edit image from the menu of a History card', async ({ page }) => {
+	test('opens an Image editor tab from the menu of a History card', async ({ page }) => {
 		test.setTimeout(120000);
 		await page.goto('/history');
 		const cards = page.locator('[data-generation-card]');
@@ -105,9 +105,8 @@ test.describe('per-entry tools menu', () => {
 		await screenshot(page, JOURNEY, 'history-menu-1440');
 
 		await menu.locator('[data-tool="edit-image"]').click();
-		const dialog = page.getByRole('dialog', { name: 'Edit image' });
-		await expect(dialog).toBeVisible();
-		await expectEditorReady(dialog.getByLabel('Drawing canvas'));
+		await expect(page).toHaveURL(/\/generate/);
+		await expect(page.getByTestId('tool-tab-host')).toHaveAttribute('data-tool', 'image');
 	});
 
 	test('opens the menu with a right-click', async ({ page }) => {

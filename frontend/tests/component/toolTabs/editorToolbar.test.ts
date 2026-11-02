@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { flushSync, tick } from 'svelte';
+import { createRawSnippet, flushSync, tick } from 'svelte';
 import { mountComponent } from '../helpers/mount';
 import type { SaveAction } from '$lib/tool-tabs/frame/types';
 
@@ -204,5 +204,38 @@ describe('EditorToolbar more menu', () => {
 		item.click();
 		flushSync();
 		expect(picked).toEqual(['reveal']);
+	});
+});
+
+describe('EditorToolbar save label and menu rows', () => {
+	it('keeps the default label, rows and saving bar when neither is given', async () => {
+		const { q, view } = render();
+		expect(text(q('[data-frame-save]'))).toBe('Save as new');
+		const menu = await openMenu(q);
+		expect(menu.querySelector('[data-save-row="save-new"]')).not.toBeNull();
+		view.rerender({ saving: { percent: 40, label: 'Saving' } });
+		expect(q('[data-frame-saving-caption]')).toBeNull();
+	});
+
+	it('shows the given save label and replaces the rows with the given snippet', async () => {
+		const rows = createRawSnippet((pick: () => (action: SaveAction) => void) => ({
+			render: () => '<button type="button" role="menuitem" data-custom-row>Save the sheet as new</button>',
+			setup: (node: Element) => {
+				node.addEventListener('click', () => pick()({ kind: 'save-sheet' }));
+			}
+		}));
+		const { q, actions } = render({ saveLabel: 'Save 5 images', menuRows: rows });
+		const primary = q<HTMLButtonElement>('[data-frame-save]')!;
+		expect(text(primary)).toBe('Save 5 images');
+		const menu = await openMenu(q);
+		expect(menu.querySelector('[data-save-row]')).toBeNull();
+		menu.querySelector<HTMLButtonElement>('[data-custom-row]')!.click();
+		flushSync();
+		expect(actions).toEqual([{ kind: 'save-sheet' }]);
+	});
+
+	it('shows the saving caption before the tick bar', () => {
+		const { q } = render({ saving: { percent: 70, label: 'Saving 5 images', caption: 'Saving 5 images' } });
+		expect(text(q('[data-frame-saving-caption]'))).toBe('Saving 5 images');
 	});
 });

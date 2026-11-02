@@ -43,6 +43,7 @@
 	} from './mediaFieldGroups';
 	import { FIELD_TOOL_EDITORS, fieldToolGroupsFor, matchToolShortcut } from './mediaFieldTools';
 	import { openFieldInEditor } from '$lib/tool-tabs/openShortcut';
+	import { globalBindingFor } from '$lib/services/keyboard';
 	import type { MediaSource } from './mediaFieldSources';
 	import MediaDropzone from './MediaDropzone.svelte';
 	import MediaFieldEditors from './MediaFieldEditors.svelte';
@@ -783,6 +784,7 @@
 		if (event.target !== document.body && event.target !== document.documentElement) return;
 		const modal = document.querySelector('[aria-modal="true"]');
 		if (modal && !modal.contains(uploadAreaRef)) return;
+		if (globalBindingFor(event)) return;
 		handleRootKeydown(event);
 	}
 

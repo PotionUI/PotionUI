@@ -86,6 +86,7 @@ to host RAM, retry after each, and only then raise
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Literal
 
@@ -257,8 +258,29 @@ def _chunked_ffn_phase_bytes(tokens: int, inner_dim: int, ffn_dim: int, chunk_ro
     )
 
 
-def _activation_bytes(tokens: int, inner_dim: int, ffn_dim: int | None, ffn_chunk_rows: int) -> int:
-    attention = tokens * _activation_reserve_bytes_per_token(inner_dim)
+_CHUNKED_ATTENTION_HELD_WIDTHS = 6
+_CHUNKED_PREP_FULL_WIDTHS = 4
+MIN_SEQ_CHUNK_ROWS = 1024
+
+
+def _attention_bytes(tokens: int, inner_dim: int, seq_chunk_rows: int) -> int:
+    per_token = _activation_reserve_bytes_per_token(inner_dim)
+    if not seq_chunk_rows or seq_chunk_rows >= tokens:
+        return tokens * per_token
+    held = tokens * _CHUNKED_ATTENTION_HELD_WIDTHS * inner_dim * _COMPUTE_DTYPE_BYTES
+    prep = tokens * _CHUNKED_PREP_FULL_WIDTHS * inner_dim * _COMPUTE_DTYPE_BYTES + seq_chunk_rows * per_token
+    return max(held, prep)
+
+
+def _mlp_chunk_rows(seq_chunk_rows: int, ffn_chunk_rows: int) -> int:
+    return min((rows for rows in (seq_chunk_rows, ffn_chunk_rows) if rows), default=0)
+
+
+def _activation_bytes(
+    tokens: int, inner_dim: int, ffn_dim: int | None, ffn_chunk_rows: int, seq_chunk_rows: int = 0,
+) -> int:
+    attention = _attention_bytes(tokens, inner_dim, seq_chunk_rows)
+    ffn_chunk_rows = _mlp_chunk_rows(seq_chunk_rows, ffn_chunk_rows)
     if not ffn_dim:
         return attention
     if not ffn_chunk_rows or ffn_chunk_rows >= tokens:
@@ -352,7 +374,7 @@ _ACTIVATION_RESERVE_FLOOR_GB = 0.5
 def estimate_activation_reserve_gb(
     video_tokens: int, audio_tokens: int = 0, *, lora: DitLoraProfile = _NO_LORA,
     inner_dim: int = _LTX_INNER_DIM, ffn_dim: int | None = None, ffn_chunk_rows: int = 0,
-    quant_scratch: QuantScratch = _NO_QUANT_SCRATCH,
+    quant_scratch: QuantScratch = _NO_QUANT_SCRATCH, seq_chunk_rows: int = 0,
 ) -> float:
     """Estimate the DiT-forward activation VRAM reserve for one sampling step.
 
@@ -383,7 +405,9 @@ def estimate_activation_reserve_gb(
     """
     s = max(0, int(video_tokens)) + max(0, int(audio_tokens))
     bytes_per_token = lora.output_buffer_bytes_per_token
-    activation_bytes = _activation_bytes(s, inner_dim, ffn_dim, max(0, int(ffn_chunk_rows)))
+    activation_bytes = _activation_bytes(
+        s, inner_dim, ffn_dim, max(0, int(ffn_chunk_rows)), max(0, int(seq_chunk_rows)),
+    )
     flat_bytes = quant_scratch.bytes_for(s) + lora.weight_side_bytes
     raw_gb = (activation_bytes + s * bytes_per_token + flat_bytes) / _BYTES_PER_GB
     return max(_ACTIVATION_RESERVE_FLOOR_GB, raw_gb * _ACTIVATION_SAFETY_MARGIN)
@@ -543,6 +567,23 @@ class DitPlacementDecision:
     # `stream_to` was called at all -- the whole point of the fast path (see
     # `place_dit_for_sequence`'s "Warm residency" docstring section).
     kept_resident: bool = False
+    seq_chunk_rows: int = 0
+    seq_chunking: bool = False
+
+
+def choose_seq_chunk_rows(tokens: int, reserve_for: Callable[[int], float], budget_gb: float) -> int:
+    candidates = []
+    parts = 2
+    while math.ceil(tokens / parts) >= MIN_SEQ_CHUNK_ROWS:
+        candidates.append(math.ceil(tokens / parts))
+        parts *= 2
+    if not candidates:
+        return 0
+    reserves = [reserve_for(rows) for rows in candidates]
+    for rows, reserve in zip(candidates, reserves):
+        if reserve <= budget_gb:
+            return rows
+    return candidates[reserves.index(min(reserves))]
 
 
 def place_dit_for_sequence(
@@ -557,6 +598,8 @@ def place_dit_for_sequence(
     ffn_dim: int | None = None,
     ffn_chunk_rows: int = 0,
     fit_hint: "FitHint | None" = None,
+    seq_chunk_rows: int = 0,
+    seq_chunking: bool = False,
 ) -> DitPlacementDecision:
     """Place ``dit`` on ``device`` for sampling, sized to THIS generation's
     token count instead of an unconditional full-pin ``move_to``.
@@ -615,6 +658,7 @@ def place_dit_for_sequence(
         dit.move_to(device)
         decision = DitPlacementDecision(
             "cpu", weight_gb, 0.0, weight_gb, video_tokens, audio_tokens, 0.0, lora_active, lora_weight_gb,
+            seq_chunk_rows=max(0, int(seq_chunk_rows)), seq_chunking=seq_chunking,
         )
         _log_decision(decision, device)
         return decision
@@ -623,13 +667,17 @@ def place_dit_for_sequence(
     if linear_summary:
         logger.info("[LTX PLACEMENT] %s", linear_summary)
 
-    activation_reserve = estimate_activation_reserve_gb(
-        video_tokens, audio_tokens, lora=lora, inner_dim=inner_dim, ffn_dim=ffn_dim,
-        ffn_chunk_rows=ffn_chunk_rows,
-        quant_scratch=_dit_quant_scratch(dit),
-    )
+    quant_scratch = _dit_quant_scratch(dit)
+
+    def reserve_for(rows: int) -> float:
+        return estimate_activation_reserve_gb(
+            video_tokens, audio_tokens, lora=lora, inner_dim=inner_dim, ffn_dim=ffn_dim,
+            ffn_chunk_rows=ffn_chunk_rows, quant_scratch=quant_scratch, seq_chunk_rows=rows,
+        )
+
+    chunk_rows = max(0, int(seq_chunk_rows))
+    activation_reserve = reserve_for(chunk_rows)
     extra_reserve = max(0.0, float(reserve_gb))
-    total_reserve = activation_reserve + extra_reserve
 
     # Over-commit check, BEFORE any placement I/O: credit back this dit's own
     # currently-resident weight (if any -- mirrors the warm-residency fast
@@ -653,6 +701,17 @@ def place_dit_for_sequence(
     if dit_is_fully_resident(dit, device):
         free_raw += weight_gb
         free_if_dit_unloaded += weight_gb
+    if seq_chunking and not chunk_rows and activation_reserve + extra_reserve > free_if_dit_unloaded:
+        chunk_rows = choose_seq_chunk_rows(
+            video_tokens + audio_tokens, reserve_for, free_if_dit_unloaded - extra_reserve,
+        )
+        if chunk_rows:
+            activation_reserve = reserve_for(chunk_rows)
+            get_profiler().mark(
+                "ltx.dit_placement.seq_chunking", seq_chunk_rows=chunk_rows,
+                activation_reserve_gb=round(activation_reserve, 2),
+            )
+    total_reserve = activation_reserve + extra_reserve
     if total_reserve > free_if_dit_unloaded:
         _log_overcommit(
             total_reserve, activation_reserve, extra_reserve, free_if_dit_unloaded, free_raw,
@@ -671,6 +730,7 @@ def place_dit_for_sequence(
             decision = DitPlacementDecision(
                 "resident", weight_gb, activation_reserve, credited_budget, video_tokens, audio_tokens,
                 extra_reserve, lora_active, lora_weight_gb, kept_resident=True,
+                seq_chunk_rows=chunk_rows, seq_chunking=seq_chunking,
             )
             _log_decision(decision, device)
             return decision
@@ -698,6 +758,7 @@ def place_dit_for_sequence(
     decision = DitPlacementDecision(
         mode, weight_gb, activation_reserve, weight_budget, video_tokens, audio_tokens,
         extra_reserve, lora_active, lora_weight_gb,
+        seq_chunk_rows=chunk_rows, seq_chunking=seq_chunking,
     )
     _log_decision(decision, device)
     return decision
@@ -758,17 +819,20 @@ class _GuardedForward:
         object.__setattr__(self, "_guard_decision", decision)
         object.__setattr__(self, "_guard_fit_hint", fit_hint)
         object.__setattr__(self, "_guard_armed", True)
+        object.__setattr__(self, "_guard_overrides", {})
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         forward = object.__getattribute__(self, "_guard_forward")
+        overrides = object.__getattribute__(self, "_guard_overrides")
         if not object.__getattribute__(self, "_guard_armed"):
-            return forward(*args, **kwargs)
+            return forward(*args, **{**kwargs, **overrides})
         result = _forward_with_degrade(
             forward, args, kwargs,
             dit=object.__getattribute__(self, "_guard_dit"),
             device=object.__getattribute__(self, "_guard_device"),
             decision=object.__getattribute__(self, "_guard_decision"),
             fit_hint=object.__getattribute__(self, "_guard_fit_hint"),
+            overrides=overrides,
         )
         object.__setattr__(self, "_guard_armed", False)
         return result
@@ -782,8 +846,9 @@ class _GuardedForward:
 
 def _forward_with_degrade(
     forward: Callable[..., Any], args: tuple, kwargs: dict, *, dit: Any, device: str,
-    decision: DitPlacementDecision, fit_hint: "FitHint | None",
+    decision: DitPlacementDecision, fit_hint: "FitHint | None", overrides: dict | None = None,
 ) -> Any:
+    overrides = {} if overrides is None else overrides
     try:
         return forward(*args, **kwargs)
     except torch.cuda.OutOfMemoryError:
@@ -802,6 +867,25 @@ def _forward_with_degrade(
         return forward(*args, **kwargs)
     except torch.cuda.OutOfMemoryError:
         pass
+
+    if decision.seq_chunking and "seq_chunk_rows" in kwargs:
+        tokens = decision.video_tokens + decision.audio_tokens
+        rows = int(kwargs.get("seq_chunk_rows") or 0) or tokens
+        while math.ceil(rows / 2) >= MIN_SEQ_CHUNK_ROWS:
+            rows = math.ceil(rows / 2)
+            logger.warning(
+                "[LTX PLACEMENT] sampling forward OOM'd; retrying with the attention prep chunked "
+                "to %d rows", rows,
+            )
+            kwargs = {**kwargs, "seq_chunk_rows": rows}
+            overrides["seq_chunk_rows"] = rows
+            get_profiler().mark("ltx.dit_placement.seq_chunking_retry", seq_chunk_rows=rows)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            try:
+                return forward(*args, **kwargs)
+            except torch.cuda.OutOfMemoryError:
+                pass
 
     # Tier 2: hand the forward the whole card by streaming every DiT weight
     # from pinned host RAM. Skipped when nothing is resident to shed -- a
@@ -970,7 +1054,7 @@ def _log_decision(decision: DitPlacementDecision, device: str) -> None:
         weight_budget_gb=round(decision.weight_budget_gb, 2),
         video_tokens=decision.video_tokens, audio_tokens=decision.audio_tokens,
         lora_active=decision.lora_active, lora_weight_gb=round(decision.lora_weight_gb, 2),
-        kept_resident=decision.kept_resident,
+        kept_resident=decision.kept_resident, seq_chunk_rows=decision.seq_chunk_rows,
     )
     logger.debug(
         "[LTX PLACEMENT] %s%s: DiT %.2fGB (incl. %.2fGB LoRA), S=%d video (+%d audio), activation reserve "

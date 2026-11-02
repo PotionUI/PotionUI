@@ -263,6 +263,8 @@ ConvRot layers always dequantize, so they quantise no activations.
 | LTX | 87,120 | 26.75 GB | 9.27 GB |
 | MiniMax-H3 (nvfp4) | 145,793 + 754 | 51.75 GB | 25.61 GB |
 
+A DiT that takes `seq_chunk_rows` (MiniMax-H3; LTX does not) gets its attention prep chunked automatically when the reserve does not fit: `S·B(d)` becomes `max(6·d·2·S, 4·d·2·S + rows·B(d))`, which is 14.36 GB for the clip above. The MiniMax-H3 page has the details.
+
 All of the above is unit-testable without a GPU: the fit math, the deterministic layer split, the
 fp8 quant equivalence, and the eviction accounting are pure functions (`tests/core/native/memory/`,
 `tests/core/native/test_fp8_quant.py`). The wall-clock A/B (streamed-bf16 vs partial-residency vs

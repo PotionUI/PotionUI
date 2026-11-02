@@ -54,6 +54,7 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     QuantScratch,
     QuantWidth,
     SamplingOutOfMemory,
+    choose_seq_chunk_rows,
     estimate_activation_reserve_gb,
     guard_sampling_oom,
     hand_off_dit,
@@ -2164,3 +2165,147 @@ def test_a_handoff_offloads_a_streamed_dit():
 def test_a_handoff_without_a_dit_does_nothing():
     assert _hand_off(None) == (False, [])
     assert _hand_off(_HandoffDit(module=None)) == (False, [])
+
+
+def _profiled_h3_reserve(seq_chunk_rows=0, video_tokens=145_793, audio_tokens=754):
+    return estimate_activation_reserve_gb(
+        video_tokens, audio_tokens, quant_scratch=_H3_NVFP4, seq_chunk_rows=seq_chunk_rows, **_H3_KW,
+    )
+
+
+def test_chunking_the_attention_prep_pins_the_profiled_h3_clip_reserve():
+    assert _profiled_h3_reserve() == pytest.approx(25.61, abs=0.01)
+    assert _profiled_h3_reserve(18_319) == pytest.approx(14.36, abs=0.01)
+    assert _profiled_h3_reserve(146_547) == _profiled_h3_reserve()
+
+
+def test_smaller_attention_prep_chunks_never_raise_the_reserve_and_floor_at_the_held_buffers():
+    reserves = [_profiled_h3_reserve(rows) for rows in (73_274, 36_637, 18_319, 9_160, 4_580)]
+    assert reserves == sorted(reserves, reverse=True)
+    assert reserves[-1] == reserves[-2]
+
+
+def test_a_fixed_seq_chunk_also_bounds_the_mlp_chunk_the_reserve_charges():
+    tokens = 100_000
+    wide = estimate_activation_reserve_gb(tokens, inner_dim=7168, ffn_dim=14336, seq_chunk_rows=1024)
+    narrow_ffn = estimate_activation_reserve_gb(
+        tokens, inner_dim=7168, ffn_dim=14336, ffn_chunk_rows=1024, seq_chunk_rows=1024)
+    assert wide == narrow_ffn
+
+
+def _chunk_reserve(table):
+    return lambda rows: table[rows]
+
+
+def test_the_chunk_choice_takes_the_fewest_chunks_that_fit():
+    table = {5000: 9.0, 2500: 6.0, 1250: 4.0}
+    assert choose_seq_chunk_rows(10_000, _chunk_reserve(table), 6.5) == 2500
+    assert choose_seq_chunk_rows(10_000, _chunk_reserve(table), 10.0) == 5000
+
+
+def test_when_no_chunk_fits_the_choice_is_the_widest_chunk_at_the_lowest_reserve():
+    table = {5000: 9.0, 2500: 7.0, 1250: 7.0}
+    assert choose_seq_chunk_rows(10_000, _chunk_reserve(table), 1.0) == 2500
+
+
+def test_a_sequence_too_short_to_split_gets_no_chunking():
+    assert choose_seq_chunk_rows(2_000, lambda rows: 0.0, 1.0) == 0
+
+
+def _h3_placement(free_gb, *, seq_chunking=True, seq_chunk_rows=0):
+    dit, calls = _dit(estimated_vram_gb=13.89)
+    patches, _ = _patched(free_gb=free_gb)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.maybe_compile_dit"):
+        return place_dit_for_sequence(
+            dit, "cuda", video_tokens=145_793, audio_tokens=754, inner_dim=7168, ffn_dim=14336,
+            ffn_chunk_rows=24_425, seq_chunking=seq_chunking, seq_chunk_rows=seq_chunk_rows,
+        )
+
+
+def test_placement_leaves_the_attention_prep_whole_when_the_reserve_fits():
+    decision = _h3_placement(40.0)
+    assert decision.seq_chunk_rows == 0 and decision.seq_chunking is True
+    assert decision.activation_reserve_gb == pytest.approx(_profiled_h3_reserve() - 0.86, abs=0.01)
+
+
+def test_placement_chunks_the_attention_prep_with_the_fewest_chunks_that_fit():
+    decision = _h3_placement(16.0)
+    assert decision.seq_chunk_rows == 36_637
+    assert decision.activation_reserve_gb <= 16.0
+    assert _h3_placement(13.0).seq_chunk_rows == 18_319
+
+
+def test_placement_never_chunks_a_dit_that_cannot_take_it():
+    assert _h3_placement(13.0, seq_chunking=False).seq_chunk_rows == 0
+
+
+def test_placement_keeps_a_configured_seq_chunk():
+    decision = _h3_placement(40.0, seq_chunk_rows=5000)
+    assert decision.seq_chunk_rows == 5000
+
+
+def test_the_fit_hint_sees_the_chunked_reserve(caplog):
+    seen = []
+
+    def hint(free_gb, *, activation_reserve_gb, extra_reserve_gb, tokens):
+        seen.append(activation_reserve_gb)
+        return ""
+
+    dit, _ = _dit(estimated_vram_gb=13.89)
+    patches, _ = _patched(free_gb=11.74)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.maybe_compile_dit"):
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=145_793, audio_tokens=754, inner_dim=7168, ffn_dim=14336,
+            ffn_chunk_rows=24_425, seq_chunking=True, fit_hint=hint,
+        )
+    assert decision.seq_chunk_rows == 18_319
+    assert seen == [decision.activation_reserve_gb]
+
+
+def _chunk_aware_forward(max_rows):
+    seen = []
+
+    def forward(*args, seq_chunk_rows=0, **kwargs):
+        seen.append(seq_chunk_rows)
+        if not seq_chunk_rows or seq_chunk_rows > max_rows:
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+        return "ok"
+
+    return forward, seen
+
+
+def _chunking_decision(seq_chunking=True):
+    return DitPlacementDecision(
+        "partial", 13.89, 25.61, 0.0, 145_793, 754, 0.0, seq_chunking=seq_chunking,
+    )
+
+
+def test_a_sampling_oom_retries_with_a_chunked_attention_prep_before_raising():
+    forward, seen = _chunk_aware_forward(40_000)
+    dit, dit_calls = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_chunking_decision())
+    with patch(f"{_MOD}.torch.cuda.is_available", return_value=False):
+        assert guarded(seq_chunk_rows=0) == "ok"
+        assert guarded(seq_chunk_rows=0) == "ok"
+    assert seen == [0, 0, 73_274, 36_637, 36_637]
+    assert dit_calls["stream_to"] == []
+
+
+def test_a_dit_that_cannot_chunk_raises_without_trying():
+    forward, seen = _chunk_aware_forward(40_000)
+    dit, _ = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_chunking_decision(False))
+    with patch(f"{_MOD}._sampling_oom", return_value=ValueError("raised")), \
+         patch(f"{_MOD}.torch.cuda.is_available", return_value=False), pytest.raises(ValueError):
+        guarded(seq_chunk_rows=0)
+    assert seen == [0, 0]
+
+
+def test_an_oom_at_the_smallest_chunk_still_raises():
+    forward, seen = _chunk_aware_forward(10)
+    dit, _ = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_chunking_decision())
+    with patch(f"{_MOD}._sampling_oom", return_value=ValueError("raised")), \
+         patch(f"{_MOD}.torch.cuda.is_available", return_value=False), pytest.raises(ValueError):
+        guarded(seq_chunk_rows=0)
+    assert seen[-1] == 1_145 and len(seen) == 9

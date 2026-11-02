@@ -32,7 +32,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.pipelines.pipes._shared.generation.dit_placement import dit_is_fully_resident
 from src.platform.observability.profiling import get_profiler
 from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
@@ -116,15 +115,3 @@ def restore_dit_best_effort(dit: Any, device: str) -> None:
     except Exception as exc:  # pragma: no cover - best-effort, never fail the generation
         profiler.mark("dit_restore.error", error=repr(exc))
         logger.debug("dit_restore: best-effort restore failed", exc_info=True)
-
-
-def hand_off_dit(dit: Any, device: str, *, needs_room: bool = False) -> bool:
-    profiler = get_profiler()
-    if dit is None or getattr(dit, "module", None) is None:
-        return False
-    if not needs_room and dit_is_fully_resident(dit, device):
-        profiler.mark("dit_restore.skip", reason="handoff_kept_resident")
-        return True
-    dit.offload()
-    profiler.mark("dit_restore.skip", reason="handoff_offloaded")
-    return False

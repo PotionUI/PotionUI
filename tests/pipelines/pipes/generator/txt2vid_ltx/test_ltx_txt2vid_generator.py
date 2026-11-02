@@ -606,7 +606,7 @@ def test_a_latent_handoff_never_restores_and_only_offloads_a_dit_that_is_not_ful
         "conditioning": [SimpleNamespace(embeds={"context": torch.ones(1, 4, 8)}, n_embeds=None)],
         "seed": [5],
     })
-    with patch("src.pipelines.pipes._shared.generation.dit_restore.dit_is_fully_resident",
+    with patch("src.pipelines.pipes._shared.generation.dit_placement.dit_is_fully_resident",
                lambda dit, device: resident):
         _pipe(decode=False, device="cpu").process(pipe_input, lambda o: None)
     mock_restore.assert_not_called()

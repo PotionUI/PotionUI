@@ -115,11 +115,12 @@ from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorP
 from src.pipelines.pipes._shared.generation.dit_placement import (
     dit_is_fully_resident,
     guard_sampling_oom,
+    hand_off_dit,
     place_dit_for_sequence,
     sequence_fit,
 )
 from src.pipelines.pipes._shared.generation.ltx_conditioned_forward import ConditionedAVForward
-from src.pipelines.pipes._shared.generation.dit_restore import hand_off_dit, restore_dit_best_effort
+from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.loader_helpers import (
     active_loras as _active_loras,
     load_lora_stack as _load_lora_stack,

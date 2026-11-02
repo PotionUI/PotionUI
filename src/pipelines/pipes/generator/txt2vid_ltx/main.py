@@ -13,8 +13,12 @@ from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutput
 from src.pipelines.outputs import Icon
 from src.platform.runtime.device import clear_gpu_memory
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
-from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
-from src.pipelines.pipes._shared.generation.dit_restore import hand_off_dit, restore_dit_best_effort
+from src.pipelines.pipes._shared.generation.dit_placement import (
+    guard_sampling_oom,
+    hand_off_dit,
+    place_dit_for_sequence,
+)
+from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.freeinit import freeinit_blend, freeinit_config_specs, resolve_freeinit
 from src.pipelines.pipes._shared.generation.guidance_options import (
     apg_settings_config_specs,

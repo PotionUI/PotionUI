@@ -107,12 +107,7 @@ def merge_fragments(media: ToolMedia, fragments: Sequence[FilterFragment]) -> Me
             plan.frames = fragment.frames if plan.frames is None else min(plan.frames, fragment.frames)
         current = advance_media(current, fragment)
     plan.width, plan.height, plan.duration = current.width, current.height, current.duration
-    plan.copy_video = (
-        bool(fragments)
-        and all(fragment.copy_video for fragment in fragments)
-        and plan.seek_start is None
-        and plan.seek_end is None
-    )
+    plan.copy_video = bool(fragments) and all(fragment.copy_video for fragment in fragments)
     return plan
 
 

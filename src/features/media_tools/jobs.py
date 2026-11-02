@@ -6,7 +6,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Callable, Deque, Dict, List, Optional
 
-from src.features.media_tools.dto import TERMINAL_STATUSES, MediaToolItem, RunDTO, RunError
+from src.features.media_tools.dto import TERMINAL_STATUSES, MediaToolItem, PreviewClip, RunDTO, RunError
 from src.platform.http.base_controller import PassThrough
 from src.platform.http.errors import DomainError
 from src.platform.media_tools import MediaToolError, ToolCancelled
@@ -25,6 +25,7 @@ GENERIC_FAILURE = "The tool could not finish"
 class RunOutcome:
     items: List[MediaToolItem] = field(default_factory=list)
     replaced: bool = False
+    preview: Optional[PreviewClip] = None
 
 
 @dataclass
@@ -32,11 +33,13 @@ class _Run:
     run_id: str
     user_id: str
     work: Callable[["RunControl"], RunOutcome]
+    kind: str = "run"
     status: str = "queued"
     progress: float = 0.0
     label: str = ""
     items: List[MediaToolItem] = field(default_factory=list)
     replaced: bool = False
+    preview: Optional[PreviewClip] = None
     error: Optional[RunError] = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
     done: threading.Event = field(default_factory=threading.Event)
@@ -76,8 +79,8 @@ class MediaToolJobManager:
         self._queue: Deque[str] = deque()
         self._running = 0
 
-    def submit(self, user_id: str, work: Callable[[RunControl], RunOutcome]) -> str:
-        run = _Run(run_id=uuid.uuid4().hex, user_id=user_id, work=work)
+    def submit(self, user_id: str, work: Callable[[RunControl], RunOutcome], kind: str = "run") -> str:
+        run = _Run(run_id=uuid.uuid4().hex, user_id=user_id, work=work, kind=kind)
         with self._lock:
             if self._closed:
                 raise DomainError("shutting_down", "The server is shutting down", status_code=503)
@@ -99,6 +102,11 @@ class MediaToolJobManager:
             self._purge()
             run = self._owned(user_id, run_id)
             return self._snapshot(run) if run else None
+
+    def list(self, user_id: str) -> List[RunDTO]:
+        with self._lock:
+            self._purge()
+            return [self._snapshot(run) for run in self._runs.values() if run.user_id == user_id]
 
     def cancel(self, user_id: str, run_id: str) -> Optional[RunDTO]:
         with self._lock:
@@ -214,13 +222,16 @@ class MediaToolJobManager:
             del self._runs[run_id]
 
     def _snapshot(self, run: _Run) -> RunDTO:
+        completed = run.status == "completed"
         return RunDTO(
             run_id=run.run_id,
+            kind=run.kind,
             status=run.status,
             progress=run.progress,
             label=run.label,
-            items=list(run.items) if run.status == "completed" else [],
-            replaced=run.replaced if run.status == "completed" else False,
+            items=list(run.items) if completed else [],
+            replaced=run.replaced if completed else False,
+            preview=run.preview if completed else None,
             error=run.error,
         )
 
@@ -279,6 +290,7 @@ class MediaToolJobManager:
             if status == "completed" and outcome is not None:
                 run.items = list(outcome.items)
                 run.replaced = outcome.replaced
+                run.preview = outcome.preview
                 run.progress = 1.0
             run.finished_at = self._clock()
             self._running -= 1

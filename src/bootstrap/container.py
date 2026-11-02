@@ -1554,6 +1554,7 @@ def build_container() -> AppContainer:
         media_type_resolver=media_type_resolver,
         storage_driver=storage_driver,
         limit_guard=limit_guard,
+        artifact_store=media_store,
     )
     media_tool_controller = MediaToolController(media_tool_service)
     automation_services.media_tool_service = media_tool_service

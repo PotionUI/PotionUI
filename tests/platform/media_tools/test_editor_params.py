@@ -78,7 +78,7 @@ class TestCopiedVideo:
 
     def test_a_trim_in_the_same_pass_encodes_the_video(self):
         plan = merge_fragments(
-            VIDEO, [FilterFragment(start=0.5, end=1.5), FilterFragment(drop_audio=True, copy_video=True)]
+            VIDEO, [FilterFragment(start=0.5), FilterFragment(drop_audio=True, copy_video=True)]
         )
         assert not plan.copy_video
 

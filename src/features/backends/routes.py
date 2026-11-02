@@ -566,11 +566,6 @@ class BackendController(BaseController):
         "backend_action" so both cover the same ground: the residency ledger
         AND a fallback sweep of the model-lifecycle cache for anything
         GPU-resident that never registered with the ledger.
-
-        Deliberately does NOT touch the ModelLifecycle RAM cache: the
-        offloaded weights stay resident in host RAM, so the next generation
-        re-uploads to the GPU instead of reloading from disk. For the heavier
-        operation that also drops the RAM cache, see `clear_backend_cache`.
         """
         self._require_admin(user)
         backend_config = self._require_local_backend(backend_id)
@@ -587,7 +582,8 @@ class BackendController(BaseController):
         freed_gb = max(0.0, before_gb - after_gb)
 
         self.logger.info(
-            f"[CLEAR_VRAM] backend={backend_id} offloaded {result.offloaded_count} resident component(s) "
+            f"[CLEAR_VRAM] backend={backend_id} offloaded {result.offloaded_count}, "
+            f"unloaded {result.unloaded_count}, failed {result.failed_count} "
             f"({result.swept_count} via lifecycle-cache sweep), "
             f"VRAM {before_gb:.2f}GB -> {after_gb:.2f}GB (freed {freed_gb:.2f}GB)"
         )
@@ -598,6 +594,8 @@ class BackendController(BaseController):
             "after_gb": round(after_gb, 2),
             "freed_gb": round(freed_gb, 2),
             "offloaded_count": result.offloaded_count,
+            "unloaded_count": result.unloaded_count,
+            "failed_count": result.failed_count,
             "swept_count": result.swept_count,
         })
 

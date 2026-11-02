@@ -1,6 +1,44 @@
 import { test, expect, type Page } from '@playwright/test';
+import { deflateSync } from 'node:zlib';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { chunk } from './mediaFieldHelpers';
 import { solidPng } from './mediaToolMocks';
+
+function greenScreenPng(width: number, height: number): Buffer {
+	const rows: Buffer[] = [];
+	for (let y = 0; y < height; y++) {
+		const row = Buffer.alloc(1 + width * 3);
+		for (let x = 0; x < width; x++) {
+			const inside = Math.abs(x - width / 2) < width / 6 && Math.abs(y - height / 2) < height / 4;
+			row.set(inside ? [230, 120, 40] : [0, 177, 64], 1 + x * 3);
+		}
+		rows.push(row);
+	}
+	const header = Buffer.alloc(13);
+	header.writeUInt32BE(width, 0);
+	header.writeUInt32BE(height, 4);
+	header[8] = 8;
+	header[9] = 2;
+	return Buffer.concat([
+		Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+		chunk('IHDR', header),
+		chunk('IDAT', deflateSync(Buffer.concat(rows))),
+		chunk('IEND', Buffer.alloc(0))
+	]);
+}
+
+async function screenPixel(page: Page, x: number, y: number): Promise<number[]> {
+	const shot = await page.screenshot({ clip: { x, y, width: 1, height: 1 } });
+	return page.evaluate(async (data) => {
+		const bitmap = await createImageBitmap(await (await fetch(data)).blob());
+		const canvas = document.createElement('canvas');
+		canvas.width = 1;
+		canvas.height = 1;
+		const context = canvas.getContext('2d')!;
+		context.drawImage(bitmap, 0, 0);
+		return Array.from(context.getImageData(0, 0, 1, 1).data);
+	}, `data:image/png;base64,${shot.toString('base64')}`);
+}
 
 const JOURNEY = 'image-editor-real-backend';
 
@@ -77,10 +115,9 @@ function stackRows(page: Page) {
 	return page.locator('[data-edit-stack="panel"] [data-stack-row]');
 }
 
-async function openPicture(page: Page, from: 'library' | 'history') {
+async function openPicture(page: Page, from: 'library' | 'history', buffer = solidPng(1920, 1072)) {
 	const token = await ownerToken(page);
 	const name = `editor-real-${Date.now()}.png`;
-	const buffer = solidPng(1920, 1072);
 	const upload =
 		from === 'library'
 			? await page.request.post('/api/media/upload', { headers: { Authorization: `Bearer ${token}` }, multipart: { file: { name, mimeType: 'image/png', buffer } } })
@@ -154,4 +191,66 @@ test.describe('the Image editor against the real backend', () => {
 			expectClean(trace);
 		});
 	}
+
+	test('a keyed picture shows its transparent pixels over a checkerboard, not over the black stage', async ({ page }) => {
+		test.setTimeout(120000);
+		const trace = watch(page);
+		await loginAsOwner(page);
+		await openPicture(page, 'library', greenScreenPng(1200, 800));
+		await rail(page, 'colorKey').click();
+		await expect(page.locator('[data-catalog-tool="color_key"]')).toBeVisible();
+		await page.locator('[data-options-apply]').click();
+		await expect(stackRows(page)).toHaveCount(2);
+		await expect(page.locator('[data-editor-canvas]').getByText('Preview', { exact: true })).toHaveCount(0, { timeout: 30000 });
+
+		const keyed = await canvasPixels(page);
+		expect(keyed.samples[0][3], 'the centre stays opaque').toBe(255);
+		const corner = await page.locator('[data-editor-layer]').evaluate((node) => {
+			const canvas = node as HTMLCanvasElement;
+			return Array.from(canvas.getContext('2d')!.getImageData(4, 4, 1, 1).data);
+		});
+		expect(corner[3], 'the green border is keyed out').toBe(0);
+
+		const layer = page.locator('[data-canvas-layer]');
+		await expect(layer).toHaveClass(/alpha-checker/);
+		await expect(page.locator('[data-editor-canvas]')).not.toHaveClass(/alpha-checker/);
+		const box = (await layer.boundingBox())!;
+		const inside = [await screenPixel(page, box.x + 4, box.y + 4), await screenPixel(page, box.x + 12, box.y + 4)];
+		for (const [r, g, b] of inside) expect(Math.max(r, g, b), `a keyed pixel shows the checkerboard, got ${r},${g},${b}`).toBeGreaterThan(12);
+		expect(inside[0].slice(0, 3)).not.toEqual(inside[1].slice(0, 3));
+		const outside = await screenPixel(page, box.x - 8, box.y + box.height / 2);
+		expect(Math.max(...outside.slice(0, 3)), 'the stage around the picture stays black').toBeLessThanOrEqual(12);
+		await screenshot(page, JOURNEY, 'transparent-01-color-key');
+		expectClean(trace);
+	});
+
+	test('a display canvas the browser drops comes back with the edited picture', async ({ page }) => {
+		test.setTimeout(120000);
+		const trace = watch(page);
+		await loginAsOwner(page);
+		await openPicture(page, 'library');
+		await page.locator('[data-crop-aspects] button', { hasText: '1:1' }).click();
+		await page.locator('[data-options-apply]').click();
+		await rail(page, 'effects').click();
+		await expect(page.locator('[data-look="reel"]')).toBeVisible({ timeout: 15000 });
+		await page.locator('[data-look="reel"]').click();
+		await page.locator('[data-options-apply]').click();
+		await expect(stackRows(page)).toHaveCount(3);
+		await expectPicture(page, 'before the loss', { width: 1072, height: 1072 });
+
+		const lost = await page.locator('[data-editor-layer]').evaluate((node) => {
+			const canvas = node as HTMLCanvasElement;
+			const context = canvas.getContext('2d')!;
+			context.clearRect(0, 0, canvas.width, canvas.height);
+			canvas.dispatchEvent(new Event('contextlost'));
+			return Array.from(context.getImageData(canvas.width >> 1, canvas.height >> 1, 1, 1).data);
+		});
+		expect(lost).toEqual([0, 0, 0, 0]);
+		await screenshot(page, JOURNEY, 'lost-01-cleared');
+
+		await page.locator('[data-editor-layer]').evaluate((node) => node.dispatchEvent(new Event('contextrestored')));
+		await expectPicture(page, 'after the restore', { width: 1072, height: 1072 });
+		await screenshot(page, JOURNEY, 'lost-02-restored');
+		expectClean(trace);
+	});
 });

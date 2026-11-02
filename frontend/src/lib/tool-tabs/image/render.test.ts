@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const calls = vi.hoisted(() => ({
 	uploads: [] as string[],
+	decodes: [] as string[],
+	frameSize: null as { width: number; height: number } | null,
 	frames: [] as Array<{ steps: Array<{ tool: string; params: Record<string, unknown> }>; max_side?: number }>,
 	failUpload: 0,
 	blocked: null as string | null
@@ -41,7 +43,10 @@ function fakeCanvas(width = 300, height = 150): FakeCanvas {
 }
 
 vi.mock('$lib/components/imageEditor/loadPicked', () => ({
-	canvasFromUrl: async () => fakeCanvas(8, 6),
+	canvasFromUrl: async (url: string) => {
+		calls.decodes.push(url);
+		return fakeCanvas(8, 6);
+	},
 	canvasFromBlob: async (blob: { size: number; width?: number }) => fakeCanvas(30, 20)
 }));
 
@@ -64,13 +69,13 @@ vi.mock('$lib/services/api/mediaTools', () => ({
 	},
 	previewFrame: async (body: { steps: Array<{ tool: string; params: Record<string, unknown> }>; max_side?: number }) => {
 		calls.frames.push(body);
-		return { blob: new Blob(['x']), cached: false };
+		return { blob: new Blob(['x']), cached: false, ...(calls.frameSize ? { size: calls.frameSize } : {}) };
 	}
 }));
 
 import { EMPTY_IMAGE_PLAN } from '$lib/media/editors/imageEditPlan';
 import { apply, appliedSteps, beginEdit, createStack, toggleHidden, type EditStackState } from '$lib/tool-tabs/frame/editStack';
-import { FULL_SIDE, ImageRenderer, bakeIsCapped, fitSide, orient, sourceKey } from './render';
+import { FULL_SIDE, ImageRenderer, PREVIEW_SIDE, bakeIsCapped, fitSide, orient, sourceKey } from './render';
 import { adjustDraft, catalogDraft, cropDraft, resizeDraft, type CropParams } from './steps';
 
 const SOURCE = { url: '/src.png', size: { width: 8, height: 6 }, ref: { generation_file_id: '1' } };
@@ -83,6 +88,8 @@ const grain = () => adjustDraft({ kind: 'adjust', op: 'grain', name: 'Grain', va
 
 beforeEach(() => {
 	calls.uploads = [];
+	calls.decodes = [];
+	calls.frameSize = null;
 	calls.frames = [];
 	calls.failUpload = 0;
 	calls.blocked = null;
@@ -129,6 +136,26 @@ describe('orient', () => {
 		expect([flipped.width, flipped.height]).toEqual([40, 20]);
 		expect(flipped.context.ops).toContain('scale -1 1');
 		expect(orient(source, params(0))).toBe(source);
+	});
+});
+
+describe('ImageRenderer after a lost drawing surface', () => {
+	it('decodes the source once, then decodes it again and replays the whole stack after a reset', async () => {
+		const renderer = new ImageRenderer(SOURCE);
+		let stack = push(createStack(), cropDraft({ plan: { ...EMPTY_IMAGE_PLAN, rect: { x: 0, y: 0, width: 0.5, height: 1 } }, aspect: 'free' }, 'Free', { width: 4, height: 6 }));
+		stack = push(stack, resizeDraft({ width: 2, height: 3, lock: true }));
+		const steps = appliedSteps(stack);
+
+		const first = await renderer.render(steps);
+		expect(first.size).toEqual({ width: 2, height: 3 });
+		await renderer.render(steps);
+		expect(calls.decodes).toEqual(['/src.png']);
+
+		renderer.reset();
+		const again = await renderer.render(steps);
+		expect(calls.decodes).toEqual(['/src.png', '/src.png']);
+		expect(again.size).toEqual(first.size);
+		expect([again.canvas.width, again.canvas.height]).toEqual([2, 3]);
 	});
 });
 
@@ -200,6 +227,16 @@ describe('ImageRenderer payload', () => {
 			{ tool: 'paint_layer', params: { layer: { item_id: 'art-1' } } }
 		]);
 		expect(calls.frames.map((frame) => [frame.steps.map((step) => step.tool), frame.max_side])).toEqual([[['crop_subject'], FULL_SIDE]]);
+	});
+
+	it('asks the server for a preview at the preview size and keeps the full output size it reports', async () => {
+		const renderer = new ImageRenderer(SOURCE);
+		calls.frameSize = { width: 6000, height: 4000 };
+		const subject = appliedSteps(push(createStack(), catalogDraft('subject', { margin: 0 })));
+		const rendered = await renderer.render(subject);
+		expect(calls.frames.map((frame) => frame.max_side)).toEqual([PREVIEW_SIDE]);
+		expect(rendered.size).toEqual({ width: 6000, height: 4000 });
+		expect([rendered.canvas.width, rendered.canvas.height]).toEqual([1600, 1067]);
 	});
 
 	it('shares one server prefix between renders and aborts it only when every waiter is gone', async () => {

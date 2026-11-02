@@ -553,9 +553,10 @@ class MediaToolService:
                 result = render_still(bound, media, image, snapped, ctx, self.previews.memo(resolved.key))
             except (InvalidToolParams, UnsupportedMedia, InvalidSelection) as exc:
                 raise _refusal(exc) from exc
+            width, height = result.size
             data = _encode_frame(result, int(max_side), fmt)
-        self.previews.store_frame(user_id, key, data, media_type)
-        return FramePreview(data=data, media_type=media_type, cached=False)
+        self.previews.store_frame(user_id, key, data, media_type, width, height)
+        return FramePreview(data=data, media_type=media_type, cached=False, width=width, height=height)
 
     def start_clip_preview(
         self,

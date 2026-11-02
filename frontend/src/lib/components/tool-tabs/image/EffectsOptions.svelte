@@ -70,7 +70,7 @@
 				if (mine !== token) return;
 				node.width = rendered.width;
 				node.height = rendered.height;
-				node.getContext('2d')?.putImageData(rendered, 0, 0);
+				node.getContext('2d', { willReadFrequently: true })?.putImageData(rendered, 0, 0);
 			} catch {
 				return;
 			}
@@ -154,7 +154,7 @@
 					onclick={() => pickLook(item)}
 					data-look={item.id}
 				>
-					<canvas use:drawThumb={{ item, source: thumbSource }} class="aspect-[4/3] w-full rounded bg-surface-3 object-cover" aria-hidden="true"></canvas>
+					<canvas use:drawThumb={{ item, source: thumbSource }} class="alpha-checker aspect-[4/3] w-full rounded object-cover" aria-hidden="true"></canvas>
 					<span class="flex items-center gap-1 px-0.5 text-sm">
 						<span class="min-w-0 flex-1 truncate {selected ? 'text-signal' : 'text-fg'}">{item.name}</span>
 						{#if !phone && item.tags?.length}<span class="font-mono text-sm text-fg-subtle">{item.tags[item.tags.length - 1]}</span>{/if}

@@ -91,7 +91,12 @@ class MediaToolController(BaseController):
             request.max_side,
             request.format,
         )
-        headers = {"Cache-Control": "no-store", "X-Preview-Cache": "hit" if frame.cached else "miss"}
+        headers = {
+            "Cache-Control": "no-store",
+            "X-Preview-Cache": "hit" if frame.cached else "miss",
+            "X-Frame-Width": str(frame.width),
+            "X-Frame-Height": str(frame.height),
+        }
         return Response(content=frame.data, media_type=frame.media_type, headers=headers)
 
     @guarded(_TOOL_ERRORS, Fail("media_tool_preview_failed", "Failed to start the preview", 500))

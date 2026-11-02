@@ -155,6 +155,7 @@ export interface FramePreviewBody {
 export interface FramePreviewResult {
 	blob: Blob;
 	cached: boolean;
+	size?: { width: number; height: number };
 }
 
 export interface ClipPreviewBody {

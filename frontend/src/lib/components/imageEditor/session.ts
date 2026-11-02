@@ -143,11 +143,12 @@ function makeCanvas(width: number, height: number): HTMLCanvasElement {
 	const canvas = document.createElement('canvas');
 	canvas.width = Math.max(1, Math.round(width));
 	canvas.height = Math.max(1, Math.round(height));
+	canvas.getContext('2d', { willReadFrequently: true });
 	return canvas;
 }
 
 function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
-	const context = canvas.getContext('2d');
+	const context = canvas.getContext('2d', { willReadFrequently: true });
 	if (!context) throw new Error('This browser could not open a drawing surface.');
 	return context;
 }
@@ -221,6 +222,7 @@ export class PaintSession implements ToolHost, EditorApi {
 	} | null = null;
 	private contentRevision = 0;
 	private unsubscribers: Array<() => void> = [];
+	private releaseSurfaces: (() => void) | null = null;
 
 	constructor() {
 		this.builtins = [
@@ -294,10 +296,23 @@ export class PaintSession implements ToolHost, EditorApi {
 		this.overlayContext = overlay.getContext('2d');
 		this.theme = readTheme();
 		this.pattern = null;
+		const restored = () => {
+			this.pattern = null;
+			this.invalidate();
+			this.invalidateOverlay();
+		};
+		stage.addEventListener('contextrestored', restored);
+		overlay.addEventListener('contextrestored', restored);
+		this.releaseSurfaces = () => {
+			stage.removeEventListener('contextrestored', restored);
+			overlay.removeEventListener('contextrestored', restored);
+		};
 		this.invalidate();
 	}
 
 	detach(): void {
+		this.releaseSurfaces?.();
+		this.releaseSurfaces = null;
 		if (this.frame) cancelAnimationFrame(this.frame);
 		this.frame = 0;
 		if (this.overlayFrame) cancelAnimationFrame(this.overlayFrame);

@@ -72,6 +72,7 @@
 	import { geometryKey, liveMask, maskIsStale, sendPatch, type MaskChannel } from '$lib/tool-tabs/image/mask';
 	import { inputRef, outputSize, replaceOption, runBody, sourceOrigin, type PixelSize, type SourceOrigin } from '$lib/tool-tabs/image/payload';
 	import { FULL_SIDE, ImageRenderer, bakeIsCapped, isAbort, orient, stepsKey, type Rendered } from '$lib/tool-tabs/image/render';
+	import { showCanvas } from '$lib/tool-tabs/image/displayCanvas';
 	import { imageFieldsOf, sendTargetsFor, type ImageField } from '$lib/tool-tabs/image/sendTargets';
 	import { artifactRef, pastedImage } from '$lib/tool-tabs/image/sourceRefs';
 	import { readImageState, stackSignature, unsavedEdits, writeImageState, type SavedCopy } from '$lib/tool-tabs/image/state';
@@ -185,6 +186,7 @@
 	let paintBase = $state.raw<Rendered | null>(null);
 	let renderError = $state<string | null>(null);
 	let rendering = $state(false);
+	let surfaceVersion = $state(0);
 
 	let paintStage = $state<ReturnType<typeof PaintStage> | undefined>();
 	let paintSession = $state.raw<PaintSession | null>(null);
@@ -621,6 +623,7 @@
 	}
 
 	function track(list: readonly EditStep[] | null, assign: (value: Rendered | null) => void, maxSide?: number, primary = false) {
+		void surfaceVersion;
 		const size = sourceSize;
 		const url = sourceUrl;
 		const ref = resolvedRef;
@@ -663,15 +666,10 @@
 	$effect(() => track(thumbList, (value) => (thumbRender = value)));
 	$effect(() => track(paintList, (value) => (paintBase = value), 4096));
 
-	function showCanvas(node: HTMLCanvasElement, canvas: HTMLCanvasElement | null) {
-		function draw(next: HTMLCanvasElement | null) {
-			if (!next) return;
-			node.width = next.width;
-			node.height = next.height;
-			node.getContext('2d')?.drawImage(next, 0, 0);
-		}
-		draw(canvas);
-		return { update: draw };
+	function recoverSurfaces() {
+		renders.clear();
+		renderer.reset();
+		surfaceVersion += 1;
 	}
 
 	function draftFor(tool: string, params: unknown): StepDraft<unknown> | null {
@@ -1461,13 +1459,13 @@
 			<div class="flex flex-1 items-center justify-center bg-scrim"><Spinner /></div>
 		{/if}
 	{:else if shownSize && (mainRender || cropCanvas)}
-		<EditorCanvas mediaWidth={shownSize.width} mediaHeight={shownSize.height} bind:viewport {compare} {phone}>
+		<EditorCanvas mediaWidth={shownSize.width} mediaHeight={shownSize.height} bind:viewport {compare} {phone} checker>
 			{#snippet layer()}
-				<canvas use:showCanvas={mode === 'crop' ? cropCanvas : (mainRender?.canvas ?? null)} class="block h-full w-full" data-editor-layer aria-label="Edited picture"></canvas>
+				<canvas use:showCanvas={{ canvas: mode === 'crop' ? cropCanvas : (mainRender?.canvas ?? null), onrestore: recoverSurfaces }} class="block h-full w-full" data-editor-layer aria-label="Edited picture"></canvas>
 			{/snippet}
 			{#snippet before()}
 				{#if beforeRender}
-					<canvas use:showCanvas={beforeRender.canvas} class="block h-full w-full" data-editor-before aria-hidden="true"></canvas>
+					<canvas use:showCanvas={{ canvas: beforeRender.canvas, onrestore: recoverSurfaces }} class="block h-full w-full" data-editor-before aria-hidden="true"></canvas>
 				{/if}
 			{/snippet}
 			{#snippet overlay()}

@@ -7,7 +7,8 @@ from src.platform.media_tools.types import FilterFragment, ToolContext, ToolMedi
 if TYPE_CHECKING:
     from PIL import Image
 
-    from src.platform.media_tools.still import Clock, StillFrame
+    from src.platform.media_tools.still import StillFrame
+    from src.platform.media_tools.timeline import Clock, StepContext
 
 
 class MediaTool:
@@ -26,6 +27,9 @@ class MediaTool:
 
     def check_params(self, params: dict) -> None:
         return None
+
+    def prepare(self, params: dict, step: "StepContext") -> dict:
+        return params
 
     def has_image_path(self) -> bool:
         return type(self).image is not MediaTool.image

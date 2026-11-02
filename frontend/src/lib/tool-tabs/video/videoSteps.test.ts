@@ -1,12 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { apply, appliedSteps, beginEdit, createStack, effectiveSteps, toggleHidden, type EditStackState } from '$lib/tool-tabs/frame/editStack';
-import { compileSteps, draftFor, hasPixelEffects, isNoop, playbackPreview, railToolOf, summarize, type VideoOp, type VideoParams } from './videoSteps';
+import { effectTools } from '$lib/effects/catalog';
+import { EFFECT_CATALOG } from '../../../../tests/component/fixtures/effectCatalog';
+import {
+	compileSteps,
+	defaultParams,
+	draftFor,
+	hasPixelEffects,
+	isNoop,
+	isVideoOp,
+	playbackPreview,
+	railToolOf,
+	summarize,
+	type VideoOp,
+	type VideoParams
+} from './videoSteps';
 
 const clip = { width: 1920, height: 1080, duration: 8 };
+const effects = new Map(effectTools(EFFECT_CATALOG).map((effect) => [effect.id, effect]));
 
 function stackOf(...entries: Array<[VideoOp, VideoParams]>): EditStackState<VideoParams> {
 	let state = createStack<VideoParams>();
-	for (const [op, params] of entries) state = apply(beginEdit(state, draftFor(op, params)));
+	for (const [op, params] of entries) state = apply(beginEdit(state, draftFor(op, params, effects)));
 	return state;
 }
 
@@ -17,11 +32,20 @@ describe('the stack as a runs payload', () => {
 			['volume', { unit: 'percent', percent: 80, db: 0, fade_in: 0, fade_out: 0.5 }],
 			['film_grain', { amount: 30, size: 2, color: false, seed: 42 }]
 		);
-		expect(compileSteps(effectiveSteps(state), clip).steps).toEqual([
+		expect(compileSteps(effectiveSteps(state), clip, { effects }).steps).toEqual([
 			{ tool: 'trim', params: { start: 1.2, end: 6.4 } },
 			{ tool: 'volume', params: { unit: 'percent', percent: 80, fade_in: 0, fade_out: 0.5 } },
 			{ tool: 'film_grain', params: { amount: 30, size: 2, color: false, seed: 42 } }
 		]);
+	});
+
+	it('compiles any catalog effect generically, filling defaults and typing values from its params', () => {
+		const state = stackOf(['retro-tape.scanlines', { strength: '60', gap: 4.7 }], ['film_grain', { amount: 45 }]);
+		expect(compileSteps(effectiveSteps(state), clip, { effects }).steps).toEqual([
+			{ tool: 'retro-tape.scanlines', params: { strength: 60, gap: 4, roll: 8 } },
+			{ tool: 'film_grain', params: { amount: 45, size: 1.5, color: false, seed: 0 } }
+		]);
+		expect(compileSteps(effectiveSteps(state), clip).steps[0]).toEqual({ tool: 'retro-tape.scanlines', params: { strength: '60', gap: 4.7 } });
 	});
 
 	it('skips hidden steps', () => {
@@ -63,7 +87,7 @@ describe('the stack as a runs payload', () => {
 			['fix_colors', { white_balance: false, contrast: true, strength: 60 }],
 			['split', { at: 3 }]
 		);
-		expect(compileSteps(effectiveSteps(state), clip).steps).toEqual([
+		expect(compileSteps(effectiveSteps(state), clip, { effects }).steps).toEqual([
 			{ tool: 'volume', params: { unit: 'db', db: -6, fade_in: 0.5, fade_out: 0 } },
 			{ tool: 'replace_audio', params: { audio: { item_id: 'song-1' }, start: 2, loop: false } },
 			{ tool: 'mute', params: {} },
@@ -99,8 +123,11 @@ describe('playback preview', () => {
 });
 
 describe('step helpers', () => {
-	it('names the rail tool of an op', () => {
+	it('names the rail tool of an op, with every effect under Effects', () => {
 		expect(railToolOf('film_grain')).toBe('effects');
+		expect(railToolOf('retro-tape.scanlines')).toBe('effects');
+		expect(isVideoOp('retro-tape.scanlines')).toBe(true);
+		expect(isVideoOp('rotate')).toBe(false);
 		expect(railToolOf('replace_audio')).toBe('replace');
 		expect(railToolOf('trim')).toBe('trim');
 		expect(railToolOf('rotate')).toBeNull();
@@ -109,7 +136,15 @@ describe('step helpers', () => {
 	it('summarises steps in the stack wording', () => {
 		expect(summarize('trim', { start: 1.2, end: 6.4 })).toBe('Keep 1.20 → 6.40 s');
 		expect(summarize('volume', { unit: 'percent', percent: 80, fade_out: 0.5 })).toBe('80% · fade out 0.5 s');
-		expect(summarize('film_grain', { amount: 30, size: 2 })).toBe('Amount 30 · size 2');
+		expect(summarize('film_grain', { amount: 30, size: 2, color: true }, effects)).toBe('Amount 30% · Size 2 · colour grain');
+		expect(summarize('retro-tape.scanlines', {}, effects)).toBe('Strength 35% · Line gap 3px · Roll speed 8');
+	});
+
+	it('labels effect steps and fills their defaults from the catalog', () => {
+		const draft = draftFor('retro-tape.scanlines', {}, effects);
+		expect([draft.label, draft.icon, draft.lane]).toEqual(['Scanlines', 'editor-effects', undefined]);
+		expect(draftFor('gone.effect', {}).label).toBe('Effect');
+		expect(defaultParams('fix_colors', clip, 0, effects)).toEqual({ white_balance: true, contrast: true, strength: 100 });
 	});
 
 	it('knows a full-clip trim and a 1× speed do nothing', () => {
@@ -122,6 +157,8 @@ describe('step helpers', () => {
 
 	it('spots pixel effects in a payload', () => {
 		expect(hasPixelEffects([{ tool: 'trim', params: {} }])).toBe(false);
+		expect(hasPixelEffects([{ tool: 'rotate', params: {} }, { tool: 'mute', params: {} }])).toBe(false);
 		expect(hasPixelEffects([{ tool: 'film_grain', params: {} }])).toBe(true);
+		expect(hasPixelEffects([{ tool: 'retro-tape.scanlines', params: {} }])).toBe(true);
 	});
 });

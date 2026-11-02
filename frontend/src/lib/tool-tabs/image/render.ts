@@ -350,9 +350,9 @@ export class ImageRenderer {
 		if (!ref) throw new Error('This picture has to be in your Library or History first');
 		const known = outputSize(steps, this.source.size);
 		const payload = await this.payload(steps);
-		const { blob } = await previewFrame({ input: ref, steps: payload, max_side: known ? maxSide : FULL_SIDE, format: 'png' }, signal);
-		const canvas = await canvasFromBlob(blob);
-		const size = known ?? { width: canvas.width, height: canvas.height };
-		return { canvas: known ? canvas : scaled(canvas, fitSide(size, maxSide)), size };
+		const frame = await previewFrame({ input: ref, steps: payload, max_side: maxSide, format: 'png' }, signal);
+		const canvas = await canvasFromBlob(frame.blob);
+		const size = known ?? frame.size ?? { width: canvas.width, height: canvas.height };
+		return { canvas: scaled(canvas, fitSide(size, maxSide)), size };
 	}
 }

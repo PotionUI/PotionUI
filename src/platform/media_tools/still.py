@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional, Sequence
+from typing import Optional, Sequence
 
 from PIL import Image
 
 from src.platform.media_tools.base import MediaTool
 from src.platform.media_tools.chain import Step, check_accepts, check_requires
 from src.platform.media_tools.fastpath import encode_to, prepare_image
+from src.platform.media_tools.timeline import Clock, Memo, StepContext, no_memo
 from src.platform.media_tools.types import (
     FilterFragment,
     MediaToolError,
@@ -26,39 +27,6 @@ SCALE_ID = "preview_scale"
 PREVIEW_SUFFIX = ".mp4"
 PREVIEW_AUDIO_BITRATE = "128k"
 
-Memo = Callable[[tuple, Callable[[], Any]], Any]
-
-
-def _no_memo(key: tuple, compute: Callable[[], Any]) -> Any:
-    return compute()
-
-
-@dataclass(frozen=True)
-class Clock:
-    offset: float = 0.0
-    rate: float = 1.0
-    length: Optional[float] = None
-
-    def source_time(self, time: float) -> float:
-        return self.offset + time * self.rate
-
-    def output_time(self, source: float) -> float:
-        return (source - self.offset) / self.rate
-
-    def trimmed(self, start: float, end: Optional[float]) -> "Clock":
-        stop = end if self.length is None or end is None else min(end, self.length)
-        length = None if stop is None else max(0.0, stop - start)
-        return Clock(offset=self.source_time(start), rate=self.rate, length=length)
-
-    def sped(self, speed: float) -> "Clock":
-        length = None if self.length is None else self.length / speed
-        return Clock(offset=self.offset, rate=self.rate * speed, length=length)
-
-    def source_window(self) -> tuple[float, Optional[float]]:
-        end = None if self.length is None else self.source_time(self.length)
-        return self.offset, end
-
-
 @dataclass
 class StillFrame:
     source: ToolMedia
@@ -66,7 +34,7 @@ class StillFrame:
     clock: Clock
     media: ToolMedia
     ctx: ToolContext
-    memo: Memo = field(default=_no_memo)
+    memo: Memo = field(default=no_memo)
 
     @property
     def fps(self) -> float:
@@ -131,13 +99,14 @@ def render_still(
             if tool is None or spec.cardinality == "many_to_one":
                 raise UnsupportedMedia(f"{spec.label} has no frame preview")
             clock = tool.retime(clock, params)
+            params = tool.prepare(params, StepContext(source=source, clock=clock, ctx=ctx, memo=memo or no_memo))
             frame = StillFrame(
                 source=source,
                 time=max(0.0, clock.output_time(time)),
                 clock=clock,
                 media=media,
                 ctx=ctx,
-                memo=memo or _no_memo,
+                memo=memo or no_memo,
             )
             result = tool.still(image, params, frame)
             if result is None:

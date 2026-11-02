@@ -35,6 +35,24 @@ function text(el: Element | null | undefined): string {
 	return (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
+describe('EditorCanvas transparency', () => {
+	it('puts a checkerboard under the picture and its before layer only, so the stage around them stays black', () => {
+		const { q } = render({ checker: true, compare: true });
+		expect(q('[data-editor-canvas]')!.className).toContain('bg-scrim');
+		expect(q('[data-editor-canvas]')!.className).not.toContain('alpha-checker');
+		expect(q('[data-canvas-art]')!.className).not.toContain('alpha-checker');
+		expect(q('[data-canvas-layer]')!.className).toContain('alpha-checker');
+		expect(q('[data-canvas-layer] [data-host-after]')).not.toBeNull();
+		expect(q('[data-canvas-before]')!.className).toContain('alpha-checker');
+	});
+
+	it('leaves the layers bare for media that has no alpha', () => {
+		const { q } = render({ compare: true });
+		expect(q('[data-canvas-layer]')!.className).not.toContain('alpha-checker');
+		expect(q('[data-canvas-before]')!.className).not.toContain('alpha-checker');
+	});
+});
+
 describe('EditorCanvas zoom', () => {
 	it('fits the media inside the padded stage on a black canvas', () => {
 		const { q } = render();

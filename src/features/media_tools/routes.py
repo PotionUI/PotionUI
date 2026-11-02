@@ -1,12 +1,13 @@
 import asyncio
 from typing import TYPE_CHECKING, Optional
 
-from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Header, Query, Response, UploadFile
 from fastapi.responses import FileResponse
 
 from src.features.media_tools.dto import (
     CatalogResponse,
     ClipPreviewRequest,
+    EffectAnalysisRequest,
     FramePreviewRequest,
     PanelsRequest,
     PreviewRequest,
@@ -90,7 +91,12 @@ class MediaToolController(BaseController):
             request.max_side,
             request.format,
         )
-        headers = {"Cache-Control": "no-store", "X-Preview-Cache": "hit" if frame.cached else "miss"}
+        headers = {
+            "Cache-Control": "no-store",
+            "X-Preview-Cache": "hit" if frame.cached else "miss",
+            "X-Frame-Width": str(frame.width),
+            "X-Frame-Height": str(frame.height),
+        }
         return Response(content=frame.data, media_type=frame.media_type, headers=headers)
 
     @guarded(_TOOL_ERRORS, Fail("media_tool_preview_failed", "Failed to start the preview", 500))
@@ -110,6 +116,21 @@ class MediaToolController(BaseController):
     async def preview_clip_file(self, preview_id: str, current_user) -> FileResponse:
         path, media_type = await asyncio.to_thread(self.service.preview_clip_file, current_user, preview_id)
         return FileResponse(path, media_type=media_type, headers={"Cache-Control": "private, max-age=300"})
+
+    @guarded(_TOOL_ERRORS, Fail("media_tools_failed", "Failed to read the effect shader", 500))
+    async def effect_shader(self, tool_id: str, if_none_match: Optional[str], current_user) -> Response:
+        text, etag = self.service.effect_shader(tool_id)
+        headers = {"ETag": etag, "Cache-Control": "private, no-cache", "X-Content-Type-Options": "nosniff"}
+        if if_none_match and etag in [tag.strip() for tag in if_none_match.split(",")]:
+            return Response(status_code=304, headers=headers)
+        return Response(content=text, media_type="text/plain; charset=utf-8", headers=headers)
+
+    @guarded(_TOOL_ERRORS, Fail("media_tool_preview_failed", "Failed to measure the effect", 500))
+    async def effect_analysis(self, request: EffectAnalysisRequest, current_user) -> APIResponse:
+        result = await asyncio.to_thread(
+            self.service.effect_analysis, current_user, request.input, request.steps, request.step_index
+        )
+        return self.success_response(data=result.model_dump())
 
     @guarded(_TOOL_ERRORS, Fail("upload_failed", "Failed to store the file", 400))
     async def upload_artifact(self, file: UploadFile, current_user) -> APIResponse:
@@ -191,6 +212,24 @@ def build_router(container: "AppContainer") -> APIRouter:
         preview_id: str, current_user=Depends(require_media_viewer)
     ) -> FileResponse:
         return await controller.preview_clip_file(preview_id, current_user)
+
+    @router.get(
+        "/api/media-tools/effects/{tool_id}/shader", response_model=None, summary="Get An Effect Preview Shader"
+    )
+    async def get_media_tool_effect_shader(
+        tool_id: str,
+        if_none_match: Optional[str] = Header(None),
+        current_user=Depends(get_current_active_user),
+    ) -> Response:
+        return await controller.effect_shader(tool_id, if_none_match, current_user)
+
+    @router.post(
+        "/api/media-tools/effects/analysis", response_model=APIResponse, summary="Measure An Effect Over A Clip"
+    )
+    async def measure_media_tool_effect(
+        request: EffectAnalysisRequest, current_user=Depends(get_current_active_user)
+    ) -> APIResponse:
+        return await controller.effect_analysis(request, current_user)
 
     @router.post("/api/media-tools/artifacts", response_model=APIResponse, summary="Upload An Editor Artifact")
     async def upload_media_tool_artifact(

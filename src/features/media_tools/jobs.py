@@ -6,7 +6,14 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Callable, Deque, Dict, List, Optional
 
-from src.features.media_tools.dto import TERMINAL_STATUSES, MediaToolItem, PreviewClip, RunDTO, RunError
+from src.features.media_tools.dto import (
+    TERMINAL_STATUSES,
+    MediaToolItem,
+    PreviewClip,
+    RunDTO,
+    RunError,
+    RunSummaryDTO,
+)
 from src.platform.http.base_controller import PassThrough
 from src.platform.http.errors import DomainError
 from src.platform.media_tools import MediaToolError, ToolCancelled
@@ -26,6 +33,7 @@ class RunOutcome:
     items: List[MediaToolItem] = field(default_factory=list)
     replaced: bool = False
     preview: Optional[PreviewClip] = None
+    summary: Optional[RunSummaryDTO] = None
 
 
 @dataclass
@@ -41,6 +49,7 @@ class _Run:
     replaced: bool = False
     preview: Optional[PreviewClip] = None
     error: Optional[RunError] = None
+    summary: Optional[RunSummaryDTO] = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
     done: threading.Event = field(default_factory=threading.Event)
     finished_at: Optional[float] = None
@@ -233,6 +242,7 @@ class MediaToolJobManager:
             replaced=run.replaced if completed else False,
             preview=run.preview if completed else None,
             error=run.error,
+            summary=run.summary if completed else None,
         )
 
     def _report(self, run: _Run, fraction: float, label: str) -> None:
@@ -291,6 +301,7 @@ class MediaToolJobManager:
                 run.items = list(outcome.items)
                 run.replaced = outcome.replaced
                 run.preview = outcome.preview
+                run.summary = outcome.summary
                 run.progress = 1.0
             run.finished_at = self._clock()
             self._running -= 1

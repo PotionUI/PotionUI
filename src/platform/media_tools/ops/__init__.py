@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from src.platform.media_tools.ops import (
     trim,
     crop,
@@ -13,8 +15,6 @@ from src.platform.media_tools.ops import (
     frame,
     split,
     concat,
-    fix_colors,
-    film_grain,
     cut_finder,
     mute,
     volume,
@@ -22,6 +22,8 @@ from src.platform.media_tools.ops import (
     paint_layer,
     slice as slice_op,
 )
+from src.platform.media_tools.effects.loader import core_effects, register_effects
+from src.platform.media_tools.effects.runtime import EffectRuntime
 from src.platform.media_tools.registry import MediaToolRegistry
 from src.platform.media_tools.types import ToolSpec
 
@@ -38,8 +40,6 @@ CORE_MODULES = (
     frame,
     split,
     concat,
-    fix_colors,
-    film_grain,
     cut_finder,
     mute,
     volume,
@@ -53,6 +53,7 @@ def core_specs() -> list[ToolSpec]:
     return [module.spec() for module in CORE_MODULES]
 
 
-def register_core_tools(registry: MediaToolRegistry) -> None:
+def register_core_tools(registry: MediaToolRegistry, effects_runtime: Optional[EffectRuntime] = None) -> None:
     for tool_spec in core_specs():
         registry.register(tool_spec)
+    register_effects(registry, core_effects(), effects_runtime)

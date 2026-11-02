@@ -6,8 +6,6 @@ from PIL import Image
 
 from src.platform.imaging import film_grain
 from src.platform.imaging.film_grain import apply_film_grain, grain_mask
-from src.platform.media_tools import ToolContext, ToolMedia
-from src.platform.media_tools.ops import film_grain as film_grain_tool
 
 SETTINGS = dict(
     intensity=0.5, grain_size=1.5, shadows_bias=0.6, highlights_protect=0.2, monochromatic=False, blur_amount=0.0,
@@ -108,28 +106,3 @@ def test_the_fast_path_is_clearly_faster_than_the_float64_path():
     fast = best(lambda: apply_film_grain(source, **SETTINGS, rng=rng, fast=True))
 
     assert fast * 3 < exact
-
-
-def test_the_video_tool_grains_every_frame_on_the_fast_path(monkeypatch, tmp_path):
-    calls = []
-    original = film_grain.apply_film_grain
-
-    def spy(frame, **kwargs):
-        calls.append(kwargs.get("fast"))
-        return original(frame, **kwargs)
-
-    monkeypatch.setattr(film_grain_tool, "apply_film_grain", spy)
-    frames = []
-    media = ToolMedia(path=tmp_path / "unused.mp4", kind="video", width=32, height=32, fps=10.0)
-
-    def fake_stream(stream_media, ctx, transform, **kwargs):
-        for _ in range(3):
-            frames.append(transform(flat(128, (32, 32))))
-        return stream_media
-
-    monkeypatch.setattr(film_grain_tool, "stream_video_frames", fake_stream)
-
-    film_grain_tool.spec().impl.run([media], {"amount": 30, "size": 1.5, "color": True, "seed": 1}, ToolContext(tmp_path))
-
-    assert calls == [True, True, True]
-    assert all(frame.dtype == np.uint8 for frame in frames)

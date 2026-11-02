@@ -323,11 +323,12 @@ class RunMediaToolTool(BaseTool):
             return ToolResult(success=False, data="", error=self._run_failure(result))
         total = len(result.items)
         items = [_item_payload(item) for item in result.items[:MAX_RESULT_ITEMS]]
-        message = (
-            "Replaced the original library item with the edited version."
-            if result.replaced
-            else f"Saved {total} new library item(s); the originals are unchanged."
-        )
+        if result.summary is not None and not total:
+            message = result.summary.message
+        elif result.replaced:
+            message = "Replaced the original library item with the edited version."
+        else:
+            message = f"Saved {total} new library item(s); the originals are unchanged."
         payload: Dict[str, Any] = {
             "status": "completed", "replaced": result.replaced, "count": total, "items": items, "message": message,
         }

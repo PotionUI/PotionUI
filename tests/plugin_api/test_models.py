@@ -4,9 +4,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
+
 from src.features.models.records import Model
 from src.plugin_api.models import (
     get_model_provider_info,
+    index_model_file,
     model_for_path,
     model_type_dirs,
     model_write_dir,
@@ -154,3 +157,101 @@ def test_the_classifier_registry_view_is_read_only():
     view = HeaderView("safetensors", {"a": TensorInfo("F16", (1,))})
     assert model_classifier_registry.classify(view) is None
     assert FamilyMatch("x").family == "x"
+
+
+class _Roots:
+    def __init__(self, write_dirs):
+        self.write_dirs = write_dirs
+
+    def write_dir(self, model_type):
+        if model_type not in self.write_dirs:
+            raise LookupError(model_type)
+        return SimpleNamespace(path=self.write_dirs[model_type])
+
+
+class _Indexing:
+    def __init__(self, outcome):
+        self.outcome = outcome
+        self.paths = []
+
+    def index_path(self, path):
+        self.paths.append(path)
+        return dict(self.outcome)
+
+
+class _Assignments:
+    def __init__(self, already=()):
+        self.already = set(already)
+        self.calls = []
+
+    def assign_model_to_user(self, model_id, user_id):
+        from src.features.models.exceptions import ModelAlreadyAssignedException
+
+        self.calls.append((model_id, user_id))
+        if (model_id, user_id) in self.already:
+            raise ModelAlreadyAssignedException("already")
+
+
+def _index_container(tmp_path, outcome=None, already=()):
+    write_dir = tmp_path / "models" / "refmods"
+    write_dir.mkdir(parents=True)
+    indexing = _Indexing(outcome or {"model_id": "m-1", "indexed": True, "duplicate_of": None, "warning": None})
+    assignments = _Assignments(already)
+    container = SimpleNamespace(
+        model_roots=_Roots({"refmod": write_dir}),
+        model_index_manager=SimpleNamespace(indexing=indexing, assignments=assignments),
+    )
+    return container, write_dir, indexing, assignments
+
+
+def test_index_model_file_indexes_a_file_in_a_write_root_and_assigns_it_to_the_caller(tmp_path):
+    container, write_dir, indexing, assignments = _index_container(tmp_path)
+    target = write_dir / "hero.safetensors"
+    target.write_bytes(b"x")
+
+    with patch("src.plugin_api.models.get_container", return_value=container):
+        result = index_model_file(target, user_id="user-1")
+
+    assert result["model_id"] == "m-1"
+    assert indexing.paths == [str(target.resolve())]
+    assert assignments.calls == [("m-1", "user-1")]
+
+
+def test_index_model_file_assigns_the_existing_twin_of_a_duplicate_and_tolerates_a_prior_assignment(tmp_path):
+    outcome = {"model_id": None, "indexed": False, "duplicate_of": {"id": "m-0"}, "warning": None}
+    container, write_dir, _, assignments = _index_container(tmp_path, outcome, already={("m-0", "user-1")})
+    target = write_dir / "copy.safetensors"
+    target.write_bytes(b"x")
+
+    with patch("src.plugin_api.models.get_container", return_value=container):
+        index_model_file(target, user_id="user-1")
+
+    assert assignments.calls == [("m-0", "user-1")]
+
+
+def test_index_model_file_without_a_user_assigns_nobody(tmp_path):
+    container, write_dir, _, assignments = _index_container(tmp_path)
+    target = write_dir / "hero.safetensors"
+    target.write_bytes(b"x")
+
+    with patch("src.plugin_api.models.get_container", return_value=container):
+        index_model_file(target)
+
+    assert assignments.calls == []
+
+
+def test_index_model_file_refuses_files_outside_the_write_roots_and_missing_files(tmp_path):
+    container, write_dir, indexing, _ = _index_container(tmp_path)
+    outside = tmp_path / "elsewhere.safetensors"
+    outside.write_bytes(b"x")
+    escape = write_dir / ".." / ".." / "elsewhere.safetensors"
+
+    with patch("src.plugin_api.models.get_container", return_value=container):
+        with pytest.raises(ValueError, match="not inside a model folder"):
+            index_model_file(outside, user_id="user-1")
+        with pytest.raises(ValueError, match="not inside a model folder"):
+            index_model_file(escape, user_id="user-1")
+        with pytest.raises(ValueError, match="not a file"):
+            index_model_file(write_dir / "missing.safetensors", user_id="user-1")
+
+    assert indexing.paths == []

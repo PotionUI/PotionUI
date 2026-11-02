@@ -60,7 +60,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Backends** — contributing an engine | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate` |
 | **Cloud** — contributing a hosted-model provider | `.cloud`, `.cloud_testing` | `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `valid_specs`, `load_catalog_file`, `encode_media`, `decode_inline`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS`, `fake_director_specs`, `fake_video_bytes`, `TINY_PNG`, `bind_plugin_backend` |
 | **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
-| **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks` |
+| **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks`, `load_native_component(path, kind)` (one component file, such as a `vae`, loaded on the CPU by the engine's own loader and returned as its wrapper: `.module`, `move_to(device)`, `unload()`) |
 | **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem`, `lint_preset_dir`, `PRESET_MEDIA_MAX_BYTES` and `PRESET_COVER_VIDEO_MAX_BYTES` (the byte budgets the preset linter warns above for any preset media file and for a video cover), `downscale_and_save_webp`, `describe_preset` (an installed preset's name, `vars` and modes, each with its default form and every form's fields as `type` + `required` + `multi`; `None` when not installed), `PresetDescription`, `ModeDescription`, `FieldDescription`, `bind_director_media(request, role, media, segment_id=None, promote=False)` (puts a resolved image, from `resolve_media_ref`, into a single-shot Video Director document as its `first` or `last` frame, keeping the rest of the document; with `promote=True` a first frame turns a text-only shot into a start-image shot and a last frame turns a start-image shot into a first-and-last shot; raises `DirectorBindingError` with a `code`), `RequirementBackendInfo` (the resolved backend a `RequirementContext` carries: `id`, `engine`, `driver`, `config`) |
 | **Forms** — the field types core ships | `.forms` | `core_field_type_names()` (the names of every core non-container field type, e.g. to validate a `field_type` a form-building tool is handed) |
 | **Generation** — submitting, following and reading generations | `.generation` | `submit_generation`, `cancel_generation`, `generation_state`, `list_generation_files`, `resolve_media_ref`, `get_session_snapshot`, `GenerationRequest`, `MediaRefError`, `SessionNotFoundError`, `IdempotencyKeyConflict` |
@@ -1526,8 +1526,6 @@ still images (grain, VHS, grades) are photo filters, not tools: see
 | `frame` | video | image | `time` (seconds) |
 | `split` | audio, video | same, many | `mode` every / at, `part_seconds`, `at` (seconds) |
 | `concat` | video, 2 to 8 selected | video, one | `overlap`, `overlap_frames`, `fit`, `keep_audio` |
-| `fix_colors` | video (Effects menu) | same | `white_balance`, `contrast`, `strength` percent |
-| `film_grain` | video (Effects menu) | same | `amount` 0 to 100 percent, `size` 1 to 3, `color`, `seed` |
 | `cut_finder` | video | video, many | `sensitivity` 0 to 100, `min_shot_seconds` |
 | `mute` | video with sound | same | none |
 | `volume` | video, audio with sound | same | `unit` percent / db, `percent` 0 to 400, `db` -60 to 20, `fade_in`, `fade_out` (seconds) |
@@ -1547,13 +1545,9 @@ A `media` parameter names another file: `{"item_id": "..."}` (a Library item or 
 `{"generation_file_id": "..."}`; a bare string is read as an `item_id`. The run checks that the caller owns it and that
 its kind is one of the parameter's `accepts`, then hands the tool a staged `ToolMedia` in its place.
 
-`film_grain` draws new grain on every frame, so the grain moves like film stock instead of sitting on the
-picture as a fixed overlay. The same `seed` on the same clip gives the same grain; `amount` 0 only
-re-encodes. It uses the grain math of the `film_grain` image pipe (`src/platform/imaging/film_grain.py`, in its float32
-`fast` mode, about 35 ms per 1080p frame on two threads) and streams one frame at a time through ffmpeg, so a
-long clip is never held in memory. Size 1 is pixel-sized grain; finer grain would be invisible. Frame count, frame rate,
-size and the audio track are kept, and Save as new and Replace original behave as for the other video tools.
-It is an effect only: no preset adds it as a final step.
+The Effects menu (`group: effects`) lists **effects**: tools defined by an `effect.yml` folder, with a live preview
+shader and ffmpeg, torch or numpy renders. Film grain (`film_grain`) and Fix colours (`fix_colors`) are the core ones.
+Their contract, the catalog `effect` block and the shader and analysis endpoints are in [Video Effects](effects.md).
 
 ### The editor API
 
@@ -1571,8 +1565,10 @@ a file path in a response.
 | `POST /api/media-tools/preview/clip` | `{input: ref, steps, start_seconds? 0, duration_seconds? 3, height? 480}` | 202 `{run_id, preview}` |
 | `GET /api/media-tools/previews/{id}` | | the preview clip (cookie or bearer, so a `<video>` can play it) |
 | `POST /api/media-tools/artifacts` | multipart `file` | `{id, media_type, mime_type, url, width, height, duration_seconds, fps, size}` |
+| `GET /api/media-tools/effects/{tool_id}/shader` | | the effect's preview shader as `text/plain`, with an `ETag` |
+| `POST /api/media-tools/effects/analysis` | `{input: ref, steps, step_index}` | `{values, cached}`, an effect's measured values |
 
-- A `run` is `{run_id, kind: run / preview, status, progress 0..1, label, items, replaced, preview, error}`. Poll it by
+- A `run` is `{run_id, kind: run / preview, status, progress 0..1, label, items, replaced, preview, error, summary}`. Poll it by
   id for progress; a reload reattaches through the stored id or the run list.
 - **Saving a stack** runs it as one background run. Hidden steps are skipped and never validated; up to 64 visible steps
   run in order. `mode: new` makes Library items, `mode: update` with `target_item_id` replaces the file of the copy a
@@ -1580,8 +1576,8 @@ a file path in a response.
   helper upload is refused with `replace_not_allowed`. A stack with `split` saves its parts as separate items named
   "part 1 of 2".
 - **Frame preview** renders one frame of a video, or the image, through the stack with each tool's frame path, the same
-  code the full render uses: `film_grain` seeds each frame's grain by its frame number, so the paused frame shows the
-  grain the render will put there, and `fix_colors` estimates over the trimmed range of the source. `time_seconds` is on
+  code the full render uses: `film_grain` seeds each frame's grain by a hash of its frame number, so the paused frame shows
+  the grain the render will put there, and `fix_colors` measures the trimmed range of the source. `time_seconds` is on
   the source clip; trim and speed steps map it to the frame the render would show. Sound and timing steps leave the
   picture alone. A tool with no frame path (`frame`, `concat`, most plugin tools) is refused with its `step_index`.
   Answers are cached per user, source, time, stack and size.
@@ -1692,11 +1688,19 @@ directory afterwards, whatever happens.
 
 - **`ToolMedia`** is a frozen dataclass: `path`, `kind` (`image` | `video` | `audio`), `width`, `height`,
   `duration`, `fps`, `has_audio`, `has_alpha`. Everything except `path` and `kind` may be `None`.
-- **`ToolContext`** gives you `scratch_dir`, `new_path(suffix)` for a fresh output path,
+- **`ToolContext`** gives you `scratch_dir`, `user_id` (the user the run belongs to, `None` outside a
+  Library or History run), `new_path(suffix)` for a fresh output path,
   `progress(fraction, label="")`, `is_cancelled()`, `probe(path)` and `ffmpeg(args, duration=None)`.
   `ffmpeg` is the one cancellable runner: it adds `-y`, parses `-progress` into `ctx.progress` when you
   pass the expected output `duration`, kills the process when the run is cancelled and raises on a failure
   without ever exposing stderr or server paths. Use it instead of `subprocess` so cancel works.
+- **`ctx.summarize(message, links=())`** lets the last step of a run finish with no media: return `[]` after
+  calling it and the run completes with nothing added to the Library, showing `message` (and the first
+  `(label, href)` link: a path inside the app such as `/models`, with no backslash, whitespace or control
+  character) in place of the Library notice. The run's
+  `summary` is `{message, links: [{label, href}]}`.
+- **`ToolFailed(message)`** ends the run as failed with `message` shown to the user, and **`ToolCancelled()`**
+  ends it as cancelled; raise it when `ctx.is_cancelled()` turns true during a long loop.
 - **`check_params(params)`** is an optional override for rules that span parameters (`end` must be greater
   than `start`); raise `InvalidToolParams(field, message)`.
 - **`validate_params(spec, params)`** is what the API, presets and chat all call before running; it applies
@@ -1776,7 +1780,7 @@ Successful JSON responses use the usual `{success, data}` envelope. A refusal an
   `replace` swaps the thumbnails together with the file and deletes the old ones. If another run replaced the
   same item first, the later run fails with `conflict` and publishes nothing. A run that would create more
   than 500 files fails with `too_many_outputs` before anything is published.
-- `GET /api/media-tools/runs/{run_id}` returns `{run_id, status, progress, label, items, replaced, error}`.
+- `GET /api/media-tools/runs/{run_id}` returns `{run_id, status, progress, label, items, replaced, error, summary}`.
   `status` is `queued`, `running`, `completed`, `failed` or `cancelled`; `items` are the resulting Library
   items; a failed run carries `error: {code, message}` (a tool's `requires` check ends the run with
   `unsupported_media`). An unknown run id, or another user's, is a 404.
@@ -1807,6 +1811,7 @@ model_type_dirs("lora")          # -> every online root's bound directory for th
 model_write_dir("lora")          # -> the directory a new download for this type lands in
 resolve_model_file(model_id)     # -> the winning present copy's absolute Path, or raises
 model_for_path(path)             # -> that model's catalog dict (or None), from a filesystem path
+index_model_file(path, user_id=None)  # -> {model_id, indexed, duplicate_of, warning}; catalogues a file the plugin wrote
 ```
 
 `resolve_model_file` raises `src.features.models.locator.ModelFileUnavailable` (not importable
@@ -1815,6 +1820,9 @@ model has no present copy on any online root; the error names the root when the 
 exist but its root is offline. `model_type_dirs`/`model_write_dir` can raise
 `src.platform.filesystem.model_roots.ModelRootError` subclasses when no root is bound for that
 type, is read-only, or is offline — same caveat.
+
+`index_model_file` takes only an existing file inside a folder some model type writes to (a `ValueError` otherwise),
+and with `user_id` assigns the new model, or the catalog model it duplicates, to that user.
 
 `MODEL_DIRECTORY_ALIASES` and `type_for_folder_name(name)` are for a plugin that speaks another
 tool's folder vocabulary (a ComfyUI-style `loras`/`checkpoints`/… folder name) and needs the

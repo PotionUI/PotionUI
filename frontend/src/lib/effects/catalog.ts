@@ -279,3 +279,10 @@ export function scalarUniform(value: DeriveScalar): UniformValue | null {
 	return typeof value === 'number' ? value : null;
 }
 
+
+export function sameValues(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+	for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+		if (!Object.is(a[key] ?? null, b[key] ?? null)) return false;
+	}
+	return true;
+}

@@ -92,7 +92,7 @@
 	} from '$lib/tool-tabs/video/videoSteps';
 	import { keptRange } from '$lib/tool-tabs/video/timeMap';
 	import { loadMediaToolCatalog, mediaToolCatalog } from '$lib/media-tools/catalog';
-	import { effectGroups, effectTools, type EffectTool } from '$lib/effects/catalog';
+	import { effectGroups, effectTools, sameValues, type EffectTool } from '$lib/effects/catalog';
 	import { planChain, type AnalysisNeed, type ChainPlan } from '$lib/effects/plan';
 	import { liveState } from '$lib/effects/liveMode';
 	import { PREVIEW_CAPS } from '$lib/effects/budget';
@@ -261,12 +261,17 @@
 	let cropRect = $derived<CropRect>(editingCrop ? readCrop(panelParams).rect : FULL_CROP);
 	let keepPitch = $derived(effective.concat(pending ? [{ ...pending, id: 'p', hidden: false }] : []).filter((step) => step.tool === 'speed').every((step) => readSpeed(step.params as VideoParams).keep_pitch));
 	let splitting = $derived(hasSplit(saveCompiled.steps));
+	let effectsTool = $derived(tool === 'effects');
+	let effectUpdating = $derived(effectsTool && !!pending?.target && pending.tool === panelOp);
+	let effectOriginal = $derived(effectUpdating ? (edits.steps.find((step) => step.id === pending?.target)?.params as VideoParams | undefined) : undefined);
+	let canApplyEffect = $derived(ready && !!panelOp && (!effectOriginal || !sameValues(panelParams, effectOriginal)));
+	let canResetEffect = $derived(!!panelOp && !sameValues(panelParams, defaultsFor(panelOp)));
 	let pendingMeaningful = $derived(!!pending && isVideoOp(pending.tool) && ready && (!!pending.target || !isNoop(pending.tool, pending.params, clip, base)));
 	let hasEdits = $derived(saveCompiled.steps.length > 0 || pendingMeaningful);
 	let visibleCount = $derived(effective.length);
 	let dirty = $derived(ready ? dirtyCount(signature, savedSignature, visibleCount) : 0);
 	let canSave = $derived(ready && !!inputRef && hasEdits);
-	let canApply = $derived(!!panelOp && ready && (tool === 'mute' || !!pending?.target || !isNoop(panelOp, panelParams, clip, base)));
+	let canApply = $derived(effectsTool ? canApplyEffect : !!panelOp && ready && (tool === 'mute' || !!pending?.target || !isNoop(panelOp, panelParams, clip, base)));
 	let wantFrame = $derived(ready && !!inputRef && !playing && tool !== 'crop' && !clipPreview && live.serverPaused && hasPixelEffects(previewCompiled.steps));
 	let frameKey = $derived(wantFrame ? JSON.stringify([previewCompiled.steps, Math.round(playhead * 1000)]) : null);
 	let beforeKey = $derived(compare && ready && !!inputRef && !playing && !clipPreview && !live.canvas ? JSON.stringify([beforeCompiled.steps, Math.round(playhead * 1000)]) : null);
@@ -366,6 +371,12 @@
 	function resetCurrent() {
 		edits = discardPending(edits);
 		aspect = 'free';
+	}
+
+	function resetEffect() {
+		if (!panelOp) return;
+		if (pending?.target) setParams(panelOp, defaultsFor(panelOp));
+		else edits = discardPending(edits);
 	}
 
 	function setAspect(key: string) {
@@ -1358,7 +1369,8 @@
 						title={toolLabels[tool]}
 						icon={toolIcons[tool]}
 						bind:collapsed={optionsCollapsed}
-						applyLabel={tool === 'trim' ? 'Apply trim' : tool === 'effects' ? 'Apply effect' : tool === 'mute' ? 'Mute' : 'Apply'}
+						actions={!effectsTool}
+						applyLabel={tool === 'trim' ? 'Apply trim' : tool === 'mute' ? 'Mute' : 'Apply'}
 						{canApply}
 						canReset={!!pending}
 						{phone}
@@ -1381,6 +1393,11 @@
 								{phone}
 								previewState={clipPreview?.state ?? 'idle'}
 								{busy}
+								{effectUpdating}
+								canApplyEffect={canApplyEffect}
+								canResetEffect={canResetEffect}
+								onapplyeffect={applyCurrent}
+								onreseteffect={resetEffect}
 								onparams={setParams}
 								onaspect={setAspect}
 								oneffect={selectEffect}

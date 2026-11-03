@@ -269,6 +269,8 @@
 		pendingHere && catalogTool ? ((pendingHere.params as CatalogParams).values ?? {}) : catalogTool ? initialValues(catalogTool) : {}
 	);
 	let effectParams = $derived<EffectParams | null>(pendingHere?.tool === 'effects' ? (pendingHere.params as EffectParams) : null);
+	let effectUpdating = $derived(pendingHere?.tool === 'effects' && !!pendingHere.target);
+	let effectOriginal = $derived(effectUpdating ? ((stack.steps.find((step) => step.id === pendingHere?.target)?.params as EffectParams | undefined) ?? null) : null);
 
 	let mainSteps = $derived(mode === 'preview' ? previewSteps(stack) : mode === 'crop' ? (pendingHere?.tool === 'crop' ? stepsBeforeTarget : effective) : effective);
 	let beforeList = $derived(mode === 'preview' && compare ? (pending ? beforeSteps(stack) : []) : null);
@@ -1366,7 +1368,7 @@
 	let optionsTitle = $derived(activeTool ? toolMeta(activeTool, catalog).label : 'Tools');
 	let optionsIcon = $derived(activeTool ? toolMeta(activeTool, catalog).icon : 'sliders');
 	let applyLabel = $derived(
-		activeTool === 'crop' ? 'Apply crop' : activeTool === 'slice' ? 'Apply slice' : activeTool === 'effects' ? (effectParams?.kind === 'look' ? 'Apply look' : 'Apply') : activeTool === 'mask' ? 'Save mask' : activeTool === 'paint' ? 'Apply paint' : 'Apply'
+		activeTool === 'crop' ? 'Apply crop' : activeTool === 'slice' ? 'Apply slice' : activeTool === 'mask' ? 'Save mask' : activeTool === 'paint' ? 'Apply paint' : 'Apply'
 	);
 	let canApply = $derived(
 		!busy &&
@@ -1401,7 +1403,7 @@
 	{:else if activeTool === 'resize' && resizeParams && resizeInput}
 		<ResizeOptions params={resizeParams} input={resizeInput} {phone} onchange={(next) => setDraft('resize', next)} />
 	{:else if activeTool === 'effects'}
-		<EffectsOptions params={effectParams} base={thumbRender?.canvas ?? null} {phone} effects={stillEffects} onchange={(next) => setDraft('effects', next)} />
+		<EffectsOptions params={effectParams} base={thumbRender?.canvas ?? null} {phone} effects={stillEffects} updating={effectUpdating} original={effectOriginal} busy={!!busy} onapply={() => void applyTool()} onchange={(next) => setDraft('effects', next)} />
 		{#if bakeIsCapped(outputDims) && !phone}
 			<p class="text-sm text-warning" data-bake-cap>Looks on pictures over {FULL_SIDE} px are drawn at {FULL_SIDE} px on the long side and scaled back up when saved.</p>
 		{/if}
@@ -1753,6 +1755,7 @@
 					{applyLabel}
 					{canApply}
 					canReset={!busy && (!!pendingHere || mode === 'mask' || mode === 'paint')}
+					actions={activeTool !== 'effects'}
 					{phone}
 					onapply={() => void applyTool()}
 					onreset={resetTool}

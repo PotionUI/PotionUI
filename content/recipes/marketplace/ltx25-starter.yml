@@ -133,6 +133,7 @@ presets:
 smoke:
   preset_id: "01KX47LTX25VIDEO00000000TV"
   mode: "video"
+  timeout_seconds: 600
   seed: 12345
   # Matches content/presets/marketplace/LTX-2.5/tests.yml's own
   # "ltx25-video-distilled-t2v-fast" case verbatim: the Distilled speed

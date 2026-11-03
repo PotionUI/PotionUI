@@ -109,6 +109,7 @@ presets:
 smoke:
   preset_id: "01KX47WANVIDEO0000000000TV"
   mode: "video"
+  timeout_seconds: 600
   seed: 12345
   # Matches content/presets/marketplace/Wan/tests.yml's own fast smoke case
   # verbatim (a real maintainer Video Director session): the Balanced

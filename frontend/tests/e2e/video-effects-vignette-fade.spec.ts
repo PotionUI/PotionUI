@@ -140,7 +140,7 @@ test('vignette and fade preview live on a real clip with no mocks, and Save rend
 	const canvas = editor.locator('[data-live-preview]');
 
 	await addEffect(editor, 'vignette', { amount: '100' });
-	await expect(editor.getByRole('button', { name: /Reopen Vignette/ })).toBeVisible();
+	await expect(editor.locator('[data-stack-row]').filter({ hasText: 'Vignette' })).toBeVisible();
 	await expect(canvas).toBeVisible({ timeout: 10000 });
 	const source = await regionsOf(page, null, null, 0);
 	expect(source.corners).toBeGreaterThan(source.centre * 0.8);
@@ -151,7 +151,7 @@ test('vignette and fade preview live on a real clip with no mocks, and Save rend
 	await screenshot(page, JOURNEY, 'vignette-live-1440');
 
 	await addEffect(editor, 'fade', { fade_in: '0.5', fade_out: '0.5' });
-	await expect(editor.getByRole('button', { name: /Reopen Fade/ })).toBeVisible();
+	await expect(editor.locator('[data-stack-row]').filter({ hasText: 'Fade' })).toBeVisible();
 	await expect.poll(() => editor.locator('[data-video-element]').evaluate((el) => (el as HTMLVideoElement).currentTime), { timeout: 10000 }).toBeLessThan(0.05);
 	await expect.poll(async () => (await liveRegions(page, canvas)).centre, { timeout: 15000 }).toBeLessThan(8);
 	await expect(editor.locator('[data-preview-clip]')).toHaveCount(0);

@@ -511,17 +511,25 @@ export interface Session {
 	created_at: string;
 	updated_at: string;
 	pinned?: boolean;
+	version: number;
+}
+
+export interface SessionWriteOrigin {
+	kind: string;
+	label: string;
 }
 
 export interface SaveSessionRequest {
 	preset_id: string;
 	name: string;
 	data: ModeBasedSessionData;
+	base_version?: number | null;
 }
 
 export interface UpdateSessionRequest {
 	name: string;
 	data: ModeBasedSessionData;
+	base_version?: number | null;
 }
 
 // Session history ("Session history" surface) — read-only past saves of a

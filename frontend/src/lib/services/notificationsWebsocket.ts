@@ -20,6 +20,7 @@ import { generationFailureErrorId, generationFailureToastMessage } from '$lib/ge
 import { copyText } from '$lib/utils/clipboard';
 import { tabDraftSync } from '$lib/stores/tabDraftSync';
 import type { TabDraftDoc } from '$lib/services/api/tabDrafts';
+import { sessionLiveSync, type SessionChangedMessage } from '$lib/stores/sessionLiveSync';
 
 class NotificationsWebSocketService extends BaseWebSocket {
 	private intentionalDisconnect = false;
@@ -102,6 +103,10 @@ class NotificationsWebSocketService extends BaseWebSocket {
 
 			case 'tab_variables_changed':
 				tabDraftSync.receiveDraft(message.tab_id as string, message.doc as TabDraftDoc | undefined, message.rev as number);
+				break;
+
+			case 'session_changed':
+				void sessionLiveSync.receive(message as unknown as SessionChangedMessage);
 				break;
 
 			default:

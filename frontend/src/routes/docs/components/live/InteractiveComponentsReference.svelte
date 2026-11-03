@@ -67,8 +67,8 @@
 		demoGeneration = { ...demoGeneration, isGenerating: false, currentProgress: null, queue: [] };
 	}
 	const demoSessions: Session[] = [
-		{ id: 'session-1', preset_id: 'potion-xl', name: 'Amber product study', data: {}, created_at: '2026-07-10T12:00:00Z', updated_at: '2026-07-11T08:30:00Z' },
-		{ id: 'session-2', preset_id: 'potion-xl', name: 'Blue glass variations', data: {}, created_at: '2026-07-09T12:00:00Z', updated_at: '2026-07-10T15:15:00Z' }
+		{ id: 'session-1', preset_id: 'potion-xl', name: 'Amber product study', data: {}, created_at: '2026-07-10T12:00:00Z', updated_at: '2026-07-11T08:30:00Z', version: 1 },
+		{ id: 'session-2', preset_id: 'potion-xl', name: 'Blue glass variations', data: {}, created_at: '2026-07-09T12:00:00Z', updated_at: '2026-07-10T15:15:00Z', version: 1 }
 	];
 	$: demoSession = demoSessions.find((session) => session.id === demoSessionId) ?? null;
 	$: demoSessionPanel = {

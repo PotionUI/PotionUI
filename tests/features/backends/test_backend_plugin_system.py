@@ -160,11 +160,11 @@ class TestEngineSelfDescription(unittest.TestCase):
     """
 
     def test_native_engine_declares_its_gpu_fields(self):
-        """device/dtype/gpu_max_vram are native-engine config, not global settings."""
+        """device/dtype/gpu_max_vram/text_encoder_placement are native-engine config, not global settings."""
         from src.features.backends.backend_config import NativeBackendConfig
 
         names = [f["name"] for f in NativeBackendConfig.engine_fields()]
-        self.assertEqual(names, ["device", "dtype", "gpu_max_vram"])
+        self.assertEqual(names, ["device", "dtype", "gpu_max_vram", "text_encoder_placement"])
         self.assertTrue(NativeBackendConfig.engine_singleton)
         self.assertEqual(NativeBackendConfig.engine_label, "Native")
 

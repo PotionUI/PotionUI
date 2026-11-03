@@ -169,6 +169,13 @@ class NativeBackend(InProcessBackend):
         if gpu_monitor is not None:
             gpu_monitor.set_vram_cap_gb(self.config.gpu_max_vram)
 
+        from src.platform.runtime.native.memory.text_encoder import configure_text_encoder_placement
+
+        configure_text_encoder_placement(
+            getattr(self.config, "text_encoder_placement", None),
+            vram_budget_gb=self.config.gpu_max_vram,
+        )
+
         logger.debug(
             f"[NATIVE_BACKEND] Injected device={injected['device']} "
             f"dtype={injected['dtype']} vram_limit_gb={injected['vram_limit_gb']} "

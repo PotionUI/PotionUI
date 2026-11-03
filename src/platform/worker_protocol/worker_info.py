@@ -22,6 +22,8 @@ from src.platform.worker_protocol.common import (
 #: are advisory is dispatch policy, not a property of the message.
 FINGERPRINT_DOMAINS = ("pipe_catalog", "plugin_bundle", "build")
 
+ALLOCATOR_DAMAGED_FEATURE = "allocator_damaged"
+
 
 class GpuInfoV1(ProtocolModel):
     """One accelerator visible to the worker."""

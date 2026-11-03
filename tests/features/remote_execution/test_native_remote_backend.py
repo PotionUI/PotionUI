@@ -56,6 +56,8 @@ from src.pipelines.outputs import (
     ProgressGenerationOutput,
 )
 from src.platform.database.database import Database
+from src.platform.runtime import cuda_allocator
+from src.platform.runtime.cuda_allocator import WORKER_RESTART_HINT
 from tests.fixtures.db_template import copy_template_db
 from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
@@ -1332,3 +1334,60 @@ class TestEngineFlagsTravelWithTheJob(NativeRemoteBackendTestCase):
         self.assertIs(package.engine_flags["native_fp8_matmul"], False)
         round_trip = type(package).model_validate(package.model_dump(mode="json"))
         self.assertEqual(round_trip.engine_flags, package.engine_flags)
+
+
+# -- allocator damage on the worker --------------------------------------------
+
+class TestWorkerAllocatorDamage(NativeRemoteBackendTestCase):
+    DAMAGE = "CUDA driver error: device not ready"
+
+    def _cuda_worker(self):
+        return self._build_worker(build_id=None, device="cuda", cuda_probe=lambda: (True, None))
+
+    def _pipeline_data(self, generation_id, config=None):
+        pipe = {"name": "image/fake", "id": "p1", "enabled": True, "config": config or {}, "input": []}
+        return {"generation_id": generation_id, "preset_id": "preset-1", "pipes": [pipe]}
+
+    def test_a_damaged_worker_is_refused_before_any_submit_under_the_worker_restart_code(self):
+        container, app = self._cuda_worker()
+
+        with patch.object(cuda_allocator, "_damage", self.DAMAGE):
+            generation_id, outputs = self._run_generation(self._backend(app), self._pipeline_data("gen-damaged"))
+
+        self.assertIsNone(container.coordinator.record_for(generation_id))
+
+        row = self.repo.get_by_id(generation_id)
+        self.assertEqual(row.state, S.FAILED)
+        self.assertEqual(row.error_code, "worker_gpu_restart_required")
+        self.assertTrue(row.error_message.startswith("Worker 'worker-1'"))
+        self.assertTrue(row.error_message.endswith(WORKER_RESTART_HINT))
+
+        errors = [o for o in outputs if isinstance(o, ErrorGenerationOutput)]
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].error_code, "worker_gpu_restart_required")
+        self.assertEqual(errors[0].error, row.error_message)
+
+    def test_a_cpu_worker_is_not_refused_by_the_host(self):
+        with patch.object(cuda_allocator, "_damage", self.DAMAGE):
+            generation_id, outputs = self._run_generation(
+                self._backend(self.worker_app), self._pipeline_data("gen-cpu-worker"),
+            )
+
+        self.assertIsNotNone(self.worker_container.coordinator.record_for(generation_id))
+        self.assertEqual(self.repo.get_by_id(generation_id).state, S.SUCCEEDED)
+        self.assertFalse([o for o in outputs if isinstance(o, ErrorGenerationOutput)])
+
+    def test_the_host_dispatches_again_as_soon_as_the_worker_restarted(self):
+        container, app = self._cuda_worker()
+        backend = self._backend(app)
+
+        with patch.object(cuda_allocator, "_damage", self.DAMAGE):
+            self.assertEqual(self._run(backend.health_check())["status"], "degraded")
+            self._run_generation(backend, self._pipeline_data("gen-before-restart"))
+
+        with patch.object(cuda_allocator, "_damage", None):
+            self.assertEqual(self._run(backend.health_check())["status"], "healthy")
+            generation_id, _ = self._run_generation(backend, self._pipeline_data("gen-after-restart"))
+
+        self.assertIsNone(container.coordinator.record_for("gen-before-restart"))
+        self.assertIsNotNone(container.coordinator.record_for(generation_id))

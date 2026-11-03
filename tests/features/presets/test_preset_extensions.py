@@ -429,3 +429,57 @@ def test_director_reference_field_rejections(tmp_path, director, fragment):
     errors = _all_errors(loader)
     assert "plugin 'ext-bad'" in errors and fragment in errors
     assert template.vars["video_director"] == director
+
+
+def _children_ext(ref):
+    return _field_ext(fields=[{"type": "section", "label": "Extra", "children": ref}])
+
+
+def test_children_include_inside_the_plugin_is_built(tmp_path):
+    manifest = _plugin(
+        tmp_path, "ext-a", _children_ext("{{ paths.preset }}/fields/inner.yml"),
+        extra_files={"fields/inner.yml": {"fields": [{"name": "inner", "type": "checkbox"}]}},
+    )
+    loader, template = _load(tmp_path, [manifest])
+    assert loader.load_errors == {}
+    assert "inner" in [f.name for f, _ in walk_fields(template.modes["txt2img"].forms[0].fields)]
+
+
+@pytest.mark.parametrize("ref", [
+    "{{ paths.preset }}/../../outside.yml",
+    "ABSOLUTE",
+    "{{ paths._shared }}/../marketplace/Krea2/modes/txt2img/tabs/lora.yml",
+])
+def test_children_include_outside_the_plugin_is_rejected(tmp_path, ref):
+    outside = tmp_path / "plugins" / "outside.yml"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text(yaml.safe_dump({"fields": [{"name": "leaked", "type": "checkbox"}]}))
+    ref = str(outside) if ref == "ABSOLUTE" else ref
+    loader, template = _load(tmp_path, [_plugin(tmp_path, "ext-bad", _children_ext(ref))])
+    _assert_rejected(loader, template, "ext-bad", "resolves outside the plugin directory")
+
+
+def _keys_and_values(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield key
+            yield from _keys_and_values(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _keys_and_values(item)
+    else:
+        yield value
+
+
+def test_bound_form_data_of_an_extended_preset_has_no_anchors(tmp_path):
+    from src.features.forms.binding import bind_form
+
+    ext = {"fields": [{"into": {"tab": "main"}, "fields": [
+        {"type": "section", "anchor": "extra", "label": "Extra", "children": [{"name": "x", "type": "checkbox", "default": True}]},
+    ]}]}
+    loader, template = _load(tmp_path, [_plugin(tmp_path, "ext-a", ext)])
+    assert loader.load_errors == {}
+    bound = bind_form(template, "txt2img", None, {"steps": 12})
+    assert bound.values["x"] is True and bound.values["steps"] == 12
+    seen = set(_keys_and_values(bound.values))
+    assert not seen & {"anchor", "main", "refs", "sampling", "extra"}

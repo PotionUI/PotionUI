@@ -64,3 +64,13 @@ def test_fixture_extension_is_lint_clean_against_the_real_pipe_catalog():
         plugin_manifests=manifests_from_plugin_dirs([FIXTURE_PLUGIN]),
     )
     assert linter._lint_preset_extensions() == []
+
+
+def test_fixture_form_data_of_the_extended_preset_has_no_anchors(extended):
+    from scripts.preset_render import build_fixture_form_data
+
+    preset, _ = extended
+    form_data = build_fixture_form_data(preset, "txt2img")
+    assert form_data["grain_intensity"] == 0.3
+    anchors = {f.anchor for f, _ in walk_fields(preset.modes["txt2img"].forms[0].fields) if f.anchor}
+    assert anchors and not (set(form_data) & (anchors | {"anchor"}))

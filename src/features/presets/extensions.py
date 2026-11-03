@@ -18,7 +18,7 @@ from src.features.presets.templates import FieldTemplate, ModeTemplate, PipeTemp
 from src.platform.filesystem.yaml_io import load_yaml_file
 from src.platform.observability.logger import logger
 
-BuildFields = Callable[[List[Dict[str, Any]], Path, str], List[FieldTemplate]]
+BuildFields = Callable[[List[Dict[str, Any]], Path, str, Path], List[FieldTemplate]]
 ModeChecks = Callable[[PresetTemplate, str, ModeTemplate], List[str]]
 
 
@@ -95,7 +95,7 @@ def _mark_source(fields: List[FieldTemplate], plugin_id: str) -> None:
         field.source_plugin = plugin_id
 
 
-def _contained(path: Path, root: Path) -> bool:
+def contained(path: Path, root: Path) -> bool:
     try:
         path.resolve().relative_to(root)
     except ValueError:
@@ -104,7 +104,7 @@ def _contained(path: Path, root: Path) -> bool:
 
 
 def read_extension_file(extension: PresetExtension) -> Tuple[Optional[PresetExtensionFile], List[str]]:
-    if not _contained(extension.file, extension.plugin_dir):
+    if not contained(extension.file, extension.plugin_dir):
         return None, [f"file '{extension.declared_file}' resolves outside the plugin directory"]
     if not extension.file.is_file():
         return None, [f"file '{extension.declared_file}' not found"]
@@ -123,7 +123,7 @@ def _group_field_dicts(
     raw = group.fields
     if group.file is not None:
         path = root / group.file
-        if not _contained(path, extension.plugin_dir):
+        if not contained(path, extension.plugin_dir):
             return [], [f"{prefix}: file '{group.file}' resolves outside the plugin directory"], root
         if not path.is_file():
             return [], [f"{prefix}: file '{group.file}' not found"], root
@@ -155,7 +155,7 @@ def _build_groups(
             problems.append(f"{extension.declared_file}: fields[{index}]: adds no fields")
             continue
         try:
-            templates = build_fields(dicts, root, f"{extension.declared_file}: fields[{index}]")
+            templates = build_fields(dicts, root, f"{extension.declared_file}: fields[{index}]", extension.plugin_dir)
         except Exception as exc:
             problems.append(f"{extension.declared_file}: fields[{index}]: {exc}")
             continue

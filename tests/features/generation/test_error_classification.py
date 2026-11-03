@@ -236,3 +236,27 @@ def test_a_cloud_failure_with_context_leads_with_it():
     assert classification.category == "cloud_credits"
     assert classification.summary == "Shot 3 of 4 failed. Shots 1-2 were kept. The cloud provider account is out of credits."
     assert classify_generation_error(CloudRunError("credits", "x")).summary == "The cloud provider account is out of credits."
+
+
+def test_the_wsl_allocator_failure_is_not_marked_when_the_driver_retries(monkeypatch):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+
+    classify_generation_error(RuntimeError("CUDA driver error: device not ready"))
+
+    assert cuda_allocator.allocator_damage() is None
+
+
+def test_classifying_a_failure_records_the_first_fatal_driver_oom(monkeypatch):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+    classify_generation_error(RuntimeError("CUDA driver error: device not ready"))
+
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"

@@ -13,6 +13,7 @@ from src.pipelines.outputs import (
 )
 from src.features.generation.error_classification import classify_generation_error
 from src.platform.assets import AssetFetcher
+from src.platform.runtime.cuda_allocator import raise_if_allocator_damaged
 from src.platform.runtime.gpu import GpuMonitor
 from src.platform.observability.system_probe import SystemMonitor
 from src.platform.runtime.memory_advisor import MemoryAdvisor
@@ -184,6 +185,10 @@ def _describe_step(output: ProgressGenerationOutput) -> Optional[str]:
 
 def _pipe_identifier(pipe_config: Dict[str, Any]) -> str:
     return pipe_config.get('id') or pipe_config['name']
+
+
+def _runs_on_cuda(pipes: list) -> bool:
+    return any(str((pipe.get('config') or {}).get('device', '')).startswith('cuda') for pipe in pipes)
 
 
 def _pipe_identifier_map(pipes: list) -> Dict[str, str]:
@@ -604,6 +609,9 @@ class GenerationEngine:
                     self.models.begin_generation(cache_owner)
                 except Exception:
                     logger.debug("[GENERATION] begin_generation failed; continuing", exc_info=True)
+
+            if _runs_on_cuda(pipes):
+                raise_if_allocator_damaged()
 
             # Validate pipeline before execution
             self.validate_pipeline(pipes)

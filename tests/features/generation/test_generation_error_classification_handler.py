@@ -7,6 +7,7 @@ import torch
 from src.features.generation.engine import GenerationEngine
 from src.pipelines.contracts import IOType, PipeInput, PipeOutputSpec
 from src.pipelines.outputs import ErrorGenerationOutput
+from src.platform.runtime import cuda_allocator
 from src.platform.runtime.native.errors import HostMemoryExhaustedError
 
 CUDA_OOM_MESSAGE = "CUDA out of memory. Tried to allocate 2.00 GiB (GPU 0; 23.99 GiB total capacity)"
@@ -61,8 +62,8 @@ def mock_dependencies():
     }
 
 
-def _run(manager, pipe_class, pipe_name):
-    pipes = [{'name': pipe_name, 'enabled': True, 'input': [], 'cache': [], 'config': {}}]
+def _run(manager, pipe_class, pipe_name, config=None):
+    pipes = [{'name': pipe_name, 'enabled': True, 'input': [], 'cache': [], 'config': config or {}}]
     manager.pipe_catalog.get_pipe.return_value = pipe_class
 
     outputs = []
@@ -160,3 +161,26 @@ def test_the_error_names_the_failing_pipe_and_its_last_step(mock_dependencies):
     assert error.pipe_key == "stepping_pipe"
     assert error.failed_at_step == "Sampling 3/8"
     assert "/srv/" not in error.message
+
+
+def test_a_damaged_allocator_refuses_a_cuda_run_before_its_first_pipe(mock_dependencies, monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
+    pipe_class = Mock()
+    manager = GenerationEngine(**mock_dependencies)
+
+    error = _run(manager, pipe_class, "any_pipe", config={"device": "cuda:0"})
+
+    pipe_class.assert_not_called()
+    assert error.error.startswith("CudaAllocatorDamaged: ")
+    assert "CUDA driver error: device not ready" in error.error
+    assert cuda_allocator.RESTART_HINT in error.error
+
+
+def test_a_damaged_allocator_lets_a_run_without_cuda_through(mock_dependencies, monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
+    manager = GenerationEngine(**mock_dependencies)
+
+    error = _run(manager, HostRamOomPipe, "host_ram_oom_pipe", config={"device": "cpu"})
+
+    assert error.error_code == "host_ram_oom"
+    assert HOST_RAM_MESSAGE in error.error

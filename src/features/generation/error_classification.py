@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
 from src.pipelines.cloud import CloudRunError
+from src.platform.runtime.cuda_allocator import record_driver_oom
 
 _CUDA_OOM_MARKERS = (
     "cuda out of memory",
@@ -277,6 +278,7 @@ def classify_generation_error(exc: BaseException) -> ErrorClassification:
         if context:
             classification.summary = f"{context} {classification.summary}"
         return classification
+    record_driver_oom(exc)
     for category, matches in _EXCEPTION_CHECKS:
         if matches(exc):
             return classification_for_code(category)
@@ -310,9 +312,9 @@ _TEXT_CHECKS: Tuple[Tuple[str, Callable[[str], bool]], ...] = (
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
-    import torch
+    from src.platform.runtime.native.errors import is_cuda_oom
 
-    return isinstance(exc, torch.cuda.OutOfMemoryError)
+    return is_cuda_oom(exc)
 
 
 def _is_host_ram_exhausted(exc: BaseException) -> bool:

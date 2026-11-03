@@ -26,6 +26,7 @@ from src.bootstrap.middleware import register_middleware
 from src.bootstrap.routers import register_routers
 from src.bootstrap.static_frontend import mount_frontend
 from src.features.providers.registry import ensure_providers_discovered
+from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged, allocator_damage
 from src.platform.runtime.offload.pool import shutdown_offload
 from src.platform.plugins.router_mounter import MOUNT_FAILURE_MESSAGE, MountResult
 
@@ -340,6 +341,13 @@ def mount_plugin_routers(app: FastAPI, container: AppContainer) -> None:
         container.plugin_repository.disable_plugin(plugin_id)
 
 
+def health_payload() -> dict:
+    damage = allocator_damage()
+    if damage is not None:
+        return {"status": "degraded", "service": "potionui-api", "reason": str(CudaAllocatorDamaged(damage))}
+    return {"status": "healthy", "service": "potionui-api"}
+
+
 def create_app(container: Optional[AppContainer] = None) -> FastAPI:
     """Build and return the fully-assembled FastAPI application."""
     # Run database migrations BEFORE building the container (it needs DB access).
@@ -520,7 +528,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
     @app.get("/health", tags=["System & Health"], summary="Health Check")
     async def health_check():
         """Check if the API service is running and healthy."""
-        return {"status": "healthy", "service": "potionui-api"}
+        return health_payload()
 
     # Mount plugin API routers (dynamically - PluginRouterMounter tracks which
     # routes belong to which plugin so operations.enable_plugin/disable_plugin

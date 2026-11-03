@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from src.platform.runtime.cuda_allocator import driver_oom_retries, is_driver_oom, record_driver_oom
+
 _TRUNCATE = 20
 
 
@@ -16,6 +18,22 @@ def _fmt_keys(keys: Iterable[str]) -> str:
     shown = keys[:_TRUNCATE]
     suffix = "" if len(keys) <= _TRUNCATE else f" (+{len(keys) - _TRUNCATE} more)"
     return "[" + ", ".join(shown) + "]" + suffix
+
+
+def is_cuda_oom(exc: BaseException) -> bool:
+    import torch
+
+    if isinstance(exc, torch.cuda.OutOfMemoryError):
+        return True
+    if is_driver_oom(exc):
+        return driver_oom_retries()
+    accelerator_error = getattr(torch, "AcceleratorError", None)
+    return accelerator_error is not None and isinstance(exc, accelerator_error) and "out of memory" in str(exc)
+
+
+def retry_after_cuda_oom(exc: BaseException) -> bool:
+    record_driver_oom(exc)
+    return is_cuda_oom(exc)
 
 
 class NativeEngineError(Exception):

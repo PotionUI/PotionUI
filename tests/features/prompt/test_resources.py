@@ -368,10 +368,15 @@ MOD_FORM = {
 MOD_MEMBERS = {"model:face": ["image"], "model:pair": ["image", "audio"], "model:off": ["image"]}
 
 
+def _mod_members(source, key):
+    assert source == "refmod"
+    return MOD_MEMBERS[key]
+
+
 def test_a_plain_prompt_refmod_names_every_member_after_all_native_references_of_its_kind():
     text, problems = resolve_prompt_resources(
         "@[reference_mods:model:pair] beside @[references:storage/uploads/b.png]", MOD_RESOURCES, MOD_FORM,
-        MOD_MEMBERS.__getitem__,
+        _mod_members,
     )
     assert problems == {}
     assert text == "<Picture 4> <Picture 5> <Audio 1> <Audio 2> beside <Picture 2>"
@@ -379,14 +384,14 @@ def test_a_plain_prompt_refmod_names_every_member_after_all_native_references_of
 
 def test_a_plain_prompt_refmod_at_zero_strength_is_a_removed_item():
     text, problems = resolve_prompt_resources(
-        "@[reference_mods:model:off]", MOD_RESOURCES, MOD_FORM, MOD_MEMBERS.__getitem__,
+        "@[reference_mods:model:off]", MOD_RESOURCES, MOD_FORM, _mod_members,
     )
     assert text == "@[reference_mods:model:off]"
     assert "removed from this field (model:off)" in problems["reference_mods"][0]
 
 
 def test_a_plain_prompt_refmod_that_cannot_be_read_says_why():
-    def members(key):
+    def members(source, key):
         raise ValueError(f"the RefMod {key} is not available: no present location")
 
     _text, problems = resolve_prompt_resources("@[reference_mods:model:face]", MOD_RESOURCES, MOD_FORM, members)
@@ -401,4 +406,4 @@ def test_describe_leaves_refmod_resources_out_of_the_native_item_list():
 def test_a_plain_prompt_citing_a_refmod_that_cannot_be_matched_fails_the_submission():
     pair = PromptPair(positive="a lighthouse with @[reference_mods:model:gone]", negative="")
     with pytest.raises(FormBindingError, match="removed from this field \\(model:gone\\)"):
-        resolve_prompt_pairs([pair], MOD_RESOURCES, MOD_FORM, MOD_MEMBERS.__getitem__)
+        resolve_prompt_pairs([pair], MOD_RESOURCES, MOD_FORM, _mod_members)

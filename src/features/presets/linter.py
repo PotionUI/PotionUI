@@ -24,6 +24,7 @@ from src.platform.plugins.sampling import (
     schedule_registry,
 )
 from src.platform.filesystem.yaml_io import load_yaml, load_yaml_file
+from src.features.prompt.resource_sources import declared_prompt_resource_sources, source_field_type
 from .children_paths import DEFAULT_SHARED_PATH, resolve_children_path
 from .children_refs import parse_children_ref, read_children_fragment
 from .formula_groups import FORMULA_INPUT_TYPES, iter_formula_fields
@@ -316,6 +317,10 @@ class PresetLinter:
         self._pipe_import_notes: List[LintIssue] = []
 
     def lint(self) -> List[LintIssue]:
+        with declared_prompt_resource_sources(self.plugin_manifests):
+            return self._lint_all()
+
+    def _lint_all(self) -> List[LintIssue]:
         issues: List[LintIssue] = []
         seen_ids: Dict[str, str] = {}
         # target preset id -> (preset.yml path, validated manifest) - only for
@@ -891,12 +896,17 @@ class PresetLinter:
                         f"{loc}: field '{entry.field}' is not a field of any '{mode_name}' form",
                     ))
                     continue
-                if entry.source == "refmod":
-                    if types != {"lora_picker"}:
+                if entry.source is not None:
+                    field_type = source_field_type(entry.source)
+                    if field_type is None:
+                        issues.append(LintIssue(
+                            "error", preset_str, f"{loc}: field '{entry.field}' names unknown source '{entry.source}'",
+                        ))
+                    elif types != {field_type}:
                         issues.append(LintIssue(
                             "error", preset_str,
-                            f"{loc}: field '{entry.field}' has type {sorted(types)}; a 'refmod' source "
-                            f"needs a lora_picker field",
+                            f"{loc}: field '{entry.field}' has type {sorted(types)}; a '{entry.source}' source "
+                            f"needs a {field_type} field",
                         ))
                     continue
                 non_media = sorted(t for t in types if t not in _PROMPT_RESOURCE_FIELD_TYPES)

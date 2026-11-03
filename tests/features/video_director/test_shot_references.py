@@ -93,7 +93,8 @@ BUNDLES = {
 }
 
 
-def _members(key):
+def _members(source, key):
+    assert source == "refmod"
     if key not in BUNDLES:
         raise ValueError(f"the RefMod {key} is not available: no present location")
     return BUNDLES[key]

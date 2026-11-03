@@ -790,7 +790,7 @@ class PromptResourceSpec(BaseModel):
 
     field: str
     kind: Literal["image", "video", "audio"]
-    source: Optional[Literal["refmod"]] = None
+    source: Optional[str] = None
     label: Optional[str] = None
     token: str
 
@@ -798,6 +798,13 @@ class PromptResourceSpec(BaseModel):
     def _validate_shape(self) -> "PromptResourceSpec":
         if not self.field or not self.field.strip():
             raise ValueError("prompt_resources entry needs a non-empty field")
+        if self.source is not None:
+            from src.features.prompt.resource_sources import source_field_type
+
+            if source_field_type(self.source) is None:
+                raise ValueError(
+                    f"prompt_resources entry for field '{self.field}' names unknown source '{self.source}'"
+                )
         if PROMPT_RESOURCE_INDEX_PLACEHOLDER not in self.token:
             raise ValueError(
                 f"prompt_resources token '{self.token}' for field '{self.field}' must contain "

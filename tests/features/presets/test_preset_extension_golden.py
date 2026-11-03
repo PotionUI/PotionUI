@@ -37,6 +37,14 @@ def test_fixture_extension_applies_to_the_core_preset(extended):
     assert section_names.index("grain_intensity") == section_names.index("cfg") + 1
 
 
+def test_an_extension_can_cite_a_field_through_its_own_plugins_source_when_loaded_headless(extended):
+    preset, load_errors = extended
+    assert {k: v for k, v in load_errors.items() if "krea2-stacks" in k} == {}
+    assert {"field": "loras", "source": "fixture-bundle", "kind": "image", "label": "Stacks", "token": "<Picture @>"} in (
+        preset.prompt_resources["txt2img"]
+    )
+
+
 def test_merged_pipeline_matches_the_golden_render(extended):
     preset, _ = extended
     record = render_preset_mode(build_processor(), preset, "txt2img")

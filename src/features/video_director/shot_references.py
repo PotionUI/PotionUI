@@ -3,12 +3,12 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from src.features.presets.schema import PROMPT_RESOURCE_INDEX_PLACEHOLDER
 from src.features.prompt.reference_pool import (
-    RefModMembersResolver,
-    RefModPoolMember,
+    BundlePoolMember,
     build_reference_pool,
+    bundle_field_sources,
     pool_entry_keys,
-    refmod_fields,
 )
+from src.features.prompt.resource_sources import BundleMembersResolver, source_label
 from src.features.prompt.resources import RESOURCE_MARKER_RE, spec_for_item, specs_by_field
 from src.platform.filesystem.media_kinds import media_item_kind
 
@@ -25,9 +25,9 @@ def packed_reference_pool(
     reference_fields: Sequence[str],
     form_data: Mapping[str, Any],
     prompt_resources: Sequence[Mapping[str, Any]] = (),
-    refmod_members: Optional[RefModMembersResolver] = None,
+    bundle_members: Optional[BundleMembersResolver] = None,
 ) -> List[Tuple[str, Any]]:
-    return build_reference_pool(reference_fields, form_data, prompt_resources, refmod_members)[0]
+    return build_reference_pool(reference_fields, form_data, prompt_resources, bundle_members)[0]
 
 
 def _pool_indices(pool: Sequence[Tuple[str, Any]], field: str, item_key: str) -> List[int]:
@@ -39,14 +39,14 @@ def _pool_indices(pool: Sequence[Tuple[str, Any]], field: str, item_key: str) ->
 
 def _entry_spec(specs: Dict[str, List[Mapping[str, Any]]], entry: Tuple[str, Any]) -> Optional[Mapping[str, Any]]:
     field, item = entry
-    if isinstance(item, RefModPoolMember):
+    if isinstance(item, BundlePoolMember):
         return next((spec for spec in specs.get(field, []) if spec.get("kind") == item.kind), None)
     return spec_for_item(specs[field], item)
 
 
 def _entry_kind_name(entry: Tuple[str, Any]) -> str:
     item = entry[1]
-    return item.kind if isinstance(item, RefModPoolMember) else (media_item_kind(item) or "unrecognised")
+    return item.kind if isinstance(item, BundlePoolMember) else (media_item_kind(item) or "unrecognised")
 
 
 def derive_shot_references(
@@ -55,7 +55,7 @@ def derive_shot_references(
     prompt_resources: Sequence[Mapping[str, Any]],
 ) -> ShotReferences:
     specs = specs_by_field(prompt_resources)
-    bundle_fields = refmod_fields(prompt_resources)
+    bundle_sources = bundle_field_sources(prompt_resources)
     problems: List[str] = []
     cited: set = set()
 
@@ -79,7 +79,10 @@ def derive_shot_references(
             if unsupported:
                 kind = _entry_kind_name(pool[unsupported[0]])
                 article = "an" if kind[:1] in "aeiou" else "a"
-                what = f"RefMod with {article} {kind} member" if field in bundle_fields else f"{kind} item"
+                what = (
+                    f"{source_label(bundle_sources[field])} with {article} {kind} member"
+                    if field in bundle_sources else f"{kind} item"
+                )
                 note(f"the prompt references a {what} ({item_key}), which this field's prompt cannot reference")
                 continue
             cited.update(matches)

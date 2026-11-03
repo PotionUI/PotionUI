@@ -13,3 +13,13 @@ preset_extensions:
   - target: "01M3SVA35XT0E7CG5JZTS9P21S"
     modes: ["txt2img"]
     file: "extensions/fake-studio.yml"
+  - target: "4TK1KBQZ2XMB8ME0PTMXS1YJQP"
+    modes: ["txt2img"]
+    file: "extensions/krea2-stacks.yml"
+
+prompt_resource_sources:
+  - id: "fixture-bundle"
+    field_type: "lora_picker"
+    label: "Bundle"
+    badge: "Kit"
+    members: "sources.members"

@@ -1,0 +1,2 @@
+prompt_resources:
+  - {field: "loras", source: "fixture-bundle", kind: "image", label: "Stacks", token: "<Picture @>"}

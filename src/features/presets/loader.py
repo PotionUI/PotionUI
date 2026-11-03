@@ -36,6 +36,7 @@ from src.features.presets.templates import PresetTemplate, PipeTemplate, FieldTe
 from src.features.presets.mode_fields import resolve_requirement_fields
 from src.features.presets.extensions import apply_preset_extensions, contained, duplicate_anchor_errors, plugin_preset_extensions
 from src.platform.filesystem.yaml_io import load_yaml_file
+from src.features.prompt.resource_sources import declared_prompt_resource_sources
 from .schema import (
     validate_manifest,
     validate_pipeline_file,
@@ -797,6 +798,11 @@ class PresetTemplateLoader:
             self._notify_presets_changed()
 
     def _scan_presets(self) -> Tuple[List[PresetTemplate], Dict[str, List[str]]]:
+        manifests = self.plugin_registry.get_enabled_plugins() if self.plugin_registry is not None else []
+        with declared_prompt_resource_sources(manifests):
+            return self._scan_preset_roots()
+
+    def _scan_preset_roots(self) -> Tuple[List[PresetTemplate], Dict[str, List[str]]]:
         """Scan every preset root + apply plugin-contributed modes, returning
         a FRESH ``(presets, load_errors)`` pair.
 

@@ -81,6 +81,8 @@ from src.platform.plugins.prompt_importers import (
     PromptImporterRegistry,
     prompt_importer_registry as _shared_prompt_importer_registry,
 )
+from src.platform.plugins.prompt_resource_sources import PromptResourceSourceRegistry
+from src.features.prompt.resource_sources import prompt_resource_sources
 from src.platform.plugins.phrasebook_ops import (
     PhrasebookOperationRegistry,
     phrasebook_operation_registry as _shared_phrasebook_operation_registry,
@@ -351,6 +353,7 @@ class AppContainer:
     user_model_attribute_repository: "UserModelAttributeRepository"
     model_attributes_manager: "ModelAttributeDefinitionsEditor"
     prompt_importer_registry: PromptImporterRegistry
+    prompt_resource_source_registry: PromptResourceSourceRegistry
     phrasebook_operation_registry: PhrasebookOperationRegistry
     requirement_checker_registry: RequirementCheckerRegistry
     recipe_step_kind_registry: RecipeStepKindRegistry
@@ -731,6 +734,7 @@ def build_container() -> AppContainer:
     # registered during `_sync_enabled_plugins` below. There are no builtin
     # importers, so this starts empty.
     prompt_importer_registry = _shared_prompt_importer_registry
+    prompt_resource_source_registry = prompt_resource_sources()
 
     # Phrasebook batch tools - core's replace/set_active/move/delete register
     # first so a plugin colliding with one of them fails its enable.
@@ -771,6 +775,7 @@ def build_container() -> AppContainer:
         automation_node_registry=automation_node_type_registry,
         automation_template_registry=automation_template_registry,
         prompt_importer_registry=prompt_importer_registry,
+        prompt_resource_source_registry=prompt_resource_source_registry,
         phrasebook_operation_registry=phrasebook_operation_registry,
         requirement_checker_registry=requirement_checker_registry,
         recipe_step_kind_registry=recipe_step_kind_registry,
@@ -1287,6 +1292,7 @@ def build_container() -> AppContainer:
         cloud_policy=cloud_policy,
         output_broadcaster=output_broadcaster,
         limit_guard=limit_guard,
+        prompt_resource_source_registry=prompt_resource_source_registry,
     )
 
     # Initialize generation history manager

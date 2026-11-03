@@ -18,7 +18,7 @@
 		disabled?: boolean;
 		phone?: boolean;
 		onselect: (id: SourceEntryId) => void;
-		footer?: Snippet;
+		footer?: Snippet<[() => void]>;
 	} = $props();
 </script>
 
@@ -45,7 +45,7 @@
 			</button>
 		{/each}
 		{#if footer}
-			<div class="mt-1 border-t border-line px-2.5 pb-1 pt-2">{@render footer()}</div>
+			<div class="mt-1 border-t border-line px-2.5 pb-1 pt-2">{@render footer(() => close(true))}</div>
 		{/if}
 	{/snippet}
 </Menu>

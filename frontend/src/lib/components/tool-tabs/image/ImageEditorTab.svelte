@@ -1622,8 +1622,14 @@
 
 {#snippet replaceMenu()}
 	<ReplaceMenu label="Replace picture" entries={sourceEntries('image', phone)} disabled={replaceBlocked} {phone} onselect={(id) => replacePicker?.open(id)}>
-		{#snippet footer()}
-			<RecentPictures onpick={(ref) => void changeSource(ref)} columns="grid-cols-3" />
+		{#snippet footer(close)}
+			<RecentPictures
+				columns="grid-cols-3"
+				onpick={(ref) => {
+					close();
+					void changeSource(ref);
+				}}
+			/>
 			{#if !phone}
 				<p class="mt-2 flex items-center gap-2 text-sm text-fg-subtle">or paste <Kbd keys="Ctrl V" /></p>
 			{/if}

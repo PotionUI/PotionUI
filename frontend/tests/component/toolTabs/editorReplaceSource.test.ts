@@ -208,6 +208,7 @@ describe('image editor Replace control', () => {
 		await settle();
 		document.querySelector<HTMLButtonElement>('[data-recent-history] button')!.click();
 		await settle();
+		expect(document.querySelector('[role="menu"]')).toBeNull();
 		expect(confirmDialog).not.toHaveBeenCalled();
 		expect(replace).toHaveBeenCalledTimes(1);
 		expect(replace.mock.calls[0][0]).toMatchObject({ generation_file_id: '777' });

@@ -148,7 +148,7 @@ export function createSessionLiveSync(deps: LiveSyncDeps) {
 	let highlightSeq = 0;
 	const keptMine = new Set<string>();
 	const chains = new Map<string, Promise<void>>();
-	const highlightTimers = new Map<string, unknown>();
+	const highlightTimers = new Set<unknown>();
 	const saveListeners = new Set<(tabId: string) => void>();
 
 	function setMarks(tabId: string, next: TabSyncMarks | null) {
@@ -173,21 +173,16 @@ export function createSessionLiveSync(deps: LiveSyncDeps) {
 	}
 
 	function expireHighlights(tabId: string) {
-		const timerKey = tabId;
-		const existing = highlightTimers.get(timerKey);
-		if (existing !== undefined) timers.clearTimeout(existing);
 		const stamp = highlightSeq;
-		highlightTimers.set(
-			timerKey,
-			timers.setTimeout(() => {
-				highlightTimers.delete(timerKey);
-				const current = marksOf(tabId);
-				const highlights = Object.fromEntries(
-					Object.entries(current.highlights).filter(([, value]) => value > stamp)
-				);
-				setMarks(tabId, { ...current, highlights });
-			}, highlightMs)
-		);
+		const timer = timers.setTimeout(() => {
+			highlightTimers.delete(timer);
+			const current = marksOf(tabId);
+			const highlights = Object.fromEntries(
+				Object.entries(current.highlights).filter(([, value]) => value > stamp)
+			);
+			setMarks(tabId, { ...current, highlights });
+		}, highlightMs);
+		highlightTimers.add(timer);
 	}
 
 	function highlight(tabId: string, keys: string[]) {
@@ -414,7 +409,7 @@ export function createSessionLiveSync(deps: LiveSyncDeps) {
 	function stop() {
 		unsubscribe?.();
 		unsubscribe = null;
-		for (const timer of highlightTimers.values()) timers.clearTimeout(timer);
+		for (const timer of highlightTimers) timers.clearTimeout(timer);
 		highlightTimers.clear();
 		chains.clear();
 		keptMine.clear();

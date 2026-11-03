@@ -310,6 +310,26 @@ describe('sessionLiveSync', () => {
 		expect(get(h.sync.marks).t1).toBeUndefined();
 	});
 
+	it('fades each highlight on its own clock, not the latest change\'s', async () => {
+		const tab = withBaseline(makeTab('t1'));
+		const h = harness([tab], 't1');
+		h.getSessionById.mockResolvedValueOnce({ success: true, data: sessionFrom(tab, 2, (d) => (d.txt2img.seed = 1)) });
+		await h.sync.receive(changed(2));
+		vi.advanceTimersByTime(1500);
+		h.getSessionById.mockResolvedValueOnce({
+			success: true,
+			data: sessionFrom(tab, 3, (d) => {
+				d.txt2img.seed = 1;
+				d.txt2img.formData = { steps: 30, cfg: 4 };
+			})
+		});
+		await h.sync.receive(changed(3));
+
+		vi.advanceTimersByTime(600);
+
+		expect(Object.keys(get(h.sync.marks).t1.highlights)).toEqual(['form:steps']);
+	});
+
 	it('reconciles a refused save from the 409 payload without fetching', async () => {
 		const tab = withBaseline(makeTab('t1'));
 		const h = harness([tab], 't1');

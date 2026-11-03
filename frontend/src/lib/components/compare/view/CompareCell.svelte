@@ -149,7 +149,7 @@
 		{#if seconds !== null}
 			<span
 				data-testid="compare-cell-time"
-				class="absolute bottom-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 font-mono text-xs tabular-nums text-fg"
+				class="absolute bottom-1.5 right-1.5 rounded bg-scrim/70 px-1.5 py-0.5 font-mono text-xs tabular-nums text-scrim-on"
 			>
 				{formatSeconds(seconds)}
 			</span>

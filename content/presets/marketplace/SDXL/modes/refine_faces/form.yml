@@ -8,6 +8,7 @@ fields:
   - type: "tabs"
     children:
       - type: "tab"
+        anchor: "generation"
         label: "Fix"
         configuration:
           icon: "generation"
@@ -15,6 +16,7 @@ fields:
         children: "{{ paths.preset }}/modes/refine_faces/tabs/generation.yml"
 
       - type: "tab"
+        anchor: "lora"
         label: "LoRA"
         configuration:
           icon: "lora"
@@ -22,6 +24,7 @@ fields:
         children: "{{ paths.preset }}/modes/inpaint/tabs/lora.yml"
 
       - type: "tab"
+        anchor: "advanced"
         label: "Advanced"
         audience: "advanced"
         configuration:

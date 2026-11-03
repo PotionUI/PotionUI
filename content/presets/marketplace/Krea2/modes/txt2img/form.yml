@@ -13,24 +13,28 @@ fields:
   - type: "tabs"
     children:
       - type: "tab"
+        anchor: "generation"
         label: "Generation"
         configuration:
           icon: "generation"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/txt2img/tabs/generation.yml"
       - type: "tab"
+        anchor: "lora"
         label: "LoRA"
         configuration:
           icon: "lora"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/txt2img/tabs/lora.yml"
       - type: "tab"
+        anchor: "enhance"
         label: "Enhance"
         configuration:
           icon: "sparkles"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/txt2img/tabs/enhance.yml"
       - type: "tab"
+        anchor: "advanced"
         label: "Advanced"
         audience: "advanced"
         configuration:

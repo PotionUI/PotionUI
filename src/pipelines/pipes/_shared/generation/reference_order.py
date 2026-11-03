@@ -13,20 +13,13 @@ Both consumers derive their traversal from :func:`pack_references` rather
 than concatenating for themselves, because a divergence between any two of
 the three is SILENT: the request still runs, the shapes still line up, and
 every reference conditions the generation from another reference's position.
-
-**RefMods** (`_shared.generation.refmods.RefMod`) are a fourth, optional
-source: pre-encoded reference latents loaded from `reference_mods` config
-rather than a form picker. Each carries its own `kind`, so a RefMod is placed
-AFTER every NATIVE reference of that same kind -- image mods after every
-picked image, video mods after every picked video, audio mods after every
-picked audio -- keeping each per-kind `<Picture N>`/`<Video k>`/`<Audio j>`
-counter contiguous: the native pickers first, then the mods, never
-interleaved. This function is still the ONLY place that decides the order.
 """
 
 from __future__ import annotations
 
 from typing import Any, List, Sequence, Tuple
+
+from src.pipelines.references import PreEncodedReference
 
 # Packed order across the modality groups. Not alphabetical by accident:
 # image before video before audio is the order the released checkpoint's own
@@ -39,18 +32,13 @@ def pack_references(
     images: Sequence[Any] | None = None,
     videos: Sequence[Any] | None = None,
     audios: Sequence[Any] | None = None,
-    mods: Sequence[Any] | None = None,
+    extras: Sequence[PreEncodedReference] | None = None,
 ) -> List[Tuple[str, Any]]:
-    """`[(kind, media), ...]` in packed order -- images, then videos, then
-    audio, each group in its own array order; within each kind, the native
-    pickers first, then any `mods` of that same kind (module docstring,
-    "RefMods"). `media` is the mod itself (a `refmods.RefMod`) for a mod
-    entry -- callers tell the two apart with `isinstance(media, RefMod)`."""
-    mods_by_kind: dict[str, list] = {kind: [] for kind in PACKED_KINDS}
-    for mod in mods or []:
-        mods_by_kind[mod.kind].append(mod)
+    extras_by_kind: dict[str, list] = {kind: [] for kind in PACKED_KINDS}
+    for extra in extras or []:
+        extras_by_kind[extra.kind].append(extra)
     return [
         (kind, media)
         for kind, group in zip(PACKED_KINDS, (images, videos, audios))
-        for media in list(group or []) + mods_by_kind[kind]
+        for media in list(group or []) + extras_by_kind[kind]
     ]

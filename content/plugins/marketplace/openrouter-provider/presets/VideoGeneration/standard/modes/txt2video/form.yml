@@ -4,10 +4,12 @@ fields:
   - type: "tabs"
     children:
       - type: "tab"
+        anchor: "generation"
         label: "Generation"
         configuration: {icon: "generation", icon_display: "icon_only"}
         children: "{{ paths.preset }}/modes/txt2video/tabs/generation.yml"
       - type: "tab"
+        anchor: "provider_options"
         label: "Provider options"
         configuration: {icon: "settings", icon_display: "icon_only"}
         children: "{{ paths._shared }}/cloud/tabs/provider_options.yml"

@@ -21,6 +21,7 @@ from src.pipelines.pipes._shared.generation.reference_order import PACKED_KINDS,
 from src.pipelines.pipes.generator.video_minimax_h3.conditioning import ReferenceMedia
 from src.pipelines.pipes.generator.video_minimax_h3.main import GeneratorMinimaxH3Pipe
 from src.pipelines.pipes.prompt_encoder.main import PromptEncoderPipe
+from src.pipelines.references import PreEncodedReference
 
 
 def test_the_packed_kinds_are_image_video_audio_in_that_order():
@@ -47,54 +48,39 @@ def test_pack_references_treats_missing_and_empty_groups_alike():
 
 
 
-class _Mod:
-    """A minimal stand-in for `refmods.RefMod` -- only `.kind` matters to
-    `pack_references`."""
-
-    def __init__(self, kind: str, tag: str):
-        self.kind = kind
-        self.tag = tag
-
-    def __repr__(self):
-        return f"mod:{self.tag}"
+def _extra(kind: str, name: str) -> PreEncodedReference:
+    return PreEncodedReference(kind=kind, latent=torch.zeros(1), name=name, fingerprint=f"fp:{name}")
 
 
-def test_mods_are_appended_after_the_native_references_of_their_own_kind():
-    image_mod = _Mod("image", "im")
-    video_mod = _Mod("video", "vm")
-    audio_mod = _Mod("audio", "am")
+def test_extras_are_packed_after_every_native_reference_of_their_own_kind():
+    image_extra = _extra("image", "im")
+    video_extra = _extra("video", "vm")
+    audio_extra = _extra("audio", "am")
     got = pack_references(
-        ["i1", "i2"], ["v1"], ["a1"], mods=[image_mod, video_mod, audio_mod],
+        ["i1", "i2"], ["v1"], ["a1"], extras=[audio_extra, image_extra, video_extra],
     )
     assert got == [
-        ("image", "i1"), ("image", "i2"), ("image", image_mod),
-        ("video", "v1"), ("video", video_mod),
-        ("audio", "a1"), ("audio", audio_mod),
+        ("image", "i1"), ("image", "i2"), ("image", image_extra),
+        ("video", "v1"), ("video", video_extra),
+        ("audio", "a1"), ("audio", audio_extra),
     ]
 
 
-def test_mods_preserve_their_own_relative_order_within_a_kind():
-    first = _Mod("image", "first")
-    second = _Mod("image", "second")
-    got = pack_references(mods=[first, second])
-    assert [media for _kind, media in got] == [first, second]
+def test_extras_preserve_their_own_relative_order_within_a_kind():
+    first = _extra("image", "first")
+    second = _extra("image", "second")
+    got = pack_references(["native"], extras=[first, second])
+    assert [media for _kind, media in got] == ["native", first, second]
 
 
-def test_a_mod_can_be_the_only_reference_of_its_kind():
-    mod = _Mod("audio", "solo")
-    assert pack_references(mods=[mod]) == [("audio", mod)]
+def test_an_extra_can_be_the_only_reference_of_its_kind():
+    extra = _extra("audio", "solo")
+    assert pack_references(extras=[extra]) == [("audio", extra)]
 
 
-def test_mods_of_different_kinds_are_routed_to_the_right_group_regardless_of_input_order():
-    audio_mod = _Mod("audio", "a")
-    image_mod = _Mod("image", "i")
-    got = pack_references(mods=[audio_mod, image_mod])
-    assert got == [("image", image_mod), ("audio", audio_mod)]
-
-
-def test_no_mods_is_identical_to_the_pre_refmod_behavior():
-    assert pack_references(["i"], ["v"], ["a"], mods=None) == pack_references(["i"], ["v"], ["a"])
-    assert pack_references(["i"], ["v"], ["a"], mods=[]) == pack_references(["i"], ["v"], ["a"])
+def test_no_extras_is_identical_to_native_only_packing():
+    assert pack_references(["i"], ["v"], ["a"], extras=None) == pack_references(["i"], ["v"], ["a"])
+    assert pack_references(["i"], ["v"], ["a"], extras=[]) == pack_references(["i"], ["v"], ["a"])
     assert pack_references(images=["i"]) == [("image", "i")]
 
 

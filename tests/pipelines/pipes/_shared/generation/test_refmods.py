@@ -8,6 +8,7 @@ CPU-only, no weights -- every bundle is a tiny tensor built and saved with
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 import torch
@@ -16,11 +17,11 @@ from safetensors.torch import save_file
 from src.pipelines.pipes._shared.generation.refmods import (
     AUDIO_CHANNELS,
     VIDEO_LATENT_CHANNELS,
-    RefMod,
     apply_strength,
     load_refmods,
 )
 from src.pipelines.pipes._shared.generation.refmod_header import RefModMember, read_refmod_members
+from src.pipelines.references import PreEncodedReference
 
 
 def _visual_tensor(t: int = 1, h: int = 4, w: int = 4) -> torch.Tensor:
@@ -105,7 +106,12 @@ def test_v5_bundle_loads_one_refmod_per_member(tmp_path):
     mods = load_refmods([{"file_path": path, "strength": 1.0}])
     assert [m.kind for m in mods] == ["image", "audio"]
     assert [m.name for m in mods] == ["face", "voice"]
-    assert all(m.source == path for m in mods)
+    assert all(isinstance(m, PreEncodedReference) for m in mods)
+    stat = Path(path).stat()
+    assert [m.fingerprint for m in mods] == [
+        f"{path}|{stat.st_size}|{stat.st_mtime_ns}|image|face|1.0",
+        f"{path}|{stat.st_size}|{stat.st_mtime_ns}|audio|voice|1.0",
+    ]
     torch.testing.assert_close(mods[0].latent, image_z, rtol=0, atol=0)
     # audio reshaped (1, latent_channels, channels, T) -> (channels, latent_channels, T)
     assert mods[1].latent.shape == (AUDIO_CHANNELS, 32, 6)
@@ -175,7 +181,7 @@ def test_strength_is_applied_to_every_member(tmp_path):
     )
     mods = load_refmods([{"file_path": path, "strength": 0.4}])
     torch.testing.assert_close(mods[0].latent, apply_strength(z, 0.4), rtol=0, atol=0)
-    assert mods[0].strength == 0.4
+    assert mods[0].fingerprint.endswith("|image|x|0.4")
 
 
 def test_multiple_entries_load_in_file_then_member_order(tmp_path):
@@ -290,7 +296,7 @@ def test_copies_carry_the_entry_strength(tmp_path):
     path = _single_image_bundle(tmp_path)
     mods = load_refmods([{"file_path": path, "strength": 0.5, "copies": 2}])
     torch.testing.assert_close(mods[2].latent, apply_strength(_visual_tensor(), 0.5), rtol=0, atol=0)
-    assert {m.strength for m in mods} == {0.5}
+    assert {m.fingerprint.rsplit("|", 1)[1] for m in mods} == {"0.5"}
 
 
 def test_a_dropped_entry_contributes_no_copies(tmp_path):
@@ -318,7 +324,7 @@ def test_copies_count_toward_the_per_kind_reference_limit(tmp_path):
         {"kind": "bundle", "name": "img", "members": [{"kind": "image", "name": "img"}]},
     )
     mods = load_refmods([{"file_path": path, "strength": 1.0, "copies": MAX_IMAGE_REFERENCES + 1}])
-    packed = pack_references([], [], [], mods=mods)
+    packed = pack_references([], [], [], extras=mods)
     assert len(packed) == MAX_IMAGE_REFERENCES + 1
     references = [ReferenceMedia(kind="image", latent=mod.latent) for mod in mods]
     with pytest.raises(ValueError, match=f"at most {MAX_IMAGE_REFERENCES} image references"):

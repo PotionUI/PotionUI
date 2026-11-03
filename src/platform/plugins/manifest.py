@@ -325,6 +325,40 @@ class PresetModeContributionSpec(BaseModel):
     modes_root: str
 
 
+class PresetExtensionSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target: str
+    modes: List[str]
+    file: str
+
+    @field_validator("target")
+    @classmethod
+    def _non_empty_target(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must name a preset id")
+        return value
+
+    @field_validator("modes")
+    @classmethod
+    def _named_modes(cls, value: List[str]) -> List[str]:
+        if not value:
+            raise ValueError("must name at least one mode")
+        if any(not isinstance(mode, str) or not mode.strip() for mode in value):
+            raise ValueError("mode names must be non-empty strings")
+        if len(set(value)) != len(value):
+            raise ValueError("names a mode more than once")
+        return value
+
+    @field_validator("file")
+    @classmethod
+    def _contained_file(cls, value: str) -> str:
+        normalized = value.replace("\\", "/")
+        if not value or normalized.startswith("/") or ":" in value or ".." in normalized.split("/"):
+            raise ValueError("must be a relative path inside the plugin, without '..'")
+        return value
+
+
 class AdminTabSpec(BaseModel):
     """A plugin-contributed tab on its own Admin -> Plugins detail panel:
     `admin_tabs[]`.
@@ -927,6 +961,7 @@ class PluginManifestSchema(BaseModel):
     # Modes this plugin contributes to OTHER (already-installed) presets - see
     # PresetModeContributionSpec.
     preset_modes: List[PresetModeContributionSpec] = Field(default_factory=list)
+    preset_extensions: List[PresetExtensionSpec] = Field(default_factory=list)
     # Recipe roots this plugin contributes, scanned like the core
     # content/recipes/ tree - see RecipesRootSpec.
     recipes: List[RecipesRootSpec] = Field(default_factory=list)

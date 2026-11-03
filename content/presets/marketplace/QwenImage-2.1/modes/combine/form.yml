@@ -5,24 +5,28 @@ fields:
   - type: "tabs"
     children:
       - type: "tab"
+        anchor: "generation"
         label: "Generation"
         configuration:
           icon: "generation"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/combine/tabs/generation.yml"
       - type: "tab"
+        anchor: "references"
         label: "References"
         configuration:
           icon: "image"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/combine/tabs/references.yml"
       - type: "tab"
+        anchor: "lora"
         label: "LoRA"
         configuration:
           icon: "lora"
           icon_display: "icon_only"
         children: "{{ paths._shared }}/tabs/lora.yml"
       - type: "tab"
+        anchor: "advanced"
         label: "Advanced"
         audience: "advanced"
         configuration:

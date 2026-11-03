@@ -2003,6 +2003,29 @@ against the target, same as a core mode's) — there is no separate per-contribu
 either. See [Plugin-Contributed Presets](presets/plugins.md) for the full contract, including how
 provenance (`source_plugin`) surfaces in `GET /api/presets/{id}/modes` and the mode picker.
 
+## Extending existing preset modes
+
+A plugin can attach fields, pipes and prompt resources to modes a preset already has, instead of
+contributing a whole mode:
+
+```yaml
+preset_extensions:
+  - target: "4TK1KBQZ2XMB8ME0PTMXS1YJQP"   # the target preset's id
+    modes: ["txt2img"]                     # core or plugin-contributed modes of that preset
+    file: "extensions/krea2.yml"           # relative to the plugin root
+```
+
+The extension file holds four optional lists: `fields` (placed `into` a tab or section by its
+`anchor:`, optionally `after`/`before` a named field), `pipes` (`add` a pipe node with its own
+`id`, `after`/`before` a pipe, or `patch` a pipe with `input_add`/`configuration_add`),
+`prompt_resources` (appended per mode) and `director_reference_fields` (appended to the mode's
+Director `reference_fields`). Everything is add-only: a field name, anchor, pipe input or
+configuration key that already exists is a conflict, and any conflict or missing anchor rejects
+the whole extension with a load error naming the plugin. Extensions apply after `preset_modes:`,
+by plugin id then declaration order, only while the plugin is enabled. Added fields reach the
+frontend with `source_plugin` set. See
+[Plugin-Contributed Presets](presets/plugins.md#extending-existing-modes) for the full contract.
+
 ## Contributing a compute provisioner
 
 A compute provisioner teaches core how to rent a GPU on one hosting provider

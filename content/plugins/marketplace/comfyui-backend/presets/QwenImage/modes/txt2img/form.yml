@@ -7,6 +7,7 @@ fields:
   - type: "tabs"
     children:
       - type: "tab"
+        anchor: "generation"
         label: "Generation"
         configuration:
           icon: "generation"
@@ -14,6 +15,7 @@ fields:
         children: "{{ paths.preset }}/modes/txt2img/tabs/generation.yml"
 
       - type: "tab"
+        anchor: "lora"
         label: "LoRA"
         configuration:
           icon: "lora"
@@ -21,6 +23,7 @@ fields:
         children: "{{ paths.preset }}/modes/txt2img/tabs/lora.yml"
 
       - type: "tab"
+        anchor: "advanced"
         label: "Advanced"
         audience: "advanced"
         configuration:

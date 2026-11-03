@@ -6,14 +6,14 @@ from backend.type_mapping import (
     civitai_mb_type,
     huggingface_mb_type,
 )
-from src.plugin_api.models import MODEL_TYPES
+from src.plugin_api.models import model_types
 
 from . import huggingface_fakes
 from .civitai_fakes import body
 
 
 def test_every_mapped_type_is_a_potionui_model_type():
-    assert set(CIVITAI_TYPES.values()) <= set(MODEL_TYPES)
+    assert set(CIVITAI_TYPES.values()) <= set(model_types())
 
 
 @pytest.mark.parametrize(
@@ -95,4 +95,4 @@ def test_every_recorded_hugging_face_repo_maps_to_a_potionui_type_or_none(fixtur
     for raw in huggingface_fakes.body(fixture):
         filenames = [sibling["rfilename"] for sibling in raw.get("siblings", [])]
         mapped = huggingface_mb_type(raw.get("tags"), raw.get("pipeline_tag"), filenames, repo_id=raw["id"])
-        assert mapped is None or mapped in MODEL_TYPES
+        assert mapped is None or mapped in model_types()

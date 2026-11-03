@@ -907,6 +907,20 @@ class LimitKindSpec(BaseModel):
     icon: str = ""
 
 
+class ModelTypeSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    folder: str = Field(min_length=1)
+    purpose: str = ""
+    aliases: List[str] = Field(default_factory=list)
+    extensions: List[str] = Field(default_factory=list)
+    layout: Literal["file", "directory"] = "file"
+    header_classified: bool = False
+    assignable: bool = True
+
+
 class PluginManifestSchema(BaseModel):
     """
     Canonical plugin manifest schema.
@@ -962,6 +976,7 @@ class PluginManifestSchema(BaseModel):
     samplers: List[SamplerSpec] = Field(default_factory=list)
     schedules: List[ScheduleSpec] = Field(default_factory=list)
     model_classifiers: List[ModelClassifierSpec] = Field(default_factory=list)
+    model_types: List[ModelTypeSpec] = Field(default_factory=list)
 
     # Frontend components
     frontend: Optional[str] = None  # Path to a frontend entry point, if any

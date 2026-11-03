@@ -18,12 +18,12 @@ class TestModelRootRepository:
         assert root["read_only"] == 0
 
     def test_home_bindings_cover_every_model_type(self, repository):
-        from src.platform.filesystem.model_types import MODEL_TYPES
+        from src.platform.filesystem.model_types import model_types
 
         bindings = repository.list_bindings()
         home_types = {b["model_type"] for b in bindings if b["root_id"] == "home"}
 
-        assert home_types == set(MODEL_TYPES)
+        assert home_types == set(model_types())
 
     def test_ensure_root_is_idempotent(self, repository):
         repository.ensure_root(

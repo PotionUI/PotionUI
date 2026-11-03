@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from src.platform.filesystem.model_roots import InvalidRelPathError, validate_rel_path
-from src.platform.filesystem.model_types import SUPPORTED_MODEL_EXTENSIONS
+from src.platform.filesystem.model_types import supported_extensions
 from src.platform.util.path_resolution import is_within
 
 BROWSE_BUDGET_SECONDS = 3.0
@@ -38,7 +38,7 @@ def _has_models(directory: str, budget: _Budget) -> bool:
         for _dirpath, _dirs, files in os.walk(directory, followlinks=False):
             for name in files:
                 seen += 1
-                if os.path.splitext(name)[1].lower() in SUPPORTED_MODEL_EXTENSIONS:
+                if os.path.splitext(name)[1].lower() in supported_extensions():
                     return True
                 if seen >= HINT_ENTRY_LIMIT:
                     return False
@@ -96,7 +96,7 @@ def browse_subfolders(
                 if entry.is_dir():
                     if not entry.name.startswith("."):
                         names.append(entry.name)
-                elif os.path.splitext(entry.name)[1].lower() in SUPPORTED_MODEL_EXTENSIONS:
+                elif os.path.splitext(entry.name)[1].lower() in supported_extensions():
                     direct_files = True
             names.sort()
     except OSError as error:

@@ -73,7 +73,7 @@ class TestMigration035ModelRoots(MigrationCase):
             return json.loads(row["value"]) if row else []
 
     def test_up_seeds_home_root_and_bindings(self):
-        from src.platform.filesystem.model_types import MODEL_TYPES
+        from src.platform.filesystem.model_types import CORE_MODEL_TYPES
 
         self.migration.up()
 
@@ -86,7 +86,7 @@ class TestMigration035ModelRoots(MigrationCase):
 
             cursor.execute("SELECT model_type, is_write FROM model_root_bindings WHERE root_id = 'home'")
             bindings = {r["model_type"]: r["is_write"] for r in cursor.fetchall()}
-            self.assertEqual(set(bindings.keys()), set(MODEL_TYPES))
+            self.assertEqual(set(bindings.keys()), set(CORE_MODEL_TYPES))
             self.assertTrue(all(is_write == 1 for is_write in bindings.values()))
 
     def test_relative_path_under_home(self):

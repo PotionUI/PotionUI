@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple
 
 from src.platform.filesystem.model_roots import ModelRoot, ModelRootResolver, TypeDir, _Snapshot
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY, MODEL_TYPES
+from src.platform.filesystem.model_types import type_to_directory, model_types
 
 
 class FakeProbe:
@@ -34,8 +34,8 @@ def make_roots(
     )
 
     by_type: Dict[str, Tuple[TypeDir, ...]] = {}
-    for model_type in (types if types is not None else MODEL_TYPES):
-        subdir = MODEL_TYPE_TO_DIRECTORY[model_type]
+    for model_type in (types if types is not None else model_types()):
+        subdir = type_to_directory()[model_type]
         type_dir_path = home / subdir
         type_dir_path.mkdir(parents=True, exist_ok=True)
         by_type[model_type] = (

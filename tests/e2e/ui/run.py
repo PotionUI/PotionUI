@@ -74,6 +74,7 @@ if str(HARNESS_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESS_DIR))
 
 import cloud_fake
+import model_types_fixture
 import fresh_install
 from e2e_harness import (  # noqa: E402
     StageError,
@@ -621,20 +622,24 @@ def run_chunk(
     log(f"=== Chunk {chunk_index}/{total_chunks}: {', '.join(chunk_names)} ===")
 
     needs_cloud_fake = cloud_fake.wants_cloud_fake(chunk_names)
+    needs_model_types = model_types_fixture.wants_model_types(chunk_names)
     unclaimed = fresh_install.wants_fresh_install(chunk_names)
     fresh = fresh_install.FreshInstall() if unclaimed else None
     app_kwargs = dict(
         models_dir=fresh.models_dir if fresh else args.models_dir,
         port=args.port, keep=args.keep,
         username=OWNER_USERNAME, password=OWNER_PASSWORD,
-        extra_env=fresh.env() if fresh else (cloud_fake.plugin_env() if needs_cloud_fake else None),
+        extra_env=fresh.env() if fresh else model_types_fixture.merge_env(
+            cloud_fake.plugin_env() if needs_cloud_fake else None,
+            model_types_fixture.plugin_env() if needs_model_types else None,
+        ),
     )
     if fresh:
         app_kwargs["recipes_dir"] = fresh.recipes_dir
         app_kwargs["claim"] = False
     try:
         return _run_chunk_on_app(
-            ThrowawayApp(**app_kwargs), fresh, needs_cloud_fake,
+            ThrowawayApp(**app_kwargs), fresh, needs_cloud_fake, needs_model_types and not fresh,
             chunk_names=chunk_names, chunk_index=chunk_index, total_chunks=total_chunks, args=args,
         )
     finally:
@@ -642,10 +647,12 @@ def run_chunk(
             fresh.stop()
 
 
-def _run_chunk_on_app(app_ctx, fresh, needs_cloud_fake, *, chunk_names, chunk_index, total_chunks, args) -> int:
+def _run_chunk_on_app(app_ctx, fresh, needs_cloud_fake, needs_model_types, *, chunk_names, chunk_index, total_chunks, args) -> int:
     with app_ctx as app:
         if needs_cloud_fake:
             cloud_fake.prepare(app)
+        if needs_model_types:
+            model_types_fixture.prepare(app)
         backend_port = app.instance.port
         log(f"Throwaway backend up at {app.base_url} (owner={app.username})")
 

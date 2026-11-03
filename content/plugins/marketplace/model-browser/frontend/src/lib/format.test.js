@@ -12,6 +12,7 @@ import {
 	plural,
 	thumbUrl
 } from './format.js';
+import { installHostModelTypes } from './testModelTypes.js';
 
 test('formatBytes uses binary units with one decimal', () => {
 	assert.equal(formatBytes(239_600_000), '228.5 MB');
@@ -117,10 +118,13 @@ test('thumbUrl leaves other urls, videos and odd paths alone', () => {
 });
 
 test('capitalize and modelTypeLabel', () => {
+	installHostModelTypes();
 	assert.equal(capitalize('checkpoint'), 'Checkpoint');
 	assert.equal(capitalize(''), '');
 	assert.equal(modelTypeLabel('lora'), 'LoRA');
-	assert.equal(modelTypeLabel('text_encoder'), 'Text encoder');
-	assert.equal(modelTypeLabel('detection_bbox'), 'Detection bbox');
+	assert.equal(modelTypeLabel('checkpoint'), 'Base model');
+	assert.equal(modelTypeLabel('pose_rig'), 'Pose rig');
+	assert.equal(modelTypeLabel('detection_bbox'), 'Box detector');
+	assert.equal(modelTypeLabel('hologram_rig'), 'Hologram rig');
 	assert.equal(modelTypeLabel(null), '');
 });

@@ -191,3 +191,17 @@ export interface LoraPickerRowFieldSchema {
 	configuration?: Record<string, unknown>;
 	[key: string]: unknown;
 }
+
+export interface ModelTypeDefinition {
+	id: string;
+	label: string;
+	purpose: string;
+	folder: string | null;
+	aliases: string[];
+	extensions: string[];
+	layout: string | null;
+	header_classified: boolean;
+	assignable: boolean;
+	virtual: boolean;
+	source: string;
+}

@@ -3,7 +3,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import type { ModelRootBrowseResult } from '$lib/services/api/models';
-	import { ASSIGNABLE_MODEL_TYPES } from '$lib/utils/modelTypeControl';
+	import { assignableModelTypes } from '$lib/stores/modelTypes.svelte';
 	import { modelTypePresentation } from '$lib/utils/modelPresentation';
 	import { browseModelRoot } from './state.svelte';
 	import { breadcrumbs, subdirLabel, validateManualFolder, type FolderRef } from './logic';
@@ -25,7 +25,8 @@
 	} = $props();
 
 	let open = $state(false);
-	let modelType = $state(ASSIGNABLE_MODEL_TYPES[0]);
+	const typeChoices = $derived(assignableModelTypes());
+	let modelType = $state(assignableModelTypes()[0] ?? '');
 	let typed = $state('');
 	let rootChosen = $state(false);
 	let browseSub = $state('');
@@ -123,7 +124,7 @@
 				disabled={adding}
 				onchange={() => (addError = null)}
 			>
-				{#each ASSIGNABLE_MODEL_TYPES as type (type)}
+				{#each typeChoices as type (type)}
 					<option value={type}>{modelTypePresentation(type).label}</option>
 				{/each}
 			</select>

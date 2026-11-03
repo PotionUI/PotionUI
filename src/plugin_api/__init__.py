@@ -269,7 +269,6 @@ from src.plugin_api.phrasebook import (
 
 # Model metadata field identifiers, and a model's marketplace provider link.
 from src.plugin_api.models import (
-    MODEL_DIRECTORY_ALIASES,
     InvalidModelMetadataException,
     ModelAssignmentException,
     ModelFileUnavailable,
@@ -284,6 +283,8 @@ from src.plugin_api.models import (
     model_type_dirs,
     model_write_dir,
     resolve_model_file,
+    directory_aliases,
+    model_types,
     run_provider_fetch,
     type_for_folder_name,
     update_model_metadata,
@@ -508,7 +509,8 @@ __all__ = [
     "WellKnownModelMetadataField",
     "get_model_provider_info",
     "index_model_file",
-    "MODEL_DIRECTORY_ALIASES",
+    "directory_aliases",
+    "model_types",
     "model_for_path",
     "model_for_sha256",
     "model_type_dirs",

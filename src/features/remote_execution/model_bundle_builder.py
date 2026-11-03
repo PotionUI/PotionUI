@@ -25,9 +25,9 @@ from src.features.models.records import Model
 from src.features.models.repository import ModelRepository
 from src.features.models.repository import model_repo as _default_model_repo
 from src.platform.filesystem.model_types import (
-    DIRECTORY_TO_MODEL_TYPE,
-    MODEL_TYPE_TO_DIRECTORY,
     UNDEFINED_MODEL_TYPE,
+    directory_to_type,
+    type_to_directory,
 )
 from src.platform.worker_protocol import (
     ContentDigest,
@@ -144,7 +144,7 @@ def _by_identity(file_path: str, repo: ModelRepository) -> Optional[Model]:
         parts = parts[1:]
     if len(parts) != 2:
         return None
-    model_type = DIRECTORY_TO_MODEL_TYPE.get(parts[0])
+    model_type = directory_to_type().get(parts[0])
     if model_type is None:
         return None
     return repo.get_by_identity(model_type, parts[1], include_providers=False)
@@ -175,7 +175,7 @@ def resolve_bundle_entry(
         model.sha256, model.file_size = _ensure_digest_and_size(model, repo, locator, digests)
 
     role = model.model_type or "unknown"
-    directory = MODEL_TYPE_TO_DIRECTORY.get(role, role)
+    directory = type_to_directory().get(role, role)
     return ModelBundleEntryV1(
         logical_id=f"{role}/{model.filename}",
         role=role,

@@ -8,7 +8,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src')
 
 from src.features.models.dictionary_routes import DictionaryController
 from src.platform.http.base_controller import APIResponse
-from src.features.models.indexer import ModelScanner
+from src.platform.filesystem.model_types import model_types
 from src.platform.security.user import User, AccountType
 
 
@@ -58,7 +58,7 @@ class TestDictionaryController:
     @pytest.mark.asyncio
     async def test_get_models_dictionary_returns_all_types(self, dictionary_controller, admin_user):
         """Test models dictionary returns all model types from the scanner"""
-        expected_types = list(ModelScanner.MODEL_TYPE_MAPPING.values())
+        expected_types = list(model_types())
 
         response = await dictionary_controller.router.routes[0].endpoint(current_user=admin_user)
 

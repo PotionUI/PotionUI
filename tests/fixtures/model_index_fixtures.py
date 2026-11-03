@@ -9,7 +9,7 @@ from src.features.models.repository import model_repo
 from src.platform.database.rows import now_iso
 from src.platform.filesystem.model_roots import ModelRoot, ModelRootResolver, TypeDir, _Snapshot, root_path_key
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
+from src.platform.filesystem.model_types import type_to_directory
 from tests.fixtures.family_shape_fixtures import family_shapes
 from tests.fixtures.model_header_fixtures import tensor_specs, write_safetensors
 
@@ -50,7 +50,7 @@ def add_root(root_id: str, path) -> ModelRoot:
 def add_binding(
     root_id: str, model_type: str, path, position: int, *, scan_headers: bool, subdir: Optional[str] = None
 ) -> TypeDir:
-    subdir = subdir if subdir is not None else MODEL_TYPE_TO_DIRECTORY[model_type]
+    subdir = subdir if subdir is not None else type_to_directory()[model_type]
     real_position = position + POSITION_OFFSET
     binding_id = ModelRootRepository().insert_binding(root_id, model_type, subdir, real_position, False, scan_headers)
     return TypeDir(

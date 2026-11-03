@@ -391,9 +391,9 @@ class DownloadQueue:
             pass
 
         from src.platform.filesystem.model_roots import ModelRootError
-        from src.platform.filesystem.model_types import MODEL_TYPES
+        from src.platform.filesystem.model_types import model_types
 
-        for model_type in MODEL_TYPES:
+        for model_type in model_types():
             try:
                 write_dir = self.resolver.write_dir(model_type)
             except ModelRootError:

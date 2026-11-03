@@ -35,6 +35,7 @@ from src.platform.plugins.llm_providers import LLMProviderRegistration, LLMProvi
 from src.platform.plugins.requirement_checkers import RequirementCheckerRegistration, RequirementCheckerRegistry
 from src.platform.plugins.sourced_registry import DuplicateRegistrationError
 from src.platform.runtime.model_headers import ModelClassifierDefinition, model_classifier_registry
+from src.platform.filesystem import model_types as _model_types
 from src.platform.plugins.organize import (
     DuplicateOrganizeEntryError,
     InvalidOrganizeEntryError,
@@ -535,6 +536,7 @@ class PluginRegistry:
             self._register_plugin_samplers,
             self._register_plugin_schedules,
             self._register_plugin_model_classifiers,
+            self._register_plugin_model_types,
             self._register_plugin_organize_facts,
             self._register_plugin_organize_actions,
             self._register_plugin_limit_kinds,
@@ -781,6 +783,27 @@ class PluginRegistry:
                 return error
         return None
 
+    def _register_plugin_model_types(self, manifest: PluginManifest) -> Optional[str]:
+        definitions = [
+            _model_types.ModelTypeDefinition(
+                id=entry['id'],
+                label=entry['label'],
+                folder=entry['folder'],
+                purpose=entry.get('purpose', ''),
+                aliases=tuple(entry.get('aliases') or ()),
+                extensions=_model_types.normalize_extensions(entry.get('extensions')),
+                layout=entry.get('layout', _model_types.LAYOUT_FILE),
+                header_classified=bool(entry.get('header_classified', False)),
+                assignable=bool(entry.get('assignable', True)),
+                source=manifest.id,
+            )
+            for entry in manifest.model_types
+        ]
+        return self._register_entry(
+            _model_types.model_type_registry.register_all, definitions,
+            _model_types.DuplicateModelTypeError, _model_types.InvalidModelTypeError,
+        )
+
     def _load_optional_handler(self, manifest: PluginManifest, ref: Optional[str], label: str):
         if not ref:
             return None, None
@@ -923,6 +946,7 @@ class PluginRegistry:
             sampler_registry,
             schedule_registry,
             model_classifier_registry,
+            _model_types.model_type_registry,
             login_provider_registry,
             self.organize_registry,
             self.limit_kind_registry,

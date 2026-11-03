@@ -638,3 +638,13 @@ class TestVideoDirectorPresetModeOverlay:
         assert [s["sub_type"] for s in payload["segments"]] == ["t2v", "t2v"]
 
 
+
+
+def test_context_summary_names_each_timeline_segments_shot():
+    from src.features.llm.tools.builtin.video_director_tool import render_context_summary
+
+    doc = {"mode": "director", "timeline": {"fps": 24, "shots": [
+        {"id": "sh_a1", "duration": 4, "segments": [{"id": "seg-1", "text": "harbor", "start": 0, "end": 4}]},
+    ]}}
+    lines = render_context_summary(doc, {}, {}, None)
+    assert '    - id=seg-1 shot_id=sh_a1: "harbor" (0s-4s)' in lines

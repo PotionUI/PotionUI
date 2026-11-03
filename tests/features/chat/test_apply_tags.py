@@ -222,3 +222,46 @@ def test_targets_from_context_read_every_source():
     assert targets.segments == [Target("s-a", 0), Target("s-b", 1)]
     assert targets.director == [Target("b1", 0, "shot-1"), Target("b1", 0, "shot-2"), Target("b2", 1, "shot-2")]
     assert ApplyTargets.from_context(None) == ApplyTargets()
+
+
+def _one_shot_timeline():
+    return {
+        "form_state": {
+            "mode": "video",
+            "video_director": {
+                "active": True,
+                "doc": {"mode": "director", "timeline": {"fps": 24, "shots": [
+                    {"id": "sh_a1", "duration": 4, "segments": [{"id": "seg-1", "text": "x", "start": 0, "end": 4}]},
+                ]}},
+                "capabilities": {},
+            },
+        }
+    }
+
+
+@pytest.mark.parametrize("guess", ["shot-1", "seg-1"])
+def test_a_guessed_shot_id_on_a_one_shot_timeline_is_repaired(guess):
+    targets = ApplyTargets.from_context(_one_shot_timeline())
+    raw = f'<tool_action type="update_director_segment" segment_index="0" segment_id="seg-1" shot_id="{guess}">x</tool_action>'
+    assert normalize_apply_tags(raw, targets) == (
+        '<tool_action type="update_director_segment" segment_index="0" segment_id="seg-1" shot_id="sh_a1">x</tool_action>'
+    )
+
+
+def test_a_guessed_shot_id_resolves_a_beat_id_unique_across_shots():
+    targets = ApplyTargets.from_context(_timeline_director())
+    raw = '<tool_action type="update_director_segment" segment_index="0" segment_id="b2" shot_id="shot-9">x</tool_action>'
+    assert normalize_apply_tags(raw, targets) == (
+        '<tool_action type="update_director_segment" segment_index="1" segment_id="b2" shot_id="shot-2">x</tool_action>'
+    )
+
+
+def test_a_guessed_shot_id_with_a_beat_id_shared_by_shots_is_a_note():
+    targets = ApplyTargets.from_context(_timeline_director())
+    raw = '<tool_action type="update_director_segment" segment_index="0" segment_id="b1" shot_id="shot-9">x</tool_action>'
+    assert normalize_apply_tags(raw, targets) == "_Can't apply: shot \"b1\" not found._\n\n> x"
+
+
+def test_a_shot_id_on_a_document_without_shots_is_dropped(simple):
+    raw = '<tool_action type="update_director_segment" segment_index="0" segment_id="seg-1" shot_id="shot-1">x</tool_action>'
+    assert normalize_apply_tags(raw, simple) == CANONICAL_SEG1 + "x</tool_action>"

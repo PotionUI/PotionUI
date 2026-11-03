@@ -441,6 +441,7 @@ export interface GenerationTab extends TabBase {
 	 * rehydrates a selected session from the server.
 	 */
 	savedSessionSignature?: string | null;
+	sessionVersion?: number | null;
 	/** One-shot marker, deliberately absent from PersistedTab. */
 	sessionBaselineAwaitingFormNormalization?: boolean;
 	formPublished?: boolean;

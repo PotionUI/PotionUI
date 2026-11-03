@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { get } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import { formDataPublicationPatch } from '$lib/utils/sessionTabState';
 import type { GenerationTab } from '$lib/types/tabs';
 import type { Session } from '$lib/types/api';
@@ -150,7 +150,24 @@ function createFakeApi() {
 	};
 }
 
-function createHarness(options: { tab?: Partial<GenerationTab>; storage?: Record<string, string>; drafts?: { replaceVariables: (tabId: string, variables: never) => void } } = {}) {
+function createFakeLive() {
+	const saveListeners = new Set<(tabId: string) => void>();
+	return {
+		records: writable<Record<string, Session>>({}),
+		hasConflicts: vi.fn((_tabId: string) => false),
+		reconcile: vi.fn(async () => {}),
+		clientIdFor: (tabId: string) => `win:${tabId}`,
+		onSaveRequest(listener: (tabId: string) => void) {
+			saveListeners.add(listener);
+			return () => saveListeners.delete(listener);
+		},
+		requestSave(tabId: string) {
+			for (const listener of saveListeners) listener(tabId);
+		}
+	};
+}
+
+function createHarness(options: { tab?: Partial<GenerationTab>; storage?: Record<string, string>; drafts?: { replaceVariables: (tabId: string, variables: never) => void }; live?: ReturnType<typeof createFakeLive> } = {}) {
 	const api = createFakeApi();
 	const tabs = createFakeTabs(options.tab ?? {});
 	const timers = createFakeTimers();
@@ -168,7 +185,8 @@ function createHarness(options: { tab?: Partial<GenerationTab>; storage?: Record
 		toasts,
 		logger,
 		timers,
-		drafts: options.drafts as never
+		drafts: options.drafts as never,
+		live: options.live as never
 	});
 
 	return { api, tabs, timers, toasts, logger, controller, storage: store };
@@ -198,8 +216,9 @@ function draft(content: string) {
 
 /** Boots a controller already bound to a tab whose live draft differs from the
  *  session's saved baseline — i.e. dirty, with a real session selected. */
-async function bootWithDirtySession(options: { storage?: Record<string, string> } = {}) {
+async function bootWithDirtySession(options: { storage?: Record<string, string>; live?: ReturnType<typeof createFakeLive> } = {}) {
 	harness = createHarness({
+		live: options.live,
 		tab: {
 			selectedPreset: PRESET_ID,
 			selectedMode: MODE,
@@ -1151,7 +1170,7 @@ describe('createSessionController', () => {
 			harness.tabs.edit({ promptSegments: [{ id: 'b', content: 'edit on b' }] } as Partial<GenerationTab>);
 			await settle();
 			expect(await controller.quickSave()).toBe(true);
-			expect(harness.api.updateSession).toHaveBeenCalledWith(SESSION_B, expect.anything());
+			expect(harness.api.updateSession).toHaveBeenCalledWith(SESSION_B, expect.anything(), undefined);
 			expect(await controller.reload()).toBe(true);
 		});
 
@@ -2458,5 +2477,127 @@ describe('saveOrPrompt', () => {
 		expect(harness.api.updateSession).not.toHaveBeenCalled();
 		expect(harness.api.saveSession).not.toHaveBeenCalled();
 		expect(openSaveAsModal).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('createSessionController live sync', () => {
+	function conflictError(session: Session) {
+		return {
+			response: {
+				status: 409,
+				data: {
+					detail: {
+						error: 'session_version_conflict',
+						session,
+						origin: { kind: 'mcp', label: 'Claude Code' },
+						client_id: null
+					}
+				}
+			}
+		};
+	}
+
+	async function bootLive() {
+		const live = createFakeLive();
+		await bootWithDirtySession({ live });
+		harness.tabs.edit({ sessionVersion: 3 });
+		await settle();
+		return live;
+	}
+
+	it('saves with the tab\'s synced version as base and this tab\'s client id', async () => {
+		await bootLive();
+		harness.api.updateSession.mockResolvedValueOnce({ success: true, data: makeSession(SESSION_A, { version: 4 }) });
+
+		await controller.quickSave();
+
+		const [id, request, clientId] = harness.api.updateSession.mock.calls[0] as unknown as [string, { base_version: number }, string];
+		expect(id).toBe(SESSION_A);
+		expect(request.base_version).toBe(3);
+		expect(clientId).toBe(`win:${TAB_ID}`);
+		expect(harness.tabs.tab.sessionVersion).toBe(4);
+	});
+
+	it('hands a refused save to the live merge and retries once the merge is clean', async () => {
+		const live = await bootLive();
+		const current = makeSession(SESSION_A, { version: 5 });
+		harness.api.updateSession
+			.mockRejectedValueOnce(conflictError(current))
+			.mockResolvedValueOnce({ success: true, data: makeSession(SESSION_A, { version: 6 }) });
+		live.reconcile.mockImplementationOnce(async () => harness.tabs.edit({ sessionVersion: 5 }));
+
+		await controller.quickSave();
+
+		expect(live.reconcile).toHaveBeenCalledWith(TAB_ID, current, { kind: 'mcp', label: 'Claude Code' }, null);
+		expect(harness.api.updateSession).toHaveBeenCalledTimes(2);
+		expect((harness.api.updateSession.mock.calls[1] as unknown as [string, { base_version: number }])[1].base_version).toBe(5);
+		expect(get(controller.state).error).toBeNull();
+		expect(harness.logger.error).not.toHaveBeenCalled();
+	});
+
+	it('does not retry a refused save while the merge left a conflict open', async () => {
+		const live = await bootLive();
+		harness.api.updateSession.mockRejectedValueOnce(conflictError(makeSession(SESSION_A, { version: 5 })));
+		live.hasConflicts.mockReturnValue(true);
+
+		await controller.quickSave();
+
+		expect(live.reconcile).toHaveBeenCalledTimes(1);
+		expect(harness.api.updateSession).toHaveBeenCalledTimes(1);
+	});
+
+	it('pauses autosave while the tab has an open conflict', async () => {
+		const live = await bootLive();
+		live.hasConflicts.mockReturnValue(true);
+		controller.toggleAutosave();
+
+		harness.timers.advance(10000);
+		await settle();
+
+		expect(harness.api.updateSession).not.toHaveBeenCalled();
+	});
+
+	it('merges instead of overwriting when an autosave is refused', async () => {
+		const live = await bootLive();
+		const current = makeSession(SESSION_A, { version: 9 });
+		harness.api.updateSession.mockRejectedValueOnce(conflictError(current));
+		controller.toggleAutosave();
+
+		harness.timers.advance(10000);
+		await settle();
+
+		expect(live.reconcile).toHaveBeenCalledWith(TAB_ID, current, { kind: 'mcp', label: 'Claude Code' }, null);
+		expect(harness.logger.error).not.toHaveBeenCalled();
+	});
+
+	it('adopts a newer server copy of the open session from the live records', async () => {
+		const live = await bootLive();
+		const newer = makeSession(SESSION_A, { version: 7, name: 'Renamed by Claude' });
+
+		live.records.set({ [SESSION_A]: newer });
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.currentSession?.version).toBe(7);
+		expect(state.sessions.find((session) => session.id === SESSION_A)?.name).toBe('Renamed by Claude');
+	});
+
+	it('saves when the live merge asks this tab to keep its own values', async () => {
+		const live = await bootLive();
+
+		live.requestSave(TAB_ID);
+		live.requestSave('another-tab');
+		await settle();
+
+		expect(harness.api.updateSession).toHaveBeenCalledTimes(1);
+	});
+
+	it('stores the loaded session\'s version on the tab', async () => {
+		await bootLive();
+		harness.api.getSessionById.mockResolvedValueOnce({ success: true, data: makeSession(SESSION_B, { version: 12 }) });
+
+		await controller.select(SESSION_B);
+
+		expect(harness.tabs.tab.sessionVersion).toBe(12);
 	});
 });

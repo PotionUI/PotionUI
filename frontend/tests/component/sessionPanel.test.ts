@@ -7,7 +7,7 @@ const { default: SessionPanel } = await import('$lib/components/session/SessionP
 
 function makeSession(id: string, name: string, minutesAgo = 5): Session {
 	const stamp = new Date(Date.now() - minutesAgo * 60_000).toISOString();
-	return { id, preset_id: 'p', name, data: {}, created_at: stamp, updated_at: stamp };
+	return { id, preset_id: 'p', name, data: {}, created_at: stamp, updated_at: stamp, version: 1 };
 }
 
 function makeVersion(n: number, extra: Partial<SessionVersionSummary> = {}): SessionVersionSummary {

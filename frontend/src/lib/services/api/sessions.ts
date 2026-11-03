@@ -7,6 +7,11 @@ import type {
 	SessionVersionSummary,
 	SessionVersionDetail
 } from '$lib/types/api';
+import { SESSION_CLIENT_HEADER } from '$lib/session/clientIdentity';
+
+function clientHeaders(clientId: string | undefined) {
+	return clientId ? { headers: { [SESSION_CLIENT_HEADER]: clientId } } : undefined;
+}
 
 export function createSessionsApi(client: AxiosInstance) {
 	const sessionRequests = new Map<string, Promise<APIResponse<Session>>>();
@@ -28,16 +33,17 @@ export function createSessionsApi(client: AxiosInstance) {
 			return request;
 		},
 
-		async saveSession(request: SaveSessionRequest): Promise<APIResponse<Session>> {
-			const response = await client.post('/api/sessions/save', request);
+		async saveSession(request: SaveSessionRequest, clientId?: string): Promise<APIResponse<Session>> {
+			const response = await client.post('/api/sessions/save', request, clientHeaders(clientId));
 			return response.data;
 		},
 
 		async updateSession(
 			sessionId: string,
-			request: UpdateSessionRequest
+			request: UpdateSessionRequest,
+			clientId?: string
 		): Promise<APIResponse<Session>> {
-			const response = await client.put(`/api/sessions/${sessionId}`, request);
+			const response = await client.put(`/api/sessions/${sessionId}`, request, clientHeaders(clientId));
 			return response.data;
 		},
 

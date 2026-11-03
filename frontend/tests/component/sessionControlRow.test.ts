@@ -11,7 +11,7 @@ const LONG_NAME = 'Portrait study, rim light, 85mm, overcast rooftop, second pas
 
 function makeSession(id: string, name: string): Session {
 	const stamp = new Date(Date.now() - 120_000).toISOString();
-	return { id, preset_id: 'p', name, data: {}, created_at: stamp, updated_at: stamp };
+	return { id, preset_id: 'p', name, data: {}, created_at: stamp, updated_at: stamp, version: 1 };
 }
 
 function state(overrides: Record<string, unknown> = {}) {

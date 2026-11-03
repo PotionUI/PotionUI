@@ -14,6 +14,7 @@
 	import { submitGate, limits, limitsMeta } from '$lib/plans/store';
 	import { get } from 'svelte/store';
 	import { tabDraftSync } from '$lib/stores/tabDraftSync';
+	import { sessionLiveSync } from '$lib/stores/sessionLiveSync';
 	import { decideSessionVariables, finishDeferredSessionVariables } from '$lib/session/sessionVariablesRestore';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import {
@@ -893,6 +894,7 @@
 
 	onMount(async () => {
 		mounted = true;
+		sessionLiveSync.configure({ segmentJoin: segmentJoinForPreset });
 		unsubscribeModelInstalled = onModelInstalled(() => {
 			void modeRequirementsRecheck.run();
 			const known = currentTab ? modesPerTab[currentTab.id] : null;
@@ -1051,6 +1053,7 @@
 							// data for, so a live mode switch after this restore picks up
 							// that mode's saved config instead of starting empty.
 							modeStateByMode: restoredTab.modeStateByMode,
+							sessionVersion: session.version,
 							// The bar is allowed to remount, but not to redefine this server
 							// snapshot as whatever draft happens to be in the tab then.
 							savedSessionSignature: JSON.stringify(
@@ -1164,6 +1167,7 @@
 	}
 
 	onDestroy(() => {
+		sessionLiveSync.configure({ segmentJoin: () => 'space' });
 		disconnectBanner.destroy();
 		overlayTracker.destroy();
 		unsubscribeModelInstalled?.();

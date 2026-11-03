@@ -31,7 +31,7 @@ See ``docs/native-engine.md`` → "Memory tiers & low-VRAM".
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from src.platform.runtime.native.kernels import QUANT_FP8_SCALED
@@ -164,6 +164,8 @@ class ComponentPlacement:
     device: str
     ops_mode: OpsMode
     resident: bool  # False = kept on CPU, moved to GPU only while its phase runs
+    streamed: bool = False
+    stream_budget_gb: float | None = None
 
 
 @dataclass(frozen=True)
@@ -214,6 +216,35 @@ def _tier_from_residency(dit_r: bool, te_r: bool, vae_r: bool) -> Tier:
     return "resident"
 
 
+def plan_text_encoder_placement(
+    available_gb: float | None,
+    weights_gb: float,
+    *,
+    device: str,
+    mode: str = "auto",
+    dequant_peak_gb: float = 0.0,
+    working_headroom_gb: float = _WORKING_HEADROOM_GB,
+    fit_headroom_gb: float | None = None,
+    resident_cap_gb: float | None = None,
+) -> ComponentPlacement:
+    if mode not in ("auto", "gpu", "stream"):
+        raise ValueError(f"unknown text encoder placement mode: {mode!r}")
+    whole = ComponentPlacement(device=device, ops_mode="standard", resident=True)
+    if mode == "gpu" or available_gb is None or not str(device).startswith("cuda"):
+        return whole
+    fit_headroom = working_headroom_gb if fit_headroom_gb is None else fit_headroom_gb
+    if mode == "auto" and weights_gb + max(0.0, fit_headroom) <= available_gb:
+        return whole
+    sized = available_gb if resident_cap_gb is None else min(available_gb, resident_cap_gb)
+    return ComponentPlacement(
+        device=device,
+        ops_mode="standard",
+        resident=False,
+        streamed=True,
+        stream_budget_gb=max(0.0, sized - max(0.0, working_headroom_gb) - max(0.0, dequant_peak_gb)),
+    )
+
+
 def plan_placement(
     vram_gb: float,
     model_memory_gb: dict[str, float],
@@ -221,6 +252,12 @@ def plan_placement(
     device_plan: DevicePlan,
     *,
     working_headroom_gb: float = _WORKING_HEADROOM_GB,
+    text_encoder_mode: str | None = None,
+    text_encoder_available_gb: float | None = None,
+    text_encoder_dequant_gb: float = 0.0,
+    text_encoder_headroom_gb: float | None = None,
+    text_encoder_fit_headroom_gb: float | None = None,
+    text_encoder_resident_cap_gb: float | None = None,
 ) -> PlacementPlan:
     """Build a PlacementPlan for the DiT device's VRAM budget.
 
@@ -252,17 +289,33 @@ def plan_placement(
     if not vae_colocated:
         vae_r = True
 
+    text_encoder = ComponentPlacement(
+        device=device_plan.te_device,
+        ops_mode="standard",
+        resident=te_r,
+    )
+    if text_encoder_mode is not None:
+        available = text_encoder_available_gb
+        if available is None and te_colocated:
+            available = vram_gb
+        encode = plan_text_encoder_placement(
+            available, te_gb,
+            device=device_plan.te_device,
+            mode=text_encoder_mode,
+            dequant_peak_gb=text_encoder_dequant_gb,
+            working_headroom_gb=working_headroom_gb if text_encoder_headroom_gb is None else text_encoder_headroom_gb,
+            fit_headroom_gb=text_encoder_fit_headroom_gb,
+            resident_cap_gb=text_encoder_resident_cap_gb,
+        )
+        text_encoder = replace(text_encoder, streamed=encode.streamed, stream_budget_gb=encode.stream_budget_gb)
+
     plan = PlacementPlan(
         dit=ComponentPlacement(
             device=device_plan.dit_device,
             ops_mode=_dit_ops_mode(quant_format, dit_r),
             resident=dit_r,
         ),
-        text_encoder=ComponentPlacement(
-            device=device_plan.te_device,
-            ops_mode="standard",
-            resident=te_r,
-        ),
+        text_encoder=text_encoder,
         vae=ComponentPlacement(
             device=device_plan.vae_device,
             ops_mode="standard",
@@ -272,8 +325,8 @@ def plan_placement(
         tier=tier,
     )
     logger.debug(
-        "placement tier=%s dit(res=%s,%s) te(res=%s) vae(res=%s,tiling=%s) vram=%.1f sizes=%s",
-        tier, dit_r, plan.dit.ops_mode, te_r, vae_r, plan.vae_tiling, vram_gb,
+        "placement tier=%s dit(res=%s,%s) te(res=%s,stream=%s) vae(res=%s,tiling=%s) vram=%.1f sizes=%s",
+        tier, dit_r, plan.dit.ops_mode, te_r, plan.text_encoder.streamed, vae_r, plan.vae_tiling, vram_gb,
         model_memory_gb if sizes_known else "unknown",
     )
     return plan

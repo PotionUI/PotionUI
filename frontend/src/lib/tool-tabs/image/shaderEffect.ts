@@ -18,6 +18,10 @@ export interface ShaderSources {
 
 const STILL_FRAME = { mediaTime: 0, sourceDuration: 0, fps: 24 };
 
+function checkAborted(signal?: AbortSignal): void {
+	if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+}
+
 export function stillEffects(catalog: readonly ToolDTO[]): EffectTool[] {
 	return effectTools(catalog, 'image').filter(
 		(effect) => !!effect.block.shader && !effect.block.analysis && effect.block.textures.every((texture) => texture.kind === 'lut3d')
@@ -58,7 +62,8 @@ export class StillShader {
 		return this.chain;
 	}
 
-	async render(pixels: StillPixels, effect: EffectTool, values: Record<string, unknown>): Promise<StillPixels> {
+	async render(pixels: StillPixels, effect: EffectTool, values: Record<string, unknown>, signal?: AbortSignal): Promise<StillPixels> {
+		checkAborted(signal);
 		const size = { width: pixels.width, height: pixels.height };
 		const plan = planChain({
 			steps: [{ tool: effect.id, params: values }],
@@ -72,6 +77,7 @@ export class StillShader {
 		const tables = await Promise.all(
 			pass.textures.filter((texture) => texture.ref).map(async (texture) => [texture.ref, await remembered(this.tables, texture.ref, () => this.sources.table(texture))] as const)
 		);
+		checkAborted(signal);
 		const chain = this.open();
 		chain.setSource(pass.shaderUrl, text);
 		for (const [ref, table] of tables) if (!chain.hasLut(ref) && !chain.setLut(ref, table)) throw new Error(`${effect.label} could not load its table`);
@@ -87,6 +93,7 @@ export class StillShader {
 	dispose(): void {
 		this.chain?.dispose();
 		this.chain = null;
+		this.tables.clear();
 	}
 }
 
@@ -103,9 +110,8 @@ export async function stillPreview(url: string, effect: EffectTool, values: Reco
 	const context = canvas.getContext('2d', { willReadFrequently: true });
 	if (!context) throw new Error('This browser could not open a drawing surface.');
 	context.drawImage(source, 0, 0, canvas.width, canvas.height);
-	if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-	const result = await stillShader.render(context.getImageData(0, 0, canvas.width, canvas.height), effect, values);
-	if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+	const result = await stillShader.render(context.getImageData(0, 0, canvas.width, canvas.height), effect, values, signal);
+	checkAborted(signal);
 	context.putImageData(new ImageData(result.data as Uint8ClampedArray<ArrayBuffer>, result.width, result.height), 0, 0);
 	return new Promise((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('The preview could not be encoded'))), 'image/png'));
 }

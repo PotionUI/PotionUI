@@ -4,7 +4,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { hasIcon } from '$lib/utils/IconLibrary';
 	import { previewMediaTool } from '$lib/services/api/mediaTools';
-	import { stillEffects, stillPreview } from '$lib/tool-tabs/image/shaderEffect';
+	import { stillEffects, stillPreview, stillShader } from '$lib/tool-tabs/image/shaderEffect';
 	import { supportsWebGL2 } from '$lib/effects/ShaderChain';
 	import { selectionBounds, toolAvailability } from './catalog';
 	import { parseMediaToolFailure } from './errors';
@@ -182,6 +182,7 @@
 	onDestroy(() => {
 		disposed = true;
 		previewer.destroy();
+		if (shaderEffect) stillShader.dispose();
 	});
 
 	function setValue(name: string, next: unknown) {

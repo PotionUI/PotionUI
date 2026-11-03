@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, untrack } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
 	import CurvePlot from '$lib/components/imageEditor/CurvePlot.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import ToolForm from '$lib/media-tools/ToolForm.svelte';
@@ -13,6 +13,7 @@
 	import { isLocked } from '$lib/filters/strip';
 	import { scalarParams } from '$lib/filters/steps';
 	import { makeThumbSource, renderThumb, ThumbCache } from '$lib/filters/thumbs';
+	import { stillShader } from '$lib/tool-tabs/image/shaderEffect';
 	import type { FilterItem } from '$lib/filters/types';
 	import { ADJUST_OPS, CURVE_POINTS, curveMaster, type AdjustParams, type EffectParams, type LookParams, type ToolEffectParams } from '$lib/tool-tabs/image/steps';
 
@@ -39,6 +40,8 @@
 	onMount(() => {
 		void loadFilterCatalog();
 	});
+
+	onDestroy(() => stillShader.dispose());
 
 	let extensions = $derived(sharedExtensions($filterCatalog.ops, paintFilters.list()));
 	let looks = $derived(

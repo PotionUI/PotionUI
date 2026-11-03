@@ -161,7 +161,9 @@ option-file references exist (warning), the pipeline-template contract and exter
 defaults (see [Troubleshooting](troubleshooting.md)), media/variant/speed-profile cross-checks, and — if the preset
 ships one — that its `tests.yml` is well-formed (see "Testing presets" above). On the default run
 (no explicit paths) it also cross-checks every discovered plugin's `preset_modes:` contributions
-against the presets found under the scanned trees — the same collision rules [Plugin-Contributed Presets](plugins.md) documents, so a rejected/colliding contribution shows up here without booting the app;
+against the presets found under the scanned trees — the same collision rules [Plugin-Contributed Presets](plugins.md) documents, so a rejected/colliding contribution shows up here without booting the app.
+It re-runs every plugin's `preset_extensions:` merge the same way, reporting a rejected extension
+as an error and checking each added pipe against the pipe catalog;
 passing explicit paths skips this cross-check, same as it already skips plugin-owned `presets:`
 roots. `--fix` performs a comment-preserving migration of legacy `preset.yml` files (adds
 `schema: 1`, converts `modes:` mapping → list, moves inline `description:` to `description.md`,

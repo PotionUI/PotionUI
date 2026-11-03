@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
+import { addGenerationTab, loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
 import { presetOption } from './presetPreamble';
 
 // Visual evidence — the Field Catalog restyle (3a tabs + 2a cards).
@@ -170,12 +170,7 @@ test('field catalog restyle — visual capture on a native image preset', async 
 	await page.reload();
 	await expect(tablist).toBeVisible({ timeout: 20000 });
 
-	const newTabButton = page.getByRole('button', { name: 'New tab' });
-	if ((await newTabButton.count()) === 0) {
-		console.log(`[${JOURNEY}] no "New tab" control found — skipping compact media-loader capture.`);
-		return;
-	}
-	await newTabButton.click();
+	await addGenerationTab(page);
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
 	await presetOption(page, videoPreset.name).click();
 	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();

@@ -34,6 +34,8 @@ vi.mock('$lib/services/admin-api', () => ({
 const page = (await import('$app/stores')).page as unknown as PageStore;
 const { default: ModelsTab } = await import('../../src/routes/admin/components/ModelsTab.svelte');
 const { createClassComponent } = await import('svelte/legacy');
+const { setModelTypes, resetModelTypes } = await import('$lib/stores/modelTypes.svelte');
+const { coreModelTypeDefinitions } = await import('$lib/stores/modelTypesFixture');
 
 function model(overrides: Record<string, unknown> = {}) {
 	return {
@@ -90,6 +92,7 @@ function mountTab() {
 }
 
 beforeEach(() => {
+	setModelTypes(coreModelTypeDefinitions());
 	vi.clearAllMocks();
 	page.set({ url: new URL('http://localhost/admin?tab=models') });
 	mockGetModels.mockResolvedValue({ success: true, data: { models: MODELS, total: MODELS.length, availability_indexed: false } });
@@ -105,6 +108,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	resetModelTypes();
 	component?.$destroy();
 	target?.remove();
 	component = undefined;

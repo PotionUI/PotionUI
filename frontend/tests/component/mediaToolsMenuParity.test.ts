@@ -308,6 +308,7 @@ describe('Tools menu: Edit and Effects on both pages', () => {
 			'rotate',
 			'flip',
 			'fit_canvas',
+			'slice_sheet',
 			'color_key',
 			'crop_subject'
 		]);
@@ -407,11 +408,11 @@ describe('Tools menu: Edit and Effects on both pages', () => {
 describe('Tools menu: the Edit and Effects submenus at the top level', () => {
 	const rowsNow = () => topRows().map((entry) => [entry.id, entry.label, entry.count]);
 
-	it('Library, image: an Edit row of 7 and an Effects row of 1 stand in for the eight tools', async () => {
+	it('Library, image: an Edit row of 8 and an Effects row of 1 stand in for the nine tools', async () => {
 		const groups = await libraryMenu('image');
 
 		expect(rowsNow()).toEqual([
-			['edit', 'Edit', 7],
+			['edit', 'Edit', 8],
 			['effects', 'Effects', 1]
 		]);
 		expect(byLabel(groups, 'Edit')!.count).toBe(byLabel(groups, 'Edit')!.tools.length);
@@ -457,7 +458,7 @@ describe('card menu: the same submenus', () => {
 		await libraryCardMenu('image');
 
 		expect(rowsNow()).toEqual([
-			['edit', 'Edit', 7],
+			['edit', 'Edit', 8],
 			['effects', 'Effects', 1]
 		]);
 		const order = Array.from(

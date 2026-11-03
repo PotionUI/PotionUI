@@ -221,6 +221,7 @@ describe('loaded face', () => {
 		await tick();
 		expect(toolIds(await openTools(plain.target))).toEqual([
 			'edit',
+			'open-in-editor',
 			'crop',
 			'resize',
 			'rotate',
@@ -242,6 +243,7 @@ describe('loaded face', () => {
 		await tick();
 		expect(toolIds(await openTools(masked.target))).toEqual([
 			'edit',
+			'open-in-editor',
 			'crop',
 			'resize',
 			'rotate',
@@ -818,6 +820,7 @@ describe('compact face', () => {
 		expect(target.querySelector('[data-media-inspector]')).toBeNull();
 		expect(toolIds(await openTools(target))).toEqual([
 			'edit',
+			'open-in-editor',
 			'crop',
 			'resize',
 			'rotate',

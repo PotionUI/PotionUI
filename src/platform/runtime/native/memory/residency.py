@@ -992,8 +992,10 @@ def _run_streamed_encode(
             streaming.apply(device, budget)
             census = _weights_gb_by_device(encoder)
             result = encode_fn()
-        except torch.cuda.OutOfMemoryError:
+        except RuntimeError as exc:
             streaming.teardown()
+            if not retry_after_cuda_oom(exc):
+                raise
             logger.warning(
                 "residency: streamed TE encode OOM'd at a %.1fGB resident budget; %s",
                 budget, "streaming every leaf" if budget > 0.0 else "encoding on CPU",

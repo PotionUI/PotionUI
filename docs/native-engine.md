@@ -248,8 +248,8 @@ close that gap:
   back. nvfp4 leaves are streamed too: their packed buffers stay pinned and a forward pre-hook stages
   them onto the GPU for the call, so the dequant runs on the GPU from the 0.81 B/elem form. Both
   encode sites take this path: the pipes' `run_text_encode` / `run_text_encode_batch` (after the
-  existing co-resident and evict steps, path `"streamed"` on the `te.encode` mark; a
-  `torch.cuda.OutOfMemoryError` retries fully streamed, then encodes on the CPU as before) and
+  existing co-resident and evict steps, path `"streamed"` on the `te.encode` mark; an OOM
+  `retry_after_cuda_oom` accepts retries fully streamed, then encodes on the CPU as before) and
   `NativeGenerator.encode_prompt` (torn down by `_maybe_offload_te`). A placement or an encode that
   fails for any other reason is torn down before the error propagates. That frees what the placement
   holds; it cannot repair a CUDA context the driver has already damaged.
@@ -300,9 +300,8 @@ close that gap:
   decides from free VRAM right after it must empty the cache first when its first reading does not
   fit (LTX's projection ladder does). An encoder within the fit region is still moved whole, so a
   transient beyond the reserve (very long prompt, many vision tiles) can still overflow there. The
-  whole move is also not undone when it fails with anything but `torch.cuda.OutOfMemoryError`. On
-  Windows/WSL2 an exhausted card can raise a CUDA driver error ("device not ready") instead of
-  `OutOfMemoryError`; the retries above do not recognise it, so it tears down and propagates.
+  whole move is also not undone when it fails with anything but an OOM the same predicate accepts. A
+  driver-error OOM the policy calls fatal (below) tears the streaming down and propagates.
 
 Tier fallback (sizes unknown) and the low-VRAM regime each tier lands in:
 

@@ -1376,7 +1376,9 @@ class NativeGenerator:
         try:
             try:
                 streaming.apply(device, budget)
-            except torch.cuda.OutOfMemoryError:
+            except RuntimeError as exc:
+                if not retry_after_cuda_oom(exc):
+                    raise
                 logger.warning(
                     "streamed text-encoder placement OOM'd (budget %.1fGB); streaming every leaf", budget,
                 )

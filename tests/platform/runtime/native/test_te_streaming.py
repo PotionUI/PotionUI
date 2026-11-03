@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 
 from src.platform.observability import profiling
+from src.platform.runtime import cuda_allocator
 from src.platform.runtime.native import engine as engine_mod
 from src.platform.runtime.native.engine import NativeGenerator, NativeModel, TextEncoderStreaming
 from src.platform.runtime.native.memory import residency
@@ -65,6 +66,10 @@ def _fake_card(monkeypatch, log: list, *, capacity_gb: float, others_gb: float):
 
 def _streamed_oom() -> BaseException:
     return torch.cuda.OutOfMemoryError("fake streamed OOM")
+
+
+def _wsl_driver_oom() -> BaseException:
+    return RuntimeError("CUDA driver error: device not ready")
 
 
 class _FakeStreaming:
@@ -236,15 +241,54 @@ def test_pipe_path_streamed_oom_retries_fully_streamed(monkeypatch, fake_streami
     ]
 
 
-@pytest.mark.parametrize("message", ["CUDA driver error: invalid argument", "CUDA driver error: device not ready"])
-def test_pipe_path_tears_down_and_raises_a_driver_error(monkeypatch, fake_streaming, message):
+def test_pipe_path_wsl_driver_oom_retries_fully_streamed_where_the_policy_retries(monkeypatch, fake_streaming):
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
     _FakeStreaming.oom_budgets = {_h3_budget(10.0)}
-    _FakeStreaming.make_oom = lambda: RuntimeError(message)
+    _FakeStreaming.make_oom = _wsl_driver_oom
     log = fake_streaming
     _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
     encoder = minimax_h3_te(log)
 
-    with pytest.raises(RuntimeError, match=message):
+    run_text_encode(encoder, _DEV, lambda: encoder.encode(["prompt"]))
+
+    assert [e for e in log if e[0] != "note_offloaded"] == [
+        ("stream.apply", _DEV, _h3_budget(10.0)),
+        ("stream.teardown",),
+        ("stream.apply", _DEV, 0.0),
+        ("encode", "cpu"),
+        ("stream.teardown",),
+        ("mark", "streamed", 0.0),
+    ]
+
+
+def test_pipe_path_tears_down_and_raises_a_fatal_driver_oom(monkeypatch, fake_streaming):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    _FakeStreaming.oom_budgets = {_h3_budget(10.0)}
+    _FakeStreaming.make_oom = _wsl_driver_oom
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    encoder = minimax_h3_te(log)
+
+    with pytest.raises(RuntimeError, match="device not ready"):
+        run_text_encode(encoder, _DEV, lambda: encoder.encode(["prompt"]))
+    assert [e for e in log if e[0].startswith("stream.")] == [
+        ("stream.apply", _DEV, _h3_budget(10.0)),
+        ("stream.teardown",),
+    ]
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"
+
+
+def test_pipe_path_tears_down_and_raises_a_driver_error_that_is_not_exhaustion(monkeypatch, fake_streaming):
+    _FakeStreaming.oom_budgets = {_h3_budget(10.0)}
+    _FakeStreaming.make_oom = lambda: RuntimeError("CUDA driver error: invalid argument")
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    encoder = minimax_h3_te(log)
+
+    with pytest.raises(RuntimeError, match="invalid argument"):
         run_text_encode(encoder, _DEV, lambda: encoder.encode(["prompt"]))
     assert [e for e in log if e[0].startswith("stream.")] == [
         ("stream.apply", _DEV, _h3_budget(10.0)),
@@ -397,6 +441,40 @@ def test_generator_explicit_placement_decides_on_its_own(monkeypatch, fake_strea
     log.clear()
     _generator(encoder, vram_gb=12.0, placement=PlacementPlan(whole, streamed, whole, False, "resident")).encode_prompt("p")
     assert log[0] == ("stream.apply", _DEV, 3.0)
+
+
+def test_generator_streamed_placement_wsl_driver_oom_retries_fully_streamed_where_the_policy_retries(monkeypatch, fake_streaming):
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
+    _FakeStreaming.oom_budgets = {_h3_budget(10.0)}
+    _FakeStreaming.make_oom = _wsl_driver_oom
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    encoder = minimax_h3_te(log)
+
+    _generator(encoder, vram_gb=12.0).encode_prompt("prompt")
+
+    assert log == [
+        ("stream.apply", _DEV, _h3_budget(10.0)), ("stream.teardown",),
+        ("stream.apply", _DEV, 0.0), ("encode", "cpu"), ("stream.teardown",),
+    ]
+
+
+def test_generator_streamed_placement_tears_down_and_raises_a_fatal_driver_oom(monkeypatch, fake_streaming):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    _FakeStreaming.oom_budgets = {_h3_budget(10.0)}
+    _FakeStreaming.make_oom = _wsl_driver_oom
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    encoder = minimax_h3_te(log)
+
+    with pytest.raises(RuntimeError, match="device not ready"):
+        _generator(encoder, vram_gb=12.0).encode_prompt("prompt")
+
+    assert log == [("stream.apply", _DEV, _h3_budget(10.0)), ("stream.teardown",)]
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"
 
 
 def test_generator_streamed_placement_oom_retries_fully_streamed(monkeypatch, fake_streaming):

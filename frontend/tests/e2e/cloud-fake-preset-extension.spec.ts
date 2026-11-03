@@ -23,13 +23,6 @@ async function openFakeStudio(page: Page) {
 	await expect(field(page, 'model')).toBeVisible({ timeout: 20000 });
 }
 
-async function pickModel(page: Page, label: string) {
-	const swap = field(page, 'model').locator('button:visible', { hasText: 'Swap' }).first();
-	if (await swap.isVisible().catch(() => false)) await swap.click();
-	await field(page, 'model').locator('input').first().click();
-	await page.getByText(label, { exact: true }).last().click();
-}
-
 async function latestGeneration(page: Page, token: string) {
 	const list = await apiGet(page, '/api/admin/generations?limit=5&sort_by=created_at&sort_dir=desc', token);
 	return (list.data.generations as Array<Record<string, any>>)[0];
@@ -53,7 +46,7 @@ test.describe('a plugin extends an existing preset mode', () => {
 			await apiPost(page, `/api/cloud/backends/${backend!.id}/catalog/enable`, token, { slugs: [MODEL_SLUG] });
 
 			await openFakeStudio(page);
-			await pickModel(page, 'Fake Image');
+			await expect(field(page, 'model')).toContainText('Fake Image', { timeout: 20000 });
 			const generationTab = page.getByRole('tabpanel');
 			const added = generationTab.locator(`[data-field-name="${FIELD}"]`);
 			await expect(added).toBeVisible();

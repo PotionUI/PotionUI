@@ -238,46 +238,46 @@ describe('shotResourceNumbering positionIfAdded', () => {
 	});
 });
 
-const refModSpecs: PromptResourceSpec[] = [
+const kitSpecs: PromptResourceSpec[] = [
 	...specs,
-	{ field: 'reference_mods', kind: 'image', label: 'RefMods', token: '<Picture @>', source: 'refmod' },
-	{ field: 'reference_mods', kind: 'video', label: 'RefMods', token: '<Video @>', source: 'refmod' }
+	{ field: 'reference_kits', kind: 'image', label: 'Kits', token: '<Picture @>', source: 'kit' },
+	{ field: 'reference_kits', kind: 'video', label: 'Kits', token: '<Video @>', source: 'kit' }
 ];
-const refModCaps = {
+const kitCaps = {
 	...chainCaps,
-	referenceFields: ['references', 'reference_videos', 'reference_audios', 'reference_mods']
+	referenceFields: ['references', 'reference_videos', 'reference_audios', 'reference_kits']
 } as unknown as DirectorCapabilities;
-const refModForm = {
+const kitForm = {
 	...formData,
-	reference_mods: [
+	reference_kits: [
 		{ model: 'model:01X', strength: 1, copies: 1 },
 		{ model: 'model:01Z', strength: 0, copies: 1 }
 	]
 };
-const directory = { refmod: { 'model:01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] } } };
+const directory = { kit: { 'model:01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] } } };
 
-describe('refmod rows', () => {
-	it('lists a refmod by name with a badge and leaves native numbering alone', () => {
+describe('kit rows', () => {
+	it('lists a kit by name with a badge and leaves native numbering alone', () => {
 		const doc = chainDoc([
-			segment('s1', [{ id: 'p', content: '@[reference_mods:model:01X] with @[references:/pool/c.png]' }])
+			segment('s1', [{ id: 'p', content: '@[reference_kits:model:01X] with @[references:/pool/c.png]' }])
 		]);
-		const { used, unused } = shotReferenceOverview(doc, refModCaps, 's1', refModForm, refModSpecs, directory);
-		const mod = used.find((e) => e.field === 'reference_mods');
+		const { used, unused } = shotReferenceOverview(doc, kitCaps, 's1', kitForm, kitSpecs, directory);
+		const mod = used.find((e) => e.field === 'reference_kits');
 		expect(mod).toMatchObject({ itemKey: 'model:01X', name: 'Face', badge: 'Picture', handle: 'Picture 2', count: 1 });
 		expect(used.find((e) => e.itemKey === '/pool/c.png')?.handle).toBe('Picture 1');
 		expect(unused.some((e) => e.itemKey === 'model:01Z')).toBe(false);
-		const numbering = shotResourceNumbering(doc, refModCaps, 's1', refModForm, refModSpecs);
-		expect(numbering.positionFor('reference_mods', 'model:01X')).toBeNull();
+		const numbering = shotResourceNumbering(doc, kitCaps, 's1', kitForm, kitSpecs);
+		expect(numbering.positionFor('reference_kits', 'model:01X')).toBeNull();
 		expect(numbering.positionFor('references', '/pool/c.png')).toBe(1);
 	});
 
-	it('offers an uncited refmod for insertion with a marker', () => {
+	it('offers an uncited kit for insertion with a marker', () => {
 		const doc = chainDoc([segment('s1', [])]);
-		const { unused } = shotReferenceOverview(doc, refModCaps, 's1', refModForm, refModSpecs, directory);
-		const mod = unused.find((e) => e.field === 'reference_mods');
-		expect(mod?.marker).toBe('@[reference_mods:model:01X]');
-		const next = withMarkerAppendedToShot(doc, refModCaps, 's1', mod!.marker);
-		expect(next.chain.segments[0].prompt_segments[0].content).toBe('@[reference_mods:model:01X]');
+		const { unused } = shotReferenceOverview(doc, kitCaps, 's1', kitForm, kitSpecs, directory);
+		const mod = unused.find((e) => e.field === 'reference_kits');
+		expect(mod?.marker).toBe('@[reference_kits:model:01X]');
+		const next = withMarkerAppendedToShot(doc, kitCaps, 's1', mod!.marker);
+		expect(next.chain.segments[0].prompt_segments[0].content).toBe('@[reference_kits:model:01X]');
 	});
 });
 
@@ -287,22 +287,22 @@ describe('shotNeedsReferenceHint', () => {
 		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, chainCaps, 's1', formData, specs))).toBe(true);
 	});
 
-	it('shows for a pool made only of a citeable refmod', () => {
+	it('shows for a pool made only of a citeable kit', () => {
 		const doc = chainDoc([segment('s1', [])]);
-		const form = { reference_mods: [{ model: 'model:01X', strength: 1 }] };
-		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, refModCaps, 's1', form, refModSpecs, directory))).toBe(true);
+		const form = { reference_kits: [{ model: 'model:01X', strength: 1 }] };
+		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, kitCaps, 's1', form, kitSpecs, directory))).toBe(true);
 	});
 
 	it('hides once a reference is cited', () => {
-		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[reference_mods:model:01X]' }])]);
-		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, refModCaps, 's1', refModForm, refModSpecs, directory))).toBe(false);
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[reference_kits:model:01X]' }])]);
+		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, kitCaps, 's1', kitForm, kitSpecs, directory))).toBe(false);
 	});
 
-	it('hides with an empty pool or only a zero-strength refmod', () => {
+	it('hides with an empty pool or only a zero-strength kit', () => {
 		const doc = chainDoc([segment('s1', [])]);
 		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, chainCaps, 's1', {}, specs))).toBe(false);
-		const form = { reference_mods: [{ model: 'model:01Z', strength: 0 }] };
-		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, refModCaps, 's1', form, refModSpecs))).toBe(false);
+		const form = { reference_kits: [{ model: 'model:01Z', strength: 0 }] };
+		expect(shotNeedsReferenceHint(shotReferenceOverview(doc, kitCaps, 's1', form, kitSpecs))).toBe(false);
 	});
 });
 
@@ -310,27 +310,27 @@ describe('shotNeedsReferenceHint', () => {
 describe('the shot reference pool matches what the backend conditions on', () => {
 	const pictureOnly = {
 		references: [{ path: '/pool/a.png', type: 'image' }],
-		reference_mods: [{ model: 'model:01X', strength: 1 }]
+		reference_kits: [{ model: 'model:01X', strength: 1 }]
 	};
 	const mixedDirectory = {
-		refmod: {
+		kit: {
 			'model:01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] },
 			'model:01B': { name: 'Cast', members: [{ kind: 'image' as const, name: 'hero' }, { kind: 'image' as const, name: 'villain' }] },
 			'model:01S': { name: 'Stack', members: [{ kind: 'video' as const, name: null }] }
 		}
 	};
-	const context = { specs: refModSpecs, directories: mixedDirectory };
+	const context = { specs: kitSpecs, directories: mixedDirectory };
 
-	it('puts each RefMod member and copy after the native references of its kind, dropping strength 0', () => {
+	it('puts each kit member and copy after the native references of its kind, dropping strength 0', () => {
 		const form = {
 			...formData,
-			reference_mods: [
+			reference_kits: [
 				{ model: 'model:01S', strength: 1 },
 				{ model: 'model:01B', strength: 0.5, copies: 2 },
 				{ model: 'model:01X', strength: 0 }
 			]
 		};
-		const pool = shotReferencePool(refModCaps, form, context).map((unit) => `${unit.itemKey}:${unit.kind}`);
+		const pool = shotReferencePool(kitCaps, form, context).map((unit) => `${unit.itemKey}:${unit.kind}`);
 		expect(pool).toEqual([
 			'/pool/a.png:image', '/pool/b.png:image', '/pool/c.png:image',
 			'model:01B:image', 'model:01B:image', 'model:01B:image', 'model:01B:image',
@@ -339,29 +339,29 @@ describe('the shot reference pool matches what the backend conditions on', () =>
 		]);
 	});
 
-	it('reads 2 of 2 for a cited picture and a cited picture RefMod, not 2 of 1', () => {
-		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[references:/pool/a.png] and @[reference_mods:model:01X]' }])]);
-		expect(shotReferenceCounts(doc, refModCaps, 's1', pictureOnly, context)).toEqual({ used: 2, total: 2 });
+	it('reads 2 of 2 for a cited picture and a cited picture kit, not 2 of 1', () => {
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[references:/pool/a.png] and @[reference_kits:model:01X]' }])]);
+		expect(shotReferenceCounts(doc, kitCaps, 's1', pictureOnly, context)).toEqual({ used: 2, total: 2 });
 	});
 
-	it('reads 1 of 1 for a lone cited picture RefMod, not 1 of 0', () => {
-		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[reference_mods:model:01X]' }])]);
-		const form = { reference_mods: [{ model: 'model:01X', strength: 1 }] };
-		expect(shotReferenceCounts(doc, refModCaps, 's1', form, context)).toEqual({ used: 1, total: 1 });
+	it('reads 1 of 1 for a lone cited picture kit, not 1 of 0', () => {
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[reference_kits:model:01X]' }])]);
+		const form = { reference_kits: [{ model: 'model:01X', strength: 1 }] };
+		expect(shotReferenceCounts(doc, kitCaps, 's1', form, context)).toEqual({ used: 1, total: 1 });
 	});
 
 	it('counts every member of a cited bundle against the full pool', () => {
-		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[reference_mods:model:01B]' }])]);
-		const form = { references: [{ path: '/pool/a.png', type: 'image' }], reference_mods: [{ model: 'model:01B', strength: 1 }, { model: 'model:01S', strength: 1 }] };
-		expect(shotReferenceCounts(doc, refModCaps, 's1', form, context)).toEqual({ used: 2, total: 4 });
+		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[reference_kits:model:01B]' }])]);
+		const form = { references: [{ path: '/pool/a.png', type: 'image' }], reference_kits: [{ model: 'model:01B', strength: 1 }, { model: 'model:01S', strength: 1 }] };
+		expect(shotReferenceCounts(doc, kitCaps, 's1', form, context)).toEqual({ used: 2, total: 4 });
 	});
 
-	it('gives a cited RefMod the labels the shot numbers it with, after the cited natives of its kind', () => {
+	it('gives a cited kit the labels the shot numbers it with, after the cited natives of its kind', () => {
 		const doc = chainDoc([
-			segment('s1', [{ id: 'p', content: '@[references:/pool/a.png] @[reference_mods:model:01B] @[reference_mods:model:01S]' }])
+			segment('s1', [{ id: 'p', content: '@[references:/pool/a.png] @[reference_kits:model:01B] @[reference_kits:model:01S]' }])
 		]);
-		const form = { references: [{ path: '/pool/a.png', type: 'image' }], reference_mods: [{ model: 'model:01B', strength: 1 }, { model: 'model:01S', strength: 1 }] };
-		const { used } = shotReferenceOverview(doc, refModCaps, 's1', form, refModSpecs, mixedDirectory);
+		const form = { references: [{ path: '/pool/a.png', type: 'image' }], reference_kits: [{ model: 'model:01B', strength: 1 }, { model: 'model:01S', strength: 1 }] };
+		const { used } = shotReferenceOverview(doc, kitCaps, 's1', form, kitSpecs, mixedDirectory);
 		expect(used.map((entry) => [entry.itemKey, entry.handle])).toEqual([
 			['/pool/a.png', 'Picture 1'],
 			['model:01B', 'Picture 2 · Picture 3'],
@@ -369,9 +369,9 @@ describe('the shot reference pool matches what the backend conditions on', () =>
 		]);
 	});
 
-	it('leaves an uncited RefMod without a label', () => {
+	it('leaves an uncited kit without a label', () => {
 		const doc = chainDoc([segment('s1', [{ id: 'p', content: '@[references:/pool/a.png]' }])]);
-		const { unused } = shotReferenceOverview(doc, refModCaps, 's1', pictureOnly, refModSpecs, mixedDirectory);
+		const { unused } = shotReferenceOverview(doc, kitCaps, 's1', pictureOnly, kitSpecs, mixedDirectory);
 		expect(unused.map((entry) => [entry.itemKey, entry.handle])).toEqual([['model:01X', null]]);
 	});
 });

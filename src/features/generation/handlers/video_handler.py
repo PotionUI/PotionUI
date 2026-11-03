@@ -416,6 +416,8 @@ class VideoGenerationOutputHandler(BaseGenerationOutputHandler):
                 # copy: a source that was never actually read is not ours to
                 # clean up.
                 temp_source_tracker.register(self.generation_id, output.video_path)
+                if output.temporary:
+                    temp_source_tracker.register_storage_tmp(self.generation_id, full_path, file_service.tmp_dir)
                 logger.debug(f"Video saved successfully to {'tmp' if output.temporary else 'generations'}: {file_metadata['file_path']}")
                 return file_metadata['file_path']  # Return relative path
             else:

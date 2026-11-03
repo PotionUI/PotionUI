@@ -16,6 +16,7 @@ from src.features.media.media_types import MediaTypeResolver
 from src.platform.plugins import PluginRegistry
 from src.platform.settings.settings import Settings
 from src.features.generation.file_repository import FileRepository
+from src.features.generation.records import File
 from src.features.generation.repository import GenerationRepository
 from src.platform.filesystem.file_store import FileStore
 from src.features.media.upload_repository import UploadRepository
@@ -794,12 +795,14 @@ class TestMediaStore:
         mock_generation = Mock()
         mock_generation_repo.get_by_id.return_value = mock_generation
 
-        mock_file = Mock()
-        mock_file.file_path = "generations/2024-01-01/gen123/0.png"
-        mock_file.thumbnail_small = "thumbnails/0_small.webp"
-        mock_file.thumbnail_medium = None
-        mock_file.thumbnail_large = None
-        mock_generation_repo.get_files.return_value = [mock_file]
+        mock_generation_repo.releasable_files.return_value = [
+            File(
+                file_path="generations/2024-01-01/gen123/0.png",
+                file_type="IMAGE",
+                user_id="user123",
+                thumbnail_small="thumbnails/0_small.webp",
+            )
+        ]
         mock_file_service.delete_generation_outputs.return_value = (5, 0)
 
         result = manager.delete_generation_media("gen123", "user123")
@@ -811,7 +814,9 @@ class TestMediaStore:
         mock_file_service.delete_generation_outputs.assert_called_once_with([
             "generations/2024-01-01/gen123/0.png",
             "generations/2024-01-01/gen123/thumbnails/0_small.webp",
+            "generations/2024-01-01/gen123/thumbnails/0_small_animated.webp",
         ])
+        mock_generation_repo.releasable_files.assert_called_once_with("gen123")
         mock_generation_repo.delete.assert_called_once_with("gen123")
 
     def test_delete_generation_media_not_found(self, manager, mock_generation_repo):

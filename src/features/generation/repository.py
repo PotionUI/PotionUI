@@ -50,6 +50,24 @@ _SORT_COLUMNS = {
 # this stays under both, with room for the other filters' parameters.
 _ID_FILTER_BATCH = 900
 
+OWNER_NOTIFICATION_TYPES = ("generation.completed", "generation.failed", "generation.warning")
+
+FILE_CITED_ELSEWHERE = (
+    "EXISTS (SELECT 1 FROM generation_files other WHERE other.file_id = gf.file_id AND other.generation_id != gf.generation_id) "
+    "OR EXISTS (SELECT 1 FROM model_files mf WHERE mf.file_id = gf.file_id) "
+    "OR EXISTS (SELECT 1 FROM model_preview_media mp WHERE mp.file_id = gf.file_id) "
+    "OR EXISTS (SELECT 1 FROM phrasebook_values pv WHERE pv.preview_file_id = gf.file_id)"
+)
+
+
+def _owned_files(cursor, generation_id: str) -> List[File]:
+    cursor.execute(
+        "SELECT f.* FROM generation_files gf JOIN files f ON f.id = gf.file_id "
+        f"WHERE gf.generation_id = ? AND NOT ({FILE_CITED_ELSEWHERE}) ORDER BY f.created_at, f.id",
+        (generation_id,),
+    )
+    return [File.from_row(row) for row in cursor.fetchall()]
+
 
 class GenerationRepository:
     def create(self, generation: Generation) -> Generation:
@@ -734,6 +752,20 @@ class GenerationRepository:
 
             return cursor.rowcount > 0
 
+    def releasable_files(self, generation_id: str) -> List[File]:
+        with get_cursor() as cursor:
+            owned = _owned_files(cursor, generation_id)
+            owned_ids = [file.id for file in owned]
+            releasable = []
+            for file in owned:
+                cursor.execute(
+                    f"SELECT 1 FROM files WHERE file_path = ? AND id NOT IN ({','.join('?' * len(owned_ids))}) LIMIT 1",
+                    (file.file_path, *owned_ids),
+                )
+                if cursor.fetchone() is None:
+                    releasable.append(file)
+            return releasable
+
     def delete(self, generation_id: str) -> bool:
         """Delete generation and its files"""
         with get_cursor() as cursor:
@@ -741,10 +773,19 @@ class GenerationRepository:
             cursor.execute("SELECT user_id FROM generations WHERE id = ?", (generation_id,))
             row = cursor.fetchone()
             owner = row[0] if row else None
+            owned_ids = [file.id for file in _owned_files(cursor, generation_id)]
 
             cursor.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
             deleted = cursor.rowcount > 0
             if deleted:
+                for start in range(0, len(owned_ids), _ID_FILTER_BATCH):
+                    batch = owned_ids[start:start + _ID_FILTER_BATCH]
+                    cursor.execute(f"DELETE FROM files WHERE id IN ({','.join('?' * len(batch))})", batch)
+                cursor.execute(
+                    f"DELETE FROM notifications WHERE user_id = ? AND type IN ({','.join('?' * len(OWNER_NOTIFICATION_TYPES))}) "
+                    "AND CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.generation_id') END = ?",
+                    (owner, *OWNER_NOTIFICATION_TYPES, generation_id),
+                )
                 bump_history_revision(cursor, owner)
             return deleted
 

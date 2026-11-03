@@ -1191,19 +1191,51 @@ def http_ok(url: str, timeout: float = 2.0) -> bool:
         return False
 
 
+STARTING = "starting"
+STARTING_MESSAGE = (
+    "Backend is listening and still warming up (preset catalogue, execution devices); "
+    "waiting for it to report healthy..."
+)
+
+
+def health_state(url: str, timeout: float = 2.0) -> Optional[str]:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return "ready" if 200 <= resp.status < 400 else None
+    except urllib.error.HTTPError as exc:
+        if exc.code != 503:
+            return None
+        try:
+            payload = json.loads(exc.read())
+        except (ValueError, OSError):
+            return None
+        return STARTING if isinstance(payload, dict) and payload.get("status") == STARTING else None
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
 def wait_for_ready(
-    check_fn: Callable[[], bool],
+    check_fn: Callable[[], object],
     timeout: float,
     interval: float = 2.0,
     clock: Callable[[], float] = time.monotonic,
     sleeper: Callable[[float], None] = time.sleep,
+    report: Callable[[str], None] = print,
 ) -> bool:
     deadline = clock() + timeout
-    while clock() < deadline:
-        if check_fn():
+    announced = False
+    while True:
+        state = check_fn()
+        if state == STARTING:
+            deadline = clock() + timeout
+            if not announced:
+                announced = True
+                report(STARTING_MESSAGE)
+        elif state:
             return True
+        if clock() >= deadline:
+            return False
         sleeper(interval)
-    return check_fn()
 
 
 # ---------------------------------------------------------------------------
@@ -1373,7 +1405,7 @@ def cmd_doctor(args) -> int:
 
 def _existing_running_and_healthy(state: dict) -> bool:
     backend = state.get("backend")
-    if not backend or not pid_alive(backend["pid"]) or not http_ok(f"http://127.0.0.1:{backend['port']}/health"):
+    if not backend or not pid_alive(backend["pid"]) or health_state(f"http://127.0.0.1:{backend['port']}/health") is None:
         return False
     frontend = state.get("frontend")
     if frontend is None:
@@ -1513,7 +1545,7 @@ def cmd_start(args) -> int:
 
         print("Waiting for backend to become ready...")
         backend_url = f"http://127.0.0.1:{args.backend_port}/health"
-        if not wait_for_ready(lambda: http_ok(backend_url), timeout=args.timeout):
+        if not wait_for_ready(lambda: health_state(backend_url), timeout=args.timeout):
             return _fail_start("backend", backend_info, state)
 
         print("\nPotionUI is up.")
@@ -1551,7 +1583,7 @@ def cmd_start(args) -> int:
     backend_url = f"http://127.0.0.1:{args.backend_port}/health"
     frontend_url = f"http://{FRONTEND_BIND_HOST}:{args.frontend_port}/"
 
-    if not wait_for_ready(lambda: http_ok(backend_url), timeout=args.timeout):
+    if not wait_for_ready(lambda: health_state(backend_url), timeout=args.timeout):
         return _fail_start("backend", backend_info, state)
     if not wait_for_ready(lambda: http_ok(frontend_url), timeout=args.timeout):
         return _fail_start("frontend", frontend_info, state)
@@ -1957,7 +1989,7 @@ def build_parser() -> argparse.ArgumentParser:
             "server, same as before."
         ),
     )
-    start_p.add_argument("--timeout", type=float, default=DEFAULT_START_TIMEOUT, help="Seconds to wait for readiness.")
+    start_p.add_argument("--timeout", type=float, default=DEFAULT_START_TIMEOUT, help="Seconds to wait for each process to answer; a backend that answers 503 \"starting\" is waited for beyond it.")
     start_p.add_argument("--profile", choices=INSTALL_PROFILES, default=None, help=profile_help)
     start_p.add_argument("--no-gpu", action="store_true", help=no_gpu_help)
     start_p.add_argument(

@@ -281,11 +281,12 @@ async def test_backend_identity_unavailable_reports_unknown_end_to_end(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_bare_cuda_device_reports_unknown_with_the_backends_own_reason_end_to_end():
+async def test_bare_cuda_device_reports_unknown_with_the_backends_own_reason_end_to_end(monkeypatch):
     """A bare `"cuda"` (no explicit `:N` ordinal) must never be attributed
     this host's GPU numbers - not even the monitor's real, matching ones -
     and the advisory must surface REQ-01's specific reason, not its own
     generic wording."""
+    monkeypatch.setattr('src.features.backends.native_backend._cuda_device_count', lambda: 2)
     backend = _local_backend(device='cuda')
     orchestrator = _orchestrator(backend, gpu_monitor=_gpu_monitor(free_mb=8192, total_mb=24576, device_identity=GPU_0))
 

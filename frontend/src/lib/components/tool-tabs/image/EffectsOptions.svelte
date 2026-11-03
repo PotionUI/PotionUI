@@ -26,6 +26,7 @@
 		updating = false,
 		original = null,
 		busy = false,
+		onopen,
 		onapply,
 		onchange
 	}: {
@@ -36,6 +37,7 @@
 		updating?: boolean;
 		original?: EffectParams | null;
 		busy?: boolean;
+		onopen?: (tool: string) => boolean;
 		onapply: () => void;
 		onchange: (next: EffectParams) => void;
 	} = $props();
@@ -154,6 +156,7 @@
 
 	function pickEffect(effect: EffectTool) {
 		if (chosen?.tool === effect.id) return;
+		if (onopen?.(effect.id)) return;
 		onchange({ kind: 'effect', tool: effect.id, name: effect.label, values: effectDefaults(effect) } satisfies ToolEffectParams);
 	}
 

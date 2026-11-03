@@ -18,6 +18,7 @@ import {
 	redoLabel,
 	remove,
 	reopen,
+	reopenLatest,
 	seek,
 	serialize,
 	stackRows,
@@ -390,5 +391,76 @@ describe('persistence', () => {
 	it('keeps minting ids after the highest restored one', () => {
 		const restored = deserialize({ v: 1, cursor: 1, seq: 1, steps: [{ id: 's9', tool: 'crop', label: 'Crop' }] });
 		expect(apply(beginEdit(restored, resize)).steps[1].id).toBe('s10');
+	});
+});
+
+describe('reopenLatest', () => {
+	const grain = (amount: number): StepDraft<Params> => ({ tool: 'film_grain', icon: 'grain', label: 'Film grain', summary: `Amount ${amount}`, params: { amount } });
+	const isGrain = (step: { tool: string }) => step.tool === 'film_grain';
+
+	it('reopens the latest applied step that matches', () => {
+		const state = applyAll(grain(10), crop, grain(20));
+		const next = reopenLatest(state, isGrain);
+		expect(next.pending?.target).toBe(state.steps[2].id);
+		expect(next.pending?.params).toEqual({ amount: 20 });
+	});
+
+	it('returns the same state when nothing matches', () => {
+		const state = applyAll(crop);
+		expect(reopenLatest(state, isGrain)).toBe(state);
+	});
+
+	it('ignores undone steps', () => {
+		const state = undo(applyAll(grain(10), grain(20)));
+		expect(reopenLatest(state, isGrain).pending?.target).toBe(state.steps[0].id);
+	});
+
+	it('updates in place and undo restores the previous values', () => {
+		const state = applyAll(grain(10));
+		const updated = apply(updatePending(reopenLatest(state, isGrain), grain(40)));
+		expect(updated.steps).toHaveLength(1);
+		expect(updated.steps[0].params).toEqual({ amount: 40 });
+		const undone = undo(updated);
+		expect(undone.cursor).toBe(1);
+		expect(undone.steps[0].params).toEqual({ amount: 10 });
+		expect(undoLabel(undone)).toBe('Film grain');
+		expect(canRedo(undone)).toBe(true);
+		const redone = redo(undone);
+		expect(redone.steps[0].params).toEqual({ amount: 40 });
+		expect(undo(undo(redone)).cursor).toBe(0);
+	});
+
+	it('undoes an update of an earlier step before the later step', () => {
+		const state = applyAll(grain(10), crop);
+		const updated = apply(updatePending(reopenLatest(state, isGrain), grain(40)));
+		const once = undo(updated);
+		expect(once.cursor).toBe(2);
+		expect(once.steps[0].params).toEqual({ amount: 10 });
+		const twice = undo(once);
+		expect(twice.cursor).toBe(1);
+		expect(redo(redo(twice)).steps[0].params).toEqual({ amount: 40 });
+	});
+
+	it('drops redo of an update when a new step is applied', () => {
+		const state = applyAll(grain(10));
+		const undone = undo(apply(updatePending(reopenLatest(state, isGrain), grain(40))));
+		expect(canRedo(apply(beginEdit(undone, crop)))).toBe(false);
+	});
+
+	it('undo skips an untouched reopened step and reverts the last update', () => {
+		const state = applyAll(grain(10));
+		const updated = apply(updatePending(reopenLatest(state, isGrain), grain(40)));
+		const reopened = reopenLatest(updated, isGrain);
+		const undone = undo(reopened);
+		expect(undone.pending).toBeNull();
+		expect(undone.steps[0].params).toEqual({ amount: 10 });
+		const edited = updatePending(reopened, grain(50));
+		expect(undo(edited).steps[0].params).toEqual({ amount: 40 });
+	});
+
+	it('applying an unchanged reopened step records nothing to undo', () => {
+		const state = applyAll(grain(10), crop);
+		const same = apply(reopenLatest(state, isGrain));
+		expect(undo(same).cursor).toBe(1);
 	});
 });

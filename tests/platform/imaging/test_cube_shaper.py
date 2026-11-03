@@ -3,7 +3,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.platform.imaging.filters.cube import MAX_CUBE_BYTES, CubeError, parse_cube
+from src.platform.imaging.filters.cube import (
+    MAX_CUBE_BYTES,
+    MAX_HEADER_LINES,
+    MAX_LINE_CHARS,
+    MAX_SHAPER_SIZE,
+    MAX_TITLE_CHARS,
+    CubeError,
+    parse_cube,
+)
 from src.platform.imaging.filters.lut import apply_cube, bake_cube, lattice, mix_cube, serialize_cube
 
 
@@ -80,6 +88,30 @@ def test_a_one_dimensional_lut_alone_is_refused():
 def test_bad_or_hostile_files_are_refused_with_a_reason(text, message):
     with pytest.raises(CubeError, match=message):
         parse_cube(text, allow_shaper=True)
+
+
+TABLE = "LUT_3D_SIZE 2\n" + rows(lattice(2))
+
+
+def with_shaper(size: int) -> str:
+    x = np.linspace(0, 1, size)
+    return f"LUT_1D_SIZE {size}\nLUT_3D_SIZE 2\n{rows(np.stack([x] * 3, 1))}\n{rows(lattice(2))}"
+
+
+@pytest.mark.parametrize(
+    "build, cap, message",
+    [
+        (lambda n: "#" * n + "\n" + TABLE, MAX_LINE_CHARS, "longer than"),
+        (lambda n: 'TITLE "' + "t" * n + '"\n' + TABLE, MAX_TITLE_CHARS, "TITLE is longer"),
+        (lambda n: "DOMAIN_MIN 0 0 0\n" * (n - 1) + TABLE, MAX_HEADER_LINES, "header lines"),
+        (with_shaper, MAX_SHAPER_SIZE, "outside"),
+    ],
+    ids=["line", "title", "headers", "shaper"],
+)
+def test_each_parser_cap_takes_its_limit_and_refuses_one_more(build, cap, message):
+    assert parse_cube(build(cap), allow_shaper=True).size == 2
+    with pytest.raises(CubeError, match=message):
+        parse_cube(build(cap + 1), allow_shaper=True)
 
 
 def test_a_file_over_the_size_limit_is_refused_before_it_is_read():

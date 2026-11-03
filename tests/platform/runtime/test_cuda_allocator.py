@@ -15,6 +15,7 @@ from src.platform.runtime.cuda_allocator import (
     expandable_segments_enabled,
     is_driver_oom,
     needs_gpu_restart,
+    pipe_config_runs_on_cuda,
     raise_if_allocator_damaged,
     record_driver_oom,
 )
@@ -216,3 +217,20 @@ def test_raise_if_allocator_damaged(monkeypatch):
     assert "CUDA driver error: device not ready" in str(caught.value)
     assert str(caught.value).endswith(RESTART_HINT)
     assert isinstance(caught.value, RuntimeError)
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        (None, True),
+        ({}, True),
+        ({"device": None}, True),
+        ({"device": ""}, True),
+        ({"device": "cuda"}, True),
+        ({"device": "cuda:1"}, True),
+        ({"device": "cpu"}, False),
+        ({"device": "mps"}, False),
+    ],
+)
+def test_a_pipe_config_runs_on_cuda_unless_it_names_another_device(config, expected):
+    assert pipe_config_runs_on_cuda(config) is expected

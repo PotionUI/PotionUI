@@ -17,19 +17,19 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-from typing import Awaitable, Optional, TypeVar
+from typing import Any, Coroutine, Optional, TypeVar
 
 T = TypeVar("T")
 
 
-def run_sync(coro: Awaitable[T], loop: Optional[asyncio.AbstractEventLoop] = None) -> T:
+def run_sync(coro: Coroutine[Any, Any, T], loop: Optional[asyncio.AbstractEventLoop] = None) -> T:
     try:
         running = asyncio.get_running_loop()
     except RuntimeError:
         running = None
     if loop is not None and loop is not running and loop.is_running():
-        return asyncio.run_coroutine_threadsafe(coro, loop).result()  # type: ignore[arg-type]
+        return asyncio.run_coroutine_threadsafe(coro, loop).result()
     if running is None:
-        return asyncio.run(coro)  # type: ignore[arg-type]
+        return asyncio.run(coro)
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result()  # type: ignore[arg-type]
+        return pool.submit(asyncio.run, coro).result()

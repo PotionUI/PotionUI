@@ -361,7 +361,6 @@ def warm_up(container: AppContainer, ready: threading.Event) -> None:
 def add_health_route(app: FastAPI, ready: threading.Event) -> None:
     @app.get("/health", tags=["System & Health"], summary="Health Check")
     async def health_check():
-        """Check if the API service is running and healthy."""
         payload = health_payload(ready.is_set())
         if payload["status"] == "starting":
             return JSONResponse(payload, status_code=503)

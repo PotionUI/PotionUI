@@ -13,6 +13,7 @@ RESTART_HINT = (
     "This process can no longer use the GPU: restart it with Restart Backend "
     "(Administration > Backends) before the next generation."
 )
+RESTART_ACTION = "Restart PotionUI: Administration > Backends > Restart Backend"
 DRIVER_OOM_MESSAGES = (
     "CUDA driver error: device not ready",
     "CUDA driver error: out of memory",
@@ -75,6 +76,14 @@ def record_driver_oom(exc: BaseException) -> None:
 
 def allocator_damage() -> str | None:
     return _damage
+
+
+def needs_gpu_restart(exc: BaseException) -> bool:
+    if isinstance(exc, CudaAllocatorDamaged):
+        return True
+    if is_driver_oom(exc) and not driver_oom_retries():
+        return True
+    return _damage is not None and "CUDA driver error:" in str(exc)
 
 
 def raise_if_allocator_damaged() -> None:

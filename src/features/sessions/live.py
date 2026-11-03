@@ -32,10 +32,6 @@ def browser_or_api_origin(client_header: Optional[str]) -> WriteOrigin:
     return WriteOrigin("api", API_LABEL)
 
 
-def mcp_origin(token_name: str) -> WriteOrigin:
-    return WriteOrigin("mcp", (token_name or "").strip() or "MCP")
-
-
 def stored_origin(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not isinstance(raw, dict):
         return {"origin": None, "client_id": None}

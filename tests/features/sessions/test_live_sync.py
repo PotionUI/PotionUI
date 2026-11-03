@@ -8,12 +8,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import src.features.sessions.repository as session_repository_module
-import src.features.sessions.routes as session_routes
 from src.features.sessions import operations
-from src.features.sessions.dto import Session, UpdateSessionRequest
+from src.features.sessions.dto import SaveSessionRequest, Session, UpdateSessionRequest
 from src.features.sessions.live import WriteOrigin
 from src.features.sessions.repository import SessionRepository
 from src.features.sessions.routes import SessionController, build_router
+from src.platform.http.errors import ConflictError
+from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 
 _SCHEMA = """
@@ -33,8 +34,6 @@ CREATE TABLE sessions (
 );
 """
 
-JWT = "browser-jwt"
-MCP = "pui_mcp_secret"
 
 
 def _user(user_id="user-1"):
@@ -81,29 +80,23 @@ def notifier():
 
 @pytest.fixture
 def controller(repo, registry, notifier):
-    owner = (_user(), SimpleNamespace(name="Claude Code"))
-    return SessionController(
-        session_repository=repo,
-        plugin_registry=registry,
-        notifier=notifier,
-        mcp_owner_resolver=lambda token: owner if token == MCP else None,
-    )
+    return SessionController(session_repository=repo, plugin_registry=registry, notifier=notifier)
 
 
 @pytest.fixture
 def client(controller):
-    auth = SimpleNamespace(get_user_from_token=lambda token: _user() if token == JWT else None)
     app = FastAPI()
     app.include_router(build_router(SimpleNamespace(session_controller=controller)))
-    with patch.object(session_routes, "get_auth", lambda: auth):
-        yield TestClient(app, raise_server_exceptions=False)
+
+    async def _user_dependency():
+        return _user()
+
+    app.dependency_overrides[get_current_active_user] = _user_dependency
+    return TestClient(app, raise_server_exceptions=False)
 
 
-def _headers(token=JWT, client_id=None):
-    headers = {"Authorization": f"Bearer {token}"}
-    if client_id:
-        headers["X-Potion-Client"] = client_id
-    return headers
+def _headers(client_id=None):
+    return {"X-Potion-Client": client_id} if client_id else {}
 
 
 def _create(client, name="Monica", data=None):
@@ -116,11 +109,11 @@ def _create(client, name="Monica", data=None):
     return response.json()["data"]
 
 
-def _put(client, session_id, data, base_version=None, token=JWT, client_id=None):
+def _put(client, session_id, data, base_version=None, client_id=None):
     body = {"name": "Monica", "data": data}
     if base_version is not None:
         body["base_version"] = base_version
-    return client.put(f"/api/sessions/{session_id}", json=body, headers=_headers(token, client_id))
+    return client.put(f"/api/sessions/{session_id}", json=body, headers=_headers(client_id))
 
 
 def test_a_new_session_starts_at_version_one(client):
@@ -138,7 +131,7 @@ def test_a_write_on_the_current_version_bumps_it(client):
 
 def test_a_stale_write_is_refused_with_the_current_session(client):
     created = _create(client)
-    _put(client, created["id"], {"txt2img": {"prompt": "from claude"}}, token=MCP)
+    _put(client, created["id"], {"txt2img": {"prompt": "from claude"}}, client_id="w2:tab-b")
 
     response = _put(client, created["id"], {"txt2img": {"prompt": "stale tab"}}, base_version=1, client_id="w1:tab-a")
 
@@ -147,8 +140,8 @@ def test_a_stale_write_is_refused_with_the_current_session(client):
     assert detail["error"] == "session_version_conflict"
     assert detail["session"]["version"] == 2
     assert detail["session"]["data"] == {"txt2img": {"prompt": "from claude"}}
-    assert detail["origin"] == {"kind": "mcp", "label": "Claude Code"}
-    assert detail["client_id"] is None
+    assert detail["origin"] == {"kind": "window", "label": "another window"}
+    assert detail["client_id"] == "w2:tab-b"
 
 
 def test_a_stale_write_never_reaches_the_stored_session(client, repo):
@@ -220,16 +213,6 @@ def test_a_refused_write_announces_nothing(client, notifier):
     assert len(_pushes(notifier)) == before
 
 
-def test_the_origin_names_the_mcp_token(client, notifier):
-    created = _create(client)
-
-    _put(client, created["id"], {"txt2img": {"prompt": "b"}}, token=MCP)
-
-    push = _pushes(notifier)[-1]
-    assert push["origin"] == {"kind": "mcp", "label": "Claude Code"}
-    assert push["client_id"] is None
-
-
 def test_a_browser_tab_write_carries_its_client_id_for_the_echo(client, notifier):
     created = _create(client)
 
@@ -258,19 +241,22 @@ def test_a_malformed_client_id_is_not_echoed(client, notifier):
     assert push["origin"]["kind"] == "api"
 
 
-def test_an_unknown_bearer_is_unauthorized(client):
+def test_a_read_returns_the_session_version(client):
     created = _create(client)
+    _put(client, created["id"], {"txt2img": {"prompt": "b"}})
 
-    assert _put(client, created["id"], {"txt2img": {"prompt": "b"}}, token="nope").status_code == 401
-
-
-def test_an_mcp_token_reads_the_session_with_its_version(client):
-    created = _create(client)
-
-    response = client.get(f"/api/sessions/{created['id']}", headers=_headers(MCP))
+    response = client.get(f"/api/sessions/{created['id']}")
 
     assert response.status_code == 200
-    assert response.json()["data"]["version"] == 1
+    assert response.json()["data"]["version"] == 2
+
+
+def test_an_unauthenticated_write_is_refused():
+    app = FastAPI()
+    app.include_router(build_router(SimpleNamespace(session_controller=Mock())))
+    client = TestClient(app, raise_server_exceptions=False)
+
+    assert client.put("/api/sessions/s1", json={"name": "n", "data": {}}).status_code == 401
 
 
 def test_the_repository_refuses_a_swap_against_a_moved_version(repo):
@@ -301,3 +287,80 @@ def test_a_baseless_write_retries_when_another_writer_lands_in_between(repo, reg
 
     assert result["version"] == 3
     assert result["data"] == {"img2img": {"prompt": "other"}, "txt2img": {"prompt": "mine"}}
+
+
+def _hook_calls(registry, hook):
+    return [call for call in registry.execute_hook.call_args_list if hook in repr(call)]
+
+
+def test_a_retried_write_runs_the_veto_hook_once(repo, registry):
+    session = repo.create(Session(id="s1", user_id="user-1", preset_id="p", name="n", data={}))
+    real_update = repo.update
+    attempts = []
+
+    def update(candidate, expected_version, origin=None):
+        attempts.append(expected_version)
+        if len(attempts) == 1:
+            real_update(session.model_copy(update={"data": {"img2img": {}}}), expected_version, None)
+        return real_update(candidate, expected_version, origin)
+
+    repo.update = update
+    operations.update_session(
+        repo, registry, None, None, "user-1", "s1", UpdateSessionRequest(name="n", data={"prompt": "x"}, mode="txt2img")
+    )
+
+    assert attempts == [1, 2]
+    assert len(_hook_calls(registry, "before_update")) == 1
+
+
+def test_a_retried_save_by_name_runs_the_veto_hook_once(repo, registry):
+    session = repo.create(Session(id="s1", user_id="user-1", preset_id="p", name="n", data={}))
+    real_update = repo.update
+    attempts = []
+
+    def update(candidate, expected_version, origin=None):
+        attempts.append(expected_version)
+        if len(attempts) == 1:
+            real_update(session.model_copy(update={"data": {"img2img": {}}}), expected_version, None)
+        return real_update(candidate, expected_version, origin)
+
+    repo.update = update
+    operations.save_session(
+        repo, registry, None, None, "user-1", SaveSessionRequest(preset_id="p", name="n", data={"prompt": "x"}, mode="txt2img")
+    )
+
+    assert attempts == [1, 2]
+    assert len(_hook_calls(registry, "before_update")) == 1
+
+
+@pytest.mark.parametrize("path", ["put", "save_by_name"])
+def test_a_baseless_write_that_never_wins_the_swap_gives_up_storing_nothing(client, repo, notifier, path):
+    created = _create(client)
+    before = len(_pushes(notifier))
+    repo.update = lambda *args, **kwargs: None
+
+    if path == "put":
+        response = _put(client, created["id"], {"txt2img": {"prompt": "lost"}})
+    else:
+        response = client.post(
+            "/api/sessions/save",
+            json={"preset_id": "krea2", "name": "Monica", "data": {"prompt": "lost"}, "mode": "txt2img"},
+        )
+
+    body = response.json()
+    assert (body["success"], body["error"]) == (False, "session_write_contended")
+    stored = repo.get_by_id(created["id"])
+    assert (stored.version, stored.data) == (1, {"txt2img": {"prompt": "a"}})
+    assert len(_pushes(notifier)) == before
+
+
+def test_the_exhausted_operation_raises_a_conflict(repo, registry):
+    repo.create(Session(id="s1", user_id="user-1", preset_id="p", name="n", data={}))
+    calls = []
+    repo.update = lambda *args, **kwargs: calls.append(1)
+
+    with pytest.raises(ConflictError):
+        operations.update_session(repo, registry, None, None, "user-1", "s1", UpdateSessionRequest(name="n", data={}))
+    with pytest.raises(ConflictError):
+        operations.save_session(repo, registry, None, None, "user-1", SaveSessionRequest(preset_id="p", name="n", data={}))
+    assert len(calls) == 2 * operations.save.MAX_WRITE_ATTEMPTS

@@ -290,6 +290,10 @@
           "type": "bool",
           "value": true
         },
+        "preview_decoder": {
+          "type": "str",
+          "value": "/GOLDEN/models/preview_decoder.safetensors"
+        },
         "quantity": {
           "type": "int",
           "value": 1

@@ -136,7 +136,7 @@ def test_the_control_model_field_recommends_both_patches_with_checksums():
 
 
 def test_the_models_section_keeps_the_fl2va_pickers_and_the_shared_fields_in_step():
-    shared = {f["name"]: f for f in _fields("files/form/models_fl2va.yml") if f["name"] != "flex_adapter"}
+    shared = {f["name"]: f for f in _fields("files/form/models_fl2va.yml") if f["name"] not in ("flex_adapter", "preview_decoder")}
     mode = {f["name"]: f for f in _fields("files/form/models_motion_transfer.yml")}
     assert list(mode) == [*shared, "control_model", "preview_decoder"]
     for name, field in shared.items():
@@ -170,7 +170,7 @@ def test_the_preview_decoder_reaches_the_generator(h3_template):
 
 def test_the_preview_decoder_field_follows_the_live_preview_toggle():
     field = _named(_fields("files/form/models_motion_transfer.yml"), "preview_decoder")
-    video = _named(_fields("modes/video/tabs/generation.yml"), "preview_decoder")
+    video = _named(_fields("files/form/models_fl2va.yml"), "preview_decoder")
     assert field == video
     assert _named(_fields("modes/motion_transfer/tabs/advanced.yml"), "preview")["default"] is True
 

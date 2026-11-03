@@ -132,6 +132,7 @@ pipeline:
       frames: "{{ (form.max_seconds * preset.vars.fps) | round(0, 'floor') | int }}"
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       quantity: "{{ form.quantity }}"
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       preview: "{{ form.preview }}"
       decode: true
       step_cache_threshold: "{{ (generation.profile.extra | default({})).step_cache_threshold | default(form.step_cache_threshold) }}"

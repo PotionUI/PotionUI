@@ -356,6 +356,7 @@ pipeline:
       # `reference_video_frames` comment above; same rule, same reason.
       frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (((form.duration) * preset.vars.fps) | round(0, 'floor') | int if form.duration is defined else preset.vars.default_frames) }}"
       quantity: "{{ form.quantity }}"
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       preview: "{{ form.preview }}"
       # H3 always samples an audio stream; this only picks which track gets
       # muxed. "generate" = the one the model just produced. The pipe's other

@@ -295,8 +295,6 @@ def test_worker_info_adds_no_capability_field_an_older_host_would_refuse(client,
     assert set(payload["capabilities"]) == CAPABILITY_FIELDS_ANY_HOST_READS
 
 
-# -- health -------------------------------------------------------------------
-
 def test_health_reports_ok_while_the_allocator_is_intact(client, monkeypatch):
     monkeypatch.setattr(cuda_allocator, "_damage", None)
 

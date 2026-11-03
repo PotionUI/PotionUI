@@ -1396,8 +1396,6 @@ class TestEngineFlagsTravelWithTheJob(NativeRemoteBackendTestCase):
         self.assertEqual(round_trip.engine_flags, package.engine_flags)
 
 
-# -- allocator damage on the worker --------------------------------------------
-
 class TestWorkerAllocatorDamage(NativeRemoteBackendTestCase):
     DAMAGE = "CUDA driver error: device not ready"
 

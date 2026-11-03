@@ -14,6 +14,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.geometry import align_num_fr
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes.generator.video_minimax_h3.main import GeneratorMinimaxH3Pipe, _MiniMaxH3Ctx
+from src.platform.runtime.native.errors import SamplingCancelled
 from tests.pipelines.pipes.generator.video_minimax_h3.test_main import (
     _MAIN,
     PATCH,
@@ -112,7 +113,7 @@ def test_encode_tube_offloads_the_vae_when_encode_raises():
 def test_sample_tube_runs_the_h3_generator_as_a_locked_audio_refine(monkeypatch):
     seen = {}
 
-    def fake_process(self, pipe_input, generation_outputs):
+    def fake_process(self, pipe_input, generation_outputs, is_cancelled=None):
         seen["config"] = dict(self.config)
         seen["input"] = pipe_input.input
         return SimpleNamespace(output={"latent": ["frames"]})
@@ -199,6 +200,34 @@ def _patch_pipeline(monkeypatch, calls):
 
     monkeypatch.setattr(f"{_MOD}.encode_tube", fake_encode)
     monkeypatch.setattr(f"{_MOD}.sample_tube", fake_sample)
+
+
+def _sample_tube_with(monkeypatch, is_cancelled, process_latents):
+    seen = {}
+
+    def fake_process(self, pipe_input, generation_outputs, is_cancelled=None):
+        seen["is_cancelled"] = is_cancelled
+        return SimpleNamespace(output={"latent": process_latents})
+
+    monkeypatch.setattr(R.TubeRefineGenerator, "process", fake_process)
+    audio = AudioTrack(waveform=np.zeros((2, 10), np.float32), sample_rate=32000)
+    out = R.sample_tube(
+        object(), "cond", torch.zeros(1, 4, 2, 4, 4), audio, denoise=0.55, steps=6, video_sigma_shift=1.0,
+        sampler="euler", scheduler="simple", device="cpu", seed=7, generation_outputs=lambda o: None,
+        is_cancelled=is_cancelled)
+    return out, seen
+
+
+def test_sample_tube_hands_the_cancel_probe_to_the_h3_generator(monkeypatch):
+    probe = lambda: False
+    out, seen = _sample_tube_with(monkeypatch, probe, ["frames"])
+    assert out == "frames"
+    assert seen["is_cancelled"] is probe
+
+
+def test_sample_tube_raises_when_the_generator_stopped_on_a_cancel(monkeypatch):
+    with pytest.raises(SamplingCancelled):
+        _sample_tube_with(monkeypatch, lambda: True, [])
 
 
 def test_refine_tube_pixels_splits_long_tubes_into_fifteen_second_windows(monkeypatch):

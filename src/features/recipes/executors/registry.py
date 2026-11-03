@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional
 from src.features.recipes.executors.base import StepContext, StepExecutor, StepResult
 from src.features.recipes.catalog import RecipeCatalog
 from src.features.recipes.records import RecipeRun, RecipeRunStatus, RecipeStepStatus
-from src.features.recipes.runner import RecipeRunError, RecipeRunner
+from src.features.recipes.runner import IllegalRecipeRunTransition, RecipeRunError, RecipeRunner
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +192,8 @@ class RecipeExecutorRegistry:
                     finished=False,
                 )
                 _attempt_id["value"] = attempt.id
+            except IllegalRecipeRunTransition:
+                return
             except Exception:  # a broken progress report must never fail the step
                 logger.exception(
                     "Failed to record progress for recipe step '%s' (%s)", step.key, step.kind
@@ -224,36 +226,55 @@ class RecipeExecutorRegistry:
                     f"'{step.title or step.key}' failed unexpectedly: {exc}",
                 )
 
-        if _is_cancelled():
-            runner.close_cancelled_attempt(run.id, step.key, _attempt_id["value"])
-            return runner.get_run_or_raise(run.id)
-
-        if result.awaiting_consent:
-            # Parked, not finished: no terminal `finished_at` on this attempt -
-            # `grant_consent` records the actual outcome (a fresh attempt) once
-            # the owner approves, per `RecipeRunner.grant_consent`.
-            runner.record_step_attempt(
-                run.id,
-                step.key,
-                RecipeStepStatus.AWAITING_CONSENT,
-                attempt_id=_attempt_id["value"],
-                safe_output=result.to_safe_output(),
-                finished=False,
-            )
-            return runner.transition(
-                run.id, RecipeRunStatus.AWAITING_CONSENT, current_step=step.key
-            )
-
-        runner.record_step_attempt(
+        if not _is_cancelled():
+            try:
+                return self._record_outcome(runner, run, step, result, _attempt_id)
+            except IllegalRecipeRunTransition:
+                if not _is_cancelled():
+                    raise
+        return runner.record_cancelled_attempt(
             run.id,
             step.key,
-            RecipeStepStatus.SUCCEEDED if result.success else RecipeStepStatus.FAILED,
             attempt_id=_attempt_id["value"],
             safe_output=result.to_safe_output(),
             error_code=result.error_code,
             safe_error_detail=result.safe_error_detail,
-            finished=True,
         )
+
+    def _record_outcome(
+        self,
+        runner: RecipeRunner,
+        run: RecipeRun,
+        step,
+        result: StepResult,
+        attempt_id: Dict[str, Optional[str]],
+    ) -> RecipeRun:
+        if result.awaiting_consent:
+            # Parked, not finished: no terminal `finished_at` on this attempt -
+            # `grant_consent` records the actual outcome (a fresh attempt) once
+            # the owner approves, per `RecipeRunner.grant_consent`.
+            attempt_id["value"] = runner.record_step_attempt(
+                run.id,
+                step.key,
+                RecipeStepStatus.AWAITING_CONSENT,
+                attempt_id=attempt_id["value"],
+                safe_output=result.to_safe_output(),
+                finished=False,
+            ).id
+            return runner.transition(
+                run.id, RecipeRunStatus.AWAITING_CONSENT, current_step=step.key
+            )
+
+        attempt_id["value"] = runner.record_step_attempt(
+            run.id,
+            step.key,
+            RecipeStepStatus.SUCCEEDED if result.success else RecipeStepStatus.FAILED,
+            attempt_id=attempt_id["value"],
+            safe_output=result.to_safe_output(),
+            error_code=result.error_code,
+            safe_error_detail=result.safe_error_detail,
+            finished=True,
+        ).id
 
         if not result.success:
             return runner.transition(

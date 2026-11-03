@@ -137,3 +137,47 @@ class TestRegisterGuards:
     def test_register_ignores_empty_generation_id(self, tracker, temp_file):
         tracker.register("", temp_file)
         assert tracker.cleanup("") == 0
+
+
+class TestStorageTmpCopies:
+    def test_cleanup_unlinks_a_registered_storage_tmp_copy(self, tracker, tmp_path):
+        tmp_dir = tmp_path / "storage" / "tmp"
+        tmp_dir.mkdir(parents=True)
+        copy = tmp_dir / "tmp_video_gen-1_01ABC.mp4"
+        copy.write_bytes(b"video")
+
+        tracker.register_storage_tmp("gen-1", str(copy), tmp_dir)
+
+        assert tracker.cleanup("gen-1") == 1
+        assert not copy.exists()
+        assert tmp_dir.exists()
+
+    def test_only_paths_inside_the_storage_tmp_dir_are_registered(self, tracker, tmp_path):
+        tmp_dir = tmp_path / "storage" / "tmp"
+        tmp_dir.mkdir(parents=True)
+        final = tmp_path / "storage" / "generations" / "gen-1" / "1.mp4"
+        final.parent.mkdir(parents=True)
+        final.write_bytes(b"video")
+
+        tracker.register_storage_tmp("gen-1", str(final), tmp_dir)
+        tracker.register_storage_tmp("gen-1", str(tmp_dir), tmp_dir)
+        tracker.register_storage_tmp("gen-1", str(tmp_dir / ".." / "generations" / "gen-1" / "1.mp4"), tmp_dir)
+
+        assert tracker.cleanup("gen-1") == 0
+        assert final.exists()
+        assert tmp_dir.exists()
+
+    def test_cleanup_removes_sources_and_storage_copies_of_that_generation_only(self, tracker, tmp_path, temp_file):
+        tmp_dir = tmp_path / "storage" / "tmp"
+        tmp_dir.mkdir(parents=True)
+        mine = tmp_dir / "tmp_video_gen-1_A.mp4"
+        other = tmp_dir / "tmp_video_gen-2_B.mp4"
+        mine.write_bytes(b"a")
+        other.write_bytes(b"b")
+        tracker.register("gen-1", temp_file)
+        tracker.register_storage_tmp("gen-1", str(mine), tmp_dir)
+        tracker.register_storage_tmp("gen-2", str(other), tmp_dir)
+
+        assert tracker.cleanup("gen-1") == 2
+        assert not mine.exists() and not os.path.exists(temp_file)
+        assert other.exists()

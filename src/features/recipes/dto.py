@@ -20,7 +20,7 @@ from src.features.recipes.records import (
     RecipeRun,
     RecipeStepAttempt,
 )
-from src.features.recipes.schema import Recipe
+from src.features.recipes.schema import DEFAULT_SMOKE_TIMEOUT_SECONDS, Recipe
 
 # Key names whose value is never persisted, matched case-insensitively as a
 # substring so `api_key`, `X-Auth-Token`, `claim_token`, `db_password`, etc. are
@@ -467,6 +467,7 @@ class RecipeSmokeView(BaseModel):
 
     preset_id: str
     mode: str
+    timeout_seconds: int = DEFAULT_SMOKE_TIMEOUT_SECONDS
 
 
 class RecipeModeView(BaseModel):
@@ -559,7 +560,11 @@ class RecipeDetail(RecipeSummary):
                 for a in recipe.artifacts
             ],
             smoke=(
-                RecipeSmokeView(preset_id=recipe.smoke.preset_id, mode=recipe.smoke.mode)
+                RecipeSmokeView(
+                    preset_id=recipe.smoke.preset_id,
+                    mode=recipe.smoke.mode,
+                    timeout_seconds=recipe.smoke.timeout_seconds,
+                )
                 if recipe.smoke
                 else None
             ),

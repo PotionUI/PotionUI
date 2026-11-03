@@ -37,6 +37,21 @@ only make `-p` dead) — scope exposure with the `-p` flag, e.g.
 Build locally instead of pulling: `docker build -f docker/Dockerfile -t
 potionui .` from the repo root.
 
+Two parts of the build exist for what runs later. The frontend stage gets the
+sources of the plugins in the repository (`content/plugins/sdk` and every
+`content/plugins/*/*/frontend/src`, at their own paths, without
+`node_modules`, `dist` or backends) from a small `plugin-sources` stage, so the
+plugin globs of `frontend/tailwind.config.js` find them and the plugin pages
+get the utility classes they use; a wildcard `COPY` would flatten those trees,
+and the final image receives nothing from that stage. `.dockerignore` leaves
+out `node_modules` under `content/plugins` at any depth: a pattern without
+`**/` only matches at the root of the build context. The runtime stage keeps
+`gcc`, `libc6-dev` and `python3-dev`: Triton compiles a small C launcher, which
+includes `Python.h`, the first time one of its kernels runs, and without a
+compiler and the Python headers the native engine turns SLA sparse attention
+off for the process. `build-essential`, needed only to build sdists during
+`pip install`, is still purged in that same layer.
+
 ### Running ComfyUI alongside PotionUI
 
 The `comfyui-backend` plugin's host/port settings (Admin → Plugins →

@@ -57,6 +57,7 @@ from vendor.seedvr2.seedvr2_7b.layers import NaMMSRTransformerBlock
 
 from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
+from ...cancellation import raise_if_cancelled
 from .config import SeedVR27BConfig
 
 Tensor = torch.Tensor
@@ -120,7 +121,8 @@ class SeedVR27B(NativeArchModule):
         vid_h, vid_shape = self.vid_in(vid_flat, vid_shape, cache)
         emb = self.emb_in(timestep, device=device, dtype=dtype)
 
-        for block in self.blocks:
+        for i, block in enumerate(self.blocks):
+            raise_if_cancelled(i)
             vid_h, txt_h, vid_shape, txt_shape = block(vid_h, txt_h, vid_shape, txt_shape, emb, cache)
 
         vid_h, vid_shape = self.vid_out(vid_h, vid_shape, cache)

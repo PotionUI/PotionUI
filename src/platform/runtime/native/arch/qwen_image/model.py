@@ -82,6 +82,7 @@ from vendor.gpl.comfyui.qwen_image.layers import (
 
 from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
+from ...cancellation import raise_if_cancelled
 from .config import QwenImageConfig
 
 # vendor/gpl/comfyui/qwen_image/layers.py must not import src (layering
@@ -369,6 +370,7 @@ class QwenImageDiT(NativeArchModule):
             step_cache = None
         probe = None
         for i, block in enumerate(self.transformer_blocks):
+            raise_if_cancelled(i)
             encoder_hidden_states, hidden_states = block(
                 hidden_states, encoder_hidden_states, mask, temb, rope,
                 timestep_zero_index=timestep_zero_index,

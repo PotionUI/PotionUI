@@ -71,6 +71,7 @@ src/platform/runtime/native/
 ├── sampling/              the one flow-matching denoise loop + guidance strategies + step algorithms
 ├── memory/                VRAM-tier placement planning + per-component device assignment
 ├── lora/                  LoRA key-dialect mapping + runtime weight patching
+├── cancellation.py        the cancel probe of a run, read between DiT blocks and VAE tiles
 └── errors.py              NativeEngineError family (dependency-free, importable from anywhere)
 ```
 
@@ -87,7 +88,8 @@ One line per package, in loading order:
 | `text_encoders/` | Vendored TE modules (Qwen3, T5-XXL, CLIP-L, Qwen2.5-VL, Qwen3-VL, UMT5-XXL, Gemma3) + bundled tokenizer assets + `load_text_encoder`, the detect→build→integrity-load→wrap entry point. |
 | `vae/` | `AutoEncoder2D` (Flux-family 2D VAE: `flux_ae`/`flux2_ae`) + `tiling.py` (its spatial tiled encode/decode, not yet 3D-aware); `AutoEncoderCausal3D` (Wan 2.1-shaped, 16ch — Qwen-Image's and Krea-2's VAE) and `AutoEncoderCausal3D_2_2` (Wan 2.2-shaped, 48ch, patchified) for the causal-3D family; `load_vae`/`load_causal3d_vae`/`load_causal3d_v2_vae` entry points. |
 | `sampling/` | `denoise()` — the one loop — plus `flow_schedule.build_sigmas`, `cfg.py`'s guidance strategies (`EmbeddedGuidance`/`TrueCFG`/`NoCFG`), the step algorithms (`euler`/`dpmpp_2m`/`unipc`), and `hooks.py`'s per-step `StepHook` protocol. The algorithms and the schedules are both registries (`registry.py`): core registers its own at import time, a plugin adds more through the `samplers:` / `schedules:` manifest roots, and `denoise()`/`build_sigmas()` dispatch through them — there is no other list of sampler or schedule names. |
-| `memory/` | `device_plan.make_device_plan` (which CUDA device each component lives on) and `tiering.plan_placement` (residency/ops-mode per component from VRAM + component sizes). |
+| `memory/` | `device_plan.make_device_plan` (which CUDA device each component lives on), `tiering.plan_placement` (residency/ops-mode per component from VRAM + component sizes), and `text_encoder.py` with `tiering.plan_text_encoder_placement` (whole move or partial residency for the prompt encode). |
+| `cancellation.py` | `cancellation_scope` puts a run's cancel probe in a `ContextVar`: `GenerationEngine` opens one around each pipe, and `denoise()`, `denoise_prenoised()` and the samplers that own their step loop open one that also knows the step. `raise_if_cancelled(i)` raises `SamplingCancelled` when the probe says so and does nothing outside a scope. |
 | `lora/` | `key_mapping.map_lora_keys` (normalizes comfy/kohya/diffusers/PEFT LoRA key dialects onto native param names) and `apply.apply_loras`/`remove_loras` (in-place or cast-mode runtime patching). |
 
 ### The kernel layer
@@ -205,7 +207,8 @@ close that gap:
   a weights budget stay resident on the GPU; the remainder stream from **pinned** CPU RAM with
   `non_blocking=True` H2D copies, one layer at a time per forward, through the existing ops seam
   (`comfy_cast_weights` + `stream_non_blocking` on the streamed leaves — no arch or `denoise_loop`
-  change). Embeddings and nvfp4 layers are always kept resident. This is ComfyUI's `model_patcher`
+  change). Embeddings are always kept resident; nvfp4 layers too, except under the text encoder's
+  partial residency below, which opts in to streaming them. This is ComfyUI's `model_patcher`
   lowvram approach, scoped to the native engine. `NativeGenerator._stream_dit_to_gpu` computes the
   budget (live free VRAM − sampling headroom, after evicting foreign residents) and streams only
   the overflow; an OOM backstop re-streams at a zero budget (only the small fixed tensors resident).
@@ -217,7 +220,15 @@ close that gap:
   (computed from the layer shapes; LTX's power-of-two widths lose almost nothing). Teardown copies
   each segment's weights back to plain RAM and unregisters the segment as soon as it is empty, so
   offloading holds at most one segment twice. If registration fails, streaming falls back to
-  per-weight `pin_memory()`.
+  per-weight `pin_memory()`. Pinning stays best effort past that: when the host refuses to
+  page-lock a streamed leaf even per weight (`pin_memory()` raises, as it can on the capped
+  page-locked memory of WSL2 / Docker Desktop), `ModuleStreamer.apply` repeats the placement
+  unpinned (`pin=False`, synchronous copies, no prefetch), releases the pinned memory it had taken
+  and logs one warning per process. The streamed forward is slower but the generation does not
+  fail, for the DiT and the text encoder alike. Any other failure mid-placement is rolled back
+  completely (hooks, cast flags, pinned tensors). Teardown of a pinned placement empties the CUDA
+  cache before it frees its first pinned block: such a block records a CUDA event when it is freed,
+  and a failure there cannot be caught from Python.
 - **On-the-fly fp8 quantise-at-load** (`ops/fp8_quant.py`). When a bf16/fp16 DiT would not fit
   resident but *would* as fp8 (e.g. Krea-2 24.5GB → ~12.5GB), the loader quantises its big 2D Linear
   weights to per-tensor scaled e4m3 (`weight` fp8 + a `weight_scale` sidecar — the exact format
@@ -227,6 +238,71 @@ close that gap:
   `auto`); `auto` only triggers in the "doesn't fit bf16, fits fp8" window. Prefer resident-fp8 over
   streamed-bf16: fp8 is both faster and higher PCIe throughput than streaming, at a small grid-level
   precision cost.
+- **Text encoder: partial residency for the encode** (`memory/text_encoder.py`,
+  `tiering.plan_text_encoder_placement`, `engine.TextEncoderStreaming`). The encoder only needs the
+  GPU for its encode, so its placement is decided for that phase alone. An encoder that does not fit
+  (see **Decision** below) is no longer moved whole with `.to(device)`: its real module(s) are placed
+  with `NativeModel.stream_to(device, budget)`, exactly like a DiT that does not fit (leaves resident
+  up to the budget, the rest streamed per forward from pinned RAM), then torn down right after the
+  encode (unpinned, host RAM reclaimed, wrapper pointed back at the CPU) so the DiT gets the card
+  back. nvfp4 leaves are streamed too: their packed buffers stay pinned and a forward pre-hook stages
+  them onto the GPU for the call, so the dequant runs on the GPU from the 0.81 B/elem form. Both
+  encode sites take this path: the pipes' `run_text_encode` / `run_text_encode_batch` (after the
+  existing co-resident and evict steps, path `"streamed"` on the `te.encode` mark; a
+  `torch.cuda.OutOfMemoryError` retries fully streamed, then encodes on the CPU as before) and
+  `NativeGenerator.encode_prompt` (torn down by `_maybe_offload_te`). A placement or an encode that
+  fails for any other reason is torn down before the error propagates. That frees what the placement
+  holds; it cannot repair a CUDA context the driver has already damaged.
+
+  **Footprint formula** (`text_encoder_footprint`): weights are every parameter and buffer the modules
+  own, counted once. nvfp4 holds the packed U8 codes (0.5 B/elem) + the fp32 natural scale precomputed
+  at load (4/16) + the fp8 swizzled block scale (1/16) ≈ **0.81 B/elem against 0.5625 on disk**, so a
+  14.6 GB nvfp4 checkpoint holds ≈ 21 GB on the device; int8 and fp8 hold 1 B/elem plus their scales.
+  On top, the largest dequantisation transient: layers dequantise one at a time, so `dequant_peak =
+  max over quantised layers of out × in × k`, `k` = 10 B for nvfp4 (int32 code index + two fp32 LUT
+  gathers + the fp32 weight) and 8 B for int8/fp8 (fp32 cast + scaled product), ≈ 1.2 GB for a
+  Qwen3-32B MLP projection. Plain bf16/fp16 layers add at most one weight-sized copy, which the working
+  reserve covers. The peak is kept out of the fit test; it only sizes a streamed encoder's resident
+  share.
+
+  **Decision.** The fit test is the one each site already had; streaming only takes over where the
+  whole move could not have worked. `available` = live free VRAM + what the encoder already holds on
+  the device, and `reserve` = `minimum_inference_memory_gb()` (or the caller's `reserve_gb`).
+  - Pipes (`run_text_encode`): step 1 (co-resident, `size + reserve <= free`) is unchanged. Step 2
+    evicts as before, re-reads `available`, and the encoder streams only when `size > available`
+    (`size` = `module_size_gb`, the figure step 1 compares).
+  - `NativeGenerator.encode_prompt`, which always moved the encoder whole and never evicted anything,
+    streams only when the weights alone exceed `available`. It still evicts nothing.
+
+  Neither the backend's `gpu_max_vram` nor the dequantisation peak enters these tests, so they never
+  turn an encoder that fit into a streamed one. They only size a streamed encoder's resident share:
+  `budget = max(0, min(available, cap) − reserve − dequant_peak)`, where `cap` is `gpu_max_vram` for
+  the pipes and the placement budget (`vram_gb` or device total) for the generator. The decision lives
+  in `plan_placement` (`text_encoder_mode=...` → `PlacementPlan.text_encoder.streamed` /
+  `stream_budget_gb`, through `plan_text_encoder_placement`'s `fit_headroom_gb` / `resident_cap_gb`);
+  without that argument the plan is the sampling-phase plan it always was.
+
+  **Option** `text_encoder_placement` on the native backend (`auto` | `gpu` | `stream`, default
+  `auto`), handed to the engine by `NativeBackend.prepare_pipes` with `gpu_max_vram`
+  (`configure_text_encoder_placement`); `NativeGenerator(text_encoder_placement=...)` overrides it
+  for standalone use. `gpu` is the whole move, unconditionally; `stream` always uses partial residency
+  (and skips the co-resident attempt); `auto` streams only when the encoder does not fit by the test
+  above. An encoder that fits follows the same path call for call, for every family and with
+  `gpu_max_vram` configured (`tests/platform/runtime/native/test_te_placement_regression.py` and
+  `test_review_te_fit_side_effects.py` pin the sequence). The remote driver has no such field: a
+  worker runs `auto` with no cap.
+
+  **Limits.** A streamed encode is slower than a resident one: every streamed leaf crosses PCIe on
+  each forward (≈ 0.81 B/elem for nvfp4, 1 B for int8/fp8, 2 B for bf16). nvfp4 leaves are staged on
+  demand by their own hook, not prefetched. Pinning the streamed share needs that much free host RAM
+  (+2 GB), guarded like the DiT's: when the guard refuses, the pipes encode on the CPU. A streamed
+  teardown leaves idle blocks in the CUDA cache, which `mem_get_info` counts as used, so a phase that
+  decides from free VRAM right after it must empty the cache first when its first reading does not
+  fit (LTX's projection ladder does). An encoder within the fit region is still moved whole, so a
+  transient beyond the reserve (very long prompt, many vision tiles) can still overflow there. The
+  whole move is also not undone when it fails with anything but `torch.cuda.OutOfMemoryError`. On
+  Windows/WSL2 an exhausted card can raise a CUDA driver error ("device not ready") instead of
+  `OutOfMemoryError`; the retries above do not recognise it, so it tears down and propagates.
 
 Tier fallback (sizes unknown) and the low-VRAM regime each tier lands in:
 
@@ -317,7 +393,10 @@ Concretely, adding model family N+1 means:
    `RotaryEmbedding.inv_freq` are `__init__`-computed non-persistent buffers, so meta construction
    leaves them on the meta device and `post_load` rebuilds all three from config
    (`arch/anima/model.py:Anima.post_load`). Flux/Krea-2/Z-Image compute RoPE inline per forward and
-   stay documented no-ops.
+   stay documented no-ops. Every loop over transformer blocks in a forward calls
+   `raise_if_cancelled(i)` before its block: that check is what stops a cancelled run before the
+   next block instead of at the end of the sampling step. It reads one `ContextVar` and calls the
+   run's probe, and regional `torch.compile` only wraps the blocks, so the loop stays Python.
 
 4. **TE mapping.** If the family needs a text encoder not yet supported, add it under
    `text_encoders/` the same way (`detect/te_detect.py` signature + a `TESpec` in
@@ -330,7 +409,8 @@ Concretely, adding model family N+1 means:
    channel count than what `AutoEncoder2D` already handles, extend `detect/vae_detect.py`'s
    detection and, if the architecture genuinely differs (not just key naming), add a new module
    under `vae/`. A same-architecture-different-keys VAE (like `flux2_ae`'s diffusers-layout keys)
-   gets a key-rename map instead of a new module — see `vae/key_convert.py`.
+   gets a key-rename map instead of a new module — see `vae/key_convert.py`. A tile loop calls
+   `raise_if_cancelled(i)` before each tile, like a DiT block loop.
 
 6. **Conditioning assembly.** However the family's TE output (`context`/`pooled`/`attention_mask`)
    maps onto the arch's `forward(x, timestep, context, y, guidance)` signature is the generator-side

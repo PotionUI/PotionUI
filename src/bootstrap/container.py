@@ -1725,6 +1725,7 @@ def build_container() -> AppContainer:
         step_kind_registry=recipe_step_kind_registry,
         indexing_coordinator=model_index_manager.indexing,
         type_manager=model_index_manager.types,
+        app_loop=_rr.get_app_loop,
         digests=model_index_manager.digests,
         mode_planner=mode_planner,
         install_targets=install_targets,

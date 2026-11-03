@@ -65,7 +65,7 @@ Fields can react to each other: choosing one option may reveal or hide others. E
 
 Press the **Generate** button in the panel at the bottom of the page (or the floating sparkle button on mobile). Generate is only enabled once you have a preset, a mode, and at least one non-empty prompt.
 
-While a run is active the button becomes a **Cancel** control. Cancelling stops the generation on the server and clears the busy state. You can safely switch tabs, navigate away, or reload the browser during a run — PotionUI keeps the generation alive server-side and restores its state (including finished results) when you return.
+While a run is active the button becomes a **Cancel** control. Cancelling stops the generation on the server and clears the busy state. On the native backend the work stops before the next block of the diffusion model or the next tile of a tiled VAE pass, so you do not wait for the sampling step in progress; text encoding and a VAE pass that is not tiled still run to their end, and a model streamed from system RAM takes a few more seconds to leave the card. You can safely switch tabs, navigate away, or reload the browser during a run — PotionUI keeps the generation alive server-side and restores its state (including finished results) when you return.
 
 ## Live progress and the workbench
 

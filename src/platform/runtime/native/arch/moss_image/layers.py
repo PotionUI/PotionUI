@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from ...cancellation import raise_if_cancelled
 from ...kernels import attention as _attention
 
 EPS = 1e-6
@@ -92,7 +93,8 @@ class TextProjection(nn.Module):
 
     def forward(self, x: Tensor, rope: Tensor) -> Tensor:
         x = self.proj(x)
-        for block in self.blocks:
+        for i, block in enumerate(self.blocks):
+            raise_if_cancelled(i)
             x = block(x, rope)
         return x
 

@@ -34,6 +34,10 @@ def restart_argv() -> list:
     return [sys.executable] + sys.argv
 
 
+def is_windows() -> bool:
+    return sys.platform == "win32"
+
+
 def _restart_process(argv: list) -> None:
     """Replace this process with `argv`, or the closest Windows equivalent.
 
@@ -46,7 +50,7 @@ def _restart_process(argv: list) -> None:
     interpreter shutdown -- the same abruptness `execv` itself has) so the
     socket is released before the child starts serving.
     """
-    if sys.platform == "win32":
+    if is_windows():
         import subprocess
 
         # These flags only exist in the subprocess module built for Windows;
@@ -58,7 +62,26 @@ def _restart_process(argv: list) -> None:
         subprocess.Popen(argv, close_fds=True, creationflags=creationflags)
         os._exit(0)
         return
+    _close_descriptors_on_exec()
     os.execv(argv[0], argv)
+
+
+def _open_descriptors() -> list:
+    for directory in ("/proc/self/fd", "/dev/fd"):
+        try:
+            return [int(name) for name in os.listdir(directory) if name.isdigit()]
+        except OSError:
+            continue
+    return []
+
+
+def _close_descriptors_on_exec() -> None:
+    for fd in _open_descriptors():
+        if fd > 2:
+            try:
+                os.set_inheritable(fd, False)
+            except OSError:
+                pass
 
 
 def schedule_app_restart(delay: float = 0.5) -> None:

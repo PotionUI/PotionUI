@@ -50,6 +50,7 @@ from src.pipelines.pipes._shared.generation.dit_placement import DitPlacementDec
 
 _MAIN = "src.pipelines.pipes.generator.video_minimax_h3.main"
 _PLACEMENT = "src.pipelines.pipes._shared.generation.dit_placement"
+from src.platform.runtime.native.cancellation import raise_if_cancelled
 from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.sampling.step_cache import FirstBlockCache
 from src.pipelines.pipes.generator.video_minimax_h3.schedule import (
@@ -1695,6 +1696,45 @@ def test_generate_one_skips_decode_when_cancelled_right_after_sampling():
     mock_encode.assert_not_called()
     assert len(seen) == steps  # sampling ran to completion...
     assert pipe._audio_results == []  # ...but nothing past it did
+
+
+def test_generate_one_stops_between_dit_blocks_when_cancelled_inside_a_step():
+    steps = 6
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    bundle = _fake_bundle_for_generate_one(video_patch_dim, seen_step_caches=[])
+    base = bundle.dit.module
+    flag = {"set": False}
+    ran: list = []
+
+    def blockwise(**kwargs):
+        forward_index = len({f for f, _ in ran})
+        for block_index in range(4):
+            raise_if_cancelled(block_index)
+            ran.append((forward_index, block_index))
+            if (forward_index, block_index) == (2, 1):
+                flag["set"] = True
+        return base(**kwargs)
+    blockwise.prepare_text_context = base.prepare_text_context
+    bundle.dit.module = blockwise
+
+    ctx_extra = _MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=steps,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[], keyframe_anchors=(), audio_source="generate", decode=True,
+    )
+    ctx = GeneratorContext(quantity=1, input_seeds=[7], extra=ctx_extra, is_cancelled=lambda: flag["set"])
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False, "steps": steps})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    with patch("src.pipelines.pipes.generator.video_minimax_h3.main.encode_frames_to_mp4") as mock_encode:
+        with pytest.raises(SamplingCancelled) as excinfo:
+            pipe.generate_one(ctx, 0, 7, progress)
+
+    mock_encode.assert_not_called()
+    assert ran[-1] == (2, 1)
+    assert (excinfo.value.step_index, excinfo.value.block_index) == (2, 2)
 
 
 # -- prepared text context: window-scoped hoist -------------------------------

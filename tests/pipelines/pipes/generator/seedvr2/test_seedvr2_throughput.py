@@ -756,3 +756,58 @@ def test_video_publish_failure_leaves_no_temp_survivors(monkeypatch):
     final_path = created[0]
     assert glob.glob(f"{final_path}*") == []
     assert gen.released >= 1
+
+
+def test_cancelling_inside_a_video_batch_stops_the_run(monkeypatch):
+    from src.platform.runtime.native.cancellation import raise_if_cancelled
+
+    flag = {"cancelled": False}
+
+    class _CancelInsideGen(_FakeGen):
+        def upscale_video(self, clips, prompt_embedding, *, seed, latent_noise_scale,
+                          tile_size=None, tile_overlap=None):
+            for clip in clips:
+                self.batch_calls.append(int(clip.shape[0]))
+                flag["cancelled"] = True
+                raise_if_cancelled(0)
+                yield np.zeros((clip.shape[0], clip.shape[1] * 2, clip.shape[2] * 2, 3), dtype=np.uint8)
+
+    gen = _CancelInsideGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=5))
+
+    with pytest.raises(SamplingCancelled):
+        pipe.process(_video_input(), lambda o: None, is_cancelled=lambda: flag["cancelled"])
+
+    assert gen.batch_calls == [5]
+    assert gen.released >= 1
+
+
+def test_cancelling_inside_an_image_upscale_stops_the_run(monkeypatch):
+    from PIL import Image
+
+    from src.platform.runtime.native.cancellation import raise_if_cancelled
+
+    released = []
+
+    class _ImageGen:
+        def upscale(self, pixels, prompt_embedding, *, seed, latent_noise_scale, tile_size, tile_overlap):
+            raise_if_cancelled(0)
+            return np.zeros((1, pixels.shape[0], pixels.shape[1], 3), dtype=np.uint8)
+
+        def release_gpu(self):
+            released.append(True)
+
+    monkeypatch.setattr(m, "build_native_generator", lambda bundle, device="cuda": _ImageGen())
+    pipe = GeneratorSeedVR2Pipe(_base_config())
+    bundle = SimpleNamespace(prompt_embedding=torch.zeros(1))
+    calls = iter([False, True])
+
+    with pytest.raises(SamplingCancelled):
+        pipe.process(
+            PipeInput(input={"image": [Image.new("RGB", (32, 32))], "model": bundle, "seed": [0]}),
+            lambda o: None,
+            is_cancelled=lambda: next(calls, True),
+        )
+
+    assert released == [True]

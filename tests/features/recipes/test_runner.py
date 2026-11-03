@@ -7,6 +7,7 @@ attempts, resume-after-restart, and the migration itself.
 """
 
 import importlib.util
+import logging
 import threading
 import time
 from pathlib import Path
@@ -24,6 +25,7 @@ from src.features.recipes.records import (
 from src.features.recipes.runner import (
     ActiveRecipeRunExists,
     IllegalRecipeRunTransition,
+    RecipeRunError,
     RecipeRunner,
     RecipeRunNotFound,
     RecipeExecutorNotConfigured,
@@ -212,6 +214,36 @@ def test_attempt_rejected_on_terminal_run(file_db):
     mgr.transition(run.id, RecipeRunStatus.CANCELLED)
     with pytest.raises(IllegalRecipeRunTransition):
         mgr.record_step_attempt(run.id, "any", RecipeStepStatus.RUNNING)
+
+
+def test_a_cancelled_run_closes_its_in_flight_attempt(file_db):
+    mgr = _manager()
+    run = mgr.create_run("r")
+    mgr.transition(run.id, RecipeRunStatus.RUNNING, current_step="generation.smoke")
+    tick = mgr.record_step_attempt(run.id, "generation.smoke", RecipeStepStatus.RUNNING, progress_current=3, progress_total=8)
+    mgr.apply_action(run.id, "cancel")
+
+    run = mgr.record_cancelled_attempt(
+        run.id, "generation.smoke", attempt_id=tick.id, safe_output={"generation_id": "gen-1", "api_key": "sk-should-not-persist"}
+    )
+
+    assert run.status == RecipeRunStatus.CANCELLED
+    attempts = mgr.list_attempts(run.id)
+    assert [a.id for a in attempts] == [tick.id]
+    assert attempts[0].status == RecipeStepStatus.CANCELLED
+    assert attempts[0].finished_at is not None
+    assert attempts[0].progress_current == 3
+    assert attempts[0].safe_output == {"generation_id": "gen-1"}
+
+
+def test_a_cancelled_attempt_is_only_recorded_on_a_cancelled_run(file_db):
+    mgr = _manager()
+    run = mgr.create_run("r")
+    mgr.transition(run.id, RecipeRunStatus.RUNNING)
+
+    with pytest.raises(IllegalRecipeRunTransition):
+        mgr.record_cancelled_attempt(run.id, "any")
+    assert mgr.list_attempts(run.id) == []
 
 
 # --- actions ---------------------------------------------------------------
@@ -483,6 +515,49 @@ def test_drive_async_recovers_the_driving_guard_after_a_crash(file_db):
     _wait_for_driving_guard_clear(mgr, run.id)
 
     assert run.id not in mgr._driving
+
+
+class _CancelledBetweenStepsRegistry:
+    def __init__(self):
+        self.calls = 0
+
+    def execute(self, runner, run):
+        self.calls += 1
+        if run.status not in (RecipeRunStatus.PENDING, RecipeRunStatus.RUNNING):
+            raise RecipeRunError(f"Cannot execute a step while the run is '{run.status.value}'")
+        if run.status == RecipeRunStatus.PENDING:
+            run = runner.transition(run.id, RecipeRunStatus.RUNNING)
+        run = runner.repo.update_run(run.id, current_step=f"step-{self.calls}")
+        runner.apply_action(run.id, "cancel")
+        return run
+
+
+def test_a_cancel_between_two_steps_ends_the_drive_quietly(file_db, caplog):
+    mgr = _manager()
+    run = mgr.create_run("r")
+    registry = _CancelledBetweenStepsRegistry()
+    mgr.register_executor_registry(registry)
+
+    mgr.drive_async(run.id)
+    _wait_for_run(mgr, run.id, lambda r: r.status == RecipeRunStatus.CANCELLED)
+    _wait_for_driving_guard_clear(mgr, run.id)
+
+    assert registry.calls == 2
+    assert mgr.get_run(run.id).status == RecipeRunStatus.CANCELLED
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+
+def test_drive_still_raises_a_run_error_on_a_run_that_was_not_cancelled(file_db):
+    class _RefusingRegistry:
+        def execute(self, runner, run):
+            raise RecipeRunError("refused")
+
+    mgr = _manager()
+    run = mgr.create_run("r")
+    mgr.register_executor_registry(_RefusingRegistry())
+
+    with pytest.raises(RecipeRunError, match="refused"):
+        mgr.drive(run.id)
 
 
 # --- run mode --------------------------------------------------------------

@@ -41,6 +41,8 @@ BASE_CONFIG_FIELDS = frozenset({
 
 ENGINE_FLAGS_FIELD = "engine_flags"
 
+TEXT_ENCODER_PLACEMENTS = ("auto", "gpu", "stream")
+
 # Mirrors src.features.generation.scheduling.SCHEDULING_POLICIES. Duplicated
 # rather than imported: importing that module here would pull in the whole
 # `generation` package's __init__ (which imports the orchestrator, which
@@ -283,6 +285,26 @@ class NativeBackendConfig(NativeEngineFlagsMixin, BaseBackendConfig):
         title="GPU Max VRAM (GB)",
         description="Upper bound on the VRAM this engine will budget for model loading",
     )
+    text_encoder_placement: str = Field(
+        default="auto",
+        title="Text Encoder Placement",
+        description=(
+            "auto keeps part of the text encoder in RAM and streams it during the prompt "
+            "encode only when it does not fit in VRAM; gpu always loads it whole; stream "
+            "always keeps part of it in RAM"
+        ),
+        json_schema_extra={"options": list(TEXT_ENCODER_PLACEMENTS)},
+    )
+
+    @field_validator("text_encoder_placement", mode="before")
+    @classmethod
+    def _normalize_text_encoder_placement(cls, v):
+        word = "auto" if v is None else str(v).strip().lower() or "auto"
+        if word not in TEXT_ENCODER_PLACEMENTS:
+            raise ValueError(
+                f"text_encoder_placement must be one of {', '.join(TEXT_ENCODER_PLACEMENTS)}, got {v!r}"
+            )
+        return word
 
     @classmethod
     def engine_field_options(cls) -> Dict[str, List[Any]]:

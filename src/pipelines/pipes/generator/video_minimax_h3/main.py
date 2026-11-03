@@ -124,6 +124,7 @@ from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.outputs import GenerationExecutionError, Icon
 from src.platform.runtime.device import clear_gpu_memory
+from src.platform.runtime.native.cancellation import cancellation_scope
 from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.lora import apply_loras, restore_lora_state, snapshot_lora_state
 from src.platform.runtime.native.memory.residency import effective_free_vram_gb, minimum_inference_memory_gb
@@ -2384,9 +2385,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         audio-bearing reference produced. `keyframe_anchors` is then unused
         (a `ref2va` request carries none).
 
-        `is_cancelled`, when given, is polled once per step (same contract as
-        every per-step sampler in `sampling/algorithms/`) and raises
-        `SamplingCancelled` rather than returning a partial trajectory -- this
+        `is_cancelled`, when given, is polled once per step and before each DiT
+        block (same contract as every per-step sampler in `sampling/algorithms/`)
+        and raises `SamplingCancelled` rather than returning a partial trajectory -- this
         loop has no shared `denoise()`/`denoise_prenoised()` to inherit that
         check from (see the module docstring's "bespoke, not denoise" note).
 
@@ -2668,14 +2669,15 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 step_control = None
                 if control_rows is not None and control_active(step_index, num_steps, c.control_start, c.control_end):
                     step_control = ControlContext(control_rows, c.control_scale, c.control_hint_rows)
-                video_pred, audio_pred = sample_forward(
-                    video_rows, audio_rows, unique_timesteps.to(c.device), timestep_indices.to(c.device),
-                    step_cache=None if is_final_step else step_cache,
-                    sparse_attn_ctx=sparse_attn_ctx,
-                    seq_chunk_rows=seq_chunk_rows,
-                    ffn_chunk_rows=ffn_chunk_rows,
-                    control=step_control,
-                )
+                with cancellation_scope(is_cancelled, step_index=step_index):
+                    video_pred, audio_pred = sample_forward(
+                        video_rows, audio_rows, unique_timesteps.to(c.device), timestep_indices.to(c.device),
+                        step_cache=None if is_final_step else step_cache,
+                        sparse_attn_ctx=sparse_attn_ctx,
+                        seq_chunk_rows=seq_chunk_rows,
+                        ffn_chunk_rows=ffn_chunk_rows,
+                        control=step_control,
+                    )
 
                 # A step the cache skipped hands back the previous step's velocity;
                 # it enters the multistep history unchanged, because it is the

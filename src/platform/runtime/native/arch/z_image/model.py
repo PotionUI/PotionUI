@@ -64,6 +64,7 @@ from vendor.gpl.comfyui.z_image.layers import (
 from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...cache_identity import identity_usable, tensor_identity
+from ...cancellation import raise_if_cancelled
 from ...ops.padding import pad_to_patch
 from .config import ZImageConfig
 from .control import ZImageFunControl
@@ -270,7 +271,8 @@ class ZImageDiT(NativeArchModule):
 
         cap = self.cap_embedder(context)
         cap = self._pad_tokens(cap, self.cap_pad_token)
-        for layer in self.context_refiner:
+        for i, layer in enumerate(self.context_refiner):
+            raise_if_cancelled(i)
             cap = layer(cap, geometry.cap_rope, None)
         if key is not None:
             while len(geometry.captions) >= self._CAPTION_SLOTS:
@@ -350,6 +352,7 @@ class ZImageDiT(NativeArchModule):
             refiner_hints, control_tokens = self.fun_control.refine(
                 control_tokens, img, geometry.img_rope, adaln_input)
         for i, layer in enumerate(self.noise_refiner):
+            raise_if_cancelled(i)
             img = layer(img, geometry.img_rope, adaln_input)
             if control is not None:
                 img = img + refiner_hints[i] * control[1]
@@ -367,6 +370,7 @@ class ZImageDiT(NativeArchModule):
             hints = self.fun_control.hints(torch.cat((cap, control_tokens), dim=1), joint, rope, adaln_input)
             injection = self.fun_control.injection_layers(len(self.layers))
         for i, layer in enumerate(self.layers):
+            raise_if_cancelled(i)
             joint = layer(joint, rope, adaln_input)
             if i in injection:
                 joint = joint + next(hints) * control[1]

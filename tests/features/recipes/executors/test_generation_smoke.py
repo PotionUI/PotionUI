@@ -2,6 +2,7 @@
 (see the executor's own docstring). Fixture-form construction is monkeypatched
 out; it's exercised for real by `test_pipeline_render.py`'s shared helper."""
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -43,10 +44,13 @@ class FakeOrchestrator:
     def __init__(self, images=1, error=None):
         self.images = images
         self.error = error
+        self.cancelled = []
+        self.loops = []
 
     async def start_generation(self, request, user_id, output_callback):
         from src.pipelines.outputs import ErrorGenerationOutput, ImageGenerationOutput
 
+        self.loops.append(asyncio.get_running_loop())
         if self.error:
             await output_callback("gen-1", ErrorGenerationOutput(error=self.error))
         else:
@@ -57,6 +61,10 @@ class FakeOrchestrator:
 
     async def get_generation_status(self, generation_id):
         return {"status": "failed" if self.error else "completed"}
+
+    async def cancel_generation(self, generation_id):
+        self.cancelled.append(generation_id)
+        return True
 
 
 def _context(recipe):
@@ -354,6 +362,23 @@ def test_model_repository_and_recipe_are_passed_to_form_building(monkeypatch):
     assert captured["selections"] == {"dit": "nvfp4"}
 
 
+def test_smoke_prompt_is_passed_to_form_building(monkeypatch):
+    captured = {}
+
+    def _capture(*args, **kwargs):
+        captured.update(kwargs)
+        return {"seed": 1}
+
+    monkeypatch.setattr(generation_smoke, "build_fixture_form_data", _capture)
+
+    template = FakePresetTemplate()
+    executor = GenerationSmokeExecutor(FakePresetLoader(template), object(), FakeOrchestrator(), FakeFileRepository(), object())
+    recipe = _recipe(RecipeSmokeRef(preset_id="p1", mode="txt2img", prompt="a red kite over dunes"))
+    executor.execute(_context(recipe))
+
+    assert captured["prompt"] == "a red kite over dunes"
+
+
 def test_default_model_repository_is_lazily_constructed():
     """No `model_repository` passed - the constructor must fall back to the
     real singleton (mirrors `file_repository`'s existing default) rather than
@@ -361,3 +386,214 @@ def test_default_model_repository_is_lazily_constructed():
     executor = GenerationSmokeExecutor(FakePresetLoader(None), object(), FakeOrchestrator())
 
     assert executor.model_repository is not None
+
+
+class NeverCompletingOrchestrator(FakeOrchestrator):
+    async def start_generation(self, request, user_id, output_callback):
+        self.loops.append(asyncio.get_running_loop())
+        return {"generation_id": "gen-1"}
+
+    async def get_generation_status(self, generation_id):
+        return {"status": "running"}
+
+
+def _spy_on_the_completion_wait(monkeypatch, *, expire=False):
+    seen = []
+    real_wait_for = asyncio.wait_for
+
+    async def spy(awaitable, timeout=None):
+        if timeout is not None and timeout >= 1:
+            seen.append(timeout)
+            if expire:
+                awaitable.close()
+                raise asyncio.TimeoutError
+        return await real_wait_for(awaitable, timeout=timeout)
+
+    monkeypatch.setattr(asyncio, "wait_for", spy)
+    return seen
+
+
+def _executor(orchestrator=None):
+    return GenerationSmokeExecutor(
+        FakePresetLoader(FakePresetTemplate()), object(), orchestrator or FakeOrchestrator(), FakeFileRepository()
+    )
+
+
+def test_the_wait_is_300_seconds_when_the_recipe_gives_no_timeout(monkeypatch):
+    seen = _spy_on_the_completion_wait(monkeypatch)
+
+    result = _executor().execute(_context(_recipe()))
+
+    assert result.success is True
+    assert seen == [300]
+
+
+def test_the_recipe_timeout_is_what_the_step_waits_for(monkeypatch):
+    seen = _spy_on_the_completion_wait(monkeypatch)
+    recipe = _recipe(RecipeSmokeRef(preset_id="p1", mode="txt2img", timeout_seconds=600))
+
+    result = _executor().execute(_context(recipe))
+
+    assert result.success is True
+    assert seen == [600]
+
+
+def test_the_timeout_failure_names_the_recipe_timeout(monkeypatch):
+    _spy_on_the_completion_wait(monkeypatch, expire=True)
+    recipe = _recipe(RecipeSmokeRef(preset_id="p1", mode="txt2img", timeout_seconds=900))
+
+    result = _executor(NeverCompletingOrchestrator()).execute(_context(recipe))
+
+    assert result.success is False
+    assert result.error_code == "GENERATION_SMOKE_FAILED"
+    assert "timed out waiting for completion after 900s" in result.safe_error_detail
+
+
+def test_a_generation_that_never_finishes_fails_once_the_recipe_timeout_elapses():
+    recipe = _recipe(RecipeSmokeRef(preset_id="p1", mode="txt2img", timeout_seconds=1))
+
+    result = _executor(NeverCompletingOrchestrator()).execute(_context(recipe))
+
+    assert result.success is False
+    assert "timed out waiting for completion after 1s" in result.safe_error_detail
+
+
+def test_a_generation_left_behind_by_the_timeout_is_cancelled():
+    recipe = _recipe(RecipeSmokeRef(preset_id="p1", mode="txt2img", timeout_seconds=1))
+    orchestrator = NeverCompletingOrchestrator()
+
+    _executor(orchestrator).execute(_context(recipe))
+
+    assert orchestrator.cancelled == ["gen-1"]
+
+
+def test_a_cancel_that_fails_after_the_timeout_still_reports_the_timeout():
+    class CancelRefusingOrchestrator(NeverCompletingOrchestrator):
+        async def cancel_generation(self, generation_id):
+            raise RuntimeError("backend gone")
+
+    recipe = _recipe(RecipeSmokeRef(preset_id="p1", mode="txt2img", timeout_seconds=1))
+
+    result = _executor(CancelRefusingOrchestrator()).execute(_context(recipe))
+
+    assert result.success is False
+    assert "timed out waiting for completion after 1s" in result.safe_error_detail
+
+
+def test_a_finished_generation_is_not_cancelled():
+    orchestrator = FakeOrchestrator()
+
+    _executor(orchestrator).execute(_context(_recipe()))
+
+    assert orchestrator.cancelled == []
+
+
+def _cancelled_after(checks):
+    seen = []
+
+    def is_cancelled():
+        seen.append(None)
+        return len(seen) > checks
+
+    return is_cancelled
+
+
+def test_cancelling_the_run_cancels_its_smoke_generation():
+    orchestrator = NeverCompletingOrchestrator()
+    context = _context(_recipe())
+    context.is_cancelled = _cancelled_after(1)
+
+    result = _executor(orchestrator).execute(context)
+
+    assert orchestrator.cancelled == ["gen-1"]
+    assert result.success is False
+    assert result.error_code == "GENERATION_SMOKE_CANCELLED"
+    assert result.safe_output == {"generation_id": "gen-1"}
+
+
+def test_a_generation_that_already_finished_is_not_cancelled_by_the_run_cancel():
+    orchestrator = FakeOrchestrator()
+    context = _context(_recipe())
+    context.is_cancelled = lambda: True
+
+    result = _executor(orchestrator).execute(context)
+
+    assert orchestrator.cancelled == []
+    assert result.success is True
+
+
+@pytest.fixture
+def app_loop():
+    import threading
+
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    yield loop
+    loop.call_soon_threadsafe(loop.stop)
+    thread.join(5)
+    loop.close()
+
+
+def test_the_generation_starts_on_the_app_loop_when_one_is_running(app_loop):
+    orchestrator = FakeOrchestrator()
+    executor = GenerationSmokeExecutor(
+        FakePresetLoader(FakePresetTemplate()), object(), orchestrator, FakeFileRepository(),
+        app_loop=lambda: app_loop,
+    )
+
+    result = executor.execute(_context(_recipe()))
+
+    assert result.success is True
+    assert orchestrator.loops == [app_loop]
+
+
+def test_cancelling_the_run_cancels_the_generation_on_the_app_loop(app_loop):
+    orchestrator = NeverCompletingOrchestrator()
+    executor = GenerationSmokeExecutor(
+        FakePresetLoader(FakePresetTemplate()), object(), orchestrator, FakeFileRepository(),
+        app_loop=lambda: app_loop,
+    )
+    context = _context(_recipe())
+    context.is_cancelled = _cancelled_after(1)
+
+    result = executor.execute(context)
+
+    assert orchestrator.loops == [app_loop]
+    assert orchestrator.cancelled == ["gen-1"]
+    assert result.error_code == "GENERATION_SMOKE_CANCELLED"
+
+
+def test_a_missing_app_loop_fails_clearly_without_starting_a_generation(monkeypatch):
+    import src.platform.plugins.runtime_registries as runtime_registries
+
+    monkeypatch.setattr(runtime_registries, "_container", SimpleNamespace(app_loop=None))
+    orchestrator = FakeOrchestrator()
+    executor = GenerationSmokeExecutor(
+        FakePresetLoader(FakePresetTemplate()), object(), orchestrator, FakeFileRepository(),
+        app_loop=runtime_registries.get_app_loop,
+    )
+
+    result = executor.execute(_context(_recipe()))
+
+    assert result.success is False
+    assert result.error_code == "GENERATION_SMOKE_NO_APP_LOOP"
+    assert "Application event loop not available yet" in result.safe_error_detail
+    assert orchestrator.loops == []
+
+
+def test_an_app_loop_that_is_not_running_fails_clearly_without_starting_a_generation():
+    idle = asyncio.new_event_loop()
+    orchestrator = FakeOrchestrator()
+    executor = GenerationSmokeExecutor(
+        FakePresetLoader(FakePresetTemplate()), object(), orchestrator, FakeFileRepository(),
+        app_loop=lambda: idle,
+    )
+    try:
+        result = executor.execute(_context(_recipe()))
+    finally:
+        idle.close()
+
+    assert result.error_code == "GENERATION_SMOKE_NO_APP_LOOP"
+    assert "Application event loop is not running" in result.safe_error_detail
+    assert orchestrator.loops == []

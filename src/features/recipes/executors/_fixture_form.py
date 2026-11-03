@@ -25,7 +25,12 @@ from typing import Any, Dict, List, Optional
 
 from src.features.forms.binding import bind_form
 from src.features.models.form_refs import make_model_ref
-from src.features.presets.fixture_form import MODEL_FIELD_TYPES, build_default_form_data
+from src.features.presets.fixture_form import (
+    MODEL_FIELD_TYPES,
+    build_default_form_data,
+    fixture_video_director_document,
+    leave_reactive_defaults_to_binding,
+)
 from src.features.recipes.executors._artifact_lookup import find_slot_model
 
 FIXTURE_TAG = "SETUP-CHECK"
@@ -166,6 +171,7 @@ def build_fixture_form_data(
     recipe: Optional[Any] = None,
     model_repository: Optional[Any] = None,
     selections: Optional[Dict[str, str]] = None,
+    prompt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Fixture form data for `preset_template`'s `mode`, with `overrides`
     (e.g. a recipe's `smoke:` field values) applied on top before binding.
@@ -178,7 +184,8 @@ def build_fixture_form_data(
     passes `recipe`, so it always renders against the sentinel - a dry run
     that never loads anything for real.
     """
-    form_data, fields = build_default_form_data(preset_template, mode, FIXTURE_TAG)
+    reactive_defaults: Dict[str, Any] = {}
+    form_data, fields = build_default_form_data(preset_template, mode, FIXTURE_TAG, reactive_defaults)
 
     form_data.setdefault("quantity", 1)
     form_data.setdefault("seed", 42)
@@ -193,6 +200,13 @@ def build_fixture_form_data(
 
     if overrides:
         form_data.update(overrides)
+
+    if not isinstance(form_data.get("video_director"), dict):
+        document = fixture_video_director_document(preset_template, mode, form_data, prompt)
+        if document is not None:
+            form_data["video_director"] = document
+
+    leave_reactive_defaults_to_binding(form_data, reactive_defaults, overrides or {})
 
     bound = bind_form(
         preset_template, mode, form_name=None, raw_form_data=form_data, user_id=None, storage_dir=None

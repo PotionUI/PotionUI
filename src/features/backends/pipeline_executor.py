@@ -39,3 +39,6 @@ class PipelineExecutor(Protocol):
         executor - so a cancel can never abort a run it does not own.
         """
         ...
+
+    @property
+    def running_generation_id(self) -> Optional[str]: ...

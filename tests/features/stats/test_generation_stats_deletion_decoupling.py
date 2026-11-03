@@ -68,6 +68,11 @@ CREATE TABLE generation_stats (
     peak_ram_mb REAL, cpu_percent REAL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE files (id TEXT PRIMARY KEY, file_path TEXT, created_at TIMESTAMP);
+CREATE TABLE model_files (id TEXT PRIMARY KEY, file_id TEXT);
+CREATE TABLE model_preview_media (id TEXT PRIMARY KEY, file_id TEXT);
+CREATE TABLE phrasebook_values (id TEXT PRIMARY KEY, preview_file_id TEXT);
+CREATE TABLE notifications (id TEXT PRIMARY KEY, user_id TEXT, type TEXT, metadata TEXT);
 """
 
 

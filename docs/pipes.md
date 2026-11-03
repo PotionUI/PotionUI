@@ -1298,6 +1298,7 @@ Native Qwen-Image generator (flow matching, true CFG)
 | `shift` | `float` | — | no | — | — | — | Sigma-shift override; blank -> spec default (1.15) |
 | `sampler` | `str` | `"euler"` | no | — | — | — | Sampler: any key registered on the sampler registry (see GET /api/sampling/catalog) |
 | `resolution` | `str` | `"1024x1024"` | no | — | — | — | Resolution (WxH) |
+| `fit` | `str` | `"match"` | no | `match`, `crop`, `pad` | — | — | Edit output size: match the first image, or crop/pad it to the resolution |
 | `quantity` | `int` | `1` | no | — | 1 | 10 | Number of images |
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
@@ -1351,6 +1352,7 @@ Native Qwen-Image-2.1 generator (flow matching, true CFG)
 | `shift` | `float` | — | no | — | — | — | Sigma-shift override (multiplicative); blank -> resolution-dynamic mu (0.5 @ 256 tokens .. 0.9 @ 8192) |
 | `sampler` | `str` | `"euler"` | no | — | — | — | Sampler: any key registered on the sampler registry (see GET /api/sampling/catalog) |
 | `resolution` | `str` | `"1024x1024"` | no | — | — | — | Resolution (WxH) |
+| `fit` | `str` | `"match"` | no | `match`, `crop`, `pad` | — | — | Edit output size: match the first image, or crop/pad it to the resolution |
 | `quantity` | `int` | `1` | no | — | 1 | 10 | Number of images |
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |

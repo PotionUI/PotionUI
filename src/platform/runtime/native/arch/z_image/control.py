@@ -10,6 +10,7 @@ from torch import Tensor
 
 from vendor.gpl.comfyui.z_image.layers import _JointTransformerBlock
 
+from ...cancellation import raise_if_cancelled
 from ...detect.patch_detect import ZIMAGE_FUN_CONTROL, detect_model_patch_config
 from ...errors import NativeEngineUnsupportedError
 
@@ -58,6 +59,7 @@ class ZImageFunControl(nn.Module):
         c = tokens
         hints = []
         for i, block in enumerate(self.noise_refiner):
+            raise_if_cancelled(i)
             if i == 0:
                 c = block.before_proj(c) + img
             c = block(c, rope, adaln_input)

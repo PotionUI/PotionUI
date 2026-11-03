@@ -9,14 +9,17 @@ from src.platform.runtime.native.arch.z_image.control import (
 )
 from src.platform.runtime.native.arch.z_image.model import ZImageDiT
 from src.platform.runtime.native.base import load_into_module
+from src.platform.runtime.native.cancellation import cancellation_scope
 from src.platform.runtime.native.detect.patch_detect import (
     QWEN_IMAGE21_FUN_CONTROL,
     ZIMAGE_FUN_CONTROL,
     detect_model_patch_config,
 )
 from src.platform.runtime.native.detect.registry import match_model_spec
-from src.platform.runtime.native.errors import NativeEngineUnsupportedError
+from src.platform.runtime.native.errors import NativeEngineUnsupportedError, SamplingCancelled
 from src.platform.runtime.native.kernels import pick_operations
+
+from .test_cancel_between_blocks import _cancel_after_first_block, _Flag
 
 DIM, HEADS, HEAD_DIM, FF, CAP_DIM = 256, 4, 64, 128, 8
 IN_CH = 16
@@ -432,3 +435,15 @@ def test_the_qwen_patch_loader_refuses_a_z_image_patch():
 
 def test_the_z_image_spec_accepts_a_model_patch():
     assert match_model_spec(dict(CONFIG)).resolve_model_patch_map() is attach_fun_control
+
+
+@pytest.mark.parametrize("stack", ["noise_refiner", "layers"])
+def test_a_cancel_stops_the_control_branch_before_its_next_block(stack):
+    module = _build(_patch_sd())
+    x, t, context, control = _inputs()
+    flag = _Flag()
+    calls = _cancel_after_first_block(getattr(module.fun_control, stack), flag)
+    with torch.no_grad(), pytest.raises(SamplingCancelled):
+        with cancellation_scope(flag):
+            module(x, t, context, control_context=control)
+    assert calls == {"first": 1, "second": 0}

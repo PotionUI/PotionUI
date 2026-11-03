@@ -78,6 +78,7 @@ from einops import rearrange, repeat
 from torch import Tensor
 
 from ...base import NativeArchModule
+from ...cancellation import raise_if_cancelled
 from ...io.quant_formats import FP8_DTYPES
 from .config import Krea2Config
 from .layers import (
@@ -524,6 +525,7 @@ class Krea2(NativeArchModule):
         # reuses the last computed output and bypasses blocks 1..N + self.last.
         probe = None
         for i, block in enumerate(self.blocks):
+            raise_if_cancelled(i)
             combined = block(combined, tvec, freqs, attn_mask, nag_fused=nag_fused,
                               nag_freqs=nag_freqs, nag_mask=nag_mask, nag=nag, txt_len=txtlen)
             if i == 0 and step_cache is not None:

@@ -61,12 +61,15 @@ class SamplingCancelled(NativeEngineError):
     report how far a generation got before being aborted.
     """
 
-    def __init__(self, step_index: int | None = None) -> None:
+    def __init__(self, step_index: int | None = None, block_index: int | None = None) -> None:
         self.step_index = step_index
+        self.block_index = block_index
         if step_index is None:
             super().__init__("sampling cancelled")
-        else:
+        elif block_index is None:
             super().__init__(f"sampling cancelled at step {step_index}")
+        else:
+            super().__init__(f"sampling cancelled at step {step_index}, block {block_index}")
 
 
 class SamplingNumericsError(NativeEngineError):

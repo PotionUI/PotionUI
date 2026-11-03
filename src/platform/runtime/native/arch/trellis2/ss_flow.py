@@ -41,6 +41,7 @@ import torch.nn.functional as F
 
 from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
+from ...cancellation import raise_if_cancelled
 from ...ops.embedding import sinusoidal_embedding
 from .config import SSFlowConfig
 
@@ -344,7 +345,8 @@ class SSFlowDiT(NativeArchModule):
         else:
             cond = _manual_cast(cond, h.dtype)
 
-        for block in self.blocks:
+        for i, block in enumerate(self.blocks):
+            raise_if_cancelled(i)
             h = block(h, t_emb, cond, self.rope_phases)
 
         h = _manual_cast(h, x.dtype)

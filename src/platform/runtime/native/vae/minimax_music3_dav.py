@@ -76,6 +76,7 @@ import torch
 import torch.nn as nn
 
 from ..base import NativeArchModule
+from ..cancellation import raise_if_cancelled
 from ..errors import NativeEngineUnsupportedError
 from .minimax_h3_audio import _Snake1d
 
@@ -240,6 +241,7 @@ class MiniMaxMusic3DAV(NativeArchModule):
         chunks: list[torch.Tensor] = []
         start = 0
         while start < total:
+            raise_if_cancelled(len(chunks))
             end = min(start + self.tile_latents, total)
             ctx_start = max(0, start - overlap)
             ctx_end = min(total, end + overlap)

@@ -22,6 +22,8 @@ from src.pipelines.pipes.detailer.video_ltx.refine import (
     refine_tube_pixels,
     strength_to_refine_sigmas,
 )
+from src.platform.runtime.native.cancellation import raise_if_cancelled
+from src.platform.runtime.native.errors import SamplingCancelled
 
 _MOD = "src.pipelines.pipes.detailer.video_ltx.refine"
 # refine_tube_pixels's encode now routes through the shared
@@ -163,6 +165,30 @@ def test_refine_tube_pixels_wires_encode_denoise_decode(monkeypatch):
     # output trimmed back to the original 10 frames, uint8 (T,H,W,3)
     assert out.shape == (10, 32, 32, 3)
     assert out.dtype.name == "uint8"
+
+
+def test_a_cancelled_refine_stops_the_dit_before_its_next_block(monkeypatch):
+    bundle, _ = _bundle()
+    flag = {"set": False}
+    ran = []
+
+    def blockwise(x, sigma, context, **kwargs):
+        for block_index in range(3):
+            raise_if_cancelled(block_index)
+            ran.append(block_index)
+            flag["set"] = True
+        return torch.zeros_like(x[0])
+
+    bundle.dit.module = blockwise
+    monkeypatch.setattr(f"{_MOD}.place_dit_for_sequence", lambda *a, **k: _fake_placement())
+    cond_model = SimpleNamespace(embeds={"context": torch.zeros(1, 1, 8)})
+
+    with pytest.raises(SamplingCancelled) as excinfo:
+        refine_tube_pixels(bundle, cond_model, torch.zeros(1, 3, 10, 32, 32), strength="balanced",
+                           device="cpu", fps=24.0, seed=7, is_cancelled=lambda: flag["set"])
+
+    assert ran == [0]
+    assert excinfo.value.block_index == 1
 
 
 def test_refine_tube_pixels_places_dit_for_the_tube(monkeypatch):

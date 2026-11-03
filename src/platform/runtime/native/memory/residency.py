@@ -963,6 +963,13 @@ def _plan_encode_after_evict(
     return plan, footprint, live_free
 
 
+def _teardown_quietly(streaming: Any) -> None:
+    try:
+        streaming.teardown()
+    except Exception:
+        logger.warning("residency: streamed TE teardown failed", exc_info=True)
+
+
 def _run_streamed_encode(
     encoder: Any,
     device: str,
@@ -989,7 +996,7 @@ def _run_streamed_encode(
             census = _weights_gb_by_device(encoder)
             result = encode_fn()
         except torch.cuda.OutOfMemoryError:
-            streaming.teardown()
+            _teardown_quietly(streaming)
             logger.warning(
                 "residency: streamed TE encode OOM'd at a %.1fGB resident budget; %s",
                 budget, "streaming every leaf" if budget > 0.0 else "encoding on CPU",
@@ -998,10 +1005,10 @@ def _run_streamed_encode(
             continue
         except HostMemoryExhaustedError as exc:
             logger.warning("residency: streamed TE encode refused (%s); encoding on CPU", exc)
-            streaming.teardown()
+            _teardown_quietly(streaming)
             break
         except BaseException:
-            streaming.teardown()
+            _teardown_quietly(streaming)
             raise
         streaming.teardown()
         get_profiler().mark(

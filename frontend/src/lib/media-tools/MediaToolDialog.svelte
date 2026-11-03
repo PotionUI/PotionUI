@@ -4,6 +4,8 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { hasIcon } from '$lib/utils/IconLibrary';
 	import { previewMediaTool } from '$lib/services/api/mediaTools';
+	import { stillEffects, stillPreview } from '$lib/tool-tabs/image/shaderEffect';
+	import { supportsWebGL2 } from '$lib/effects/ShaderChain';
 	import { selectionBounds, toolAvailability } from './catalog';
 	import { parseMediaToolFailure } from './errors';
 	import { executeMediaTool } from './execute';
@@ -52,6 +54,8 @@
 		onResult: (result: { items: MediaToolItem[]; replaced: boolean }) => void | Promise<void>;
 	} = $props();
 
+	const SHADER_DEBOUNCE_MS = 40;
+
 	let manyToOne = $derived(tool.cardinality === 'many_to_one');
 	let bounds = $derived(selectionBounds(tool));
 
@@ -80,8 +84,10 @@
 	let firstIssue = $derived(Object.values(paramIssues(tool.params, values))[0] ?? null);
 	let availability = $derived(toolAvailability(tool, sources));
 	let readout = $derived(computeReadout(tool, params, sources));
+	const shaderEffect = untrack(() => (supportsWebGL2() ? (stillEffects([tool])[0] ?? null) : null));
+	let shaderPreview = $derived(!!shaderEffect && sources.length === 1 && primary?.kind === 'image');
 	let previewable = $derived(
-		tool.preview && sources.length === 1 && (primary?.kind === 'image' || primary?.kind === 'video')
+		shaderPreview || (tool.preview && sources.length === 1 && (primary?.kind === 'image' || primary?.kind === 'video'))
 	);
 	let replaceable = $derived(
 		scope === 'library' &&
@@ -155,11 +161,11 @@
 
 	const previewer = createPreviewController({
 		request: (signal) =>
-			previewMediaTool(
-				{ tool: tool.id, params: buildParams(tool.params, values), input: resolution.refs[0] },
-				signal
-			),
-		onChange: (state) => (preview = state)
+			shaderPreview && shaderEffect && primary
+				? stillPreview(primary.url, shaderEffect, buildParams(tool.params, values), signal)
+				: previewMediaTool({ tool: tool.id, params: buildParams(tool.params, values), input: resolution.refs[0] }, signal),
+		onChange: (state) => (preview = state),
+		debounceMs: shaderEffect ? SHADER_DEBOUNCE_MS : undefined
 	});
 	let firstPreview = true;
 

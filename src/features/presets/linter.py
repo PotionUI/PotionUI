@@ -5,6 +5,7 @@ cannot express (things on disk, not inside a single YAML file).
 Used by `scripts/preset_lint.py` and `GET /api/developer/presets/lint`.
 """
 
+import copy
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,7 @@ from src.platform.filesystem.yaml_io import load_yaml, load_yaml_file
 from .children_paths import DEFAULT_SHARED_PATH, resolve_children_path
 from .children_refs import parse_children_ref, read_children_fragment
 from .formula_groups import FORMULA_INPUT_TYPES, iter_formula_fields
+from .extensions import plugin_preset_extensions, read_extension_file, resolve_pipe
 from .loader import discover_form_variants, plugin_preset_mode_contributions, read_mode_naming
 from .mode_labels import fallback_mode_label, is_known_mode, known_icon_names
 from .schema import (
@@ -332,6 +334,7 @@ class PresetLinter:
                     loaded_manifests[manifest.id] = (preset_file, manifest)
 
         issues.extend(self._lint_preset_mode_contributions(loaded_manifests))
+        issues.extend(self._lint_preset_extensions())
         issues.extend(self._req_checker_warnings)
         issues.extend(self._pipe_import_notes)
 
@@ -686,6 +689,85 @@ class PresetLinter:
                 ))
 
         return issues
+
+    def _lint_preset_extensions(self) -> List[LintIssue]:
+        extensions = plugin_preset_extensions(self.plugin_manifests)
+        if not extensions:
+            return []
+        manifests = []
+        for manifest in self.plugin_manifests:
+            clone = copy.copy(manifest)
+            clone.presets = []
+            manifests.append(clone)
+
+        from .loader import PresetTemplateLoader
+
+        loader = PresetTemplateLoader(
+            [str(p) for p in self.paths],
+            plugin_registry=SimpleNamespace(get_enabled_plugins=lambda: manifests),
+            shared_path=self.shared_path,
+        )
+        try:
+            loader.load_presets()
+        except Exception as exc:
+            return [LintIssue("error", "<preset extensions>", f"preset extensions could not be checked: {exc}")]
+
+        issues: List[LintIssue] = []
+        seen = set()
+        for extension in extensions:
+            location = extension.error_key
+            if location in seen:
+                continue
+            seen.add(location)
+            problems = loader.load_errors.get(location)
+            if problems:
+                issues.extend(LintIssue("error", location, problem) for problem in problems)
+                continue
+            target = loader.presets_by_id.get(extension.target_preset_id)
+            spec, _ = read_extension_file(extension)
+            if target is None or spec is None:
+                continue
+            for mode_name in extension.modes:
+                pipes = target.modes[mode_name].pipes
+                for pipe in pipes:
+                    if pipe.source_plugin != extension.plugin_id:
+                        continue
+                    if self._pipe_catalog().get_pipe_source(pipe.name) is None:
+                        issues.append(LintIssue(
+                            "error", location,
+                            f"modes/{mode_name}: added pipe '{pipe.id}' names '{pipe.name}', "
+                            f"which is not in the pipe catalog",
+                        ))
+                        continue
+                    issues.extend(self._extension_config_key_issues(
+                        location, mode_name, pipe.id, pipe.name, (pipe.configuration or {}).keys()
+                    ))
+                for op in spec.pipes:
+                    if not hasattr(op, "configuration_add") or not op.configuration_add:
+                        continue
+                    position, _ = resolve_pipe(pipes, op.patch)
+                    if position is not None:
+                        issues.extend(self._extension_config_key_issues(
+                            location, mode_name, op.patch, pipes[position].name, op.configuration_add.keys()
+                        ))
+        return issues
+
+    def _extension_config_key_issues(self, location: str, mode_name: str, identifier, name: str, keys) -> List[LintIssue]:
+        pipe_class = self._load_pipe_class(name)
+        if pipe_class is None:
+            return []
+        try:
+            allowed = {spec.name for spec in (pipe_class.configuration() or [])}
+        except Exception:
+            return []
+        unknown = sorted(key for key in keys if key not in allowed)
+        if not unknown:
+            return []
+        return [LintIssue(
+            "warning", location,
+            f"modes/{mode_name}: pipe '{identifier}' ({name}) gets configuration key(s) not declared "
+            f"in its PipeConfigSpec: {unknown}",
+        )]
 
     def _lint_speed_profiles(self, preset_file: Path, manifest) -> List[LintIssue]:
         """Cross-checks for `speed_profiles:` (roadmap 3.6) the schema itself

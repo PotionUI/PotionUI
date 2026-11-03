@@ -4,6 +4,7 @@ fields:
   - type: "tabs"
     children:
       - type: "tab"
+        anchor: "generation"
         label: "Generation"
         configuration:
           icon: "generation"
@@ -11,6 +12,7 @@ fields:
         children: "{{ paths.preset }}/modes/txt2img/tabs/generation.yml"
 
       - type: "tab"
+        anchor: "lora"
         label: "LoRA"
         configuration:
           icon: "lora"
@@ -18,6 +20,7 @@ fields:
         children: "{{ paths.preset }}/modes/txt2img/tabs/lora.yml"
 
       - type: "tab"
+        anchor: "embeddings"
         label: "Embeddings"
         configuration:
           icon: "embedding"
@@ -25,6 +28,7 @@ fields:
         children: "{{ paths.preset }}/modes/txt2img/tabs/embeddings.yml"
 
       - type: "tab"
+        anchor: "post_processing"
         label: "Enhance"
         configuration:
           icon: "sparkles"
@@ -32,6 +36,7 @@ fields:
         children: "{{ paths.preset }}/modes/txt2img/tabs/post-processing.yml"
 
       - type: "tab"
+        anchor: "face_hand_detailer"
         label: "Face & Hand Detailer"
         configuration:
           icon: "face"
@@ -39,6 +44,7 @@ fields:
         children: "{{ paths.preset }}/modes/txt2img/tabs/face-hand-detailer.yml"
 
       - type: "tab"
+        anchor: "controlnet"
         label: "ControlNet"
         configuration:
           icon: "image"
@@ -46,6 +52,7 @@ fields:
         children: "{{ paths.preset }}/modes/txt2img/tabs/controlnet.yml"
 
       - type: "tab"
+        anchor: "advanced"
         label: "Advanced"
         audience: "advanced"
         configuration:

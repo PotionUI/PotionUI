@@ -4,30 +4,35 @@ fields:
   - type: "tabs"
     children:
       - type: "tab"
+        anchor: "inputs"
         label: "Inputs"
         configuration:
           icon: "sliders"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/catalog/tabs/inputs.yml"
       - type: "tab"
+        anchor: "pickers"
         label: "Pickers"
         configuration:
           icon: "model"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/catalog/tabs/pickers.yml"
       - type: "tab"
+        anchor: "layout"
         label: "Layout"
         configuration:
           icon: "generation"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/catalog/tabs/layout.yml"
       - type: "tab"
+        anchor: "display"
         label: "Display"
         configuration:
           icon: "information-circle"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/catalog/tabs/display.yml"
       - type: "tab"
+        anchor: "alerts"
         label: "Alerts"
         configuration:
           icon: "warning"

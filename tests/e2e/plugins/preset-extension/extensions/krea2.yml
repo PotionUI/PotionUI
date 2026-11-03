@@ -1,0 +1,25 @@
+fields:
+  - into: {tab: "advanced"}
+    after: "cfg"
+    fields:
+      - name: "grain_intensity"
+        type: "slider"
+        label: "Grain"
+        description: "Film grain amount."
+        audience: "advanced"
+        default: 0.3
+        configuration: {min: 0.0, max: 1.0, step: 0.05}
+
+pipes:
+  - add:
+      name: "film_grain"
+      id: "grain"
+      enabled: "{{ form.grain_intensity > 0 }}"
+      input:
+        - ["image", "generator", "image"]
+      configuration:
+        intensity: "{{ form.grain_intensity }}"
+    after: "generator"
+  - patch: "generator"
+    configuration_add:
+      detail_strength: 0.0

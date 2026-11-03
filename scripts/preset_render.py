@@ -135,11 +135,27 @@ def _plugin_registry_stub(manifests: List[Any]) -> Any:
     return SimpleNamespace(get_enabled_plugins=lambda: manifests)
 
 
+def manifests_from_plugin_dirs(plugin_dirs: List[Path]) -> List[Any]:
+    loader = PluginLoader()
+    manifests = []
+    for plugin_dir in plugin_dirs:
+        plugin_dir = Path(plugin_dir).resolve()
+        manifest = loader._load_manifest(plugin_dir / "manifest.yml", plugin_dir, "local")
+        if manifest is None or manifest.validation_error:
+            raise ValueError(f"plugin at {plugin_dir} has no valid manifest.yml: {getattr(manifest, 'validation_error', None)}")
+        manifests.append(manifest)
+    return manifests
+
+
 def load_all_presets(
-    presets_root: Path = None, include_plugins: bool = True,
+    presets_root: Path = None, include_plugins: bool = True, plugin_dirs: Optional[List[Path]] = None,
 ) -> Tuple[List[PresetTemplate], Dict[str, List[str]]]:
     root = presets_root or (ROOT / "content" / "presets")
-    if include_plugins:
+    if plugin_dirs:
+        manifests = manifests_from_plugin_dirs(plugin_dirs)
+        paths = [str(root)] + [str(p) for p in plugin_preset_roots(manifests)]
+        registry = _plugin_registry_stub(manifests)
+    elif include_plugins:
         manifests = _all_plugin_manifests()
         # `content/presets` stays first so `paths._shared` resolves against the core tree;
         # plugin-contributed preset roots (discovered from manifests on disk, so no
@@ -515,6 +531,11 @@ def main() -> int:
     parser.add_argument("--golden", action="store_true", help="Write this single preset+mode's render as a golden snapshot instead of printing it; leaves every other golden file untouched")
     parser.add_argument("--out", type=Path, default=ROOT / "tests" / "golden" / "preset_renders", help="Output directory for --golden-all / --golden")
     parser.add_argument(
+        "--plugin-dir", type=Path, action="append", default=None,
+        help="Render with exactly these plugin directories enabled instead of every plugin found on disk "
+             "(repeatable), e.g. a test fixture plugin that extends this preset",
+    )
+    parser.add_argument(
         "--root", type=Path, default=None,
         help="Presets root directory to scan (default: content/presets) - mirrors "
              "scripts/preset_new.py's --root, e.g. a scratch tree outside the repo",
@@ -539,7 +560,11 @@ def main() -> int:
     if not args.preset or not args.mode:
         parser.error("preset and mode are required unless --golden-all is given")
 
-    presets, _ = load_all_presets(presets_root=args.root)
+    presets, load_errors = load_all_presets(presets_root=args.root, plugin_dirs=args.plugin_dir)
+    if args.plugin_dir:
+        for key, errors in load_errors.items():
+            if key.startswith("plugin '"):
+                print(f"Load error {key}: {errors}", file=sys.stderr)
     preset = find_preset(presets, args.preset)
     if preset is None:
         print(f"No preset found matching {args.preset!r}", file=sys.stderr)

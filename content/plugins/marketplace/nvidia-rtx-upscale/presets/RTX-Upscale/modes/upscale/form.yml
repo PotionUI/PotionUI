@@ -4,12 +4,14 @@ fields:
   - type: "tabs"
     children:
       - type: "tab"
+        anchor: "generation"
         label: "Generation"
         configuration:
           icon: "generation"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/upscale/tabs/generation.yml"
       - type: "tab"
+        anchor: "advanced"
         label: "Advanced"
         audience: "advanced"
         configuration:

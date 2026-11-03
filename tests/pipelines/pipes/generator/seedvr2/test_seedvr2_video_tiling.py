@@ -8,6 +8,7 @@ tile_overlap config ceiling. No real model or GPU is touched.
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 import numpy as np
@@ -365,3 +366,18 @@ def test_encode_clip_does_not_shrink_on_a_driver_error_that_is_not_exhaustion(mo
     with pytest.raises(RuntimeError, match="invalid argument"):
         gen._encode_clip(np.zeros((5, 2048, 2048, 3), dtype=np.uint8), "cpu")
     assert len(vae.encode_calls) == 1
+
+
+def test_a_shrink_warning_names_the_error_it_caught(monkeypatch, caplog):
+    monkeypatch.setattr(m, "effective_free_vram_gb", lambda device: 40.0)
+    vae = _FakeVAEModule(
+        oom_above_tile=512,
+        make_error=lambda: torch.cuda.OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB\nGPU 0 detail"),
+    )
+    gen = _make_generator(vae)
+
+    with caplog.at_level(logging.WARNING, logger="is"):
+        gen._encode_clip(np.zeros((5, 2048, 2048, 3), dtype=np.uint8), "cpu")
+
+    assert "(OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB)" in caplog.text
+    assert "GPU 0 detail" not in caplog.text

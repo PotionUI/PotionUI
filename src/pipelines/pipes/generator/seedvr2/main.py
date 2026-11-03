@@ -242,6 +242,11 @@ def _count_windows(total_frames: int, batch_size: int, temporal_overlap: int) ->
     return k_last if tail <= overlap else k_last + 1
 
 
+def _oom_cause(exc: BaseException) -> str:
+    lines = str(exc).strip().splitlines()
+    return f"{type(exc).__name__}: {lines[0] if lines else ''}"
+
+
 def _discard_output(path: str) -> None:
     """Remove a video output and the audio-muxed sibling
     ``encode_video_with_audio`` may have written next to it, so a partial or
@@ -564,7 +569,8 @@ class SeedVR2NativeGenerator(NativeGenerator):
                     tile = max(_MIN_ENCODE_TILE_PIXEL, (tile // 2 // 8) * 8)
                     shrinks += 1
                     logger.warning(
-                        "[GENERATOR SEEDVR2] tiled encode OOM — shrinking tile to %d px", tile,
+                        "[GENERATOR SEEDVR2] tiled encode OOM — shrinking tile to %d px (%s)",
+                        tile, _oom_cause(exc),
                     )
 
     def _decode_clip(
@@ -625,7 +631,8 @@ class SeedVR2NativeGenerator(NativeGenerator):
                         tile = max(_MIN_DECODE_TILE_LATENT, (tile // 2 // 8) * 8)
                         shrinks += 1
                         logger.warning(
-                            "[GENERATOR SEEDVR2] tiled decode OOM — shrinking tile to %d latent px", tile,
+                            "[GENERATOR SEEDVR2] tiled decode OOM — shrinking tile to %d latent px (%s)",
+                            tile, _oom_cause(exc),
                         )
                         continue
                     if not freed_foreign_residents:
@@ -951,8 +958,8 @@ class GeneratorSeedVR2Pipe(BasePipe):
                     if smaller >= batch_size:
                         smaller = 1
                     logger.warning(
-                        "[GENERATOR SEEDVR2] video OOM at batch %d — retrying at batch %d",
-                        batch_size, smaller,
+                        "[GENERATOR SEEDVR2] video OOM at batch %d — retrying at batch %d (%s)",
+                        batch_size, smaller, _oom_cause(exc),
                     )
                     get_profiler().mark(
                         "seedvr2.video.oom_retry", from_batch=batch_size, to_batch=smaller,

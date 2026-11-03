@@ -6,7 +6,12 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from src.pipelines.cloud import CloudRunError
 
-_CUDA_OOM_MARKERS = ("cuda out of memory", "hip out of memory")
+_CUDA_OOM_MARKERS = (
+    "cuda out of memory",
+    "cuda error: out of memory",
+    "hip out of memory",
+    "cublas_status_execution_failed",
+)
 
 _MODEL_FILE_EXTENSIONS = (
     ".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".onnx",

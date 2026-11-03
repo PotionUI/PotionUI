@@ -37,6 +37,48 @@ def test_a_cuda_oom_rewrapped_as_a_plain_runtime_error_still_classifies():
     assert classification.category == "cuda_oom"
 
 
+def test_a_driver_level_cuda_oom_classifies_as_cuda_oom():
+    exc = torch.AcceleratorError("CUDA error: out of memory\nSearch for `cudaErrorMemoryAllocation'")
+
+    classification = classify_generation_error(exc)
+
+    assert classification is not None
+    assert classification.category == "cuda_oom"
+
+
+def test_another_accelerator_error_is_not_a_cuda_oom():
+    exc = torch.AcceleratorError("CUDA error: an illegal memory access was encountered")
+
+    assert classify_generation_error(exc).category == "unclassified"
+
+
+def test_text_classification_recognises_a_driver_level_cuda_oom():
+    classification = classify_error_text("CUDA error: out of memory\nCUDA kernel errors might be asynchronously reported")
+
+    assert classification.category == "cuda_oom"
+
+
+def test_a_cublas_execution_failure_classifies_as_cuda_oom():
+    exc = RuntimeError("CUDA error: CUBLAS_STATUS_EXECUTION_FAILED when calling `cublasGemmEx( handle, opa, opb, m, n, k )`")
+
+    classification = classify_generation_error(exc)
+
+    assert classification.category == "cuda_oom"
+    assert classification.suggestions
+
+
+def test_a_cublas_execution_failure_raised_as_an_accelerator_error_classifies_as_cuda_oom():
+    exc = torch.AcceleratorError("CUDA error: CUBLAS_STATUS_EXECUTION_FAILED when calling `cublasLtMatmul`")
+
+    assert classify_generation_error(exc).category == "cuda_oom"
+
+
+def test_text_classification_recognises_a_cublas_execution_failure():
+    classification = classify_error_text("RuntimeError: CUDA error: CUBLAS_STATUS_EXECUTION_FAILED when calling `cublasGemmEx`")
+
+    assert classification.category == "cuda_oom"
+
+
 def test_host_memory_exhausted_classifies_as_host_ram_oom():
     exc = HostMemoryExhaustedError("partial-residency streaming needs ~40.0GB pinned host RAM but only 8.0GB is free")
 

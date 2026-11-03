@@ -34,6 +34,8 @@ const { toasts } = await import('$lib/stores/toast');
 const { resetLayerStackForTests } = await import('$lib/actions/layerStack');
 const { mountComponent } = await import('./helpers/mount');
 const { settle } = await import('./helpers/settle');
+const { setModelTypes, resetModelTypes } = await import('$lib/stores/modelTypes.svelte');
+const { coreModelTypeDefinitions } = await import('$lib/stores/modelTypesFixture');
 
 const SAVED = { success: true, data: { state: 'done' } };
 
@@ -93,6 +95,7 @@ function mockPending(files = FILES) {
 }
 
 beforeEach(() => {
+	setModelTypes(coreModelTypeDefinitions());
 	auth.set({ user: { account_type: 'ADMIN' } });
 	vi.mocked(api.getIndexingStatus).mockResolvedValue({ success: true, data: status(AWAITING) });
 	vi.mocked(api.setIndexingSettings).mockResolvedValue(SAVED as never);
@@ -101,6 +104,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	resetModelTypes();
 	seed(null);
 	for (const toast of get(toasts)) toasts.remove(toast.id);
 	vi.useRealTimers();

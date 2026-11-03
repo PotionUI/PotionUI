@@ -34,6 +34,8 @@ vi.mock('$lib/services/admin-api', () => ({
 const page = (await import('$app/stores')).page as unknown as PageStore;
 const { default: ModelsTab } = await import('../../src/routes/admin/components/ModelsTab.svelte');
 const { createClassComponent } = await import('svelte/legacy');
+const { setModelTypes, resetModelTypes } = await import('$lib/stores/modelTypes.svelte');
+const { coreModelTypeDefinitions, modelTypeDefinition } = await import('$lib/stores/modelTypesFixture');
 
 function model(overrides: Record<string, unknown> = {}) {
 	return {
@@ -93,6 +95,7 @@ async function typeQuery(value: string) {
 }
 
 beforeEach(() => {
+	setModelTypes([...coreModelTypeDefinitions(), modelTypeDefinition({ id: 'vae', label: 'VAE', purpose: 'Image encoder and decoder', folder: 'vae' })]);
 	vi.useFakeTimers();
 	vi.clearAllMocks();
 	page.set({ url: new URL('http://localhost/admin?tab=models') });
@@ -106,6 +109,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	resetModelTypes();
 	component?.$destroy();
 	target?.remove();
 	component = undefined;

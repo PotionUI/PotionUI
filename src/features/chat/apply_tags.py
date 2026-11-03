@@ -86,6 +86,12 @@ def _parse_index(raw: Optional[str]) -> Optional[int]:
 def _resolve(
     pool: List[Target], seg_id: Optional[str], index: Optional[int], shot_id: Optional[str]
 ) -> Optional[Target]:
+    shots = {t.shot_id for t in pool if t.shot_id}
+    if shot_id and shot_id not in shots:
+        if len(shots) > 1:
+            matches = [t for t in pool if seg_id and t.id == seg_id]
+            return matches[0] if len(matches) == 1 else None
+        shot_id = next(iter(shots), None)
     scoped = [t for t in pool if t.shot_id == shot_id] if shot_id else pool
     if seg_id:
         for target in scoped:
@@ -177,9 +183,11 @@ def _normalize_block(block: _Block, original: str, targets: ApplyTargets) -> str
                 return _not_found_note(action, seg_id, index, block.body)
             if seg_id != target.id:
                 fixed["segment_id"] = target.id
-            if index is None or seg_id != target.id:
+            if index != target.index:
                 fixed["segment_index"] = str(target.index)
-            if target.shot_id and not shot_id and len({t.shot_id for t in pool}) > 1:
+            if target.shot_id is None:
+                fixed.pop("shot_id", None)
+            elif target.shot_id != shot_id and (shot_id or len({t.shot_id for t in pool}) > 1):
                 fixed["shot_id"] = target.shot_id
 
     if well_formed and fixed == attrs:

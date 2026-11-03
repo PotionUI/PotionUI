@@ -378,7 +378,8 @@ def render_context_summary(
             else:
                 timing = f"{seg.get('start')}s-{seg.get('end')}s"
             detail = f"{timing}, {seg['sub_type']}" if style == "chain" else timing
-            line = f'    - id={seg["id"]}: "{prompt}" ({detail})'
+            shot_ref = f' shot_id={seg["shot_id"]}' if seg.get("shot_id") else ""
+            line = f'    - id={seg["id"]}{shot_ref}: "{prompt}" ({detail})'
             seg_media = media_by_segment.get(seg["id"]) or []
             if seg_media:
                 line += " -- media: " + ", ".join(

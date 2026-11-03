@@ -30,11 +30,13 @@ from src.platform.media_tools.effects.parity import (
     parity_cases,
     parity_media,
     parity_metric,
+    parity_runtime,
     read_golden,
     render_case,
     score_case,
     write_golden,
 )
+from src.platform.media_tools.effects.assets import load_lut
 from src.platform.media_tools.effects.runtime import installed_filters, torch_installed
 from src.platform.media_tools.effects.spec import Candidate, EffectSpec
 from src.platform.media_tools.effects.tool import EffectTool, effect_tool_spec
@@ -132,9 +134,21 @@ def _rgba(rgb: np.ndarray) -> str:
 def shader_job(effect: EffectSpec) -> dict:
     media = parity_media(effect)
     cases = []
+    runtime = parity_runtime(effect)
     for case in parity_cases(effect):
         params = EffectTool.public(case_params(effect, case))
-        cases.append({"params": params, "analysis": case.analysis, "frames": list(case.frames)})
+        tables = {}
+        for texture in effect.textures:
+            ref = params.get(texture.source) or ""
+            if texture.kind != "lut3d":
+                continue
+            path = runtime.resolve_asset("lut", ref) if ref else None
+            if ref and path is None:
+                raise ParityError(f"{effect.tool_id}: parity fixture {ref} is missing")
+            if path is not None:
+                table = np.round(np.clip(load_lut(path).data, 0.0, 1.0) * 65535).astype("<u2")
+                tables[ref] = base64.b64encode(table.tobytes()).decode("ascii")
+        cases.append({"params": params, "analysis": case.analysis, "frames": list(case.frames), "tables": tables})
     return {
         "tool": tool_payload(effect),
         "shader": effect.shader,

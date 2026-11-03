@@ -125,6 +125,12 @@ class MediaToolController(BaseController):
             return Response(status_code=304, headers=headers)
         return Response(content=text, media_type="text/plain; charset=utf-8", headers=headers)
 
+    @guarded(_TOOL_ERRORS, Fail("media_tools_failed", "Failed to read the LUT", 500))
+    async def lut_table(self, ref: str, current_user) -> Response:
+        data = await asyncio.to_thread(self.service.lut_table, ref)
+        headers = {"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"}
+        return Response(content=data, media_type="application/octet-stream", headers=headers)
+
     @guarded(_TOOL_ERRORS, Fail("media_tool_preview_failed", "Failed to measure the effect", 500))
     async def effect_analysis(self, request: EffectAnalysisRequest, current_user) -> APIResponse:
         result = await asyncio.to_thread(
@@ -222,6 +228,10 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user=Depends(get_current_active_user),
     ) -> Response:
         return await controller.effect_shader(tool_id, if_none_match, current_user)
+
+    @router.get("/api/media-tools/luts/table", response_model=None, summary="Get A LUT For The Live Preview")
+    async def get_media_tool_lut_table(ref: str, current_user=Depends(get_current_active_user)) -> Response:
+        return await controller.lut_table(ref, current_user)
 
     @router.post(
         "/api/media-tools/effects/analysis", response_model=APIResponse, summary="Measure An Effect Over A Clip"

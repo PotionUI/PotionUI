@@ -9,11 +9,12 @@ import numpy as np
 from PIL import Image
 
 from src.platform.media_tools.base import MediaTool
+from src.platform.media_tools.effects.assets import AssetError, load_lut, stage_cube
 from src.platform.media_tools.effects.derive import DeriveError, Expression, evaluate, evaluate_all
 from src.platform.media_tools.effects.runtime import DEFAULT_RUNTIME, Choice, EffectRuntime
 from src.platform.media_tools.effects.spec import ANCHOR_POINTS, EffectSpec
 from src.platform.media_tools.effects.stage import FrameStage
-from src.platform.media_tools.effects.template import CompiledTemplate, TemplateError, compile_template
+from src.platform.media_tools.effects.template import AssetPath, CompiledTemplate, TemplateError, compile_template
 from src.platform.media_tools.fastpath import RGB_IN, prepare_image, run_single
 from src.platform.media_tools.frames import decode_rgb_frames, load_rgb_frames
 from src.platform.media_tools.timeline import Clock, StepContext
@@ -31,6 +32,8 @@ if TYPE_CHECKING:
     from src.platform.media_tools.still import StillFrame
 
 ANALYSIS_KEY = "@analysis"
+ASSETS_KEY = "@assets"
+LUT_ASSET_KIND = "lut"
 DEFAULT_FPS = 24.0
 MAX_SAMPLE_SIDE = 1024
 MAX_SAMPLE_FRAMES = 600
@@ -107,6 +110,44 @@ class EffectTool(MediaTool):
         return media
 
     def prepare(self, params: dict, step: StepContext) -> dict:
+        params = self._measured(params, step)
+        if not self.lut_textures() or ASSETS_KEY in params:
+            return params
+        binding = self.bind(step.source, params)
+        return {**params, ASSETS_KEY: self.stage_assets(binding, step.ctx.scratch_dir)}
+
+    def lut_textures(self) -> list:
+        return [texture for texture in self.effect.textures if texture.kind == "lut3d"]
+
+    def stage_assets(self, binding: Binding, folder: Path) -> dict:
+        staged: dict = {}
+        for texture in self.lut_textures():
+            cube = binding.derived.get(texture.source)
+            if cube is None:
+                continue
+            relative = stage_cube(cube, Path(folder))
+            if relative is not None:
+                staged[texture.source] = relative
+        return staged
+
+    def _load_textures(self, clean: Mapping[str, Any], scope: Mapping[str, Any]) -> dict:
+        loaded: dict = {}
+        for texture in self.lut_textures():
+            ref = clean.get(texture.source) or ""
+            if not ref:
+                loaded[texture.source] = None
+                continue
+            path = self.runtime.resolve_asset(LUT_ASSET_KIND, ref)
+            if path is None:
+                raise ToolFailed(f"{self.effect.label}: the LUT {ref} is not installed")
+            strength = float(scope.get(texture.mix, 1.0)) if texture.mix else 1.0
+            try:
+                loaded[texture.source] = load_lut(path, strength)
+            except (AssetError, OSError) as exc:
+                raise ToolFailed(f"{self.effect.label}: {exc}") from None
+        return loaded
+
+    def _measured(self, params: dict, step: StepContext) -> dict:
         analysis = self.effect.analysis
         if analysis is None or ANALYSIS_KEY in params:
             return params
@@ -137,7 +178,7 @@ class EffectTool(MediaTool):
 
     @staticmethod
     def public(params: Mapping[str, Any]) -> dict:
-        return {name: value for name, value in params.items() if name != ANALYSIS_KEY}
+        return {name: value for name, value in params.items() if not name.startswith("@")}
 
     def bind(self, media: ToolMedia, params: Mapping[str, Any]) -> Binding:
         clean = self.public(params)
@@ -160,7 +201,11 @@ class EffectTool(MediaTool):
         except DeriveError as exc:
             raise ToolFailed(f"{self.effect.label}: {exc}") from None
         scope = {**env, **derived}
-        return Binding(params=clean, env=scope, derived={**analysis, **derived}, values=_flatten(scope))
+        textures = self._load_textures(clean, scope)
+        values = _flatten(scope)
+        for name, relative in (params.get(ASSETS_KEY) or {}).items():
+            values[name] = AssetPath(relative)
+        return Binding(params=clean, env=scope, derived={**analysis, **derived, **textures}, values=values)
 
     def compile(self, binding: Binding, choice: Choice) -> CompiledTemplate:
         def condition(expression: Expression) -> bool:
@@ -195,6 +240,12 @@ class EffectTool(MediaTool):
             return None
         binding = self.bind(media, params)
         choice = self._choose()
+        staged = params.get(ASSETS_KEY) or {}
+        if choice.candidate.kind == "ffmpeg" and any(
+            binding.derived.get(texture.source) is not None and texture.source not in staged
+            for texture in self.lut_textures()
+        ):
+            choice = self._choose(python_only=True)
         if choice.candidate.kind == "ffmpeg":
             compiled = self.compile(binding, choice)
             return FilterFragment(vf=compiled.vf, af=compiled.af, rgb=bool(compiled.vf))

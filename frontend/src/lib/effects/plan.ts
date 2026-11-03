@@ -40,6 +40,12 @@ export interface EffectPass {
 	size: Size;
 	gain: { expr: string; env: Record<string, DeriveValue> } | null;
 	identity: boolean;
+	textures: PassTexture[];
+}
+
+export interface PassTexture {
+	uniform: string;
+	ref: string;
 }
 
 export type ChainPass = GeometryPass | EffectPass;
@@ -179,7 +185,7 @@ export function planChain(input: PlanInput): ChainPlan {
 		count += 1;
 		const timeOps = [...ops];
 		const duration = outputDuration(source.duration, timeOps);
-		if (!effect.block.shader || effect.block.textures.length > 0) {
+		if (!effect.block.shader || effect.block.textures.some((texture) => texture.kind !== 'lut3d')) {
 			skipped.push({ index, tool: step.tool, label: effect.label, reason: 'no-shader' });
 			return;
 		}
@@ -228,7 +234,8 @@ export function planChain(input: PlanInput): ChainPlan {
 			duration,
 			size: passSize,
 			gain: effect.block.gain && measured ? { expr: effect.block.gain, env: { ...env, ...derived } } : null,
-			identity: !measured
+			identity: !measured,
+			textures: effect.block.textures.map((texture) => ({ uniform: texture.uniform, ref: typeof values[texture.from] === 'string' ? String(values[texture.from]) : '' }))
 		});
 	});
 	flush();

@@ -26,6 +26,7 @@ UNIFORM_TYPES = {
     "anchor": "vec2",
 }
 TEXTURE_KINDS = ("lut3d", "image2d")
+TEXTURE_ONLY_TYPES = ("lut",)
 TEXTURE_PARAM_TYPES = {"lut3d": ("lut",), "image2d": ("media",)}
 TOP_LEVEL_KEYS = frozenset({
     "id", "label", "description", "icon", "group", "accepts", "time", "requires", "params", "derive",
@@ -75,6 +76,7 @@ class TextureSpec:
     uniform: str
     source: str
     kind: str
+    mix: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -115,6 +117,7 @@ class EffectSpec:
         rows = [
             {"name": f"u_{param['name']}", "type": UNIFORM_TYPES[param["type"]], "from": "param", "key": param["name"]}
             for param in self.params
+            if param["type"] in UNIFORM_TYPES
         ]
         if self.analysis is not None:
             rows += [
@@ -172,7 +175,7 @@ def _params(raw: Any, where: str) -> tuple[dict, ...]:
         name = param.get("name")
         if not isinstance(name, str) or not _NAME.match(name):
             raise _fail(where, "a param name must be lowercase letters, digits or underscores")
-        if param.get("type") not in UNIFORM_TYPES:
+        if param.get("type") not in UNIFORM_TYPES and param.get("type") not in TEXTURE_ONLY_TYPES:
             raise _fail(where, f"param '{name}' has an unsupported type '{param.get('type')}'")
         if "default" not in param:
             raise _fail(where, f"param '{name}' needs a default")
@@ -299,12 +302,17 @@ def _preview(raw: Any, params: tuple[dict, ...], scalars: set[str], where: str):
         if not isinstance(entry, Mapping):
             raise _fail(where, "each preview texture must be a mapping")
         uniform, source, kind = entry.get("uniform"), entry.get("from"), entry.get("kind")
+        if not isinstance(uniform, str) or not _NAME.match(uniform):
+            raise _fail(where, "a texture uniform must be lowercase letters, digits or underscores")
         if kind not in TEXTURE_KINDS:
             raise _fail(where, f"texture kind must be one of {', '.join(TEXTURE_KINDS)}")
         param = next((param for param in params if param["name"] == source), None)
         if param is None or param["type"] not in TEXTURE_PARAM_TYPES[kind]:
             raise _fail(where, f"texture '{uniform}' must come from a {kind} param")
-        textures.append(TextureSpec(uniform=str(uniform), source=source, kind=kind))
+        mix = entry.get("mix")
+        if mix is not None and mix not in scalars:
+            raise _fail(where, f"texture '{uniform}' mixes by '{mix}', which is not a param or derive value")
+        textures.append(TextureSpec(uniform=str(uniform), source=source, kind=kind, mix=mix))
     gain = None
     if raw.get("gain") is not None:
         gain = _parse_expression(raw["gain"], f"{where} preview.gain")
@@ -332,6 +340,12 @@ def _parity(raw: Any, params: tuple[dict, ...], where: str) -> dict:
             isinstance(frame, int) and not isinstance(frame, bool) and frame >= 0 for frame in frames
         ):
             raise _fail(where, "each parity case lists frame numbers")
+    fixtures = raw.get("fixtures") or {}
+    if not isinstance(fixtures, Mapping) or not all(
+        isinstance(key, str) and isinstance(value, str) and value and not value.startswith("/") and ".." not in value.split("/")
+        for key, value in fixtures.items()
+    ):
+        raise _fail(where, "parity.fixtures maps an asset kind to a folder inside the effect")
     metric = raw.get("metric", "pixels")
     if metric not in PARITY_METRICS:
         raise _fail(where, f"parity.metric must be one of {', '.join(PARITY_METRICS)}")

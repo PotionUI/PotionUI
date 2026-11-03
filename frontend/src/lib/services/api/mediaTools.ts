@@ -106,6 +106,11 @@ export function createMediaToolsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
+		async lutTable(ref: string, signal?: AbortSignal): Promise<Uint16Array> {
+			const response = await client.get<ArrayBuffer>('/api/media-tools/luts/table', { params: { ref }, responseType: 'arraybuffer', signal });
+			return new Uint16Array(response.data);
+		},
+
 		async effectAnalysis(body: EffectAnalysisBody, signal?: AbortSignal): Promise<Record<string, number>> {
 			const response = await client.post<APIResponse<{ values: Record<string, number> }>>(
 				'/api/media-tools/effects/analysis',
@@ -167,6 +172,10 @@ export async function uploadMediaToolArtifact(file: File): Promise<MediaToolArti
 
 export async function effectShader(url: string, signal?: AbortSignal): Promise<string> {
 	return bound().effectShader(url, signal);
+}
+
+export async function lutTable(ref: string, signal?: AbortSignal): Promise<Uint16Array> {
+	return bound().lutTable(ref, signal);
 }
 
 export async function effectAnalysis(body: EffectAnalysisBody, signal?: AbortSignal): Promise<Record<string, number>> {

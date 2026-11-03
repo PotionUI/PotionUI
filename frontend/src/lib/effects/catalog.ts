@@ -106,7 +106,9 @@ export function readEffectBlock(tool: Pick<ToolDTO, 'group' | 'effect'>): Effect
 		time,
 		shader: shader && typeof shader.url === 'string' ? { url: shader.url, etag: String(shader.etag ?? '') } : null,
 		uniforms: readUniforms(raw.uniforms),
-		textures: Array.isArray(raw.textures) ? (raw.textures as EffectTexture[]) : [],
+		textures: Array.isArray(raw.textures)
+			? (raw.textures as EffectTexture[]).filter((texture) => !!record(texture) && NAME.test(String(texture.uniform)) && typeof texture.from === 'string')
+			: [],
 		derive: readDerive(raw.derive),
 		gain: typeof raw.gain === 'string' && raw.gain.trim() ? raw.gain : null,
 		analysis: raw.analysis === true || !!record(raw.analysis),

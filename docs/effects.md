@@ -259,6 +259,20 @@ core effects, by group and label, with no plugin wording. See [the plugin API](p
 | Vignette | amount, radius, softness (% of the half diagonal) | torch, numpy | `1 - amount * smoothstep(radius, radius + softness, d)` |
 | Fade | fade in, fade out (seconds, to and from black), sound | ffmpeg `fade` by frame count + `afade`, numpy | ffmpeg's 16-bit fade factor per frame; `preview.gain` fades the sound |
 | Ken Burns | start and end zoom, start and end anchor, easing | ffmpeg `perspective` (linear), numpy | the window eased over the clip, ffmpeg's 1/256-pixel bilinear |
+| LUT | a `.cube` from the LUT folder, strength 0 to 1 | ffmpeg `lut3d` (trilinear), numpy | a `TEXTURE_3D` (RGB16F) with trilinear filtering, mixed by strength |
+
+LUTs are files of the `lut` model type, in the `luts` folder of any model root (`models/luts/`), so admins add them
+like models and every user picks from the installed ones. A `lut` param serves those files as its options. A `.cube`
+is 3D (2 to 65 points, usually 17, 33 or 65), with an optional 1D shaper (`LUT_1D_SIZE`, `LUT_1D_INPUT_RANGE`,
+`LUT_3D_INPUT_RANGE`). The parser refuses files over 8 MB, lines over 1024 characters, more than 64 header lines,
+titles over 256 characters, data rows that are not finite and keywords after the data. The host bakes the shaper and
+the domain into a plain 3D table (33 points when there is a shaper), serves it to the preview as 16-bit RGB
+(`GET /api/media-tools/luts/table?ref=`), and for a render writes it, mixed by the texture's `mix` value, to the
+run's scratch folder for `lut3d`. When that path cannot be written as a plain relative path, the numpy render runs
+instead.
+
+A preview texture is `{uniform, from, kind: lut3d, mix}`: the shader reads `sampler3D u_<uniform>` and
+`int u_<uniform>_size`, and `mix` names the derive value the host bakes into the rendered table.
 
 Vignette has no ffmpeg render: the `vignette` filter only takes an angle, so it cannot place the radius or the
 softness, and `geq` costs about 0.9 s per 1080p frame. The torch and numpy renders compute the mask once per size.

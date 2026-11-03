@@ -59,6 +59,8 @@ export function controlFor(param: ToolParam): ControlKind {
 			return 'switch';
 		case 'color':
 			return 'color';
+		case 'lut':
+			return 'dropdown';
 		default:
 			return 'text';
 	}

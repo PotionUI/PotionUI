@@ -1,0 +1,32 @@
+id: lut
+label: LUT
+group: colour
+icon: editor-effects
+description: Grade with a colour lookup table
+accepts: [video, image]
+time: none
+params:
+  - { name: lut, type: lut, label: LUT, description: The colour table to use, default: "" }
+  - { name: strength, type: float, label: Strength, description: How much of the grade, default: 1, min: 0, max: 1, step: 0.05 }
+derive:
+  has_lut: "lut != ''"
+  amount: "strength if has_lut else 0"
+preview:
+  shader: preview.frag
+  textures: [{ uniform: table, from: lut, kind: lut3d, mix: amount }]
+render:
+  - ffmpeg:
+      vf:
+        - lut3d: { file: "{lut}", interp: trilinear }
+          when: "amount > 0"
+  - numpy: render.py:apply
+parity:
+  media: { width: 320, height: 180, fps: 24, duration: 1 }
+  fixtures: { lut: parity }
+  cases:
+    - { params: { lut: warm.cube, strength: 1 }, frames: [0] }
+    - { params: { lut: warm.cube, strength: 0.4 }, frames: [0] }
+    - { params: { lut: cool.cube, strength: 1 }, frames: [0] }
+    - { params: { lut: shaped.cube, strength: 1 }, frames: [0] }
+    - { params: { lut: "", strength: 1 }, frames: [0] }
+  tolerance: { max_abs: 2, mean_abs: 0.1 }

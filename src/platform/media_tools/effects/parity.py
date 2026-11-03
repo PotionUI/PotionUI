@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Optional
@@ -10,7 +11,7 @@ from PIL import Image
 
 from src.platform.media_tools.effects.runtime import Choice, EffectRuntime
 from src.platform.media_tools.effects.spec import Candidate, EffectSpec
-from src.platform.media_tools.effects.tool import ANALYSIS_KEY, EffectTool, effect_tool_spec
+from src.platform.media_tools.effects.tool import ANALYSIS_KEY, ASSETS_KEY, EffectTool, effect_tool_spec
 from src.platform.media_tools.fastpath import RGB_IN
 from src.platform.media_tools.params import validate_params
 from src.platform.media_tools.types import ToolMedia
@@ -42,6 +43,13 @@ def parity_media(effect: EffectSpec) -> ToolMedia:
         path=Path("parity.mp4"), kind="video", width=int(media["width"]), height=int(media["height"]),
         fps=float(media["fps"]), duration=float(media["duration"]),
     )
+
+
+def parity_runtime(effect: EffectSpec) -> EffectRuntime:
+    fixtures = dict(effect.parity.get("fixtures") or {})
+    runtime = EffectRuntime()
+    runtime.use_asset_dirs(lambda kind: [effect.folder / fixtures[kind]] if kind in fixtures else [])
+    return runtime
 
 
 def parity_metric(effect: EffectSpec) -> str:
@@ -123,14 +131,19 @@ def render_case(
 ) -> dict[int, np.ndarray]:
     media = parity_media(effect)
     source = fixture_frame(media.width, media.height) if frame is None else frame
-    tool = EffectTool(effect, EffectRuntime())
-    binding = tool.bind(media, case_params(effect, case))
+    tool = EffectTool(effect, parity_runtime(effect))
+    params = case_params(effect, case)
+    binding = tool.bind(media, params)
     if candidate.kind == "ffmpeg":
         binary = ffmpeg or find_ffmpeg()
         if not binary:
             raise ParityError("ffmpeg is not installed")
-        compiled = tool.compile(binding, Choice(candidate))
-        frames = _ffmpeg_frames(compiled.vf, source, max(case.frames) + 1, media.fps, binary)
+        with tempfile.TemporaryDirectory(prefix="effect-parity-") as scratch:
+            staged = tool.stage_assets(binding, Path(scratch))
+            if set(staged) != {texture.source for texture in tool.lut_textures() if binding.derived.get(texture.source) is not None}:
+                raise ParityError("a LUT could not be staged for ffmpeg")
+            compiled = tool.compile(tool.bind(media, {**params, ASSETS_KEY: staged}), Choice(candidate))
+            frames = _ffmpeg_frames(compiled.vf, source, max(case.frames) + 1, media.fps, binary)
         return {index: frames[index] for index in case.frames}
     stage = tool.stage(binding, Choice(candidate, "cpu" if candidate.kind == "torch" else None))
     batch = np.ascontiguousarray(np.broadcast_to(source, (len(case.frames), *source.shape)))

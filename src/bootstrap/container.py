@@ -705,6 +705,7 @@ def build_container() -> AppContainer:
     media_tool_registry = MediaToolRegistry()
     effects_runtime = EffectRuntime()
     register_core_media_tools(media_tool_registry, effects_runtime)
+    effects_runtime.use_asset_dirs(lambda kind: [entry.path for entry in model_roots.type_dirs(kind)])
 
     tool_registry = ToolRegistry()
     _rr._global_tool_registry = tool_registry

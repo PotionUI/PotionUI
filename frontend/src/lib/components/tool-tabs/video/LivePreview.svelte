@@ -15,6 +15,7 @@
 		fps,
 		duration,
 		sources,
+		tables = new Map(),
 		baseGain = 1,
 		visible = true,
 		onunsupported,
@@ -31,6 +32,7 @@
 		fps: number;
 		duration: number;
 		sources: ReadonlyMap<string, string>;
+		tables?: ReadonlyMap<string, Uint16Array>;
 		baseGain?: number;
 		visible?: boolean;
 		onunsupported?: () => void;
@@ -114,6 +116,7 @@
 		const current = chain;
 		if (!current) return;
 		for (const [url, text] of sources) current.setSource(url, text);
+		for (const [ref, table] of tables) if (!current.hasLut(ref)) current.setLut(ref, table);
 		const el = untrack(() => video);
 		if (el) untrack(() => render(el.currentTime));
 	});

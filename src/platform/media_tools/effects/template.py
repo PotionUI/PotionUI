@@ -63,7 +63,7 @@ _OPTION_NAME = re.compile(r"^[a-z0-9_]+$")
 _TOKEN = re.compile(r" *(?:(\d+(?:\.\d+)?(?:e[+-]?\d+)?)|([A-Za-z_][A-Za-z0-9_]*)|([-+*/^(),]))")
 _PLACEHOLDER = re.compile(r"\{([a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)?)\}")
 _ANY_BRACE = re.compile(r"[{}]")
-_SAFE_ASSET = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$")
+_SAFE_ASSET = re.compile(r"^(?:\.\./)*[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$")
 _COLOR = re.compile(r"^#[0-9a-f]{6}$")
 _HEX = re.compile(r"^0x[0-9a-f]{6}$")
 _INT_LIMIT = 2 ** 53
@@ -226,7 +226,7 @@ def format_asset(value: Any) -> str:
     if not isinstance(value, AssetPath):
         raise TemplateError("this option only takes a file staged by the host")
     path = value.path
-    if not _SAFE_ASSET.match(path) or ".." in path.split("/"):
+    if not _SAFE_ASSET.match(path):
         raise TemplateError("a staged asset path is not safe")
     return path
 

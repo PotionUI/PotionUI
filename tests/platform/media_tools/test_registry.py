@@ -10,9 +10,9 @@ CORE_IDS = [
     "trim", "crop", "resize", "rotate", "flip", "speed",
     "fit_canvas", "color_key", "crop_subject", "frame", "split", "concat", "cut_finder",
     "mute", "volume", "replace_audio", "paint_layer", "slice",
-    "fade", "film_grain", "fix_colors", "ken_burns", "vignette",
+    "fade", "film_grain", "fix_colors", "ken_burns", "lut", "vignette",
 ]
-EFFECT_IDS = ("fade", "film_grain", "fix_colors", "ken_burns", "vignette")
+EFFECT_IDS = ("fade", "film_grain", "fix_colors", "ken_burns", "lut", "vignette")
 EDITOR_ONLY = ("replace_audio", "paint_layer", "slice")
 AUDIO_GROUP = ("mute", "volume", "replace_audio")
 

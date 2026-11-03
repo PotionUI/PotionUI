@@ -97,12 +97,20 @@ def test_unknown_option_keys_are_refused():
 
 @pytest.mark.parametrize(
     "path",
-    ["/etc/passwd", "../lut.cube", "a/../../lut.cube", "C:\\lut.cube", "lut'.cube", "lut:x.cube", "lut;.cube", " lut.cube"],
+    ["/etc/passwd", "a/../../lut.cube", "../a/../lut.cube", ".hidden/lut.cube", "C:\\lut.cube", "lut'.cube", "lut:x.cube", "lut;.cube", " lut.cube"],
 )
 def test_lut3d_takes_only_a_safe_host_staged_path(path):
     data = {"vf": [{"lut3d": {"file": "{cube}"}}]}
     with pytest.raises(TemplateError):
         compiled(data, {**VALUES, "cube": AssetPath(path)})
+
+
+def test_lut3d_takes_a_staged_path_that_climbs_out_of_the_working_folder_only_at_its_start():
+    data = {"vf": [{"lut3d": {"file": "{cube}"}}]}
+
+    assert compiled(data, {**VALUES, "cube": AssetPath("../../tmp/run-1/lut-0123456789ab.cube")}).vf == [
+        "lut3d=file='../../tmp/run-1/lut-0123456789ab.cube'"
+    ]
 
 
 def test_lut3d_refuses_literal_paths_and_non_assets():

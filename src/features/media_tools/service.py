@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union, TYPE_CHECKING
 
+import numpy as np
 from PIL import Image, ImageOps
 from pydantic import ValidationError
 
@@ -57,7 +58,9 @@ from src.platform.media_tools import (
     validate_params,
 )
 from src.platform.media_tools.chain import Step
+from src.platform.media_tools.effects.assets import AssetError, load_lut
 from src.platform.media_tools.effects.spec import EffectSpec
+from src.platform.media_tools.params import LUT_PARAM, coerce_value as coerce_param
 from src.platform.media_tools.effects.tool import ANALYSIS_KEY, EffectTool
 from src.platform.media_tools.ops.slice import MAX_SOURCE_PIXELS, cell_names, parse_cells
 from src.platform.media_tools.panels import ANALYSIS_SIDE, MAX_GRID_SIDE, detect
@@ -323,13 +326,44 @@ class MediaToolService:
         tools = []
         for spec in specs:
             effect = _effect_of(spec)
+            served = spec.to_dict()
+            if effect is not None:
+                served["params"] = self._with_lut_options(served["params"], spec.impl.runtime)
             tools.append(ToolDTO(
-                **spec.to_dict(),
+                **served,
                 runnable=spec.impl is not None,
                 last_params=remembered.get(spec.id),
                 effect=effect_block(effect) if effect is not None else None,
             ))
         return tools
+
+    @staticmethod
+    def _with_lut_options(params: List[dict], runtime: Any) -> List[dict]:
+        if not any(param.get("type") == LUT_PARAM for param in params):
+            return params
+        files = runtime.list_assets(LUT_PARAM, ".cube")
+        options = [{"label": "None", "value": ""}] + [
+            {"label": Path(ref).stem.replace("_", " "), "value": ref} for ref in files
+        ]
+        return [{**param, "options": options} if param.get("type") == LUT_PARAM else param for param in params]
+
+    def _effect_runtime(self) -> Any:
+        return next((spec.impl.runtime for spec in self.registry.list() if isinstance(spec.impl, EffectTool)), None)
+
+    def lut_table(self, ref: str) -> bytes:
+        try:
+            ref = coerce_param({"name": "lut", "label": "LUT", "type": LUT_PARAM}, ref)
+        except MediaToolError:
+            raise NotFoundError("not_found", "LUT not found") from None
+        runtime = self._effect_runtime()
+        path = runtime.resolve_asset(LUT_PARAM, ref) if runtime is not None and ref else None
+        if path is None:
+            raise NotFoundError("not_found", "LUT not found")
+        try:
+            cube = load_lut(path)
+        except (AssetError, OSError) as exc:
+            raise InvalidInputError("invalid_lut", str(exc)) from None
+        return np.round(np.clip(cube.data, 0.0, 1.0) * 65535).astype("<u2").tobytes()
 
     def effect_shader(self, tool_id: str) -> Tuple[str, str]:
         effect = _effect_of(self.registry.get(tool_id))

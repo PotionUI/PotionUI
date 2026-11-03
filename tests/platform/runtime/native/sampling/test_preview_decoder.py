@@ -165,7 +165,7 @@ def test_hook_without_a_decoder_keeps_the_latent_projection(no_lifecycle):
 def test_hook_keeps_the_512_cap_for_large_latents(no_lifecycle, wan_file):
     emitted = []
     hook = make_preview_hook(WAN_SPEC, emitted.append, every_n=1, decoder_path=wan_file)
-    hook.on_step(0, 1, torch.zeros(1, 16, 1, 8, 8), 1.0, torch.randn(1, 16, 1, 90, 160))
+    hook.on_step(0, 1, torch.zeros(1, 16, 1, 8, 8), 1.0, torch.randn(1, 16, 1, 10, 70))
     assert max(emitted[0].size) == 512
 
 

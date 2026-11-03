@@ -5,7 +5,13 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
 from src.pipelines.cloud import CloudRunError
-from src.platform.runtime.cuda_allocator import RESTART_ACTION, needs_gpu_restart, record_driver_oom
+from src.platform.runtime.cuda_allocator import (
+    DRIVER_OOM_MESSAGES,
+    RESTART_ACTION,
+    driver_oom_retries,
+    needs_gpu_restart,
+    record_driver_oom,
+)
 
 _CUDA_OOM_MARKERS = (
     "cuda out of memory",
@@ -13,6 +19,8 @@ _CUDA_OOM_MARKERS = (
     "hip out of memory",
     "cublas_status_execution_failed",
 )
+
+_DRIVER_OOM_MARKERS = tuple(message.lower() for message in DRIVER_OOM_MESSAGES)
 
 _MODEL_FILE_EXTENSIONS = (
     ".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".onnx",
@@ -310,9 +318,18 @@ def _text_is_missing_model_file(message: str) -> bool:
     return _has_any(message, _MISSING_FILE_MARKERS) and _has_any(message, _MODEL_FILE_EXTENSIONS)
 
 
+def _text_is_fatal_driver_oom(message: str) -> bool:
+    return _has_any(message, _DRIVER_OOM_MARKERS) and not driver_oom_retries()
+
+
+def _text_is_cuda_oom(message: str) -> bool:
+    return _has_any(message, _CUDA_OOM_MARKERS) or (_has_any(message, _DRIVER_OOM_MARKERS) and driver_oom_retries())
+
+
 _TEXT_CHECKS: Tuple[Tuple[str, Callable[[str], bool]], ...] = (
     ("gpu_restart_required", lambda m: "can no longer use the gpu" in m),
-    ("cuda_oom", lambda m: _has_any(m, _CUDA_OOM_MARKERS)),
+    ("gpu_restart_required", _text_is_fatal_driver_oom),
+    ("cuda_oom", _text_is_cuda_oom),
     ("missing_model_file", _text_is_missing_model_file),
     ("disk_full", lambda m: _has_any(m, _DISK_FULL_MARKERS)),
     ("corrupt_weights", lambda m: _has_any(m, _CORRUPT_WEIGHTS_MARKERS)),

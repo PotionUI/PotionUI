@@ -1,9 +1,10 @@
 import asyncio
 import json
+import unittest
 
 from src.features.llm.tools.base import ToolContext
 from src.features.llm.tools.builtin.library_items_tool import ListLibraryItemsTool
-from src.features.llm.tools.builtin.run_media_tool_tool import RunMediaToolTool
+from src.features.llm.tools.builtin.run_media_tool_tool import RunMediaToolTool, _param_text
 from src.features.llm.tools.builtin.search_gallery_tool import SearchGalleryTool
 from src.features.llm.tools.executor import ToolExecutor
 from src.features.llm.tools.registry import ToolRegistry
@@ -439,3 +440,18 @@ class TestLongResults(RunMediaToolCase):
 
         self.assertEqual(data["count"], 1)
         self.assertNotIn("truncated", data)
+
+
+class ParamDescriptionBudgetCase(unittest.TestCase):
+
+    def test_self_describing_params_carry_no_prose(self):
+        for param in (
+            {"name": "amount", "type": "float", "min": 0, "max": 100, "default": 30, "description": "How strong"},
+            {"name": "sound", "type": "checkbox", "default": True, "description": "Sound follows"},
+            {"name": "easing", "type": "select", "options": ["smooth", "linear"], "default": "smooth", "description": "Curve"},
+        ):
+            self.assertNotIn(" - ", _param_text(param))
+
+    def test_opaque_params_keep_their_prose(self):
+        text = _param_text({"name": "rects", "type": "json", "description": "1-64 cells"})
+        self.assertEqual(text, "rects json - 1-64 cells")

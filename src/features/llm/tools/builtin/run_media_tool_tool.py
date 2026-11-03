@@ -15,6 +15,7 @@ from src.platform.media_tools.params import ANCHORS
 RUN_TIMEOUT_SECONDS = 600.0
 MODES = ("new", "replace")
 DESCRIPTION_LIMIT = 90
+DESCRIBED_PARAM_TYPES = ("json", "media", "string")
 MAX_RESULT_ITEMS = 20
 CALL_EXAMPLE = (
     '{"steps": [{"tool": "trim", "params": {"start": 0, "end": 5}}], '
@@ -98,7 +99,7 @@ def _param_text(param: Dict[str, Any]) -> str:
     if when:
         text += f" ({when})"
     description = " ".join(str(param.get("description") or "").split())
-    if description:
+    if description and param.get("type") in DESCRIBED_PARAM_TYPES:
         text += f" - {description[:DESCRIPTION_LIMIT]}"
     return text
 

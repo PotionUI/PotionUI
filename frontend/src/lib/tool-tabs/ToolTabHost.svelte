@@ -58,7 +58,9 @@
 >
 	{#if component}
 		{@const Tool = component}
-		<Tool {host} />
+		{#key tab.epoch ?? 0}
+			<Tool {host} />
+		{/key}
 	{:else if failed || (!kind && ($extensionRegistrations > 0 || !tab.tool.includes('.')))}
 		<div class="dot-grid flex flex-1 items-center justify-center p-6">
 			<div class="flex max-w-sm flex-col items-center rounded-lg border border-line bg-surface-1 px-8 py-10 text-center" data-testid="tool-tab-unavailable">

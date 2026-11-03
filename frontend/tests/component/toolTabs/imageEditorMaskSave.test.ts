@@ -138,6 +138,7 @@ function render(state: unknown) {
 		setTitle: () => undefined,
 		setThumbnail: () => undefined,
 		setSource: () => undefined,
+		replaceSource: () => undefined,
 		setActiveTool: () => undefined,
 		setRun: () => undefined,
 		setActions: () => undefined,

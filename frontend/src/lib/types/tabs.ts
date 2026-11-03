@@ -419,6 +419,7 @@ export interface ToolTab extends TabBase {
 	dirty?: number;
 	thumbnail?: string | null;
 	renamed?: boolean;
+	epoch?: number;
 }
 
 export interface GenerationTab extends TabBase {

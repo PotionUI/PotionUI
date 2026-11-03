@@ -7,7 +7,7 @@
 	import { pickFromUpload } from '$lib/components/form-fields/mediaLoaderPicks';
 	import { canvasToPngFile } from '$lib/components/imageEditor/flatten';
 	import type { PaintSession, SessionSnapshot } from '$lib/components/imageEditor/session';
-	import { Button, IconButton, SegmentedControl, Spinner } from '$lib/components/ui';
+	import { Button, IconButton, Kbd, SegmentedControl, Spinner } from '$lib/components/ui';
 	import {
 		CanvasChip,
 		EditStack,
@@ -139,6 +139,11 @@
 	import CropOverlay from './CropOverlay.svelte';
 	import EffectsOptions from './EffectsOptions.svelte';
 	import ImageEmptyState from './ImageEmptyState.svelte';
+	import ImageSourcePicker from './ImageSourcePicker.svelte';
+	import RecentPictures from './RecentPictures.svelte';
+	import ReplaceMenu from '../frame/ReplaceMenu.svelte';
+	import { replaceSource, sourceEntries } from '$lib/tool-tabs/sourceEntries';
+	import { isEditableTarget } from '$lib/utils/editableTarget';
 	import MaskLayer from './MaskLayer.svelte';
 	import PaintOptions from './PaintOptions.svelte';
 	import PaintStage from './PaintStage.svelte';
@@ -1315,12 +1320,47 @@
 		}
 	}
 
+	let replacePicker = $state<ReturnType<typeof ImageSourcePicker>>();
+	let replaceBlocked = $derived(busy || !!saving);
+
+	async function changeSource(next: MediaRef) {
+		if (!source) {
+			openSource(next);
+			return;
+		}
+		if (replaceBlocked) return;
+		untrack(flushWrite);
+		await replaceSource(host, source, next, dirtyCount, 'picture');
+	}
+
+	async function changeFile(file: File) {
+		if (!file.type.startsWith('image/')) {
+			toasts.show('error', 'That file is not a picture.', { title: 'Replace failed' });
+			return;
+		}
+		busy = true;
+		try {
+			const artifact = await uploadMediaToolArtifact(file);
+			busy = false;
+			await changeSource(artifactRef(artifact, file.name));
+		} catch (error) {
+			toasts.show('error', describeMediaToolFailure(error), { title: 'Replace failed' });
+		} finally {
+			busy = false;
+		}
+	}
+
 	function onPaste(event: ClipboardEvent) {
-		if (source) return;
 		const file = pastedImage(event.clipboardData?.items);
 		if (!file) return;
+		if (!source) {
+			event.preventDefault();
+			void openFile(file);
+			return;
+		}
+		if (isEditableTarget(event.target) || activeTool === 'paint' || replaceBlocked) return;
 		event.preventDefault();
-		void openFile(file);
+		void changeFile(file);
 	}
 
 	let optionsTitle = $derived(activeTool ? toolMeta(activeTool, catalog).label : 'Tools');
@@ -1580,6 +1620,19 @@
 	<SaveMenuRows saved={!!saved} {replace} {sendTargets} downloadFormat="PNG" copyLabel="Copy image" onchoose={pick} />
 {/snippet}
 
+{#snippet replaceMenu()}
+	<ReplaceMenu label="Replace picture" entries={sourceEntries('image', phone)} disabled={replaceBlocked} {phone} onselect={(id) => replacePicker?.open(id)}>
+		{#snippet footer()}
+			<RecentPictures onpick={(ref) => void changeSource(ref)} columns="grid-cols-3" />
+			{#if !phone}
+				<p class="mt-2 flex items-center gap-2 text-sm text-fg-subtle">or paste <Kbd keys="Ctrl V" /></p>
+			{/if}
+		{/snippet}
+	</ReplaceMenu>
+{/snippet}
+
+<ImageSourcePicker bind:this={replacePicker} onpick={(ref) => void changeSource(ref)} onfile={(file) => void changeFile(file)} />
+
 <div class="image-editor-tab flex h-full min-h-0 w-full flex-col" data-image-editor data-tool={activeTool ?? ''} data-mode={mode}>
 	{#if !source}
 		{#if phone}
@@ -1615,6 +1668,9 @@
 			onapply={() => void applyTool()}
 			stack={stackView}
 		>
+			{#snippet phoneLead()}
+				{@render replaceMenu()}
+			{/snippet}
 			{#snippet toolbar()}
 				{#if phone}
 					{#if saveMenuOpen}
@@ -1658,7 +1714,11 @@
 						oncompare={(next) => (compare = next)}
 						onsave={onSave}
 						oncancelsave={cancelSave}
-					/>
+					>
+						{#snippet replaceControl()}
+							{@render replaceMenu()}
+						{/snippet}
+					</EditorToolbar>
 				{/if}
 			{/snippet}
 			{#snippet rail()}

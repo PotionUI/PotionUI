@@ -44,6 +44,7 @@ export interface ToolTabHost<State = unknown> {
 	setTitle(title: string): void;
 	setThumbnail(url: string | null): void;
 	setSource(source: MediaRef | null): void;
+	replaceSource(source: MediaRef): void;
 	setActiveTool(activeTool: string | null): void;
 	setRun(run: RunRef | null): void;
 	clearHint(): void;

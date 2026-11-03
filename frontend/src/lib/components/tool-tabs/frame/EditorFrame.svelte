@@ -20,6 +20,7 @@
 		onsave,
 		onapply,
 		toolbar,
+		phoneLead,
 		rail,
 		canvas,
 		below,
@@ -39,6 +40,7 @@
 		onsave: () => void;
 		onapply?: () => void;
 		toolbar: Snippet;
+		phoneLead?: Snippet;
 		rail?: Snippet;
 		canvas: Snippet;
 		below?: Snippet;
@@ -108,22 +110,25 @@
 		<div class="relative flex min-h-0 flex-1">
 			{@render canvas()}
 			<div class="pointer-events-none absolute inset-x-2.5 flex items-center justify-between {phoneChips === 'top' ? 'top-2.5' : 'bottom-2.5'}">
-				{#if stack}
-					<button
-						type="button"
-						class="pointer-events-auto inline-flex h-7 items-center gap-1 rounded bg-scrim/70 px-2 font-mono text-sm tabular-nums text-scrim-on backdrop-blur"
-						aria-haspopup="dialog"
-						aria-expanded={stackOpen}
-						onclick={() => (stackOpen = true)}
-						data-frame-edits
-					>
-						<Icon name="editor-layers" className="h-3.5 w-3.5" />
-						{editCount} {editCount === 1 ? 'edit' : 'edits'}
-						<Icon name="chevron-down" className="h-3.5 w-3.5" />
-					</button>
-				{:else}
-					<span></span>
-				{/if}
+				<div class="pointer-events-auto flex items-center gap-1.5">
+					{@render phoneLead?.()}
+					{#if stack}
+						<button
+							type="button"
+							class="pointer-events-auto inline-flex h-7 items-center gap-1 rounded bg-scrim/70 px-2 font-mono text-sm tabular-nums text-scrim-on backdrop-blur"
+							aria-haspopup="dialog"
+							aria-expanded={stackOpen}
+							onclick={() => (stackOpen = true)}
+							data-frame-edits
+						>
+							<Icon name="editor-layers" className="h-3.5 w-3.5" />
+							{editCount} {editCount === 1 ? 'edit' : 'edits'}
+							<Icon name="chevron-down" className="h-3.5 w-3.5" />
+						</button>
+					{:else}
+						<span></span>
+					{/if}
+				</div>
 				{#if canCompare}
 					<button
 						type="button"

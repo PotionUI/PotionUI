@@ -81,6 +81,7 @@ function host(): ToolTabHost {
 		setTitle: () => undefined,
 		setThumbnail: () => undefined,
 		setSource: () => undefined,
+		replaceSource: () => undefined,
 		setActiveTool: () => undefined,
 		setRun: () => undefined,
 		clearHint: () => undefined,

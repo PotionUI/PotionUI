@@ -58,6 +58,7 @@ function render(hint: Record<string, unknown>, activeTool: string | null = null)
 		setTitle: () => undefined,
 		setThumbnail: () => undefined,
 		setSource: () => undefined,
+		replaceSource: () => undefined,
 		setActiveTool: (tool: string | null) => tools.push(tool),
 		setRun: () => undefined,
 		setActions: () => undefined,

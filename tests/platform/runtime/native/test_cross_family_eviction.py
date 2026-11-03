@@ -344,7 +344,7 @@ def test_partial_placement_streams_fully_on_the_wsl_driver_oom(monkeypatch):
     mgr.note_resident(foreign, "cuda:0", 24.5)
 
     gen, dit, vae = _make_generator(dit_gb=4.0, oom_streams=1, oom=_wsl_driver_oom)
-    gen._dit_weights_budget_gb = lambda latents_shape, ref_latents=None: 3.0
+    gen._dit_weights_budget_gb = lambda latents_shape, ref_latents=None, preview_reserve_gb=0.0: 3.0
     gen._stream_dit_to_gpu("cuda:0", (1, 16, 64, 64))
 
     assert dit.streamed == [("cuda:0", 3.0), ("cuda:0", 0.0)]

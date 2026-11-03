@@ -53,6 +53,7 @@ GATED = [
     (build_models_router, "post", "/api/models/cleanup", None),
     (build_models_router, "post", "/api/models/thumbnails/generate", None),
     (build_models_router, "post", "/api/models/download", {"url": "http://x", "model_type": "checkpoint"}),
+    (build_models_router, "post", "/api/models/downloads", {"name": "a.safetensors", "model_type": "checkpoint", "link": "http://x"}),
     (build_models_router, "put", "/api/models/attributes/def1", {"label": "x"}),
     (build_models_router, "put", "/api/models/m1/description", {"description": "d"}),
     (build_models_router, "put", "/api/models/m1/tags", {"tag_ids": []}),

@@ -264,7 +264,8 @@ describe('model picker Suggested fold', () => {
 	});
 
 	it('does not count recommendations until the first model fetch has finished', async () => {
-		authState.user = { account_type: 'USER' };
+		authState.user = { account_type: 'ADMIN' };
+		setup([]);
 		let release: (value: unknown) => void = () => {};
 		vi.mocked(api.getPresetModels).mockReturnValue(new Promise((resolve) => (release = resolve)) as never);
 		vi.mocked(api.getUnindexedModelsCount).mockResolvedValue({ success: true, data: { by_type: {} } } as never);
@@ -336,7 +337,7 @@ describe('model picker Suggested fold', () => {
 		).not.toBeNull();
 	});
 
-	it('renders no admin-only mark for a regular user', async () => {
+	it('shows a regular user no Suggested section, badge or download button', async () => {
 		authState.user = { account_type: 'USER' };
 		setup([slot([variant('fp8', 'fp8')])], false);
 		mounted = mountPanel({
@@ -345,7 +346,22 @@ describe('model picker Suggested fold', () => {
 		});
 		await settle();
 
-		expect(toggle()).not.toBeNull();
+		expect(toggle()).toBeNull();
+		expect(mounted.target.textContent).not.toContain('Suggested');
+		expect(mounted.target.querySelector('[data-recommended-download]')).toBeNull();
 		expect(mounted.target.querySelector('[data-admin-only-mark]')).toBeNull();
+	});
+
+	it('still offers an admin the recommended download', async () => {
+		authState.user = { account_type: 'ADMIN' };
+		setup([slot([variant('fp8', 'fp8')])], false);
+		mounted = mountPanel({
+			required: true,
+			recommendations: [{ name: 'a.safetensors', link: 'https://example.com/a', sha256: 'x' }]
+		});
+		await settle();
+
+		expect(toggle()).not.toBeNull();
+		expect(mounted.target.querySelector('[data-recommended-download] button')).not.toBeNull();
 	});
 });

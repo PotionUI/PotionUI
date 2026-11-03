@@ -20,7 +20,7 @@ vi.mock('$lib/services/api/index', () => ({
 }));
 
 vi.mock('$lib/stores/auth', () => ({
-	authStore: { subscribe: (fn: (v: unknown) => void) => (fn({ user: null }), () => {}) }
+	authStore: { subscribe: (fn: (v: unknown) => void) => (fn({ user: { account_type: 'ADMIN' } }), () => {}) }
 }));
 
 const { api } = await import('$lib/services/api/index');

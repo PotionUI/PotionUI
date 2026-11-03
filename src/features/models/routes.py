@@ -741,11 +741,6 @@ class ModelController(BaseController):
         request: RecommendationDownloadRequest,
         current_user: User
     ) -> APIResponse:
-        if current_user.account_type != AccountType.ADMIN:
-            return self.error_api_response(
-                error="permission_denied", message="Admin access required"
-            )
-
         url = request.link
         if request.provider:
             from src.features.providers.registry import ensure_providers_discovered
@@ -1139,7 +1134,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.post("/downloads", response_model=APIResponse, summary="Queue Recommendation Download")
     async def queue_recommendation_download(
         request: RecommendationDownloadRequest,
-        current_user: User = Depends(get_current_active_user)
+        current_user: User = Depends(get_current_admin_user)
     ):
         """Queue a `model` field recommendation for download (admin only). Provider-gated -
         see docs/presets.md "recommendations"."""

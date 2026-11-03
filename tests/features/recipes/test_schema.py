@@ -7,7 +7,7 @@ and `parse_recipe`.
 
 import pytest
 
-from src.features.recipes.schema import parse_recipe, validate_recipe_dict
+from src.features.recipes.schema import DEFAULT_SMOKE_TIMEOUT_SECONDS, parse_recipe, validate_recipe_dict
 
 
 def _valid_recipe(**overrides):
@@ -505,6 +505,38 @@ def test_single_file_artifact_has_no_variants():
     artifact = recipe.get_artifact("sdxl-checkpoint")
     assert artifact.variants == ()
     assert artifact.resolve("anything") is artifact
+
+
+def _with_smoke_timeout(value):
+    data = _valid_recipe()
+    data["smoke"] = {"preset_id": "PRESET1", "mode": "txt2img", "timeout_seconds": value}
+    return data
+
+
+def test_smoke_timeout_defaults_to_300_seconds_when_omitted():
+    recipe = parse_recipe(_valid_recipe())
+    assert recipe.smoke.timeout_seconds == DEFAULT_SMOKE_TIMEOUT_SECONDS == 300
+
+
+def test_smoke_timeout_null_means_the_default():
+    data = _with_smoke_timeout(None)
+    assert validate_recipe_dict(data) == []
+    assert parse_recipe(data).smoke.timeout_seconds == 300
+
+
+@pytest.mark.parametrize("value", [1, 600, 3600])
+def test_smoke_timeout_in_range_round_trips(value):
+    data = _with_smoke_timeout(value)
+    assert validate_recipe_dict(data) == []
+    assert parse_recipe(data).smoke.timeout_seconds == value
+
+
+@pytest.mark.parametrize("value", [0, -5, 3601, 86400, 1.5, 600.0, "600", True, [600], {"seconds": 600}])
+def test_smoke_timeout_out_of_range_or_not_an_integer_is_a_lint_error(value):
+    issues = validate_recipe_dict(_with_smoke_timeout(value))
+    assert issues == [
+        "smoke: 'timeout_seconds' must be a whole number of seconds from 1 to 3600 if given (default 300)"
+    ]
 
 
 class TestStarterCardFields:

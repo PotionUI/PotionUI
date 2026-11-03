@@ -77,6 +77,15 @@ def _cuda_device_identity(index: int) -> Optional[DeviceIdentity]:
         return None
 
 
+def _cuda_device_count() -> int:
+    try:
+        import torch
+
+        return torch.cuda.device_count() if torch.cuda.is_available() else 0
+    except Exception:
+        return 0
+
+
 class NativeBackend(InProcessBackend):
     """
     The built-in `native` engine: diffusers pipes executed in this process.
@@ -117,8 +126,9 @@ class NativeBackend(InProcessBackend):
         a caller must actually compare against its own device's identity -
         an index match alone is not proof of the same physical card.
 
-        A bare `"cuda"` (no explicit `:N`) never resolves an identity at
-        all: torch would resolve it at execution time to whatever CUDA
+        A bare `"cuda"` (no explicit `:N`) resolves only on a host that
+        exposes exactly one CUDA device, the only one it can mean. With
+        several, torch would resolve it at execution time to whatever CUDA
         device happens to be current on the executing thread, which this
         method has no way to know in advance - reading THIS thread's
         current device would not be proof of anything, so it stays
@@ -128,6 +138,8 @@ class NativeBackend(InProcessBackend):
         if device == "cpu":
             return ExecutionDeviceEvidence(kind="no_gpu")
         index = _explicit_cuda_index(device)
+        if index is None and device == "cuda" and _cuda_device_count() == 1:
+            index = 0
         if index is None:
             return ExecutionDeviceEvidence(
                 kind="this_host_gpu", gpu_index=None, identity=None,

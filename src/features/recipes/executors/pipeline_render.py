@@ -11,6 +11,7 @@ generation instead of just the builder).
 
 from __future__ import annotations
 
+from src.features.generation.orchestrator import _prepare_director_form_data
 from src.features.generation.pipeline_builder import PipelineBuilder
 from src.features.presets.loader import PresetTemplateLoader
 from src.features.recipes.executors._fixture_form import build_fixture_form_data
@@ -54,7 +55,13 @@ class PipelineRenderExecutor:
             )
 
         try:
-            form_data = self._build_fixture_form_data(preset_template, mode)
+            form_data = _prepare_director_form_data(
+                preset_template,
+                mode,
+                self._build_fixture_form_data(preset_template, mode),
+                context.owner_user_id,
+                self.template_processor.settings,
+            )
             built = self.pipeline_builder.build_pipeline(
                 preset_template, form_data, mode=mode, user_id=context.owner_user_id
             )

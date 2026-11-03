@@ -21,6 +21,7 @@ ALLOWED_BASENAMES = {
     "potionui_cli.py",
     "reset_password.py",
     "rotate_secret_key.py",
+    "generation_leftovers.py",
     "profile_report.py",
     "filter_lint.py",
     "preset_lint.py",

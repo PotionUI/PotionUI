@@ -74,6 +74,7 @@ if str(HARNESS_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESS_DIR))
 
 import cloud_fake
+import effect_plugin_fixture
 import model_types_fixture
 import fresh_install
 from e2e_harness import (  # noqa: E402
@@ -632,6 +633,7 @@ def run_chunk(
         extra_env=fresh.env() if fresh else model_types_fixture.merge_env(
             cloud_fake.plugin_env() if needs_cloud_fake else None,
             model_types_fixture.plugin_env() if needs_model_types else None,
+            effect_plugin_fixture.plugin_env() if effect_plugin_fixture.wants_effect_plugin(chunk_names) else None,
         ),
     )
     if fresh:

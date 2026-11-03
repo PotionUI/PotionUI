@@ -243,6 +243,13 @@ takes the same values back in seconds.
 Python renders see `FrameBatch` (`frames` N×H×W×3 uint8, `indices` counted from the stage's first frame,
 `times` = `index / fps`, `fps`, `duration`, and `tensor` N×3×H×W float 0..1 for torch) and return the same shape.
 
+## Plugin effects
+
+A plugin declares `effects: [{path: effects}]` in its `manifest.yml` and ships `<path>/<name>/effect.yml` folders,
+laid out like the core ones. They register as `<plugin-id>.<name>` with the plugin as their source when it is
+enabled, and leave when it is disabled; the editor's catalog refreshes on both. The Effects panel lists them with the
+core effects, by group and label, with no plugin wording. See [the plugin API](plugin-api.md#shipping-effects).
+
 ## Core effects
 
 | Effect | Params | Render | Preview |

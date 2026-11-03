@@ -1815,6 +1815,25 @@ generationIds, generations, onClose(), onDone() }`: `items` is the selection as
 page, and `onDone()` clears the selection once the tool finished. If it needs the backend it calls its own
 plugin API route.
 
+### Shipping effects
+
+An effect is a media tool defined by one folder (see [Video effects](effects.md)). Declare one or more roots and put
+`<name>/effect.yml` folders in them:
+
+```yaml
+effects:
+  - path: effects
+```
+
+- Each effect registers as `<plugin-id>.<id>` under the plugin's source, in the Video editor's Effects panel, the
+  Library Effects menu, presets, chat, MCP and automation. Nothing in the UI names the plugin.
+- Python renders and analyses (`render.py:fn`) may import only `numpy`, `torch` and `src.plugin_api.*`.
+- A path outside the plugin folder, a missing folder or any broken `effect.yml` fails the enable with the error, and
+  nothing of the plugin registers. Disabling the plugin removes its effects; the open editor's catalog refreshes.
+- `python scripts/effect_parity.py <plugin folder> --golden` writes the parity goldens to
+  `<plugin>/tests/effects/golden/`, and the same command without `--golden` checks every render against them.
+- `tests/e2e/effect_plugins/e2e-effects/` is a complete example (an Invert effect with a shader and a numpy render).
+
 ### The API
 
 Successful JSON responses use the usual `{success, data}` envelope. A refusal answers with `detail: {success: false, error, message, ...}`; the codes are listed per route.

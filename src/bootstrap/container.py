@@ -789,6 +789,7 @@ def build_container() -> AppContainer:
         llm_provider_registry=llm_provider_registry,
         limit_kind_registry=limit_kind_registry,
         media_tool_registry=media_tool_registry,
+        effect_runtime=effects_runtime,
     )
     _rr._global_plugin_registry = plugin_registry  # Set the global reference
 

@@ -1,0 +1,9 @@
+id: "e2e-effects"
+name: "E2E Effects"
+version: "1.0.0"
+description: "Test-only plugin that adds a video effect. Used by the browser end-to-end tests; never shipped."
+author: "PotionUI Team"
+type: "backend-only"
+
+effects:
+  - path: effects

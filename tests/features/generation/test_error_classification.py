@@ -12,6 +12,7 @@ from src.features.generation.error_classification import (
     classify_error_text,
     classify_generation_error,
     user_classification_for_code,
+    worker_failure_category,
 )
 from src.features.remote_execution.transport import WorkerUnreachableError
 from src.platform.runtime.cuda_allocator import WORKER_RESTART_ACTION, CudaAllocatorDamaged
@@ -453,3 +454,48 @@ def test_a_worker_refusal_is_not_read_as_its_own_restart_by_a_host_without_the_w
     category = classify_error_text(str(CudaAllocatorDamaged(cause, worker=True))).category
 
     assert category != "gpu_restart_required"
+
+
+@pytest.mark.parametrize("code", ["cuda_oom", "host_ram_oom", "missing_model_file", "worker_gpu_restart_required"])
+def test_a_workers_code_the_host_knows_is_kept(code):
+    assert worker_failure_category(code, "whatever the message says") == code
+
+
+def test_a_worker_never_hands_the_host_its_own_restart_category():
+    assert worker_failure_category("gpu_restart_required", "anything") == "worker_gpu_restart_required"
+
+
+@pytest.mark.parametrize(
+    ("code", "text", "category"),
+    [
+        ("pipe_failed", "CUDA driver error: device not ready", "cuda_oom"),
+        ("pipe_failed", "CUDA out of memory. Tried to allocate 2.00 GiB", "cuda_oom"),
+        ("worker_error", "No such file or directory: /models/a.safetensors", "missing_model_file"),
+        (None, "This process can no longer use the GPU: restart it", "unclassified"),
+        ("pipe_failed", "boom", "unclassified"),
+        ("pipe_failed", None, "unclassified"),
+    ],
+)
+def test_a_workers_code_the_host_does_not_know_falls_back_to_the_text(code, text, category):
+    assert worker_failure_category(code, text) == category
+
+
+def test_a_worker_text_never_asks_a_damaged_host_for_its_own_restart(monkeypatch):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
+
+    assert classify_error_text("CUDA driver error: device not ready").category == "gpu_restart_required"
+    assert worker_failure_category("pipe_failed", "CUDA driver error: device not ready") == "cuda_oom"
+
+
+def test_a_worker_text_never_marks_the_host(monkeypatch):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+    worker_failure_category("pipe_failed", "CUDA driver error: device not ready")
+
+    assert cuda_allocator.allocator_damage() is None

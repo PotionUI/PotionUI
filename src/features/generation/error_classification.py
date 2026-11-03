@@ -322,6 +322,18 @@ def classify_error_text(text: Optional[str]) -> ErrorClassification:
     return classification_for_code(UNCLASSIFIED)
 
 
+def worker_failure_category(code: Optional[str], text: Optional[str]) -> str:
+    if code == "gpu_restart_required":
+        return WORKER_GPU_RESTART_REQUIRED
+    if code in _CATEGORIES:
+        return code
+    message = (text or "").lower()
+    for category, matches in _TEXT_CHECKS:
+        if category != "gpu_restart_required" and matches(message):
+            return category
+    return UNCLASSIFIED
+
+
 def _has_any(message: str, markers: Tuple[str, ...]) -> bool:
     return any(marker in message for marker in markers)
 

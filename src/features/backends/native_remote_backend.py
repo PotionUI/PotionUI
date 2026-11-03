@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Set
 
 from src.features.backends.base_backend import BaseBackend, ExecutionDevice
-from src.features.generation.error_classification import WORKER_GPU_RESTART_REQUIRED
+from src.features.generation.error_classification import WORKER_GPU_RESTART_REQUIRED, worker_failure_category
 from src.features.generation.input_assets import collect_input_assets
 from src.features.generation.package_assembly import (
     assemble_execution_package,
@@ -354,11 +354,16 @@ class RemoteNativeBackend(BaseBackend):
         self, generation_id: str, preset_id: Optional[str], pipes: List[Dict[str, Any]],
         emit: Callable[[Optional[GenerationOutput]], None],
     ) -> None:
+        def emit_from_worker(output: GenerationOutput) -> None:
+            if isinstance(output, ErrorGenerationOutput):
+                output.error_code = worker_failure_category(output.error_code, output.error)
+            emit(output)
+
         try:
-            await self._dispatch(generation_id, preset_id, pipes, emit)
+            await self._dispatch(generation_id, preset_id, pipes, emit_from_worker)
         except Exception as exc:
             logger.error(f"[NATIVE_REMOTE_BACKEND] Generation {generation_id} failed: {exc}")
-            emit(ErrorGenerationOutput(error=str(exc)))
+            emit_from_worker(ErrorGenerationOutput(error=str(exc)))
         finally:
             self._active.discard(generation_id)
             emit(None)
@@ -618,4 +623,6 @@ class RemoteNativeBackend(BaseBackend):
             return
 
         if event.kind in ("failed", "rejected") and event.error is not None:
-            emit(ErrorGenerationOutput(error=event.error.message, detail=event.error.detail))
+            emit(ErrorGenerationOutput(
+                error=event.error.message, detail=event.error.detail, error_code=event.error.code,
+            ))

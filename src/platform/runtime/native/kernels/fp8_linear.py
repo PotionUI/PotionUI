@@ -9,7 +9,7 @@ import torch.nn.functional as F
 
 from src.platform.runtime.cuda_allocator import is_driver_oom
 from src.platform.settings.runtime_flags import runtime_flag
-from ..errors import is_cuda_oom, retry_after_cuda_oom
+from ..errors import retry_after_cuda_oom
 from ..io.quant_formats import (
     COMFY_QUANT_INT8_TENSORWISE,
     E4M3_MAX,
@@ -437,7 +437,7 @@ class Fp8ScaledLinear(manual_cast.Linear):
             )
         except ChunkedGemmFailed as failed:
             logger.debug("fp8 matmul: %s; using dequant path", failed.reason, exc_info=failed.cause)
-            if is_cuda_oom(failed.cause):
+            if failed.out_of_memory:
                 _log_scaled_mm_fast_path_rejection(failed.reason)
             return None
         if self.lora_deltas:

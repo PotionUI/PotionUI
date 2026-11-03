@@ -892,8 +892,9 @@ def _forward_with_degrade(
                 torch.cuda.empty_cache()
             try:
                 return forward(*args, **kwargs)
-            except torch.cuda.OutOfMemoryError:
-                pass
+            except RuntimeError as exc:
+                if not retry_after_cuda_oom(exc):
+                    raise
 
     # Tier 2: hand the forward the whole card by streaming every DiT weight
     # from pinned host RAM. Skipped when nothing is resident to shed -- a

@@ -2524,3 +2524,38 @@ def test_a_wsl_driver_error_that_is_not_exhaustion_is_not_retried():
 
 def test_the_wsl_driver_oom_counts_as_an_oom():
     assert is_cuda_oom(_wsl_driver_oom())
+
+
+@_LADDER_OOMS
+def test_the_chunked_attention_prep_retry_treats_a_driver_level_oom_as_an_oom(oom):
+    seen = []
+
+    def forward(*args, seq_chunk_rows=0, **kwargs):
+        seen.append(seq_chunk_rows)
+        if not seq_chunk_rows or seq_chunk_rows > 40_000:
+            raise oom()
+        return "ok"
+
+    dit, dit_calls = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_chunking_decision())
+    with patch(f"{_MOD}.torch.cuda.is_available", return_value=False):
+        assert guarded(seq_chunk_rows=0) == "ok"
+    assert seen == [0, 0, 73_274, 36_637]
+    assert dit_calls["stream_to"] == []
+
+
+def test_a_driver_error_in_the_chunked_attention_prep_retry_is_not_retried():
+    seen = []
+
+    def forward(*args, seq_chunk_rows=0, **kwargs):
+        seen.append(seq_chunk_rows)
+        if not seq_chunk_rows:
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+        raise RuntimeError("CUDA driver error: invalid argument")
+
+    dit, _ = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_chunking_decision())
+    with patch(f"{_MOD}.torch.cuda.is_available", return_value=False), \
+         pytest.raises(RuntimeError, match="invalid argument"):
+        guarded(seq_chunk_rows=0)
+    assert seen == [0, 0, 73_274]

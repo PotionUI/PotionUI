@@ -242,6 +242,54 @@ fp8 quant equivalence, and the eviction accounting are pure functions (`tests/co
 `tests/core/native/test_fp8_quant.py`). The wall-clock A/B (streamed-bf16 vs partial-residency vs
 fp8-auto, in s/step) is measured on GPU via `tests/manual/native_smoke.py --tier-vram <GB>`.
 
+### Running out of VRAM, and the driver-error OOM
+
+What counts as running out of VRAM is decided in one place, `errors.is_cuda_oom`: a
+`torch.cuda.OutOfMemoryError`, a `torch.AcceleratorError` that says "out of memory", and the
+`RuntimeError: CUDA driver error: device not ready` (or `... out of memory`) raised by the
+expandable-segments allocator, wherever the policy below retries it. Under WSL2 (Docker Desktop)
+with expandable segments, that driver error is how an exhausted card shows up, measured on a 12 GB
+RTX 4070 Ti: never an `OutOfMemoryError`. Every OOM fallback in the engine and the pipes catches
+`RuntimeError`, keeps only what `errors.retry_after_cuda_oom` accepts and re-raises the rest
+unchanged. `cuda_allocator.record_driver_oom`, which that function calls, is the one place the damage
+below is recorded; `is_cuda_oom` and `cuda_allocator.needs_gpu_restart` only read it.
+
+`cuda_env.py` turns expandable segments on outside Windows, WSL2 included, and only when none of
+`PYTORCH_CUDA_ALLOC_CONF`, `PYTORCH_HIP_ALLOC_CONF` and `PYTORCH_ALLOC_CONF` is set: torch reads
+the first of the three that exists, so a default written into the first would hide the user's own
+setting in the last. They stay on under WSL2 because the default allocator is worse there: with
+driver 617.42 an exhausted card raises nothing and spills into Windows shared memory instead (a
+SeedVR2 1080p encode reached 47.9 GB of shared memory without finishing, on a 12 GB card), so no
+fallback ever runs.
+
+A driver-error OOM under expandable segments damages the process, though. When an expandable
+segment grows, torch 2.12 rolls the new pages back only if `cuMemCreate` returns
+`CUDA_ERROR_OUT_OF_MEMORY`; that clean case reaches the caller as `torch.OutOfMemoryError`. Any other
+failure of `cuMemCreate`, `cuMemMap` or `cuMemSetAccess` (the `device not ready` above, or an
+out-of-memory from `cuMemSetAccess`) raises with the pages still recorded, and the next growth over
+them fails on `!handles_.at(i) INTERNAL ASSERT FAILED`, in any later allocation, until the process
+restarts (pytorch/pytorch#188008, #166234).
+
+So under WSL2 the first driver-error OOM is fatal to the process (`src/platform/runtime/cuda_allocator.py`):
+it is not retried, the segments stop growing for the rest of the process
+(`torch.cuda.memory._set_allocator_settings`, the other allocator options kept), and the generation
+fails under its own error code, `gpu_restart_required`: admins read that the process can no longer
+use the GPU and get Restart Backend as the only hint, other users are told to ask an administrator
+to restart the backend. A failure read from its text alone (`classify_error_text`) follows the same
+policy, without recording anything. Until the process restarts, every run whose pipes target `cuda`
+is refused before its first pipe with that same code, `GET /health` and the native backend's health
+report `degraded` with the same reason, and nothing restarts on its own. What the operator sees and
+does is in [Backends → Troubleshooting](/admin?tab=docs&doc=dev/backends).
+`POTIONUI_CUDA_DRIVER_OOM=retry` brings back the retry in the same process,
+`POTIONUI_CUDA_DRIVER_OOM=fatal` applies the fatal path outside WSL2 too; with expandable segments
+off, driver-error OOMs are always retried. The same error under native Linux keeps entering the
+fallbacks, and a `torch.OutOfMemoryError` keeps being retried everywhere, a damaged process included.
+
+The refusal and the degraded health live in `GenerationEngine`, `GET /health` and `NativeBackend`. A
+`native.remote` worker shares the fallbacks and the policy, so under WSL2 it does not retry either
+and its segments stop growing, but it keeps accepting jobs and its own `/health` does not change until
+its process or container is restarted by hand.
+
 ## The extension contract — adding model N+1
 
 This is the section that matters most. Everything above is infrastructure; this is how you use it.

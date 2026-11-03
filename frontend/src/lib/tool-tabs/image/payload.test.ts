@@ -22,8 +22,11 @@ import {
 	imageRail,
 	lookDraft,
 	paintDraft,
-	resizeDraft
+	resizeDraft,
+	toolEffectDraft
 } from './steps';
+import { imageEffects } from './shaderEffect';
+import { EFFECT_CATALOG, LOOK_TOOL } from '../../../../tests/component/fixtures/effectCatalog';
 import type { ToolDTO } from '$lib/media-tools/types';
 
 const SOURCE = { width: 1024, height: 1024 };
@@ -173,6 +176,29 @@ describe('stack to run steps', () => {
 		expect(runBody(steps, { generation_file_id: '7' }, 'update', 'copy-1').output).toEqual({ mode: 'update', target_item_id: 'copy-1' });
 		expect(runBody(steps, { item_id: 'lib-1' }, 'replace').output).toEqual({ mode: 'replace' });
 		expect(runBody(steps, { item_id: 'lib-1' }, 'new', null, 'col-9').output).toEqual({ mode: 'new', collection_id: 'col-9' });
+	});
+});
+
+describe('effects on images', () => {
+	const vignette = { kind: 'effect' as const, tool: 'vignette', name: 'Vignette', values: { amount: 60, radius: 40 } };
+
+	it('sends an image effect as its own tool step that needs no render, hidden or not', () => {
+		const state = push(push(createStack(), cropDraft({ plan: EMPTY_IMAGE_PLAN, aspect: 'free' }, 'Free', SOURCE)), toolEffectDraft(vignette));
+		const steps = appliedSteps(state);
+		expect(payloadGaps(steps, { source: SOURCE })).toEqual([]);
+		expect(runSteps(steps, { source: SOURCE }).at(-1)).toEqual({ tool: 'vignette', params: { amount: 60, radius: 40 } });
+		const hidden = appliedSteps(toggleHidden(state, steps[1].id));
+		expect(runSteps(hidden, { source: SOURCE }).at(-1)).toEqual({ tool: 'vignette', params: { amount: 60, radius: 40 }, hidden: true });
+		expect(sizeAfter(steps[1], SOURCE)).toEqual(SOURCE);
+	});
+
+	it('names the step after the effect and sums up its values with their labels', () => {
+		const draft = toolEffectDraft({ kind: 'effect', tool: 'film_grain', name: 'Film grain', values: { amount: 40, size: 1.5 } }, EFFECT_CATALOG);
+		expect([draft.tool, draft.label, draft.summary]).toEqual(['effects', 'Film grain', 'Amount 40 · Size 1.5']);
+	});
+
+	it('offers image effects with a shader and leaves looks to the Looks tab', () => {
+		expect(imageEffects([...EFFECT_CATALOG, LOOK_TOOL]).map((effect) => effect.id).sort()).toEqual(['film_grain', 'retro-tape.scanlines']);
 	});
 });
 

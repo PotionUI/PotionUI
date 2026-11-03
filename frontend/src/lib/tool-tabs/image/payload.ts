@@ -9,7 +9,7 @@ import type {
 import type { EditStep } from '$lib/tool-tabs/frame/editStack';
 import type { MediaRef } from '$lib/types/tabs';
 import { sliceStepParams, type SliceParams } from './slice/model';
-import { catalogToolId, type CatalogParams, type CropParams, type PaintParams, type ResizeParams } from './steps';
+import { catalogToolId, isToolEffect, type CatalogParams, type CropParams, type PaintParams, type ResizeParams } from './steps';
 
 export interface PixelSize {
 	width: number;
@@ -90,6 +90,7 @@ export function stepPayload(step: EditStep, input: PixelSize | null, baked?: str
 		case 'paint':
 			return [{ tool: 'paint_layer', params: { layer: layerRef((step.params as PaintParams).layer) } }];
 		case 'effects':
+			if (isToolEffect(step.params)) return [{ tool: step.params.tool, params: { ...step.params.values } }];
 			if (!baked) throw new PayloadError({ kind: 'bake', step: step.id });
 			return [{ tool: 'paint_layer', params: { layer: layerRef(baked) } }];
 		case 'slice':
@@ -100,6 +101,7 @@ export function stepPayload(step: EditStep, input: PixelSize | null, baked?: str
 }
 
 function hiddenPayload(step: EditStep, input: PixelSize | null): MediaToolStep[] {
+	if (step.tool === 'effects' && isToolEffect(step.params)) return [{ tool: step.params.tool, params: { ...step.params.values }, hidden: true }];
 	if (step.tool === 'effects') return [{ tool: 'paint_layer', params: {}, hidden: true }];
 	if (step.tool === 'crop' && !input) return [{ tool: 'crop', params: {}, hidden: true }];
 	return stepPayload(step, input).map((entry) => ({ ...entry, hidden: true }));
@@ -123,7 +125,7 @@ export function payloadGaps(steps: readonly EditStep[], context: PayloadContext)
 	const gaps: PayloadGap[] = [];
 	steps.forEach((step, i) => {
 		if (step.hidden) return;
-		if (step.tool === 'effects' && !context.baked?.[step.id]) gaps.push({ kind: 'bake', step: step.id });
+		if (step.tool === 'effects' && !isToolEffect(step.params) && !context.baked?.[step.id]) gaps.push({ kind: 'bake', step: step.id });
 		if (step.tool === 'crop' && !sizes[i]) gaps.push({ kind: 'size', step: step.id });
 	});
 	return gaps;

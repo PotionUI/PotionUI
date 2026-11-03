@@ -244,6 +244,21 @@ takes the same values back in seconds.
 Python renders see `FrameBatch` (`frames` N×H×W×3 uint8, `indices` counted from the stage's first frame,
 `times` = `index / fps`, `fps`, `duration`, and `tensor` N×3×H×W float 0..1 for torch) and return the same shape.
 
+## Effects on images
+
+An effect with `accepts: [video, image]` and a Python render is also an image tool, from the same `effect.yml`. An image
+step runs `prepare` with the run's user (looks resolve there) and the numpy or torch render on the RGB channels; the
+alpha channel is kept as it was.
+
+- **Image editor.** The Effects tool has an Effects tab next to Looks and Adjust. It lists the catalog's image effects
+  that have a shader and no analysis, by group and label; effects with a `look` param stay out, because the Looks tab
+  already offers every look. The live preview draws the effect on the editor canvas through `ShaderChain` with
+  `u_time = 0` (`frontend/src/lib/tool-tabs/image/shaderEffect.ts`, one shared WebGL2 context). Saving sends the step
+  as `{tool, params}` in the media-tools run, like any other server tool: nothing is baked in the browser.
+- **Library and History dialog.** For one picture and an effect the shader can draw, the before/after preview renders
+  in the browser at up to 1280 px instead of calling `POST /preview`. Without WebGL2 the dialog keeps the server
+  preview when the tool has one.
+
 ## Plugin effects
 
 A plugin declares `effects: [{path: effects}]` in its `manifest.yml` and ships `<path>/<name>/effect.yml` folders,

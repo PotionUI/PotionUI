@@ -89,6 +89,7 @@
 		paintDraft,
 		resizeDraft,
 		sliceDraft,
+		toolEffectDraft,
 		toolMeta,
 		type CatalogParams,
 		type CropParams,
@@ -97,6 +98,7 @@
 		type ResizeParams
 	} from '$lib/tool-tabs/image/steps';
 	import { mediaFileStem } from '$lib/tool-tabs/sources';
+	import { imageEffects } from '$lib/tool-tabs/image/shaderEffect';
 	import type { ToolTabHost } from '$lib/tool-tabs/types';
 	import { isGenerationTab, type GenerationTab, type MediaRef } from '$lib/types/tabs';
 	import { analyseImage, detectPanels, type Analysis, type Rect } from '$lib/tool-tabs/image/slice/detect';
@@ -227,6 +229,7 @@
 	});
 
 	let catalog = $derived($mediaToolCatalog);
+	let stillEffects = $derived(imageEffects(catalog));
 	let railGroups = $derived<RailGroup[]>(
 		source
 			? imageRail(catalog)
@@ -691,6 +694,7 @@
 		if (tool === 'effects') {
 			const effect = params as EffectParams;
 			if (effect.kind === 'look') return lookDraft(effect) as StepDraft<unknown>;
+			if (effect.kind === 'effect') return toolEffectDraft(effect, catalog) as StepDraft<unknown>;
 			return adjustDraft(effect) as StepDraft<unknown>;
 		}
 		return catalogDraft(tool, (params as CatalogParams).values, catalog) as StepDraft<unknown>;
@@ -1357,7 +1361,7 @@
 	{:else if activeTool === 'resize' && resizeParams && resizeInput}
 		<ResizeOptions params={resizeParams} input={resizeInput} {phone} onchange={(next) => setDraft('resize', next)} />
 	{:else if activeTool === 'effects'}
-		<EffectsOptions params={effectParams} base={thumbRender?.canvas ?? null} {phone} onchange={(next) => setDraft('effects', next)} />
+		<EffectsOptions params={effectParams} base={thumbRender?.canvas ?? null} {phone} effects={stillEffects} onchange={(next) => setDraft('effects', next)} />
 		{#if bakeIsCapped(outputDims) && !phone}
 			<p class="text-sm text-warning" data-bake-cap>Looks on pictures over {FULL_SIDE} px are drawn at {FULL_SIDE} px on the long side and scaled back up when saved.</p>
 		{/if}

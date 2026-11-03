@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import CurvePlot from '$lib/components/imageEditor/CurvePlot.svelte';
+	import Icon from '$lib/components/Icon.svelte';
+	import ToolForm from '$lib/media-tools/ToolForm.svelte';
+	import { effectDefaults, effectGroups, type EffectTool } from '$lib/effects/catalog';
 	import SliderField from '$lib/components/form-fields/SliderField.svelte';
 	import { paintFilters } from '$lib/components/imageEditor/registries';
 	import { Spinner } from '$lib/components/ui';
@@ -11,21 +14,23 @@
 	import { scalarParams } from '$lib/filters/steps';
 	import { makeThumbSource, renderThumb, ThumbCache } from '$lib/filters/thumbs';
 	import type { FilterItem } from '$lib/filters/types';
-	import { ADJUST_OPS, CURVE_POINTS, curveMaster, type AdjustParams, type EffectParams, type LookParams } from '$lib/tool-tabs/image/steps';
+	import { ADJUST_OPS, CURVE_POINTS, curveMaster, type AdjustParams, type EffectParams, type LookParams, type ToolEffectParams } from '$lib/tool-tabs/image/steps';
 
 	let {
 		params,
 		base = null,
 		phone = false,
+		effects = [],
 		onchange
 	}: {
 		params: EffectParams | null;
 		base?: HTMLCanvasElement | null;
 		phone?: boolean;
+		effects?: EffectTool[];
 		onchange: (next: EffectParams) => void;
 	} = $props();
 
-	let tab = $state<'looks' | 'adjust'>(untrack(() => (params?.kind === 'adjust' ? 'adjust' : 'looks')));
+	let tab = $state<'looks' | 'adjust' | 'effects'>(untrack(() => (params?.kind === 'adjust' ? 'adjust' : params?.kind === 'effect' ? 'effects' : 'looks')));
 	let query = $state('');
 	let thumbSource = $state.raw<ImageData | null>(null);
 	let revision = 0;
@@ -44,6 +49,9 @@
 	let adjustOps = $derived(ADJUST_OPS.map((id) => getOp(id, extensions)).filter((op) => op !== undefined));
 	let look = $derived(params?.kind === 'look' ? params : null);
 	let adjust = $derived(params?.kind === 'adjust' ? params : null);
+	let chosen = $derived(params?.kind === 'effect' ? params : null);
+	let groups = $derived(effectGroups(effects));
+	let chosenEffect = $derived(chosen ? (effects.find((effect) => effect.id === chosen.tool) ?? null) : null);
 	let adjustDef = $derived(adjust ? getOp(adjust.op, extensions) : undefined);
 
 	$effect(() => {
@@ -101,6 +109,16 @@
 		onchange({ kind: 'adjust', op: id, name: def.label, values } satisfies AdjustParams);
 	}
 
+	function pickEffect(effect: EffectTool) {
+		if (chosen?.tool === effect.id) return;
+		onchange({ kind: 'effect', tool: effect.id, name: effect.label, values: effectDefaults(effect) } satisfies ToolEffectParams);
+	}
+
+	function setEffectValue(name: string, value: unknown) {
+		if (!chosen) return;
+		onchange({ ...chosen, values: { ...chosen.values, [name]: value } });
+	}
+
 	function setValue(key: string, value: number) {
 		if (!adjust) return;
 		onchange({ ...adjust, values: { ...adjust.values, [key]: value } });
@@ -124,6 +142,16 @@
 		onclick={() => (tab = 'adjust')}
 		data-effects-tab="adjust">Adjust</button
 	>
+	{#if effects.length}
+		<button
+			type="button"
+			role="tab"
+			aria-selected={tab === 'effects'}
+			class="-mb-px border-b-2 px-1 pb-2 text-base {tab === 'effects' ? 'border-fg text-fg' : 'border-transparent text-fg-muted hover:text-fg'}"
+			onclick={() => (tab = 'effects')}
+			data-effects-tab="effects">Effects</button
+		>
+	{/if}
 </div>
 
 {#if tab === 'looks'}
@@ -170,6 +198,53 @@
 			value={look.intensity}
 			onChange={(_name, value) => onchange({ ...look, intensity: Number(value) })}
 		/>
+	{/if}
+{:else if tab === 'effects'}
+	{#if phone}
+		<div class="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5" role="listbox" aria-label="Effects" data-effect-strip>
+			{#each effects as effect (effect.id)}
+				<button
+					type="button"
+					role="option"
+					aria-selected={chosen?.tool === effect.id}
+					class="h-8 flex-none rounded border px-2.5 text-sm {chosen?.tool === effect.id
+						? 'border-signal/60 bg-signal/10 text-signal'
+						: 'border-line-strong bg-surface-2 text-fg-muted hover:border-line-hover hover:text-fg'}"
+					onclick={() => pickEffect(effect)}
+					data-effect-chip={effect.id}>{effect.label}</button
+				>
+			{/each}
+		</div>
+	{:else}
+		{#each groups as group (group.id)}
+			<div class="flex flex-col gap-1.5" data-effect-group={group.id}>
+				<span class="font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">{group.label}</span>
+				{#each group.effects as effect (effect.id)}
+					{@const open = chosen?.tool === effect.id}
+					<button
+						type="button"
+						class="flex h-10 w-full items-center gap-2 rounded-lg border px-3 text-left text-base {open ? 'border-signal/50 bg-surface-2 text-fg' : 'border-line bg-surface-1 text-fg hover:border-line-hover'}"
+						aria-pressed={open}
+						onclick={() => pickEffect(effect)}
+						data-effect-card={effect.id}
+						data-open={open || undefined}
+					>
+						<Icon name={effect.icon} className="h-3.5 w-3.5 flex-none text-fg-muted" />
+						<span class="min-w-0 flex-1 truncate">{effect.label}</span>
+					</button>
+				{/each}
+			</div>
+		{/each}
+	{/if}
+	{#if chosen && chosenEffect}
+		{#if chosenEffect.description}
+			<p class="text-sm text-fg-muted" data-effect-description>{chosenEffect.description}</p>
+		{/if}
+		{#if chosenEffect.params.length}
+			<ToolForm params={chosenEffect.params} values={chosen.values} onChange={setEffectValue} />
+		{/if}
+	{:else}
+		<p class="text-sm text-fg-muted">Pick an effect. It previews here and renders when you save.</p>
 	{/if}
 {:else}
 	<div class="flex flex-wrap gap-1.5" role="listbox" aria-label="Adjustments" data-adjust-ops>

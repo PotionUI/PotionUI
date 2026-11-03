@@ -43,7 +43,14 @@ export interface AdjustParams {
 	values: Record<string, number>;
 }
 
-export type EffectParams = LookParams | AdjustParams;
+export interface ToolEffectParams {
+	kind: 'effect';
+	tool: string;
+	name: string;
+	values: Record<string, unknown>;
+}
+
+export type EffectParams = LookParams | AdjustParams | ToolEffectParams;
 
 export interface CatalogParams {
 	values: Record<string, unknown>;
@@ -160,6 +167,16 @@ export function adjustSummary(values: Record<string, unknown>, labels: Record<st
 
 export function adjustDraft(params: AdjustParams, labels: Record<string, string> = {}): StepDraft<AdjustParams> {
 	return draft('effects', params.name, adjustSummary(params.values, labels), params);
+}
+
+export function toolEffectDraft(params: ToolEffectParams, catalog: readonly ToolDTO[] = []): StepDraft<ToolEffectParams> {
+	const entry = catalog.find((candidate) => candidate.id === params.tool);
+	const labels = Object.fromEntries((entry?.params ?? []).map((param) => [param.name, param.label ?? param.name]));
+	return draft('effects', params.name, adjustSummary(params.values, labels), params);
+}
+
+export function isToolEffect(params: unknown): params is ToolEffectParams {
+	return (params as EffectParams | null)?.kind === 'effect';
 }
 
 export function catalogDraft(tool: string, values: Record<string, unknown>, catalog: readonly ToolDTO[] = []): StepDraft<CatalogParams> {

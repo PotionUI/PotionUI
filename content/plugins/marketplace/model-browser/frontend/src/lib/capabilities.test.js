@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-	MODEL_TYPES,
 	allowedTypes,
 	can,
 	canChooseGroup,
@@ -18,6 +17,9 @@ import {
 	requestBlockReason,
 	sizeLimitBytes
 } from './capabilities.js';
+import { SERVED_MODEL_TYPES, installHostModelTypes } from './testModelTypes.js';
+
+installHostModelTypes();
 
 function meData(overrides = {}) {
 	return {
@@ -131,7 +133,7 @@ test('can: admins hold everything, others what /me lists', () => {
 
 test('allowedTypes offers every type to an admin, the suggestion first and selected', () => {
 	const result = allowedTypes(ADMIN, 'lora');
-	assert.equal(result.types.length, MODEL_TYPES.length);
+	assert.equal(result.types.length, SERVED_MODEL_TYPES.length);
 	assert.equal(result.types[0], 'lora');
 	assert.equal(result.selected, 'lora');
 	assert.equal(result.suggestionAllowed, true);
@@ -145,7 +147,7 @@ test('allowedTypes limits a restricted user to their types', () => {
 test('allowedTypes makes the user choose when the source has no suggestion', () => {
 	assert.deepEqual(allowedTypes(DOWNLOADER, null), { types: ['lora', 'embedding'], selected: '', suggestionAllowed: false });
 	const everyType = allowedTypes(REQUESTER, null);
-	assert.equal(everyType.types.length, MODEL_TYPES.length);
+	assert.equal(everyType.types.length, SERVED_MODEL_TYPES.length);
 	assert.equal(everyType.selected, '');
 });
 
@@ -267,7 +269,7 @@ test('requestBlock and canRequestFrom read the request parameters: source, sugge
 	assert.equal(requestBlock(BROWSER, { source: 'civitai' }), 'capability');
 	assert.equal(requestBlock(ADMIN, { source: 'openmodeldb', type: 'vae', sizeBytes: 10 ** 12 }), '');
 	assert.equal(requestBlockReason(ASKER, { source: 'huggingface' }, 'Hugging Face'), 'Not allowed from Hugging Face');
-	assert.equal(requestBlockReason(ASKER, { source: 'civitai', type: 'checkpoint' }), 'Checkpoint models not allowed');
+	assert.equal(requestBlockReason(ASKER, { source: 'civitai', type: 'checkpoint' }), 'Base model not allowed');
 	assert.equal(requestBlockReason(ASKER, { source: 'civitai', type: 'lora', sizeBytes: 2 * 1024 ** 3 }), 'Over your 1 GB limit');
 	assert.equal(requestBlockReason(ASKER, { source: 'civitai', type: 'lora' }), '');
 });
@@ -282,7 +284,7 @@ test('fileAction: downloads by params, requests by request_params', () => {
 	assert.equal(fileAction(ASKER, 'civitai', { type: 'lora', sizeBytes: 2 * 1024 ** 3 }), 'request-blocked');
 	assert.equal(fileAction(ASKER, 'huggingface'), 'request-blocked');
 	assert.deepEqual(fileActionInfo(SPLIT, 'openmodeldb', {}, 'OpenModelDB'), { action: 'source-blocked', reason: 'Not allowed from OpenModelDB' });
-	assert.deepEqual(fileActionInfo(ASKER, 'civitai', { type: 'vae' }, 'CivitAI'), { action: 'request-blocked', reason: 'VAE models not allowed' });
+	assert.deepEqual(fileActionInfo(ASKER, 'civitai', { type: 'vae' }, 'CivitAI'), { action: 'request-blocked', reason: 'VAE not allowed' });
 	assert.deepEqual(fileActionInfo(ASKER, 'civitai', { type: 'lora' }, 'CivitAI'), { action: 'request', reason: '' });
 	assert.deepEqual(fileActionInfo(BROWSER, 'civitai'), { action: 'none', reason: '' });
 });
@@ -313,4 +315,21 @@ test('groupChoices puts the user first', () => {
 		{ id: 'g2', name: 'g2' }
 	]);
 	assert.deepEqual(groupChoices(BROWSER), [{ id: '', name: 'Me' }]);
+});
+
+test('allowedTypes offers the types the host serves, plugin types included', () => {
+	const result = allowedTypes(ADMIN, null);
+	assert.deepEqual(result.types, SERVED_MODEL_TYPES);
+	assert.ok(result.types.includes('pose_rig'));
+	assert.ok(!result.types.includes('cloud'));
+});
+
+test('allowedTypes offers nothing but the listed types before the host has served any', () => {
+	const saved = globalThis.__potionui;
+	globalThis.__potionui = {};
+	try {
+		assert.deepEqual(allowedTypes(ADMIN, 'lora').types, []);
+	} finally {
+		globalThis.__potionui = saved;
+	}
 });

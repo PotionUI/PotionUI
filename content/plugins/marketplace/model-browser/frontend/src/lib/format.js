@@ -98,7 +98,7 @@ export function capitalize(text) {
 
 export function modelTypeLabel(type) {
 	if (typeof type !== 'string' || !type) return '';
-	const special = { lora: 'LoRA', vae: 'VAE', llm: 'LLM', vfi: 'VFI', unet: 'UNet', controlnet: 'ControlNet', instantid: 'InstantID', insightface: 'InsightFace' };
-	if (special[type]) return special[type];
+	const served = globalThis.__potionui?.modelTypes?.get?.(type);
+	if (served?.label) return served.label;
 	return capitalize(type.replace(/_/g, ' '));
 }

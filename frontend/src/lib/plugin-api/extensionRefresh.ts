@@ -63,6 +63,7 @@ import {
 	unregisterFieldComponent
 } from '$lib/fields/registry';
 import { pluginOwner } from '$lib/registries/registry';
+import { refreshModelTypes } from '$lib/stores/modelTypesLoader';
 import { setContributions, type SlotContribution } from '$lib/extensions/extensionSlots';
 import { setPluginRevisions } from '$lib/plugin-api/componentResolver';
 import { parseComponentRef } from '$lib/plugin-api/componentRef';
@@ -290,6 +291,7 @@ function applySnapshot(snapshot: ExtensionSnapshot): void {
 }
 
 async function runRefresh(): Promise<void> {
+	const typesRefreshed = refreshModelTypes();
 	try {
 		applySnapshot(await fetchSnapshot());
 	} catch (err) {
@@ -297,6 +299,7 @@ async function runRefresh(): Promise<void> {
 		// extensions, and the previously applied snapshot stays live.
 		logger.error('Failed to refresh plugin frontend extensions:', err);
 	}
+	await typesRefreshed;
 }
 
 /**

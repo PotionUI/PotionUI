@@ -1,30 +1,7 @@
+import { assignableModelTypes } from '$lib/stores/modelTypes.svelte';
 import { MODEL_TYPE_UNDEFINED, modelTypePresentation } from '$lib/utils/modelPresentation';
 
 export const AUTOMATIC_TYPE = 'automatic';
-
-export const ASSIGNABLE_MODEL_TYPES: readonly string[] = [
-	'checkpoint',
-	'diffusion_model',
-	'lora',
-	'embedding',
-	'upscaler',
-	'vae',
-	'controlnet',
-	'adetailer',
-	'text_encoder',
-	'unet',
-	'insightface',
-	'facerestore',
-	'instantid',
-	'detection_segm',
-	'detection_bbox',
-	'mediapipe',
-	'vfi',
-	'refmod',
-	'model_patch',
-	'geometry_estimation',
-	'preview_decoder'
-];
 
 export interface ModelTypeInfo {
 	source: string;
@@ -84,8 +61,9 @@ export function typePackagingLine(info?: ModelTypeInfo | null): string {
 }
 
 export function typeOptions(currentType: string): { value: string; label: string; disabled?: boolean }[] {
-	const options = ASSIGNABLE_MODEL_TYPES.map((value) => ({ value, label: modelTypePresentation(value).label }));
-	if (!ASSIGNABLE_MODEL_TYPES.includes(currentType)) {
+	const assignable = assignableModelTypes();
+	const options = assignable.map((value) => ({ value, label: modelTypePresentation(value).label }));
+	if (!assignable.includes(currentType)) {
 		return [{ value: currentType, label: modelTypePresentation(currentType).label, disabled: true }, ...options];
 	}
 	return options;

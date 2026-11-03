@@ -46,6 +46,7 @@ PLUGIN_TREES = (ROOT / "content" / "plugins" / "marketplace",)
 FRONTEND = ROOT / "frontend"
 HARNESS = FRONTEND / "tests" / "effects" / "parity-shaders.mjs"
 SHADER_DRIFT = {"max_abs": 1, "mean_abs": 0.02}
+REQUIRE_BROWSER_ENV = "PARITY_REQUIRE_BROWSER"
 BROWSER_TIMEOUT_SECONDS = 600.0
 BROWSER_PROBE = "const { chromium } = await import('playwright'); const browser = await chromium.launch(); await browser.close();"
 

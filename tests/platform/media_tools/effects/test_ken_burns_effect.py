@@ -8,7 +8,6 @@ import pytest
 
 from src.platform.media_tools import InvalidToolParams, ToolMedia, probe, run_chain, validate_params
 from src.platform.media_tools.effects.template import MAX_STEP_CHARS
-from src.platform.media_tools.effects.tool import VIDEO_TIME_RESET
 from tests.platform.media_tools.effects.support import core_effect, effect_spec, numpy_only
 from tests.platform.media_tools.media_factory import decode_video_rgb, run_ffmpeg
 
@@ -59,13 +58,13 @@ def test_the_derive_reads_the_anchors_and_spans_first_to_last_frame():
     assert bound({}).derived["smooth"] is True
 
 
-def test_the_perspective_template_is_bounded_and_time_reset():
+def test_the_perspective_template_is_one_bounded_filter():
     spec = effect_spec("ken_burns")
     vf = spec.impl.video_filter(MEDIA, validate_params(spec, {"zoom_to": 2})).vf
 
-    assert vf[0] == VIDEO_TIME_RESET and vf[1].startswith("perspective=") and len(vf) == 2
-    assert "interpolation='linear'" in vf[1] and "eval='frame'" in vf[1]
-    assert len(vf[1]) < MAX_STEP_CHARS
+    assert len(vf) == 1 and vf[0].startswith("perspective=")
+    assert "interpolation='linear'" in vf[0] and "eval='frame'" in vf[0]
+    assert len(vf[0]) < MAX_STEP_CHARS
 
 
 def test_the_first_frame_shows_the_start_window_and_the_last_frame_the_end_window():

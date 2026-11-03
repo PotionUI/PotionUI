@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import numpy as np
 import pytest
 import yaml
@@ -138,6 +139,8 @@ def test_the_shader_job_carries_the_served_catalog_entry_and_full_params():
 
 def test_the_live_preview_shaders_still_render_their_goldens():
     problem = ep.harness_ready()
+    if problem and os.environ.get(ep.REQUIRE_BROWSER_ENV) == "1":
+        pytest.fail(f"shader harness unavailable and {ep.REQUIRE_BROWSER_ENV}=1: {problem}")
     if problem:
         pytest.skip(f"shader harness unavailable: {problem}")
 
@@ -148,3 +151,15 @@ def test_the_live_preview_shaders_still_render_their_goldens():
     assert "SwiftShader" in renderer
     assert {row.tool for row in rows} == {target.effect.tool_id for target in TARGETS if target.effect.shader}
     assert [f"{row.tool} case {row.case}: {row.failures}" for row in rows if row.failures] == []
+
+
+def test_a_missing_harness_fails_instead_of_skipping_when_the_browser_is_required(monkeypatch):
+    monkeypatch.setattr(ep, "harness_ready", lambda: "node is not installed")
+    monkeypatch.setenv(ep.REQUIRE_BROWSER_ENV, "1")
+
+    with pytest.raises(pytest.fail.Exception, match="node is not installed"):
+        test_the_live_preview_shaders_still_render_their_goldens()
+
+    monkeypatch.delenv(ep.REQUIRE_BROWSER_ENV)
+    with pytest.raises(pytest.skip.Exception):
+        test_the_live_preview_shaders_still_render_their_goldens()

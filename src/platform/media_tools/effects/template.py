@@ -17,7 +17,7 @@ VIDEO_FILTERS: dict[str, frozenset[str]] = {
     "hue": frozenset({"h", "s", "b"}),
     "curves": frozenset({"preset", "master", "r", "g", "b", "all"}),
     "vignette": frozenset({"angle", "x0", "y0", "aspect", "dither", "eval", "mode"}),
-    "fade": frozenset({"t", "st", "d", "color", "alpha"}),
+    "fade": frozenset({"t", "st", "d", "start_frame", "nb_frames", "color", "alpha"}),
     "lut3d": frozenset({"file", "interp"}),
     "perspective": frozenset({"x0", "y0", "x1", "y1", "x2", "y2", "x3", "y3", "interpolation", "eval", "sense"}),
     "gblur": frozenset({"sigma", "steps"}),

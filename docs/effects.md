@@ -234,12 +234,11 @@ is decoded and encoded once, colour conversion is pinned (`scale=in_color_matrix
 before the first RGB effect, `scale=out_color_matrix=bt709:out_range=tv` before the encoder) and the source audio
 is kept with every `af` in stack order.
 
-Time is the time at the effect's place in the stack, counted from the first frame that reaches it. An ffmpeg render
-of an effect with `time: seconds` or `time: frame` starts with `setpts=PTS-STARTPTS` (and `asetpts=PTS-STARTPTS`
-before its `af`), so `t` matches `u_time` in the preview and `times` in a Python render even when the source's
-timestamps do not start at zero. `perspective`'s `in` counts frames from 1 on its own. ffmpeg rounds `st` and `d` to
-the stream time base, which after a speed step is one frame, so a time-based template should take frame-aligned
-values from `derive` (fade uses `round(seconds * media.fps) / media.fps`).
+Time is the time at the effect's place in the stack, counted from the first frame that reaches it. ffmpeg renders
+never rewrite timestamps, so picture and sound keep the offset they had in the source; a template that depends on time
+counts frames instead (fade's `start_frame` and `nb_frames`, `perspective`'s `in`, which is 1 on the first frame).
+Seconds a user enters are snapped to whole frames in `derive` (fade uses `round(seconds * media.fps)`), and `afade`
+takes the same values back in seconds.
 
 Python renders see `FrameBatch` (`frames` N×H×W×3 uint8, `indices` counted from the stage's first frame,
 `times` = `index / fps`, `fps`, `duration`, and `tensor` N×3×H×W float 0..1 for torch) and return the same shape.
@@ -251,7 +250,7 @@ Python renders see `FrameBatch` (`frames` N×H×W×3 uint8, `indices` counted fr
 | Film grain | amount, size, colour, seed | torch, numpy (integer hash) | the same hash per cell |
 | Fix colours | white balance, contrast, strength | ffmpeg `colorchannelmixer` + `colorlevels`, numpy | gains, then levels |
 | Vignette | amount, radius, softness (% of the half diagonal) | torch, numpy | `1 - amount * smoothstep(radius, radius + softness, d)` |
-| Fade | fade in, fade out (seconds, to and from black), sound | ffmpeg `fade` + `afade` | ffmpeg's 16-bit fade factor; `preview.gain` fades the sound |
+| Fade | fade in, fade out (seconds, to and from black), sound | ffmpeg `fade` by frame count + `afade`, numpy | ffmpeg's 16-bit fade factor per frame; `preview.gain` fades the sound |
 | Ken Burns | start and end zoom, start and end anchor, easing | ffmpeg `perspective` (linear), numpy | the window eased over the clip, ffmpeg's 1/256-pixel bilinear |
 
 Vignette has no ffmpeg render: the `vignette` filter only takes an angle, so it cannot place the radius or the
@@ -288,4 +287,5 @@ checked against them.
 The effects come from the catalog: every core effect, plus every effect root a plugin under
 `content/plugins/marketplace/` declares as `effects: [{path: …}]`. `tests/scripts/test_effect_parity.py` checks each
 render candidate of each of them against its goldens, fails when an effect with a shader has no goldens, and
-re-renders the shaders in Chromium when Node, esbuild and Playwright's Chromium are there (skipped otherwise).
+re-renders the shaders in Chromium when Node, esbuild and Playwright's Chromium are there. It is skipped otherwise,
+unless `PARITY_REQUIRE_BROWSER=1` is set: then a missing harness fails the test.

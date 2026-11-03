@@ -4,7 +4,7 @@ group: transitions
 icon: editor-effects
 description: Fade in from black and out to black
 accepts: [video]
-time: seconds
+time: frame
 requires: { min_duration: 0.2 }
 params:
   - { name: fade_in, type: float, label: Fade in, description: Seconds from black, default: 1, min: 0, max: 10, step: 0.1, unit: s }
@@ -12,25 +12,29 @@ params:
   - { name: sound, type: checkbox, label: Fade the sound too, description: Sound follows the picture, default: true }
 derive:
   frames: "max(1, round(media.duration * media.fps))"
+  in_frames: "min(round(fade_in * media.fps), frames - 1)"
+  out_frames: "min(round(fade_out * media.fps), frames - 1)"
+  out_frame: "frames - 1 - out_frames"
   last: "(frames - 1) / media.fps"
-  fin: "min(round(fade_in * media.fps), frames - 1) / media.fps"
-  fout: "min(round(fade_out * media.fps), frames - 1) / media.fps"
-  out_start: "last - fout"
+  fin: "in_frames / media.fps"
+  fout: "out_frames / media.fps"
+  out_start: "out_frame / media.fps"
 preview:
   shader: preview.frag
   gain: "((clamp(time / fin, 0, 1) if fin > 0 else 1) * (clamp((last - time) / fout, 0, 1) if fout > 0 else 1)) if sound else 1"
 render:
   - ffmpeg:
       vf:
-        - fade: { t: in, st: 0, d: "{fin}" }
-          when: "fin > 0"
-        - fade: { t: out, st: "{out_start}", d: "{fout}" }
-          when: "fout > 0"
+        - fade: { t: in, start_frame: 0, nb_frames: "{in_frames}" }
+          when: "in_frames > 0"
+        - fade: { t: out, start_frame: "{out_frame}", nb_frames: "{out_frames}" }
+          when: "out_frames > 0"
       af:
         - afade: { t: in, st: 0, d: "{fin}" }
           when: "sound and fin > 0"
         - afade: { t: out, st: "{out_start}", d: "{fout}" }
           when: "sound and fout > 0"
+  - numpy: render.py:fade_numpy
 parity:
   media: { width: 320, height: 180, fps: 25, duration: 4 }
   cases:

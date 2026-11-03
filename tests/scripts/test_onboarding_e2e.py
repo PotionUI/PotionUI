@@ -234,6 +234,20 @@ class TestMirrorModelsDirReadonly:
         # The source file itself must never be touched.
         assert checkpoint.read_bytes() == b"fake-weights"
 
+    def test_cube_files_are_copied_so_the_lut_folder_containment_check_accepts_them(self, tmp_path):
+        source = tmp_path / "depot"
+        (source / "luts").mkdir(parents=True)
+        (source / "luts" / "warm.cube").write_text("LUT_3D_SIZE 2\n", encoding="utf-8")
+        (source / "luts" / "other.bin").write_bytes(b"x")
+
+        dest = tmp_path / "mirror"
+        e2e.mirror_models_dir_readonly(source, dest)
+
+        assert not (dest / "luts" / "warm.cube").is_symlink()
+        assert (dest / "luts" / "warm.cube").read_text(encoding="utf-8") == "LUT_3D_SIZE 2\n"
+        assert (dest / "luts" / "other.bin").is_symlink()
+        assert (dest / "luts" / "warm.cube").resolve().parent == (dest / "luts").resolve()
+
     def test_new_files_can_be_written_into_the_mirror_without_touching_the_source(self, tmp_path):
         source = tmp_path / "depot"
         (source / "checkpoints").mkdir(parents=True)

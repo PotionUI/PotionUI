@@ -63,6 +63,30 @@ cases:
       min_outputs: 1
       not_black: true
 
+  - name: "qwen-image-21-combine-custom-size-fast"
+    mode: "combine"
+    seed: 4242
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "put the hat from <image2> on the person in <image1>"
+      output_size: "custom"
+      resolution: "1664x928"
+      output_fit: "crop"
+      steps: 10
+      cfg: 3.0
+      sampler: "euler"
+    models:
+      diffusion_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      resolution: "1664x928"
+      not_black: true
+
   - name: "qwen-image-21-turbo8-fast"
     mode: "txt2img"
     seed: 4242

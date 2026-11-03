@@ -103,6 +103,8 @@ pipeline:
       shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
       sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
       schedule: "{{ form.schedule }}"
+      resolution: "{{ form.resolution }}"
+      fit: "{{ form.output_fit if form.output_size == 'custom' else 'match' }}"
       quantity: "{{ form.quantity }}"
       step_cache:
         rel_threshold: "{{ form.step_cache_threshold }}"

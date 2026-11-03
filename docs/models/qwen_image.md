@@ -39,6 +39,10 @@ The shipped Qwen-Image preset ships `txt2img`, `img2img`, `edit`, `camera` and `
 
 2511 is recognised by its timestep-zero marker. 2508 and 2509 share every key and shape, so the original release is recognised by the values of its `proj_out` bias, cast to fp8 e4m3 and hashed so that bf16, fp16, fp32 and fp8 copies all match. Every other checkpoint gets the Plus layout. A mode can override either half with `picture_labels` and `grounding_area` on `prompt_encoder`.
 
+### Output size in edit
+
+The References tab has an **Output size** choice. **Match first image** (the default) renders at the first image's aspect at about 1 MP, as before. **Custom** shows the same resolution picker as txt2img and renders at that size (snapped to the 16px grid). The first image is the one being edited, so its reference latent is fitted to exactly that size: **Crop to fill** (default) takes the centred box of the target aspect, and **Pad to fit** scales the whole picture inside it on neutral grey (128) borders. Grey follows ComfyUI's `ImagePadForOutpaint`, which pads with 0.5 grey; edge-extended borders read as picture content that an edit keeps. The other references keep their own aspect at about 1 MP, as in diffusers' `QwenImageEditPlusPipeline`, where the output `height`/`width` are independent of the reference sizes. The generator takes this as `resolution` plus `fit` (`match`, `crop`, `pad`); `fit` defaults to `match`, which ignores `resolution`. The vision tower still sees the uncropped first image. Make it real and Camera angle keep the source composition, so they have no Output size.
+
 ### Camera angle
 
 `camera` shows the same picture from another viewpoint. It is an `edit` run (the 2511 edit checkpoint with the vision tower loaded) with the fal Multiple-Angles LoRA applied, trained on 3,000+ Gaussian Splat renders over 96 camera positions. The mode is promptless: its three dials compose the LoRA trigger `<sks> [azimuth] [elevation] [distance]` and nothing the user types reaches the model.

@@ -167,6 +167,8 @@ pipeline:
       # model's own ramp, so the default value is a no-op; any other key
       # replaces it outright (see docs/techniques/samplers-and-schedules.md).
       schedule: "{{ form.schedule }}"
+      resolution: "{{ form.resolution }}"
+      fit: "{{ form.output_fit if form.output_size == 'custom' else 'match' }}"
       quantity: "{{ form.quantity }}"
 
   #############

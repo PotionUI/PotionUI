@@ -226,6 +226,10 @@
     },
     {
       "config": {
+        "fit": {
+          "type": "str",
+          "value": "match"
+        },
         "guidance": {
           "type": "float",
           "value": 4.0
@@ -241,6 +245,10 @@
         "quantity": {
           "type": "int",
           "value": 1
+        },
+        "resolution": {
+          "type": "str",
+          "value": "1024x1024"
         },
         "sampler": {
           "type": "str",

@@ -124,6 +124,15 @@ describe('compare cell states', () => {
 		expect(q(target, '[data-testid="compare-cell-time"]')?.textContent?.trim()).toBe('18 s');
 	});
 
+	it('draws the time chip on theme tokens so it reads in both themes', () => {
+		const { target } = mount(CompareCell, { cell: cell(0, 'completed', { thumbnailUrl: '/t0.png', mediaType: 'image' }), index: 0, seconds: 18.2 });
+		const chip = q(target, '[data-testid="compare-cell-time"]');
+		expect(chip?.classList.contains('bg-scrim/70')).toBe(true);
+		expect(chip?.classList.contains('text-scrim-on')).toBe(true);
+		expect(chip?.classList.contains('text-fg')).toBe(false);
+		expect(chip?.classList.contains('bg-black/70')).toBe(false);
+	});
+
 	it('omits the time when none was measured', () => {
 		const done = cell(0, 'completed', { thumbnailUrl: '/t0.png' });
 		const { target } = mount(CompareCell, { cell: done, index: 0 });

@@ -26,3 +26,7 @@ export function resolveAuthLayoutMode(state: AuthLayoutState): AuthLayoutMode {
 	if (state.isAuthenticated && !state.isPublicRoute) return state.mounted ? 'app' : 'boot';
 	return 'public';
 }
+
+export function shouldRedirectToLogin(state: AuthLayoutState & { pathname: string }): boolean {
+	return state.mounted && !state.loading && !state.isAuthenticated && !state.isPublicRoute && state.pathname !== '/';
+}

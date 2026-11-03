@@ -767,7 +767,8 @@ class LayerPrefetcher:
         if self._disabled:
             return
         if self._recording:
-            self._order.append(leaf)
+            if not self._order or self._order[-1] is not leaf:
+                self._order.append(leaf)
             return
         try:
             self._consume(leaf)
@@ -799,7 +800,7 @@ class LayerPrefetcher:
 
     def _prefetch_after(self, leaf: nn.Module) -> None:
         nxt = self._next_of.get(id(leaf))
-        if nxt is None or id(nxt) in self._staged:
+        if nxt is None or id(nxt) in self._staged or id(nxt) in self._orig_weight:
             return
         if len(self._staged) >= self._depth:   # hard staging-budget cap
             return

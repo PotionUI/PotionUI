@@ -390,3 +390,109 @@ def test_swapped_weight_restored_when_leaf_forward_raises(monkeypatch):
     assert victim.weight.data_ptr() == original_ptr
     assert pf._orig_weight == {}
     pf.teardown()
+
+
+class _ChunkedTiny(nn.Module):
+    def __init__(self, chunks: int = 3, dim: int = 8) -> None:
+        super().__init__()
+        self.qkv = disable_weight_init.Linear(dim, dim)
+        self.out = disable_weight_init.Linear(dim, dim)
+        self.chunks = chunks
+        for p in self.parameters():
+            nn.init.normal_(p)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = torch.cat([self.qkv(c) for c in x.chunk(self.chunks, dim=1)], dim=1)
+        return torch.cat([self.out(c) for c in h.chunk(self.chunks, dim=1)], dim=1)
+
+
+def _install_device_faithful_cuda(monkeypatch):
+    device_storage: set[int] = set()
+    recorded: list[int] = []
+
+    def _on_device(tensor: torch.Tensor) -> bool:
+        return tensor.untyped_storage().data_ptr() in device_storage
+
+    def _stage(tensor, device, *, non_blocking):
+        if _on_device(tensor):
+            return tensor
+        clone = tensor.detach().clone()
+        device_storage.add(clone.untyped_storage().data_ptr())
+        return clone
+
+    def _record(tensor, stream):
+        if not _on_device(tensor):
+            raise NotImplementedError("Could not run 'aten::record_stream' with arguments from the 'CPU' backend")
+        recorded.append(id(tensor))
+
+    fake = _install_fake_cuda(monkeypatch, stage=_stage, record=_record)
+    fake["device_storage"] = device_storage
+    fake["recorded"] = recorded
+    return fake
+
+
+def test_a_leaf_called_repeatedly_in_one_forward_does_not_disable_prefetch(monkeypatch):
+    _install_device_faithful_cuda(monkeypatch)
+    m = _ChunkedTiny(chunks=3)
+    x = torch.randn(2, 6, 8)
+    reference = m(x)
+
+    pf = LayerPrefetcher(m, _streamed_leaves(m), "cuda:0", prefetch_depth=1)
+    for _ in range(4):
+        out = m(x)
+        assert torch.allclose(out, reference, atol=1e-6)
+
+    assert pf.disabled is False
+    assert pf._orig_weight == {}
+    pf.teardown()
+
+
+def test_a_staged_weight_never_aliases_a_weight_swapped_into_a_leaf(monkeypatch):
+    _install_device_faithful_cuda(monkeypatch)
+    m = _ChunkedTiny(chunks=3)
+    x = torch.randn(2, 6, 8)
+    reference = m(x)
+    pf = LayerPrefetcher(m, _streamed_leaves(m), "cuda:0", prefetch_depth=1)
+    m(x)
+    pf._next_of[id(m.qkv)] = m.qkv
+
+    for _ in range(3):
+        assert torch.allclose(m(x), reference, atol=1e-6)
+
+    assert pf.disabled is False
+    pf.teardown()
+
+
+def test_consecutive_calls_of_one_leaf_are_recorded_once(monkeypatch):
+    _install_device_faithful_cuda(monkeypatch)
+    m = _ChunkedTiny(chunks=3)
+    pf = LayerPrefetcher(m, _streamed_leaves(m), "cuda:0", prefetch_depth=1)
+    m(torch.randn(2, 6, 8))
+
+    assert pf._order == [m.qkv, m.out]
+    pf.teardown()
+
+
+def test_disabling_mid_forward_releases_every_staged_copy(monkeypatch):
+    fake = _install_device_faithful_cuda(monkeypatch)
+    m = _Tiny(n_linear=4, dim=8)
+    tokens = torch.randint(0, 16, (2, 5))
+    pf = LayerPrefetcher(m, _streamed_leaves(m), "cuda:0", prefetch_depth=2)
+    m(tokens)
+    refs: list = []
+    orig_stage = partial._stage_copy
+
+    def _tracking_stage(tensor, device, *, non_blocking):
+        staged = orig_stage(tensor, device, non_blocking=non_blocking)
+        refs.append(weakref.ref(staged))
+        return staged
+
+    monkeypatch.setattr(partial, "_stage_copy", _tracking_stage)
+    pf._recording = False
+    pf._prefetch_after(pf._order[0])
+    pf._on_error()
+    gc.collect()
+
+    assert pf._staged == {} and pf._orig_weight == {}
+    assert all(r() is None for r in refs)
+    pf.teardown()

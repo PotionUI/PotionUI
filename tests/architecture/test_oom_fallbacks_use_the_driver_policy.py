@@ -5,10 +5,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OOM_TYPES = {"torch.cuda.OutOfMemoryError", "torch.OutOfMemoryError"}
-UNFILTERED_FAST_PATHS = {
-    "src/platform/runtime/native/kernels/fp8_linear.py",
-    "src/platform/runtime/native/kernels/nvfp4_linear.py",
-}
 
 
 def _dotted(node: ast.expr) -> str:
@@ -47,9 +43,8 @@ def test_no_fallback_catches_only_the_torch_out_of_memory_error():
     offenders = [
         f"{_relative(path)}:{handler.lineno}"
         for path in _sources()
-        if _relative(path) not in UNFILTERED_FAST_PATHS
         for handler in _handlers(path)
-        if _caught(handler) & OOM_TYPES
+        if _caught(handler) & OOM_TYPES and "retry_after_cuda_oom" not in _calls(handler)
     ]
     assert offenders == [], "catch RuntimeError and filter it through retry_after_cuda_oom"
 

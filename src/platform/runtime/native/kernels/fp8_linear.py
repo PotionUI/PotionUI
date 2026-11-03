@@ -7,7 +7,9 @@ from contextlib import contextmanager
 import torch
 import torch.nn.functional as F
 
+from src.platform.runtime.cuda_allocator import is_driver_oom
 from src.platform.settings.runtime_flags import runtime_flag
+from ..errors import retry_after_cuda_oom
 from ..io.quant_formats import (
     COMFY_QUANT_INT8_TENSORWISE,
     E4M3_MAX,
@@ -373,7 +375,9 @@ class Fp8ScaledLinear(manual_cast.Linear):
             return weight
         try:
             return cast_to(weight, weight.dtype, device, non_blocking=self.stream_non_blocking)
-        except (RuntimeError, torch.cuda.OutOfMemoryError):
+        except (RuntimeError, torch.cuda.OutOfMemoryError) as exc:
+            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                raise
             logger.debug(
                 "fp8 matmul: on-demand weight staging failed; using dequant path", exc_info=True,
             )
@@ -410,7 +414,9 @@ class Fp8ScaledLinear(manual_cast.Linear):
                 scale_a=x_scale, scale_b=w_scale,
                 out_dtype=input.dtype, bias=bias,
             )
-        except (RuntimeError, torch.cuda.OutOfMemoryError):
+        except (RuntimeError, torch.cuda.OutOfMemoryError) as exc:
+            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                raise
             logger.debug("fp8 matmul: _scaled_mm rejected operands; using dequant path", exc_info=True)
             return None
         if self.lora_deltas:

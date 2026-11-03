@@ -44,6 +44,8 @@ class _FakeVAE:
             raise RuntimeError("some other cuda error")
         if self._fail_mode == "wsl_driver_oom_once" and self._decode_calls == 1:
             raise RuntimeError("CUDA driver error: device not ready")
+        if self._fail_mode == "driver_says_out_of_memory":
+            raise RuntimeError("CUDA driver error: out of memory")
         return (torch.zeros(1, 3, 4, 4),)
 
 
@@ -118,3 +120,19 @@ def test_wsl_driver_oom_retries_with_tiling():
     assert image is not None
     assert vae._decode_calls == 2
     assert vae.tiling_calls == ["enable", "disable"]
+
+
+def test_a_driver_error_that_says_out_of_memory_is_not_retried_where_the_policy_is_fatal(monkeypatch):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    vae = _FakeVAE(use_tiling=False, fail_mode="driver_says_out_of_memory")
+
+    with pytest.raises(RuntimeError, match="CUDA driver error: out of memory"):
+        _decode(vae)
+
+    assert vae._decode_calls == 1
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: out of memory"

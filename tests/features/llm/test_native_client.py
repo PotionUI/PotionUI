@@ -1704,6 +1704,23 @@ def test_is_oom_recognises_the_wsl_driver_oom_but_not_other_driver_errors():
     assert not native_module._is_oom(RuntimeError("CUDA driver error: invalid argument"))
 
 
+@pytest.mark.parametrize("text", ["CUDA driver error: device not ready", "CUDA driver error: out of memory"])
+def test_is_oom_leaves_a_driver_oom_to_the_policy(monkeypatch, text):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
+    assert native_module._is_oom(RuntimeError(text))
+    assert cuda_allocator.allocator_damage() is None
+
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    assert not native_module._is_oom(RuntimeError(text))
+    assert cuda_allocator.allocator_damage() == text
+
+
 @pytest.mark.asyncio
 async def test_leased_does_not_swallow_a_non_oom_runtime_error(client, native_checkpoint, monkeypatch):
     """Only an OOM degrades to CPU - any other RuntimeError during placement

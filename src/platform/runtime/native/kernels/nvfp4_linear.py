@@ -6,8 +6,10 @@ import logging
 import torch
 import torch.nn.functional as F
 
+from src.platform.runtime.cuda_allocator import is_driver_oom
 from src.platform.settings.runtime_flags import runtime_flag
 
+from ..errors import retry_after_cuda_oom
 from ..io.quant_formats import (
     NVFP4_BLOCK,
     dequant_values,
@@ -224,6 +226,8 @@ class Nvfp4Linear(Fp8ScaledLinear):
         try:
             x_packed, x_block, x_global = quantize_nvfp4_dynamic(x2d)
         except Exception as exc:
+            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                raise
             logger.debug("nvfp4 matmul: activation quant failed; using dequant path", exc_info=True)
             _log_nvfp4_fast_path_rejection(f"activation quant failed ({type(exc).__name__})", str(exc)[:300])
             return None
@@ -243,6 +247,8 @@ class Nvfp4Linear(Fp8ScaledLinear):
                 output_dtype=input.dtype,
             )
         except (RuntimeError, torch.cuda.OutOfMemoryError) as exc:
+            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                raise
             logger.debug("nvfp4 matmul: _scaled_mm_v2 rejected operands; using dequant path", exc_info=True)
             _log_nvfp4_fast_path_rejection(f"scaled_mm rejected operands ({type(exc).__name__})", str(exc)[:300])
             return None

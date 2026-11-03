@@ -3844,6 +3844,69 @@ def test_the_preview_decoder_file_reaches_the_preview_hook(tmp_path):
     assert [k["decoder_path"] for k in kwargs] == [None]
 
 
+def _h3_placement_kwargs(config_extra=None):
+    from src.pipelines.pipes.generator.video_minimax_h3 import main as h3_main
+
+    seen: list = []
+    real = h3_main.place_dit_for_sequence
+
+    def spy(*args, **kwargs):
+        seen.append(dict(kwargs))
+        return real(*args, **kwargs)
+
+    with patch.object(h3_main, "place_dit_for_sequence", spy):
+        _run_generate_one_with_preview(4, config_extra=config_extra)
+    return seen
+
+
+def _budget_on_a_32gb_card(placement_kwargs):
+    from src.pipelines.pipes._shared.generation.dit_placement import place_dit_for_sequence
+
+    kwargs = {k: v for k, v in placement_kwargs.items() if k not in ("own_models", "fit_hint")}
+    dit = SimpleNamespace(estimated_vram_gb=21.27, move_to=lambda d: None,
+                          stream_to=lambda d, budget: None, offload=lambda: None)
+    registry = SimpleNamespace(ensure_free=lambda *a, **k: [], offload_all=lambda *a, **k: [])
+    with patch(f"{_PLACEMENT}.free_vram_gb", return_value=27.46), \
+         patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=27.46), \
+         patch(f"{_PLACEMENT}.minimum_inference_memory_gb", return_value=1.0), \
+         patch(f"{_PLACEMENT}.get_residency_registry", return_value=registry):
+        return place_dit_for_sequence(dit, "cuda", **kwargs).weight_budget_gb
+
+
+def test_placement_reserves_the_preview_decoder_weights_and_one_preview_decode(tmp_path):
+    from safetensors.torch import save_file
+
+    from src.platform.runtime.native.sampling.preview import CLIP_MAX_SIZE, PREVIEW_MAX_SIZE
+    from src.platform.runtime.native.sampling.preview_decoder import (
+        decoder_resident_gb,
+        load_preview_decoder,
+        preview_decode_transient_gb,
+    )
+    from vendor.taehv.taehv import TAEHV
+
+    weights = tmp_path / "taeh3.safetensors"
+    save_file({k: v.contiguous() for k, v in TAEHV("taeh3").state_dict().items()}, str(weights))
+    decoder = load_preview_decoder(weights)
+    resident = decoder_resident_gb(decoder)
+    transient = preview_decode_transient_gb(
+        decoder, 2, 2, 2, frame_size=PREVIEW_MAX_SIZE, clip_size=CLIP_MAX_SIZE,
+    )
+    assert resident > 0.0 and transient > 0.0
+
+    with_decoder = _h3_placement_kwargs({"preview_decoder": str(weights)})
+    projection_only = _h3_placement_kwargs()
+    no_preview = _h3_placement_kwargs({"preview": False})
+
+    assert [k["preview_reserve_gb"] for k in with_decoder] == [pytest.approx(resident + transient)]
+    assert [k["preview_reserve_gb"] for k in projection_only] == [0.0]
+    assert [k["preview_reserve_gb"] for k in no_preview] == [0.0]
+
+    baseline = _budget_on_a_32gb_card({**no_preview[0], "preview_reserve_gb": 0.0})
+    assert _budget_on_a_32gb_card(no_preview[0]) == pytest.approx(baseline)
+    assert _budget_on_a_32gb_card(projection_only[0]) == pytest.approx(baseline)
+    assert baseline - _budget_on_a_32gb_card(with_decoder[0]) == pytest.approx(resident + transient)
+
+
 def test_the_preview_disabled_path_computes_no_x0():
     """`preview: False` registers no preview hook, so the loop must not run
     `data_estimate` at all -- the estimate is preview-only work."""

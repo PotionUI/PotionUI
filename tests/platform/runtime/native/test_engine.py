@@ -511,9 +511,9 @@ def test_sample_extracts_ref_latents_from_cond_dict_for_placement(monkeypatch, d
     seen = {}
     real_build_placement = gen._build_placement
 
-    def _spy(latents_shape, ref_latents=None):
+    def _spy(latents_shape, ref_latents=None, **kwargs):
         seen["ref_latents"] = ref_latents
-        return real_build_placement(latents_shape, ref_latents=ref_latents)
+        return real_build_placement(latents_shape, ref_latents=ref_latents, **kwargs)
 
     monkeypatch.setattr(gen, "_build_placement", _spy)
 
@@ -525,6 +525,59 @@ def test_sample_extracts_ref_latents_from_cond_dict_for_placement(monkeypatch, d
     gen.sample(Conditioning(cond), (1, 16, 8, 8), steps=1, seed=0, cfg_scale=1.0)
 
     assert seen["ref_latents"] == [ref]
+
+
+def test_dit_weights_budget_shrinks_by_the_preview_reserve(monkeypatch):
+    import src.platform.runtime.native.engine as engine_mod
+
+    monkeypatch.setattr(engine_mod, "free_vram_gb", lambda device: 50.0)
+    gen = _bare_generator(vram_gb=50.0, dit_gb=20.0)
+    gen._ensure_room_for = lambda need_gb, device: None
+
+    latents_shape = (1, 16, 1, 128, 128)
+    plain = gen._dit_weights_budget_gb(latents_shape)
+    assert gen._dit_weights_budget_gb(latents_shape, preview_reserve_gb=0.0) == plain
+    assert plain - gen._dit_weights_budget_gb(latents_shape, preview_reserve_gb=0.3) == pytest.approx(0.3)
+
+
+def test_build_placement_prices_the_preview_reserve(monkeypatch):
+    import src.platform.runtime.native.engine as engine_mod
+
+    monkeypatch.setattr(engine_mod, "free_vram_gb", lambda device: 25.0)
+    gen = _bare_generator(vram_gb=25.0, dit_gb=20.0)
+    latents_shape = (1, 16, 1, 96, 96)
+    assert gen._build_placement(latents_shape).dit.resident is True
+    assert gen._build_placement(latents_shape, preview_reserve_gb=0.0).dit.resident is True
+    assert gen._build_placement(latents_shape, preview_reserve_gb=5.0).dit.resident is False
+
+
+def test_sample_prices_the_preview_reserve_of_its_hooks_into_placement(monkeypatch, dit_path, vae_path):
+    import src.platform.runtime.native.engine as engine_mod
+    from src.platform.runtime.native.sampling import ProgressHook
+
+    loader = NativeEngineLoader()
+    gen = NativeGenerator(loader.load(dit_path, "diffusion_model"), _StubTE(), loader.load(vae_path, "vae"))
+    hook = ProgressHook(lambda *a: None)
+    priced = []
+
+    def reserve(hooks, latents_shape):
+        priced.append((list(hooks), tuple(latents_shape)))
+        return 0.25
+
+    seen = {}
+    real_build_placement = gen._build_placement
+
+    def spy(latents_shape, ref_latents=None, preview_reserve_gb=0.0):
+        seen["preview_reserve_gb"] = preview_reserve_gb
+        return real_build_placement(latents_shape, ref_latents=ref_latents, preview_reserve_gb=preview_reserve_gb)
+
+    monkeypatch.setattr(engine_mod, "preview_reserve_gb", reserve)
+    monkeypatch.setattr(gen, "_build_placement", spy)
+    gen.sample(Conditioning({"context": torch.zeros(1, 4, 32)}), (1, 16, 8, 8), steps=1, seed=0,
+               cfg_scale=1.0, hooks=[hook])
+
+    assert priced == [([hook], (1, 16, 8, 8))]
+    assert seen["preview_reserve_gb"] == 0.25
 
 
 def test_krea2_edit_plugin_bare_tensor_ref_shape_is_priced():

@@ -129,7 +129,7 @@ from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.lora import apply_loras, restore_lora_state, snapshot_lora_state
 from src.platform.runtime.native.memory.residency import effective_free_vram_gb, minimum_inference_memory_gb
 from src.platform.runtime.native.sampling.hooks import ProgressHook, run_hooks
-from src.platform.runtime.native.sampling.preview import make_preview_hook
+from src.platform.runtime.native.sampling.preview import make_preview_hook, preview_reserve_gb
 from src.platform.runtime.native.sampling.step_cache import FirstBlockCache, normalize_options
 from src.platform.runtime.native.sampling.step_profile import StepPlanHook, cache_skip_probe, with_step_profile
 from src.platform.runtime.native.sla_attn import SlaAttnContext, build_sla_attn_context, sla_attn_disabled_reason
@@ -2577,6 +2577,18 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             )
             return _format_fit_hint(hint, c.width, c.height)
 
+        reported_total = progress_total if progress_total is not None else num_steps
+
+        def on_progress(_frac, step_index, total):
+            progress.step(progress_offset + step_index + 1, reported_total, state=progress_state,
+                          icon=Icon(name="film", effect="pulse"), segment_id=progress_segment_id)
+
+        hooks = [ProgressHook(on_progress)]
+        if self.config.get("preview", True):
+            preview_hook = make_preview_hook(c.spec, progress.preview, emit_clip=progress.preview_clip, decoder_path=self.config.get("preview_decoder") or None)
+            if preview_hook is not None:
+                hooks.append(preview_hook)
+
         lora_snapshot = snapshot_lora_state(c.bundle.dit.module) if c.runtime_lora_stack else None
         if lora_snapshot is not None:
             apply_loras(c.bundle.dit.module, c.runtime_lora_stack, row_masked=c.runtime_lora_masked)
@@ -2594,6 +2606,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             fit_hint=_h3_fit_hint,
             seq_chunk_rows=seq_chunk_rows,
             seq_chunking=sparse_attn_ctx is None and vdn_layout is None,
+            preview_reserve_gb=preview_reserve_gb(
+                hooks, (1, VIDEO_LATENT_CHANNELS, num_latent_frames, c.latent_height, c.latent_width),
+            ),
         )
         seq_chunk_rows = placement.seq_chunk_rows
         # `c.bundle.dit.device` is the wrapper's OWN placement contract (set by
@@ -2615,18 +2630,6 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         sample_forward = guard_sampling_oom(
             forward, dit=c.bundle.dit, device=c.device, decision=placement, fit_hint=_h3_fit_hint,
         )
-
-        reported_total = progress_total if progress_total is not None else num_steps
-
-        def on_progress(_frac, step_index, total):
-            progress.step(progress_offset + step_index + 1, reported_total, state=progress_state,
-                          icon=Icon(name="film", effect="pulse"), segment_id=progress_segment_id)
-
-        hooks = [ProgressHook(on_progress)]
-        if self.config.get("preview", True):
-            preview_hook = make_preview_hook(c.spec, progress.preview, emit_clip=progress.preview_clip, decoder_path=self.config.get("preview_decoder") or None)
-            if preview_hook is not None:
-                hooks.append(preview_hook)
 
         n_cv = layout.num_condition_video_rows
         n_ca = layout.num_condition_audio_rows

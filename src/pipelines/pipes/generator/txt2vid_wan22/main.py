@@ -20,7 +20,7 @@ from typing import Any, Dict, List
 
 import torch
 
-from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook
+from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook, preview_reserve_gb
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.outputs import Icon
@@ -270,6 +270,7 @@ class GeneratorWanTxt2VidPipe(BaseGeneratorPipe):
                     preview_hook = make_preview_hook(c.spec, progress.preview, emit_clip=progress.preview_clip, decoder_path=self.config.get("preview_decoder") or None)
                     if preview_hook is not None:
                         hooks.append(preview_hook)
+                c.router.preview_reserve_gb = preview_reserve_gb(hooks, shape)
 
                 latent = denoise(
                     c.router, latents, cond, uncond,

@@ -68,6 +68,27 @@ def test_router_scales_timestep_by_1000():
     assert torch.allclose(seen["t"], torch.tensor([500.0]))  # 0.5 * 1000
 
 
+def _expert_budget(preview_reserve_gb=None):
+    high = _FakeDiT("high")
+    high.estimated_vram_gb = 14.0
+    router = ExpertRouter(high, None, 0.875, "cuda", latents_shape=(1, 16, 1, 32, 32))
+    if preview_reserve_gb is not None:
+        router.preview_reserve_gb = preview_reserve_gb
+    registry = SimpleNamespace(ensure_free=lambda *a, **k: [])
+    with patch("src.pipelines.pipes._shared.video.wan_experts.free_vram_gb", return_value=24.0), \
+         patch("src.pipelines.pipes._shared.video.wan_experts.get_residency_registry", return_value=registry):
+        return router._weights_budget_gb(high)
+
+
+def test_a_router_reserves_nothing_for_previews_by_default():
+    assert ExpertRouter(_FakeDiT("high"), None, 0.875, "cuda").preview_reserve_gb == 0.0
+
+
+def test_the_preview_reserve_shrinks_the_expert_weight_budget_by_its_size():
+    assert _expert_budget() - _expert_budget(0.4) == pytest.approx(0.4)
+    assert _expert_budget(0.0) == pytest.approx(_expert_budget())
+
+
 class _FakeVae:
     def __init__(self):
         self.offloaded = 0

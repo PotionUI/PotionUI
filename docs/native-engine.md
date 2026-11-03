@@ -341,6 +341,31 @@ ConvRot layers always dequantize, so they quantise no activations.
 
 A DiT that takes `seq_chunk_rows` (MiniMax-H3; LTX does not) gets its attention prep chunked automatically when the reserve does not fit: `S·B(d)` becomes `max(6·d·2·S, 4·d·2·S + rows·B(d))`, which is 14.36 GB for the clip above. The MiniMax-H3 page has the details.
 
+A live preview decoder also takes VRAM during sampling, so placement holds it back too. When the
+sampling hooks include a preview decoder, `sampling.preview_reserve_gb(hooks, latents_shape)` returns:
+
+```
+preview_reserve_gb = resident + transient
+resident           = (parameter + buffer elements of the loaded decoder) × 2 bytes (fp16 on CUDA)
+transient          = peak live bytes of one preview decode at this latent size
+```
+
+The transient comes from running the decoder's own decode functions once on the `meta` device and
+recording the largest set of tensors alive at one time. It covers both decodes a step can run: the
+middle-frame window at the 512 px preview cap, and, for a hook that sends clips, the whole clip at the
+384 px clip cap. The result is cached per decoder architecture and latent size. For `taeh3`, the
+resident part is 0.021 GB. A 124-frame 768×1344 MiniMax-H3 clip (37 × 48 × 84 latent) adds a
+0.536 GB transient, so placement reserves 0.557 GB. If the estimate fails, it reserves only the
+weights and logs a warning.
+
+The BYO-loop families (MiniMax-H3, LTX) build their hooks before placement and pass this value to
+`place_dit_for_sequence(preview_reserve_gb=...)`. It is added to `extra_reserve_gb`, and the
+over-commit warning, the fit hint and the sampling OOM detail each report it separately. The Wan
+expert router takes it from its `preview_reserve_gb` attribute. `NativeGenerator.sample` computes it
+from its own `hooks`, so every image family that passes a decoder hook is covered without extra
+wiring. Without a decoder hook (the colour projection or previews off) the reserve is 0.0 and
+placement does not change.
+
 All of the above is unit-testable without a GPU: the fit math, the deterministic layer split, the
 fp8 quant equivalence, and the eviction accounting are pure functions (`tests/core/native/memory/`,
 `tests/core/native/test_fp8_quant.py`). The wall-clock A/B (streamed-bf16 vs partial-residency vs
@@ -502,6 +527,7 @@ a renamed file still loads. A decoder is loaded once through `ModelLifecycle` un
 `native/preview_decoder/<path>`, runs in fp16 on CUDA and fp32 on CPU, and goes back to the CPU when the
 sampling loop ends. To keep the cost flat on long clips, a step decodes a window of three latent frames
 around the middle one, at the smallest spatial scale that still reaches the 512 px preview cap.
+Its weights and one decode are reserved before DiT placement (see *Sequence-length activation reserve*).
 `sampling/preview_decoder.py` also exposes `decode_clip`, which decodes every frame of a latent
 (optionally at reduced spatial scale) for callers that want the whole low-resolution clip.
 

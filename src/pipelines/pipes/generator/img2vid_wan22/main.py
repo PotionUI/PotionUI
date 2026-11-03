@@ -19,7 +19,7 @@ from typing import Any, Dict, List
 
 import torch
 
-from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook
+from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook, preview_reserve_gb
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
@@ -312,6 +312,7 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
             preview_hook = make_preview_hook(c.spec, progress.preview, emit_clip=progress.preview_clip, decoder_path=self.config.get("preview_decoder") or None)
             if preview_hook is not None:
                 hooks.append(preview_hook)
+        c.forward.router.preview_reserve_gb = preview_reserve_gb(hooks, shape)
         # try/finally: a partial-residency (streamed) expert pins host
         # RAM; an OOM/error mid-sampling must still tear the streamer
         # down (unpin) or the pinned pool leaks into the RAM-cached expert. See

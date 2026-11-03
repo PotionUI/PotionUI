@@ -54,6 +54,7 @@ class ExpertRouter:
         self.active = None
         self.latents_shape = latents_shape
         self.riflex = riflex
+        self.preview_reserve_gb = 0.0
 
     def _select(self, sigma_val: float):
         if self.low is None or sigma_val > self.boundary:
@@ -77,7 +78,7 @@ class ExpertRouter:
         shape = self.latents_shape
         frames = shape[2] if len(shape) == 5 else 1
         headroom = sampling_headroom_gb((shape[-2], shape[-1]), latent_frames=frames)
-        return max(0.0, free - headroom)
+        return max(0.0, free - headroom - max(0.0, float(self.preview_reserve_gb)))
 
     def _place_expert(self, dit) -> None:
         if self.active is not None:

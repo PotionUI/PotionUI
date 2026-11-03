@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 import numpy as np
 import torch
@@ -41,7 +41,9 @@ from .preview_decoder import (
     acquire_preview_decoder,
     decode_middle_frame,
     decode_preview_clip,
+    decoder_resident_gb,
     frame_to_image,
+    preview_decode_transient_gb,
     spec_latent_channels,
 )
 
@@ -326,9 +328,24 @@ def latent_to_preview_image(
 
 
 class _DecoderPreviewHook(PreviewHook):
-    def __init__(self, decode_fn, every_n, callback, decoder, priority: int = 50) -> None:
+    clip_size: Optional[int] = None
+
+    def __init__(self, decode_fn, every_n, callback, decoder, priority: int = 50, frame_size: int = PREVIEW_MAX_SIZE) -> None:
         super().__init__(decode_fn, every_n, callback, priority=priority)
         self._decoder = decoder
+        self._frame_size = frame_size
+
+    def vram_reserve_gb(self, latent_frames: int, latent_height: int, latent_width: int) -> float:
+        resident = decoder_resident_gb(self._decoder)
+        try:
+            transient = preview_decode_transient_gb(
+                self._decoder, latent_frames, latent_height, latent_width,
+                frame_size=self._frame_size, clip_size=self.clip_size,
+            )
+        except Exception:
+            logger.warning("preview decode VRAM could not be estimated; reserving the decoder weights only", exc_info=True)
+            return resident
+        return resident + transient
 
     def on_end(self) -> None:
         try:
@@ -369,8 +386,10 @@ class _ClipDecoder:
 
 
 class _ClipPreviewHook(_DecoderPreviewHook):
-    def __init__(self, decode_fn, every_n, callback, decoder, clips: _ClipDecoder, priority: int = 50) -> None:
-        super().__init__(decode_fn, every_n, callback, decoder, priority=priority)
+    clip_size = CLIP_MAX_SIZE
+
+    def __init__(self, decode_fn, every_n, callback, decoder, clips: _ClipDecoder, priority: int = 50, frame_size: int = PREVIEW_MAX_SIZE) -> None:
+        super().__init__(decode_fn, every_n, callback, decoder, priority=priority, frame_size=frame_size)
         self._clips = clips
         self._clip_latent: Optional[bool] = None
         self._schedule = ClipSchedule()
@@ -474,7 +493,16 @@ def make_preview_hook(
 
     if decoder is not None and emit_clip is not None:
         clips = _ClipDecoder(decoder, latent_transform, ClipRelay(emit_clip))
-        return _ClipPreviewHook(decode_fn, every_n, callback, decoder, clips, priority=priority)
+        return _ClipPreviewHook(decode_fn, every_n, callback, decoder, clips, priority=priority, frame_size=max_size)
     if decoder is not None:
-        return _DecoderPreviewHook(decode_fn, every_n, callback, decoder, priority=priority)
+        return _DecoderPreviewHook(decode_fn, every_n, callback, decoder, priority=priority, frame_size=max_size)
     return PreviewHook(decode_fn, every_n, callback, priority=priority)
+
+
+def preview_reserve_gb(hooks: Iterable[Any], latents_shape: Any) -> float:
+    shape = tuple(int(d) for d in latents_shape)
+    frames = shape[2] if len(shape) == 5 else 1
+    return float(sum(
+        hook.vram_reserve_gb(frames, shape[-2], shape[-1])
+        for hook in hooks if isinstance(hook, _DecoderPreviewHook)
+    ))

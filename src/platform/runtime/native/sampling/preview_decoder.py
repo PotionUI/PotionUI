@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import functools
 import logging
+import weakref
+from itertools import chain
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 import numpy as np
 import torch
 from PIL import Image
+from torch.utils._python_dispatch import TorchDispatchMode
+from torch.utils._pytree import tree_flatten
 
 from src.platform.runtime.model_lifecycle.lifecycle import get_model_lifecycle
 from vendor.taehv.taehv import TAEHV, apply_model_with_memblocks
@@ -120,6 +125,15 @@ def latent_to_ntchw(x0: torch.Tensor, latent_channels: int) -> torch.Tensor:
     return t.unsqueeze(0)
 
 
+def _clip_on_device(
+    decoder: TAEHV, latent: torch.Tensor, parallel: bool, space_upscales: int | None,
+) -> torch.Tensor:
+    set_space_upscales(decoder, MAX_SPACE_UPSCALES if space_upscales is None else space_upscales)
+    with torch.inference_mode():
+        frames = decoder.decode_video(latent.to(next(decoder.parameters()).dtype), parallel=parallel)
+    return frames[0].float()
+
+
 def decode_clip(
     decoder: TAEHV,
     x0: torch.Tensor,
@@ -129,20 +143,10 @@ def decode_clip(
 ) -> torch.Tensor:
     latent = latent_to_ntchw(x0, decoder.latent_channels)
     place(decoder, latent.device)
-    set_space_upscales(decoder, MAX_SPACE_UPSCALES if space_upscales is None else space_upscales)
-    with torch.inference_mode():
-        frames = decoder.decode_video(latent.to(next(decoder.parameters()).dtype), parallel=parallel)
-    return frames[0].float().cpu()
+    return _clip_on_device(decoder, latent, parallel, space_upscales).cpu()
 
 
-def decode_middle_frame(
-    decoder: TAEHV,
-    x0: torch.Tensor,
-    *,
-    max_size: int,
-) -> torch.Tensor:
-    latent = latent_to_ntchw(x0, decoder.latent_channels)
-    place(decoder, latent.device)
+def _middle_frame_on_device(decoder: TAEHV, latent: torch.Tensor, max_size: int) -> torch.Tensor:
     tokens = latent.shape[1]
     center = tokens // 2
     start = max(0, center - WINDOW_CONTEXT_TOKENS)
@@ -156,7 +160,18 @@ def decode_middle_frame(
     frames = frames[:, trim:]
     index = (center - start) * decoder.t_upscale + decoder.t_upscale // 2 - trim
     index = min(max(index, 0), frames.shape[1] - 1)
-    return frames[0, index].float().cpu()
+    return frames[0, index].float()
+
+
+def decode_middle_frame(
+    decoder: TAEHV,
+    x0: torch.Tensor,
+    *,
+    max_size: int,
+) -> torch.Tensor:
+    latent = latent_to_ntchw(x0, decoder.latent_channels)
+    place(decoder, latent.device)
+    return _middle_frame_on_device(decoder, latent, max_size).cpu()
 
 
 def frame_to_image(frame: torch.Tensor, *, max_size: int) -> Image.Image:
@@ -185,6 +200,15 @@ def even_frame_indices(total: int, count: int) -> list[int]:
     return [round(i * (total - 1) / (count - 1)) for i in range(count)]
 
 
+def _clip_plan(decoder: TAEHV, latent: torch.Tensor, max_size: int) -> tuple[bool, int | None]:
+    upscales = (
+        pick_space_upscales(decoder, latent.shape[-2], latent.shape[-1], max_size)
+        if any(isinstance(m, torch.nn.Upsample) for m in decoder.decoder)
+        else None
+    )
+    return latent.shape[1] <= PARALLEL_DECODE_MAX_TOKENS, upscales
+
+
 def decode_preview_clip(
     decoder: TAEHV,
     x0: torch.Tensor,
@@ -192,18 +216,90 @@ def decode_preview_clip(
     max_frames: int = 25,
     max_size: int = 384,
 ) -> tuple[list[np.ndarray], list[int]]:
-    latent = latent_to_ntchw(x0, decoder.latent_channels)
-    upscales = (
-        pick_space_upscales(decoder, latent.shape[-2], latent.shape[-1], max_size)
-        if any(isinstance(m, torch.nn.Upsample) for m in decoder.decoder)
-        else None
-    )
-    clip = decode_clip(
-        decoder,
-        x0,
-        parallel=latent.shape[1] <= PARALLEL_DECODE_MAX_TOKENS,
-        space_upscales=upscales,
-    )
+    parallel, upscales = _clip_plan(decoder, latent_to_ntchw(x0, decoder.latent_channels), max_size)
+    clip = decode_clip(decoder, x0, parallel=parallel, space_upscales=upscales)
     indices = even_frame_indices(clip.shape[0], max_frames)
     frames = [np.asarray(frame_to_image(clip[i], max_size=max_size)) for i in indices]
     return frames, indices
+
+
+_BYTES_PER_GB = 1024 ** 3
+
+
+def decoder_resident_gb(decoder: torch.nn.Module) -> float:
+    elements = sum(t.numel() for t in chain(decoder.parameters(), decoder.buffers()))
+    return elements * torch.finfo(compute_dtype(torch.device("cuda"))).bits / 8 / _BYTES_PER_GB
+
+
+class _PeakLiveBytes(TorchDispatchMode):
+    def __init__(self, external: Iterable[torch.Tensor]) -> None:
+        super().__init__()
+        self._external = {t.untyped_storage()._cdata for t in external}
+        self._storages: dict[int, list[int]] = {}
+        self.live = 0
+        self.peak = 0
+
+    def _release(self, key: int) -> None:
+        entry = self._storages[key]
+        entry[0] -= 1
+        if entry[0] == 0:
+            self.live -= entry[1]
+            del self._storages[key]
+
+    def _track(self, tensor: torch.Tensor) -> None:
+        storage = tensor.untyped_storage()
+        key = storage._cdata
+        if key in self._external:
+            return
+        entry = self._storages.get(key)
+        if entry is None:
+            entry = self._storages[key] = [0, storage.nbytes()]
+            self.live += entry[1]
+            self.peak = max(self.peak, self.live)
+        entry[0] += 1
+        weakref.finalize(tensor, self._release, key)
+
+    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+        out = func(*args, **(kwargs or {}))
+        for leaf in tree_flatten(out)[0]:
+            if isinstance(leaf, torch.Tensor):
+                self._track(leaf)
+        return out
+
+
+def _traced_peak_bytes(probe: TAEHV, latent: torch.Tensor, decode: Callable[[], torch.Tensor]) -> int:
+    tracker = _PeakLiveBytes(chain((latent,), probe.parameters(), probe.buffers()))
+    with tracker:
+        decode()
+    return tracker.peak
+
+
+@functools.lru_cache(maxsize=64)
+def _decode_peak_bytes(
+    arch_name: str, frames: int, height: int, width: int, frame_size: int, clip_size: int | None,
+) -> int:
+    with torch.device("meta"):
+        probe = TAEHV(arch_name)
+    probe = probe.to(dtype=compute_dtype(torch.device("cuda"))).eval().requires_grad_(False)
+    latent = torch.empty((1, frames, probe.latent_channels, height, width), device="meta")
+    peaks = [_traced_peak_bytes(probe, latent, lambda: _middle_frame_on_device(probe, latent, frame_size))]
+    if clip_size is not None and frames > 1:
+        parallel, upscales = _clip_plan(probe, latent, clip_size)
+        peaks.append(_traced_peak_bytes(probe, latent, lambda: _clip_on_device(probe, latent, parallel, upscales)))
+    return max(peaks)
+
+
+def preview_decode_transient_gb(
+    decoder: TAEHV,
+    latent_frames: int,
+    latent_height: int,
+    latent_width: int,
+    *,
+    frame_size: int,
+    clip_size: int | None = None,
+) -> float:
+    peak = _decode_peak_bytes(
+        str(decoder.arch_name), int(latent_frames), int(latent_height), int(latent_width),
+        int(frame_size), None if clip_size is None else int(clip_size),
+    )
+    return peak / _BYTES_PER_GB

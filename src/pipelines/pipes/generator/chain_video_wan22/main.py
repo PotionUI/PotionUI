@@ -43,7 +43,7 @@ import torch
 from src.pipelines.outputs import ParamGenerationOutput, VideoGenerationOutput
 from src.platform.runtime.native.engine import NativeEngineLoader
 from src.platform.runtime.native.errors import SamplingNumericsError
-from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook
+from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook, preview_reserve_gb
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
 from src.pipelines.contracts import BasePipe, logger
 from src.pipelines.contracts import (
@@ -672,6 +672,7 @@ class GeneratorWanChainVideoPipe(BasePipe):
                     preview_hook = make_preview_hook(mset.spec, progress.preview, emit_clip=progress.preview_clip, decoder_path=self.config.get("preview_decoder") or None)
                     if preview_hook is not None:
                         hooks.append(preview_hook)
+                mset.router.preview_reserve_gb = preview_reserve_gb(hooks, shape)
 
                 latent = denoise(
                     forward, latents, cond, uncond,

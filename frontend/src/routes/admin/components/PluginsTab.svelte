@@ -8,7 +8,7 @@
 	import { setupPendingFor, type SetupStep } from '$lib/plugins/setup';
 	import { restartApp } from '$lib/services/admin-api';
 	import { api } from '$lib/services/api/index';
-	import { waitForHealthy } from '$lib/utils/healthPoll';
+	import { serverIsReady, waitForHealthy } from '$lib/utils/healthPoll';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { authStore } from '$lib/stores/auth';
 	import { Button, Badge, Spinner, Input, EmptyState, LoadErrorState, Switch, Alert, SegmentedControl } from '$lib/components/ui';
@@ -152,15 +152,6 @@
 		}
 	}
 
-	async function serverIsUp(): Promise<boolean> {
-		try {
-			const response = await api.getClient().get('/health', { timeout: 3000, validateStatus: () => true });
-			return response.status === 200;
-		} catch {
-			return false;
-		}
-	}
-
 	async function restartForSetup(step: SetupStep) {
 		const confirmed = await confirmDialog({
 			title: 'Restart the app now?',
@@ -170,7 +161,7 @@
 		if (!confirmed) return;
 		setupBusyStepId = step.id;
 		await restartApp().catch(() => null);
-		await waitForHealthy({ check: serverIsUp });
+		await waitForHealthy({ check: () => serverIsReady(api.getClient()) });
 		await Promise.all([pluginStore.loadPlugins(), refreshPluginExtensions(), pluginStore.loadSetup()]);
 		setupBusyStepId = null;
 	}

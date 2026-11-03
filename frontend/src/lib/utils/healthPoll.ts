@@ -1,3 +1,4 @@
+import type { AxiosInstance } from 'axios';
 import { sleep as defaultSleep } from '$lib/utils/time';
 
 /**
@@ -66,4 +67,24 @@ export async function waitForHealthy(options: HealthPollOptions): Promise<boolea
 		if (!timedOut) await sleep(intervalMs);
 	}
 	return false;
+}
+
+export type ServerHealth = 'ready' | 'starting' | 'down';
+
+export async function probeServerHealth(
+	client: Pick<AxiosInstance, 'get'>,
+	timeoutMs = 3000
+): Promise<ServerHealth> {
+	try {
+		const response = await client.get('/health', { timeout: timeoutMs, validateStatus: () => true });
+		if (response.status === 200) return 'ready';
+		if (response.status === 503 && response.data?.status === 'starting') return 'starting';
+		return 'down';
+	} catch {
+		return 'down';
+	}
+}
+
+export async function serverIsReady(client: Pick<AxiosInstance, 'get'>): Promise<boolean> {
+	return (await probeServerHealth(client)) === 'ready';
 }

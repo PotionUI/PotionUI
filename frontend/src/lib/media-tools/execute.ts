@@ -34,7 +34,7 @@ export function announceStart(label: string, mode: MediaToolOutputMode) {
 }
 
 export function summaryOf(outcome: MediaToolRunOutcome): MediaToolRunSummary | null {
-	return outcome.status === 'completed' && outcome.items.length === 0 && outcome.summary ? outcome.summary : null;
+	return outcome.status === 'completed' && !outcome.items?.length && outcome.summary ? outcome.summary : null;
 }
 
 export function isAppLink(href: string): boolean {

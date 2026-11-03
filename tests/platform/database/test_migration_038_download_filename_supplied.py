@@ -105,7 +105,7 @@ class TestMigration038OnTheFullChain(unittest.TestCase):
     def _row(self, download_id):
         with self.db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM downloads WHERE id = ?", (download_id,))
-            return cursor.fetchone()
+            return {"gated": 0, "gated_repo": None, **dict(cursor.fetchone())}
 
     def test_a_row_queued_before_the_migration_is_a_supplied_name_and_survives_a_rerun(self):
         self._insert("legacy", "1")

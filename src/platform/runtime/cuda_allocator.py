@@ -15,6 +15,8 @@ RESTART_HINT = (
     "(Administration > Backends) before the next generation."
 )
 RESTART_ACTION = "Restart PotionUI: Administration > Backends > Restart Backend"
+WORKER_RESTART_HINT = "Restart the worker process (or its container) before the next generation."
+WORKER_RESTART_ACTION = "Restart the remote worker: stop and start its process or container"
 DRIVER_OOM_MESSAGES = (
     "CUDA driver error: device not ready",
     "CUDA driver error: out of memory",
@@ -27,10 +29,12 @@ _damage: str | None = None
 
 
 class CudaAllocatorDamaged(RuntimeError):
-    def __init__(self, cause: str) -> None:
+    def __init__(self, cause: str | None, *, worker: bool = False) -> None:
+        subject, hint = ("this worker", WORKER_RESTART_HINT) if worker else ("this process", RESTART_HINT)
+        detail = f" ({cause})" if cause else ""
         super().__init__(
-            f"A CUDA out-of-memory under expandable segments left this process's GPU allocator "
-            f"unusable ({cause}). {RESTART_HINT}"
+            f"A CUDA out-of-memory under expandable segments left {subject}'s GPU allocator "
+            f"unusable{detail}. {hint}"
         )
 
 

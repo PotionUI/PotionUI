@@ -11,8 +11,10 @@ from src.features.generation.error_classification import (
     classification_for_code,
     classify_error_text,
     classify_generation_error,
+    user_classification_for_code,
 )
 from src.features.remote_execution.transport import WorkerUnreachableError
+from src.platform.runtime.cuda_allocator import WORKER_RESTART_ACTION, CudaAllocatorDamaged
 from src.platform.runtime.native.errors import HostMemoryExhaustedError
 
 
@@ -399,3 +401,55 @@ def test_another_driver_error_is_not_read_as_an_oom_from_its_text(monkeypatch):
     monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
     assert classify_error_text("RuntimeError: CUDA driver error: invalid argument").category == "unclassified"
+
+
+def test_a_workers_refusal_asks_for_the_worker_restart_not_the_backend():
+    classification = classification_for_code("worker_gpu_restart_required")
+
+    assert classification.category == "worker_gpu_restart_required"
+    assert classification.summary.startswith("A CUDA out-of-memory left the remote worker's GPU allocator")
+    assert classification.suggestions == [WORKER_RESTART_ACTION]
+    assert "Restart Backend" not in classification.summary
+
+
+@pytest.mark.parametrize("cause", ["CUDA driver error: device not ready", None])
+def test_a_stored_worker_refusal_reads_as_a_worker_restart_from_its_text(cause):
+    text = f"CudaAllocatorDamaged: {CudaAllocatorDamaged(cause, worker=True)}"
+
+    assert classify_error_text(text).category == "worker_gpu_restart_required"
+
+
+def test_a_stored_process_refusal_stays_a_restart_of_the_process():
+    text = str(CudaAllocatorDamaged("CUDA driver error: device not ready"))
+
+    assert classify_error_text(text).category == "gpu_restart_required"
+
+
+def test_the_worker_restart_summary_reads_back_as_a_worker_restart():
+    summary = classification_for_code("worker_gpu_restart_required").summary
+
+    assert classify_error_text(summary).category == "worker_gpu_restart_required"
+
+
+def test_users_are_told_to_ask_for_the_worker_restart():
+    copy = user_classification_for_code("worker_gpu_restart_required", video=True)
+
+    assert copy.summary == "The server's GPU needs a restart before it can generate again."
+    assert copy.suggestions == ["Ask your administrator to restart the worker"]
+
+
+@pytest.mark.parametrize("cause", ["CUDA driver error: device not ready", None])
+def test_a_worker_refusal_is_not_read_as_its_own_restart_by_a_host_without_the_worker_category(monkeypatch, cause):
+    from src.features.generation import error_classification
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(
+        error_classification,
+        "_TEXT_CHECKS",
+        tuple(check for check in error_classification._TEXT_CHECKS if check[0] != "worker_gpu_restart_required"),
+    )
+
+    category = classify_error_text(str(CudaAllocatorDamaged(cause, worker=True))).category
+
+    assert category != "gpu_restart_required"

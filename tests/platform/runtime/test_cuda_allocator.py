@@ -8,6 +8,7 @@ from src.platform.runtime import cuda_allocator
 from src.platform.runtime.cuda_allocator import (
     DRIVER_OOM_POLICY_ENV,
     RESTART_HINT,
+    WORKER_RESTART_HINT,
     CudaAllocatorDamaged,
     allocator_damage,
     driver_oom_is_fatal,
@@ -234,3 +235,20 @@ def test_raise_if_allocator_damaged(monkeypatch):
 )
 def test_a_pipe_config_runs_on_cuda_unless_it_names_another_device(config, expected):
     assert pipe_config_runs_on_cuda(config) is expected
+
+
+def test_a_worker_refusal_names_the_worker_and_its_own_restart():
+    message = str(CudaAllocatorDamaged("CUDA driver error: device not ready", worker=True))
+
+    assert "this worker's GPU allocator" in message
+    assert "CUDA driver error: device not ready" in message
+    assert message.endswith(WORKER_RESTART_HINT)
+    assert "Restart Backend" not in message
+
+
+def test_a_worker_refusal_read_by_a_host_without_the_cause_still_names_the_restart():
+    message = str(CudaAllocatorDamaged(None, worker=True))
+
+    assert "()" not in message
+    assert "None" not in message
+    assert message.endswith(WORKER_RESTART_HINT)

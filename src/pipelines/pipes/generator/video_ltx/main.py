@@ -104,6 +104,7 @@ from src.platform.runtime.native.sampling import (
     conditioned_sigmas,
     denoise_prenoised,
     make_preview_hook,
+    preview_reserve_gb,
 )
 from src.platform.runtime.native.sampling.step_profile import StepPlanHook
 from src.pipelines.contracts import logger
@@ -896,10 +897,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         # appended conditioning tokens (media keyframes / IC-LoRA references);
         # audio_tokens covers the appended audio stream when audio generation
         # is on -- both ride the same packed sampler state ``x``.
-        placement = place_dit_for_sequence(
-            c.bundle.dit, c.device, video_tokens=s_video, audio_tokens=c.audio_tokens,
-            own_models=tuple(m for m in (c.bundle.dit, c.bundle.vae, c.bundle.audio_vae, c.bundle.vocoder) if m is not None),
-        )
         # `replace(c, prepared=prepared)`, NOT `c` itself: `c` (ctx.extra) is
         # SHARED across every seed of this process() call (BaseGeneratorPipe's
         # seed loop calls generate_one once per seed against the same ctx) --
@@ -907,6 +904,14 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         # above from the pristine `c.prepared`, never written back into it),
         # not a mutated shared copy a previous seed left behind.
         forward = ConditionedAVForward(c.bundle.dit.module, replace(c, prepared=prepared))
+        preview_hook = None
+        if self.config.get("preview", True):
+            preview_hook = make_preview_hook(c.spec, progress.preview, emit_clip=progress.preview_clip, latent_transform=forward.unpack_base, decoder_path=self.config.get("preview_decoder") or None)
+        placement = place_dit_for_sequence(
+            c.bundle.dit, c.device, video_tokens=s_video, audio_tokens=c.audio_tokens,
+            own_models=tuple(m for m in (c.bundle.dit, c.bundle.vae, c.bundle.audio_vae, c.bundle.vocoder) if m is not None),
+            preview_reserve_gb=preview_reserve_gb([preview_hook], (1, LTX_LATENT_CHANNELS, c.t_lat, c.h_lat, c.w_lat)),
+        )
 
         # MultiModalGuider (quality recipe): build from pipe config; when
         # active, supply video_tokens boundary in cond for per-slice combine.
@@ -937,10 +942,8 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                     index + 1, ctx.quantity, seed, tuple(x.shape),
                     prepared.base_tokens, prepared.n_extra, c.audio_tokens)
         hooks = [ProgressHook(on_progress), StepPlanHook(lambda i, n: {"attn": "dense"})]
-        if self.config.get("preview", True):
-            preview_hook = make_preview_hook(c.spec, progress.preview, emit_clip=progress.preview_clip, latent_transform=forward.unpack_base, decoder_path=self.config.get("preview_decoder") or None)
-            if preview_hook is not None:
-                hooks.append(preview_hook)
+        if preview_hook is not None:
+            hooks.append(preview_hook)
 
         # `stage2_lora_stack` (built once in build_context) is applied ONLY
         # around this call -- the entire denoise loop, every per-step DiT

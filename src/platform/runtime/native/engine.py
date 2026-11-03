@@ -82,6 +82,7 @@ from .kernels import (
     sync_nvfp4_dequant_tables,
 )
 from .sampling.denoise_loop import denoise, ensure_sampler_generator
+from .sampling.preview import preview_reserve_gb
 from .text_encoders.base import NativeTextEncoder
 from .text_encoders.loader import load_text_encoder
 from .detect.vae_detect import (
@@ -1256,7 +1257,7 @@ class NativeGenerator:
                 total += sum(p.numel() * p.element_size() for p in inner.parameters())
         return total / (1024 ** 3)
 
-    def _build_placement(self, latents_shape, ref_latents=None) -> PlacementPlan | None:
+    def _build_placement(self, latents_shape, ref_latents=None, preview_reserve_gb: float = 0.0) -> PlacementPlan | None:
         """Placement for this run: explicit override, else fit-based with the
         SAMPLING-phase headroom. Decode is phase-separated — weights are freed
         before decode and the decode tiles when its spike wouldn't fit — so the
@@ -1286,6 +1287,7 @@ class NativeGenerator:
             (latents_shape[-2], latents_shape[-1]), latent_frames=_latent_frames(latents_shape)
         )
         headroom += ref_latents_headroom_gb(self._ref_hw_frames(ref_latents))
+        headroom += max(0.0, float(preview_reserve_gb))
         return plan_placement(
             budget, sizes, self.dit.quant_format, self.device_plan,
             working_headroom_gb=headroom,
@@ -1499,7 +1501,7 @@ class NativeGenerator:
                     torch.cuda.empty_cache()
                 self.dit.stream_to(device, budget)
 
-    def _dit_weights_budget_gb(self, latents_shape, ref_latents=None) -> float:
+    def _dit_weights_budget_gb(self, latents_shape, ref_latents=None, preview_reserve_gb: float = 0.0) -> float:
         """VRAM (GB) available for RESIDENT DiT weights under partial residency.
 
         Foreign residents are evicted first (``_ensure_room_for``); then the live
@@ -1522,9 +1524,10 @@ class NativeGenerator:
             (latents_shape[-2], latents_shape[-1]), latent_frames=_latent_frames(latents_shape)
         )
         headroom += ref_latents_headroom_gb(self._ref_hw_frames(ref_latents))
+        headroom += max(0.0, float(preview_reserve_gb))
         return max(0.0, free - headroom)
 
-    def _stream_dit_to_gpu(self, device: str, latents_shape, ref_latents=None) -> None:
+    def _stream_dit_to_gpu(self, device: str, latents_shape, ref_latents=None, preview_reserve_gb: float = 0.0) -> None:
         """Place the DiT with partial residency for sampling.
 
         Keeps as many leaves resident as fit the weights budget and streams the
@@ -1536,7 +1539,7 @@ class NativeGenerator:
         if not str(device).startswith("cuda"):
             self.dit.move_to(device)
             return
-        budget = self._dit_weights_budget_gb(latents_shape, ref_latents=ref_latents)
+        budget = self._dit_weights_budget_gb(latents_shape, ref_latents=ref_latents, preview_reserve_gb=preview_reserve_gb)
         try:
             self.dit.stream_to(device, budget)
         except torch.cuda.OutOfMemoryError:
@@ -1812,7 +1815,9 @@ class NativeGenerator:
         ref_latents = cond_dict.get("ref_latents")
         # Resolution-aware placement drives phase residency (esp. whether the DiT
         # must be offloaded before decode to make room for the decode spike).
-        self.placement = self._build_placement(latents_shape, ref_latents=ref_latents)
+        hooks = list(hooks or ())
+        preview_gb = preview_reserve_gb(hooks, latents_shape)
+        self.placement = self._build_placement(latents_shape, ref_latents=ref_latents, preview_reserve_gb=preview_gb)
         device = self.device_plan.dit_device
         dtype = self.dit.compute_dtype
         # Evict a prior generation's / other family's still-resident DiT before
@@ -1827,7 +1832,7 @@ class NativeGenerator:
             # per-forward weight swap is incompatible with a compiled graph.
             self._maybe_compile()
         else:
-            self._stream_dit_to_gpu(device, latents_shape, ref_latents=ref_latents)
+            self._stream_dit_to_gpu(device, latents_shape, ref_latents=ref_latents, preview_reserve_gb=preview_gb)
 
         if init_latent is not None:
             latents = init_latent.to(device=device, dtype=dtype)

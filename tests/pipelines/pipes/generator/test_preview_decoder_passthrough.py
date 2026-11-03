@@ -123,6 +123,56 @@ def test_the_configured_preview_decoder_reaches_the_preview_hook(run, target):
     assert all(kwargs["decoder_path"] == DECODER for kwargs in seen)
 
 
+RESERVE_CASES = [
+    pytest.param(_wan_t2v, "src.pipelines.pipes.generator.txt2vid_wan22.main", id="txt2vid_wan22"),
+    pytest.param(_wan_i2v, "src.pipelines.pipes.generator.img2vid_wan22.main", id="img2vid_wan22"),
+    pytest.param(_wan_chain, "src.pipelines.pipes.generator.chain_video_wan22.main", id="chain_video_wan22"),
+    pytest.param(_ltx_t2v, "src.pipelines.pipes.generator.txt2vid_ltx.main", id="txt2vid_ltx"),
+    pytest.param(_ltx_video, "src.pipelines.pipes.generator.video_ltx.main", id="video_ltx"),
+]
+
+
+@pytest.mark.parametrize("run,module", RESERVE_CASES)
+def test_the_preview_reserve_of_the_built_hooks_reaches_dit_placement(run, module):
+    import importlib
+
+    from src.pipelines.pipes._shared.video.wan_experts import ExpertRouter
+    from src.platform.runtime.native.sampling import ProgressHook
+
+    sentinel = ProgressHook(lambda *a: None)
+    seen: list = []
+    routers: list = []
+    real_init = ExpertRouter.__init__
+
+    def init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        routers.append(self)
+
+    def reserve(hooks, latents_shape):
+        seen.append((list(hooks), tuple(latents_shape)))
+        return 0.375
+
+    target = importlib.import_module(module)
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(patch(f"{module}.make_preview_hook", lambda spec, emit, **kwargs: sentinel))
+        stack.enter_context(patch(f"{module}.preview_reserve_gb", reserve))
+        stack.enter_context(patch.object(ExpertRouter, "__init__", init))
+        placement = None
+        if hasattr(target, "place_dit_for_sequence"):
+            placement = stack.enter_context(
+                patch(f"{module}.place_dit_for_sequence", wraps=target.place_dit_for_sequence)
+            )
+        run({"preview_decoder": DECODER})
+
+    assert seen
+    assert all(any(hook is sentinel for hook in hooks) and len(shape) == 5 for hooks, shape in seen)
+    reserves = [r.preview_reserve_gb for r in routers if r.latents_shape is not None]
+    if placement is not None:
+        reserves += [c.kwargs["preview_reserve_gb"] for c in placement.call_args_list]
+    assert reserves
+    assert all(value == 0.375 for value in reserves)
+
+
 @pytest.mark.parametrize("run,target", CASES)
 @pytest.mark.parametrize("value", [{}, {"preview_decoder": ""}])
 def test_an_empty_preview_decoder_reaches_the_preview_hook_as_none(run, target, value):

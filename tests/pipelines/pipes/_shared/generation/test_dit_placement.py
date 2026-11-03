@@ -728,6 +728,93 @@ def test_no_fit_hint_leaves_the_over_commit_warning_unchanged(caplog):
     assert warning.rstrip().endswith("streaming the DiT and sampling anyway.")
 
 
+def _place_h3_profile(preview_reserve_gb=None):
+    dit, calls = _dit(estimated_vram_gb=21.27)
+    patches, _manager = _patched(free_gb=27.46)
+    kwargs = {} if preview_reserve_gb is None else {"preview_reserve_gb": preview_reserve_gb}
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=51_424, audio_tokens=414,
+            inner_dim=H3_ATTN_INNER_DIM, ffn_dim=14336, reserve_gb=1.0, **kwargs,
+        )
+    return decision, calls
+
+
+def test_the_preview_reserve_shrinks_the_weight_budget_by_exactly_its_size():
+    without, _ = _place_h3_profile()
+    unchanged, _ = _place_h3_profile(0.0)
+    with_preview, calls = _place_h3_profile(0.557)
+    assert unchanged.weight_budget_gb == pytest.approx(without.weight_budget_gb)
+    assert without.weight_budget_gb - with_preview.weight_budget_gb == pytest.approx(0.557)
+    assert calls["stream_to"] == [("cuda", pytest.approx(with_preview.weight_budget_gb))]
+    assert with_preview.preview_reserve_gb == pytest.approx(0.557)
+    assert with_preview.extra_reserve_gb == pytest.approx(1.557)
+    assert without.preview_reserve_gb == 0.0
+    assert without.extra_reserve_gb == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("preview_gb,kept", [(0.0, True), (0.6, False)])
+def test_the_preview_reserve_is_part_of_the_reserve_judged_against_a_warm_dit(preview_gb, kept):
+    dit, calls = _dit(estimated_vram_gb=10.0)
+    dit.device = "cuda"
+    patches, _manager = _patched(free_gb=4.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=0, reserve_gb=3.0, preview_reserve_gb=preview_gb,
+        )
+    assert decision.kept_resident is kept
+    assert calls["offload"] == (0 if kept else 1)
+
+
+def test_the_over_commit_warning_lists_the_preview_reserve(caplog):
+    dit, _calls = _dit(estimated_vram_gb=15.65)
+    patches, _manager = _patched(free_gb=31.0)
+    with caplog.at_level(logging.WARNING, logger=_MOD):
+        with patches[0], patches[1], patches[2]:
+            place_dit_for_sequence(
+                dit, "cuda", video_tokens=102_869, audio_tokens=1_150,
+                inner_dim=H3_ATTN_INNER_DIM, ffn_dim=14336, reserve_gb=4.21, preview_reserve_gb=0.55,
+            )
+    warning = "\n".join(r.getMessage() for r in caplog.records)
+    assert "extra 4.76GB" in warning
+    assert "preview 0.55GB" in warning
+
+
+def test_the_fit_hint_is_handed_the_preview_reserve_with_the_extra_reserve(caplog):
+    seen = {}
+
+    def hint(free_gb, *, activation_reserve_gb, extra_reserve_gb, tokens):
+        seen.update(extra_reserve_gb=extra_reserve_gb)
+        return ""
+
+    dit, _calls = _dit(estimated_vram_gb=15.65)
+    patches, _manager = _patched(free_gb=31.0)
+    with caplog.at_level(logging.WARNING, logger=_MOD):
+        with patches[0], patches[1], patches[2]:
+            place_dit_for_sequence(
+                dit, "cuda", video_tokens=102_869, audio_tokens=1_150,
+                inner_dim=H3_ATTN_INNER_DIM, ffn_dim=14336, reserve_gb=4.21, preview_reserve_gb=0.55,
+                fit_hint=hint,
+            )
+    assert seen["extra_reserve_gb"] == pytest.approx(4.76)
+
+
+def test_the_sampling_oom_error_lists_the_preview_reserve():
+    forward, _calls = _oom_forward(99)
+    dit, _dit_calls = _dit()
+    decision = DitPlacementDecision(
+        "partial", 19.52, 17.95, 0.0, 60_896, 640, 8.22, True, 1.4, preview_reserve_gb=0.55,
+    )
+    patches, _manager = _patched(free_gb=3.5, effective_gb=4.25)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.torch.cuda.empty_cache"):
+        with patch(f"{_MOD}.torch.cuda.is_available", return_value=True):
+            guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=decision)
+            with pytest.raises(SamplingOutOfMemory) as exc_info:
+                guarded()
+    assert "extra_reserve_gb=8.22" in exc_info.value.detail
+    assert "preview_reserve_gb=0.55" in exc_info.value.detail
+
+
 def test_over_commit_does_not_evict_a_foreign_resident_owned_by_this_generation():
     dit, calls = _dit(estimated_vram_gb=15.65)
     patches, manager = _patched(free_gb=5.0)

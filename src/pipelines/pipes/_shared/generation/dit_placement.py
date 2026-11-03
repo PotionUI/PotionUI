@@ -569,6 +569,7 @@ class DitPlacementDecision:
     kept_resident: bool = False
     seq_chunk_rows: int = 0
     seq_chunking: bool = False
+    preview_reserve_gb: float = 0.0
 
 
 def choose_seq_chunk_rows(tokens: int, reserve_for: Callable[[int], float], budget_gb: float) -> int:
@@ -600,6 +601,7 @@ def place_dit_for_sequence(
     fit_hint: "FitHint | None" = None,
     seq_chunk_rows: int = 0,
     seq_chunking: bool = False,
+    preview_reserve_gb: float = 0.0,
 ) -> DitPlacementDecision:
     """Place ``dit`` on ``device`` for sampling, sized to THIS generation's
     token count instead of an unconditional full-pin ``move_to``.
@@ -677,7 +679,8 @@ def place_dit_for_sequence(
 
     chunk_rows = max(0, int(seq_chunk_rows))
     activation_reserve = reserve_for(chunk_rows)
-    extra_reserve = max(0.0, float(reserve_gb))
+    preview_reserve = max(0.0, float(preview_reserve_gb))
+    extra_reserve = max(0.0, float(reserve_gb)) + preview_reserve
 
     # Over-commit check, BEFORE any placement I/O: credit back this dit's own
     # currently-resident weight (if any -- mirrors the warm-residency fast
@@ -714,7 +717,7 @@ def place_dit_for_sequence(
     total_reserve = activation_reserve + extra_reserve
     if total_reserve > free_if_dit_unloaded:
         _log_overcommit(
-            total_reserve, activation_reserve, extra_reserve, free_if_dit_unloaded, free_raw,
+            total_reserve, activation_reserve, extra_reserve, preview_reserve, free_if_dit_unloaded, free_raw,
             video_tokens, audio_tokens,
             _render_fit_hint(
                 fit_hint, free_if_dit_unloaded, activation_reserve_gb=activation_reserve,
@@ -730,7 +733,7 @@ def place_dit_for_sequence(
             decision = DitPlacementDecision(
                 "resident", weight_gb, activation_reserve, credited_budget, video_tokens, audio_tokens,
                 extra_reserve, lora_active, lora_weight_gb, kept_resident=True,
-                seq_chunk_rows=chunk_rows, seq_chunking=seq_chunking,
+                seq_chunk_rows=chunk_rows, seq_chunking=seq_chunking, preview_reserve_gb=preview_reserve,
             )
             _log_decision(decision, device)
             return decision
@@ -758,7 +761,7 @@ def place_dit_for_sequence(
     decision = DitPlacementDecision(
         mode, weight_gb, activation_reserve, weight_budget, video_tokens, audio_tokens,
         extra_reserve, lora_active, lora_weight_gb,
-        seq_chunk_rows=chunk_rows, seq_chunking=seq_chunking,
+        seq_chunk_rows=chunk_rows, seq_chunking=seq_chunking, preview_reserve_gb=preview_reserve,
     )
     _log_decision(decision, device)
     return decision
@@ -930,13 +933,14 @@ def _sampling_oom(
         free_raw_gb=round(free_raw, 2), free_effective_gb=round(free_effective, 2),
         activation_reserve_gb=round(decision.activation_reserve_gb, 2),
         extra_reserve_gb=round(decision.extra_reserve_gb, 2),
+        preview_reserve_gb=round(decision.preview_reserve_gb, 2),
         video_tokens=decision.video_tokens, audio_tokens=decision.audio_tokens,
     )
     logger.warning(
         "[LTX PLACEMENT] sampling OOM with the DiT fully streamed: S=%d video (+%d audio), "
-        "%.2fGB free (%.2fGB raw), estimate had %.2fGB activation + %.2fGB extra",
+        "%.2fGB free (%.2fGB raw), estimate had %.2fGB activation + %.2fGB extra (preview %.2fGB)",
         decision.video_tokens, decision.audio_tokens, free_effective, free_raw,
-        decision.activation_reserve_gb, decision.extra_reserve_gb,
+        decision.activation_reserve_gb, decision.extra_reserve_gb, decision.preview_reserve_gb,
     )
     return SamplingOutOfMemory(
         f"This clip ran out of VRAM at {tokens:,} tokens even with the model streamed from RAM "
@@ -946,6 +950,7 @@ def _sampling_oom(
             f"free_raw_gb={free_raw:.2f} free_effective_gb={free_effective:.2f} "
             f"activation_reserve_gb={decision.activation_reserve_gb:.2f} "
             f"extra_reserve_gb={decision.extra_reserve_gb:.2f} "
+            f"preview_reserve_gb={decision.preview_reserve_gb:.2f} "
             f"dit_weight_gb={decision.dit_weight_gb:.2f} mode={decision.mode} "
             f"video_tokens={decision.video_tokens} audio_tokens={decision.audio_tokens}"
         ),
@@ -1023,7 +1028,7 @@ def _move_partial(dit: Any, device: str, weight_budget_gb: float, own_models: It
 
 
 def _log_overcommit(
-    total_reserve_gb: float, activation_reserve_gb: float, extra_reserve_gb: float,
+    total_reserve_gb: float, activation_reserve_gb: float, extra_reserve_gb: float, preview_reserve_gb: float,
     free_gb: float, free_raw_gb: float, video_tokens: int, audio_tokens: int,
     hint_text: str = "",
 ) -> None:
@@ -1032,15 +1037,15 @@ def _log_overcommit(
     get_profiler().mark(
         "ltx.dit_placement.overcommit",
         total_reserve_gb=round(total_reserve_gb, 2), activation_reserve_gb=round(activation_reserve_gb, 2),
-        extra_reserve_gb=round(extra_reserve_gb, 2), free_gb=round(free_gb, 2),
-        free_raw_gb=round(free_raw_gb, 2),
+        extra_reserve_gb=round(extra_reserve_gb, 2), preview_reserve_gb=round(preview_reserve_gb, 2),
+        free_gb=round(free_gb, 2), free_raw_gb=round(free_raw_gb, 2),
         video_tokens=video_tokens, audio_tokens=audio_tokens,
     )
     logger.warning(
-        "[LTX PLACEMENT] over-committed: total reserve %.2fGB (activation %.2fGB + extra %.2fGB) "
-        "exceeds %.2fGB free with zero DiT weight resident (%.2fGB raw, the rest held by the "
-        "caching allocator), S=%d video (+%d audio) -- streaming the DiT and sampling anyway.%s",
-        total_reserve_gb, activation_reserve_gb, extra_reserve_gb, free_gb, free_raw_gb,
+        "[LTX PLACEMENT] over-committed: total reserve %.2fGB (activation %.2fGB + extra %.2fGB, "
+        "preview %.2fGB of it) exceeds %.2fGB free with zero DiT weight resident (%.2fGB raw, the rest "
+        "held by the caching allocator), S=%d video (+%d audio) -- streaming the DiT and sampling anyway.%s",
+        total_reserve_gb, activation_reserve_gb, extra_reserve_gb, preview_reserve_gb, free_gb, free_raw_gb,
         video_tokens, audio_tokens, f" {hint_text}" if hint_text else "",
     )
 
@@ -1051,6 +1056,7 @@ def _log_decision(decision: DitPlacementDecision, device: str) -> None:
         dit_weight_gb=round(decision.dit_weight_gb, 2),
         activation_reserve_gb=round(decision.activation_reserve_gb, 2),
         extra_reserve_gb=round(decision.extra_reserve_gb, 2),
+        preview_reserve_gb=round(decision.preview_reserve_gb, 2),
         weight_budget_gb=round(decision.weight_budget_gb, 2),
         video_tokens=decision.video_tokens, audio_tokens=decision.audio_tokens,
         lora_active=decision.lora_active, lora_weight_gb=round(decision.lora_weight_gb, 2),

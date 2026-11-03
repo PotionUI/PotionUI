@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
-from src.platform.runtime.native.sampling import ANCESTRAL_NOISE_SEED_OFFSET, ProgressHook, denoise, make_preview_hook
+from src.platform.runtime.native.sampling import ANCESTRAL_NOISE_SEED_OFFSET, ProgressHook, denoise, make_preview_hook, preview_reserve_gb
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.outputs import Icon
@@ -367,6 +367,13 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
         else:
             latents = torch.zeros(shape, device=c.device, dtype=c.dtype)
 
+        def build_preview_hook():
+            if not self.config.get("preview", True):
+                return None
+            return make_preview_hook(c.spec, progress.preview, emit_clip=progress.preview_clip, decoder_path=self.config.get("preview_decoder") or None)
+
+        first_preview_hook = build_preview_hook()
+
         # Sequence-length-aware placement: a plain full-pin
         # move_to leaves a FIXED activation budget that a long clip's growing
         # attention/RoPE/hidden-state activations can exceed and OOM on, even
@@ -376,6 +383,7 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
         placement = place_dit_for_sequence(
             c.bundle.dit, c.device, video_tokens=t_lat * h_lat * w_lat,
             own_models=(c.bundle.dit, c.vae),
+            preview_reserve_gb=preview_reserve_gb([first_preview_hook], shape),
         )
         dit_module = c.bundle.dit.module
         fps = c.fps
@@ -441,10 +449,9 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
                               state="TXT2VID", icon=Icon(name="film", effect="pulse"))
 
             hooks = [ProgressHook(on_progress)]
-            if self.config.get("preview", True):
-                preview_hook = make_preview_hook(c.spec, progress.preview, emit_clip=progress.preview_clip, decoder_path=self.config.get("preview_decoder") or None)
-                if preview_hook is not None:
-                    hooks.append(preview_hook)
+            preview_hook = first_preview_hook if it == 0 else build_preview_hook()
+            if preview_hook is not None:
+                hooks.append(preview_hook)
 
             latent = denoise(
                 sample_forward, latents, cond, uncond,

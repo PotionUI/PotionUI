@@ -3,8 +3,11 @@ import { flushSync } from 'svelte';
 import { mountComponent } from '../helpers/mount';
 import { effectGroups, effectTools } from '$lib/effects/catalog';
 import { apply, beginEdit, createStack } from '$lib/tool-tabs/frame/editStack';
+import { draftFor } from '$lib/tool-tabs/video/videoSteps';
+import { writeVideoState, EMPTY_SIGNATURE } from '$lib/tool-tabs/video/videoState';
 import { emptyImageState, writeImageState } from '$lib/tool-tabs/image/state';
-import { lookDraft } from '$lib/tool-tabs/image/steps';
+import { lookDraft, toolEffectDraft, type ToolEffectParams } from '$lib/tool-tabs/image/steps';
+import { resetMediaToolCatalog } from '$lib/media-tools/catalog';
 import type { EffectParams } from '$lib/tool-tabs/image/steps';
 import type { ToolTabHost } from '$lib/tool-tabs/types';
 import type { MediaRef } from '$lib/types/tabs';
@@ -14,6 +17,7 @@ const { default: EffectCardActions } = await import('$lib/components/tool-tabs/f
 const { default: OptionsPanel } = await import('$lib/components/tool-tabs/frame/OptionsPanel.svelte');
 const { default: VideoToolOptions } = await import('$lib/components/tool-tabs/video/VideoToolOptions.svelte');
 const { default: EffectsOptions } = await import('$lib/components/tool-tabs/image/EffectsOptions.svelte');
+const { default: VideoEditorTab } = await import('$lib/components/tool-tabs/video/VideoEditorTab.svelte');
 const { default: ImageEditorTab } = await import('$lib/components/tool-tabs/image/ImageEditorTab.svelte');
 
 const tools = effectTools(EFFECT_CATALOG);
@@ -296,5 +300,183 @@ describe('Image editor footer', () => {
 		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
 		await settle();
 		expect(rows()).toEqual(['original', 'applied', 'current']);
+	});
+});
+
+function grainParams(amount: number): ToolEffectParams {
+	return { kind: 'effect', tool: 'film_grain', name: 'Film grain', values: { ...GRAIN, amount } };
+}
+
+function grainState(...amounts: number[]) {
+	const stack = amounts.reduce((state, amount) => apply(beginEdit(state, toolEffectDraft(grainParams(amount), EFFECT_CATALOG))), createStack());
+	return writeImageState({ ...emptyImageState('effects'), stack });
+}
+
+describe('Image effect opened from the list', () => {
+	beforeEach(() => {
+		resetMediaToolCatalog(EFFECT_CATALOG);
+	});
+
+	afterEach(() => {
+		resetMediaToolCatalog([]);
+	});
+
+	function open(view: ReturnType<typeof renderImageEditor>, id: string) {
+		view.q<HTMLButtonElement>('[data-effects-tab="effects"]')!.click();
+		flushSync();
+		view.q<HTMLButtonElement>(`[data-effect-card="${id}"] button`)!.click();
+		flushSync();
+	}
+
+	const rows = (view: ReturnType<typeof renderImageEditor>) => view.all('[data-edit-stack] [data-stack-row]').map((row) => row.dataset.status);
+
+	it('edits the existing step: its values, Update, disabled until a value differs', () => {
+		const view = renderImageEditor('effects', grainState(55));
+		open(view, 'film_grain');
+		const button = view.q<HTMLButtonElement>('[data-options-apply]')!;
+		expect(text(button)).toBe('Update Film grain ↵');
+		expect(button.disabled).toBe(true);
+		expect(view.q<HTMLInputElement>('[data-effect-card="film_grain"] input[type="range"], [data-effect-card="film_grain"] input[type="number"]')!.value).toBe('55');
+		expect(rows(view)).toEqual(['original', 'pending']);
+	});
+
+	it('shows the defaults and Add for an effect that is not in the edits', () => {
+		const view = renderImageEditor('effects', grainState(55));
+		open(view, 'retro-tape.scanlines');
+		expect(text(view.q('[data-options-apply]'))).toBe('Add Scanlines ↵');
+		expect(view.q<HTMLButtonElement>('[data-options-apply]')!.disabled).toBe(false);
+	});
+
+	it('Update replaces the step so the stack keeps its length, and undo restores the old values', async () => {
+		const view = renderImageEditor('effects', grainState(55));
+		open(view, 'film_grain');
+		view.q<HTMLButtonElement>('[data-effect-card="film_grain"] [data-options-reset]')!.click();
+		flushSync();
+		expect(text(view.q('[data-options-apply]'))).toBe('Update Film grain ↵');
+		view.q<HTMLButtonElement>('[data-options-apply]')!.click();
+		await settle();
+		expect(rows(view)).toEqual(['original', 'current']);
+		expect(view.all('[data-edit-stack] [data-stack-row]')).toHaveLength(2);
+		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }));
+		await settle();
+		expect(rows(view)).toEqual(['original', 'current']);
+		open(view, 'film_grain');
+		expect(view.q<HTMLInputElement>('[data-effect-card="film_grain"] input[type="range"], [data-effect-card="film_grain"] input[type="number"]')!.value).toBe('55');
+	});
+
+	it('edits the latest of two copies', () => {
+		const view = renderImageEditor('effects', grainState(20, 70));
+		open(view, 'film_grain');
+		expect(text(view.q('[data-options-apply]'))).toBe('Update Film grain ↵');
+		expect(view.q<HTMLInputElement>('[data-effect-card="film_grain"] input[type="range"], [data-effect-card="film_grain"] input[type="number"]')!.value).toBe('70');
+		expect(rows(view)).toEqual(['original', 'applied', 'pending']);
+	});
+});
+
+const CLIP: MediaRef = { path: 'uploads/dock.mp4', relative_path: 'uploads/dock.mp4', url: '/uploads/dock.mp4', name: 'dock.mp4', type: 'video', item_id: 'v-1' };
+const effectMap = new Map(tools.map((entry) => [entry.id, entry]));
+
+function videoGrainState(...amounts: number[]) {
+	const stack = amounts.reduce((state, amount) => apply(beginEdit(state, draftFor('film_grain', { ...GRAIN, amount }, effectMap))), createStack<Record<string, unknown>>());
+	return writeVideoState({ stack, tool: 'trim', playhead: 0, loop: true, savedSignature: EMPTY_SIGNATURE, saved: null, renderSignature: null, renderMode: null, renderStartedAt: null } as never);
+}
+
+function renderVideoEditor(state: unknown) {
+	const host: ToolTabHost = {
+		tabId: 'tab-v',
+		tool: 'video',
+		source: CLIP,
+		state: state as ToolTabHost['state'],
+		activeTool: 'trim',
+		run: null,
+		hint: null,
+		phone: false,
+		setState: () => undefined,
+		setDirty: () => undefined,
+		setTitle: () => undefined,
+		setThumbnail: () => undefined,
+		setSource: () => undefined,
+		replaceSource: () => undefined,
+		setActiveTool: () => undefined,
+		setRun: () => undefined,
+		clearHint: () => undefined,
+		setActions: () => undefined,
+		openToolTab: () => 'tab-2'
+	};
+	const view = mountComponent(VideoEditorTab, { host });
+	const q = <T extends Element = HTMLElement>(sel: string) => view.target.querySelector<T>(sel);
+	const video = q<HTMLVideoElement>('video')!;
+	Object.defineProperty(video, 'duration', { value: 8, configurable: true });
+	video.dispatchEvent(new Event('loadedmetadata'));
+	flushSync();
+	return { view, q, all: (sel: string) => Array.from(view.target.querySelectorAll<HTMLElement>(sel)) };
+}
+
+describe('Video effect opened from the list', () => {
+	beforeEach(() => {
+		resetMediaToolCatalog(EFFECT_CATALOG);
+	});
+
+	afterEach(() => {
+		resetMediaToolCatalog([]);
+	});
+
+	const amount = (view: ReturnType<typeof renderVideoEditor>) => view.q<HTMLInputElement>('[data-effect-card="film_grain"] input[type="range"], [data-effect-card="film_grain"] input[type="number"]')!.value;
+	const rows = (view: ReturnType<typeof renderVideoEditor>) => view.all('[data-edit-stack] [data-stack-row]').map((row) => row.dataset.status);
+
+	function openEffects(view: ReturnType<typeof renderVideoEditor>) {
+		view.q<HTMLButtonElement>('[data-tool-rail] [data-tool="effects"]')!.click();
+		flushSync();
+	}
+
+	function openCard(view: ReturnType<typeof renderVideoEditor>, id: string) {
+		view.q<HTMLButtonElement>(`[data-effect-card="${id}"] button`)!.click();
+		flushSync();
+	}
+
+	it('edits the latest copy of an effect already in the edits', () => {
+		const view = renderVideoEditor(videoGrainState(20, 70));
+		openEffects(view);
+		expect(text(view.q('[data-options-apply]'))).toBe('Update Film grain ↵');
+		expect(view.q<HTMLButtonElement>('[data-options-apply]')!.disabled).toBe(true);
+		expect(amount(view)).toBe('70');
+		expect(rows(view)).toEqual(['original', 'applied', 'pending']);
+	});
+
+	it('shows the defaults and Add for an effect that is not in the edits', () => {
+		const view = renderVideoEditor(videoGrainState(20));
+		openEffects(view);
+		openCard(view, 'retro-tape.scanlines');
+		expect(text(view.q('[data-options-apply]'))).toBe('Add Scanlines ↵');
+		openCard(view, 'film_grain');
+		expect(text(view.q('[data-options-apply]'))).toBe('Update Film grain ↵');
+		expect(amount(view)).toBe('20');
+	});
+
+	it('Reset puts the defaults back without removing the step', () => {
+		const view = renderVideoEditor(videoGrainState(70));
+		openEffects(view);
+		view.q<HTMLButtonElement>('[data-options-reset]')!.click();
+		flushSync();
+		expect(amount(view)).toBe('30');
+		expect(text(view.q('[data-options-apply]'))).toBe('Update Film grain ↵');
+		expect(rows(view)).toEqual(['original', 'pending']);
+	});
+
+	it('Update replaces the step so the stack keeps its length, and undo restores the old values', () => {
+		const view = renderVideoEditor(videoGrainState(70));
+		openEffects(view);
+		view.q<HTMLButtonElement>('[data-options-reset]')!.click();
+		flushSync();
+		view.q<HTMLButtonElement>('[data-options-apply]')!.click();
+		flushSync();
+		expect(rows(view)).toEqual(['original', 'pending']);
+		expect(amount(view)).toBe('30');
+		expect(text(view.q('[data-options-apply]'))).toBe('Update Film grain ↵');
+		expect(view.q<HTMLButtonElement>('[data-options-apply]')!.disabled).toBe(true);
+		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }));
+		flushSync();
+		expect(amount(view)).toBe('70');
+		expect(rows(view)).toEqual(['original', 'pending']);
 	});
 });

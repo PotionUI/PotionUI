@@ -47,6 +47,7 @@
 		appliedSteps,
 		beforeSteps,
 		beginEdit,
+		reopenLatest,
 		canRedo,
 		canUndo,
 		createStack,
@@ -95,7 +96,8 @@
 		type CropParams,
 		type EffectParams,
 		type PaintParams,
-		type ResizeParams
+		type ResizeParams,
+		type ToolEffectParams
 	} from '$lib/tool-tabs/image/steps';
 	import { mediaFileStem } from '$lib/tool-tabs/sources';
 	import { imageEffects } from '$lib/tool-tabs/image/shaderEffect';
@@ -705,6 +707,17 @@
 			return adjustDraft(effect) as StepDraft<unknown>;
 		}
 		return catalogDraft(tool, (params as CatalogParams).values, catalog) as StepDraft<unknown>;
+	}
+
+	function openEffect(id: string): boolean {
+		const next = reopenLatest(stack, (step) => step.tool === 'effects' && (step.params as EffectParams).kind === 'effect' && (step.params as ToolEffectParams).tool === id);
+		if (next !== stack) {
+			notice = null;
+			stack = next;
+			return true;
+		}
+		if (stack.pending?.target) stack = discardPending(stack);
+		return false;
 	}
 
 	function setDraft(tool: string, params: unknown) {
@@ -1403,7 +1416,7 @@
 	{:else if activeTool === 'resize' && resizeParams && resizeInput}
 		<ResizeOptions params={resizeParams} input={resizeInput} {phone} onchange={(next) => setDraft('resize', next)} />
 	{:else if activeTool === 'effects'}
-		<EffectsOptions params={effectParams} base={thumbRender?.canvas ?? null} {phone} effects={stillEffects} updating={effectUpdating} original={effectOriginal} busy={!!busy} onapply={() => void applyTool()} onchange={(next) => setDraft('effects', next)} />
+		<EffectsOptions params={effectParams} base={thumbRender?.canvas ?? null} {phone} effects={stillEffects} updating={effectUpdating} original={effectOriginal} busy={!!busy} onopen={openEffect} onapply={() => void applyTool()} onchange={(next) => setDraft('effects', next)} />
 		{#if bakeIsCapped(outputDims) && !phone}
 			<p class="text-sm text-warning" data-bake-cap>Looks on pictures over {FULL_SIDE} px are drawn at {FULL_SIDE} px on the long side and scaled back up when saved.</p>
 		{/if}

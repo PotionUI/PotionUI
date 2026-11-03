@@ -15,11 +15,20 @@ export interface PendingEdit<P = unknown> extends StepDraft<P> {
 	target: string | null;
 }
 
+export interface StepRevision<P = unknown> {
+	id: string;
+	at: number;
+	before: StepDraft<P>;
+	after: StepDraft<P>;
+}
+
 export interface EditStackState<P = unknown> {
 	steps: EditStep<P>[];
 	cursor: number;
 	pending: PendingEdit<P> | null;
 	seq: number;
+	revisions?: StepRevision<P>[];
+	redoRevisions?: StepRevision<P>[];
 }
 
 export type LanePair = readonly [string, string];
@@ -93,6 +102,11 @@ export function reopen<P>(state: EditStackState<P>, id: string): EditStackState<
 	return { ...state, steps, pending };
 }
 
+export function reopenLatest<P>(state: EditStackState<P>, match: (step: EditStep<P>) => boolean): EditStackState<P> {
+	const step = appliedSteps(state).findLast(match);
+	return step ? reopen(state, step.id) : state;
+}
+
 export function discardPending<P>(state: EditStackState<P>): EditStackState<P> {
 	if (!state.pending) return state;
 	return { ...state, pending: null };
@@ -103,47 +117,118 @@ export function apply<P>(state: EditStackState<P>): EditStackState<P> {
 	if (!pending) return state;
 	const { target, ...draft } = pending;
 	if (target) {
+		const before = state.steps.find((step) => step.id === target);
+		if (before && JSON.stringify(draftOf(before)) === JSON.stringify(draft)) return { ...state, pending: null };
 		const steps = state.steps.map((step) => (step.id === target ? { ...step, ...draft } : step));
-		return { ...state, steps, pending: null };
+		const revisions = before ? [...(state.revisions ?? []), { id: target, at: state.cursor, before: draftOf(before), after: draft }] : (state.revisions ?? []);
+		return { ...state, steps, pending: null, revisions, redoRevisions: [] };
 	}
 	const seq = state.seq + 1;
 	const step: EditStep<P> = { ...draft, id: `s${seq}`, hidden: false };
 	const steps = [...appliedSteps(state), step];
-	return { steps, cursor: steps.length, pending: null, seq };
+	const next: EditStackState<P> = { steps, cursor: steps.length, pending: null, seq };
+	if (state.revisions?.length) next.revisions = state.revisions;
+	return next;
+}
+
+function withoutHistory<P>(state: EditStackState<P>): EditStackState<P> {
+	const { revisions: _revisions, redoRevisions: _redoRevisions, ...rest } = state;
+	return rest;
+}
+
+function draftOf<P>(step: EditStep<P>): StepDraft<P> {
+	const draft: StepDraft<P> = { tool: step.tool, icon: step.icon, label: step.label, summary: step.summary, params: step.params };
+	if (step.lane) draft.lane = step.lane;
+	return draft;
+}
+
+function restyle<P>(state: EditStackState<P>, id: string, draft: StepDraft<P>): EditStep<P>[] {
+	return state.steps.map((step) => {
+		if (step.id !== id) return step;
+		const next = { ...step, ...draft };
+		if (!draft.lane) delete next.lane;
+		return next;
+	});
+}
+
+function lastRevision<P>(list: StepRevision<P>[] | undefined): StepRevision<P> | undefined {
+	return list && list.length ? list[list.length - 1] : undefined;
 }
 
 export function canUndo(state: EditStackState<unknown>): boolean {
 	return state.pending !== null || state.cursor > 0;
 }
 
+function undoRevision<P>(state: EditStackState<P>): StepRevision<P> | undefined {
+	const last = lastRevision(state.revisions);
+	return last && last.at >= state.cursor ? last : undefined;
+}
+
+function redoRevision<P>(state: EditStackState<P>): StepRevision<P> | undefined {
+	const last = lastRevision(state.redoRevisions);
+	return last && last.at === state.cursor ? last : undefined;
+}
+
 export function canRedo(state: EditStackState<unknown>): boolean {
-	return state.pending === null && state.cursor < state.steps.length;
+	return state.pending === null && (state.cursor < state.steps.length || !!redoRevision(state));
+}
+
+function untouched<P>(state: EditStackState<P>): boolean {
+	const pending = state.pending;
+	const step = pending?.target ? state.steps.find((entry) => entry.id === pending.target) : undefined;
+	if (!pending || !step) return false;
+	const { target: _target, ...draft } = pending;
+	return JSON.stringify(draftOf(step)) === JSON.stringify(draft);
 }
 
 export function undo<P>(state: EditStackState<P>): EditStackState<P> {
-	if (state.pending) return { ...state, pending: null };
+	if (state.pending && !untouched(state)) return { ...state, pending: null };
+	if (state.pending) return undo({ ...state, pending: null });
+	const revision = undoRevision(state);
+	if (revision) {
+		return {
+			...state,
+			steps: restyle(state, revision.id, revision.before),
+			revisions: (state.revisions ?? []).slice(0, -1),
+			redoRevisions: [...(state.redoRevisions ?? []), revision]
+		};
+	}
 	if (state.cursor === 0) return state;
 	return { ...state, cursor: state.cursor - 1 };
 }
 
 export function redo<P>(state: EditStackState<P>): EditStackState<P> {
 	if (!canRedo(state)) return state;
+	const revision = redoRevision(state);
+	if (revision) {
+		return {
+			...state,
+			steps: restyle(state, revision.id, revision.after),
+			revisions: [...(state.revisions ?? []), revision],
+			redoRevisions: (state.redoRevisions ?? []).slice(0, -1)
+		};
+	}
 	return { ...state, cursor: state.cursor + 1 };
 }
 
 export function undoLabel(state: EditStackState<unknown>): string | null {
 	if (state.pending) return state.pending.label;
+	const revision = undoRevision(state);
+	if (revision) return revision.after.label;
 	return state.cursor > 0 ? state.steps[state.cursor - 1].label : null;
 }
 
 export function redoLabel(state: EditStackState<unknown>): string | null {
+	if (state.pending !== null) return null;
+	const revision = redoRevision(state);
+	if (revision) return revision.after.label;
 	return canRedo(state) ? state.steps[state.cursor].label : null;
 }
 
 export function seek<P>(state: EditStackState<P>, cursor: number): EditStackState<P> {
 	const next = Math.max(0, Math.min(state.steps.length, Math.trunc(cursor)));
 	if (next === state.cursor && !state.pending) return state;
-	return { ...state, cursor: next, pending: null };
+	return { ...withoutHistory(state), cursor: next, pending: null };
 }
 
 export function toggleHidden<P>(state: EditStackState<P>, id: string): EditStackState<P> {
@@ -158,7 +243,7 @@ export function remove<P>(state: EditStackState<P>, id: string): EditStackState<
 	const steps = state.steps.filter((step) => step.id !== id);
 	const cursor = index < state.cursor ? state.cursor - 1 : state.cursor;
 	const pending = state.pending?.target === id ? null : state.pending;
-	return { ...state, steps, cursor, pending };
+	return { ...withoutHistory(state), steps, cursor, pending };
 }
 
 function laneOrder(steps: EditStep<unknown>[], pair: LanePair): string {
@@ -199,7 +284,7 @@ export function move<P>(
 	if (!canMove(state, id, to, pinned)) return state;
 	const from = state.steps.findIndex((step) => step.id === id);
 	const steps = [...moved(appliedSteps(state), from, to), ...undoneSteps(state)];
-	return { ...state, steps };
+	return { ...withoutHistory(state), steps };
 }
 
 export function previewSteps<P>(state: EditStackState<P>): EditStep<P>[] {

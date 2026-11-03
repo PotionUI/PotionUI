@@ -35,6 +35,7 @@
 		redoLabel,
 		remove,
 		reopen,
+		reopenLatest,
 		seek,
 		toggleHidden,
 		undo,
@@ -347,10 +348,15 @@
 		edits = pending && pending.tool === op ? updatePending(edits, draft) : beginEdit(foldPending(edits), draft);
 	}
 
+	function openEffectEdit(effect: string | null) {
+		if (effect) edits = reopenLatest(edits, (step) => step.tool === effect);
+	}
+
 	function selectTool(id: string) {
 		if (!isRailToolId(id) || id === tool) return;
 		edits = foldPending(edits);
 		tool = id;
+		if (id === 'effects') openEffectEdit(currentEffect);
 		compare = false;
 		closeClipPreview();
 	}
@@ -359,12 +365,14 @@
 		if (next === currentEffect) return;
 		edits = foldPending(edits);
 		activeEffect = next;
+		openEffectEdit(next);
 	}
 
 	function applyCurrent() {
 		if (!panelOp || !canApply) return;
 		const next = pending && pending.tool === panelOp ? edits : beginEdit(edits, draftFor(panelOp, panelParams, effectMap));
 		edits = apply(next);
+		if (tool === 'effects') openEffectEdit(panelOp);
 		compare = false;
 	}
 
@@ -398,10 +406,12 @@
 
 	function doUndo() {
 		edits = undo(edits);
+		if (tool === 'effects') openEffectEdit(currentEffect);
 	}
 
 	function doRedo() {
 		edits = redo(edits);
+		if (tool === 'effects') openEffectEdit(currentEffect);
 	}
 
 	function trimParams(): { start: number; end: number } {

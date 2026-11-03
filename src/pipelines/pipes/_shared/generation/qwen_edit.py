@@ -9,7 +9,7 @@ from src.pipelines.contracts import logger
 from src.pipelines.outputs import GenerationExecutionError, ImageGenerationOutput, Icon
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter, native_step_hooks
-from src.pipelines.pipes._shared.imaging.fit import FIT_MODES, fit_image
+from src.pipelines.pipes._shared.imaging.fit import FIT_MODES
 from src.platform.runtime.native.engine import Conditioning, NativeGenerator
 
 
@@ -47,7 +47,6 @@ class QwenEditMixin:
         fit = self.edit_fit()
         if fit in FIT_MODES:
             width, height = int(ctx.extra["width"]), int(ctx.extra["height"])
-            primary = fit_image(primary, (width, height), fit)
         else:
             width, height = self._edit_target_size(gen, primary.size)
 

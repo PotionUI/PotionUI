@@ -64,6 +64,24 @@
     },
     {
       "config": {
+        "fit": {
+          "type": "str",
+          "value": "match"
+        },
+        "resolution": {
+          "type": "str",
+          "value": "1024x1024"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "image_fit",
+      "name": "image_fit"
+    },
+    {
+      "config": {
         "guidance_scale": {
           "type": "float",
           "value": 4.0

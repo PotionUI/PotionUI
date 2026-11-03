@@ -10,7 +10,7 @@ import torch
 from PIL import Image
 
 from src.pipelines.contracts import PipeInput
-from src.pipelines.pipes._shared.imaging.fit import PAD_FILL
+from src.pipelines.pipes._shared.imaging.fit import fit_image
 from src.pipelines.pipes.generator.qwen.main import GeneratorQwenPipe
 from src.pipelines.pipes.generator.qwen_image21.main import GeneratorQwenImage21Pipe
 from src.platform.runtime.native.resolution import snap_resolution
@@ -125,18 +125,9 @@ def test_the_target_is_snapped_to_the_model_grid(pipe_cls):
 
 
 @pytest.mark.parametrize("pipe_cls", PIPES)
-def test_crop_drops_the_edges_of_a_wider_first_image(pipe_cls):
-    gen = _run(pipe_cls, _refs(), fit="crop", resolution="1024x1024")
-    first = gen.encoded[0]
-    assert tuple(first[512, 4]) == (200, 30, 30)
-    assert tuple(first[512, 1019]) == (200, 30, 30)
-
-
-@pytest.mark.parametrize("pipe_cls", PIPES)
-def test_pad_keeps_the_whole_first_image_on_grey(pipe_cls):
-    gen = _run(pipe_cls, _refs(), fit="pad", resolution="1024x1024")
-    first = gen.encoded[0]
-    assert tuple(first[4, 512]) == PAD_FILL
-    assert tuple(first[1019, 512]) == PAD_FILL
-    assert tuple(first[512, 4]) == (30, 200, 30)
-    assert tuple(first[512, 1019]) == (200, 30, 30)
+@pytest.mark.parametrize("fit", ["crop", "pad"])
+def test_a_first_image_already_at_the_target_is_encoded_unchanged(pipe_cls, fit):
+    refs = _refs()
+    refs[0] = fit_image(refs[0], (1664, 928), fit)
+    gen = _run(pipe_cls, refs, fit=fit, resolution="1664x928")
+    assert np.array_equal(gen.encoded[0], np.asarray(refs[0]))

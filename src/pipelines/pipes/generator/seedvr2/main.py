@@ -36,6 +36,7 @@ from src.pipelines.outputs import (
 )
 from src.platform.observability.logger import logger
 from src.platform.observability.profiling import get_profiler, profiling_enabled
+from src.platform.runtime.native.cancellation import cancellation_scope
 from src.platform.runtime.native.engine import NativeGenerator
 from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.memory.residency import (
@@ -784,12 +785,13 @@ class GeneratorSeedVR2Pipe(BasePipe):
                     icon=Icon(name="bolt", effect="pulse"),
                 )
 
-                out = generator.upscale(
-                    encode_np, bundle.prompt_embedding,
-                    seed=seed, latent_noise_scale=latent_noise_scale,
-                    tile_size=int(self.config.get("tile_size", 1024)),
-                    tile_overlap=int(self.config.get("tile_overlap", 128)),
-                )
+                with cancellation_scope(is_cancelled):
+                    out = generator.upscale(
+                        encode_np, bundle.prompt_embedding,
+                        seed=seed, latent_noise_scale=latent_noise_scale,
+                        tile_size=int(self.config.get("tile_size", 1024)),
+                        tile_overlap=int(self.config.get("tile_overlap", 128)),
+                    )
                 out_np = out[0] if out.ndim == 4 else out
                 if color_mode != "none":
                     out_np = color_correct(out_np, resized_np, color_mode)
@@ -925,14 +927,15 @@ class GeneratorSeedVR2Pipe(BasePipe):
                 attempt_path = f"{final_path}.attempt{attempt}.mp4"
                 attempt += 1
                 try:
-                    encode_result, stats = self._run_video_attempt(
-                        generator, bundle, source, attempt_path, batch_size,
-                        temporal_overlap=temporal_overlap, prepend_frames=prepend_frames,
-                        uniform=uniform, input_noise_scale=input_noise_scale, seed=seed,
-                        latent_noise_scale=latent_noise_scale, color_mode=color_mode,
-                        tile_size=tile_size, tile_overlap=tile_overlap, keep_audio=keep_audio,
-                        device=device, progress=progress, is_cancelled=is_cancelled,
-                    )
+                    with cancellation_scope(is_cancelled):
+                        encode_result, stats = self._run_video_attempt(
+                            generator, bundle, source, attempt_path, batch_size,
+                            temporal_overlap=temporal_overlap, prepend_frames=prepend_frames,
+                            uniform=uniform, input_noise_scale=input_noise_scale, seed=seed,
+                            latent_noise_scale=latent_noise_scale, color_mode=color_mode,
+                            tile_size=tile_size, tile_overlap=tile_overlap, keep_audio=keep_audio,
+                            device=device, progress=progress, is_cancelled=is_cancelled,
+                        )
                     break
                 except torch.cuda.OutOfMemoryError:
                     if batch_size <= 1:

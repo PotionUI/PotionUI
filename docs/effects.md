@@ -13,7 +13,7 @@ so runs, presets (`media_tool` pipe), chat, MCP and automation pick them up with
 The code:
 
 - Contract, loader, derive language, template compiler: `src/platform/media_tools/effects/`.
-- Core effects: `src/platform/media_tools/effects/builtin/<id>/` (film grain, fix colours).
+- Core effects: `src/platform/media_tools/effects/builtin/<id>/` (film grain, fix colours, vignette, fade, Ken Burns).
 - Planner (one ffmpeg graph, or ffmpeg segments joined to Python stages by raw pipes):
   `src/platform/media_tools/fastpath.py`, `src/platform/media_tools/streaming.py`.
 - Routes: `src/features/media_tools/routes.py`.
@@ -232,5 +232,27 @@ is decoded and encoded once, colour conversion is pinned (`scale=in_color_matrix
 before the first RGB effect, `scale=out_color_matrix=bt709:out_range=tv` before the encoder) and the source audio
 is kept with every `af` in stack order.
 
+Time is the time at the effect's place in the stack, counted from the first frame that reaches it. An ffmpeg render
+of an effect with `time: seconds` or `time: frame` starts with `setpts=PTS-STARTPTS` (and `asetpts=PTS-STARTPTS`
+before its `af`), so `t` matches `u_time` in the preview and `times` in a Python render even when the source's
+timestamps do not start at zero. `perspective`'s `in` counts frames from 1 on its own. ffmpeg rounds `st` and `d` to
+the stream time base, which after a speed step is one frame, so a time-based template should take frame-aligned
+values from `derive` (fade uses `round(seconds * media.fps) / media.fps`).
+
 Python renders see `FrameBatch` (`frames` N×H×W×3 uint8, `indices` counted from the stage's first frame,
 `times` = `index / fps`, `fps`, `duration`, and `tensor` N×3×H×W float 0..1 for torch) and return the same shape.
+
+## Core effects
+
+| Effect | Params | Render | Preview |
+|---|---|---|---|
+| Film grain | amount, size, colour, seed | torch, numpy (integer hash) | the same hash per cell |
+| Fix colours | white balance, contrast, strength | ffmpeg `colorchannelmixer` + `colorlevels`, numpy | gains, then levels |
+| Vignette | amount, radius, softness (% of the half diagonal) | torch, numpy | `1 - amount * smoothstep(radius, radius + softness, d)` |
+| Fade | fade in, fade out (seconds, to and from black), sound | ffmpeg `fade` + `afade` | ffmpeg's 16-bit fade factor; `preview.gain` fades the sound |
+| Ken Burns | start and end zoom, start and end anchor, easing | ffmpeg `perspective` (linear), numpy | the window eased over the clip, ffmpeg's 1/256-pixel bilinear |
+
+Vignette has no ffmpeg render: the `vignette` filter only takes an angle, so it cannot place the radius or the
+softness, and `geq` costs about 0.9 s per 1080p frame. The torch and numpy renders compute the mask once per size.
+Fade and Ken Burns reach their end values on the last frame (`last` and `span` in their `derive`).
+

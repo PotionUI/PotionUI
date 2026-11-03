@@ -34,6 +34,8 @@ ANALYSIS_KEY = "@analysis"
 DEFAULT_FPS = 24.0
 MAX_SAMPLE_SIDE = 1024
 MAX_SAMPLE_FRAMES = 600
+VIDEO_TIME_RESET = "setpts=PTS-STARTPTS"
+AUDIO_TIME_RESET = "asetpts=PTS-STARTPTS"
 
 
 @dataclass
@@ -197,7 +199,11 @@ class EffectTool(MediaTool):
         choice = self._choose()
         if choice.candidate.kind == "ffmpeg":
             compiled = self.compile(binding, choice)
-            return FilterFragment(vf=compiled.vf, af=compiled.af, rgb=bool(compiled.vf))
+            vf, af = list(compiled.vf), list(compiled.af)
+            if self.effect.time != "none":
+                vf = [VIDEO_TIME_RESET, *vf] if vf else vf
+                af = [AUDIO_TIME_RESET, *af] if af else af
+            return FilterFragment(vf=vf, af=af, rgb=bool(vf))
         return FilterFragment(stage=self.stage(binding, choice))
 
     def run(self, inputs: list[ToolMedia], params: dict, ctx: ToolContext) -> list[ToolMedia]:

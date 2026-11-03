@@ -1,0 +1,41 @@
+id: fade
+label: Fade
+group: transitions
+icon: editor-effects
+description: Fade in from black and out to black
+accepts: [video]
+time: seconds
+requires: { min_duration: 0.2 }
+params:
+  - { name: fade_in, type: float, label: Fade in, description: Seconds from black, default: 1, min: 0, max: 10, step: 0.1, unit: s }
+  - { name: fade_out, type: float, label: Fade out, description: Seconds to black, default: 1, min: 0, max: 10, step: 0.1, unit: s }
+  - { name: sound, type: checkbox, label: Fade the sound too, description: Sound follows the picture, default: true }
+derive:
+  frames: "max(1, round(media.duration * media.fps))"
+  last: "(frames - 1) / media.fps"
+  fin: "min(round(fade_in * media.fps), frames - 1) / media.fps"
+  fout: "min(round(fade_out * media.fps), frames - 1) / media.fps"
+  out_start: "last - fout"
+preview:
+  shader: preview.frag
+  gain: "((clamp(time / fin, 0, 1) if fin > 0 else 1) * (clamp((last - time) / fout, 0, 1) if fout > 0 else 1)) if sound else 1"
+render:
+  - ffmpeg:
+      vf:
+        - fade: { t: in, st: 0, d: "{fin}" }
+          when: "fin > 0"
+        - fade: { t: out, st: "{out_start}", d: "{fout}" }
+          when: "fout > 0"
+      af:
+        - afade: { t: in, st: 0, d: "{fin}" }
+          when: "sound and fin > 0"
+        - afade: { t: out, st: "{out_start}", d: "{fout}" }
+          when: "sound and fout > 0"
+parity:
+  media: { width: 320, height: 180, fps: 25, duration: 4 }
+  cases:
+    - { params: { fade_in: 1, fade_out: 1 }, frames: [0, 5, 12, 25, 60, 80, 87, 99] }
+    - { params: { fade_in: 0, fade_out: 2 }, frames: [0, 49, 50, 75, 99] }
+    - { params: { fade_in: 3, fade_out: 3 }, frames: [0, 30, 50, 70, 99] }
+    - { params: { fade_in: 0.5, fade_out: 0 }, frames: [0, 6, 13, 99] }
+  tolerance: { max_abs: 1, mean_abs: 0.05 }

@@ -54,6 +54,7 @@ function render(overrides: Partial<ToolTabHost> = {}) {
 		setTitle: (title) => calls.title.push(title),
 		setThumbnail: () => undefined,
 		setSource: () => undefined,
+		replaceSource: () => undefined,
 		setActiveTool: (tool) => calls.tool.push(tool),
 		setRun: () => undefined,
 		clearHint: () => undefined,

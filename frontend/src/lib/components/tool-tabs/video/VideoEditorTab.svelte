@@ -15,6 +15,8 @@
 		ToolRail
 	} from '$lib/components/tool-tabs/frame';
 	import SaveMenuRows from '$lib/components/tool-tabs/frame/SaveMenuRows.svelte';
+	import ReplaceMenu from '$lib/components/tool-tabs/frame/ReplaceMenu.svelte';
+	import { replaceSource, sourceEntries, type SourceEntryId } from '$lib/tool-tabs/sourceEntries';
 	import MediaFieldPickers from '$lib/components/form-fields/MediaFieldPickers.svelte';
 	import { pickFromGeneration } from '$lib/components/form-fields/mediaLoaderPicks';
 	import { buildEditedMediaItem } from '$lib/components/form-fields/mediaLoaderEdited';
@@ -804,7 +806,7 @@
 			return;
 		}
 		const path = `uploads/${upload.filename}`;
-		hostApi.setSource({ path, relative_path: path, url: upload.url, name: upload.original_filename || upload.filename, type: 'video', item_id: upload.id } as MediaRef);
+		void changeSource({ path, relative_path: path, url: upload.url, name: upload.original_filename || upload.filename, type: 'video', item_id: upload.id } as MediaRef);
 	}
 
 	function pickHistory(_generation: unknown, file: { id?: string | number; file_path: string } & Record<string, unknown>) {
@@ -813,7 +815,23 @@
 		const item = pickFromGeneration(file as never).item as Record<string, unknown>;
 		const ref = { ...item, type: 'video' } as MediaRef & Record<string, unknown>;
 		if (file.id !== undefined && file.id !== null) ref.generation_file_id = String(file.id);
-		hostApi.setSource(ref as MediaRef);
+		void changeSource(ref as MediaRef);
+	}
+
+	async function changeSource(next: MediaRef) {
+		if (!source) {
+			hostApi.setSource(next);
+			return;
+		}
+		if (render || starting) {
+			toasts.show('info', 'Wait for the current save to finish.', { title: 'Saving' });
+			return;
+		}
+		await replaceSource(hostApi, source, next, dirty, 'clip');
+	}
+
+	function openReplacePicker(id: SourceEntryId) {
+		if (id === 'library' || id === 'history') pickers = id;
 	}
 
 	function videoInnerStyle(): { box: string; media: string } {
@@ -1084,11 +1102,16 @@
 			<h2 class="text-base font-semibold text-fg">Open a clip to edit</h2>
 			<p class="mt-2 text-sm text-fg-muted">Pick a video from your Library or History. Edit from History or Library opens it here too.</p>
 			<div class="mt-5 flex gap-2">
-				<Button variant="secondary" size="sm" icon="library" onclick={() => (pickers = 'library')}>Library</Button>
-				<Button variant="secondary" size="sm" icon="clock" onclick={() => (pickers = 'history')}>History</Button>
+				{#each sourceEntries('video') as entry (entry.id)}
+					<Button variant="secondary" size="sm" icon={entry.icon} onclick={() => openReplacePicker(entry.id)}>{entry.label}</Button>
+				{/each}
 			</div>
 		</div>
 	</div>
+{/snippet}
+
+{#snippet replaceMenu()}
+	<ReplaceMenu label="Replace clip" entries={sourceEntries('video')} disabled={!!render || starting} {phone} onselect={openReplacePicker} />
 {/snippet}
 
 {#snippet saveRows()}
@@ -1132,6 +1155,10 @@
 			onsave={primarySave}
 			onapply={applyCurrent}
 		>
+			{#snippet phoneLead()}
+				{@render replaceMenu()}
+			{/snippet}
+
 			{#snippet toolbar()}
 				{#if !phone}
 					<EditorToolbar
@@ -1158,7 +1185,11 @@
 						oncompare={(next) => (compare = next)}
 						onsave={onSave}
 						oncancelsave={cancelRender}
-					/>
+					>
+						{#snippet replaceControl()}
+							{@render replaceMenu()}
+						{/snippet}
+					</EditorToolbar>
 				{/if}
 			{/snippet}
 

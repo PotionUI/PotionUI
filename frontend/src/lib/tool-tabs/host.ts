@@ -20,6 +20,7 @@ export function createToolTabHost(tab: ToolTab, phone: boolean): ToolTabHost {
 		setTitle: (title: string) => tabsStore.setToolTabTitle(tabId, title.trim()),
 		setThumbnail: (url: string | null) => tabsStore.updateToolTab(tabId, { thumbnail: url }),
 		setSource: (source: MediaRef | null) => tabsStore.updateToolTab(tabId, { source }),
+		replaceSource: (source: MediaRef) => tabsStore.replaceToolTabSource(tabId, source),
 		setActiveTool: (activeTool: string | null) => {
 			rememberTool(tab.tool, activeTool);
 			tabsStore.updateToolTab(tabId, { activeTool });

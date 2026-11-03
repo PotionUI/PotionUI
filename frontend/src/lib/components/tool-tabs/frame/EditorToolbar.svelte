@@ -36,6 +36,7 @@
 		saveMenuOpen = $bindable(false),
 		moreItems = [],
 		leading,
+		replaceControl,
 		onundo,
 		onredo,
 		oncompare,
@@ -68,6 +69,7 @@
 		saveMenuOpen?: boolean;
 		moreItems?: MenuItem[];
 		leading?: Snippet;
+		replaceControl?: Snippet;
 		onundo: () => void;
 		onredo: () => void;
 		oncompare: (next: boolean) => void;
@@ -167,6 +169,9 @@
 	<div class="flex h-12 flex-none items-center gap-2 border-b border-line bg-surface-1 pl-4 pr-3" data-editor-toolbar="desktop">
 		<div class="flex min-w-0 flex-1 items-center gap-2.5">
 			<span class="min-w-0 truncate font-mono text-base {fileName ? 'text-fg' : 'text-fg-subtle'}" data-frame-file>{fileName ?? emptyLabel}</span>
+			{#if fileName && replaceControl}
+				{@render replaceControl()}
+			{/if}
 			{#if fileName}
 				{#each chips as chip, i (i)}
 					<span class="inline-flex h-5 flex-none items-center rounded bg-surface-3 px-1.5 font-mono text-sm tabular-nums text-fg-muted">{chip}</span>

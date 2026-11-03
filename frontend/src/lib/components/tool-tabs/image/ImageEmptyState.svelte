@@ -1,13 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import GenerationHistoryModal from '$lib/components/modals/GenerationHistoryModal.svelte';
-	import UploadLibraryModal from '$lib/components/modals/UploadLibraryModal.svelte';
 	import { Button, Kbd, Spinner } from '$lib/components/ui';
-	import { api } from '$lib/services/api/index';
-	import type { LibraryItem } from '$lib/services/api/library';
-	import { historyFileRef, libraryItemRef, recentHistoryPictures } from '$lib/tool-tabs/image/sourceRefs';
-	import type { GenerationFile } from '$lib/types/history';
+	import ImageSourcePicker from './ImageSourcePicker.svelte';
+	import RecentPictures from './RecentPictures.svelte';
+	import { sourceEntries } from '$lib/tool-tabs/sourceEntries';
 	import type { MediaRef } from '$lib/types/tabs';
 
 	let {
@@ -24,37 +20,8 @@
 		onfile: (file: File) => void;
 	} = $props();
 
-	let showHistory = $state(false);
-	let showLibrary = $state(false);
-	let recent = $state<MediaRef[]>([]);
-	let input = $state<HTMLInputElement>();
+	let picker = $state<ReturnType<typeof ImageSourcePicker>>();
 	let dragging = $state(false);
-
-	onMount(async () => {
-		try {
-			const response = await api.getGenerationHistory({ limit: 12, mediaType: 'image', status: 'completed' });
-			if (response.success && response.data) recent = recentHistoryPictures(response.data.generations);
-		} catch {
-			recent = [];
-		}
-	});
-
-	function fromHistory(_generation: unknown, file: GenerationFile) {
-		showHistory = false;
-		if (file?.file_path) onpick(historyFileRef(file));
-	}
-
-	function fromLibrary(item: LibraryItem) {
-		showLibrary = false;
-		onpick(libraryItemRef(item));
-	}
-
-	function browse(event: Event) {
-		const target = event.currentTarget as HTMLInputElement;
-		const file = target.files?.[0];
-		target.value = '';
-		if (file) onfile(file);
-	}
 
 	function drop(event: DragEvent) {
 		event.preventDefault();
@@ -90,10 +57,9 @@
 			Drop an image here, paste one, or pick something you made. Every edit stays undoable until you save.
 		</p>
 		<div class="mt-5 flex flex-wrap justify-center gap-2">
-			<Button size="sm" icon="image" onclick={() => (showLibrary = true)}>Library</Button>
-			<Button size="sm" icon="clock" onclick={() => (showHistory = true)}>History</Button>
-			<Button size="sm" icon="folder" onclick={() => input?.click()}>{phone ? 'Photos' : 'Browse files'}</Button>
-			<input bind:this={input} type="file" accept="image/*" class="hidden" onchange={browse} data-image-browse />
+			{#each sourceEntries('image', phone) as entry (entry.id)}
+				<Button size="sm" icon={entry.icon} onclick={() => picker?.open(entry.id)}>{entry.label}</Button>
+			{/each}
 		</div>
 		{#if !phone}
 			<p class="mt-4 flex items-center gap-2 text-sm text-fg-subtle">or paste <Kbd keys="Ctrl V" /></p>
@@ -101,25 +67,8 @@
 		{#if error}
 			<p class="mt-3 text-sm text-danger" role="alert">{error}</p>
 		{/if}
-		{#if recent.length}
-			<div class="mt-6 w-full border-t border-line pt-5 text-left">
-				<p class="mb-2.5 font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">Recent in History</p>
-				<div class="grid grid-cols-3 gap-2 md:grid-cols-6" data-recent-history>
-					{#each recent as ref (ref.path)}
-						<button
-							type="button"
-							class="aspect-square overflow-hidden rounded bg-surface-3 outline-none ring-signal hover:ring-1 focus-visible:ring-1"
-							aria-label="Edit {ref.name}"
-							onclick={() => onpick(ref)}
-						>
-							<img src={ref.url} alt="" class="h-full w-full object-cover" loading="lazy" />
-						</button>
-					{/each}
-				</div>
-			</div>
-		{/if}
+		<RecentPictures {onpick} class="mt-6 w-full border-t border-line pt-5 text-left" />
 	</div>
 </div>
 
-<GenerationHistoryModal isOpen={showHistory} onClose={() => (showHistory = false)} onSelect={fromHistory} mediaType="image" title="Select an image from History" />
-<UploadLibraryModal isOpen={showLibrary} onClose={() => (showLibrary = false)} onSelect={fromLibrary} mediaType="image" title="Select an image from your Library" />
+<ImageSourcePicker bind:this={picker} {onpick} {onfile} />

@@ -7,6 +7,7 @@ export interface ConfirmOptions {
 	message: string;
 	variant?: ConfirmVariant;
 	confirmLabel?: string;
+	cancelLabel?: string;
 }
 
 export interface ConfirmRequest extends ConfirmOptions {

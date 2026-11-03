@@ -52,13 +52,14 @@ importing back from the former would cycle.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import torch
 import torch.nn.functional as F
 from safetensors import safe_open
 
+from src.pipelines.references import PreEncodedReference
 from src.pipelines.pipes._shared.generation.refmod_header import (
     MAX_COPIES,
     MAX_PACKED_REFERENCES,
@@ -74,19 +75,12 @@ AUDIO_LATENT_CHANNELS = 32
 AUDIO_CHANNELS = 2
 
 
-@dataclass(frozen=True)
-class RefMod:
-    """One RefMod bundle member, already strength-mixed and shape-normalized
-    into the convention `conditioning.ReferenceMedia.latent`/`audio.
-    _normalize_and_pack_audio_latent` expect -- still in the VAE's RAW (un-
-    normalized) latent space; mean/std normalization happens downstream,
-    once, alongside every other reference (module docstring)."""
-
-    kind: str
-    name: str
-    latent: Tensor
-    strength: float
-    source: str
+def _file_fingerprint(file_path: str) -> str:
+    try:
+        stat = Path(file_path).stat()
+    except OSError:
+        return str(file_path)
+    return f"{file_path}|{stat.st_size}|{stat.st_mtime_ns}"
 
 
 def apply_strength(latent: Tensor, w: float) -> Tensor:
@@ -135,12 +129,13 @@ def _validate_visual_latent(raw: Tensor, *, kind: str, source: str, member_index
     return raw
 
 
-def _load_bundle(file_path: str, strength: float) -> list[RefMod]:
+def _load_bundle(file_path: str, strength: float) -> list[PreEncodedReference]:
     with safe_open(file_path, framework="pt") as handle:
         keys = set(handle.keys())
         members = _parse_members(_read_meta(handle.metadata() or {}, file_path), source=file_path)
 
-        mods: list[RefMod] = []
+        file_fingerprint = _file_fingerprint(file_path)
+        mods: list[PreEncodedReference] = []
         for index, member in enumerate(members):
             tensor_key = member["tensor_key"]
             if tensor_key not in keys and len(keys) == 1 and len(members) == 1:
@@ -162,11 +157,14 @@ def _load_bundle(file_path: str, strength: float) -> list[RefMod]:
                 )
             latent = apply_strength(latent, strength)
             name = member.get("name") or f"{file_path}#{index}"
-            mods.append(RefMod(kind=kind, name=name, latent=latent, strength=strength, source=file_path))
+            mods.append(PreEncodedReference(
+                kind=kind, latent=latent, name=name,
+                fingerprint=f"{file_fingerprint}|{kind}|{name}|{strength}",
+            ))
         return mods
 
 
-def load_refmods(entries: Sequence[Mapping[str, Any]] | None) -> list[RefMod]:
+def load_refmods(entries: Sequence[Mapping[str, Any]] | None) -> list[PreEncodedReference]:
     """`reference_mods` config (a list of `{"file_path", "strength"}` dicts)
     -> every member of every referenced bundle, strength-mixed and shape-
     normalized, in FILE order then MEMBER order.
@@ -177,7 +175,7 @@ def load_refmods(entries: Sequence[Mapping[str, Any]] | None) -> list[RefMod]:
     immediately with the offending file/member named, rather than failing
     deep inside VAE encode with a bare shape-mismatch.
     """
-    mods: list[RefMod] = []
+    mods: list[PreEncodedReference] = []
     for entry in entries or []:
         file_path = entry["file_path"]
         strength = float(entry.get("strength", 1.0))

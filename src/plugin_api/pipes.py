@@ -31,6 +31,7 @@ from src.pipelines.contracts import (
     PipeOutput,
     PipeOutputSpec,
 )
+from src.pipelines.references import PreEncodedReference
 from src.pipelines.outputs import (
     AudioGenerationOutput,
     ComfyUIWorkflowGenerationOutput,
@@ -74,6 +75,7 @@ __all__ = [
     "PipeInputSpec",
     "PipeOutput",
     "PipeOutputSpec",
+    "PreEncodedReference",
     "Progress",
     "ProgressGenerationOutput",
     "SerializeContext",

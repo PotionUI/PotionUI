@@ -177,8 +177,9 @@ the other GPU with the most free memory. The VAE stays with the DiT.
 Native-v2 treats inference as memory phases rather than assuming every component must coexist:
 
 1. **Prompt encoding** moves or retains the text encoder long enough to produce conditioning. A
-   conditioning-cache hit can bypass encoding. Under pressure, older GPU residents are evicted;
-   CPU encoding is the final fallback.
+   conditioning-cache hit can bypass encoding. Under pressure, older GPU residents are evicted; an
+   encoder that still does not fit is streamed with partial residency for the encode (backend field
+   `text_encoder_placement`); CPU encoding is the final fallback.
 2. **Sampling** computes placement for the actual latent resolution, creates deterministic seeded
    noise, builds the family-specific sigma schedule and guidance strategy, and runs the requested
    sampler.

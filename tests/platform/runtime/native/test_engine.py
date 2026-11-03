@@ -2242,7 +2242,7 @@ def test_a_partial_placement_syncs_nvfp4_tables_before_planning(monkeypatch):
     monkeypatch.setattr(engine, "sync_nvfp4_dequant_tables", lambda module: calls.append("sync"))
     real_plan = engine.plan_residency_split
     monkeypatch.setattr(engine, "plan_residency_split",
-                        lambda module, budget: calls.append("plan") or real_plan(module, budget))
+                        lambda module, budget, **kwargs: calls.append("plan") or real_plan(module, budget, **kwargs))
     model = NativeModel("diffusion_model", torch.nn.Linear(2, 2), estimated_vram_gb=1.0)
     model._streamer = _FakeStreamerForStreamTo(calls)
     model.stream_to("cuda:0", 1.0)

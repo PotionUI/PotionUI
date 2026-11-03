@@ -3,10 +3,11 @@
 	import CurvePlot from '$lib/components/imageEditor/CurvePlot.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import ToolForm from '$lib/media-tools/ToolForm.svelte';
-	import { effectDefaults, effectGroups, type EffectTool } from '$lib/effects/catalog';
+	import { effectDefaults, effectGroups, sameValues, type EffectTool } from '$lib/effects/catalog';
 	import SliderField from '$lib/components/form-fields/SliderField.svelte';
 	import { paintFilters } from '$lib/components/imageEditor/registries';
 	import { Spinner } from '$lib/components/ui';
+	import EffectCardActions from '$lib/components/tool-tabs/frame/EffectCardActions.svelte';
 	import { filterCatalog, loadCube, loadFilterCatalog } from '$lib/filters/catalog';
 	import { getOp } from '$lib/filters/engine';
 	import { sharedExtensions } from '$lib/filters/extensions';
@@ -22,12 +23,20 @@
 		base = null,
 		phone = false,
 		effects = [],
+		updating = false,
+		original = null,
+		busy = false,
+		onapply,
 		onchange
 	}: {
 		params: EffectParams | null;
 		base?: HTMLCanvasElement | null;
 		phone?: boolean;
 		effects?: EffectTool[];
+		updating?: boolean;
+		original?: EffectParams | null;
+		busy?: boolean;
+		onapply: () => void;
 		onchange: (next: EffectParams) => void;
 	} = $props();
 
@@ -102,19 +111,54 @@
 		onchange({ kind: 'look', filter: item.id, name: item.name, intensity } satisfies LookParams);
 	}
 
-	function pickAdjust(id: string) {
+	function adjustDefaults(id: string): Record<string, number> {
 		const def = getOp(id, extensions);
-		if (!def) return;
 		const values: Record<string, number> = {};
+		if (!def) return values;
 		if (id === 'curves') for (const point of CURVE_POINTS) values[point.id] = 0;
 		for (const param of scalarParams(def)) values[param.id] = param.default;
 		if (id === 'grain' && !values.amount) values.amount = 30;
-		onchange({ kind: 'adjust', op: id, name: def.label, values } satisfies AdjustParams);
+		return values;
+	}
+
+	function pickAdjust(id: string) {
+		const def = getOp(id, extensions);
+		if (!def) return;
+		onchange({ kind: 'adjust', op: id, name: def.label, values: adjustDefaults(id) } satisfies AdjustParams);
+	}
+
+	function comparable(value: EffectParams): Record<string, unknown> {
+		if (value.kind === 'look') return { filter: value.filter, intensity: value.intensity };
+		if (value.kind === 'adjust') return { op: value.op, ...value.values };
+		return { tool: value.tool, ...value.values };
+	}
+
+	function defaultsOf(value: EffectParams): EffectParams {
+		if (value.kind === 'look') {
+			const item = $filterCatalog.items.find((entry) => entry.id === value.filter);
+			return { ...value, intensity: item?.intensity ?? value.intensity };
+		}
+		if (value.kind === 'adjust') return { ...value, values: adjustDefaults(value.op) };
+		const effect = effects.find((entry) => entry.id === value.tool);
+		return { ...value, values: effect ? effectDefaults(effect) : value.values } as ToolEffectParams;
+	}
+
+	function canReset(value: EffectParams): boolean {
+		return !busy && !sameValues(comparable(value), comparable(defaultsOf(value)));
+	}
+
+	function canApply(value: EffectParams): boolean {
+		if (busy) return false;
+		return !updating || !original || !sameValues(comparable(value), comparable(original));
 	}
 
 	function pickEffect(effect: EffectTool) {
 		if (chosen?.tool === effect.id) return;
 		onchange({ kind: 'effect', tool: effect.id, name: effect.label, values: effectDefaults(effect) } satisfies ToolEffectParams);
+	}
+
+	function resetValues(value: EffectParams) {
+		onchange(defaultsOf(value));
 	}
 
 	function setEffectValue(name: string, value: unknown) {
@@ -127,6 +171,20 @@
 		onchange({ ...adjust, values: { ...adjust.values, [key]: value } });
 	}
 </script>
+
+{#snippet effectBody(value: ToolEffectParams, effect: EffectTool)}
+	{#if effect.description}
+		<p class="text-sm text-fg-muted" data-effect-description>{effect.description}</p>
+	{/if}
+	{#if effect.params.length}
+		<ToolForm params={effect.params} values={value.values} onChange={setEffectValue} />
+	{/if}
+	{@render actions(value)}
+{/snippet}
+
+{#snippet actions(value: EffectParams)}
+	<EffectCardActions name={value.name} {updating} canApply={canApply(value)} canReset={canReset(value)} onapply={onapply} onreset={() => resetValues(value)} />
+{/snippet}
 
 <div class="flex items-center gap-4 border-b border-line" role="tablist" aria-label="Effects">
 	<button
@@ -201,6 +259,7 @@
 			value={look.intensity}
 			onChange={(_name, value) => onchange({ ...look, intensity: Number(value) })}
 		/>
+		{@render actions(look)}
 	{/if}
 {:else if tab === 'effects'}
 	{#if phone}
@@ -224,29 +283,28 @@
 				<span class="font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">{group.label}</span>
 				{#each group.effects as effect (effect.id)}
 					{@const open = chosen?.tool === effect.id}
-					<button
-						type="button"
-						class="flex h-10 w-full items-center gap-2 rounded-lg border px-3 text-left text-base {open ? 'border-signal/50 bg-surface-2 text-fg' : 'border-line bg-surface-1 text-fg hover:border-line-hover'}"
-						aria-pressed={open}
-						onclick={() => pickEffect(effect)}
-						data-effect-card={effect.id}
-						data-open={open || undefined}
-					>
-						<Icon name={effect.icon} className="h-3.5 w-3.5 flex-none text-fg-muted" />
-						<span class="min-w-0 flex-1 truncate">{effect.label}</span>
-					</button>
+					<div class="rounded-lg border {open ? 'border-signal/50 bg-surface-2' : 'border-line bg-surface-1 hover:border-line-hover'}" data-effect-card={effect.id} data-open={open || undefined}>
+						<button type="button" class="flex h-10 w-full items-center gap-2 px-3 text-left text-base text-fg" aria-expanded={open} onclick={() => pickEffect(effect)}>
+							<Icon name={effect.icon} className="h-3.5 w-3.5 flex-none text-fg-muted" />
+							<span class="min-w-0 flex-1 truncate">{effect.label}</span>
+						</button>
+						{#if open && chosen}
+							<div class="flex flex-col gap-3 px-3 pb-3">
+								{@render effectBody(chosen, effect)}
+							</div>
+						{/if}
+					</div>
 				{/each}
 			</div>
 		{/each}
 	{/if}
-	{#if chosen && chosenEffect}
-		{#if chosenEffect.description}
-			<p class="text-sm text-fg-muted" data-effect-description>{chosenEffect.description}</p>
+	{#if phone}
+		{#if chosen && chosenEffect}
+			{@render effectBody(chosen, chosenEffect)}
+		{:else}
+			<p class="text-sm text-fg-muted">Pick an effect. It previews here and renders when you save.</p>
 		{/if}
-		{#if chosenEffect.params.length}
-			<ToolForm params={chosenEffect.params} values={chosen.values} onChange={setEffectValue} />
-		{/if}
-	{:else}
+	{:else if !chosen}
 		<p class="text-sm text-fg-muted">Pick an effect. It previews here and renders when you save.</p>
 	{/if}
 {:else}
@@ -285,9 +343,10 @@
 				/>
 			{/each}
 			{#if scalarParams(adjustDef).length === 0}
-				<p class="text-sm text-fg-muted">{adjust.name} has no settings. Apply adds it as a step.</p>
+				<p class="text-sm text-fg-muted">{adjust.name} has no settings.</p>
 			{/if}
 		{/if}
+		{@render actions(adjust)}
 	{:else}
 		<p class="text-sm text-fg-muted">Pick an adjustment. Each one applies as its own step.</p>
 	{/if}

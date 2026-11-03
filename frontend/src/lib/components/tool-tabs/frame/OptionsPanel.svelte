@@ -11,6 +11,7 @@
 		canApply = true,
 		canReset = true,
 		phone = false,
+		actions = true,
 		onapply,
 		onreset,
 		children
@@ -22,6 +23,7 @@
 		canApply?: boolean;
 		canReset?: boolean;
 		phone?: boolean;
+		actions?: boolean;
 		onapply: () => void;
 		onreset: () => void;
 		children?: Snippet;
@@ -33,8 +35,10 @@
 		<div class="flex items-center gap-2 px-3 pb-2 pt-2.5">
 			<Icon name={icon} className="h-3.5 w-3.5 flex-none text-fg-muted" />
 			<h2 class="min-w-0 flex-1 truncate text-base font-semibold text-fg">{title}</h2>
-			<Button variant="secondary" size="sm" class="h-7" disabled={!canReset} onclick={onreset} attrs={{ 'data-options-reset': '' }}>Reset</Button>
-			<Button variant="primary" size="sm" class="h-7" disabled={!canApply} onclick={onapply} attrs={{ 'data-options-apply': '' }}>Apply</Button>
+			{#if actions}
+				<Button variant="secondary" size="sm" class="h-7" disabled={!canReset} onclick={onreset} attrs={{ 'data-options-reset': '' }}>Reset</Button>
+				<Button variant="primary" size="sm" class="h-7" disabled={!canApply} onclick={onapply} attrs={{ 'data-options-apply': '' }}>Apply</Button>
+			{/if}
 		</div>
 		{#if children}
 			<div class="flex flex-col gap-3 px-3 pb-3">
@@ -60,13 +64,15 @@
 			<div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4 pt-1 [&>*]:flex-none" data-options-body>
 				{@render children?.()}
 			</div>
-			<div class="flex flex-none gap-2 border-t border-line px-4 py-3">
-				<Button variant="secondary" size="sm" class="h-7 flex-1" disabled={!canReset} onclick={onreset} attrs={{ 'data-options-reset': '' }}>Reset</Button>
-				<Button variant="primary" size="sm" class="h-7 flex-1" disabled={!canApply} onclick={onapply} attrs={{ 'data-options-apply': '' }}>
-					{applyLabel}
-					<kbd class="ml-0.5 rounded border border-accent-contrast/25 px-1 font-mono text-sm leading-4 text-accent-contrast/70" aria-hidden="true">↵</kbd>
-				</Button>
-			</div>
+			{#if actions}
+				<div class="flex flex-none gap-2 border-t border-line px-4 py-3">
+					<Button variant="secondary" size="sm" class="h-7 flex-1" disabled={!canReset} onclick={onreset} attrs={{ 'data-options-reset': '' }}>Reset</Button>
+					<Button variant="primary" size="sm" class="h-7 flex-1" disabled={!canApply} onclick={onapply} attrs={{ 'data-options-apply': '' }}>
+						{applyLabel}
+						<kbd class="ml-0.5 rounded border border-accent-contrast/25 px-1 font-mono text-sm leading-4 text-accent-contrast/70" aria-hidden="true">↵</kbd>
+					</Button>
+				</div>
+			{/if}
 		{/if}
 	</section>
 {/if}

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { setContext } from 'svelte';
+	import { LIVE_SYNC_TAB_CONTEXT_KEY } from '$lib/stores/liveSyncAnchors';
+	import LiveSyncPending from '$lib/components/session/LiveSyncPending.svelte';
 	import { writable } from 'svelte/store';
 	import { tabsStore } from '$lib/stores/tabs';
 	import type { VariableRoll } from '$lib/utils/variableDefs';
@@ -96,6 +98,12 @@
 		promptCopy?: PromptCopy;
 		spacingClass?: string;
 	} = $props();
+
+	setContext(LIVE_SYNC_TAB_CONTEXT_KEY, {
+		get tabId() {
+			return tab.id;
+		}
+	});
 
 	const presetSegmentTemplatesContext = writable<PresetSegmentTemplate[]>([]);
 	setContext('presetSegmentTemplates', presetSegmentTemplatesContext);
@@ -214,6 +222,7 @@
 
 <!-- Prompt Editors -->
 <div class="space-y-4 {spacingClass}">
+	<LiveSyncPending tabId={tab.id} />
 	{#if promptRelayActive}
 		<!-- PromptRelayEditor doesn't render its own toolbar/header, so it needs
 			this standalone entry point. Video Director has its own header and

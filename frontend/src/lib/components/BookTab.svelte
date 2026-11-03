@@ -17,6 +17,7 @@
 	export let thumbnail: string | null = null;
 	export let progress: number | null = null;
 	export let unsavedLabel: string = 'Unsaved changes';
+	export let remoteChange: string | null = null;
 
 	const dispatch = createEventDispatcher();
 
@@ -213,6 +214,12 @@
 				<span class="tab-name">{name}</span>
 				{#if progress !== null}
 					<span class="tab-progress font-mono text-xs tabular-nums" data-testid="tab-progress">{Math.round(progress)}%</span>
+				{/if}
+				{#if remoteChange}
+					<Tooltip text={remoteChange} position="bottom" delay={150} wrapperClass="flex items-center">
+						<span class="unsaved-mark" data-testid="tab-remote-change"><span class="remote-dot"></span></span>
+					</Tooltip>
+					<span class="sr-only">, {remoteChange.toLowerCase()}</span>
 				{/if}
 				{#if unsaved}
 					<Tooltip text={unsavedLabel} position="bottom" delay={150} wrapperClass="flex items-center">
@@ -425,6 +432,13 @@
 		height: 6px;
 		border-radius: 50%;
 		background: rgb(var(--warning-solid));
+	}
+
+	.remote-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: rgb(var(--signal));
 	}
 
 	.tab-name {

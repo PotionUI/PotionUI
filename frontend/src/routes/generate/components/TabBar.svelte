@@ -17,6 +17,7 @@
 	import CloseTabModal from '$lib/tabs/CloseTabModal.svelte';
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
 	import { tabSessionDirty } from '$lib/stores/tabSessionDirty';
+	import { sessionLiveSync, remoteChangeLabel } from '$lib/stores/sessionLiveSync';
 	import { tabShowsUnsavedChanges } from '$lib/tabs/tabDirty';
 	import { isToolTab, type Tab, type ToolTab } from '$lib/types/tabs';
 	import type { WorkspaceTab } from '$lib/types/generation';
@@ -25,6 +26,8 @@
 
 	$: tabs = $tabsStore.tabs;
 	$: activeTabId = $tabsStore.activeTabId;
+
+	const liveSyncMarks = sessionLiveSync.marks;
 
 	let showWorkspaceMenu = false;
 	let workspaces: Workspace[] = [];
@@ -313,6 +316,7 @@
 							canDelete={tabs.length > 1}
 							isGenerating={tab.generation.isGenerating}
 							unsaved={tabShowsUnsavedChanges(tab, $tabSessionDirty)}
+							remoteChange={remoteChangeLabel($liveSyncMarks[tab.id])}
 							on:select={(e) => setActiveTab(e.detail.id)}
 							on:rename={handleTabRename}
 							on:delete={(e) => removeTab(e.detail.id)}

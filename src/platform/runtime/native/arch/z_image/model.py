@@ -64,6 +64,7 @@ from vendor.gpl.comfyui.z_image.layers import (
 from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...cache_identity import identity_usable, tensor_identity
+from ...cancellation import raise_if_cancelled
 from ...ops.padding import pad_to_patch
 from .config import ZImageConfig
 
@@ -307,6 +308,7 @@ class ZImageDiT(NativeArchModule):
         step_cache = kwargs.get("step_cache")
         probe = None
         for i, layer in enumerate(self.layers):
+            raise_if_cancelled(i)
             joint = layer(joint, rope, adaln_input)
             if i == 0 and step_cache is not None:
                 probe = joint

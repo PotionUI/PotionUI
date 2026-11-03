@@ -35,6 +35,9 @@ import numpy as np
 import torch
 from PIL import Image
 
+from src.platform.runtime.cuda_allocator import is_driver_oom
+
+from ..errors import retry_after_cuda_oom
 from .hooks import PreviewHook
 from .preview_clip import CLIP_MAX_FRAMES, ClipRelay, ClipSchedule, SpriteClip
 from .preview_decoder import (
@@ -379,7 +382,9 @@ class _ClipDecoder:
             frames, indices = decode_preview_clip(
                 self._decoder, x0, max_frames=CLIP_MAX_FRAMES, max_size=CLIP_MAX_SIZE
             )
-        except Exception:
+        except Exception as exc:
+            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                raise
             logger.debug("preview clip decode failed; skipping update", exc_info=True)
             return None
         return (frames, indices) if len(frames) > 1 else None
@@ -474,12 +479,14 @@ def make_preview_hook(
             if decoder is not None:
                 try:
                     return frame_to_image(decode_middle_frame(decoder, x0, max_size=max_size), max_size=max_size)
-                except Exception:
-                    if factors is None:
+                except Exception as exc:
+                    if factors is None or (is_driver_oom(exc) and not retry_after_cuda_oom(exc)):
                         raise
                     logger.debug("preview decoder failed; using the latent projection", exc_info=True)
             return latent_to_preview_image(x0, factors, max_size=max_size)
-        except Exception:
+        except Exception as exc:
+            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                raise
             logger.debug("latent preview decode failed; skipping frame", exc_info=True)
             return None
 

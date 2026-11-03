@@ -8,6 +8,7 @@ import pytest
 import torch
 from safetensors.torch import save_file
 
+from src.platform.runtime import cuda_allocator
 from src.platform.runtime.native.sampling import preview as preview_module
 from src.platform.runtime.native.sampling import preview_decoder as pd
 from src.platform.runtime.native.sampling.preview import make_preview_hook
@@ -265,3 +266,58 @@ def test_preview_clip_defaults_are_25_frames_and_384_px(decoder):
     frames, indices = pd.decode_preview_clip(decoder, torch.randn(1, 16, 9, 8, 8))
     assert len(frames) == 25 and len(indices) == 25
     assert max(frames[0].shape[:2]) <= 384
+
+
+DEVICE_NOT_READY = "CUDA driver error: device not ready"
+
+
+@pytest.fixture
+def driver_policy(monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    return lambda policy: monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, policy)
+
+
+def _raising(exc):
+    def boom(*_args, **_kwargs):
+        raise exc
+
+    return boom
+
+
+def test_a_fatal_driver_oom_in_the_preview_decode_is_recorded_and_raised(no_lifecycle, wan_file, monkeypatch, driver_policy):
+    driver_policy("fatal")
+    exc = RuntimeError(DEVICE_NOT_READY)
+    monkeypatch.setattr(preview_module, "decode_middle_frame", _raising(exc))
+    hook = make_preview_hook(WAN_SPEC, lambda image: None, every_n=1, decoder_path=wan_file)
+    with pytest.raises(RuntimeError) as caught:
+        hook.on_step(0, 1, torch.zeros(1, 16, 1, 8, 8), 1.0, torch.randn(1, 16, 3, 8, 8))
+    assert caught.value is exc
+    assert cuda_allocator.allocator_damage() == DEVICE_NOT_READY
+
+
+def test_a_driver_oom_the_policy_retries_falls_back_to_the_latent_projection(no_lifecycle, wan_file, monkeypatch, driver_policy):
+    driver_policy("retry")
+    monkeypatch.setattr(preview_module, "decode_middle_frame", _raising(RuntimeError(DEVICE_NOT_READY)))
+    emitted = []
+    hook = make_preview_hook(WAN_SPEC, emitted.append, every_n=1, decoder_path=wan_file)
+    hook.on_step(0, 1, torch.zeros(1, 16, 1, 8, 8), 1.0, torch.randn(1, 16, 3, 8, 8))
+    assert [image.size for image in emitted] == [(512, 512)]
+    assert cuda_allocator.allocator_damage() is None
+
+
+@pytest.mark.parametrize("policy", ["fatal", "retry"])
+def test_the_preview_clip_decode_follows_the_driver_policy(decoder, monkeypatch, driver_policy, policy):
+    driver_policy(policy)
+    exc = RuntimeError(DEVICE_NOT_READY)
+    monkeypatch.setattr(preview_module, "decode_preview_clip", _raising(exc))
+    clips = preview_module._ClipDecoder(decoder, None, relay=None)
+    if policy == "retry":
+        assert clips.decode(torch.randn(1, 16, 3, 8, 8)) is None
+        assert cuda_allocator.allocator_damage() is None
+        return
+    with pytest.raises(RuntimeError) as caught:
+        clips.decode(torch.randn(1, 16, 3, 8, 8))
+    assert caught.value is exc
+    assert cuda_allocator.allocator_damage() == DEVICE_NOT_READY

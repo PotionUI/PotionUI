@@ -5,12 +5,14 @@ from __future__ import annotations
 import pytest
 import torch
 
+from src.platform.runtime import cuda_allocator
 from src.platform.runtime.native.errors import SamplingNumericsError
 from src.platform.runtime.native.sampling.hooks import (
     BaseStepHook,
     NumericsWatchdog,
     PreviewHook,
     ProgressHook,
+    apply_latent_filters,
     run_hooks,
     with_numerics_watchdog,
 )
@@ -134,3 +136,47 @@ def test_with_numerics_watchdog_derives_switch_step_from_discontinuity_steps():
 def test_with_numerics_watchdog_no_discontinuity_steps_leaves_switch_step_none():
     hooks = with_numerics_watchdog((), "unipc", None)
     assert hooks[-1].switch_step is None
+
+
+DEVICE_NOT_READY = "CUDA driver error: device not ready"
+
+
+class DriverOomHook(BaseStepHook):
+    def __init__(self, exc):
+        self.exc = exc
+
+    def on_step(self, *args):
+        raise self.exc
+
+    def filter_latent(self, *args):
+        raise self.exc
+
+
+@pytest.fixture
+def driver_policy(monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    return lambda policy: monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, policy)
+
+
+@pytest.mark.parametrize("dispatch", ["run_hooks", "apply_latent_filters"])
+def test_a_fatal_driver_oom_in_a_hook_is_recorded_and_raised(driver_policy, dispatch):
+    driver_policy("fatal")
+    exc = RuntimeError(DEVICE_NOT_READY)
+    with pytest.raises(RuntimeError) as caught:
+        if dispatch == "run_hooks":
+            run_hooks([DriverOomHook(exc)], "on_step", 0, 1, torch.zeros(1), 1.0, None)
+        else:
+            apply_latent_filters([DriverOomHook(exc)], 0, 1, torch.zeros(1), 1.0)
+    assert caught.value is exc
+    assert cuda_allocator.allocator_damage() == DEVICE_NOT_READY
+
+
+def test_a_driver_oom_the_policy_retries_stays_isolated_in_its_hook(driver_policy):
+    driver_policy("retry")
+    log = []
+    run_hooks([DriverOomHook(RuntimeError(DEVICE_NOT_READY)), RecordingHook("survivor", log)],
+              "on_step", 1, 2, torch.zeros(1), 0.5, None)
+    assert log == [("survivor", 1)]
+    assert cuda_allocator.allocator_damage() is None

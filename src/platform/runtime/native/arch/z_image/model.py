@@ -261,7 +261,8 @@ class ZImageDiT(NativeArchModule):
 
         cap = self.cap_embedder(context)
         cap = self._pad_tokens(cap, self.cap_pad_token)
-        for layer in self.context_refiner:
+        for i, layer in enumerate(self.context_refiner):
+            raise_if_cancelled(i)
             cap = layer(cap, geometry.cap_rope, None)
         if key is not None:
             while len(geometry.captions) >= self._CAPTION_SLOTS:
@@ -297,7 +298,8 @@ class ZImageDiT(NativeArchModule):
         img = x.view(bsz, self.in_channels, h_tok, p, w_tok, p).permute(0, 2, 4, 3, 5, 1).flatten(3).flatten(1, 2)
         img = self.x_embedder(img)
         img = self._pad_tokens(img, self.x_pad_token)
-        for layer in self.noise_refiner:
+        for i, layer in enumerate(self.noise_refiner):
+            raise_if_cancelled(i)
             img = layer(img, geometry.img_rope, adaln_input)
 
         # joint stack over [caption ; image].

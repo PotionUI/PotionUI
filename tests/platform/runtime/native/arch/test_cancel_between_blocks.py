@@ -91,6 +91,19 @@ def test_a_cancel_already_set_stops_the_dit_before_its_first_block(family):
     assert (excinfo.value.step_index, excinfo.value.block_index) == (2, 0)
 
 
+def test_a_cancel_stops_the_minimax_h3_token_refiner_before_its_next_block():
+    config = dict(TINY_FULL, num_refiner_layers=2)
+    m = _build_ready(config)
+    layout = _tiny_layout()
+    inputs = _fbcache_inputs(config, layout)
+    flag = _Flag()
+    calls = _cancel_after_first_block(m.token_refiner.blocks, flag)
+    with torch.no_grad(), pytest.raises(SamplingCancelled):
+        with cancellation_scope(flag):
+            _fbcache_forward(m, layout, inputs, torch.tensor([0.2, 0.9]))
+    assert calls == {"first": 1, "second": 0}
+
+
 def test_a_wan_block_skipped_for_guidance_still_sees_the_cancel():
     m, blocks, _ = _wan_case()
     x, ctx = torch.randn(1, 16, 4, 16, 16), torch.randn(1, 12, 32)

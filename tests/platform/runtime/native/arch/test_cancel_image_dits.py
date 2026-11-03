@@ -5,6 +5,7 @@ import torch
 
 from src.platform.runtime.native.arch.flux3.model import Flux3
 from src.platform.runtime.native.arch.moss_image.model import MossImage
+from src.platform.runtime.native.arch.z_image.model import ZImageDiT
 from src.platform.runtime.native.cancellation import cancellation_scope
 from src.platform.runtime.native.engine import RunCache
 from src.platform.runtime.native.errors import SamplingCancelled
@@ -25,6 +26,7 @@ from .test_qwen_image21_model import TINY as TINY_QWEN21
 from .test_qwen_image21_model import _build_ready as _build_qwen21
 from .test_qwen_image_model import TINY as TINY_QWEN
 from .test_qwen_image_model import _build_ready as _build_qwen
+from .test_z_image_model import ZTINY
 from .test_z_image_model import _build as _build_z_image
 
 _T = torch.tensor([0.5])
@@ -167,6 +169,46 @@ def test_qwen_image21_stops_between_blocks_on_a_controlled_step():
     with torch.no_grad(), pytest.raises(SamplingCancelled):
         with cancellation_scope(flag):
             controlled(x, t, context, control_context=control)
+    assert calls == {"first": 1, "second": 0}
+
+
+def _z_image_stack(name):
+    config = dict(ZTINY, n_refiner_layers=2)
+    m = _randomised(ZImageDiT.from_config(config, pick_operations(torch.float32, torch.float32)))
+    x, ctx = torch.randn(1, 16, 16, 16), torch.randn(1, 4, 8)
+    return getattr(m, name), lambda: m(x, _T, ctx)
+
+
+def _krea2_text_stack(name):
+    m = _build_krea2(dict(TINY_KREA2, layers=2))
+    x, ctx = torch.randn(1, 4, 8, 8), torch.randn(1, 5, 3, 16)
+    mask = torch.ones(1, 5, dtype=torch.long)
+    return getattr(m.txtfusion, name), lambda: m(x, _T, ctx, attention_mask=mask)
+
+
+def _moss_text_stack():
+    m = _randomised(MossImage.from_config(TINY_MOSS, pick_operations(torch.float32, torch.float32)))
+    x, ctx, mask = _moss_inputs(0, 4, 4, [5])
+    return m.text_embedder.blocks, lambda: m(x, _T, ctx, attention_mask=mask)
+
+
+TEXT_AND_NOISE_STACKS = {
+    "z-image-context-refiner": lambda: _z_image_stack("context_refiner"),
+    "z-image-noise-refiner": lambda: _z_image_stack("noise_refiner"),
+    "krea-2-layerwise-fusion": lambda: _krea2_text_stack("layerwise_blocks"),
+    "krea-2-refiner-fusion": lambda: _krea2_text_stack("refiner_blocks"),
+    "moss-image-text": _moss_text_stack,
+}
+
+
+@pytest.mark.parametrize("stack", list(TEXT_AND_NOISE_STACKS))
+def test_a_cancel_stops_the_stacks_that_run_ahead_of_the_main_blocks(stack):
+    blocks, run = TEXT_AND_NOISE_STACKS[stack]()
+    flag = _Flag()
+    calls = _cancel_after_first_block(blocks, flag)
+    with torch.no_grad(), pytest.raises(SamplingCancelled):
+        with cancellation_scope(flag):
+            run()
     assert calls == {"first": 1, "second": 0}
 
 

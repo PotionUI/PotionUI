@@ -418,7 +418,8 @@ class MiniMaxH3TokenRefiner(nn.Module):
         self.final_norm = operations.RMSNorm(hidden_size, eps=final_norm_eps, dtype=dtype, device=device)
 
     def forward(self, x: Tensor) -> Tensor:
-        for block in self.blocks:
+        for i, block in enumerate(self.blocks):
+            raise_if_cancelled(i)
             x = block(x)
         return self.final_norm(x)
 

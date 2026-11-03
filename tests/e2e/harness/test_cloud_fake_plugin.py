@@ -57,7 +57,7 @@ def test_several_directories_can_be_listed_with_the_platform_separator(monkeypat
     loader = PluginLoader(str(tmp_path / "none"), str(tmp_path / "none"))
 
     assert loader.extra_dirs == [other, cloud_fake.PLUGINS_ROOT]
-    assert [m.id for m in loader.discover_plugins()] == [cloud_fake.PLUGIN_ID]
+    assert sorted(m.id for m in loader.discover_plugins()) == [cloud_fake.PLUGIN_ID, "e2e-preset-extension"]
 
 
 def test_restarting_the_backend_stops_it_through_the_shared_helper_then_relaunches_and_logs_in(monkeypatch):

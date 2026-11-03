@@ -1,0 +1,15 @@
+id: "e2e-preset-extension"
+name: "E2E Preset Extension"
+version: "1.0.0"
+description: "Test-only plugin that extends existing preset modes. Used by the preset extension tests; never shipped."
+author: "PotionUI Team"
+type: "backend-only"
+category: "developer"
+
+preset_extensions:
+  - target: "4TK1KBQZ2XMB8ME0PTMXS1YJQP"
+    modes: ["txt2img"]
+    file: "extensions/krea2.yml"
+  - target: "01M3SVA35XT0E7CG5JZTS9P21S"
+    modes: ["txt2img"]
+    file: "extensions/fake-studio.yml"

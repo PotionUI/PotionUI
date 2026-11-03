@@ -5,8 +5,22 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
 from src.pipelines.cloud import CloudRunError
+from src.platform.runtime.cuda_allocator import (
+    DRIVER_OOM_MESSAGES,
+    RESTART_ACTION,
+    allocator_damage,
+    needs_gpu_restart,
+    record_driver_oom,
+)
 
-_CUDA_OOM_MARKERS = ("cuda out of memory", "hip out of memory")
+_CUDA_OOM_MARKERS = (
+    "cuda out of memory",
+    "cuda error: out of memory",
+    "hip out of memory",
+    "cublas_status_execution_failed",
+)
+
+_DRIVER_OOM_MARKERS = tuple(message.lower() for message in DRIVER_OOM_MESSAGES)
 
 _MODEL_FILE_EXTENSIONS = (
     ".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".onnx",
@@ -43,6 +57,11 @@ _CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
             "Switch to an fp8 or smaller model variant",
             "Close other applications using the GPU",
         ),
+    ),
+    "gpu_restart_required": (
+        "This process can no longer use the GPU: a CUDA out-of-memory left its memory allocator unusable. "
+        "Restart Backend (Administration > Backends) before the next generation.",
+        (RESTART_ACTION,),
     ),
     "host_ram_oom": (
         "Ran out of host RAM while streaming model weights.",
@@ -158,6 +177,10 @@ _USER_CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
         "This was too much for the server's GPU right now.",
         ("Try a lower resolution", "Try again in a moment"),
     ),
+    "gpu_restart_required": (
+        "The server's GPU needs a restart before it can generate again.",
+        ("Ask your administrator to restart the backend",),
+    ),
     "host_ram_oom": (
         "This was too much for the server's memory right now.",
         ("Try again in a moment", "If it keeps happening, send the error ID to your administrator"),
@@ -272,6 +295,7 @@ def classify_generation_error(exc: BaseException) -> ErrorClassification:
         if context:
             classification.summary = f"{context} {classification.summary}"
         return classification
+    record_driver_oom(exc)
     for category, matches in _EXCEPTION_CHECKS:
         if matches(exc):
             return classification_for_code(category)
@@ -294,8 +318,18 @@ def _text_is_missing_model_file(message: str) -> bool:
     return _has_any(message, _MISSING_FILE_MARKERS) and _has_any(message, _MODEL_FILE_EXTENSIONS)
 
 
+def _text_is_fatal_driver_oom(message: str) -> bool:
+    return _has_any(message, _DRIVER_OOM_MARKERS) and allocator_damage() is not None
+
+
+def _text_is_cuda_oom(message: str) -> bool:
+    return _has_any(message, _CUDA_OOM_MARKERS) or _has_any(message, _DRIVER_OOM_MARKERS)
+
+
 _TEXT_CHECKS: Tuple[Tuple[str, Callable[[str], bool]], ...] = (
-    ("cuda_oom", lambda m: _has_any(m, _CUDA_OOM_MARKERS)),
+    ("gpu_restart_required", lambda m: "can no longer use the gpu" in m),
+    ("gpu_restart_required", _text_is_fatal_driver_oom),
+    ("cuda_oom", _text_is_cuda_oom),
     ("missing_model_file", _text_is_missing_model_file),
     ("disk_full", lambda m: _has_any(m, _DISK_FULL_MARKERS)),
     ("corrupt_weights", lambda m: _has_any(m, _CORRUPT_WEIGHTS_MARKERS)),
@@ -305,9 +339,9 @@ _TEXT_CHECKS: Tuple[Tuple[str, Callable[[str], bool]], ...] = (
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
-    import torch
+    from src.platform.runtime.native.errors import is_cuda_oom
 
-    return isinstance(exc, torch.cuda.OutOfMemoryError)
+    return is_cuda_oom(exc)
 
 
 def _is_host_ram_exhausted(exc: BaseException) -> bool:
@@ -353,6 +387,7 @@ def _is_backend_unreachable(exc: BaseException) -> bool:
 
 
 _EXCEPTION_CHECKS: Tuple[Tuple[str, Callable[[BaseException], bool]], ...] = (
+    ("gpu_restart_required", needs_gpu_restart),
     ("cuda_oom", _is_cuda_oom),
     ("host_ram_oom", _is_host_ram_exhausted),
     ("missing_model_file", _is_missing_model_file),

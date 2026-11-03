@@ -214,3 +214,52 @@ def test_encode_uses_provided_tiling_config():
         encode_with_oom_retry(vae, pixels, "cuda", tiling_config=custom, profiler_mark="caller.encode")
 
     assert seen["tiling_config"] is custom
+
+
+def _wsl_driver_oom(*args, **kwargs):
+    raise RuntimeError("CUDA driver error: device not ready")
+
+
+def _run_encode(vae, *, free_vram=1.0):
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
+         patch(f"{_MOD}.clear_gpu_memory"), \
+         patch(f"{_MOD}.free_vram_gb", return_value=free_vram):
+        latent = encode_with_oom_retry(vae, torch.rand(1, 3, 9, 64, 96), "cuda", profiler_mark="caller.encode")
+    return latent, manager
+
+
+def test_encode_falls_back_to_tiled_after_the_wsl_driver_oom():
+    tiled_calls = []
+
+    def tiled_encode(pixels, tiling_config):
+        tiled_calls.append(tiling_config)
+        return torch.zeros(1, 8, 3, 4, 4)
+
+    vae = _FakeVae(encode=_wsl_driver_oom, tiled_encode=tiled_encode)
+    latent, manager = _run_encode(vae)
+
+    assert len(tiled_calls) == 1
+    assert manager.offload_all_calls == [("cuda", (vae,))]
+    assert latent.shape == (1, 8, 3, 4, 4)
+
+
+def test_encode_turns_a_tiled_wsl_driver_oom_into_the_clear_out_of_memory_error():
+    vae = _FakeVae(encode=_wsl_driver_oom, tiled_encode=_wsl_driver_oom)
+    with pytest.raises(torch.cuda.OutOfMemoryError, match="even with tiled encoding") as excinfo:
+        _run_encode(vae)
+    assert "device not ready" in str(excinfo.value.__cause__)
+
+
+def test_encode_does_not_retry_a_driver_error_that_is_not_exhaustion():
+    calls = {"n": 0}
+
+    def encode(pixels):
+        calls["n"] += 1
+        raise RuntimeError("CUDA driver error: invalid argument")
+
+    vae = _FakeVae(encode=encode, tiled_encode=Mock())
+    with pytest.raises(RuntimeError, match="invalid argument"):
+        _run_encode(vae)
+    assert calls["n"] == 1
+    vae.module.tiled_encode.assert_not_called()

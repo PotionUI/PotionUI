@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 import numpy as np
 import torch
-from src.platform.runtime.native.errors import DecodeNumericsError
+from src.platform.runtime.native.errors import DecodeNumericsError, retry_after_cuda_oom
 from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_registry
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
 from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
@@ -97,7 +97,9 @@ class ExpertRouter:
             return
         try:
             dit.stream_to(self.device, budget)
-        except torch.cuda.OutOfMemoryError:
+        except RuntimeError as exc:
+            if not retry_after_cuda_oom(exc):
+                raise
             logger.warning("[GENERATOR WAN] partial-residency expert placement OOM'd "
                            "(budget %.1fGB); evicting foreign residents and streaming fully", budget)
             dit.offload()

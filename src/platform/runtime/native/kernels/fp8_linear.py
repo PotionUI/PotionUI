@@ -7,7 +7,9 @@ from contextlib import contextmanager
 import torch
 import torch.nn.functional as F
 
+from src.platform.runtime.cuda_allocator import is_driver_oom
 from src.platform.settings.runtime_flags import runtime_flag
+from ..errors import retry_after_cuda_oom
 from ..io.quant_formats import (
     COMFY_QUANT_INT8_TENSORWISE,
     E4M3_MAX,
@@ -378,7 +380,9 @@ class Fp8ScaledLinear(manual_cast.Linear):
             return weight
         try:
             return cast_to(weight, weight.dtype, device, non_blocking=self.stream_non_blocking)
-        except (RuntimeError, torch.cuda.OutOfMemoryError):
+        except (RuntimeError, torch.cuda.OutOfMemoryError) as exc:
+            if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                raise
             logger.debug(
                 "fp8 matmul: on-demand weight staging failed; using dequant path", exc_info=True,
             )
@@ -413,13 +417,17 @@ class Fp8ScaledLinear(manual_cast.Linear):
                 if x_scale is None:
                     x_scale = fp8_activation_scale(rows)
                 x_fp8 = _quantize_fp8(rows, x_scale)
-            except torch.cuda.OutOfMemoryError as exc:
-                raise ChunkedGemmFailed("activation quant failed (OutOfMemoryError)", exc) from exc
+            except RuntimeError as exc:
+                if not retry_after_cuda_oom(exc):
+                    raise
+                raise ChunkedGemmFailed(f"activation quant failed ({type(exc).__name__})", exc) from exc
             try:
                 return torch._scaled_mm(
                     x_fp8, weight.t(), scale_a=x_scale, scale_b=w_scale, out_dtype=input.dtype, bias=bias,
                 )
             except (RuntimeError, torch.cuda.OutOfMemoryError) as exc:
+                if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                    raise
                 raise ChunkedGemmFailed(f"scaled_mm rejected operands ({type(exc).__name__})", exc) from exc
 
         try:
@@ -429,7 +437,7 @@ class Fp8ScaledLinear(manual_cast.Linear):
             )
         except ChunkedGemmFailed as failed:
             logger.debug("fp8 matmul: %s; using dequant path", failed.reason, exc_info=failed.cause)
-            if isinstance(failed.cause, torch.cuda.OutOfMemoryError):
+            if failed.out_of_memory:
                 _log_scaled_mm_fast_path_rejection(failed.reason)
             return None
         if self.lora_deltas:

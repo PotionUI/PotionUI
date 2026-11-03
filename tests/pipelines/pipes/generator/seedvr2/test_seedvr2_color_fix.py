@@ -155,3 +155,37 @@ def test_no_profiling_emits_no_breakdown_event(tmp_path):
         profiler.stop("test-color-fix-no-breakdown")
 
     assert not (tmp_path / "profile.jsonl").exists()
+
+
+def test_batch_halves_the_chunk_on_the_wsl_driver_oom(monkeypatch):
+    from src.pipelines.pipes.generator.seedvr2 import color_fix
+
+    real = color_fix._correct_chunk
+    sizes = []
+
+    def flaky(targets, sources, mode, dev, timing):
+        sizes.append(len(targets))
+        if len(targets) > 2:
+            raise RuntimeError("CUDA driver error: device not ready")
+        return real(targets, sources, mode, dev, timing)
+
+    monkeypatch.setattr(color_fix, "_correct_chunk", flaky)
+    targets = _frames(6, seed=11)
+    sources = _frames(6, seed=12)
+
+    out = color_correct_batch(targets, sources, "wavelet", device="cpu", max_chunk=8)
+
+    assert sizes[:3] == [6, 4, 2]
+    for o, t, s in zip(out, targets, sources):
+        assert np.array_equal(o, color_correct(t, s, "wavelet"))
+
+
+def test_batch_raises_a_driver_error_that_is_not_exhaustion(monkeypatch):
+    from src.pipelines.pipes.generator.seedvr2 import color_fix
+
+    def broken(targets, sources, mode, dev, timing):
+        raise RuntimeError("CUDA driver error: invalid argument")
+
+    monkeypatch.setattr(color_fix, "_correct_chunk", broken)
+    with pytest.raises(RuntimeError, match="invalid argument"):
+        color_correct_batch(_frames(3), _frames(3, seed=1), "wavelet", device="cpu")

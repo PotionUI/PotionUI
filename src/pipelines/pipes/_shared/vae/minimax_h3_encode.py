@@ -8,6 +8,7 @@ import torch
 
 from src.pipelines.pipes._shared.vae.minimax_h3_decode import apply_tile_px
 from src.platform.observability.profiling import get_profiler
+from src.platform.runtime.native.errors import retry_after_cuda_oom
 from src.platform.runtime.native.memory.residency import free_vram_gb
 
 logger = logging.getLogger(__name__)
@@ -125,7 +126,9 @@ def encode_video(
             try:
                 latent = _encode_with_plan(vae_module, pixels, tile_px, batch_size)
                 break
-            except torch.cuda.OutOfMemoryError as exc:
+            except RuntimeError as exc:
+                if not retry_after_cuda_oom(exc):
+                    raise
                 if is_cuda:
                     torch.cuda.empty_cache()
                 if not freed and free_more is not None and free_more():

@@ -391,3 +391,15 @@ class TestStartFailureRest:
 
         assert "/srv/models/private/unet.safetensors" in raised.detail["message"]
 
+
+
+def test_the_failure_report_of_a_gpu_restart_gives_only_the_restart_hint():
+    from src.features.generation.failure import failure_report
+    from src.platform.runtime.cuda_allocator import RESTART_ACTION
+
+    generation = SimpleNamespace(
+        id="gen-1", error_code="gpu_restart_required", error_message="m", error_detail=None,
+        failed_pipe_id=None, failed_pipe_name=None, failed_at_step=None, completed_at=None,
+    )
+
+    assert failure_report(generation)["hint"] == f"- {RESTART_ACTION}"

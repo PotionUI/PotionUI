@@ -159,8 +159,9 @@ class _FakeGen:
     ``upscale_video`` is a generator, like the real one: it pulls one clip at a
     time from the streamed producer and yields its decoded clip."""
 
-    def __init__(self, oom_at_or_above: int):
+    def __init__(self, oom_at_or_above: int, make_error=None):
         self.oom_at_or_above = oom_at_or_above
+        self.make_error = make_error or (lambda: torch.cuda.OutOfMemoryError("synthetic batch OOM"))
         self.batch_calls: list[int] = []
         self.released = 0
 
@@ -172,7 +173,7 @@ class _FakeGen:
                 bs = int(clip.shape[0])
                 self.batch_calls.append(bs)
                 if bs >= self.oom_at_or_above:
-                    raise torch.cuda.OutOfMemoryError("synthetic batch OOM")
+                    raise self.make_error()
                 first = False
             yield np.zeros(
                 (clip.shape[0], clip.shape[1] * 2, clip.shape[2] * 2, 3), dtype=np.uint8,
@@ -254,6 +255,17 @@ def test_video_oom_ladder_halves_batch_until_it_fits(monkeypatch):
     # First attempt at 9 OOMs, halves to snap(4)=5, which fits.
     assert gen.batch_calls == [9, 5]
     assert gen.released >= 1
+    assert "video" in out.output
+
+
+def test_video_oom_ladder_halves_batch_on_the_wsl_driver_oom(monkeypatch):
+    gen = _FakeGen(oom_at_or_above=9, make_error=lambda: RuntimeError("CUDA driver error: device not ready"))
+    _wire(monkeypatch, gen)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=9))
+
+    out = pipe.process(_video_input(), lambda o: None)
+
+    assert gen.batch_calls == [9, 5]
     assert "video" in out.output
 
 

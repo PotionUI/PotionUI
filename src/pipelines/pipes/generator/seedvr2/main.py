@@ -38,7 +38,7 @@ from src.platform.observability.logger import logger
 from src.platform.observability.profiling import get_profiler, profiling_enabled
 from src.platform.runtime.native.cancellation import cancellation_scope
 from src.platform.runtime.native.engine import NativeGenerator
-from src.platform.runtime.native.errors import SamplingCancelled
+from src.platform.runtime.native.errors import SamplingCancelled, retry_after_cuda_oom
 from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
     free_vram_gb,
@@ -241,6 +241,11 @@ def _count_windows(total_frames: int, batch_size: int, temporal_overlap: int) ->
     k_last = -(-(total - batch_size) // step)  # ceil((total - batch_size) / step)
     tail = total - k_last * step
     return k_last if tail <= overlap else k_last + 1
+
+
+def _oom_cause(exc: BaseException) -> str:
+    lines = str(exc).strip().splitlines()
+    return f"{type(exc).__name__}: {lines[0] if lines else ''}"
 
 
 def _discard_output(path: str) -> None:
@@ -555,7 +560,9 @@ class SeedVR2NativeGenerator(NativeGenerator):
                         shrinks=shrinks, whole_clip=tile >= max(h, w),
                     )
                     return out
-                except torch.cuda.OutOfMemoryError:
+                except RuntimeError as exc:
+                    if not retry_after_cuda_oom(exc):
+                        raise
                     if tile <= _MIN_ENCODE_TILE_PIXEL:
                         raise
                     if torch.cuda.is_available():
@@ -563,7 +570,8 @@ class SeedVR2NativeGenerator(NativeGenerator):
                     tile = max(_MIN_ENCODE_TILE_PIXEL, (tile // 2 // 8) * 8)
                     shrinks += 1
                     logger.warning(
-                        "[GENERATOR SEEDVR2] tiled encode OOM — shrinking tile to %d px", tile,
+                        "[GENERATOR SEEDVR2] tiled encode OOM — shrinking tile to %d px (%s)",
+                        tile, _oom_cause(exc),
                     )
 
     def _decode_clip(
@@ -615,14 +623,17 @@ class SeedVR2NativeGenerator(NativeGenerator):
                         whole_clip=tile >= max(h, w),
                     )
                     break
-                except torch.cuda.OutOfMemoryError:
+                except RuntimeError as exc:
+                    if not retry_after_cuda_oom(exc):
+                        raise
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                     if tile > _MIN_DECODE_TILE_LATENT:
                         tile = max(_MIN_DECODE_TILE_LATENT, (tile // 2 // 8) * 8)
                         shrinks += 1
                         logger.warning(
-                            "[GENERATOR SEEDVR2] tiled decode OOM — shrinking tile to %d latent px", tile,
+                            "[GENERATOR SEEDVR2] tiled decode OOM — shrinking tile to %d latent px (%s)",
+                            tile, _oom_cause(exc),
                         )
                         continue
                     if not freed_foreign_residents:
@@ -937,7 +948,9 @@ class GeneratorSeedVR2Pipe(BasePipe):
                             device=device, progress=progress, is_cancelled=is_cancelled,
                         )
                     break
-                except torch.cuda.OutOfMemoryError:
+                except RuntimeError as exc:
+                    if not retry_after_cuda_oom(exc):
+                        raise
                     if batch_size <= 1:
                         raise
                     _discard_output(attempt_path)
@@ -948,8 +961,8 @@ class GeneratorSeedVR2Pipe(BasePipe):
                     if smaller >= batch_size:
                         smaller = 1
                     logger.warning(
-                        "[GENERATOR SEEDVR2] video OOM at batch %d — retrying at batch %d",
-                        batch_size, smaller,
+                        "[GENERATOR SEEDVR2] video OOM at batch %d — retrying at batch %d (%s)",
+                        batch_size, smaller, _oom_cause(exc),
                     )
                     get_profiler().mark(
                         "seedvr2.video.oom_retry", from_batch=batch_size, to_batch=smaller,

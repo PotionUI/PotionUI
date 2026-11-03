@@ -29,6 +29,7 @@ from src.bootstrap.routers import register_routers
 from src.bootstrap.static_frontend import mount_frontend
 from src.features.generation.memory_advisory import resolve_device_evidence
 from src.features.providers.registry import ensure_providers_discovered
+from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged, allocator_damage
 from src.platform.runtime.offload.pool import shutdown_offload
 from src.platform.plugins.router_mounter import MOUNT_FAILURE_MESSAGE, MountResult
 
@@ -388,6 +389,9 @@ def add_health_route(app: FastAPI, ready: threading.Event) -> None:
 def health_payload(ready: bool = True) -> dict:
     if not ready:
         return {"status": "starting", "service": "potionui-api"}
+    damage = allocator_damage()
+    if damage is not None:
+        return {"status": "degraded", "service": "potionui-api", "reason": str(CudaAllocatorDamaged(damage))}
     return {"status": "healthy", "service": "potionui-api"}
 
 

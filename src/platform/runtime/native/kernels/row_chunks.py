@@ -4,6 +4,10 @@ from typing import Any, Callable
 
 import torch
 
+from src.platform.runtime.cuda_allocator import is_driver_oom
+
+from ..errors import is_cuda_oom, retry_after_cuda_oom
+
 QUANT_CHUNK_ELEMENTS = 1 << 26
 QUANT_TILE_ROWS = 128
 
@@ -23,7 +27,8 @@ class ChunkedGemmFailed(Exception):
         super().__init__(reason)
         self.reason = reason
         self.cause = cause
-        self.retry_smaller = smaller_chunks_help and isinstance(cause, torch.cuda.OutOfMemoryError)
+        self.out_of_memory = is_cuda_oom(cause)
+        self.retry_smaller = smaller_chunks_help and self.out_of_memory
 
 
 def gemm_in_row_chunks(
@@ -43,12 +48,16 @@ def gemm_in_row_chunks(
                 try:
                     scale = whole_input_scale(x2d)
                 except Exception as exc:
+                    if is_driver_oom(exc) and not retry_after_cuda_oom(exc):
+                        raise
                     raise ChunkedGemmFailed(
                         f"activation scale failed ({type(exc).__name__})", exc, smaller_chunks_help=False,
                     ) from exc
             try:
                 out = torch.empty((total, out_features), dtype=x2d.dtype, device=x2d.device)
-            except torch.cuda.OutOfMemoryError as exc:
+            except RuntimeError as exc:
+                if not retry_after_cuda_oom(exc):
+                    raise
                 raise ChunkedGemmFailed(
                     "output allocation failed (OutOfMemoryError)", exc, smaller_chunks_help=False,
                 ) from exc

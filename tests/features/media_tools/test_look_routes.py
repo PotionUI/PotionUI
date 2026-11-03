@@ -6,6 +6,7 @@ from PIL import Image
 from src.platform.media_tools.effects.looks import Look
 from src.platform.media_tools.effects.runtime import EffectRuntime
 from src.platform.media_tools.effects.tool import EffectTool
+from tests.features.media_tools.support import needs_ffmpeg
 from tests.features.media_tools.test_effect_routes import EffectRoutesTestBase
 
 TABLE_URL = "/api/media-tools/looks/table"
@@ -106,3 +107,35 @@ class TestLookRoutes(EffectRoutesTestBase):
         self.assertEqual(response.status_code, 200, response.text)
         with Image.open(io.BytesIO(response.content)) as out:
             self.assertNotEqual(out.convert("RGB").getpixel((24, 16)), (180, 120, 90))
+
+    @needs_ffmpeg
+    def test_the_clip_preview_reads_your_own_look_and_another_user_cannot(self):
+        step = {"tool": "look", "params": {"look": "mine:abc", "strength": 1}}
+        body = {"steps": [step], "start_seconds": 0, "duration_seconds": 0.5, "height": 24}
+        clip = self.video_item(seconds=1.0)
+
+        response = self.client.post("/api/media-tools/preview/clip", json={"input": {"item_id": clip.id}, **body})
+
+        self.assertEqual(response.status_code, 202, response.text)
+        run = self.wait_run(response.json()["data"]["run_id"])
+        self.assertEqual(run.status, "completed", run.error)
+        self.assertIn(("mine:abc", self.user_id), self.looks.calls)
+
+        self.as_user(self.other_user_id)
+        theirs = self.video_item(name="theirs.mp4", user_id=self.other_user_id, seconds=1.0)
+        refused = self.client.post("/api/media-tools/preview/clip", json={"input": {"item_id": theirs.id}, **body})
+        self.assertEqual(refused.status_code, 202, refused.text)
+        failed = self.wait_run(refused.json()["data"]["run_id"], user_id=self.other_user_id)
+        self.assertEqual(failed.status, "failed")
+        self.assertIn("not available", failed.error.message)
+
+    def test_a_look_has_nothing_to_measure(self):
+        clip = self.video_item(seconds=1.0)
+        step = {"tool": "look", "params": {"look": "mine:abc"}}
+
+        response = self.client.post(
+            "/api/media-tools/effects/analysis", json={"input": {"item_id": clip.id}, "steps": [step], "step_index": 0}
+        )
+
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("nothing to measure", response.text)

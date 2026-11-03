@@ -150,15 +150,14 @@ test('a plugin effect appears in the Video editor once the plugin is enabled, pr
 	expect(meanDiff(await livePixels(page, canvas), source)).toBeGreaterThan(60);
 	await screenshot(page, JOURNEY, 'invert-live');
 
+	type Run = { run_id: string; status: string; items: Array<{ id: string; url: string }> };
+	const listRuns = async (): Promise<Run[]> =>
+		((await (await page.request.get('/api/media-tools/runs', { headers: { Authorization: `Bearer ${token}` } })).json()) as { data: { runs: Run[] } }).data.runs;
+	const seen = new Set((await listRuns()).map((run) => run.run_id));
+	const fresh = (runs: Run[]) => runs.find((run) => !seen.has(run.run_id) && run.status === 'completed' && run.items.length > 0);
 	await editor.locator('[data-frame-save]').click();
-	await expect(editor.locator('[data-frame-saving]')).toHaveCount(0, { timeout: 60000 });
-	type Run = { status: string; items: Array<{ id: string; url: string }> };
-	const finished = async (): Promise<Run[]> => {
-		const body = (await (await page.request.get('/api/media-tools/runs', { headers: { Authorization: `Bearer ${token}` } })).json()) as { data: { runs: Run[] } };
-		return body.data.runs;
-	};
-	await expect.poll(async () => (await finished()).some((run) => run.status === 'completed' && run.items.length > 0), { timeout: 60000 }).toBe(true);
-	const done = (await finished()).find((run) => run.status === 'completed' && run.items.length > 0);
+	await expect.poll(async () => !!fresh(await listRuns()), { timeout: 60000 }).toBe(true);
+	const done = fresh(await listRuns())!;
 	const before = await pixelsOf(page, null, upload.url);
 	const after = await pixelsOf(page, null, done!.items[0].url);
 	expect(meanDiff(after, negative(before))).toBeLessThan(12);

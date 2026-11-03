@@ -172,6 +172,54 @@ def test_a_phrasebook_preview_keeps_the_file_it_shows(database, storage, facade)
     assert (storage / created.file_path).is_file()
 
 
+def _model(database):
+    model_id = generate_ulid()
+    _execute(
+        database,
+        "INSERT INTO models (id, filename, model_type) VALUES (?, 'm.safetensors', 'checkpoint')",
+        (model_id,),
+    )
+    return model_id
+
+
+def test_a_model_gallery_file_keeps_its_row_and_its_bytes(database, storage, facade):
+    user_id = _user(database)
+    generation_id = _generation(user_id)
+    created = GenerationRepository().add_file(generation_id, _video(storage, generation_id, user_id))
+    _execute(
+        database,
+        "INSERT INTO model_files (id, model_id, file_id) VALUES (?, ?, ?)",
+        (generate_ulid(), _model(database), created.id),
+    )
+
+    facade.delete(generation_id, user_id)
+
+    assert _count(database, "generations", "id = ?", (generation_id,)) == 0
+    assert _count(database, "files", "id = ?", (created.id,)) == 1
+    assert _count(database, "model_files", "file_id = ?", (created.id,)) == 1
+    assert (storage / created.file_path).is_file()
+    assert (storage / "generations" / DATE / generation_id / "thumbnails" / "1_large.jpg").is_file()
+
+
+def test_a_model_preview_keeps_the_file_it_shows(database, storage, facade):
+    user_id = _user(database)
+    generation_id = _generation(user_id)
+    created = GenerationRepository().add_file(generation_id, _video(storage, generation_id, user_id))
+    _execute(
+        database,
+        "INSERT INTO model_preview_media (id, model_id, file_id, url, type) VALUES (?, ?, ?, ?, 'video')",
+        (generate_ulid(), _model(database), created.id, f"/api/media/files/{created.id}"),
+    )
+
+    facade.delete(generation_id, user_id)
+
+    assert _count(database, "generations", "id = ?", (generation_id,)) == 0
+    assert _count(database, "files", "id = ?", (created.id,)) == 1
+    assert _count(database, "model_preview_media", "file_id = ?", (created.id,)) == 1
+    assert (storage / created.file_path).is_file()
+    assert (storage / "generations" / DATE / generation_id / "thumbnails" / "1_small_animated.webp").is_file()
+
+
 def test_bytes_another_file_row_points_at_stay_while_the_generation_row_goes(database, storage, facade):
     user_id = _user(database)
     generation_id = _generation(user_id)

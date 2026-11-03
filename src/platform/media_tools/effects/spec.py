@@ -32,6 +32,8 @@ TOP_LEVEL_KEYS = frozenset({
     "analysis", "preview", "render", "parity",
 })
 MAX_SHADER_BYTES = 64 * 1024
+PARITY_METRICS = {"pixels": ("max_abs", "mean_abs"), "stats": ("mean_abs", "std_abs")}
+PARITY_LIMITS = {"pixels": frozenset({"max_abs", "mean_abs", "p99_abs"}), "stats": frozenset({"mean_abs", "std_abs"})}
 DEFAULT_ICON = "editor-effects"
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -330,9 +332,19 @@ def _parity(raw: Any, params: tuple[dict, ...], where: str) -> dict:
             isinstance(frame, int) and not isinstance(frame, bool) and frame >= 0 for frame in frames
         ):
             raise _fail(where, "each parity case lists frame numbers")
+    metric = raw.get("metric", "pixels")
+    if metric not in PARITY_METRICS:
+        raise _fail(where, f"parity.metric must be one of {', '.join(PARITY_METRICS)}")
+    needed = PARITY_METRICS[metric]
     tolerance = raw.get("tolerance")
-    if not isinstance(tolerance, Mapping) or not {"max_abs", "mean_abs"} <= set(tolerance):
-        raise _fail(where, "parity.tolerance needs max_abs and mean_abs")
+    if not isinstance(tolerance, Mapping) or not set(needed) <= set(tolerance):
+        raise _fail(where, f"parity.tolerance needs {' and '.join(needed)}")
+    if set(tolerance) - PARITY_LIMITS[metric]:
+        raise _fail(where, f"parity.tolerance takes {', '.join(sorted(PARITY_LIMITS[metric]))}")
+    if not all(
+        isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0 for value in tolerance.values()
+    ):
+        raise _fail(where, "parity.tolerance values must be numbers of at least 0")
     return dict(raw)
 
 

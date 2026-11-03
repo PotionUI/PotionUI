@@ -156,6 +156,32 @@ export class ShaderChain {
 		return true;
 	}
 
+	uploadPixels(size: Size, pixels: Uint8Array): boolean {
+		if (this.isLost || pixels.length !== size.width * size.height * 4) return false;
+		const gl = this.gl;
+		if (!this.videoTexture) this.videoTexture = this.texture();
+		gl.bindTexture(gl.TEXTURE_2D, this.videoTexture);
+		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, size.width, size.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+		this.videoSize = { ...size };
+		this.uploaded = true;
+		return true;
+	}
+
+	readPixels(plan: ChainPlan, frame: ChainFrame): Uint8Array | null {
+		if (this.isLost || this.disposed || !this.uploaded || !this.videoTexture || !plan.passes.length) return null;
+		this.run('after', plan, frame, null);
+		const target = this.targets.get(`after:${plan.passes.length - 1}`);
+		if (!target) return null;
+		const gl = this.gl;
+		const out = new Uint8Array(target.size.width * target.size.height * 4);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+		gl.pixelStorei(gl.PACK_ALIGNMENT, 1);
+		gl.readPixels(0, 0, target.size.width, target.size.height, gl.RGBA, gl.UNSIGNED_BYTE, out);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		return out;
+	}
+
 	draw(after: ChainPlan, before: ChainPlan | null, frame: ChainFrame, view: ChainView): boolean {
 		if (this.isLost || this.disposed || !this.uploaded || !this.videoTexture) return false;
 		this.collectTimings();

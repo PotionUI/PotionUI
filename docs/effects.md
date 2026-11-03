@@ -13,7 +13,9 @@ so runs, presets (`media_tool` pipe), chat, MCP and automation pick them up with
 The code:
 
 - Contract, loader, derive language, template compiler: `src/platform/media_tools/effects/`.
-- Core effects: `src/platform/media_tools/effects/builtin/<id>/` (film grain, fix colours).
+- Core effects: `src/platform/media_tools/effects/builtin/<id>/` (film grain, fix colours, vignette, fade, Ken Burns).
+- Parity harness: `src/platform/media_tools/effects/parity.py`, `scripts/effect_parity.py`,
+  `frontend/tests/effects/` (see [Parity](#parity)).
 - Planner (one ffmpeg graph, or ffmpeg segments joined to Python stages by raw pipes):
   `src/platform/media_tools/fastpath.py`, `src/platform/media_tools/streaming.py`.
 - Routes: `src/features/media_tools/routes.py`.
@@ -43,7 +45,7 @@ The code:
 | `analysis` | no | `{python: file.py:fn, keys: [param…], values: [name…]}` |
 | `preview` | no | `{shader: file.frag, textures: […], gain: expression}` |
 | `render` | yes | Ordered candidates: `- ffmpeg: {expr, vf, af}`, `- torch: file.py:fn`, `- numpy: file.py:fn` |
-| `parity` | yes | `media`, `cases` (`params`, `frames`), `tolerance`, optional `analysis`, `fixtures` |
+| `parity` | yes | `media`, `cases` (`params`, `frames`), `tolerance`, optional `metric` and `analysis` (see [Parity](#parity)) |
 
 Names (params, derive entries, analysis values) are unique within an effect, match `^[a-z][a-z0-9_]*$`, and may
 not be `media`, `pi`, `time` or a derive function name.
@@ -232,5 +234,58 @@ is decoded and encoded once, colour conversion is pinned (`scale=in_color_matrix
 before the first RGB effect, `scale=out_color_matrix=bt709:out_range=tv` before the encoder) and the source audio
 is kept with every `af` in stack order.
 
+Time is the time at the effect's place in the stack, counted from the first frame that reaches it. ffmpeg renders
+never rewrite timestamps, so picture and sound keep the offset they had in the source; a template that depends on time
+counts frames instead (fade's `start_frame` and `nb_frames`, `perspective`'s `in`, which is 1 on the first frame).
+Seconds a user enters are snapped to whole frames in `derive` (fade uses `round(seconds * media.fps)`), and `afade`
+takes the same values back in seconds.
+
 Python renders see `FrameBatch` (`frames` N×H×W×3 uint8, `indices` counted from the stage's first frame,
 `times` = `index / fps`, `fps`, `duration`, and `tensor` N×3×H×W float 0..1 for torch) and return the same shape.
+
+## Core effects
+
+| Effect | Params | Render | Preview |
+|---|---|---|---|
+| Film grain | amount, size, colour, seed | torch, numpy (integer hash) | the same hash per cell |
+| Fix colours | white balance, contrast, strength | ffmpeg `colorchannelmixer` + `colorlevels`, numpy | gains, then levels |
+| Vignette | amount, radius, softness (% of the half diagonal) | torch, numpy | `1 - amount * smoothstep(radius, radius + softness, d)` |
+| Fade | fade in, fade out (seconds, to and from black), sound | ffmpeg `fade` by frame count + `afade`, numpy | ffmpeg's 16-bit fade factor per frame; `preview.gain` fades the sound |
+| Ken Burns | start and end zoom, start and end anchor, easing | ffmpeg `perspective` (linear), numpy | the window eased over the clip, ffmpeg's 1/256-pixel bilinear |
+
+Vignette has no ffmpeg render: the `vignette` filter only takes an angle, so it cannot place the radius or the
+softness, and `geq` costs about 0.9 s per 1080p frame. The torch and numpy renders compute the mask once per size.
+Fade and Ken Burns reach their end values on the last frame (`last` and `span` in their `derive`).
+
+## Parity
+
+Every effect's renders must match its live preview. The goldens are the shader's output; every render candidate is
+checked against them.
+
+- **Fixture.** One generated frame per effect at the parity `media` size: a ramp, colour bars, a skin tone, one-pixel
+  detail and rings (`fixture_frame`). Odd sizes are allowed (vignette uses 641×359).
+- **Shader side.** `frontend/tests/effects/parity-shaders.mjs` bundles `frontend/tests/effects/parityHarness.ts`
+  (the real catalog parser, `planChain` and `ShaderChain`) with esbuild and runs it in headless Chromium on
+  SwiftShader. The job carries the catalog entry exactly as `GET /api/media-tools` serves it, and each frame is drawn
+  at `mediaTime = frame / fps`.
+- **Render side.** ffmpeg candidates get the fixture as rawvideo at the parity fps and give rgb24 back (the effect's
+  maths, not x264); torch (on CPU) and numpy candidates get it as a `FrameBatch` with the case's frame indices.
+- **Metrics.** `metric: pixels` (default) compares per-channel absolute differences: `max_abs`, `mean_abs` and
+  optionally `p99_abs`. `metric: stats` (seeded effects such as grain) compares the change each side makes, per
+  channel: `mean_abs` is the largest difference of the mean change and `std_abs` of its standard deviation.
+- **Goldens** live in `tests/fixtures/effects/golden/<id>/c<case>_f<frame>.png` for core effects and in
+  `<plugin>/tests/effects/golden/<plugin-id>.<id>/` for plugin effects.
+
+| Command | What it does |
+|---|---|
+| `python scripts/effect_parity.py` | Checks every candidate against the goldens and prints the numbers |
+| `python scripts/effect_parity.py --golden` | Renders the shaders and rewrites the goldens |
+| `python scripts/effect_parity.py --check-shaders` | Also re-renders the shaders and fails on drift |
+| `python scripts/effect_parity.py content/plugins/local/<plugin>` | Checks a plugin's effects instead |
+| `python scripts/effect_parity.py --effect fade` | Checks one effect |
+
+The effects come from the catalog: every core effect, plus every effect root a plugin under
+`content/plugins/marketplace/` declares as `effects: [{path: …}]`. `tests/scripts/test_effect_parity.py` checks each
+render candidate of each of them against its goldens, fails when an effect with a shader has no goldens, and
+re-renders the shaders in Chromium when Node, esbuild and Playwright's Chromium are there. It is skipped otherwise,
+unless `PARITY_REQUIRE_BROWSER=1` is set: then a missing harness fails the test.

@@ -24,11 +24,16 @@ class _Engine:
     def __init__(self):
         self.started = threading.Event()
         self.release = threading.Event()
+        self.running_generation_id = None
 
     def generate(self, pipes, emit, generation_id=None, cache_owner=None):
-        self.started.set()
-        self.release.wait(10)
-        emit(ImageGenerationOutput(image=None, temporary=False))
+        self.running_generation_id = generation_id
+        try:
+            self.started.set()
+            self.release.wait(10)
+            emit(ImageGenerationOutput(image=None, temporary=False))
+        finally:
+            self.running_generation_id = None
 
     def cancel(self, generation_id):
         return False
@@ -182,6 +187,72 @@ async def test_a_run_still_finishing_on_a_live_loop_is_not_settled_early(
 
     engine.release.set()
     assert await _settled(orchestrator, 'gen_1') == GenerationState.COMPLETED
+
+
+async def _drop_output_consumer(orchestrator, generation_id):
+    bridge = orchestrator._bridge_tasks[generation_id]
+    bridge.cancel()
+    await asyncio.gather(bridge, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_an_orphan_the_backend_still_runs_keeps_its_slot_and_is_not_cancelled(
+    orchestrator, backend, engine, repo
+):
+    await _start(orchestrator, 'gen_1')
+    await asyncio.to_thread(engine.started.wait, 5)
+    await _drop_output_consumer(orchestrator, 'gen_1')
+    backend._active.discard('gen_1')
+
+    assert await orchestrator.cancel_generation('gen_1') is False
+
+    assert orchestrator.status_tracker.get('gen_1').state == GenerationState.RUNNING
+    assert 'gen_1' in orchestrator.queue.running_generation_ids('native_1')
+    assert 'gen_1' in orchestrator._cancel_requested
+    assert orchestrator._run_backends.get('gen_1') is backend
+
+
+@pytest.mark.asyncio
+async def test_an_orphan_the_backend_no_longer_runs_is_cancelled_with_its_notice(
+    orchestrator, backend, engine, repo, monkeypatch
+):
+    await _start(orchestrator, 'gen_1')
+    await asyncio.to_thread(engine.started.wait, 5)
+    await _drop_output_consumer(orchestrator, 'gen_1')
+    engine.release.set()
+    deadline = time.monotonic() + 5
+    while backend.may_still_run('gen_1') and time.monotonic() < deadline:
+        await asyncio.sleep(0.02)
+    notices = {'gen_1': 'Stopped by the backend'}
+    monkeypatch.setattr(backend, 'take_cancel_notice', lambda gid: notices.pop(gid, None))
+
+    assert await orchestrator.cancel_generation('gen_1') is True
+
+    record = orchestrator.status_tracker.get('gen_1')
+    assert record.state == GenerationState.CANCELLED
+    assert record.cancel_notice == 'Stopped by the backend'
+    assert notices == {}
+    assert 'gen_1' not in orchestrator.queue.running_generation_ids('native_1')
+    assert 'gen_1' not in orchestrator._cancel_requested
+
+
+@pytest.mark.asyncio
+async def test_an_orphan_whose_backend_cannot_answer_is_not_cancelled(
+    orchestrator, backend, engine, repo, monkeypatch
+):
+    await _start(orchestrator, 'gen_1')
+    await asyncio.to_thread(engine.started.wait, 5)
+    await _drop_output_consumer(orchestrator, 'gen_1')
+    backend._active.discard('gen_1')
+    engine.running_generation_id = None
+
+    def _unreachable(generation_id):
+        raise RuntimeError('journal unreachable')
+
+    monkeypatch.setattr(backend, 'may_still_run', _unreachable)
+
+    assert await orchestrator.cancel_generation('gen_1') is False
+    assert 'gen_1' in orchestrator.queue.running_generation_ids('native_1')
 
 
 @pytest.fixture

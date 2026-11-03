@@ -189,6 +189,10 @@ report["digest_wiring"] = {
     "the_recipe_plan_looks_for_renamed_files_through_the_pool": c.recipe_runner._executor_registry.get_executor("artifacts.plan")._digests is digests,
     "the_recipe_fetch_looks_for_renamed_files_through_the_pool": c.recipe_runner._executor_registry.get_executor("artifacts.fetch")._digests is digests,
 }
+import src.platform.plugins.runtime_registries as runtime_registries
+report["recipe_smoke_wiring"] = {
+    "the_smoke_asks_the_registry_for_the_app_loop": c.recipe_runner._executor_registry.get_executor("generation.smoke").app_loop is runtime_registries.get_app_loop,
+}
 print("COMPOSITION_REPORT=" + json.dumps(report))
 """
 
@@ -255,6 +259,10 @@ def test_indexing_pauses_only_for_a_generation_running_on_this_machine(report):
 
 def test_the_digest_pool_is_wired_to_the_scanner_and_the_coordinator(report):
     assert [k for k, v in report["digest_wiring"].items() if not v] == []
+
+
+def test_the_recipe_smoke_reaches_the_app_loop_through_the_raising_registry_lookup(report):
+    assert [k for k, v in report["recipe_smoke_wiring"].items() if not v] == []
 
 
 def test_tab_drafts_are_composed_and_swept_by_housekeeping(report):

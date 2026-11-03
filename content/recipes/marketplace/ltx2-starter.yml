@@ -80,6 +80,7 @@ presets:
 smoke:
   preset_id: "01KX47LTXVIDEO0000000000TV"
   mode: "video"
+  timeout_seconds: 600
   seed: 12345
   # Matches content/presets/marketplace/LTX-2/tests.yml's own
   # "ltx-video-distilled-t2v-fast" case verbatim: Lightricks' own deterministic

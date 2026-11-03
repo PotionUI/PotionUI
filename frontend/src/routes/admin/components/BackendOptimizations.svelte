@@ -7,6 +7,7 @@
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { api } from '$lib/services/api/index';
+	import { serverIsReady, waitForHealthy } from '$lib/utils/healthPoll';
 	import {
 		getBackendOptimizations,
 		installBackendOptimization,
@@ -255,18 +256,8 @@
 		await load();
 	}
 
-	async function waitForServerBack() {
-		// Give the process a moment to actually exit before polling for it to come back.
-		await new Promise((resolve) => setTimeout(resolve, 1500));
-		for (let attempt = 0; attempt < 120; attempt++) {
-			try {
-				const response = await api.getClient().get('/health');
-				if (response.status === 200) return;
-			} catch {
-				// not back yet
-			}
-			await new Promise((resolve) => setTimeout(resolve, 1000));
-		}
+	async function waitForServerBack(): Promise<boolean> {
+		return waitForHealthy({ check: () => serverIsReady(api.getClient()) });
 	}
 
 	onDestroy(() => {

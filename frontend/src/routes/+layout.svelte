@@ -29,7 +29,7 @@
 	import { themeStore } from '$lib/stores/theme';
 	import { printStartupBanner } from '$lib/utils/startupBanner';
 	import { installInputModality } from '$lib/utils/inputModality';
-	import { resolveAuthLayoutMode } from '$lib/utils/authLayout';
+	import { resolveAuthLayoutMode, shouldRedirectToLogin } from '$lib/utils/authLayout';
 	import { loginUrlWithReturn } from '$lib/utils/returnPath';
 	import { Spinner, IconButton } from '$lib/components/ui';
 	import '../app.css';
@@ -259,8 +259,15 @@
 	$: applyTabTitle($notifications.unreadCount, shouldShowNav);
 	afterNavigate(() => applyTabTitle($notifications.unreadCount, shouldShowNav));
 
-	// Redirect to login if not authenticated and not on public route
-	$: if (mounted && !$authStore.loading && !$authStore.isAuthenticated && !isPublicRoute) {
+	$: if (
+		shouldRedirectToLogin({
+			mounted,
+			loading: $authStore.loading,
+			isAuthenticated: $authStore.isAuthenticated,
+			isPublicRoute,
+			pathname: $page.url.pathname
+		})
+	) {
 		goto(loginUrlWithReturn($page.url));
 	}
 

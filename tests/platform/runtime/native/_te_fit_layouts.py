@@ -8,17 +8,15 @@ import torch.nn as nn
 from src.platform.observability import profiling
 from src.platform.runtime.native import engine as engine_mod
 from src.platform.runtime.native.memory import residency
-from src.platform.runtime.native.io.quant_formats import NVFP4_BLOCK
-from src.platform.runtime.native.kernels import fp8_ops, manual_cast
+from src.platform.runtime.native.memory.text_encoder import (
+    configure_text_encoder_placement,
+    reset_text_encoder_placement,
+)
+from src.platform.runtime.native.kernels import manual_cast
 
-try:
-    from src.platform.runtime.native.memory import text_encoder as te_placement
-except ImportError:
-    te_placement = None
+from ._te_layouts import META, RecordingModule, bf16_linear, fp8_linear, nvfp4_linear
+from ._te_layouts import int8_embedding as build_int8_embedding
 
-HAS_TE_PLACEMENT = te_placement is not None
-
-META = torch.device("meta")
 DEV = "cuda:0"
 CTX_GB = 0.5
 RESERVE_GB = 1.0
@@ -26,71 +24,24 @@ GIB = 1024 ** 3
 
 
 def configure(mode: str | None = None, budget_gb: float | None = None) -> None:
-    if te_placement is not None:
-        te_placement.configure_text_encoder_placement(mode, vram_budget_gb=budget_gb)
+    configure_text_encoder_placement(mode, vram_budget_gb=budget_gb)
 
 
 def reset_placement() -> None:
-    if te_placement is not None:
-        te_placement.reset_text_encoder_placement()
+    reset_text_encoder_placement()
 
 
 def default_gpu_max_vram(total_gb: float) -> int:
     return max(1, int(total_gb - RESERVE_GB))
 
 
-class RecordingModule(nn.Module):
-    def __init__(self, log: list, name: str = "module") -> None:
-        super().__init__()
-        object.__setattr__(self, "_log", log)
-        object.__setattr__(self, "_name", name)
-
-    def to(self, *args, **kwargs):
-        device = args[0] if args else kwargs.get("device")
-        self._log.append((f"{self._name}.to", str(device)))
-        return self
-
-
-def _bf16(in_f, out_f):
-    return manual_cast.Linear(in_f, out_f, bias=False, device=META, dtype=torch.bfloat16)
-
-
-def _fp8(in_f, out_f):
-    layer = fp8_ops.Linear(in_f, out_f, bias=False, device=META, dtype=torch.float8_e4m3fn)
-    layer.weight_scale = torch.empty((), dtype=torch.float32, device=META)
-    return layer
-
-
-def _nvfp4(in_f, out_f):
-    layer = fp8_ops.Linear(in_f, out_f, bias=False, device=META, dtype=torch.bfloat16)
-    blocks = in_f // NVFP4_BLOCK
-    layer._is_nvfp4 = True
-    layer.nvfp4_packed = torch.empty(out_f, in_f // 2, dtype=torch.uint8, device=META)
-    layer.nvfp4_scale = torch.empty(out_f, blocks, dtype=torch.float32, device=META)
-    layer.nvfp4_weight_block_scale = torch.empty(
-        (out_f + 127) // 128 * 128, (blocks + 3) // 4 * 4, dtype=torch.float8_e4m3fn, device=META,
-    )
-    layer.nvfp4_weight_global_scale = torch.empty((), dtype=torch.float32, device=META)
-    layer.weight = None
-    return layer
-
-
-_LINEAR = {"bf16": _bf16, "fp8": _fp8, "nvfp4": _nvfp4}
-
-
-def _int8_embedding(vocab, dim):
-    emb = manual_cast.Embedding(1, dim, device=META, dtype=torch.bfloat16)
-    emb._int8_weight = torch.empty(vocab, dim, dtype=torch.int8, device=META)
-    emb._int8_weight_scale = torch.empty((vocab, 1), dtype=torch.float32, device=META)
-    emb.weight = None
-    return emb
-
+_LINEAR = {"bf16": bf16_linear, "fp8": fp8_linear, "nvfp4": nvfp4_linear}
 
 def transformer(log, *, hidden, inter, q, kv, layers, vocab, fmt="bf16", nvfp4_tail=0,
                 int8_embedding=False, vision=False, name="module"):
     root = RecordingModule(log, name)
     root.embed = (
-        _int8_embedding(vocab, hidden) if int8_embedding
+        build_int8_embedding(vocab, hidden) if int8_embedding
         else manual_cast.Embedding(vocab, hidden, device=META, dtype=torch.bfloat16)
     )
     blocks = nn.ModuleList()
@@ -107,11 +58,11 @@ def transformer(log, *, hidden, inter, q, kv, layers, vocab, fmt="bf16", nvfp4_t
         tower = nn.Module()
         tower.patch = manual_cast.Conv3d(3, 1152, (2, 16, 16), stride=(2, 16, 16), device=META, dtype=torch.bfloat16)
         tower.blocks = nn.ModuleList(
-            nn.ModuleDict({"qkv": _bf16(1152, 3456), "proj": _bf16(1152, 1152),
-                           "fc1": _bf16(1152, 4304), "fc2": _bf16(4304, 1152)})
+            nn.ModuleDict({"qkv": bf16_linear(1152, 3456), "proj": bf16_linear(1152, 1152),
+                           "fc1": bf16_linear(1152, 4304), "fc2": bf16_linear(4304, 1152)})
             for _ in range(27)
         )
-        tower.merger = _bf16(4608, hidden)
+        tower.merger = bf16_linear(4608, hidden)
         root.visual = tower
     return root
 

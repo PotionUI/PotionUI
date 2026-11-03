@@ -213,13 +213,24 @@ def test_a_prefetching_stream_is_left_clean_by_a_cancel_between_blocks(monkeypat
     prefetcher.teardown()
 
 
-def test_a_check_between_blocks_costs_microseconds():
+def test_a_cancelled_first_forward_leaves_the_prefetcher_recording(monkeypatch):
+    _install_fake_cuda(monkeypatch)
     flag = _Flag()
-    calls = 200_000
-    with cancellation_scope(flag):
-        start = time.perf_counter()
-        for i in range(calls):
-            raise_if_cancelled(i)
-        per_check_us = (time.perf_counter() - start) / calls * 1e6
-    print(f"raise_if_cancelled: {per_check_us:.3f} us per check")
-    assert per_check_us < 20.0
+    dit = _StreamedDit(flag, cancel_at=(0, 1))
+    leaves = [leaf for _, leaf in iter_streamable_leaves(dit)]
+    x = torch.randn(2, 8)
+    prefetcher = LayerPrefetcher(dit, leaves, "cuda:0", prefetch_depth=1)
+    with torch.no_grad():
+        with pytest.raises(SamplingCancelled):
+            with cancellation_scope(flag):
+                dit(x)
+        flag.set = False
+        assert prefetcher._forward_count == 0
+        dit(x)
+        assert prefetcher._forward_count == 1
+        assert prefetcher._order == leaves
+        assert len(prefetcher._next_of) == len(leaves) - 1
+        dit(x)
+        assert prefetcher._forward_count == 2
+        assert prefetcher._order == leaves
+    prefetcher.teardown()

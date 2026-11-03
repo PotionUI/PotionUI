@@ -35,6 +35,11 @@ class FakePinning:
         def release_pool():
             fake.pool_releases += 1
 
+        def arena_refused(arena, params):
+            raise RuntimeError(PIN_REFUSED)
+
+        monkeypatch.setattr(partial.PinnedArena, "pin", arena_refused)
+        monkeypatch.setattr(partial, "_warned_arena_failed", True)
         monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
         monkeypatch.setattr(torch.Tensor, "pin_memory", pin_memory)
         monkeypatch.setattr(torch.Tensor, "is_pinned", is_pinned)

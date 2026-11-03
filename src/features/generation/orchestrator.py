@@ -90,6 +90,7 @@ from src.features.generation.status_tracker import (
     TERMINAL_STATES,
 )
 from src.features.backends.backend_registry import BackendRegistry
+from src.features.backends.base_backend import BaseBackend
 from src.features.generation.routing.contracts import RoutingRequest
 from src.features.models.form_refs import collect_model_ids, is_model_ref, model_id_of, resolve_form_model_refs
 from src.features.models.exceptions import ModelAccessDeniedException
@@ -2028,11 +2029,9 @@ class GenerationOrchestrator:
                 )
                 cancelled = False
             if cancelled:
-                handed_notice = backend.take_cancel_notice(generation_id)
-                if handed_notice:
-                    self.status_tracker.set_cancel_notice(generation_id, handed_notice)
+                self._hand_over_cancel_notice(backend, generation_id)
                 logger.info(f"Cancelled generation {generation_id} on backend {backend.name}")
-            elif self._output_bridge_alive(generation_id):
+            elif self._output_bridge_alive(generation_id) or self._backend_may_still_run(backend, generation_id):
                 logger.warning(f"Backend could not cancel {generation_id}")
                 return False
             else:
@@ -2040,6 +2039,8 @@ class GenerationOrchestrator:
                     f"Generation {generation_id} has no output consumer left; marking it cancelled"
                 )
                 orphaned = True
+                if backend is not None:
+                    self._hand_over_cancel_notice(backend, generation_id)
                 self._forget_run(generation_id)
         elif backend is not None:
             try:
@@ -2057,6 +2058,21 @@ class GenerationOrchestrator:
         logger.debug(f"Updated status to cancelled for {generation_id}")
 
         return True
+
+    def _hand_over_cancel_notice(self, backend: BaseBackend, generation_id: str) -> None:
+        handed_notice = backend.take_cancel_notice(generation_id)
+        if handed_notice:
+            self.status_tracker.set_cancel_notice(generation_id, handed_notice)
+
+    @staticmethod
+    def _backend_may_still_run(backend: Optional[BaseBackend], generation_id: str) -> bool:
+        if backend is None:
+            return False
+        try:
+            return backend.may_still_run(generation_id)
+        except Exception:
+            logger.warning(f"Could not ask the backend whether {generation_id} still runs", exc_info=True)
+            return True
 
     def _output_bridge_alive(self, generation_id: str) -> bool:
         task = self._bridge_tasks.get(generation_id)

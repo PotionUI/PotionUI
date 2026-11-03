@@ -67,6 +67,14 @@ class GenerationSmokeExecutor:
             from src.features.models.repository import model_repo as model_repository
         self.model_repository = model_repository
 
+    def _running_app_loop(self) -> Optional[asyncio.AbstractEventLoop]:
+        if self.app_loop is None:
+            return None
+        loop = self.app_loop()
+        if loop is None or loop.is_closed() or not loop.is_running():
+            raise RuntimeError("Application event loop is not running")
+        return loop
+
     def execute(self, context: StepContext) -> StepResult:
         preset_id = context.step.params.get("preset_id")
         mode = context.step.params.get("mode")
@@ -120,6 +128,15 @@ class GenerationSmokeExecutor:
             )
 
         try:
+            app_loop = self._running_app_loop()
+        except RuntimeError as exc:
+            return StepResult.fail(
+                "GENERATION_SMOKE_NO_APP_LOOP",
+                f"The test generation can't start: {exc}.",
+                suggested_repair="Wait for the app to finish starting, then retry this step.",
+            )
+
+        try:
             outcome = run_sync(
                 self._run(
                     preset_id=preset_id,
@@ -132,7 +149,7 @@ class GenerationSmokeExecutor:
                     is_cancelled=context.is_cancelled,
                     timeout_seconds=smoke.timeout_seconds if smoke else DEFAULT_SMOKE_TIMEOUT_SECONDS,
                 ),
-                loop=self.app_loop() if self.app_loop is not None else None,
+                loop=app_loop,
             )
         except Exception as exc:
             return StepResult.fail(

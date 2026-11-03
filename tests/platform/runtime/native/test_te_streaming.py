@@ -721,3 +721,113 @@ def test_native_model_stream_to_streams_nvfp4_only_when_asked(monkeypatch, strea
     assert nvfp4.isdisjoint(streamed) is (not stream_nvfp4)
     model.offload()
     assert get_residency_registry().resident_gb(_DEV) == 0.0
+
+
+class _Part:
+    def __init__(self, log: list, name: str, error: Exception | None = None) -> None:
+        self._log = log
+        self._name = name
+        self._error = error
+
+    def offload(self) -> None:
+        self._log.append(f"{self._name}.offload")
+        if self._error is not None:
+            raise self._error
+
+
+class _Mover:
+    def __init__(self, log: list) -> None:
+        self._log = log
+
+    def to(self, device) -> None:
+        self._log.append(f"encoder.to.{device}")
+
+
+def _streaming_with(parts: list, encoder) -> TextEncoderStreaming:
+    streaming = TextEncoderStreaming.__new__(TextEncoderStreaming)
+    streaming.encoder = encoder
+    streaming.parts = parts
+    return streaming
+
+
+def test_teardown_offloads_every_part_and_the_encoder_then_raises_the_first_error():
+    log: list = []
+    first, second = RuntimeError("first"), RuntimeError("second")
+    streaming = _streaming_with(
+        [_Part(log, "a", first), _Part(log, "b", second), _Part(log, "c")], _Mover(log),
+    )
+
+    with pytest.raises(RuntimeError, match="first") as excinfo:
+        streaming.teardown()
+
+    assert excinfo.value is first
+    assert log == ["a.offload", "b.offload", "c.offload", "encoder.to.cpu"]
+
+
+def test_teardown_still_moves_the_encoder_to_the_cpu_when_the_move_is_the_only_failure():
+    log: list = []
+
+    class _FailingMover:
+        def to(self, device) -> None:
+            log.append(f"encoder.to.{device}")
+            raise RuntimeError("move failed")
+
+    streaming = _streaming_with([_Part(log, "a")], _FailingMover())
+
+    with pytest.raises(RuntimeError, match="move failed"):
+        streaming.teardown()
+    assert log == ["a.offload", "encoder.to.cpu"]
+
+
+class _TeardownFails(_FakeStreaming):
+    def teardown(self) -> None:
+        super().teardown()
+        raise RuntimeError("teardown failed")
+
+
+def test_a_teardown_failure_does_not_mask_the_encode_error(monkeypatch, fake_streaming):
+    _fake_card(monkeypatch, fake_streaming, capacity_gb=12.0, others_gb=2.0)
+    monkeypatch.setattr(engine_mod, "TextEncoderStreaming", _TeardownFails)
+    encoder = minimax_h3_te(fake_streaming)
+
+    def boom():
+        raise RuntimeError("encode failed")
+
+    with pytest.raises(RuntimeError, match="encode failed"):
+        run_text_encode(encoder, _DEV, boom)
+
+
+def test_the_generator_logs_a_failed_streaming_teardown_as_a_warning(monkeypatch, fake_streaming, caplog):
+    _fake_card(monkeypatch, fake_streaming, capacity_gb=12.0, others_gb=2.0)
+    monkeypatch.setattr(engine_mod, "TextEncoderStreaming", _TeardownFails)
+    gen = _generator(minimax_h3_te(fake_streaming), vram_gb=12.0)
+
+    with caplog.at_level("WARNING", logger=engine_mod.logger.name):
+        gen.encode_prompt("prompt")
+
+    assert any(
+        r.levelname == "WARNING" and "streaming teardown failed" in r.getMessage() for r in caplog.records
+    )
+    assert gen._te_streaming is None
+
+
+class _Aborted(BaseException):
+    pass
+
+
+def test_the_generator_tears_streaming_down_when_the_encode_is_aborted_by_a_base_exception(
+    monkeypatch, fake_streaming,
+):
+    _fake_card(monkeypatch, fake_streaming, capacity_gb=12.0, others_gb=2.0)
+
+    class _Aborting(FamilyEncoder):
+        def encode(self, texts):
+            raise _Aborted()
+
+    encoder = _Aborting(minimax_h3_module(), fake_streaming, "qwen3vl_32b")
+    gen = _generator(encoder, vram_gb=12.0)
+
+    with pytest.raises(_Aborted):
+        gen.encode_prompt("prompt")
+    assert fake_streaming[-1] == ("stream.teardown",)
+    assert gen._te_streaming is None

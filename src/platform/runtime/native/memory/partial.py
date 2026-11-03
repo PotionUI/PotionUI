@@ -711,6 +711,7 @@ class LayerPrefetcher:
 
     def _install_hooks(self) -> None:
         self._handles.append(self._root.register_forward_pre_hook(lambda m, a: self._on_root_pre()))
+        self._handles.append(self._root.register_forward_hook(lambda m, a, o: self._on_root_done()))
         self._handles.append(
             _register_forward_hook_always(self._root, lambda m, a, o: self._on_root_post())
         )
@@ -737,28 +738,22 @@ class LayerPrefetcher:
     # -- root-forward boundary ---------------------------------------------
 
     def _on_root_pre(self) -> None:
-        # A new DiT forward: recording iff this is the very first one. Clear any
-        # unconsumed staged weights and dangling swaps from a prior forward (a
-        # data-dependent branch could leave a prefetch unconsumed).
         self._recording = self._forward_count == 0
+        if self._recording:
+            self._order = []
         self._restore_all()
         self._staged = {}
 
-    def _on_root_post(self) -> None:
+    def _on_root_done(self) -> None:
         if self._forward_count == 0:
-            # Freeze the observed execution order into a successor map (first
-            # occurrence wins for any reused module).
             self._next_of = {}
             for cur, nxt in zip(self._order, self._order[1:]):
                 self._next_of.setdefault(id(cur), nxt)
             logger.debug("prefetcher: recorded %d streamed leaves in execution order", len(self._order))
-        # Release staged weights that were prefetched but never consumed this
-        # forward (e.g. FBCache skipped the successor leaf: recorded A->B->C but ran
-        # A->C, so B's stage lingers). Dropping them at root completion frees that
-        # VRAM before the sampler update / decode instead of waiting for the next
-        # forward's pre-hook — the difference that can save a tight run.
-        self._staged = {}
         self._forward_count += 1
+
+    def _on_root_post(self) -> None:
+        self._staged = {}
 
     # -- per-leaf choreography ---------------------------------------------
 

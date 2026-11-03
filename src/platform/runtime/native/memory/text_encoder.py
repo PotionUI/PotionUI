@@ -98,7 +98,11 @@ def leaf_quant_format(module: nn.Module) -> str | None:
 
 def _dequant_elements(module: nn.Module, fmt: str) -> int:
     if fmt == "nvfp4":
-        return int(getattr(module, "out_features", 0)) * int(getattr(module, "in_features", 0))
+        out_features = getattr(module, "out_features", None)
+        in_features = getattr(module, "in_features", None)
+        if isinstance(out_features, int) and isinstance(in_features, int) and out_features > 0 and in_features > 0:
+            return out_features * in_features
+        return int(module.nvfp4_packed.numel()) * 2
     return int(module.weight.numel())
 
 
@@ -139,14 +143,14 @@ def text_encoder_footprint(encoder: Any) -> TextEncoderFootprint | None:
     for module in modules:
         try:
             total += module_weights_bytes(module, seen)
-            for leaf in module.modules():
-                fmt = leaf_quant_format(leaf)
-                if fmt is None:
-                    continue
-                formats.add(fmt)
-                peak = max(peak, _dequant_elements(leaf, fmt) * DEQUANT_BYTES_PER_ELEMENT[fmt])
-        except Exception:
-            continue
+        except (TypeError, ValueError, RuntimeError):
+            return None
+        for leaf in module.modules():
+            fmt = leaf_quant_format(leaf)
+            if fmt is None:
+                continue
+            formats.add(fmt)
+            peak = max(peak, _dequant_elements(leaf, fmt) * DEQUANT_BYTES_PER_ELEMENT[fmt])
     if total <= 0:
         return None
     return TextEncoderFootprint(

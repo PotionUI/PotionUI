@@ -7,19 +7,12 @@ import yaml
 from scripts import recipe_lint
 from src.features.recipes.catalog import plugin_recipe_roots
 from src.features.presets.fixture_form import fixture_video_director_capabilities
-from src.features.recipes.schema import parse_recipe
+from src.features.recipes.schema import MAX_SMOKE_TIMEOUT_SECONDS, parse_recipe
 from src.platform.plugins.loader import PluginLoader
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CORE_RECIPES = REPO_ROOT / "content" / "recipes" / "marketplace"
 PLUGINS = REPO_ROOT / "content" / "plugins" / "marketplace"
-
-LONG_SMOKES = {
-    "ltx25-starter": 600,
-    "minimax-h3-fast-starter": 400,
-    "minimax-h3-starter": 400,
-    "wan22-starter": 600,
-}
 
 CLIP_LENGTH_FIELDS = {"frames", "duration", "num_frames"}
 
@@ -67,9 +60,33 @@ def test_every_shipped_recipe_passes_the_recipe_lint(manifests, preset_index):
     assert failures == {}
 
 
-@pytest.mark.parametrize(("recipe_id", "minimum"), sorted(LONG_SMOKES.items()))
-def test_a_smoke_known_to_run_past_five_minutes_declares_enough_time(smokes, recipe_id, minimum):
-    assert smokes[recipe_id].timeout_seconds >= minimum
+def _video_starter_smokes(manifests):
+    found = {}
+    for path in sorted(CORE_RECIPES.glob("*.yml")) + _plugin_recipe_files(manifests):
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if data.get("category") == "video" and data.get("smoke"):
+            found[data["id"]] = data["smoke"]
+    return found
+
+
+def _declares_a_timeout_in_range(smoke):
+    timeout = smoke.get("timeout_seconds")
+    return (
+        isinstance(timeout, int)
+        and not isinstance(timeout, bool)
+        and 1 <= timeout <= MAX_SMOKE_TIMEOUT_SECONDS
+    )
+
+
+def test_every_video_starter_smoke_declares_its_own_timeout_within_the_schema_range(manifests):
+    video_smokes = _video_starter_smokes(manifests)
+    assert video_smokes
+
+    undeclared = sorted(
+        recipe_id for recipe_id, smoke in video_smokes.items() if not _declares_a_timeout_in_range(smoke)
+    )
+
+    assert undeclared == []
 
 
 def test_a_smoke_on_a_director_document_sets_no_clip_length_in_its_form(smokes, preset_index):

@@ -857,11 +857,22 @@ class TextEncoderStreaming:
         )
 
     def teardown(self) -> None:
+        first_error: BaseException | None = None
         for part in self.parts:
-            part.offload()
+            try:
+                part.offload()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
         mover = getattr(self.encoder, "to", None)
         if callable(mover):
-            mover("cpu")
+            try:
+                mover("cpu")
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
 
 
 class NativeEngineLoader:
@@ -1302,7 +1313,7 @@ class NativeGenerator:
             try:
                 streaming.teardown()
             except Exception:
-                logger.debug("text-encoder streaming teardown failed", exc_info=True)
+                logger.warning("text-encoder streaming teardown failed", exc_info=True)
             return
         if not self._is_cuda():
             return
@@ -1642,7 +1653,7 @@ class NativeGenerator:
             # Only classic-CFG models consume a negative; embedded-guidance ignores it.
             if negative is not None and self.spec.sampling_settings.get("guidance") == "cfg":
                 uncond = self._normalize_te(self._encode_te(negative))
-        except Exception:
+        except BaseException:
             if streamed:
                 self._maybe_offload_te()
             raise

@@ -13,8 +13,8 @@ from src.platform.runtime.native.memory.residency import module_size_gb, run_tex
 from src.platform.runtime.native.memory.tiering import ComponentPlacement, PlacementPlan, plan_placement
 from src.platform.runtime.native.kernels import fp8_ops, manual_cast
 
-from . import _review_fit_layouts as L
-from ._review_fit_layouts import CTX_GB, DEV, RESERVE_GB, Case
+from . import _te_fit_layouts as L
+from ._te_fit_layouts import CTX_GB, DEV, RESERVE_GB, Case
 
 
 COMFORTABLE = (

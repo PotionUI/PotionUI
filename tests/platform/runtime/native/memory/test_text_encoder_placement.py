@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+import torch.nn as nn
 
 from src.platform.runtime.native.engine import _estimate_text_encoder_gb
 from src.platform.runtime.native.memory.device_plan import DevicePlan
@@ -67,6 +68,33 @@ def test_nvfp4_dequant_peak_is_ten_bytes_per_weight_element():
     assert fp.dequant_peak_gb * GB == pytest.approx(25600 * 5120 * DEQUANT_BYTES_PER_ELEMENT["nvfp4"])
     assert fp.dequant_peak_gb == pytest.approx(1.22, abs=0.01)
     assert fp.encode_gb == pytest.approx(fp.weights_gb + fp.dequant_peak_gb)
+
+
+def test_nvfp4_leaf_without_feature_attributes_is_sized_from_its_packed_codes():
+    out_f, in_f = 2048, 1024
+    known = text_encoder_footprint(_single_leaf(nvfp4_linear(in_f, out_f)))
+    layer = nvfp4_linear(in_f, out_f)
+    layer.out_features = None
+    layer.in_features = None
+    fp = text_encoder_footprint(_single_leaf(layer))
+    assert fp.dequant_peak_gb == pytest.approx(known.dequant_peak_gb)
+    assert fp.weights_gb == pytest.approx(known.weights_gb)
+
+
+def test_an_unsizable_module_makes_the_whole_footprint_unknown():
+    class _Unsizable(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.lazy = nn.Linear(8, 8)
+
+        def parameters(self, recurse: bool = True):
+            raise ValueError("cannot size")
+
+    root = RecordingModule()
+    root.layer = nvfp4_linear(1024, 2048)
+    encoder = FamilyEncoder(root, [], "probe")
+    encoder.t5 = _Unsizable()
+    assert text_encoder_footprint(encoder) is None
 
 
 def test_int8_and_fp8_leaves_count_one_byte_per_element_plus_scale():

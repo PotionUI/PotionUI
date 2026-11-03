@@ -156,7 +156,7 @@ failure's code is a category the host knows (`cuda_oom`, `host_ram_oom`, `missin
 and `pipe_failed` only when nothing classifies. Those stay `retryable: true`, as `pipe_failed` was.
 
 The `native.remote` backend reads the token: its health reports `degraded`, naming the worker and
-asking for its restart, and a dispatch is refused before submit. A
+asking for its restart, and a pipeline with an enabled pipe on `cuda` is refused before submit. A
 token says that the damage happened, not which error caused it: the driver's words are on the
 worker's own `GET /health`, in its log and on the failure that caused the damage. Administrators read
 that the worker needs a restart, other users that they should ask an administrator to restart it.
@@ -293,7 +293,7 @@ forces eager pipe discovery the first time it runs).
    immediately (`error_code` `fingerprint_mismatch` / `worker_unreachable`)
    and returns *without ever calling submit*, and so does a worker advertising
    a damaged GPU allocator (`worker_gpu_restart_required`, see "GPU allocator
-   damage" above). The real pipe-catalog check is
+   damage" above), unless every enabled pipe is pinned away from `cuda`. The real pipe-catalog check is
    the worker's own per-package gate (`WorkerCoordinator._fingerprint_mismatch`):
    the package carries `pipe_contracts` (pipe_type -> contract fingerprint,
    one entry per pipe the pipeline actually uses); the worker rejects only if

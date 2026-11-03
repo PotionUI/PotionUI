@@ -62,7 +62,7 @@ from src.pipelines.remote_fingerprint import (
     compute_remote_plugin_bundle_fingerprint,
 )
 from src.platform.observability.logger import logger
-from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged
+from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged, pipe_config_runs_on_cuda
 from src.platform.settings.runtime_flags import engine_flag_values
 from src.platform.util.ids import generate_ulid
 from src.platform.worker_protocol import (
@@ -448,7 +448,9 @@ class RemoteNativeBackend(BaseBackend):
             return
 
         damage_reason = self._allocator_damage_reason(info)
-        if damage_reason is not None:
+        if damage_reason is not None and any(
+            pipe.enabled and pipe_config_runs_on_cuda(pipe.config) for pipe in processed.pipes
+        ):
             self._repository.apply_state(
                 row.id, RemoteExecutionState.FAILED,
                 error_code=WORKER_GPU_RESTART_REQUIRED, error_message=damage_reason,

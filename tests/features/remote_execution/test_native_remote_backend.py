@@ -1427,6 +1427,25 @@ class TestWorkerAllocatorDamage(NativeRemoteBackendTestCase):
         self.assertEqual(errors[0].error_code, "worker_gpu_restart_required")
         self.assertEqual(errors[0].error, row.error_message)
 
+    def test_a_pipeline_pinned_to_cpu_still_reaches_a_damaged_worker(self):
+        container, app = self._cuda_worker()
+        data = self._pipeline_data("gen-cpu-pinned", config={"device": "cpu"})
+
+        with patch.object(cuda_allocator, "_damage", self.DAMAGE):
+            generation_id, _ = self._run_generation(self._backend(app), data)
+
+        self.assertIsNotNone(container.coordinator.record_for(generation_id))
+
+    def test_a_disabled_cuda_pipe_does_not_make_a_host_refuse_a_cpu_pipeline(self):
+        container, app = self._cuda_worker()
+        data = self._pipeline_data("gen-cpu-with-disabled", config={"device": "cpu"})
+        data["pipes"].append({"name": "image/fake", "id": "p2", "enabled": False, "config": {}, "input": []})
+
+        with patch.object(cuda_allocator, "_damage", self.DAMAGE):
+            generation_id, _ = self._run_generation(self._backend(app), data)
+
+        self.assertIsNotNone(container.coordinator.record_for(generation_id))
+
     def test_a_cpu_worker_is_not_refused_by_the_host(self):
         with patch.object(cuda_allocator, "_damage", self.DAMAGE):
             generation_id, outputs = self._run_generation(

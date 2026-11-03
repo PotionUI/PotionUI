@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 
 from src.platform.filesystem import model_types as mt
@@ -141,7 +143,18 @@ def test_two_plugins_cannot_claim_the_same_folder(registry):
         {"label": "  "},
         {"folder": "models/pose_rigs"},
         {"folder": ".."},
+        {"folder": "/etc"},
+        {"folder": "C:x"},
+        {"folder": ".hidden"},
+        {"folder": "rigs."},
+        {"folder": "rigs "},
+        {"folder": "a\\b"},
+        {"folder": "NUL"},
+        {"folder": "CON"},
+        {"folder": "com1"},
+        {"folder": "Aux.rigs"},
         {"aliases": ("a\\b",)},
+        {"aliases": ("lpt9",)},
         {"extensions": frozenset()},
         {"extensions": frozenset({"onnx"})},
         {"layout": "tree"},
@@ -216,3 +229,59 @@ def test_module_readers_drop_a_type_once_its_plugin_is_gone(shared_plugin_type):
     assert "pose_rig" not in model_types()
     assert ".onnx" not in mt.supported_extensions()
     assert mt.extensions_for("pose_rig") == DEFAULT_MODEL_EXTENSIONS
+
+
+def test_a_folder_name_with_inner_dots_is_still_accepted(registry):
+    registry.register(_plugin_type(folder="pose.rigs-v2"))
+
+    assert registry.view.type_to_directory["pose_rig"] == "pose.rigs-v2"
+
+
+def test_a_batch_with_one_bad_type_registers_none_of_them(registry):
+    calls = []
+    registry.set_listener("count", lambda: calls.append(1))
+
+    with pytest.raises(DuplicateModelTypeError):
+        registry.register_all([_plugin_type(), _plugin_type(id="other_rig", folder="loras")])
+
+    assert "pose_rig" not in registry.view.types
+    assert calls == []
+    registry.register_all([_plugin_type(), _plugin_type(id="other_rig", folder="other_rigs")])
+    assert calls == [1]
+
+
+def test_concurrent_readers_only_ever_see_whole_consistent_snapshots(registry):
+    batch = [_plugin_type(id=f"rig_{i}", folder=f"rigs_{i}", aliases=(f"Rigs{i}",)) for i in range(6)]
+    batch_ids = {d.id for d in batch}
+    core_ids = set(CORE_MODEL_TYPES)
+    done = threading.Event()
+    problems = []
+    snapshots = []
+
+    def read():
+        while not done.is_set():
+            view = registry.view
+            ids = set(view.types)
+            snapshots.append(len(ids))
+            if set(view.type_to_directory) != ids or set(view.directory_to_type.values()) != ids:
+                problems.append("type and folder maps disagree")
+            if any(view.directory_to_type[view.type_to_directory[i]] != i for i in ids):
+                problems.append("a type does not own its folder")
+            if set(view.extensions_by_type) != ids:
+                problems.append("extensions out of step")
+            if not core_ids <= ids or ids & batch_ids not in (set(), batch_ids):
+                problems.append(f"half-registered source: {sorted(ids & batch_ids)}")
+
+    reader = threading.Thread(target=read)
+    reader.start()
+    try:
+        for _ in range(300):
+            registry.register_all(batch)
+            registry.unregister_source("fixture-plugin")
+    finally:
+        done.set()
+        reader.join()
+
+    assert problems == []
+    assert snapshots
+

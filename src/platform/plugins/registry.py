@@ -784,8 +784,8 @@ class PluginRegistry:
         return None
 
     def _register_plugin_model_types(self, manifest: PluginManifest) -> Optional[str]:
-        for entry in manifest.model_types:
-            error = self._register_entry(_model_types.model_type_registry.register, _model_types.ModelTypeDefinition(
+        definitions = [
+            _model_types.ModelTypeDefinition(
                 id=entry['id'],
                 label=entry['label'],
                 folder=entry['folder'],
@@ -796,10 +796,13 @@ class PluginRegistry:
                 header_classified=bool(entry.get('header_classified', False)),
                 assignable=bool(entry.get('assignable', True)),
                 source=manifest.id,
-            ), _model_types.DuplicateModelTypeError, _model_types.InvalidModelTypeError)
-            if error:
-                return error
-        return None
+            )
+            for entry in manifest.model_types
+        ]
+        return self._register_entry(
+            _model_types.model_type_registry.register_all, definitions,
+            _model_types.DuplicateModelTypeError, _model_types.InvalidModelTypeError,
+        )
 
     def _load_optional_handler(self, manifest: PluginManifest, ref: Optional[str], label: str):
         if not ref:

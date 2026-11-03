@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from src.bootstrap.container import _bind_model_types
 from src.features.models.indexer import ModelScanner
+from src.features.models.locations_repository import ModelLocationsRepository
 from src.features.models.repository import model_repo
 from src.features.models.roots import ModelRootsManager
 from src.features.models.routes import build_router
@@ -214,4 +215,29 @@ def test_templates_strip_the_plugin_folder_only_while_the_plugin_is_enabled(home
     plugins.disable_plugin(PLUGIN_ID)
 
     assert strip_model_dir("models/pose_rigs/body/rig.onnx") == "models/pose_rigs/body/rig.onnx"
+
+
+def test_a_plugin_folder_linked_outside_the_models_root_is_indexed_only_under_the_root(home, plugins, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "rig.onnx").write_bytes(b"rig-bytes-outside")
+    try:
+        (home.models_dir / "pose_rigs").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are not available here")
+    plugins.enable_plugin(PLUGIN_ID)
+    scanner = ModelScanner(home.resolver)
+
+    scanner.index_models(max_workers=1)
+
+    (row,) = model_repo.get_by_filename("rig.onnx")
+    locations = ModelLocationsRepository().list_for_model(row.id)
+    assert [(loc["root_id"], loc["rel_path"]) for loc in locations] == [(HOME_ROOT_ID, "rig.onnx")]
+    resolved = scanner.location_path({**locations[0], "model_type": "pose_rig"})
+    assert resolved == home.models_dir / "pose_rigs" / "rig.onnx"
+    assert str(outside) not in repr(locations)
+    assert str(outside) not in repr(vars(row))
+    assert home.resolver.to_logical(outside / "rig.onnx") is None
+    logical = home.resolver.to_logical(home.models_dir / "pose_rigs" / "rig.onnx")
+    assert (logical.root_id, logical.model_type, logical.rel_path) == (HOME_ROOT_ID, "pose_rig", "rig.onnx")
 

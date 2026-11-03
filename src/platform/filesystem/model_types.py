@@ -29,7 +29,8 @@ HEADER_EXTENSIONS = frozenset({'.safetensors', '.sft', '.gguf'})
 SCAN_HEADERS_FOLDER_NAMES = frozenset({'stable-diffusion', 'unet'})
 
 _TYPE_ID = re.compile(r'^[a-z][a-z0-9_]*$')
-_FOLDER = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]*$')
+_FOLDER = re.compile(r'^[A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9_-])?$')
+_WINDOWS_RESERVED = frozenset({'con', 'prn', 'aux', 'nul', *(f'com{n}' for n in range(1, 10)), *(f'lpt{n}' for n in range(1, 10))})
 _EXTENSION = re.compile(r'^\.[a-z0-9]+$')
 _RESERVED_IDS = frozenset({*VIRTUAL_MODEL_TYPES, UNDEFINED_MODEL_TYPE})
 
@@ -174,7 +175,7 @@ def _validate(definition: ModelTypeDefinition) -> None:
     if not isinstance(definition.label, str) or not definition.label.strip():
         raise InvalidModelTypeError(f"{owner}: label is required")
     for name in (definition.folder, *definition.aliases):
-        if not isinstance(name, str) or not _FOLDER.match(name) or name in ('.', '..'):
+        if not isinstance(name, str) or not _FOLDER.match(name) or name.split('.')[0].lower() in _WINDOWS_RESERVED:
             raise InvalidModelTypeError(f"{owner}: '{name}' is not a single folder name")
     if not definition.extensions:
         raise InvalidModelTypeError(f"{owner}: at least one file extension is required")
@@ -208,15 +209,16 @@ class ModelTypeRegistry(SourcedRegistry[ModelTypeDefinition]):
         for definition in definitions:
             self.register(definition)
 
-    def _conflict(self, definition: ModelTypeDefinition) -> Optional[str]:
-        existing = self._entries.get(definition.id)
+    @staticmethod
+    def _conflict(entries: Dict[str, ModelTypeDefinition], definition: ModelTypeDefinition) -> Optional[str]:
+        existing = entries.get(definition.id)
         if existing is not None:
             return (
                 f"Model type '{definition.id}' from '{definition.source}' is already registered by "
                 f"'{existing.source}'"
             )
         wanted = {_fold(name): name for name in (definition.folder, *definition.aliases)}
-        for other in self._entries.values():
+        for other in entries.values():
             for taken in (other.folder, *other.aliases):
                 if _fold(taken) in wanted:
                     return (
@@ -226,14 +228,23 @@ class ModelTypeRegistry(SourcedRegistry[ModelTypeDefinition]):
         return None
 
     def register(self, entry: ModelTypeDefinition) -> None:
-        _validate(entry)
+        self.register_all([entry])
+
+    def register_all(self, entries: Iterable[ModelTypeDefinition]) -> None:
+        entries = list(entries)
+        for entry in entries:
+            _validate(entry)
         with self._lock:
-            conflict = self._conflict(entry)
-            if conflict:
-                raise DuplicateModelTypeError(conflict)
-            self._entries[entry.id] = entry
-            self._view = _build_view(self._entries.values())
-        self._notify()
+            staged = dict(self._entries)
+            for entry in entries:
+                conflict = self._conflict(staged, entry)
+                if conflict:
+                    raise DuplicateModelTypeError(conflict)
+                staged[entry.id] = entry
+            self._entries = staged
+            self._view = _build_view(staged.values())
+        if entries:
+            self._notify()
 
     def unregister_source(self, source: str) -> int:
         with self._lock:

@@ -1,13 +1,10 @@
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Optional, Sequence
 
-from src.platform.filesystem.model_types import MODEL_TYPES, UNDEFINED_MODEL_TYPE
+from src.platform.filesystem.model_types import UNDEFINED_MODEL_TYPE, model_types as registered_model_types
 
 SOURCE_HEADER = "header"
 SOURCE_FOLDER = "folder"
-
-_TYPE_ORDER = {model_type: index for index, model_type in enumerate(MODEL_TYPES)}
-
 
 @dataclass(frozen=True)
 class Copy:
@@ -22,7 +19,8 @@ class Resolution:
 
 
 def folder_type_of(model_types: Iterable[str]) -> str:
-    return min(model_types, key=lambda t: _TYPE_ORDER.get(t, len(_TYPE_ORDER)))
+    order = {model_type: index for index, model_type in enumerate(registered_model_types())}
+    return min(model_types, key=lambda t: order.get(t, len(order)))
 
 
 def _folder_type(copies: Sequence[Copy]) -> str:

@@ -2,29 +2,10 @@ import { modelTypeLabel } from './format.js';
 
 const CAPABILITIES = ['browse', 'request', 'download', 'approve'];
 
-export const MODEL_TYPES = [
-	'checkpoint',
-	'diffusion_model',
-	'lora',
-	'embedding',
-	'upscaler',
-	'vae',
-	'controlnet',
-	'adetailer',
-	'text_encoder',
-	'unet',
-	'insightface',
-	'facerestore',
-	'instantid',
-	'detection_segm',
-	'detection_bbox',
-	'mediapipe',
-	'llm',
-	'vfi',
-	'refmod',
-	'model_patch',
-	'geometry_estimation'
-];
+export function modelTypes() {
+	const definitions = globalThis.__potionui?.modelTypes?.list?.() ?? [];
+	return definitions.filter((definition) => !definition.virtual).map((definition) => definition.id);
+}
 
 const GIB = 1024 ** 3;
 const NSFW_CEILINGS = ['allowed', 'blur', 'blocked'];
@@ -111,8 +92,9 @@ export function paramsFor(me, purpose = 'download') {
 export function allowedTypes(me, mbType, { purpose = 'download' } = {}) {
 	const listed = paramsFor(me, purpose)?.model_types ?? [];
 	const all = isUnrestricted(me) || listed.length === 0;
-	let types = all ? [...MODEL_TYPES] : MODEL_TYPES.filter((type) => listed.includes(type));
-	if (!all) types = [...types, ...listed.filter((type) => !MODEL_TYPES.includes(type))];
+	const known = modelTypes();
+	let types = all ? [...known] : known.filter((type) => listed.includes(type));
+	if (!all) types = [...types, ...listed.filter((type) => !known.includes(type))];
 	const suggestion = typeof mbType === 'string' && mbType ? mbType : '';
 	const suggestionAllowed = suggestion !== '' && types.includes(suggestion);
 	if (suggestionAllowed) types = [suggestion, ...types.filter((type) => type !== suggestion)];
@@ -154,7 +136,7 @@ export function requestBlockReason(me, file = {}, sourceLabel = '') {
 		case 'source':
 			return `Not allowed from ${sourceLabel || file.source || 'this source'}`;
 		case 'type':
-			return `${modelTypeLabel(file.type) || file.type} models not allowed`;
+			return `${modelTypeLabel(file.type) || file.type} not allowed`;
 		case 'size':
 			return `Over your ${paramsFor(me, 'request')?.max_file_gb} GB limit`;
 		default:

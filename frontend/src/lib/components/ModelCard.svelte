@@ -14,6 +14,7 @@
 		modelSummaryParts,
 		modelTypePresentation
 	} from '$lib/utils/modelPresentation';
+	import { modelTypes } from '$lib/stores/modelTypes.svelte';
 	import Icon from './Icon.svelte';
 	import FavoriteButton from './FavoriteButton.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
@@ -101,8 +102,13 @@
 	// admin browsing the library sees the same card a user does.
 	$: displayName = modelDisplayName(model);
 	$: originLine = modelOriginLine(model);
-	$: typePresentation = modelTypePresentation(model.model_type);
-	$: summaryParts = modelSummaryParts(model);
+	let typePresentation = modelTypePresentation(null);
+	let summaryParts: string[] = [];
+	$: {
+		$modelTypes;
+		typePresentation = modelTypePresentation(model.model_type);
+		summaryParts = modelSummaryParts(model);
+	}
 
 	// See docs/models.md "Indexing is per backend": an empty `backend_ids` only means
 	// "unavailable" once indexing has happened at all - otherwise it means "unknown".

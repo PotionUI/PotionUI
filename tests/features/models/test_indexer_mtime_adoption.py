@@ -11,7 +11,7 @@ from src.features.models.repository import model_repo
 from src.platform.database.rows import now_iso
 from src.platform.filesystem.model_roots import ModelRoot, ModelRootResolver, TypeDir, _Snapshot, root_path_key
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
+from src.platform.filesystem.model_types import type_to_directory
 
 _POSITION_OFFSET = 2000
 
@@ -51,7 +51,7 @@ def _root(root_id: str, path, *, case_insensitive: bool = False, state: str = "o
 
 def _binding(root_id: str, model_type: str, path, position: int, *, is_write: bool = False, subdir: Optional[str] = None) -> TypeDir:
     if subdir is None:
-        subdir = MODEL_TYPE_TO_DIRECTORY[model_type]
+        subdir = type_to_directory()[model_type]
     real_position = position + _POSITION_OFFSET
     binding_id = ModelRootRepository().insert_binding(root_id, model_type, subdir, real_position, is_write)
     return TypeDir(root_id=root_id, model_type=model_type, path=Path(path), position=real_position, is_write=is_write, subdir=subdir, binding_id=binding_id)

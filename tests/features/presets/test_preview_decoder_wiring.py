@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import functools
 import re
 from pathlib import Path
@@ -7,16 +8,17 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE, MODEL_TYPE_TO_DIRECTORY
+from src.features.presets import PresetTemplateLoader
+from src.platform.filesystem.model_types import directory_to_type, type_to_directory
 
 REPO = Path(__file__).resolve().parents[3]
 ROOT = REPO / "content/presets/marketplace"
 CATALOG = REPO / "src/std/models/preview_decoders.yml"
 
 FIELD_FILES = {
-    ("MiniMax-H3", "video"): "MiniMax-H3/modes/video/tabs/generation.yml",
-    ("MiniMax-H3-Fast", "video"): "MiniMax-H3-Fast/modes/video/tabs/generation.yml",
-    ("MiniMax-H3-VDN", "video"): "MiniMax-H3-VDN/modes/video/tabs/generation.yml",
+    ("MiniMax-H3", "video"): None,
+    ("MiniMax-H3-Fast", "video"): None,
+    ("MiniMax-H3-VDN", "video"): None,
     ("LTX-2", "video"): "LTX-2/modes/video/tabs/generation.yml",
     ("LTX-2.5", "video"): "LTX-2.5/files/form/models_av.yml",
     ("LTX-2.5", "extend"): "LTX-2.5/files/form/models_av.yml",
@@ -58,15 +60,32 @@ def _walk(node, name):
             yield from _walk(value, name)
 
 
-def _field(relative):
-    found = list(_walk(_load(ROOT / relative), "preview_decoder"))
+@functools.cache
+def _loaded_presets():
+    loader = PresetTemplateLoader([str(ROOT)])
+    loader.load_presets()
+    ids = {
+        yaml.safe_load(path.read_text(encoding="utf-8"))["id"]: path.parent.name
+        for path in ROOT.glob("*/preset.yml")
+    }
+    return {ids[preset.id]: preset for preset in loader.presets if preset.id in ids}
+
+
+def _loaded_form(preset, mode):
+    form = _loaded_presets()[preset].modes[mode].forms[0]
+    return [dataclasses.asdict(field) for field in form.fields]
+
+
+def _field(relative, preset=None, mode=None):
+    tree = _loaded_form(preset, mode) if relative is None else _load(ROOT / relative)
+    found = list(_walk(tree, "preview_decoder"))
     assert len(found) == 1, relative
     return found[0]
 
 
 def test_the_model_type_lives_in_vae_approx():
-    assert DIRECTORY_TO_MODEL_TYPE["vae_approx"] == "preview_decoder"
-    assert MODEL_TYPE_TO_DIRECTORY["preview_decoder"] == "vae_approx"
+    assert directory_to_type()["vae_approx"] == "preview_decoder"
+    assert type_to_directory()["preview_decoder"] == "vae_approx"
 
 
 def test_catalog_lists_five_verified_decoders():
@@ -83,10 +102,10 @@ def test_catalog_lists_five_verified_decoders():
 
 @pytest.mark.parametrize("preset,mode", sorted(FIELD_FILES))
 def test_every_covered_mode_has_an_optional_preview_decoder_model_field(preset, mode):
-    field = _field(FIELD_FILES[(preset, mode)])
+    field = _field(FIELD_FILES[(preset, mode)], preset, mode)
     assert field["required"] is False
     assert field["configuration"]["model_type"] == "preview_decoder"
-    assert "default" not in field
+    assert field.get("default") is None
     stems = {Path(rec["name"]).stem for rec in field["configuration"]["recommendations"]}
     assert stems == EXPECTED_DECODERS[preset]
 
@@ -94,7 +113,7 @@ def test_every_covered_mode_has_an_optional_preview_decoder_model_field(preset, 
 @pytest.mark.parametrize("preset,mode", sorted(FIELD_FILES))
 def test_field_recommendations_match_the_catalog(preset, mode):
     catalog = _catalog()
-    for rec in _field(FIELD_FILES[(preset, mode)])["configuration"]["recommendations"]:
+    for rec in _field(FIELD_FILES[(preset, mode)], preset, mode)["configuration"]["recommendations"]:
         entry = catalog[Path(rec["name"]).stem]
         assert rec["sha256"] == entry["sha256"]
         assert rec["link"] == entry["url"]
@@ -111,7 +130,7 @@ def test_every_generator_of_a_covered_mode_receives_the_decoder(preset, mode):
 
 @pytest.mark.parametrize("preset", ["MiniMax-H3", "MiniMax-H3-Fast", "MiniMax-H3-VDN"])
 def test_h3_hides_the_decoder_when_live_preview_is_off(preset):
-    field = _field(FIELD_FILES[(preset, "video")])
+    field = _field(FIELD_FILES[(preset, "video")], preset, "video")
     reactions = {r["when"]["equals"]: r["then"]["set_visibility"] for r in field["reactions"]}
     assert reactions == {False: False, True: True}
 

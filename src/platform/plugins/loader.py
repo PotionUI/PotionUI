@@ -72,6 +72,7 @@ class PluginManifest:
     samplers: List[Dict[str, Any]] = field(default_factory=list)
     schedules: List[Dict[str, Any]] = field(default_factory=list)
     model_classifiers: List[Dict[str, Any]] = field(default_factory=list)
+    model_types: List[Dict[str, Any]] = field(default_factory=list)
 
     # Frontend components
     frontend_entry: Optional[str] = None  # Path to frontend entry point
@@ -167,7 +168,7 @@ class PluginManifest:
 _DICT_LIST_FIELDS = tuple(
     """
     pipes presets preset_modes preset_extensions recipes model_layouts llm_profiles filters filter_ops
-    recipe_steps samplers schedules model_classifiers pages admin_tabs tool_tabs quick_actions
+    recipe_steps samplers schedules model_classifiers model_types pages admin_tabs tool_tabs quick_actions
     sidebar_widgets settings field_types model_metadata_fields renderers contributions docs
     chat_modes resources llm_providers automation_nodes automation_templates organize_facts organize_actions limit_kinds
     prompt_importers prompt_resource_sources phrasebook_ops media_tools requirement_checkers setup

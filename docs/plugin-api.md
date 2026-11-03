@@ -67,7 +67,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Compute** — renting GPU compute for a Remote Native worker | `.compute` | `ComputeProvisioner`, `ComputeProvisionerError`, `ComputeStatus`, `ProvisionRequest`, `ProvisionResult`, `ProvisionProgress`, `ProgressReporter`, `ComputeFieldDescriptorV1`, `ComputeFieldOptionV1`, `COMPUTE_STATES`, `STATE_*`, `STAGE_*`, `COMPUTE_HOOKS` |
 | **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `plugin_settings`, `Settings`, `SettingRepository`, `PluginRepository` |
 | **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel`, `probe_video` (a `VideoProbe` from ffprobe, or `None`), `transcode_video(src, dest, TranscodeSpec(...), max_bytes=None)` (ffmpeg re-encode to webm VP9 or mp4 H.264: constant frame rate, even dimensions, no audio unless `keep_audio`; steps down a quality ladder to fit `max_bytes`; raises `VideoTranscodeError`, or `FfmpegUnavailableError` before writing anything when ffmpeg is missing), `find_ffmpeg`, `TranscodeSpec`, `VideoProbe`, `StreamingMp4Writer(out_path, width, height, fps)` (pipes RGB uint8 frames to ffmpeg into a video-only MP4; `write`, `close`, `abort`, or a `with` block; raises `FFmpegNotFoundError` when ffmpeg is missing), `has_audio_stream(path)`, `mux_audio_from_source(video_only, source, out_path)` (video of one file plus audio of another, stream-copied or AAC; returns `False` and leaves no partial file when there is no audio or ffmpeg fails) |
-| **Models** — model metadata fields, provider links, resolving a model's file/folder across roots, and acting on catalog models | `.models` | `WellKnownModelMetadataField`, `get_model_provider_info`, `ModelFileUnavailable` (raised by `resolve_model_file` when the model's file is not reachable), `model_type_dirs`, `model_write_dir`, `resolve_model_file`, `model_for_path(path, admin=False)`, `model_for_sha256(sha256, *, size=None, hash_candidates="background", admin=False)` (the indexed model with that hash, or `None`; pass the file's `size` in bytes and a local copy that has not been hashed yet but has exactly that size can match as well: `"background"` queues at most eight of those candidates per call at the normal, rate-capped priority and answers `None` until they are done, `"paced"` verifies at most two of them through the rate-capped pool, waiting up to 15 minutes, `"inline"` hashes up to eight of them before answering at full speed, `"never"` only looks; `ValueError` for any other mode; unscoped; both leave out the operational fields - location, file size, hash - unless `admin=True`, for a caller that has checked the user is an admin), the hook `model_index.after_digests` (payload `model_ids`, at most once every 5 seconds: files finished being hashed, so a model's `sha256` is now known), `visible_model_ids(user_id)` (the models assigned to a user, directly or through their groups), `assign_model_to_user(model_id, user_id)` (`True` when newly assigned; fires `model_index.before_assign` / `after_assign`; raises `ModelAssignmentException`), `update_model_metadata(model_id, values)` (sets some shared attribute values, validated against the type's definitions; raises `InvalidModelMetadataException`, `ModelNotFoundException`), `run_provider_fetch(provider, model_ids)` (async; hashes any model that has no digest yet, one after another, then fills empty description, triggers, tags and previews from a provider plugin; `{"successful", "failed", "errors"}`; raises `ProviderFetchException` for an unknown or uninitialised provider, or a `model_index.before_fetch_info` veto), `ProviderFetchException`, `MODEL_DIRECTORY_ALIASES`, `type_for_folder_name`, `MODEL_TYPES`, `HeaderView`, `TensorInfo`, `FamilyMatch`, `model_classifier_registry` (read-only) |
+| **Models** — model metadata fields, provider links, resolving a model's file/folder across roots, and acting on catalog models | `.models` | `WellKnownModelMetadataField`, `get_model_provider_info`, `ModelFileUnavailable` (raised by `resolve_model_file` when the model's file is not reachable), `model_type_dirs`, `model_write_dir`, `resolve_model_file`, `model_for_path(path, admin=False)`, `model_for_sha256(sha256, *, size=None, hash_candidates="background", admin=False)` (the indexed model with that hash, or `None`; pass the file's `size` in bytes and a local copy that has not been hashed yet but has exactly that size can match as well: `"background"` queues at most eight of those candidates per call at the normal, rate-capped priority and answers `None` until they are done, `"paced"` verifies at most two of them through the rate-capped pool, waiting up to 15 minutes, `"inline"` hashes up to eight of them before answering at full speed, `"never"` only looks; `ValueError` for any other mode; unscoped; both leave out the operational fields - location, file size, hash - unless `admin=True`, for a caller that has checked the user is an admin), the hook `model_index.after_digests` (payload `model_ids`, at most once every 5 seconds: files finished being hashed, so a model's `sha256` is now known), `visible_model_ids(user_id)` (the models assigned to a user, directly or through their groups), `assign_model_to_user(model_id, user_id)` (`True` when newly assigned; fires `model_index.before_assign` / `after_assign`; raises `ModelAssignmentException`), `update_model_metadata(model_id, values)` (sets some shared attribute values, validated against the type's definitions; raises `InvalidModelMetadataException`, `ModelNotFoundException`), `run_provider_fetch(provider, model_ids)` (async; hashes any model that has no digest yet, one after another, then fills empty description, triggers, tags and previews from a provider plugin; `{"successful", "failed", "errors"}`; raises `ProviderFetchException` for an unknown or uninitialised provider, or a `model_index.before_fetch_info` veto), `ProviderFetchException`, `directory_aliases()`, `type_for_folder_name`, `model_types()` (the registered model types, plugin types included, read at call time), `HeaderView`, `TensorInfo`, `FamilyMatch`, `model_classifier_registry` (read-only) |
 | **Downloads** — queueing a download and following it | `.downloads` | `queue_model_download(url, *, filename=None, model_type=None, subdir=None, tags=None, checksum_sha256=None, provider_id=None, created_by=None, destination_backend_id=None)` (async; the queued download as a dict; raises `DownloadQueueException`, or its `UnsafeFilenameException` and `DownloadDestinationInvalid` subtypes - the latter when the subfolder, directory or remote backend cannot be used, as opposed to a queue that is blocked), `get_download(download_id)` (the download's current state, or `None`), `DownloadNotFoundException`. Declare the `download.after_complete` hook to be told when a download has landed (`download_id`, `created_by` ...; `model_id` or `duplicate_of` only for a plain local model download, the one kind indexed on completion) |
 | **User groups** — groups, membership, and the NSFW policy a user gets | `.groups` | `list_groups()`, `get_user_groups(user_id)`, `group_member_ids(group_id)` (groups are `{"id", "name", "is_system", "content_policy"}` dicts), `effective_content_policy(user_id)` (`"allowed"`, `"blur"` or `"blocked"`: the instance setting made stricter by the user's groups), `assign_models_to_group(group_id, model_ids, acting_user)` (the ids newly assigned, through the group operation and its hooks in that admin's name; `ValueError` for a non-admin actor or an unknown group) |
 | **Notifications** — telling users something happened | `.notifications` | `notify(*, source, title, message="", user_id=None, type="", level="info", category="plugin", metadata=None, transient=False, show_toast=True)` (how many users received it; `user_id=None` broadcasts; a registered `type` respects each user's preferences), `register_notification_types(registry, specs)` (from a `notification_type.register` handler; returns the keys it added), `NotificationTypeSpec`, `NotificationTypeRegistry`, `DuplicateNotificationTypeError` |
@@ -1301,6 +1301,38 @@ decided keep their verdict; an admin can retype them. Disabling the plugin remov
 classifiers. `src.plugin_api.models.model_classifier_registry` is a read-only view for listing
 and looking up classifiers; there is no register call, plugins register through the manifest.
 
+## Contributing a model type
+
+A model type is a folder of model files PotionUI scans, indexes, shows in Admin -> Models and
+offers to model fields. Core registers its own types (`checkpoint`, `lora`, `vae`, ...) through
+the same registry a plugin uses. Declare yours under `model_types:`:
+
+```yaml
+model_types:
+  - id: pose_rig                  # lowercase, digits and underscores; unique across core and plugins
+    label: "Pose rig"             # shown wherever the type is named
+    purpose: "Skeleton for pose transfer"   # optional one-line description
+    folder: pose_rigs             # one folder name under each models root; downloads land here
+    aliases: [PoseRigs]           # optional other folder names that mean this type
+    extensions: [.onnx, .safetensors]       # optional; defaults to the core model file extensions
+    layout: file                  # optional; `directory` treats each subfolder with a config.json as one model
+    header_classified: false      # optional; files are typed from their headers, like checkpoints
+    assignable: true              # optional; whether an admin may move a model to this type
+```
+
+Enabling the plugin registers the type and binds `folder` under the PotionUI models root, so the
+next indexing run (a restart, or Rescan in Admin -> Models) catalogues the files in it. A model
+field with `model_type: pose_rig` lists them. An `id`, `folder` or alias that is already taken,
+by core or another plugin, fails the enable with an error naming both owners.
+
+Disabling the plugin removes the type. Its folder is no longer scanned and its files are no
+longer resolvable, but the models already indexed keep their rows: Admin -> Models shows them
+under the type id, marked as no longer available, until the plugin is enabled again.
+
+Python code reads the live set through `src.plugin_api.models.model_types()`; a frontend reads
+`window.__potionui.modelTypes` (`list()`, `get(id)`, `presentation(id)`), which follows
+`GET /api/models/type-definitions`. Both include plugin types while their plugin is enabled.
+
 ## Contributing a prompt resource source
 
 A prompt resource source lets a preset's prompt cite rows of a picker field whose items are
@@ -1859,7 +1891,7 @@ plugin that needs a path never joins one by hand — it goes through `src.plugin
 ```python
 from src.plugin_api.models import (
     model_type_dirs, model_write_dir, resolve_model_file, model_for_path,
-    MODEL_DIRECTORY_ALIASES, type_for_folder_name,
+    model_types, directory_aliases, type_for_folder_name,
 )
 
 model_type_dirs("lora")          # -> every online root's bound directory for this type, in order
@@ -1879,7 +1911,7 @@ type, is read-only, or is offline — same caveat.
 `index_model_file` takes only an existing file inside a folder some model type writes to (a `ValueError` otherwise),
 and with `user_id` assigns the new model, or the catalog model it duplicates, to that user.
 
-`MODEL_DIRECTORY_ALIASES` and `type_for_folder_name(name)` are for a plugin that speaks another
+`directory_aliases()` and `type_for_folder_name(name)` are for a plugin that speaks another
 tool's folder vocabulary (a ComfyUI-style `loras`/`checkpoints`/… folder name) and needs the
 PotionUI model type it corresponds to, case-insensitively and including aliases.
 

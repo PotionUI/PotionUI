@@ -23,7 +23,7 @@ from src.features.remote_execution.worker.config import WorkerConfig
 from src.features.remote_execution.worker.coordinator import WorkerCoordinator
 from src.features.remote_execution.worker.journal import WorkerJournal
 from src.features.remote_execution.worker.model_depot import ModelDepot
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
+from src.platform.filesystem.model_types import type_to_directory
 from src.platform.worker_protocol import ContentDigest, ModelBundleEntryV1
 
 TOKEN = "secret-worker-token"
@@ -87,7 +87,7 @@ def _model(*, model_id: str, filename: str, role: str, file_path=None, content=N
 
 
 def _relative_path(role: str, filename: str) -> str:
-    return f"{MODEL_TYPE_TO_DIRECTORY.get(role, role)}/{filename}"
+    return f"{type_to_directory().get(role, role)}/{filename}"
 
 
 class OpsTestCase(unittest.TestCase):
@@ -182,7 +182,7 @@ class TestSyncView(OpsTestCase):
 
         self.assertEqual(view["depot_dir"], str(self.model_depot.depot_dir.resolve()))
         self.assertEqual(view["layout"]["checkpoint"], "checkpoints")
-        self.assertEqual(view["layout"], dict(MODEL_TYPE_TO_DIRECTORY))
+        self.assertEqual(view["layout"], dict(type_to_directory()))
 
 
 # -- push -----------------------------------------------------------------

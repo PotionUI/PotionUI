@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { resetModelTypes, setModelTypes } from '$lib/stores/modelTypes.svelte';
+import { coreModelTypeDefinitions, modelTypeDefinition } from '$lib/stores/modelTypesFixture';
 import {
 	modelSourceLabel,
 	modelFilenameStem,
@@ -9,6 +11,9 @@ import {
 	modelTypePresentation
 } from './modelPresentation';
 
+beforeEach(() => setModelTypes(coreModelTypeDefinitions()));
+afterEach(() => resetModelTypes());
+
 describe('modelPresentation', () => {
 	it('turns internal model types into user-facing roles', () => {
 		expect(modelTypePresentation('checkpoint')).toEqual({
@@ -16,10 +21,37 @@ describe('modelPresentation', () => {
 			purpose: 'Main generation model'
 		});
 		expect(modelTypePresentation('lora').purpose).toBe('Style or concept adapter');
-		expect(modelTypePresentation('refmod')).toEqual({
-			label: 'RefMod',
-			purpose: 'Pre-encoded reference latents'
+		expect(modelTypePresentation('text_encoder')).toEqual({
+			label: 'Text encoder',
+			purpose: 'Converts prompts into guidance'
 		});
+	});
+
+	it('labels a plugin type with the label the backend serves', () => {
+		setModelTypes([
+			...coreModelTypeDefinitions(),
+			modelTypeDefinition({ id: 'pose_rig', label: 'Pose rig', purpose: 'Skeleton for pose transfer', source: 'pose-plugin' })
+		]);
+
+		expect(modelTypePresentation('pose_rig')).toEqual({ label: 'Pose rig', purpose: 'Skeleton for pose transfer' });
+		expect(modelSummaryParts({ model_type: 'pose_rig' })[0]).toBe('Pose rig');
+	});
+
+	it('shows a type the backend no longer serves as unavailable', () => {
+		expect(modelTypePresentation('pose_rig')).toEqual({ label: 'Pose Rig', purpose: 'Type no longer available' });
+	});
+
+	it('keeps the needs-a-type wording for undefined models', () => {
+		expect(modelTypePresentation('undefined')).toEqual({
+			label: 'Needs a type',
+			purpose: 'Type not recognised from the file'
+		});
+	});
+
+	it('does not call a type unavailable before the list has loaded', () => {
+		resetModelTypes();
+
+		expect(modelTypePresentation('lora')).toEqual({ label: 'Lora', purpose: 'Generation resource' });
 	});
 
 	it('normalizes provider names and deduplicates tags', () => {

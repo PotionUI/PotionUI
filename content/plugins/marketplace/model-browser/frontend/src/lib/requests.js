@@ -1,4 +1,4 @@
-import { MODEL_TYPES, allowedTypes, can, isUnrestricted, normalizeMe } from './capabilities.js';
+import { allowedTypes, can, isUnrestricted, modelTypes, normalizeMe } from './capabilities.js';
 import { callPlugin, getMe } from './client.js';
 import { baseName, downloadWarnings, sizeProblem, suggestedModelType } from './downloadForm.js';
 
@@ -368,8 +368,9 @@ export function decisionLine(request) {
 
 export function approvalTypeChoice(request) {
 	const requested = requestedType(request);
+	const known = modelTypes();
 	return {
-		types: requested ? [requested, ...MODEL_TYPES.filter((type) => type !== requested)] : [...MODEL_TYPES],
+		types: requested ? [requested, ...known.filter((type) => type !== requested)] : known,
 		selected: requested
 	};
 }

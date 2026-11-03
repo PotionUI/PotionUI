@@ -1,4 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect } from 'vitest';
+import { resetModelTypes, setModelTypes } from '$lib/stores/modelTypes.svelte';
+import { coreModelTypeDefinitions, modelTypeDefinition } from '$lib/stores/modelTypesFixture';
 import {
 	AUTOMATIC_TYPE,
 	typeChangeFromDraft,
@@ -112,6 +114,9 @@ describe('typeChangeFromDraft', () => {
 });
 
 describe('typeOptions', () => {
+	beforeEach(() => setModelTypes(coreModelTypeDefinitions()));
+	afterEach(() => resetModelTypes());
+
 	it('lists assignable types without undefined or llm', () => {
 		const values = typeOptions('checkpoint').map((o) => o.value);
 		expect(values).toContain('diffusion_model');
@@ -122,5 +127,23 @@ describe('typeOptions', () => {
 	it('prepends a disabled current option for a type that cannot be assigned', () => {
 		const options = typeOptions('undefined');
 		expect(options[0]).toEqual({ value: 'undefined', label: 'Needs a type', disabled: true });
+	});
+
+	it('offers the served types with their labels, plugin types included', () => {
+		setModelTypes([
+			...coreModelTypeDefinitions(),
+			modelTypeDefinition({ id: 'pose_rig', label: 'Pose rig', source: 'pose-plugin' })
+		]);
+
+		const options = typeOptions('checkpoint');
+		expect(options.map((o) => o.value)).toEqual(['checkpoint', 'diffusion_model', 'lora', 'text_encoder', 'pose_rig']);
+		expect(options.find((o) => o.value === 'pose_rig')?.label).toBe('Pose rig');
+		expect(options.find((o) => o.value === 'checkpoint')?.label).toBe('Base model');
+	});
+
+	it('keeps a model of a type that is no longer served selectable only as its current value', () => {
+		const options = typeOptions('pose_rig');
+		expect(options[0]).toEqual({ value: 'pose_rig', label: 'Pose Rig', disabled: true });
+		expect(options.slice(1).map((o) => o.value)).not.toContain('pose_rig');
 	});
 });

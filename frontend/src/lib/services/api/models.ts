@@ -1,6 +1,6 @@
 import type { AxiosInstance } from 'axios';
 import type { APIResponse, ModelDownloadStatus, TagUsageRef } from '$lib/types/api';
-import type { AttributeDefinition, ModelAvailabilityResponse } from '$lib/types/models';
+import type { AttributeDefinition, ModelAvailabilityResponse, ModelTypeDefinition } from '$lib/types/models';
 import type { ModelPreviewMediaItem } from '$lib/utils/modelPreview';
 
 export interface ModelsLocationDirectory {
@@ -755,6 +755,11 @@ export function createModelsApi(client: AxiosInstance) {
 				`/api/models/types${queryString ? `?${queryString}` : ''}`,
 				{ signal }
 			);
+			return response.data;
+		},
+
+		async getModelTypeDefinitions(): Promise<APIResponse<{ types: ModelTypeDefinition[] }>> {
+			const response = await client.get('/api/models/type-definitions');
 			return response.data;
 		},
 

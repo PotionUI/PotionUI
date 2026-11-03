@@ -16,7 +16,7 @@ from src.platform.filesystem.model_roots import (
     probe_case_insensitive,
     root_path_key,
 )
-from src.platform.filesystem.model_types import SUPPORTED_MODEL_EXTENSIONS, binding_scans_headers_by_default
+from src.platform.filesystem.model_types import binding_scans_headers_by_default, supported_extensions
 from src.platform.util.path_resolution import is_within
 
 DETECTION_BUDGET_SECONDS = 6.0
@@ -122,7 +122,7 @@ def _has_model_file(run: "_Run", directory: Path) -> bool:
                 return False
             if seen % PRESENCE_CLOCK_INTERVAL == 0 and run.remaining() <= 0:
                 return False
-            if entry.is_file() and entry.suffix.lower() in SUPPORTED_MODEL_EXTENSIONS:
+            if entry.is_file() and entry.suffix.lower() in supported_extensions():
                 return True
     except OSError:
         return False
@@ -140,7 +140,7 @@ def _count_files(run: _Run, directory: Path) -> Tuple[int, bool]:
         for entry in directory.rglob("*"):
             if count >= COUNT_LIMIT or (run.clock() - start) > limit:
                 return count, True
-            if entry.is_file() and entry.suffix.lower() in SUPPORTED_MODEL_EXTENSIONS:
+            if entry.is_file() and entry.suffix.lower() in supported_extensions():
                 count += 1
     except OSError:
         pass

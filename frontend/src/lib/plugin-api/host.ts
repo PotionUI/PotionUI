@@ -30,6 +30,9 @@ import { prepareRequestFromSession } from '$lib/generation/prepareRequest';
 import { createHostFetchApi, type PluginHostFetchApi } from './hostApi';
 import type { PluginImageEditorApi } from '$lib/components/imageEditor/registries';
 import { createHostImageEditorApi } from '$lib/tool-tabs/canvasSource';
+import { findModelType, modelTypeDefinitions } from '$lib/stores/modelTypes.svelte';
+import { modelTypePresentation, type ModelTypePresentation } from '$lib/utils/modelPresentation';
+import type { ModelTypeDefinition } from '$lib/types/models';
 
 export type RendererKind = 'history.artifact' | 'workbench.file' | 'model.view' | 'chat.tool';
 
@@ -92,6 +95,12 @@ export interface PluginRendererEntry {
 	asset: string;
 }
 
+export interface PluginModelTypesApi {
+	list(): ModelTypeDefinition[];
+	get(id: string): ModelTypeDefinition | undefined;
+	presentation(id: string | null | undefined): ModelTypePresentation;
+}
+
 export interface PotionUIHostApi {
 	/** Bumped on breaking changes to this surface; plugins may feature-detect against it. */
 	version: 1;
@@ -121,6 +130,7 @@ export interface PotionUIHostApi {
 	input: PluginInputApi;
 	generation: { prepareRequest: typeof prepareRequestFromSession };
 	imageEditor: PluginImageEditorApi;
+	modelTypes: PluginModelTypesApi;
 }
 
 const TOAST_LEVELS: readonly ToastType[] = ['success', 'error', 'info', 'warning'];
@@ -201,7 +211,15 @@ export function initHostApi(): void {
 		generation: {
 			prepareRequest: prepareRequestFromSession
 		},
-		imageEditor: createHostImageEditorApi()
+		imageEditor: createHostImageEditorApi(),
+		modelTypes: {
+			list: () => modelTypeDefinitions().map((definition) => ({ ...definition })),
+			get: (id) => {
+				const definition = findModelType(id);
+				return definition ? { ...definition } : undefined;
+			},
+			presentation: (id) => modelTypePresentation(id)
+		}
 	};
 
 	w.__potionui = host;

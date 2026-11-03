@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE, MODEL_TYPE_TO_DIRECTORY, MODEL_TYPES
+from src.platform.filesystem.model_types import directory_to_type, is_model_type, model_types, type_to_directory
 
 HOME_ROOT_ID = "home"
 
@@ -86,7 +86,7 @@ class LogicalLocation:
 
     @property
     def logical_ref(self) -> str:
-        return f"{MODEL_TYPE_TO_DIRECTORY[self.model_type]}/{self.rel_path}"
+        return f"{type_to_directory().get(self.model_type, self.model_type)}/{self.rel_path}"
 
 
 def _strip_windows_long_prefix(raw: str) -> str:
@@ -262,7 +262,7 @@ class ModelRootResolver:
         by_type: Dict[str, List[TypeDir]] = {}
         for row in self._repository.list_bindings():
             root = roots_by_id.get(row["root_id"])
-            if root is None:
+            if root is None or not is_model_type(row["model_type"]):
                 continue
             subdir = row["subdir"] or ""
             rel_parts = _validate_rel_path(subdir).parts if subdir else ()
@@ -413,7 +413,7 @@ class ModelRootResolver:
         if "/" not in normalized:
             return None
         type_dir, rel = normalized.split("/", 1)
-        model_type = DIRECTORY_TO_MODEL_TYPE.get(type_dir)
+        model_type = directory_to_type().get(type_dir)
         if model_type is None or not rel:
             return None
         return model_type, rel
@@ -462,20 +462,21 @@ def ensure_home_bindings(
 
     max_positions = repository.max_position_by_type()
 
-    for model_type in MODEL_TYPES:
+    folders = type_to_directory()
+    for model_type in model_types():
         if repository.has_binding(HOME_ROOT_ID, model_type):
             continue
         position = max_positions.get(model_type, -1) + 1
         repository.insert_binding(
             root_id=HOME_ROOT_ID,
             model_type=model_type,
-            subdir=MODEL_TYPE_TO_DIRECTORY[model_type],
+            subdir=folders[model_type],
             position=position,
             is_write=False,
         )
         max_positions[model_type] = position
 
     write_types = repository.write_bound_types()
-    for model_type in MODEL_TYPES:
+    for model_type in model_types():
         if model_type not in write_types:
             repository.set_write(HOME_ROOT_ID, model_type)

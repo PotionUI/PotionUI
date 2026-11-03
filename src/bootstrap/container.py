@@ -45,6 +45,7 @@ from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 from src.features.models.locator import ModelLocator
 from src.features.models.roots import ModelRootsManager
 from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe, ensure_home_bindings
+from src.platform.filesystem.model_types import ModelTypeRegistry, model_type_registry as _shared_model_type_registry
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.pipelines.catalog import PipeCatalog
 from src.pipelines.installer import PipeInstaller
@@ -371,6 +372,7 @@ class AppContainer:
     memory_advisor: MemoryAdvisor
     model_lifecycle: ModelLifecycle
     model_roots: ModelRootResolver
+    model_type_registry: ModelTypeRegistry
     model_roots_manager: ModelRootsManager
     model_locator: ModelLocator
     pipe_catalog: PipeCatalog
@@ -619,6 +621,11 @@ def _sync_enabled_plugins(registry: PluginRegistry, plugin_repo: PluginRepositor
         logger.error(f"Error syncing enabled plugins: {e}")
 
 
+def _bind_model_types(repository: ModelRootRepository, resolver: ModelRootResolver, settings: Settings) -> None:
+    ensure_home_bindings(repository, settings.get_setting("models_dir", "models"), base_dir=Path.cwd())
+    resolver.invalidate()
+
+
 def build_container() -> AppContainer:
     # Initialize settings repository and manager first
     setting_repository = SettingRepository()
@@ -629,6 +636,11 @@ def build_container() -> AppContainer:
     ensure_home_bindings(model_root_repository, settings.get_setting("models_dir", "models"), base_dir=Path.cwd())
     model_root_probe = RootProbe()
     model_roots = ModelRootResolver(model_root_repository, model_root_probe, Path.cwd())
+    model_type_registry = _shared_model_type_registry
+    model_type_registry.set_listener(
+        "model_roots",
+        functools.partial(_bind_model_types, model_root_repository, model_roots, settings),
+    )
     model_locator = ModelLocator(model_roots)
 
     # Where saved bytes actually live - local disk by default, optionally S3

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MODEL_TYPES, normalizeMe } from './capabilities.js';
+import { normalizeMe } from './capabilities.js';
+import { SERVED_MODEL_TYPES, installHostModelTypes } from './testModelTypes.js';
 import { formatDate } from './format.js';
 import {
 	LIST_LIMIT,
@@ -128,6 +129,8 @@ function fakeApi(handler) {
 
 const ok = (data) => ({ success: true, data });
 const fail = (error, message) => ({ detail: { success: false, error, message } });
+
+installHostModelTypes();
 
 test('statusInfo gives every status a label, a tone and a hint', () => {
 	for (const status of STATUSES) {
@@ -539,9 +542,9 @@ test('the approve form: requested type first, a type needed when none, type sent
 	const choice = approvalTypeChoice(normal);
 	assert.equal(choice.selected, 'lora');
 	assert.equal(choice.types[0], 'lora');
-	assert.equal(choice.types.length, MODEL_TYPES.length);
+	assert.equal(choice.types.length, SERVED_MODEL_TYPES.length);
 	const untyped = normalizeRequest({ id: 'r2', status: 'open' });
-	assert.deepEqual(approvalTypeChoice(untyped), { types: MODEL_TYPES, selected: '' });
+	assert.deepEqual(approvalTypeChoice(untyped), { types: SERVED_MODEL_TYPES, selected: '' });
 	assert.deepEqual(approvalProblems(untyped, { modelType: '', note: '' }), { modelType: 'Choose what to file this model as', note: '' });
 	assert.deepEqual(approvalProblems(normal, { modelType: '', note: '' }), { modelType: '', note: '' });
 	assert.equal(approvalProblems(normal, { modelType: 'lora', note: 'x'.repeat(MAX_NOTE_LENGTH + 1) }).note, `At most ${MAX_NOTE_LENGTH} characters`);

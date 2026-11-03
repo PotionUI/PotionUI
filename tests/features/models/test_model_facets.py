@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from src.features.models.catalog import ListModelsParams, ModelCatalog
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY as TYPE_DIR_MAP
+from src.platform.filesystem.model_types import type_to_directory
 from src.features.models.records import Model
 from src.features.models.repository import ModelRepository
 from src.features.models.routes import ModelController, build_router
@@ -34,10 +34,10 @@ class TestFacetCounts(PersistenceTestBase):
 
         def _write_dir(model_type):
             entry = Mock()
-            entry.path = depot / TYPE_DIR_MAP.get(model_type, model_type)
+            entry.path = depot / type_to_directory().get(model_type, model_type)
             return entry
 
-        scanner = Mock(MODEL_TYPE_MAPPING={})
+        scanner = Mock()
         scanner.resolver.write_dir.side_effect = _write_dir
         self.catalog = ModelCatalog(
             self.repository,

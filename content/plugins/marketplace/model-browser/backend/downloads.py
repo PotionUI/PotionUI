@@ -7,7 +7,7 @@ from typing import Annotated, Any, Dict, List, Mapping, Optional, Tuple
 
 from pydantic import BaseModel, BeforeValidator, Field, ValidationError, field_validator
 
-from src.plugin_api.models import MODEL_TYPES
+from src.plugin_api.models import model_types
 
 from . import core_bridge, limits, nsfw, nsfw_filter, pending, security, sources, watcher
 from .core_bridge import CoreBridgeError
@@ -124,7 +124,7 @@ class FileRef(BaseModel):
     @field_validator("model_type")
     @classmethod
     def _model_type(cls, value: Optional[str]) -> Optional[str]:
-        if value is not None and value not in MODEL_TYPES:
+        if value is not None and value not in model_types():
             raise ValueError(f"unknown model type '{value[:64]}'")
         return value
 
@@ -344,7 +344,7 @@ async def prepare_download(
     model_type = request.model_type or detail.mb_type
     if not model_type:
         raise _invalid("Choose the model type to download this file as")
-    if model_type not in MODEL_TYPES:
+    if model_type not in model_types():
         raise _invalid(f"Unknown model type '{model_type}'")
     if not grant.allows_type(model_type, purpose):
         verb = "requesting" if asking else "downloading"

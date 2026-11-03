@@ -139,15 +139,11 @@ class GenerationHistoryArchive:
         Returns:
             Tuple of (files_deleted_fs, files_failed_fs)
         """
-        db_files = self.generation_repo.get_files(generation_id, user_id=user_id)
-
-        relative_paths = []
-        for file_record in db_files:
-            relative_paths.append(file_record.file_path)
-            base_key = Path(file_record.file_path).parent
-            for thumbnail in (file_record.thumbnail_small, file_record.thumbnail_medium, file_record.thumbnail_large):
-                if thumbnail:
-                    relative_paths.append((base_key / thumbnail).as_posix())
+        relative_paths = [
+            key
+            for file_record in self.generation_repo.releasable_files(generation_id)
+            for key in file_record.storage_keys()
+        ]
 
         relative_paths.extend(
             iter_ref_paths(self.run_report_repository.get(generation_id))

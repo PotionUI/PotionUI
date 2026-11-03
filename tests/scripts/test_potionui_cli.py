@@ -1624,7 +1624,12 @@ def test_cmd_start_frontend_env_and_probe_url_share_the_same_host(monkeypatch, t
         called_urls.append(url)
         return True
 
+    def fake_health_state(url, **kwargs):
+        called_urls.append(url)
+        return "ready"
+
     monkeypatch.setattr(cli, "http_ok", fake_http_ok)
+    monkeypatch.setattr(cli, "health_state", fake_health_state)
     monkeypatch.setattr(cli, "_print_claim_token_hint", lambda repo_root, port: None)
 
     parser = cli.build_parser()
@@ -1805,16 +1810,23 @@ def test_frontend_build_is_fresh_true_when_src_dir_is_absent(tmp_path):
 
 def test_existing_running_and_healthy_true_for_single_process_state(monkeypatch):
     monkeypatch.setattr(cli, "pid_alive", lambda pid: True)
-    monkeypatch.setattr(cli, "http_ok", lambda url, **kwargs: True)
+    monkeypatch.setattr(cli, "health_state", lambda url, **kwargs: "ready")
     state = {"backend": {"pid": 1, "port": 8005}}
     assert cli._existing_running_and_healthy(state) is True
 
 
 def test_existing_running_and_healthy_false_when_backend_unhealthy(monkeypatch):
     monkeypatch.setattr(cli, "pid_alive", lambda pid: True)
-    monkeypatch.setattr(cli, "http_ok", lambda url, **kwargs: False)
+    monkeypatch.setattr(cli, "health_state", lambda url, **kwargs: None)
     state = {"backend": {"pid": 1, "port": 8005}}
     assert cli._existing_running_and_healthy(state) is False
+
+
+def test_existing_running_and_healthy_true_while_the_backend_is_still_warming_up(monkeypatch):
+    monkeypatch.setattr(cli, "pid_alive", lambda pid: True)
+    monkeypatch.setattr(cli, "health_state", lambda url, **kwargs: cli.STARTING)
+    state = {"backend": {"pid": 1, "port": 8005}}
+    assert cli._existing_running_and_healthy(state) is True
 
 
 def test_canonical_port_prefers_frontend_when_present():

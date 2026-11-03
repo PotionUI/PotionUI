@@ -527,6 +527,7 @@ class GenerationEngine:
         # in torch and the rest of the engine tree - boot must not pay for
         # that just to define an except clause. See
         # tests/architecture/test_boot_imports.py.
+        from src.platform.runtime.native.cancellation import cancellation_scope
         from src.platform.runtime.native.errors import SamplingCancelled
 
         # One run at a time per manager: the GPU, the cancellation flag and the
@@ -758,19 +759,20 @@ class GenerationEngine:
                 import inspect
                 sig = inspect.signature(pipe.process)
 
-                if 'is_cancelled' in sig.parameters:
-                    # Pipe supports cancellation
-                    current_pipe_result = pipe.process(
-                        pipe_input=PipeInput(input=pipe_input),
-                        generation_outputs=lambda _output: self.hijack_pipe_generation_output(generation_outputs, _output, pipe, generation_id, pipe_id, failure_point),
-                        is_cancelled=is_cancelled,
-                    )
-                else:
-                    # Legacy pipe without cancellation support
-                    current_pipe_result = pipe.process(
-                        pipe_input=PipeInput(input=pipe_input),
-                        generation_outputs=lambda _output: self.hijack_pipe_generation_output(generation_outputs, _output, pipe, generation_id, pipe_id, failure_point),
-                    )
+                with cancellation_scope(is_cancelled):
+                    if 'is_cancelled' in sig.parameters:
+                        # Pipe supports cancellation
+                        current_pipe_result = pipe.process(
+                            pipe_input=PipeInput(input=pipe_input),
+                            generation_outputs=lambda _output: self.hijack_pipe_generation_output(generation_outputs, _output, pipe, generation_id, pipe_id, failure_point),
+                            is_cancelled=is_cancelled,
+                        )
+                    else:
+                        # Legacy pipe without cancellation support
+                        current_pipe_result = pipe.process(
+                            pipe_input=PipeInput(input=pipe_input),
+                            generation_outputs=lambda _output: self.hijack_pipe_generation_output(generation_outputs, _output, pipe, generation_id, pipe_id, failure_point),
+                        )
 
                 profiler.mark("pipe.end", pipe_id=pipe_id, pipe_name=pipe.name, pipe_identifier=pipe_config.get('id'))
 
@@ -843,7 +845,7 @@ class GenerationEngine:
                     )
                 )
         except SamplingCancelled as exc:
-            logger.info(f"[GENERATION] Generation cancelled at step {exc.step_index}")
+            logger.info(f"[GENERATION] Generation cancelled at step {exc.step_index}, block {exc.block_index}")
             generation_outputs(
                 ProgressGenerationOutput(
                     icon=Icon("x", "beat"),

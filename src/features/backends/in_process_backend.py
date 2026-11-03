@@ -97,6 +97,12 @@ class InProcessBackend(BaseBackend):
             self.generation_engine.discard_cancel_on_start(generation_id)
             emit(None)
 
+    def may_still_run(self, generation_id: str) -> bool:
+        return (
+            generation_id in self._active
+            or self.generation_engine.running_generation_id == generation_id
+        )
+
     async def cancel_generation(self, generation_id: str) -> bool:
         """Cancel a running generation"""
         if generation_id not in self._active:

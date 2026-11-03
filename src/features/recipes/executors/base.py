@@ -29,6 +29,10 @@ def _noop_progress(
     callback."""
 
 
+def _never_cancelled() -> bool:
+    return False
+
+
 @dataclass
 class StepContext:
     """Everything an executor needs to run one step of one run.
@@ -53,7 +57,7 @@ class StepContext:
     report_progress: Callable[..., None] = field(default=_noop_progress)
     selections: Dict[str, str] = field(default_factory=dict)
     step_outputs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    is_cancelled: Callable[[], bool] = field(default=lambda: False)
+    is_cancelled: Callable[[], bool] = field(default=_never_cancelled)
 
     def plans(self, refs: Union[str, Sequence[str], None]) -> List[Dict[str, Any]]:
         keys = [refs] if isinstance(refs, str) else list(refs or [])

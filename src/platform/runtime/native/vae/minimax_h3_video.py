@@ -95,6 +95,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..base import NativeArchModule
+from ..cancellation import raise_if_cancelled
 
 logger = logging.getLogger(__name__)
 
@@ -783,6 +784,7 @@ class MiniMaxH3VideoVAE(NativeArchModule):
         limit = max(1, int(batch_size))
         index = 0
         while index < len(tiles):
+            raise_if_cancelled(index)
             group = 1
             while group < limit and index + group < len(tiles) and tiles[index + group].shape == tiles[index].shape:
                 group += 1

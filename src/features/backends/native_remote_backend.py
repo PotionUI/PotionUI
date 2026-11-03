@@ -267,6 +267,12 @@ class RemoteNativeBackend(BaseBackend):
 
     # -- cancel ---------------------------------------------------------
 
+    def may_still_run(self, generation_id: str) -> bool:
+        if generation_id in self._active:
+            return True
+        row = self._repository.get_by_id(generation_id)
+        return row is not None and not row.is_terminal
+
     async def cancel_generation(self, generation_id: str) -> bool:
         if generation_id not in self._active:
             return False

@@ -10,6 +10,7 @@ from torch import Tensor
 from vendor.gpl.comfyui.flux.layers import timestep_embedding
 
 from ...base import NativeArchModule
+from ...cancellation import raise_if_cancelled
 from ...io.quant_formats import FP8_DTYPES
 from .config import Flux3Config
 from .layers import Block, LastLayer, MLPEmbedder, Modulation, ModeModulation, rope_tables
@@ -157,6 +158,7 @@ class Flux3(NativeArchModule):
         seg_img: list[Modulation] = [(n_img, *early_img)]
         seg_txt: list[Modulation] = [(n_txt, *early_txt)]
         for d in range(cfg.depth):
+            raise_if_cancelled(d)
             img = self.content_mode_blocks["image"][d](img, img_rope, seg_img)
             if refs:
                 cond = self.content_mode_blocks["image_cond"][d](cond, cond_rope, [(cond.shape[1], *early_cond)])
@@ -175,7 +177,8 @@ class Flux3(NativeArchModule):
 
         stream = torch.cat(parts, dim=1)
         rope = rope_tables(torch.cat(id_parts), cfg.axes_dim, cfg.theta)
-        for block in self.single_blocks:
+        for i, block in enumerate(self.single_blocks):
+            raise_if_cancelled(cfg.depth + i)
             stream = block(stream, rope, segments)
 
         out = self.final_layer["image"](stream[:, :n_img], vec_img)

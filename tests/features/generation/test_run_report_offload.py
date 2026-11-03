@@ -305,7 +305,7 @@ class TestOwnershipAndCleanup(RunReportOffloadCase):
         self.assertEqual(len(self._stored_files()), 1)
 
         generation_repo = Mock()
-        generation_repo.get_files.return_value = []
+        generation_repo.releasable_files.return_value = []
         archive = GenerationHistoryArchive(generation_repo, self.file_service, Mock(), Mock(), self.repository)
 
         deleted, failed = archive._delete_generation_files("gen-1", "user-1")

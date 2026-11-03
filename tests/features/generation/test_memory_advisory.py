@@ -346,7 +346,7 @@ def test_device_evidence_unknown_when_backend_identity_unavailable(monkeypatch):
     assert "backend's GPU identity could not be established" in device.provenance
 
 
-def test_device_evidence_bare_cuda_surfaces_the_backends_specific_reason():
+def test_device_evidence_bare_cuda_surfaces_the_backends_specific_reason(monkeypatch):
     """A bare `"cuda"` device (no explicit `:N` ordinal) resolves
     `identity=None` with a SPECIFIC `reason` from the backend itself
     (REQ-01) - the advisory must surface that verbatim rather than its own
@@ -357,11 +357,36 @@ def test_device_evidence_bare_cuda_surfaces_the_backends_specific_reason():
         get_free_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - no explicit ordinal")),
         get_total_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - no explicit ordinal")),
     )
+    monkeypatch.setattr("src.features.backends.native_backend._cuda_device_count", lambda: 2)
     device = resolve_device_evidence(_native_backend("cuda"), monitor)
 
     assert device.kind == "unknown"
     assert device.free_gb is None and device.total_gb is None
     assert device.provenance == "configured device 'cuda' has no explicit ordinal; the worker's device cannot be established"
+
+
+def test_device_evidence_bare_cuda_on_a_single_gpu_host_reads_that_gpu(monkeypatch):
+    _patch_cuda_identity(monkeypatch, {0: GPU_0})
+    monkeypatch.setattr("src.features.backends.native_backend._cuda_device_count", lambda: 1)
+    monitor = types.SimpleNamespace(
+        available=True, device_identity=GPU_0, get_free_vram=lambda: 8192, get_total_vram=lambda: 12288,
+    )
+
+    device = resolve_device_evidence(_native_backend("cuda"), monitor)
+
+    assert device.kind == "local"
+    assert (device.free_gb, device.total_gb) == (8.0, 12.0)
+
+
+def test_device_evidence_bare_cuda_without_any_cuda_device_stays_unknown(monkeypatch):
+    _patch_cuda_identity(monkeypatch, {0: GPU_0})
+    monkeypatch.setattr("src.features.backends.native_backend._cuda_device_count", lambda: 0)
+    monitor = types.SimpleNamespace(available=True, device_identity=GPU_0)
+
+    device = resolve_device_evidence(_native_backend("cuda"), monitor)
+
+    assert device.kind == "unknown"
+    assert "no explicit ordinal" in device.provenance
 
 
 def test_device_evidence_unknown_when_monitor_identity_unavailable(monkeypatch):

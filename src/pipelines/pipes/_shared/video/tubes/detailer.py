@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import tempfile
 from dataclasses import dataclass
-from typing import Any, List, Tuple
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -148,6 +148,7 @@ class VideoTubeDetailerPipe(BasePipe):
     def refine_tube(
         self, bundle: Any, cond_model: Any, pixels: torch.Tensor, clip: TubeClip, *,
         strength: str, device: str, seed: int, generation_outputs: callable,
+        is_cancelled: Optional[callable] = None,
     ) -> np.ndarray:
         raise NotImplementedError
 
@@ -156,7 +157,9 @@ class VideoTubeDetailerPipe(BasePipe):
             if model is not None:
                 model.offload()
 
-    def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
+    def process(
+        self, pipe_input: PipeInput, generation_outputs: callable, is_cancelled: Optional[callable] = None,
+    ) -> PipeOutput:
         bundle = pipe_input.input["model"]
         if getattr(bundle.spec, "family", None) != self.model_family:
             raise ValueError(
@@ -180,7 +183,8 @@ class VideoTubeDetailerPipe(BasePipe):
             for i, video_path in enumerate(videos):
                 cond_model = conditioning[i] if i < len(conditioning) else conditioning[-1]
                 seed = int(seeds[i]) if i < len(seeds) else (int(seeds[0]) if seeds else 0)
-                outputs.append(self._process_one(bundle, cond_model, video_path, seed, device, generation_outputs))
+                outputs.append(self._process_one(
+                    bundle, cond_model, video_path, seed, device, generation_outputs, is_cancelled))
         finally:
             try:
                 self.release_models(bundle)
@@ -192,7 +196,7 @@ class VideoTubeDetailerPipe(BasePipe):
 
     def _process_one(
         self, bundle: Any, cond_model: Any, video_path: str, seed: int, device: str,
-        generation_outputs: callable,
+        generation_outputs: callable, is_cancelled: Optional[callable] = None,
     ) -> str:
         generation_outputs(ProgressGenerationOutput(
             state="Scanning for faces and hands", icon=Icon(name="face-smile", effect="pulse")))
@@ -241,7 +245,8 @@ class VideoTubeDetailerPipe(BasePipe):
                 state=f"Refining {track.kind} <<NUMBER:{ti + 1}>>/<<NUMBER:{len(tracks)}>>",
                 icon=Icon(name="sparkles", effect="pulse")))
             self._refine_track(bundle, cond_model, frames, track, width, height, strength, device, fps, seed,
-                               video_path=video_path, track_number=ti + 1, generation_outputs=generation_outputs)
+                               video_path=video_path, track_number=ti + 1, generation_outputs=generation_outputs,
+                               is_cancelled=is_cancelled)
 
         out_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
         encode_frames_to_mp4(frames, out_path, fps=fps, audio=video_path)
@@ -253,6 +258,7 @@ class VideoTubeDetailerPipe(BasePipe):
         self, bundle: Any, cond_model: Any, frames: np.ndarray, track: Any,
         width: int, height: int, strength: str, device: str, fps: float, seed: int,
         *, video_path: str, track_number: int, generation_outputs: callable,
+        is_cancelled: Optional[callable] = None,
     ) -> None:
         window = stabilize_window(
             track, width, height,
@@ -267,7 +273,8 @@ class VideoTubeDetailerPipe(BasePipe):
         try:
             refined = self.refine_tube(
                 bundle, cond_model, pixels, clip,
-                strength=strength, device=device, seed=seed, generation_outputs=generation_outputs)
+                strength=strength, device=device, seed=seed, generation_outputs=generation_outputs,
+                is_cancelled=is_cancelled)
         finally:
             del pixels
 

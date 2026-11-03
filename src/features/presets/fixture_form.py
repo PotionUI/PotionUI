@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.presets.templates import FieldTemplate, PresetTemplate, default_form_name
+from src.features.video_director import apply_preset_mode_overlay
+from src.features.video_director.normalize import allowed_durations
 
 MODEL_FIELD_TYPES = frozenset({"model", "models"})
 LORA_PICKER_FIELD_TYPE = "lora_picker"
 MEDIA_FIELD_TYPES = frozenset({"image", "video", "audio", "media", "file"})
 MEDIA_EXTENSIONS = {"image": "png", "video": "mp4", "audio": "wav", "media": "png", "file": "bin"}
 TEXT_FIELD_TYPES = frozenset({"string", "textbox"})
+VIDEO_DIRECTOR_FIXTURE_PROMPT = "a calm lake at sunrise, gentle ripples, soft morning light"
 
 
 def requires_by_reaction(field: FieldTemplate) -> bool:
@@ -19,12 +22,26 @@ def requires_by_reaction(field: FieldTemplate) -> bool:
     return False
 
 
-def collect_named_fields(fields: List[FieldTemplate], form_data: Dict[str, Any]) -> None:
+def collect_named_fields(
+    fields: List[FieldTemplate],
+    form_data: Dict[str, Any],
+    reactive_defaults: Optional[Dict[str, Any]] = None,
+) -> None:
     for field in fields:
         if field.name and field.default is not None:
             form_data[field.name] = field.default
+            if reactive_defaults is not None and field.reactions:
+                reactive_defaults[field.name] = field.default
         if isinstance(field.children, list):
-            collect_named_fields(field.children, form_data)
+            collect_named_fields(field.children, form_data, reactive_defaults)
+
+
+def leave_reactive_defaults_to_binding(
+    form_data: Dict[str, Any], reactive_defaults: Dict[str, Any], overrides: Dict[str, Any]
+) -> None:
+    for name, default in reactive_defaults.items():
+        if name not in overrides and form_data.get(name) == default:
+            form_data.pop(name, None)
 
 
 def inject_unresolvable_defaults(fields: List[FieldTemplate], form_data: Dict[str, Any], tag: str) -> None:
@@ -53,9 +70,49 @@ def default_form_fields(preset: PresetTemplate, mode: str) -> List[FieldTemplate
     return next(f for f in mode_data.forms if f.name == form_name).fields
 
 
-def build_default_form_data(preset: PresetTemplate, mode: str, tag: str) -> Tuple[Dict[str, Any], List[FieldTemplate]]:
+def build_default_form_data(
+    preset: PresetTemplate,
+    mode: str,
+    tag: str,
+    reactive_defaults: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Any], List[FieldTemplate]]:
     fields = default_form_fields(preset, mode)
     form_data: Dict[str, Any] = {}
-    collect_named_fields(fields, form_data)
+    collect_named_fields(fields, form_data, reactive_defaults)
     inject_unresolvable_defaults(fields, form_data, tag)
     return form_data, fields
+
+
+def fixture_video_director_capabilities(preset: PresetTemplate, mode: str) -> Optional[Dict[str, Any]]:
+    capabilities = (getattr(preset, "vars", None) or {}).get("video_director") or {}
+    if mode not in (capabilities.get("preset_modes") or []):
+        return None
+    capabilities = apply_preset_mode_overlay(capabilities, mode)
+    if "t2v" not in (capabilities.get("modes") or {}):
+        return None
+    return capabilities
+
+
+def fixture_video_director_document(
+    preset: PresetTemplate, mode: str, form_data: Dict[str, Any], prompt: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    capabilities = fixture_video_director_capabilities(preset, mode)
+    if capabilities is None:
+        return None
+    limits = capabilities.get("limits") or {}
+    durations = allowed_durations(limits)
+    seed = form_data.get("seed")
+    return {
+        "schema_version": 1,
+        "mode": "t2v",
+        "settings": {
+            "fps": form_data.get("fps") or limits.get("default_fps", 24),
+            "duration": min(durations) if durations else 1,
+            "resolution": form_data.get("resolution") or "",
+            "seed": seed if isinstance(seed, int) and not isinstance(seed, bool) else -1,
+        },
+        "segments": [
+            {"id": "setup-check", "prompt": prompt or VIDEO_DIRECTOR_FIXTURE_PROMPT, "negative_prompt": ""}
+        ],
+        "media": [],
+    }

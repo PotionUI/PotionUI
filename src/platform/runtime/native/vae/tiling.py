@@ -27,6 +27,7 @@ import torch
 from .ae_2d import AutoEncoder2D
 from .causal_3d import AutoEncoderCausal3D
 from .causal_3d_v2 import AutoEncoderCausal3D_2_2
+from ..cancellation import raise_if_cancelled
 from ..memory.tiering import activation_headroom_gb
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,7 @@ def _tiled_apply(
     ys = list(range(0, max(h - overlap, 1), step)) if h > tile_size else [0]
     xs = list(range(0, max(w - overlap, 1), step)) if w > tile_size else [0]
 
+    tile_index = 0
     for y in ys:
         y = max(0, min(h - overlap, y)) if h > tile_size else 0
         ty = min(tile_size, h - y)
@@ -81,6 +83,8 @@ def _tiled_apply(
             xx = max(0, min(w - overlap, xx)) if w > tile_size else 0
             tx = min(tile_size, w - xx)
 
+            raise_if_cancelled(tile_index)
+            tile_index += 1
             tile_in = x[:, :, y:y + ty, xx:xx + tx]
             tile_out = fn(tile_in).to(dtype=torch.float32)
 
@@ -159,6 +163,7 @@ def tiled_encode_causal3d(
 
     out: torch.Tensor | None = None
     out_weight: torch.Tensor | None = None
+    tile_index = 0
     for y in ys:
         y = max(0, min(h - overlap, y)) if h > tile_size else 0
         ty = min(tile_size, h - y)
@@ -166,6 +171,8 @@ def tiled_encode_causal3d(
             xx = max(0, min(w - overlap, xx)) if w > tile_size else 0
             tx = min(tile_size, w - xx)
 
+            raise_if_cancelled(tile_index)
+            tile_index += 1
             tile_in = pixels[:, :, :, y:y + ty, xx:xx + tx]
             tile_out = vae.encode(tile_in).to(dtype=torch.float32)
 
@@ -227,6 +234,7 @@ def tiled_decode_causal3d(
 
     out: torch.Tensor | None = None
     out_weight: torch.Tensor | None = None
+    tile_index = 0
     for y in ys:
         y = max(0, min(h - overlap, y)) if h > tile_size else 0
         ty = min(tile_size, h - y)
@@ -234,6 +242,8 @@ def tiled_decode_causal3d(
             xx = max(0, min(w - overlap, xx)) if w > tile_size else 0
             tx = min(tile_size, w - xx)
 
+            raise_if_cancelled(tile_index)
+            tile_index += 1
             tile_in = latent[:, :, :, y:y + ty, xx:xx + tx]
             tile_out = vae.decode(tile_in).to(dtype=torch.float32)
 

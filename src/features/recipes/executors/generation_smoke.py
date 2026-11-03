@@ -28,17 +28,20 @@ whose recipe artifact isn't indexed yet fails the step up front via
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from src.features.presets.loader import PresetTemplateLoader
 from src.features.recipes.executors._async_bridge import run_sync
 from src.features.recipes.executors._fixture_form import RequiredModelMissing, build_fixture_form_data
 from src.features.recipes.executors.base import StepContext, StepResult
+from src.features.recipes.schema import DEFAULT_SMOKE_TIMEOUT_SECONDS
 from src.platform.templating import TemplateProcessor
 
+logger = logging.getLogger(__name__)
+
 _TERMINAL_STATES = {"completed", "failed", "cancelled"}
-_TIMEOUT_SECONDS = 300
 
 
 class GenerationSmokeExecutor:
@@ -49,10 +52,12 @@ class GenerationSmokeExecutor:
         generation_orchestrator: Any,
         file_repository: Any = None,
         model_repository: Any = None,
+        app_loop: Optional[Callable[[], Optional[asyncio.AbstractEventLoop]]] = None,
     ):
         self.preset_template_loader = preset_template_loader
         self.template_processor = template_processor
         self.orchestrator = generation_orchestrator
+        self.app_loop = app_loop
         if file_repository is None:
             from src.features.generation.file_repository import FileRepository
 
@@ -61,6 +66,14 @@ class GenerationSmokeExecutor:
         if model_repository is None:
             from src.features.models.repository import model_repo as model_repository
         self.model_repository = model_repository
+
+    def _running_app_loop(self) -> Optional[asyncio.AbstractEventLoop]:
+        if self.app_loop is None:
+            return None
+        loop = self.app_loop()
+        if loop is None or loop.is_closed() or not loop.is_running():
+            raise RuntimeError("Application event loop is not running")
+        return loop
 
     def execute(self, context: StepContext) -> StepResult:
         preset_id = context.step.params.get("preset_id")
@@ -96,6 +109,7 @@ class GenerationSmokeExecutor:
                 recipe=context.recipe,
                 model_repository=self.model_repository,
                 selections=context.selections,
+                prompt=smoke.prompt if smoke else None,
             )
         except RequiredModelMissing as exc:
             return StepResult.fail(
@@ -114,6 +128,15 @@ class GenerationSmokeExecutor:
             )
 
         try:
+            app_loop = self._running_app_loop()
+        except RuntimeError as exc:
+            return StepResult.fail(
+                "GENERATION_SMOKE_NO_APP_LOOP",
+                f"The test generation can't start: {exc}.",
+                suggested_repair="Wait for the app to finish starting, then retry this step.",
+            )
+
+        try:
             outcome = run_sync(
                 self._run(
                     preset_id=preset_id,
@@ -123,7 +146,10 @@ class GenerationSmokeExecutor:
                     prompt=smoke.prompt if smoke else "",
                     negative_prompt=smoke.negative_prompt if smoke else "",
                     report_progress=context.report_progress,
-                )
+                    is_cancelled=context.is_cancelled,
+                    timeout_seconds=smoke.timeout_seconds if smoke else DEFAULT_SMOKE_TIMEOUT_SECONDS,
+                ),
+                loop=app_loop,
             )
         except Exception as exc:
             return StepResult.fail(
@@ -133,6 +159,14 @@ class GenerationSmokeExecutor:
                     "Make sure a backend for this preset's engine is running and reachable, "
                     "then retry this step."
                 ),
+            )
+
+        if outcome.get("run_cancelled"):
+            return StepResult(
+                success=False,
+                safe_output={"generation_id": outcome["generation_id"]},
+                error_code="GENERATION_SMOKE_CANCELLED",
+                safe_error_detail="The test generation was stopped because this setup was cancelled.",
             )
 
         if outcome["state"] != "completed" or outcome["output_count"] < 1:
@@ -186,6 +220,8 @@ class GenerationSmokeExecutor:
         prompt: str,
         negative_prompt: str,
         report_progress=None,
+        is_cancelled=None,
+        timeout_seconds: int = DEFAULT_SMOKE_TIMEOUT_SECONDS,
     ) -> Dict[str, Any]:
         from src.features.generation.dto import GenerationRequest, PromptPair
         from src.pipelines.outputs import (
@@ -249,13 +285,27 @@ class GenerationSmokeExecutor:
         generation_id = result.get("generation_id")
 
         try:
-            await asyncio.wait_for(self._wait_for_completion(done_event, generation_id), timeout=_TIMEOUT_SECONDS)
+            run_cancelled = await asyncio.wait_for(
+                self._wait_for_completion(done_event, generation_id, is_cancelled), timeout=timeout_seconds
+            )
         except asyncio.TimeoutError:
+            await self._abandon(generation_id)
             return {
                 "generation_id": generation_id,
                 "state": "failed",
                 "output_count": output_count,
-                "error": f"timed out waiting for completion after {_TIMEOUT_SECONDS}s",
+                "error": f"timed out waiting for completion after {timeout_seconds}s",
+            }
+
+        if run_cancelled:
+            logger.info(f"generation.smoke: the setup run was cancelled, cancelling generation {generation_id}")
+            await self._abandon(generation_id)
+            return {
+                "generation_id": generation_id,
+                "state": "cancelled",
+                "output_count": output_count,
+                "error": None,
+                "run_cancelled": True,
             }
 
         status = await self._status_dict(generation_id)
@@ -270,15 +320,27 @@ class GenerationSmokeExecutor:
             "error": error,
         }
 
-    async def _wait_for_completion(self, done_event: asyncio.Event, generation_id: Optional[str]) -> None:
+    async def _abandon(self, generation_id: Optional[str]) -> None:
+        if generation_id is None:
+            return
+        try:
+            await self.orchestrator.cancel_generation(generation_id)
+        except Exception as exc:
+            logger.warning(f"generation.smoke: cancelling generation {generation_id} failed: {exc}")
+
+    async def _wait_for_completion(
+        self, done_event: asyncio.Event, generation_id: Optional[str], is_cancelled=None
+    ) -> bool:
         while True:
             if done_event.is_set():
-                return
+                return False
             if await self._terminal_state(generation_id) in _TERMINAL_STATES:
-                return
+                return False
+            if is_cancelled is not None and is_cancelled():
+                return True
             try:
                 await asyncio.wait_for(done_event.wait(), timeout=0.5)
-                return
+                return False
             except asyncio.TimeoutError:
                 continue
 

@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import PurePosixPath
 from typing import Optional, Dict, Any, List
 import json
 import base64
@@ -90,6 +91,16 @@ class File:
             'has_alpha': self.has_alpha,
             'label': self.label,
         }
+
+    def storage_keys(self) -> List[str]:
+        base = PurePosixPath(self.file_path).parent
+        keys = [self.file_path]
+        for thumbnail in (self.thumbnail_small, self.thumbnail_medium, self.thumbnail_large):
+            if thumbnail:
+                relative = PurePosixPath(thumbnail)
+                keys.append((base / relative).as_posix())
+                keys.append((base / relative.parent / f"{relative.stem}_animated.webp").as_posix())
+        return keys
 
 @dataclass
 class GenerationFile:

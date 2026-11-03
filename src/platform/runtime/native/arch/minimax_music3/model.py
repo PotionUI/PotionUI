@@ -48,6 +48,7 @@ from torch import Tensor
 
 from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
+from ...cancellation import raise_if_cancelled
 
 MINIMAX_MUSIC3_DIT = "minimax_music3_dit"
 
@@ -292,7 +293,8 @@ class _MiniMaxMusic3Transformer(nn.Module):
         # block stack — the checkpoint's own contract, not an engine convention.
         hidden_states = torch.cat((temb.unsqueeze(1), hidden_states), dim=1)
         rotary_emb = self.rotary_pos_emb(hidden_states.shape[1], hidden_states.device)
-        for layer in self.layers:
+        for i, layer in enumerate(self.layers):
+            raise_if_cancelled(i)
             hidden_states = layer(hidden_states, rotary_emb)
         return self.project_out(hidden_states[:, 1:])
 

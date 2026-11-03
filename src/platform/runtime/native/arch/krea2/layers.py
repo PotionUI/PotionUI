@@ -102,6 +102,7 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import Tensor
 
+from ...cancellation import raise_if_cancelled
 from ...kernels import attention as _dispatch_attention
 from ...nag import apply_nag
 from vendor.gpl.comfyui.flux.math_ops import rope as _flux_rope
@@ -498,11 +499,13 @@ class TextFusionTransformer(nn.Module):
     def forward(self, x: Tensor, mask: Tensor | None = None) -> Tensor:
         b, l, n, d = x.shape
         x = x.reshape(b * l, n, d)
-        for block in self.layerwise_blocks:
+        for i, block in enumerate(self.layerwise_blocks):
+            raise_if_cancelled(i)
             x = block(x.contiguous(), mask=None)
         x = rearrange(x, "(b l) n d -> b l d n", b=b, l=l)
         x = self.projector(x).squeeze(-1)
-        for block in self.refiner_blocks:
+        for i, block in enumerate(self.refiner_blocks):
+            raise_if_cancelled(len(self.layerwise_blocks) + i)
             x = block(x, mask=mask)
         return x
 

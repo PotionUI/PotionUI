@@ -34,6 +34,9 @@ from src.platform.runtime.gpu_profile import GPU_GENERATIONS, PRECISIONS
 #: files keep declaring whichever version they were authored against.
 SUPPORTED_SCHEMA_VERSIONS = (1,)
 
+DEFAULT_SMOKE_TIMEOUT_SECONDS = 300
+MAX_SMOKE_TIMEOUT_SECONDS = 3600
+
 #: Step kinds with a real executor.
 IMPLEMENTED_STEP_KINDS = frozenset(
     {
@@ -209,6 +212,7 @@ class RecipeSmokeRef:
     negative_prompt: str = ""
     seed: Optional[int] = None
     form: Dict[str, Any] = field(default_factory=dict)
+    timeout_seconds: int = DEFAULT_SMOKE_TIMEOUT_SECONDS
 
 
 @dataclass(frozen=True)
@@ -440,6 +444,18 @@ def validate_recipe_dict(data: Any, extra_kinds: Optional[Iterable[str]] = None)
             form = smoke.get("form")
             if form is not None and not isinstance(form, dict):
                 _err(issues, "smoke", "'form' must be a mapping if given")
+            timeout = smoke.get("timeout_seconds")
+            if timeout is not None and (
+                not isinstance(timeout, int)
+                or isinstance(timeout, bool)
+                or not 1 <= timeout <= MAX_SMOKE_TIMEOUT_SECONDS
+            ):
+                _err(
+                    issues,
+                    "smoke",
+                    f"'timeout_seconds' must be a whole number of seconds from 1 to "
+                    f"{MAX_SMOKE_TIMEOUT_SECONDS} if given (default {DEFAULT_SMOKE_TIMEOUT_SECONDS})",
+                )
 
     # --- steps ---
     steps = data.get("steps", [])
@@ -819,6 +835,7 @@ def parse_recipe(
             negative_prompt=smoke_data.get("negative_prompt", ""),
             seed=smoke_data.get("seed"),
             form=dict(smoke_data.get("form") or {}),
+            timeout_seconds=smoke_data.get("timeout_seconds") or DEFAULT_SMOKE_TIMEOUT_SECONDS,
         )
         if smoke_data
         else None

@@ -14,6 +14,7 @@ import sys
 from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock
 
+from src.features.settings import app_lifecycle
 from src.features.settings.app_lifecycle import _restart_process, restart_argv
 
 
@@ -54,7 +55,8 @@ def test_spec_without_a_name_falls_back_to_argv(monkeypatch):
 
 
 def test_posix_restart_execs_in_place(monkeypatch):
-    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(app_lifecycle, "is_windows", lambda: False)
+    monkeypatch.setattr(app_lifecycle, "_open_descriptors", lambda: [])
     mock_execv = Mock()
     monkeypatch.setattr(os, "execv", mock_execv)
     argv = [sys.executable, "api.py"]
@@ -64,6 +66,64 @@ def test_posix_restart_execs_in_place(monkeypatch):
     mock_execv.assert_called_once_with(argv[0], argv)
 
 
+def test_posix_restart_closes_every_inherited_descriptor_but_stdio_on_exec(monkeypatch):
+    calls = []
+    monkeypatch.setattr(app_lifecycle, "is_windows", lambda: False)
+    monkeypatch.setattr(app_lifecycle, "_open_descriptors", lambda: [0, 1, 2, 7, 9, 11])
+
+    def set_inheritable(fd, inheritable):
+        if fd == 9:
+            raise OSError("closed meanwhile")
+        calls.append((fd, inheritable))
+
+    monkeypatch.setattr(os, "set_inheritable", set_inheritable)
+    monkeypatch.setattr(os, "execv", lambda *args: calls.append(("execv", args[0])))
+
+    _restart_process([sys.executable, "api.py"])
+
+    assert calls == [(7, False), (11, False), ("execv", sys.executable)]
+
+
+def test_open_descriptors_is_empty_when_no_descriptor_listing_is_readable(monkeypatch):
+    def listdir(path):
+        raise FileNotFoundError(path)
+
+    monkeypatch.setattr(os, "listdir", listdir)
+
+    assert app_lifecycle._open_descriptors() == []
+
+
+def test_open_descriptors_lists_the_numbered_entries_of_the_process_fd_directory(monkeypatch):
+    listed = []
+
+    def listdir(path):
+        listed.append(path)
+        return ["0", "3", "x"]
+
+    monkeypatch.setattr(os, "listdir", listdir)
+
+    assert app_lifecycle._open_descriptors() == [0, 3]
+    assert listed == ["/proc/self/fd"]
+
+
+def test_open_descriptors_falls_back_to_dev_fd_without_proc(monkeypatch):
+    def listdir(path):
+        if path == "/proc/self/fd":
+            raise FileNotFoundError(path)
+        return ["0", "1", "5"]
+
+    monkeypatch.setattr(os, "listdir", listdir)
+
+    assert app_lifecycle._open_descriptors() == [0, 1, 5]
+
+
+def test_the_platform_seam_reads_windows_from_sys_platform(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert app_lifecycle.is_windows() is True
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert app_lifecycle.is_windows() is False
+
+
 def test_windows_restart_spawns_detached_child_and_exits(monkeypatch):
     """execv on Windows blocks this process until the child exits instead of
     replacing it, which would leave the old process holding the listening
@@ -71,7 +131,7 @@ def test_windows_restart_spawns_detached_child_and_exits(monkeypatch):
     process itself instead."""
     import subprocess
 
-    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(app_lifecycle, "is_windows", lambda: True)
     mock_execv = Mock()
     monkeypatch.setattr(os, "execv", mock_execv)
     mock_exit = Mock()

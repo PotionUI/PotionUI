@@ -48,7 +48,7 @@ on its shape. These starts are eye-tuning constants, not measured values.
 
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any, List, Optional
 
 import numpy as np
 import torch
@@ -183,6 +183,7 @@ def refine_tube_pixels(
     device: str,
     fps: float,
     seed: int = 0,
+    is_cancelled: Optional[callable] = None,
 ) -> np.ndarray:
     """Refine one cropped tube. ``pixels`` is ``(1, 3, T, H, W)`` in ``[-1, 1]``
     at working resolution (H/W already 32-multiples). Returns ``(T, H, W, 3)``
@@ -246,7 +247,7 @@ def refine_tube_pixels(
         sample_forward, latent, cond, None,
         steps=max(1, refine_sigmas.numel() - 1), sampler_name="euler",
         sampling_settings={**bundle.spec.sampling_settings}, guidance_scale=1.0,
-        seed_noise=noise, sigmas=refine_sigmas, cfg_zero_star=False,
+        seed_noise=noise, sigmas=refine_sigmas, cfg_zero_star=False, is_cancelled=is_cancelled,
     )
 
     decode_gen = torch.Generator(device=device).manual_seed(int(seed) + DECODE_NOISE_SEED_OFFSET)

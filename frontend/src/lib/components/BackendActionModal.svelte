@@ -4,7 +4,7 @@
 	import { invokeBackendQuickAction } from '$lib/services/admin-api';
 	import type { BackendQuickAction } from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
-	import { waitForHealthy } from '$lib/utils/healthPoll';
+	import { serverIsReady, waitForHealthy } from '$lib/utils/healthPoll';
 	import { Button, Spinner, Alert } from '$lib/components/ui';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -32,25 +32,8 @@
 	let resultSummary: ResultSummary;
 	$: resultSummary = pendingAction ? resultSummaryFor(pendingAction, resultData) : { lines: [] };
 
-	/** One health check attempt. A short per-call timeout matters here: without
-	 * it, a request stuck against a mid-restart connection can eat up to the
-	 * client's full default timeout (30s) *per attempt*, which is what made a
-	 * restart look permanently stuck rather than just slow. `validateStatus`
-	 * lets us read the status directly instead of relying on axios throwing
-	 * for non-2xx. */
-	async function checkHealthOnce(): Promise<boolean> {
-		try {
-			const response = await api
-				.getClient()
-				.get('/health', { timeout: 3000, validateStatus: () => true });
-			return response.status === 200;
-		} catch {
-			return false;
-		}
-	}
-
 	async function waitForServerBack(): Promise<boolean> {
-		return waitForHealthy({ check: checkHealthOnce });
+		return waitForHealthy({ check: () => serverIsReady(api.getClient()) });
 	}
 
 	function closeModal() {

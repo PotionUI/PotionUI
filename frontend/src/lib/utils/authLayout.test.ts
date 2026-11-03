@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveAuthLayoutMode, type AuthLayoutState } from './authLayout';
+import { resolveAuthLayoutMode, shouldRedirectToLogin, type AuthLayoutState } from './authLayout';
 
 function state(overrides: Partial<AuthLayoutState> = {}): AuthLayoutState {
 	return {
@@ -48,5 +48,24 @@ describe('resolveAuthLayoutMode', () => {
 		expect(resolveAuthLayoutMode(state({ isAuthenticated: false, isPublicRoute: false }))).toBe(
 			'public'
 		);
+	});
+});
+
+describe('shouldRedirectToLogin', () => {
+	const signedOut = { mounted: true, loading: false, isAuthenticated: false, isPublicRoute: false };
+
+	it('sends a signed-out visitor on a protected route to login', () => {
+		expect(shouldRedirectToLogin({ ...signedOut, pathname: '/generate' })).toBe(true);
+	});
+
+	it('leaves the root route to the page that reads the setup status', () => {
+		expect(shouldRedirectToLogin({ ...signedOut, pathname: '/' })).toBe(false);
+	});
+
+	it('waits for mount and for the auth check, and never redirects public or signed-in visitors', () => {
+		expect(shouldRedirectToLogin({ ...signedOut, mounted: false, pathname: '/generate' })).toBe(false);
+		expect(shouldRedirectToLogin({ ...signedOut, loading: true, pathname: '/generate' })).toBe(false);
+		expect(shouldRedirectToLogin({ ...signedOut, isPublicRoute: true, pathname: '/login' })).toBe(false);
+		expect(shouldRedirectToLogin({ ...signedOut, isAuthenticated: true, pathname: '/generate' })).toBe(false);
 	});
 });

@@ -302,3 +302,12 @@ def pytest_collection_modifyitems(config, items):
             continue
         if not cpu_bf16_is_usable():
             item.add_marker(skip_bf16_heavy)
+
+
+@pytest.fixture(autouse=True)
+def _default_text_encoder_placement():
+    from src.platform.runtime.native.memory.text_encoder import reset_text_encoder_placement
+
+    reset_text_encoder_placement()
+    yield
+    reset_text_encoder_placement()

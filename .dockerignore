@@ -18,10 +18,10 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# Node (node_modules/ with no leading slash matches at any depth, so this
-# already covers frontend/node_modules/ and content/plugins/node_modules/ too)
+# Node
 node_modules/
 frontend/node_modules/
+content/plugins/**/node_modules/
 frontend/.next/
 frontend/out/
 # Host-side build artifacts: the distribution image's SPA comes from

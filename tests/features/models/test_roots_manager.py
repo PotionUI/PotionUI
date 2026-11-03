@@ -391,12 +391,15 @@ class TestEnsureHomeBindingsForNewType(object):
     def test_new_model_type_gets_a_home_binding(self, mock_db, monkeypatch):
         import src.platform.filesystem.model_roots as model_roots_module
         from src.platform.filesystem.model_roots_repository import ModelRootRepository
+        from src.platform.filesystem.model_types import ModelTypeDefinition, model_type_registry
 
-        monkeypatch.setattr(model_roots_module, "MODEL_TYPES", tuple(model_roots_module.MODEL_TYPES) + ("widget",))
-        monkeypatch.setitem(model_roots_module.MODEL_TYPE_TO_DIRECTORY, "widget", "widgets")
-
-        repository = ModelRootRepository()
-        model_roots_module.ensure_home_bindings(repository, "models", base_dir=Path("/tmp"))
+        monkeypatch.setattr(model_type_registry, "_listeners", {})
+        model_type_registry.register(ModelTypeDefinition(id="widget", label="Widget", folder="widgets", source="widget-plugin"))
+        try:
+            repository = ModelRootRepository()
+            model_roots_module.ensure_home_bindings(repository, "models", base_dir=Path("/tmp"))
+        finally:
+            model_type_registry.unregister_source("widget-plugin")
 
         bindings = repository.list_bindings()
         widget_binding = next((b for b in bindings if b["model_type"] == "widget" and b["root_id"] == HOME_ROOT_ID), None)

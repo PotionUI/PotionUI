@@ -13,20 +13,20 @@ from src.platform.filesystem.model_roots import (
     root_path_key,
 )
 from src.platform.filesystem.model_types import (
-    DIRECTORY_TO_MODEL_TYPE,
-    MODEL_DIRECTORY_ALIASES,
-    MODEL_DIRECTORY_NAMES,
-    MODEL_TYPES,
-    SUPPORTED_MODEL_EXTENSIONS,
     binding_scans_headers_by_default,
+    directory_aliases,
+    directory_names,
+    directory_to_type,
+    model_types,
+    supported_extensions,
     type_for_folder_name,
 )
 
-_ALL_TYPE_FOLDER_NAMES = frozenset(
-    n.lower() for n in MODEL_DIRECTORY_NAMES
-) | frozenset(
-    alias.lower() for aliases in MODEL_DIRECTORY_ALIASES.values() for alias in aliases
-)
+
+def _all_type_folder_names() -> frozenset:
+    return frozenset(n.lower() for n in directory_names()) | frozenset(
+        alias.lower() for aliases in directory_aliases().values() for alias in aliases
+    )
 
 _FILE_COUNT_LIMIT = 10_000
 _FILE_COUNT_TIME_LIMIT_SECONDS = 2.0
@@ -43,7 +43,7 @@ class ResolvedTarget(NamedTuple):
 def resolve_targets(external_path: str, overrides: Dict[str, str]) -> Dict[str, ResolvedTarget]:
     root = _effective_root(Path(external_path))
     resolved: Dict[str, ResolvedTarget] = {}
-    for name in MODEL_DIRECTORY_NAMES:
+    for name in directory_names():
         override = overrides.get(name)
         if override:
             resolved[name] = ResolvedTarget(Path(override), True)
@@ -53,7 +53,7 @@ def resolve_targets(external_path: str, overrides: Dict[str, str]) -> Dict[str, 
 
 
 def _resolve_one(name: str, root: Path) -> ResolvedTarget:
-    candidates = (name,) + MODEL_DIRECTORY_ALIASES.get(name, ())
+    candidates = (name,) + directory_aliases().get(name, ())
     existing = [child for child in (_find_child(root, c) for c in candidates) if child is not None]
 
     for child in existing:
@@ -77,9 +77,10 @@ def _root_score(directory: Path) -> int:
     if not directory.is_dir():
         return 0
     best = 0
+    folder_names = _all_type_folder_names()
     try:
         for child in sorted(directory.iterdir()):
-            if not child.is_dir() or child.name.lower() not in _ALL_TYPE_FOLDER_NAMES:
+            if not child.is_dir() or child.name.lower() not in folder_names:
                 continue
             if _has_model_file(child):
                 return 2
@@ -105,7 +106,7 @@ def _find_child(directory: Path, candidate: str) -> Optional[Path]:
 def _has_model_file(directory: Path) -> bool:
     try:
         for entry in directory.rglob("*"):
-            if entry.is_file() and entry.suffix.lower() in SUPPORTED_MODEL_EXTENSIONS:
+            if entry.is_file() and entry.suffix.lower() in supported_extensions():
                 return True
     except OSError:
         return False
@@ -204,7 +205,7 @@ def _count_model_files(directory: Path) -> Tuple[int, bool]:
             if count >= _FILE_COUNT_LIMIT or (time.monotonic() - start) > _FILE_COUNT_TIME_LIMIT_SECONDS:
                 truncated = True
                 break
-            if entry.is_file() and entry.suffix.lower() in SUPPORTED_MODEL_EXTENSIONS:
+            if entry.is_file() and entry.suffix.lower() in supported_extensions():
                 count += 1
     except OSError:
         pass
@@ -234,7 +235,7 @@ def drive_letter_warning(path_str: str, state: str) -> Optional[str]:
 def existing_bound_paths(resolver: Any) -> List[Tuple[str, Path]]:
     seen = set()
     pairs: List[Tuple[str, Path]] = []
-    for model_type in MODEL_TYPES:
+    for model_type in model_types():
         for type_dir in resolver.type_dirs(model_type, online_only=False):
             key = (type_dir.root_id, str(type_dir.path))
             if key in seen:
@@ -294,8 +295,10 @@ def detect(path: Union[str, Path], *, resolver: Optional[Any] = None) -> Detecte
 
     suggestions: List[DetectionSuggestion] = []
     matched_dirs: List[Path] = []
-    for canonical in MODEL_DIRECTORY_NAMES:
-        candidates = (canonical,) + MODEL_DIRECTORY_ALIASES.get(canonical, ())
+    aliases = directory_aliases()
+    folder_types = directory_to_type()
+    for canonical in folder_types:
+        candidates = (canonical,) + aliases.get(canonical, ())
         found = [child for child in (_find_child(effective, c) for c in candidates) if child is not None]
         if not found:
             continue
@@ -306,7 +309,7 @@ def detect(path: Union[str, Path], *, resolver: Optional[Any] = None) -> Detecte
         subdir = _posix_relpath(raw_path, matched_dir)
         suggestions.append(
             DetectionSuggestion(
-                model_type=DIRECTORY_TO_MODEL_TYPE[canonical],
+                model_type=folder_types[canonical],
                 subdir=subdir,
                 matched_by=matched_by,
                 file_count=file_count,

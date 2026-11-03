@@ -27,7 +27,7 @@ from src.features.remote_execution.model_bundle_builder import (
     resolve_bundle_entry,
 )
 from src.features.remote_execution.transport import WorkerTransport
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
+from src.platform.filesystem.model_types import type_to_directory
 from src.platform.worker_protocol import ModelBundleEntryV1
 
 #: Bound on how long push_models waits to see a just-started upload register
@@ -69,7 +69,7 @@ def transport_for(
 
 def _relative_path(model: Model) -> str:
     role = model.model_type or "unknown"
-    directory = MODEL_TYPE_TO_DIRECTORY.get(role, role)
+    directory = type_to_directory().get(role, role)
     return f"{directory}/{model.filename}"
 
 
@@ -113,7 +113,7 @@ async def sync_view(
         })
     return {
         "depot_dir": depot["depot_dir"],
-        "layout": dict(MODEL_TYPE_TO_DIRECTORY),
+        "layout": dict(type_to_directory()),
         "models": rows,
     }
 

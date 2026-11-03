@@ -136,13 +136,13 @@ def test_model_for_path_returns_none_when_unresolvable():
 
 
 def test_classifier_exports_are_available():
-    from src.platform.filesystem.model_types import MODEL_TYPES as core_types
+    from src.platform.filesystem.model_types import model_types
     from src.plugin_api import models as api
 
-    for name in ("HeaderView", "TensorInfo", "FamilyMatch", "MODEL_TYPES", "model_classifier_registry"):
+    for name in ("HeaderView", "TensorInfo", "FamilyMatch", "model_types", "model_classifier_registry"):
         assert name in api.__all__
         assert hasattr(api, name)
-    assert api.MODEL_TYPES == core_types
+    assert api.model_types() == model_types()
 
 
 def test_the_classifier_registry_view_is_read_only():

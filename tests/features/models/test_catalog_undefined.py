@@ -11,7 +11,6 @@ from tests.fixtures.seed import seed_user
 def _catalog(matched=None):
     scanner = MagicMock()
     scanner.resolver.write_dir.side_effect = NoWriteRootError("x")
-    scanner.MODEL_TYPE_MAPPING = {}
     repository = MagicMock()
     repository.count_by_type.return_value = {"lora": 2, "undefined": 3}
     repository.get_total_size_by_type.return_value = {}

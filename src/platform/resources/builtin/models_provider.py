@@ -15,12 +15,10 @@ from src.platform.resources.base import (
     ResourceSuggestion,
     stem,
 )
-from src.platform.filesystem.model_types import MODEL_TYPES as DEPOT_MODEL_TYPES
+from src.platform.filesystem.model_types import model_types
 from src.platform.security.user import AccountType, User
 
 logger = logging.getLogger(__name__)
-
-MODEL_TYPES = list(DEPOT_MODEL_TYPES)
 
 MAX_CONTENT_CHARS = 4000
 MAX_PROVIDER_DESC_CHARS = 600
@@ -33,10 +31,10 @@ _BASE_MODEL_KEYS = ("base_model", "architecture")
 
 def _normalize_type(segment: str) -> Optional[str]:
     segment = segment.lower()
-    if segment in MODEL_TYPES:
+    known = model_types()
+    if segment in known:
         return segment
-    # Accept plural aliases: "loras" -> "lora"
-    if segment.endswith("s") and segment[:-1] in MODEL_TYPES:
+    if segment.endswith("s") and segment[:-1] in known:
         return segment[:-1]
     return None
 
@@ -111,7 +109,7 @@ class ModelsResourceProvider(BaseResourceProvider):
                     has_children=True,
                     icon=self.icon,
                 )
-                for t in MODEL_TYPES
+                for t in model_types()
                 if not needle or t.startswith(needle) or f"{t}s".startswith(needle)
             ]
 
@@ -140,7 +138,7 @@ class ModelsResourceProvider(BaseResourceProvider):
             seen = {m.id for m in found}
             found += [
                 m for m in self._find(ctx, allowed, None, query, limit + len(seen))
-                if m.id not in seen and m.model_type not in SEARCH_TYPE_ORDER and m.model_type in MODEL_TYPES
+                if m.id not in seen and m.model_type not in SEARCH_TYPE_ORDER and m.model_type in model_types()
             ]
         return [self._model_suggestion(m) for m in found[:limit]]
 

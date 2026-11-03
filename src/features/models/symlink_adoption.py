@@ -14,7 +14,7 @@ from src.platform.filesystem.model_roots import (
     strip_windows_long_prefix,
 )
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY, MODEL_TYPES
+from src.platform.filesystem.model_types import model_types, type_to_directory
 from src.platform.settings.repository import SettingRepository
 from src.platform.util.ids import generate_ulid
 
@@ -181,8 +181,9 @@ def adopt_symlinked_model_roots(
     reachable_targets: Dict[str, Path] = {}
     dangling_targets: Dict[str, Path] = {}
 
-    for model_type in MODEL_TYPES:
-        link_path = home_dir / MODEL_TYPE_TO_DIRECTORY[model_type]
+    folders = type_to_directory()
+    for model_type in model_types():
+        link_path = home_dir / folders[model_type]
         if not _is_link(link_path):
             continue
         target = _resolve_link_target(link_path)
@@ -203,7 +204,7 @@ def adopt_symlinked_model_roots(
             moved = locations_repository.rehome(HOME_ROOT_ID, model_type, root_id)
             if moved:
                 changed = True
-            link_path = home_dir / MODEL_TYPE_TO_DIRECTORY[model_type]
+            link_path = home_dir / folders[model_type]
             if _replace_link_with_dir(link_path):
                 changed = True
             try:
@@ -224,7 +225,7 @@ def adopt_symlinked_model_roots(
             if moved:
                 changed = True
 
-    remaining_links = any(_is_link(home_dir / MODEL_TYPE_TO_DIRECTORY[t]) for t in MODEL_TYPES)
+    remaining_links = any(_is_link(home_dir / folder) for folder in folders.values())
     if not remaining_links:
         for key in _LEGACY_SETTING_KEYS:
             if setting_repository.delete_setting_by_key(key):

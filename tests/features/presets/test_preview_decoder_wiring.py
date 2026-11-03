@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE, MODEL_TYPE_TO_DIRECTORY
+from src.platform.filesystem.model_types import directory_to_type, type_to_directory
 
 REPO = Path(__file__).resolve().parents[3]
 ROOT = REPO / "content/presets/marketplace"
@@ -65,8 +65,8 @@ def _field(relative):
 
 
 def test_the_model_type_lives_in_vae_approx():
-    assert DIRECTORY_TO_MODEL_TYPE["vae_approx"] == "preview_decoder"
-    assert MODEL_TYPE_TO_DIRECTORY["preview_decoder"] == "vae_approx"
+    assert directory_to_type()["vae_approx"] == "preview_decoder"
+    assert type_to_directory()["preview_decoder"] == "vae_approx"
 
 
 def test_catalog_lists_five_verified_decoders():

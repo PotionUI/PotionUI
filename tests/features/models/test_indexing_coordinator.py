@@ -453,17 +453,17 @@ def _real_scanner(tmp_path, root_id="r_home", model_type="checkpoint"):
     from src.platform.database.rows import now_iso
     from src.platform.filesystem.model_roots import ModelRoot, ModelRootResolver, TypeDir, _Snapshot, root_path_key
     from src.platform.filesystem.model_roots_repository import ModelRootRepository
-    from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
+    from src.platform.filesystem.model_types import type_to_directory
 
     root_dir = tmp_path / root_id
-    type_dir = root_dir / MODEL_TYPE_TO_DIRECTORY[model_type]
+    type_dir = root_dir / type_to_directory()[model_type]
     type_dir.mkdir(parents=True, exist_ok=True)
 
     now = now_iso()
     key = root_path_key(str(root_dir))
     repo = ModelRootRepository()
     repo.insert_root(root_id, root_id, str(root_dir), key, "library", False, False, now)
-    binding_id = repo.insert_binding(root_id, model_type, MODEL_TYPE_TO_DIRECTORY[model_type], 1000, False)
+    binding_id = repo.insert_binding(root_id, model_type, type_to_directory()[model_type], 1000, False)
 
     resolver = ModelRootResolver(repository=None, probe=None, base_dir=Path.cwd())
     root = ModelRoot(
@@ -471,7 +471,7 @@ def _real_scanner(tmp_path, root_id="r_home", model_type="checkpoint"):
         case_insensitive=False, state="online", state_reason=None, raw_path=str(root_dir),
     )
     binding = TypeDir(root_id=root_id, model_type=model_type, path=type_dir, position=1000, is_write=False,
-                       subdir=MODEL_TYPE_TO_DIRECTORY[model_type], binding_id=binding_id)
+                       subdir=type_to_directory()[model_type], binding_id=binding_id)
     resolver._snapshot = _Snapshot(
         roots=(root,), roots_by_id={root_id: root}, type_dirs_by_type={model_type: (binding,)},
     )

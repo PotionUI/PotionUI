@@ -5,7 +5,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
 
 from src.plugin_api import User, get_current_admin_user
-from src.plugin_api.models import MODEL_TYPES
+from src.plugin_api.models import model_types as registered_model_types
 
 from . import core_bridge, nsfw, permissions_store, requests
 from .permissions import CAPABILITIES, Principal, current_principal
@@ -17,9 +17,9 @@ logger = logging.getLogger("plugins.model-browser")
 router = APIRouter()
 
 
-def _only(allowed: Sequence[str], what: str) -> Callable[[List[str]], List[str]]:
+def _only(allowed: Callable[[], Sequence[str]], what: str) -> Callable[[List[str]], List[str]]:
     def check(values: List[str]) -> List[str]:
-        unknown = sorted(set(values) - set(allowed))
+        unknown = sorted(set(values) - set(allowed()))
         if unknown:
             raise ValueError(f"unknown {what}: {', '.join(unknown)}")
         return values
@@ -30,10 +30,10 @@ def _only(allowed: Sequence[str], what: str) -> Callable[[List[str]], List[str]]
 class ParamsUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    sources: Annotated[List[str], AfterValidator(_only(SOURCE_IDS, "source"))] = Field(
+    sources: Annotated[List[str], AfterValidator(_only(lambda: SOURCE_IDS, "source"))] = Field(
         default_factory=lambda: sorted(DEFAULT_SOURCES)
     )
-    model_types: Annotated[List[str], AfterValidator(_only(MODEL_TYPES, "model type"))] = Field(
+    model_types: Annotated[List[str], AfterValidator(_only(registered_model_types, "model type"))] = Field(
         default_factory=list
     )
     max_file_gb: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False, strict=True)
@@ -43,7 +43,7 @@ class ParamsUpdate(BaseModel):
 
 class GroupUpdate(BaseModel):
     group_id: str
-    capabilities: Annotated[List[str], AfterValidator(_only(CAPABILITIES, "capability"))]
+    capabilities: Annotated[List[str], AfterValidator(_only(lambda: CAPABILITIES, "capability"))]
     params: ParamsUpdate = Field(default_factory=ParamsUpdate)
 
 
@@ -142,7 +142,7 @@ def _permissions(groups: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "capabilities": list(CAPABILITIES),
         "sources": list(SOURCE_IDS),
-        "model_types": list(MODEL_TYPES),
+        "model_types": list(registered_model_types()),
         "groups": [_group_entry(group, permissions_store.row_or_default(rows, group["id"])) for group in groups],
     }
 

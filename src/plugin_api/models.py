@@ -23,7 +23,7 @@ from src.features.models.exceptions import (
     ProviderFetchException,
 )
 from src.features.models.locator import ModelFileUnavailable
-from src.platform.filesystem.model_types import MODEL_DIRECTORY_ALIASES, MODEL_TYPES, type_for_folder_name
+from src.platform.filesystem.model_types import directory_aliases, model_types, type_for_folder_name
 from src.platform.plugins.runtime_registries import get_container
 from src.platform.runtime.model_headers import (
     ClassifierMatch,
@@ -52,9 +52,9 @@ __all__ = [
     "ModelFileUnavailable",
     "ModelNotFoundException",
     "ProviderFetchException",
-    "MODEL_DIRECTORY_ALIASES",
+    "directory_aliases",
     "type_for_folder_name",
-    "MODEL_TYPES",
+    "model_types",
     "HeaderView",
     "TensorInfo",
     "FamilyMatch",
@@ -93,7 +93,7 @@ def model_write_dir(model_type: str) -> Path:
 
 def _write_roots(container: Any) -> List[Path]:
     roots: List[Path] = []
-    for model_type in MODEL_TYPES:
+    for model_type in model_types():
         try:
             roots.append(Path(container.model_roots.write_dir(model_type).path).resolve())
         except Exception:

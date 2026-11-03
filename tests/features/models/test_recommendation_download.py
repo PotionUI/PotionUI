@@ -7,7 +7,7 @@ from httpx import ASGITransport, AsyncClient
 
 from src.features.downloads.queue import DownloadQueue
 from src.features.models.routes import ModelController, build_router
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
+from src.platform.filesystem.model_types import type_to_directory
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 from tests.fixtures.model_roots import make_roots
@@ -107,7 +107,7 @@ async def _queue(client, repo, body):
 
 
 def _type_dir(depot):
-    return depot / MODEL_TYPE_TO_DIRECTORY["detection_segm"]
+    return depot / type_to_directory()["detection_segm"]
 
 
 @pytest.mark.asyncio

@@ -18,7 +18,7 @@ from typing import Dict, Any, List, Optional
 from src.pipelines.outputs import ParamGenerationOutput
 from src.features.generation.handlers.base_handler import BaseGenerationOutputHandler
 from src.features.generation.output_types import OutputTypeSpec, output_type_registry
-from src.platform.filesystem.model_types import SUPPORTED_MODEL_EXTENSIONS
+from src.platform.filesystem.model_types import supported_extensions
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ def _reduce_leaked_model_path(value: Any) -> Any:
     if "/" not in value and "\\" not in value:
         return value
     _, _, extension = value.rpartition(".")
-    if f".{extension.lower()}" not in SUPPORTED_MODEL_EXTENSIONS:
+    if f".{extension.lower()}" not in supported_extensions():
         return value
     return _basename(value)
 

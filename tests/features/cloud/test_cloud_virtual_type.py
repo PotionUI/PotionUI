@@ -22,11 +22,11 @@ from src.features.models.type_manager import ModelTypeManager, assignable_types
 from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.platform.filesystem.model_types import (
-    DIRECTORY_TO_MODEL_TYPE,
-    MODEL_DIRECTORY_NAMES,
-    MODEL_TYPE_TO_DIRECTORY,
-    MODEL_TYPES,
-    PICKABLE_MODEL_TYPES,
+    directory_to_type,
+    directory_names,
+    type_to_directory,
+    model_types,
+    pickable_model_types,
     VIRTUAL_MODEL_TYPES,
     type_for_folder_name,
 )
@@ -73,21 +73,21 @@ def client_for(app):
 
 def test_cloud_is_a_virtual_type_that_the_depot_never_knows_about():
     assert VIRTUAL_MODEL_TYPES == ("cloud",)
-    assert "cloud" not in MODEL_TYPES
-    assert "cloud" not in MODEL_TYPE_TO_DIRECTORY
-    assert "cloud" not in DIRECTORY_TO_MODEL_TYPE.values()
-    assert "cloud" not in MODEL_DIRECTORY_NAMES
+    assert "cloud" not in model_types()
+    assert "cloud" not in type_to_directory()
+    assert "cloud" not in directory_to_type().values()
+    assert "cloud" not in directory_names()
     assert type_for_folder_name("cloud") is None
 
 
 def test_the_pickable_types_are_the_depot_types_plus_the_virtual_ones():
-    assert PICKABLE_MODEL_TYPES == (*MODEL_TYPES, "cloud")
+    assert pickable_model_types() == (*model_types(), "cloud")
 
 
 def test_the_model_field_offers_cloud_as_a_model_type_to_pick():
     spec = {item.name: item for item in ModelField.configuration()}["model_type"]
     assert "cloud" in spec.choices
-    assert set(MODEL_TYPES) <= set(spec.choices)
+    assert set(model_types()) <= set(spec.choices)
 
 
 def test_no_type_can_be_assigned_to_a_model_as_cloud():
@@ -157,7 +157,7 @@ def test_a_download_cannot_target_the_cloud_type(tmp_path):
 
 
 def test_the_scanner_does_not_index_cloud(lib):
-    assert "cloud" not in lib.scanner.MODEL_TYPE_MAPPING.values()
+    assert "cloud" not in model_types()
     assert "cloud" not in lib.scanner.get_indexing_status()["by_type"]
 
 

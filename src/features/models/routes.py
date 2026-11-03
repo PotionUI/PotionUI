@@ -902,6 +902,11 @@ def build_router(container: "AppContainer") -> APIRouter:
         return await controller.get_model_stats()
 
 
+    @router.get("/type-definitions", response_model=APIResponse, summary="List Model Type Definitions")
+    async def list_model_type_definitions(current_user: User = Depends(get_current_active_user)):
+        return controller.success_response(data={"types": container.model_type_registry.catalog()})
+
+
     @router.get("/types", response_model=APIResponse, summary="Get Model Types")
     async def get_model_types(
         user_scoped: bool = Query(False, description="When true, counts only models assigned to the current user"),

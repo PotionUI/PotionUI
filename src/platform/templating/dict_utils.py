@@ -4,28 +4,17 @@ Templates access the ``form``/``preset``/etc. context objects via native `.`
 attribute access rather than dict-path helper functions; see docs/presets.md.
 """
 
+import functools
 import re
 from typing import Any, Dict, List
 
-from src.platform.filesystem.model_types import MODEL_DIRECTORY_NAMES
+from src.platform.filesystem.model_types import directory_names
 
-# `clip` is the pre-migration depot directory name for what is now
-# `text_encoders` (see `migrations/002_rename_clip_to_text_encoder.py`); it is
-# not a current `MODEL_DIRECTORY_NAMES` entry, but a form value saved before
-# that migration - or the ComfyUI-vocabulary spelling some importer fields
-# still carry - can still hold it, so it must strip the same as any live
-# directory name.
-_STRIPPABLE_MODEL_DIRS = MODEL_DIRECTORY_NAMES + ('clip',)
 
-# A depot type directory, anchored so it only matches a real path segment
-# (start-of-string or right after a "/") - never the middle of an unrelated
-# name like "custom_models/loras/x". Matched greedily left-to-right; the
-# LAST occurrence in the value is used, so a leading storage root that
-# itself contains "models/<dir>/" (an oddly-named root, or a value with the
-# prefix repeated) still resolves to the real, innermost type boundary.
-_MODEL_DIR_PREFIX_RE = re.compile(
-    r'(?:^|/)models/(?:' + '|'.join(re.escape(name) for name in _STRIPPABLE_MODEL_DIRS) + r')/'
-)
+@functools.lru_cache(maxsize=8)
+def _model_dir_prefix_re(names):
+    strippable = (*names, 'clip')
+    return re.compile(r'(?:^|/)models/(?:' + '|'.join(re.escape(name) for name in strippable) + r')/')
 
 
 def strip_model_dir(value: Any) -> str:
@@ -51,7 +40,7 @@ def strip_model_dir(value: Any) -> str:
     if not isinstance(value, str):
         return value
 
-    matches = list(_MODEL_DIR_PREFIX_RE.finditer(value))
+    matches = list(_model_dir_prefix_re(directory_names()).finditer(value))
     if not matches:
         return value
     return value[matches[-1].end():]

@@ -85,8 +85,7 @@ def test_type_dir_map_mirrors_the_scanner_mapping_exactly():
     # filtering on the right type comes up empty - detection_segm did exactly
     # that. The two maps must be exact inverses so a new type cannot land on
     # only one side.
-    from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
-    from src.features.models.indexer import ModelScanner
+    from src.platform.filesystem.model_types import directory_to_type, type_to_directory
 
-    inverted_scanner = {t: d for d, t in ModelScanner.MODEL_TYPE_MAPPING.items()}
-    assert MODEL_TYPE_TO_DIRECTORY == inverted_scanner
+    inverted_scanner = {t: d for d, t in directory_to_type().items()}
+    assert type_to_directory() == inverted_scanner

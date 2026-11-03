@@ -11,7 +11,7 @@ from backend.permissions_store import Row, load_rows, save_rows
 from backend.schema import NsfwContext
 from backend.tables import create_tables
 from src.plugin_api import AccountType, User, get_current_active_user
-from src.plugin_api.models import MODEL_TYPES
+from src.plugin_api.models import model_types
 
 ME_URL = "/api/plugins/model-browser/me"
 PERMISSIONS_URL = "/api/plugins/model-browser/permissions"
@@ -383,7 +383,7 @@ def test_get_permissions_lists_every_core_group_with_its_default(app, client):
         "data": {
             "capabilities": ["browse", "request", "download", "approve"],
             "sources": ["civitai", "huggingface", "openmodeldb"],
-            "model_types": list(MODEL_TYPES),
+            "model_types": list(model_types()),
             "groups": _DEFAULT_GROUPS,
         },
     }

@@ -18,7 +18,7 @@ from src.features.automation.expr import render_template
 from src.features.automation.http_node import perform as perform_http_request
 from src.features.automation.http_request import DEFAULT_TIMEOUT_S, MAX_RETRIES, MAX_TIMEOUT_S, METHODS, HttpRequestError
 from src.features.automation.triggers.filesystem import CUSTOM_PATH_VALUE, list_app_directories, resolve_effective_directory
-from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE
+from src.platform.filesystem.model_types import directory_to_type
 from src.platform.plugins.automation_nodes import NodeField, NodeResult, NodeTypeSpec, node_type_registry
 
 logger = logging.getLogger(__name__)
@@ -93,7 +93,7 @@ def _guess_model_type(file_path: str, configured_type: Optional[str] = None) -> 
     if configured_type:
         return configured_type
     parent_dir = Path(file_path).parent.name
-    return DIRECTORY_TO_MODEL_TYPE.get(parent_dir, 'unknown')
+    return directory_to_type().get(parent_dir, 'unknown')
 
 
 async def _single_model_availability(ctx: NodeExecutionContext, model) -> tuple:

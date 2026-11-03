@@ -5,7 +5,7 @@ from typing import Annotated, Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, BeforeValidator, Field, ValidationError, field_validator
 
-from src.plugin_api.models import MODEL_TYPES
+from src.plugin_api.models import model_types
 
 from . import core_bridge, downloads, notifications, nsfw, permissions, requests
 from .downloads import MAX_ID_LENGTH, DownloadError, DownloadRequest, FileRef, Prepared
@@ -59,7 +59,7 @@ class Approval(Decision):
     @field_validator("model_type")
     @classmethod
     def _model_type(cls, value: Optional[str]) -> Optional[str]:
-        if value is not None and value not in MODEL_TYPES:
+        if value is not None and value not in model_types():
             raise ValueError(f"unknown model type '{value[:64]}'")
         return value
 

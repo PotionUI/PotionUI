@@ -18,7 +18,7 @@ from src.features.models.native_availability_reconciler import (
     native_availability_projector as _default_native_availability_projector,
 )
 from src.features.models.repository import ModelRepository
-from src.platform.filesystem.model_types import HEADER_CLASSIFIED_TYPES
+from src.platform.filesystem.model_types import header_classified_types
 from src.platform.plugins import PluginRegistry
 
 logger = logging.getLogger(__name__)
@@ -590,7 +590,7 @@ class ModelIndexingCoordinator:
             raise ModelIndexingException(f"Cannot read '{path}': {e}") from e
 
         found = self.scanner.found_file_for(loc, candidate, stat.st_size, stat.st_mtime_ns, is_dir)
-        classified = classify and loc.model_type in HEADER_CLASSIFIED_TYPES
+        classified = classify and loc.model_type in header_classified_types()
         if classified:
             found = replace(found, scan_headers=True)
         outcome = self.scanner.index_file(found, queue_priority=PRIORITY_CHOSEN)

@@ -575,22 +575,7 @@ class TestDirectorPromptExpansion:
         assert result[0]['positive'] == 'a moody shot'
 
 
-def test_the_director_reads_refmod_members_through_the_model_locator(orchestrator, tmp_path):
-    import json
-
-    import torch
-    from safetensors.torch import save_file
-
-    path = tmp_path / "face.safetensors"
-    save_file({"latent": torch.zeros(1, 24, 1, 2, 2)}, str(path), metadata={"refmod_meta": json.dumps({"kind": "image"})})
-    orchestrator.model_locator = Mock()
-    orchestrator.model_locator.path_for_model.return_value = path
-
-    assert list(orchestrator._bundle_members(None)("refmod", "model:01FACE")) == ["image"]
-    orchestrator.model_locator.path_for_model.assert_called_once_with("01FACE")
-
-
-def test_without_a_model_locator_the_director_gets_no_refmod_reader(orchestrator):
+def test_without_a_model_locator_the_director_gets_no_member_reader(orchestrator):
     orchestrator.model_locator = None
     assert orchestrator._bundle_members("user-1") is None
 

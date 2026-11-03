@@ -67,13 +67,13 @@ def _load_reference_module():
 
 
 @pytest.fixture(scope="module")
-def refmod():
+def upstream_module():
     return _load_reference_module()
 
 
-def _build_reference(refmod):
+def _build_reference(upstream_module):
     torch.manual_seed(0)
-    ref = refmod.QwenImage21Transformer2DModel(
+    ref = upstream_module.QwenImage21Transformer2DModel(
         patch_size=1, in_channels=IN_CH, out_channels=OUT_CH, num_layers=LAYERS,
         attention_head_dim=HEAD_DIM, num_attention_heads=HEADS, context_in_dim=CTX,
         mlp_ratio=MLP_RATIO, axes_dims_rope=AXES, eps=1e-6, causal_condition=True,
@@ -112,8 +112,8 @@ def _reference_forward(ref, x, context, timestep, attention_mask=None):
     return out[:, -target_tokens:].transpose(1, 2).reshape(b, OUT_CH, h, w)
 
 
-def test_state_dict_key_parity_after_conversion(refmod):
-    ref = _build_reference(refmod)
+def test_state_dict_key_parity_after_conversion(upstream_module):
+    ref = _build_reference(upstream_module)
     converted = convert_qwen_image21_state_dict(ref.state_dict())
     with torch.device("meta"):
         m = QwenImage21DiT.from_config(CONFIG, pick_operations(torch.float32, torch.float32))
@@ -123,8 +123,8 @@ def test_state_dict_key_parity_after_conversion(refmod):
 
 
 @pytest.mark.parametrize("h,w", [(4, 4), (8, 8), (4, 8), (8, 4), (6, 10), (12, 16), (20, 28)])
-def test_forward_matches_reference_fp32(refmod, h, w):
-    ref = _build_reference(refmod)
+def test_forward_matches_reference_fp32(upstream_module, h, w):
+    ref = _build_reference(upstream_module)
     ours = _build_ours(ref.state_dict())
 
     torch.manual_seed(2)
@@ -139,8 +139,8 @@ def test_forward_matches_reference_fp32(refmod, h, w):
     torch.testing.assert_close(out_ours, out_ref, atol=1e-4, rtol=1e-4)
 
 
-def test_forward_matches_reference_with_padded_text_mask(refmod):
-    ref = _build_reference(refmod)
+def test_forward_matches_reference_with_padded_text_mask(upstream_module):
+    ref = _build_reference(upstream_module)
     ours = _build_ours(ref.state_dict())
 
     torch.manual_seed(4)
@@ -159,8 +159,8 @@ def test_forward_matches_reference_with_padded_text_mask(refmod):
 
 
 def test_forward_matches_reference_batched():
-    refmod_ = _load_reference_module()
-    ref = _build_reference(refmod_)
+    upstream_module_ = _load_reference_module()
+    ref = _build_reference(upstream_module_)
     ours = _build_ours(ref.state_dict())
 
     torch.manual_seed(5)
@@ -175,10 +175,10 @@ def test_forward_matches_reference_batched():
     torch.testing.assert_close(out_ours, out_ref, atol=1e-4, rtol=1e-4)
 
 
-def test_forward_matches_reference_bf16(refmod):
-    ref = _build_reference(refmod)
+def test_forward_matches_reference_bf16(upstream_module):
+    ref = _build_reference(upstream_module)
     ref_sd_bf16 = {k: v.to(torch.bfloat16) for k, v in ref.state_dict().items()}
-    ref_bf16 = _build_reference(refmod)
+    ref_bf16 = _build_reference(upstream_module)
     ref_bf16.load_state_dict(ref_sd_bf16, assign=True)
     ref_bf16.eval()
     ours_bf16 = _build_ours(ref_sd_bf16, dtype=torch.bfloat16)

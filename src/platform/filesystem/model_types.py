@@ -97,7 +97,6 @@ CORE_MODEL_TYPE_DEFINITIONS: Tuple[ModelTypeDefinition, ...] = (
     _core('mediapipe', 'MediaPipe', 'mediapipe', 'Face and body landmarks'),
     _core('llm', 'LLM', 'llm', 'Language model', layout=LAYOUT_DIRECTORY, assignable=False),
     _core('vfi', 'VFI', 'vfi', 'Adds in-between video frames'),
-    _core('refmod', 'RefMod', 'refmods', 'Pre-encoded reference latents'),
     _core('model_patch', 'Model patch', 'model_patches', 'Add-on branch loaded with a diffusion model'),
     _core('geometry_estimation', 'Geometry estimator', 'geometry_estimation',
           'Estimates depth and camera from an image'),

@@ -193,12 +193,12 @@ class _Assignments:
 
 
 def _index_container(tmp_path, outcome=None, already=()):
-    write_dir = tmp_path / "models" / "refmods"
+    write_dir = tmp_path / "models" / "loras"
     write_dir.mkdir(parents=True)
     indexing = _Indexing(outcome or {"model_id": "m-1", "indexed": True, "duplicate_of": None, "warning": None})
     assignments = _Assignments(already)
     container = SimpleNamespace(
-        model_roots=_Roots({"refmod": write_dir}),
+        model_roots=_Roots({"lora": write_dir}),
         model_index_manager=SimpleNamespace(indexing=indexing, assignments=assignments),
     )
     return container, write_dir, indexing, assignments

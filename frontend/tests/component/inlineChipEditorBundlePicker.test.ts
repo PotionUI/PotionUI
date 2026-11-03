@@ -8,7 +8,7 @@ vi.mock('$lib/services/api/index', async (importOriginal) => {
 	original.api.getModelById = vi.fn().mockResolvedValue({ success: true, data: { model: { name: 'Face Bundle' } } }) as never;
 	original.api.getPromptResourceMembers = vi.fn().mockImplementation(async (source: string) => ({
 		success: true,
-		data: { members: source === 'refmod' ? [{ kind: 'image', name: null }, { kind: 'video', name: null }] : [] }
+		data: { members: source === 'kit' ? [{ kind: 'image', name: null }, { kind: 'video', name: null }] : [] }
 	})) as never;
 	return original;
 });
@@ -21,13 +21,13 @@ let target: HTMLDivElement;
 
 const specs: PromptResourceSpec[] = [
 	{ field: 'references', kind: 'image', label: 'Pictures', token: '<Picture @>' },
-	{ field: 'reference_mods', kind: 'image', label: 'RefMods', token: '<Picture @>', source: 'refmod' },
-	{ field: 'reference_mods', kind: 'video', label: 'RefMods', token: '<Video @>', source: 'refmod' }
+	{ field: 'reference_kits', kind: 'image', label: 'Kits', token: '<Picture @>', source: 'kit' },
+	{ field: 'reference_kits', kind: 'video', label: 'Kits', token: '<Video @>', source: 'kit' }
 ];
 
 const values = {
 	references: [{ relative_path: 'a.png', name: 'a.png' }],
-	reference_mods: [
+	reference_kits: [
 		{ model: 'model:01X', strength: 1, copies: 1 },
 		{ model: 'model:01Z', strength: 0, copies: 1 }
 	]
@@ -64,8 +64,8 @@ afterEach(() => {
 	resetBundleDirectories();
 });
 
-describe('InlineChipEditor @ picker with RefMods', () => {
-	it('lists RefMods as one group, by name with a kind badge, and cites one as a named chip', async () => {
+describe('InlineChipEditor @ picker with Kits', () => {
+	it('lists Kits as one group, by name with a kind badge, and cites one as a named chip', async () => {
 		target = document.createElement('div');
 		document.body.appendChild(target);
 		const onChange = vi.fn();
@@ -83,10 +83,10 @@ describe('InlineChipEditor @ picker with RefMods', () => {
 		});
 
 		const groups = document.querySelector('.resource-picker')!.textContent || '';
-		expect(groups.match(/RefMods/g)).toHaveLength(1);
+		expect(groups.match(/Kits/g)).toHaveLength(1);
 		expect(groups).toContain('1 available');
 
-		clickRow('RefMods');
+		clickRow('Kits');
 		await vi.waitFor(() => {
 			flushSync();
 			expect(document.querySelector('.resource-picker')!.textContent).toContain('Face Bundle');
@@ -97,7 +97,7 @@ describe('InlineChipEditor @ picker with RefMods', () => {
 
 		clickRow('Face Bundle');
 		const detail = onChange.mock.calls.at(-1)![0].detail;
-		expect(detail.value).toBe('@[reference_mods:model:01X]');
+		expect(detail.value).toBe('@[reference_kits:model:01X]');
 		await vi.waitFor(() => {
 			flushSync();
 			expect(target.querySelector('.resource-chip')?.textContent).toContain('Face Bundle');

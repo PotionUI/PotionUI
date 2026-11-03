@@ -19,7 +19,6 @@ from src.pipelines.contracts import (
 from src.pipelines.pipes._shared.generation.batch_layout import PromptBatchLayout
 from src.pipelines.pipes._shared.generation.prompt_diff import word_diff
 from src.pipelines.pipes._shared.generation.reference_order import pack_references
-from src.pipelines.pipes._shared.generation.refmods import load_refmods
 from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
 from src.pipelines.pipes._shared.vae.minimax_h3_decode import decode_video
 from src.pipelines.references import PreEncodedReference, pre_encoded_references
@@ -151,15 +150,6 @@ class PromptEncoderPipe(BasePipe):
                           "handed, so a selection RE-LABELS that output's subset from 1 rather than "
                           "keeping the packed set's own numbering. Inert without 'references'",
                           required=False),
-            PipeConfigSpec("reference_mods", list, [], "MiniMax-H3 RefMod bundles (`_shared.generation."
-                          "refmods`), mirrored from the generator pipe's own 'reference_mods' -- a list of "
-                          "`{file_path, strength, copies}` dicts. Packed by the SAME `pack_references` call, after "
-                          "every native reference of a mod's own kind, so its presentation label numbers "
-                          "the same as the generator's reference block. An image or video mod is VAE-"
-                          "decoded to pixels via the 'vae' input before being presented; an audio mod "
-                          "contributes no media, only its own '<Audio j>: ' label, same as a native audio "
-                          "reference. Inert without 'reference_image'/'reference_video'/'reference_audio' "
-                          "or a mod entry of its own", required=False),
         ]
 
     def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
@@ -229,10 +219,7 @@ class PromptEncoderPipe(BasePipe):
             pipe_input.input.get("reference_image"),
             pipe_input.input.get("reference_video"),
             pipe_input.input.get("reference_audio"),
-            extras=[
-                *load_refmods(self.config.get("reference_mods")),
-                *pre_encoded_references(pipe_input.input.get("reference_latents")),
-            ],
+            extras=pre_encoded_references(pipe_input.input.get("reference_latents")),
         )
         if images and references:
             raise ValueError(

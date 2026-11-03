@@ -137,7 +137,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             PipeOutputSpec("text_encoder", IOType.TEXT_ENCODER, "MiniMax-H3 Qwen3-VL-32B text encoder (ClipTextEncoder ABC)", is_array=False),
             PipeOutputSpec("video_vae", IOType.VAE, "The SAME video VAE component already embedded in "
                            "'model' (bundle.video_vae), exposed standalone so a pipe that only needs the "
-                           "VAE -- e.g. prompt_encoder, to decode a RefMod's stored latent for the text "
+                           "VAE -- e.g. prompt_encoder, to decode a pre-encoded reference latent for the text "
                            "encoder's own presentation -- does not have to take the whole bundle",
                            is_array=False),
         ]

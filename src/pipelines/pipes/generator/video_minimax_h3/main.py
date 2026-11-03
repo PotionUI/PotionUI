@@ -151,7 +151,6 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     load_lora_stack as _load_lora_stack,
 )
 from src.pipelines.pipes._shared.generation.reference_order import pack_references
-from src.pipelines.pipes._shared.generation.refmods import load_refmods
 from src.pipelines.references import PreEncodedReference, pre_encoded_references
 from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
 from src.pipelines.pipes._shared.vae.minimax_h3_decode import (
@@ -1350,18 +1349,6 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "reference. Reference videos are not affected: they follow the canvas rule.",
                 required=False, min_value=CANVAS_MULTIPLE,
             ),
-            PipeConfigSpec(
-                "reference_mods", list, [],
-                "RefMod bundles (`_shared.generation.refmods`, ported from the community "
-                "ComfyUI-MiniMaxH3Mod project): a list of `{file_path, strength, copies}` dicts, each a "
-                "`.safetensors` file of one or more PRE-ENCODED reference latents (image, video "
-                "and/or audio members). Loaded and strength-mixed here, then packed by "
-                "`pack_references` AFTER every native reference of a mod's own kind -- an image mod "
-                "numbers after every 'reference_images' entry, and so on -- so 'references'/"
-                "'reference_videos'/'reference_audios' above never see or count them. A mod needs no "
-                "loaded image/video/audio input at all: it can be the request's ONLY reference.",
-                required=False,
-            ),
         ]
 
     @classmethod
@@ -1500,10 +1487,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         # are two different packed layouts, not two features of one request.
         packed = pack_references(
             reference_images, reference_videos, reference_audios,
-            extras=[
-                *load_refmods(self.config.get("reference_mods")),
-                *pre_encoded_references(pipe_input.input.get("reference_latents")),
-            ],
+            extras=pre_encoded_references(pipe_input.input.get("reference_latents")),
         )
         if packed and (images or configured_anchors):
             raise ValueError(

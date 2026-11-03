@@ -732,17 +732,17 @@ describe('StageShotFooter.references — existence per capability', () => {
 		expect(shot.footer.references).toEqual({ capability: 'per_shot', poolCount: 3, selectedCount: 1 });
 	});
 
-	it('per_shot counts RefMod members in both the used count and the pool, like the backend', () => {
+	it('per_shot counts kit members in both the used count and the pool, like the backend', () => {
 		const doc = wanDoc();
-		doc.chain.segments[0].prompt_segments = [{ id: 'p0', content: '@[references:/pool/a.png] @[reference_mods:model:01X]' }];
-		const caps: DirectorCapabilities = { ...wanCaps(), references: 'per_shot', referenceFields: ['references', 'reference_mods'] };
-		const form = { references: [{ path: '/pool/a.png', type: 'image' }], reference_mods: [{ model: 'model:01X', strength: 1 }] };
+		doc.chain.segments[0].prompt_segments = [{ id: 'p0', content: '@[references:/pool/a.png] @[reference_kits:model:01X]' }];
+		const caps: DirectorCapabilities = { ...wanCaps(), references: 'per_shot', referenceFields: ['references', 'reference_kits'] };
+		const form = { references: [{ path: '/pool/a.png', type: 'image' }], reference_kits: [{ model: 'model:01X', strength: 1 }] };
 		const references = {
 			specs: [
 				{ field: 'references', kind: 'image' as const, token: '<Picture @>' },
-				{ field: 'reference_mods', kind: 'image' as const, token: '<Picture @>', source: 'refmod' as const }
+				{ field: 'reference_kits', kind: 'image' as const, token: '<Picture @>', source: 'kit' as const }
 			],
-			directories: { refmod: { 'model:01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] } } }
+			directories: { kit: { 'model:01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] } } }
 		};
 		const shot = deriveStageModel(doc, caps, { kind: 'shot', id: 'chain-1' }, form, undefined, references).selected as StageShotModel;
 		expect(shot.footer.references).toEqual({ capability: 'per_shot', poolCount: 2, selectedCount: 2 });

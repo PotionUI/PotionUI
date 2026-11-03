@@ -43,6 +43,22 @@ def _check_base(session: Session, base_version: Optional[int]) -> None:
         raise SessionVersionConflict(session)
 
 
+def _named_session(session_repository: SessionRepository, user_id: str, request: SaveSessionRequest) -> Session:
+    session = session_repository.get_by_user_preset_and_name(user_id, request.preset_id, request.name)
+    if session is None:
+        raise NotFoundError("session_not_found", "Session not found")
+    return session
+
+
+def _owned_session(session_repository: SessionRepository, user_id: str, session_id: str) -> Session:
+    session = session_repository.get_by_id(session_id)
+    if not session:
+        raise NotFoundError("session_not_found", "Session not found")
+    if session.user_id != user_id:
+        raise AccessDeniedError("session_access_denied", "Access denied to this session")
+    return session
+
+
 def _contended(session_id: str) -> ConflictError:
     return ConflictError("session_write_contended", f"Session {session_id} kept changing during the save; try again")
 
@@ -190,30 +206,30 @@ def _update_existing_session(
     Raises:
         ValueError: If update blocked or failed
     """
-    for _ in range(MAX_WRITE_ATTEMPTS):
-        existing_session = session_repository.get_by_user_preset_and_name(
-            user_id, request.preset_id, request.name
-        )
-        if existing_session is None:
-            raise NotFoundError("session_not_found", "Session not found")
-        _check_base(existing_session, request.base_version)
+    existing_session = _named_session(session_repository, user_id, request)
+    _check_base(existing_session, request.base_version)
 
-        hook_data = run_veto_hook(
-            plugin_registry,
-            SESSION_HOOKS.before_update,
-            {
-                "session_id": existing_session.id,
-                "preset_id": existing_session.preset_id,
-                "name": existing_session.name,
-                "old_data": existing_session.data,
-                "new_data": request.data,
-                "mode": request.mode,
-                "user_id": user_id,
-            },
-            "Session update blocked",
-        )
+    hook_data = run_veto_hook(
+        plugin_registry,
+        SESSION_HOOKS.before_update,
+        {
+            "session_id": existing_session.id,
+            "preset_id": existing_session.preset_id,
+            "name": existing_session.name,
+            "old_data": existing_session.data,
+            "new_data": request.data,
+            "mode": request.mode,
+            "user_id": user_id,
+        },
+        "Session update blocked",
+    )
+    new_data = hook_data.get("new_data", request.data)
 
-        new_data = hook_data.get("new_data", request.data)
+    for attempt in range(MAX_WRITE_ATTEMPTS):
+        if attempt:
+            existing_session = _named_session(session_repository, user_id, request)
+            _check_base(existing_session, request.base_version)
+
         merged_data = _merge_mode_data(existing_session.data, new_data, request.mode)
 
         updated_session = Session(
@@ -303,41 +319,38 @@ def update_session(
     Raises:
         ValueError: If session not found, access denied, name conflict, or update blocked
     """
-    for _ in range(MAX_WRITE_ATTEMPTS):
-        session = session_repository.get_by_id(session_id)
+    session = _owned_session(session_repository, user_id, session_id)
+    _check_base(session, request.base_version)
 
-        if not session:
-            raise NotFoundError("session_not_found", "Session not found")
-
-        if session.user_id != user_id:
-            raise AccessDeniedError("session_access_denied", "Access denied to this session")
-
-        _check_base(session, request.base_version)
-
-        if request.name != session.name:
-            existing_with_name = session_repository.get_by_user_preset_and_name(
-                user_id, session.preset_id, request.name
-            )
-            if existing_with_name:
-                raise ConflictError("session_name_exists", f"Session with name '{request.name}' already exists for this preset")
-
-        hook_data = run_veto_hook(
-            plugin_registry,
-            SESSION_HOOKS.before_update,
-            {
-                "session_id": session_id,
-                "preset_id": session.preset_id,
-                "old_name": session.name,
-                "new_name": request.name,
-                "old_data": session.data,
-                "new_data": request.data,
-                "mode": request.mode,
-                "user_id": user_id,
-            },
-            "Session update blocked",
+    if request.name != session.name:
+        existing_with_name = session_repository.get_by_user_preset_and_name(
+            user_id, session.preset_id, request.name
         )
+        if existing_with_name:
+            raise ConflictError("session_name_exists", f"Session with name '{request.name}' already exists for this preset")
 
-        new_data = hook_data.get("new_data", request.data)
+    hook_data = run_veto_hook(
+        plugin_registry,
+        SESSION_HOOKS.before_update,
+        {
+            "session_id": session_id,
+            "preset_id": session.preset_id,
+            "old_name": session.name,
+            "new_name": request.name,
+            "old_data": session.data,
+            "new_data": request.data,
+            "mode": request.mode,
+            "user_id": user_id,
+        },
+        "Session update blocked",
+    )
+    new_data = hook_data.get("new_data", request.data)
+
+    for attempt in range(MAX_WRITE_ATTEMPTS):
+        if attempt:
+            session = _owned_session(session_repository, user_id, session_id)
+            _check_base(session, request.base_version)
+
         merged_data = _merge_mode_data(session.data, new_data, request.mode)
 
         updated_session = Session(

@@ -11,7 +11,7 @@ from src.features.backends.native_hardware import detect_native_hardware_default
 from src.platform.runtime.native.memory import residency
 from src.platform.runtime.native.memory.residency import module_size_gb, run_text_encode
 from tests.fixtures.kernel_capabilities import ada, fake_capabilities
-from tests.platform.runtime.native import _review_fit_layouts as L
+from tests.platform.runtime.native import _te_fit_layouts as L
 
 HISTORICAL_ENGINE_FIELDS = {
     "device": {"label": "Device", "type": "string", "secret": False},

@@ -99,6 +99,11 @@ def _cuda_stream_ctx(stream):
     return torch.cuda.stream(stream)
 
 
+def _release_idle_vram() -> None:
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def _register_forward_hook_always(module: nn.Module, hook):
     """``register_forward_hook`` with ``always_call=True`` when the torch build
     supports it, so a restore hook still fires if the wrapped forward raises
@@ -575,6 +580,8 @@ class ModuleStreamer:
         self._teardown_prefetch()
         staged_ids = {id(m) for m in self._staged_leaves}
         self._remove_stagers()
+        if self._pinned:
+            _release_idle_vram()
         legacy_pinned_bytes = self._pinned_bytes - self._arena_bytes()
         drain = self._pinned and legacy_pinned_bytes >= _TEARDOWN_RELEASE_CHUNK_GB * _BYTES_PER_GB
         streamed_ids = {id(m) for m in self._streamed}

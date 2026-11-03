@@ -89,6 +89,9 @@ function videoPanel(props: Record<string, unknown> = {}) {
 		onpickaudio: () => undefined,
 		onapplyeffect: () => calls.push('apply'),
 		onreseteffect: () => calls.push('reset'),
+		effectUpdating: false,
+		canApplyEffect: true,
+		canResetEffect: true,
 		...props
 	});
 	return { view, calls, q: <T extends Element = HTMLElement>(sel: string) => view.target.querySelector<T>(sel) };

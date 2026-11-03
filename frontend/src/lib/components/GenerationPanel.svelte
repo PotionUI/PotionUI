@@ -307,7 +307,7 @@
 		pipeId: generation.currentProgress?.pipe_id,
 		isAdmin
 	});
-	$: batchReading = readBatchProgress(generation.currentProgress);
+	$: batchReading = readBatchProgress(generation.currentProgress, preset?.category);
 	$: clipStep = isGenerating ? Number((generation.currentGeneration as any)?.preview_clip?.step ?? 0) : 0;
 	$: stepText = deckStepText(stage.stepCount, clipStep);
 

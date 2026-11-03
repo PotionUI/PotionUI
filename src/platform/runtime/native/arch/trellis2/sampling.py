@@ -39,6 +39,7 @@ from typing import Any, Callable, List, Optional
 
 import torch
 
+from ...cancellation import cancellation_scope
 from ...errors import SamplingCancelled
 from ...sampling.flow_schedule import _constant_shift_sigmas
 from ...sparse3d import SparseTensor
@@ -169,9 +170,9 @@ def sample_flow_stage(
     (shape/texture stages); ``forward_kwargs`` carries the texture stage's
     ``concat_cond``. ``neg_cond`` of ``None`` runs every step conditional-only.
 
-    ``is_cancelled`` is polled once per step, before that step's forward pass,
-    and raises :class:`SamplingCancelled` rather than returning the
-    partially-denoised ``x`` -- the same convention every other sampler
+    ``is_cancelled`` is polled once per step, before that step's forward pass and
+    before each DiT block of it, and raises :class:`SamplingCancelled` rather than
+    returning the partially-denoised ``x`` -- the same convention every other sampler
     algorithm in ``sampling/algorithms/`` uses. A partial ``x`` is not a valid
     sample for any of the three stages' downstream decoders; returning it
     silently would let a cancelled run reach the mesh export as if it had
@@ -186,7 +187,8 @@ def sample_flow_stage(
     for index, (t, t_next) in enumerate(zip(timesteps[:-1], timesteps[1:])):
         if is_cancelled is not None and is_cancelled():
             raise SamplingCancelled(step_index=index)
-        velocity = _guided_velocity(model, x, t, cond, neg_cond, settings, flow, kwargs)
+        with cancellation_scope(is_cancelled, step_index=index):
+            velocity = _guided_velocity(model, x, t, cond, neg_cond, settings, flow, kwargs)
         x = x - (t - t_next) * velocity
         if on_step is not None:
             on_step(index, total)

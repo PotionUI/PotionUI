@@ -55,9 +55,6 @@ from src.features.downloads.exceptions import DownloadNotFoundException
 from src.features.downloads.utils import derived_download_name
 from src.features.models.recommendations import RECOMMENDATION_EXTENSIONS, parse_ref
 from src.features.models import operations
-from src.features.models.form_refs import make_model_ref
-from src.features.prompt.reference_pool import refmod_path
-from src.pipelines.pipes._shared.generation.refmod_header import read_refmod_members
 from src.features.models.exceptions import (
     ModelDigestUnavailableException,
     InvalidModelTypeException,
@@ -283,28 +280,6 @@ class ModelController(BaseController):
     async def get_model_by_hash(self, sha256: str) -> APIResponse:
         data = await operations.get_model_by_hash(self.collaborators, sha256)
         return self.success_response(data=data)
-
-    @guarded(
-        {ModelNotFoundException: Fail("model_not_found", status=404)},
-        Fail("get_model_failed", "Failed to get model", detail=failure_detail),
-        admin="user",
-    )
-    async def get_refmod_members(self, model_id: str, user: User = None) -> APIResponse:
-        is_admin = bool(user and user.account_type == AccountType.ADMIN)
-        await operations.get_model_by_id(self.collaborators, model_id, user=user, admin=is_admin)
-        members = None
-        try:
-            path = refmod_path(self.collaborators.locator, make_model_ref(model_id))
-            members = await asyncio.to_thread(read_refmod_members, path)
-        except ValueError as error:
-            logger.warning("RefMod %s cannot be read: %s", model_id, error)
-        if members is None:
-            self.error_response(
-                error="refmod_unreadable",
-                message="This RefMod file is missing or is not a readable RefMod",
-                status_code=422,
-            )
-        return self.success_response(data={"members": [{"kind": m.kind, "name": m.name} for m in members]})
 
     @guarded(_NOT_FOUND, Fail("get_model_failed", "Failed to get model", detail=failure_detail), admin="user")
     async def get_model_by_id(self, model_id: str, user: User = None) -> APIResponse:
@@ -1079,14 +1054,6 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """List the backends that can load this model, with each one's ref, size and confidence."""
         return await controller.get_model_availability(model_id, current_user)
-
-
-    @router.get("/{model_id}/refmod-members", response_model=APIResponse, summary="Get RefMod Members")
-    async def get_refmod_members(
-        model_id: str,
-        current_user: User = Depends(get_current_active_user)
-    ):
-        return await controller.get_refmod_members(model_id, current_user)
 
 
     @router.get("/{model_id}/assignments", response_model=APIResponse, summary="Get Model Assignments")

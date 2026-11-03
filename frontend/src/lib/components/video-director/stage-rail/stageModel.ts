@@ -927,7 +927,7 @@ export function deriveStageModel(
 	if (selection) {
 		switch (selection.kind) {
 			case 'shot':
-				selected = buildShotModel(doc, caps, rail, selection.id, formData, timelineShot, references ?? { specs: [], directory: {} });
+				selected = buildShotModel(doc, caps, rail, selection.id, formData, timelineShot, references ?? { specs: [], directories: {} });
 				break;
 			case 'seam':
 				selected = buildJoinModel(doc, caps, rail, selection.id);

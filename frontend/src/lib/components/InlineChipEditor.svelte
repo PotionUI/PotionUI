@@ -37,9 +37,9 @@
 		type PromptResourceSpec,
 		type ResourceRef
 	} from '$lib/utils/promptResources';
-	import { refModMenuEntries, resourceMenuEntries } from '$lib/utils/resourceMenuEntries';
-	import { isRefModSpec, refModIds, refModName as refModDisplayName } from '$lib/utils/refMods';
-	import { loadRefMods, refModDirectory } from '$lib/stores/refModDirectory';
+	import { bundleMenuEntries, resourceMenuEntries } from '$lib/utils/resourceMenuEntries';
+	import { bundleInfo, bundleName, bundleRefs, bundleSourceLabel, isBundleSpec } from '$lib/utils/bundleResources';
+	import { bundleDirectories, loadBundles } from '$lib/stores/bundleDirectory';
 	import { countChoiceGroups } from '$lib/utils/choiceGroups';
 	import {
 		detectVariableTrigger,
@@ -341,11 +341,11 @@
 
 	function resourceGroupDescription(spec: PromptResourceSpec, values: Record<string, unknown>): string {
 		const count = resourceItemCount(spec, values);
-		if (count === 0) return isRefModSpec(spec) ? 'No RefMods selected yet' : `No ${kindLabel(spec.kind).toLowerCase()}s added yet`;
+		if (count === 0) return isBundleSpec(spec) ? `No ${spec.label || bundleSourceLabel(spec)} selected yet` : `No ${kindLabel(spec.kind).toLowerCase()}s added yet`;
 		return `${count} available`;
 	}
 
-	$: loadRefMods(refModIds(promptResources, resourceFieldValues));
+	$: loadBundles(bundleRefs(promptResources, resourceFieldValues));
 
 	$: menuSpecs = promptResources.filter(
 		(spec, index) =>
@@ -395,10 +395,11 @@
 		: null;
 
 	$: resourceItemSuggestions = activeResourceSpec
-		? ((isRefModSpec(activeResourceSpec)
-			? refModMenuEntries(
+		? ((isBundleSpec(activeResourceSpec)
+			? bundleMenuEntries(
 					specItems(promptResources, activeResourceSpec, resourceFieldValues[activeResourceSpec.field]),
-					$refModDirectory
+					activeResourceSpec,
+					$bundleDirectories
 				)
 			: resourceMenuEntries(
 					specItems(promptResources, activeResourceSpec, resourceFieldValues[activeResourceSpec.field]),
@@ -2085,7 +2086,7 @@
 					position: state.position,
 					item,
 					fieldLabel: resourceFieldLabels[ref.field],
-					displayName: state.spec && isRefModSpec(state.spec) ? refModDisplayName(ref.item_key, $refModDirectory) : null,
+					displayName: state.spec && isBundleSpec(state.spec) ? bundleName(ref.item_key, bundleInfo($bundleDirectories, state.spec, ref.item_key)) : null,
 					disabled: isDisabled,
 					onRemove: () => handleResourceRemove(el),
 					onSwitch: () => openResourceSwitcher(el, state.spec ? resourceGroupKey(promptResources, state.spec) : ref.field),
@@ -2447,7 +2448,7 @@
 
 	let lastResourceFieldValuesHash: string | null = null;
 	$: {
-		const currentHash = `${hashResourceFieldValues(resourceFieldValues)}::${hashPromptResourceSpecs(promptResources)}::${Object.entries($refModDirectory).map(([id, info]) => `${id}=${info.name ?? ''}`).join('|')}`;
+		const currentHash = `${hashResourceFieldValues(resourceFieldValues)}::${hashPromptResourceSpecs(promptResources)}::${Object.entries($bundleDirectories).flatMap(([source, directory]) => Object.entries(directory).map(([id, info]) => `${source}:${id}=${info.name ?? ''}`)).join('|')}`;
 		if (editorRef && !isInternalUpdate) {
 			const step = stepVariablesHash(currentHash, lastResourceFieldValuesHash);
 			lastResourceFieldValuesHash = step.nextHash;

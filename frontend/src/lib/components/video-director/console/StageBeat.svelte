@@ -29,8 +29,8 @@
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import { NO_REFERENCES_HINT, shotNeedsReferenceHint, shotReferenceOverview } from '$lib/utils/shotReferences';
-	import { refModIds } from '$lib/utils/refMods';
-	import { loadRefMods, refModDirectory } from '$lib/stores/refModDirectory';
+	import { bundleRefs } from '$lib/utils/bundleResources';
+	import { bundleDirectories, loadBundles } from '$lib/stores/bundleDirectory';
 	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 
 	const presetSegmentTemplates =
@@ -77,11 +77,11 @@
 	);
 
 	$effect(() => {
-		loadRefMods(refModIds(promptResources, resourceFieldValues));
+		loadBundles(bundleRefs(promptResources, resourceFieldValues));
 	});
 	let showReferenceHint = $derived(
 		caps.references === 'per_shot' &&
-			shotNeedsReferenceHint(shotReferenceOverview(doc, caps, timelineShotId, resourceFieldValues, promptResources, $refModDirectory))
+			shotNeedsReferenceHint(shotReferenceOverview(doc, caps, timelineShotId, resourceFieldValues, promptResources, $bundleDirectories))
 	);
 
 	function updatePromptSegments(segments: Segment[]) {

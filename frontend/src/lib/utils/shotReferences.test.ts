@@ -254,7 +254,7 @@ const refModForm = {
 		{ model: 'model:01Z', strength: 0, copies: 1 }
 	]
 };
-const directory = { '01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] } };
+const directory = { refmod: { 'model:01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] } } };
 
 describe('refmod rows', () => {
 	it('lists a refmod by name with a badge and leaves native numbering alone', () => {
@@ -313,11 +313,13 @@ describe('the shot reference pool matches what the backend conditions on', () =>
 		reference_mods: [{ model: 'model:01X', strength: 1 }]
 	};
 	const mixedDirectory = {
-		'01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] },
-		'01B': { name: 'Cast', members: [{ kind: 'image' as const, name: 'hero' }, { kind: 'image' as const, name: 'villain' }] },
-		'01S': { name: 'Stack', members: [{ kind: 'video' as const, name: null }] }
+		refmod: {
+			'model:01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] },
+			'model:01B': { name: 'Cast', members: [{ kind: 'image' as const, name: 'hero' }, { kind: 'image' as const, name: 'villain' }] },
+			'model:01S': { name: 'Stack', members: [{ kind: 'video' as const, name: null }] }
+		}
 	};
-	const context = { specs: refModSpecs, directory: mixedDirectory };
+	const context = { specs: refModSpecs, directories: mixedDirectory };
 
 	it('puts each RefMod member and copy after the native references of its kind, dropping strength 0', () => {
 		const form = {

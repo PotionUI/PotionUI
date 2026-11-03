@@ -3,6 +3,7 @@
 	import Icon from './Icon.svelte';
 	import MediaThumb from './media/MediaThumb.svelte';
 	import { kindLabel, resourceHandleLabel, type PromptResourceSpec } from '$lib/utils/promptResources';
+	import { bundleSourceLabel, isBundleSpec } from '$lib/utils/bundleResources';
 
 	export let field: string;
 	export let itemKey: string;
@@ -31,7 +32,7 @@
 		}
 	}
 	$: displayLabel =
-		spec && position !== null ? (spec.source === 'refmod' && displayName ? displayName : resourceHandleLabel(spec, position)) : field;
+		spec && position !== null ? (isBundleSpec(spec) && displayName ? displayName : resourceHandleLabel(spec, position)) : field;
 	$: resolvedFieldLabel = fieldLabel || field;
 	$: itemUrl = item && typeof item === 'object' && typeof (item as Record<string, unknown>).url === 'string'
 		? ((item as Record<string, unknown>).url as string)
@@ -45,8 +46,8 @@
 		? spec
 			? `Removed from ${resolvedFieldLabel}`
 			: `${resolvedFieldLabel} can no longer be referenced here`
-		: spec!.source === 'refmod'
-			? `RefMod · ${displayName || itemName}`
+		: isBundleSpec(spec)
+			? `${bundleSourceLabel(spec)} · ${displayName || itemName}`
 			: `${kindLabel(spec!.kind)} · ${itemName}`;
 </script>
 

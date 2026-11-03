@@ -349,3 +349,19 @@ describe('refmod specs', () => {
 		expect(resolveResourceMarkers(text, refSpecs, values)).toBe(text);
 	});
 });
+
+describe('specs of any prompt resource source', () => {
+	const stackSpecs: PromptResourceSpec[] = [
+		{ field: 'stacks', kind: 'image', token: '<Picture @>', source: 'stack', source_label: 'Stack', source_badge: 'Stk' },
+		{ field: 'stacks', kind: 'audio', token: '<Audio @>', source: 'stack', source_label: 'Stack', source_badge: 'Stk' }
+	];
+	const values = { stacks: [{ model: 'model:01X', strength: 1 }, { model: 'model:01Z', strength: 0 }] };
+
+	it('group, cite and stay unresolved in the editor exactly like the core source', () => {
+		expect(resourceGroupKey(stackSpecs, stackSpecs[1])).toBe('stacks');
+		expect(specItems(stackSpecs, stackSpecs[0], values.stacks)).toHaveLength(1);
+		expect(resourceMarkerState({ field: 'stacks', item_key: 'model:01Z' }, stackSpecs, values).dangling).toBe(true);
+		const text = 'a @[stacks:model:01X]';
+		expect(resolveResourceMarkers(text, stackSpecs, values)).toBe(text);
+	});
+});

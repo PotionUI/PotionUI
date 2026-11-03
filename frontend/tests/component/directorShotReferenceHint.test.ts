@@ -12,7 +12,7 @@ vi.mock('$lib/services/api/index', async (importOriginal) => {
 		put: vi.fn().mockResolvedValue({ data: { success: true } })
 	})) as never;
 	original.api.getModelById = vi.fn().mockResolvedValue({ success: true, data: { model: { name: 'Face' } } }) as never;
-	original.api.getRefModMembers = vi
+	original.api.getPromptResourceMembers = vi
 		.fn()
 		.mockResolvedValue({ success: true, data: { members: [{ kind: 'image', name: null }] } }) as never;
 	return original;

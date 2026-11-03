@@ -219,14 +219,16 @@ mapped once per kind (MiniMax-H3's `references` holds images, videos and audio):
 covers only that kind's items, and `@` is the item's position among the field's items of that
 kind. The marker carries no kind; it comes from the item's `type`, else its file extension.
 
-An entry with `source: "refmod"` maps a `lora_picker` field of RefMods (`model_type: refmod`)
-instead of a media picker. Map it once per member kind, with the same tokens as the native
-references (MiniMax-H3 maps `reference_mods` as image, video and audio). A RefMod row's item key
-is its `model` value, and a row at strength 0 cannot be cited. Citing a RefMod cites every member
-of the file, once per copy, and the marker becomes every member's token (`<Picture 3> <Audio 2>`),
-numbered after every native item of that kind, which is where the generator packs it. Member
-kinds come from the file's header (`GET /api/models/{id}/refmod-members`); a missing or
-unreadable file fails the submission naming it. One field cannot mix both sources.
+An entry with a `source:` maps a field whose rows are bundles a prompt resource source reads,
+instead of a media picker. A source is registered by a plugin (manifest `prompt_resource_sources:`,
+see [the plugin API](../plugin-api.md#contributing-a-prompt-resource-source)) and names the
+field type it reads, usually a `lora_picker`; an unknown source fails validation. Map the field
+once per member kind, with the same tokens as the native references. A row's item key is its
+`model` value, and a row at strength 0 cannot be cited. Citing a bundle cites every member, once
+per copy, and the marker becomes every member's token (`<Picture 3> <Audio 2>`), numbered after
+every native item of that kind, which is where the generator packs it. Member kinds come from the
+source (`GET /api/prompt-resources/sources/{source}/members?item=<item key>`); an item the source
+cannot read fails the submission naming it. One field cannot mix sources.
 
 A segment stores a reference as the marker `@[<field>:<item key>]` in its `content`, plus an
 entry in its `resources` map (beside `chips`), keyed by the editor's marker id:
@@ -241,7 +243,8 @@ counts on its own (`<Picture 1>` and `<Video 1>` can both exist). Text that alre
 A marker whose field this mode does not map, or whose item is no longer in the field, stops the
 generation with the same 422 `form_validation_failed` response as any other form error, keyed by
 the field name. The form endpoint (`GET /api/presets/{id}/form?mode=...`) returns the mode's list
-as `prompt_resources` next to `form_schema`.
+as `prompt_resources` next to `form_schema`; an entry with a `source` also carries that source's
+`source_label` and `source_badge`.
 
 `scripts/preset_lint.py` rejects a token without `@`, an unknown `kind`, a field mapped twice for
 the same kind, a kind the field's `accepted_types` leaves out, a

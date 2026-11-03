@@ -1,49 +1,54 @@
 import { writable } from 'svelte/store';
 import { api } from '$lib/services/api';
 import { modelDisplayName } from '$lib/utils/modelDisplay';
-import type { RefModDirectory, RefModInfo } from '$lib/utils/refMods';
+import { MODEL_REF_PREFIX, bundleItemId, type BundleDirectories, type BundleInfo, type BundleRef } from '$lib/utils/bundleResources';
 
-export const refModDirectory = writable<RefModDirectory>({});
+export const bundleDirectories = writable<BundleDirectories>({});
 
 const requested = new Set<string>();
 
-function remember(id: string, patch: Partial<RefModInfo>): void {
-	refModDirectory.update((current) => ({
-		...current,
-		[id]: { ...(current[id] ?? { name: null, members: null }), ...patch }
-	}));
+function remember(source: string, itemKey: string, patch: Partial<BundleInfo>): void {
+	bundleDirectories.update((current) => {
+		const directory = current[source] ?? {};
+		return {
+			...current,
+			[source]: { ...directory, [itemKey]: { ...(directory[itemKey] ?? { name: null, members: null }), ...patch } }
+		};
+	});
 }
 
-async function loadName(id: string): Promise<void> {
+async function loadName(source: string, itemKey: string): Promise<void> {
+	if (!itemKey.startsWith(MODEL_REF_PREFIX)) return;
 	try {
-		const response = await api.getModelById(id);
+		const response = await api.getModelById(bundleItemId(itemKey));
 		const name = response.success ? modelDisplayName(response.data?.model) : '';
-		if (name) remember(id, { name });
+		if (name) remember(source, itemKey, { name });
 	} catch {
 		return;
 	}
 }
 
-async function loadMembers(id: string): Promise<void> {
+async function loadMembers(source: string, itemKey: string): Promise<void> {
 	try {
-		const response = await api.getRefModMembers(id);
+		const response = await api.getPromptResourceMembers(source, itemKey);
 		const members = response.success ? response.data?.members : undefined;
-		remember(id, { members: Array.isArray(members) ? members : [] });
+		remember(source, itemKey, { members: Array.isArray(members) ? members : [] });
 	} catch {
-		remember(id, { members: [] });
+		remember(source, itemKey, { members: [] });
 	}
 }
 
-export function loadRefMods(ids: readonly string[]): void {
-	for (const id of ids) {
-		if (!id || requested.has(id)) continue;
-		requested.add(id);
-		void loadName(id);
-		void loadMembers(id);
+export function loadBundles(refs: readonly BundleRef[]): void {
+	for (const { source, itemKey } of refs) {
+		const key = `${source}\u0000${itemKey}`;
+		if (!source || !itemKey || requested.has(key)) continue;
+		requested.add(key);
+		void loadName(source, itemKey);
+		void loadMembers(source, itemKey);
 	}
 }
 
-export function resetRefModDirectory(): void {
+export function resetBundleDirectories(): void {
 	requested.clear();
-	refModDirectory.set({});
+	bundleDirectories.set({});
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { refModMenuEntries, resourceMenuEntries } from './resourceMenuEntries';
+import type { PromptResourceSpec } from './promptResources';
+import { bundleMenuEntries, resourceMenuEntries } from './resourceMenuEntries';
 
 describe('resourceMenuEntries', () => {
 	it('labels entries by file name so no two items share a picture number', () => {
@@ -21,23 +22,38 @@ describe('resourceMenuEntries', () => {
 	});
 });
 
-describe('refModMenuEntries', () => {
-	it('lists each refmod by name with a kind badge', () => {
-		const entries = refModMenuEntries(
-			[{ model: 'model:01X', strength: 1 }, { model: 'model:01Y', strength: 1 }],
-			{
-				'01X': { name: 'Face', members: [{ kind: 'image', name: null }] },
-				'01Y': { name: 'Dance', members: [{ kind: 'image', name: null }, { kind: 'video', name: null }] }
+const bundleSpec: PromptResourceSpec = {
+	field: 'bundles',
+	kind: 'image',
+	token: '<Picture @>',
+	source: 'stack',
+	source_label: 'Stack',
+	source_badge: 'Stk'
+};
+
+describe('bundleMenuEntries', () => {
+	it('lists each bundle by name with a kind badge', () => {
+		const entries = bundleMenuEntries([{ model: 'model:01X', strength: 1 }, { model: 'model:01Y', strength: 1 }], bundleSpec, {
+			stack: {
+				'model:01X': { name: 'Face', members: [{ kind: 'image', name: null }] },
+				'model:01Y': { name: 'Dance', members: [{ kind: 'image', name: null }, { kind: 'video', name: null }] }
 			}
-		);
+		});
 		expect(entries.map((e) => [e.id, e.label, e.value])).toEqual([
 			['model:01X', 'Face', 'Picture'],
 			['model:01Y', 'Dance', 'Picture + Video']
 		]);
 	});
 
-	it('shows the id and a generic badge before the directory loads', () => {
-		const [entry] = refModMenuEntries([{ model: 'model:01X', strength: 1 }], {});
-		expect([entry.label, entry.value]).toEqual(['01X', 'RefMod']);
+	it('shows the id and the source badge before the directory loads', () => {
+		const [entry] = bundleMenuEntries([{ model: 'model:01X', strength: 1 }], bundleSpec, {});
+		expect([entry.label, entry.value]).toEqual(['01X', 'Stk']);
+	});
+
+	it('reads only its own source directory', () => {
+		const [entry] = bundleMenuEntries([{ model: 'model:01X', strength: 1 }], bundleSpec, {
+			other: { 'model:01X': { name: 'Elsewhere', members: [{ kind: 'audio', name: null }] } }
+		});
+		expect([entry.label, entry.value]).toEqual(['01X', 'Stk']);
 	});
 });

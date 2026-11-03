@@ -11,7 +11,7 @@ import os
 import logging
 import mimetypes
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Iterator, Optional, List, Tuple, Literal
 from datetime import datetime
 
@@ -20,6 +20,7 @@ from src.platform.filesystem.mesh_formats import mesh_format_registry
 from src.platform.filesystem.storage_driver import (
     FileStorageDriver,
     LocalFileStorageDriver,
+    StorageKeyError,
     _atomic_copy_file,
     _atomic_write_bytes,
     generations_key,
@@ -314,7 +315,27 @@ class FileStore:
             except Exception as e:
                 failed += 1
                 logger.error(f"Failed to delete generation output {relative_path}: {str(e)}")
+        self._remove_empty_generation_dirs(relative_paths)
         return (deleted, failed)
+
+    def _remove_empty_generation_dirs(self, relative_paths: List[str]) -> None:
+        parents = set()
+        for relative_path in relative_paths:
+            try:
+                parent = PurePosixPath(generations_key(relative_path)).parent
+            except StorageKeyError:
+                continue
+            while parent.parts[:1] == ("generations",) and len(parent.parts) >= 3:
+                parents.add(parent)
+                parent = parent.parent
+        for parent in sorted(parents, key=lambda path: len(path.parts), reverse=True):
+            directory = self.storage_driver.local_path(parent.as_posix())
+            if directory is None:
+                return
+            try:
+                directory.rmdir()
+            except OSError:
+                continue
 
     @contextmanager
     def local_copy_of(self, relative_path: str, suffix: str = "") -> Iterator[Path]:

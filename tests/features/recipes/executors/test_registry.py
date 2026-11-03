@@ -4,6 +4,8 @@
 recipe + fake executors, so this is isolated from real plugins/presets/models.
 """
 
+import logging
+
 import pytest
 
 from src.features.recipes.executors.base import StepContext, StepResult
@@ -399,6 +401,93 @@ def test_grant_consent_with_wrong_step_key_is_rejected(file_db):
 
     with pytest.raises(RecipeRunError):
         manager.grant_consent(run.id, "step-two")
+
+
+class CancelledMidStepExecutor:
+    def __init__(self, runner, outcome, report_progress=True):
+        self.runner = runner
+        self.outcome = outcome
+        self.report_progress = report_progress
+        self.saw_cancel = None
+
+    def execute(self, context: StepContext) -> StepResult:
+        if self.report_progress:
+            context.report_progress(progress_current=1, progress_total=8, progress_unit="steps")
+        self.runner.apply_action(context.run.id, "cancel")
+        if self.report_progress:
+            context.report_progress(progress_current=2, progress_total=8, progress_unit="steps")
+        self.saw_cancel = context.is_cancelled()
+        return self.outcome
+
+
+def _no_errors(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+
+def test_a_run_cancelled_mid_step_closes_the_attempt_as_cancelled(file_db, caplog):
+    recipe = _two_step_recipe()
+    manager = RecipeRunner()
+    step_one = CancelledMidStepExecutor(manager, StepResult.fail("GENERATION_SMOKE_CANCELLED", "Stopped."))
+    manager.register_executor_registry(RecipeExecutorRegistry(FakeCatalog(recipe), {"kind.one": step_one}))
+    run = manager.create_run("fake-recipe")
+
+    run = manager.execute_current_step(run.id)
+
+    assert step_one.saw_cancel is True
+    assert run.status == RecipeRunStatus.CANCELLED
+    assert run.current_step == "step-one"
+    attempts = manager.list_attempts(run.id)
+    assert len(attempts) == 1
+    assert attempts[0].status == RecipeStepStatus.CANCELLED
+    assert attempts[0].finished_at is not None
+    assert attempts[0].progress_current == 1
+    assert attempts[0].error_code == "GENERATION_SMOKE_CANCELLED"
+    assert _no_errors(caplog)
+
+
+def test_a_step_that_succeeds_after_its_run_was_cancelled_does_not_advance(file_db, caplog):
+    recipe = _two_step_recipe()
+    manager = RecipeRunner()
+    step_two = AlwaysSucceedsExecutor()
+    step_one = CancelledMidStepExecutor(manager, StepResult.ok({"done": True}), report_progress=False)
+    manager.register_executor_registry(
+        RecipeExecutorRegistry(FakeCatalog(recipe), {"kind.one": step_one, "kind.two": step_two})
+    )
+    run = manager.create_run("fake-recipe")
+
+    run = manager.drive(run.id)
+
+    assert run.status == RecipeRunStatus.CANCELLED
+    assert run.current_step == "step-one"
+    assert step_two.calls == 0
+    attempts = manager.list_attempts(run.id)
+    assert [(a.step_key, a.status) for a in attempts] == [("step-one", RecipeStepStatus.CANCELLED)]
+    assert attempts[0].finished_at is not None
+    assert attempts[0].safe_output == {"done": True}
+    assert _no_errors(caplog)
+
+
+def test_a_cancel_that_lands_while_the_outcome_is_recorded_closes_the_same_attempt(file_db, caplog):
+    class CancelsBeforeFailingRunner(RecipeRunner):
+        def transition(self, run_id, target, **kwargs):
+            if target == RecipeRunStatus.FAILED:
+                self.apply_action(run_id, "cancel")
+            return super().transition(run_id, target, **kwargs)
+
+    recipe = _two_step_recipe()
+    manager = CancelsBeforeFailingRunner()
+    manager.register_executor_registry(RecipeExecutorRegistry(FakeCatalog(recipe), {"kind.one": AlwaysFailsExecutor()}))
+    run = manager.create_run("fake-recipe")
+
+    run = manager.execute_current_step(run.id)
+
+    assert run.status == RecipeRunStatus.CANCELLED
+    attempts = manager.list_attempts(run.id)
+    assert len(attempts) == 1
+    assert attempts[0].status == RecipeStepStatus.CANCELLED
+    assert attempts[0].finished_at is not None
+    assert attempts[0].error_code == "BOOM"
+    assert _no_errors(caplog)
 
 
 def test_recipe_with_no_steps_completes_immediately(file_db):

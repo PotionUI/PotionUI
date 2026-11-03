@@ -74,5 +74,5 @@ def test_missing_params_is_misconfiguration(executor):
 
 def test_required_text_field_without_default_gets_a_placeholder(executor):
     result = executor.execute(_context("01KX47YUE200000000000000YU", "song"))
-    assert result.success, result.message
+    assert result.success, result.safe_error_detail
     assert result.safe_output["pipe_count"] > 0

@@ -10,7 +10,7 @@ Setup depends on recipes, never the reverse.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from src.features.recipes.catalog import RecipeCatalog
 from src.features.recipes.executors.artifacts_fetch import ArtifactsFetchExecutor
@@ -69,6 +69,7 @@ def build_default_executor_registry(
     step_kind_registry: Optional[Any] = None,
     indexing_coordinator: Optional[Any] = None,
     type_manager: Optional[Any] = None,
+    app_loop: Optional[Callable[[], Any]] = None,
     digests: Optional[Any] = None,
 ) -> RecipeExecutorRegistry:
     """Wire the built-in step executors onto a fresh registry.
@@ -111,6 +112,7 @@ def build_default_executor_registry(
             generation_orchestrator,
             file_repository,
             model_repository=model_repository,
+            app_loop=app_loop,
         )
     else:
         # No orchestrator wired (e.g. a minimal test container) - a recipe

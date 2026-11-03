@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 import torch
 
+from ...cancellation import cancellation_scope
 from ...errors import SamplingCancelled
 from .model import YuE2Model
 from .protocol import CODEC_OFFSET, CODEC_SIZE, CONTEXT, MUSIC_END, chunk_ranges
@@ -74,12 +75,14 @@ def synthesize(
                 raise SamplingCancelled(chunk_index * steps + step)
             t = 1.0 - step * dt
             raw = torch.logit(torch.tensor(t, dtype=torch.float64)).clamp(-20, 20).item()
-            first = model.nar_velocity(nar_context, state, raw)
+            with cancellation_scope(is_cancelled, step_index=chunk_index * steps + step):
+                first = model.nar_velocity(nar_context, state, raw)
             mid = state - first * (dt / 2)
             if is_cancelled is not None and is_cancelled():
                 raise SamplingCancelled(chunk_index * steps + step)
             raw_mid = torch.logit(torch.tensor(t - dt / 2, dtype=torch.float64)).clamp(-20, 20).item()
-            state = state - model.nar_velocity(nar_context, mid, raw_mid) * dt
+            with cancellation_scope(is_cancelled, step_index=chunk_index * steps + step):
+                state = state - model.nar_velocity(nar_context, mid, raw_mid) * dt
             if on_step is not None:
                 on_step(chunk_index * steps + step + 1, total_steps)
         result = state.float().cpu()

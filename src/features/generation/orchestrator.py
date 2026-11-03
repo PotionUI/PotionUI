@@ -2016,6 +2016,7 @@ class GenerationOrchestrator:
         if backend is None and record.backend_id:
             backend = self.backend_registry.get_backend(record.backend_id)
 
+        orphaned = False
         if record.state == GenerationState.RUNNING:
             self._cancel_requested.add(generation_id)
             try:
@@ -2025,14 +2026,21 @@ class GenerationOrchestrator:
                     f"Error cancelling {generation_id} on backend {record.backend_id}: {str(e)}",
                     exc_info=True
                 )
-                return False
-            if not cancelled:
+                cancelled = False
+            if cancelled:
+                handed_notice = backend.take_cancel_notice(generation_id)
+                if handed_notice:
+                    self.status_tracker.set_cancel_notice(generation_id, handed_notice)
+                logger.info(f"Cancelled generation {generation_id} on backend {backend.name}")
+            elif self._output_bridge_alive(generation_id):
                 logger.warning(f"Backend could not cancel {generation_id}")
                 return False
-            handed_notice = backend.take_cancel_notice(generation_id)
-            if handed_notice:
-                self.status_tracker.set_cancel_notice(generation_id, handed_notice)
-            logger.info(f"Cancelled generation {generation_id} on backend {backend.name}")
+            else:
+                logger.warning(
+                    f"Generation {generation_id} has no output consumer left; marking it cancelled"
+                )
+                orphaned = True
+                self._forget_run(generation_id)
         elif backend is not None:
             try:
                 await backend.cancel_generation(generation_id)
@@ -2043,10 +2051,22 @@ class GenerationOrchestrator:
                 )
 
         await self.status_tracker.transition_async(generation_id, GenerationState.CANCELLED)
+        if orphaned and record.backend_id:
+            await self._queue_dispatcher.release(record.backend_id, generation_id)
         self._queue_dispatcher.prune_finished()
         logger.debug(f"Updated status to cancelled for {generation_id}")
 
         return True
+
+    def _output_bridge_alive(self, generation_id: str) -> bool:
+        task = self._bridge_tasks.get(generation_id)
+        return task is not None and not task.done() and not task.get_loop().is_closed()
+
+    def _forget_run(self, generation_id: str) -> None:
+        self._run_backends.pop(generation_id, None)
+        self._cancel_requested.discard(generation_id)
+        self._prompt_batches.pop(generation_id, None)
+        self._content_tally.pop(generation_id, None)
 
     async def clear_tab_queue(self, user_id: str, tab_id: str) -> List[str]:
         """Drop every *pending* generation belonging to a tab.

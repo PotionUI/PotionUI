@@ -64,6 +64,7 @@ from vendor.gpl.comfyui.z_image.layers import (
 from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...cache_identity import identity_usable, tensor_identity
+from ...cancellation import raise_if_cancelled
 from ...ops.padding import pad_to_patch
 from .config import ZImageConfig
 
@@ -260,7 +261,8 @@ class ZImageDiT(NativeArchModule):
 
         cap = self.cap_embedder(context)
         cap = self._pad_tokens(cap, self.cap_pad_token)
-        for layer in self.context_refiner:
+        for i, layer in enumerate(self.context_refiner):
+            raise_if_cancelled(i)
             cap = layer(cap, geometry.cap_rope, None)
         if key is not None:
             while len(geometry.captions) >= self._CAPTION_SLOTS:
@@ -296,7 +298,8 @@ class ZImageDiT(NativeArchModule):
         img = x.view(bsz, self.in_channels, h_tok, p, w_tok, p).permute(0, 2, 4, 3, 5, 1).flatten(3).flatten(1, 2)
         img = self.x_embedder(img)
         img = self._pad_tokens(img, self.x_pad_token)
-        for layer in self.noise_refiner:
+        for i, layer in enumerate(self.noise_refiner):
+            raise_if_cancelled(i)
             img = layer(img, geometry.img_rope, adaln_input)
 
         # joint stack over [caption ; image].
@@ -307,6 +310,7 @@ class ZImageDiT(NativeArchModule):
         step_cache = kwargs.get("step_cache")
         probe = None
         for i, layer in enumerate(self.layers):
+            raise_if_cancelled(i)
             joint = layer(joint, rope, adaln_input)
             if i == 0 and step_cache is not None:
                 probe = joint

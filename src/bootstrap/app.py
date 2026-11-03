@@ -13,10 +13,12 @@ import asyncio
 import functools
 import logging
 import os
+import threading
 from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 import src.platform.plugins.runtime_registries as _rr
 from src.bootstrap.container import AppContainer, build_container
@@ -25,6 +27,7 @@ from src.bootstrap.errors import register_error_handlers
 from src.bootstrap.middleware import register_middleware
 from src.bootstrap.routers import register_routers
 from src.bootstrap.static_frontend import mount_frontend
+from src.features.generation.memory_advisory import resolve_device_evidence
 from src.features.providers.registry import ensure_providers_discovered
 from src.platform.runtime.offload.pool import shutdown_offload
 from src.platform.plugins.router_mounter import MOUNT_FAILURE_MESSAGE, MountResult
@@ -340,6 +343,37 @@ def mount_plugin_routers(app: FastAPI, container: AppContainer) -> None:
         container.plugin_repository.disable_plugin(plugin_id)
 
 
+def warm_up(container: AppContainer, ready: threading.Event) -> None:
+    try:
+        try:
+            container.preset_template_loader.all()
+        except Exception as exc:
+            logging.error(f"Loading the preset catalogue at startup failed: {exc}")
+        for backend_id, backend in container.backend_registry.get_all_backends().items():
+            try:
+                resolve_device_evidence(backend, container.gpu_monitor)
+            except Exception as exc:
+                logging.error(f"Resolving the execution device of backend {backend_id} at startup failed: {exc}")
+    finally:
+        ready.set()
+
+
+def add_health_route(app: FastAPI, ready: threading.Event) -> None:
+    @app.get("/health", tags=["System & Health"], summary="Health Check")
+    async def health_check():
+        """Check if the API service is running and healthy."""
+        payload = health_payload(ready.is_set())
+        if payload["status"] == "starting":
+            return JSONResponse(payload, status_code=503)
+        return payload
+
+
+def health_payload(ready: bool = True) -> dict:
+    if not ready:
+        return {"status": "starting", "service": "potionui-api"}
+    return {"status": "healthy", "service": "potionui-api"}
+
+
 def create_app(container: Optional[AppContainer] = None) -> FastAPI:
     """Build and return the fully-assembled FastAPI application."""
     # Run database migrations BEFORE building the container (it needs DB access).
@@ -362,6 +396,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
     )
 
     automation_runtime = container.automation_runtime
+    warmed_up = threading.Event()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -403,6 +438,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         container.app_loop = asyncio.get_running_loop()
         container.plugin_registry.run_ready_hooks()
+        asyncio.create_task(asyncio.to_thread(warm_up, container, warmed_up))
 
         try:
             await ensure_providers_discovered()
@@ -516,11 +552,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
     _seed_runtime_from_container(container)
     register_routers(app, container)
 
-    # Health check endpoint
-    @app.get("/health", tags=["System & Health"], summary="Health Check")
-    async def health_check():
-        """Check if the API service is running and healthy."""
-        return {"status": "healthy", "service": "potionui-api"}
+    add_health_route(app, warmed_up)
 
     # Mount plugin API routers (dynamically - PluginRouterMounter tracks which
     # routes belong to which plugin so operations.enable_plugin/disable_plugin

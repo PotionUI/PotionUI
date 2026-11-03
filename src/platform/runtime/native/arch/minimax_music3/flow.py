@@ -30,6 +30,7 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
+from ...cancellation import cancellation_scope
 from ...errors import SamplingCancelled
 from .model import MiniMaxMusic3Model, latent_length
 
@@ -163,7 +164,7 @@ def denoise_windowed(
                 )
 
             timestep = current_t.expand(latents.shape[0]).to(device=device, dtype=latents.dtype)
-            with torch.no_grad():
+            with torch.no_grad(), cancellation_scope(is_cancelled, step_index=global_step):
                 velocity_cond = model(latents, timestep, condition)
                 velocity_uncond = model(latents, timestep, zero_condition)
             velocity = velocity_uncond + cfg_scale * (velocity_cond - velocity_uncond)

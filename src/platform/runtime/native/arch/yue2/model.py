@@ -18,6 +18,7 @@ import torch.nn.functional as F
 
 from ...kernels import attention
 from ...base import NativeArchModule
+from ...cancellation import raise_if_cancelled
 from ...text_encoders._functional import GatedMLP, RMSNorm, apply_rope_qk, module_device
 from .config import YuE2Config
 
@@ -294,7 +295,8 @@ class YuE2Model(NativeArchModule):
         x = self.vae2llm(x_nar.unsqueeze(0))
         x = x + self.time_embedder(shifted.expand(context.nar_length)).unsqueeze(0)
         x = x + context.pos_emb
-        for layer, (ar_k, ar_v) in zip(self.model.layers, context.ar_cache):
+        for i, (layer, (ar_k, ar_v)) in enumerate(zip(self.model.layers, context.ar_cache)):
+            raise_if_cancelled(i)
             x = layer.nar_forward(x, context.cos, context.sin, ar_k, ar_v)
         return self.llm2vae(self.model.norm(x))[0, 1:-1]
 

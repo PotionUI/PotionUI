@@ -81,6 +81,7 @@ from vendor.gpl.comfyui.anima.layers import (
 
 from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
+from ...cancellation import raise_if_cancelled
 from .config import AnimaConfig
 
 Tensor = torch.Tensor
@@ -264,6 +265,7 @@ class Anima(NativeArchModule):
         # computed output and bypasses blocks 1..N + final_layer.
         probe = None
         for i, block in enumerate(self.blocks):
+            raise_if_cancelled(i)
             x_B_T_H_W_D = block(x_B_T_H_W_D, t_emb, crossattn_emb, rope_emb, adaln_lora)
             if i == 0 and step_cache is not None:
                 probe = x_B_T_H_W_D

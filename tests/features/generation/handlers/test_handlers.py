@@ -507,6 +507,9 @@ class TestVideoGenerationOutputHandler:
         self.handler.handle(output)
 
         mock_tracker.register.assert_called_once_with(self.generation_id, self.temp_video_path)
+        mock_tracker.register_storage_tmp.assert_called_once_with(
+            self.generation_id, "/test/storage/tmp/tmp_video_test_gen_123_xxx.mp4", mock_file_service.tmp_dir,
+        )
         assert os.path.exists(self.temp_video_path)  # not deleted by the handler itself
 
     @patch('src.platform.filesystem.file_store.FileStore')
@@ -530,6 +533,7 @@ class TestVideoGenerationOutputHandler:
             self.handler.handle(output)
 
         mock_tracker.register.assert_called_once_with(self.generation_id, self.temp_video_path)
+        mock_tracker.register_storage_tmp.assert_not_called()
 
     @patch('src.features.generation.handlers.video_handler.temp_source_tracker')
     def test_handle_does_not_register_when_copy_fails(self, mock_tracker):
@@ -546,6 +550,7 @@ class TestVideoGenerationOutputHandler:
                 self.handler.handle(output)
 
         mock_tracker.register.assert_not_called()
+        mock_tracker.register_storage_tmp.assert_not_called()
 
     def test_save_video_file_streams_without_reading_whole_file_into_memory(self):
         """The video source is copied disk-to-disk, not read

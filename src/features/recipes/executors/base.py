@@ -28,6 +28,10 @@ def _noop_progress(
     callback."""
 
 
+def _never_cancelled() -> bool:
+    return False
+
+
 @dataclass
 class StepContext:
     """Everything an executor needs to run one step of one run.
@@ -51,6 +55,7 @@ class StepContext:
     step: RecipeStep
     report_progress: Callable[..., None] = field(default=_noop_progress)
     selections: Dict[str, str] = field(default_factory=dict)
+    is_cancelled: Callable[[], bool] = field(default=_never_cancelled)
 
     @property
     def owner_user_id(self) -> Optional[str]:

@@ -119,6 +119,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import torch
 
+from ..cancellation import raise_if_cancelled
 if TYPE_CHECKING:
     from .ltx_causal_video import LTXCausalVideoVAE
 
@@ -399,7 +400,8 @@ def tiled_encode(
     latent_buffer = torch.zeros((b, vae.latent_channels, out_t, out_h, out_w), device=model_device, dtype=model_dtype)
     weights_buffer = torch.zeros_like(latent_buffer)
 
-    for tile in tiles:
+    for tile_index, tile in enumerate(tiles):
+        raise_if_cancelled(tile_index)
         video_tile = video[tile.in_coords]
         if video_tile.device != model_device or video_tile.dtype != model_dtype:
             video_tile = video_tile.to(device=model_device, dtype=model_dtype)

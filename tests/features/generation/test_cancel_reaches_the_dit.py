@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from src.features.generation.engine import GenerationEngine
-from src.pipelines.contracts import PipeInput
+from src.pipelines.contracts import IOType, PipeInput, PipeOutput, PipeOutputSpec
 from src.pipelines.outputs import ErrorGenerationOutput, ProgressGenerationOutput
 from src.pipelines.pipes.generator.flux.main import GeneratorFluxPipe
 from src.pipelines.pipes.generator.txt2vid_wan22.main import GeneratorWanTxt2VidPipe
@@ -17,6 +17,7 @@ from src.platform.runtime.native.engine import NativeEngineLoader
 from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.vae import ae_2d
 from src.platform.runtime.native.vae.ae_2d import AutoEncoder2D
+from src.platform.runtime.native.vae.tiling import tiled_encode_causal3d
 
 from tests.platform.runtime.native.arch.test_wan_model import TINY_T2V
 from tests.platform.runtime.native.arch.test_wan_model import _build as _build_wan
@@ -197,3 +198,61 @@ def test_an_image_cancel_inside_a_step_closes_the_run_like_one_between_two_steps
     assert _closing_outputs(closed_inside) == _closing_outputs(closed_between)
     _assert_cancelled(closed_inside, inside)
     _assert_cancelled(closed_between, between)
+
+
+class _TileCountingVae:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.on_tile = lambda: None
+
+    def encode(self, pixels):
+        self.calls += 1
+        self.on_tile()
+        b, _c, t, h, w = pixels.shape
+        return torch.zeros((b, 16, t, h // 8, w // 8))
+
+
+def _tile_pipe(vae: _TileCountingVae, *, declares_probe: bool):
+    class _Pipe:
+        name = "tile_pipe"
+
+        def __init__(self, config):
+            self.config = config
+
+        @staticmethod
+        def get_default_config():
+            return {}
+
+        @staticmethod
+        def inputs():
+            return []
+
+        @staticmethod
+        def outputs():
+            return [PipeOutputSpec(name="output", io_type=IOType.TEXT, is_array=False)]
+
+        @staticmethod
+        def configuration():
+            return []
+
+        def run(self):
+            tiled_encode_causal3d(vae, torch.zeros((1, 3, 1, 64, 64)), tile_size=32, overlap=8)
+            return PipeOutput(output={"output": "ok"})
+
+    if declares_probe:
+        _Pipe.process = lambda self, pipe_input, generation_outputs, is_cancelled=None: self.run()
+    else:
+        _Pipe.process = lambda self, pipe_input, generation_outputs: self.run()
+    return _Pipe
+
+
+@pytest.mark.parametrize("declares_probe", [True, False])
+def test_a_vae_pass_outside_sampling_stops_at_the_next_tile(declares_probe):
+    vae = _TileCountingVae()
+    engine = _engine(_tile_pipe(vae, declares_probe=declares_probe))
+    vae.on_tile = lambda: engine.cancel(GENERATION_ID)
+
+    outputs = _run(engine, {})
+
+    assert vae.calls == 1
+    _assert_cancelled(outputs, engine)

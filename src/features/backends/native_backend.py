@@ -1,6 +1,7 @@
 from typing import Any, ClassVar, Dict, List, Optional
 
 from src.platform.observability.logger import logger
+from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged, allocator_damage
 from src.platform.runtime.gpu import DeviceIdentity
 from src.platform.settings.runtime_flags import activate_engine_flags
 
@@ -255,6 +256,11 @@ class NativeBackend(InProcessBackend):
                     f"0..{device_count - 1}). Fix the device in Admin -> Backends."
                 )
                 return health_info
+
+            damage = allocator_damage()
+            if damage is not None:
+                health_info["status"] = "degraded"
+                health_info["reason"] = str(CudaAllocatorDamaged(damage))
 
             health_info["gpu_name"] = torch.cuda.get_device_name(device_index)
             health_info["gpu_memory_total"] = torch.cuda.get_device_properties(device_index).total_memory

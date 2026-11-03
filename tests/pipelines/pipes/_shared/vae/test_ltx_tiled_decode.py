@@ -82,16 +82,21 @@ class _CountingSpy:
 class _OomOnFirstCalls:
     """Wraps ``decoder.forward``, raising OOM for the first ``times`` calls."""
 
-    def __init__(self, wrapped, times: int):
+    def __init__(self, wrapped, times: int, make_error=None):
         self.wrapped = wrapped
         self.times = times
         self.calls = 0
+        self.make_error = make_error or (lambda: torch.cuda.OutOfMemoryError("simulated"))
 
     def __call__(self, *args, **kwargs):
         self.calls += 1
         if self.calls <= self.times:
-            raise torch.cuda.OutOfMemoryError("simulated")
+            raise self.make_error()
         return self.wrapped(*args, **kwargs)
+
+
+def _wsl_driver_oom():
+    return RuntimeError("CUDA driver error: device not ready")
 
 
 def _run(vae, latent, *, free_vram, manager=None, generator=None):
@@ -359,6 +364,74 @@ class TestConvPathOomRetry:
             with pytest.raises(torch.cuda.OutOfMemoryError, match="even after evicting"):
                 decode_with_oom_retry(vae, torch.randn(1, 8, 2, 4, 4), "cuda",
                                       profiler_mark="caller.decode")
+
+
+class TestWslDriverOom:
+    def test_double_wsl_driver_oom_falls_back_to_the_tiled_path(self):
+        vae = _build_vae()
+        spy = _OomOnFirstCalls(vae.module.decoder.forward, times=2, make_error=_wsl_driver_oom)
+        vae.module.decoder.forward = spy
+        tiled_spy = _CountingSpy(vae.module.tiled_decode)
+        vae.module.tiled_decode = tiled_spy
+
+        with _tile_override(128, 16):
+            pixels, manager, _ = _run(vae, torch.randn(*_LATENT_SHAPE), free_vram=1000.0)
+
+        assert spy.calls == 2
+        assert tiled_spy.calls == 1
+        assert len(manager.offload_all_calls) == 1
+        assert pixels.shape == (1, 3, 17, 256, 256)
+
+    def test_tiled_wsl_driver_oom_raises_the_crisp_out_of_memory_error(self):
+        vae = _build_vae()
+        vae.module.decoder.forward = _OomOnFirstCalls(vae.module.decoder.forward, times=99, make_error=_wsl_driver_oom)
+        vae.module.decoder.forward_stage_4 = _OomOnFirstCalls(
+            vae.module.decoder.forward_stage_4, times=99, make_error=_wsl_driver_oom,
+        )
+
+        with pytest.raises(torch.cuda.OutOfMemoryError, match="even with tiled decoding") as excinfo:
+            _run(vae, torch.randn(*_LATENT_SHAPE), free_vram=1000.0)
+
+        assert "device not ready" in str(excinfo.value.__cause__)
+        assert vae.module.use_tiling is False
+
+    def test_a_driver_error_that_is_not_exhaustion_is_not_retried(self):
+        vae = _build_vae()
+        spy = _OomOnFirstCalls(
+            vae.module.decoder.forward, times=1, make_error=lambda: RuntimeError("CUDA driver error: invalid argument"),
+        )
+        vae.module.decoder.forward = spy
+
+        with pytest.raises(RuntimeError, match="invalid argument"):
+            _run(vae, torch.randn(*_LATENT_SHAPE), free_vram=1000.0)
+        assert spy.calls == 1
+
+    def test_conv_vae_retries_once_after_the_wsl_driver_oom(self):
+        calls = {"n": 0}
+
+        def flaky_decode(z):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise _wsl_driver_oom()
+            return torch.zeros(1, 3, 9, 16, 16)
+
+        vae = SimpleNamespace(module=SimpleNamespace(decode=flaky_decode), compute_dtype=torch.float32)
+        manager = _FakeResidencyRegistry()
+        with patch(f"{_MOD}.get_residency_registry", return_value=manager),              patch(f"{_MOD}.clear_gpu_memory"):
+            pixels = decode_with_oom_retry(vae, torch.randn(1, 8, 2, 4, 4), "cuda", profiler_mark="caller.decode")
+
+        assert calls["n"] == 2
+        assert manager.offload_all_calls == [("cuda", (vae,))]
+        assert pixels.shape == (1, 3, 9, 16, 16)
+
+    def test_conv_vae_still_failing_raises_the_crisp_out_of_memory_error(self):
+        vae = SimpleNamespace(
+            module=SimpleNamespace(decode=lambda z: (_ for _ in ()).throw(_wsl_driver_oom())),
+            compute_dtype=torch.float32,
+        )
+        with patch(f"{_MOD}.get_residency_registry", return_value=_FakeResidencyRegistry()),              patch(f"{_MOD}.clear_gpu_memory"):
+            with pytest.raises(torch.cuda.OutOfMemoryError, match="even after evicting"):
+                decode_with_oom_retry(vae, torch.randn(1, 8, 2, 4, 4), "cuda", profiler_mark="caller.decode")
 
 
 class TestSeededDecodeNoise:

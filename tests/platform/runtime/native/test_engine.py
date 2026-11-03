@@ -2247,3 +2247,58 @@ def test_a_partial_placement_syncs_nvfp4_tables_before_planning(monkeypatch):
     model._streamer = _FakeStreamerForStreamTo(calls)
     model.stream_to("cuda:0", 1.0)
     assert calls == ["sync", "plan", "apply"]
+
+
+_WSL_DRIVER_OOM = "CUDA driver error: device not ready"
+
+
+def test_encode_image_retries_once_after_the_wsl_driver_oom():
+    calls = {"n": 0}
+
+    def dispatch(pixels, device, vram):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError(_WSL_DRIVER_OOM)
+        return torch.zeros(1, 16, 1, 8, 8)
+
+    gen = _encode_image_gen_with_dispatch(dispatch)
+    gen.encode_image(np.zeros((64, 64, 3), dtype=np.uint8))
+    assert calls["n"] == 2
+    assert gen.free_retry_calls == 1
+
+
+def test_encode_image_does_not_retry_a_driver_error_that_is_not_exhaustion():
+    calls = {"n": 0}
+
+    def dispatch(pixels, device, vram):
+        calls["n"] += 1
+        raise RuntimeError("CUDA driver error: invalid argument")
+
+    gen = _encode_image_gen_with_dispatch(dispatch)
+    with pytest.raises(RuntimeError, match="invalid argument"):
+        gen.encode_image(np.zeros((64, 64, 3), dtype=np.uint8))
+    assert calls["n"] == 1
+    assert gen.free_retry_calls == 0
+
+
+def test_decode_causal3d_tiled_shrinks_on_the_wsl_driver_oom():
+    class _DriverOomOnceVae:
+        def __init__(self):
+            self.widths_seen = []
+            self.failed = False
+
+        def decode_image(self, x):
+            return x
+
+        def decode(self, x):
+            b, c, t, h, w = x.shape
+            self.widths_seen.append(w)
+            if not self.failed:
+                self.failed = True
+                raise RuntimeError(_WSL_DRIVER_OOM)
+            return torch.zeros(b, 3, t, h * 8, w * 8)
+
+    module = _DriverOomOnceVae()
+    out = _causal3d_tiled_gen(module)._decode_causal3d_tiled(torch.randn(1, 16, 1, 64, 64), device="cpu")
+    assert out.shape == (1, 512, 512, 3)
+    assert module.widths_seen[0] > min(w for w in module.widths_seen[1:])

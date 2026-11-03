@@ -286,3 +286,87 @@ def test_decode_untiled_oom_retries_chunked_before_tiled(monkeypatch):
     assert out is _RET
     # untiled OOM -> temporal chunk (exact, no seams), NOT straight to spatial tiling.
     assert (calls["once"], calls["chunked"], calls["tiled"]) == (1, 1, 0)
+
+
+_WSL_DRIVER_OOM = "CUDA driver error: device not ready"
+
+
+def test_chunked_shrinks_on_the_wsl_driver_oom_and_restarts():
+    class _DriverOomOnceV1(_FakeV1):
+        def __init__(self):
+            super().__init__()
+            self.failed = False
+
+        def decode(self, z, feat_cache=None):
+            if not self.failed:
+                self.failed = True
+                raise RuntimeError(_WSL_DRIVER_OOM)
+            return super().decode(z, feat_cache)
+
+    vae = _DriverOomOnceV1()
+    out = _gen(vae)._decode_causal3d_chunked(torch.randn(1, 16, 8, 8, 8), "cpu", chunk_frames=4)
+    assert out.shape == (1, 64, 64, 3)
+    assert vae.new_cache_calls >= 2
+
+
+def test_chunked_propagates_the_wsl_driver_oom_at_min_chunk():
+    class _AlwaysDriverOomV1(_FakeV1):
+        def decode(self, z, feat_cache=None):
+            raise RuntimeError(_WSL_DRIVER_OOM)
+
+    with pytest.raises(RuntimeError, match="device not ready"):
+        _gen(_AlwaysDriverOomV1())._decode_causal3d_chunked(torch.randn(1, 16, 4, 8, 8), "cpu", chunk_frames=2)
+
+
+def test_decode_walks_untiled_chunked_then_tiled_on_the_wsl_driver_oom(monkeypatch):
+    gen, calls = _routing_gen(_FakeV1())
+    gen._causal3d_decode_fits = lambda l, d: True
+    gen._causal3d_chunk_frames = lambda l, d: 2
+    gen._free_for_decode_retry = lambda device: None
+
+    def _once(latents, *, vram_free_gb=None):
+        calls["once"] += 1
+        raise RuntimeError(_WSL_DRIVER_OOM)
+
+    def _chunked(l, d, c):
+        calls["chunked"] += 1
+        raise RuntimeError(_WSL_DRIVER_OOM)
+
+    gen._decode_once = _once
+    gen._decode_causal3d_chunked = _chunked
+    assert gen.decode(torch.randn(1, 16, 8, 32, 32)) is _RET
+    assert (calls["once"], calls["chunked"], calls["tiled"]) == (1, 1, 1)
+
+
+def test_decode_retries_the_tiled_decode_on_a_cleared_card_after_the_wsl_driver_oom(monkeypatch):
+    gen, calls = _routing_gen(_FakeV1())
+    gen._causal3d_decode_fits = lambda l, d: False
+    gen._causal3d_chunk_frames = lambda l, d: None
+    cleared = []
+    gen._free_for_decode_retry = lambda device: cleared.append(device)
+
+    def _tiled(l, d):
+        calls["tiled"] += 1
+        if calls["tiled"] == 1:
+            raise RuntimeError(_WSL_DRIVER_OOM)
+        return _RET
+
+    gen._decode_causal3d_tiled = _tiled
+    assert gen.decode(torch.randn(1, 16, 8, 32, 32)) is _RET
+    assert calls["tiled"] == 2
+    assert len(cleared) == 1
+
+
+def test_decode_does_not_retry_a_driver_error_that_is_not_exhaustion(monkeypatch):
+    gen, calls = _routing_gen(_FakeV1())
+    gen._causal3d_decode_fits = lambda l, d: True
+    gen._causal3d_chunk_frames = lambda l, d: 2
+
+    def _once(latents, *, vram_free_gb=None):
+        calls["once"] += 1
+        raise RuntimeError("CUDA driver error: invalid argument")
+
+    gen._decode_once = _once
+    with pytest.raises(RuntimeError, match="invalid argument"):
+        gen.decode(torch.randn(1, 16, 8, 32, 32))
+    assert (calls["once"], calls["chunked"], calls["tiled"]) == (1, 0, 0)

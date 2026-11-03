@@ -69,6 +69,7 @@ from ...kernels import SDPA, attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...cache_identity import identity_usable, tensor_identity
 from ...cancellation import raise_if_cancelled
+from ...errors import retry_after_cuda_oom
 from ...ops.embedding import sinusoidal_embedding
 from ...lora.row_mask import FULL, ROWS, SKIP, RowMaskTarget, lora_row_mask, lora_row_window
 from ...sampling.step_cache import GroupedProbe
@@ -256,7 +257,9 @@ class MiniMaxH3Attention(nn.Module):
             if self._sdpa_min_rows is None or s < self._sdpa_min_rows:
                 try:
                     out = _dispatch_attention(qT, kT, vT, heads=self.heads, mask=None)
-                except torch.OutOfMemoryError:
+                except RuntimeError as exc:
+                    if not retry_after_cuda_oom(exc):
+                        raise
                     # Once a sequence length has OOM'd the dispatch, every later
                     # call at >= that length is doomed the same way (sage's
                     # per-call quant transients scale with the FULL k/v set):

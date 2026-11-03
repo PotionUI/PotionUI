@@ -25,6 +25,7 @@ import torch
 import torch.nn.functional as F
 
 from src.platform.observability.profiling import get_profiler, profiling_enabled
+from src.platform.runtime.native.errors import retry_after_cuda_oom
 
 Tensor = torch.Tensor
 
@@ -251,7 +252,9 @@ def color_correct_batch(
         try:
             out.extend(_correct_chunk(targets[i:j], sources[i:j], mode, dev, timing))
             i = j
-        except torch.cuda.OutOfMemoryError:
+        except RuntimeError as exc:
+            if not retry_after_cuda_oom(exc):
+                raise
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             if chunk > 1:

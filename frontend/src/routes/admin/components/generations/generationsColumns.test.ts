@@ -41,6 +41,7 @@ describe('presetTitleFor', () => {
 describe('categoryLabel', () => {
 	it('maps a failure category code to its friendly label', () => {
 		expect(categoryLabel('cuda_oom')).toBe('GPU out of memory');
+		expect(categoryLabel('gpu_restart_required')).toBe('GPU needs a restart');
 		expect(categoryLabel('disk_full')).toBe('Disk full');
 	});
 

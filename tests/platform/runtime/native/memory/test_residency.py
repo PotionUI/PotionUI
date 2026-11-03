@@ -492,6 +492,60 @@ def test_encode_falls_back_to_cpu_when_gpu_keeps_oom(monkeypatch):
     mgr.clear()
 
 
+class _DriverErrorEncoder:
+    def __init__(self, message: str, failures: int):
+        self.devices = []
+        self.message = message
+        self.failures = failures
+
+    def to(self, device):
+        self.devices.append(str(device))
+        if str(device).startswith("cuda") and self.failures > 0:
+            self.failures -= 1
+            raise RuntimeError(self.message)
+        return self
+
+
+def test_encode_coresident_wsl_driver_oom_then_evicts_and_retries(monkeypatch):
+    _cuda_world(monkeypatch, free_gb=7.0)
+    mgr = residency.get_residency_registry()
+    mgr.clear()
+    dit = _FakeModel()
+    mgr.note_resident(dit, "cuda:0", 24.0)
+
+    enc = _DriverErrorEncoder("CUDA driver error: device not ready", failures=1)
+    out = run_text_encode(enc, "cuda:0", lambda: "OK")
+    assert out == "OK"
+    assert dit.offloaded is True
+    assert enc.devices.count("cuda:0") == 2
+    mgr.clear()
+
+
+def test_encode_falls_back_to_cpu_when_gpu_keeps_raising_the_wsl_driver_oom(monkeypatch):
+    _cuda_world(monkeypatch, free_gb=30.0)
+    mgr = residency.get_residency_registry()
+    mgr.clear()
+
+    enc = _DriverErrorEncoder("CUDA driver error: device not ready", failures=2)
+    out = run_text_encode(enc, "cuda:0", lambda: "CPU_RESULT")
+    assert out == "CPU_RESULT"
+    assert enc.devices[-1] == "cpu"
+    assert enc.devices.count("cuda:0") == 2
+    mgr.clear()
+
+
+def test_encode_raises_a_driver_error_that_is_not_exhaustion(monkeypatch):
+    _cuda_world(monkeypatch, free_gb=30.0)
+    mgr = residency.get_residency_registry()
+    mgr.clear()
+
+    enc = _DriverErrorEncoder("CUDA driver error: invalid argument", failures=1)
+    with pytest.raises(RuntimeError, match="invalid argument"):
+        run_text_encode(enc, "cuda:0", lambda: "OK")
+    assert enc.devices.count("cuda:0") == 1
+    mgr.clear()
+
+
 # --- run_text_encode: safety-net move of the real underlying module(s) --------
 #
 # Regression pin: ``run_text_encode``'s contract is that ``encoder.to(device)``

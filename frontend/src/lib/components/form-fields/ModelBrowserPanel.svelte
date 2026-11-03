@@ -127,7 +127,7 @@
 		: visibleModels.map((model) => ({ kind: 'model' as const, model }));
 
 	$: downloadEntries =
-		pickerView === 'global' && fetchedOnce && !loading
+		pickerView === 'global' && isAdmin && fetchedOnce && !loading
 			? pickerEntries.flatMap((e) => (e.kind === 'recommended-download' ? [e] : []))
 			: [];
 	$: listEntries = pickerEntries.flatMap((e) => (e.kind === 'recommended-download' ? [] : [e]));
@@ -434,10 +434,6 @@
 			schedulePollRecommendationDownload(recommendation, response.data.download_id, op);
 		} catch (error: any) {
 			if (!owns()) return;
-			if (error?.response?.status === 403) {
-				setDownloadState(recommendation, reduceModelDownloadState(downloadStateFor(recommendation), { type: 'forbidden' }));
-				return;
-			}
 			logger.error('[ModelBrowserPanel] Failed to start model download:', error);
 			setDownloadState(
 				recommendation,
@@ -587,7 +583,7 @@
 				{/if}
 				{#if downloadState.phase === 'completed'}
 					<Badge variant="success" class="shrink-0">Downloaded</Badge>
-				{:else if downloadState.phase !== 'forbidden'}
+				{:else}
 					<Button
 						size="xs"
 						variant="secondary"
@@ -628,8 +624,6 @@
 						<GatedModelLink source={{ ...recommendation, gated_repo: downloadState.gatedRepo }} />
 					{/if}
 				</div>
-			{:else if downloadState.phase === 'forbidden'}
-				<div class="text-xs text-fg-subtle">Admin permission required to download this model.</div>
 			{/if}
 		</div>
 	{/each}

@@ -137,7 +137,7 @@ def test_the_refmod_pool_order_is_the_order_pack_references_gives_the_generator(
     rows = [_row("model:pair", copies=2), _row("model:face"), _row("model:clip")]
     mods = [_Mod(row["model"], kind) for row in rows for _ in range(row["copies"]) for kind in BUNDLES[row["model"]]]
     natives = {kind: [item for item in MIXED["media_inputs"] if item["type"] == kind] for kind in ("image", "video", "audio")}
-    packed = pack_references(natives["image"], natives["video"], natives["audio"], mods=mods)
+    packed = pack_references(natives["image"], natives["video"], natives["audio"], extras=mods)
     expected = [
         f"mod:{media.key}:{media.kind}" if isinstance(media, _Mod) else media["relative_path"]
         for _kind, media in packed

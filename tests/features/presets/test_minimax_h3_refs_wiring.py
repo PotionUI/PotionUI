@@ -664,7 +664,7 @@ def test_the_director_selection_lines_up_with_the_generators_packed_references(h
     ], form, h3_template.prompt_resources["refs"], refmod_members_resolver(None))
     generator = _pipe(_process(h3_template, {**form, "video_director": document}), "generator/video_minimax_h3")["config"]
     loaded_mods = load_refmods(generator["reference_mods"])
-    packed = pack_references(["woman"], ["walk"], [], mods=loaded_mods)
+    packed = pack_references(["woman"], ["walk"], [], extras=loaded_mods)
     selected = [[packed[i][1] for i in segment["reference_indices"]] for segment in generator["document"]["segments"]]
     assert selected == [["walk"], [loaded_mods[0]]]
 
@@ -699,7 +699,7 @@ def test_the_director_encoder_presents_a_cited_refmod_at_the_label_the_prompt_na
             captured.extend(requests)
             return [Mock(embeds={"context": Mock(), "token_tags": Mock()}) for _ in requests]
 
-    with patch("src.pipelines.pipes.prompt_encoder.main._decode_refmod_media", lambda mod, vae: f"decoded:{mod.name}"):
+    with patch("src.pipelines.pipes.prompt_encoder.main._decode_latent_reference", lambda mod, vae: f"decoded:{mod.name}"):
         PromptEncoderPipe(config).process(PipeInput(input={
             "text_encoder": _StubClip(), "reference_image": ["A", "B"], "reference_video": [], "reference_audio": [],
             "vae": Mock(), "MODELS": None,

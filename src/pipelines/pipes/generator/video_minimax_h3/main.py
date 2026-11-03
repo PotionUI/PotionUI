@@ -151,7 +151,8 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     load_lora_stack as _load_lora_stack,
 )
 from src.pipelines.pipes._shared.generation.reference_order import pack_references
-from src.pipelines.pipes._shared.generation.refmods import RefMod, load_refmods
+from src.pipelines.pipes._shared.generation.refmods import load_refmods
+from src.pipelines.references import PreEncodedReference, pre_encoded_references
 from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
 from src.pipelines.pipes._shared.vae.minimax_h3_decode import (
     TILE_PX_CHOICES,
@@ -1386,6 +1387,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                           "packed after every video reference. Each contributes CLEAN audio condition "
                           "rows and no visual latent at all, and cannot be the only reference kind on a "
                           "request", is_array=True),
+            PipeInputSpec("reference_latents", IOType.LATENT, False, "Pre-encoded reference latents "
+                          "(PreEncodedReference), each packed after every native reference of its own kind. "
+                          "Director 'reference_indices' and the prompt encoder's labels follow the same order",
+                          is_array=True),
             PipeInputSpec("director_image", IOType.IMAGE, False, "Video Director images, indexed by the "
                           "document's own `media_placements`. Kept apart from 'image' on purpose: these "
                           "condition latent frames only and never reach the text encoder's vision tower",
@@ -1493,8 +1498,13 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         # Every reference kind falls under the SAME mutual exclusion as
         # images did: ref2va's reference prefix and fl2va's keyframe overlay
         # are two different packed layouts, not two features of one request.
-        reference_mods = load_refmods(self.config.get("reference_mods"))
-        packed = pack_references(reference_images, reference_videos, reference_audios, mods=reference_mods)
+        packed = pack_references(
+            reference_images, reference_videos, reference_audios,
+            extras=[
+                *load_refmods(self.config.get("reference_mods")),
+                *pre_encoded_references(pipe_input.input.get("reference_latents")),
+            ],
+        )
         if packed and (images or configured_anchors):
             raise ValueError(
                 "generator/video_minimax_h3: 'reference_images'/'reference_videos'/'reference_audios' "
@@ -2013,7 +2023,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
     def _load_reference_media(packed: List[tuple], max_seconds: Optional[float] = None) -> List[ReferenceMedia]:
         loaded: List[ReferenceMedia] = []
         for kind, media in packed:
-            if isinstance(media, RefMod):
+            if isinstance(media, PreEncodedReference):
                 loaded.append(ReferenceMedia(kind=media.kind, latent=media.latent))
             elif kind == "image":
                 loaded.append(ReferenceMedia(kind="image", image=media))

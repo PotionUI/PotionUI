@@ -92,6 +92,14 @@ class Choice:
     device: Optional[str] = None
 
 
+def _contained(base: Path, path: Path) -> Optional[Path]:
+    try:
+        target = path.resolve()
+    except (OSError, RuntimeError):
+        return None
+    return target if base in target.parents and target.is_file() else None
+
+
 @dataclass
 class EffectRuntime:
     filters: Callable[[], frozenset[str]] = installed_filters
@@ -118,8 +126,11 @@ class EffectRuntime:
         if not ref:
             return None
         for base in self._dirs(kind):
-            target = Path(os.path.normpath(base / ref))
-            if base in target.parents and target.is_file():
+            lexical = Path(os.path.normpath(base / ref))
+            if base not in lexical.parents:
+                continue
+            target = _contained(base, lexical)
+            if target is not None:
                 return target
         return None
 
@@ -129,7 +140,7 @@ class EffectRuntime:
             if not base.is_dir():
                 continue
             for path in sorted(base.rglob(f"*{suffix}")):
-                if path.is_file():
+                if _contained(base, path) is not None:
                     found.add(path.relative_to(base).as_posix())
                 if len(found) >= MAX_LISTED_ASSETS:
                     return sorted(found)

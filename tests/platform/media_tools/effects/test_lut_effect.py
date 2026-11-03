@@ -61,10 +61,19 @@ def test_refs_resolve_only_inside_the_lut_folders(tmp_path, luts):
     (luts / "escape.cube").symlink_to(tmp_path / "outside.cube")
 
     assert runtime.resolve_asset("lut", "looks/warm.cube") == (luts / "looks" / "warm.cube").resolve()
-    assert runtime.resolve_asset("lut", "linked.cube") == luts.resolve() / "linked.cube"
+    assert runtime.resolve_asset("lut", "linked.cube") == (luts / "looks" / "cool.cube").resolve()
+    assert runtime.resolve_asset("lut", "escape.cube") is None
     assert runtime.resolve_asset("lut", "../outside.cube") is None
     assert runtime.resolve_asset("lut", "looks/missing.cube") is None
-    assert runtime.list_assets("lut", ".cube") == ["escape.cube", "linked.cube", "looks/cool.cube", "looks/shaped.cube", "looks/warm.cube"]
+    assert runtime.list_assets("lut", ".cube") == ["linked.cube", "looks/cool.cube", "looks/shaped.cube", "looks/warm.cube"]
+
+
+def test_a_linked_lut_folder_works_like_a_linked_model_folder(tmp_path, luts):
+    (tmp_path / "linked").symlink_to(luts, target_is_directory=True)
+    runtime = runtime_for(tmp_path / "linked")
+
+    assert runtime.resolve_asset("lut", "looks/warm.cube") == (luts / "looks" / "warm.cube").resolve()
+    assert runtime.list_assets("lut", ".cube") == ["looks/cool.cube", "looks/shaped.cube", "looks/warm.cube"]
 
 
 def test_a_missing_lut_fails_with_its_name(luts):

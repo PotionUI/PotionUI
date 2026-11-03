@@ -12,7 +12,7 @@ vi.mock('$lib/services/api/mediaTools', () => ({
 
 import { toasts } from '$lib/stores/toast';
 import { resetMediaToolCatalog, toolById } from './catalog';
-import { announceOutcome, executeMediaTool } from './execute';
+import { announceOutcome, executeMediaTool, summaryOf } from './execute';
 import { SAVED_TO_LIBRARY_ANNOUNCE } from './announce';
 import { createMediaToolRuns, type RunsApi } from './runs';
 import type { MediaToolRun, ToolDTO } from './types';
@@ -364,5 +364,20 @@ describe('announce settings', () => {
 		const success = get(toasts).filter((entry) => entry.type === 'success');
 		expect(success[0].title).toBe('Original replaced');
 		expect(success[0].action).toBeUndefined();
+	});
+});
+
+describe('summaryOf', () => {
+	it('is null for a completed outcome that carries no items and no summary', () => {
+		expect(summaryOf({ status: 'completed' } as never)).toBeNull();
+	});
+
+	it('returns the summary of a completed outcome with an empty item list', () => {
+		const summary = { message: 'Done', links: [] };
+		expect(summaryOf({ status: 'completed', items: [], summary } as never)).toBe(summary);
+	});
+
+	it('is null when the outcome has items', () => {
+		expect(summaryOf({ status: 'completed', items: [item], summary: { message: 'x', links: [] } } as never)).toBeNull();
 	});
 });

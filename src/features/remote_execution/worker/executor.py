@@ -37,7 +37,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from PIL import Image
 
 from src.features.generation.engine import deep_update, validate_pipe_configuration
-from src.features.generation.error_classification import WORKER_GPU_RESTART_REQUIRED
+from src.features.generation.error_classification import (
+    UNCLASSIFIED,
+    WORKER_GPU_RESTART_REQUIRED,
+    classify_generation_error,
+)
 from src.features.remote_execution.output_codec import OutputEncodeError, encode_output
 from src.features.remote_execution.worker.device_injection import inject_worker_device
 from src.pipelines.catalog import PipeCatalog
@@ -84,6 +88,15 @@ class WorkerEvent:
     detail: Optional[str] = None
     artifacts: Tuple[ArtifactRefV1, ...] = ()
     payload: Dict[str, Any] = field(default_factory=dict)
+
+
+def _failure_code(exc: BaseException) -> Tuple[str, bool]:
+    category = classify_generation_error(exc).category
+    if category == "gpu_restart_required":
+        return WORKER_GPU_RESTART_REQUIRED, False
+    if category == UNCLASSIFIED:
+        return "pipe_failed", True
+    return category, True
 
 
 def _resolve_asset_tokens(value: Any, resolve: Callable[[str], Path]) -> Any:
@@ -185,8 +198,9 @@ class WorkerPipelineExecutor:
                 # be re-wrapped as a generic, retryable "pipe_failed" below.
                 raise
             except Exception as exc:
+                code, retryable = _failure_code(exc)
                 raise PipeExecutionError(
-                    "pipe_failed", str(exc), retryable=True, pipe_id=processed.pipe_id,
+                    code, str(exc), retryable=retryable, pipe_id=processed.pipe_id,
                 ) from exc
 
             pipe_outputs[processed.pipe_id] = dict(result.output or {}) if result else {}

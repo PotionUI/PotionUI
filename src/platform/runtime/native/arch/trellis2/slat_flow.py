@@ -33,6 +33,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from ...cancellation import raise_if_cancelled
 from ...sparse3d import (
     SparseLinear,
     SparseRotaryPositionEmbedder,
@@ -368,7 +369,8 @@ class SLatFlowModel(nn.Module):
         if self.share_mod:
             t_emb = self.adaLN_modulation(t_emb)
 
-        for block in self.blocks:
+        for i, block in enumerate(self.blocks):
+            raise_if_cancelled(i)
             h = block(h, t_emb, cond)
 
         h = h.replace(F.layer_norm(h.feats, h.feats.shape[-1:]))

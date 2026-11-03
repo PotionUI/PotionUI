@@ -71,6 +71,7 @@ import torch.nn.functional as F
 
 from ..kernels import attention
 from ..base import NativeArchModule
+from ..cancellation import raise_if_cancelled
 from ..errors import NativeEngineUnsupportedError
 from .ltx_causal_video import (
     Encoder,
@@ -925,6 +926,7 @@ class LTXDiffusionVideoVAE(NativeArchModule):
             )
 
         frame_groups = []
+        tile_index = 0
         for t0, t1 in temporal_tiles:
             is_origin = t0 == 0
             is_trailing = t1 == num_latent_frames
@@ -933,6 +935,8 @@ class LTXDiffusionVideoVAE(NativeArchModule):
             for h0, h1 in height_tiles:
                 row = []
                 for w0, w1 in width_tiles:
+                    raise_if_cancelled(tile_index)
+                    tile_index += 1
                     features = decoder.forward_stages_1_to_3(
                         z_padded[:, :, t0:z_t1, h0:h1, w0:w1],
                         pad=False, drop_leading_frame=is_origin,

@@ -82,6 +82,7 @@ from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...memory.residency import effective_free_vram_gb
 from ...cache_identity import identity_usable, tensor_identity
+from ...cancellation import raise_if_cancelled
 from .config import QwenImage21Config
 
 set_attention_backend(_dispatch_attention)
@@ -324,6 +325,7 @@ class QwenImage21DiT(NativeArchModule):
             target = hidden_states[:, prefix_len:]
             target_pe = pe[:, :, prefix_len:]
             for i, block in enumerate(self.transformer_blocks):
+                raise_if_cancelled(i)
                 target = block(target, mod, target_pe, None, 0, target_key_mask, cached_kvs[i])
                 if i == 0 and step_cache is not None:
                     probe = target
@@ -340,6 +342,7 @@ class QwenImage21DiT(NativeArchModule):
                 injection = {layer: j for j, layer in enumerate(
                     self.fun_control.injection_layers(len(self.transformer_blocks)))}
             for i, block in enumerate(self.transformer_blocks):
+                raise_if_cancelled(i)
                 if control is not None and i == 0:
                     stream = self.fun_control.init_stream(hidden_states, control[0], prefix_len)
                 if capture:

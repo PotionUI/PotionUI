@@ -197,6 +197,26 @@ def _refine_to_200(bundle, cond_model, pixels, **kw):
     return np.full((n, th, tw, 3), 200, np.uint8)
 
 
+def test_the_cancel_probe_reaches_the_ltx_refine_of_each_tube(monkeypatch):
+    monkeypatch.setattr(f"{_SHARED}.read_video_frames", lambda p: (_pil_clip(value=100), 24.0))
+    monkeypatch.setattr(f"{_SHARED}.build_frame_detectors", _available_build_result)
+    monkeypatch.setattr(f"{_SHARED}.detect_tracks", lambda *a, **k: _one_face_track())
+    monkeypatch.setattr(f"{_SHARED}.encode_frames_to_mp4", lambda *a, **k: None)
+    seen = {}
+
+    def fake_refine(bundle, cond_model, pixels, **kw):
+        seen["is_cancelled"] = kw["is_cancelled"]
+        n, th, tw = pixels.shape[2], pixels.shape[3], pixels.shape[4]
+        return np.full((n, th, tw, 3), 200, np.uint8)
+
+    monkeypatch.setattr(f"{_MOD}.refine_tube_pixels", fake_refine)
+    probe = lambda: False
+    _pipe(color_correction="none").process(
+        PipeInput(input={"model": _bundle(), "video": ["/src/clip.mp4"], "conditioning": ["c"], "seed": [5]}),
+        lambda o: None, is_cancelled=probe)
+    assert seen["is_cancelled"] is probe
+
+
 def test_emits_one_before_after_compare_per_tube(monkeypatch):
     monkeypatch.setattr(f"{_SHARED}.read_video_frames", lambda p: (_pil_clip(value=100), 24.0))
     monkeypatch.setattr(f"{_SHARED}.build_frame_detectors", _available_build_result)

@@ -57,6 +57,7 @@ from vendor.seedvr2 import na
 
 from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
+from ...cancellation import raise_if_cancelled
 from .config import SeedVR2Config
 
 Tensor = torch.Tensor
@@ -124,7 +125,8 @@ class SeedVR2(NativeArchModule):
         vid_h, vid_shape = self.vid_in(vid_flat, vid_shape, cache)
         emb = self.emb_in(timestep, device=device, dtype=dtype)
 
-        for block in self.blocks:
+        for i, block in enumerate(self.blocks):
+            raise_if_cancelled(i)
             vid_h, txt_h, vid_shape, txt_shape = block(vid_h, txt_h, vid_shape, txt_shape, emb, cache)
 
         if self.vid_out_norm is not None:

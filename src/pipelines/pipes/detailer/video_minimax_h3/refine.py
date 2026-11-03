@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import math
 from pathlib import Path
-from typing import Any, Tuple
+from typing import Any, Optional, Tuple
 
 import numpy as np
 import torch
@@ -31,6 +31,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.main import GeneratorMinimax
 from src.pipelines.pipes.latent_upscaler.minimax_h3.diagnostics import diagnostics_dir, latent_stats
 from src.pipelines.pipes.latent_upscaler.minimax_h3.geometry import pad_frames_to_h3_grid
 from src.platform.observability.profiling import get_profiler
+from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.util.video_stream import has_audio_stream
 
 logger = logging.getLogger(__name__)
@@ -128,7 +129,7 @@ def _save_tube_previews(out_dir: Path, source01: torch.Tensor, refined: np.ndarr
 def sample_tube(
     bundle: Any, cond_model: Any, latent: torch.Tensor, audio: AudioTrack, *,
     denoise: float, steps: int, video_sigma_shift: float, sampler: str, scheduler: str,
-    device: str, seed: int, generation_outputs: callable,
+    device: str, seed: int, generation_outputs: callable, is_cancelled: Optional[callable] = None,
 ) -> np.ndarray:
     config = TubeRefineGenerator.get_default_config()
     config.update({
@@ -144,7 +145,10 @@ def sample_tube(
             "initial_latent": [latent], "audio": [audio],
         }),
         generation_outputs,
+        is_cancelled=is_cancelled,
     )
+    if is_cancelled is not None and is_cancelled():
+        raise SamplingCancelled()
     return out.output["latent"][0]
 
 
@@ -152,6 +156,7 @@ def refine_tube_pixels(
     bundle: Any, cond_model: Any, pixels: torch.Tensor, clip: TubeClip, *,
     strength: str, device: str, seed: int, generation_outputs: callable,
     steps: int = 6, video_sigma_shift: float = 1.0, sampler: str = "euler", scheduler: str = "simple",
+    is_cancelled: Optional[callable] = None,
 ) -> np.ndarray:
     denoise = STRENGTH_DENOISE.get(str(strength), STRENGTH_DENOISE["balanced"])
     frames01 = pixels[0].float().add(1.0).mul(0.5).clamp(0.0, 1.0).permute(1, 2, 3, 0).cpu()
@@ -166,7 +171,7 @@ def refine_tube_pixels(
             bundle, cond_model, latent, audio,
             denoise=denoise, steps=steps, video_sigma_shift=video_sigma_shift,
             sampler=sampler, scheduler=scheduler, device=device, seed=seed,
-            generation_outputs=generation_outputs,
+            generation_outputs=generation_outputs, is_cancelled=is_cancelled,
         )
         out_dir = diagnostics_dir()
         if out_dir is not None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any, Optional, Tuple
 
 import numpy as np
 import torch
@@ -26,6 +26,8 @@ class DetailerVideoLtxPipe(VideoTubeDetailerPipe):
     def refine_tube(
         self, bundle: Any, cond_model: Any, pixels: torch.Tensor, clip: TubeClip, *,
         strength: str, device: str, seed: int, generation_outputs: callable,
+        is_cancelled: Optional[callable] = None,
     ) -> np.ndarray:
         return refine_tube_pixels(
-            bundle, cond_model, pixels, strength=strength, device=device, fps=clip.fps, seed=seed)
+            bundle, cond_model, pixels, strength=strength, device=device, fps=clip.fps, seed=seed,
+            is_cancelled=is_cancelled)

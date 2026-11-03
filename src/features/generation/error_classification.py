@@ -8,7 +8,7 @@ from src.pipelines.cloud import CloudRunError
 from src.platform.runtime.cuda_allocator import (
     DRIVER_OOM_MESSAGES,
     RESTART_ACTION,
-    driver_oom_retries,
+    allocator_damage,
     needs_gpu_restart,
     record_driver_oom,
 )
@@ -319,11 +319,11 @@ def _text_is_missing_model_file(message: str) -> bool:
 
 
 def _text_is_fatal_driver_oom(message: str) -> bool:
-    return _has_any(message, _DRIVER_OOM_MARKERS) and not driver_oom_retries()
+    return _has_any(message, _DRIVER_OOM_MARKERS) and allocator_damage() is not None
 
 
 def _text_is_cuda_oom(message: str) -> bool:
-    return _has_any(message, _CUDA_OOM_MARKERS) or (_has_any(message, _DRIVER_OOM_MARKERS) and driver_oom_retries())
+    return _has_any(message, _CUDA_OOM_MARKERS) or _has_any(message, _DRIVER_OOM_MARKERS)
 
 
 _TEXT_CHECKS: Tuple[Tuple[str, Callable[[str], bool]], ...] = (

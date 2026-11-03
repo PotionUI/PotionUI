@@ -339,20 +339,32 @@ def test_a_driver_oom_reads_as_cuda_oom_from_its_text_where_the_driver_retries(m
 
 
 @pytest.mark.parametrize("text", ["CUDA driver error: device not ready", "CUDA driver error: out of memory"])
-def test_a_driver_oom_reads_as_a_restart_from_its_text_where_the_driver_oom_is_fatal(monkeypatch, text):
+def test_a_driver_oom_read_from_text_asks_for_a_restart_only_in_a_damaged_process(monkeypatch, text):
     from src.platform.runtime import cuda_allocator
 
-    monkeypatch.setattr(cuda_allocator, "_damage", None)
     monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
     monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    damage = "CUDA driver error: device not ready"
+    monkeypatch.setattr(cuda_allocator, "_damage", damage)
 
     assert classify_error_text(f"RuntimeError: {text}").category == "gpu_restart_required"
     assert classify_error_text(f"RuntimeError: {text}").suggestions == [cuda_allocator.RESTART_ACTION]
+    assert cuda_allocator.allocator_damage() == damage
+
+
+@pytest.mark.parametrize("text", ["CUDA driver error: device not ready", "CUDA driver error: out of memory"])
+def test_a_driver_oom_read_from_a_worker_or_an_old_row_reads_as_an_oom_in_a_healthy_process(monkeypatch, text):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+
+    classification = classify_error_text(f"RuntimeError: {text}")
+
+    assert classification.category == "cuda_oom"
+    assert cuda_allocator.RESTART_ACTION not in classification.suggestions
     assert cuda_allocator.allocator_damage() is None
-
-    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:False")
-
-    assert classify_error_text(f"RuntimeError: {text}").category == "cuda_oom"
 
 
 def test_the_text_of_a_driver_oom_is_classified_like_the_exception_under_either_policy(monkeypatch):
@@ -366,7 +378,9 @@ def test_the_text_of_a_driver_oom_is_classified_like_the_exception_under_either_
         monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, policy)
         monkeypatch.setattr(cuda_allocator, "_damage", None)
 
-        assert classify_error_text(f"RuntimeError: {exc}").category == classify_generation_error(exc).category, policy
+        expected = classify_generation_error(exc).category
+
+        assert classify_error_text(f"RuntimeError: {exc}").category == expected, policy
 
 
 def test_a_plain_cuda_oom_text_never_asks_for_a_restart(monkeypatch):

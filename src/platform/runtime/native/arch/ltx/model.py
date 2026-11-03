@@ -63,6 +63,7 @@ from vendor.gpl.comfyui.ltx.rope import CompressedTimestep, apply_rotary_emb
 
 from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
+from ...cancellation import raise_if_cancelled
 from ...nag import apply_nag
 from ...ops.embedding import sinusoidal_embedding
 from ...sampling.step_cache import GroupedProbe
@@ -998,6 +999,7 @@ class LTXAVModel(NativeArchModule):
         # forward can record on a real compute and short-circuit on a skip.
         probe = None
         for i, block in enumerate(self.transformer_blocks):
+            raise_if_cancelled(i)
             # Per-block a2v / v2a cross-attn gating: disabled when
             # disable_cross_modal=True (modality guidance forward).
             block_a2v = not disable_cross_modal

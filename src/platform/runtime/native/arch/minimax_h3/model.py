@@ -68,6 +68,7 @@ from torch import Tensor
 from ...kernels import SDPA, attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...cache_identity import identity_usable, tensor_identity
+from ...cancellation import raise_if_cancelled
 from ...ops.embedding import sinusoidal_embedding
 from ...lora.row_mask import FULL, ROWS, SKIP, RowMaskTarget, lora_row_mask, lora_row_window
 from ...sampling.step_cache import GroupedProbe
@@ -807,6 +808,7 @@ class MiniMaxH3Model(NativeArchModule):
         may_skip = step_cache is not None and not (sparse_attn is not None and sparse_attn.dense)
         probe = None
         for i, block in enumerate(self.blocks):
+            raise_if_cancelled(i)
             hidden_states = block(hidden_states, temb, adaln_indices, rotary_emb, sparse_attn,
                                   seq_chunk_rows, vdn_layout, ffn_chunk_rows)
             if i == 0 and step_cache is not None:

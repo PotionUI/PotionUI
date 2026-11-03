@@ -49,6 +49,7 @@ from einops import rearrange
 
 from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
+from ...cancellation import raise_if_cancelled
 from ...nag import apply_nag
 from ...ops.padding import pad_to_patch
 from vendor.gpl.comfyui.flux.layers import EmbedND
@@ -530,6 +531,7 @@ class WanModel(NativeArchModule):
         # in forward), so it never interacts with SLG.
         probe = None
         for i, block in enumerate(self.blocks):
+            raise_if_cancelled(i)
             if skip_layers and i in skip_layers:
                 continue
             x = block(x, e=e0, freqs=freqs, context=context, context_img_len=context_img_len,

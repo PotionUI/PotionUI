@@ -843,7 +843,7 @@ class GenerationEngine:
                     )
                 )
         except SamplingCancelled as exc:
-            logger.info(f"[GENERATION] Generation cancelled at step {exc.step_index}")
+            logger.info(f"[GENERATION] Generation cancelled at step {exc.step_index}, block {exc.block_index}")
             generation_outputs(
                 ProgressGenerationOutput(
                     icon=Icon("x", "beat"),

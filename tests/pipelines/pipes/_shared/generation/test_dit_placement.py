@@ -56,6 +56,7 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     place_dit_for_sequence,
     sequence_fit,
 )
+from src.platform.runtime.native.errors import is_cuda_oom
 
 from tests.fixtures.kernel_capabilities import ada, ampere, blackwell, fake_capabilities
 from tests.fixtures.kernel_gemm import installed_gemm_verdicts
@@ -2056,3 +2057,130 @@ def test_placement_and_the_window_fit_count_the_scale_tables_dequant_layers_will
     assert decision.dit_weight_gb == pytest.approx(tables_gb, abs=1e-15)
     assert fit.weight_gb == pytest.approx(tables_gb, abs=1e-15)
     assert (tables_gb > 0) is not nvfp4_matmul
+
+
+_DRIVER_OOM = "CUDA error: out of memory"
+_WSL_DRIVER_OOM = "CUDA driver error: device not ready"
+
+
+def _driver_oom() -> BaseException:
+    return torch.AcceleratorError(_DRIVER_OOM)
+
+
+def _wsl_driver_oom() -> BaseException:
+    return RuntimeError(_WSL_DRIVER_OOM)
+
+
+_LADDER_OOMS = pytest.mark.parametrize("oom", [_driver_oom, _wsl_driver_oom], ids=["accelerator", "wsl_driver"])
+
+
+def test_a_driver_level_out_of_memory_counts_as_an_oom():
+    assert is_cuda_oom(_driver_oom())
+    assert is_cuda_oom(torch.cuda.OutOfMemoryError("CUDA out of memory"))
+
+
+def test_other_accelerator_errors_are_not_ooms():
+    assert not is_cuda_oom(torch.AcceleratorError("CUDA error: an illegal memory access was encountered"))
+    assert not is_cuda_oom(RuntimeError(_DRIVER_OOM))
+
+
+@_LADDER_OOMS
+def test_partial_placement_degrades_to_fully_streamed_on_a_driver_level_oom(oom):
+    calls = {"stream_to": []}
+
+    def stream_to(d, budget):
+        calls["stream_to"].append((d, budget))
+        if len(calls["stream_to"]) == 1:
+            raise oom()
+
+    dit = SimpleNamespace(estimated_vram_gb=19.61, move_to=lambda d: None, stream_to=stream_to,
+                          offload=lambda: None)
+    patches, manager = _patched(free_gb=10.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=8_000)
+    assert decision.mode == "partial"
+    assert calls["stream_to"][1] == ("cuda", 0.0)
+    assert manager.offload_all_calls
+
+
+@_LADDER_OOMS
+def test_full_move_degrades_to_partial_on_a_driver_level_oom(oom):
+    calls = {"move_to": 0, "stream_to": []}
+
+    def move_to(d):
+        calls["move_to"] += 1
+        raise oom()
+
+    dit = SimpleNamespace(estimated_vram_gb=2.0, move_to=move_to,
+                          stream_to=lambda d, budget: calls["stream_to"].append((d, budget)),
+                          offload=lambda: None)
+    patches, manager = _patched(free_gb=10.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=1_000)
+    assert calls["move_to"] == 2
+    assert decision.mode == "partial"
+    assert calls["stream_to"] == [("cuda", pytest.approx(9.0))]
+
+
+def test_a_placement_error_that_is_not_an_oom_still_raises():
+    def stream_to(d, budget):
+        raise torch.AcceleratorError("CUDA error: an illegal memory access was encountered")
+
+    dit = SimpleNamespace(estimated_vram_gb=19.61, move_to=lambda d: None, stream_to=stream_to,
+                          offload=lambda: None)
+    patches, manager = _patched(free_gb=10.0)
+    with patches[0], patches[1], patches[2]:
+        with pytest.raises(torch.AcceleratorError):
+            place_dit_for_sequence(dit, "cuda", video_tokens=8_000)
+
+
+@_LADDER_OOMS
+def test_the_first_forward_degrades_on_a_driver_level_oom(oom):
+    calls = {"n": 0}
+
+    def forward(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise oom()
+        return "ok"
+
+    dit, dit_calls = _dit()
+    patches, manager = _patched(free_gb=8.0)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.torch.cuda.empty_cache"):
+        with patch(f"{_MOD}.torch.cuda.is_available", return_value=True):
+            guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_decision())
+            assert guarded() == "ok"
+    assert calls["n"] == 3
+    assert dit_calls["stream_to"] == [("cuda", 0.0)]
+
+
+def test_a_driver_error_that_is_not_an_oom_is_not_retried():
+    calls = {"n": 0}
+
+    def forward(*args, **kwargs):
+        calls["n"] += 1
+        raise torch.AcceleratorError("CUDA error: an illegal memory access was encountered")
+
+    dit, _ = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_decision())
+    with pytest.raises(torch.AcceleratorError):
+        guarded()
+    assert calls["n"] == 1
+
+
+def test_a_wsl_driver_error_that_is_not_exhaustion_is_not_retried():
+    calls = {"n": 0}
+
+    def forward(*args, **kwargs):
+        calls["n"] += 1
+        raise RuntimeError("CUDA driver error: invalid argument")
+
+    dit, _ = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_decision())
+    with pytest.raises(RuntimeError, match="invalid argument"):
+        guarded()
+    assert calls["n"] == 1
+
+
+def test_the_wsl_driver_oom_counts_as_an_oom():
+    assert is_cuda_oom(_wsl_driver_oom())

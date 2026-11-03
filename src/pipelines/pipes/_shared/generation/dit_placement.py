@@ -93,6 +93,7 @@ import torch
 
 from src.pipelines.outputs import GenerationExecutionError
 from src.platform.observability.profiling import get_profiler
+from src.platform.runtime.native.errors import retry_after_cuda_oom
 from src.platform.runtime.native.kernels import (
     FastPathKind,
     QuantFormat,
@@ -760,7 +761,9 @@ def _forward_with_degrade(
 ) -> Any:
     try:
         return forward(*args, **kwargs)
-    except torch.cuda.OutOfMemoryError:
+    except RuntimeError as exc:
+        if not retry_after_cuda_oom(exc):
+            raise
         logger.warning(
             "[LTX PLACEMENT] first sampling forward OOM'd (S=%d video +%d audio, reserve %.2fGB); "
             "reclaiming the allocator pool and retrying",
@@ -774,7 +777,9 @@ def _forward_with_degrade(
         torch.cuda.empty_cache()
     try:
         return forward(*args, **kwargs)
-    except torch.cuda.OutOfMemoryError:
+    except RuntimeError as exc:
+        if not retry_after_cuda_oom(exc):
+            raise
         pass
 
     # Tier 2: hand the forward the whole card by streaming every DiT weight
@@ -791,7 +796,9 @@ def _forward_with_degrade(
         dit.stream_to(device, 0.0)
         try:
             return forward(*args, **kwargs)
-        except torch.cuda.OutOfMemoryError:
+        except RuntimeError as exc:
+            if not retry_after_cuda_oom(exc):
+                raise
             pass
 
     raise _sampling_oom(device=device, decision=decision, fit_hint=fit_hint)
@@ -871,7 +878,9 @@ def _move_resident(dit: Any, device: str, own_models: Iterable[Any]) -> str:
     try:
         dit.move_to(device)
         return "resident"
-    except torch.cuda.OutOfMemoryError:
+    except RuntimeError as exc:
+        if not retry_after_cuda_oom(exc):
+            raise
         logger.warning("[LTX PLACEMENT] DiT move to %s OOM'd; evicting foreign residents and retrying", device)
         get_residency_registry().offload_all(device, exclude=own_models)
         if torch.cuda.is_available():
@@ -879,7 +888,9 @@ def _move_resident(dit: Any, device: str, own_models: Iterable[Any]) -> str:
         try:
             dit.move_to(device)
             return "resident"
-        except torch.cuda.OutOfMemoryError:
+        except RuntimeError as exc:
+            if not retry_after_cuda_oom(exc):
+                raise
             free = free_vram_gb(device) or 0.0
             budget = max(0.0, free - minimum_inference_memory_gb())
             logger.warning(
@@ -899,7 +910,9 @@ def _move_partial(dit: Any, device: str, weight_budget_gb: float, own_models: It
     try:
         dit.stream_to(device, weight_budget_gb)
         return "partial"
-    except torch.cuda.OutOfMemoryError:
+    except RuntimeError as exc:
+        if not retry_after_cuda_oom(exc):
+            raise
         logger.warning(
             "[LTX PLACEMENT] partial-residency DiT placement OOM'd (budget %.1fGB); "
             "evicting foreign residents and streaming fully", weight_budget_gb,

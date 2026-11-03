@@ -8,6 +8,7 @@ import torch
 
 from src.pipelines.pipes._shared.generation.weak_model_ref import WeakModelRef
 from src.platform.observability.profiling import get_profiler
+from src.platform.runtime.native.errors import retry_after_cuda_oom
 from src.platform.runtime.native.memory import (
     free_vram_gb,
     minimum_inference_memory_gb,
@@ -341,7 +342,9 @@ class LTXClipTextEncoder(ClipTextEncoder):
 
         try:
             return self._project_on(raw, raw_device)
-        except torch.cuda.OutOfMemoryError:
+        except RuntimeError as exc:
+            if not retry_after_cuda_oom(exc):
+                raise
             logger.warning(
                 "ltx projection: OOM on %s despite the budget check; falling back to CPU "
                 "(raw encode is kept, not redone)", raw_device,

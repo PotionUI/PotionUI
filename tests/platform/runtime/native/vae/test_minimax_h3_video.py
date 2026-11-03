@@ -438,6 +438,44 @@ class TestBatchedTileDecode:
                 return
         raise AssertionError("a tile that OOMs alone must not be swallowed")
 
+    def test_wsl_driver_oom_halves_the_batch_and_sticks(self):
+        module = _tiled_vae()
+        module.decode_tile_batch_size = 6
+        seen: list[int] = []
+        real = module.decoder.forward
+
+        def flaky(x: torch.Tensor) -> torch.Tensor:
+            seen.append(x.shape[0])
+            if x.shape[0] > 2:
+                raise RuntimeError("CUDA driver error: device not ready")
+            return real(x)
+
+        module.decoder.forward = flaky
+        with torch.no_grad():
+            decoded = module.decode(_tiled_latent())
+
+        assert seen[:8] == [6, 3, 1, 1, 1, 1, 1, 1]
+        assert torch.isfinite(decoded).all()
+
+    def test_a_driver_error_that_is_not_exhaustion_is_not_retried(self):
+        module = _tiled_vae()
+        module.decode_tile_batch_size = 6
+        seen: list[int] = []
+
+        def broken(x: torch.Tensor) -> torch.Tensor:
+            seen.append(x.shape[0])
+            raise RuntimeError("CUDA driver error: invalid argument")
+
+        module.decoder.forward = broken
+        with torch.no_grad():
+            try:
+                module.decode(_tiled_latent())
+            except RuntimeError as exc:
+                assert "invalid argument" in str(exc)
+                assert seen == [6]
+                return
+        raise AssertionError("a driver error that is not exhaustion must propagate")
+
     def test_chunk_observer_sees_every_chunk(self):
         module = _tiled_vae()
         seen: list[tuple[int, int]] = []

@@ -41,6 +41,7 @@ from typing import Any, Dict, Optional
 import torch
 
 from src.platform.observability.profiling import get_profiler
+from src.platform.runtime.native.errors import retry_after_cuda_oom
 from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_registry
 from src.platform.runtime.device import clear_gpu_memory
 from src.platform.runtime.native.vae.ltx_tiling import LtxTilingConfig
@@ -118,7 +119,9 @@ def encode_with_oom_retry(
             latent = _do_encode()
             _mark(mode="whole", evicted=False, retried=False, free_vram_after_gb=free_vram_gb(device))
             return latent
-        except torch.cuda.OutOfMemoryError:
+        except RuntimeError as exc:
+            if not retry_after_cuda_oom(exc):
+                raise
             logger.warning(
                 "%s: whole-clip VAE encode OOM'd (free_vram_before_gb=%s, estimated_gb=%.2f); "
                 "evicting every foreign GPU-resident component and retrying once",
@@ -130,7 +133,9 @@ def encode_with_oom_retry(
                 latent = _do_encode()
                 _mark(mode="whole", evicted=True, retried=True, free_vram_after_gb=free_vram_gb(device))
                 return latent
-            except torch.cuda.OutOfMemoryError:
+            except RuntimeError as exc:
+                if not retry_after_cuda_oom(exc):
+                    raise
                 logger.warning(
                     "%s: whole-clip VAE encode still OOM'd after eviction; falling back to tiled encode",
                     log_prefix,
@@ -146,7 +151,9 @@ def encode_with_oom_retry(
 
     try:
         latent = _do_tiled_encode()
-    except torch.cuda.OutOfMemoryError as exc:
+    except RuntimeError as exc:
+        if not retry_after_cuda_oom(exc):
+            raise
         _mark(mode="tiled", evicted=True, retried=True, oom=True, **_tile_mark_fields())
         raise torch.cuda.OutOfMemoryError(
             f"{log_prefix}: VAE encode OOM'd even with tiled encoding -- this clip/resolution "

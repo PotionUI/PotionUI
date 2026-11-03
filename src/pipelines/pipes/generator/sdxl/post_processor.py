@@ -14,6 +14,7 @@ from typing import Optional, Any
 from diffusers.utils import logging
 
 from src.platform.runtime.device import clear_gpu_memory
+from src.platform.runtime.native.errors import retry_after_cuda_oom
 
 logger = logging.get_logger(__name__)
 
@@ -70,7 +71,7 @@ class SDXLPostProcessor:
         try:
             image = vae.decode(latents, return_dict=False)[0]
         except RuntimeError as e:
-            if "out of memory" in str(e).lower():
+            if retry_after_cuda_oom(e) or "out of memory" in str(e).lower():
                 logger.warning("[VAE] OOM during decode, retrying with tiled decoding")
                 from src.platform.runtime.model_lifecycle.lifecycle import get_model_lifecycle
                 models = get_model_lifecycle()

@@ -34,6 +34,8 @@ import torch
 from src.platform.runtime.vram_cap import apply_vram_cap_bytes
 from src.platform.settings.runtime_flags import runtime_flag
 
+from ..errors import retry_after_cuda_oom
+
 logger = logging.getLogger(__name__)
 
 _BYTES_PER_GB = 1024 ** 3
@@ -888,7 +890,9 @@ def _run_text_encode_uncached(
                 weights_gb=weights_gb, free_gb=free, needed_gb=needed_gb, **count_fields,
             )
             return result
-        except torch.cuda.OutOfMemoryError:
+        except RuntimeError as exc:
+            if not retry_after_cuda_oom(exc):
+                raise
             logger.warning("residency: co-resident TE encode OOM'd; freeing VRAM and retrying")
             torch.cuda.empty_cache()
 
@@ -903,7 +907,9 @@ def _run_text_encode_uncached(
             weights_gb=weights_gb, free_gb=free, needed_gb=needed_gb, **count_fields,
         )
         return result
-    except torch.cuda.OutOfMemoryError:
+    except RuntimeError as exc:
+        if not retry_after_cuda_oom(exc):
+            raise
         logger.warning("residency: TE encode still OOM after eviction; encoding on CPU")
         try:
             _move("cpu")

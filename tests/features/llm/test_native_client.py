@@ -1682,6 +1682,29 @@ async def test_leased_falls_back_to_cpu_on_placement_oom(client, native_checkpoi
 
 
 @pytest.mark.asyncio
+async def test_leased_falls_back_to_cpu_on_the_wsl_driver_oom(client, native_checkpoint, monkeypatch):
+    name, path = native_checkpoint
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    checkpoint = _stub_checkpoint(quantized=False)
+
+    def _raise_driver_oom(device):
+        raise RuntimeError("CUDA driver error: device not ready")
+
+    checkpoint.model.to = _raise_driver_oom
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+
+    async with client._leased(path, _config(name)) as (ck, device, _handoff):
+        assert ck is checkpoint
+        assert device == "cpu"
+
+
+def test_is_oom_recognises_the_wsl_driver_oom_but_not_other_driver_errors():
+    assert native_module._is_oom(RuntimeError("CUDA driver error: device not ready"))
+    assert native_module._is_oom(RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB"))
+    assert not native_module._is_oom(RuntimeError("CUDA driver error: invalid argument"))
+
+
+@pytest.mark.asyncio
 async def test_leased_does_not_swallow_a_non_oom_runtime_error(client, native_checkpoint, monkeypatch):
     """Only an OOM degrades to CPU - any other RuntimeError during placement
     must still propagate."""

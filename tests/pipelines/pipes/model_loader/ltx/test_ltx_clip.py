@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 from src.pipelines.pipes.model_loader.ltx import ltx_clip as ltx_clip_module
@@ -567,3 +568,39 @@ def test_an_eagerly_supplied_encoder_needs_no_factory():
     assert adapter._te_factory is None
     adapter.encode_prompt("a cat", "blurry")
     assert te.calls == [["a cat", "blurry"]]
+
+
+def test_ladder_falls_back_to_cpu_projection_on_the_wsl_driver_oom(monkeypatch):
+    adapter, te, dit = _adapter()
+    monkeypatch.setattr(ltx_clip_module.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(ltx_clip_module, "free_vram_gb", lambda dev: 20.0)
+    monkeypatch.setattr(ltx_clip_module.torch.cuda, "empty_cache", lambda: None)
+
+    calls = []
+
+    def _project_on(raw, device):
+        calls.append(device)
+        if device == "cuda:0":
+            raise RuntimeError("CUDA driver error: device not ready")
+        return torch.zeros(1, 4, 16)
+
+    monkeypatch.setattr(adapter, "_project_on", _project_on)
+
+    adapter._project_with_ladder({"context": SimpleNamespace(device="cuda:0"), "attention_mask": None})
+
+    assert calls == ["cuda:0", "cpu"]
+    assert te.calls == []
+
+
+def test_ladder_raises_a_driver_error_that_is_not_exhaustion(monkeypatch):
+    adapter, te, dit = _adapter()
+    monkeypatch.setattr(ltx_clip_module.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(ltx_clip_module, "free_vram_gb", lambda dev: 20.0)
+
+    def _project_on(raw, device):
+        raise RuntimeError("CUDA driver error: invalid argument")
+
+    monkeypatch.setattr(adapter, "_project_on", _project_on)
+
+    with pytest.raises(RuntimeError, match="invalid argument"):
+        adapter._project_with_ladder({"context": SimpleNamespace(device="cuda:0"), "attention_mask": None})

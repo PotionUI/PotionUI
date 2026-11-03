@@ -127,23 +127,24 @@ class _FakeVAEModule:
     given tile size (simulating a real VAE that fits once the tile shrinks
     enough)."""
 
-    def __init__(self, *, oom_above_tile=None, always_oom=False):
+    def __init__(self, *, oom_above_tile=None, always_oom=False, make_error=None):
         self.oom_above_tile = oom_above_tile
         self.always_oom = always_oom
+        self.make_error = make_error or (lambda: torch.cuda.OutOfMemoryError("synthetic OOM"))
         self.encode_calls = []
         self.decode_calls = []
 
     def tiled_encode(self, pixels, tile_size, overlap):
         self.encode_calls.append((tile_size, overlap))
         if self.always_oom or (self.oom_above_tile is not None and tile_size > self.oom_above_tile):
-            raise torch.cuda.OutOfMemoryError("synthetic OOM")
+            raise self.make_error()
         b, _c, t, h, w = pixels.shape
         return torch.zeros((b, 16, 1 + (t - 1) // 4, h // 8, w // 8), dtype=pixels.dtype)
 
     def tiled_decode(self, latent, tile_size, overlap):
         self.decode_calls.append((tile_size, overlap))
         if self.always_oom or (self.oom_above_tile is not None and tile_size > self.oom_above_tile):
-            raise torch.cuda.OutOfMemoryError("synthetic OOM")
+            raise self.make_error()
         b, _c, t, h, w = latent.shape
         return torch.zeros((b, 3, t, h * 8, w * 8), dtype=latent.dtype)
 
@@ -326,3 +327,41 @@ def test_decode_clip_tile_overlap_config_caps_the_overlap(monkeypatch):
 
     overlap_used = vae.decode_calls[0][1]
     assert overlap_used <= 2
+
+
+def _wsl_driver_oom():
+    return RuntimeError("CUDA driver error: device not ready")
+
+
+def test_encode_clip_shrinks_tile_on_the_wsl_driver_oom(monkeypatch):
+    monkeypatch.setattr(m, "effective_free_vram_gb", lambda device: 40.0)
+    vae = _FakeVAEModule(oom_above_tile=_MIN_ENCODE_TILE_PIXEL, make_error=_wsl_driver_oom)
+    gen = _make_generator(vae)
+
+    out = gen._encode_clip(np.zeros((5, 2048, 2048, 3), dtype=np.uint8), "cpu")
+
+    assert len(vae.encode_calls) > 1
+    assert vae.encode_calls[-1][0] == _MIN_ENCODE_TILE_PIXEL
+    assert out is not None
+
+
+def test_decode_clip_shrinks_tile_on_the_wsl_driver_oom(monkeypatch):
+    monkeypatch.setattr(m, "effective_free_vram_gb", lambda device: 40.0)
+    vae = _FakeVAEModule(oom_above_tile=_MIN_DECODE_TILE_LATENT, make_error=_wsl_driver_oom)
+    gen = _make_generator(vae)
+
+    out = gen._decode_clip(torch.zeros((1, 16, 2, 256, 256)), "cpu")
+
+    assert len(vae.decode_calls) > 1
+    assert vae.decode_calls[-1][0] == _MIN_DECODE_TILE_LATENT
+    assert out is not None
+
+
+def test_encode_clip_does_not_shrink_on_a_driver_error_that_is_not_exhaustion(monkeypatch):
+    monkeypatch.setattr(m, "effective_free_vram_gb", lambda device: 40.0)
+    vae = _FakeVAEModule(always_oom=True, make_error=lambda: RuntimeError("CUDA driver error: invalid argument"))
+    gen = _make_generator(vae)
+
+    with pytest.raises(RuntimeError, match="invalid argument"):
+        gen._encode_clip(np.zeros((5, 2048, 2048, 3), dtype=np.uint8), "cpu")
+    assert len(vae.encode_calls) == 1

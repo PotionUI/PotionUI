@@ -42,6 +42,8 @@ class _FakeVAE:
             raise RuntimeError("second decode failure")
         if self._fail_mode == "non_oom":
             raise RuntimeError("some other cuda error")
+        if self._fail_mode == "wsl_driver_oom_once" and self._decode_calls == 1:
+            raise RuntimeError("CUDA driver error: device not ready")
         return (torch.zeros(1, 3, 4, 4),)
 
 
@@ -106,3 +108,13 @@ def test_vae_without_tiling_support_does_not_crash_on_oom_retry():
     assert image is not None
     assert not hasattr(vae, "enable_tiling")
     assert not hasattr(vae, "disable_tiling")
+
+
+def test_wsl_driver_oom_retries_with_tiling():
+    vae = _FakeVAE(use_tiling=False, fail_mode="wsl_driver_oom_once")
+
+    image = _decode(vae)
+
+    assert image is not None
+    assert vae._decode_calls == 2
+    assert vae.tiling_calls == ["enable", "disable"]

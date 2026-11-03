@@ -37,7 +37,7 @@ from src.pipelines.outputs import (
 from src.platform.observability.logger import logger
 from src.platform.observability.profiling import get_profiler, profiling_enabled
 from src.platform.runtime.native.engine import NativeGenerator
-from src.platform.runtime.native.errors import SamplingCancelled
+from src.platform.runtime.native.errors import SamplingCancelled, retry_after_cuda_oom
 from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
     free_vram_gb,
@@ -554,7 +554,9 @@ class SeedVR2NativeGenerator(NativeGenerator):
                         shrinks=shrinks, whole_clip=tile >= max(h, w),
                     )
                     return out
-                except torch.cuda.OutOfMemoryError:
+                except RuntimeError as exc:
+                    if not retry_after_cuda_oom(exc):
+                        raise
                     if tile <= _MIN_ENCODE_TILE_PIXEL:
                         raise
                     if torch.cuda.is_available():
@@ -614,7 +616,9 @@ class SeedVR2NativeGenerator(NativeGenerator):
                         whole_clip=tile >= max(h, w),
                     )
                     break
-                except torch.cuda.OutOfMemoryError:
+                except RuntimeError as exc:
+                    if not retry_after_cuda_oom(exc):
+                        raise
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                     if tile > _MIN_DECODE_TILE_LATENT:
@@ -934,7 +938,9 @@ class GeneratorSeedVR2Pipe(BasePipe):
                         device=device, progress=progress, is_cancelled=is_cancelled,
                     )
                     break
-                except torch.cuda.OutOfMemoryError:
+                except RuntimeError as exc:
+                    if not retry_after_cuda_oom(exc):
+                        raise
                     if batch_size <= 1:
                         raise
                     _discard_output(attempt_path)

@@ -137,7 +137,7 @@ test('grain previews live on a real uploaded clip with no mocks, and Save render
 	await card.locator('button').first().click();
 	await card.locator('[data-param="amount"] input[type="range"]').fill('100');
 	await editor.locator('[data-options-apply]').click();
-	await expect(editor.getByRole('button', { name: /Reopen Film grain/ })).toBeVisible();
+	await expect(editor.locator('[data-stack-row]').filter({ hasText: 'Film grain' })).toBeVisible();
 
 	const canvas = editor.locator('[data-live-preview]');
 	await expect(canvas).toBeVisible({ timeout: 10000 });

@@ -147,7 +147,7 @@ test('a look from the Image editor grades the live video preview and the saved c
 	await card.locator('[data-param="look"]').getByRole('button', { name: 'Toggle options' }).click();
 	await page.getByRole('option', { name: 'Noir' }).click();
 	await editor.locator('[data-options-apply]').click();
-	await expect(editor.getByRole('button', { name: /Reopen Look/ })).toBeVisible();
+	await expect(editor.locator('[data-stack-row]').filter({ hasText: 'Look' })).toBeVisible();
 
 	const canvas = editor.locator('[data-live-preview]');
 	await expect(canvas).toBeVisible({ timeout: 10000 });

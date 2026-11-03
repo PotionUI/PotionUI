@@ -1,4 +1,3 @@
-import json
 from unittest.mock import Mock
 
 import pytest
@@ -35,16 +34,6 @@ def lookups(monkeypatch):
     return calls
 
 
-def _bundle(tmp_path):
-    import torch
-    from safetensors.torch import save_file
-
-    path = tmp_path / "pair.safetensors"
-    meta = {"kind": "bundle", "members": [{"kind": "image", "name": "face"}, {"kind": "audio", "name": "voice"}]}
-    save_file({"ref_0": torch.zeros(1)}, str(path), metadata={"refmod_meta": json.dumps(meta)})
-    return path
-
-
 def _spy_registry(members):
     registry = PromptResourceSourceRegistry()
     registry.register(PromptResourceSource(source_id="spy", field_type="lora_picker", label="Spy", badge="Spy", members=members))
@@ -63,17 +52,6 @@ async def _get(registry, user, url, model_file=None):
 
 
 @pytest.mark.asyncio
-async def test_the_core_source_lists_each_member_kind_and_name(lookups, tmp_path):
-    model_file = Mock(return_value=_bundle(tmp_path))
-    controller = PromptResourceSourceController(prompt_resource_sources(), Mock(), model_file)
-
-    result = await controller.get_members("refmod", "model:01PAIR", _user())
-
-    assert result.data == {"members": [{"kind": "image", "name": "face"}, {"kind": "audio", "name": "voice"}]}
-    model_file.assert_called_once_with("01PAIR")
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("account_type, admin", [(AccountType.USER, False), (AccountType.ADMIN, True)])
 async def test_the_access_check_and_the_handler_run_as_the_caller(lookups, account_type, admin):
     members = Mock(return_value=[{"kind": "image", "name": "one"}])
@@ -87,11 +65,12 @@ async def test_the_access_check_and_the_handler_run_as_the_caller(lookups, accou
 
 
 @pytest.mark.asyncio
-async def test_an_unreadable_core_item_is_a_422_without_the_server_path(lookups, tmp_path):
-    controller = PromptResourceSourceController(prompt_resource_sources(), Mock(), Mock(return_value=tmp_path / "gone.safetensors"))
+async def test_an_unreadable_item_is_a_422_without_the_handlers_text(lookups, tmp_path):
+    members = Mock(side_effect=ValueError(f"cannot read {tmp_path / 'gone.safetensors'}"))
+    controller = PromptResourceSourceController(_spy_registry(members), Mock(), Mock())
 
     with pytest.raises(HTTPException) as raised:
-        await controller.get_members("refmod", "model:01GONE", _user())
+        await controller.get_members("spy", "model:01GONE", _user())
 
     assert raised.value.status_code == 422
     assert raised.value.detail["error"] == "prompt_resource_unreadable"

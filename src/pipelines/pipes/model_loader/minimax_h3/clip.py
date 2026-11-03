@@ -132,10 +132,10 @@ def _to_fhwc_float01(video: Any, num_frames: Optional[int]) -> Tensor:
     frames: the `<t seconds>` timestamps it labels its vision blocks with are
     derived from position in this sequence.
 
-    `video` not a `str`/`Path` -- a RefMod's own VAE-decoded frames
+    `video` not a `str`/`Path` -- a pre-encoded reference's VAE-decoded frames
     (`prompt_encoder`'s `_decode_latent_reference`) -- is ALREADY on MiniMax-H3's
     own 24 fps (the video VAE's own temporal upsampling rate) and is passed
-    through untouched: a RefMod's latent is never truncated to `num_frames`
+    through untouched: a pre-encoded latent is never truncated to `num_frames`
     on the generator side either (`conditioning.normalize_references`'s
     pass-through for a `latent`-carrying reference), so re-truncating it here
     would describe a different, shorter video than what actually conditions

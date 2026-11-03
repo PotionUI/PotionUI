@@ -17,9 +17,6 @@ _declared_sources: ContextVar[Mapping[str, str]] = ContextVar("declared_prompt_r
 
 
 def prompt_resource_sources() -> PromptResourceSourceRegistry:
-    from src.features.prompt.builtin_sources import register_builtin_prompt_resource_sources
-
-    register_builtin_prompt_resource_sources(prompt_resource_source_registry)
     return prompt_resource_source_registry
 
 

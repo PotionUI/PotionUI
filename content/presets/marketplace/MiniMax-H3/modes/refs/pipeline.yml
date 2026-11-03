@@ -147,6 +147,7 @@ pipeline:
   ## instead of claiming a negative pass that never runs.
   ############
   - name: "prompt_encoder"
+    id: "prompt_encoder"
     input:
       - ["text_encoder", "model_loader/minimax_h3", "text_encoder"]
       - ["reference_image", "references", "image"]
@@ -179,13 +180,6 @@ pipeline:
       # `mode != 'director'`) still carries the shot's own duration here, and
       # the Clip length slider is not synced from it (see form.yml's header).
       reference_video_frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (((form.duration) * preset.vars.fps) | round(0, 'floor') | int if form.duration is defined else preset.vars.default_frames) }}"
-      reference_mods:
-        "@loop":
-          items: "{{ form.reference_mods | default([], true) }}"
-          template:
-            file_path: "{{ item.model }}"
-            strength: "{{ item.strength }}"
-            copies: "{{ item.copies | default(1, true) }}"
 
   #############
   ## Prompt encoder, director mode: ONE conditioning per shot, presenting the
@@ -233,13 +227,6 @@ pipeline:
       image_pixel_budget: "{{ form.reference_pixel_budget }}"
       output_resolution: "{{ form.resolution }}"
       reference_video_frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (((form.duration) * preset.vars.fps) | round(0, 'floor') | int if form.duration is defined else preset.vars.default_frames) }}"
-      reference_mods:
-        "@loop":
-          items: "{{ form.reference_mods | default([], true) }}"
-          template:
-            file_path: "{{ item.model }}"
-            strength: "{{ item.strength }}"
-            copies: "{{ item.copies | default(1, true) }}"
 
   #############
   ## Seed generator
@@ -338,13 +325,6 @@ pipeline:
       references: "{{ form.references | default([], true) | media_of_kind('image') }}"
       reference_videos: "{{ form.references | default([], true) | media_of_kind('video') }}"
       reference_audios: "{{ form.references | default([], true) | media_of_kind('audio') }}"
-      reference_mods:
-        "@loop":
-          items: "{{ form.reference_mods | default([], true) }}"
-          template:
-            file_path: "{{ item.model }}"
-            strength: "{{ item.strength }}"
-            copies: "{{ item.copies | default(1, true) }}"
       # The profile supplies the baseline; the visible Steps slider (baked to
       # the profile's exact value by the reactions in tabs/generation.yml) is
       # what actually wins once a profile is selected.

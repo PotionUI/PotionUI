@@ -421,12 +421,12 @@ def test_a_placement_that_fails_midway_is_still_torn_down(monkeypatch):
     monkeypatch.setattr(partial, "_move_own_tensors", _oom_on_resident)
     with pytest.raises(torch.cuda.OutOfMemoryError):
         streamer.apply("cuda:0", plan, pin=True)
-    assert streamer.active
-    assert len(fake.registered) == 1
 
-    streamer.teardown()
+    assert fake.kinds().count("register") == 1
     assert fake.registered == {}
+    assert streamer._arenas == []
     assert not streamer.active
+    assert all(leaf.comfy_cast_weights is False for _, leaf in iter_streamable_leaves(m))
 
 
 def test_is_host_pinned_sees_arena_memory_the_driver_flag_misses(monkeypatch):

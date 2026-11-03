@@ -121,6 +121,7 @@ class BaseField(ABC):
                 'capability': self._capability_of(getattr(field, 'capability', None)),
                 'formula': self._formula_of(getattr(field, 'formula', None)),
                 'merge_from': self._merge_from_of(getattr(field, 'merge_from', None)),
+                'source_plugin': getattr(field, 'source_plugin', None),
             }
         else:
             return {
@@ -142,6 +143,7 @@ class BaseField(ABC):
                 'capability': self._capability_of(field.get('capability')),
                 'formula': self._formula_of(field.get('formula')),
                 'merge_from': self._merge_from_of(field.get('merge_from')),
+                'source_plugin': field.get('source_plugin'),
             }
 
     @staticmethod
@@ -215,6 +217,9 @@ class BaseField(ABC):
 
         if field_info.get('merge_from'):
             schema['merge_from'] = list(field_info['merge_from'])
+
+        if field_info.get('source_plugin'):
+            schema['source_plugin'] = field_info['source_plugin']
 
         return schema
     

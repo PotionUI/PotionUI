@@ -64,13 +64,22 @@ pipeline:
             type: "image"
             path: "{{ item.path | default(item) }}"
 
+  - name: "image_fit"
+    id: "image_fit"
+    input:
+      - ["image", "media_loader", "image"]
+    enabled: true
+    configuration:
+      fit: "{{ form.output_fit if form.output_size == 'custom' else 'match' }}"
+      resolution: "{{ form.resolution }}"
+
   #############
   ## Prompt encoder (shared pipe; produces the vision-grounded conditioning)
   ############
   - name: "prompt_encoder"
     input:
       - ["text_encoder", "model_loader/qwen", "text_encoder"]
-      - ["image", "media_loader", "image"]
+      - ["image", "image_fit", "image"]
     enabled: true
     configuration:
       p_prompt:
@@ -153,7 +162,7 @@ pipeline:
       - ["model", "model_loader/qwen", "model"]
       - ["conditioning", "prompt_encoder", "conditioning"]
       - ["seed", "seed_generator", "seed"]
-      - ["image", "media_loader", "image"]
+      - ["image", "image_fit", "image"]
     enabled: true
     configuration:
       preview_decoder: "{{ form.preview_decoder | default('') }}"
@@ -167,6 +176,8 @@ pipeline:
       # model's own ramp, so the default value is a no-op; any other key
       # replaces it outright (see docs/techniques/samplers-and-schedules.md).
       schedule: "{{ form.schedule }}"
+      resolution: "{{ form.resolution }}"
+      fit: "{{ form.output_fit if form.output_size == 'custom' else 'match' }}"
       quantity: "{{ form.quantity }}"
 
   #############

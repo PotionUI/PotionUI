@@ -6,4 +6,51 @@ fields:
     configuration:
       multi: true
       max_items: 10
-    ai_hint: "Up to 10 images, jointly conditioned. The FIRST image is the one being edited: it sets the output's size and aspect ratio. The others are references (a subject, an object, a style, a background) that the prompt can use. Type @ in the prompt to refer to an image; it is written as <image1>, <image2> and so on, by the image's position in this list. Each image is resized to about 1 megapixel before encoding."
+    ai_hint: "Up to 10 images, jointly conditioned. The FIRST image is the one being edited. By default it sets the output's size and aspect ratio; Output size set to Custom picks a resolution instead. The others are references (a subject, an object, a style, a background) that the prompt can use. Type @ in the prompt to refer to an image; it is written as <image1>, <image2> and so on, by the image's position in this list. Each reference is resized to about 1 megapixel before encoding."
+
+  - type: "section"
+    label: "Output"
+    children:
+      - name: "output_size"
+        type: "select"
+        label: "Output size"
+        description: "Size of the result."
+        default: "match"
+        configuration:
+          options:
+            - { label: "Match first image", value: "match", sub_label: "Its aspect, about 1 MP" }
+            - { label: "Custom", value: "custom", sub_label: "Pick a resolution" }
+        ai_hint: "Match first image keeps the first image's aspect ratio at about 1 megapixel. Custom renders at the chosen resolution; the first image is cropped or padded to that aspect, the other references are untouched."
+
+      - name: "resolution"
+        type: "resolution"
+        label: "Resolution"
+        visible: false
+        configuration:
+          files:
+            - { path: "{{ paths._shared }}/resolutions/qwen_image21.yml", group: "Qwen-Image-2.1" }
+            - { path: "{{ paths._shared }}/resolutions/social_media.yml", group: "Social Media" }
+            - { path: "{{ paths._shared }}/resolutions/2k.yml", group: "2K" }
+        default: "1024x1024"
+        reactions:
+          - when: { field: "output_size", equals: "custom" }
+            then: { set_visibility: true }
+          - when: { field: "output_size", not_equals: "custom" }
+            then: { set_visibility: false }
+
+      - name: "output_fit"
+        type: "select"
+        label: "Fit first image"
+        description: "When its aspect differs."
+        visible: false
+        default: "crop"
+        configuration:
+          options:
+            - { label: "Crop to fill", value: "crop", sub_label: "Centre crop, no stretching" }
+            - { label: "Pad to fit", value: "pad", sub_label: "Whole image, grey borders" }
+        ai_hint: "How the first image meets a custom size of another aspect. Crop to fill keeps the centre and cuts the edges. Pad to fit keeps the whole image and adds neutral grey borders for the model to fill."
+        reactions:
+          - when: { field: "output_size", equals: "custom" }
+            then: { set_visibility: true }
+          - when: { field: "output_size", not_equals: "custom" }
+            then: { set_visibility: false }

@@ -74,6 +74,8 @@ class GeneratorQwenImage21Pipe(QwenEditMixin, FlowMatchGeneratorPipe):
             PipeConfigSpec("sampler", str, "euler", "Sampler: any key registered on the sampler registry "
                            "(see GET /api/sampling/catalog)", required=False),
             PipeConfigSpec("resolution", str, "1024x1024", "Resolution (WxH)", required=False),
+            PipeConfigSpec("fit", str, "match", "Edit output size: match the first image, or render at the resolution (image_fit crops or pads the first image)",
+                           required=False, choices=["match", "crop", "pad"]),
             PipeConfigSpec("quantity", int, 1, "Number of images", required=False, min_value=1, max_value=10),
             seed_config_spec(),
             device_config_spec(),

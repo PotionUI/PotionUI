@@ -71,6 +71,7 @@ src/platform/runtime/native/
 ├── sampling/              the one flow-matching denoise loop + guidance strategies + step algorithms
 ├── memory/                VRAM-tier placement planning + per-component device assignment
 ├── lora/                  LoRA key-dialect mapping + runtime weight patching
+├── cancellation.py        the cancel probe of a run, read between DiT blocks and VAE tiles
 └── errors.py              NativeEngineError family (dependency-free, importable from anywhere)
 ```
 
@@ -88,6 +89,7 @@ One line per package, in loading order:
 | `vae/` | `AutoEncoder2D` (Flux-family 2D VAE: `flux_ae`/`flux2_ae`) + `tiling.py` (its spatial tiled encode/decode, not yet 3D-aware); `AutoEncoderCausal3D` (Wan 2.1-shaped, 16ch — Qwen-Image's and Krea-2's VAE) and `AutoEncoderCausal3D_2_2` (Wan 2.2-shaped, 48ch, patchified) for the causal-3D family; `load_vae`/`load_causal3d_vae`/`load_causal3d_v2_vae` entry points. |
 | `sampling/` | `denoise()` — the one loop — plus `flow_schedule.build_sigmas`, `cfg.py`'s guidance strategies (`EmbeddedGuidance`/`TrueCFG`/`NoCFG`), the step algorithms (`euler`/`dpmpp_2m`/`unipc`), and `hooks.py`'s per-step `StepHook` protocol. The algorithms and the schedules are both registries (`registry.py`): core registers its own at import time, a plugin adds more through the `samplers:` / `schedules:` manifest roots, and `denoise()`/`build_sigmas()` dispatch through them — there is no other list of sampler or schedule names. |
 | `memory/` | `device_plan.make_device_plan` (which CUDA device each component lives on) and `tiering.plan_placement` (residency/ops-mode per component from VRAM + component sizes). |
+| `cancellation.py` | `cancellation_scope` puts a run's cancel probe in a `ContextVar`: `GenerationEngine` opens one around each pipe, and `denoise()`, `denoise_prenoised()` and the samplers that own their step loop open one that also knows the step. `raise_if_cancelled(i)` raises `SamplingCancelled` when the probe says so and does nothing outside a scope. |
 | `lora/` | `key_mapping.map_lora_keys` (normalizes comfy/kohya/diffusers/PEFT LoRA key dialects onto native param names) and `apply.apply_loras`/`remove_loras` (in-place or cast-mode runtime patching). |
 
 ### The kernel layer
@@ -289,7 +291,10 @@ Concretely, adding model family N+1 means:
    `RotaryEmbedding.inv_freq` are `__init__`-computed non-persistent buffers, so meta construction
    leaves them on the meta device and `post_load` rebuilds all three from config
    (`arch/anima/model.py:Anima.post_load`). Flux/Krea-2/Z-Image compute RoPE inline per forward and
-   stay documented no-ops.
+   stay documented no-ops. Every loop over transformer blocks in a forward calls
+   `raise_if_cancelled(i)` before its block: that check is what stops a cancelled run before the
+   next block instead of at the end of the sampling step. It reads one `ContextVar` and calls the
+   run's probe, and regional `torch.compile` only wraps the blocks, so the loop stays Python.
 
 4. **TE mapping.** If the family needs a text encoder not yet supported, add it under
    `text_encoders/` the same way (`detect/te_detect.py` signature + a `TESpec` in
@@ -302,7 +307,8 @@ Concretely, adding model family N+1 means:
    channel count than what `AutoEncoder2D` already handles, extend `detect/vae_detect.py`'s
    detection and, if the architecture genuinely differs (not just key naming), add a new module
    under `vae/`. A same-architecture-different-keys VAE (like `flux2_ae`'s diffusers-layout keys)
-   gets a key-rename map instead of a new module — see `vae/key_convert.py`.
+   gets a key-rename map instead of a new module — see `vae/key_convert.py`. A tile loop calls
+   `raise_if_cancelled(i)` before each tile, like a DiT block loop.
 
 6. **Conditioning assembly.** However the family's TE output (`context`/`pooled`/`attention_mask`)
    maps onto the arch's `forward(x, timestep, context, y, guidance)` signature is the generator-side

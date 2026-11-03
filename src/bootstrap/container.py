@@ -1667,7 +1667,7 @@ def build_container() -> AppContainer:
         step_kind_registry=recipe_step_kind_registry,
         indexing_coordinator=model_index_manager.indexing,
         type_manager=model_index_manager.types,
-        app_loop=lambda: getattr(_rr._container, "app_loop", None),
+        app_loop=_rr.get_app_loop,
         digests=model_index_manager.digests,
     )
     # `workspace.activate` is the first-run wizard's own step, so setup - not

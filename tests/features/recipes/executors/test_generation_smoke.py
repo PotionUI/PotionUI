@@ -564,14 +564,36 @@ def test_cancelling_the_run_cancels_the_generation_on_the_app_loop(app_loop):
     assert result.error_code == "GENERATION_SMOKE_CANCELLED"
 
 
-def test_the_generation_runs_on_its_own_loop_when_the_app_loop_is_not_up_yet():
+def test_a_missing_app_loop_fails_clearly_without_starting_a_generation(monkeypatch):
+    import src.platform.plugins.runtime_registries as runtime_registries
+
+    monkeypatch.setattr(runtime_registries, "_container", SimpleNamespace(app_loop=None))
     orchestrator = FakeOrchestrator()
     executor = GenerationSmokeExecutor(
         FakePresetLoader(FakePresetTemplate()), object(), orchestrator, FakeFileRepository(),
-        app_loop=lambda: None,
+        app_loop=runtime_registries.get_app_loop,
     )
 
     result = executor.execute(_context(_recipe()))
 
-    assert result.success is True
-    assert len(orchestrator.loops) == 1
+    assert result.success is False
+    assert result.error_code == "GENERATION_SMOKE_NO_APP_LOOP"
+    assert "Application event loop not available yet" in result.safe_error_detail
+    assert orchestrator.loops == []
+
+
+def test_an_app_loop_that_is_not_running_fails_clearly_without_starting_a_generation():
+    idle = asyncio.new_event_loop()
+    orchestrator = FakeOrchestrator()
+    executor = GenerationSmokeExecutor(
+        FakePresetLoader(FakePresetTemplate()), object(), orchestrator, FakeFileRepository(),
+        app_loop=lambda: idle,
+    )
+    try:
+        result = executor.execute(_context(_recipe()))
+    finally:
+        idle.close()
+
+    assert result.error_code == "GENERATION_SMOKE_NO_APP_LOOP"
+    assert "Application event loop is not running" in result.safe_error_detail
+    assert orchestrator.loops == []

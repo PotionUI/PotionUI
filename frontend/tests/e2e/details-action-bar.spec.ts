@@ -34,6 +34,7 @@ const CATALOG = [
 	tool('crop', 'Crop', { icon: 'crop', accepts: ['image', 'video'], editor: 'crop' }),
 	tool('resize', 'Resize', { icon: 'shrink', accepts: ['image', 'video'], editor: 'resize' }),
 	tool('rotate', 'Rotate', { accepts: ['image', 'video'] }),
+	tool('fit_canvas', 'Fit canvas', { accepts: ['image'] }),
 	tool('crop_subject', 'Crop to subject', { accepts: ['image'], requires: { has_alpha: true } }),
 	tool('a1111-metadata-export.export-zip', 'Download with A1111 metadata', {
 		icon: 'download',

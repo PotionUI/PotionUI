@@ -288,7 +288,7 @@ test.describe('Tools menu, Edit and Effects', () => {
 		expect(labels.slice(0, 2)).toEqual(['Edit', 'Effects']);
 		expect(labels).toEqual(expect.arrayContaining(['Analyze', 'Compose', 'Export']));
 		expect(await topRows(page)).toEqual([
-			{ id: 'edit', count: 7 },
+			{ id: 'edit', count: 8 },
 			{ id: 'effects', count: 1 }
 		]);
 		await expect(menu(page).locator('[data-tool="crop"]')).toHaveCount(0);
@@ -299,6 +299,7 @@ test.describe('Tools menu, Edit and Effects', () => {
 			'rotate',
 			'flip',
 			'fit_canvas',
+			'slice_sheet',
 			'color_key',
 			'crop_subject'
 		]);
@@ -508,7 +509,7 @@ test.describe('Edit and Effects submenus', () => {
 
 		const first = menu(page).locator('[role="menuitem"]').first();
 		await expect(first).toHaveAttribute('data-submenu-row', 'edit');
-		await expect(first.locator('[data-submenu-count]')).toHaveText('7');
+		await expect(first.locator('[data-submenu-count]')).toHaveText('8');
 		await expect(menu(page).locator('[data-submenu-row="effects"] [data-submenu-count]')).toHaveText('1');
 		await expect(first).toBeFocused();
 	});
@@ -600,7 +601,7 @@ test.describe('Edit and Effects submenus', () => {
 		await historyCard.getByRole('button', { name: 'Item actions' }).click();
 
 		expect(libraryRows).toEqual([
-			{ id: 'edit', count: 7 },
+			{ id: 'edit', count: 8 },
 			{ id: 'effects', count: 1 }
 		]);
 		expect(await topRows(page)).toEqual(libraryRows);
@@ -633,7 +634,7 @@ test.describe('Edit and Effects submenus on a phone', () => {
 		await card.getByRole('button', { name: 'Item actions' }).tap();
 		const sheet = page.locator('[data-tools-sheet]');
 		await expect(sheet).toBeVisible();
-		await expect(sheet.locator('[data-submenu-row="edit"] [data-submenu-count]')).toHaveText('7');
+		await expect(sheet.locator('[data-submenu-row="edit"] [data-submenu-count]')).toHaveText('8');
 		await sheet.screenshot({ path: shotPath(JOURNEY, 'sheet-rows-390'), animations: 'disabled' });
 
 		await sheet.locator('[data-submenu-row="edit"]').tap();
@@ -733,6 +734,7 @@ test.describe('details action bar', () => {
 			'Rotate',
 			'Flip',
 			'Fit canvas',
+			'Slice into references',
 			'Color key',
 			'Crop to subject',
 			'Open in Image editor'

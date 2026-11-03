@@ -200,6 +200,9 @@ class CloudBackend(BaseBackend):
     def take_cancel_notice(self, generation_id: str) -> Optional[str]:
         return self._cancel_notices.pop(generation_id, None)
 
+    def may_still_run(self, generation_id: str) -> bool:
+        return generation_id in self._runs
+
     async def health_check(self) -> Dict[str, Any]:
         now = self.clock.now()
         if self._health is not None and now - self._health_at < HEALTH_CACHE_SECONDS:

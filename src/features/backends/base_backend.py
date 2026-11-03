@@ -171,6 +171,9 @@ class BaseBackend(ABC):
     def take_cancel_notice(self, generation_id: str) -> Optional[str]:
         return None
 
+    def may_still_run(self, generation_id: str) -> bool:
+        return True
+
     @abstractmethod
     async def health_check(self) -> Dict[str, Any]:
         """

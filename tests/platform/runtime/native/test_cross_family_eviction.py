@@ -12,6 +12,7 @@ CUDA is faked (the generator's device is ``cuda:0`` but ``free_vram_gb`` /
 
 from __future__ import annotations
 
+import pytest
 import torch
 
 from src.platform.runtime.native import engine as engine_mod
@@ -36,7 +37,7 @@ class _FakeModule:
 class _FakeNativeModel:
     """Duck-types NativeModel for the generator's move/offload/estimate calls."""
 
-    def __init__(self, kind, *, gb, causal3d=False, oom_moves=0):
+    def __init__(self, kind, *, gb, causal3d=False, oom_moves=0, oom_streams=0, oom=None):
         self.kind = kind
         self.spec = _FakeSpec() if kind == "dit" else None
         self.estimated_vram_gb = gb
@@ -45,13 +46,23 @@ class _FakeNativeModel:
         self.device = "cpu"
         self.offloaded = False
         self.moved_to: list[str] = []
+        self.streamed: list[tuple[str, float]] = []
         self._oom_moves = oom_moves
+        self._oom_streams = oom_streams
+        self._oom = oom or (lambda: torch.cuda.OutOfMemoryError("fake OOM"))
 
     def move_to(self, device):
         self.moved_to.append(str(device))
         if self._oom_moves > 0 and str(device).startswith("cuda"):
             self._oom_moves -= 1
-            raise torch.cuda.OutOfMemoryError("fake OOM")
+            raise self._oom()
+        self.device = str(device)
+
+    def stream_to(self, device, budget):
+        self.streamed.append((str(device), budget))
+        if self._oom_streams > 0:
+            self._oom_streams -= 1
+            raise self._oom()
         self.device = str(device)
 
     def offload(self):
@@ -69,8 +80,8 @@ class _ForeignModel:
         self.offloaded = True
 
 
-def _make_generator(*, dit_gb=4.0, vae_gb=0.3, causal3d=True, oom_moves=0):
-    dit = _FakeNativeModel("dit", gb=dit_gb, oom_moves=oom_moves)
+def _make_generator(*, dit_gb=4.0, vae_gb=0.3, causal3d=True, oom_moves=0, oom_streams=0, oom=None):
+    dit = _FakeNativeModel("dit", gb=dit_gb, oom_moves=oom_moves, oom_streams=oom_streams, oom=oom)
     vae = _FakeNativeModel("vae", gb=vae_gb, causal3d=causal3d)
     plan = DevicePlan("cuda:0", "cuda:0", "cuda:0")
     gen = NativeGenerator(dit, te=object(), vae=vae, device_plan=plan)
@@ -274,3 +285,69 @@ def test_maybe_offload_te_skips_te_with_neither_to_nor_encoder():
     gen, _dit, _vae = _make_generator()
     gen.te = object()                             # no .to, no .encoder
     gen._maybe_offload_te()                       # no exception, just skipped
+
+
+def _wsl_driver_oom():
+    return RuntimeError("CUDA driver error: device not ready")
+
+
+def test_sample_move_retries_after_evicting_all_foreign_on_the_wsl_driver_oom(monkeypatch):
+    _fake_cuda(monkeypatch, free_gb=30.0)
+    mgr = residency.get_residency_registry()
+    mgr.clear()
+    foreign = _ForeignModel()
+    mgr.note_resident(foreign, "cuda:0", 24.5)
+
+    gen, dit, vae = _make_generator(dit_gb=4.0, oom_moves=1, oom=_wsl_driver_oom)
+    gen._move_dit_to_gpu("cuda:0")
+
+    assert foreign.offloaded is True
+    assert dit.moved_to == ["cuda:0", "cuda:0"]
+    assert dit.device == "cuda:0"
+    mgr.clear()
+
+
+def test_sample_move_degrades_to_partial_residency_on_a_second_wsl_driver_oom(monkeypatch):
+    _fake_cuda(monkeypatch, free_gb=6.0)
+    monkeypatch.setattr(engine_mod.torch.cuda, "empty_cache", lambda: None)
+    monkeypatch.setattr(engine_mod, "minimum_inference_memory_gb", lambda: 1.0)
+    residency.get_residency_registry().clear()
+
+    gen, dit, vae = _make_generator(dit_gb=4.0, oom_moves=2, oom=_wsl_driver_oom)
+    gen._move_dit_to_gpu("cuda:0")
+
+    assert dit.moved_to == ["cuda:0", "cuda:0"]
+    assert dit.offloaded is True
+    assert dit.streamed == [("cuda:0", 5.0)]
+    residency.get_residency_registry().clear()
+
+
+def test_sample_move_propagates_a_driver_error_that_is_not_exhaustion(monkeypatch):
+    _fake_cuda(monkeypatch, free_gb=30.0)
+    residency.get_residency_registry().clear()
+
+    gen, dit, vae = _make_generator(
+        dit_gb=4.0, oom_moves=1, oom=lambda: RuntimeError("CUDA driver error: invalid argument"),
+    )
+    with pytest.raises(RuntimeError, match="invalid argument"):
+        gen._move_dit_to_gpu("cuda:0")
+    assert dit.moved_to == ["cuda:0"]
+    residency.get_residency_registry().clear()
+
+
+def test_partial_placement_streams_fully_on_the_wsl_driver_oom(monkeypatch):
+    _fake_cuda(monkeypatch, free_gb=30.0)
+    monkeypatch.setattr(engine_mod.torch.cuda, "empty_cache", lambda: None)
+    mgr = residency.get_residency_registry()
+    mgr.clear()
+    foreign = _ForeignModel()
+    mgr.note_resident(foreign, "cuda:0", 24.5)
+
+    gen, dit, vae = _make_generator(dit_gb=4.0, oom_streams=1, oom=_wsl_driver_oom)
+    gen._dit_weights_budget_gb = lambda latents_shape, ref_latents=None: 3.0
+    gen._stream_dit_to_gpu("cuda:0", (1, 16, 64, 64))
+
+    assert dit.streamed == [("cuda:0", 3.0), ("cuda:0", 0.0)]
+    assert dit.offloaded is True
+    assert foreign.offloaded is True
+    mgr.clear()

@@ -1018,6 +1018,48 @@ def test_attention_oom_retries_query_chunked_sdpa_and_matches_the_dense_output(m
     assert torch.allclose(out, dense, atol=1e-5, rtol=1e-4)
 
 
+def test_attention_wsl_driver_oom_retries_query_chunked_sdpa(monkeypatch):
+    import src.platform.runtime.native.arch.minimax_h3.model as model_module
+
+    torch.manual_seed(5)
+    attn = MiniMaxH3Attention(8, 2, 4, 1e-5, fp32_ops(), dtype=torch.float32)
+    _init_attn_weights(attn)
+    x = torch.randn(1, 10, 8)
+    monkeypatch.setattr(
+        model_module, "_dispatch_attention",
+        lambda q, k, v, heads=None, mask=None: F.scaled_dot_product_attention(q, k, v),
+    )
+    dense = attn(x, None)
+
+    calls = []
+
+    def driver_oom_unless_pinned_to_sdpa(q, k, v, heads=None, mask=None, backend=None):
+        calls.append((q.shape[2], backend))
+        if backend != SDPA:
+            raise RuntimeError("CUDA driver error: device not ready")
+        return F.scaled_dot_product_attention(q, k, v)
+
+    monkeypatch.setattr(model_module, "_dispatch_attention", driver_oom_unless_pinned_to_sdpa)
+    out = attn(x, None, None, 4)
+
+    assert calls == [(10, None), (4, SDPA), (4, SDPA), (2, SDPA)]
+    assert torch.allclose(out, dense, atol=1e-5, rtol=1e-4)
+
+
+def test_attention_raises_a_driver_error_that_is_not_exhaustion(monkeypatch):
+    import src.platform.runtime.native.arch.minimax_h3.model as model_module
+
+    attn = MiniMaxH3Attention(8, 2, 4, 1e-5, fp32_ops(), dtype=torch.float32)
+
+    def broken(q, k, v, heads=None, mask=None):
+        raise RuntimeError("CUDA driver error: invalid argument")
+
+    monkeypatch.setattr(model_module, "_dispatch_attention", broken)
+    with pytest.raises(RuntimeError, match="invalid argument"):
+        attn(torch.randn(1, 6, 8), None, None, 4)
+    assert attn._sdpa_min_rows is None
+
+
 def test_attention_oom_fallback_reraises_when_the_rescue_also_ooms(monkeypatch):
     import src.platform.runtime.native.arch.minimax_h3.model as model_module
 

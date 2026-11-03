@@ -157,7 +157,12 @@ def _submit_cancellable(fn: Callable[[], Any]) -> "tuple[asyncio.Future, Any, th
 
 
 def _is_oom(error: BaseException) -> bool:
-    return isinstance(error, RuntimeError) and "out of memory" in str(error).lower()
+    from src.platform.runtime.cuda_allocator import is_driver_oom
+    from src.platform.runtime.native.errors import retry_after_cuda_oom
+
+    if retry_after_cuda_oom(error):
+        return True
+    return isinstance(error, RuntimeError) and not is_driver_oom(error) and "out of memory" in str(error).lower()
 
 
 @dataclass

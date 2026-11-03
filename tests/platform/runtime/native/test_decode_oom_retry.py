@@ -134,3 +134,26 @@ def test_2d_decode_non_oom_error_is_not_retried(monkeypatch):
     assert raised is True
     assert len(calls) == 1                          # no retry on a non-OOM error
     residency.get_residency_registry().clear()
+
+
+def test_2d_decode_retries_tiled_after_the_wsl_driver_oom(monkeypatch):
+    _fake_cuda(monkeypatch, free_gb=19.0)
+    residency.get_residency_registry().clear()
+    gen, dit, _vae = _make_generator()
+
+    calls: list = []
+
+    def _fake_decode_once(latents, *, vram_free_gb):
+        calls.append(vram_free_gb)
+        if len(calls) == 1:
+            raise RuntimeError("CUDA driver error: device not ready")
+        assert dit.offloaded is True
+        return np.zeros((1, 8, 8, 3), dtype=np.uint8)
+
+    monkeypatch.setattr(gen, "_decode_once", _fake_decode_once)
+    out = gen.decode(torch.zeros(1, 16, 134, 240))
+
+    assert len(calls) == 2
+    assert calls[1] == 19.0
+    assert isinstance(out, np.ndarray)
+    residency.get_residency_registry().clear()

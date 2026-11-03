@@ -1,12 +1,16 @@
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from src.platform.runtime.cuda_env import CUDA_CACHE_MAXSIZE_BYTES, apply_cuda_env_defaults
+from src.platform.runtime import cuda_env
+from src.platform.runtime.cuda_env import CUDA_CACHE_MAXSIZE_BYTES, apply_cuda_env_defaults, is_wsl
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+LINUX = "6.8.0-85-generic"
+WSL2 = "6.18.54.1-microsoft-standard-WSL2"
 
 
 def test_defaults_applied_when_unset(tmp_path):
@@ -45,6 +49,42 @@ def test_windows_skips_expandable_segments(tmp_path):
     apply_cuda_env_defaults(env, "win32")
     assert "PYTORCH_CUDA_ALLOC_CONF" not in env
     assert "CUDA_CACHE_MAXSIZE" in env and "CUDA_CACHE_PATH" in env
+
+
+def test_wsl_keeps_expandable_segments(tmp_path, monkeypatch):
+    monkeypatch.setattr(cuda_env.os, "uname", lambda: SimpleNamespace(release=WSL2), raising=False)
+    env = {"POTIONUI_STORAGE_PATH": str(tmp_path)}
+    apply_cuda_env_defaults(env, "linux")
+    assert env["PYTORCH_CUDA_ALLOC_CONF"] == "expandable_segments:True"
+
+
+@pytest.mark.parametrize("var", ["PYTORCH_ALLOC_CONF", "PYTORCH_HIP_ALLOC_CONF"])
+def test_another_allocator_conf_variable_is_not_shadowed(tmp_path, var):
+    env = {"POTIONUI_STORAGE_PATH": str(tmp_path), var: "expandable_segments:False"}
+    applied = apply_cuda_env_defaults(env, "linux")
+    assert "PYTORCH_CUDA_ALLOC_CONF" not in env
+    assert env[var] == "expandable_segments:False"
+    assert "PYTORCH_CUDA_ALLOC_CONF" not in applied
+
+
+def test_is_wsl_reads_the_running_kernel(monkeypatch):
+    monkeypatch.setattr(cuda_env.os, "uname", lambda: SimpleNamespace(release=WSL2), raising=False)
+    assert is_wsl()
+    monkeypatch.setattr(cuda_env.os, "uname", lambda: SimpleNamespace(release=LINUX), raising=False)
+    assert not is_wsl()
+
+
+@pytest.mark.parametrize(
+    ("release", "expected"),
+    [(WSL2, True), ("5.15.167.4-microsoft-standard-WSL2", True), ("4.4.0-19041-Microsoft", True), (LINUX, False), ("6.8.0-1021-azure", False)],
+)
+def test_is_wsl_from_a_kernel_release(release, expected):
+    assert is_wsl(release) is expected
+
+
+def test_is_wsl_is_false_without_uname(monkeypatch):
+    monkeypatch.delattr(cuda_env.os, "uname", raising=False)
+    assert not is_wsl()
 
 
 def test_storage_defaults_to_relative_storage_dir(tmp_path, monkeypatch):

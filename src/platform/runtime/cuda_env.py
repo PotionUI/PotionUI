@@ -7,6 +7,17 @@ from pathlib import Path
 
 CUDA_CACHE_MAXSIZE_BYTES = 4 * 1024**3
 CUDA_CACHE_SUBDIR = "cuda_cache"
+ALLOCATOR_CONF_VARS = ("PYTORCH_CUDA_ALLOC_CONF", "PYTORCH_HIP_ALLOC_CONF", "PYTORCH_ALLOC_CONF")
+
+
+def _running_kernel_release() -> str:
+    uname = getattr(os, "uname", None)
+    return uname().release if uname is not None else ""
+
+
+def is_wsl(kernel_release: str | None = None) -> bool:
+    release = _running_kernel_release() if kernel_release is None else kernel_release
+    return "microsoft" in release.lower()
 
 
 def apply_cuda_env_defaults(
@@ -33,7 +44,7 @@ def apply_cuda_env_defaults(
         else:
             set_default("CUDA_CACHE_PATH", str(cache_dir))
 
-    if not platform.startswith("win"):
+    if not platform.startswith("win") and not any(var in env for var in ALLOCATOR_CONF_VARS):
         set_default("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
     return applied

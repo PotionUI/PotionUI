@@ -226,6 +226,20 @@ def test_encode_oom_beside_a_resident_dit_offloads_it_and_retries_at_the_same_ti
     assert tiles_tried == [256, 256]
 
 
+def test_video_encode_wsl_driver_oom_raises_the_explained_out_of_memory_error():
+    bundle = _bundle()
+
+    def driver_oom_encode(pixels):
+        raise RuntimeError("CUDA driver error: device not ready")
+
+    bundle.video_vae.module.encode = driver_oom_encode
+    with patch(f"{_MOD}.load_video_frames", return_value=torch.rand(5, 32, 32, 3)):
+        with pytest.raises(torch.cuda.OutOfMemoryError, match="ran out of VRAM even at 128px tiles"):
+            _pipe(device="cpu", target_mode="scale", scale=2.0).process(
+                PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
+    assert bundle.video_vae.offloaded == 1
+
+
 def test_downscale_request_raises_before_any_gpu_work():
     bundle = _bundle()
     latent = torch.randn(1, 24, 3, 100, 100)

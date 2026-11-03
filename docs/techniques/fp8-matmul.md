@@ -42,7 +42,9 @@ already-prefetched weight as-is with no extra copy. The staged copy is a plain l
 it is never written back onto the layer, so the streamed leaf's own CPU/pinned storage and
 residency plan are untouched, and nothing is retained across calls. A staging failure (e.g. an
 out-of-memory error) releases the temporary immediately and falls back to the dequantize path for
-that call, exactly like any other fast-path rejection.
+that call, exactly like any other fast-path rejection. A CUDA driver-error OOM the driver-OOM policy
+treats as fatal is the exception: it propagates, see
+[Native Engine → Memory tiers & low-VRAM](/admin?tab=docs&doc=dev/native-engine).
 
 ## When to use it
 
@@ -125,7 +127,8 @@ The layers live in `src/platform/runtime/native/kernels/` (`fp8_linear.py`, `nvf
   multiples of 16. A CPU weight is allowed because the call stages it.
 - **Kernel-level fallbacks** (the call returns `None` and the caller dequantizes): a weight or input
   scale that is not a single finite positive value, a failed on-demand staging, or a runtime
-  `RuntimeError`/out-of-memory from `_scaled_mm`. Scale validity is memoized per tensor identity and
+  `RuntimeError`/out-of-memory from `_scaled_mm`, other than a driver-error OOM the driver-OOM policy
+  treats as fatal. Scale validity is memoized per tensor identity and
   version, so an unchanged scale is read from the device once, not every forward.
 - **Layout:** the activation is row-major `(M, K)` and the weight is passed as its column-major
   transpose, which is free only when the weight is contiguous, so the call enforces that.

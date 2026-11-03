@@ -7,6 +7,7 @@ from src.features.backends.backend_config import NativeBackendConfig
 from src.features.backends.native_backend import NativeBackend
 from src.pipelines.contracts import PipeInput
 from src.pipelines.pipes._shared.generation.loader_helpers import vram_budget as _loader_vram_budget
+from src.platform.runtime import cuda_allocator
 from src.platform.runtime.gpu import GpuMonitor
 
 
@@ -241,6 +242,27 @@ class TestNativeBackendHealthCheck(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(health["status"], "error")
         self.assertIn("driver fault", health["error"])
+
+    async def test_a_damaged_allocator_is_degraded_and_says_how_to_recover(self):
+        backend = _backend(device="cuda")
+        fake_torch = _fake_torch(cuda_available=True, device_count=1)
+
+        with patch.object(cuda_allocator, "_damage", "CUDA driver error: device not ready"), patch.dict("sys.modules", {"torch": fake_torch}):
+            health = await backend.health_check()
+
+        self.assertEqual(health["status"], "degraded")
+        self.assertIn("CUDA driver error: device not ready", health["reason"])
+        self.assertIn(cuda_allocator.RESTART_HINT, health["reason"])
+        self.assertEqual(health["gpu_name"], "NVIDIA RTX 5090")
+
+    async def test_a_damaged_allocator_leaves_a_cpu_backend_healthy(self):
+        backend = _backend(device="cpu")
+        fake_torch = _fake_torch(cuda_available=True)
+
+        with patch.object(cuda_allocator, "_damage", "CUDA driver error: device not ready"), patch.dict("sys.modules", {"torch": fake_torch}):
+            health = await backend.health_check()
+
+        self.assertEqual(health["status"], "healthy")
 
 
 if __name__ == "__main__":

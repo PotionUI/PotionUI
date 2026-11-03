@@ -37,11 +37,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from PIL import Image
 
 from src.features.generation.engine import deep_update, validate_pipe_configuration
+from src.features.generation.error_classification import WORKER_GPU_RESTART_REQUIRED
 from src.features.remote_execution.output_codec import OutputEncodeError, encode_output
 from src.features.remote_execution.worker.device_injection import inject_worker_device
 from src.pipelines.catalog import PipeCatalog
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.outputs import GenerationOutput, ProgressGenerationOutput
+from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged, allocator_damage, pipe_config_runs_on_cuda
 from src.platform.worker_protocol import ArtifactRefV1, ContentDigest, ProcessedPipelineV1
 
 logger = logging.getLogger(__name__)
@@ -151,6 +153,13 @@ class WorkerPipelineExecutor:
                 raise PipeExecutionError(
                     "invalid_config", str(exc), retryable=False, pipe_id=processed.pipe_id,
                 ) from exc
+
+            damage = allocator_damage()
+            if damage is not None and pipe_config_runs_on_cuda(config):
+                raise PipeExecutionError(
+                    WORKER_GPU_RESTART_REQUIRED, str(CudaAllocatorDamaged(damage, worker=True)),
+                    retryable=False, pipe_id=processed.pipe_id,
+                )
 
             pipe = pipe_class(config)
             pipe_input = self._resolve_inputs(pipe_class, processed, pipe_outputs)

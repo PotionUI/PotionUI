@@ -742,7 +742,7 @@ describe('StageShotFooter.references — existence per capability', () => {
 				{ field: 'references', kind: 'image' as const, token: '<Picture @>' },
 				{ field: 'reference_mods', kind: 'image' as const, token: '<Picture @>', source: 'refmod' as const }
 			],
-			directory: { '01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] } }
+			directories: { refmod: { 'model:01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] } } }
 		};
 		const shot = deriveStageModel(doc, caps, { kind: 'shot', id: 'chain-1' }, form, undefined, references).selected as StageShotModel;
 		expect(shot.footer.references).toEqual({ capability: 'per_shot', poolCount: 2, selectedCount: 2 });

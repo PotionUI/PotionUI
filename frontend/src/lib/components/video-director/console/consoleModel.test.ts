@@ -441,7 +441,7 @@ describe('deriveConsoleModel — H3 refs (continuationDisabled + per_shot refere
 				{ field: 'references', kind: 'image' as const, token: '<Picture @>' },
 				{ field: 'reference_mods', kind: 'image' as const, token: '<Picture @>', source: 'refmod' as const }
 			],
-			directory: { '01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] } }
+			directories: { refmod: { 'model:01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] } } }
 		};
 		const model = deriveConsoleModel(doc, caps, { activeShotId: null }, formData, null, null, null, references);
 		expect(model.shots[0].tabs.find((t) => t.id === 'references')?.label).toBe('References · 2 of 2');

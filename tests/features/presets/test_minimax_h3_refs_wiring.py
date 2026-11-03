@@ -19,11 +19,14 @@ import yaml
 
 from src.features.forms.binding import bind_form
 from src.features.presets.processor import PresetProcessor
+from src.features.prompt.resource_sources import member_kinds_resolver
 from src.features.video_director import normalize_video_director
 from src.features.video_director.normalize import apply_preset_mode_overlay
 from src.pipelines.contracts import PipeInput
 from src.pipelines.pipes.prompt_encoder.main import PromptEncoderPipe
+from src.platform.plugins.prompt_resource_sources import PromptResourceCaller
 from src.platform.templating.processor import TemplateProcessor
+from tests.fixtures.prompt_source_plugin import FAKE_SOURCE, fake_prompt_source
 
 _REFERENCES = [
     {"path": "/media/ref-woman.png", "name": "ref-woman.png", "type": "image", "label": "the woman"},
@@ -374,7 +377,11 @@ def refs_director_capabilities(h3_template):
     return apply_preset_mode_overlay(base, "refs")
 
 
-def _director_document(capabilities, storage_dir, segments, form_data=None, prompt_resources=None, refmod_members=None):
+def _bundle_members():
+    return member_kinds_resolver(PromptResourceCaller(user_id=None, is_admin=False, model_file=None))
+
+
+def _director_document(capabilities, storage_dir, segments, form_data=None, prompt_resources=None, bundle_members=None):
     return normalize_video_director({
         "schema_version": 1,
         "mode": "director",
@@ -382,7 +389,7 @@ def _director_document(capabilities, storage_dir, segments, form_data=None, prom
         "segments": segments,
         "media": [],
         "audio": [],
-    }, capabilities, storage_dir, form_data or {}, prompt_resources, refmod_members=refmod_members)
+    }, capabilities, storage_dir, form_data or {}, prompt_resources, bundle_members=bundle_members)
 
 
 def test_a_director_request_in_refs_mode_gets_one_conditioning_per_shot(h3_template, refs_director_capabilities, tmp_path):
@@ -625,7 +632,6 @@ def test_refs_prompt_resources_declare_the_refmod_picker_as_a_refmod_source(h3_t
 
 
 def test_a_shot_citing_a_refmod_selects_all_its_members_and_copies(h3_template, refs_director_capabilities, tmp_path):
-    from src.features.prompt.reference_pool import refmod_members_resolver
 
     pair = _refmod_file(tmp_path, "pair", ["image", "audio"])
     references = [{"path": "/media/woman.png", "type": "image"}, {"path": "/media/walk.mp4", "type": "video"}]
@@ -635,7 +641,7 @@ def test_a_shot_citing_a_refmod_selects_all_its_members_and_copies(h3_template, 
         {"id": "seg-0", "prompt": f"@[references:/media/walk.mp4] as @[reference_mods:{pair}]", "frames": 124},
         {"id": "seg-1", "prompt": "@[references:/media/woman.png] alone", "frames": 124},
         {"id": "seg-2", "prompt": "an empty street", "frames": 124},
-    ], form, h3_template.prompt_resources["refs"], refmod_members_resolver(None))
+    ], form, h3_template.prompt_resources["refs"], _bundle_members())
 
     assert [segment["reference_indices"] for segment in document["segments"]] == [[1, 2, 3, 4, 5], [0], []]
     pipes = _process(h3_template, {**form, "video_director": document})
@@ -649,8 +655,19 @@ def test_a_shot_citing_a_refmod_selects_all_its_members_and_copies(h3_template, 
     assert [entry["file_path"] for entry in generator["reference_mods"]] == [pair]
 
 
+def test_a_director_shot_cites_a_plugin_source_item_the_same_way(h3_template, refs_director_capabilities, tmp_path, fake_prompt_source):
+    resources = [{**entry, "source": FAKE_SOURCE} if entry.get("source") else entry for entry in h3_template.prompt_resources["refs"]]
+    references = [{"path": "/media/woman.png", "type": "image"}, {"path": "/media/walk.mp4", "type": "video"}]
+    form = {"references": references, "reference_mods": [{"model": "model:pair", "strength": 1.0, "copies": 2}]}
+    document = _director_document(refs_director_capabilities, str(tmp_path), [
+        {"id": "seg-0", "prompt": "@[references:/media/walk.mp4] as @[reference_mods:model:pair]", "frames": 124},
+        {"id": "seg-1", "prompt": "@[references:/media/woman.png] alone", "frames": 124},
+    ], form, resources, _bundle_members())
+
+    assert [segment["reference_indices"] for segment in document["segments"]] == [[1, 2, 3, 4, 5], [0]]
+
+
 def test_the_director_selection_lines_up_with_the_generators_packed_references(h3_template, refs_director_capabilities, tmp_path):
-    from src.features.prompt.reference_pool import refmod_members_resolver
     from src.pipelines.pipes._shared.generation.refmods import load_refmods
     from src.pipelines.pipes._shared.generation.reference_order import pack_references
 
@@ -661,7 +678,7 @@ def test_the_director_selection_lines_up_with_the_generators_packed_references(h
     document = _director_document(refs_director_capabilities, str(tmp_path), [
         {"id": "seg-0", "prompt": "@[references:/media/walk.mp4] only", "frames": 124},
         {"id": "seg-1", "prompt": f"@[reference_mods:{face}] only", "frames": 124},
-    ], form, h3_template.prompt_resources["refs"], refmod_members_resolver(None))
+    ], form, h3_template.prompt_resources["refs"], _bundle_members())
     generator = _pipe(_process(h3_template, {**form, "video_director": document}), "generator/video_minimax_h3")["config"]
     loaded_mods = load_refmods(generator["reference_mods"])
     packed = pack_references(["woman"], ["walk"], [], extras=loaded_mods)
@@ -670,7 +687,6 @@ def test_the_director_selection_lines_up_with_the_generators_packed_references(h
 
 
 def test_an_unreadable_refmod_fails_a_director_request_by_name(h3_template, refs_director_capabilities, tmp_path):
-    from src.features.prompt.reference_pool import refmod_members_resolver
     from src.features.video_director import VideoDirectorValidationError
 
     gone = str(tmp_path / "gone.safetensors")
@@ -678,18 +694,17 @@ def test_an_unreadable_refmod_fails_a_director_request_by_name(h3_template, refs
         _director_document(refs_director_capabilities, str(tmp_path), [
             {"id": "seg-0", "prompt": "a quiet street", "frames": 124},
         ], {"references": _REFERENCES, "reference_mods": [{"model": gone, "strength": 1.0}]},
-            h3_template.prompt_resources["refs"], refmod_members_resolver(None))
+            h3_template.prompt_resources["refs"], _bundle_members())
 
 
 def test_the_director_encoder_presents_a_cited_refmod_at_the_label_the_prompt_names(h3_template, refs_director_capabilities, tmp_path):
-    from src.features.prompt.reference_pool import refmod_members_resolver
 
     face = _refmod_file(tmp_path, "face", ["image"])
     references = [{"path": "/media/a.png", "type": "image"}, {"path": "/media/b.png", "type": "image"}]
     form = {"references": references, "reference_mods": [{"model": face, "strength": 1.0, "copies": 1}]}
     document = _director_document(refs_director_capabilities, str(tmp_path), [
         {"id": "seg-0", "prompt": f"@[references:/media/b.png] meets @[reference_mods:{face}]", "frames": 124},
-    ], form, h3_template.prompt_resources["refs"], refmod_members_resolver(None))
+    ], form, h3_template.prompt_resources["refs"], _bundle_members())
     config = _pipe(_process(h3_template, {**form, "video_director": document}), "prompt_encoder", "prompt_encoder_director")["config"]
 
     captured = []
@@ -723,7 +738,6 @@ def test_plain_refs_keeps_every_refmod_whatever_the_prompt_cites(h3_template, tm
 
 @pytest.mark.parametrize("rows", [[], [{"strength": 0.0}]], ids=["removed", "strength-0"])
 def test_a_shot_citing_a_refmod_the_form_no_longer_carries_is_refused_by_name(h3_template, refs_director_capabilities, tmp_path, rows):
-    from src.features.prompt.reference_pool import refmod_members_resolver
     from src.features.video_director import VideoDirectorValidationError
 
     face = _refmod_file(tmp_path, "face", ["image"])
@@ -732,11 +746,10 @@ def test_a_shot_citing_a_refmod_the_form_no_longer_carries_is_refused_by_name(h3
         _director_document(refs_director_capabilities, str(tmp_path), [
             {"id": "seg-0", "prompt": f"@[reference_mods:{face}] walks in", "frames": 124},
             {"id": "seg-1", "prompt": "an empty street", "frames": 124},
-        ], form, h3_template.prompt_resources["refs"], refmod_members_resolver(None))
+        ], form, h3_template.prompt_resources["refs"], _bundle_members())
 
 
 def test_upstream_stacked_pictures_and_picture_bundles_enter_the_shot_with_their_header_kinds(h3_template, refs_director_capabilities, tmp_path):
-    from src.features.prompt.reference_pool import refmod_members_resolver
 
     cast = _refmod_file(tmp_path, "cast", ["image", "image"])
     stack = _refmod_file(tmp_path, "stack", ["video"])
@@ -745,7 +758,7 @@ def test_upstream_stacked_pictures_and_picture_bundles_enter_the_shot_with_their
     document = _director_document(refs_director_capabilities, str(tmp_path), [
         {"id": "seg-0", "prompt": f"@[reference_mods:{cast}] meet", "frames": 124},
         {"id": "seg-1", "prompt": f"@[references:/media/woman.png] in @[reference_mods:{stack}]", "frames": 124},
-    ], form, h3_template.prompt_resources["refs"], refmod_members_resolver(None))
+    ], form, h3_template.prompt_resources["refs"], _bundle_members())
     assert [segment["reference_indices"] for segment in document["segments"]] == [[1, 2], [0, 3]]
     assert [segment["prompt"] for segment in document["segments"]] == [
         "<Picture 1> <Picture 2> meet", "<Picture 1> in <Video 1>",

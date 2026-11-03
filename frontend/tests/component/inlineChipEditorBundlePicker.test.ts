@@ -6,15 +6,16 @@ import type { PromptResourceSpec } from '$lib/utils/promptResources';
 vi.mock('$lib/services/api/index', async (importOriginal) => {
 	const original = await importOriginal<typeof import('$lib/services/api/index')>();
 	original.api.getModelById = vi.fn().mockResolvedValue({ success: true, data: { model: { name: 'Face Bundle' } } }) as never;
-	original.api.getRefModMembers = vi
-		.fn()
-		.mockResolvedValue({ success: true, data: { members: [{ kind: 'image', name: null }, { kind: 'video', name: null }] } }) as never;
+	original.api.getPromptResourceMembers = vi.fn().mockImplementation(async (source: string) => ({
+		success: true,
+		data: { members: source === 'refmod' ? [{ kind: 'image', name: null }, { kind: 'video', name: null }] : [] }
+	})) as never;
 	return original;
 });
 
 const { default: InlineChipEditor } = await import('$lib/components/InlineChipEditor.svelte');
 const { createClassComponent } = await import('svelte/legacy');
-const { resetRefModDirectory } = await import('$lib/stores/refModDirectory');
+const { resetBundleDirectories } = await import('$lib/stores/bundleDirectory');
 
 let target: HTMLDivElement;
 
@@ -32,6 +33,25 @@ const values = {
 	]
 };
 
+async function openPicker(promptResources: PromptResourceSpec[], resourceFieldValues: Record<string, unknown>) {
+	target = document.createElement('div');
+	document.body.appendChild(target);
+	const onChange = vi.fn();
+	const component = createClassComponent({
+		component: InlineChipEditor as never,
+		target,
+		props: { value: '', chips: {}, variant: 'segment-composer', borderless: true, promptResources, resourceFieldValues }
+	});
+	component.$on?.('change', onChange);
+	await vi.waitFor(() => {
+		flushSync();
+		(component as unknown as { insertResourceTrigger: () => void }).insertResourceTrigger?.();
+		flushSync();
+		expect(document.querySelector('.resource-picker')).not.toBeNull();
+	});
+	return onChange;
+}
+
 function clickRow(text: string) {
 	const row = Array.from(document.querySelectorAll<HTMLElement>('.picker-row')).find((r) => r.textContent?.includes(text));
 	row?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -41,7 +61,7 @@ function clickRow(text: string) {
 afterEach(() => {
 	target?.remove();
 	document.body.innerHTML = '';
-	resetRefModDirectory();
+	resetBundleDirectories();
 });
 
 describe('InlineChipEditor @ picker with RefMods', () => {
@@ -82,5 +102,30 @@ describe('InlineChipEditor @ picker with RefMods', () => {
 			flushSync();
 			expect(target.querySelector('.resource-chip')?.textContent).toContain('Face Bundle');
 		});
+	});
+
+	it('lists a plugin source group with the badge and label the backend serves for it', async () => {
+		const stackSpecs: PromptResourceSpec[] = [
+			{ field: 'stacks', kind: 'image', label: 'Stacks', token: '<Picture @>', source: 'stack', source_label: 'Stack', source_badge: 'Stk' }
+		];
+		const onChange = await openPicker(stackSpecs, { stacks: [{ model: 'model:01S', strength: 1 }] });
+
+		clickRow('Stacks');
+		await vi.waitFor(() => {
+			flushSync();
+			expect(document.querySelector('.resource-picker')!.textContent).toContain('Face Bundle');
+		});
+		expect(document.querySelector('.resource-picker')!.textContent).toContain('Stk');
+
+		clickRow('Face Bundle');
+		expect(onChange.mock.calls.at(-1)![0].detail.value).toBe('@[stacks:model:01S]');
+	});
+
+	it('says a plugin source group has nothing selected yet in its own words', async () => {
+		const stackSpecs: PromptResourceSpec[] = [
+			{ field: 'stacks', kind: 'image', label: 'Stacks', token: '<Picture @>', source: 'stack', source_label: 'Stack', source_badge: 'Stk' }
+		];
+		await openPicker(stackSpecs, { stacks: [] });
+		expect(document.querySelector('.resource-picker')!.textContent).toContain('No Stacks selected yet');
 	});
 });

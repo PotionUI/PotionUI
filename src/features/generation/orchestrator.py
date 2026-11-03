@@ -126,7 +126,8 @@ from src.features.cloud.director import director_overlay
 from src.platform.security.user_ref import cloud_user_ref
 from src.features.generation.output_types import output_type_registry
 from src.features.forms.binding import bind_form, FormBindingError
-from src.features.prompt.reference_pool import RefModMembersResolver, refmod_members_resolver
+from src.features.prompt.resource_sources import BundleMembersResolver, member_kinds_resolver, prompt_resource_sources
+from src.platform.plugins.prompt_resource_sources import PromptResourceCaller, PromptResourceSourceRegistry
 from src.features.prompt.resources import mode_prompt_resources, resolve_generation_prompts
 from src.features.generation.memory_advisory import (
     _WEIGHT_LOAD_MARGIN,
@@ -208,7 +209,7 @@ def _prepare_director_form_data(
     user_id: Optional[str],
     settings: Settings,
     model_overlay: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
-    refmod_members: Optional[RefModMembersResolver] = None,
+    bundle_members: Optional[BundleMembersResolver] = None,
 ) -> Dict[str, Any]:
     """Pure Video/Music Director canonicalization, shared by `start_generation`
     and `GenerationOrchestrator.preview_memory` so a preview's active loader
@@ -258,7 +259,7 @@ def _prepare_director_form_data(
 
         normalized_doc = normalize_video_director(
             raw_doc, capabilities, storage_dir, form_data, mode_prompt_resources(preset_template, mode),
-            refmod_members=refmod_members,
+            bundle_members=bundle_members,
         )
 
         # A capability-declared `timing` block names a sibling FORM FIELD --
@@ -521,6 +522,7 @@ class GenerationOrchestrator:
         cloud_policy: Optional['CloudGenerationPolicy'] = None,
         output_broadcaster: Optional['GenerationOutputBroadcaster'] = None,
         limit_guard: Optional['LimitGuard'] = None,
+        prompt_resource_source_registry: Optional[PromptResourceSourceRegistry] = None,
     ):
         """
         Initialize the generation orchestrator.
@@ -574,6 +576,7 @@ class GenerationOrchestrator:
         self.preset_template_loader = preset_template_loader
         self.backend_registry = backend_registry
         self.model_locator = model_locator
+        self.prompt_resource_source_registry = prompt_resource_source_registry or prompt_resource_sources()
         self.content_safety = content_safety
         self._content_tally: Dict[str, Dict[str, int]] = {}
         self._prompt_batches: Dict[str, PromptBatch] = {}
@@ -758,10 +761,13 @@ class GenerationOrchestrator:
             **cloud_args,
         )
 
-    def _refmod_members(self) -> Optional[RefModMembersResolver]:
+    def _bundle_members(self, user_id: Optional[str]) -> Optional[BundleMembersResolver]:
         if self.model_locator is None:
             return None
-        return refmod_members_resolver(self.model_locator)
+        caller = PromptResourceCaller(
+            user_id=user_id, is_admin=self._is_admin_user(user_id), model_file=self.model_locator.path_for_model,
+        )
+        return member_kinds_resolver(caller, self.prompt_resource_source_registry)
 
     def _director_model_overlay(self, preset_template) -> Optional[Callable[[Any], Optional[Dict[str, Any]]]]:
         capabilities = self.cloud_capabilities
@@ -845,7 +851,7 @@ class GenerationOrchestrator:
             prepared_form_data = _prepare_director_form_data(
                 preset_template, mode, bound.values, user_id, self.settings,
                 model_overlay=self._director_model_overlay(preset_template),
-                refmod_members=self._refmod_members(),
+                bundle_members=self._bundle_members(user_id),
             )
             built = self.pipeline_builder.build_pipeline(
                 preset_id=preset_template,
@@ -1158,7 +1164,7 @@ class GenerationOrchestrator:
                 request.form_data = _prepare_director_form_data(
                     preset_template, mode, request.form_data, user_id, self.settings,
                     model_overlay=self._director_model_overlay(preset_template),
-                    refmod_members=self._refmod_members(),
+                    bundle_members=self._bundle_members(user_id),
                 )
 
             # LTX two-stage upscale geometry: fail fast, before the (expensive)
@@ -1263,7 +1269,7 @@ class GenerationOrchestrator:
                 getattr(request, 'prompts', None),
                 getattr(request, 'segments', None),
                 request.form_data or {},
-                self._refmod_members(),
+                self._bundle_members(user_id),
             )
 
             # Rewrite each model reference into the engine-native string the selected

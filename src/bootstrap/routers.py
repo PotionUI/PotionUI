@@ -85,6 +85,7 @@ from src.features.providers.routes import build_router as build_provider_router
 from src.features.settings.admin_websocket import build_router as build_admin_ws_router
 from src.features.keybindings.routes import build_router as build_keybinding_router
 from src.features.prompt_database.routes import build_router as build_prompt_database_router
+from src.features.prompt.routes import build_router as build_prompt_resource_router
 from src.features.media_index.routes import build_router as build_media_index_router
 from src.features.content_safety.routes import build_router as build_content_safety_router
 from src.features.notifications.routes import (
@@ -164,6 +165,7 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_admin_ws_router(container))  # Admin WebSocket endpoint
     app.include_router(build_keybinding_router(container))  # Keybinding management endpoints
     app.include_router(build_prompt_database_router(container))  # Prompt database endpoints
+    app.include_router(build_prompt_resource_router(container))
     app.include_router(build_media_index_router(container))  # Media index (system tags) admin endpoints
     app.include_router(build_content_safety_router(container))
     app.include_router(build_notification_router(container))  # Notification endpoints

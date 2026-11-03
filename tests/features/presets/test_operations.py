@@ -22,6 +22,7 @@ from src.features.presets.exceptions import (
 )
 from src.features.presets.templates import PipeTemplate, ModeTemplate, GenerationMode
 from src.platform.security.user import User, AccountType
+from tests.fixtures.prompt_source_plugin import fake_prompt_source
 
 
 class TestPresetOperationsQuery:
@@ -430,6 +431,18 @@ class TestPresetOperationsQuery:
 
         assert operations.get_form_schema(collaborators, "test-preset", "img2img")["prompt_resources"] == [pictures]
         assert operations.get_form_schema(collaborators, "test-preset", "txt2img")["prompt_resources"] == []
+
+    def test_get_form_schema_serves_each_sourced_entry_with_its_source_label_and_badge(
+        self, collaborators, mock_file_repo, mock_preset_template, fake_prompt_source,
+    ):
+        stacks = {"field": "stacks", "source": "fixture-bundle", "kind": "image", "token": "<Picture @>"}
+        mock_preset_template.prompt_resources = {"img2img": [stacks]}
+        mock_file_repo.find_preset_by_id.return_value = mock_preset_template
+        collaborators.form_serializer.process_form_fields.return_value = {"fields": []}
+
+        served = operations.get_form_schema(collaborators, "test-preset", "img2img")["prompt_resources"]
+
+        assert served == [{**stacks, "source_label": "Bundle", "source_badge": "Kit"}]
 
     def test_get_form_schema_names_the_fields_the_pipeline_reads_as_quantity(self, collaborators, mock_file_repo, mock_preset_template):
         mock_preset_template.modes["txt2img"].pipes = [

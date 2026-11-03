@@ -68,8 +68,8 @@
 	import ShotStage from './ShotStage.svelte';
 	import JoinConnector from './JoinConnector.svelte';
 	import OverridesDisclosure from './OverridesDisclosure.svelte';
-	import { loadRefMods, refModDirectory } from '$lib/stores/refModDirectory';
-	import { refModIds } from '$lib/utils/refMods';
+	import { bundleDirectories, loadBundles } from '$lib/stores/bundleDirectory';
+	import { bundleRefs } from '$lib/utils/bundleResources';
 
 	let {
 		value,
@@ -205,12 +205,12 @@
 
 	let generationContext = $derived({ presetId: presetId || null, variant: selectedVariant, mode: selectedMode });
 	$effect(() => {
-		loadRefMods(refModIds(promptResources, formData));
+		loadBundles(bundleRefs(promptResources, formData));
 	});
 	let model = $derived(
 		deriveConsoleModel(doc, capabilities, { activeShotId: activeShotId ?? null }, formData, runs, checked, generationContext, {
 			specs: promptResources,
-			directory: $refModDirectory
+			directories: $bundleDirectories
 		})
 	);
 	// The MAX affordance's target -- null hides it entirely (no cap of either

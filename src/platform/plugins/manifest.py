@@ -575,6 +575,16 @@ class PromptImporterSpec(BaseModel):
     backend: str
 
 
+class PromptResourceSourceSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    field_type: str
+    label: str
+    badge: str
+    members: str
+
+
 class PhrasebookOpSpec(BaseModel):
     """A plugin-provided phrasebook batch tool: `phrasebook_ops[]`.
 
@@ -1015,6 +1025,8 @@ class PluginManifestSchema(BaseModel):
 
     # Prompt library import sources
     prompt_importers: List[PromptImporterSpec] = Field(default_factory=list)
+
+    prompt_resource_sources: List[PromptResourceSourceSpec] = Field(default_factory=list)
 
     # Phrasebook batch tools
     phrasebook_ops: List[PhrasebookOpSpec] = Field(default_factory=list)

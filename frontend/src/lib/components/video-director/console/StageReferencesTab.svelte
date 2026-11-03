@@ -3,8 +3,8 @@
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import { collectFormMediaOptions, formMediaOptionKeys } from '$lib/utils/videoDirector';
 	import { shotReferenceCounts, shotReferenceOverview, withMarkerAppendedToShot, type ShotReferenceEntry } from '$lib/utils/shotReferences';
-	import { refModIds } from '$lib/utils/refMods';
-	import { loadRefMods, refModDirectory } from '$lib/stores/refModDirectory';
+	import { bundleRefs } from '$lib/utils/bundleResources';
+	import { bundleDirectories, loadBundles } from '$lib/stores/bundleDirectory';
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaThumb from '$lib/components/media/MediaThumb.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -30,10 +30,10 @@
 	let referencePool = $derived(collectFormMediaOptions(formData).filter((o) => caps.referenceFields.includes(o.field)));
 	let referencePoolKeys = $derived(formMediaOptionKeys(referencePool));
 	$effect(() => {
-		loadRefMods(refModIds(promptResources, formData));
+		loadBundles(bundleRefs(promptResources, formData));
 	});
-	let overview = $derived(shotReferenceOverview(doc, caps, shotId, formData, promptResources, $refModDirectory));
-	let counts = $derived(shotReferenceCounts(doc, caps, shotId, formData, { specs: promptResources, directory: $refModDirectory }));
+	let overview = $derived(shotReferenceOverview(doc, caps, shotId, formData, promptResources, $bundleDirectories));
+	let counts = $derived(shotReferenceCounts(doc, caps, shotId, formData, { specs: promptResources, directories: $bundleDirectories }));
 	let poolSize = $derived(overview.used.length + overview.unused.length);
 
 	const WAVE_BARS = [30, 55, 80, 45, 95, 60, 35, 70, 90, 50, 25, 65, 85, 40, 60, 30];

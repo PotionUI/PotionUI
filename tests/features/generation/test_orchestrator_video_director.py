@@ -14,6 +14,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
 from src.features.video_director import VideoDirectorValidationError
+from tests.fixtures.prompt_source_plugin import fake_prompt_source
 
 
 @pytest.fixture(autouse=True)
@@ -119,7 +120,7 @@ class TestNormalizationWiring:
             '/storage',
             {'video_director': canonical},
             [],
-            refmod_members=None,
+            bundle_members=None,
         )
         assert request.form_data['video_director'] == canonical
 
@@ -585,10 +586,18 @@ def test_the_director_reads_refmod_members_through_the_model_locator(orchestrato
     orchestrator.model_locator = Mock()
     orchestrator.model_locator.path_for_model.return_value = path
 
-    assert list(orchestrator._refmod_members()("model:01FACE")) == ["image"]
+    assert list(orchestrator._bundle_members(None)("refmod", "model:01FACE")) == ["image"]
     orchestrator.model_locator.path_for_model.assert_called_once_with("01FACE")
 
 
 def test_without_a_model_locator_the_director_gets_no_refmod_reader(orchestrator):
     orchestrator.model_locator = None
-    assert orchestrator._refmod_members() is None
+    assert orchestrator._bundle_members("user-1") is None
+
+
+def test_the_director_asks_a_plugin_source_for_members_as_the_submitting_user(orchestrator, fake_prompt_source):
+    _source, calls = fake_prompt_source
+    orchestrator.model_locator = Mock()
+
+    assert list(orchestrator._bundle_members("user-1")("fixture-bundle", "model:pair")) == ["image", "audio"]
+    assert [(key, caller.user_id) for key, caller in calls] == [("model:pair", "user-1")]

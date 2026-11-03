@@ -1333,6 +1333,32 @@ Python code reads the live set through `src.plugin_api.models.model_types()`; a 
 `window.__potionui.modelTypes` (`list()`, `get(id)`, `presentation(id)`), which follows
 `GET /api/models/type-definitions`. Both include plugin types while their plugin is enabled.
 
+## Contributing a prompt resource source
+
+A prompt resource source lets a preset's prompt cite rows of a picker field whose items are
+bundles of several references (an image and an audio member, say) rather than single media.
+A preset mode, or a [preset extension](presets/plugins.md#extending-existing-modes), maps such a field with
+`source: <id>` in `prompt_resources`; see [Prompt resources](presets/manifest.md#prompt-resources).
+Declare the source in `manifest.yml`:
+
+```yaml
+prompt_resource_sources:
+  - id: stack                 # the value prompt_resources entries put in `source`
+    field_type: lora_picker   # the field type it reads; lint rejects any other
+    label: Stack              # names an item in messages and chip tooltips
+    badge: Stack              # the @ menu badge while an item's members are unknown
+    members: sources.members  # "module.function" in your plugin
+```
+
+`members(item_key, caller)` returns the item's members as `[{"kind", "name"}]`, where `kind`
+is `image`, `video` or `audio`. `item_key` is the row's `model` value (`model:<id>`), and
+`caller` carries `user_id`, `is_admin` and `model_file(model_id)`, which returns the model's
+file path. Raise `ValueError` with a short reason when the item cannot be read; any other
+exception is reported as unreadable without its text. Core calls it at submit time for every
+cited row and from `GET /api/prompt-resources/sources/{id}/members?item=<item key>`, which first
+checks that the caller can see the model (404 otherwise, before your handler runs). Two
+plugins cannot register the same id, and disabling the plugin removes the source.
+
 ## Contributing a prompt importer
 
 Core owns file-based import: `POST /api/prompts/import` accepts `styles.csv`

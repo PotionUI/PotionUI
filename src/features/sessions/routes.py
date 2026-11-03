@@ -4,14 +4,19 @@ Session Controller
 Handles CRUD operations for user sessions (saved preset configurations).
 Delegates mutations to `src.features.sessions.operations`.
 """
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+import asyncio
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from src.platform.http.base_controller import APIError, APIResponse, BaseController
 from src.platform.http.errors import AccessDeniedError, NotFoundError
-from src.platform.security.current_user import get_current_active_user
+from src.platform.security.current_user import get_auth, oauth2_scheme
+from src.platform.security.user import User
 from src.features.sessions.dto import PinSessionRequest, SaveSessionRequest, UpdateSessionRequest
 from src.features.sessions import operations
+from src.features.sessions.live import CLIENT_HEADER, WriteOrigin, announce, browser_or_api_origin, mcp_origin
+from src.features.sessions.operations.save import SessionVersionConflict
 from src.features.sessions.mappers import (
     session_to_response_dict,
     session_version_list_to_dicts,
@@ -26,6 +31,17 @@ if TYPE_CHECKING:
 
 MISSING_CODES = frozenset({"session_not_found", "session_version_not_found"})
 
+McpOwnerResolver = Callable[[str], Optional[Tuple[User, Any]]]
+
+
+@dataclass(frozen=True)
+class SessionWriter:
+    user: User
+    origin: WriteOrigin
+
+    @property
+    def id(self) -> str:
+        return self.user.id
 
 
 class SessionController(BaseController):
@@ -36,12 +52,35 @@ class SessionController(BaseController):
         plugin_registry: PluginRegistry,
         session_version_repository: Optional[SessionVersionRepository] = None,
         file_preset_repository: Optional[Any] = None,
+        notifier: Optional[Any] = None,
+        mcp_owner_resolver: Optional[McpOwnerResolver] = None,
     ):
         super().__init__()
         self.repository = session_repository
         self.plugins = plugin_registry
         self.version_repository = session_version_repository
         self.file_preset_repository = file_preset_repository
+        self.notifier = notifier
+        self.mcp_owner_resolver = mcp_owner_resolver
+
+    def resolve_writer(self, token: str, client_header: Optional[str]) -> Optional[SessionWriter]:
+        user = get_auth().get_user_from_token(token)
+        if user is not None:
+            return SessionWriter(user, browser_or_api_origin(client_header))
+        owner = self.mcp_owner_resolver(token) if self.mcp_owner_resolver else None
+        if owner is None:
+            return None
+        user, mcp_token = owner
+        return SessionWriter(user, mcp_origin(mcp_token.name))
+
+    @staticmethod
+    def _conflict_as_409(write: Callable[..., Any]) -> Callable[..., Any]:
+        def guarded(*args: Any) -> Any:
+            try:
+                return write(*args)
+            except SessionVersionConflict as exc:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.payload())
+        return guarded
 
     def _get_owned_session_record(self, user_id: str, session_id: str):
         session = self.repository.get_by_id(session_id)
@@ -75,30 +114,38 @@ class SessionController(BaseController):
             return session_to_response_dict(self._get_owned_session_record(user_id, session_id))
         return await self.run("get_session_failed", load, soft=True, message="Failed to get session")
 
-    async def save_session(self, user_id: str, request: SaveSessionRequest) -> APIResponse:
+    async def save_session(
+        self, user_id: str, request: SaveSessionRequest, origin: Optional[WriteOrigin] = None
+    ) -> APIResponse:
+        origin = origin or browser_or_api_origin(None)
         response = await self.run(
-            "save_session_failed", operations.save_session,
+            "save_session_failed", self._conflict_as_409(operations.save_session),
             self.repository, self.plugins, self.version_repository, self.file_preset_repository, user_id, request,
+            origin,
             soft=True, message="Failed to save session",
         )
         if response.success:
             response.data, response.message = response.data
+            announce(self.notifier, user_id, response.data, origin)
         return response
 
     async def update_session(
         self,
         user_id: str,
         session_id: str,
-        request: UpdateSessionRequest
+        request: UpdateSessionRequest,
+        origin: Optional[WriteOrigin] = None,
     ) -> APIResponse:
+        origin = origin or browser_or_api_origin(None)
         response = await self.run(
-            "update_session_failed", operations.update_session,
+            "update_session_failed", self._conflict_as_409(operations.update_session),
             self.repository, self.plugins, self.version_repository, self.file_preset_repository,
-            user_id, session_id, request,
+            user_id, session_id, request, origin,
             soft=True, message="Failed to update session",
         )
         if response.success:
             response.message = "Session updated successfully"
+            announce(self.notifier, user_id, response.data, origin)
         return response
 
     async def set_session_pinned(self, user_id: str, session_id: str, request: PinSessionRequest) -> APIResponse:
@@ -157,8 +204,18 @@ def build_router(container: "AppContainer") -> APIRouter:
     controller = container.session_controller
     router = APIRouter(prefix="/api/sessions", tags=["Sessions"])
 
+    async def current_writer(request: Request, token: str = Depends(oauth2_scheme)) -> SessionWriter:
+        writer = await asyncio.to_thread(controller.resolve_writer, token, request.headers.get(CLIENT_HEADER))
+        if writer is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return writer
+
     @router.get("/preset/{preset_id}", response_model=APIResponse, summary="Get Sessions for Preset")
-    async def get_sessions_for_preset(preset_id: str, current_user=Depends(get_current_active_user)):
+    async def get_sessions_for_preset(preset_id: str, current_user: SessionWriter = Depends(current_writer)):
         """Get all sessions for the current user and specified preset."""
         return await controller.get_sessions_for_preset(current_user.id, preset_id)
 
@@ -175,7 +232,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         session_id: str,
         limit: Optional[int] = Query(None, ge=1, le=200),
         before: Optional[int] = Query(None, ge=1),
-        current_user=Depends(get_current_active_user),
+        current_user: SessionWriter = Depends(current_writer),
     ):
         """List a session's version history, newest first (no payloads)."""
         return await controller.list_session_versions(current_user.id, session_id, limit, before)
@@ -188,26 +245,26 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_session_version(
         session_id: str,
         version_number: int,
-        current_user=Depends(get_current_active_user)
+        current_user: SessionWriter = Depends(current_writer)
     ):
         """Get a single version's full payload."""
         return await controller.get_session_version(current_user.id, session_id, version_number)
 
     @router.get("/{session_id}", response_model=APIResponse, summary="Get Session by ID")
-    async def get_session_by_id(session_id: str, current_user=Depends(get_current_active_user)):
+    async def get_session_by_id(session_id: str, current_user: SessionWriter = Depends(current_writer)):
         """Get a specific session by ID."""
         return await controller.get_session_by_id(current_user.id, session_id)
 
     @router.post("/save", response_model=APIResponse, summary="Save Session")
-    async def save_session(request: SaveSessionRequest, current_user=Depends(get_current_active_user)):
+    async def save_session(request: SaveSessionRequest, current_user: SessionWriter = Depends(current_writer)):
         """Save a new session or update existing one with same name."""
-        return await controller.save_session(current_user.id, request)
+        return await controller.save_session(current_user.id, request, current_user.origin)
 
     @router.put("/{session_id}/pin", response_model=APIResponse, summary="Pin or Unpin Session")
     async def set_session_pinned(
         session_id: str,
         request: PinSessionRequest,
-        current_user=Depends(get_current_active_user)
+        current_user: SessionWriter = Depends(current_writer)
     ):
         return await controller.set_session_pinned(current_user.id, session_id, request)
 
@@ -215,13 +272,13 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def update_session(
         session_id: str,
         request: UpdateSessionRequest,
-        current_user=Depends(get_current_active_user)
+        current_user: SessionWriter = Depends(current_writer)
     ):
         """Update an existing session."""
-        return await controller.update_session(current_user.id, session_id, request)
+        return await controller.update_session(current_user.id, session_id, request, current_user.origin)
 
     @router.delete("/{session_id}", response_model=APIResponse, summary="Delete Session")
-    async def delete_session(session_id: str, current_user=Depends(get_current_active_user)):
+    async def delete_session(session_id: str, current_user: SessionWriter = Depends(current_writer)):
         """Delete a session."""
         return await controller.delete_session(current_user.id, session_id)
 

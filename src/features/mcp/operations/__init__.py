@@ -23,7 +23,7 @@ guess or brute-force offline in the first place.
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from src.features.mcp.records import McpToken
 from src.features.mcp.repository import McpTokenRepository
@@ -97,18 +97,29 @@ def record_use(token_repository: McpTokenRepository, token: McpToken) -> None:
     token_repository.touch_last_used(token.id)
 
 
-def resolve_media_user(
+def resolve_token_owner(
     token_repository: McpTokenRepository,
     settings: Settings,
     user_repository: UserRepository,
     plaintext: str,
-):
+) -> Optional[Tuple[Any, McpToken]]:
     if not plaintext.startswith(TOKEN_PREFIX):
         return None
     token = resolve_active_token(token_repository, plaintext)
     if token is None or not is_globally_enabled(settings) or not is_user_enabled(settings, token.user_id):
         return None
     user = user_repository.get_by_id(token.user_id)
-    if user is not None:
-        record_use(token_repository, token)
-    return user
+    if user is None:
+        return None
+    record_use(token_repository, token)
+    return user, token
+
+
+def resolve_media_user(
+    token_repository: McpTokenRepository,
+    settings: Settings,
+    user_repository: UserRepository,
+    plaintext: str,
+):
+    owner = resolve_token_owner(token_repository, settings, user_repository, plaintext)
+    return owner[0] if owner else None

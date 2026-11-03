@@ -1880,11 +1880,18 @@ def build_container() -> AppContainer:
     # time (see migration 092 / SessionVersionRepository).
 
     session_version_repository = SessionVersionRepository()
+    from src.features.mcp.operations import resolve_token_owner
+    from src.platform.websocket.notification_connection_hub import notification_connection_hub as session_hub
+
     session_controller = SessionController(
         session_repository=session_repository,
         plugin_registry=plugin_registry,
         session_version_repository=session_version_repository,
         file_preset_repository=file_preset_repository,
+        notifier=session_hub,
+        mcp_owner_resolver=functools.partial(
+            resolve_token_owner, mcp_token_repository, settings, user_repository
+        ),
     )
 
 

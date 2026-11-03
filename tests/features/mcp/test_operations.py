@@ -182,3 +182,23 @@ class TestResolveMediaUser:
 
         assert operations.resolve_media_user(tokens, settings, users, plaintext) is None
         assert operations.resolve_media_user(tokens, settings, users, "a.jwt.token") is None
+
+
+class TestResolveTokenOwner:
+    def test_an_active_token_resolves_its_owner_and_the_token_name(self, manager, real_user):
+        tokens, settings, users = manager
+        settings.set_setting(MCP_ENABLED_KEY, True)
+        _token, plaintext = operations.mint_token(tokens, real_user.id, "Claude on the laptop")
+
+        user, token = operations.resolve_token_owner(tokens, settings, users, plaintext)
+
+        assert user.id == real_user.id
+        assert token.name == "Claude on the laptop"
+
+    def test_a_disabled_or_unknown_token_resolves_nothing(self, manager, real_user):
+        tokens, settings, users = manager
+        _token, plaintext = operations.mint_token(tokens, real_user.id, "laptop")
+
+        assert operations.resolve_token_owner(tokens, settings, users, plaintext) is None
+        settings.set_setting(MCP_ENABLED_KEY, True)
+        assert operations.resolve_token_owner(tokens, settings, users, "pui_mcp_unknown") is None

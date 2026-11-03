@@ -23,6 +23,8 @@ CREATE TABLE sessions (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     pinned INTEGER NOT NULL DEFAULT 0,
     pinned_at TIMESTAMP,
+    version INTEGER NOT NULL DEFAULT 1,
+    last_origin TEXT,
     UNIQUE(user_id, preset_id, name)
 );
 """

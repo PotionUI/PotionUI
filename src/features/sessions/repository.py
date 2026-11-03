@@ -3,7 +3,7 @@ Session Repository
 
 Handles database operations for sessions. Returns Pydantic DTOs, not DB models.
 """
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 import uuid
 import json
 from datetime import datetime, timezone
@@ -32,10 +32,12 @@ class SessionRepository:
             created_at=dt_column(row['created_at']) or now_utc(),
             updated_at=dt_column(row['updated_at']),
             pinned=bool(row['pinned']),
-            pinned_at=dt_column(row['pinned_at'])
+            pinned_at=dt_column(row['pinned_at']),
+            version=row['version'],
+            last_origin=json.loads(row['last_origin']) if row['last_origin'] else None,
         )
 
-    def create(self, session: Session) -> Session:
+    def create(self, session: Session, origin: Optional[Dict[str, Any]] = None) -> Session:
         """Create a new session."""
         with get_database_connection() as conn:
             cursor = conn.cursor()
@@ -46,8 +48,8 @@ class SessionRepository:
             updated_at = datetime.now(timezone.utc)
 
             cursor.execute("""
-                INSERT INTO sessions (id, user_id, preset_id, name, data, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sessions (id, user_id, preset_id, name, data, created_at, updated_at, version, last_origin)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
             """, (
                 session_id,
                 session.user_id,
@@ -55,7 +57,8 @@ class SessionRepository:
                 session.name,
                 json.dumps(session.data),
                 created_at.isoformat() if isinstance(created_at, datetime) else created_at,
-                updated_at.isoformat() if isinstance(updated_at, datetime) else updated_at
+                updated_at.isoformat() if isinstance(updated_at, datetime) else updated_at,
+                json.dumps(origin) if origin else None,
             ))
 
             conn.commit()
@@ -68,7 +71,9 @@ class SessionRepository:
                 name=session.name,
                 data=session.data,
                 created_at=created_at,
-                updated_at=updated_at
+                updated_at=updated_at,
+                version=1,
+                last_origin=origin,
             )
 
     def get_by_id(self, session_id: str) -> Optional[Session]:
@@ -109,41 +114,35 @@ class SessionRepository:
                 return self._row_to_session(row)
             return None
 
-    def update(self, session: Session) -> Session:
-        """Update an existing session."""
+    def update(
+        self,
+        session: Session,
+        expected_version: int,
+        origin: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Session]:
         with get_database_connection() as conn:
             cursor = conn.cursor()
-
-            # Update timestamp
-            updated_at = datetime.now(timezone.utc)
-
-            cursor.execute("""
+            cursor.execute(
+                """
                 UPDATE sessions
-                SET name = ?, data = ?, updated_at = ?
-                WHERE id = ?
-            """, (
-                session.name,
-                json.dumps(session.data),
-                updated_at.isoformat(),
-                session.id
-            ))
-
-            conn.commit()
-
-            cursor.execute("SELECT pinned, pinned_at FROM sessions WHERE id = ?", (session.id,))
-            pin_row = cursor.fetchone()
-
-            return Session(
-                id=session.id,
-                user_id=session.user_id,
-                preset_id=session.preset_id,
-                name=session.name,
-                data=session.data,
-                created_at=session.created_at,
-                updated_at=updated_at,
-                pinned=bool(pin_row['pinned']) if pin_row else False,
-                pinned_at=dt_column(pin_row['pinned_at']) if pin_row else None
+                SET name = ?, data = ?, updated_at = ?, version = version + 1, last_origin = ?
+                WHERE id = ? AND version = ?
+                """,
+                (
+                    session.name,
+                    json.dumps(session.data),
+                    datetime.now(timezone.utc).isoformat(),
+                    json.dumps(origin) if origin else None,
+                    session.id,
+                    expected_version,
+                ),
             )
+            conn.commit()
+            if cursor.rowcount == 0:
+                return None
+            cursor.execute("SELECT * FROM sessions WHERE id = ?", (session.id,))
+            row = cursor.fetchone()
+            return self._row_to_session(row) if row else None
 
     def set_pinned(self, session_id: str, pinned: bool) -> Optional[Session]:
         with get_database_connection() as conn:

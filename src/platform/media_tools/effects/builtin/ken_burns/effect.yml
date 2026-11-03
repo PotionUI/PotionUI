@@ -1,0 +1,56 @@
+id: ken_burns
+label: Ken Burns
+group: motion
+icon: editor-effects
+description: Slow zoom and pan across the clip
+accepts: [video]
+time: seconds
+params:
+  - { name: zoom_from, type: float, label: Start zoom, description: Zoom on the first frame, default: 1, min: 1, max: 3, step: 0.05, unit: x }
+  - { name: zoom_to, type: float, label: End zoom, description: Zoom on the last frame, default: 1.25, min: 1, max: 3, step: 0.05, unit: x }
+  - { name: pan_from, type: anchor, label: Start at, description: Where the view starts, default: center }
+  - { name: pan_to, type: anchor, label: End at, description: Where the view ends, default: center }
+  - name: easing
+    type: select
+    label: Easing
+    description: How the move starts and stops
+    default: smooth
+    options: [{ label: Smooth, value: smooth }, { label: Linear, value: linear }]
+derive:
+  smooth: "easing == 'smooth'"
+  span: "max(1, media.duration * media.fps - 1)"
+  fx: "pan_from.x"
+  fy: "pan_from.y"
+  tx: "pan_to.x"
+  ty: "pan_to.y"
+preview:
+  shader: preview.frag
+render:
+  - ffmpeg:
+      expr:
+        p: "clip((in - 1) / {span}, 0, 1)"
+        e: "if({smooth}, {p} * {p} * (3 - 2 * {p}), {p})"
+        z: "({zoom_from} + ({zoom_to} - {zoom_from}) * {e})"
+        hw: "(0.5 / {z})"
+        cx: "({hw} + ({fx} + ({tx} - {fx}) * {e}) * (1 - 2 * {hw}))"
+        cy: "({hw} + ({fy} + ({ty} - {fy}) * {e}) * (1 - 2 * {hw}))"
+      vf:
+        - perspective:
+            x0: "({cx} - {hw}) * W"
+            y0: "({cy} - {hw}) * H"
+            x1: "({cx} + {hw}) * W"
+            y1: "({cy} - {hw}) * H"
+            x2: "({cx} - {hw}) * W"
+            y2: "({cy} + {hw}) * H"
+            x3: "({cx} + {hw}) * W"
+            y3: "({cy} + {hw}) * H"
+            interpolation: linear
+            eval: frame
+  - numpy: render.py:ken_burns_numpy
+parity:
+  media: { width: 640, height: 360, fps: 24, duration: 4 }
+  cases:
+    - { params: { zoom_from: 1, zoom_to: 1.5, pan_from: center, pan_to: top_left }, frames: [0, 1, 48, 95] }
+    - { params: { zoom_from: 2, zoom_to: 1, pan_from: right, pan_to: left, easing: linear }, frames: [0, 30, 60, 95] }
+    - { params: { zoom_from: 1.3, zoom_to: 1.3, pan_from: bottom_right, pan_to: bottom_right }, frames: [0, 50] }
+  tolerance: { max_abs: 2, mean_abs: 0.05, p99_abs: 1 }

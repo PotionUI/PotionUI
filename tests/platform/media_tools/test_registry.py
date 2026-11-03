@@ -9,9 +9,10 @@ from tests.platform.media_tools.fake_tools import make_spec
 CORE_IDS = [
     "trim", "crop", "resize", "rotate", "flip", "speed",
     "fit_canvas", "color_key", "crop_subject", "frame", "split", "concat", "cut_finder",
-    "mute", "volume", "replace_audio", "paint_layer", "slice", "film_grain", "fix_colors",
+    "mute", "volume", "replace_audio", "paint_layer", "slice",
+    "fade", "film_grain", "fix_colors", "ken_burns", "vignette",
 ]
-EFFECT_IDS = ("film_grain", "fix_colors")
+EFFECT_IDS = ("fade", "film_grain", "fix_colors", "ken_burns", "vignette")
 EDITOR_ONLY = ("replace_audio", "paint_layer", "slice")
 AUDIO_GROUP = ("mute", "volume", "replace_audio")
 

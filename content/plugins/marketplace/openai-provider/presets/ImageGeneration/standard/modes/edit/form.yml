@@ -4,14 +4,17 @@ fields:
   - type: "tabs"
     children:
       - type: "tab"
+        anchor: "image_edit"
         label: "Generation"
         configuration: {icon: "generation", icon_display: "icon_only"}
         children: "{{ paths._shared }}/cloud/tabs/image_edit.yml"
       - type: "tab"
+        anchor: "references_edit"
         label: "References"
         configuration: {icon: "image", icon_display: "icon_only"}
         children: "{{ paths.preset }}/blocks/references_edit.yml"
       - type: "tab"
+        anchor: "provider_options"
         label: "Provider options"
         configuration: {icon: "settings", icon_display: "icon_only"}
         children: "{{ paths._shared }}/cloud/tabs/provider_options.yml"

@@ -19,6 +19,7 @@ from src.features.remote_execution.worker.config import WorkerConfig
 from src.features.remote_execution.worker.coordinator import WorkerCoordinator
 from src.features.remote_execution.worker.journal import WorkerJournal
 from src.pipelines.contracts import PipeOutput
+from src.platform.runtime import cuda_allocator
 from src.platform.worker_protocol import (
     ContentDigest,
     ExecutionLimitsV1,
@@ -261,6 +262,31 @@ def test_worker_info_validates_and_carries_all_three_fingerprint_domains(client)
     assert info.worker_id == "worker-test"
     assert info.provider == "manual"
     assert set(info.fingerprints.keys()) == {"pipe_catalog", "plugin_bundle", "build"}
+
+
+# -- health -------------------------------------------------------------------
+
+def test_health_reports_ok_while_the_allocator_is_intact(client, monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "worker_id": "worker-test"}
+
+
+def test_health_reports_degraded_with_the_worker_restart_once_the_allocator_is_damaged(client, monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "degraded"
+    assert payload["worker_id"] == "worker-test"
+    assert "CUDA driver error: device not ready" in payload["reason"]
+    assert payload["reason"].endswith(cuda_allocator.WORKER_RESTART_HINT)
+    assert "Restart Backend" not in payload["reason"]
 
 
 # -- submit happy path --------------------------------------------------------

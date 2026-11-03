@@ -334,6 +334,9 @@ class LTXClipTextEncoder(ClipTextEncoder):
         budget_gb = self._projection_budget_gb(raw) + minimum_inference_memory_gb()
         free_gb = free_vram_gb(raw_device)
         if free_gb is not None and free_gb < budget_gb:
+            torch.cuda.empty_cache()
+            free_gb = free_vram_gb(raw_device)
+        if free_gb is not None and free_gb < budget_gb:
             logger.warning(
                 "ltx projection: only %.1fGB free on %s (need ~%.1fGB); "
                 "projecting on CPU instead of risking an OOM", free_gb, raw_device, budget_gb,

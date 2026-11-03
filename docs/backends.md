@@ -84,7 +84,7 @@ A backend, as it appears in the database and over REST:
 ComfyUI-specific and comes from that plugin's config subclass.
 
 A `native` backend has no connection fields — it *is* this process — but it does carry
-`device`, `dtype`, and `gpu_max_vram`.
+`device`, `dtype`, `gpu_max_vram`, and `text_encoder_placement`.
 
 ### Defaults are hardware-derived, not hardcoded
 
@@ -129,6 +129,22 @@ Current native-v2 boundary: the cap reaches model loaders and can influence FP8/
 but the standard flow generator does not yet pass it into `NativeGenerator`. Runtime placement for
 those generators therefore falls back to physical device total memory; `gpu_max_vram` is not yet a
 hard native-v2 runtime cap. See [Model Inference Path](/admin?tab=docs&doc=dev/model-inference-path).
+
+### Text encoder placement
+
+`text_encoder_placement` (`auto` | `gpu` | `stream`, default `auto`) decides how the native engine
+puts the text encoder on the GPU for the prompt encode. `auto` moves it whole when it fits and, when
+it does not, keeps as much of it on the GPU as fits and streams the rest per forward from pinned RAM,
+the way an oversized DiT is already placed; `gpu` always moves it whole (the behaviour before this
+option); `stream` always streams. The text encoder is placed by the engine itself, not by a pipe, so
+`NativeBackend.prepare_pipes` hands the mode to the engine before each run
+(`configure_text_encoder_placement`), next to `set_vram_cap_gb()`, rather than as a pipe config key.
+It also passes `gpu_max_vram`, which only caps the resident share of an encoder that is already
+being streamed: it never decides whether the encoder fits. The option is part of
+`GET /api/backends/{id}` and is changed with `PUT /api/backends/{id}` like any other field (an
+unknown value is a `400 backend_validation_failed`); a config saved before the option existed loads
+as `auto`. Only the in-process `native.local` driver carries it. The formula, the decision and the
+limits are in [Native Engine → Memory tiers & low-VRAM](/admin?tab=docs&doc=dev/native-engine).
 
 Consequence: with more than one GPU, `device` is per-backend rather than per-installation. The
 native engine is a singleton today, so that is latent, not useful — but it is the right shape.
@@ -522,7 +538,8 @@ one hook subclasses override. **`InProcessBackend` is plugin-facing API** — it
 
 - `NativeBackend.prepare_pipes` fills missing `device`, `dtype`, and `vram_limit_gb` values in
   every pipe config. It uses `setdefault`, so a preset that deliberately pins one of those values
-  still wins.
+  still wins. It also hands `text_encoder_placement` (and `gpu_max_vram`) to the engine for the
+  prompt encode — not a pipe config key.
 - `NativeBackend.health_check` reports on the *configured* device, not just whether the host has any
   GPU: `device: cpu` is always `"healthy"` (no CUDA dependency); `device: cuda`/`cuda:N` is
   `"healthy"` only when `torch.cuda.is_available()` is true and the requested index exists on this

@@ -441,3 +441,45 @@ def test_teardown_without_a_pinned_pool_never_drains(monkeypatch):
     streamer.teardown()
     assert calls == []
     assert streamer.active is False
+
+
+def test_teardown_hands_idle_vram_back_before_the_first_pinned_block_is_freed(monkeypatch):
+    import src.platform.runtime.native.memory.partial as partial_mod
+
+    m = _Tiny(n_linear=3)
+    plan = plan_residency_split(m, resident_budget_gb=0.0)
+    streamer = ModuleStreamer(m)
+    streamer.apply("cpu", plan, pin=False)
+    streamer._pinned = True
+
+    events: list = []
+    real_move = partial_mod._move_own_tensors
+    monkeypatch.setattr(partial_mod, "_release_idle_vram", lambda: events.append("release"))
+
+    def _spy_move(module, device, *, pin):
+        events.append("move")
+        real_move(module, device, pin=pin)
+
+    monkeypatch.setattr(partial_mod, "_move_own_tensors", _spy_move)
+    streamer.teardown()
+
+    assert events[0] == "release"
+    assert events.count("release") == 1
+    assert "move" in events
+    assert streamer.active is False
+
+
+def test_teardown_without_a_pinned_pool_leaves_the_allocator_alone(monkeypatch):
+    import src.platform.runtime.native.memory.partial as partial_mod
+
+    m = _Tiny(n_linear=3)
+    plan = plan_residency_split(m, resident_budget_gb=0.0)
+    streamer = ModuleStreamer(m)
+    streamer.apply("cpu", plan, pin=False)
+
+    calls: list = []
+    monkeypatch.setattr(partial_mod, "_release_idle_vram", lambda: calls.append(1))
+    streamer.teardown()
+
+    assert calls == []
+    assert streamer.active is False

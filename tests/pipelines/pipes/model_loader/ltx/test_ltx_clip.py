@@ -213,6 +213,8 @@ def test_ladder_skips_straight_to_cpu_when_budget_does_not_fit(monkeypatch):
     adapter, te, dit = _adapter()
     monkeypatch.setattr(ltx_clip_module.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(ltx_clip_module, "free_vram_gb", lambda dev: 0.001)
+    released = []
+    monkeypatch.setattr(ltx_clip_module.torch.cuda, "empty_cache", lambda: released.append(1))
 
     calls = []
     monkeypatch.setattr(
@@ -224,6 +226,46 @@ def test_ladder_skips_straight_to_cpu_when_budget_does_not_fit(monkeypatch):
     adapter._project_with_ladder(raw)
 
     assert calls == ["cpu"]  # never even attempts a GPU projection that plainly won't fit
+    assert released == [1]
+
+
+def test_ladder_projects_on_gpu_once_the_idle_cache_left_by_the_streamed_encode_is_released(monkeypatch):
+    adapter, te, dit = _adapter()
+    monkeypatch.setattr(ltx_clip_module.torch.cuda, "is_available", lambda: True)
+    pool = {"idle_gb": 9.2}
+    monkeypatch.setattr(ltx_clip_module, "free_vram_gb", lambda dev: 1.4 + (9.2 - pool["idle_gb"]))
+    monkeypatch.setattr(ltx_clip_module.torch.cuda, "empty_cache", lambda: pool.update(idle_gb=0.0))
+    monkeypatch.setattr(adapter, "_projection_budget_gb", lambda raw: 8.6)
+
+    calls = []
+    monkeypatch.setattr(
+        adapter, "_project_on",
+        lambda raw, device: calls.append(device) or torch.zeros(1, 4, 16),
+    )
+
+    adapter._project_with_ladder({"context": SimpleNamespace(device="cuda:0"), "attention_mask": None})
+
+    assert calls == ["cuda:0"]
+    assert pool["idle_gb"] == 0.0
+
+
+def test_ladder_keeps_the_allocator_cache_when_the_first_reading_already_fits(monkeypatch):
+    adapter, te, dit = _adapter()
+    monkeypatch.setattr(ltx_clip_module.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(ltx_clip_module, "free_vram_gb", lambda dev: 20.0)
+    released = []
+    monkeypatch.setattr(ltx_clip_module.torch.cuda, "empty_cache", lambda: released.append(1))
+
+    calls = []
+    monkeypatch.setattr(
+        adapter, "_project_on",
+        lambda raw, device: calls.append(device) or torch.zeros(1, 4, 16),
+    )
+
+    adapter._project_with_ladder({"context": SimpleNamespace(device="cuda:0"), "attention_mask": None})
+
+    assert calls == ["cuda:0"]
+    assert released == []
 
 
 def test_ladder_falls_back_to_cpu_projection_on_oom_without_reencoding(monkeypatch):

@@ -109,6 +109,7 @@ def _run_images(
                 break
         if image is None:
             image = prepare_image(media.path)
+        params = spec.impl.prepare(params, StepContext(source=virtual, clock=Clock(length=None), ctx=ctx.quiet()))
         image = spec.impl.image(image, params)
         virtual = virtual.with_changes(width=image.width, height=image.height, has_alpha=has_alpha_mode(image))
         index += 1

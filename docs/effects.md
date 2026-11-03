@@ -43,8 +43,8 @@ The code:
 | `params` | no | Media-tools params: `integer`, `float`, `select`, `checkbox`, `color`, `anchor` |
 | `derive` | no | Ordered `name: expression` map in the derive language |
 | `analysis` | no | `{python: file.py:fn, keys: [param…], values: [name…]}` |
-| `preview` | no | `{shader: file.frag, textures: […], gain: expression}` |
-| `render` | yes | Ordered candidates: `- ffmpeg: {expr, vf, af}`, `- torch: file.py:fn`, `- numpy: file.py:fn` |
+| `preview` | no | `{shader: file.frag, textures: […], gain: expression, live: expression}` |
+| `render` | yes | Ordered candidates: `- ffmpeg: {when, expr, vf, af}`, `- torch: file.py:fn`, `- numpy: file.py:fn` |
 | `parity` | yes | `media`, `cases` (`params`, `frames`), `tolerance`, optional `metric` and `analysis` (see [Parity](#parity)) |
 
 Names (params, derive entries, analysis values) are unique within an effect, match `^[a-z][a-z0-9_]*$`, and may
@@ -96,7 +96,8 @@ for ordinary tools, and this object for effects:
 | `time` | `none` \| `seconds` \| `frame` |
 | `shader` | `{url, etag}`, or `null` when the effect has no shader (it previews through `POST /preview/frame`) |
 | `uniforms` | Ordered list of `{name, type, from, key}`. `from` is `param`, `derive` or `analysis`; `key` is the param, derive or analysis name |
-| `textures` | `[{uniform, from, kind}]`, `kind` `lut3d` \| `image2d` (empty until LUT params exist) |
+| `textures` | `[{uniform, from, kind}]`, `kind` `lut3d` \| `image2d`; a `lut3d` texture comes from a `lut` or a `look` param |
+| `live` | The `preview.live` expression, or `null`. When it is false the editor previews that step on the server |
 | `derive` | Ordered list of `{name, expr}`; evaluate in order |
 | `gain` | A derive expression of `time` scaling the element volume during playback, or `null` |
 | `analysis` | `true` when the effect needs `POST /api/media-tools/effects/analysis` values before it can draw |
@@ -260,6 +261,7 @@ core effects, by group and label, with no plugin wording. See [the plugin API](p
 | Fade | fade in, fade out (seconds, to and from black), sound | ffmpeg `fade` by frame count + `afade`, numpy | ffmpeg's 16-bit fade factor per frame; `preview.gain` fades the sound |
 | Ken Burns | start and end zoom, start and end anchor, easing | ffmpeg `perspective` (linear), numpy | the window eased over the clip, ffmpeg's 1/256-pixel bilinear |
 | LUT | a `.cube` from the LUT folder, strength 0 to 1 | ffmpeg `lut3d` (trilinear), numpy | a `TEXTURE_3D` (RGB16F) with trilinear filtering, mixed by strength |
+| Look | one of your looks (photo filters), strength 0 to 1 | ffmpeg `lut3d` when the look has no spatial step, numpy | the look's colour steps as a `TEXTURE_3D`, then GLSL twins of `vignette` and `grain` |
 
 LUTs are files of the `lut` model type, in the `luts` folder of any model root (`models/luts/`), so admins add them
 like models and every user picks from the installed ones. A `lut` param serves those files as its options. A `.cube`
@@ -273,6 +275,17 @@ instead.
 
 A preview texture is `{uniform, from, kind: lut3d, mix}`: the shader reads `sampler3D u_<uniform>` and
 `int u_<uniform>_size`, and `mix` names the derive value the host bakes into the rendered table.
+
+A `look` param takes a photo filter id: a shared filter (`noir`, `plugin:id`) or one of your own (`mine:<id>`). The
+catalog serves, per user, the looks the server can render: the shared ones and only your own, each option carrying
+`{label, value, group, revision, env}`. `env` is what the param binds to in `derive`: `has`, `intensity`, `spatial`
+(the number of spatial steps), `live`, and four ordered spatial slots `s<n>_kind` (1 vignette, 2 grain, 0 none),
+`s<n>_a`, `s<n>_b`, `s<n>_c` (vignette amount, midpoint, feather; grain amount, size, seed). A run resolves the look
+with the run's user, so another user's look fails as "not available"; a preset pipe has no user and reaches shared
+looks only. `GET /api/media-tools/looks/table?ref=` serves the look's colour steps (and its `.cube`) compiled at full
+intensity as 16-bit RGB, under the same owner check. Strength scales the look's own intensity, as the Image editor's
+intensity slider does. A look with a plugin spatial op, or more than four spatial steps, has `live: 0` and previews on
+the server. The ffmpeg candidate's `when: plain` keeps looks with spatial steps on the numpy render.
 
 Vignette has no ffmpeg render: the `vignette` filter only takes an angle, so it cannot place the radius or the
 softness, and `geq` costs about 0.9 s per 1080p frame. The torch and numpy renders compute the mask once per size.

@@ -131,6 +131,12 @@ class MediaToolController(BaseController):
         headers = {"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"}
         return Response(content=data, media_type="application/octet-stream", headers=headers)
 
+    @guarded(_TOOL_ERRORS, Fail("media_tools_failed", "Failed to read the look", 500))
+    async def look_table(self, ref: str, current_user) -> Response:
+        data = await asyncio.to_thread(self.service.look_table, current_user, ref)
+        headers = {"Cache-Control": "private, no-cache", "X-Content-Type-Options": "nosniff"}
+        return Response(content=data, media_type="application/octet-stream", headers=headers)
+
     @guarded(_TOOL_ERRORS, Fail("media_tool_preview_failed", "Failed to measure the effect", 500))
     async def effect_analysis(self, request: EffectAnalysisRequest, current_user) -> APIResponse:
         result = await asyncio.to_thread(
@@ -232,6 +238,10 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("/api/media-tools/luts/table", response_model=None, summary="Get A LUT For The Live Preview")
     async def get_media_tool_lut_table(ref: str, current_user=Depends(get_current_active_user)) -> Response:
         return await controller.lut_table(ref, current_user)
+
+    @router.get("/api/media-tools/looks/table", response_model=None, summary="Get A Look For The Live Preview")
+    async def get_media_tool_look_table(ref: str, current_user=Depends(get_current_active_user)) -> Response:
+        return await controller.look_table(ref, current_user)
 
     @router.post(
         "/api/media-tools/effects/analysis", response_model=APIResponse, summary="Measure An Effect Over A Clip"

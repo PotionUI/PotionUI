@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -7,8 +8,11 @@ from pathlib import Path
 from typing import Mapping, Optional
 
 import numpy as np
+import yaml
 from PIL import Image
 
+from src.platform.imaging.filters.cube import read_cube
+from src.platform.media_tools.effects.looks import Look
 from src.platform.media_tools.effects.runtime import Choice, EffectRuntime
 from src.platform.media_tools.effects.spec import Candidate, EffectSpec
 from src.platform.media_tools.effects.tool import ANALYSIS_KEY, ASSETS_KEY, EffectTool, effect_tool_spec
@@ -45,11 +49,44 @@ def parity_media(effect: EffectSpec) -> ToolMedia:
     )
 
 
+class FixtureLooks:
+    def __init__(self, folder: Path):
+        self.folder = Path(folder)
+
+    def resolve(self, ref: str, user_id: Optional[str]) -> Optional[Look]:
+        path = self.folder / f"{ref}.yml"
+        if not ref.isidentifier() or not path.is_file():
+            return None
+        text = path.read_text(encoding="utf-8")
+        data = yaml.safe_load(text) or {}
+        cube = read_cube(self.folder / data["lut"]) if data.get("lut") else None
+        return Look(
+            id=ref,
+            name=str(data.get("name") or ref),
+            group="Parity",
+            intensity=float(data.get("intensity", 100)),
+            steps=tuple(data.get("steps") or ()),
+            revision=hashlib.sha256(text.encode("utf-8")).hexdigest()[:8],
+            cube=cube,
+        )
+
+    def list(self, user_id: Optional[str]) -> list[Look]:
+        looks = [self.resolve(path.stem, user_id) for path in sorted(self.folder.glob("*.yml"))]
+        return [look for look in looks if look is not None]
+
+
 def parity_runtime(effect: EffectSpec) -> EffectRuntime:
     fixtures = dict(effect.parity.get("fixtures") or {})
     runtime = EffectRuntime()
     runtime.use_asset_dirs(lambda kind: [effect.folder / fixtures[kind]] if kind in fixtures else [])
+    if "look" in fixtures:
+        runtime.use_looks(FixtureLooks(effect.folder / fixtures["look"]))
     return runtime
+
+
+def candidate_applies(effect: EffectSpec, candidate: Candidate, case: "ParityCase") -> bool:
+    tool = EffectTool(effect, parity_runtime(effect))
+    return tool.allows(Choice(candidate), tool.bind(parity_media(effect), case_params(effect, case)))
 
 
 def parity_metric(effect: EffectSpec) -> str:

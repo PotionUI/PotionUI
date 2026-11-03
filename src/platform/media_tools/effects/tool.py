@@ -10,7 +10,9 @@ from PIL import Image
 
 from src.platform.media_tools.base import MediaTool
 from src.platform.media_tools.effects.assets import AssetError, load_lut, stage_cube
+from src.platform.imaging.filters.lut import mix_cube
 from src.platform.media_tools.effects.derive import DeriveError, Expression, evaluate, evaluate_all
+from src.platform.media_tools.effects.looks import Look, look_env, look_table
 from src.platform.media_tools.effects.runtime import DEFAULT_RUNTIME, Choice, EffectRuntime
 from src.platform.media_tools.effects.spec import ANCHOR_POINTS, EffectSpec
 from src.platform.media_tools.effects.stage import FrameStage
@@ -33,7 +35,9 @@ if TYPE_CHECKING:
 
 ANALYSIS_KEY = "@analysis"
 ASSETS_KEY = "@assets"
+LOOKS_KEY = "@looks"
 LUT_ASSET_KIND = "lut"
+LOOK_PARAM_TYPE = "look"
 DEFAULT_FPS = 24.0
 MAX_SAMPLE_SIDE = 1024
 MAX_SAMPLE_FRAMES = 600
@@ -111,10 +115,39 @@ class EffectTool(MediaTool):
 
     def prepare(self, params: dict, step: StepContext) -> dict:
         params = self._measured(params, step)
-        if not self.lut_textures() or ASSETS_KEY in params:
+        params = self._with_looks(params, step.ctx.user_id)
+        if not self.lut_textures() or ASSETS_KEY in params or step.source.kind == "image":
             return params
         binding = self.bind(step.source, params)
         return {**params, ASSETS_KEY: self.stage_assets(binding, step.ctx.scratch_dir)}
+
+    def look_params(self) -> list[str]:
+        return [param["name"] for param in self.effect.params if param["type"] == LOOK_PARAM_TYPE]
+
+    def _with_looks(self, params: dict, user_id: Optional[str]) -> dict:
+        names = self.look_params()
+        if not names or LOOKS_KEY in params:
+            return params
+        clean = self.public(params)
+        looks = {}
+        for name in names:
+            ref = clean.get(name) or ""
+            looks[name] = self.runtime.resolve_look(ref, user_id) if ref else None
+        return {**params, LOOKS_KEY: looks}
+
+    def _looks(self, params: Mapping[str, Any], clean: Mapping[str, Any]) -> dict[str, Optional[Look]]:
+        given = params.get(LOOKS_KEY)
+        looks: dict[str, Optional[Look]] = {}
+        for name in self.look_params():
+            ref = clean.get(name) or ""
+            if not ref:
+                looks[name] = None
+                continue
+            look = given.get(name) if isinstance(given, Mapping) else self.runtime.resolve_look(ref, None)
+            if look is None or look.id != ref:
+                raise ToolFailed(f"{self.effect.label}: this look is not available")
+            looks[name] = look
+        return looks
 
     def lut_textures(self) -> list:
         return [texture for texture in self.effect.textures if texture.kind == "lut3d"]
@@ -130,9 +163,16 @@ class EffectTool(MediaTool):
                 staged[texture.source] = relative
         return staged
 
-    def _load_textures(self, clean: Mapping[str, Any], scope: Mapping[str, Any]) -> dict:
+    def _load_textures(self, clean: Mapping[str, Any], scope: Mapping[str, Any], looks: Mapping[str, Optional[Look]]) -> dict:
         loaded: dict = {}
         for texture in self.lut_textures():
+            if texture.source in looks:
+                look = looks[texture.source]
+                strength = float(scope.get(texture.mix, 1.0)) if texture.mix else 1.0
+                table = look_table(look) if look is not None else None
+                loaded[texture.source] = None if table is None else table if strength >= 1 else mix_cube(table, strength)
+                loaded[f"@{texture.source}"] = look
+                continue
             ref = clean.get(texture.source) or ""
             if not ref:
                 loaded[texture.source] = None
@@ -185,9 +225,13 @@ class EffectTool(MediaTool):
         analysis = dict(params.get(ANALYSIS_KEY) or {})
         if self.effect.analysis is not None and set(analysis) != set(self.effect.analysis.values):
             raise ToolFailed(f"{self.effect.label} was not measured before rendering")
+        looks = self._looks(params, clean)
         env: dict = {}
         for param in self.effect.params:
             value = clean.get(param["name"], param.get("default"))
+            if param["type"] == LOOK_PARAM_TYPE:
+                env[param["name"]] = look_env(looks[param["name"]])
+                continue
             env[param["name"]] = ANCHOR_POINTS.get(value, ANCHOR_POINTS["center"]) if param["type"] == "anchor" else value
         env.update(analysis)
         env["media"] = {
@@ -201,7 +245,7 @@ class EffectTool(MediaTool):
         except DeriveError as exc:
             raise ToolFailed(f"{self.effect.label}: {exc}") from None
         scope = {**env, **derived}
-        textures = self._load_textures(clean, scope)
+        textures = self._load_textures(clean, scope, looks)
         values = _flatten(scope)
         for name, relative in (params.get(ASSETS_KEY) or {}).items():
             values[name] = AssetPath(relative)
@@ -229,6 +273,15 @@ class EffectTool(MediaTool):
             device=choice.device,
         )
 
+    def allows(self, choice: Choice, binding: Binding) -> bool:
+        when = choice.candidate.when
+        if when is None:
+            return True
+        try:
+            return bool(evaluate(when, binding.env))
+        except DeriveError as exc:
+            raise ToolFailed(f"{self.effect.label}: {exc}") from None
+
     def _choose(self, python_only: bool = False) -> Choice:
         choice = self.runtime.choose(self.effect, python_only=python_only)
         if choice is None:
@@ -241,10 +294,10 @@ class EffectTool(MediaTool):
         binding = self.bind(media, params)
         choice = self._choose()
         staged = params.get(ASSETS_KEY) or {}
-        if choice.candidate.kind == "ffmpeg" and any(
+        if choice.candidate.kind == "ffmpeg" and (not self.allows(choice, binding) or any(
             binding.derived.get(texture.source) is not None and texture.source not in staged
             for texture in self.lut_textures()
-        ):
+        )):
             choice = self._choose(python_only=True)
         if choice.candidate.kind == "ffmpeg":
             compiled = self.compile(binding, choice)
@@ -275,6 +328,8 @@ class EffectTool(MediaTool):
         media = frame.media.with_changes(width=image.width, height=image.height)
         binding = self.bind(media, params)
         choice = self.runtime.choose(self.effect, python_only=True) or self._choose()
+        if choice.candidate.kind == "ffmpeg" and not self.allows(choice, binding):
+            raise ToolFailed(f"{self.effect.label} cannot render these settings on this server")
         if choice.candidate.kind == "ffmpeg":
             return self._still_ffmpeg(image, binding, choice, frame)
         rgb, alpha = _split_alpha(image)

@@ -26,8 +26,8 @@ UNIFORM_TYPES = {
     "anchor": "vec2",
 }
 TEXTURE_KINDS = ("lut3d", "image2d")
-TEXTURE_ONLY_TYPES = ("lut",)
-TEXTURE_PARAM_TYPES = {"lut3d": ("lut",), "image2d": ("media",)}
+TEXTURE_ONLY_TYPES = ("lut", "look")
+TEXTURE_PARAM_TYPES = {"lut3d": ("lut", "look"), "image2d": ("media",)}
 TOP_LEVEL_KEYS = frozenset({
     "id", "label", "description", "icon", "group", "accepts", "time", "requires", "params", "derive",
     "analysis", "preview", "render", "parity",
@@ -61,6 +61,7 @@ class Candidate:
     template: Optional[FfmpegTemplate] = None
     ref: Optional[str] = None
     function: Optional[Callable] = None
+    when: Optional[Expression] = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,7 @@ class EffectSpec:
     shader: Optional[str] = None
     textures: tuple[TextureSpec, ...] = ()
     gain: Optional[Expression] = None
+    live: Optional[Expression] = None
 
     def shader_etag(self) -> Optional[str]:
         if self.shader is None:
@@ -269,6 +271,11 @@ def _render(raw: Any, params: tuple[dict, ...], scalars: set[str], where: str) -
         if any(candidate.kind == kind for candidate in candidates):
             raise _fail(where, f"the {kind} candidate is listed twice")
         if kind == "ffmpeg":
+            when = None
+            if isinstance(body, Mapping) and "when" in body:
+                body = {key: value for key, value in body.items() if key != "when"}
+                when = _parse_expression(entry["ffmpeg"]["when"], f"{where} ffmpeg when")
+                _check_names(when, scalars | {"media", "pi"}, f"{where} ffmpeg when")
             try:
                 template = parse_template(body)
             except TemplateError as exc:
@@ -278,7 +285,7 @@ def _render(raw: Any, params: tuple[dict, ...], scalars: set[str], where: str) -
                     raise _fail(f"{where} ffmpeg", f"unknown placeholder {{{name}}}")
             for condition in template.conditions():
                 _check_names(condition, scalars | {"media", "pi"}, f"{where} ffmpeg when")
-            candidates.append(Candidate(kind=kind, template=template))
+            candidates.append(Candidate(kind=kind, template=template, when=when))
         else:
             if not isinstance(body, str) or not _REF.match(body):
                 raise _fail(where, f"the {kind} candidate must be 'file.py:function'")
@@ -288,10 +295,10 @@ def _render(raw: Any, params: tuple[dict, ...], scalars: set[str], where: str) -
 
 def _preview(raw: Any, params: tuple[dict, ...], scalars: set[str], where: str):
     if raw is None:
-        return None, (), None
+        return None, (), None, None
     if not isinstance(raw, Mapping):
         raise _fail(where, "preview must be a mapping")
-    unknown = set(raw) - {"shader", "textures", "gain"}
+    unknown = set(raw) - {"shader", "textures", "gain", "live"}
     if unknown:
         raise _fail(where, f"unknown preview keys: {', '.join(sorted(map(str, unknown)))}")
     shader = raw.get("shader")
@@ -317,7 +324,11 @@ def _preview(raw: Any, params: tuple[dict, ...], scalars: set[str], where: str):
     if raw.get("gain") is not None:
         gain = _parse_expression(raw["gain"], f"{where} preview.gain")
         _check_names(gain, scalars | {"media", "pi", "time"}, f"{where} preview.gain")
-    return shader, tuple(textures), gain
+    live = None
+    if raw.get("live") is not None:
+        live = _parse_expression(raw["live"], f"{where} preview.live")
+        _check_names(live, scalars | {"media", "pi"}, f"{where} preview.live")
+    return shader, tuple(textures), gain, live
 
 
 def _parity(raw: Any, params: tuple[dict, ...], where: str) -> dict:
@@ -400,7 +411,7 @@ def parse_effect(data: Any, folder: Path, source: str, core_source: str = "core"
     base = {param["name"] for param in params} | set(analysis_names)
     derive = _derive(derive_raw, base, where)
     scalars = base | {name for name, _ in derive}
-    shader_file, textures, gain = _preview(data.get("preview"), params, scalars, where)
+    shader_file, textures, gain, live = _preview(data.get("preview"), params, scalars, where)
     render = _render(data.get("render"), params, scalars, where)
     parity = _parity(data.get("parity"), params, where)
 
@@ -424,6 +435,7 @@ def parse_effect(data: Any, folder: Path, source: str, core_source: str = "core"
         shader_file=shader_file,
         textures=textures,
         gain=gain,
+        live=live,
     )
 
 

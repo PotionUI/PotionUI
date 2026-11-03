@@ -5,12 +5,13 @@ import {
 	paramEnv,
 	paramUniform,
 	scalarUniform,
+	textureKey,
 	uniformList,
 	type EffectTool,
 	type EffectUniform,
 	type UniformValue
 } from './catalog';
-import { deriveBlock, type DeriveValue } from './derive';
+import { deriveBlock, evaluateDerive, type DeriveValue } from './derive';
 
 export type Affine = readonly [number, number, number, number, number, number];
 
@@ -46,6 +47,8 @@ export interface EffectPass {
 export interface PassTexture {
 	uniform: string;
 	ref: string;
+	source: 'lut' | 'look';
+	value: string;
 }
 
 export type ChainPass = GeometryPass | EffectPass;
@@ -209,6 +212,10 @@ export function planChain(input: PlanInput): ChainPlan {
 		let derived: Record<string, DeriveValue> = {};
 		try {
 			derived = measured ? deriveBlock(effect.block.derive, env) : {};
+			if (measured && effect.block.live && !evaluateDerive(effect.block.live, { ...env, ...derived })) {
+				skipped.push({ index, tool: step.tool, label: effect.label, reason: 'no-shader' });
+				return;
+			}
 		} catch {
 			skipped.push({ index, tool: step.tool, label: effect.label, reason: 'error' });
 			return;
@@ -235,7 +242,11 @@ export function planChain(input: PlanInput): ChainPlan {
 			size: passSize,
 			gain: effect.block.gain && measured ? { expr: effect.block.gain, env: { ...env, ...derived } } : null,
 			identity: !measured,
-			textures: effect.block.textures.map((texture) => ({ uniform: texture.uniform, ref: typeof values[texture.from] === 'string' ? String(values[texture.from]) : '' }))
+			textures: effect.block.textures.map((texture) => {
+				const param = effect.params.find((entry) => entry.name === texture.from);
+				const value = typeof values[texture.from] === 'string' ? String(values[texture.from]) : '';
+				return { uniform: texture.uniform, ref: textureKey(param, value), source: param?.type === 'look' ? 'look' : 'lut', value };
+			})
 		});
 	});
 	flush();

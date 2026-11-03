@@ -10,6 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
+from src.platform.media_tools.effects.looks import Look, LookLibrary
 from src.platform.media_tools.effects.spec import Candidate, EffectSpec
 from src.platform.util.video_transcode import find_ffmpeg
 
@@ -106,6 +107,28 @@ class EffectRuntime:
     torch_available: Callable[[], bool] = torch_installed
     gpu_policy: GpuPolicy = field(default=_no_gpu)
     asset_dirs: Optional[AssetDirs] = None
+    looks: Optional[LookLibrary] = None
+
+    def use_looks(self, library: LookLibrary) -> None:
+        self.looks = library
+
+    def resolve_look(self, ref: str, user_id: Optional[str]) -> Optional[Look]:
+        if not ref or self.looks is None:
+            return None
+        try:
+            return self.looks.resolve(ref, user_id)
+        except Exception:
+            logger.warning("Could not read the look %s", ref, exc_info=True)
+            return None
+
+    def list_looks(self, user_id: Optional[str]) -> list[Look]:
+        if self.looks is None:
+            return []
+        try:
+            return list(self.looks.list(user_id))
+        except Exception:
+            logger.warning("Could not list the looks", exc_info=True)
+            return []
 
     def use_gpu_policy(self, policy: GpuPolicy) -> None:
         self.gpu_policy = policy

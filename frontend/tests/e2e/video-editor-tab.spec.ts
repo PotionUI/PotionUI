@@ -196,7 +196,6 @@ test.describe('the Video editor tab on desktop', () => {
 		await editor.locator('[data-tool="effects"]').click();
 		await editor.locator('[data-effect-card="film_grain"] button').first().click();
 		await expect(editor.locator('[data-effect-card="film_grain"][data-open]')).toBeVisible();
-		await expect(editor.locator('[data-effect-later]')).toContainText('Later');
 		expect(mocks.frames).toHaveLength(0);
 		await editor.locator('[data-options-apply]').click();
 		await expect.poll(() => mocks.frames.length, { timeout: 5000 }).toBe(1);

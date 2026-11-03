@@ -85,7 +85,7 @@ export function renderParityJob(job: ParityJob): ParityOutput[] {
 			if (!pass || pass.identity || plan.skipped.length) throw new Error(`${effect.id} case ${index} did not plan a shader pass`);
 			for (const frame of entry.frames) {
 				const pixels = chain.readPixels(plan, { mediaTime: frame / job.fps, sourceDuration: job.duration, fps: job.fps });
-				if (failed.length) throw new Error(`${effect.id} shader failed: ${compileLog(chain.gl, buildFragment(job.shader, pass.uniforms))}`);
+				if (failed.length) throw new Error(`${effect.id} shader failed: ${compileLog(chain.gl, buildFragment(job.shader, pass.uniforms, pass.textures.map((texture) => texture.uniform)))}`);
 				if (!pixels) throw new Error(`${effect.id} case ${index} frame ${frame} could not be read`);
 				outputs.push({ case: index, frame, pixels: encode(pixels) });
 			}

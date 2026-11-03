@@ -60,6 +60,7 @@ export function controlFor(param: ToolParam): ControlKind {
 		case 'color':
 			return 'color';
 		case 'lut':
+		case 'look':
 			return 'dropdown';
 		default:
 			return 'text';

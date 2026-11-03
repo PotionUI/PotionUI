@@ -1,0 +1,51 @@
+id: look
+label: Look
+group: colour
+icon: palette
+description: Grade with one of your looks
+accepts: [video, image]
+time: none
+params:
+  - { name: look, type: look, label: Look, description: The look to use, default: "" }
+  - { name: strength, type: float, label: Strength, description: How much of the look, default: 1, min: 0, max: 1, step: 0.05 }
+derive:
+  amount: "look.intensity / 100 * strength if look.has else 0"
+  plain: "look.spatial == 0"
+  s0_kind: look.s0_kind
+  s0_a: look.s0_a
+  s0_b: look.s0_b
+  s0_c: look.s0_c
+  s1_kind: look.s1_kind
+  s1_a: look.s1_a
+  s1_b: look.s1_b
+  s1_c: look.s1_c
+  s2_kind: look.s2_kind
+  s2_a: look.s2_a
+  s2_b: look.s2_b
+  s2_c: look.s2_c
+  s3_kind: look.s3_kind
+  s3_a: look.s3_a
+  s3_b: look.s3_b
+  s3_c: look.s3_c
+preview:
+  shader: preview.frag
+  textures: [{ uniform: table, from: look, kind: lut3d, mix: amount }]
+  live: "look.live == 1"
+render:
+  - ffmpeg:
+      when: plain
+      vf:
+        - lut3d: { file: "{look}", interp: trilinear }
+          when: "amount > 0"
+  - numpy: render.py:apply
+parity:
+  media: { width: 321, height: 181, fps: 24, duration: 1 }
+  fixtures: { look: parity }
+  cases:
+    - { params: { look: toned, strength: 1 }, frames: [0] }
+    - { params: { look: toned, strength: 0.5 }, frames: [0] }
+    - { params: { look: graded, strength: 1 }, frames: [0] }
+    - { params: { look: reel, strength: 1 }, frames: [0] }
+    - { params: { look: glow, strength: 0.7 }, frames: [0] }
+    - { params: { look: "", strength: 1 }, frames: [0] }
+  tolerance: { max_abs: 2, mean_abs: 0.1 }

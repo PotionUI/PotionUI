@@ -7,8 +7,11 @@ from typing import Any, Callable, Optional
 from src.platform.media_tools.conditions import when_matches
 from src.platform.media_tools.types import InvalidToolParams, ToolMedia, ToolSpec
 
-PARAM_TYPES = frozenset({"integer", "float", "select", "checkbox", "color", "string", "anchor", "media", "json", "lut"})
+PARAM_TYPES = frozenset({"integer", "float", "select", "checkbox", "color", "string", "anchor", "media", "json", "lut", "look"})
 LUT_PARAM = "lut"
+LOOK_PARAM = "look"
+MAX_LOOK_REF_CHARS = 128
+_LOOK_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
 MAX_LUT_REF_CHARS = 255
 _LUT_REF_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9 _.()+-]*(?:/[A-Za-z0-9_][A-Za-z0-9 _.()+-]*)*\.cube$", re.IGNORECASE)
 MEDIA_PARAM = "media"
@@ -197,6 +200,8 @@ def coerce_value(param: dict, value: Any) -> Any:
         return _coerce_media(param, value)
     if kind == LUT_PARAM:
         return _coerce_lut(param, value)
+    if kind == LOOK_PARAM:
+        return _coerce_look(param, value)
     return value
 
 
@@ -204,6 +209,13 @@ def _coerce_lut(param: dict, value: Any) -> str:
     text = "" if value is None else value
     if not isinstance(text, str) or len(text) > MAX_LUT_REF_CHARS or (text and not _LUT_REF_RE.match(text)):
         raise _fail(param, f"{_label(param)} must be a .cube file from the LUT folder")
+    return text
+
+
+def _coerce_look(param: dict, value: Any) -> str:
+    text = "" if value is None else value
+    if not isinstance(text, str) or len(text) > MAX_LOOK_REF_CHARS or (text and not _LOOK_REF_RE.match(text)):
+        raise _fail(param, f"{_label(param)} must be one of your looks")
     return text
 
 

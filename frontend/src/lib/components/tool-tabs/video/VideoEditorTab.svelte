@@ -54,7 +54,7 @@
 		listMediaToolRuns,
 		effectAnalysis,
 		effectShader,
-		lutTable,
+		textureTable,
 		previewFrame,
 		startClipPreview,
 		startMediaToolRun,
@@ -1031,10 +1031,11 @@
 			for (const pass of plan?.passes ?? []) {
 				if (pass.kind !== 'effect') continue;
 				const toolId = pass.tool;
-				for (const { ref } of pass.textures) {
+				for (const texture of pass.textures) {
+					const ref = texture.ref;
 					if (!ref || lutTables.has(ref) || lutLoading.has(ref)) continue;
 					lutLoading.add(ref);
-					void lutTable(ref)
+					void textureTable(texture)
 						.then((table) => {
 							if (!destroyed) lutTables = new Map(untrack(() => lutTables)).set(ref, table);
 						})

@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union, TYPE_CHECKING
 
-import numpy as np
 from PIL import Image, ImageOps
 from pydantic import ValidationError
 
@@ -60,7 +59,10 @@ from src.platform.media_tools import (
 from src.platform.media_tools.chain import Step
 from src.platform.media_tools.effects.assets import AssetError, load_lut
 from src.platform.media_tools.effects.spec import EffectSpec
-from src.platform.media_tools.params import LUT_PARAM, coerce_value as coerce_param
+from src.platform.imaging.filters.lut import FilterOpUnavailable
+from src.platform.media_tools.effects.looks import look_table
+from src.platform.media_tools.effects.served import served_params, table_bytes
+from src.platform.media_tools.params import LOOK_PARAM, LUT_PARAM, coerce_value as coerce_param
 from src.platform.media_tools.effects.tool import ANALYSIS_KEY, EffectTool
 from src.platform.media_tools.ops.slice import MAX_SOURCE_PIXELS, cell_names, parse_cells
 from src.platform.media_tools.panels import ANALYSIS_SIDE, MAX_GRID_SIDE, detect
@@ -199,6 +201,7 @@ def effect_block(effect: EffectSpec) -> dict:
         ],
         "derive": [{"name": name, "expr": expression.source} for name, expression in effect.derive],
         "gain": effect.gain.source if effect.gain is not None else None,
+        "live": effect.live.source if effect.live is not None else None,
         "analysis": effect.analysis is not None,
         "analysis_keys": list(effect.analysis.keys) if effect.analysis is not None else [],
     }
@@ -322,13 +325,14 @@ class MediaToolService:
         self, user: Any, kind: Optional[str] = None, scope: Optional[str] = None
     ) -> List[ToolDTO]:
         specs = self.registry.list(kind=kind or None, scope=scope or None)
-        remembered = self.params_repo.get_many(_user_id(user), [spec.id for spec in specs])
+        user_id = _user_id(user)
+        remembered = self.params_repo.get_many(user_id, [spec.id for spec in specs])
         tools = []
         for spec in specs:
             effect = _effect_of(spec)
             served = spec.to_dict()
             if effect is not None:
-                served["params"] = self._with_lut_options(served["params"], spec.impl.runtime)
+                served["params"] = served_params(served["params"], spec.impl.runtime, user_id)
             tools.append(ToolDTO(
                 **served,
                 runnable=spec.impl is not None,
@@ -336,16 +340,6 @@ class MediaToolService:
                 effect=effect_block(effect) if effect is not None else None,
             ))
         return tools
-
-    @staticmethod
-    def _with_lut_options(params: List[dict], runtime: Any) -> List[dict]:
-        if not any(param.get("type") == LUT_PARAM for param in params):
-            return params
-        files = runtime.list_assets(LUT_PARAM, ".cube")
-        options = [{"label": "None", "value": ""}] + [
-            {"label": Path(ref).stem.replace("_", " "), "value": ref} for ref in files
-        ]
-        return [{**param, "options": options} if param.get("type") == LUT_PARAM else param for param in params]
 
     def _effect_runtime(self) -> Any:
         return next((spec.impl.runtime for spec in self.registry.list() if isinstance(spec.impl, EffectTool)), None)
@@ -363,7 +357,21 @@ class MediaToolService:
             cube = load_lut(path)
         except (AssetError, OSError) as exc:
             raise InvalidInputError("invalid_lut", str(exc)) from None
-        return np.round(np.clip(cube.data, 0.0, 1.0) * 65535).astype("<u2").tobytes()
+        return table_bytes(cube)
+
+    def look_table(self, user: Any, ref: str) -> bytes:
+        try:
+            ref = coerce_param({"name": "look", "label": "Look", "type": LOOK_PARAM}, ref)
+        except MediaToolError:
+            raise NotFoundError("not_found", "Look not found") from None
+        runtime = self._effect_runtime()
+        look = runtime.resolve_look(ref, _user_id(user)) if runtime is not None and ref else None
+        if look is None:
+            raise NotFoundError("not_found", "Look not found")
+        try:
+            return table_bytes(look_table(look))
+        except (FilterOpUnavailable, ValueError) as exc:
+            raise InvalidInputError("invalid_look", str(exc)) from None
 
     def effect_shader(self, tool_id: str) -> Tuple[str, str]:
         effect = _effect_of(self.registry.get(tool_id))
@@ -398,7 +406,7 @@ class MediaToolService:
             return memo(key, measure)
 
         with self._preview_slot(), self._scratch() as scratch, ExitStack() as stack:
-            ctx = ToolContext(scratch)
+            ctx = ToolContext(scratch, user_id=user_id)
             try:
                 path = stack.enter_context(self.resolver.stage(resolved))
                 media = ctx.probe(path, "video")
@@ -579,7 +587,7 @@ class MediaToolService:
             return cached
 
         with self._preview_slot(), self._scratch() as scratch, ExitStack() as stack:
-            ctx = ToolContext(scratch)
+            ctx = ToolContext(scratch, user_id=user_id)
             try:
                 path = stack.enter_context(self.resolver.stage(resolved))
                 media = ctx.probe(path, resolved.kind)
@@ -619,7 +627,9 @@ class MediaToolService:
 
         def work(control: RunControl) -> RunOutcome:
             with self._scratch() as scratch, ExitStack() as stack:
-                ctx = ToolContext(scratch, progress=control.report, is_cancelled=control.is_cancelled)
+                ctx = ToolContext(
+                    scratch, progress=control.report, is_cancelled=control.is_cancelled, user_id=user_id
+                )
                 path = stack.enter_context(self.resolver.stage(resolved))
                 media = ctx.probe(path, "video")
                 bound = self._bind(chain, attachments, stack, ctx)

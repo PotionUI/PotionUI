@@ -530,9 +530,9 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         # Shutdown
         logging.info("Shutting down PotionUI API server...")
-        await stop_warm_up(app)
         await asyncio.to_thread(container.model_index_manager.indexing.shutdown)
         await asyncio.to_thread(container.model_index_manager.digests.stop)
+        await stop_warm_up(app)
         await asyncio.to_thread(container.media_tool_service.shutdown)
         await container.housekeeping_worker.stop()
         container.organize_worker.stop()

@@ -113,6 +113,7 @@ pipeline:
     configuration:
       mode: "video"
       quantity: "{{ form.quantity | default(1) }}"
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       preview: "{{ form.preview | default(true) }}"
       decode: true
       audio_source: "passthrough"

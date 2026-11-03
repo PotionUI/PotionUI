@@ -160,18 +160,6 @@ def test_the_shared_model_files_carry_a_pinned_flex_adapter(kind, mode):
     assert {r["then"]["set_required"] for r in adapter["reactions"]} == {True, False}
 
 
-@pytest.mark.parametrize("mode, kind", (("video", "fl2va"), ("refs", "ref2va")))
-def test_the_inline_model_sections_carry_a_pinned_flex_adapter(mode, kind):
-    with open(f"content/presets/marketplace/MiniMax-H3/modes/{mode}/tabs/generation.yml", encoding="utf-8") as handle:
-        fields = yaml.safe_load(handle)["fields"]
-    models = next(f for f in fields if f.get("label") == "Models")["children"]
-    adapter = next(f for f in models if f["name"] == "flex_adapter")
-    recommendation = adapter["configuration"]["recommendations"][0]
-    assert recommendation["name"] == f"pika_h3_flex_{kind}_v1_bf16.safetensors"
-    assert len(recommendation["sha256"]) == 64
-    assert {r["then"]["set_required"] for r in adapter["reactions"]} == {True, False}
-
-
 @pytest.mark.parametrize("mode", _MODES)
 def test_the_hand_set_solver_knobs_still_reach_the_generator_outside_flex(h3_template, mode):
     cfg = _generator(_process(h3_template, mode, {

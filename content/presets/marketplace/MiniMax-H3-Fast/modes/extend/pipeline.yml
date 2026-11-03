@@ -102,6 +102,7 @@ pipeline:
       frames: "{{ (form.added_seconds * preset.vars.fps) | round(0, 'floor') | int }}"
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       quantity: "{{ form.quantity }}"
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
       preview: "{{ form.preview }}"
       audio_source: "generate"
       decode: true

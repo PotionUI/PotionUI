@@ -354,8 +354,26 @@ def warm_up(container: AppContainer, ready: threading.Event) -> None:
                 resolve_device_evidence(backend, container.gpu_monitor)
             except Exception as exc:
                 logging.error(f"Resolving the execution device of backend {backend_id} at startup failed: {exc}")
+    except Exception:
+        logging.exception("Warming up at startup failed; reporting ready anyway")
     finally:
         ready.set()
+
+
+def start_warm_up(app: FastAPI, container: AppContainer, ready: threading.Event) -> asyncio.Task:
+    task = asyncio.create_task(asyncio.to_thread(warm_up, container, ready))
+    app.state.warm_up_task = task
+    return task
+
+
+async def stop_warm_up(app: FastAPI) -> None:
+    task = getattr(app.state, "warm_up_task", None)
+    if task is None:
+        return
+    if not task.done():
+        task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    app.state.warm_up_task = None
 
 
 def add_health_route(app: FastAPI, ready: threading.Event) -> None:
@@ -437,7 +455,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         container.app_loop = asyncio.get_running_loop()
         container.plugin_registry.run_ready_hooks()
-        asyncio.create_task(asyncio.to_thread(warm_up, container, warmed_up))
+        start_warm_up(app, container, warmed_up)
 
         try:
             await ensure_providers_discovered()
@@ -512,6 +530,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         # Shutdown
         logging.info("Shutting down PotionUI API server...")
+        await stop_warm_up(app)
         await asyncio.to_thread(container.model_index_manager.indexing.shutdown)
         await asyncio.to_thread(container.model_index_manager.digests.stop)
         await asyncio.to_thread(container.media_tool_service.shutdown)

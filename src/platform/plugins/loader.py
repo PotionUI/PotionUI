@@ -65,6 +65,7 @@ class PluginManifest:
     model_layouts: List[Dict[str, Any]] = field(default_factory=list)
     llm_profiles: List[Dict[str, Any]] = field(default_factory=list)
     filters: List[Dict[str, Any]] = field(default_factory=list)
+    effects: List[Dict[str, Any]] = field(default_factory=list)
     filter_ops: List[Dict[str, Any]] = field(default_factory=list)
     # Recipe step kinds: [{kind, backend}]
     recipe_steps: List[Dict[str, Any]] = field(default_factory=list)
@@ -167,7 +168,7 @@ class PluginManifest:
 
 _DICT_LIST_FIELDS = tuple(
     """
-    pipes presets preset_modes preset_extensions recipes model_layouts llm_profiles filters filter_ops
+    pipes presets preset_modes preset_extensions recipes model_layouts llm_profiles filters effects filter_ops
     recipe_steps samplers schedules model_classifiers model_types pages admin_tabs tool_tabs quick_actions
     sidebar_widgets settings field_types model_metadata_fields renderers contributions docs
     chat_modes resources llm_providers automation_nodes automation_templates organize_facts organize_actions limit_kinds

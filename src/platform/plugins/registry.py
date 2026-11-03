@@ -7,6 +7,7 @@ and their integration with the hook system.
 
 import hashlib
 import threading
+from pathlib import Path
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
@@ -24,6 +25,7 @@ from src.platform.plugins.router_mounter import (
 )
 from src.platform.media_tools import MediaTool, ToolSpec
 from src.platform.media_tools.types import DEFAULT_SCOPES
+from src.platform.media_tools.effects.loader import EffectLoader, register_effects
 from src.platform.plugins.field_types import FieldTypeDefinition, FieldTypeRegistry
 from src.platform.plugins.login_providers import login_provider_registry
 from src.platform.plugins.automation_nodes import NodeField, NodeTypeSpec
@@ -214,6 +216,7 @@ class PluginRegistry:
         organize_registry: Optional[OrganizeRegistry] = None,
         limit_kind_registry: Optional[LimitKindRegistry] = None,
         media_tool_registry=None,
+        effect_runtime=None,
     ):
         self.loader = PluginLoader(marketplace_dir, local_dir)
         self.hook_chain = HookChain()
@@ -263,6 +266,7 @@ class PluginRegistry:
         self.recipe_step_kind_registry = recipe_step_kind_registry
         self.llm_provider_registry = llm_provider_registry
         self.media_tool_registry = media_tool_registry
+        self.effect_runtime = effect_runtime
         self.organize_registry = organize_registry if organize_registry is not None else _shared_organize_registry
         self.limit_kind_registry = (
             limit_kind_registry if limit_kind_registry is not None else _shared_limit_kind_registry
@@ -532,6 +536,7 @@ class PluginRegistry:
             self._register_plugin_model_metadata_fields,
             self._register_plugin_tools,
             self._register_plugin_media_tools,
+            self._register_plugin_effects,
             self._register_plugin_chat_modes,
             self._register_plugin_resources,
             self._register_plugin_automation_nodes,
@@ -1233,6 +1238,27 @@ class PluginRegistry:
             except ValueError as exc:
                 return str(exc)
 
+        return None
+
+    def _register_plugin_effects(self, manifest: PluginManifest) -> Optional[str]:
+        skip, error = self._require_registry(manifest.effects, self.media_tool_registry, "effects", "effect")
+        if skip:
+            return error
+        plugin_dir = Path(manifest.manifest_path).parent.resolve()
+        for entry in manifest.effects:
+            relative = str(entry.get("path") or "")
+            root = (plugin_dir / relative).resolve()
+            if root != plugin_dir and plugin_dir not in root.parents:
+                return f"Effects path '{relative}' leaves the plugin folder"
+            if not root.is_dir():
+                return f"Effects path '{relative}' is not a folder"
+            loaded = EffectLoader().load_root(root, manifest.id)
+            if loaded.errors:
+                return "; ".join(f"Effect {name}: {message}" for name, message in loaded.errors)
+            try:
+                register_effects(self.media_tool_registry, loaded.effects, self.effect_runtime)
+            except ValueError as exc:
+                return str(exc)
         return None
 
     def _register_plugin_chat_modes(self, manifest: PluginManifest) -> Optional[str]:

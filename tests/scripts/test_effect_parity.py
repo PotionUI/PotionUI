@@ -10,7 +10,8 @@ from src.platform.media_tools.effects.loader import core_effects
 from src.platform.media_tools.effects.parity import ParityError, parity_cases, render_case
 from tests.platform.media_tools.effects.builder import write_effect
 
-TARGETS = ep.discover()
+FIXTURE_PLUGIN = ep.ROOT / "tests" / "e2e" / "effect_plugins" / "e2e-effects"
+TARGETS = ep.discover() + ep.plugin_targets(FIXTURE_PLUGIN)
 CANDIDATES = [(target, candidate) for target in TARGETS for candidate in target.effect.render]
 
 
@@ -43,7 +44,7 @@ def numpy_goldens(target):
 
 def test_every_effect_in_the_catalog_is_a_parity_target():
     assert {effect.tool_id for effect in core_effects()} <= {target.effect.tool_id for target in TARGETS}
-    assert {"vignette", "fade", "ken_burns", "film_grain", "fix_colors"} <= {target.effect.tool_id for target in TARGETS}
+    assert {"vignette", "fade", "ken_burns", "film_grain", "fix_colors", "e2e-effects.invert"} <= {target.effect.tool_id for target in TARGETS}
 
 
 @pytest.mark.parametrize("target", TARGETS, ids=lambda target: target.effect.tool_id)

@@ -101,6 +101,7 @@ CORE_MODEL_TYPE_DEFINITIONS: Tuple[ModelTypeDefinition, ...] = (
     _core('geometry_estimation', 'Geometry estimator', 'geometry_estimation',
           'Estimates depth and camera from an image'),
     _core('preview_decoder', 'Preview decoder', 'vae_approx', 'Tiny decoder for live generation previews'),
+    _core('lut', 'LUT', 'luts', 'Colour grade for the LUT video effect', extensions=frozenset({'.cube'})),
 )
 
 CORE_MODEL_TYPES: Tuple[str, ...] = tuple(d.id for d in CORE_MODEL_TYPE_DEFINITIONS)

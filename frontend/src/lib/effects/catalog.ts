@@ -27,8 +27,17 @@ export interface EffectBlock {
 	textures: EffectTexture[];
 	derive: Record<string, string>;
 	gain: string | null;
+	live: string | null;
 	analysis: boolean;
 	analysisKeys: string[] | null;
+}
+
+export interface LookOption {
+	value: string;
+	label: string;
+	group: string;
+	revision: string;
+	env: Record<string, number>;
 }
 
 export interface EffectTool {
@@ -106,22 +115,21 @@ export function readEffectBlock(tool: Pick<ToolDTO, 'group' | 'effect'>): Effect
 		time,
 		shader: shader && typeof shader.url === 'string' ? { url: shader.url, etag: String(shader.etag ?? '') } : null,
 		uniforms: readUniforms(raw.uniforms),
-		textures: Array.isArray(raw.textures) ? (raw.textures as EffectTexture[]) : [],
+		textures: Array.isArray(raw.textures)
+			? (raw.textures as EffectTexture[]).filter((texture) => !!record(texture) && NAME.test(String(texture.uniform)) && typeof texture.from === 'string')
+			: [],
 		derive: readDerive(raw.derive),
 		gain: typeof raw.gain === 'string' && raw.gain.trim() ? raw.gain : null,
+		live: typeof raw.live === 'string' && raw.live.trim() ? raw.live : null,
 		analysis: raw.analysis === true || !!record(raw.analysis),
 		analysisKeys: Array.isArray(raw.analysis_keys) && raw.analysis_keys.length ? raw.analysis_keys.map(String) : null
 	};
 }
 
-function acceptsVideo(tool: ToolDTO): boolean {
-	return (tool.accepts as string[]).includes('video');
-}
-
-export function effectTools(catalog: readonly ToolDTO[]): EffectTool[] {
+export function effectTools(catalog: readonly ToolDTO[], kind: 'video' | 'image' = 'video'): EffectTool[] {
 	return catalog.flatMap((tool) => {
 		const block = readEffectBlock(tool);
-		if (!block || !acceptsVideo(tool)) return [];
+		if (!block || !(tool.accepts as string[]).includes(kind)) return [];
 		return [
 			{
 				id: tool.id,
@@ -190,11 +198,44 @@ export function hexColor(value: unknown): [number, number, number] {
 	return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
 
+export function lookOptions(param: Pick<ToolParam, 'options'>): LookOption[] {
+	return (param.options ?? []).flatMap((option) => {
+		const item = record(option);
+		const env = record(item?.env);
+		if (!item || !env || typeof item.value !== 'string') return [];
+		const numbers: Record<string, number> = {};
+		for (const [key, value] of Object.entries(env)) if (typeof value === 'number' && Number.isFinite(value)) numbers[key] = value;
+		return [
+			{
+				value: item.value,
+				label: typeof item.label === 'string' ? item.label : item.value,
+				group: typeof item.group === 'string' ? item.group : '',
+				revision: typeof item.revision === 'string' ? item.revision : '',
+				env: numbers
+			}
+		];
+	});
+}
+
+export function lookOption(param: Pick<ToolParam, 'options'>, value: unknown): LookOption | null {
+	const options = lookOptions(param);
+	return options.find((option) => option.value === value) ?? (value ? null : (options.find((option) => option.value === '') ?? null));
+}
+
+export function textureKey(param: Pick<ToolParam, 'type' | 'options'> | undefined, value: unknown): string {
+	const ref = typeof value === 'string' ? value : '';
+	if (!ref || param?.type !== 'look') return ref;
+	return `look:${ref}@${lookOption(param, ref)?.revision ?? ''}`;
+}
+
 export function paramEnv(params: readonly ToolParam[], values: Record<string, unknown>): Record<string, DeriveValue> {
 	const env: Record<string, DeriveValue> = {};
 	for (const param of params) {
 		const value = values[param.name];
-		if (param.type === 'anchor') {
+		if (param.type === 'look') {
+			const option = lookOption(param, value);
+			if (option) env[param.name] = option.env;
+		} else if (param.type === 'anchor') {
 			const [x, y] = anchorPoint(value);
 			env[param.name] = { x, y };
 		} else if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') {

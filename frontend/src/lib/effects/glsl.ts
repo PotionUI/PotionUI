@@ -73,14 +73,16 @@ export function checkEffectSource(source: string): string {
 	return source;
 }
 
-export function buildFragment(source: string, uniforms: readonly EffectUniform[]): string {
+export function buildFragment(source: string, uniforms: readonly EffectUniform[], textures: readonly string[] = []): string {
 	const declared = uniforms
 		.filter((uniform) => !BUILTIN_NAMES.has(uniform.name))
 		.map((uniform) => `uniform ${uniform.type} u_${uniform.name};`)
 		.join('\n');
+	const samplers = textures.map((name) => `uniform highp sampler3D u_${name};\nuniform int u_${name}_size;`).join('\n');
 	return `${HEADER}
 ${BUILTINS}
 ${declared}
+${samplers}
 
 in vec2 v_uv;
 out vec4 o_color;

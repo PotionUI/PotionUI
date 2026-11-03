@@ -260,6 +260,7 @@ class ToolContext:
             is_cancelled=self._is_cancelled,
             runner=self.runner,
             prober=self._prober,
+            user_id=self.user_id,
             _counter=self._counter,
         )
 

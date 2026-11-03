@@ -54,6 +54,7 @@
 		listMediaToolRuns,
 		effectAnalysis,
 		effectShader,
+		textureTable,
 		previewFrame,
 		startClipPreview,
 		startMediaToolRun,
@@ -164,6 +165,8 @@
 	let previewCap = $state<number>(PREVIEW_CAPS[0]);
 	let unavailable = $state.raw<ReadonlySet<string>>(new Set());
 	let shaderTexts = $state.raw<ReadonlyMap<string, string>>(new Map());
+	let lutTables = $state.raw<ReadonlyMap<string, Uint16Array>>(new Map());
+	const lutLoading = new Set<string>();
 	let measured = $state.raw<ReadonlyMap<string, Record<string, number>>>(new Map());
 	const shaderLoading = new Set<string>();
 	const analysisLoading = new Set<string>();
@@ -1024,6 +1027,29 @@
 	});
 
 	$effect(() => {
+		for (const plan of [afterPlan, beforePlan]) {
+			for (const pass of plan?.passes ?? []) {
+				if (pass.kind !== 'effect') continue;
+				const toolId = pass.tool;
+				for (const texture of pass.textures) {
+					const ref = texture.ref;
+					if (!ref || lutTables.has(ref) || lutLoading.has(ref)) continue;
+					lutLoading.add(ref);
+					void textureTable(texture)
+						.then((table) => {
+							if (!destroyed) lutTables = new Map(untrack(() => lutTables)).set(ref, table);
+						})
+						.catch((error) => {
+							logger.error('The LUT preview could not be loaded:', error);
+							if (!destroyed) untrack(() => markUnavailable(toolId));
+						})
+						.finally(() => lutLoading.delete(ref));
+				}
+			}
+		}
+	});
+
+	$effect(() => {
 		const needs = [...(afterPlan?.analysis ?? []), ...(beforePlan?.analysis ?? [])];
 		if (!needs.length || !inputRef) return;
 		const timer = setTimeout(() => untrack(() => needs.forEach(measure)), 150);
@@ -1186,6 +1212,7 @@
 									{fps}
 									duration={clip.duration}
 									sources={shaderTexts}
+									tables={lutTables}
 									baseGain={playback.gain}
 									visible={live.canvas}
 									onunsupported={() => (webgl2 = false)}

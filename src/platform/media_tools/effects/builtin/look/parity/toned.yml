@@ -1,0 +1,6 @@
+name: Toned
+intensity: 100
+steps:
+  - { op: tone, contrast: 18, saturation: -12, hue: 6 }
+  - { op: white_balance, temperature: 24, tint: -8 }
+  - { op: fade, black_lift: 6 }

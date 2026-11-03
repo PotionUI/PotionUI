@@ -26,7 +26,8 @@ UNIFORM_TYPES = {
     "anchor": "vec2",
 }
 TEXTURE_KINDS = ("lut3d", "image2d")
-TEXTURE_PARAM_TYPES = {"lut3d": ("lut",), "image2d": ("media",)}
+TEXTURE_ONLY_TYPES = ("lut", "look")
+TEXTURE_PARAM_TYPES = {"lut3d": ("lut", "look"), "image2d": ("media",)}
 TOP_LEVEL_KEYS = frozenset({
     "id", "label", "description", "icon", "group", "accepts", "time", "requires", "params", "derive",
     "analysis", "preview", "render", "parity",
@@ -60,6 +61,7 @@ class Candidate:
     template: Optional[FfmpegTemplate] = None
     ref: Optional[str] = None
     function: Optional[Callable] = None
+    when: Optional[Expression] = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,7 @@ class TextureSpec:
     uniform: str
     source: str
     kind: str
+    mix: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -99,6 +102,7 @@ class EffectSpec:
     shader: Optional[str] = None
     textures: tuple[TextureSpec, ...] = ()
     gain: Optional[Expression] = None
+    live: Optional[Expression] = None
 
     def shader_etag(self) -> Optional[str]:
         if self.shader is None:
@@ -115,6 +119,7 @@ class EffectSpec:
         rows = [
             {"name": f"u_{param['name']}", "type": UNIFORM_TYPES[param["type"]], "from": "param", "key": param["name"]}
             for param in self.params
+            if param["type"] in UNIFORM_TYPES
         ]
         if self.analysis is not None:
             rows += [
@@ -172,7 +177,7 @@ def _params(raw: Any, where: str) -> tuple[dict, ...]:
         name = param.get("name")
         if not isinstance(name, str) or not _NAME.match(name):
             raise _fail(where, "a param name must be lowercase letters, digits or underscores")
-        if param.get("type") not in UNIFORM_TYPES:
+        if param.get("type") not in UNIFORM_TYPES and param.get("type") not in TEXTURE_ONLY_TYPES:
             raise _fail(where, f"param '{name}' has an unsupported type '{param.get('type')}'")
         if "default" not in param:
             raise _fail(where, f"param '{name}' needs a default")
@@ -266,6 +271,11 @@ def _render(raw: Any, params: tuple[dict, ...], scalars: set[str], where: str) -
         if any(candidate.kind == kind for candidate in candidates):
             raise _fail(where, f"the {kind} candidate is listed twice")
         if kind == "ffmpeg":
+            when = None
+            if isinstance(body, Mapping) and "when" in body:
+                body = {key: value for key, value in body.items() if key != "when"}
+                when = _parse_expression(entry["ffmpeg"]["when"], f"{where} ffmpeg when")
+                _check_names(when, scalars | {"media", "pi"}, f"{where} ffmpeg when")
             try:
                 template = parse_template(body)
             except TemplateError as exc:
@@ -275,7 +285,7 @@ def _render(raw: Any, params: tuple[dict, ...], scalars: set[str], where: str) -
                     raise _fail(f"{where} ffmpeg", f"unknown placeholder {{{name}}}")
             for condition in template.conditions():
                 _check_names(condition, scalars | {"media", "pi"}, f"{where} ffmpeg when")
-            candidates.append(Candidate(kind=kind, template=template))
+            candidates.append(Candidate(kind=kind, template=template, when=when))
         else:
             if not isinstance(body, str) or not _REF.match(body):
                 raise _fail(where, f"the {kind} candidate must be 'file.py:function'")
@@ -285,10 +295,10 @@ def _render(raw: Any, params: tuple[dict, ...], scalars: set[str], where: str) -
 
 def _preview(raw: Any, params: tuple[dict, ...], scalars: set[str], where: str):
     if raw is None:
-        return None, (), None
+        return None, (), None, None
     if not isinstance(raw, Mapping):
         raise _fail(where, "preview must be a mapping")
-    unknown = set(raw) - {"shader", "textures", "gain"}
+    unknown = set(raw) - {"shader", "textures", "gain", "live"}
     if unknown:
         raise _fail(where, f"unknown preview keys: {', '.join(sorted(map(str, unknown)))}")
     shader = raw.get("shader")
@@ -299,17 +309,26 @@ def _preview(raw: Any, params: tuple[dict, ...], scalars: set[str], where: str):
         if not isinstance(entry, Mapping):
             raise _fail(where, "each preview texture must be a mapping")
         uniform, source, kind = entry.get("uniform"), entry.get("from"), entry.get("kind")
+        if not isinstance(uniform, str) or not _NAME.match(uniform):
+            raise _fail(where, "a texture uniform must be lowercase letters, digits or underscores")
         if kind not in TEXTURE_KINDS:
             raise _fail(where, f"texture kind must be one of {', '.join(TEXTURE_KINDS)}")
         param = next((param for param in params if param["name"] == source), None)
         if param is None or param["type"] not in TEXTURE_PARAM_TYPES[kind]:
             raise _fail(where, f"texture '{uniform}' must come from a {kind} param")
-        textures.append(TextureSpec(uniform=str(uniform), source=source, kind=kind))
+        mix = entry.get("mix")
+        if mix is not None and mix not in scalars:
+            raise _fail(where, f"texture '{uniform}' mixes by '{mix}', which is not a param or derive value")
+        textures.append(TextureSpec(uniform=str(uniform), source=source, kind=kind, mix=mix))
     gain = None
     if raw.get("gain") is not None:
         gain = _parse_expression(raw["gain"], f"{where} preview.gain")
         _check_names(gain, scalars | {"media", "pi", "time"}, f"{where} preview.gain")
-    return shader, tuple(textures), gain
+    live = None
+    if raw.get("live") is not None:
+        live = _parse_expression(raw["live"], f"{where} preview.live")
+        _check_names(live, scalars | {"media", "pi"}, f"{where} preview.live")
+    return shader, tuple(textures), gain, live
 
 
 def _parity(raw: Any, params: tuple[dict, ...], where: str) -> dict:
@@ -332,6 +351,12 @@ def _parity(raw: Any, params: tuple[dict, ...], where: str) -> dict:
             isinstance(frame, int) and not isinstance(frame, bool) and frame >= 0 for frame in frames
         ):
             raise _fail(where, "each parity case lists frame numbers")
+    fixtures = raw.get("fixtures") or {}
+    if not isinstance(fixtures, Mapping) or not all(
+        isinstance(key, str) and isinstance(value, str) and value and not value.startswith("/") and ".." not in value.split("/")
+        for key, value in fixtures.items()
+    ):
+        raise _fail(where, "parity.fixtures maps an asset kind to a folder inside the effect")
     metric = raw.get("metric", "pixels")
     if metric not in PARITY_METRICS:
         raise _fail(where, f"parity.metric must be one of {', '.join(PARITY_METRICS)}")
@@ -386,7 +411,7 @@ def parse_effect(data: Any, folder: Path, source: str, core_source: str = "core"
     base = {param["name"] for param in params} | set(analysis_names)
     derive = _derive(derive_raw, base, where)
     scalars = base | {name for name, _ in derive}
-    shader_file, textures, gain = _preview(data.get("preview"), params, scalars, where)
+    shader_file, textures, gain, live = _preview(data.get("preview"), params, scalars, where)
     render = _render(data.get("render"), params, scalars, where)
     parity = _parity(data.get("parity"), params, where)
 
@@ -410,6 +435,7 @@ def parse_effect(data: Any, folder: Path, source: str, core_source: str = "core"
         shader_file=shader_file,
         textures=textures,
         gain=gain,
+        live=live,
     )
 
 

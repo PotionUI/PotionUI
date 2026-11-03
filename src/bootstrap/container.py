@@ -296,6 +296,7 @@ from src.features.formulas.repository import FormulaRepository
 from src.features.formulas.routes import FormulaController
 from src.features.formulas.sources import ModelRepositoryRefChecker, PresetFormSource
 from src.features.filters.catalog import FilterCatalog
+from src.features.filters.looks import FilterLooks
 from src.features.filters.collaborators import FilterCollaborators
 from src.features.filters.repository import UserFilterRepository
 from src.features.filters.routes import FilterController
@@ -708,6 +709,7 @@ def build_container() -> AppContainer:
     media_tool_registry = MediaToolRegistry()
     effects_runtime = EffectRuntime()
     register_core_media_tools(media_tool_registry, effects_runtime)
+    effects_runtime.use_asset_dirs(lambda kind: [entry.path for entry in model_roots.type_dirs(kind)])
 
     tool_registry = ToolRegistry()
     _rr._global_tool_registry = tool_registry
@@ -794,6 +796,7 @@ def build_container() -> AppContainer:
         llm_provider_registry=llm_provider_registry,
         limit_kind_registry=limit_kind_registry,
         media_tool_registry=media_tool_registry,
+        effect_runtime=effects_runtime,
     )
     _rr._global_plugin_registry = plugin_registry  # Set the global reference
 
@@ -1897,9 +1900,11 @@ def build_container() -> AppContainer:
         os.getenv("POTIONUI_FILTERS_DIR", "content/filters"),
         plugin_registry=plugin_registry,
     )
+    user_filter_repository = UserFilterRepository()
     filter_controller = FilterController(
-        FilterCollaborators(repository=UserFilterRepository(), catalog=filter_catalog)
+        FilterCollaborators(repository=user_filter_repository, catalog=filter_catalog)
     )
+    effects_runtime.use_looks(FilterLooks(filter_catalog, user_filter_repository))
 
     from src.features.notifications.types import notification_type_registry as _organize_notification_types
 

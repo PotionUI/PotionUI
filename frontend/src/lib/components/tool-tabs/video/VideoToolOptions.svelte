@@ -273,11 +273,6 @@
 				{/each}
 			</div>
 		{/each}
-		<div class="flex h-10 items-center gap-2 rounded-lg border border-line px-3 text-base text-fg-disabled" aria-disabled="true" data-effect-later>
-			<Icon name="palette" className="h-3.5 w-3.5 flex-none" />
-			<span class="flex-1">Looks</span>
-			<span class="font-mono text-sm uppercase tracking-[0.08em]">Later</span>
-		</div>
 		{#if showClip}
 			{@render previewButton()}
 		{/if}

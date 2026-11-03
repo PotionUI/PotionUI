@@ -1,0 +1,5 @@
+name: Graded
+intensity: 100
+lut: cool.cube
+steps:
+  - { op: vibrance, amount: 20 }

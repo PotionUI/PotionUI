@@ -66,7 +66,7 @@ def _dummy_values(effect: EffectSpec) -> dict[str, Any]:
         if param["type"] == "anchor":
             point = ANCHOR_POINTS.get(param["default"], ANCHOR_POINTS["center"])
             values.update({f"{param['name']}.x": point["x"], f"{param['name']}.y": point["y"]})
-        elif param["type"] in ("lut", "media"):
+        elif param["type"] in ("lut", "look", "media"):
             values[param["name"]] = AssetPath("asset.bin")
         else:
             values[param["name"]] = param["default"]

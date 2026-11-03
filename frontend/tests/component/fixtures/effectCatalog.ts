@@ -175,3 +175,47 @@ export const TRIM_TOOL = effectTool({ id: 'trim', label: 'Trim', icon: 'scissors
 export const AUDIO_EFFECT = effectTool({ id: 'echo', label: 'Echo', accepts: ['audio'], effect: { group: 'texture', shader: null } });
 
 export const EFFECT_CATALOG: ToolDTO[] = [TRIM_TOOL, SCANLINES_TOOL, GRAIN_TOOL, TAPE_TOOL, FIX_TOOL, AUDIO_EFFECT];
+
+const SLOTS = [0, 1, 2, 3].flatMap((slot) => ['kind', 'a', 'b', 'c'].map((key) => `s${slot}_${key}`));
+
+function lookEnv(values: Record<string, number> = {}): Record<string, number> {
+	return { has: 0, intensity: 0, live: 1, spatial: 0, ...Object.fromEntries(SLOTS.map((name) => [name, 0])), ...values };
+}
+
+export const LOOK_TOOL = effectTool({
+	id: 'look',
+	label: 'Look',
+	description: 'Grade with one of your looks',
+	accepts: ['video', 'image'],
+	params: [
+		{
+			name: 'look',
+			type: 'look',
+			label: 'Look',
+			default: '',
+			options: [
+				{ label: 'None', value: '', env: lookEnv(), revision: '' },
+				{ label: 'Warm', value: 'warm', group: 'Film', env: lookEnv({ has: 1, intensity: 100 }), revision: 'w1' },
+				{ label: 'Reel', value: 'mine:reel', group: 'Mine', env: lookEnv({ has: 1, intensity: 80, spatial: 1, s0_kind: 1, s0_a: 40, s0_b: 50, s0_c: 60 }), revision: 'r7' },
+				{ label: 'Smear', value: 'smear', group: 'Art', env: lookEnv({ has: 1, intensity: 100, spatial: 1, live: 0 }), revision: 's1' }
+			] as unknown as ToolDTO['params'][number]['options']
+		},
+		{ name: 'strength', type: 'float', label: 'Strength', default: 1, min: 0, max: 1, step: 0.05 }
+	],
+	effect: {
+		group: 'colour',
+		time: 'none',
+		shader: { url: '/api/media-tools/effects/look/shader', etag: '"look"' },
+		uniforms: [],
+		textures: [{ uniform: 'table', from: 'look', kind: 'lut3d' }],
+		derive: [
+			{ name: 'amount', expr: 'look.intensity / 100 * strength if look.has else 0' },
+			{ name: 'plain', expr: 'look.spatial == 0' },
+			...SLOTS.map((name) => ({ name, expr: `look.${name}` }))
+		],
+		gain: null,
+		live: 'look.live == 1',
+		analysis: false,
+		analysis_keys: []
+	}
+});

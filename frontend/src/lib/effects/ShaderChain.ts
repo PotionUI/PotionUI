@@ -74,6 +74,8 @@ export class ShaderChain {
 	private programs = new Map<string, Program | null>();
 	private targets = new Map<string, Target>();
 	private sources = new Map<string, string>();
+	private luts = new Map<string, { texture: WebGLTexture; size: number }>();
+	private blankLut: WebGLTexture | null = null;
 	private videoTexture: WebGLTexture | null = null;
 	private videoSize: Size = { width: 0, height: 0 };
 	private uploaded = false;
@@ -133,6 +135,21 @@ export class ShaderChain {
 			if (entry && !this.isLost) this.gl.deleteProgram(entry.program);
 			this.programs.delete(key);
 		}
+	}
+
+	setLut(ref: string, table: Uint16Array): boolean {
+		const size = Math.round(Math.cbrt(table.length / 3));
+		if (this.isLost || !ref || size < 2 || size * size * size * 3 !== table.length) return false;
+		const floats = new Float32Array(table.length);
+		for (let i = 0; i < table.length; i++) floats[i] = table[i] / 65535;
+		const existing = this.luts.get(ref);
+		if (existing) this.gl.deleteTexture(existing.texture);
+		this.luts.set(ref, { texture: this.volume(size, floats), size });
+		return true;
+	}
+
+	hasLut(ref: string): boolean {
+		return this.luts.has(ref);
 	}
 
 	hasSource(url: string): boolean {
@@ -228,6 +245,8 @@ export class ShaderChain {
 			}
 			for (const frame of this.pending) for (const entry of frame.queries) gl.deleteQuery(entry.query);
 			if (this.videoTexture) gl.deleteTexture(this.videoTexture);
+			for (const lut of this.luts.values()) gl.deleteTexture(lut.texture);
+			if (this.blankLut) gl.deleteTexture(this.blankLut);
 			this.gl.getExtension('WEBGL_lose_context')?.loseContext();
 		}
 		this.forget();
@@ -243,6 +262,8 @@ export class ShaderChain {
 		this.videoTexture = null;
 		this.videoSize = { width: 0, height: 0 };
 		this.uploaded = false;
+		this.luts.clear();
+		this.blankLut = null;
 	}
 
 	private run(chain: string, plan: ChainPlan, frame: ChainFrame, timing: PendingFrame | null): WebGLTexture | null {
@@ -280,7 +301,8 @@ export class ShaderChain {
 			gl.drawArrays(gl.TRIANGLES, 0, 3);
 			return;
 		}
-		const program = pass.identity ? null : this.effectProgram(pass);
+		const waiting = pass.textures.some((texture) => texture.ref && !this.luts.has(texture.ref));
+		const program = pass.identity || waiting ? null : this.effectProgram(pass);
 		if (!program) {
 			const copy = this.program('copy', COPY);
 			if (!copy) return;
@@ -303,17 +325,49 @@ export class ShaderChain {
 			const value = pass.values[uniform.key ?? uniform.name];
 			if (value !== undefined) this.set(program, `u_${uniform.name}`, uniform.type, value);
 		}
+		pass.textures.forEach((texture, index) => {
+			const lut = texture.ref ? this.luts.get(texture.ref) : undefined;
+			gl.activeTexture(gl.TEXTURE1 + index);
+			gl.bindTexture(gl.TEXTURE_3D, lut ? lut.texture : this.blank());
+			this.set(program, `u_${texture.uniform}`, 'int', 1 + index);
+			this.set(program, `u_${texture.uniform}_size`, 'int', lut ? lut.size : 2);
+		});
+		gl.activeTexture(gl.TEXTURE0);
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
+	}
+
+	private volume(size: number, data: Float32Array): WebGLTexture {
+		const gl = this.gl;
+		const texture = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_3D, texture);
+		gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+		gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGB16F, size, size, size, 0, gl.RGB, gl.FLOAT, data);
+		return texture;
+	}
+
+	private blank(): WebGLTexture {
+		if (!this.blankLut) {
+			const data = new Float32Array(8 * 3);
+			for (let i = 0; i < 8; i++) data.set([i & 1, (i >> 1) & 1, (i >> 2) & 1], i * 3);
+			this.blankLut = this.volume(2, data);
+		}
+		return this.blankLut;
 	}
 
 	private effectProgram(pass: EffectPass): Program | null {
 		const source = this.sources.get(pass.shaderUrl);
 		if (source === undefined) return null;
-		const key = `${pass.shaderUrl}\n${pass.uniforms.map((uniform) => `${uniform.type} ${uniform.name}`).join(',')}`;
+		const textures = pass.textures.map((texture) => texture.uniform);
+		const key = `${pass.shaderUrl}\n${pass.uniforms.map((uniform) => `${uniform.type} ${uniform.name}`).join(',')}\n${textures.join(',')}`;
 		if (this.programs.has(key)) return this.programs.get(key) ?? null;
 		let fragment: string;
 		try {
-			fragment = buildFragment(source, pass.uniforms);
+			fragment = buildFragment(source, pass.uniforms, textures);
 		} catch {
 			this.programs.set(key, null);
 			this.hooks.failed?.(pass.tool);

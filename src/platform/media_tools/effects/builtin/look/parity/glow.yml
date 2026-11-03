@@ -1,0 +1,7 @@
+name: Glow
+intensity: 100
+steps:
+  - { op: exposure, stops: 0.3 }
+  - { op: vignette, amount: -60, midpoint: 20, feather: 80 }
+  - { op: grain, amount: 60, size: 3, seed: 400 }
+  - { op: vignette, amount: 30, midpoint: 60, feather: 10 }

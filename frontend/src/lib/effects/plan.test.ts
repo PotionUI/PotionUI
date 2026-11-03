@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EFFECT_CATALOG } from '../../../tests/component/fixtures/effectCatalog';
+import { EFFECT_CATALOG, LOOK_TOOL } from '../../../tests/component/fixtures/effectCatalog';
 import { effectGroups, effectTools, type EffectTool } from './catalog';
 import { frameTime } from './ShaderChain';
 import { analysisKey, compose, planChain, rotation, type Affine, type EffectPass, type GeometryPass } from './plan';
@@ -138,5 +138,35 @@ describe('the pass chain', () => {
 		expect(ready.values.r).toBeCloseTo(1.048, 9);
 		expect(ready.values.hi).toBeCloseTo(0.972, 9);
 		expect(ready.uniforms.map((uniform) => uniform.name)).toEqual(expect.arrayContaining(['white_balance', 'strength', 'r', 'lo', 'gain_r']));
+	});
+});
+
+describe('a look', () => {
+	const looks = new Map<string, EffectTool>(effectTools([LOOK_TOOL]).map((effect) => [effect.id, effect]));
+	const lookPlan = (params: Record<string, unknown>) => plan([{ tool: 'look', params }], { effects: looks });
+
+	it('reads the chosen look from its option and keys its table by look and revision', () => {
+		const [pass] = lookPlan({ look: 'mine:reel', strength: 0.5 }).passes.filter((item): item is EffectPass => item.kind === 'effect');
+		expect(pass.textures).toEqual([{ uniform: 'table', ref: 'look:mine:reel@r7', source: 'look', value: 'mine:reel' }]);
+		expect(pass.values.amount).toBeCloseTo(0.4, 9);
+		expect([pass.values.s0_kind, pass.values.s0_a, pass.values.s0_b, pass.values.s0_c]).toEqual([1, 40, 50, 60]);
+		expect(pass.values.plain).toBe(0);
+	});
+
+	it('plans no grade and no table for no look', () => {
+		const [pass] = lookPlan({ look: '', strength: 1 }).passes.filter((item): item is EffectPass => item.kind === 'effect');
+		expect(pass.values.amount).toBe(0);
+		expect(pass.textures[0].ref).toBe('');
+	});
+
+	it('leaves a look the shader cannot draw, or one that is gone, to the server preview', () => {
+		expect(lookPlan({ look: 'smear' }).skipped).toEqual([{ index: 0, tool: 'look', label: 'Look', reason: 'no-shader' }]);
+		expect(lookPlan({ look: 'deleted' }).skipped).toEqual([{ index: 0, tool: 'look', label: 'Look', reason: 'error' }]);
+	});
+
+	it('lists image effects for the Image editor and video effects for the Video editor', () => {
+		const catalog = [...EFFECT_CATALOG, LOOK_TOOL];
+		expect(effectTools(catalog, 'image').map((effect) => effect.id).sort()).toEqual(['film_grain', 'look', 'retro-tape.scanlines']);
+		expect(effectTools(catalog).map((effect) => effect.id)).toContain('look');
 	});
 });

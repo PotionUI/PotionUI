@@ -6,12 +6,14 @@ import { filterCatalog, loadCube, loadFilterCatalog } from '$lib/filters/catalog
 import { sharedExtensions } from '$lib/filters/extensions';
 import { renderRecipe, type FilterRecipe } from '$lib/filters/render';
 import { planOutputSize } from '$lib/media/editors/imageEditPlan';
+import { loadMediaToolCatalog } from '$lib/media-tools/catalog';
 import { blockedUploadMessage } from '$lib/plans/uploadLimit';
 import { previewFrame, uploadMediaToolArtifact } from '$lib/services/api/mediaTools';
 import type { MediaToolInputRef } from '$lib/media-tools/types';
 import type { EditStep } from '$lib/tool-tabs/frame/editStack';
 import { outputSize, payloadGaps, resizeOutput, runSteps, type PixelSize } from './payload';
-import { adjustRecipeStep, type CropParams, type EffectParams, type PaintParams, type ResizeParams } from './steps';
+import { imageEffects, stillShader } from './shaderEffect';
+import { adjustRecipeStep, type CropParams, type EffectParams, type PaintParams, type ResizeParams, type ToolEffectParams } from './steps';
 
 export const FULL_SIDE = 8192;
 export const PREVIEW_SIDE = 1600;
@@ -115,7 +117,7 @@ export interface ResolvedEffect {
 	intensity: number;
 }
 
-export async function resolveEffect(params: EffectParams): Promise<ResolvedEffect> {
+export async function resolveEffect(params: LookOrAdjust): Promise<ResolvedEffect> {
 	if (params.kind === 'adjust') return { recipe: { steps: [adjustRecipeStep(params)], cube: null }, intensity: 100 };
 	await loadFilterCatalog();
 	const item = get(filterCatalog).items.find((candidate) => candidate.id === params.filter);
@@ -124,7 +126,22 @@ export async function resolveEffect(params: EffectParams): Promise<ResolvedEffec
 	return { recipe: { steps: item.steps, cube }, intensity: params.intensity };
 }
 
+type LookOrAdjust = Exclude<EffectParams, ToolEffectParams>;
+
+export async function toolEffectCanvas(canvas: HTMLCanvasElement, params: ToolEffectParams): Promise<HTMLCanvasElement> {
+	const effect = imageEffects(await loadMediaToolCatalog()).find((candidate) => candidate.id === params.tool);
+	if (!effect) throw new Error(`${params.name} is not available any more`);
+	const out = makeCanvas(canvas.width, canvas.height);
+	const context = context2d(out);
+	context.drawImage(canvas, 0, 0);
+	const pixels = context.getImageData(0, 0, out.width, out.height);
+	const result = await stillShader.render(pixels, effect, params.values);
+	context.putImageData(new ImageData(result.data as Uint8ClampedArray<ArrayBuffer>, result.width, result.height), 0, 0);
+	return out;
+}
+
 export async function effectCanvas(canvas: HTMLCanvasElement, params: EffectParams): Promise<HTMLCanvasElement> {
+	if (params.kind === 'effect') return toolEffectCanvas(canvas, params);
 	const effect = await resolveEffect(params);
 	const out = makeCanvas(canvas.width, canvas.height);
 	const context = context2d(out);

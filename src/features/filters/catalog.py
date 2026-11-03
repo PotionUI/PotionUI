@@ -165,6 +165,13 @@ class FilterCatalog:
         self._ensure_fresh()
         return dict(self._findings)
 
+    def plugin_dirs(self) -> Dict[str, Path]:
+        return {
+            getattr(manifest, "id", "") or "": Path(manifest.plugin_dir)
+            for manifest in self._enabled_manifests()
+            if getattr(manifest, "plugin_dir", None)
+        }
+
     def known_ops(self) -> Dict[str, OpSpec]:
         self._ensure_fresh()
         return dict(self._known_ops)

@@ -158,14 +158,14 @@ test('vignette and fade preview live on a real clip with no mocks, and Save rend
 	await screenshot(page, JOURNEY, 'fade-live-first-frame-1440');
 
 	const token = await ownerToken(page);
+	type Run = { run_id: string; status: string; items: Array<{ id: string; url: string }> };
+	const listRuns = async (): Promise<Run[]> =>
+		((await (await page.request.get('/api/media-tools/runs', { headers: { Authorization: `Bearer ${token}` } })).json()) as { data: { runs: Run[] } }).data.runs;
+	const seen = new Set((await listRuns()).map((run) => run.run_id));
+	const fresh = (runs: Run[]) => runs.find((run) => !seen.has(run.run_id) && run.status === 'completed' && run.items.length > 0);
 	await editor.locator('[data-frame-save]').click();
-	await expect(editor.locator('[data-frame-saving]')).toHaveCount(0, { timeout: 60000 });
-	await expect(editor.locator('[data-frame-save]')).toHaveText(/^\s*Save\s*$/, { timeout: 10000 });
-	const runs = (await (await page.request.get('/api/media-tools/runs', { headers: { Authorization: `Bearer ${token}` } })).json()) as {
-		data: { runs: Array<{ status: string; items: Array<{ id: string; url: string }> }> };
-	};
-	const done = runs.data.runs.find((run) => run.status === 'completed' && run.items.length > 0);
-	expect(done, JSON.stringify(runs.data.runs)).toBeTruthy();
+	await expect.poll(async () => !!fresh(await listRuns()), { timeout: 60000 }).toBe(true);
+	const done = fresh(await listRuns())!;
 	const output = done!.items[0];
 	expect(output.id).not.toBe(upload.id);
 

@@ -788,13 +788,8 @@ def _sample_reference_video_frames(
         if not indices or round(cursor) > indices[-1]:
             indices.append(round(cursor))
         cursor += stride
-    if len(indices) < temporal_patch:
-        minimum = round((temporal_patch - 1) * stride) + 1
-        raise ValueError(
-            f"a reference video is read at {sample_fps:g} fps and its sampled frames are merged in groups of "
-            f"{temporal_patch}, so it must run at least {minimum} frames at {fps:g} fps "
-            f"({minimum / fps:.2g} seconds), got {num_frames}"
-        )
+    if not indices:
+        raise ValueError(f"a reference video must carry at least one frame, got {num_frames}")
 
     timestamps = [index / sample_fps for index in range(len(indices))]
     timestamps += [timestamps[-1]] * (-len(timestamps) % temporal_patch)

@@ -64,6 +64,24 @@
     },
     {
       "config": {
+        "fit": {
+          "type": "str",
+          "value": "match"
+        },
+        "resolution": {
+          "type": "str",
+          "value": "1024x1024"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "image_fit",
+      "name": "image_fit"
+    },
+    {
+      "config": {
         "guidance_scale": {
           "type": "float",
           "value": 4.0
@@ -226,6 +244,10 @@
     },
     {
       "config": {
+        "fit": {
+          "type": "str",
+          "value": "match"
+        },
         "guidance": {
           "type": "float",
           "value": 4.0
@@ -237,6 +259,10 @@
         "quantity": {
           "type": "int",
           "value": 1
+        },
+        "resolution": {
+          "type": "str",
+          "value": "1024x1024"
         },
         "sampler": {
           "type": "str",

@@ -135,14 +135,14 @@ def normalize_and_pack_audio_latent(
     """Already-encoded `(audio_channels, latent_channels, n)` latents -> the
     clean, channel-major condition rows -- the tail of
     :func:`encode_audio_condition` split out so a PRE-ENCODED latent (a
-    RefMod's own stored latent, `_shared.generation.refmods`) can reuse the
+    `PreEncodedReference`'s own latent) can reuse the
     normalize/trim/pack recipe without a waveform or the audio VAE's
     `encode()` to run it through.
 
     `latents_mean`/`latents_std` are the audio VAE's own per-channel buffers
     (`audio_vae_module.latents_mean`/`.latents_std`) -- still required even
-    when `encode()` itself is skipped, since a RefMod's stored latent is in
-    the VAE's RAW space (refmods.py's module docstring) and needs the SAME
+    when `encode()` itself is skipped, since a pre-encoded latent is in
+    the VAE's RAW space and needs the SAME
     normalization every other audio condition gets.
     """
     latents_mean_t = torch.as_tensor(latents_mean, device=latents.device, dtype=torch.float32).view(1, -1, 1)

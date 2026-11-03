@@ -59,7 +59,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **LLM** — contributing an LLM configuration type | `.llm` | `Adapter`, `HttpAdapter`, `OpenAIChatAdapter`, `RenderRequest`, `WireRequest`, `CapabilityProfile`, `ProfileLayer`, `Settings`, `ToolSpec`, the message parts, stream events and provider errors, `LLMConfig`, `DiscoveredModel`, `DiscoveredWindow` |
 | **Backends** — contributing an engine | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate` |
 | **Cloud** — contributing a hosted-model provider | `.cloud`, `.cloud_testing` | `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `valid_specs`, `load_catalog_file`, `encode_media`, `decode_inline`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS`, `fake_director_specs`, `fake_video_bytes`, `TINY_PNG`, `bind_plugin_backend` |
-| **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
+| **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError`, `PreEncodedReference` (an already VAE-encoded reference a pipe hands to a `reference_latents` input), `MAX_BUNDLE_COPIES` (the most copies a prompt resource bundle row may ask for) |
 | **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks`, `load_native_component(path, kind)` (one component file, such as a `vae`, loaded on the CPU by the engine's own loader and returned as its wrapper: `.module`, `move_to(device)`, `unload()`) |
 | **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem`, `lint_preset_dir`, `PRESET_MEDIA_MAX_BYTES` and `PRESET_COVER_VIDEO_MAX_BYTES` (the byte budgets the preset linter warns above for any preset media file and for a video cover), `downscale_and_save_webp`, `describe_preset` (an installed preset's name, `vars` and modes, each with its default form and every form's fields as `type` + `required` + `multi`; `None` when not installed), `PresetDescription`, `ModeDescription`, `FieldDescription`, `bind_director_media(request, role, media, segment_id=None, promote=False)` (puts a resolved image, from `resolve_media_ref`, into a single-shot Video Director document as its `first` or `last` frame, keeping the rest of the document; with `promote=True` a first frame turns a text-only shot into a start-image shot and a last frame turns a start-image shot into a first-and-last shot; raises `DirectorBindingError` with a `code`), `RequirementBackendInfo` (the resolved backend a `RequirementContext` carries: `id`, `engine`, `driver`, `config`) |
 | **Forms** — the field types core ships | `.forms` | `core_field_type_names()` (the names of every core non-container field type, e.g. to validate a `field_type` a form-building tool is handed) |
@@ -1332,6 +1332,32 @@ under the type id, marked as no longer available, until the plugin is enabled ag
 Python code reads the live set through `src.plugin_api.models.model_types()`; a frontend reads
 `window.__potionui.modelTypes` (`list()`, `get(id)`, `presentation(id)`), which follows
 `GET /api/models/type-definitions`. Both include plugin types while their plugin is enabled.
+
+## Contributing a prompt resource source
+
+A prompt resource source lets a preset's prompt cite rows of a picker field whose items are
+bundles of several references (an image and an audio member, say) rather than single media.
+A preset mode, or a [preset extension](presets/plugins.md#extending-existing-modes), maps such a field with
+`source: <id>` in `prompt_resources`; see [Prompt resources](presets/manifest.md#prompt-resources).
+Declare the source in `manifest.yml`:
+
+```yaml
+prompt_resource_sources:
+  - id: stack                 # the value prompt_resources entries put in `source`
+    field_type: lora_picker   # the field type it reads; lint rejects any other
+    label: Stack              # names an item in messages and chip tooltips
+    badge: Stack              # the @ menu badge while an item's members are unknown
+    members: sources.members  # "module.function" in your plugin
+```
+
+`members(item_key, caller)` returns the item's members as `[{"kind", "name"}]`, where `kind`
+is `image`, `video` or `audio`. `item_key` is the row's `model` value (`model:<id>`), and
+`caller` carries `user_id`, `is_admin` and `model_file(model_id)`, which returns the model's
+file path. Raise `ValueError` with a short reason when the item cannot be read; any other
+exception is reported as unreadable without its text. Core calls it at submit time for every
+cited row and from `GET /api/prompt-resources/sources/{id}/members?item=<item key>`, which first
+checks that the caller can see the model (404 otherwise, before your handler runs). Two
+plugins cannot register the same id, and disabling the plugin removes the source.
 
 ## Contributing a prompt importer
 

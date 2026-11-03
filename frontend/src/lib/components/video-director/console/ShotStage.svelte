@@ -28,7 +28,7 @@
 	import StageKeyframe from '../stage-rail/StageKeyframe.svelte';
 	import StageAudio from '../stage-rail/StageAudio.svelte';
 	import StageIcLora from '../stage-rail/StageIcLora.svelte';
-	import { refModDirectory } from '$lib/stores/refModDirectory';
+	import { bundleDirectories } from '$lib/stores/bundleDirectory';
 
 	let {
 		shot,
@@ -92,7 +92,7 @@
 		selection && selection.shotId === shot.id ? { kind: selection.kind === 'beat' ? 'shot' : selection.kind, id: selection.id } : null
 	);
 	let stageModel = $derived(
-		deriveStageModel(doc, caps, railSelection, formData, shot.id, { specs: promptResources, directory: $refModDirectory })
+		deriveStageModel(doc, caps, railSelection, formData, shot.id, { specs: promptResources, directories: $bundleDirectories })
 	);
 
 	function formatSeconds(n: number): string {

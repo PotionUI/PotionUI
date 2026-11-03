@@ -431,17 +431,17 @@ describe('deriveConsoleModel — H3 refs (continuationDisabled + per_shot refere
 		expect(model.shots[0].tabs.find((t) => t.id === 'references')?.label).toBe('References · 1 of 2');
 	});
 
-	it('a cited RefMod counts in the tab label exactly as it counts in the pool', () => {
+	it('a cited kit counts in the tab label exactly as it counts in the pool', () => {
 		const doc = wanDoc();
-		doc.chain.segments[0].prompt_segments = [{ id: 'p0', content: '@[references:/pool/a.png] and @[reference_mods:model:01X]' }];
-		const caps = { ...refsCaps, referenceFields: ['references', 'reference_mods'] };
-		const formData = { references: [{ path: '/pool/a.png', type: 'image' }], reference_mods: [{ model: 'model:01X', strength: 1 }] };
+		doc.chain.segments[0].prompt_segments = [{ id: 'p0', content: '@[references:/pool/a.png] and @[reference_kits:model:01X]' }];
+		const caps = { ...refsCaps, referenceFields: ['references', 'reference_kits'] };
+		const formData = { references: [{ path: '/pool/a.png', type: 'image' }], reference_kits: [{ model: 'model:01X', strength: 1 }] };
 		const references = {
 			specs: [
 				{ field: 'references', kind: 'image' as const, token: '<Picture @>' },
-				{ field: 'reference_mods', kind: 'image' as const, token: '<Picture @>', source: 'refmod' as const }
+				{ field: 'reference_kits', kind: 'image' as const, token: '<Picture @>', source: 'kit' as const }
 			],
-			directory: { '01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] } }
+			directories: { kit: { 'model:01X': { name: 'Face', members: [{ kind: 'image' as const, name: null }] } } }
 		};
 		const model = deriveConsoleModel(doc, caps, { activeShotId: null }, formData, null, null, null, references);
 		expect(model.shots[0].tabs.find((t) => t.id === 'references')?.label).toBe('References · 2 of 2');

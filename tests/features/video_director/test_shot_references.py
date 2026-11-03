@@ -80,10 +80,10 @@ def test_a_removed_item_is_a_problem():
     assert "removed from this field (gone.png)" in derived.problems[0]
 
 
-REFMOD_RESOURCES = RESOURCES + [
-    {"field": "reference_mods", "source": "refmod", "kind": "image", "token": "<Picture @>"},
-    {"field": "reference_mods", "source": "refmod", "kind": "video", "token": "<Video @>"},
-    {"field": "reference_mods", "source": "refmod", "kind": "audio", "token": "<Audio @>"},
+KIT_RESOURCES = RESOURCES + [
+    {"field": "reference_kits", "source": "kit", "kind": "image", "token": "<Picture @>"},
+    {"field": "reference_kits", "source": "kit", "kind": "video", "token": "<Video @>"},
+    {"field": "reference_kits", "source": "kit", "kind": "audio", "token": "<Audio @>"},
 ]
 
 BUNDLES = {
@@ -93,33 +93,34 @@ BUNDLES = {
 }
 
 
-def _members(key):
+def _members(source, key):
+    assert source == "kit"
     if key not in BUNDLES:
-        raise ValueError(f"the RefMod {key} is not available: no present location")
+        raise ValueError(f"the kit {key} is not available: no present location")
     return BUNDLES[key]
 
 
 def _mod_form(*rows):
-    return {**MIXED, "reference_mods": list(rows)}
+    return {**MIXED, "reference_kits": list(rows)}
 
 
 def _row(model, strength=1.0, copies=1):
     return {"model": model, "strength": strength, "copies": copies}
 
 
-def _refmod_pool(form):
-    return packed_reference_pool(["media_inputs", "reference_mods"], form, REFMOD_RESOURCES, _members)
+def _kit_pool(form):
+    return packed_reference_pool(["media_inputs", "reference_kits"], form, KIT_RESOURCES, _members)
 
 
 def _labels(pool):
     return [
-        f"mod:{item.key}:{item.kind}" if field == "reference_mods" else item["relative_path"]
+        f"mod:{item.key}:{item.kind}" if field == "reference_kits" else item["relative_path"]
         for field, item in pool
     ]
 
 
-def test_refmod_members_follow_the_natives_of_their_kind_with_copies_expanded():
-    pool = _refmod_pool(_mod_form(_row("model:pair", copies=2), _row("model:clip")))
+def test_kit_members_follow_the_natives_of_their_kind_with_copies_expanded():
+    pool = _kit_pool(_mod_form(_row("model:pair", copies=2), _row("model:clip")))
     assert _labels(pool) == [
         "a.png", "b.png", "mod:model:pair:image", "mod:model:pair:image",
         "v1.mp4", "v2.mp4", "mod:model:clip:video",
@@ -127,7 +128,7 @@ def test_refmod_members_follow_the_natives_of_their_kind_with_copies_expanded():
     ]
 
 
-def test_the_refmod_pool_order_is_the_order_pack_references_gives_the_generator():
+def test_the_kit_pool_order_is_the_order_pack_references_gives_the_generator():
     from src.pipelines.pipes._shared.generation.reference_order import pack_references
 
     class _Mod:
@@ -142,18 +143,18 @@ def test_the_refmod_pool_order_is_the_order_pack_references_gives_the_generator(
         f"mod:{media.key}:{media.kind}" if isinstance(media, _Mod) else media["relative_path"]
         for _kind, media in packed
     ]
-    assert _labels(_refmod_pool(_mod_form(*rows))) == expected
+    assert _labels(_kit_pool(_mod_form(*rows))) == expected
 
 
-def test_a_refmod_at_zero_strength_is_not_in_the_pool():
-    pool = _refmod_pool(_mod_form(_row("model:face", strength=0)))
-    assert not any(field == "reference_mods" for field, _ in pool)
+def test_a_kit_at_zero_strength_is_not_in_the_pool():
+    pool = _kit_pool(_mod_form(_row("model:face", strength=0)))
+    assert not any(field == "reference_kits" for field, _ in pool)
 
 
-def test_citing_a_refmod_selects_every_member_and_copy_numbered_after_the_cited_natives():
-    pool = _refmod_pool(_mod_form(_row("model:pair", copies=2)))
+def test_citing_a_kit_selects_every_member_and_copy_numbered_after_the_cited_natives():
+    pool = _kit_pool(_mod_form(_row("model:pair", copies=2)))
     derived = derive_shot_references(
-        ["@[media_inputs:b.png] with @[reference_mods:model:pair] over @[media_inputs:t.wav]"], pool, REFMOD_RESOURCES,
+        ["@[media_inputs:b.png] with @[reference_kits:model:pair] over @[media_inputs:t.wav]"], pool, KIT_RESOURCES,
     )
     assert derived.problems == []
     assert derived.indices == [1, 2, 3, 6, 7, 8]
@@ -161,43 +162,43 @@ def test_citing_a_refmod_selects_every_member_and_copy_numbered_after_the_cited_
     assert derived.texts == ["<Picture 1> with <Picture 2> <Picture 3> <Audio 2> <Audio 3> over <Audio 1>"]
 
 
-def test_a_refmod_the_shot_does_not_cite_stays_out_of_its_subset():
-    pool = _refmod_pool(_mod_form(_row("model:face")))
-    derived = derive_shot_references(["@[media_inputs:a.png] walks in"], pool, REFMOD_RESOURCES)
+def test_a_kit_the_shot_does_not_cite_stays_out_of_its_subset():
+    pool = _kit_pool(_mod_form(_row("model:face")))
+    derived = derive_shot_references(["@[media_inputs:a.png] walks in"], pool, KIT_RESOURCES)
     assert derived.indices == [0]
     assert derived.texts == ["<Picture 1> walks in"]
 
 
 def test_a_shot_citing_nothing_still_gets_no_references():
-    pool = _refmod_pool(_mod_form(_row("model:face")))
-    derived = derive_shot_references(["a quiet street"], pool, REFMOD_RESOURCES)
+    pool = _kit_pool(_mod_form(_row("model:face")))
+    derived = derive_shot_references(["a quiet street"], pool, KIT_RESOURCES)
     assert derived.indices == []
     assert derived.problems == []
 
 
-def test_a_refmod_member_kind_the_field_does_not_map_is_a_problem():
-    resources = RESOURCES + [REFMOD_RESOURCES[3]]
-    pool = packed_reference_pool(["media_inputs", "reference_mods"], _mod_form(_row("model:pair")), resources, _members)
-    derived = derive_shot_references(["@[reference_mods:model:pair]"], pool, resources)
+def test_a_kit_member_kind_the_field_does_not_map_is_a_problem():
+    resources = RESOURCES + [KIT_RESOURCES[3]]
+    pool = packed_reference_pool(["media_inputs", "reference_kits"], _mod_form(_row("model:pair")), resources, _members)
+    derived = derive_shot_references(["@[reference_kits:model:pair]"], pool, resources)
     assert derived.indices == []
-    assert "RefMod with an audio member (model:pair)" in derived.problems[0]
+    assert "kit with an audio member (model:pair)" in derived.problems[0]
 
 
-def test_an_unreadable_refmod_is_a_pool_problem_and_cannot_be_cited():
+def test_an_unreadable_kit_is_a_pool_problem_and_cannot_be_cited():
     from src.features.prompt.reference_pool import build_reference_pool
 
     pool, problems = build_reference_pool(
-        ["media_inputs", "reference_mods"], _mod_form(_row("model:gone")), REFMOD_RESOURCES, _members,
+        ["media_inputs", "reference_kits"], _mod_form(_row("model:gone")), KIT_RESOURCES, _members,
     )
-    assert problems == ["reference_mods: the RefMod model:gone is not available: no present location"]
-    derived = derive_shot_references(["@[reference_mods:model:gone]"], pool, REFMOD_RESOURCES)
+    assert problems == ["reference_kits: the kit model:gone is not available: no present location"]
+    derived = derive_shot_references(["@[reference_kits:model:gone]"], pool, KIT_RESOURCES)
     assert "removed from this field (model:gone)" in derived.problems[0]
 
 
-def test_without_a_resolver_a_refmod_is_a_problem_not_a_silent_drop():
+def test_without_a_resolver_a_kit_is_a_problem_not_a_silent_drop():
     from src.features.prompt.reference_pool import build_reference_pool
 
     _pool, problems = build_reference_pool(
-        ["media_inputs", "reference_mods"], _mod_form(_row("model:face")), REFMOD_RESOURCES, None,
+        ["media_inputs", "reference_kits"], _mod_form(_row("model:face")), KIT_RESOURCES, None,
     )
-    assert problems == ["reference_mods: the RefMod model:face cannot be read here"]
+    assert problems == ["reference_kits: the kit model:face cannot be read here"]

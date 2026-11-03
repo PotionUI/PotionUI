@@ -5,6 +5,7 @@ from src.features.forms.binding import FormBindingError
 from src.features.forms.merge_from import mode_merge_from_aliases, rewrite_merged_markers
 from src.features.presets.schema import PROMPT_RESOURCE_INDEX_PLACEHOLDER
 from src.features.prompt.markers import RESOURCE_MARKER_RE
+from src.features.prompt.resource_sources import entry_source, source_label
 from src.platform.filesystem.media_kinds import items_of_kind, media_item_kind
 
 MEDIA_ITEM_KEY_FIELDS = ("relative_path", "path", "url")
@@ -59,23 +60,24 @@ def mode_prompt_resources(preset_template: Any, mode: Optional[str]) -> List[Dic
     return list(preset_template.prompt_resources.get(mode, []))
 
 
-def _refmod_tokens(
+def _bundle_tokens(
     field: str,
+    source: str,
     item_key: str,
     specs: Sequence[Mapping[str, Any]],
     resources: Sequence[Mapping[str, Any]],
     form_values: Mapping[str, Any],
-    refmod_members: Any,
+    bundle_members: Any,
 ) -> Tuple[Optional[str], Optional[str]]:
     from src.features.prompt.reference_pool import (
         build_reference_pool,
+        bundle_member_positions,
         pool_entry_keys,
-        refmod_member_positions,
     )
 
     fields = list(dict.fromkeys(str(entry["field"]) for entry in resources if isinstance(entry, Mapping) and entry.get("field")))
-    pool, pool_problems = build_reference_pool(fields, form_values, resources, refmod_members)
-    positions = refmod_member_positions(pool)
+    pool, pool_problems = build_reference_pool(fields, form_values, resources, bundle_members)
+    positions = bundle_member_positions(pool)
     matches = [index for index in positions if pool[index][0] == field and item_key in pool_entry_keys(pool[index])]
     if not matches:
         unreadable = next((problem for problem in pool_problems if item_key in problem), None)
@@ -86,7 +88,7 @@ def _refmod_tokens(
         spec = next((entry for entry in specs if entry.get("kind") == kind), None)
         if spec is None:
             return None, (
-                f"the prompt references a RefMod with {'an' if kind[:1] in 'aeiou' else 'a'} {kind} member ({item_key}), "
+                f"the prompt references a {source_label(source)} with {'an' if kind[:1] in 'aeiou' else 'a'} {kind} member ({item_key}), "
                 "which this field's prompt cannot reference"
             )
         tokens.append(str(spec["token"]).replace(PROMPT_RESOURCE_INDEX_PLACEHOLDER, str(positions[index])))
@@ -97,7 +99,7 @@ def resolve_prompt_resources(
     text: str,
     resources: Sequence[Mapping[str, Any]],
     form_values: Mapping[str, Any],
-    refmod_members: Any = None,
+    bundle_members: Any = None,
 ) -> Tuple[str, Dict[str, List[str]]]:
     if not text or "@[" not in text:
         return text, {}
@@ -115,8 +117,9 @@ def resolve_prompt_resources(
         if not specs:
             note(field, f"the prompt references '{field}', which this mode's prompt cannot reference")
             return match.group(0)
-        if any(spec.get("source") == "refmod" for spec in specs):
-            rendered, problem = _refmod_tokens(field, item_key, specs, resources, form_values, refmod_members)
+        source = next((entry_source(spec) for spec in specs if entry_source(spec)), None)
+        if source is not None:
+            rendered, problem = _bundle_tokens(field, source, item_key, specs, resources, form_values, bundle_members)
             if problem is not None:
                 note(field, problem)
                 return match.group(0)
@@ -150,7 +153,7 @@ def resolve_prompt_pairs(
     prompts: Iterable[Any],
     resources: Sequence[Mapping[str, Any]],
     form_values: Mapping[str, Any],
-    refmod_members: Any = None,
+    bundle_members: Any = None,
 ) -> None:
     problems: Dict[str, List[str]] = {}
     for pair in prompts or []:
@@ -158,7 +161,7 @@ def resolve_prompt_pairs(
             text = getattr(pair, channel, None)
             if not isinstance(text, str):
                 continue
-            resolved, found = resolve_prompt_resources(text, resources, form_values, refmod_members)
+            resolved, found = resolve_prompt_resources(text, resources, form_values, bundle_members)
             _merge_problems(problems, found)
             setattr(pair, channel, resolved)
     if problems:
@@ -170,12 +173,12 @@ def resolve_segment_texts(
     segments: Iterable[Any],
     resources: Sequence[Mapping[str, Any]],
     form_values: Mapping[str, Any],
-    refmod_members: Any = None,
+    bundle_members: Any = None,
 ) -> None:
     for segment in segments or []:
         text = getattr(segment, "text", None)
         if isinstance(text, str):
-            segment.text = resolve_prompt_resources(text, resources, form_values, refmod_members)[0]
+            segment.text = resolve_prompt_resources(text, resources, form_values, bundle_members)[0]
 
 
 def _has_marker(text: Any) -> bool:
@@ -202,7 +205,7 @@ def resolve_generation_prompts(
     prompts: Optional[List[Any]],
     segments: Optional[List[Any]],
     form_values: Mapping[str, Any],
-    refmod_members: Any = None,
+    bundle_members: Any = None,
 ) -> None:
     prompts = prompts if isinstance(prompts, list) else []
     segments = segments if isinstance(segments, list) else []
@@ -212,8 +215,8 @@ def resolve_generation_prompts(
         return
     _rewrite_merged_fields(prompts, segments, mode_merge_from_aliases(preset_template, mode))
     resources = preset_template.prompt_resources.get(mode, [])
-    resolve_prompt_pairs(prompts, resources, form_values, refmod_members)
-    resolve_segment_texts(segments, resources, form_values, refmod_members)
+    resolve_prompt_pairs(prompts, resources, form_values, bundle_members)
+    resolve_segment_texts(segments, resources, form_values, bundle_members)
 
 
 _DESCRIBE_MAX_ITEMS = 12
@@ -240,7 +243,7 @@ def describe_prompt_resources(
 ) -> List[str]:
     entries = [
         entry for entry in resources or []
-        if isinstance(entry, Mapping) and entry.get("field") and entry.get("token") and entry.get("source") != "refmod"
+        if isinstance(entry, Mapping) and entry.get("field") and entry.get("token") and entry_source(entry) is None
     ]
     grouped = specs_by_field(entries)
     if not entries:

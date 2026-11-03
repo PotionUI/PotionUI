@@ -257,7 +257,7 @@ vars:
         # picker fields (modes/refs/tabs/references.yml), never duplicated
         # into the Director document -- a segment SELECTS from it.
         references: "per_shot"
-        reference_fields: ["references", "reference_mods"]
+        reference_fields: ["references"]
         modes:
           director:
             # ref2va's own reference pickers already condition the model on
@@ -444,21 +444,6 @@ prompt_resources:
     - field: "references"
       kind: "audio"
       label: "Audio"
-      token: "<Audio @>"
-    - field: "reference_mods"
-      source: "refmod"
-      kind: "image"
-      label: "RefMods"
-      token: "<Picture @>"
-    - field: "reference_mods"
-      source: "refmod"
-      kind: "video"
-      label: "RefMods"
-      token: "<Video @>"
-    - field: "reference_mods"
-      source: "refmod"
-      kind: "audio"
-      label: "RefMods"
       token: "<Audio @>"
 
 prompt_syntax:

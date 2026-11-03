@@ -599,13 +599,6 @@ export function createModelsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async getRefModMembers(
-			modelId: string
-		): Promise<APIResponse<{ members: Array<{ kind: 'image' | 'video' | 'audio'; name: string | null }> }>> {
-			const response = await client.get(`/api/models/${modelId}/refmod-members`);
-			return response.data;
-		},
-
 		async updateModelDescription(modelId: string, description: string): Promise<APIResponse> {
 			const response = await client.put(`/api/models/${modelId}/description`, { description });
 			return response.data;

@@ -117,7 +117,7 @@ def _picture(rgb):
     return ReferenceMedia(kind="image", image=Image.new("RGB", (64, 64), rgb))
 
 
-def _refmod(seed):
+def _pre_encoded(seed):
     return ReferenceMedia(kind="image", latent=torch.randn(1, 24, 1, 4, 4, generator=torch.Generator().manual_seed(seed)) * 3)
 
 
@@ -136,15 +136,15 @@ def test_the_reference_picture_steers_the_generated_video(tiny_dit):
     assert _relative(_generate(tiny_dit, [_picture((10, 10, 250))]), red) > 0.05
 
 
-def test_a_refmod_next_to_a_picture_steers_the_generated_video(tiny_dit):
-    with_first = _generate(tiny_dit, [_picture((250, 10, 10)), _refmod(3)])
-    with_second = _generate(tiny_dit, [_picture((250, 10, 10)), _refmod(4)])
+def test_a_pre_encoded_reference_next_to_a_picture_steers_the_generated_video(tiny_dit):
+    with_first = _generate(tiny_dit, [_picture((250, 10, 10)), _pre_encoded(3)])
+    with_second = _generate(tiny_dit, [_picture((250, 10, 10)), _pre_encoded(4)])
     assert _relative(with_second, with_first) > 0.02
 
 
 @pytest.mark.parametrize("chunk_rows", [3, 5, 7])
 def test_sequence_chunking_leaves_a_reference_run_unchanged(tiny_dit, chunk_rows):
-    references = [_picture((250, 10, 10)), _refmod(3)]
+    references = [_picture((250, 10, 10)), _pre_encoded(3)]
     torch.testing.assert_close(
         _generate(tiny_dit, references, seq_chunk_rows=chunk_rows), _generate(tiny_dit, references),
         rtol=1e-5, atol=1e-5,
@@ -181,8 +181,8 @@ def _window_condition_rows(references, reference_indices):
     return seen[0]
 
 
-def test_a_director_window_citing_a_refmod_carries_exactly_its_rows():
-    picture, mod = _picture((250, 10, 10)), _refmod(3)
+def test_a_director_window_citing_a_pre_encoded_reference_carries_exactly_its_rows():
+    picture, mod = _picture((250, 10, 10)), _pre_encoded(3)
     cited_in_pool = _window_condition_rows([picture, mod], (1,))
     alone = _window_condition_rows([mod], (0,))
     assert cited_in_pool.shape[0] == 4
@@ -191,22 +191,22 @@ def test_a_director_window_citing_a_refmod_carries_exactly_its_rows():
 
 
 def test_a_director_window_citing_nothing_carries_no_reference_rows():
-    assert _window_condition_rows([_picture((250, 10, 10)), _refmod(3)], ()).shape[0] == 0
+    assert _window_condition_rows([_picture((250, 10, 10)), _pre_encoded(3)], ()).shape[0] == 0
 
 
-def _stacked_pictures_refmod(seed):
+def _stacked_pictures_latent(seed):
     latent = torch.randn(1, 24, 3, 4, 4, generator=torch.Generator().manual_seed(seed)) * 3
     return ReferenceMedia(kind="video", latent=latent)
 
 
-def test_a_stacked_pictures_refmod_steers_the_generated_video(tiny_dit):
-    first = _generate(tiny_dit, [_picture((250, 10, 10)), _stacked_pictures_refmod(3)])
-    second = _generate(tiny_dit, [_picture((250, 10, 10)), _stacked_pictures_refmod(4)])
+def test_a_stacked_pictures_latent_steers_the_generated_video(tiny_dit):
+    first = _generate(tiny_dit, [_picture((250, 10, 10)), _stacked_pictures_latent(3)])
+    second = _generate(tiny_dit, [_picture((250, 10, 10)), _stacked_pictures_latent(4)])
     assert _relative(second, first) > 0.02
 
 
-def test_a_director_window_citing_a_stacked_pictures_refmod_carries_every_frame_of_it():
-    picture, stack = _picture((250, 10, 10)), _stacked_pictures_refmod(3)
+def test_a_director_window_citing_a_stacked_pictures_latent_carries_every_frame_of_it():
+    picture, stack = _picture((250, 10, 10)), _stacked_pictures_latent(3)
     cited = _window_condition_rows([picture, stack], (1,))
     assert cited.shape[0] == 3 * 2 * 2
     assert torch.equal(cited, _window_condition_rows([stack], (0,)))

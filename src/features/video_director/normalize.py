@@ -29,7 +29,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from src.pipelines.pipes._shared.media.frame_extract import extract_frame
-from src.features.prompt.reference_pool import RefModMembersResolver, build_reference_pool
+from src.features.prompt.reference_pool import build_reference_pool
+from src.features.prompt.resource_sources import BundleMembersResolver
 from src.features.video_director.shot_references import derive_shot_references
 from src.platform.util.latents import generate_seed
 from src.platform.util.path_resolution import (
@@ -171,7 +172,7 @@ def normalize_video_director(
     storage_dir: str,
     form_data: Optional[Dict[str, Any]] = None,
     prompt_resources: Optional[Sequence[Mapping[str, Any]]] = None,
-    refmod_members: Optional[RefModMembersResolver] = None,
+    bundle_members: Optional[BundleMembersResolver] = None,
 ) -> Dict[str, Any]:
     """
     Validate `document` against `capabilities` and return a NEW canonical dict.
@@ -197,7 +198,7 @@ def normalize_video_director(
     references_capability = capabilities.get("references")
     reference_fields = capabilities.get("reference_fields") or []
     reference_pool, reference_pool_problems = build_reference_pool(
-        reference_fields, form_data, prompt_resources or [], refmod_members,
+        reference_fields, form_data, prompt_resources or [], bundle_members,
     )
     storage_path = Path(storage_dir).resolve()
 

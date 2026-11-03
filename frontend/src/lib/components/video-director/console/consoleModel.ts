@@ -220,7 +220,7 @@ function referencesPoolCount(caps: DirectorCapabilities, formData: Record<string
 	return collectFormMediaOptions(formData).filter((o) => caps.referenceFields.includes(o.field)).length;
 }
 
-const NO_REFERENCE_CONTEXT: ShotReferenceContext = { specs: [], directory: {} };
+const NO_REFERENCE_CONTEXT: ShotReferenceContext = { specs: [], directories: {} };
 
 function referencesTabLabel(
 	doc: VideoDirectorValue,

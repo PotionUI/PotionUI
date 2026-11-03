@@ -12,7 +12,7 @@ vi.mock('$lib/services/api/index', async (importOriginal) => {
 		put: vi.fn().mockResolvedValue({ data: { success: true } })
 	})) as never;
 	original.api.getModelById = vi.fn().mockResolvedValue({ success: true, data: { model: { name: 'Face' } } }) as never;
-	original.api.getRefModMembers = vi
+	original.api.getPromptResourceMembers = vi
 		.fn()
 		.mockResolvedValue({ success: true, data: { members: [{ kind: 'image', name: null }] } }) as never;
 	return original;
@@ -26,7 +26,7 @@ const HINT = 'This shot uses no references. Type @ to add one.';
 
 const specs: PromptResourceSpec[] = [
 	{ field: 'references', kind: 'image', label: 'Pictures', token: '<Picture @>' },
-	{ field: 'reference_mods', kind: 'image', label: 'RefMods', token: '<Picture @>', source: 'refmod' }
+	{ field: 'reference_kits', kind: 'image', label: 'Kits', token: '<Picture @>', source: 'kit' }
 ];
 
 const caps = {
@@ -39,7 +39,7 @@ const caps = {
 	maxFrames: null,
 	segmentRouting: true,
 	references: 'per_shot',
-	referenceFields: ['references', 'reference_mods']
+	referenceFields: ['references', 'reference_kits']
 } as unknown as DirectorCapabilities;
 
 function doc(prompt: string): VideoDirectorValue {
@@ -133,18 +133,18 @@ describe('shot prompt reference hint', () => {
 		expect(mounted.hint()?.textContent).toBe(HINT);
 	});
 
-	it('shows for a pool made only of a selected RefMod', () => {
-		mounted = mount('an empty street', { reference_mods: [{ model: 'model:01X', strength: 1, copies: 1 }] });
+	it('shows for a pool made only of a selected kit', () => {
+		mounted = mount('an empty street', { reference_kits: [{ model: 'model:01X', strength: 1, copies: 1 }] });
 		expect(mounted.hint()?.textContent).toBe(HINT);
 	});
 
-	it('hides once the prompt cites a RefMod', () => {
-		mounted = mount('with @[reference_mods:model:01X]', { reference_mods: [{ model: 'model:01X', strength: 1, copies: 1 }] });
+	it('hides once the prompt cites a kit', () => {
+		mounted = mount('with @[reference_kits:model:01X]', { reference_kits: [{ model: 'model:01X', strength: 1, copies: 1 }] });
 		expect(mounted.hint()).toBeNull();
 	});
 
-	it('hides when nothing is available, or the only RefMod has zero strength', () => {
-		mounted = mount('an empty street', { reference_mods: [{ model: 'model:01X', strength: 0, copies: 1 }] });
+	it('hides when nothing is available, or the only kit has zero strength', () => {
+		mounted = mount('an empty street', { reference_kits: [{ model: 'model:01X', strength: 0, copies: 1 }] });
 		expect(mounted.hint()).toBeNull();
 	});
 });

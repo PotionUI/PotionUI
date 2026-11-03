@@ -29,6 +29,7 @@ from src.platform.plugins.login_providers import login_provider_registry
 from src.platform.plugins.automation_nodes import NodeField, NodeTypeSpec
 from src.platform.plugins.chat_modes import ChatMode
 from src.platform.plugins.prompt_importers import PromptImporterDefinition, PromptImporterRegistry
+from src.platform.plugins.prompt_resource_sources import PromptResourceSource, PromptResourceSourceRegistry
 from src.platform.plugins.phrasebook_ops import PhrasebookBatchOperationDefinition, PhrasebookOperationRegistry
 from src.platform.plugins.recipe_steps import RecipeStepKindRegistration, RecipeStepKindRegistry
 from src.platform.plugins.llm_providers import LLMProviderRegistration, LLMProviderRegistry
@@ -171,6 +172,7 @@ _SOURCE_REGISTRY_ATTRS = (
     "resource_registry",
     "automation_node_registry",
     "prompt_importer_registry",
+    "prompt_resource_source_registry",
     "phrasebook_operation_registry",
     "requirement_checker_registry",
     "recipe_step_kind_registry",
@@ -203,6 +205,7 @@ class PluginRegistry:
         automation_node_registry=None,
         automation_template_registry: Optional[AutomationTemplateRegistry] = None,
         prompt_importer_registry: Optional[PromptImporterRegistry] = None,
+        prompt_resource_source_registry: Optional[PromptResourceSourceRegistry] = None,
         phrasebook_operation_registry: Optional[PhrasebookOperationRegistry] = None,
         requirement_checker_registry: Optional[RequirementCheckerRegistry] = None,
         recipe_step_kind_registry: Optional[RecipeStepKindRegistry] = None,
@@ -248,6 +251,7 @@ class PluginRegistry:
         # Optional like the others - plugins declaring `prompt_importers:`
         # register into it on enable and are removed (by source) on disable.
         self.prompt_importer_registry = prompt_importer_registry
+        self.prompt_resource_source_registry = prompt_resource_source_registry
         # Phrasebook batch tools contributed by enabled plugins - same
         # register-on-enable / unregister-by-source-on-disable shape.
         self.phrasebook_operation_registry = phrasebook_operation_registry
@@ -532,6 +536,7 @@ class PluginRegistry:
             self._register_plugin_automation_nodes,
             self._register_plugin_automation_templates,
             *(partial(self._register_backend_section, section) for section in _BACKEND_SECTIONS),
+            self._register_plugin_prompt_resource_sources,
             self._register_plugin_samplers,
             self._register_plugin_schedules,
             self._register_plugin_model_classifiers,
@@ -992,6 +997,36 @@ class PluginRegistry:
             if error:
                 return error
 
+        return None
+
+    def _register_plugin_prompt_resource_sources(self, manifest: PluginManifest) -> Optional[str]:
+        registry = self.prompt_resource_source_registry
+        skip, error = self._require_registry(
+            manifest.prompt_resource_sources, registry, "prompt_resource_sources", "prompt resource source"
+        )
+        if skip:
+            return error
+        for entry in manifest.prompt_resource_sources:
+            source_id = entry.get('id')
+            if not source_id:
+                return "prompt_resource_sources entry missing 'id'"
+            handler_ref = entry.get('members')
+            if not handler_ref:
+                return f"prompt_resource_sources entry '{source_id}' missing 'members'"
+            members = self.loader.load_hook_handler(manifest, handler_ref)
+            if members is None:
+                return f"Failed to load prompt resource source members handler: {handler_ref}"
+            definition = PromptResourceSource(
+                source_id=source_id,
+                field_type=entry.get('field_type') or "",
+                label=entry.get('label') or source_id,
+                badge=entry.get('badge') or entry.get('label') or source_id,
+                members=members,
+                source=manifest.id,
+            )
+            error = self._register_entry(registry.register, definition, DuplicateRegistrationError)
+            if error:
+                return error
         return None
 
     def _register_plugin_automation_nodes(self, manifest: PluginManifest) -> Optional[str]:

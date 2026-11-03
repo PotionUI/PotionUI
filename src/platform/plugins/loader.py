@@ -139,6 +139,8 @@ class PluginManifest:
     # Prompt library import sources: [{id, label, component, backend}]
     prompt_importers: List[Dict[str, Any]] = field(default_factory=list)
 
+    prompt_resource_sources: List[Dict[str, Any]] = field(default_factory=list)
+
     # Phrasebook batch tools: [{id, label, backend, component}]
     phrasebook_ops: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -168,7 +170,7 @@ _DICT_LIST_FIELDS = tuple(
     recipe_steps samplers schedules model_classifiers pages admin_tabs tool_tabs quick_actions
     sidebar_widgets settings field_types model_metadata_fields renderers contributions docs
     chat_modes resources llm_providers automation_nodes automation_templates organize_facts organize_actions limit_kinds
-    prompt_importers phrasebook_ops media_tools requirement_checkers setup
+    prompt_importers prompt_resource_sources phrasebook_ops media_tools requirement_checkers setup
     """.split()
 )
 

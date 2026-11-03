@@ -7,9 +7,19 @@ import pytest
 import torch
 
 from src.pipelines.contracts import IOType, PipeInput
+from src.pipelines.pipes.model_loader.minimax_h3.clip import _build_references
 from src.pipelines.pipes.prompt_encoder.main import PromptEncoderPipe, _decode_latent_reference
 from src.plugin_api.pipes import PreEncodedReference
 from src.platform.runtime.native.kernels import disable_weight_init
+from src.platform.runtime.native.text_encoders.qwen3 import (
+    MINIMAX_H3_VIDEO_FPS,
+    MINIMAX_H3_VIDEO_SAMPLE_FPS,
+    _sample_reference_video_frames,
+)
+from src.platform.runtime.native.text_encoders.qwen3_vl_vision import (
+    VISION_TEMPORAL_PATCH_SIZE,
+    preprocess_qwen3_vl_video,
+)
 from src.platform.runtime.native.vae.minimax_h3_video import MiniMaxH3VideoVAE
 
 TINY_VAE = dict(
@@ -68,6 +78,25 @@ def test_an_image_reference_latent_decodes_to_one_picture_for_the_text_encoder()
 def test_a_two_frame_video_reference_latent_decodes_to_frames():
     frames = _decode_latent_reference(_mod("video", 2), vae=TinyVae())
     assert frames.ndim == 4 and frames.shape[0] >= 1 and frames.shape[1:] == (8, 12, 3)
+
+
+def test_a_short_video_reference_latent_reaches_the_text_encoder_as_one_padded_block():
+    frames = _decode_latent_reference(_mod("video", 2), vae=TinyVae())
+    [reference] = _build_references({"references": [{"kind": "video", "media": frames}]})
+
+    indices, timestamps = _sample_reference_video_frames(
+        reference.media.shape[0], fps=MINIMAX_H3_VIDEO_FPS, sample_fps=MINIMAX_H3_VIDEO_SAMPLE_FPS,
+        temporal_patch=VISION_TEMPORAL_PATCH_SIZE,
+    )
+    _patches, grid_thw = preprocess_qwen3_vl_video(
+        reference.media[indices], min_pixels=256, max_pixels=1024,
+        temporal_patch_size=VISION_TEMPORAL_PATCH_SIZE,
+    )
+
+    assert reference.media.shape[0] == frames.shape[0] < 13
+    assert indices == [0]
+    assert timestamps == [0.0]
+    assert int(grid_thw[0, 0]) == len(timestamps)
 
 
 class _RecordingClip:

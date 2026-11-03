@@ -351,7 +351,7 @@ it is not retried, the segments stop growing for the rest of the process
 fails under its own error code, `gpu_restart_required`: admins read that the process can no longer
 use the GPU and get Restart Backend as the only hint, other users are told to ask an administrator
 to restart the backend. A failure read from its text alone (`classify_error_text`) follows the same
-policy, without recording anything. Until the process restarts, every run whose pipes target `cuda`
+policy, without recording anything. Until the process restarts, every run with an enabled pipe on `cuda`
 is refused before its first pipe with that same code, `GET /health` and the native backend's health
 report `degraded` with the same reason, and nothing restarts on its own. What the operator sees and
 does is in [Backends → Troubleshooting](/admin?tab=docs&doc=dev/backends).

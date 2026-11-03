@@ -188,7 +188,10 @@ def _pipe_identifier(pipe_config: Dict[str, Any]) -> str:
 
 
 def _runs_on_cuda(pipes: list) -> bool:
-    return any(str((pipe.get('config') or {}).get('device', '')).startswith('cuda') for pipe in pipes)
+    return any(
+        pipe.get('enabled') and str((pipe.get('config') or {}).get('device') or 'cuda').startswith('cuda')
+        for pipe in pipes
+    )
 
 
 def _pipe_identifier_map(pipes: list) -> Dict[str, str]:

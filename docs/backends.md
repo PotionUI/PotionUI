@@ -686,8 +686,9 @@ the process's GPU allocator unusable until it restarts. Docker Desktop on Window
 containers see the WSL2 kernel. So the first such error is fatal to the process, by default:
 
 - it is not retried, and the generation that hit it fails;
-- every later run whose pipes target `cuda` is refused before its first pipe, under the same error
-  code, including a run already waiting in the queue. A run whose pipes all target `cpu` still runs.
+- every later run with an enabled pipe on `cuda`, which a pipe naming no `device` counts as, is refused
+  before its first pipe, under the same error code, including a run already waiting in the queue. A
+  run whose enabled pipes all target `cpu` still runs.
   `prepare_pipes` gives every pipe the backend's `device`, so on a `device: cuda` backend that means
   only pipes a preset pins to `cpu`;
 - `GET /health` answers 200 with `"status": "degraded"` and a `reason`, and the native backend's health

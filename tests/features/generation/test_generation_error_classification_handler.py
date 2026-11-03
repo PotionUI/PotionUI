@@ -180,6 +180,36 @@ def test_a_damaged_allocator_refuses_a_cuda_run_before_its_first_pipe(mock_depen
     assert error.hints == [cuda_allocator.RESTART_ACTION]
 
 
+@pytest.mark.parametrize("config", [{}, {"device": None}])
+def test_a_damaged_allocator_refuses_a_pipe_that_names_no_device(mock_dependencies, monkeypatch, config):
+    monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
+    pipe_class = Mock()
+    manager = GenerationEngine(**mock_dependencies)
+
+    error = _run(manager, pipe_class, "any_pipe", config=config)
+
+    pipe_class.assert_not_called()
+    assert error.error_code == "gpu_restart_required"
+
+
+def test_a_damaged_allocator_does_not_count_a_disabled_pipe(mock_dependencies, monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
+    manager = GenerationEngine(**mock_dependencies)
+    manager.pipe_catalog.get_pipe.return_value = HostRamOomPipe
+    pipes = [
+        {'name': 'host_ram_oom_pipe', 'enabled': False, 'input': [], 'cache': [], 'config': {'device': 'cuda'}},
+        {'name': 'host_ram_oom_pipe', 'enabled': True, 'input': [], 'cache': [], 'config': {'device': 'cpu'}},
+    ]
+    outputs = []
+
+    with patch('src.features.generation.engine.logger'):
+        with pytest.raises(Exception):
+            manager.generate(pipes, lambda o: outputs.append(o), "gen_error_test")
+
+    errors = [o for o in outputs if isinstance(o, ErrorGenerationOutput)]
+    assert [error.error_code for error in errors] == ["host_ram_oom"]
+
+
 def test_a_damaged_allocator_lets_a_run_without_cuda_through(mock_dependencies, monkeypatch):
     monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
     manager = GenerationEngine(**mock_dependencies)
@@ -201,7 +231,7 @@ def test_the_driver_oom_that_damaged_the_allocator_says_to_restart(mock_dependen
     monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
     manager = GenerationEngine(**mock_dependencies)
 
-    error = _run(manager, DriverOomPipe, "driver_oom_pipe")
+    error = _run(manager, DriverOomPipe, "driver_oom_pipe", config={"device": "cpu"})
 
     assert error.error_code == "gpu_restart_required"
     assert error.message.startswith("This process can no longer use the GPU")
@@ -212,7 +242,7 @@ def test_a_torch_oom_in_a_damaged_process_stays_an_oom(mock_dependencies, monkey
     monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
     manager = GenerationEngine(**mock_dependencies)
 
-    error = _run(manager, CudaOomPipe, "cuda_oom_pipe")
+    error = _run(manager, CudaOomPipe, "cuda_oom_pipe", config={"device": "cpu"})
 
     assert error.error_code == "cuda_oom"
     assert cuda_allocator.RESTART_ACTION not in error.hints

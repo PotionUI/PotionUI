@@ -46,8 +46,7 @@ from scripts.preset_render import (
     load_all_presets,
     relativize_media_placeholders,
 )
-from src.features.forms.binding import bind_form
-from src.features.presets.fixture_form import build_default_form_data
+from src.features.presets.fixture_form import bind_fixture_form, build_default_form_data
 from src.features.generation.engine import deep_update, validate_pipe_configuration
 from src.pipelines.catalog import PipeCatalog
 
@@ -65,11 +64,7 @@ def _bound_form_data(preset, mode, storage_dir):
     if _mode_references_timeline(mode_data) and "timeline" not in form_data:
         form_data["timeline"] = _fixture_timeline_document()
 
-    bound = bind_form(
-        preset, mode, form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=str(storage_dir),
-    )
-    return dict(bound.values)
+    return bind_fixture_form(preset, mode, form_data, str(storage_dir))
 
 
 @pytest.fixture(scope="module")

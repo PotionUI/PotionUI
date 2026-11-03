@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.features.forms.binding import FormBindingError, bind_form
 from src.features.presets.templates import FieldTemplate, PresetTemplate, default_form_name
 from src.features.video_director import apply_preset_mode_overlay
 from src.features.video_director.normalize import allowed_durations
@@ -18,14 +19,6 @@ def requires_by_reaction(field: FieldTemplate) -> bool:
     for reaction in field.reactions or []:
         validation = (reaction.get("then") or {}).get("update_validation") or {}
         if validation.get("required") is True:
-            return True
-    return False
-
-
-def requires_mask_by_reaction(field: FieldTemplate) -> bool:
-    for reaction in field.reactions or []:
-        validation = (reaction.get("then") or {}).get("update_validation") or {}
-        if validation.get("mask_required") is True:
             return True
     return False
 
@@ -64,8 +57,6 @@ def inject_unresolvable_defaults(fields: List[FieldTemplate], form_data: Dict[st
                 placeholder = f"/{tag}/media/{name}.{MEDIA_EXTENSIONS.get(field.type, 'bin')}"
                 multi = bool((field.configuration or {}).get("multi"))
                 form_data[name] = [placeholder] if multi else placeholder
-            if field.type in MEDIA_FIELD_TYPES and requires_mask_by_reaction(field):
-                form_data.setdefault(f"{name}_inpaint_mask", f"/{tag}/media/{name}_inpaint_mask.png")
             elif (field.type in TEXT_FIELD_TYPES or field.type == "tags") and (field.required or requires_by_reaction(field)):
                 form_data[name] = f"{tag} placeholder text"
         if isinstance(field.children, list):
@@ -126,3 +117,28 @@ def fixture_video_director_document(
         ],
         "media": [],
     }
+
+
+def bind_fixture_form(
+    preset: PresetTemplate,
+    mode: str,
+    form_data: Dict[str, Any],
+    storage_dir: Optional[str] = None,
+    mask_prefix: str = "",
+) -> Dict[str, Any]:
+    try:
+        bound = bind_form(
+            preset, mode, form_name=None, raw_form_data=form_data, user_id=None, storage_dir=storage_dir
+        )
+    except FormBindingError as error:
+        masks = {
+            f"{name}_inpaint_mask": f"{mask_prefix}{name}_inpaint_mask.png"
+            for name in error.field_errors
+            if f"{name}_inpaint_mask" not in form_data
+        }
+        if not masks:
+            raise
+        bound = bind_form(
+            preset, mode, form_name=None, raw_form_data={**form_data, **masks}, user_id=None, storage_dir=storage_dir
+        )
+    return dict(bound.values)

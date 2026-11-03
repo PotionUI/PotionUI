@@ -47,8 +47,7 @@ from src.features.presets.processor import PresetProcessor  # noqa: E402
 from src.platform.plugins.loader import PluginLoader  # noqa: E402
 from src.platform.templating.processor import TemplateProcessor  # noqa: E402
 from src.features.presets.templates import PresetTemplate, ModeTemplate
-from src.features.presets.fixture_form import build_default_form_data
-from src.features.forms.binding import FormBindingError, bind_form  # noqa: E402
+from src.features.presets.fixture_form import bind_fixture_form, build_default_form_data
 from src.platform.filesystem.yaml_io import load_yaml
 
 # ---------------------------------------------------------------------------
@@ -265,20 +264,7 @@ def build_fixture_form_data(preset: PresetTemplate, mode: str) -> Dict[str, Any]
         # `sort(attribute='start')` and the duration/length math resolve.
         form_data["timeline"] = _fixture_timeline_document()
 
-    try:
-        bound = bind_form(preset, mode, form_name=None, raw_form_data=form_data, user_id=None, storage_dir=None)
-    except FormBindingError as error:
-        masks = {
-            f"{name}_inpaint_mask": f"{_MEDIA_PLACEHOLDER_PREFIX}{name}_inpaint_mask.png"
-            for name in error.field_errors
-            if f"{name}_inpaint_mask" not in form_data
-        }
-        if not masks:
-            raise
-        bound = bind_form(
-            preset, mode, form_name=None, raw_form_data={**form_data, **masks}, user_id=None, storage_dir=None,
-        )
-    return dict(bound.values)
+    return bind_fixture_form(preset, mode, form_data, mask_prefix=_MEDIA_PLACEHOLDER_PREFIX)
 
 
 def _mode_references_timeline(mode_data: ModeTemplate) -> bool:

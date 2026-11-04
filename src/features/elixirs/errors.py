@@ -10,3 +10,7 @@ class SessionNotFoundError(LookupError):
 
 class WriteRefused(Exception):
     pass
+
+
+class AssistantRefused(ValueError):
+    pass

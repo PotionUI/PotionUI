@@ -59,6 +59,7 @@ from src.features.llm.tools.builtin.manage_collections_tool import ManageCollect
 from src.features.llm.tools.builtin.organize_gallery_tool import OrganizeGalleryTool
 from src.features.llm.tools.builtin.start_generation_tool import StartGenerationTool
 from src.features.llm.tools.builtin.run_media_tool_tool import RunMediaToolTool
+from src.features.llm.tools.builtin.elixir_tools import ELIXIR_TOOLS
 from src.platform.media_tools import MediaToolRegistry
 from src.platform.media_tools.ops import register_core_tools as register_core_media_tools
 
@@ -126,6 +127,7 @@ def register_builtin_tools(registry, media_tool_registry=None) -> None:
         OrganizeGalleryTool(),
         StartGenerationTool(),
         RunMediaToolTool(media_tool_registry),
+        *(tool() for tool in ELIXIR_TOOLS),
     ]
     for tool in tools:
         registry.register(tool)

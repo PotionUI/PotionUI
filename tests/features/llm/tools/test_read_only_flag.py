@@ -4,6 +4,8 @@ from src.features.llm.tools.registry import ToolRegistry
 
 READ_ONLY = {
     "get_active_models",
+    "get_choice_outputs",
+    "get_elixir",
     "get_current_segments",
     "get_form_state",
     "get_model_info",
@@ -13,6 +15,7 @@ READ_ONLY = {
     "get_prompt",
     "get_prompt_variables",
     "get_saved_segments",
+    "get_step_settings",
     "get_segment_templates",
     "get_video_director",
     "list_library_items",

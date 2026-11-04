@@ -90,6 +90,11 @@ class TestRegisterBuiltinTools:
         register_builtin_tools(registry)
         names = {t.name for t in registry.get_all()}
         assert names == {
+            "get_elixir",
+            "get_step_settings",
+            "get_choice_outputs",
+            "edit_elixir",
+            "choose_outputs",
             "list_segment_categories",
             "get_saved_segments",
             "get_segment_templates",

@@ -4,11 +4,13 @@ import pytest
 
 from src.features.chat.modes import (
     ChatModeRegistry,
+    ELIXIRS_MODE_ID,
     GENERATION_MODE_ID,
     HISTORY_MODE_ID,
     MODELS_MODE_ID,
     PHRASEBOOK_MODE_ID,
     PROMPTS_MODE_ID,
+    build_elixirs_mode,
     build_generation_mode,
     build_history_mode,
     build_models_mode,
@@ -221,3 +223,32 @@ class TestScopeModeToolMembership:
         for builder in _BUILDERS.values():
             names = {t.name for t in registry.get_for_mode(builder())}
             assert "write_memory" in names
+
+
+class TestElixirsMode:
+    def test_it_is_bound_by_the_elixir_tab_not_by_a_route(self):
+        mode = build_elixirs_mode()
+        assert mode.id == ELIXIRS_MODE_ID == "elixirs"
+        assert mode.default_route_prefixes == []
+        assert mode.icon == "flask"
+        assert mode.structured_reply is False
+
+    def test_the_prompt_says_it_edits_and_never_brews(self):
+        prompt = ChatModeRegistry().resolve_system_prompt(
+            build_elixirs_mode(), "", ["get_elixir", "edit_elixir", "get_step_settings", "get_choice_outputs", "choose_outputs"]
+        )
+        assert "{{#if" not in prompt and "{{#ifany" not in prompt
+        assert "PotionAI" in prompt and "Potion AI" not in prompt
+        assert "Brew" in prompt and "Continue" in prompt
+        assert "Call get_elixir first" in prompt
+
+    def test_tool_lines_drop_without_their_tools(self):
+        prompt = ChatModeRegistry().resolve_system_prompt(build_elixirs_mode(), "", [])
+        assert "get_elixir" not in prompt and "choose_outputs" not in prompt
+
+    def test_the_mode_sees_the_elixir_tools_and_no_generation_runner(self):
+        registry = ToolRegistry()
+        register_builtin_tools(registry)
+        names = {t.name for t in registry.get_for_mode(build_elixirs_mode())}
+        assert {"get_elixir", "get_step_settings", "get_choice_outputs", "edit_elixir", "choose_outputs", "get_preset_info"} <= names
+        assert not names & {"update_form_settings", "run_generation", "start_generation", "run_media_tool"}

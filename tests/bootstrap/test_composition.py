@@ -223,6 +223,8 @@ report["elixirs_wiring"] = {
     ),
     "follows_read_sessions_through_the_same_reader": c.elixirs.runtime.follows.reader == c.elixirs.sessions.get_session,
     "the_limits_come_from_the_seeded_settings": c.elixirs.limits().max_nodes == 24,
+    "the_chat_assistant_edits_the_container_elixirs": c.chat_runtime.tool_services.elixirs.components is c.elixirs,
+    "the_assistant_writes_sessions_into_the_container_repository": c.chat_runtime.tool_services.elixirs.session_writer.session_repository is c.session_repository,
 }
 import src.platform.plugins.runtime_registries as runtime_registries
 report["recipe_smoke_wiring"] = {

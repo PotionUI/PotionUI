@@ -111,6 +111,7 @@ class ToolServices:
     library_collaborators: Any = None
     tab_drafts: Any = None
     media_tool_service: Any = None
+    elixirs: Any = None
 
 
 @dataclass
@@ -155,6 +156,7 @@ class ToolContext:
     library_collaborators: Any = None
     tab_drafts: Any = None
     media_tool_service: Any = None
+    elixirs: Any = None
     chat_session: bool = True
 
     @classmethod

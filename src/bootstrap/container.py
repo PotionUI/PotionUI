@@ -179,6 +179,7 @@ from src.features.llm.tools.registry import ToolRegistry
 from src.features.llm.tools.builtin import register_builtin_tools
 from src.features.chat.modes import (
     ChatModeRegistry,
+    build_elixirs_mode,
     build_generation_mode,
     build_history_mode,
     build_models_mode,
@@ -301,6 +302,7 @@ from src.features.filters.collaborators import FilterCollaborators
 from src.features.filters.repository import UserFilterRepository
 from src.features.filters.routes import FilterController
 from src.features.organize.components import build_organize
+from src.features.elixirs.assistant import ElixirAssistant, SessionWriter
 from src.features.elixirs.components import ElixirsComponents, build_elixirs
 from src.features.workspaces.repository import WorkspaceRepository
 from src.features.workspaces.routes import WorkspaceController
@@ -724,6 +726,7 @@ def build_container() -> AppContainer:
         build_models_mode(),
         build_phrasebook_mode(),
         build_prompts_mode(),
+        build_elixirs_mode(),
     ]
     for mode in builtin_modes:
         chat_mode_registry.register(mode)
@@ -1793,6 +1796,38 @@ def build_container() -> AppContainer:
     # ordering constraint that puts `build_chat` below.
     from src.features.mcp.protocol import McpToolCollaborators
 
+    from src.features.sessions.repository import SessionRepository
+    from src.platform.websocket.notification_connection_hub import notification_connection_hub as elixir_hub
+
+    session_repository = SessionRepository()
+    session_version_repository = SessionVersionRepository()
+    elixirs = build_elixirs(
+        users=user_repository,
+        orchestrator=generation_orchestrator,
+        broadcaster=output_broadcaster,
+        generations=generation_repository,
+        generation_files=file_repo,
+        history=generation_history_facade,
+        file_service=file_service,
+        media_store=media_store,
+        prompt_writer=prompt_enhancement_manager,
+        presets=file_preset_repository,
+        settings=settings,
+        setting_repository=setting_repository,
+        session_repository=session_repository,
+        session_version_repository=session_version_repository,
+        phrasebook_values=phrasebook_value_repo,
+    )
+    elixirs.runtime.subscribe(plugin_registry.hook_chain)
+    elixir_assistant = ElixirAssistant(
+        elixirs,
+        session_writer=SessionWriter(
+            session_repository, plugin_registry, session_version_repository, file_preset_repository, notifier=elixir_hub
+        ),
+        notifier=elixir_hub,
+        storage_root=settings.get_file_storage_directory,
+    )
+
     mcp_token_repository = McpTokenRepository()
     tool_services = ToolServices(
         segment_category_repository=segment_category_repo,
@@ -1817,6 +1852,7 @@ def build_container() -> AppContainer:
         library_collaborators=library_collaborators,
         tab_drafts=tab_draft_manager,
         media_tool_service=media_tool_service,
+        elixirs=elixir_assistant,
     )
     mcp_tool_collaborators = McpToolCollaborators(
         tool_registry=tool_registry,
@@ -1873,16 +1909,12 @@ def build_container() -> AppContainer:
     )
 
     # Session components
-    from src.features.sessions.repository import SessionRepository
-
-    session_repository = SessionRepository()
     # --- Session history (versions) ---
     # Appends an immutable snapshot on every save; `sessions` itself stays the
     # "current" state. `file_preset_repository` resolves a preset id's on-disk
     # display name, denormalized into each version's `summary` column at write
     # time (see migration 092 / SessionVersionRepository).
 
-    session_version_repository = SessionVersionRepository()
     from src.platform.websocket.notification_connection_hub import notification_connection_hub as session_hub
 
     session_controller = SessionController(
@@ -1927,24 +1959,6 @@ def build_container() -> AppContainer:
     organize_worker = organize.worker
     organize_worker.subscribe(plugin_registry.hook_chain)
 
-    elixirs = build_elixirs(
-        users=user_repository,
-        orchestrator=generation_orchestrator,
-        broadcaster=output_broadcaster,
-        generations=generation_repository,
-        generation_files=file_repo,
-        history=generation_history_facade,
-        file_service=file_service,
-        media_store=media_store,
-        prompt_writer=prompt_enhancement_manager,
-        presets=file_preset_repository,
-        settings=settings,
-        setting_repository=setting_repository,
-        session_repository=session_repository,
-        session_version_repository=session_version_repository,
-        phrasebook_values=phrasebook_value_repo,
-    )
-    elixirs.runtime.subscribe(plugin_registry.hook_chain)
 
     # Workspace components
 

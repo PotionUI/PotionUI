@@ -55,8 +55,19 @@
 		live && open ? shown.reduce((sum, block) => sum + block.text.length, 0) : -1
 	);
 
+	let followTail = true;
+
+	function onBodyScroll() {
+		if (!bodyEl) return;
+		followTail = bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight < 24;
+	}
+
 	$effect(() => {
-		if (pinnedGrowth >= 0 && bodyEl) bodyEl.scrollTop = bodyEl.scrollHeight;
+		if (!bodyEl) {
+			followTail = true;
+			return;
+		}
+		if (pinnedGrowth >= 0 && followTail) bodyEl.scrollTop = bodyEl.scrollHeight;
 	});
 
 	function toggle() {
@@ -110,6 +121,7 @@
 		{#if open}
 			<div
 				bind:this={bodyEl}
+				onscroll={onBodyScroll}
 				class="max-h-60 overflow-y-auto border-t border-line px-3 py-2"
 				role="region"
 				aria-label="Model reasoning"

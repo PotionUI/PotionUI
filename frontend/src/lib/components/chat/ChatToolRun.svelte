@@ -26,6 +26,17 @@
 		return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 	}
 
+	function openOnFailure(node: HTMLDetailsElement, failed: boolean) {
+		let applied = false;
+		const apply = (next: boolean) => {
+			if (!next || applied) return;
+			applied = true;
+			node.open = true;
+		};
+		apply(failed);
+		return { update: apply };
+	}
+
 	$: anyFailed = visible.some(isFailed);
 	$: namesLine = visible.map(toolLabel).join(' · ');
 </script>
@@ -33,7 +44,7 @@
 {#if visible.length > 0}
 	<!-- Defaults open when a failed call needs surfacing, collapsed otherwise.
 	     Markup ported verbatim from the mock's .tool-run (chat-rework BRIEF2). -->
-	<details class="tool-run" class:failed={anyFailed} open={anyFailed}>
+	<details class="tool-run" class:failed={anyFailed} use:openOnFailure={anyFailed}>
 		<summary>
 			<span class="tool-run-status"><Icon name={anyFailed ? 'chat-close' : 'chat-check'} className="icon" strokeWidth={1.8} /></span>
 			<strong>{visible.length} tool{visible.length === 1 ? '' : 's'} used</strong>

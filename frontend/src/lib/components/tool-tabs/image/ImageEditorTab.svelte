@@ -27,7 +27,6 @@
 	import { getOp } from '$lib/filters/engine';
 	import { sharedExtensions } from '$lib/filters/extensions';
 	import { buildStrip, isLocked } from '$lib/filters/strip';
-	import { scalarParams } from '$lib/filters/steps';
 	import { LookThumbPainter, drawSource } from '$lib/filters/thumbPainter';
 	import type { FilterItem } from '$lib/filters/types';
 	import { loadPresetFormSchema } from '$lib/form/formSources';
@@ -64,7 +63,6 @@
 		effectiveSteps,
 		isLive,
 		move,
-		previewSteps,
 		previewWith,
 		redo,
 		redoLabel,
@@ -149,10 +147,8 @@
 	import SliceStrip, { type StripItem } from './slice/SliceStrip.svelte';
 	import {
 		adjustEditedCount,
-		adjustStepFor,
 		isAdjustParams,
 		isAdjustStep,
-		opDefaults,
 		resetAdjustOp,
 		setAdjustToggle,
 		setAdjustValue

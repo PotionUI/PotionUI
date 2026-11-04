@@ -1,7 +1,6 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import { Badge, Button, Kbd } from '$lib/components/ui';
-	import EffectCardActions from '$lib/components/tool-tabs/frame/EffectCardActions.svelte';
 	import ToolForm from '$lib/media-tools/ToolForm.svelte';
 	import { CROP_ASPECTS, mirrorCropRect, rotateCropRect, turn } from '$lib/media/editors/cropGeometry';
 	import { REPLACE_PARAMS, SPEED_PARAMS, resizeParams, volumeParams } from '$lib/tool-tabs/video/params';
@@ -33,9 +32,6 @@
 		hasAudio = true,
 		previewState = 'idle',
 		busy = null,
-		effectUpdating = false,
-		canApplyEffect = true,
-		canResetEffect = true,
 		onparams,
 		onaspect,
 		oneffect,
@@ -45,8 +41,6 @@
 		oncancelpreview,
 		onframe,
 		onpickaudio,
-		onapplyeffect = () => undefined,
-		onreseteffect = () => undefined
 	}: {
 		tool: RailToolId;
 		op: VideoOp | null;
@@ -63,11 +57,6 @@
 		hasAudio?: boolean;
 		previewState?: 'idle' | 'rendering' | 'ready';
 		busy?: string | null;
-		effectUpdating?: boolean;
-		canApplyEffect?: boolean;
-		canResetEffect?: boolean;
-		onapplyeffect?: () => void;
-		onreseteffect?: () => void;
 		onparams: (op: VideoOp, params: VideoParams) => void;
 		onaspect: (key: string) => void;
 		oneffect: (effect: string) => void;
@@ -245,7 +234,6 @@
 		</div>
 		{#if activeCard && op}
 			<ToolForm params={activeCard.params} values={params} onChange={set} />
-			<EffectCardActions name={activeCard.label} updating={effectUpdating} canApply={canApplyEffect} canReset={canResetEffect} onapply={onapplyeffect} onreset={onreseteffect} />
 		{/if}
 		{#if showClip}
 			{@render previewButton()}
@@ -279,7 +267,6 @@
 								{#if card.params.length}
 									<ToolForm params={card.params} values={params} onChange={(name, value) => onparams(card.id, { ...params, [name]: value })} />
 								{/if}
-								<EffectCardActions name={card.label} updating={effectUpdating} canApply={canApplyEffect} canReset={canResetEffect} onapply={onapplyeffect} onreset={onreseteffect} />
 							</div>
 						{/if}
 					</div>

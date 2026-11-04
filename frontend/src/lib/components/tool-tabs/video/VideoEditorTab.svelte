@@ -5,12 +5,14 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { Button } from '$lib/components/ui';
 	import {
+		BarActions,
 		CanvasChip,
 		EditStack,
 		EditorCanvas,
 		EditorFrame,
 		EditorToolbar,
 		FrameSheet,
+		LookTray,
 		OptionsPanel,
 		ToolRail
 	} from '$lib/components/tool-tabs/frame';
@@ -22,20 +24,24 @@
 	import { buildEditedMediaItem } from '$lib/components/form-fields/mediaLoaderEdited';
 	import { fitViewport } from '$lib/tool-tabs/frame/viewport';
 	import {
+		appliedSteps,
 		apply,
 		beforeSteps,
 		beginEdit,
 		canRedo,
 		canUndo,
+		commitLive,
 		discardPending,
 		effectiveSteps,
+		isLive,
+		liveEdit,
 		move,
 		previewSteps,
+		previewWith,
 		redo,
 		redoLabel,
 		remove,
 		reopen,
-		reopenLatest,
 		seek,
 		toggleHidden,
 		undo,
@@ -111,7 +117,11 @@
 		type SavedCopy
 	} from '$lib/tool-tabs/video/videoState';
 	import { loadPeaks, runStrip, stripTimes } from '$lib/tool-tabs/video/stripScheduler';
-	import { createFrameGrabber } from '$lib/tool-tabs/video/frameGrabber';
+	import { createFrameGrabber, type FrameGrabber } from '$lib/tool-tabs/video/frameGrabber';
+	import { drawSource } from '$lib/filters/thumbPainter';
+	import { EffectThumbPainter, frameSource } from '$lib/tool-tabs/video/effectThumbs';
+	import { effectTiles, tileById, tileMatches, type EffectTile } from '$lib/tool-tabs/video/effectTiles';
+	import { StillShader } from '$lib/tool-tabs/image/shaderEffect';
 	import { abortableWait, findRun, percentOf, secondsLeft, trackRun, type RenderRunApi } from '$lib/tool-tabs/video/renderRun';
 	import { detachRender, followRender, isFollowing, settleRender, stopRender, type RenderListener } from '$lib/tool-tabs/video/renderFollow';
 	import { requestFrame } from '$lib/tool-tabs/video/frameRequest';
@@ -119,6 +129,7 @@
 	import { buildSendTargets, videoFieldsOf, withFieldValue, type VideoField, type VideoSendTarget } from '$lib/tool-tabs/video/sendTargets';
 	import ScrubBar from './ScrubBar.svelte';
 	import RenderCard from './RenderCard.svelte';
+	import VideoBar from './VideoBar.svelte';
 	import VideoToolOptions from './VideoToolOptions.svelte';
 	import CropOverlay from './CropOverlay.svelte';
 
@@ -162,6 +173,12 @@
 	let edits = $state.raw<EditStackState<VideoParams>>(initial.stack);
 	let tool = $state<RailToolId>(isRailToolId(untrack(() => host.activeTool)) ? (untrack(() => host.activeTool) as RailToolId) : (initial.tool ?? 'trim'));
 	let activeEffect = $state<string | null>(null);
+	let hoverTile = $state<string | null>(null);
+	let tileSource = $state.raw<ImageData | null>(null);
+	let liveTimer: ReturnType<typeof setTimeout> | null = null;
+	let tileGrabber: { href: string; grabber: FrameGrabber } | null = null;
+	const LIVE_COMMIT_MS = 600;
+	const thumbs = new EffectThumbPainter(new StillShader());
 	let split = $state(0.5);
 	let webgl2 = $state(false);
 	let contextLosses = $state(0);
@@ -237,16 +254,29 @@
 	let base = $derived(keptRange(duration, effectivePlayback.ops));
 
 	let panelOp = $derived<VideoOp | null>(tool === 'effects' ? currentEffect : tool === 'replace' ? 'replace_audio' : tool === 'frame' ? null : tool);
+	let tiles = $derived(effectTiles(effectList));
+	let effectStep = $derived(tool === 'effects' && panelOp ? (effective.findLast((step) => step.tool === panelOp) ?? null) : null);
 	let panelParams = $derived.by<VideoParams>(() => {
 		if (!panelOp) return {};
 		if (pending && pending.tool === panelOp) return pending.params;
+		if (effectStep) return effectStep.params;
 		return defaultsFor(panelOp);
 	});
 	let editingCrop = $derived(tool === 'crop' && ready && (pending?.tool === 'crop' || !effective.some((step) => step.tool === 'crop')));
+	let hoverTileItem = $derived<EffectTile | null>(tool === 'effects' ? tileById(tiles, hoverTile) : null);
+	let hoverSteps = $derived.by(() => {
+		const item = hoverTileItem;
+		if (!item || !webgl2 || tileMatches(item, pending?.tool, pending?.params)) return null;
+		const op = item.effect.id;
+		const draft = draftFor(op, item.values, effectMap);
+		const existing = effective.findLast((step) => step.tool === op);
+		if (existing) return effective.map((step) => (step.id === existing.id ? { ...step, ...draft } : step));
+		return previewWith(edits, draft);
+	});
 	let playbackSteps = $derived(
 		editingCrop
 			? [...beforeSteps(edits), { ...draftFor('crop', { ...panelParams, rect: FULL_CROP }), id: 'crop-edit', hidden: false }]
-			: preview
+			: (hoverSteps ?? preview)
 	);
 	let playback = $derived(playbackPreview(playbackSteps, clip));
 	let liveCompiled = $derived(compileSteps(playbackSteps, clip, { skipSplit: true, effects: effectMap }));
@@ -265,8 +295,16 @@
 	let effectsTool = $derived(tool === 'effects');
 	let effectUpdating = $derived(effectsTool && !!pending?.target && pending.tool === panelOp);
 	let effectOriginal = $derived(effectUpdating ? (edits.steps.find((step) => step.id === pending?.target)?.params as VideoParams | undefined) : undefined);
-	let canApplyEffect = $derived(ready && !!panelOp && (!effectOriginal || !sameValues(panelParams, effectOriginal)));
-	let canResetEffect = $derived(!!panelOp && !sameValues(panelParams, defaultsFor(panelOp)));
+	let pendingEffect = $derived(effectsTool && !!pending && pending.tool === panelOp);
+	let canApplyEffect = $derived(ready && pendingEffect && (!effectOriginal || !sameValues(panelParams, effectOriginal)));
+	let canResetEffect = $derived(!!panelOp && (pendingEffect || !!effectStep) && !sameValues(panelParams, defaultsFor(panelOp)));
+	let pickedTiles = $derived.by(() => {
+		const source = pending && isEffectOp(pending.tool) ? [{ tool: pending.tool, params: pending.params }] : effective.filter((step) => isEffectOp(step.tool)).map((step) => ({ tool: step.tool, params: step.params as VideoParams }));
+		return new Set(tiles.filter((tile) => source.some((entry) => tileMatches(tile, entry.tool, entry.params))).map((tile) => tile.id));
+	});
+	let trayItems = $derived(tiles.map((tile) => ({ id: tile.id, label: tile.label, group: tile.group, selected: pickedTiles.has(tile.id) })));
+	let showTray = $derived(effectsTool && ready && tiles.length > 0);
+	let phoneBarred = $derived(phone && ready && (tool === 'trim' || tool === 'effects'));
 	let pendingMeaningful = $derived(!!pending && isVideoOp(pending.tool) && ready && (!!pending.target || !isNoop(pending.tool, pending.params, clip, base)));
 	let hasEdits = $derived(saveCompiled.steps.length > 0 || pendingMeaningful);
 	let visibleCount = $derived(effective.length);
@@ -343,36 +381,78 @@
 		return discardPending(state);
 	}
 
-	function setParams(op: VideoOp, params: VideoParams) {
-		const draft = draftFor(op, params, effectMap);
-		edits = pending && pending.tool === op ? updatePending(edits, draft) : beginEdit(foldPending(edits), draft);
+	function settleLive() {
+		if (liveTimer) clearTimeout(liveTimer);
+		liveTimer = null;
+		if (isLive(edits)) edits = commitLive(edits);
 	}
 
-	function openEffectEdit(effect: string | null) {
-		if (effect) edits = reopenLatest(edits, (step) => step.tool === effect);
+	function writeEffect(op: VideoOp, draft: ReturnType<typeof draftFor>) {
+		if (pending && pending.tool === op) {
+			edits = updatePending(edits, draft);
+			return;
+		}
+		if (appliedSteps(edits).some((step) => step.tool === op)) {
+			edits = liveEdit(edits, draft, (step) => step.tool === op);
+			if (liveTimer) clearTimeout(liveTimer);
+			liveTimer = setTimeout(settleLive, LIVE_COMMIT_MS);
+			return;
+		}
+		edits = beginEdit(foldPending(edits), draft);
+	}
+
+	function setParams(op: VideoOp, params: VideoParams) {
+		const draft = draftFor(op, params, effectMap);
+		if (tool === 'effects' && isEffectOp(op)) {
+			writeEffect(op, draft);
+			return;
+		}
+		edits = pending && pending.tool === op ? updatePending(edits, draft) : beginEdit(foldPending(edits), draft);
 	}
 
 	function selectTool(id: string) {
 		if (!isRailToolId(id) || id === tool) return;
+		settleLive();
 		edits = foldPending(edits);
 		tool = id;
-		if (id === 'effects') openEffectEdit(currentEffect);
+		hoverTile = null;
 		compare = false;
 		closeClipPreview();
 	}
 
 	function selectEffect(next: string) {
 		if (next === currentEffect) return;
+		settleLive();
 		edits = foldPending(edits);
 		activeEffect = next;
-		openEffectEdit(next);
+	}
+
+	function pickTile(id: string | null) {
+		hoverTile = null;
+		settleLive();
+		if (id === null) {
+			if (pending && isEffectOp(pending.tool)) edits = discardPending(edits);
+			return;
+		}
+		const tile = tileById(tiles, id);
+		if (!tile) return;
+		const op = tile.effect.id;
+		activeEffect = op;
+		const existing = effective.findLast((step) => step.tool === op);
+		if (existing && tileMatches(tile, op, existing.params as VideoParams)) {
+			if (pending && isEffectOp(pending.tool)) edits = discardPending(edits);
+			return;
+		}
+		const base = pending && isEffectOp(pending.tool) ? discardPending(edits) : foldPending(edits);
+		const draft = draftFor(op, tile.values, effectMap);
+		edits = existing ? updatePending(reopen(base, existing.id), draft) : beginEdit(base, draft);
 	}
 
 	function applyCurrent() {
 		if (!panelOp || !canApply) return;
+		settleLive();
 		const next = pending && pending.tool === panelOp ? edits : beginEdit(edits, draftFor(panelOp, panelParams, effectMap));
 		edits = apply(next);
-		if (tool === 'effects') openEffectEdit(panelOp);
 		compare = false;
 	}
 
@@ -384,7 +464,13 @@
 	function resetEffect() {
 		if (!panelOp) return;
 		if (pending?.target) setParams(panelOp, defaultsFor(panelOp));
-		else edits = discardPending(edits);
+		else if (pending && pending.tool === panelOp) edits = discardPending(edits);
+		else if (effectStep) setParams(panelOp, defaultsFor(panelOp));
+	}
+
+	function setTrimField(which: 'in' | 'out', seconds: number) {
+		if (which === 'in') setIn(seconds);
+		else setOut(seconds);
 	}
 
 	function setAspect(key: string) {
@@ -399,19 +485,18 @@
 		const step = edits.steps.find((entry) => entry.id === id);
 		if (!step) return;
 		const rail = railToolOf(step.tool);
-		edits = reopen(edits, id);
+		settleLive();
+		if (rail !== 'effects') edits = reopen(edits, id);
 		if (rail) tool = rail;
 		if (rail === 'effects') activeEffect = step.tool;
 	}
 
 	function doUndo() {
 		edits = undo(edits);
-		if (tool === 'effects') openEffectEdit(currentEffect);
 	}
 
 	function doRedo() {
 		edits = redo(edits);
-		if (tool === 'effects') openEffectEdit(currentEffect);
 	}
 
 	function trimParams(): { start: number; end: number } {
@@ -1095,6 +1180,37 @@
 		return () => clearTimeout(timer);
 	});
 
+	$effect(() => {
+		const href = url;
+		const at = playhead;
+		const wanted = showTray && !playing;
+		if (!wanted || !href) return;
+		const controller = new AbortController();
+		const timer = setTimeout(() => {
+			if (!tileGrabber || tileGrabber.href !== href) {
+				tileGrabber?.grabber.dispose();
+				tileGrabber = { href, grabber: createFrameGrabber(href, 160) };
+			}
+			tileGrabber.grabber
+				.grab(Math.max(0, at), controller.signal)
+				.then((dataUrl) => frameSource(dataUrl, phone ? 112 : 144))
+				.then((image) => {
+					if (controller.signal.aborted || !image) return;
+					thumbs.begin();
+					tileSource = image;
+				})
+				.catch(() => undefined);
+		}, 300);
+		return () => {
+			clearTimeout(timer);
+			controller.abort();
+		};
+	});
+
+	$effect(() => {
+		if (!effectsTool && hoverTile) hoverTile = null;
+	});
+
 	onMount(() => {
 		webgl2 = supportsWebGL2();
 		void loadMediaToolCatalog();
@@ -1104,6 +1220,8 @@
 
 	onDestroy(() => {
 		destroyed = true;
+		if (liveTimer) clearTimeout(liveTimer);
+		tileGrabber?.grabber.dispose();
 		cancelAnimationFrame(raf);
 		detachRender(tabId, listener);
 		if (!tabAlive()) stopRender(tabId);
@@ -1133,6 +1251,56 @@
 
 {#snippet replaceMenu()}
 	<ReplaceMenu label="Replace clip" entries={sourceEntries('video')} disabled={!!render || starting} {phone} onselect={openReplacePicker} />
+{/snippet}
+
+{#snippet barContent()}
+	<VideoBar
+		{tool}
+		title={toolLabels[tool]}
+		icon={toolIcons[tool]}
+		op={panelOp}
+		params={panelParams}
+		{duration}
+		trimIn={scrubIn}
+		trimOut={scrubOut}
+		{outputLength}
+		{aspect}
+		size={displaySize}
+		effect={tool === 'effects' && currentEffect ? (effectMap.get(currentEffect) ?? null) : null}
+		{phone}
+		onparams={setParams}
+		onaspect={setAspect}
+		ontrim={setTrimField}
+	/>
+{/snippet}
+
+{#snippet barActionsContent()}
+	{#if effectsTool && !pendingEffect}
+		<Button variant="secondary" size="sm" class="h-7" disabled={!canResetEffect} onclick={resetEffect} attrs={{ 'data-options-reset': '' }}>Reset</Button>
+	{:else if effectsTool}
+		<BarActions applyLabel={effectUpdating ? 'Update effect' : 'Add effect'} canApply={canApplyEffect} canReset={canResetEffect} onapply={applyCurrent} onreset={resetEffect} />
+	{:else}
+		<BarActions applyLabel={tool === 'trim' ? 'Apply trim' : tool === 'mute' ? 'Mute' : 'Apply'} {canApply} canReset={!!pending} onapply={applyCurrent} onreset={resetCurrent} />
+	{/if}
+{/snippet}
+
+{#snippet phoneBar()}
+	{@render barContent()}
+	<span class="flex-1"></span>
+	{#if effectsTool && !pendingEffect}
+		<Button variant="secondary" size="sm" class="h-8 flex-none" disabled={!canResetEffect} onclick={resetEffect} attrs={{ 'data-options-reset': '' }}>Reset</Button>
+	{:else}
+		<Button variant="primary" size="sm" class="h-8 flex-none" disabled={!canApply} onclick={applyCurrent} attrs={{ 'data-options-apply': '' }}>{effectsTool ? (effectUpdating ? 'Update' : 'Add') : 'Apply'}</Button>
+	{/if}
+{/snippet}
+
+{#snippet tileThumb(item: { id: string })}
+	{@const tile = tileById(tiles, item.id)}
+	{#if item.id === '__original'}
+		<canvas use:drawSource={tileSource} class="block h-full w-full object-cover" aria-hidden="true"></canvas>
+	{:else if tile}
+		<canvas use:thumbs.draw={{ tile, source: tileSource }} class="block h-full w-full object-cover" aria-hidden="true"></canvas>
+	{/if}
 {/snippet}
 
 {#snippet saveRows()}
@@ -1206,6 +1374,8 @@
 						oncompare={(next) => (compare = next)}
 						onsave={onSave}
 						oncancelsave={cancelRender}
+						bar={ready ? barContent : undefined}
+						barActions={ready ? barActionsContent : undefined}
 					>
 						{#snippet replaceControl()}
 							{@render replaceMenu()}
@@ -1219,13 +1389,26 @@
 					groups={RAIL_GROUPS}
 					active={tool}
 					pending={pending ? [railToolOf(pending.tool) ?? ''] : []}
-					variant={phone ? 'strip' : 'rail'}
+					variant={phone ? 'strip' : 'icons'}
 					label="Video tools"
 					onselect={selectTool}
 				/>
 			{/snippet}
 
+			{#snippet bar()}
+				{#if phoneBarred}
+					{@render phoneBar()}
+				{/if}
+			{/snippet}
+
 			{#snippet canvas()}
+				{#if hoverSteps && hoverTileItem}
+					<div class="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2" data-preview-chip>
+						<CanvasChip caps={false}>
+							<Icon name="editor-eye" className="mr-1.5 h-3.5 w-3.5" />Previewing<strong class="mx-1.5 font-semibold">{hoverTileItem.label}</strong><span class="text-scrim-on/70">click to apply</span>
+						</CanvasChip>
+					</div>
+				{/if}
 				<EditorCanvas
 					mediaWidth={displaySize.width}
 					mediaHeight={displaySize.height}
@@ -1321,6 +1504,9 @@
 			{/snippet}
 
 			{#snippet below()}
+				{#if showTray}
+					<LookTray label="Looks and effects" items={trayItems} original={{ selected: !pickedTiles.size }} {phone} thumb={tileThumb} onpick={pickTile} onpreview={(id) => (hoverTile = id)} />
+				{/if}
 				<ScrubBar
 					duration={duration}
 					{playhead}
@@ -1375,11 +1561,13 @@
 						oncancel={cancelRender}
 					/>
 				{:else}
+					{#if !(phoneBarred && tool === 'trim')}
 					<OptionsPanel
 						title={toolLabels[tool]}
 						icon={toolIcons[tool]}
+						subtitle={phone ? null : 'Properties'}
 						bind:collapsed={optionsCollapsed}
-						actions={!effectsTool}
+						actions={phone && !phoneBarred}
 						applyLabel={tool === 'trim' ? 'Apply trim' : tool === 'mute' ? 'Mute' : 'Apply'}
 						{canApply}
 						canReset={!!pending}
@@ -1403,11 +1591,6 @@
 								{phone}
 								previewState={clipPreview?.state ?? 'idle'}
 								{busy}
-								{effectUpdating}
-								canApplyEffect={canApplyEffect}
-								canResetEffect={canResetEffect}
-								onapplyeffect={applyCurrent}
-								onreseteffect={resetEffect}
 								onparams={setParams}
 								onaspect={setAspect}
 								oneffect={selectEffect}
@@ -1422,6 +1605,7 @@
 							<p class="text-sm text-warning">{refReason}</p>
 						{/if}
 					</OptionsPanel>
+					{/if}
 				{/if}
 			{/snippet}
 

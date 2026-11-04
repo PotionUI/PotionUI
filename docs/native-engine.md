@@ -245,7 +245,7 @@ close that gap:
 
   **Formula**, with `S` tokens, `V` of them video: `reserve = max(0.5 GB, 1.15 × [S × attention + S ×
   (lora buffer + quant + gelu) + V × rows × inner × 2 B + lora weight side + transient])`, where
-  `transient` is `dequant` on the fp8 GEMM path and `max(dequant, S × gelu)` everywhere else.
+  `transient` is `dequant` on a GEMM fast path (fp8 or nvfp4) and `max(dequant, S × gelu)` everywhere else.
   `attention` is 90,112 B per token at LTX's inner dim 4096; H3 adds its FFN, or takes the larger of
   attention and its chunked-MLP phase. `dequant = 2 × max(out × in) × 2 B` is flat: a quantized Linear
   on the `DEQUANT` path holds two compute-dtype copies of its weight while it scales it, one layer at
@@ -281,14 +281,16 @@ close that gap:
   S = 110,880 the same blocks reach 9.77 GiB at the first self-attention, 12.32 GiB in later attentions
   and 14.86 GiB at the FFN. That fits a forward that stopped in attention, though nothing recorded
   where it stopped. These are logical bytes, what the forward asks for:
-  fragmentation and cuDNN or cuBLAS workspace are what the 1.15 covers, and no card has checked these
-  figures on this code. Generated audio and a reduced reference hold the same room on LTX-2.5 and on
-  an LTX-2 19B shape, about 1.2 × the peak, except the two together on that 19B shape, about 1.08 ×.
+  fragmentation and cuDNN or cuBLAS workspace are what the 1.15 covers, and one 12 GB card has checked
+  only the per-token figures of `video_ltx`, from S = 1,560 to 7,800. Generated audio and a reduced
+  reference hold the same room on LTX-2.5 and on an LTX-2 19B shape, about 1.2 × the peak, except the
+  two together on that 19B shape, about 1.08 ×.
 
   **The clip planner.** `sequence_fit` charges the same reserve, on every card, so `video_ltx` plans what
   placement will budget for, and counts foreign residents as room, since placement evicts them for the
-  weight and the reserve together. Without windows it cuts the clip to what its refine can hold: at 960×544
-  in two stages with a prompt-adaLN DiT, a 481-frame request plans 81 frames at 10.7 GB free, 89 at 12,
+  weight and the reserve together. Without windows it cuts the clip to what the forward of its refine can
+  hold, without charging the VAE decode: at 960×544 in two stages with a prompt-adaLN DiT, a 481-frame
+  request plans 81 frames at 10.7 GB free, 89 at 12,
   185 at 23 and 257 at 31. With windows it looks for a window the DiT stays resident in, then streams one
   pass, so the window count can jump where those two tests cross. It judges with the pipe's scoped LoRA
   stack on the DiT, the state placement reads, then drops it: 1.22 GiB of deltas turn those four plans

@@ -43,6 +43,7 @@
 	import { laneTakes, nodeChoice, toggled, viewerSendTo, type Lane } from '$lib/elixirs/choice';
 	import { readWidths, viewerStorage, withWidth, writeWidths } from '$lib/elixirs/columns';
 	import { DRAWER_MIN, DRAWER_WIDTH, clampDrawer, draggedDrawer, drawerMax, keyedDrawer, readDrawer, writeDrawer } from '$lib/elixirs/drawer';
+	import DrawerShell from '$lib/components/drawer/DrawerShell.svelte';
 	import { PANE_HANDLE_GRIP, PANE_HANDLE_STRIP } from '$lib/generation/paneHandle';
 	import {
 		addStepAfter,
@@ -235,6 +236,7 @@
 	let continuing = $state.raw(new Set<string>());
 	let settingsFor = $state<string | null>(null);
 	let settingsOpener: HTMLElement | null = null;
+	let panel = $state<{ flush: () => void }>();
 	let viewer = $state.raw<{ nodeId: string; handle: OutputViewHandle } | null>(null);
 	const draftTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	const draftSaves = new Map<string, Promise<void>>();
@@ -387,6 +389,7 @@
 	}
 
 	function closeSettings() {
+		panel?.flush();
 		settingsFor = null;
 		settingsTab = 'quick';
 		editsPrompt = null;
@@ -1626,12 +1629,8 @@
 		if (next !== record?.name) scheduleSave(0);
 	}
 
-	function onwindowkeydown(event: KeyboardEvent) {
-		if (event.key !== 'Escape' || event.defaultPrevented || menu) return;
-		if (document.querySelector('.elixir-header[data-panel-open]')) return;
-		if (!settingsFor || sessionPicker) return;
-		if (document.querySelector('[role="dialog"]:not(.drawer)')) return;
-		closeSettings();
+	function drawerEscape() {
+		return !!menu || !!sessionPicker || !!document.querySelector('.elixir-header[data-panel-open]');
 	}
 
 	function onbeforeunload(event: BeforeUnloadEvent) {
@@ -1770,7 +1769,7 @@
 </script>
 
 
-<svelte:window {onbeforeunload} onkeydown={onwindowkeydown} />
+<svelte:window {onbeforeunload} />
 
 <div class="elixirs-root flex h-full min-h-0 flex-col" data-testid="elixir-tab" data-elixir-id={id}>
 {#if loadError}
@@ -1866,38 +1865,35 @@
 			{/if}
 
 			{#if settingsNode}
-				{#if !phone}
-					<div class="drawer-edge">
-						<span class="drawer-resize">
-							<Tooltip text="Drag to resize panel" wrapperClass="flex h-full">
-								<span
-									class="drawer-handle {PANE_HANDLE_STRIP} cursor-col-resize"
-									data-dragging={!!drawerDrag}
-									role="separator"
-									tabindex="0"
-									aria-orientation="vertical"
-									aria-label="Width of the settings panel"
-									aria-valuemin={DRAWER_MIN}
-									aria-valuemax={Number.isFinite(drawerLimit) ? drawerLimit : undefined}
-									aria-valuenow={shownDrawer}
-									onpointerdown={startDrawerDrag}
-									onpointermove={moveDrawerDrag}
-									onpointerup={endDrawerDrag}
-									onpointercancel={endDrawerDrag}
-									ondblclick={resetDrawer}
-									onkeydown={keyDrawer}
-								><span class={PANE_HANDLE_GRIP} aria-hidden="true"></span></span>
-							</Tooltip>
-						</span>
-					</div>
-				{/if}
-				<div
-					class="drawer fixed inset-x-0 bottom-16 z-40 max-h-[80dvh] min-h-[45dvh] overflow-hidden rounded-t-xl border-t border-line shadow-overlay sm:static sm:z-auto sm:max-h-none sm:min-h-0 sm:flex-none sm:rounded-none sm:border-l sm:border-t-0 sm:shadow-none {phone ? 'sm:w-[26rem] sm:max-w-[50%]' : ''}"
-					style={phone ? undefined : `width: ${shownDrawer}px`}
-					data-testid="elixir-drawer"
-				>
+				<DrawerShell label="{nodeLabel(settingsNode, presetIndex)} settings" keepOpenKey="elixirs:drawer-keep-open" onClose={closeSettings} onEscape={drawerEscape} width={phone ? undefined : shownDrawer} testId="elixir-drawer">
+					{#snippet header()}{/snippet}
+					{#snippet children()}
+						{#if !phone}
+							<span class="drawer-resize">
+								<Tooltip text="Drag to resize panel" wrapperClass="flex h-full">
+									<span
+										class="drawer-handle {PANE_HANDLE_STRIP} cursor-col-resize"
+										data-dragging={!!drawerDrag}
+										role="separator"
+										tabindex="0"
+										aria-orientation="vertical"
+										aria-label="Width of the settings panel"
+										aria-valuemin={DRAWER_MIN}
+										aria-valuemax={Number.isFinite(drawerLimit) ? drawerLimit : undefined}
+										aria-valuenow={shownDrawer}
+										onpointerdown={startDrawerDrag}
+										onpointermove={moveDrawerDrag}
+										onpointerup={endDrawerDrag}
+										onpointercancel={endDrawerDrag}
+										ondblclick={resetDrawer}
+										onkeydown={keyDrawer}
+									><span class={PANE_HANDLE_GRIP} aria-hidden="true"></span></span>
+								</Tooltip>
+							</span>
+						{/if}
 					{#key settingsNode.id}
 						<NodePanel
+							bind:this={panel}
 							node={settingsNode as ElixirNode & { assets: NonNullable<ElixirNode['assets']> }}
 							{client}
 							label={nodeLabel(settingsNode, presetIndex)}
@@ -1926,7 +1922,8 @@
 							ontabchange={(id) => (settingsTab = id)}
 						/>
 					{/key}
-				</div>
+					{/snippet}
+				</DrawerShell>
 			{/if}
 		</div>
 
@@ -1964,16 +1961,11 @@
 </div>
 
 <style>
-	.drawer-edge {
-		position: relative;
-		z-index: 10;
-		width: 0;
-		flex: none;
-	}
 	.drawer-resize {
 		position: absolute;
 		top: 50%;
-		left: -5px;
+		left: 0;
+		z-index: 10;
 		height: 28px;
 		display: flex;
 		transform: translateY(-50%);

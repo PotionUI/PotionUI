@@ -194,6 +194,11 @@
 		if (next !== (node.title ?? '')) onrename(next || null);
 	}
 
+	export function flush() {
+		commitInstruction();
+		commitTitle();
+	}
+
 	function onPresetChange(event: Event & { currentTarget: HTMLSelectElement }) {
 		const value = event.currentTarget.value;
 		if (!value) return;

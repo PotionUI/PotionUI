@@ -3,6 +3,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { onMount } from 'svelte';
+	import overlayLayer from '$lib/actions/overlayLayer';
 	import { relativeTime } from '$lib/elixirs/time';
 	import type { ElixirsApi } from '$lib/services/api/elixirs';
 
@@ -73,6 +74,7 @@
 
 <div
 	use:portal
+	use:overlayLayer
 	class="fixed inset-0 z-50 flex items-end justify-center bg-canvas/70 sm:items-center sm:p-6"
 	role="presentation"
 	onclick={(event) => event.target === event.currentTarget && onclose()}

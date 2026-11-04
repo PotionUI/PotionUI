@@ -582,3 +582,62 @@ class TestSessionHooks:
         # Verify create was called with modified data
         create_call = mock_session_repo.create.call_args
         assert create_call[0][0].data == {"modified": True}
+
+
+def _hook_payloads(registry, name):
+    return [call.kwargs["initial_data"] for call in registry.execute_hook.call_args_list if call.args[0] == name]
+
+
+def _registry():
+    registry = Mock()
+    context = Mock()
+    context.data = {}
+    registry.execute_hook.return_value = (context, [])
+    return registry
+
+
+def _stored(version, name="Test", data=None):
+    return Session(id="s1", user_id="user-123", preset_id="p", name=name, data=data or {}, version=version)
+
+
+def test_after_create_tells_plugins_the_write_version():
+    repo, registry = Mock(), _registry()
+    repo.get_by_user_preset_and_name.return_value = None
+    repo.create.return_value = _stored(1)
+
+    operations.save_session(repo, registry, None, None, "user-123", SaveSessionRequest(preset_id="p", name="Test", data={}))
+
+    assert _hook_payloads(registry, "session.after_create") == [
+        {"session_id": "s1", "preset_id": "p", "name": "Test", "user_id": "user-123", "version": 1}
+    ]
+
+
+def test_after_update_by_name_tells_plugins_the_new_write_version():
+    repo, registry = Mock(), _registry()
+    repo.get_by_user_preset_and_name.return_value = _stored(3)
+    repo.update.return_value = _stored(4)
+
+    operations.save_session(repo, registry, None, None, "user-123", SaveSessionRequest(preset_id="p", name="Test", data={"txt2img": {}}))
+
+    assert _hook_payloads(registry, "session.after_update")[0]["version"] == 4
+
+
+def test_after_update_by_id_tells_plugins_the_new_write_version():
+    repo, registry = Mock(), _registry()
+    repo.get_by_id.return_value = _stored(7)
+    repo.update.return_value = _stored(8)
+
+    operations.update_session(repo, registry, None, None, "user-123", "s1", UpdateSessionRequest(name="Test", data={"txt2img": {}}))
+
+    assert _hook_payloads(registry, "session.after_update")[0]["version"] == 8
+
+
+def test_after_delete_names_the_session_and_its_owner():
+    repo, registry = Mock(), _registry()
+    repo.get_by_id.return_value = _stored(2)
+    repo.delete.return_value = True
+
+    operations.delete_session(repo, registry, "user-123", "s1")
+
+    payload = _hook_payloads(registry, "session.after_delete")[0]
+    assert (payload["session_id"], payload["user_id"], payload["version"]) == ("s1", "user-123", 2)

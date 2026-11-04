@@ -181,6 +181,7 @@ def _create_new_session(
             "preset_id": created_session.preset_id,
             "name": created_session.name,
             "user_id": user_id,
+            "version": created_session.version,
         },
     )
 
@@ -253,6 +254,7 @@ def _update_existing_session(
                 "preset_id": result.preset_id,
                 "name": result.name,
                 "user_id": user_id,
+                "version": result.version,
             },
         )
 
@@ -374,6 +376,7 @@ def update_session(
                 "preset_id": result.preset_id,
                 "name": result.name,
                 "user_id": user_id,
+                "version": result.version,
             },
         )
 

@@ -12,6 +12,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import torch
+import torch.nn as nn
 
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.generator.video_ltx.audio import audio_token_count, unpack_audio_tokens
@@ -31,6 +32,8 @@ from src.pipelines.pipes.generator.video_ltx.main import (
     _resolve_latent_index,
     _scoped_loras_on_card,
 )
+from src.platform.runtime.native.kernels import manual_cast
+from src.platform.runtime.native.lora import temporarily_applied_loras
 from src.platform.runtime.native.memory.residency import GpuResidencyRegistry
 from src.platform.runtime.native.sampling import conditioned_sigmas, denoise_prenoised
 
@@ -2619,6 +2622,70 @@ def test_scoped_loras_load_on_a_plain_generation_and_on_a_refine(mock_load):
     refine = _pipe(resolution="64x64", frames=17, refine_sigmas="0.9, 0.0",
                    scoped_loras=_IC).build_context(refine_input)
     assert refine.extra.scoped_lora_stack is stack
+
+
+def test_the_clip_plan_is_judged_with_the_scoped_loras_on_the_dit(tmp_path, monkeypatch):
+    clip = _reference_clip(tmp_path, n_frames=40, size=64)
+    stack = [({"ic.weight": torch.zeros(1)}, 1.0)]
+    calls = []
+
+    @contextmanager
+    def fake_ctx(module, loras, runtime_only=False):
+        calls.append(("enter", loras, runtime_only))
+        yield
+        calls.append(("exit",))
+
+    def fake_fit(dit, device, **terms):
+        calls.append(("fit",))
+        return _FakeFit(10_000)
+
+    monkeypatch.setattr(f"{_MAIN}.sequence_fit", fake_fit)
+    with patch(f"{_MAIN}._load_lora_stack", return_value=stack), \
+            patch(f"{_MAIN}.resolve_reference_scales", return_value=(1, 1)), \
+            patch(f"{_MAIN}.make_room_for_lora_stack"), \
+            patch(f"{_MAIN}.temporarily_applied_loras", fake_ctx):
+        ctx = _pipe(match_video=True, scoped_loras=_IC, media_placements=_CLIP_REFERENCE).build_context(
+            _pipe_input(videos=[str(clip)]))
+
+    assert calls == [("enter", stack, True), ("fit",), ("exit",)]
+    assert ctx.extra.scoped_lora_stack is stack
+
+
+def test_a_scoped_stack_on_the_dit_moves_the_window_the_plan_keeps_resident(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    module = nn.Module()
+    module.proj = manual_cast.Linear(64, 32)
+    module.config = SimpleNamespace(has_prompt_adaln=False)
+    lora = {"diffusion_model.proj.lora_A.weight": torch.zeros(4, 64),
+            "diffusion_model.proj.lora_B.weight": torch.zeros(32, 4)}
+    delta_gb = (4 * 64 + 32 * 4) * 4 / 1024 ** 3
+    dit = SimpleNamespace(module=module, estimated_vram_gb=17.4, device="cpu")
+    pipe = _pipe()
+    window = pipe._sequence_tokens(_CLIP_REFERENCE, 81, 1280, 704, (1, 1))
+    free_gb = 17.4 + estimate_activation_reserve_gb(window, **ltx_reserve_terms(dit, per_token_timestep=True)) + delta_gb / 2
+
+    def plan():
+        return pipe._plan_clip(dit, "cuda:0", 136, 1280, 704, 24.0, _CLIP_REFERENCE, (1, 1), "file", 24)
+
+    with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=free_gb):
+        bare = plan()
+        with temporarily_applied_loras(module, [(lora, 1.0)], runtime_only=True):
+            under_the_stack = plan()
+        after = plan()
+    assert bare[0] == 81
+    assert under_the_stack[0] < 81
+    assert after == bare
+
+
+@pytest.mark.parametrize("warm", [False, True])
+@pytest.mark.parametrize(("free_gb", "frames"), [(10.7, 73), (12.0, 81), (23.0, 177), (31.0, 241)])
+def test_deltas_already_on_the_card_shorten_a_two_stage_plan_by_what_they_hold(free_gb, frames, warm):
+    dit = SimpleNamespace(estimated_vram_gb=20.0, device="cuda:0" if warm else "cpu",
+                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=True)))
+    reading = free_gb - 1.22 - (20.0 if warm else 0.0)
+    with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=reading):
+        assert _pipe()._plan_clip(dit, "cuda:0", 481, 960, 544, 24.0, _LAYOUT_PLACEMENTS, (1, 1), "none",
+                                  None, 2.0) == (frames, [0])
 
 
 def test_no_scoped_loras_means_an_empty_stack():

@@ -290,7 +290,9 @@ close that gap:
   weight and the reserve together. Without windows it cuts the clip to what its refine can hold: at 960×544
   in two stages with a prompt-adaLN DiT, a 481-frame request plans 81 frames at 10.7 GB free, 89 at 12,
   185 at 23 and 257 at 31. With windows it looks for a window the DiT stays resident in, then streams one
-  pass, so the window count can jump where those two tests cross.
+  pass, so the window count can jump where those two tests cross. It judges with the pipe's scoped LoRA
+  stack on the DiT, the state placement reads, then drops it: 1.22 GiB of deltas turn those four plans
+  into 73, 81, 177 and 241 frames.
 - **Text encoder: partial residency for the encode** (`memory/text_encoder.py`,
   `tiering.plan_text_encoder_placement`, `engine.TextEncoderStreaming`). The encoder only needs the
   GPU for its encode, so its placement is decided for that phase alone. An encoder that does not fit

@@ -338,7 +338,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                            "is connected (a stage-2 refine call) -- ignored with a warning otherwise",
                            required=False),
             PipeConfigSpec("scoped_loras", list, [],
-                           "LoRAs applied ONLY around this call's placement and sampling, on every call (not just a "
+                           "LoRAs applied ONLY around this call's clip plan, placement and sampling, on every call (not just a "
                            "refine), and removed again afterwards so the next stage sees the DiT without "
                            "them. The Director's IC-LoRAs ride here so a stage-2 refine runs without "
                            "them unless asked to keep them", required=False),
@@ -694,6 +694,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         from_clip = clip_length and not initial_latents
         if clip_length and initial_latents:
             total_frames = min(frames, clip_frames)
+        scoped_lora_stack = _load_lora_stack(scoped_loras_cfg) if scoped_loras_cfg else []
         if from_clip:
             if clip_frames > MAX_FRAMES:
                 logger.warning("[GENERATOR VIDEO-LTX] input clip has %d frames; only the first %d are used",
@@ -701,10 +702,12 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             windowed = (as_flag(self.config.get("windows", False)) and bool(self.config.get("decode", True))
                         and placements and audio_mode != "generate"
                         and all(p.get("source") == "video" and p.get("role") == "reference" for p in placements))
-            frames, window_starts = self._plan_clip(
-                bundle.dit, device, clip_frames, width, height, fps, placements, reference_scales, audio_mode,
-                int(self.config.get("window_overlap", 16)) if windowed else None,
-                float(self.config.get("refine_scale") or 1.0), _own_models(bundle))
+            own_models = _own_models(bundle)
+            with _scoped_loras_on_card(bundle.dit, device, scoped_lora_stack, own_models):
+                frames, window_starts = self._plan_clip(
+                    bundle.dit, device, clip_frames, width, height, fps, placements, reference_scales, audio_mode,
+                    int(self.config.get("window_overlap", 16)) if windowed else None,
+                    float(self.config.get("refine_scale") or 1.0), own_models)
             total_frames = min(clip_frames, MAX_FRAMES, window_starts[-1] + frames)
         pad_video = _matched_clip_index(placements) if clip_length else None
         conditions = self._build_conditions(placements, images, videos, frames, reference_scales,
@@ -765,8 +768,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                 )
             else:
                 stage2_lora_stack = _load_lora_stack(stage2_loras_cfg)
-
-        scoped_lora_stack = _load_lora_stack(scoped_loras_cfg) if scoped_loras_cfg else []
 
         spec = bundle.spec
         # APG: read straight out of sampling_settings by _make_guidance. No

@@ -1942,6 +1942,7 @@ def build_container() -> AppContainer:
         setting_repository=setting_repository,
         session_repository=session_repository,
         session_version_repository=session_version_repository,
+        phrasebook_values=phrasebook_value_repo,
     )
     elixirs.runtime.subscribe(plugin_registry.hook_chain)
 

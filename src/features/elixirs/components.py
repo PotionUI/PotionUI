@@ -43,6 +43,7 @@ def build_elixirs(
     setting_repository: Any,
     session_repository: Any,
     session_version_repository: Any,
+    phrasebook_values: Any = None,
 ) -> ElixirsComponents:
     repository = ElixirRepository()
     limits = stored_limits(setting_repository)
@@ -57,6 +58,7 @@ def build_elixirs(
         media_store=media_store,
         prompt_writer=prompt_writer,
         storage_root=settings.get_file_storage_directory,
+        phrasebook_values=phrasebook_values,
     )
     coordinator = Coordinator(store=RunStore(), port=port, limits_provider=limits)
     sessions = SessionReader(session_repository, session_version_repository)

@@ -6,6 +6,7 @@ import uuid
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
 
 from src.features.elixirs.brew import (
+    SEED_LIMIT,
     TEXT_BINDINGS,
     BindingFailed,
     bind_input,
@@ -42,6 +43,7 @@ from src.features.elixirs.identity import (
     invocation_key,
     media_ref,
 )
+from src.features.elixirs.instruction import roll_instruction
 from src.features.elixirs.limits import Limits
 from src.features.elixirs.records import (
     ACTIVE_INVOCATION_STATUSES,
@@ -1063,7 +1065,10 @@ class Coordinator:
             result = await self.port.write_prompt(user, request)
             text = str((result or {}).get("text") or "").strip()[:MAX_WRITTEN_CHARS]
             if text:
-                fields = {"status": "completed", "outputs": text_outputs(uuid.uuid4().hex, text, request["input_key"], reasoning=_reasoning(result)), "error": None}
+                fields = {"status": "completed", "outputs": text_outputs(
+                    uuid.uuid4().hex, text, request["input_key"], reasoning=_reasoning(result),
+                    instruction=request.get("rolled_instruction"), instruction_seed=request.get("instruction_seed"),
+                ), "error": None}
             else:
                 fields = {"status": "failed", "error": "The language model returned no prompt."}
         except asyncio.CancelledError:
@@ -1109,6 +1114,17 @@ class Coordinator:
         if pinned:
             request["pinned"] = pinned
             return request
+        rolled = roll_instruction(
+            request["instruction"],
+            node.get("instruction_chips"),
+            template.get("variables"),
+            self.random_below(SEED_LIMIT),
+            lambda path: self.port.phrasebook_texts(user, path),
+        )
+        if rolled.rolled:
+            request["instruction"] = rolled.text
+            request["instruction_seed"] = rolled.seed
+            request["rolled_instruction"] = rolled.text
         if item.get("edge_id"):
             try:
                 resolved = self.port.resolve(user, media_ref(item["input_ref"]))
@@ -1127,7 +1143,8 @@ class Coordinator:
     def _build_request(self, user, run: Mapping[str, Any], item: Mapping[str, Any]):
         node = self._node(run, item["node_id"])
         if node.get("kind") == "llm":
-            return self._writer_request(user, run, node, item), None
+            request = self._writer_request(user, run, node, item)
+            return request, request.get("instruction_seed")
         request = copy.deepcopy(run["templates"][item["node_id"]])
         if item.get("edge_id"):
             edge = next(edge for edge in run["graph"]["edges"] if edge["id"] == item["edge_id"])

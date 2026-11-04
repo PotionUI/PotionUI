@@ -113,6 +113,32 @@ class MediaNode(BaseModel):
 
 WrittenText = Annotated[str, StringConstraints(min_length=1, max_length=MAX_WRITTEN_CHARS)]
 PinKey = Annotated[str, StringConstraints(min_length=1, max_length=200)]
+ChipText = Annotated[str, StringConstraints(max_length=MAX_WRITTEN_CHARS)]
+ChipKey = Annotated[str, StringConstraints(min_length=1, max_length=200)]
+MAX_INSTRUCTION_CHIPS = 64
+MAX_CHIP_VALUES = 1000
+
+
+class ChipValue(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: ChipKey
+    label: ChipText = ""
+    value: ChipText = ""
+    preview_file_id: Optional[ChipKey] = None
+
+
+class InstructionChip(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: ChipKey
+    categoryPath: ChipKey
+    valueId: ChipKey
+    label: ChipText = ""
+    value: ChipText = ""
+    allValues: List[ChipValue] = Field(default_factory=list, max_length=MAX_CHIP_VALUES)
+    shuffle: bool = False
+    autoRegen: bool = False
 
 
 class LlmNode(BaseModel):
@@ -123,6 +149,7 @@ class LlmNode(BaseModel):
     title: Optional[Title] = None
     position: Position = Field(default_factory=Position)
     instruction: Annotated[str, StringConstraints(max_length=MAX_INSTRUCTION_CHARS)] = ""
+    instruction_chips: Dict[ChipKey, InstructionChip] = Field(default_factory=dict)
     target_node_id: Optional[ElementId] = None
     llm_id: Optional[ElementId] = None
     pinned: Dict[PinKey, WrittenText] = Field(default_factory=dict)
@@ -132,6 +159,13 @@ class LlmNode(BaseModel):
     def _few_pins(cls, value: Dict[str, str]) -> Dict[str, str]:
         if len(value) > MAX_STORED_ASSETS:
             raise ValueError(f"a prompt writer can keep at most {MAX_STORED_ASSETS} pinned texts")
+        return value
+
+    @field_validator("instruction_chips")
+    @classmethod
+    def _few_chips(cls, value: Dict[str, InstructionChip]) -> Dict[str, InstructionChip]:
+        if len(value) > MAX_INSTRUCTION_CHIPS:
+            raise ValueError(f"an instruction can hold at most {MAX_INSTRUCTION_CHIPS} phrasebook chips")
         return value
 
 

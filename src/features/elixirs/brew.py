@@ -185,8 +185,19 @@ def bind_text(request: Dict[str, Any], binding: str, text: str) -> Dict[str, Any
     return bound
 
 
-def text_outputs(text_id: str, text: str, for_key: str, pinned: bool = False, reasoning: Optional[str] = None) -> List[Dict[str, Any]]:
+def text_outputs(
+    text_id: str,
+    text: str,
+    for_key: str,
+    pinned: bool = False,
+    reasoning: Optional[str] = None,
+    instruction: Optional[str] = None,
+    instruction_seed: Optional[int] = None,
+) -> List[Dict[str, Any]]:
     entry = {"kind": "text", "text_id": text_id, "media_type": "text", "text": text, "for_key": for_key}
+    if instruction is not None:
+        entry["rolled_instruction"] = instruction
+        entry["instruction_seed"] = instruction_seed
     if reasoning:
         entry["reasoning"] = reasoning
     if pinned:

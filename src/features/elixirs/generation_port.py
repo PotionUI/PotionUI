@@ -34,6 +34,7 @@ class GenerationPort:
         media_store: Any,
         prompt_writer: Any,
         storage_root: Callable[[], str],
+        phrasebook_values: Any = None,
     ) -> None:
         self.users = users
         self.orchestrator = orchestrator
@@ -45,6 +46,7 @@ class GenerationPort:
         self.media_store = media_store
         self.prompt_writer = prompt_writer
         self.storage_root = storage_root
+        self.phrasebook_values = phrasebook_values
 
     def user(self, user_id: str):
         return self.users.get_by_id(user_id)
@@ -169,6 +171,11 @@ class GenerationPort:
             )
         except PromptWriteRefused as refused:
             raise WriteRefused(str(refused)) from None
+
+    def phrasebook_texts(self, user, path: str) -> List[str]:
+        if self.phrasebook_values is None or not path:
+            return []
+        return [value.value for value in self.phrasebook_values.get_by_path(path, user.id) if value.is_active and value.value]
 
     def writer_status(self, user, llm_id: Optional[str] = None) -> Dict[str, Any]:
         return writer_operations.writer_status(self.prompt_writer, user.id, llm_id)

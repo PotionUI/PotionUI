@@ -139,6 +139,10 @@ class FakePort:
         self.writer = {"available": True, "vision": True, "name": "Writer", "code": None, "message": None}
         self.writer_by_model = {}
         self.reasoning = None
+        self.phrasebook = {}
+
+    def phrasebook_texts(self, user, path):
+        return list(self.phrasebook.get(path, []))
 
     async def write_prompt(self, user, request):
         self.writes.append(copy.deepcopy(request))

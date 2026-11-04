@@ -7,8 +7,8 @@ LIMIT_KEYS = {
     "elixirs_max_nodes": "24",
     "elixirs_max_edges": "48",
     "elixirs_max_branches": "8",
-    "elixirs_max_media_per_source": "1000",
-    "elixirs_max_outputs_per_connection": "1000",
+    "elixirs_max_media_per_source": "50",
+    "elixirs_max_outputs_per_connection": "50",
     "elixirs_max_invocations": "200",
 }
 

@@ -98,8 +98,8 @@ _LIMITS = (
     ("elixirs_max_nodes", "24", "The most preset and media nodes one elixir may hold."),
     ("elixirs_max_edges", "48", "The most connections one elixir may hold."),
     ("elixirs_max_branches", "8", "The most outgoing connections one elixir node may have."),
-    ("elixirs_max_media_per_source", "1000", "The most files one elixir media source node may hold."),
-    ("elixirs_max_outputs_per_connection", "1000", "The most files one elixir connection may pass on in a single brew."),
+    ("elixirs_max_media_per_source", "50", "The most files one elixir media source node may hold."),
+    ("elixirs_max_outputs_per_connection", "50", "The most files one elixir connection may pass on in a single brew."),
     ("elixirs_max_invocations", "200", "The most generations one elixir brew may start across all branches."),
 )
 

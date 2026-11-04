@@ -536,10 +536,15 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
 
     def _plan_clip(self, dit: Any, device: str, clip_frames: int, width: int, height: int, fps: float,
                    placements: List[dict], reference_scales: Tuple[int, int], audio_mode: str,
-                   overlap: Optional[int], refine_scale: float = 1.0) -> Tuple[int, List[int]]:
+                   overlap: Optional[int], refine_scale: float = 1.0,
+                   own_models: Tuple[Any, ...] = ()) -> Tuple[int, List[int]]:
         total = max(1, min(clip_frames, MAX_FRAMES))
         one = snap_frames_up(total)
-        fit = sequence_fit(dit, device)
+        fit = sequence_fit(
+            dit, device, own_models=own_models,
+            **ltx_reserve_terms(dit, per_token_timestep=True, per_token_frames_broken=reference_scales[0] != 1,
+                                generates_audio=audio_mode == "generate"),
+        )
         if fit is None:
             return one, [0]
         sizes = [(width, height)]
@@ -699,7 +704,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             frames, window_starts = self._plan_clip(
                 bundle.dit, device, clip_frames, width, height, fps, placements, reference_scales, audio_mode,
                 int(self.config.get("window_overlap", 16)) if windowed else None,
-                float(self.config.get("refine_scale") or 1.0))
+                float(self.config.get("refine_scale") or 1.0), _own_models(bundle))
             total_frames = min(clip_frames, MAX_FRAMES, window_starts[-1] + frames)
         pad_video = _matched_clip_index(placements) if clip_length else None
         conditions = self._build_conditions(placements, images, videos, frames, reference_scales,

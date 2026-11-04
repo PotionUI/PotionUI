@@ -541,14 +541,10 @@ def dit_is_fully_resident(dit: Any, device: str) -> bool:
 class SequenceFit:
     weight_gb: float
     free_gb: float
-    lora: DitLoraProfile
-    quant_activation_bytes_per_token: int
+    terms: ReserveTerms
 
     def reserve_gb(self, video_tokens: int, audio_tokens: int = 0) -> float:
-        return estimate_activation_reserve_gb(
-            video_tokens, audio_tokens, lora=self.lora,
-            quant_activation_bytes_per_token=self.quant_activation_bytes_per_token,
-        )
+        return self.terms.reserve_gb(video_tokens, audio_tokens)
 
     def resident(self, video_tokens: int, audio_tokens: int = 0) -> bool:
         return self.weight_gb <= 0.0 or self.weight_gb <= self.free_gb - self.reserve_gb(video_tokens, audio_tokens)
@@ -557,15 +553,18 @@ class SequenceFit:
         return self.reserve_gb(video_tokens, audio_tokens) <= self.free_gb
 
 
-def sequence_fit(dit: Any, device: str) -> "SequenceFit | None":
+def sequence_fit(
+    dit: Any, device: str, *, gelu_ffn_dim: int = 0, modulation_rows: int = 0, own_models: Iterable[Any] = (),
+) -> "SequenceFit | None":
     free = effective_free_vram_gb(device)
     if free is None:
         return None
-    lora = _dit_lora_profile(dit)
-    weight_gb = _dit_weight_to_place_gb(dit, lora)
+    terms = _dit_reserve_terms(dit, gelu_ffn_dim=gelu_ffn_dim, modulation_rows=modulation_rows)
+    weight_gb = _dit_weight_to_place_gb(dit, terms.lora)
+    free += get_residency_registry().resident_gb(device, exclude=(dit, *own_models))
     if dit_is_fully_resident(dit, device):
         free += weight_gb
-    return SequenceFit(weight_gb, free, lora, _dit_quant_activation_bytes_per_token(dit))
+    return SequenceFit(weight_gb, free, terms)
 
 @dataclass(frozen=True)
 class DitPlacementDecision:

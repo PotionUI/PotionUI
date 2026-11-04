@@ -551,6 +551,9 @@ class _FakeResidencyRegistry:
         self.ensure_free_calls = []
         self.offload_all_calls = []
 
+    def resident_gb(self, device=None, *, exclude=()):
+        return 0.0
+
     def ensure_free(self, device, need_gb, current_free_gb, *, exclude=()):
         self.ensure_free_calls.append((device, need_gb, current_free_gb, tuple(exclude)))
         return []
@@ -2633,6 +2636,25 @@ def test_a_fifteen_second_clip_on_a_32gb_card_streams_only_under_a_per_token_tim
     assert decision.weight_budget_gb == pytest.approx(budget_gb, abs=0.01)
 
 
+@pytest.mark.parametrize("resident", [False, True])
+@pytest.mark.parametrize("seconds", [1, 5, 10, 20])
+def test_sequence_fit_with_the_ltx_terms_and_a_dequant_transient_predicts_the_placement_mode(resident, seconds):
+    tokens = _video_tokens_for(seconds)
+    free = 32.0 - (23.3 if resident else 0.0)
+    probe, _ = _ltx25_streamed_int8_dit(estimated_vram_gb=23.3)
+    placed, _ = _ltx25_streamed_int8_dit(estimated_vram_gb=23.3)
+    if resident:
+        probe.device = placed.device = "cuda"
+    terms = ltx_reserve_terms(probe, per_token_timestep=True)
+    patches, _ = _patched(free_gb=free)
+    with patches[0], patches[1], patches[2]:
+        fit = sequence_fit(probe, "cuda", **terms)
+        decision = place_dit_for_sequence(placed, "cuda", video_tokens=tokens, **terms)
+    assert fit.terms.dequant_transient_bytes == _LTX25_FFN_DEQUANT_BYTES
+    assert fit.resident(tokens) == (decision.mode == "resident")
+    assert fit.reserve_gb(tokens) == pytest.approx(decision.activation_reserve_gb)
+
+
 def _ltx_dit_with_config(**config):
     return SimpleNamespace(module=SimpleNamespace(config=LTXAVConfig.from_detect_config({**_LTX25_BLOCKS, **config})))
 
@@ -2709,3 +2731,35 @@ def test_modulation_is_charged_on_video_tokens_only():
         estimate_activation_reserve_gb(7_410, 100) - estimate_activation_reserve_gb(7_410, 0))
     assert video_only - estimate_activation_reserve_gb(7_410) == pytest.approx(
         7_410 * 7 * _LTX_INNER_DIM * 2 * _ACTIVATION_SAFETY_MARGIN / 1024 ** 3)
+
+
+def test_sequence_fit_credits_what_placement_would_evict_and_not_the_pipes_own_models():
+    registry = GpuResidencyRegistry()
+    foreign, own_vae = _ForeignResident(), _ForeignResident()
+    registry.note_resident(foreign, "cuda", 7.0)
+    registry.note_resident(own_vae, "cuda", 3.0)
+    dit, _ = _dit(estimated_vram_gb=20.0)
+    with patch(f"{_MOD}.effective_free_vram_gb", return_value=10.0), \
+            patch(f"{_MOD}.get_residency_registry", return_value=registry):
+        fit = sequence_fit(dit, "cuda", own_models=(dit, own_vae))
+    assert fit.free_gb == pytest.approx(17.0)
+
+
+def test_sequence_fit_never_credits_the_dit_itself_as_evictable():
+    registry = GpuResidencyRegistry()
+    dit = _ForeignResident()
+    dit.estimated_vram_gb, dit.device = 20.0, "cuda"
+    registry.note_resident(dit, "cuda", 20.0)
+    with patch(f"{_MOD}.effective_free_vram_gb", return_value=10.0), \
+            patch(f"{_MOD}.get_residency_registry", return_value=registry):
+        fit = sequence_fit(dit, "cuda")
+    assert fit.free_gb == pytest.approx(30.0)
+
+
+def test_the_reserve_a_fit_charges_carries_every_term_of_the_placement():
+    dit, _ = _dit(estimated_vram_gb=20.0)
+    patches, _ = _patched(free_gb=31.0)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.maybe_compile_dit"):
+        fit = sequence_fit(dit, "cuda", gelu_ffn_dim=16384, modulation_rows=7)
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=7_410, gelu_ffn_dim=16384, modulation_rows=7)
+    assert fit.reserve_gb(7_410) == pytest.approx(decision.activation_reserve_gb)

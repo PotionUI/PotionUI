@@ -21,7 +21,8 @@ from src.pipelines.pipes.generator.video_ltx.conditioning import (
     prepare_ltx_conditions,
     reference_token_count,
 )
-from src.pipelines.pipes._shared.generation.dit_placement import DitPlacementDecision
+from src.pipelines.pipes._shared.generation.dit_placement import DitPlacementDecision, estimate_activation_reserve_gb
+from src.pipelines.pipes._shared.video.ltx_common import ltx_reserve_terms
 from src.pipelines.pipes._shared.generation.ltx_conditioned_forward import ConditionedAVForward
 from src.pipelines.pipes.generator.video_ltx.main import (
     MAX_FRAMES,
@@ -30,6 +31,7 @@ from src.pipelines.pipes.generator.video_ltx.main import (
     _resolve_latent_index,
     _scoped_loras_on_card,
 )
+from src.platform.runtime.native.memory.residency import GpuResidencyRegistry
 from src.platform.runtime.native.sampling import conditioned_sigmas, denoise_prenoised
 
 
@@ -673,8 +675,13 @@ class _FakeFit:
         return video_tokens + audio_tokens <= self.activation_tokens
 
 
+class _Resident:
+    def offload(self):
+        pass
+
+
 def _fit_tokens(monkeypatch, resident_tokens, activation_tokens=None):
-    monkeypatch.setattr(f"{_MAIN}.sequence_fit", lambda dit, device: _FakeFit(resident_tokens, activation_tokens))
+    monkeypatch.setattr(f"{_MAIN}.sequence_fit", lambda dit, device, **_: _FakeFit(resident_tokens, activation_tokens))
 
 
 def _tokens_64(frames):
@@ -750,7 +757,8 @@ def test_a_clip_longer_than_the_frame_limit_is_cut_there_with_the_trim_notice(tm
 
 
 def _real_fit_plan(free_gb, clip_frames=136, *, overlap=24, resident=False):
-    dit = SimpleNamespace(estimated_vram_gb=17.4, device="cuda:0" if resident else "cpu")
+    dit = SimpleNamespace(estimated_vram_gb=17.4, device="cuda:0" if resident else "cpu",
+                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=False)))
     with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=free_gb):
         return _pipe()._plan_clip(dit, "cuda:0", clip_frames, 1280, 704, 24.0, _CLIP_REFERENCE, (1, 1),
                                   "file", overlap)
@@ -761,7 +769,7 @@ def test_the_real_memory_model_runs_the_whole_clip_in_one_pass_on_a_roomy_card()
 
 
 def test_the_real_memory_model_splits_into_two_balanced_windows_when_one_pass_does_not_fit():
-    assert _real_fit_plan(19.5) == (81, [0, 55])
+    assert _real_fit_plan(22.5) == (81, [0, 55])
 
 
 def test_the_real_memory_model_credits_a_resident_dit_its_own_weight():
@@ -787,16 +795,85 @@ _LAYOUT_PLACEMENTS = [
 
 @pytest.mark.parametrize(("free_gb", "refine_scale", "expected"), [
     (30.0, 1.0, (481, [0])),
-    (30.0, 2.0, (481, [0])),
-    (10.0, 1.0, (481, [0])),
-    (10.0, 2.0, (193, [0])),
-    (12.0, 2.0, (233, [0])),
+    (30.0, 2.0, (265, [0])),
+    (10.0, 1.0, (361, [0])),
+    (10.0, 2.0, (81, [0])),
+    (12.0, 2.0, (97, [0])),
 ])
 def test_a_two_stage_clip_is_planned_so_the_upscaled_refine_fits_too(free_gb, refine_scale, expected):
-    dit = SimpleNamespace(estimated_vram_gb=17.4, device="cpu")
+    dit = SimpleNamespace(estimated_vram_gb=17.4, device="cpu",
+                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=False)))
     with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=free_gb):
         assert _pipe()._plan_clip(dit, "cuda:0", 481, 960, 544, 24.0, _LAYOUT_PLACEMENTS, (1, 1), "none",
                                   None, refine_scale) == expected
+
+
+@pytest.mark.parametrize(("free_gb", "frames"), [(10.7, 81), (12.0, 89), (23.0, 185), (31.0, 257)])
+def test_a_two_stage_clip_of_a_prompt_adaln_dit_is_planned_under_its_modulation_rows(free_gb, frames):
+    dit = SimpleNamespace(estimated_vram_gb=20.0, device="cpu",
+                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=True)))
+    with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=free_gb):
+        assert _pipe()._plan_clip(dit, "cuda:0", 481, 960, 544, 24.0, _LAYOUT_PLACEMENTS, (1, 1), "none",
+                                  None, 2.0) == (frames, [0])
+
+
+def _ltx2_19b_shaped_dit():
+    return SimpleNamespace(estimated_vram_gb=20.0, device="cpu", module=SimpleNamespace(
+        config=SimpleNamespace(has_prompt_adaln=False, use_cross_timestep=False)))
+
+
+def _plan_on_exactly_the_reserve_of_121_frames(reference_scales, audio_mode, **flags):
+    dit = _ltx2_19b_shaped_dit()
+    pipe = _pipe()
+    video = pipe._sequence_tokens(_LAYOUT_PLACEMENTS, 121, 960, 544, reference_scales)
+    audio = audio_token_count(121, 24.0) if audio_mode == "generate" else 0
+    reserve = estimate_activation_reserve_gb(video, audio, **ltx_reserve_terms(dit, per_token_timestep=True, **flags))
+    with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=reserve + 1e-6):
+        return pipe._plan_clip(dit, "cuda:0", 481, 960, 544, 24.0, _LAYOUT_PLACEMENTS, reference_scales, audio_mode, None)
+
+
+def test_the_plan_charges_generated_audio_its_own_rows_and_leaves_it_out_of_the_video_tokens():
+    assert _plan_on_exactly_the_reserve_of_121_frames((1, 1), "generate", generates_audio=True) == (121, [0])
+
+
+def test_the_plan_charges_a_reference_at_a_reduced_scale_the_whole_adaln_table():
+    assert _plan_on_exactly_the_reserve_of_121_frames((2, 1), "none", per_token_frames_broken=True) == (121, [0])
+
+
+def test_a_foreign_resident_placement_would_evict_does_not_shorten_the_plan():
+    dit = _ltx2_19b_shaped_dit()
+    registry = GpuResidencyRegistry()
+    foreign, own_vae = _Resident(), _Resident()
+    registry.note_resident(foreign, "cuda:0", 12.0)
+    registry.note_resident(own_vae, "cuda:0", 3.0)
+
+    def plan(own):
+        return _pipe()._plan_clip(dit, "cuda:0", 481, 960, 544, 24.0, _LAYOUT_PLACEMENTS, (1, 1), "none", None, 2.0, own)
+
+    with patch(f"{_PLACEMENT}.get_residency_registry", return_value=registry):
+        with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=16.0):
+            crediting_the_foreign_one = plan((dit, own_vae))
+            crediting_both = plan((dit,))
+        with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=28.0):
+            with patch.object(registry, "resident_gb", return_value=0.0):
+                on_a_free_card = plan((dit, own_vae))
+    assert crediting_the_foreign_one == on_a_free_card
+    assert crediting_both[0] > crediting_the_foreign_one[0]
+
+
+def test_the_clip_plan_leaves_the_pipes_own_models_out_of_what_it_credits(tmp_path, monkeypatch):
+    clip = _reference_clip(tmp_path, n_frames=40, size=64)
+    seen = {}
+
+    def spy_fit(dit, device, **terms):
+        seen.update(terms)
+        return _FakeFit(10_000)
+
+    monkeypatch.setattr(f"{_MAIN}.sequence_fit", spy_fit)
+    bundle = _bundle(audio=True)
+    _pipe(match_video=True, media_placements=_CLIP_REFERENCE).build_context(
+        _pipe_input(videos=[str(clip)], bundle=bundle))
+    assert seen["own_models"] == (bundle.dit, bundle.vae, bundle.audio_vae, bundle.vocoder)
 
 
 def test_a_two_stage_first_pass_trims_to_what_its_refine_can_hold(tmp_path, monkeypatch):

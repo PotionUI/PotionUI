@@ -284,6 +284,13 @@ close that gap:
   fragmentation and cuDNN or cuBLAS workspace are what the 1.15 covers, and no card has checked these
   figures on this code. Generated audio and a reduced reference hold the same room on LTX-2.5 and on
   an LTX-2 19B shape, about 1.2 × the peak, except the two together on that 19B shape, about 1.08 ×.
+
+  **The clip planner.** `sequence_fit` charges the same reserve, on every card, so `video_ltx` plans what
+  placement will budget for, and counts foreign residents as room, since placement evicts them for the
+  weight and the reserve together. Without windows it cuts the clip to what its refine can hold: at 960×544
+  in two stages with a prompt-adaLN DiT, a 481-frame request plans 81 frames at 10.7 GB free, 89 at 12,
+  185 at 23 and 257 at 31. With windows it looks for a window the DiT stays resident in, then streams one
+  pass, so the window count can jump where those two tests cross.
 - **Text encoder: partial residency for the encode** (`memory/text_encoder.py`,
   `tiering.plan_text_encoder_placement`, `engine.TextEncoderStreaming`). The encoder only needs the
   GPU for its encode, so its placement is decided for that phase alone. An encoder that does not fit
@@ -357,7 +364,7 @@ Tier fallback (sizes unknown) and the low-VRAM regime each tier lands in:
 | **< 8 GB** | Partial residency (a handful of blocks resident, the rest streamed) + fp8-auto quantise-at-load when it lets more fit resident. VAE tiled, TE offloaded during sampling. |
 | **8–12 GB** | Partial / mostly-resident DiT; fp8-auto for the bigger families. TE & VAE offloaded off the DiT phase. |
 | **12–16 GB** | fp8-resident (auto) or bf16 partial residency for the 9–14B families; VAE offloaded, TE co-resident only when it fits. |
-| **≥ 16 GB** | Fully resident where the fit test allows, phase-offloading TE/VAE only under pressure; a long clip still streams part of its DiT, because the activation reserve grows with its tokens. The 32GB dev card is the luxury case. |
+| **≥ 16 GB** | Fully resident where the fit test allows, phase-offloading TE/VAE only under pressure; a long clip still streams part of its DiT or plans a shorter pass, because the activation reserve grows with its tokens. The 32GB dev card is the luxury case. |
 
 All of the above is unit-testable without a GPU: the fit math, the deterministic layer split, the
 fp8 quant equivalence, and the eviction accounting are pure functions (`tests/core/native/memory/`,

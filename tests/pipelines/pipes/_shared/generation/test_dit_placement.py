@@ -2799,9 +2799,13 @@ def test_ltx_reserve_terms_read_the_ffn_width_from_the_dits_own_config():
     assert ltx_reserve_terms(narrow, per_token_timestep=False)["gelu_ffn_dim"] == 8192
 
 
-def test_ltx_reserve_terms_refuse_a_dit_without_a_config_rather_than_guess_its_width():
+@pytest.mark.parametrize("module", [
+    SimpleNamespace(),
+    SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=False, use_cross_timestep=False)),
+], ids=["no_config", "config_without_inner_dim"])
+def test_ltx_reserve_terms_refuse_a_dit_without_a_config_rather_than_guess_its_width(module):
     with pytest.raises(AttributeError):
-        ltx_reserve_terms(SimpleNamespace(module=SimpleNamespace()), per_token_timestep=False)
+        ltx_reserve_terms(SimpleNamespace(module=module), per_token_timestep=False)
 
 
 def test_ltx_reserve_terms_charge_the_modulation_rows_a_block_keeps_alive():

@@ -44,7 +44,7 @@ Three tiers, each a superset of the one before it: **config** is the database, t
 ### Diagnostics
 
 - **Record a performance profile for each generation** (`profiling_enabled`, off) — replaces the `POTIONUI_PROFILE` environment variable. Each generation writes `profiles/<generation id>/profile.jsonl` and `generation.log` under file storage: stage timings, the time of each sampling step (with its attention mode, step-cache skips and the wait for weights streamed from RAM), RAM and VRAM over time, and model events. Admins open a profile from the workbench's **Resource profile** button, which shows the report and offers both files for download; `scripts/profile_report.py <profile.jsonl>` prints the same report as text.
-- **Include a memory census at the end of each run** (`profiling_census`, on) — adds a count of every live tensor, on the CPU and the GPU, to each profile. It runs in the background about a second after the generation reports complete, so it doesn't delay results. If another generation starts first, the census is skipped and the profile records a `census.skipped` event instead.
+- **Include a memory census at the end of each run** (`profiling_census`, on) — adds a count of every live tensor, on the CPU and the GPU, to each profile. It runs in the background once the generation has fully finished and nothing else is queued, so it never delays results or the next generation. If another generation is queued or starts first, the census is skipped and the profile records a `census.skipped` event with the reason instead.
 
 Both take effect on the next generation without a restart. On the first start after updating, profiling is switched on once if `POTIONUI_PROFILE` was set; after that the variable is ignored.
 

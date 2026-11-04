@@ -27,6 +27,7 @@ def _isolate_profiling_state(monkeypatch):
 
     def stop(self, generation_id):
         original_stop(self, generation_id)
+        self.release_census(generation_id)
         assert self.wait_for_census(30.0)
 
     monkeypatch.setattr(GenerationProfiler, "stop", stop)

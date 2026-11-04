@@ -2,6 +2,7 @@ import gc
 import json
 import logging
 import threading
+import time
 
 import pytest
 
@@ -55,6 +56,7 @@ def test_stop_returns_before_the_census_finishes_and_the_rows_land_afterwards(tm
     prof.start("gen-a", tmp_path)
 
     assert _returns_while_census_is_blocked(lambda: prof.stop("gen-a"), slow)
+    prof.release_census("gen-a")
     assert slow.started.wait(5.0)
     assert prof.wait_for_census(0.05) is False
     events = [r.get("event") for r in _rows(tmp_path / "profile.jsonl")]
@@ -80,6 +82,7 @@ def test_the_census_walks_the_heap_once_for_both_devices(tmp_path, monkeypatch):
     prof = GenerationProfiler()
     prof.start("gen-walk", tmp_path)
     prof.stop("gen-walk")
+    prof.release_census("gen-walk")
     assert prof.wait_for_census(30.0)
 
     assert len(calls) == 1
@@ -93,6 +96,7 @@ def test_a_new_generation_cancels_the_pending_census_without_waiting(tmp_path, m
     dir_a, dir_b = tmp_path / "a", tmp_path / "b"
     prof.start("gen-a", dir_a)
     prof.stop("gen-a")
+    prof.release_census("gen-a")
     assert slow.started.wait(5.0)
 
     with caplog.at_level(logging.INFO, logger=profiler_module.logger.name):
@@ -109,6 +113,7 @@ def test_a_new_generation_cancels_the_pending_census_without_waiting(tmp_path, m
     assert not [r for r in rows_b if r.get("event") == "census.skipped" or r["kind"] == "census_group"]
     slow.release.set()
     prof.stop("gen-b")
+    prof.release_census("gen-b")
     assert prof.wait_for_census(5.0)
 
 
@@ -123,7 +128,8 @@ def test_a_census_still_in_its_start_delay_is_skipped_by_the_next_generation(tmp
 
     assert prof.wait_for_census(5.0) is True
     assert called == []
-    assert _rows(tmp_path / "a" / "profile.jsonl")[-1]["event"] == "census.skipped"
+    last = _rows(tmp_path / "a" / "profile.jsonl")[-1]
+    assert (last["event"], last["reason"]) == ("census.skipped", "next_generation_started")
     monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_census", False)
     prof.stop("gen-b")
 
@@ -220,3 +226,111 @@ def test_the_census_counts_a_streamer_pinned_module_as_pinned(monkeypatch):
         assert pinned_gb >= 0.0002
     finally:
         streamer.teardown()
+
+
+def test_the_census_waits_for_the_completion_release(tmp_path, monkeypatch):
+    slow = _SlowCensus()
+    slow.release.set()
+    monkeypatch.setattr(GenerationProfiler, "_collect_tensor_census", slow)
+    prof = GenerationProfiler()
+    prof.start("gen-a", tmp_path)
+    prof.stop("gen-a")
+
+    assert not slow.started.wait(0.3)
+    assert prof.wait_for_census(0.05) is False
+
+    prof.release_census("gen-a")
+    assert prof.wait_for_census(5.0) is True
+    rows = _rows(tmp_path / "profile.jsonl")
+    start = [r for r in rows if r.get("event") == "census.start"]
+    assert len(start) == 1 and start[0]["trigger"] == "released"
+    assert [r["owner"] for r in rows if r["kind"] == "census_group"] == ["fake"]
+
+
+def test_a_release_that_lands_before_stop_is_kept(tmp_path, monkeypatch):
+    slow = _SlowCensus()
+    slow.release.set()
+    monkeypatch.setattr(GenerationProfiler, "_collect_tensor_census", slow)
+    prof = GenerationProfiler()
+    prof.start("gen-a", tmp_path)
+    prof.release_census("gen-a")
+    prof.stop("gen-a")
+
+    assert prof.wait_for_census(5.0) is True
+    assert slow.started.is_set()
+
+
+def test_a_busy_queue_skips_the_census_with_its_reason(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        GenerationProfiler, "_collect_tensor_census",
+        lambda *a, **k: pytest.fail("a skipped census must not walk the heap"),
+    )
+    prof = GenerationProfiler()
+    prof.start("gen-a", tmp_path)
+    prof.stop("gen-a")
+    prof.skip_census("gen-a", "queue_busy")
+
+    assert prof.wait_for_census(5.0) is True
+    last = _rows(tmp_path / "profile.jsonl")[-1]
+    assert (last["event"], last["reason"]) == ("census.skipped", "queue_busy")
+
+
+def test_a_census_nobody_releases_runs_after_the_timeout(tmp_path, monkeypatch):
+    monkeypatch.setattr(GenerationProfiler, "_CENSUS_RELEASE_TIMEOUT_S", 0.05)
+    slow = _SlowCensus()
+    slow.release.set()
+    monkeypatch.setattr(GenerationProfiler, "_collect_tensor_census", slow)
+    prof = GenerationProfiler()
+    prof.start("gen-a", tmp_path)
+    prof.stop("gen-a")
+
+    assert prof.wait_for_census(5.0) is True
+    start = [r for r in _rows(tmp_path / "profile.jsonl") if r.get("event") == "census.start"]
+    assert start[0]["trigger"] == "release_timeout"
+
+
+class _Holder:
+    def __init__(self, weight):
+        self.weight = weight
+
+
+def test_the_census_names_owners_without_a_heap_scan_per_tensor(monkeypatch):
+    import torch
+
+    holders = [_Holder(torch.zeros(4, 4) + i) for i in range(8)]
+
+    def no_referrers(*args, **kwargs):
+        raise AssertionError("the census must not call gc.get_referrers")
+
+    monkeypatch.setattr(gc, "get_referrers", no_referrers)
+    rows = GenerationProfiler()._collect_tensor_census(("cpu",), budget_s=30.0)
+
+    owners = {r["owner"] for r in rows if r["kind"] == "census_group"}
+    assert "_Holder.weight" in owners
+    del holders
+
+
+def test_the_census_does_not_hold_the_gil_for_long():
+    import torch
+
+    ballast = [{"k": [i]} for i in range(800_000)]
+    holders = [_Holder(torch.zeros(8) + i) for i in range(40)]
+    done = threading.Event()
+    rows = []
+    worker = threading.Thread(
+        target=lambda: (rows.extend(GenerationProfiler()._collect_tensor_census(("cpu",), budget_s=60.0)), done.set()),
+        daemon=True,
+    )
+    gaps = []
+    worker.start()
+    last = time.monotonic()
+    while not done.is_set():
+        time.sleep(0.001)
+        now = time.monotonic()
+        gaps.append(now - last)
+        last = now
+    worker.join(5.0)
+
+    assert any(r["owner"] == "_Holder.weight" for r in rows if r["kind"] == "census_group")
+    assert sum(gap > 0.05 for gap in gaps) <= 2
+    del ballast, holders

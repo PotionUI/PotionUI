@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     from src.features.generation.grids.dto import GridCellRef
 
 from src.platform.util.ids import generate_ulid
+from src.platform.observability.profiling import get_profiler
 from src.platform.database.rows import dt_iso
 from src.features.media_index.indexer import PASS_TAGS
 from src.features.media_index.mesh_thumbnails import render_and_store_mesh_thumbnail
@@ -1807,6 +1808,7 @@ class GenerationOrchestrator:
             if record.backend_id:
                 await self._queue_dispatcher.release(record.backend_id, generation_id)
             self._queue_dispatcher.prune_finished()
+            self._settle_profiler_census(generation_id)
 
     async def _split_prompt_batch(self, generation_id: str, prompt_batch: Optional[PromptBatch]) -> List[str]:
         if prompt_batch is None:
@@ -2071,6 +2073,7 @@ class GenerationOrchestrator:
         await self.status_tracker.transition_async(generation_id, GenerationState.CANCELLED)
         if orphaned and record.backend_id:
             await self._queue_dispatcher.release(record.backend_id, generation_id)
+            self._settle_profiler_census(generation_id)
         self._queue_dispatcher.prune_finished()
         logger.debug(f"Updated status to cancelled for {generation_id}")
 
@@ -2094,6 +2097,16 @@ class GenerationOrchestrator:
     def _output_bridge_alive(self, generation_id: str) -> bool:
         task = self._bridge_tasks.get(generation_id)
         return task is not None and not task.done() and not task.get_loop().is_closed()
+
+    def _settle_profiler_census(self, generation_id: str) -> None:
+        try:
+            profiler = get_profiler()
+            if self._queue_dispatcher.is_idle():
+                profiler.release_census(generation_id)
+            else:
+                profiler.skip_census(generation_id, "queue_busy")
+        except Exception:
+            logger.debug("[ORCHESTRATOR] profiler census settle failed for %s", generation_id, exc_info=True)
 
     def _forget_run(self, generation_id: str) -> None:
         self._run_backends.pop(generation_id, None)

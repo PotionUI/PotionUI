@@ -86,6 +86,9 @@ class QueueDispatcher:
         """Free a backend slot so the queue can dispatch whatever waits on it."""
         await self.queue.release(backend_id, generation_id)
 
+    def is_idle(self) -> bool:
+        return self.queue.is_idle()
+
     async def publish_positions(self) -> None:
         """
         Tell every still-pending generation where it now sits.

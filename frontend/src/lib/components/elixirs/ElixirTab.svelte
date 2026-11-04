@@ -6,6 +6,7 @@
 	import type { Run } from '$lib/elixirs/types';
 	import ElixirEditor, { type ElixirStep } from './ElixirEditor.svelte';
 	import ElixirPicker from './ElixirPicker.svelte';
+	import { bindElixirChat } from '$lib/elixirs/chat';
 
 	let { host }: ToolTabComponentProps = $props();
 
@@ -14,6 +15,8 @@
 	$effect(() => {
 		if (elixirId) rememberElixir(elixirId);
 	});
+
+	$effect(() => (elixirId ? bindElixirChat(elixirId) : undefined));
 
 	function report(run: Run | null, steps: ElixirStep[]) {
 		host.setStatus?.(elixirTabStatus(run, steps));

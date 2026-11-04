@@ -110,6 +110,27 @@ const PHRASEBOOK: ChatStarter[] = [
 	}
 ];
 
+const ELIXIRS: ChatStarter[] = [
+	{
+		title: 'Explain this elixir',
+		sub: 'What each step does, left to right',
+		prompt: 'Walk me through this elixir step by step.',
+		icon: 'chat-info'
+	},
+	{
+		title: 'Add a step',
+		sub: 'Extend the chain with another preset',
+		prompt: 'Add an upscale step after the last step of this elixir.',
+		icon: 'chat-plus'
+	},
+	{
+		title: 'Help me choose',
+		sub: 'Pick the outputs worth keeping',
+		prompt: 'Look at the outputs waiting for a choice and pick the best ones.',
+		icon: 'chat-image'
+	}
+];
+
 const GENERIC: ChatStarter[] = [
 	{
 		title: 'What can you do here?',
@@ -136,7 +157,8 @@ const BY_MODE: Record<string, ChatStarter[]> = {
 	history: HISTORY,
 	prompts: PROMPTS,
 	models: MODELS,
-	phrasebook: PHRASEBOOK
+	phrasebook: PHRASEBOOK,
+	elixirs: ELIXIRS
 };
 
 export function startersForMode(modeId: string | null | undefined): ChatStarter[] {
@@ -169,6 +191,10 @@ const INTRO_BY_MODE: Record<string, ChatIntro> = {
 	phrasebook: {
 		heading: 'What are we collecting?',
 		body: 'I can browse your phrasebook categories and help you add to them and clean up their values.'
+	},
+	elixirs: {
+		heading: 'What should this elixir do?',
+		body: 'I can change its steps and settings and pick outputs at a choice. You press Brew and Continue.'
 	}
 };
 

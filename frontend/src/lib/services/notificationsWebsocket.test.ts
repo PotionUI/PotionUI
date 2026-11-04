@@ -8,6 +8,8 @@ vi.mock('$lib/stores/sessionLiveSync', () => ({ sessionLiveSync: { receive: vi.f
 import { toasts } from '$lib/stores/toast';
 import { tabDraftSync } from '$lib/stores/tabDraftSync';
 import { sessionLiveSync } from '$lib/stores/sessionLiveSync';
+import { get } from 'svelte/store';
+import { elixirChanged } from '$lib/elixirs/events';
 import { notificationsWebSocket } from './notificationsWebsocket';
 
 function push(type: string, metadata: Record<string, unknown>, title = 'Generation completed', message = '') {
@@ -74,6 +76,19 @@ describe('session_changed push', () => {
 		};
 		(notificationsWebSocket as unknown as { onMessage: (m: unknown) => void }).onMessage(message);
 		expect(sessionLiveSync.receive).toHaveBeenCalledWith(message);
+		expect(toasts.show).not.toHaveBeenCalled();
+	});
+});
+
+describe('elixir_changed push', () => {
+	it('tells the open elixir what changed', () => {
+		(notificationsWebSocket as unknown as { onMessage: (m: unknown) => void }).onMessage({
+			type: 'elixir_changed',
+			elixir_id: 'x1',
+			revision: 7,
+			run_id: 'r1'
+		});
+		expect(get(elixirChanged)).toEqual({ elixir_id: 'x1', revision: 7, run_id: 'r1' });
 		expect(toasts.show).not.toHaveBeenCalled();
 	});
 });

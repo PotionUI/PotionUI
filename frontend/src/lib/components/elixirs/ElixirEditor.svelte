@@ -16,7 +16,8 @@
 	import { toasts, type ToastType } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { elixirsApi, type ElixirResult } from '$lib/services/api/elixirs';
-	import { elixirRenamed } from '$lib/elixirs/events';
+	import { elixirChanged, elixirRenamed, type ElixirChange } from '$lib/elixirs/events';
+	import { remoteAction } from '$lib/elixirs/remote';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { embeddedTabFor } from '$lib/types/tabs';
 	import { loadPresets } from '$lib/stores/presetsCatalog';
@@ -1730,6 +1731,37 @@
 			name = renamed.name;
 		});
 	});
+
+	$effect(() => {
+		const change = $elixirChanged;
+		untrack(() => void applyRemote(change));
+	});
+
+	async function applyRemote(change: ElixirChange | null) {
+		if (!record || destroyed) return;
+		const action = remoteAction(change, { id, runId: (run?.id as string | undefined) ?? null, saveState, revision: record?.revision ?? null });
+		if (action === 'run' && change?.run_id) {
+			for (const timer of draftTimers.values()) clearTimeout(timer);
+			draftTimers.clear();
+			drafts = {};
+			await showRun(change.run_id);
+		} else if (action === 'conflict') {
+			saveState = 'conflict';
+		} else if (action === 'followed') {
+			await refreshFollowed();
+			await validate();
+		} else if (action === 'adopt') {
+			const fresh = await client.getElixir(id);
+			if (!fresh.ok || destroyed) return;
+			if (saveState !== 'saved') {
+				if (fresh.data.revision !== record?.revision) saveState = 'conflict';
+				return;
+			}
+			adopt(fresh.data);
+			await refreshFollowed();
+			await validate();
+		}
+	}
 
 	function startWith(kind: 'preset' | 'media') {
 		if (kind === 'preset') addNodeOf('preset', false);

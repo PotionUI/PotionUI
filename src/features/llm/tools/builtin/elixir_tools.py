@@ -232,7 +232,9 @@ class EditElixirTool(_ElixirTool):
             "connect {from, to, port?, from_port?} (a writer's text goes to 'prompt' or 'negative_prompt'); "
             "set_settings {step, fields: {name: value}, prompt?, negative_prompt?} (a following step saves into "
             "its session, a copy or new step keeps the change on the step); "
-            "set_writer {step, instruction?, instruction_chips?, variables?, writes_for: preset step id or null}; "
+            "set_writer {step, instruction?, variables?, writes_for?} (${name} uses a writer variable, {a|b} is an "
+            "inline choice; variables merge by name, null removes: {\"act\": {\"type\": \"choice\", \"options\": "
+            "[\"run\", \"jump\"], \"mode\": \"shuffle\"}}; never send phrasebook chips); "
             "set_session {step, mode: follow|copy|new, session?: saved session name or id}. "
             "Preset modes: get_elixir with include_presets=true; field names: get_step_settings."
         )
@@ -270,7 +272,6 @@ class EditElixirTool(_ElixirTool):
                             "prompt": {"type": "string"},
                             "negative_prompt": {"type": "string"},
                             "instruction": {"type": "string"},
-                            "instruction_chips": {"type": "object"},
                             "variables": {"type": "object"},
                             "writes_for": {"type": ["string", "null"]},
                             "session": {"type": "string"},

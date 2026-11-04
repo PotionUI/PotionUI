@@ -206,16 +206,35 @@ def test_a_writer_gets_an_instruction_and_a_target(world):
     assert next(step for step in summary["steps"] if step["id"] == writer["id"])["instruction"] == "Describe the {red|blue} bottle"
 
 
-def test_writer_chips_pass_through(world):
+def writer_with_chip(world):
     record = create(shoot_and_sharpen())
     edit(world, record, {"op": "add_writer", "for_step": "sharpen"})
     record = stored(record)
-    writer = next(item for item in record.definition["nodes"] if item["kind"] == "llm")
-    chip = {"id": "c1", "categoryPath": "colors", "valueId": "v1", "label": "Colors", "value": "red", "shuffle": True}
+    definition = record.definition
+    writer = next(item for item in definition["nodes"] if item["kind"] == "llm")
+    writer["instruction"] = "A #colors bottle"
+    writer["instruction_chips"] = {"c1": {"id": "c1", "categoryPath": "colors", "valueId": "v1", "label": "Colors", "value": "red", "shuffle": True}}
+    ElixirRepository().update(record.id, "alice", record.revision, definition=definition)
+    return stored(record), writer["id"]
 
-    edit(world, record, {"op": "set_writer", "step": writer["id"], "instruction": "A #colors bottle", "instruction_chips": {"c1": chip}})
 
-    assert node(stored(record).definition, writer["id"])["instruction_chips"]["c1"]["categoryPath"] == "colors"
+def test_the_assistant_cannot_send_phrasebook_chips(world):
+    record, writer = writer_with_chip(world)
+
+    message = refused(world, record, {"op": "set_writer", "step": writer, "instruction": "x", "instruction_chips": {"$action": {}}})
+
+    assert "Do not send 'instruction_chips'" in message
+    assert "${name}" in message
+
+
+def test_a_new_instruction_keeps_the_chips_it_still_uses_and_drops_the_rest(world):
+    record, writer = writer_with_chip(world)
+
+    edit(world, record, {"op": "set_writer", "step": writer, "instruction": "A #colors bottle on ${place}"})
+    assert "c1" in node(stored(record).definition, writer)["instruction_chips"]
+
+    edit(world, stored(record), {"op": "set_writer", "step": writer, "instruction": "A plain bottle"})
+    assert node(stored(record).definition, writer)["instruction_chips"] == {}
 
 
 def test_a_writer_keeps_its_own_variables(world):
@@ -231,6 +250,24 @@ def test_a_writer_keeps_its_own_variables(world):
     assert world.assistant.step_settings("alice", record.id, writer["id"])["variables"]["mood"]["type"] == "choice"
     bad = refused(world, stored(record), {"op": "set_writer", "step": writer["id"], "variables": {"mood": {"type": "choice", "options": []}}})
     assert "variables are not valid" in bad
+
+
+def test_writer_variables_merge_by_name_and_take_the_tool_shape(world):
+    record = create(shoot_and_sharpen())
+    edit(world, record, {"op": "add_writer", "for_step": "sharpen"})
+    record = stored(record)
+    writer = next(item for item in record.definition["nodes"] if item["kind"] == "llm")["id"]
+
+    edit(world, record, {"op": "set_writer", "step": writer, "variables": {"place": {"type": "text", "value": "forest"}}})
+    edit(world, stored(record), {"op": "set_writer", "step": writer, "variables": {"action": {"type": "choice", "options": ["running", "jumping"], "mode": "pin", "pinned_index": 1}}})
+
+    variables = node(stored(record).definition, writer)["variables"]
+    assert variables["place"]["value"] == "forest"
+    assert variables["action"]["pinnedIndex"] == 1
+    assert "pinned_index" not in variables["action"]
+
+    edit(world, stored(record), {"op": "set_writer", "step": writer, "variables": {"place": None}})
+    assert sorted(node(stored(record).definition, writer)["variables"]) == ["action"]
 
 
 def test_a_second_writer_for_the_same_step_is_refused(world):

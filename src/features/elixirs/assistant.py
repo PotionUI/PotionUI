@@ -298,7 +298,11 @@ class ElixirAssistant:
             return {
                 "step": node["id"], "kind": "writer", "label": graph.label(node),
                 "instruction": node.get("instruction") or "",
-                "instruction_chips": node.get("instruction_chips") or {},
+                "phrasebook_chips": [
+                    {"category": chip.get("categoryPath"), "shuffle": bool(chip.get("shuffle"))}
+                    for chip in (node.get("instruction_chips") or {}).values()
+                    if isinstance(chip, dict)
+                ],
                 "variables": node.get("variables") or {},
                 "writes_for": node.get("target_node_id"),
             }

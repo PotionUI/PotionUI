@@ -11,11 +11,12 @@ from src.features.elixirs.contracts import Contracts, lint_contract
 from src.features.elixirs.definitions import NodeRejected, copy_followed, follow_session, import_session, own_settings
 from src.features.elixirs.dto import ElixirDefinition
 from src.features.elixirs.follow import COPY, FOLLOW, NEW, SESSION_MODES, session_mode_of
+from src.features.elixirs.instruction import _placeholder
 from src.features.elixirs.graph import _Graph
 from src.features.elixirs.sessions import LAYOUT_KEYS, SessionModeMissing, apply_overrides, mode_payload
 from src.features.elixirs.vocabulary import WRITER_INPUTS, WRITER_OUTPUT
 from src.features.forms.binding import MEDIA_FIELD_TYPES
-from src.features.tab_drafts.validation import variable_errors
+from src.features.tab_drafts.validation import flat_definition, variable_errors
 
 OPERATIONS = (
     "add_step", "add_start", "insert_between", "add_writer", "remove", "connect",
@@ -579,27 +580,41 @@ class Planner:
 
     def apply_writer_fields(self, writer: Dict[str, Any], op: Mapping[str, Any]) -> List[Tuple[str, Any, Any]]:
         changed = []
+        if "instruction_chips" in op:
+            raise EditRefused(
+                "Do not send 'instruction_chips'; phrasebook chips are added by the user in the editor. "
+                "Write ${name} in the instruction for a writer variable (define it in 'variables') and {a|b|c} for an inline choice."
+            )
         if "instruction" in op:
             text = op.get("instruction")
             if not isinstance(text, str):
                 raise EditRefused("'instruction' must be text.")
             changed.append(("instruction", writer.get("instruction") or None, text))
             writer["instruction"] = text
-        if "instruction_chips" in op:
-            chips = op.get("instruction_chips")
-            if not isinstance(chips, Mapping):
-                raise EditRefused("'instruction_chips' must be an object keyed by chip id, the same shape the elixir stores.")
-            changed.append(("instruction_chips", len(writer.get("instruction_chips") or {}), len(chips)))
-            writer["instruction_chips"] = copy.deepcopy(dict(chips))
+            chips = writer.get("instruction_chips") or {}
+            kept = {key: chip for key, chip in chips.items() if _chip_in_text(chip, text)}
+            if len(kept) != len(chips):
+                writer["instruction_chips"] = kept
         if "variables" in op:
             variables = op.get("variables")
             if not isinstance(variables, Mapping):
-                raise EditRefused("'variables' must be an object keyed by variable name, the same shape as Generate's prompt variables.")
-            problems = variable_errors(dict(variables))
+                raise EditRefused(
+                    "'variables' must be an object keyed by variable name, e.g. "
+                    '{"action": {"type": "choice", "options": ["running", "jumping"], "mode": "shuffle"}}; null removes a variable.'
+                )
+            merged = copy.deepcopy(dict(writer.get("variables") or {}))
+            for name, definition in variables.items():
+                if definition is None:
+                    merged.pop(name, None)
+                elif isinstance(definition, Mapping):
+                    merged[name] = _variable_definition(definition)
+                else:
+                    raise EditRefused(f"Variable '{name}' must be an object with a 'type' (choice, text or number), or null to remove it.")
+            problems = variable_errors(merged)
             if problems:
                 raise EditRefused("The writer's variables are not valid: " + "; ".join(problems[:5]) + ".")
-            changed.append(("variables", sorted(writer.get("variables") or {}), sorted(variables)))
-            writer["variables"] = copy.deepcopy(dict(variables))
+            changed.append(("variables", sorted(writer.get("variables") or {}), sorted(merged)))
+            writer["variables"] = merged
         if "writes_for" in op:
             target_id = op.get("writes_for")
             if target_id is not None:
@@ -617,7 +632,7 @@ class Planner:
             raise EditRefused(f"{self.label(writer)} is not a prompt writer. set_writer changes a writer's instruction and writes_for.")
         changed = self.apply_writer_fields(writer, op)
         if not changed:
-            raise EditRefused("set_writer needs 'instruction', 'instruction_chips', 'variables' or 'writes_for'.")
+            raise EditRefused("set_writer needs 'instruction', 'variables' or 'writes_for'.")
         for name, old, new in changed:
             self.row(writer["id"], name, old, new)
         self.changed = True
@@ -689,3 +704,16 @@ class Planner:
                 "viewport": parsed.viewport.model_dump() if parsed.viewport else None,
             }
         return EditPlan(definition=definition, changed=self.changed, rows=self.rows, session_writes=dict(self.writes))
+
+
+def _chip_in_text(chip: Any, text: str) -> bool:
+    path = str((chip or {}).get("categoryPath") or "") if isinstance(chip, Mapping) else ""
+    if not path:
+        return False
+    return bool(_placeholder(path).search(text))
+
+
+def _variable_definition(definition: Mapping[str, Any]) -> Dict[str, Any]:
+    flat = flat_definition(dict(definition))
+    extra = {key: copy.deepcopy(value) for key, value in definition.items() if key != "pinned_index"}
+    return {**flat, **extra}

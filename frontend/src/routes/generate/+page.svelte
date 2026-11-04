@@ -1839,7 +1839,9 @@
 	<TabBar />
 
 	{#if embeddedActive && stepBar}
-		<StepEditBar model={stepBar} phone={$isMobile} />
+		{#if $isMobile}
+			<StepEditBar model={stepBar} part="phone" />
+		{/if}
 		<StepDialogs model={stepBar} />
 	{/if}
 
@@ -1937,6 +1939,7 @@
 				{:else}
 					<DesktopWorkspace
 						{tab}
+						stepBar={embeddedActive ? stepBar : null}
 						{presets}
 						{readiness}
 						{isLoading}

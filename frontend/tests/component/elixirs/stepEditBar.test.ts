@@ -39,11 +39,23 @@ function render(component: typeof StepEditBar | typeof StepDialogs, props: Recor
 	flushSync();
 }
 
+const extra: Array<ReturnType<typeof mount>> = [];
+
+function renderDesktop(m: StepBarModel) {
+	const lead = document.createElement('div');
+	const actions = document.createElement('div');
+	document.body.append(lead, actions);
+	instance = mount(StepEditBar as never, { target: lead, props: { model: m, part: 'lead' } });
+	extra.push(mount(StepEditBar as never, { target: actions, props: { model: m, part: 'actions' } }));
+	flushSync();
+}
+
 const buttons = () => [...document.body.querySelectorAll<HTMLButtonElement>('button')];
 const byText = (text: string) => buttons().find((button) => button.textContent?.trim() === text);
 const byLabel = (label: string) => document.body.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
 
 afterEach(() => {
+	for (const item of extra.splice(0)) unmount(item);
 	if (instance) unmount(instance);
 	instance = undefined;
 	document.body.innerHTML = '';
@@ -51,7 +63,7 @@ afterEach(() => {
 
 describe('the edit bar on desktop', () => {
 	it('is the one header: Back, Editing, switcher, note, Discard and Save to elixir', () => {
-		render(StepEditBar, { model: model() });
+		renderDesktop(model());
 		const text = document.body.textContent ?? '';
 		expect(document.body.querySelectorAll('[data-testid="step-edit-bar"]')).toHaveLength(1);
 		expect(text).toContain('Back to Potion study');
@@ -66,7 +78,7 @@ describe('the edit bar on desktop', () => {
 
 	it('routes the buttons to the model', () => {
 		const m = model();
-		render(StepEditBar, { model: m });
+		renderDesktop(m);
 		byLabel('Next step')!.click();
 		expect(m.go).toHaveBeenCalledWith('b');
 		byText('Save to elixir')!.click();
@@ -76,19 +88,20 @@ describe('the edit bar on desktop', () => {
 	});
 
 	it('disables Previous on the first step and Next on the last', () => {
-		render(StepEditBar, { model: model() });
+		renderDesktop(model());
 		expect(byLabel('Previous step')!.disabled).toBe(true);
 		expect(byLabel('Next step')!.disabled).toBe(false);
 		unmount(instance!);
+		for (const item of extra.splice(0)) unmount(item);
 		document.body.innerHTML = '';
-		render(StepEditBar, { model: model({ index: 2 }) });
+		renderDesktop(model({ index: 2 }));
 		expect(byLabel('Next step')!.disabled).toBe(true);
 		expect(byLabel('Previous step')!.disabled).toBe(false);
 	});
 
 	it('lists every step with its preset in the Steps menu and switches on pick', () => {
 		const m = model();
-		render(StepEditBar, { model: m });
+		renderDesktop(m);
 		const trigger = buttons().find((button) => button.textContent?.includes('Steps'))!;
 		trigger.click();
 		flushSync();
@@ -101,12 +114,12 @@ describe('the edit bar on desktop', () => {
 	});
 
 	it('shows Unsaved once there are edits', () => {
-		render(StepEditBar, { model: model({ edits: 2 }) });
+		renderDesktop(model({ edits: 2 }));
 		expect(document.body.querySelector('[data-testid="step-unsaved"]')).not.toBeNull();
 	});
 
 	it('locks the controls while saving', () => {
-		render(StepEditBar, { model: model({ saving: true }) });
+		renderDesktop(model({ saving: true }));
 		expect(byText('Discard')!.disabled).toBe(true);
 		expect(byLabel('Next step')!.disabled).toBe(true);
 	});
@@ -114,7 +127,7 @@ describe('the edit bar on desktop', () => {
 
 describe('the edit bar for a followed step', () => {
 	it('shows the session and Saved automatically, with no Save or Discard', () => {
-		render(StepEditBar, { model: model({ follow: true, sessionName: 'Bottle orbit', stepLabel: 'Close-up reveal', index: 1 }) });
+		renderDesktop(model({ follow: true, sessionName: 'Bottle orbit', stepLabel: 'Close-up reveal', index: 1 }));
 		expect(document.body.querySelector('[data-testid="step-follow-chip"]')?.textContent).toContain('Following Bottle orbit');
 		expect(document.body.querySelector('[data-testid="step-autosaved"]')?.textContent).toContain('Saved automatically');
 		expect(byText('Save to elixir')).toBeUndefined();
@@ -126,7 +139,7 @@ describe('the edit bar for a followed step', () => {
 describe('the edit bar on a phone', () => {
 	it('is one row: back arrow, Editing, menu and Save', () => {
 		const m = model();
-		render(StepEditBar, { model: m, phone: true });
+		render(StepEditBar, { model: m, part: 'phone' });
 		expect(byLabel('Back to Potion study')).toBeTruthy();
 		expect(document.body.textContent).toContain('Editing');
 		expect(byLabel('Steps')).toBeTruthy();
@@ -138,7 +151,7 @@ describe('the edit bar on a phone', () => {
 
 	it('opens a Steps sheet with the steps and Discard changes', () => {
 		const m = model();
-		render(StepEditBar, { model: m, phone: true });
+		render(StepEditBar, { model: m, part: 'phone' });
 		byLabel('Steps')!.click();
 		flushSync();
 		expect(document.body.querySelector('.lane-menu.sheet')).not.toBeNull();
@@ -151,7 +164,7 @@ describe('the edit bar on a phone', () => {
 	});
 
 	it('has no Save and no Discard for a followed step', () => {
-		render(StepEditBar, { model: model({ follow: true }), phone: true });
+		render(StepEditBar, { model: model({ follow: true }), part: 'phone' });
 		expect(byText('Save')).toBeUndefined();
 		expect(document.body.querySelector('[data-testid="step-follow-chip"]')).not.toBeNull();
 	});

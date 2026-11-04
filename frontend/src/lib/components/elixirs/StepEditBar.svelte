@@ -7,10 +7,10 @@
 
 	interface Props {
 		model: StepBarModel;
-		phone?: boolean;
+		part?: 'phone' | 'lead' | 'actions';
 	}
 
-	let { model, phone = false }: Props = $props();
+	let { model, part = 'lead' }: Props = $props();
 
 	let menu = $state.raw<LaneMenuData | null>(null);
 	let stepsButton = $state<HTMLElement | null>(null);
@@ -33,7 +33,7 @@
 						run: () => model.go(step.id)
 					}))
 				},
-				...(phone && !model.follow
+				...(part === 'phone' && !model.follow
 					? [{ items: [{ icon: 'undo', name: 'Discard changes', run: () => model.back() }] }]
 					: [])
 			]
@@ -41,14 +41,14 @@
 	}
 </script>
 
-<div
-	class="step-bar flex min-w-0 flex-shrink-0 items-center gap-2 border-b border-line bg-surface-1 px-3 py-2 sm:px-4"
-	role="region"
-	aria-label="Editing {model.stepLabel} of {model.elixirName}"
-	data-testid="step-edit-bar"
-	data-phone={phone ? '' : undefined}
->
-	{#if phone}
+{#if part === 'phone'}
+	<div
+		class="step-bar flex min-w-0 flex-shrink-0 items-center gap-2 border-b border-line bg-surface-1 px-3 py-2"
+		role="region"
+		aria-label="Editing {model.stepLabel} of {model.elixirName}"
+		data-testid="step-edit-bar"
+		data-phone=""
+	>
 		<IconButton icon="arrow-left" label="Back to {model.elixirName}" onclick={() => model.back()} disabled={busy} />
 		<span class="min-w-0 flex-1 truncate text-md text-fg-muted">Editing <b class="font-semibold text-fg">{model.stepLabel}</b></span>
 		{#if model.follow}
@@ -66,16 +66,22 @@
 		{#if !model.follow}
 			<Button variant="primary" size="sm" loading={model.saving} disabled={busy} onclick={() => model.save()}>Save</Button>
 		{/if}
-	{:else}
+	</div>
+{:else if part === 'lead'}
+	<div class="flex min-w-0 items-center gap-2" role="region" aria-label="Editing {model.stepLabel} of {model.elixirName}" data-testid="step-edit-bar">
 		<Button variant="ghost" size="sm" icon="arrow-left" disabled={busy} onclick={() => model.back()}>
 			<span class="max-w-[14rem] truncate">Back to {model.elixirName}</span>
 		</Button>
-		<span class="h-5 w-px bg-line" aria-hidden="true"></span>
+		<span class="h-5 w-px flex-shrink-0 bg-line" aria-hidden="true"></span>
 		<span class="min-w-0 truncate text-md text-fg-muted">Editing <b class="font-semibold text-fg">{model.stepLabel}</b></span>
 		{#if model.follow}
-			<span class="follow-chip" data-testid="step-follow-chip">
-				<Icon name="plug" className="h-3.5 w-3.5" />
+			<span class="follow-chip min-w-0" data-testid="step-follow-chip">
+				<Icon name="plug" className="h-3.5 w-3.5 flex-shrink-0" />
 				<span class="max-w-[14rem] truncate">Following {model.sessionName ?? 'a session'}</span>
+			</span>
+			<span class="saved-note" data-testid="step-autosaved">
+				<Icon name="check" className="h-3.5 w-3.5" />
+				Saved automatically
 			</span>
 		{/if}
 		<span class="inline-flex flex-shrink-0 items-center gap-0.5" role="group" aria-label="Step">
@@ -117,23 +123,20 @@
 				Test runs go to History
 			</span>
 		</Tooltip>
-		<span class="flex-1"></span>
-		{#if model.follow}
-			<span class="saved-note" data-testid="step-autosaved">
-				<Icon name="check" className="h-3.5 w-3.5" />
-				Saved automatically
-			</span>
-		{:else}
-			{#if unsaved}
-				<span class="text-sm text-fg-subtle" data-testid="step-unsaved">Unsaved</span>
-			{/if}
-			<Button variant="secondary" size="sm" disabled={busy} onclick={() => model.back()}>Discard</Button>
-			<Button variant="primary" size="sm" loading={model.saving} disabled={busy} onclick={() => model.save()}>Save to elixir</Button>
+	</div>
+{:else if !model.follow}
+	<div class="flex flex-shrink-0 items-center gap-2" data-testid="step-edit-actions">
+		{#if unsaved}
+			<span class="text-sm text-fg-subtle" data-testid="step-unsaved">Unsaved</span>
 		{/if}
-	{/if}
-</div>
+		<Button variant="secondary" size="sm" disabled={busy} onclick={() => model.back()}>Discard</Button>
+		<Button variant="primary" size="sm" loading={model.saving} disabled={busy} onclick={() => model.save()}>Save to elixir</Button>
+	</div>
+{/if}
 
-<LaneMenu {menu} {phone} onclose={() => (menu = null)} />
+{#if part !== 'actions'}
+	<LaneMenu {menu} phone={part === 'phone'} onclose={() => (menu = null)} />
+{/if}
 
 <style>
 	.follow-chip {

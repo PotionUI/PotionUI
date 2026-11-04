@@ -19,8 +19,8 @@ class Limits:
     max_nodes: int = 24
     max_edges: int = 48
     max_branches: int = 8
-    max_media_per_source: int = 50
-    max_outputs_per_connection: int = 50
+    max_media_per_source: int = 1000
+    max_outputs_per_connection: int = 1000
     max_invocations: int = 200
 
 

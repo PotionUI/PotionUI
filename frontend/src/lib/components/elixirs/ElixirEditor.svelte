@@ -34,6 +34,7 @@
 	import ElixirEmptyState from './ElixirEmptyState.svelte';
 	import SessionPicker from './SessionPicker.svelte';
 	import { openMediaPicker } from '$lib/elixirs/overlays';
+	import { appendAssets, uploadIntoFilesStep, uploadSummary, type UploadItem } from '$lib/elixirs/filesUpload';
 	import { tileKey } from '$lib/elixirs/tiles';
 	import { openOutputView, type OutputViewHandle } from '$lib/elixirs/outputView';
 	import { prepareNodeRequest } from '$lib/elixirs/requests';
@@ -227,6 +228,7 @@
 	let flushing: Promise<void> | null = null;
 	let again = false;
 	let destroyed = false;
+	let uploads = $state<Record<string, UploadItem[]>>({});
 	let narrow = $state(false);
 	let phone = $derived(narrow || hostPhone);
 	let run = $state.raw<Run | null>(null);
@@ -662,7 +664,7 @@
 			const sources = new Set((node.assets ?? []).map((asset) => asset.kind));
 			const sourceLine = sources.size === 0 ? 'No files yet' : sources.size > 1 ? 'From History and the Library' : sources.has('library') ? 'From the Library' : 'From History';
 			const unused = (node.assets?.length ?? 0) > 0 && (tree?.children.get(node.id) ?? []).length === 0;
-			return { ...base, assets: node.assets ?? [], countLine: countLabel(node.assets?.length ?? 0, noun), sourceLine, pickLine: pickLine(node), drawn: drawnKeys(run, node.id), unused };
+			return { ...base, assets: node.assets ?? [], upload: uploads[node.id] ?? null, onfiles: readOnly ? undefined : uploadToStep, countLine: countLabel(node.assets?.length ?? 0, noun), sourceLine, pickLine: pickLine(node), drawn: drawnKeys(run, node.id), unused };
 		}
 		const preset = node.preset_id && node.mode ? presetIndex.get(`${node.preset_id}::${node.mode}`) : null;
 		return {
@@ -1411,6 +1413,32 @@
 		});
 	}
 
+	function setUpload(nodeId: string, items: UploadItem[] | null) {
+		const { [nodeId]: _gone, ...rest } = uploads;
+		uploads = items ? { ...rest, [nodeId]: items } : rest;
+	}
+
+	async function uploadToStep(nodeId: string, files: File[]) {
+		if (readOnly || files.length === 0 || destroyed) return;
+		const node = definition?.nodes.find((item) => item.id === nodeId);
+		if (!node || node.kind !== 'media') return;
+		if (uploads[nodeId] && uploadSummary(uploads[nodeId]).active) {
+			toast('warning', 'Wait for the current upload to finish.');
+			return;
+		}
+		const { failed } = await uploadIntoFilesStep(files, {
+			mediaType: node.media_type,
+			onchange: (items) => !destroyed && setUpload(nodeId, items),
+			onassets: (added) => {
+				const current = definition?.nodes.find((item) => item.id === nodeId);
+				if (destroyed || !current) return;
+				const assets = appendAssets(current.assets, added);
+				change(updateNode(definition!, nodeId, { assets, media_type: current.media_type ?? mediaTypeOf(assets) }), 0);
+			}
+		});
+		if (failed === 0) setUpload(nodeId, null);
+	}
+
 	function removeAsset(index: number) {
 		const node = settingsNode;
 		if (!node) return;
@@ -1916,6 +1944,10 @@
 							onsaveassession={() => saveAsSession(settingsNode.id)}
 							onpickmedia={pickMedia}
 							onremoveasset={removeAsset}
+							onupload={readOnly ? undefined : (files) => uploadToStep(settingsNode.id, files)}
+							onopenfile={(entries, index) => openEntry(settingsNode.id, entries, index)}
+							upload={uploads[settingsNode.id] ?? null}
+							ondismissupload={() => setUpload(settingsNode.id, null)}
 							onclearmedia={clearMedia}
 							onremove={removeSettingsNode}
 							onclose={closeSettings}

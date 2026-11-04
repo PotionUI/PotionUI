@@ -179,6 +179,7 @@ class MediaController(BaseController):
             "filename": result.filename,
             "size": result.size,
             "url": result.url,
+            "id": result.id,
             "width": result.width,
             "height": result.height,
             "duration_seconds": result.duration_seconds,

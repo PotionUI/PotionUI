@@ -18,7 +18,7 @@ from src.features.tab_drafts.validation import variable_errors
 
 MAX_STORED_NODES = 256
 MAX_STORED_EDGES = 512
-MAX_STORED_ASSETS = 256
+MAX_STORED_ASSETS = 5000
 MAX_BREW_INVOCATIONS = 10000
 MAX_INSTRUCTION_CHARS = 4000
 MAX_WRITTEN_CHARS = 8000
@@ -62,6 +62,8 @@ class AssetEntry(BaseModel):
     media_type: Optional[str] = None
     original_filename: Optional[str] = None
     preview_url: Optional[str] = None
+    width: Optional[int] = Field(default=None, ge=1)
+    height: Optional[int] = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def _shape(self) -> "AssetEntry":

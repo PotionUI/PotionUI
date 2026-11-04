@@ -239,7 +239,7 @@ def test_a_library_ref_resolves_only_for_the_uploader_while_the_file_exists(worl
     ref = {"kind": "library", "item_id": "up1"}
 
     assert world.port.resolve(world.owner, ref) == {
-        "value": "uploads/cat.png", "media_type": "image", "original_filename": "cat.png", "origin": None,
+        "value": "uploads/cat.png", "media_type": "image", "original_filename": "cat.png", "width": None, "height": None, "origin": None,
     }
     with pytest.raises(MediaRefError):
         world.port.resolve(world.other, ref)

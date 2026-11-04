@@ -155,7 +155,7 @@ export function createLibraryApi(client: AxiosInstance) {
 		 * uploads are the same `uploads` rows, so this is the same route the
 		 * media loader posts to.
 		 */
-		async uploadLibraryMedia(file: File): Promise<APIResponse<{ filename?: string }>> {
+		async uploadLibraryMedia(file: File): Promise<APIResponse<{ filename?: string; id?: string | null; width?: number | null; height?: number | null }>> {
 			const formData = new FormData();
 			formData.append('file', file);
 			const response = await client.post('/api/media/upload', formData, {

@@ -152,6 +152,8 @@ class GenerationPort:
             "value": f"uploads/{upload.filename}",
             "media_type": upload.media_type,
             "original_filename": upload.original_filename,
+            "width": upload.width,
+            "height": upload.height,
             "origin": None,
         }
 

@@ -29,6 +29,15 @@ def preview_url(ref: Mapping[str, str], resolved: Mapping[str, Any]) -> Optional
     return None
 
 
+def dimensions(source: Mapping[str, Any]) -> Dict[str, int]:
+    found: Dict[str, int] = {}
+    for key in ("width", "height"):
+        value = source.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            found[key] = value
+    return found if len(found) == 2 else {}
+
+
 def resolve_assets(
     user: Any,
     assets: Sequence[Mapping[str, Any]],
@@ -50,6 +59,7 @@ def resolve_assets(
                 "media_type": stored.get("media_type"),
                 "original_filename": stored.get("original_filename"),
                 "preview_url": stored.get("preview_url"),
+                **dimensions(stored),
             })
             continue
         try:
@@ -61,6 +71,7 @@ def resolve_assets(
             "media_type": normalize_media_type(resolved.get("media_type")),
             "original_filename": resolved.get("original_filename"),
             "preview_url": preview_url(ref, resolved),
+            **dimensions(resolved),
         })
     return entries
 

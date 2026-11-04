@@ -65,6 +65,23 @@ only. Running a later step again reuses the files its brew drew; the next brew d
 Validation and the generation estimates count the drawn number, not every file. The card shows
 the mode (Random 3 of 40) and, for the current brew, dims the files it did not draw.
 
+Files show as a justified mosaic: rows of equal height with no gaps, every file keeping its own
+aspect ratio, and the row height growing with the width of the column. The card shows the first
+three rows and a "Show all 1,000 files" control that opens the step's settings, where the full set
+is browsed with remove buttons and a "Show more" control that adds eight rows at a time, so a
+source of thousands of files keeps a bounded number of tiles and lazily loaded thumbnails on screen.
+During a random pick the card puts the drawn files first. A library file's width and height are
+stored on its asset entry (`width`, `height`, set by the server, never trusted from the client);
+files without them are measured as they load.
+
+Files can be added by upload as well as picked. The step's settings have an Upload button, and
+files can be dropped onto the card or the settings, or pasted (Ctrl/Cmd+V) while the card or the
+settings have focus. They go to the Library through the same `POST /api/media/upload` the Library
+uses (the response carries the new item's `id`, so a duplicate resolves to the existing item),
+then join the step in the order they were dropped. Each file shows its own progress and error: a
+type the step does not hold (a step holds images or videos, decided by its first file), a file
+over the plan's `upload_file_size`, or a failed upload. The other files carry on.
+
 ## Prompt writer
 
 A prompt writer node asks a language model to write a prompt from its instruction, once for
@@ -112,8 +129,8 @@ Admins set how large an elixir and a brew may grow through these system settings
 | `elixirs_max_nodes` | 24 | Preset and media nodes in one elixir |
 | `elixirs_max_edges` | 48 | Connections in one elixir |
 | `elixirs_max_branches` | 8 | Outgoing connections from one node |
-| `elixirs_max_media_per_source` | 50 | Files in one media source node |
-| `elixirs_max_outputs_per_connection` | 50 | Files one connection passes on in a single brew |
+| `elixirs_max_media_per_source` | 1000 | Files in one media source node |
+| `elixirs_max_outputs_per_connection` | 1000 | Files one connection passes on in a single brew |
 | `elixirs_max_invocations` | 200 | Generations one brew may start across all branches |
 
 A value that is empty, not a number or below 1 falls back to the default, and a value above

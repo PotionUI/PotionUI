@@ -12,7 +12,12 @@
 	import { untrack } from 'svelte';
 	import type { ElixirsApi } from '$lib/services/api/elixirs';
 	import type { ElixirNode, FollowedState, MediaAsset, NodeOverrides, PresetEntry, ValidationIssue } from '$lib/elixirs/types';
-	import MediaThumb from './MediaThumb.svelte';
+	import MediaMosaic from './MediaMosaic.svelte';
+	import { Spinner } from '$lib/components/ui';
+	import { filesInput } from '$lib/elixirs/filesInput';
+	import { acceptFor, uploadSummary, type UploadItem } from '$lib/elixirs/filesUpload';
+	import { DRAWER_ROWS_STEP } from '$lib/elixirs/mosaic';
+	import type { OutputEntry } from '$lib/elixirs/types';
 	import NodeSettingsForm from './NodeSettingsForm.svelte';
 	import NodeRequestPreview from './NodeRequestPreview.svelte';
 	import { activeTab, panelTabs } from '$lib/elixirs/panelTabs';
@@ -62,6 +67,10 @@
 		onpickmedia: (kind: 'history' | 'library') => void;
 		onremoveasset: (index: number) => void;
 		onclearmedia?: () => void;
+		onupload?: (files: File[]) => void;
+		onopenfile?: (entries: OutputEntry[], index: number) => void;
+		upload?: UploadItem[] | null;
+		ondismissupload?: () => void;
 		onremove?: () => void;
 		onclose?: () => void;
 		writer?: WriterContext | null;
@@ -92,6 +101,10 @@
 		onpickmedia,
 		onremoveasset,
 		onclearmedia,
+		onupload,
+		onopenfile,
+		upload = null,
+		ondismissupload,
 		onremove,
 		onclose,
 		writer = null,
@@ -126,6 +139,10 @@
 	const NO_VARIABLES: VariablesMap = {};
 	let writerVariables = $derived(node.variables ?? NO_VARIABLES);
 	let writerVariableCount = $derived(Object.keys(writerVariables).length);
+	let dropping = $state(false);
+	let mosaicRows = $state(DRAWER_ROWS_STEP);
+	let fileInput = $state<HTMLInputElement>();
+	let uploadState = $derived(upload ? uploadSummary(upload) : null);
 	let variablesOpen = $state(false);
 	let writerUsageCounts = $derived(countUsagesByName([instruction]));
 	let writerReaders = $derived(conditionReadersFor([instruction]));
@@ -211,7 +228,12 @@
 	}
 </script>
 
-<aside class="flex h-full min-h-0 w-full flex-col bg-surface-1" aria-label="{label} settings">
+<aside
+	class="flex h-full min-h-0 w-full flex-col bg-surface-1"
+	class:dropping
+	aria-label="{label} settings"
+	use:filesInput={{ onfiles: (files) => onupload?.(files), onactive: (active) => (dropping = active), enabled: node.kind === 'media' && !!onupload }}
+>
 	<header class="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
 		<div class="min-w-0">
 			<p class="font-mono text-sm uppercase tracking-wide text-fg-subtle">{kindNoun(node.kind)}</p>
@@ -540,6 +562,24 @@
 				<div class="flex flex-wrap gap-2">
 					<Button variant="secondary" size="sm" icon="clock" onclick={() => onpickmedia('history')}>From History</Button>
 					<Button variant="secondary" size="sm" icon="library" onclick={() => onpickmedia('library')}>From Library</Button>
+					{#if onupload}
+						<Button variant="secondary" size="sm" icon="upload" onclick={() => fileInput?.click()}>Upload</Button>
+						<input
+							bind:this={fileInput}
+							type="file"
+							class="sr-only"
+							multiple
+							accept={acceptFor(node.media_type)}
+							tabindex="-1"
+							aria-label="Upload files to this step"
+							onchange={(event) => {
+								const input = event.currentTarget as HTMLInputElement;
+								const files = Array.from(input.files ?? []);
+								input.value = '';
+								if (files.length > 0) onupload?.(files);
+							}}
+						/>
+					{/if}
 					{#if node.assets.length > 0}
 						<Button variant="ghost" size="sm" onclick={onclearmedia}>Remove all</Button>
 					{/if}
@@ -576,24 +616,43 @@
 						</p>
 					</div>
 				{/if}
+				{#if uploadState && (uploadState.active || uploadState.failed.length > 0)}
+					<div class="upload-tray" data-testid="elixir-files-upload" role="status">
+						<div class="flex items-center gap-2">
+							{#if uploadState.active}
+								<Spinner size="sm" />
+								<span class="font-mono text-sm tabular-nums text-fg">Adding {uploadState.done} of {uploadState.total}</span>
+							{:else}
+								<Icon name="warning" className="h-4 w-4 text-warning" />
+								<span class="font-mono text-sm tabular-nums text-fg">{uploadState.done} added, {uploadState.failed.length} not added</span>
+								<Button variant="ghost" size="sm" class="ml-auto" onclick={ondismissupload}>Dismiss</Button>
+							{/if}
+						</div>
+						{#if uploadState.failed.length > 0}
+							<ul class="upload-errors" aria-label="Files that were not added">
+								{#each uploadState.failed.slice(0, 50) as item (item.id)}
+									<li><span class="font-mono text-fg">{item.name}</span> <span class="text-danger">{item.error}</span></li>
+								{/each}
+								{#if uploadState.failed.length > 50}
+									<li class="text-fg-subtle"><span class="font-mono tabular-nums">{uploadState.failed.length - 50}</span> more not added</li>
+								{/if}
+							</ul>
+						{/if}
+					</div>
+				{/if}
 				{#if node.assets.length > 0}
-					<ul class="grid grid-cols-3 gap-2" aria-label="Selected files">
-						{#each node.assets as asset, index (`${asset.kind}:${asset.item_id ?? asset.file_id}`)}
-							<li class="relative">
-								<MediaThumb {asset} />
-								<Tooltip text="Remove from this source">
-									<button
-										type="button"
-										class="remove-asset"
-										aria-label="Remove {asset.original_filename || `file ${index + 1}`}"
-										onclick={() => onremoveasset(index)}
-									>
-										<Icon name="close" className="h-3.5 w-3.5" />
-									</button>
-								</Tooltip>
-							</li>
-						{/each}
-					</ul>
+					<MediaMosaic
+						entries={node.assets as OutputEntry[]}
+						label="Selected files"
+						maxRows={mosaicRows}
+						openerScope="panel:{node.id}"
+						onopen={(_entry, index, shown) => onopenfile?.(shown, index)}
+						onremove={onremoveasset}
+						moreLabel={(shown, total) => `Show more · ${shown.toLocaleString('en-US')} of ${total.toLocaleString('en-US')}`}
+						onmore={() => (mosaicRows += DRAWER_ROWS_STEP)}
+					/>
+				{:else if onupload}
+					<p class="drop-note">Drop images or videos here, or paste them, to add them to your Library and this step.</p>
 				{/if}
 			</section>
 		{/if}
@@ -682,20 +741,37 @@
 		font-size: 12px;
 		line-height: 16px;
 	}
-	.remove-asset {
-		position: absolute;
-		top: 0.25rem;
-		right: 0.25rem;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 1.5rem;
-		height: 1.5rem;
-		border-radius: 4px;
-		background: rgb(var(--canvas) / 0.8);
-		color: rgb(var(--fg));
+	.dropping {
+		box-shadow: inset 0 0 0 2px rgb(var(--signal));
 	}
-	.remove-asset:hover {
-		background: rgb(var(--danger-solid));
+	.upload-tray {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding: 8px 10px;
+		border: 1px solid rgb(var(--line));
+		border-radius: 4px;
+		background: rgb(var(--surface-2));
+	}
+	.upload-errors {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		max-height: 9rem;
+		overflow-y: auto;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		font-size: 12px;
+		line-height: 16px;
+	}
+	.drop-note {
+		margin: 0;
+		padding: 16px 12px;
+		border: 1px dashed rgb(var(--line-strong));
+		border-radius: 4px;
+		text-align: center;
+		font-size: 14px;
+		color: rgb(var(--fg-subtle));
 	}
 </style>

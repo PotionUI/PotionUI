@@ -5,6 +5,11 @@
 	import NodeIssues from './NodeIssues.svelte';
 	import NodeStatusRow from './NodeStatusRow.svelte';
 	import OutputGallery from './OutputGallery.svelte';
+	import MediaMosaic from './MediaMosaic.svelte';
+	import { Spinner } from '$lib/components/ui';
+	import { filesInput } from '$lib/elixirs/filesInput';
+	import { uploadSummary } from '$lib/elixirs/filesUpload';
+	import { CARD_ROWS, showAllLabel } from '$lib/elixirs/mosaic';
 	import TextOutputs from './TextOutputs.svelte';
 	import { promptsPerInput } from '$lib/elixirs/model';
 	import type { Lane } from '$lib/elixirs/choice';
@@ -26,18 +31,22 @@
 	let chips = $derived(data.choice?.choosing ? data.choice.lanes.filter((lane: Lane) => lane.open || lane.sent) : []);
 	let activeChip = $derived(data.choice?.lanes.find((lane: Lane) => lane.edgeId === data.choice.active) ?? null);
 	let border = $derived(data.panelOpen ? 'border-signal' : data.severity === 'error' || status === 'failed' ? 'border-danger' : 'border-line-strong');
+	let dropping = $state(false);
+	let upload = $derived(data.upload ? uploadSummary(data.upload) : null);
 	let showOutputs = $derived(kind === 'media' || (data.run && !['waiting', 'queued'].includes(status)));
 </script>
 
 <article
 	class="node-card cursor-pointer rounded-lg border bg-surface-1 shadow-raised {border}"
 	class:flash
+	class:dropping
 	aria-label="{data.label}, {kind === 'media' ? 'files' : kind === 'llm' ? 'prompt writer' : 'preset step'}"
 	data-state={status ?? 'idle'}
 	data-card-id={data.node.id}
 	data-node-root={data.node.id}
 	tabindex="0"
 	use:openOnActivate={() => data.onopennode(data.node.id)}
+	use:filesInput={{ onfiles: (files) => data.onfiles?.(data.node.id, files), onactive: (active) => (dropping = active), enabled: kind === 'media' && !!data.onfiles }}
 >
 	<NodeHeader {data} {kind} {phone} />
 
@@ -55,14 +64,34 @@
 				{/if}
 			</p>
 		{/if}
-		<OutputGallery
-			{entries}
-			drawn={data.drawn ?? null}
-			label="{data.label} files"
-			emptyText="Choose files from History or the Library."
-			openerScope={data.node.id}
-			onopen={(entry, index) => data.onopen(data.node.id, entries, index)}
-		/>
+		{#if upload}
+			<p class="upload-line" data-testid="elixir-files-upload" role="status">
+				{#if upload.active}
+					<Spinner size="sm" />
+					<span class="font-mono tabular-nums">Adding {upload.done} of {upload.total}</span>
+				{:else if upload.failed.length > 0}
+					<Icon name="warning" className="h-3.5 w-3.5" />
+					<span class="font-mono tabular-nums">{upload.failed.length} of {upload.total} not added</span>
+					<span class="text-fg-subtle">· details in the step settings</span>
+				{/if}
+			</p>
+		{/if}
+		{#if entries.length > 0}
+			<div class="mosaic-box">
+				<MediaMosaic
+					{entries}
+					drawn={data.drawn ?? null}
+					label="{data.label} files"
+					maxRows={CARD_ROWS}
+					openerScope={data.node.id}
+					onopen={(entry, index, shown) => data.onopen(data.node.id, shown, index)}
+					moreLabel={(_shown, total) => showAllLabel(total)}
+					onmore={() => data.onopennode(data.node.id)}
+				/>
+			</div>
+		{:else}
+			<p class="empty-files">Choose files from History or the Library, or drop files here to upload.</p>
+		{/if}
 		{#if data.unused}
 			<p class="warn">Nothing uses these files yet. Add a step after them.</p>
 		{/if}
@@ -303,6 +332,31 @@
 	.slot-label {
 		width: 104px;
 		flex: none;
+		font-size: 12px;
+		color: rgb(var(--fg-muted));
+	}
+	.node-card.dropping {
+		border-color: rgb(var(--signal));
+		background: rgb(var(--signal) / 0.06);
+	}
+	.mosaic-box {
+		padding: 4px 16px 16px;
+	}
+	.empty-files {
+		margin: 4px 16px 16px;
+		padding: 16px 12px;
+		border: 1px dashed rgb(var(--line-strong));
+		border-radius: 4px;
+		text-align: center;
+		font-size: 14px;
+		color: rgb(var(--fg-subtle));
+	}
+	.upload-line {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 0;
+		padding: 2px 16px 6px;
 		font-size: 12px;
 		color: rgb(var(--fg-muted));
 	}

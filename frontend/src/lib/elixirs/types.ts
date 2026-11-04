@@ -63,6 +63,8 @@ export interface MediaAsset {
 	media_type?: string | null;
 	original_filename?: string | null;
 	preview_url?: string | null;
+	width?: number | null;
+	height?: number | null;
 }
 
 export interface ElixirNode {
@@ -135,6 +137,8 @@ export interface OutputEntry {
 	media_type?: string | null;
 	original_filename?: string | null;
 	preview_url?: string | null;
+	width?: number | null;
+	height?: number | null;
 	media_url?: string | null;
 	for_key?: string;
 	slot_key?: string;

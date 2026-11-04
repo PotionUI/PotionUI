@@ -12,9 +12,11 @@
 		ontick?: (entry: OutputEntry) => void;
 		letters?: TileLetter[];
 		opener?: string | null;
+		fill?: boolean;
+		onmeasure?: (width: number, height: number) => void;
 	}
 
-	let { entry, onopen, tick = null, ontick, letters = [], opener = null }: Props = $props();
+	let { entry, onopen, tick = null, ontick, letters = [], opener = null, fill = false, onmeasure }: Props = $props();
 
 	let video = $state<HTMLVideoElement>();
 	let playing = $state(false);
@@ -23,7 +25,10 @@
 	let ratio = $state<string | null>(null);
 
 	function measure(width: number, height: number) {
-		if (width > 0 && height > 0) ratio = `${width} / ${height}`;
+		if (width > 0 && height > 0) {
+			ratio = `${width} / ${height}`;
+			onmeasure?.(width, height);
+		}
 	}
 	let lastPointer = 'mouse';
 
@@ -61,7 +66,8 @@
 <div
 	class="tile group relative w-full overflow-hidden rounded border border-line-strong bg-canvas hover:border-line-hover"
 	class:chosen={tick?.checked}
-	style:aspect-ratio={ratio}
+	style:height={fill ? '100%' : null}
+	style:aspect-ratio={fill ? null : ratio}
 	onmouseenter={() => kind === 'video' && play()}
 	onmouseleave={() => kind === 'video' && stop()}
 	role="presentation"

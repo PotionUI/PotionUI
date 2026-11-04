@@ -121,8 +121,8 @@ the user to press Brew, or Continue after a choice.
 
 `edit_elixir` operations: `add_step` (after a step, or a new lane), `add_start` (before a
 lane's first step), `insert_between`, `add_writer`, `remove` (files are rewired past the
-removed step), `connect`, `set_settings`, `set_writer` (instruction text, `instruction_chips`
-and writes-for) and `set_session` (follow, copy or new). `set_settings` checks field names
+removed step), `connect`, `set_settings`, `set_writer` (instruction text, `instruction_chips`,
+the writer's own `variables` and writes-for) and `set_session` (follow, copy or new). `set_settings` checks field names
 against the step's preset form and refuses fields filled by a connection. A following step's
 change is saved into its session through the sessions API with the version the elixir last
 saw, so every step and Generate tab using that session updates; a copy or new step keeps the

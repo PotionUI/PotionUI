@@ -218,6 +218,21 @@ def test_writer_chips_pass_through(world):
     assert node(stored(record).definition, writer["id"])["instruction_chips"]["c1"]["categoryPath"] == "colors"
 
 
+def test_a_writer_keeps_its_own_variables(world):
+    record = create(shoot_and_sharpen())
+    edit(world, record, {"op": "add_writer", "for_step": "sharpen"})
+    record = stored(record)
+    writer = next(item for item in record.definition["nodes"] if item["kind"] == "llm")
+    mood = {"type": "choice", "options": ["noir", "sunlit"], "mode": "shuffle", "pinnedIndex": None}
+
+    edit(world, record, {"op": "set_writer", "step": writer["id"], "variables": {"mood": mood}})
+
+    assert node(stored(record).definition, writer["id"])["variables"]["mood"]["options"] == ["noir", "sunlit"]
+    assert world.assistant.step_settings("alice", record.id, writer["id"])["variables"]["mood"]["type"] == "choice"
+    bad = refused(world, stored(record), {"op": "set_writer", "step": writer["id"], "variables": {"mood": {"type": "choice", "options": []}}})
+    assert "variables are not valid" in bad
+
+
 def test_a_second_writer_for_the_same_step_is_refused(world):
     record = create(shoot_and_sharpen())
     edit(world, record, {"op": "add_writer", "for_step": "sharpen"})

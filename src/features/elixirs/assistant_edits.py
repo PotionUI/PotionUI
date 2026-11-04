@@ -15,6 +15,7 @@ from src.features.elixirs.graph import _Graph
 from src.features.elixirs.sessions import LAYOUT_KEYS, SessionModeMissing, apply_overrides, mode_payload
 from src.features.elixirs.vocabulary import WRITER_INPUTS, WRITER_OUTPUT
 from src.features.forms.binding import MEDIA_FIELD_TYPES
+from src.features.tab_drafts.validation import variable_errors
 
 OPERATIONS = (
     "add_step", "add_start", "insert_between", "add_writer", "remove", "connect",
@@ -590,6 +591,15 @@ class Planner:
                 raise EditRefused("'instruction_chips' must be an object keyed by chip id, the same shape the elixir stores.")
             changed.append(("instruction_chips", len(writer.get("instruction_chips") or {}), len(chips)))
             writer["instruction_chips"] = copy.deepcopy(dict(chips))
+        if "variables" in op:
+            variables = op.get("variables")
+            if not isinstance(variables, Mapping):
+                raise EditRefused("'variables' must be an object keyed by variable name, the same shape as Generate's prompt variables.")
+            problems = variable_errors(dict(variables))
+            if problems:
+                raise EditRefused("The writer's variables are not valid: " + "; ".join(problems[:5]) + ".")
+            changed.append(("variables", sorted(writer.get("variables") or {}), sorted(variables)))
+            writer["variables"] = copy.deepcopy(dict(variables))
         if "writes_for" in op:
             target_id = op.get("writes_for")
             if target_id is not None:
@@ -607,7 +617,7 @@ class Planner:
             raise EditRefused(f"{self.label(writer)} is not a prompt writer. set_writer changes a writer's instruction and writes_for.")
         changed = self.apply_writer_fields(writer, op)
         if not changed:
-            raise EditRefused("set_writer needs 'instruction', 'instruction_chips' or 'writes_for'.")
+            raise EditRefused("set_writer needs 'instruction', 'instruction_chips', 'variables' or 'writes_for'.")
         for name, old, new in changed:
             self.row(writer["id"], name, old, new)
         self.changed = True

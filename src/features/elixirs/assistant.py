@@ -215,6 +215,8 @@ class ElixirAssistant:
             step["instruction"] = _short(node.get("instruction") or "")
             if node.get("instruction_chips"):
                 step["instruction_chip_count"] = len(node["instruction_chips"])
+            if node.get("variables"):
+                step["variables"] = sorted(node["variables"])
             step["writes_for"] = node.get("target_node_id")
             step["prompt_goes_to"] = [edge["target"] for edge in edges if edge["source"] == node["id"]]
             step["styled_for"] = writer_target(nodes, edges, node)
@@ -297,6 +299,7 @@ class ElixirAssistant:
                 "step": node["id"], "kind": "writer", "label": graph.label(node),
                 "instruction": node.get("instruction") or "",
                 "instruction_chips": node.get("instruction_chips") or {},
+                "variables": node.get("variables") or {},
                 "writes_for": node.get("target_node_id"),
             }
         if node.get("kind") != "preset":

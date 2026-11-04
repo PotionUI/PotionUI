@@ -18,6 +18,8 @@ pane, Workbench, deck, `ContextToolbar`, layout picker or preset selector.
 | `activeTool` | The sub-tool to show (Crop, Trim, ...) |
 | `dirty` | Unsaved step count: the tab's warning dot and the close prompt |
 | `thumbnail` | URL for the 20px tab thumbnail |
+| `key` | Identity of what the tab holds when it is not a media source (an elixir id): one tab per key |
+| `status` | `{ tone, label, count?, pulse?, ring? }` shown in the tab's status slot (BookTab, phone pill, Tabs sheet) |
 
 Tool tabs persist with the other tabs and in Workspaces. `activeTab` always yields a
 `GenerationTab` (the last active one while a tool tab is up); `currentTab` is the real active tab
@@ -37,6 +39,13 @@ registerToolKind({
 	load: () => import('./ImageEditorTab.svelte')
 });
 ```
+
+Optional members: `menu` (a lazy picker component the "+" menu drills into, with a back arrow, and the
+phone Tabs sheet opens as a sheet; it gets `close`, `back`, `phone`), `watch` (runs for every open tab of
+the kind that is not active and reports its `status`; started by `watchers.ts` on the Generate page),
+`confirmClose: false` (close without the confirm when nothing is unsaved), `onClosed(tab)`,
+`renamable: false` (no double-click rename) and `phoneActions: false` (no Undo/Save in the phone top bar).
+The Elixir tool (`elixir`) uses all of them.
 
 `component` takes a component directly, `load` a lazy import. The core kinds are registered in
 `builtin.ts`; the Image and Video editor lanes replace only the `load` there. Plugin kinds come from
@@ -61,6 +70,8 @@ The component gets one prop, `host: ToolTabHost` (`types.ts`):
 | `setSource(ref)` | Load media into an empty tab (pickers, drops, pastes) |
 | `hint`, `clearHint()` | One-shot hint from the shortcut that opened the tab (`look`, `effect`, `orientation`, `sendTo`); not persisted |
 | `setActiveTool(id)`, `setRun(run)` | Keep the sub-tool and the background run in the tab |
+| `key`, `claimKey(key, state, title)` | The tab's identity; claiming a key another tab holds focuses that tab and closes this one |
+| `setStatus(status)` | The tab's status slot (`null` clears it); written only when it changed |
 | `setActions({ undo, redo, save })` | Fill the phone top bar's Undo / Redo / Save; `save.progress` shows the render % |
 | `openToolTab(tool, source, { activeTool, hint })` | Open another tool tab (for example a video frame in the Image editor) |
 
@@ -69,6 +80,8 @@ The component gets one prop, `host: ToolTabHost` (`types.ts`):
 `tabsStore.openToolTab(tool, source, { activeTool })`, `tabsStore.openToolTabs(tool, sources)` and
 `tabsStore.findToolTabFor(source, tool?)` are the one public API:
 
+- with `{ key, state, name }`: the tab of that tool holding `key` gets focus; otherwise the active blank tab
+  of that tool is filled, or a new tab opens (`findToolTabByKey`, `claimToolTabKey`);
 - the item is already open in that tool: its tab gets focus and `activeTool` switches;
 - an untouched empty tab of that tool exists (no source, no edits, no state): the item loads into
   it, the active one first;
@@ -96,3 +109,4 @@ menu footer that names the tab a menu opens.
 - `types.ts`: the contract. `registry.ts`, `builtin.ts`, `pluginToolTabs.ts`: tool kinds. `sources.ts`: the open rules.
 - `ToolTabHost.svelte`: mounts the active tool. `PhoneToolTabView.svelte`: phone top bar + host.
 - `NewTabMenu.svelte`: the "+" menu. `TabsSheet.svelte`: the phone Tabs sheet.
+- `status.ts`, `ToolTabStatusMark.svelte`: tab status. `watchers.ts`: background `watch` runners.

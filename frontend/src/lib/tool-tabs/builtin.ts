@@ -1,3 +1,4 @@
+import { elixirToolKind } from '$lib/elixirs/kind';
 import { registerToolKind } from './registry';
 
 let registered = false;
@@ -23,4 +24,5 @@ export function registerBuiltinToolKinds(): void {
 		order: 20,
 		load: () => import('$lib/components/tool-tabs/video/VideoEditorTab.svelte')
 	});
+	registerToolKind(elixirToolKind);
 }

@@ -3,6 +3,7 @@ import { tabsStore } from '$lib/stores/tabs';
 import { tabHasUnsavedWork } from '$lib/utils/newWorkspace';
 import type { GenerationTab, Tab, ToolTab } from '$lib/types/tabs';
 import { isToolTab } from '$lib/types/tabs';
+import { getToolKind } from '$lib/tool-tabs/registry';
 
 const pending = writable<string | null>(null);
 
@@ -12,16 +13,27 @@ export function tabIsRunning(tab: GenerationTab): boolean {
 	return tab.generation.isGenerating || (tab.generation.queue?.length ?? 0) > 0;
 }
 
+function closeNow(tab: Tab): void {
+	tabsStore.removeTab(tab.id);
+	if (isToolTab(tab)) getToolKind(tab.tool)?.onClosed?.(tab);
+}
+
 export function requestCloseTab(id: string): void {
 	const { tabs } = get(tabsStore);
-	if (tabs.length < 2 || !tabs.some((t) => t.id === id)) return;
+	const tab = tabs.find((t) => t.id === id);
+	if (tabs.length < 2 || !tab) return;
+	if (isToolTab(tab) && !(tab.dirty ?? 0) && getToolKind(tab.tool)?.confirmClose === false) {
+		closeNow(tab);
+		return;
+	}
 	pending.set(id);
 }
 
 export function confirmCloseTab(): void {
 	const id = get(pending);
 	pending.set(null);
-	if (id && get(tabsStore).tabs.some((t) => t.id === id)) tabsStore.removeTab(id);
+	const tab = id ? get(tabsStore).tabs.find((t) => t.id === id) : undefined;
+	if (tab) closeNow(tab);
 }
 
 export function cancelCloseTab(): void {

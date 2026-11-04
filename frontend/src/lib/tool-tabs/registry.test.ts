@@ -27,7 +27,8 @@ describe('tool kind registry', () => {
 		registerBuiltinToolKinds();
 		expect(get(coreToolKinds).map((kind) => [kind.tool, kind.label])).toEqual([
 			['image', 'Image editor'],
-			['video', 'Video editor']
+			['video', 'Video editor'],
+			['elixir', 'Elixir']
 		]);
 		expect(toolLabel('video')).toBe('Video editor');
 		expect(toolLabel('nope.tool')).toBe('nope.tool');

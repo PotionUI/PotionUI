@@ -1,7 +1,7 @@
 import { writable, derived, type Readable } from 'svelte/store';
 import type { GenerationTab, GenerationState, MediaRef, PersistedGenerationTab, PersistedToolTab, Tab, ToolTab, ToolTabHint } from '$lib/types/tabs';
 import { isGenerationTab, isToolTab } from '$lib/types/tabs';
-import { findToolTabFor, mediaFileStem, planToolTabOpen } from '$lib/tool-tabs/sources';
+import { findToolTabByKey, findToolTabFor, mediaFileStem, planToolTabOpen } from '$lib/tool-tabs/sources';
 import { toolLabel } from '$lib/tool-tabs/registry';
 import { registerBuiltinToolKinds } from '$lib/tool-tabs/builtin';
 
@@ -114,7 +114,9 @@ function restoreToolTab(id: string, p: PersistedToolTab): ToolTab {
 		activeTool: p.activeTool ?? null,
 		dirty: p.dirty ?? 0,
 		thumbnail: p.thumbnail ?? null,
-		renamed: p.renamed ?? false
+		renamed: p.renamed ?? false,
+		key: p.key ?? null,
+		status: p.status ?? null
 	};
 }
 
@@ -122,6 +124,9 @@ export interface OpenToolTabOptions {
 	activeTool?: string | null;
 	hint?: ToolTabHint | null;
 	activate?: boolean;
+	key?: string | null;
+	state?: unknown;
+	name?: string | null;
 }
 
 export type ToolTabUpdate = Partial<Omit<ToolTab, 'kind' | 'id'>>;
@@ -517,10 +522,26 @@ function createTabsStore() {
 		openToolTab: (tool: string, source: MediaRef | null, options: OpenToolTabOptions = {}): string => {
 			let openedId = '';
 			update((state) => {
-				const plan = planToolTabOpen(state.tabs, state.activeTabId, tool, source);
+				const key = options.key ?? null;
+				const plan = planToolTabOpen(state.tabs, state.activeTabId, tool, source, key);
 				const activeTool = options.activeTool ?? null;
 				const hint = options.hint ?? null;
 				const activate = options.activate !== false;
+				if (key && plan.action !== 'focus') {
+					const keyed: ToolTabUpdate = { key, state: options.state ?? null, source, activeTool, hint, status: null };
+					if (plan.action === 'fill') {
+						openedId = plan.tabId;
+						const tabs = state.tabs.map((tab) =>
+							tab.id === plan.tabId && isToolTab(tab)
+								? { ...tab, ...keyed, name: tab.renamed ? tab.name : (options.name || tab.name) }
+								: tab
+						);
+						return { ...state, tabs, activeTabId: activate ? plan.tabId : state.activeTabId };
+					}
+					const appended = appendToolTab(state, { tool, ...keyed, ...(options.name ? { name: options.name } : {}) }, activate);
+					openedId = appended.id;
+					return appended.state;
+				}
 				if (plan.action === 'focus') {
 					openedId = plan.tabId;
 					const tabs = state.tabs.map((tab) =>
@@ -563,6 +584,32 @@ function createTabsStore() {
 			}
 			if (ids.length > 0) update((state) => ({ ...state, activeTabId: ids[0] }));
 			return ids;
+		},
+
+		findToolTabByKey: (tool: string, key: string | null | undefined): ToolTab | null => {
+			let found: ToolTab | null = null;
+			subscribe((state) => (found = findToolTabByKey(state.tabs, tool, key)))();
+			return found;
+		},
+
+		claimToolTabKey: (tabId: string, key: string, data: unknown, name?: string | null): string => {
+			let claimedId = tabId;
+			update((state) => {
+				const current = state.tabs.find((tab) => tab.id === tabId);
+				if (!isToolTab(current)) return state;
+				const holder = findToolTabByKey(state.tabs, current.tool, key);
+				if (holder && holder.id !== tabId) {
+					claimedId = holder.id;
+					return { ...state, tabs: state.tabs.filter((tab) => tab.id !== tabId), activeTabId: holder.id };
+				}
+				const tabs = state.tabs.map((tab) =>
+					tab.id === tabId && isToolTab(tab)
+						? { ...tab, key, state: data ?? null, status: null, name: tab.renamed || !name ? tab.name : name }
+						: tab
+				);
+				return { ...state, tabs };
+			});
+			return claimedId;
 		},
 
 		findToolTabFor: (source: MediaRef | null, tool?: string): ToolTab | null => {

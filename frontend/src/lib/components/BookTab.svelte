@@ -4,6 +4,7 @@
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import type { ToolTabStatus } from '$lib/types/tabs';
 
 	export let id: string;
 	export let name: string;
@@ -18,6 +19,8 @@
 	export let progress: number | null = null;
 	export let unsavedLabel: string = 'Unsaved changes';
 	export let remoteChange: string | null = null;
+	export let status: ToolTabStatus | null = null;
+	export let renamable: boolean = true;
 
 	const dispatch = createEventDispatcher();
 
@@ -63,7 +66,7 @@
 
 	// Handle double-click to rename
 	function handleDoubleClick() {
-		if (!isActive) return; // Only allow renaming active tab
+		if (!isActive || !renamable) return;
 		startEditing();
 	}
 
@@ -214,6 +217,21 @@
 				<span class="tab-name">{name}</span>
 				{#if progress !== null}
 					<span class="tab-progress font-mono text-xs tabular-nums" data-testid="tab-progress">{Math.round(progress)}%</span>
+				{/if}
+				{#if status}
+					<Tooltip text="{name} · {status.label}" position="bottom" delay={150} wrapperClass="flex items-center">
+						<span class="tab-status font-mono text-xs tabular-nums" data-testid="tab-status" data-tone={status.tone}>
+							<span
+								class="status-dot"
+								class:status-ring={status.ring}
+								class:status-pulse={status.pulse}
+								class:status-danger={status.tone === 'danger'}
+								class:status-success={status.tone === 'success'}
+							></span>
+							{#if status.count}<span>{status.count[0]}/{status.count[1]}</span>{/if}
+						</span>
+					</Tooltip>
+					<span class="sr-only">, {status.label}</span>
 				{/if}
 				{#if remoteChange}
 					<Tooltip text={remoteChange} position="bottom" delay={150} wrapperClass="flex items-center">
@@ -416,6 +434,49 @@
 	.tab-progress {
 		font-weight: 500;
 		color: rgb(var(--signal));
+	}
+
+	.tab-status {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		color: rgb(var(--signal));
+	}
+
+	.status-dot {
+		width: 7px;
+		height: 7px;
+		flex-shrink: 0;
+		border-radius: 50%;
+		background: rgb(var(--signal));
+	}
+
+	.status-ring {
+		box-shadow: 0 0 0 3px rgb(var(--signal) / 0.25);
+	}
+
+	.status-pulse {
+		animation: tab-status-pulse 1.6s ease-in-out infinite;
+	}
+
+	.status-danger {
+		background: rgb(var(--danger));
+	}
+
+	.status-success {
+		background: rgb(var(--success));
+	}
+
+	@keyframes tab-status-pulse {
+		50% {
+			opacity: 0.35;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.status-pulse {
+			animation: none;
+		}
 	}
 
 	.unsaved-mark {

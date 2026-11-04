@@ -34,6 +34,7 @@ export interface WorkspaceTab {
 	state?: unknown;
 	activeTool?: string | null;
 	renamed?: boolean;
+	key?: string | null;
 	preset_id?: string | null;
 	mode?: string | null;
 	autoTagIds?: string[];

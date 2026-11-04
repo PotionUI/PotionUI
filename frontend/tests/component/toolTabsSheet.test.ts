@@ -71,7 +71,7 @@ describe('the phone Tabs sheet', () => {
 		try {
 			mountSheet();
 			await settle();
-			expect(newButtons().map((b) => b.textContent?.trim())).toEqual(['Generation', 'Image editor', 'Video editor', 'Stamp tool']);
+			expect(newButtons().map((b) => b.textContent?.trim())).toEqual(['Generation', 'Image editor', 'Video editor', 'Elixir', 'Stamp tool']);
 			expect(document.body.textContent).not.toMatch(/plugin/i);
 		} finally {
 			off();
@@ -81,8 +81,18 @@ describe('the phone Tabs sheet', () => {
 	it('says nothing about plugins when there are none', async () => {
 		mountSheet();
 		await settle();
-		expect(newButtons().map((b) => b.textContent?.trim())).toEqual(['Generation', 'Image editor', 'Video editor']);
+		expect(newButtons().map((b) => b.textContent?.trim())).toEqual(['Generation', 'Image editor', 'Video editor', 'Elixir']);
+		expect(document.body.querySelector('[data-testid="tabs-sheet-new"]')?.className).toContain('grid-cols-2');
 		expect(document.body.textContent).not.toMatch(/plugin/i);
+	});
+
+	it('names an elixir tab status in its row', async () => {
+		const id = tabsStore.openToolTab('elixir', null, { key: 'e1', name: 'Potion study' });
+		tabsStore.updateToolTab(id, { status: { tone: 'signal', label: 'Brewing, 3 of 6 steps done', count: [3, 6], pulse: true } });
+		mountSheet();
+		await settle();
+		expect(rowTexts().at(-1)).toContain('Elixir · brewing, 3 of 6 steps done');
+		expect(document.body.querySelectorAll('[data-testid="tabs-sheet-row"] [data-testid="tab-status"]')).toHaveLength(1);
 	});
 
 	it('opens an empty Image editor tab and closes', async () => {

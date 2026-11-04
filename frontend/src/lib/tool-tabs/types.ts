@@ -1,9 +1,9 @@
 import type { Component } from 'svelte';
-import type { MediaRef, RunRef, ToolTabHint } from '$lib/types/tabs';
+import type { MediaRef, RunRef, ToolTab, ToolTabHint, ToolTabStatus } from '$lib/types/tabs';
 
-export type { ToolTabHint };
+export type { ToolTabHint, ToolTabStatus };
 
-export type CoreToolKind = 'image' | 'video';
+export type CoreToolKind = 'image' | 'video' | 'elixir';
 
 export type ToolKind = CoreToolKind | `${string}.${string}`;
 
@@ -12,6 +12,9 @@ export type ToolMediaKind = 'image' | 'video' | 'audio';
 export interface ToolTabOpenOptions {
 	activeTool?: string | null;
 	hint?: ToolTabHint | null;
+	key?: string | null;
+	state?: unknown;
+	name?: string | null;
 }
 
 export interface ToolTabAction {
@@ -39,6 +42,7 @@ export interface ToolTabHost<State = unknown> {
 	readonly run: RunRef | null;
 	readonly hint: ToolTabHint | null;
 	readonly phone: boolean;
+	readonly key?: string | null;
 	setState(next: State | null): void;
 	setDirty(edits: number): void;
 	setTitle(title: string): void;
@@ -49,6 +53,8 @@ export interface ToolTabHost<State = unknown> {
 	setRun(run: RunRef | null): void;
 	clearHint(): void;
 	setActions(actions: ToolTabActions | null): void;
+	setStatus?(status: ToolTabStatus | null): void;
+	claimKey?(key: string, state: State | null, title?: string | null): string;
 	openToolTab(tool: string, source: MediaRef | null, options?: ToolTabOpenOptions): string;
 }
 
@@ -57,6 +63,21 @@ export interface ToolTabComponentProps {
 }
 
 export type ToolTabComponent = Component<ToolTabComponentProps>;
+
+export interface ToolKindMenuProps {
+	close: () => void;
+	back?: () => boolean;
+	phone?: boolean;
+}
+
+export type ToolKindMenuComponent = Component<ToolKindMenuProps>;
+
+export interface ToolTabWatchContext {
+	tab: ToolTab;
+	setStatus(status: ToolTabStatus | null): void;
+}
+
+export type ToolTabWatcher = (context: ToolTabWatchContext) => () => void;
 
 export type ToolTabComponentLoader = () => Promise<ToolTabComponent | { default: ToolTabComponent } | null>;
 
@@ -71,6 +92,12 @@ export interface ToolKindDefinition {
 	load?: ToolTabComponentLoader;
 	pluginId?: string;
 	order?: number;
+	menu?: () => Promise<ToolKindMenuComponent | { default: ToolKindMenuComponent }>;
+	watch?: ToolTabWatcher;
+	confirmClose?: boolean;
+	renamable?: boolean;
+	phoneActions?: boolean;
+	onClosed?: (tab: ToolTab) => void;
 }
 
 export interface PluginToolTabEntry {

@@ -298,7 +298,9 @@ describe('tool tab persistence', () => {
 			activeTool: 'crop',
 			dirty: 1,
 			thumbnail: null,
-			renamed: false
+			renamed: false,
+			key: null,
+			status: null
 		});
 	});
 

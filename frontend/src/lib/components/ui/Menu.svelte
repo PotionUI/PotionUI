@@ -37,6 +37,7 @@
 		anchor = null,
 		onopen,
 		onclose,
+		onescape,
 		trigger,
 		children
 	}: {
@@ -56,6 +57,7 @@
 		anchor?: MenuAnchor | null;
 		onopen?: () => void;
 		onclose?: () => void;
+		onescape?: () => boolean;
 		trigger?: Snippet<[{ open: boolean; toggle: () => void }]>;
 		children?: Snippet<[{ close: (restoreFocus?: boolean) => void }]>;
 	} = $props();
@@ -137,7 +139,7 @@
 		bind:this={menuEl}
 		use:portal
 		use:overlayLayer
-		use:dismiss={{ onDismiss: (reason) => close(reason === 'escape'), ignore: [triggerEl] }}
+		use:dismiss={{ onDismiss: (reason) => (reason === 'escape' && onescape?.() ? undefined : close(reason === 'escape')), ignore: [triggerEl] }}
 		use:menuNav
 		role="menu"
 		aria-label={menuLabel ?? label}

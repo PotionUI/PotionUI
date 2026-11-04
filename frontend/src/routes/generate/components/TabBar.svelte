@@ -60,7 +60,8 @@
 				source: tab.source,
 				state: tab.state ?? null,
 				activeTool: tab.activeTool ?? null,
-				renamed: tab.renamed ?? false
+				renamed: tab.renamed ?? false,
+				key: tab.key ?? null
 			};
 		}
 		return {
@@ -141,7 +142,8 @@
 					source: wsTab.source ?? null,
 					state: wsTab.state ?? null,
 					activeTool: wsTab.activeTool ?? null,
-					renamed: wsTab.renamed ?? false
+					renamed: wsTab.renamed ?? false,
+					key: wsTab.key ?? null
 				});
 			} else {
 				tabsStore.addTabWithData(wsTab.name, {
@@ -194,6 +196,10 @@
 
 	function toolLabelFor(tab: ToolTab): string {
 		return $toolKinds.find((kind) => kind.tool === tab.tool)?.label ?? 'Tool';
+	}
+
+	function toolRenamable(tab: ToolTab): boolean {
+		return $toolKinds.find((kind) => kind.tool === tab.tool)?.renamable !== false;
 	}
 
 	function unsavedEditsLabel(tab: ToolTab): string {
@@ -299,6 +305,8 @@
 							toolLabel={toolLabelFor(tab)}
 							thumbnail={tab.thumbnail ?? null}
 							progress={tab.run ? (tab.run.progress ?? 0) : null}
+							status={tab.status ?? null}
+							renamable={toolRenamable(tab)}
 							unsaved={(tab.dirty ?? 0) > 0}
 							unsavedLabel={unsavedEditsLabel(tab)}
 							on:select={(e) => setActiveTab(e.detail.id)}

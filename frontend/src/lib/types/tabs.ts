@@ -99,6 +99,8 @@ export interface PersistedToolTab {
 	dirty?: number;
 	thumbnail?: string | null;
 	renamed?: boolean;
+	key?: string | null;
+	status?: ToolTabStatus | null;
 }
 
 export type PersistedTab = PersistedGenerationTab | PersistedToolTab;
@@ -399,6 +401,16 @@ export interface RunRef {
 	progress?: number | null;
 }
 
+export type ToolTabStatusTone = 'signal' | 'danger' | 'success';
+
+export interface ToolTabStatus {
+	tone: ToolTabStatusTone;
+	label: string;
+	count?: [number, number] | null;
+	pulse?: boolean;
+	ring?: boolean;
+}
+
 export interface ToolTabHint {
 	look?: string;
 	effect?: string;
@@ -420,6 +432,8 @@ export interface ToolTab extends TabBase {
 	thumbnail?: string | null;
 	renamed?: boolean;
 	epoch?: number;
+	key?: string | null;
+	status?: ToolTabStatus | null;
 }
 
 export interface GenerationTab extends TabBase {

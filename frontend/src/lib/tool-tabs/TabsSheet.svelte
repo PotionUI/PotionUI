@@ -9,7 +9,8 @@
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import { isToolTab, type Tab } from '$lib/types/tabs';
 	import { toolKinds } from './registry';
-	import type { ToolKindDefinition } from './types';
+	import type { ToolKindDefinition, ToolKindMenuComponent } from './types';
+	import ToolTabStatusMark from './ToolTabStatusMark.svelte';
 
 	export let onClose: () => void;
 
@@ -31,6 +32,7 @@
 	function statusLine(tab: Tab, names: Record<string, string>, live: Record<string, boolean>, kinds: ToolKindDefinition[]): string {
 		if (isToolTab(tab)) {
 			const parts = [kinds.find((kind) => kind.tool === tab.tool)?.label ?? 'Tool'];
+			if (tab.status) parts.push(tab.status.label.toLowerCase());
 			if (tab.run) parts.push(`saving ${Math.round(tab.run.progress ?? 0)}%`);
 			const edits = tab.dirty ?? 0;
 			if (edits > 0) parts.push(`${edits} ${edits === 1 ? 'edit' : 'edits'}, unsaved`);
@@ -59,12 +61,35 @@
 		onClose();
 	}
 
-	function newTool(tool: string) {
-		tabsStore.openToolTab(tool, null);
+	let picker: { kind: ToolKindDefinition; component: ToolKindMenuComponent } | null = null;
+
+	async function newTool(kind: ToolKindDefinition) {
+		if (kind.menu) {
+			const loaded = await kind.menu().catch(() => null);
+			const component = loaded && 'default' in loaded ? loaded.default : loaded;
+			if (component) {
+				picker = { kind, component };
+				return;
+			}
+		}
+		tabsStore.openToolTab(kind.tool, null);
+		onClose();
+	}
+
+	function closePicker() {
+		picker = null;
 		onClose();
 	}
 </script>
 
+{#if picker}
+	{@const Picker = picker.component}
+	<StudioSheet maxHeight="92%" ariaLabel={picker.kind.label} on:close={closePicker}>
+		<div class="pb-4" data-testid="tabs-sheet-picker">
+			<Picker close={closePicker} phone />
+		</div>
+	</StudioSheet>
+{:else}
 <StudioSheet maxHeight="88%" ariaLabel="Tabs" on:close={onClose}>
 	<svelte:fragment slot="header">
 		<div class="flex items-baseline gap-2 pb-1">
@@ -107,6 +132,7 @@
 							<span class="block truncate text-sm font-medium text-fg">{tab.name}</span>
 							<span class="block truncate text-sm text-fg-muted">{statusLine(tab, presetNames, $tabSessionDirty, $toolKinds)}</span>
 						</span>
+						{#if isToolTab(tab) && tab.status}<ToolTabStatusMark status={tab.status} />{/if}
 					</button>
 					{#if tabs.length > 1}
 						<button
@@ -123,13 +149,13 @@
 		</ul>
 
 		<p class="mt-4 mb-2 font-mono text-xs uppercase tracking-wider text-fg-subtle">New tab</p>
-		<div class="grid grid-cols-3 gap-2" data-testid="tabs-sheet-new">
+		<div class="grid gap-2 {$toolKinds.length % 2 === 1 ? 'grid-cols-2' : 'grid-cols-3'}" data-testid="tabs-sheet-new">
 			<button type="button" class="new-kind" onclick={newGeneration}>
 				<Icon name="sparkles" className="h-4 w-4" />
 				<span>Generation</span>
 			</button>
 			{#each $toolKinds as kind (kind.tool)}
-				<button type="button" class="new-kind" data-tool={kind.tool} onclick={() => newTool(kind.tool)}>
+				<button type="button" class="new-kind" data-tool={kind.tool} aria-haspopup={kind.menu ? 'dialog' : undefined} onclick={() => newTool(kind)}>
 					<Icon name={kind.icon} className="h-4 w-4" />
 					<span class="truncate">{kind.label}</span>
 				</button>
@@ -137,6 +163,7 @@
 		</div>
 	</div>
 </StudioSheet>
+{/if}
 
 <style>
 	.new-kind {

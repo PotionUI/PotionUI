@@ -5,6 +5,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { shortcutLabels } from '$lib/stores/keybindings';
 	import { toolKinds } from './registry';
+	import type { ToolKindDefinition, ToolKindMenuComponent } from './types';
 
 	let {
 		onNewGeneration,
@@ -18,14 +19,45 @@
 
 	let open = $state(false);
 	let newTabKeys = $derived($shortcutLabels['new_tab']);
+	let drill = $state.raw<{ kind: ToolKindDefinition; component: ToolKindMenuComponent } | null>(null);
 
 	function pick(close: (restoreFocus?: boolean) => void, action: () => void) {
 		close(false);
 		action();
 	}
+
+	async function choose(close: (restoreFocus?: boolean) => void, kind: ToolKindDefinition) {
+		if (kind.menu) {
+			const loaded = await kind.menu().catch(() => null);
+			const component = loaded && 'default' in loaded ? loaded.default : loaded;
+			if (component && open) {
+				drill = { kind, component };
+				return;
+			}
+		}
+		pick(close, () => onOpenTool(kind.tool));
+	}
+
+	function back(): boolean {
+		if (!drill) return false;
+		drill = null;
+		return true;
+	}
+
+	$effect(() => {
+		if (!open) drill = null;
+	});
 </script>
 
-<Menu label="Add new tab" menuLabel="New tab" bind:open width={340} align="left" menuAttrs={{ 'data-testid': 'new-tab-menu' }}>
+<Menu
+	label="Add new tab"
+	menuLabel={drill ? `Open ${drill.kind.label.toLowerCase()}` : 'New tab'}
+	bind:open
+	width={drill ? 392 : 340}
+	align="left"
+	menuAttrs={{ 'data-testid': 'new-tab-menu' }}
+	onescape={back}
+>
 	{#snippet trigger({ open: isOpen, toggle })}
 		<Tooltip text="New tab" kbd={newTabKeys} position="bottom" delay={150}>
 			<button
@@ -41,29 +73,42 @@
 		</Tooltip>
 	{/snippet}
 	{#snippet children({ close })}
-		<button type="button" role="menuitem" class="menu-row" onclick={() => pick(close, onNewGeneration)}>
-			<Icon name="sparkles" className="mt-0.5 h-4 w-4 flex-shrink-0 text-fg-muted" />
-			<span class="min-w-0 flex-1">
-				<span class="block text-sm text-fg">New generation</span>
-				<span class="block text-sm text-fg-subtle">Preset, prompt and Workbench</span>
-			</span>
-			{#if newTabKeys}<Kbd keys={newTabKeys} />{/if}
-		</button>
-		{#each $toolKinds as kind (kind.tool)}
-			<button type="button" role="menuitem" class="menu-row" data-tool={kind.tool} onclick={() => pick(close, () => onOpenTool(kind.tool))}>
-				<Icon name={kind.icon} className="mt-0.5 h-4 w-4 flex-shrink-0 text-fg-muted" />
+		{#if drill}
+			{@const Picker = drill.component}
+			<Picker close={() => close(false)} back={back} />
+		{:else}
+			<button type="button" role="menuitem" class="menu-row" onclick={() => pick(close, onNewGeneration)}>
+				<Icon name="sparkles" className="mt-0.5 h-4 w-4 flex-shrink-0 text-fg-muted" />
 				<span class="min-w-0 flex-1">
-					<span class="block text-sm text-fg">{kind.label}</span>
-					{#if kind.description}<span class="block text-sm text-fg-subtle">{kind.description}</span>{/if}
+					<span class="block text-sm text-fg">New generation</span>
+					<span class="block text-sm text-fg-subtle">Preset, prompt and Workbench</span>
 				</span>
+				{#if newTabKeys}<Kbd keys={newTabKeys} />{/if}
 			</button>
-		{/each}
-		{#if newTabKeys}
-			<div class="my-1 h-px bg-line" role="separator"></div>
-			<div class="flex items-center gap-2 px-2.5 py-1.5 text-sm text-fg-subtle">
-				<Icon name="info" className="h-3.5 w-3.5 flex-shrink-0" />
-				<span>{newTabKeys} opens a generation tab directly</span>
-			</div>
+			{#each $toolKinds as kind (kind.tool)}
+				<button
+					type="button"
+					role="menuitem"
+					class="menu-row"
+					data-tool={kind.tool}
+					aria-haspopup={kind.menu ? 'menu' : undefined}
+					onclick={() => choose(close, kind)}
+				>
+					<Icon name={kind.icon} className="mt-0.5 h-4 w-4 flex-shrink-0 text-fg-muted" />
+					<span class="min-w-0 flex-1">
+						<span class="block text-sm text-fg">{kind.label}</span>
+						{#if kind.description}<span class="block text-sm text-fg-subtle">{kind.description}</span>{/if}
+					</span>
+					{#if kind.menu}<Icon name="chevron-right" className="mt-0.5 h-4 w-4 flex-shrink-0 text-fg-subtle" />{/if}
+				</button>
+			{/each}
+			{#if newTabKeys}
+				<div class="my-1 h-px bg-line" role="separator"></div>
+				<div class="flex items-center gap-2 px-2.5 py-1.5 text-sm text-fg-subtle">
+					<Icon name="info" className="h-3.5 w-3.5 flex-shrink-0" />
+					<span>{newTabKeys} opens a generation tab directly</span>
+				</div>
+			{/if}
 		{/if}
 	{/snippet}
 </Menu>

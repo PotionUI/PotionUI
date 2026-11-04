@@ -29,14 +29,33 @@ export function findToolTabFor(tabs: Tab[], source: MediaRef | null | undefined,
 	return null;
 }
 
+export function findToolTabByKey(tabs: Tab[], tool: string, key: string | null | undefined): ToolTab | null {
+	if (!key) return null;
+	for (const tab of tabs) {
+		if (isToolTab(tab) && tab.tool === tool && tab.key === key) return tab;
+	}
+	return null;
+}
+
+export function isBlankToolTab(tab: Tab | null | undefined, tool: string): tab is ToolTab {
+	return isToolTab(tab) && tab.tool === tool && !tab.key && !tab.source && tab.state == null && !(tab.dirty ?? 0);
+}
+
 export type ToolTabOpenPlan = { action: 'focus'; tabId: string } | { action: 'fill'; tabId: string } | { action: 'new' };
 
 export function planToolTabOpen(
 	tabs: Tab[],
 	activeTabId: string,
 	tool: string,
-	source: MediaRef | null
+	source: MediaRef | null,
+	key: string | null = null
 ): ToolTabOpenPlan {
+	if (key) {
+		const keyed = findToolTabByKey(tabs, tool, key);
+		if (keyed) return { action: 'focus', tabId: keyed.id };
+		const active = tabs.find((tab) => tab.id === activeTabId);
+		return isBlankToolTab(active, tool) ? { action: 'fill', tabId: active.id } : { action: 'new' };
+	}
 	const existing = findToolTabFor(tabs, source, tool);
 	if (existing) return { action: 'focus', tabId: existing.id };
 	if (!source) return { action: 'new' };

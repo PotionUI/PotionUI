@@ -7,6 +7,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { tabsStore, activeTab, activeToolTab, generatingTab, isActiveTabGenerating } from '$lib/stores/tabs';
 	import ToolTabHost from '$lib/tool-tabs/ToolTabHost.svelte';
+	import { startToolTabWatchers } from '$lib/tool-tabs/watchers';
+	import { allElixirsOpen } from '$lib/elixirs/events';
 	import PhoneToolTabView from '$lib/tool-tabs/PhoneToolTabView.svelte';
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
 	import type { DirectorRunState, GenerationTab } from '$lib/types/tabs';
@@ -891,6 +893,8 @@
 		presetVarsInFlight.set(presetId, request);
 		return request;
 	}
+
+	onMount(() => startToolTabWatchers());
 
 	onMount(async () => {
 		mounted = true;
@@ -2114,6 +2118,12 @@
 				{/if}
 			</div>
 		{/key}
+	{/if}
+
+	{#if $allElixirsOpen}
+		{#await import('$lib/components/elixirs/AllElixirsDialog.svelte') then dialog}
+			<dialog.default onclose={() => allElixirsOpen.set(false)} />
+		{/await}
 	{/if}
 
 	<LimitNotice />

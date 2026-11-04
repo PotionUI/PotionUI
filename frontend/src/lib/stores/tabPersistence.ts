@@ -45,7 +45,9 @@ function toPersistedToolTab(t: ToolTab): PersistedToolTab {
 		activeTool: t.activeTool ?? null,
 		dirty: t.dirty ?? 0,
 		thumbnail,
-		renamed: t.renamed ?? false
+		renamed: t.renamed ?? false,
+		key: t.key ?? null,
+		status: t.status ?? null
 	};
 }
 

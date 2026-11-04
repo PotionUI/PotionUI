@@ -62,4 +62,27 @@ describe('BookTab for a tool tab', () => {
 		expect(tab.querySelector('[data-testid="tab-tool-thumb"]')).toBeNull();
 		expect(tab.querySelector('[data-testid="tab-progress"]')).toBeNull();
 	});
+
+	it('shows the tab status slot: count while brewing, a ring while it waits, and labels it', () => {
+		const tab = render({ toolIcon: 'flask', status: { tone: 'signal', label: 'Brewing, 3 of 6 steps done', count: [3, 6], pulse: true } });
+		const slot = tab.querySelector('[data-testid="tab-status"]')!;
+		expect(slot.textContent?.trim()).toBe('3/6');
+		expect(slot.getAttribute('data-tone')).toBe('signal');
+		expect(slot.querySelector('.status-pulse')).not.toBeNull();
+		expect(tab.textContent).toContain(', Brewing, 3 of 6 steps done');
+		component?.$destroy();
+		const waiting = render({ toolIcon: 'flask', status: { tone: 'signal', label: 'Waiting for your choice', ring: true } });
+		expect(waiting.querySelector('[data-testid="tab-status"] .status-ring')).not.toBeNull();
+		component?.$destroy();
+		const failed = render({ toolIcon: 'flask', status: { tone: 'danger', label: 'Brew failed' } });
+		expect(failed.querySelector('[data-testid="tab-status"] .status-danger')).not.toBeNull();
+	});
+
+	it('does not rename on double-click when the kind is not renamable', () => {
+		const tab = render({ toolIcon: 'flask', isActive: true, renamable: false });
+		tab.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+		flushSync();
+		expect(document.body.querySelector('input.tab-input')).toBeNull();
+	});
 });
+

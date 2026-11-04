@@ -53,14 +53,15 @@ afterEach(async () => {
 });
 
 describe('the + menu', () => {
-	it('opens a menu instead of adding a tab, listing generation and the editors only', async () => {
+	it('opens a menu instead of adding a tab, listing generation, the editors and Elixir', async () => {
 		await openMenu();
 		expect(get(tabsStore).tabs).toHaveLength(1);
 		expect(plusButton().getAttribute('aria-expanded')).toBe('true');
 		expect(rows().map((row) => row.querySelector('.text-fg')?.textContent?.trim())).toEqual([
 			'New generation',
 			'Image editor',
-			'Video editor'
+			'Video editor',
+			'Elixir'
 		]);
 		expect(menu()!.textContent).not.toMatch(/plugin/i);
 	});
@@ -103,6 +104,7 @@ describe('the + menu', () => {
 				'New generation',
 				'Image editor',
 				'Video editor',
+				'Elixir',
 				'Stamp tool'
 			]);
 			const row = rows().find((r) => r.dataset.tool === 'acme.stamp')!;

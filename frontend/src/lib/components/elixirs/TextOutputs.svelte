@@ -5,6 +5,7 @@
 	import { tileChoice, type Choice } from '$lib/elixirs/choice';
 	import type { OutputEntry } from '$lib/elixirs/types';
 	import { tileKey } from '$lib/elixirs/tiles';
+	import WriterOutputViewer from './WriterOutputViewer.svelte';
 
 	interface TextEntry extends OutputEntry {
 		text: string;
@@ -26,17 +27,17 @@
 		readOnly?: boolean;
 		phone?: boolean;
 		label: string;
+		stepName?: string;
 		ontick?: (key: string) => void;
 		onedit?: (entry: TextEntry, text: string) => void;
 		onpin?: (entry: TextEntry) => void;
 		onunpin?: (entry: TextEntry) => void;
 	}
 
-	let { entries = [], pending = 0, failed = 0, dim = false, pinned = {}, sources = {}, choice = null, readOnly = false, phone = false, label, ontick, onedit, onpin, onunpin }: Props = $props();
+	let { entries = [], pending = 0, failed = 0, dim = false, pinned = {}, sources = {}, choice = null, readOnly = false, phone = false, label, stepName = '', ontick, onedit, onpin, onunpin }: Props = $props();
 
 	let editing = $state<string | null>(null);
-	let thinking = $state<Record<string, boolean>>({});
-	let rolled = $state<Record<string, boolean>>({});
+	let viewing = $state<number | null>(null);
 	let draft = $state('');
 	let skeletons = $derived(Array.from({ length: Math.max(0, pending) }, (_, index) => index));
 	let broken = $derived(Array.from({ length: Math.max(0, failed) }, (_, index) => index));
@@ -106,28 +107,11 @@
 						</div>
 					{:else}
 						<p class="text">{entry.text}</p>
-						{#if entry.rolled_instruction}
-							{@const open = !!rolled[entry.text_id]}
-							<button type="button" class="think" aria-expanded={open} onclick={() => (rolled = { ...rolled, [entry.text_id]: !open })}>
-								Rolled instruction
-								<Icon name={open ? 'chevron-up' : 'chevron-down'} className="h-3 w-3" />
-							</button>
-							{#if open}
-								<p class="reasoning" tabindex="0" aria-label="Rolled instruction for {heading(entry, index)}">{entry.rolled_instruction}</p>
-							{/if}
-						{/if}
-						{#if entry.reasoning}
-							{@const shown = !!thinking[entry.text_id]}
-							<button type="button" class="think" aria-expanded={shown} onclick={() => (thinking = { ...thinking, [entry.text_id]: !shown })}>
-								Thinking
-								<Icon name={shown ? 'chevron-up' : 'chevron-down'} className="h-3 w-3" />
-							</button>
-							{#if shown}
-								<p class="reasoning" tabindex="0" aria-label="Reasoning for {heading(entry, index)}">{entry.reasoning}</p>
-							{/if}
-						{/if}
 					{/if}
 				</div>
+				{#if editing !== entry.text_id}
+					<NodeIconButton icon="expand" large={phone} label="Open full output for {heading(entry, index)}" tip="Open full output" onclick={() => (viewing = index)} />
+				{/if}
 				{#if editing !== entry.text_id && !readOnly}
 					<NodeIconButton icon="pencil" large={phone} label="Edit {heading(entry, index)}" tip="Edit and pin this prompt" onclick={() => startEdit(entry)} />
 					<NodeIconButton
@@ -154,6 +138,10 @@
 			</li>
 		{/each}
 	</ol>
+{/if}
+
+{#if viewing !== null && entries.length > 0}
+	<WriterOutputViewer {entries} start={viewing} stepName={stepName || label} {sources} {pinned} {readOnly} onclose={() => (viewing = null)} {onedit} {onpin} {onunpin} />
 {/if}
 
 <style>
@@ -212,39 +200,9 @@
 	.bad .file {
 		color: rgb(var(--danger));
 	}
-	.think {
-		align-self: flex-start;
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		height: 24px;
-		margin-left: -4px;
-		padding: 0 4px;
-		border-radius: 4px;
-		font-size: 12px;
-		color: rgb(var(--fg-subtle));
-	}
-	.think:hover {
-		color: rgb(var(--fg));
-	}
-	:global(:where(html:not([data-input='pointer']))) .think:focus-visible,
-	:global(:where(html:not([data-input='pointer']))) .tick:focus-visible,
-	:global(:where(html:not([data-input='pointer']))) .reasoning:focus-visible {
+	:global(:where(html:not([data-input='pointer']))) .tick:focus-visible {
 		outline: 2px solid rgb(var(--signal));
 		outline-offset: 1px;
-	}
-	.reasoning {
-		max-height: 84px;
-		overflow: auto;
-		white-space: pre-line;
-		font-size: 12px;
-		line-height: 16px;
-		color: rgb(var(--fg-muted));
-		background: rgb(var(--canvas));
-		border: 1px solid rgb(var(--line));
-		border-radius: 4px;
-		padding: 6px 8px;
-		scrollbar-width: thin;
 	}
 	.tick[aria-disabled='true'] {
 		cursor: default;

@@ -182,6 +182,7 @@
 				readOnly={data.readOnly}
 				{phone}
 				label="{data.label} prompts"
+				stepName={data.label}
 				ontick={(key) => data.ontick(data.node.id, key)}
 				onedit={(entry, text) => data.onedittext(data.node.id, entry, text)}
 				onpin={(entry) => data.onpintext(data.node.id, entry)}

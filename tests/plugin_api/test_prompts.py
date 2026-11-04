@@ -170,7 +170,7 @@ def _writer_container(tmp_path, supports_vision=True):
 
         async def complete(self, llm_id, messages, *, system=None, settings=None, tools=()):
             calls.append(messages)
-            return SimpleNamespace(text="written prompt")
+            return SimpleNamespace(text="written prompt", message=SimpleNamespace(reasoning=lambda: []))
 
     from src.features.prompt_enhancement.collaborators import PromptEnhancementCollaborators
 

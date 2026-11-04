@@ -56,6 +56,7 @@ report = {
         "controller_turns": c.chat_controller.turn_registry is c.chat_turn_registry,
         "plugin_registry": c.plugin_controller.registry is c.plugin_registry,
         "runtime_plugins": r.plugins is c.plugin_registry,
+        "prompt_writer_plugins": c.prompt_enhancement_manager.plugins is c.plugin_registry,
         "indexer_plugins": indexer.plugins is c.plugin_registry,
         "llm_provider_registry": c.llm_service.types.provider_registry is c.plugin_registry.llm_provider_registry,
         "llm_profile_resolver": c.llm_controller.profile_resolver is c.llm_service.profiles,

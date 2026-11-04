@@ -13,7 +13,9 @@ from dataclasses import replace
 from typing import Any, AsyncGenerator, Dict, List, Optional, Sequence
 
 from src.features.llm.harness.adapter import Settings
+from src.features.llm.generation_hooks import fire_after_generate, fire_before_generate
 from src.features.llm.harness.build import user_message
+from src.features.llm.harness.events import Usage
 from src.features.llm.tools.builtin.utils import extract_model_path, lookup_model, resolve_active_model_id
 from src.features.prompt_database import operations as prompt_database_operations
 from src.features.prompt_enhancement.collaborators import PromptEnhancementCollaborators
@@ -520,9 +522,15 @@ def _usable_configs(collaborators: PromptEnhancementCollaborators, user_id: str,
         return []
     if llm_id:
         config = repository.get_configuration(llm_id)
-        if config is not None and not getattr(config, "enabled", True):
+        if config is None:
+            raise PromptWriteRefused("llm_not_available", "That language model is not available to you. Choose another one.")
+        default = repository.get_default_configuration()
+        allowed = (default is not None and default.id == llm_id) or llm_id in repository.get_user_llm_assignments(user_id)
+        if not allowed:
+            raise PromptWriteRefused("llm_not_available", "That language model is not available to you. Choose another one.")
+        if not getattr(config, "enabled", True):
             raise PromptWriteRefused("llm_disabled", f"The language model {config.name} is turned off.")
-        return [config] if config is not None else []
+        return [config]
     found: Dict[str, Any] = {}
     default = repository.get_default_configuration()
     if default is not None:
@@ -564,7 +572,14 @@ def writer_status(
     try:
         configs = _usable_configs(collaborators, user_id, llm_id)
     except PromptWriteRefused as refused:
-        return {"available": False, "vision": False, "name": None, "code": refused.code, "message": str(refused)}
+        return {
+            "available": False,
+            "vision": False,
+            "name": None,
+            "code": refused.code,
+            "message": str(refused),
+            "models": _selectable_models(collaborators, user_id),
+        }
     if not configs:
         return {
             "available": False,
@@ -572,6 +587,7 @@ def writer_status(
             "name": None,
             "code": "no_llm",
             "message": "No language model is available to you. Ask an admin to set one up for you.",
+            "models": [],
         }
     seeing = next((config for config in configs if config.supports_vision), None)
     return {
@@ -580,7 +596,16 @@ def writer_status(
         "name": (seeing or configs[0]).name,
         "code": None,
         "message": None,
+        "models": _selectable_models(collaborators, user_id),
     }
+
+
+def _selectable_models(collaborators: PromptEnhancementCollaborators, user_id: str) -> List[Dict[str, Any]]:
+    try:
+        configs = _usable_configs(collaborators, user_id, None)
+    except PromptWriteRefused:
+        return []
+    return [{"id": config.id, "name": config.name, "vision": bool(config.supports_vision)} for config in configs]
 
 
 async def write_prompt(
@@ -603,16 +628,37 @@ async def write_prompt(
     images = tuple(image for image in images if image)
     config = writer_config(collaborators, user_id, llm_id, vision=bool(images))
     context = await _gather_writing_context(collaborators, user_id, instruction[:MAX_INSTRUCTION_CHARS], form_state)
+    prompt = _build_writing_prompt(instruction[:MAX_INSTRUCTION_CHARS], context, len(images))
+    if collaborators.plugins is not None:
+        prompt = await fire_before_generate(
+            collaborators.plugins, user_id, config.id, prompt, bool(images),
+            lambda reason: PromptWriteRefused("blocked", reason),
+        )
     response = await collaborators.llm_service.complete(
         config.id,
-        [user_message(_build_writing_prompt(instruction[:MAX_INSTRUCTION_CHARS], context, len(images)), images=images)],
+        [user_message(prompt, images=images)],
         system=WRITE_SYSTEM_MESSAGE,
-        settings=settings or Settings(temperature=0.7, max_tokens=800, reasoning=False),
+        settings=settings or Settings(),
+        tools=(),
     )
+    if collaborators.plugins is not None:
+        usage = getattr(response, "usage", None) or Usage()
+        fire_after_generate(collaborators.plugins, user_id, config.id, response.text, config.model, usage.total_tokens)
     text = _clean_written(response.text)
     if not text:
         raise PromptWriteRefused("empty_reply", f"The language model {config.name} returned no prompt.")
-    return {"text": text, "model_id": context.get("model_id"), "llm_id": config.id}
+    return {
+        "text": text,
+        "reasoning": _reasoning_text(response.message),
+        "model_id": context.get("model_id"),
+        "llm_id": config.id,
+    }
+
+
+def _reasoning_text(answer: Any) -> Optional[str]:
+    parts = answer.reasoning()
+    text = "\n\n".join(piece for piece in ((part.text or part.summary or "").strip() for part in parts) if piece)
+    return text or None
 
 
 def preset_visible(collaborators: PromptEnhancementCollaborators, user_id: str, preset_id: str, is_admin: bool) -> bool:

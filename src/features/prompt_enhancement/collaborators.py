@@ -22,3 +22,4 @@ class PromptEnhancementCollaborators:
     llm_memory_repository: Any = None
     feedback_repository: Any = None
     preset_collaborators: Any = None
+    plugins: Any = None

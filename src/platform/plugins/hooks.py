@@ -51,6 +51,13 @@ logger = logging.getLogger(__name__)
 HOOK_BLOCKING_WAITS_KEY = "__hook_blocking_waits__"
 
 
+async def await_data_blocking_waits(data: dict) -> None:
+    waits = data.pop(HOOK_BLOCKING_WAITS_KEY, None)
+    if not waits:
+        return
+    await asyncio.gather(*waits, return_exceptions=True)
+
+
 async def await_hook_blocking_waits(context: Optional["HookContext"]) -> None:
     """Await (and clear) any awaitables a handler left under `HOOK_BLOCKING_WAITS_KEY`.
 
@@ -59,10 +66,7 @@ async def await_hook_blocking_waits(context: Optional["HookContext"]) -> None:
     """
     if context is None:
         return
-    waits = context.data.pop(HOOK_BLOCKING_WAITS_KEY, None)
-    if not waits:
-        return
-    await asyncio.gather(*waits, return_exceptions=True)
+    await await_data_blocking_waits(context.data)
 
 def execute_hook(plugins: "PluginRegistry", hook, data: dict) -> Tuple[dict, bool]:
     """Run `hook` with `data` and report the resulting context and veto flag.

@@ -1781,6 +1781,7 @@ def build_container() -> AppContainer:
         llm_memory_repository=llm_memory_repository,
         feedback_repository=enhancement_feedback_repository,
         preset_collaborators=preset_collaborators,
+        plugins=plugin_registry,
     )
 
     # MCP (Model Context Protocol): per-user tokens exposing the same tool

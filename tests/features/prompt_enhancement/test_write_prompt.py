@@ -2,13 +2,20 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.features.llm.harness.events import Finish, FinishReason, ReasoningDelta, TextDelta
+from src.features.llm.harness.messages import Origin
+from src.features.llm.harness.adapter import Settings
+from src.features.llm.harness.assembler import StepAssembler
 from src.features.prompt_enhancement import operations
 from src.features.prompt_enhancement.collaborators import PromptEnhancementCollaborators
 from src.features.prompt_enhancement.operations import PromptWriteRefused
 
 
+ORIGIN = Origin(adapter="a", provider="p", model="m")
+
+
 def config(**overrides):
-    values = {"id": "llm-1", "name": "Writer", "supports_vision": True, "enabled": True}
+    values = {"id": "llm-1", "name": "Writer", "model": "writer-model", "supports_vision": True, "enabled": True}
     values.update(overrides)
     return SimpleNamespace(**values)
 
@@ -30,14 +37,21 @@ class Repository:
 
 
 class FakeLLM:
-    def __init__(self, reply="a red fox on a mossy rock, golden light", repository=None):
+    def __init__(self, reply="a red fox on a mossy rock, golden light", repository=None, thinking=()):
         self.reply = reply
+        self.thinking = thinking
         self.calls = []
         self.repository = repository if repository is not None else Repository([config()], default="llm-1")
 
     async def complete(self, llm_id, messages, *, system=None, settings=None, tools=()):
-        self.calls.append({"llm_id": llm_id, "messages": messages, "system": system, "settings": settings})
-        return SimpleNamespace(text=self.reply)
+        self.calls.append({"llm_id": llm_id, "messages": messages, "system": system, "settings": settings, "tools": tools})
+        assembler = StepAssembler("msg-1", ORIGIN)
+        for index, item in enumerate(self.thinking):
+            assembler.feed(ReasoningDelta(block=index, text=item))
+        assembler.feed(TextDelta(block=len(self.thinking), text=self.reply))
+        assembler.feed(Finish(FinishReason.STOP))
+        message = assembler.message()
+        return SimpleNamespace(message=message, text=message.text())
 
 
 class Presets:
@@ -101,7 +115,7 @@ async def test_writes_with_preset_guide_summary_and_instruction():
         form_state={"preset": "flux", "mode": "txt2img", "form_data": {}},
         images=["aGVsbG8="],
     )
-    assert result == {"text": "a red fox on a mossy rock, golden light", "model_id": None, "llm_id": "llm-1"}
+    assert result == {"text": "a red fox on a mossy rock, golden light", "reasoning": None, "model_id": None, "llm_id": "llm-1"}
     call = llm.calls[0]
     text = sent_text(call)
     assert "Target preset: Flux Dev" in text
@@ -226,7 +240,7 @@ async def test_missing_or_disabled_llm_is_refused(repository, code):
 
 @pytest.mark.asyncio
 async def test_an_explicit_disabled_llm_is_named():
-    llm = FakeLLM(repository=Repository([config(enabled=False, name="Old")]))
+    llm = FakeLLM(repository=Repository([config(enabled=False, name="Old")], default="llm-1"))
     with pytest.raises(PromptWriteRefused) as caught:
         await operations.write_prompt(collaborators(llm), "u-1", "A fox", llm_id="llm-1")
     assert caught.value.code == "llm_disabled"
@@ -235,7 +249,7 @@ async def test_an_explicit_disabled_llm_is_named():
 
 @pytest.mark.asyncio
 async def test_an_explicit_llm_id_is_used():
-    llm = FakeLLM(repository=Repository([config(), config(id="llm-2", name="Other")], default="llm-1"))
+    llm = FakeLLM(repository=Repository([config(), config(id="llm-2", name="Other")], default="llm-1", assigned=["llm-2"]))
     result = await operations.write_prompt(collaborators(llm), "u-1", "A fox", llm_id="llm-2")
     assert result["llm_id"] == "llm-2"
     assert llm.calls[0]["llm_id"] == "llm-2"
@@ -272,7 +286,14 @@ async def test_an_empty_reply_is_refused():
 
 def test_writer_status_reports_vision_and_absence():
     vision = operations.writer_status(collaborators(FakeLLM()), "u-1")
-    assert vision == {"available": True, "vision": True, "name": "Writer", "code": None, "message": None}
+    assert vision == {
+        "available": True,
+        "vision": True,
+        "name": "Writer",
+        "code": None,
+        "message": None,
+        "models": [{"id": "llm-1", "name": "Writer", "vision": True}],
+    }
     missing = operations.writer_status(collaborators(FakeLLM(repository=Repository())), "u-1")
     assert missing["available"] is False
     assert missing["code"] == "no_llm"
@@ -312,3 +333,172 @@ async def test_a_long_instruction_and_guide_are_cut_to_their_caps():
     text = sent_text(llm.calls[0])
     assert "g" * operations.MAX_GUIDE_CHARS in text and "g" * (operations.MAX_GUIDE_CHARS + 1) not in text
     assert "i" * operations.MAX_INSTRUCTION_CHARS in text and "i" * (operations.MAX_INSTRUCTION_CHARS + 1) not in text
+
+
+@pytest.mark.asyncio
+async def test_an_explicit_llm_the_user_may_not_use_is_refused():
+    llm = FakeLLM(repository=Repository([config(), config(id="llm-2", name="Other")], default="llm-1"))
+    with pytest.raises(PromptWriteRefused) as caught:
+        await operations.write_prompt(collaborators(llm), "u-1", "A fox", llm_id="llm-2")
+    assert caught.value.code == "llm_not_available"
+    assert llm.calls == []
+    status = operations.writer_status(collaborators(llm), "u-1", "llm-2")
+    assert status["available"] is False
+    assert status["code"] == "llm_not_available"
+
+
+@pytest.mark.asyncio
+async def test_the_default_model_can_be_named_explicitly():
+    llm = FakeLLM()
+    result = await operations.write_prompt(collaborators(llm), "u-1", "A fox", llm_id="llm-1")
+    assert result["llm_id"] == "llm-1"
+
+
+@pytest.mark.asyncio
+async def test_an_explicit_model_without_vision_is_not_swapped_for_another():
+    llm = FakeLLM(
+        repository=Repository([config(supports_vision=False), config(id="llm-2", name="Seer")], default="llm-1", assigned=["llm-2"])
+    )
+    with pytest.raises(PromptWriteRefused) as caught:
+        await operations.write_prompt(collaborators(llm), "u-1", "Describe it", llm_id="llm-1", images=["aGVsbG8="])
+    assert caught.value.code == "vision_not_supported"
+
+
+@pytest.mark.asyncio
+async def test_the_reasoning_comes_back_with_the_prompt_and_the_call_follows_the_model_configuration():
+    llm = FakeLLM(thinking=("Look at the subject.", "Keep it short."))
+    result = await operations.write_prompt(collaborators(llm), "u-1", "A fox")
+    assert result["reasoning"] == "Look at the subject.\n\nKeep it short."
+    assert llm.calls[0]["settings"] == Settings()
+    assert llm.calls[0]["tools"] == ()
+
+
+@pytest.mark.asyncio
+async def test_no_reasoning_is_none():
+    result = await operations.write_prompt(collaborators(FakeLLM()), "u-1", "A fox")
+    assert result["reasoning"] is None
+
+
+def test_writer_status_lists_the_default_then_the_assigned_models():
+    llm = FakeLLM(
+        repository=Repository(
+            [config(), config(id="b", name="Beta", supports_vision=False), config(id="a", name="Alpha"), config(id="off", name="Off", enabled=False)],
+            default="llm-1",
+            assigned=["b", "a", "off"],
+        )
+    )
+    status = operations.writer_status(collaborators(llm), "u-1")
+    assert [(item["id"], item["vision"]) for item in status["models"]] == [("llm-1", True), ("a", True), ("b", False)]
+
+
+def test_writer_status_for_a_forbidden_model_still_lists_what_is_allowed():
+    llm = FakeLLM(repository=Repository([config(), config(id="x", name="X")], default="llm-1"))
+    status = operations.writer_status(collaborators(llm), "u-1", "x")
+    assert status["code"] == "llm_not_available"
+    assert [item["id"] for item in status["models"]] == ["llm-1"]
+
+
+def test_writer_status_for_a_deleted_model_is_not_available():
+    status = operations.writer_status(collaborators(FakeLLM()), "u-1", "gone")
+    assert status["code"] == "llm_not_available"
+
+
+class HookPlugins:
+    def __init__(self, events, mutate=None, block=None):
+        self.events = events
+        self.mutate = mutate or {}
+        self.block = block
+
+    def execute_hook(self, hook, initial_data):
+        self.events.append((str(hook), dict(initial_data)))
+        data = dict(initial_data)
+        if str(hook).endswith("before_generate"):
+            data.update(self.mutate)
+            if self.block:
+                data.update({"blocked": True, "block_reason": self.block})
+        return SimpleNamespace(data=data), None
+
+
+def with_plugins(base, plugins):
+    from dataclasses import replace
+
+    return replace(base, plugins=plugins)
+
+
+class OrderedLLM(FakeLLM):
+    def __init__(self, events, **kwargs):
+        super().__init__(**kwargs)
+        self.events = events
+
+    async def complete(self, *args, **kwargs):
+        self.events.append(("complete", {}))
+        return await super().complete(*args, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_generate_hooks_fire_around_the_call_with_the_sent_prompt():
+    events = []
+    llm = OrderedLLM(events)
+    await operations.write_prompt(
+        with_plugins(collaborators(llm), HookPlugins(events)), "u-1", "a fox", images=["aGVsbG8="],
+    )
+    names = [name for name, _ in events]
+    assert [name.rsplit(".", 1)[-1] for name in names] == ["before_generate", "complete", "after_generate"]
+    before = events[0][1]
+    assert before["user_id"] == "u-1"
+    assert before["config_id"] == "llm-1"
+    assert before["has_image"] is True
+    assert before["prompt"] == sent_text(llm.calls[0])
+    after = events[2][1]
+    assert after["content"] == "a red fox on a mossy rock, golden light"
+    assert after["config_id"] == "llm-1"
+
+
+@pytest.mark.asyncio
+async def test_a_hook_veto_stops_the_call_and_surfaces_as_blocked():
+    events = []
+    llm = OrderedLLM(events)
+    with pytest.raises(PromptWriteRefused) as raised:
+        await operations.write_prompt(
+            with_plugins(collaborators(llm), HookPlugins(events, block="VRAM is busy")), "u-1", "a fox",
+        )
+    assert raised.value.code == "blocked"
+    assert str(raised.value) == "VRAM is busy"
+    assert llm.calls == []
+    assert [name.rsplit(".", 1)[-1] for name, _ in events] == ["before_generate"]
+
+
+@pytest.mark.asyncio
+async def test_a_hook_prompt_rewrite_is_what_the_model_receives():
+    events = []
+    llm = OrderedLLM(events)
+    await operations.write_prompt(
+        with_plugins(collaborators(llm), HookPlugins(events, mutate={"prompt": "rewritten by plugin"})), "u-1", "a fox",
+    )
+    assert sent_text(llm.calls[0]) == "rewritten by plugin"
+
+
+class WaitingPlugins:
+    def __init__(self, waits):
+        self.waits = waits
+
+    def execute_hook(self, hook, initial_data):
+        data = dict(initial_data)
+        if str(hook).endswith("before_generate"):
+            data["__hook_blocking_waits__"] = list(self.waits)
+        return SimpleNamespace(data=data), None
+
+
+@pytest.mark.asyncio
+async def test_blocking_hook_runs_finish_before_the_model_is_called():
+    import asyncio
+
+    events = []
+
+    async def slow_run():
+        await asyncio.sleep(0.01)
+        events.append(("wait-done", {}))
+
+    llm = OrderedLLM(events)
+    await operations.write_prompt(with_plugins(collaborators(llm), WaitingPlugins([slow_run()])), "u-1", "a fox")
+    assert [name for name, _ in events] == ["wait-done", "complete"]

@@ -103,3 +103,38 @@ Brews survive a restart. Starting the app resumes every brew that was still runn
 that was claimed but not sent is sent again, and a generation or written prompt cut off by
 the restart is marked interrupted so it can be retried. While a brew still needs files from
 a generation, that generation cannot be deleted.
+
+## Chat assistant
+
+While an Elixir tab is open, a new chat conversation is the Elixirs assistant (PotionAI) for
+that elixir: the tab sends the elixir's id with every message, and the mode has no route of
+its own. The assistant edits the elixir and never runs it. A brew spends GPU time, so it tells
+the user to press Brew, or Continue after a choice.
+
+| Tool | Approval | What it does |
+| --- | --- | --- |
+| `get_elixir` | no | Steps left to right (id, kind, preset and mode, session mode and session name, a writer's instruction and writes-for), connections, problems, the last brew and the steps waiting for a choice. `include_presets` lists the preset modes an elixir can use. |
+| `get_step_settings` | no | One step's effective prompt, negative prompt and form fields, bounded. A following step is read from its session. |
+| `get_choice_outputs` | no | The outputs of a step waiting for a choice, numbered, with their ids. When the chat's model has vision it also gets one image with the outputs numbered; without vision it gets the details only and asks the user. |
+| `edit_elixir` | yes | One batch of operations against the revision the assistant read. |
+| `choose_outputs` | yes | Sets the pick at a waiting step, the same pick the tiles set. It does not continue the brew. |
+
+`edit_elixir` operations: `add_step` (after a step, or a new lane), `add_start` (before a
+lane's first step), `insert_between`, `add_writer`, `remove` (files are rewired past the
+removed step), `connect`, `set_settings`, `set_writer` (instruction text, `instruction_chips`
+and writes-for) and `set_session` (follow, copy or new). `set_settings` checks field names
+against the step's preset form and refuses fields filled by a connection. A following step's
+change is saved into its session through the sessions API with the version the elixir last
+saw, so every step and Generate tab using that session updates; a copy or new step keeps the
+change on the step.
+
+The batch is all or nothing. When the elixir changed since the assistant read it, the edit is
+refused and the assistant reads it again. Every refusal names the fix, e.g. `Operation 1
+(add_step): Krea-2 · Text to image takes no images, so it cannot follow Sharpen. Pick a preset
+mode whose inputs take images (get_elixir with include_presets=true lists 'takes'). No change
+was made.`
+
+After an approved change the server pushes `elixir_changed` on the user's notification socket,
+and an open Elixir tab with no unsaved edits reloads the elixir, or the brew whose pick
+changed. With unsaved edits the tab shows its usual conflict prompt. These tools are not
+offered over MCP.

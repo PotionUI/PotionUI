@@ -97,7 +97,7 @@ class _Dit:
 
     def __init__(self):
         self.frame_rates = []
-        self.config = SimpleNamespace(has_prompt_adaln=False)
+        self.config = SimpleNamespace(has_prompt_adaln=False, inner_dim=4096)
 
     def __call__(self, model_x, timestep, context, **kw):
         self.frame_rates.append(kw["frame_rate"])

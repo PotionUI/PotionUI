@@ -260,8 +260,9 @@ close that gap:
   always takes that path, fp8 whenever the GEMM kernel is off or refuses it. An nvfp4 Linear is left
   out: its scale tables go into the weight, but its forward still materialises the weight, and
   nothing reserves that transient (≈ 0.66 GiB for LTX's FFN).
-  `gelu` and `rows` are LTX's (`ltx_reserve_terms`, `pipes/_shared/video/ltx_common.py`). `gelu = 16,384
-  × 2 B` is the GELU output, alive beside `fc2`'s dequantised weight; past about 8,192 tokens `fc1`'s
+  `gelu` and `rows` are LTX's (`ltx_reserve_terms`, `pipes/_shared/video/ltx_common.py`, which reads them
+  from the loaded DiT's config). `gelu = 4 × inner × 2 B`, 16,384 × 2 B on every LTX checkpoint, is the GELU
+  output, alive beside `fc2`'s dequantised weight; past about 8,192 tokens `fc1`'s
   output beside that GELU outgrows the two weight copies, hence the `max`. On the fp8 GEMM path `fc1`'s
   output never coexists with the quantiser's buffers, so the `max` drops out. `rows` is what a block
   keeps as locals until it returns under a per-token timestep (`video_ltx`, `dfr_video_ltx`): 7 adaLN

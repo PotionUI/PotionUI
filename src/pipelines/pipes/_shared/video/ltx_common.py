@@ -20,7 +20,7 @@ from src.pipelines.pipes._shared.video.ltx_constants import (
     LTX_ADALN_TABLE_ROWS,
     LTX_AV_CROSS_ADALN_ROWS,
     LTX_AV_NORM_ROWS,
-    LTX_FFN_DIM,
+    LTX_FFN_MULT,
     LTX_MODULATION_ROWS,
     LTX_PROMPT_ADALN_MODULATION_ROWS,
     LTX_PROMPT_ADALN_TABLE_ROWS,
@@ -41,9 +41,9 @@ class LtxReserveTerms(TypedDict):
 def ltx_reserve_terms(
     dit: Any, *, per_token_timestep: bool, per_token_frames_broken: bool = False, generates_audio: bool = False,
 ) -> LtxReserveTerms:
+    config = dit.module.config
     rows = 0
     if per_token_timestep:
-        config = dit.module.config
         rows = LTX_PROMPT_ADALN_MODULATION_ROWS if config.has_prompt_adaln else LTX_MODULATION_ROWS
         if per_token_frames_broken or generates_audio:
             av_cross_rows = 0 if config.use_cross_timestep else LTX_AV_CROSS_ADALN_ROWS
@@ -52,7 +52,7 @@ def ltx_reserve_terms(
                 rows += table_rows + av_cross_rows
             if generates_audio:
                 rows += LTX_AV_NORM_ROWS + av_cross_rows
-    return {"gelu_ffn_dim": LTX_FFN_DIM, "modulation_rows": rows}
+    return {"gelu_ffn_dim": LTX_FFN_MULT * config.inner_dim, "modulation_rows": rows}
 
 
 def snap_ltx_geometry(width: int, height: int, frames: int) -> tuple[int, int, int]:

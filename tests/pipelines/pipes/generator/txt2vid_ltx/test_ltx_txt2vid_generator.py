@@ -46,6 +46,13 @@ class _FakeSpec:
     sampling_settings: dict = field(default_factory=lambda: {"prediction": "const", "shift": 2.37, "guidance": "cfg"})
 
 
+class _Dit:
+    config = SimpleNamespace(inner_dim=4096)
+
+    def __call__(self, x_list, sigma, ctx, **kw):
+        return torch.zeros_like(x_list[0])
+
+
 def _bundle(family="ltx", te_cache_key=None):
     vae = SimpleNamespace(
         compute_dtype=torch.float32,
@@ -53,7 +60,7 @@ def _bundle(family="ltx", te_cache_key=None):
         module=SimpleNamespace(decode=lambda z: torch.zeros(1, 3, z.shape[2], z.shape[3] * 32, z.shape[4] * 32)),
     )
     dit = SimpleNamespace(compute_dtype=torch.float32, move_to=lambda d: None, offload=lambda: None,
-                           module=lambda x_list, sigma, ctx, **kw: torch.zeros_like(x_list[0]))
+                           module=_Dit())
     return SimpleNamespace(dit=dit, vae=vae, spec=_FakeSpec(family=family), projections={},
                            te=SimpleNamespace(module=None), te_cache_key=te_cache_key)
 
@@ -176,7 +183,7 @@ def test_model_forward_wraps_single_element_list_with_frame_rate(mock_denoise):
 
     mock_denoise.side_effect = fake_denoise
 
-    class _RecordingDit:
+    class _RecordingDit(_Dit):
         def __call__(self, x_list, sigma, ctx, attention_mask=None, frame_rate=None):
             seen["x_list_len"] = len(x_list)
             seen["frame_rate"] = frame_rate
@@ -374,7 +381,7 @@ def test_step_cache_absent_no_kwarg_reaches_dit_module_forward(mock_denoise):
 
     mock_denoise.side_effect = fake_denoise
 
-    class _RecordingDit:
+    class _RecordingDit(_Dit):
         def __call__(self, x_list, sigma, ctx, attention_mask=None, frame_rate=None, **kwargs):
             seen["kwargs"] = kwargs
             return torch.zeros_like(x_list[0])
@@ -403,7 +410,7 @@ def test_step_cache_present_in_conditioning_reaches_dit_module_forward(mock_deno
 
     mock_denoise.side_effect = fake_denoise
 
-    class _RecordingDit:
+    class _RecordingDit(_Dit):
         def __call__(self, x_list, sigma, ctx, attention_mask=None, frame_rate=None, **kwargs):
             seen["kwargs"] = kwargs
             return torch.zeros_like(x_list[0])
@@ -517,7 +524,7 @@ def test_nag_context_and_params_reach_dit_module_forward(mock_denoise):
 
     mock_denoise.side_effect = fake_denoise
 
-    class _RecordingDit:
+    class _RecordingDit(_Dit):
         def __call__(self, x_list, sigma, ctx, attention_mask=None, frame_rate=None, **kwargs):
             seen["kwargs"] = kwargs
             return torch.zeros_like(x_list[0])
@@ -546,7 +553,7 @@ def test_nag_off_no_extra_kwargs_reach_dit_module_forward(mock_denoise):
 
     mock_denoise.side_effect = fake_denoise
 
-    class _RecordingDit:
+    class _RecordingDit(_Dit):
         def __call__(self, x_list, sigma, ctx, attention_mask=None, frame_rate=None, **kwargs):
             seen["kwargs"] = kwargs
             return torch.zeros_like(x_list[0])

@@ -131,7 +131,7 @@ def _bundle():
         move_to=lambda d: enc_seen.setdefault("vae_moved", []).append(d) or enc_seen["vae_moved"],
         module=SimpleNamespace(encode=encode, decode=decode),
     )
-    dit = SimpleNamespace(compute_dtype=torch.float32, module=SimpleNamespace())
+    dit = SimpleNamespace(compute_dtype=torch.float32, module=SimpleNamespace(config=SimpleNamespace(inner_dim=4096)))
     spec = SimpleNamespace(sampling_settings={"shift": 2.37})
     return SimpleNamespace(vae=vae, dit=dit, spec=spec), enc_seen
 
@@ -179,6 +179,7 @@ def test_a_cancelled_refine_stops_the_dit_before_its_next_block(monkeypatch):
             flag["set"] = True
         return torch.zeros_like(x[0])
 
+    blockwise.config = bundle.dit.module.config
     bundle.dit.module = blockwise
     monkeypatch.setattr(f"{_MOD}.place_dit_for_sequence", lambda *a, **k: _fake_placement())
     cond_model = SimpleNamespace(embeds={"context": torch.zeros(1, 1, 8)})

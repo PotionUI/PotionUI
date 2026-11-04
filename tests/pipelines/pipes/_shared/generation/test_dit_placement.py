@@ -2786,6 +2786,24 @@ def _ltx_dit_with_config(**config):
     return SimpleNamespace(module=SimpleNamespace(config=LTXAVConfig.from_detect_config({**_LTX25_BLOCKS, **config})))
 
 
+@pytest.mark.parametrize("blocks", _LTX_FORMS, ids=_LTX_FORM_IDS)
+def test_the_ffn_width_the_reserve_charges_is_the_gelu_output_of_the_built_dit(blocks):
+    dit, _ = _ltx25_streamed_int8_dit(blocks=blocks)
+    built = {block.ff.net[0].proj.out_features for block in dit.module.transformer_blocks}
+    assert built == {ltx_reserve_terms(dit, per_token_timestep=False)["gelu_ffn_dim"]} == {16384}
+
+
+def test_ltx_reserve_terms_read_the_ffn_width_from_the_dits_own_config():
+    narrow = _ltx_dit_with_config(num_attention_heads=16)
+    assert narrow.module.config.inner_dim == 2048
+    assert ltx_reserve_terms(narrow, per_token_timestep=False)["gelu_ffn_dim"] == 8192
+
+
+def test_ltx_reserve_terms_refuse_a_dit_without_a_config_rather_than_guess_its_width():
+    with pytest.raises(AttributeError):
+        ltx_reserve_terms(SimpleNamespace(module=SimpleNamespace()), per_token_timestep=False)
+
+
 def test_ltx_reserve_terms_charge_the_modulation_rows_a_block_keeps_alive():
     prompt_adaln = _ltx_dit_with_config(has_prompt_adaln=True)
     plain = _ltx_dit_with_config(has_prompt_adaln=False)
@@ -2837,6 +2855,7 @@ def test_the_fp8_gemm_path_does_not_stack_the_fc1_output_on_the_quantisers_buffe
 def test_a_dit_on_the_fp8_gemm_path_keeps_a_dequantising_layers_transient(machine):
     machine(fp8=True)
     dit = _dit_with(_fp8_layer(16384, 4096), _int8_layer(*_LTX25_FFN))
+    dit.module.config = LTXAVConfig.from_detect_config(_LTX25_BLOCKS)
     terms = ltx_reserve_terms(dit, per_token_timestep=False)
     patches, _ = _patched(free_gb=31.0)
     with patches[0], patches[1], patches[2]:

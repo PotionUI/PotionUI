@@ -468,7 +468,8 @@ def _bundle(family="ltx", audio=False, te_cache_key=None):
     dit = SimpleNamespace(compute_dtype=torch.float32, move_to=lambda d: None, offload=lambda: None,
                           module=SimpleNamespace(config=SimpleNamespace(causal_temporal_positioning=True,
                                                                         has_prompt_adaln=False,
-                                                                        use_cross_timestep=False)))
+                                                                        use_cross_timestep=False,
+                                                                        inner_dim=4096)))
     extras = {}
     if audio:
         extras = {"audio_vae": SimpleNamespace(compute_dtype=torch.float32, move_to=lambda d: None,
@@ -761,7 +762,7 @@ def test_a_clip_longer_than_the_frame_limit_is_cut_there_with_the_trim_notice(tm
 
 def _real_fit_plan(free_gb, clip_frames=136, *, overlap=24, resident=False):
     dit = SimpleNamespace(estimated_vram_gb=17.4, device="cuda:0" if resident else "cpu",
-                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=False)))
+                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=False, inner_dim=4096)))
     with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=free_gb):
         return _pipe()._plan_clip(dit, "cuda:0", clip_frames, 1280, 704, 24.0, _CLIP_REFERENCE, (1, 1),
                                   "file", overlap)
@@ -805,7 +806,7 @@ _LAYOUT_PLACEMENTS = [
 ])
 def test_a_two_stage_clip_is_planned_so_the_upscaled_refine_fits_too(free_gb, refine_scale, expected):
     dit = SimpleNamespace(estimated_vram_gb=17.4, device="cpu",
-                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=False)))
+                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=False, inner_dim=4096)))
     with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=free_gb):
         assert _pipe()._plan_clip(dit, "cuda:0", 481, 960, 544, 24.0, _LAYOUT_PLACEMENTS, (1, 1), "none",
                                   None, refine_scale) == expected
@@ -814,7 +815,7 @@ def test_a_two_stage_clip_is_planned_so_the_upscaled_refine_fits_too(free_gb, re
 @pytest.mark.parametrize(("free_gb", "frames"), [(10.7, 81), (12.0, 89), (23.0, 185), (31.0, 257)])
 def test_a_two_stage_clip_of_a_prompt_adaln_dit_is_planned_under_its_modulation_rows(free_gb, frames):
     dit = SimpleNamespace(estimated_vram_gb=20.0, device="cpu",
-                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=True)))
+                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=True, inner_dim=4096)))
     with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=free_gb):
         assert _pipe()._plan_clip(dit, "cuda:0", 481, 960, 544, 24.0, _LAYOUT_PLACEMENTS, (1, 1), "none",
                                   None, 2.0) == (frames, [0])
@@ -822,7 +823,7 @@ def test_a_two_stage_clip_of_a_prompt_adaln_dit_is_planned_under_its_modulation_
 
 def _ltx2_19b_shaped_dit():
     return SimpleNamespace(estimated_vram_gb=20.0, device="cpu", module=SimpleNamespace(
-        config=SimpleNamespace(has_prompt_adaln=False, use_cross_timestep=False)))
+        config=SimpleNamespace(has_prompt_adaln=False, use_cross_timestep=False, inner_dim=4096)))
 
 
 def _plan_on_exactly_the_reserve_of_121_frames(reference_scales, audio_mode, **flags):
@@ -1775,7 +1776,8 @@ def _bundle_with_encode_fill(fill: float):
     )
     dit = SimpleNamespace(compute_dtype=torch.float32, move_to=lambda d: None, offload=lambda: None,
                           module=SimpleNamespace(config=SimpleNamespace(causal_temporal_positioning=True,
-                                                                        has_prompt_adaln=False)))
+                                                                        has_prompt_adaln=False,
+                                                                        inner_dim=4096)))
     return SimpleNamespace(dit=dit, vae=vae, spec=_FakeSpec(family="ltx"),
                            projections={}, audio_vae=None, vocoder=None)
 
@@ -2655,7 +2657,7 @@ def test_a_scoped_stack_on_the_dit_moves_the_window_the_plan_keeps_resident(monk
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     module = nn.Module()
     module.proj = manual_cast.Linear(64, 32)
-    module.config = SimpleNamespace(has_prompt_adaln=False)
+    module.config = SimpleNamespace(has_prompt_adaln=False, inner_dim=4096)
     lora = {"diffusion_model.proj.lora_A.weight": torch.zeros(4, 64),
             "diffusion_model.proj.lora_B.weight": torch.zeros(32, 4)}
     delta_gb = (4 * 64 + 32 * 4) * 4 / 1024 ** 3
@@ -2681,7 +2683,7 @@ def test_a_scoped_stack_on_the_dit_moves_the_window_the_plan_keeps_resident(monk
 @pytest.mark.parametrize(("free_gb", "frames"), [(10.7, 73), (12.0, 81), (23.0, 177), (31.0, 241)])
 def test_deltas_already_on_the_card_shorten_a_two_stage_plan_by_what_they_hold(free_gb, frames, warm):
     dit = SimpleNamespace(estimated_vram_gb=20.0, device="cuda:0" if warm else "cpu",
-                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=True)))
+                          module=SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=True, inner_dim=4096)))
     reading = free_gb - 1.22 - (20.0 if warm else 0.0)
     with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=reading):
         assert _pipe()._plan_clip(dit, "cuda:0", 481, 960, 544, 24.0, _LAYOUT_PLACEMENTS, (1, 1), "none",

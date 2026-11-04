@@ -246,9 +246,9 @@ close that gap:
   off the card plus an nvfp4 DiT's scale tables: `estimated_vram_gb` is the checkpoint's file size and
   cannot see a LoRA (a real H3 turbo-LoRA OOM: ~1.4 GB of bf16 deltas the old budget never saw), and a
   delta already on the card is out of the free reading, so adding it would count it twice. Every fit
-  check reads `effective_free_vram_gb`. Eviction alone reads the raw `free_vram_gb`, so a cold placement,
+  check reads `effective_free_vram_gb`. Eviction reads the raw `free_vram_gb`, so a cold placement,
   or a warm DiT that no longer fits once it has offloaded, hands the idle pool back before it decides
-  what to evict.
+  what to evict. The last budget of the OOM ladder in `_move_resident` reads it too.
 
   **Formula**, with `S` tokens, `V` of them video: `reserve = max(0.5 GB, 1.15 × [S × attention + S ×
   (lora buffer + quant + gelu) + V × rows × inner × 2 B + lora weight side + transient])`, where
@@ -256,14 +256,17 @@ close that gap:
   `attention` is 90,112 B per token at LTX's inner dim 4096; H3 adds its FFN, or takes the larger of
   attention and its chunked-MLP phase. `dequant = 2 × max(out × in) × 2 B` is flat: a quantized Linear
   on the `DEQUANT` path holds two compute-dtype copies of its weight while it scales it, one layer at
-  a time, so only the widest counts, ≈ 0.25 GiB for LTX's FFN and ≈ 0.57 GiB for H3's `fc1`. int8
+  a time, so only the widest counts, ≈ 0.25 GiB for LTX's FFN, ≈ 0.57 GiB for `fc1` on a pruned H3 and
+  ≈ 0.97 GiB for `adaln_proj.linear` on the full int8 file. int8
   always takes that path, fp8 whenever the GEMM kernel is off or refuses it. An nvfp4 Linear is left
   out: its scale tables go into the weight, but its forward still materialises the weight, and
   nothing reserves that transient (≈ 0.66 GiB for LTX's FFN).
   `gelu` and `rows` are LTX's (`ltx_reserve_terms`, `pipes/_shared/video/ltx_common.py`, which reads them
-  from the loaded DiT's config). `gelu = 4 × inner × 2 B`, 16,384 × 2 B on every LTX checkpoint, is the GELU
-  output, alive beside `fc2`'s dequantised weight; past about 8,192 tokens `fc1`'s
-  output beside that GELU outgrows the two weight copies, hence the `max`. On the fp8 GEMM path `fc1`'s
+  from the loaded DiT's config). `gelu = 4 × inner × 2 B`, 16,384 × 2 B on the 19B and 22B shapes,
+  is the GELU output, alive beside `fc2`'s dequantised weight; past about 8,192 tokens `fc1`'s
+  output beside that GELU outgrows the two weight copies, hence the `max`. Only this term follows the
+  config: `attention` and `rows × inner` keep the 4096 default of `inner_dim`, which the LTX pipes do
+  not pass. On the fp8 GEMM path `fc1`'s
   output never coexists with the quantiser's buffers, so the `max` drops out. `rows` is what a block
   keeps as locals until it returns under a per-token timestep (`video_ltx`, `dfr_video_ltx`): 7 adaLN
   values with prompt adaLN, 5 without. A scalar timestep (`txt2vid_ltx`, the LTX detailer) broadcasts
@@ -319,8 +322,9 @@ close that gap:
   **Eviction.** A cold placement evicts foreign residents for `weight + max(minimum_inference, total_reserve)`,
   the room the budget `free - total_reserve` asks for. This is a choice. It offloads more warm residents than a
   target of `weight + minimum_inference` would (an upscaler, other text encoders), and they reload when next
-  used. When the weight and the reserve together exceed the card it offloads them and still goes partial: what
-  it frees keeps that much more of the DiT resident instead of streamed.
+  used. When the weight and the reserve together exceed the card it offloads them and still goes partial. What
+  it frees only counts past the reserve, since the budget is `max(0, free - reserve)`: with a reserve above the
+  free VRAM of the whole card, it offloads them and gains nothing.
 
   **Two FFN settings.** `ffn_dim` is a SwiGLU width (H3's 14,336). `fc1`'s fused value|gate output is
   `2 × ffn_dim` wide and two `ffn_dim` tensors follow it, so it charges `4 × ffn_dim × 2 B` per token on top of
@@ -329,11 +333,12 @@ close that gap:
   and it also enters `transient`. One number would need a flag to say which of these rules applies, so the two
   stay apart.
 
-  **Two gaps the formula keeps.** The GELU term charges an audio token the video width. The audio FFN is
-  `4 × audio_inner_dim = 8,192` wide, half of that, so each audio token is overcharged 16,384 B in each of the
-  two places the term appears. With the margin that is ≈ 4.5 MiB on a 5 s clip (126 audio tokens) and ≈ 36 MiB
-  at 40 s, under 0.2 % of the reserve. An `INT8_CONVROT` Linear on the `DEQUANT` path also allocates a third
-  array, the unrotate's output: 0.125 GiB for LTX's FFN, 0.287 GiB for H3's `fc1`. It does not raise the live
+  **Two gaps the formula keeps.** The GELU term charges an audio token 32,768 B in each of the two places it
+  appears. The audio FFN, `4 × audio_inner_dim = 8,192` wide, runs after the video one, whose peak holds no audio
+  GELU output, so all of it is over the peak. At 720p with the margin that is ≈ 9 MiB at 5 s (126 audio tokens)
+  and ≈ 72 MiB at 40 s (1,001), about 0.27 % of the reserve. An `INT8_CONVROT` Linear on the `DEQUANT` path also
+  allocates a third array, the unrotate's output: 0.125 GiB for LTX's FFN, 0.287 GiB for `fc1` on a pruned H3,
+  0.484 GiB for `adaln_proj.linear` on the full int8 file. It does not raise the live
   figure. The cast copy is released when the scaled product replaces it, so the unrotate's output sits beside
   the scaled weight and two copies stay the peak (`test_a_convrot_unrotate_leaves_two_weight_copies_as_the_live_peak`,
   on the meta device). Whatever workspace that `mm` takes on a real card is outside this count, like the other

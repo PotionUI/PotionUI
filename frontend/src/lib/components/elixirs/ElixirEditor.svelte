@@ -41,6 +41,8 @@
 	import { brewName, isActive, isCurrentRun, isPolling, newIdempotencyKey, nodeRunView, runLabel } from '$lib/elixirs/runs';
 	import { laneTakes, nodeChoice, toggled, viewerSendTo, type Lane } from '$lib/elixirs/choice';
 	import { readWidths, viewerStorage, withWidth, writeWidths } from '$lib/elixirs/columns';
+	import { DRAWER_MIN, DRAWER_WIDTH, clampDrawer, draggedDrawer, drawerMax, keyedDrawer, readDrawer, writeDrawer } from '$lib/elixirs/drawer';
+	import { PANE_HANDLE_GRIP, PANE_HANDLE_STRIP } from '$lib/generation/paneHandle';
 	import {
 		addStepAfter,
 		addWriterFor,
@@ -204,6 +206,11 @@
 	let editedIds = $state.raw<string[]>([]);
 	let announcement = $state('');
 	let widths = $state.raw(untrack(() => readWidths(viewerStorage(), id)));
+	let drawerWidth = $state(untrack(() => readDrawer(viewerStorage())));
+	let areaWidth = $state(0);
+	let drawerDrag = $state<{ x: number; start: number; pointer: number } | null>(null);
+	let shownDrawer = $derived(clampDrawer(drawerWidth, areaWidth || null));
+	let drawerLimit = $derived(drawerMax(areaWidth || null));
 	let sessionPicker = $state<{ nodeId: string; purpose: string } | null>(null);
 	let importing = $state(false);
 	let sessionBusy = $state(false);
@@ -962,6 +969,37 @@
 
 	function saveWidths() {
 		writeWidths(viewerStorage(), id, widths);
+	}
+
+	function startDrawerDrag(event: PointerEvent & { currentTarget: HTMLElement }) {
+		if (event.button !== 0) return;
+		event.preventDefault();
+		event.currentTarget.setPointerCapture?.(event.pointerId);
+		drawerDrag = { x: event.clientX, start: shownDrawer, pointer: event.pointerId };
+	}
+
+	function moveDrawerDrag(event: PointerEvent) {
+		if (!drawerDrag || event.pointerId !== drawerDrag.pointer) return;
+		drawerWidth = draggedDrawer(drawerDrag.start, drawerDrag.x, event.clientX, areaWidth || null);
+	}
+
+	function endDrawerDrag(event: PointerEvent) {
+		if (!drawerDrag || event.pointerId !== drawerDrag.pointer) return;
+		drawerDrag = null;
+		writeDrawer(viewerStorage(), drawerWidth);
+	}
+
+	function keyDrawer(event: KeyboardEvent) {
+		const next = keyedDrawer(shownDrawer, event.key, event.shiftKey, areaWidth || null);
+		if (next === null) return;
+		event.preventDefault();
+		drawerWidth = next;
+		writeDrawer(viewerStorage(), drawerWidth);
+	}
+
+	function resetDrawer() {
+		drawerWidth = DRAWER_WIDTH;
+		writeDrawer(viewerStorage(), drawerWidth);
 	}
 
 	async function load() {
@@ -1770,7 +1808,7 @@
 			</div>
 		{/if}
 
-		<div class="relative flex min-h-0 flex-1">
+		<div class="relative flex min-h-0 flex-1" bind:clientWidth={areaWidth}>
 			{#if definition.nodes.length === 0}
 				<ElixirEmptyState onstart={startWith} />
 			{:else}
@@ -1796,8 +1834,35 @@
 			{/if}
 
 			{#if settingsNode}
+				{#if !phone}
+					<div class="drawer-edge">
+						<span class="drawer-resize">
+							<Tooltip text="Drag to resize panel" wrapperClass="flex h-full">
+								<span
+									class="drawer-handle {PANE_HANDLE_STRIP} cursor-col-resize"
+									data-dragging={!!drawerDrag}
+									role="separator"
+									tabindex="0"
+									aria-orientation="vertical"
+									aria-label="Width of the settings panel"
+									aria-valuemin={DRAWER_MIN}
+									aria-valuemax={Number.isFinite(drawerLimit) ? drawerLimit : undefined}
+									aria-valuenow={shownDrawer}
+									onpointerdown={startDrawerDrag}
+									onpointermove={moveDrawerDrag}
+									onpointerup={endDrawerDrag}
+									onpointercancel={endDrawerDrag}
+									ondblclick={resetDrawer}
+									onkeydown={keyDrawer}
+								><span class={PANE_HANDLE_GRIP} aria-hidden="true"></span></span>
+							</Tooltip>
+						</span>
+					</div>
+				{/if}
 				<div
-					class="drawer fixed inset-x-0 bottom-16 z-40 max-h-[80dvh] min-h-[45dvh] overflow-hidden rounded-t-xl border-t border-line shadow-overlay sm:static sm:z-auto sm:max-h-none sm:min-h-0 sm:w-[26rem] sm:max-w-[50%] sm:flex-none sm:rounded-none sm:border-l sm:border-t-0 sm:shadow-none"
+					class="drawer fixed inset-x-0 bottom-16 z-40 max-h-[80dvh] min-h-[45dvh] overflow-hidden rounded-t-xl border-t border-line shadow-overlay sm:static sm:z-auto sm:max-h-none sm:min-h-0 sm:flex-none sm:rounded-none sm:border-l sm:border-t-0 sm:shadow-none {phone ? 'sm:w-[26rem] sm:max-w-[50%]' : ''}"
+					style={phone ? undefined : `width: ${shownDrawer}px`}
+					data-testid="elixir-drawer"
 				>
 					{#key settingsNode.id}
 						<NodePanel
@@ -1866,3 +1931,32 @@
 {/if}
 </div>
 
+<style>
+	.drawer-edge {
+		position: relative;
+		z-index: 10;
+		width: 0;
+		flex: none;
+	}
+	.drawer-resize {
+		position: absolute;
+		top: 50%;
+		left: -5px;
+		height: 28px;
+		display: flex;
+		transform: translateY(-50%);
+	}
+	.drawer-handle {
+		width: 10px;
+		touch-action: none;
+		border-left: 1px solid rgb(var(--line));
+		border-radius: 4px;
+	}
+	.drawer-handle > :global(span) {
+		height: 14px;
+	}
+	:global(:where(html:not([data-input='pointer']))) .drawer-handle:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px rgb(var(--signal) / 0.35);
+	}
+</style>

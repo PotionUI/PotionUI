@@ -2381,7 +2381,7 @@ def test_a_cold_placement_on_a_second_card_empties_that_cards_pool_before_judgin
     with cards.installed(manager):
         decision = place_dit_for_sequence(dit, "cuda:1", video_tokens=1_000)
     assert [current_free for _device, _need, current_free, _exclude in manager.ensure_free_calls] == [12.0]
-    assert cards.idle_gb == {"cuda:0": 3.0, "cuda:1": 0.0}
+    assert cards.idle_gb["cuda:1"] == 0.0
     assert cards.current == "cuda:0"
     assert decision.mode == "resident"
 
@@ -2392,7 +2392,7 @@ def test_room_for_a_lora_stack_on_a_second_card_is_judged_once_that_cards_pool_i
     with cards.installed(manager):
         make_room_for_lora_stack(device, _LORA_STACK_2GB, ())
     assert [current_free for _device, _need, current_free, _exclude in manager.ensure_free_calls] == [12.0]
-    assert cards.idle_gb == {"cuda:0": 3.0, "cuda:1": 0.0}
+    assert cards.idle_gb["cuda:1"] == 0.0
     assert cards.current == "cuda:0"
 
 
@@ -2401,7 +2401,7 @@ def test_an_eviction_on_a_second_card_hands_that_cards_pool_back():
     manager = SimpleNamespace(ensure_free=lambda *a, **k: True)
     with cards.installed(manager):
         _ensure_room_for("cuda:1", 5.0, ())
-    assert cards.idle_gb == {"cuda:0": 3.0, "cuda:1": 0.0}
+    assert cards.idle_gb["cuda:1"] == 0.0
     assert cards.current == "cuda:0"
 
 

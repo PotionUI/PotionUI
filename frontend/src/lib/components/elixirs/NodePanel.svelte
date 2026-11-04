@@ -104,6 +104,21 @@
 	let instruction = $state(untrack(() => node.instruction ?? ''));
 	let instructionChips = $state.raw<Record<string, ChipData>>(untrack(() => node.instruction_chips ?? {}));
 	let instructionTimer: ReturnType<typeof setTimeout> | undefined;
+	let instructionDirty = false;
+	let titleDirty = false;
+
+	$effect(() => {
+		const nextInstruction = node.instruction ?? '';
+		const nextChips = node.instruction_chips ?? {};
+		const nextTitle = node.title ?? '';
+		untrack(() => {
+			if (!instructionDirty) {
+				if (instruction !== nextInstruction) instruction = nextInstruction;
+				if (JSON.stringify(instructionChips) !== JSON.stringify(nextChips)) instructionChips = nextChips;
+			}
+			if (!titleDirty && title !== nextTitle) title = nextTitle;
+		});
+	});
 	const NO_VARIABLES: VariablesMap = {};
 	let writerVariables = $derived(node.variables ?? NO_VARIABLES);
 	let writerVariableCount = $derived(Object.keys(writerVariables).length);
@@ -121,13 +136,17 @@
 
 	function commitInstruction() {
 		clearTimeout(instructionTimer);
+		if (!instructionDirty) return;
+		instructionDirty = false;
 		const chipsChanged = JSON.stringify(instructionChips) !== JSON.stringify(node.instruction_chips ?? {});
 		if (instruction !== (node.instruction ?? '') || chipsChanged) onwriterchange?.({ instruction, instruction_chips: instructionChips });
 	}
 
 	function typeInstruction(event: CustomEvent<{ value: string; chips: Record<string, ChipData> }>) {
+		if (event.detail.value === instruction && JSON.stringify(event.detail.chips ?? {}) === JSON.stringify(instructionChips)) return;
 		instruction = event.detail.value;
 		instructionChips = event.detail.chips ?? {};
+		instructionDirty = true;
 		clearTimeout(instructionTimer);
 		instructionTimer = setTimeout(commitInstruction, 600);
 	}
@@ -169,6 +188,8 @@
 	let knownPreset = $derived(!selectedPreset || presets.some((preset) => presetKey(preset.preset_id, preset.mode) === selectedPreset));
 
 	function commitTitle() {
+		if (!titleDirty) return;
+		titleDirty = false;
 		const next = title.trim();
 		if (next !== (node.title ?? '')) onrename(next || null);
 	}
@@ -210,6 +231,7 @@
 				maxlength="120"
 				placeholder={node.kind === 'media' ? 'Product photos' : node.kind === 'llm' ? 'Describe for Flux' : 'Orbit left'}
 				bind:value={title}
+				oninput={() => (titleDirty = true)}
 				onblur={commitTitle}
 				onkeydown={(event) => event.key === 'Enter' && event.currentTarget.blur()}
 			/>
